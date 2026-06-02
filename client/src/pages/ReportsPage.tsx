@@ -1,36 +1,45 @@
 import { useState } from 'react';
-import { Shield, Search, Eye, Download, AlertTriangle, CheckCircle2, GitCompare } from 'lucide-react';
+import { Shield, Search, Eye, Download, FileText, Table2, AlertTriangle, CheckCircle2, GitCompare } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
+import { useState as useStateRef } from 'react';
 import { Badge, ClassificationBadge } from '../components/ui/Badge';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Modal } from '../components/ui/Modal';
 import { cn } from '../components/ui/utils';
 import type { ComparisonResult } from '../types/dashboard.types';
+import { classifyTampering, SEVERITY_COLOR } from '../services/forensic-analysis';
+import { exportComparisonJSON, exportComparisonCSV, exportComparisonPDF } from '../services/report-generator';
+import toast from 'react-hot-toast';
 
-// Reports are stored in sessionStorage by the compare page
-// Key: 'pinit_dna_reports' → JSON array of ComparisonResult
 function getStoredReports(): ComparisonResult[] {
-  try {
-    return JSON.parse(sessionStorage.getItem('pinit_dna_reports') ?? '[]');
-  } catch {
-    return [];
-  }
+  try { return JSON.parse(sessionStorage.getItem('pinit_dna_reports') ?? '[]'); }
+  catch { return []; }
 }
 
-function exportReport(result: ComparisonResult) {
-  const report = {
-    ...result,
-    exportedAt: new Date().toISOString(),
-    exportVersion: '2.0.0-universal',
-  };
-  const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `forensic-report-${result.comparisonId.slice(0, 8)}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+function ExportMenu({ result }: { result: ComparisonResult }) {
+  const [open, setOpen] = useStateRef(false);
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(!open)} className="btn-ghost btn-icon text-gray-500 hover:text-dna-400">
+        <Download size={14} />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-8 z-50 w-44 bg-bg-card border border-bg-border rounded-xl shadow-2xl overflow-hidden" onMouseLeave={() => setOpen(false)}>
+          {[
+            { icon: <FileText size={13} />, label: 'PDF Report', action: async () => { toast.loading('Generating PDF…'); try { await exportComparisonPDF(result); toast.dismiss(); toast.success('PDF downloaded'); } catch { toast.dismiss(); toast.error('PDF failed'); } } },
+            { icon: <Download size={13} />, label: 'JSON Report', action: () => { exportComparisonJSON(result); toast.success('JSON exported'); } },
+            { icon: <Table2 size={13} />,   label: 'CSV Report',  action: () => { exportComparisonCSV(result); toast.success('CSV exported'); } },
+          ].map(item => (
+            <button key={item.label} onClick={() => { setOpen(false); item.action(); }}
+              className="flex items-center gap-2.5 w-full px-3 py-2.5 text-xs text-gray-300 hover:bg-bg-elevated hover:text-white transition-colors">
+              {item.icon}{item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ReportDetailModal({ result, onClose }: { result: ComparisonResult; onClose: () => void }) {
@@ -124,7 +133,7 @@ function ReportDetailModal({ result, onClose }: { result: ComparisonResult; onCl
 
         {/* Actions */}
         <div className="flex gap-3 pt-2">
-          <button onClick={() => exportReport(result)} className="btn btn-secondary flex-1">
+          <button onClick={() => { exportComparisonJSON(result); }} className="btn btn-secondary flex-1">
             <Download size={14} /> Export JSON
           </button>
           <button onClick={onClose} className="btn btn-ghost">Close</button>
@@ -214,15 +223,24 @@ export function ReportsPage() {
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-2 flex-wrap">
-                      <ClassificationBadge value={r.classification} />
-                      {r.tamperingDetected && (
-                        <Badge variant="danger" dot>Tampering Detected</Badge>
-                      )}
-                      <span className="text-2xs text-gray-500 mono">
-                        {format(new Date(r.comparedAt), 'MMM d, yyyy · HH:mm')}
-                      </span>
-                    </div>
+                    {(() => {
+                      const cls = classifyTampering(r);
+                      const sc = SEVERITY_COLOR[cls.severity] ?? SEVERITY_COLOR.NONE;
+                      return (
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                          <ClassificationBadge value={r.classification} />
+                          {r.tamperingDetected && (
+                            <Badge variant="danger" dot>Tampering Detected</Badge>
+                          )}
+                          <span className={cn('text-2xs font-semibold px-2 py-0.5 rounded-full border', sc.bg, sc.border, sc.text)}>
+                            {cls.severity} · {cls.primaryClass}
+                          </span>
+                          <span className="text-2xs text-gray-500 mono">
+                            {format(new Date(r.comparedAt), 'MMM d, yyyy · HH:mm')}
+                          </span>
+                        </div>
+                      );
+                    })()}
                     <div className="flex items-center gap-2 text-sm text-gray-300 min-w-0">
                       <span className="truncate max-w-[180px]">{r.fileA.filename}</span>
                       <GitCompare size={12} className="text-gray-600 shrink-0" />
@@ -241,19 +259,11 @@ export function ReportsPage() {
                     }`}>
                       {r.overallConfidenceScore}%
                     </span>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={e => { e.stopPropagation(); setSelected(r); }}
-                        className="btn-ghost btn-icon text-gray-500 hover:text-white"
-                      >
+                    <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                      <button onClick={() => setSelected(r)} className="btn-ghost btn-icon text-gray-500 hover:text-white">
                         <Eye size={14} />
                       </button>
-                      <button
-                        onClick={e => { e.stopPropagation(); exportReport(r); }}
-                        className="btn-ghost btn-icon text-gray-500 hover:text-dna-400"
-                      >
-                        <Download size={14} />
-                      </button>
+                      <ExportMenu result={r} />
                     </div>
                   </div>
                 </div>

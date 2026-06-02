@@ -3,13 +3,16 @@ import { Bell, Plus, ChevronRight } from 'lucide-react';
 import { Dna } from 'lucide-react';
 
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
-  '/':             { title: 'Dashboard',          subtitle: 'System overview & analytics'          },
-  '/generate':     { title: 'Generate DNA',        subtitle: 'Upload a file and fingerprint it'    },
-  '/compare':      { title: 'DNA Comparison',      subtitle: 'Layer-by-layer forensic comparison'  },
-  '/vault':        { title: 'Vault Explorer',       subtitle: 'Encrypted file storage'             },
-  '/dna-records':  { title: 'DNA Records',          subtitle: 'All generated fingerprint records'  },
-  '/reports':      { title: 'Forensic Reports',     subtitle: 'Analysis and tampering reports'     },
-  '/certificates': { title: 'Certificates',         subtitle: 'Ownership and verification proofs'  },
+  '/':                    { title: 'Dashboard',             subtitle: 'System overview & analytics'              },
+  '/generate':            { title: 'Generate DNA',           subtitle: 'Upload a file and fingerprint it'        },
+  '/compare':             { title: 'DNA Comparison',         subtitle: 'Layer-by-layer forensic comparison'      },
+  '/vault':               { title: 'Vault Explorer',          subtitle: 'Encrypted file storage'                 },
+  '/vault-integrity':     { title: 'Vault Integrity Monitor', subtitle: 'Verify encrypted files exist on disk'   },
+  '/dna-records':         { title: 'DNA Records',             subtitle: 'All generated fingerprint records'      },
+  '/timeline':            { title: 'File Timeline',           subtitle: 'Complete lifecycle audit trail'         },
+  '/reports':             { title: 'Forensic Reports',        subtitle: 'Analysis, tampering detection & exports'},
+  '/certificates':        { title: 'Certificates',            subtitle: 'Ownership and verification proofs'      },
+  '/verify-certificate':  { title: 'Certificate Verification',subtitle: 'Verify certificate authenticity live'   },
 };
 
 export function Topbar() {

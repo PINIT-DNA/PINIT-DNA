@@ -1,4 +1,6 @@
-import { Award, Download, Printer, Shield, Archive, Dna, Lock, CheckCircle2, Calendar } from 'lucide-react';
+import { Award, Download, Printer, Shield, Archive, Dna, Lock, CheckCircle2, Calendar, FileText } from 'lucide-react';
+import { exportCertificatePDF, exportDNACertificateJSON } from '../services/report-generator';
+import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { useApi } from '../hooks/useApi';
 import { listVaultRecords } from '../services/dashboard.api';
@@ -12,47 +14,6 @@ function CertificateCard({ vault }: { vault: VaultRecord }) {
   const certId = `CERT-DNA-${vault.id.slice(0, 8).toUpperCase()}`;
   const issueDate = format(new Date(vault.createdAt), 'MMMM d, yyyy');
 
-  const handleDownload = () => {
-    const cert = {
-      certificateId:      certId,
-      type:               'UNIVERSAL_DNA_OWNERSHIP_CERTIFICATE',
-      version:            '2.0.0',
-      issuedAt:           new Date().toISOString(),
-      issuedBy:           'PINIT-DNA Universal File DNA Engine',
-      subject: {
-        fileName:         vault.originalFileName,
-        mimeType:         vault.originalMimeType,
-        originalSize:     vault.originalSizeBytes,
-        encryptedSize:    vault.encryptedSizeBytes,
-      },
-      fingerprint: {
-        dnaRecordId:      vault.dnaRecordId,
-        vaultId:          vault.id,
-        encryptionAlgorithm: vault.encryptionAlgorithm,
-        keyDerivation:    vault.keyDerivation,
-        layers:           6,
-        standard:         'Universal File DNA v2.0',
-      },
-      security: {
-        algorithm:        'AES-256-GCM',
-        keySize:          256,
-        authenticity:     'HMAC-SHA256 authenticated',
-        tamperProof:      true,
-      },
-      statement: `This certificate confirms that the file "${vault.originalFileName}" has been ` +
-                 `cryptographically fingerprinted using the PINIT-DNA Universal DNA Engine and ` +
-                 `securely stored with AES-256-GCM encryption. The 6-layer DNA fingerprint serves ` +
-                 `as proof of the file's identity and integrity at the time of registration.`,
-    };
-
-    const blob = new Blob([JSON.stringify(cert, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${certId}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
 
   return (
     <div className="card border-bg-border hover:border-dna-500/30 transition-all duration-200 overflow-hidden">
@@ -137,15 +98,24 @@ function CertificateCard({ vault }: { vault: VaultRecord }) {
       {/* Actions */}
       <div className="flex gap-2 pt-4 border-t border-bg-border">
         <button
-          onClick={handleDownload}
-          className="btn btn-secondary btn-sm flex-1 text-xs"
+          onClick={async () => {
+            toast.loading('Generating PDF…');
+            try { await exportCertificatePDF(vault); toast.dismiss(); toast.success('PDF downloaded'); }
+            catch { toast.dismiss(); toast.error('PDF generation failed'); }
+          }}
+          className="btn btn-primary btn-sm flex-1 text-xs"
         >
-          <Download size={12} /> Export JSON
+          <FileText size={12} /> Download PDF
+        </button>
+        <button
+          onClick={() => { exportDNACertificateJSON(vault); toast.success('JSON exported'); }}
+          className="btn btn-secondary btn-sm text-xs"
+        >
+          <Download size={12} />
         </button>
         <button
           onClick={() => window.print()}
           className="btn btn-ghost btn-sm text-xs"
-          title="Print certificate"
         >
           <Printer size={12} />
         </button>

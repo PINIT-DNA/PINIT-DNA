@@ -45,7 +45,14 @@ export async function listDnaRecords(): Promise<DnaRecord[]> {
 
 export async function getDnaRecord(id: string) {
   const { data } = await api.get(`/dna/${id}`);
-  return data.record;
+  // API returns { success, record: { id, status, image: { filename, ... }, ... } }
+  // Flatten image fields to top level for easier consumption
+  const rec = data.record ?? data;
+  return {
+    ...rec,
+    filename:  rec.filename ?? rec.image?.filename ?? rec.imageFilename ?? null,
+    createdAt: rec.createdAt,
+  };
 }
 
 export async function getSupportedTypes(): Promise<SupportedTypesResponse> {
@@ -62,7 +69,8 @@ export async function listVaultRecords(): Promise<VaultRecord[]> {
 
 export async function getVaultRecord(id: string) {
   const { data } = await api.get(`/vault/${id}`);
-  return data;
+  // API wraps in { success, vault: {...} } — unwrap to get the vault object directly
+  return data.vault ?? data;
 }
 
 export async function retrieveFromVault(vaultId: string): Promise<Blob> {

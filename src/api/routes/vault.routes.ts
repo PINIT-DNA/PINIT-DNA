@@ -9,6 +9,7 @@
 import { Router } from 'express';
 import { uploadSingle } from '../middleware/upload.middleware';
 import { listVaultRecords, storeInVault, getVaultRecord, retrieveFromVault } from '../controllers/vault.controller';
+import { vaultIntegrityCheck } from '../controllers/integrity.controller';
 
 const router = Router();
 
@@ -30,6 +31,8 @@ const router = Router();
  * }
  */
 router.get('/', listVaultRecords);
+/** GET /vault/integrity-check — Phase 4.6: check all vault files exist on disk */
+router.get('/integrity-check', vaultIntegrityCheck);
 router.post('/store', uploadSingle, storeInVault);
 
 /**
