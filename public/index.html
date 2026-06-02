@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PINIT-DNA — Image DNA Vault</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --border:   #30363d;
+      --text:     #e6edf3;
+      --muted:    #8b949e;
+      --accent:   #58a6ff;
+      --green:    #3fb950;
+      --red:      #f85149;
+      --yellow:   #d29922;
+      --purple:   #bc8cff;
+      --radius:   8px;
+      --font:     'Segoe UI', system-ui, sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      min-height: 100vh;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header .logo {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      color: var(--accent);
+    }
+    header .logo span { color: var(--text); }
+    header .subtitle { font-size: 13px; color: var(--muted); }
+
+    .tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      padding: 0 32px;
+    }
+    .tab-btn {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font: inherit;
+      font-size: 14px;
+      padding: 12px 20px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color .15s, border-color .15s;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    .tab-panel { display: none; padding: 32px; max-width: 880px; }
+    .tab-panel.active { display: block; }
+
+    h2 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+    .desc { font-size: 13px; color: var(--muted); margin-bottom: 24px; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+
+    label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--muted); }
+    input[type="text"], input[type="file"] {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font: inherit;
+      font-size: 14px;
+      padding: 8px 12px;
+      margin-bottom: 16px;
+      outline: none;
+    }
+    input[type="text"]:focus, input[type="file"]:focus { border-color: var(--accent); }
+    input[type="file"] { padding: 6px 10px; cursor: pointer; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--accent);
+      color: #0d1117;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      border: none;
+      border-radius: 6px;
+      padding: 9px 20px;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    .btn:hover { opacity: .85; }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-outline {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .btn-outline:hover { border-color: var(--accent); color: var(--accent); opacity: 1; }
+    .btn-danger { background: var(--red); }
+    .btn-green { background: var(--green); }
+
+    .result {
+      margin-top: 16px;
+      padding: 14px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: 'Consolas', monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+      display: none;
+    }
+    .result.show { display: block; }
+    .result.success { background: #0d2317; border: 1px solid #2ea043; color: #7ee787; }
+    .result.error   { background: #2d0f0f; border: 1px solid #f85149; color: #ffa198; }
+    .result.info    { background: #0d1f35; border: 1px solid #1f6feb; color: #79c0ff; }
+
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 12px;
+      text-transform: uppercase;
+      letter-spacing: .3px;
+    }
+    .badge-green  { background: #0d2317; color: #3fb950; border: 1px solid #2ea043; }
+    .badge-blue   { background: #0d1f35; color: #58a6ff; border: 1px solid #1f6feb; }
+    .badge-yellow { background: #271d00; color: #d29922; border: 1px solid #9e6a03; }
+    .badge-red    { background: #2d0f0f; color: #f85149; border: 1px solid #da3633; }
+    .badge-purple { background: #1e0f35; color: #bc8cff; border: 1px solid #8957e5; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 10px 12px; font-weight: 600; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; border-bottom: 1px solid var(--border); }
+    td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.02); }
+    td .mono { font-family: 'Consolas', monospace; color: var(--muted); font-size: 12px; }
+
+    .action-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.2); border-top-color: currentColor; border-radius: 50%; animation: spin .6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .empty-state { text-align: center; padding: 48px 0; color: var(--muted); font-size: 14px; }
+    .empty-state .icon { font-size: 40px; margin-bottom: 12px; }
+
+    .stat-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+    .stat {
+      flex: 1; min-width: 140px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+    }
+    .stat .val { font-size: 24px; font-weight: 700; color: var(--accent); }
+    .stat .lbl { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; font-size: 13px; }
+    .detail-grid .key { color: var(--muted); }
+    .detail-grid .val { font-family: 'Consolas', monospace; font-size: 12px; word-break: break-all; }
+
+    .verify-result { margin-top: 12px; }
+    .verify-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .verify-row:last-child { border-bottom: none; }
+    .confidence-bar { height: 6px; background: var(--border); border-radius: 3px; margin-top: 8px; }
+    .confidence-fill { height: 100%; border-radius: 3px; background: var(--green); transition: width .4s; }
+
+    .img-preview { max-width: 100%; max-height: 300px; border-radius: 6px; margin-top: 12px; display: none; }
+    .img-preview.show { display: block; }
+
+    .section-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">PINIT<span>-DNA</span></div>
+    <div class="subtitle">Image DNA Fingerprint &amp; Encrypted Vault</div>
+  </div>
+</header>
+
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('generate')">Generate DNA</button>
+  <button class="tab-btn" onclick="switchTab('vault-store')">Store in Vault</button>
+  <button class="tab-btn" onclick="switchTab('vault-browser')">Vault Browser</button>
+  <button class="tab-btn" onclick="switchTab('verify')">Verify DNA</button>
+</div>
+
+<!-- ── TAB 1: Generate DNA ──────────────────────────────────────────────── -->
+<div id="tab-generate" class="tab-panel active">
+  <h2>Generate DNA Fingerprint</h2>
+  <p class="desc">Upload an image to generate all 6 DNA layers and get a DNA Record ID.</p>
+
+  <div class="card">
+    <label>Image File</label>
+    <input type="file" id="gen-file" accept="image/*" onchange="previewImg(this,'gen-preview')" />
+    <img id="gen-preview" class="img-preview" alt="" />
+    <button class="btn" onclick="generateDNA()">
+      <span>Generate DNA</span>
+    </button>
+  </div>
+  <div id="gen-result" class="result"></div>
+</div>
+
+<!-- ── TAB 2: Store in Vault ───────────────────────────────────────────── -->
+<div id="tab-vault-store" class="tab-panel">
+  <h2>Encrypt &amp; Store in Vault</h2>
+  <p class="desc">Upload an image and link it to an existing DNA Record ID to store it encrypted.</p>
+
+  <div class="card">
+    <label>DNA Record ID</label>
+    <input type="text" id="store-dna-id" placeholder="Paste DNA Record ID from Generate step" />
+    <label>Image File</label>
+    <input type="file" id="store-file" accept="image/*" onchange="previewImg(this,'store-preview')" />
+    <img id="store-preview" class="img-preview" alt="" />
+    <button class="btn btn-green" onclick="storeVault()">
+      <span>Encrypt &amp; Store</span>
+    </button>
+  </div>
+  <div id="store-result" class="result"></div>
+</div>
+
+<!-- ── TAB 3: Vault Browser ────────────────────────────────────────────── -->
+<div id="tab-vault-browser" class="tab-panel">
+  <h2>Vault Browser</h2>
+  <p class="desc">All encrypted vault records. Retrieve and decrypt any image, then verify its DNA.</p>
+
+  <div class="stat-row" id="vault-stats"></div>
+
+  <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+    <button class="btn btn-outline" onclick="loadVaultBrowser()">↻ Refresh</button>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div id="vault-table-wrap">
+      <div class="empty-state"><div class="icon">🔒</div>Loading vault records…</div>
+    </div>
+  </div>
+
+  <!-- Inline detail/retrieve panel -->
+  <div id="vault-detail" style="display:none;">
+    <div class="card" style="margin-top:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <div class="section-title" style="margin:0;">Vault Record Details</div>
+        <button class="btn btn-outline" style="padding:5px 14px;font-size:13px;" onclick="document.getElementById('vault-detail').style.display='none'">✕ Close</button>
+      </div>
+      <div id="vault-detail-content"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── TAB 4: Verify DNA ───────────────────────────────────────────────── -->
+<div id="tab-verify" class="tab-panel">
+  <h2>Verify DNA</h2>
+  <p class="desc">Upload a probe image and compare its DNA fingerprint against a stored record.</p>
+
+  <div class="card">
+    <label>DNA Record ID</label>
+    <input type="text" id="verify-dna-id" placeholder="DNA Record ID to verify against" />
+    <label>Probe Image</label>
+    <input type="file" id="verify-file" accept="image/*" onchange="previewImg(this,'verify-preview')" />
+    <img id="verify-preview" class="img-preview" alt="" />
+    <button class="btn" onclick="verifyDNA()">
+      <span>Run DNA Verification</span>
+    </button>
+  </div>
+  <div id="verify-result" class="result"></div>
+  <div id="verify-detail" style="display:none;margin-top:16px;"></div>
+</div>
+
+<script>
+const API = 'http://localhost:4000/api/v1';
+
+// ── Tabs ────────────────────────────────────────────────────────────────────
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+  if (name === 'vault-browser') loadVaultBrowser();
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+function previewImg(input, previewId) {
+  const prev = document.getElementById(previewId);
+  if (input.files && input.files[0]) {
+    prev.src = URL.createObjectURL(input.files[0]);
+    prev.classList.add('show');
+  }
+}
+
+function showResult(id, type, text) {
+  const el = document.getElementById(id);
+  el.className = 'result show ' + type;
+  el.textContent = text;
+}
+
+function fmtSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+}
+
+function fmtDate(iso) {
+  return new Date(iso).toLocaleString();
+}
+
+function statusBadge(status) {
+  const map = { COMPLETE: 'badge-green', PARTIAL: 'badge-yellow', FAILED: 'badge-red' };
+  return `<span class="badge ${map[status] || 'badge-blue'}">${status}</span>`;
+}
+
+function encBadge(algo) {
+  return `<span class="badge badge-purple">${algo}</span>`;
+}
+
+// ── 1. Generate DNA ─────────────────────────────────────────────────────────
+
+async function generateDNA() {
+  const file = document.getElementById('gen-file').files[0];
+  if (!file) { showResult('gen-result', 'error', 'Please select an image file.'); return; }
+
+  showResult('gen-result', 'info', '⏳ Generating DNA fingerprint…');
+
+  const fd = new FormData();
+  fd.append('image', file);
+
+  try {
+    const res = await fetch(`${API}/dna/generate`, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+
+    showResult('gen-result', 'success',
+      `✅ DNA Generated Successfully!\n\n` +
+      `DNA Record ID : ${data.dnaRecordId}\n` +
+      `Status        : ${data.status}\n` +
+      `Layers        : ${data.summary.successfulLayers}/${data.summary.totalLayers} passed\n` +
+      `Processing    : ${data.summary.totalProcessingMs}ms\n` +
+      `Generated At  : ${fmtDate(data.generatedAt)}\n\n` +
+      `📋 Copy the DNA Record ID to use in "Store in Vault"`
+    );
+
+    // Auto-fill vault store tab
+    document.getElementById('store-dna-id').value = data.dnaRecordId;
+  } catch (e) {
+    showResult('gen-result', 'error', `❌ Error: ${e.message}`);
+  }
+}
+
+// ── 2. Store in Vault ───────────────────────────────────────────────────────
+
+async function storeVault() {
+  const dnaId = document.getElementById('store-dna-id').value.trim();
+  const file  = document.getElementById('store-file').files[0];
+  if (!dnaId) { showResult('store-result', 'error', 'Enter a DNA Record ID.'); return; }
+  if (!file)  { showResult('store-result', 'error', 'Select an image file to vault.'); return; }
+
+  showResult('store-result', 'info', '⏳ Encrypting and storing in vault…');
+
+  const fd = new FormData();
+  fd.append('image', file);
+  fd.append('dnaRecordId', dnaId);
+
+  try {
+    const res  = await fetch(`${API}/vault/store`, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+
+    showResult('store-result', 'success',
+      `🔐 Stored in Vault!\n\n` +
+      `Vault ID             : ${data.vaultId}\n` +
+      `DNA Record ID        : ${data.dnaRecordId}\n` +
+      `Encryption           : ${data.encryptionAlgorithm}\n` +
+      `Original File        : ${data.originalFileName}\n` +
+      `Original Size        : ${fmtSize(data.originalSizeBytes)}\n` +
+      `Encrypted Size       : ${fmtSize(data.encryptedSizeBytes)}\n` +
+      `Stored At            : ${fmtDate(data.storedAt)}\n\n` +
+      `🔒 Image is AES-256-GCM encrypted on disk — original never stored`
+    );
+  } catch (e) {
+    showResult('store-result', 'error', `❌ Error: ${e.message}`);
+  }
+}
+
+// ── 3. Vault Browser ────────────────────────────────────────────────────────
+
+async function loadVaultBrowser() {
+  document.getElementById('vault-table-wrap').innerHTML =
+    '<div class="empty-state"><div class="icon">⏳</div>Loading vault records…</div>';
+  document.getElementById('vault-stats').innerHTML = '';
+  document.getElementById('vault-detail').style.display = 'none';
+
+  try {
+    const res  = await fetch(`${API}/vault`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+
+    // Stats
+    document.getElementById('vault-stats').innerHTML = `
+      <div class="stat"><div class="val">${data.count}</div><div class="lbl">Vault Records</div></div>
+      <div class="stat"><div class="val">${data.vaults.filter(v => v.encryptionAlgorithm === 'AES-256-GCM').length}</div><div class="lbl">AES-256-GCM Encrypted</div></div>
+      <div class="stat"><div class="val">${fmtSize(data.vaults.reduce((s,v) => s + v.encryptedSizeBytes, 0))}</div><div class="lbl">Total Encrypted Size</div></div>
+    `;
+
+    if (data.count === 0) {
+      document.getElementById('vault-table-wrap').innerHTML =
+        '<div class="empty-state"><div class="icon">🔒</div>No vault records yet.<br>Generate a DNA and store an image to get started.</div>';
+      return;
+    }
+
+    let rows = data.vaults.map(v => `
+      <tr>
+        <td><span class="mono">${v.id.slice(0,8)}…</span></td>
+        <td>${v.originalFileName}</td>
+        <td>${fmtSize(v.originalSizeBytes)}</td>
+        <td>${encBadge(v.encryptionAlgorithm)}</td>
+        <td>${fmtDate(v.createdAt)}</td>
+        <td>
+          <div class="action-row">
+            <button class="btn btn-outline" style="font-size:12px;padding:5px 12px;" onclick="showVaultDetail('${v.id}')">Details</button>
+            <button class="btn btn-green" style="font-size:12px;padding:5px 12px;" onclick="retrieveAndVerify('${v.id}','${v.dnaRecordId}')">Retrieve &amp; Verify</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+
+    document.getElementById('vault-table-wrap').innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>Vault ID</th>
+            <th>File</th>
+            <th>Size</th>
+            <th>Encryption</th>
+            <th>Stored</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  } catch (e) {
+    document.getElementById('vault-table-wrap').innerHTML =
+      `<div class="empty-state" style="color:var(--red);">❌ Failed to load: ${e.message}</div>`;
+  }
+}
+
+async function showVaultDetail(vaultId) {
+  const detail = document.getElementById('vault-detail');
+  const content = document.getElementById('vault-detail-content');
+  detail.style.display = 'block';
+  content.innerHTML = '<div class="empty-state" style="padding:20px 0;">Loading…</div>';
+
+  try {
+    const res  = await fetch(`${API}/vault/${vaultId}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    const v = data.vault;
+
+    content.innerHTML = `
+      <div class="detail-grid">
+        <div class="key">Vault ID</div>        <div class="val">${v.id}</div>
+        <div class="key">DNA Record ID</div>   <div class="val">${v.dnaRecordId}</div>
+        <div class="key">File Name</div>       <div class="val">${v.originalFileName}</div>
+        <div class="key">MIME Type</div>       <div class="val">${v.originalMimeType}</div>
+        <div class="key">Original Size</div>   <div class="val">${fmtSize(v.originalSizeBytes)}</div>
+        <div class="key">Encrypted Size</div>  <div class="val">${fmtSize(v.encryptedSizeBytes)}</div>
+        <div class="key">Encryption</div>      <div class="val">${encBadge(v.encryptionAlgorithm)}</div>
+        <div class="key">Key Derivation</div>  <div class="val">${v.keyDerivation}</div>
+        <div class="key">DNA Status</div>      <div class="val">${statusBadge(v.dnaRecord.status)}</div>
+        <div class="key">Stored At</div>       <div class="val">${fmtDate(v.createdAt)}</div>
+      </div>
+      <div style="margin-top:16px;">
+        <button class="btn btn-green" onclick="retrieveAndVerify('${v.id}','${v.dnaRecordId}')">Retrieve &amp; Verify DNA</button>
+      </div>
+    `;
+  } catch (e) {
+    content.innerHTML = `<div style="color:var(--red);font-size:13px;">❌ ${e.message}</div>`;
+  }
+}
+
+async function retrieveAndVerify(vaultId, dnaRecordId) {
+  const detail = document.getElementById('vault-detail');
+  const content = document.getElementById('vault-detail-content');
+  detail.style.display = 'block';
+  content.innerHTML = `
+    <div class="empty-state" style="padding:20px 0;">
+      <div class="spinner" style="width:24px;height:24px;margin:0 auto 12px;"></div>
+      Decrypting vault file…
+    </div>`;
+
+  try {
+    // Step 1: Retrieve (decrypt) image from vault
+    const retrieveRes = await fetch(`${API}/vault/${vaultId}/retrieve`, { method: 'POST' });
+    if (!retrieveRes.ok) {
+      const err = await retrieveRes.json().catch(() => ({}));
+      throw new Error(err.error || retrieveRes.statusText);
+    }
+
+    const blob     = await retrieveRes.blob();
+    const mimeType = retrieveRes.headers.get('Content-Type') || blob.type;
+    const fileName = (retrieveRes.headers.get('Content-Disposition') || '').match(/filename="(.+?)"/)?.[1] || 'retrieved';
+    const origSize = parseInt(retrieveRes.headers.get('X-Original-Size') || '0', 10);
+    const imgUrl   = URL.createObjectURL(blob);
+
+    // Update panel: show decrypted image
+    content.innerHTML = `
+      <div style="margin-bottom:12px;">
+        <div class="section-title">Decrypted Image</div>
+        <img src="${imgUrl}" style="max-width:100%;max-height:220px;border-radius:6px;border:1px solid var(--border);" />
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted);">
+          <span>File: ${fileName}</span>
+          <span>Size: ${fmtSize(blob.size)}</span>
+          <span>Type: ${mimeType}</span>
+        </div>
+      </div>
+      <div id="verify-inline-status" class="empty-state" style="padding:12px 0;">
+        <div class="spinner" style="width:20px;height:20px;margin:0 auto 8px;"></div>
+        Running DNA verification…
+      </div>
+    `;
+
+    // Step 2: Re-upload decrypted blob to verify DNA
+    const fd = new FormData();
+    fd.append('image', blob, fileName);
+
+    const verifyRes  = await fetch(`${API}/dna/${dnaRecordId}/verify`, { method: 'POST', body: fd });
+    const verifyData = await verifyRes.json();
+    if (!verifyRes.ok) throw new Error(verifyData.error || verifyRes.statusText);
+
+    const passed     = verifyData.passed;
+    const confidence = Math.round((verifyData.confidenceScore || 0) * 100);
+    const layers     = verifyData.layerResults || [];
+
+    const layerRows = layers.map(l => `
+      <div class="verify-row">
+        <span>${l.layer}</span>
+        <span>${l.passed
+          ? '<span class="badge badge-green">PASS</span>'
+          : '<span class="badge badge-red">FAIL</span>'
+        }</span>
+        <span style="color:var(--muted);font-size:12px;">${l.similarityScore !== undefined ? (l.similarityScore * 100).toFixed(1) + '%' : ''}</span>
+      </div>
+    `).join('');
+
+    document.getElementById('verify-inline-status').innerHTML = `
+      <div style="margin-bottom:12px;display:flex;align-items:center;gap:12px;">
+        <div class="section-title" style="margin:0;">DNA Verification Result</div>
+        ${passed
+          ? '<span class="badge badge-green" style="font-size:13px;padding:4px 14px;">✓ DNA MATCH</span>'
+          : '<span class="badge badge-red"   style="font-size:13px;padding:4px 14px;">✗ DNA MISMATCH</span>'
+        }
+      </div>
+      <div style="margin-bottom:8px;font-size:13px;color:var(--muted);">
+        Confidence Score: <strong style="color:var(--text);">${confidence}%</strong>
+      </div>
+      <div class="confidence-bar">
+        <div class="confidence-fill" style="width:${confidence}%;background:${confidence >= 80 ? 'var(--green)' : confidence >= 50 ? 'var(--yellow)' : 'var(--red)'}"></div>
+      </div>
+      <div class="verify-result">${layerRows}</div>
+      <div style="margin-top:12px;">
+        <a href="${imgUrl}" download="${fileName}" class="btn btn-outline" style="text-decoration:none;font-size:13px;padding:6px 16px;">
+          ⬇ Download Decrypted Image
+        </a>
+      </div>
+    `;
+  } catch (e) {
+    content.innerHTML = `<div style="color:var(--red);font-size:13px;padding:12px 0;">❌ ${e.message}</div>`;
+  }
+}
+
+// ── 4. Verify DNA ────────────────────────────────────────────────────────────
+
+async function verifyDNA() {
+  const dnaId = document.getElementById('verify-dna-id').value.trim();
+  const file  = document.getElementById('verify-file').files[0];
+  if (!dnaId) { showResult('verify-result', 'error', 'Enter a DNA Record ID.'); return; }
+  if (!file)  { showResult('verify-result', 'error', 'Select a probe image.'); return; }
+
+  showResult('verify-result', 'info', '⏳ Running DNA verification…');
+  document.getElementById('verify-detail').style.display = 'none';
+
+  const fd = new FormData();
+  fd.append('image', file);
+
+  try {
+    const res  = await fetch(`${API}/dna/${dnaId}/verify`, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+
+    const passed     = data.passed;
+    const confidence = Math.round((data.confidenceScore || 0) * 100);
+
+    showResult('verify-result', passed ? 'success' : 'error',
+      `${passed ? '✅ DNA MATCH' : '❌ DNA MISMATCH'}\n\n` +
+      `Confidence Score : ${confidence}%\n` +
+      `DNA Record ID    : ${data.dnaRecordId}\n` +
+      `Verified At      : ${fmtDate(data.verifiedAt)}`
+    );
+
+    const layerRows = (data.layerResults || []).map(l => `
+      <div class="verify-row">
+        <span>${l.layer}</span>
+        <span>${l.passed
+          ? '<span class="badge badge-green">PASS</span>'
+          : '<span class="badge badge-red">FAIL</span>'
+        }</span>
+        <span style="color:var(--muted);font-size:12px;">${l.similarityScore !== undefined ? (l.similarityScore * 100).toFixed(1) + '%' : ''}</span>
+      </div>
+    `).join('');
+
+    const detailDiv = document.getElementById('verify-detail');
+    detailDiv.style.display = 'block';
+    detailDiv.innerHTML = `
+      <div class="card">
+        <div class="section-title">Layer-by-Layer Results</div>
+        <div class="confidence-bar" style="margin-bottom:12px;">
+          <div class="confidence-fill" style="width:${confidence}%;background:${confidence >= 80 ? 'var(--green)' : confidence >= 50 ? 'var(--yellow)' : 'var(--red)'}"></div>
+        </div>
+        <div class="verify-result">${layerRows}</div>
+      </div>
+    `;
+  } catch (e) {
+    showResult('verify-result', 'error', `❌ Error: ${e.message}`);
+  }
+}
+
+// Load vault browser when page loads if that tab is active
+window.addEventListener('DOMContentLoaded', () => {
+  // nothing on load — lazy per tab
+});
+</script>
+
+</body>
+</html>

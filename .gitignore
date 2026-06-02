@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+tmp/
+.env
+*.log
+prisma/migrations/
+
+# OS
+.DS_Store
+Thumbs.db

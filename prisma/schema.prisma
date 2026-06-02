@@ -1,0 +1,294 @@
+// PINIT-DNA — Prisma Schema
+// Database: PostgreSQL
+// Purpose: Stores 6-layer image DNA fingerprint records
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")   // pooler — used by the running app
+  directUrl = env("DIRECT_URL")     // direct — used by prisma migrate / db pull
+}
+
+// ─── Core DNA Record ──────────────────────────────────────────────────────────
+
+model DnaRecord {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Original file reference
+  // "image" prefix kept for backward compatibility — valid for all file types
+  imageFilename     String
+  imageMimeType     String
+  imageSizeBytes    Int
+  imageWidthPx      Int?
+  imageHeightPx     Int?
+
+  // ── Universal File DNA fields (Phase 0+) ──────────────────────────────────
+  // Nullable so existing IMAGE records are unaffected (treated as IMAGE engine)
+
+  // Detected file type e.g. "IMAGE", "PDF", "DOCX"
+  // NULL on legacy records means IMAGE (original engine)
+  fileType          String?
+
+  // DNA engine version e.g. "2.0.0-universal"
+  // NULL on legacy records means original image-only engine "1.0.0"
+  engineVersion     String?
+
+  // Universal layer fingerprints JSON (Phase 1+: TXT/CSV/JSON/PDF/etc.)
+  // Image records use the separate layer tables instead
+  // Format: { layers: UniversalLayerResult[] }
+  universalFingerprints Json?
+
+  // Schema version for forward compatibility
+  schemaVersion     String   @default("1.0.0")
+
+  // Processing status
+  status            DnaStatus @default(PENDING)
+
+  // ── Layer fingerprints (one-to-one relations) ──
+  cryptoLayer       CryptoLayer?
+  structuralLayer   StructuralLayer?
+  perceptualLayer   PerceptualLayer?
+  semanticLayer     SemanticLayer?
+  metadataLayer     MetadataLayer?
+  stegoLayer        StegoLayer?
+
+  // Verification history
+  verifications     VerificationLog[]
+
+  // Vault storage
+  vaultRecord       VaultRecord?
+
+  @@map("dna_records")
+}
+
+// ─── Layer 1: SHA-256 Cryptographic Hash ─────────────────────────────────────
+
+model CryptoLayer {
+  id          String    @id @default(uuid())
+  createdAt   DateTime  @default(now())
+
+  dnaRecordId String    @unique
+  dnaRecord   DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+
+  // SHA-256 of the raw image bytes
+  sha256Hash  String    @db.Char(64)
+
+  // SHA-256 of the normalized image bytes (strips EXIF, re-encodes) for
+  // content-identical matching across saves
+  normalizedHash String @db.Char(64)
+
+  // BLAKE3 hash for future-proof secondary verification (placeholder)
+  blake3Hash  String?   @db.Char(64)
+
+  @@map("crypto_layers")
+}
+
+// ─── Layer 2: Structural Fingerprint (edge-based) ─────────────────────────────
+
+model StructuralLayer {
+  id          String    @id @default(uuid())
+  createdAt   DateTime  @default(now())
+
+  dnaRecordId String    @unique
+  dnaRecord   DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+
+  // Canny edge map serialized as base64 PNG thumbnail
+  edgeMapB64       String   @db.Text
+
+  // Dominant structural vectors (JSON array of {angle, magnitude})
+  edgeVectors      Json
+
+  // 64-bit compact edge signature for fast comparison
+  edgeSignature64  String   @db.Char(16)
+
+  // Algorithm used (e.g. "canny", "sobel")
+  algorithm        String   @default("canny")
+
+  @@map("structural_layers")
+}
+
+// ─── Layer 3: Perceptual Visual Hash (pHash) ─────────────────────────────────
+
+model PerceptualLayer {
+  id          String    @id @default(uuid())
+  createdAt   DateTime  @default(now())
+
+  dnaRecordId String    @unique
+  dnaRecord   DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+
+  // 64-bit DCT-based perceptual hash (hex string)
+  pHash64     String    @db.Char(16)
+
+  // 256-bit extended pHash for high-precision matching
+  pHash256    String    @db.Char(64)
+
+  // Average hash for fast pre-filter
+  aHash64     String    @db.Char(16)
+
+  // Difference hash
+  dHash64     String    @db.Char(16)
+
+  @@map("perceptual_layers")
+}
+
+// ─── Layer 4: Semantic Color Fingerprint (RGB histogram) ─────────────────────
+
+model SemanticLayer {
+  id          String    @id @default(uuid())
+  createdAt   DateTime  @default(now())
+
+  dnaRecordId String    @unique
+  dnaRecord   DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+
+  // 256-bin RGB histograms (JSON arrays)
+  histogramR  Json
+  histogramG  Json
+  histogramB  Json
+
+  // HSV histogram for hue-dominant matching
+  histogramH  Json
+  histogramS  Json
+
+  // Dominant colors — top 5 hex codes + percentage coverage
+  dominantColors Json
+
+  // Compact 48-bit color fingerprint (hex)
+  colorFingerprint String @db.Char(12)
+
+  @@map("semantic_layers")
+}
+
+// ─── Layer 5: Metadata Provenance Record ─────────────────────────────────────
+
+model MetadataLayer {
+  id          String    @id @default(uuid())
+  createdAt   DateTime  @default(now())
+
+  dnaRecordId String    @unique
+  dnaRecord   DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+
+  // Raw EXIF extracted as JSON (null if none present)
+  exifData    Json?
+
+  // Camera/device fingerprint (make, model, software)
+  deviceMake    String?
+  deviceModel   String?
+  software      String?
+
+  // Capture datetime from EXIF (may differ from upload time)
+  capturedAt    DateTime?
+
+  // GPS coordinates if present
+  gpsLatitude   Float?
+  gpsLongitude  Float?
+
+  // IPTC / XMP fields
+  iptcData      Json?
+  xmpData       Json?
+
+  // Hash of the metadata block (for tamper detection)
+  metadataHash  String   @db.Char(64)
+
+  @@map("metadata_layers")
+}
+
+// ─── Layer 6: Hidden AI Signature (LSB Steganography) ────────────────────────
+
+model StegoLayer {
+  id          String    @id @default(uuid())
+  createdAt   DateTime  @default(now())
+
+  dnaRecordId String    @unique
+  dnaRecord   DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+
+  // Whether the signature was successfully embedded
+  embedded     Boolean  @default(false)
+
+  // Capacity in bits available in the carrier image
+  capacityBits Int?
+
+  // Bits actually used
+  usedBits     Int?
+
+  // HMAC of the embedded payload (used during extraction + verification)
+  payloadHmac  String   @db.Char(64)
+
+  // LSB channel used: "R", "G", "B", or "alpha"
+  channel      String   @default("B")
+
+  // Base image path where signature was embedded (relative to storage root)
+  carrierPath  String?
+
+  @@map("stego_layers")
+}
+
+// ─── Verification Log ────────────────────────────────────────────────────────
+
+model VerificationLog {
+  id          String    @id @default(uuid())
+  createdAt   DateTime  @default(now())
+
+  dnaRecordId String
+  dnaRecord   DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+
+  // Overall result
+  passed      Boolean
+
+  // Per-layer results (JSON object, keyed by layer name)
+  layerResults Json
+
+  // Similarity scores per layer (0.0–1.0)
+  similarityScores Json
+
+  // Overall confidence score (0.0–1.0)
+  confidenceScore Float
+
+  // Which layers were checked
+  layersChecked   String[]
+
+  // Client IP (for audit trail)
+  requestIp     String?
+
+  @@map("verification_logs")
+}
+
+// ─── Vault Record ─────────────────────────────────────────────────────────────
+
+model VaultRecord {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  // Link to the DNA record this vault entry protects
+  dnaRecordId String    @unique
+  dnaRecord   DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+
+  // Encrypted file on disk — NEVER the original image
+  encryptedFilePath   String
+  originalFileName    String
+  originalMimeType    String
+  encryptedSizeBytes  Int
+  originalSizeBytes   Int
+
+  // Encryption metadata (key is never stored — derived via HKDF at retrieval)
+  encryptionAlgorithm String  @default("AES-256-GCM")
+  keyDerivation       String  @default("HKDF-SHA256")
+  ivHex               String  @db.Char(24)   // 12-byte IV = 24 hex chars
+  authTagHex          String  @db.Char(32)   // 16-byte auth tag = 32 hex chars
+
+  @@map("vault_records")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum DnaStatus {
+  PENDING      // Upload received, processing not started
+  PROCESSING   // Fingerprint generation in progress
+  COMPLETE     // All 6 layers generated successfully
+  PARTIAL      // Some layers failed; partial DNA stored
+  FAILED       // Generation failed entirely
+}
