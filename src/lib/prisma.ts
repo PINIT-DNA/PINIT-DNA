@@ -20,8 +20,10 @@ export const prisma =
     ],
   });
 
-prisma.$on('error', (e) => logger.error('Prisma error', { message: e.message }));
-prisma.$on('warn', (e) => logger.warn('Prisma warning', { message: e.message }));
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(prisma as any).$on('error', (e: { message: string }) => logger.error('Prisma error', { message: e.message }));
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(prisma as any).$on('warn',  (e: { message: string }) => logger.warn('Prisma warning', { message: e.message }));
 
 if (process.env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = prisma;

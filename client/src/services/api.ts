@@ -5,8 +5,9 @@
 
 import axios from 'axios';
 import type { GenerateDnaResponse } from '../types';
+import { API_BASE_URL } from '../config/api.config';
 
-const client = axios.create({ baseURL: '/api/v1' });
+const client = axios.create({ baseURL: API_BASE_URL });
 
 /**
  * Upload an image and generate its 6-layer DNA fingerprint.

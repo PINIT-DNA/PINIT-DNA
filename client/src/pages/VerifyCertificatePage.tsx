@@ -9,8 +9,10 @@
 import { useState } from 'react';
 import {
   Shield, CheckCircle2, XCircle, AlertTriangle,
-  Dna, Lock, Award, RefreshCw, Copy,
+  Dna, Lock, Award, RefreshCw, Copy, Ban,
 } from 'lucide-react';
+import { verifyCertificateApi } from '../services/dashboard.api';
+import type { CertVerificationResult } from '../types/dashboard.types';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getDnaRecord, getVaultRecord } from '../services/dashboard.api';
@@ -121,13 +123,33 @@ const STATUS_CFG = {
 export function VerifyCertificatePage() {
   const [dnaId,    setDnaId]    = useState('');
   const [vaultId,  setVaultId]  = useState('');
+  const [certId,   setCertId]   = useState('');  // direct certificate ID lookup
   const [loading,  setLoading]  = useState(false);
   const [result,   setResult]   = useState<VerificationResult | null>(null);
+  const [certResult, setCertResult] = useState<CertVerificationResult | null>(null);
 
   const handleVerify = async () => {
-    if (!dnaId.trim()) { toast.error('DNA Record ID is required'); return; }
     setLoading(true);
     setResult(null);
+    setCertResult(null);
+
+    // If certificate ID provided → use real backend verification
+    if (certId.trim()) {
+      try {
+        const res = await verifyCertificateApi(certId.trim());
+        setCertResult(res);
+        if (res.valid) toast.success('Certificate verified — VALID');
+        else if (res.status === 'REVOKED') toast.error('Certificate is REVOKED');
+        else if (res.status === 'EXPIRED') toast.error('Certificate has EXPIRED');
+        else toast.error('Certificate verification failed');
+      } catch {
+        toast.error('Verification error');
+      } finally { setLoading(false); }
+      return;
+    }
+
+    // Otherwise fall back to DNA Record + Vault ID check
+    if (!dnaId.trim()) { toast.error('DNA Record ID or Certificate ID is required'); setLoading(false); return; }
     try {
       const res = await verifyInputs(dnaId, vaultId);
       setResult(res);
@@ -167,9 +189,33 @@ export function VerifyCertificatePage() {
         </div>
 
         <div className="space-y-3">
+          {/* Certificate ID — fastest lookup */}
           <div>
             <label className="text-xs font-medium text-gray-400 block mb-1.5">
-              DNA Record ID <span className="text-danger">*</span>
+              Certificate ID <span className="text-dna-400 text-xs">(recommended — direct lookup)</span>
+            </label>
+            <div className="relative">
+              <Award size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+              <input
+                type="text"
+                placeholder="e.g. CERT-DNA-XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
+                value={certId}
+                onChange={e => { setCertId(e.target.value); if (e.target.value) { setDnaId(''); setVaultId(''); } }}
+                className="input pl-9 font-mono text-sm"
+              />
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="flex items-center gap-3 py-1">
+            <div className="flex-1 h-px bg-bg-border" />
+            <span className="text-2xs text-gray-600 uppercase tracking-wider">or verify by IDs</span>
+            <div className="flex-1 h-px bg-bg-border" />
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-gray-400 block mb-1.5">
+              DNA Record ID
             </label>
             <div className="relative">
               <Dna size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
@@ -177,7 +223,7 @@ export function VerifyCertificatePage() {
                 type="text"
                 placeholder="e.g. 7ef2dc68-0cbc-4251-9a7c-dadb2dcdf3c5"
                 value={dnaId}
-                onChange={e => setDnaId(e.target.value)}
+                onChange={e => { setDnaId(e.target.value); if (e.target.value) setCertId(''); }}
                 className="input pl-9 font-mono text-sm"
               />
             </div>
@@ -185,7 +231,7 @@ export function VerifyCertificatePage() {
 
           <div>
             <label className="text-xs font-medium text-gray-400 block mb-1.5">
-              Vault ID <span className="text-gray-600">(optional — leave empty for DNA-only verification)</span>
+              Vault ID <span className="text-gray-600">(optional)</span>
             </label>
             <div className="relative">
               <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
@@ -202,7 +248,7 @@ export function VerifyCertificatePage() {
 
         <button
           onClick={handleVerify}
-          disabled={loading || !dnaId.trim()}
+          disabled={loading || (!dnaId.trim() && !certId.trim())}
           className="btn btn-primary w-full"
         >
           {loading
@@ -231,6 +277,105 @@ export function VerifyCertificatePage() {
       </div>
 
       {/* Result */}
+      {/* Certificate ID result — REVOKED/EXPIRED/VALID */}
+      <AnimatePresence>
+        {certResult && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            className="space-y-4"
+          >
+            {/* Status banner */}
+            {certResult.status === 'REVOKED' ? (
+              <div className="rounded-2xl border border-danger/40 bg-danger/10 p-5">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="w-12 h-12 rounded-xl bg-danger/20 border border-danger/30 flex items-center justify-center">
+                    <Ban size={22} className="text-danger" />
+                  </div>
+                  <div>
+                    <p className="text-xl font-bold text-danger">Certificate Revoked</p>
+                    <p className="text-sm text-gray-400 mt-0.5">This certificate has been permanently revoked</p>
+                  </div>
+                </div>
+                {certResult.certificate?.revokedAt && (
+                  <div className="bg-danger/10 rounded-xl p-3 space-y-1.5">
+                    <div className="flex gap-2">
+                      <span className="text-2xs text-gray-500 w-28">Revoked At</span>
+                      <span className="text-2xs text-danger mono">
+                        {new Date(certResult.certificate.revokedAt).toLocaleString()}
+                      </span>
+                    </div>
+                    {certResult.certificate.revocationReason && (
+                      <div className="flex gap-2">
+                        <span className="text-2xs text-gray-500 w-28">Reason</span>
+                        <span className="text-2xs text-gray-300 italic">
+                          &ldquo;{certResult.certificate.revocationReason}&rdquo;
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : certResult.status === 'EXPIRED' ? (
+              <div className="rounded-2xl border border-warning/40 bg-warning/10 p-5">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-warning/20 border border-warning/30 flex items-center justify-center">
+                    <AlertTriangle size={22} className="text-warning" />
+                  </div>
+                  <div>
+                    <p className="text-xl font-bold text-warning">Certificate Expired</p>
+                    <p className="text-sm text-gray-400 mt-0.5">
+                      Expired {certResult.certificate?.expiresAt
+                        ? new Date(certResult.certificate.expiresAt).toLocaleDateString()
+                        : ''}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : certResult.status === 'NOT_FOUND' ? (
+              <div className="rounded-2xl border border-bg-border bg-bg-elevated p-5">
+                <div className="flex items-center gap-4">
+                  <XCircle size={22} className="text-gray-500" />
+                  <div>
+                    <p className="text-lg font-bold text-gray-300">Certificate Not Found</p>
+                    <p className="text-sm text-gray-500">No certificate found with this ID in the registry</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-success/40 bg-success/10 p-5">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="w-12 h-12 rounded-xl bg-success/20 border border-success/30 flex items-center justify-center">
+                    <CheckCircle2 size={22} className="text-success" />
+                  </div>
+                  <div>
+                    <p className="text-xl font-bold text-success">Certificate Valid</p>
+                    <p className="text-sm text-gray-400 mt-0.5">Signature verified · Status ACTIVE</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { label: 'Certificate ID', value: certResult.certificateId },
+                    { label: 'Status',         value: certResult.status },
+                    { label: 'Issued',         value: certResult.certificate?.issuedAt ? new Date(certResult.certificate.issuedAt).toLocaleDateString() : '—' },
+                    { label: 'DNA Record',     value: certResult.certificate?.dnaRecordId?.slice(0, 16) + '…' },
+                  ].map(row => (
+                    <div key={row.label} className="bg-bg-elevated rounded-lg p-3">
+                      <p className="text-2xs text-gray-500">{row.label}</p>
+                      <p className="text-xs text-gray-200 mono truncate mt-0.5">{row.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <button onClick={() => { setCertResult(null); setCertId(''); setDnaId(''); setVaultId(''); }}
+              className="btn btn-secondary w-full">
+              <RefreshCw size={14} /> Verify Another
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
         {result && statusCfg && (
           <motion.div
@@ -338,7 +483,7 @@ export function VerifyCertificatePage() {
             )}
 
             {/* Reset */}
-            <button onClick={() => { setResult(null); setDnaId(''); setVaultId(''); }}
+            <button onClick={() => { setResult(null); setCertResult(null); setDnaId(''); setVaultId(''); setCertId(''); }}
               className="btn btn-secondary w-full">
               <RefreshCw size={14} /> Verify Another Certificate
             </button>

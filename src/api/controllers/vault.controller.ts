@@ -11,6 +11,8 @@ import fs from 'fs/promises';
 import { VaultService } from '../../services/vault/vault.service';
 import { AppError } from '../middleware/error.middleware';
 import { logger } from '../../lib/logger';
+import { auditService } from '../../services/audit/audit.service';
+import { autoIndexer }  from '../../services/ai/auto-indexer.service';
 
 const vaultService = new VaultService();
 
@@ -84,6 +86,15 @@ export async function storeInVault(
       imageBuffer:      buffer,
       originalFileName: req.file.originalname,
       originalMimeType: req.file.mimetype,
+    });
+
+    // Fire-and-forget: OCR + auto-index in FAISS after vault store
+    autoIndexer.indexAfterVaultStore({
+      dnaRecordId: result.dnaRecordId,
+      vaultId:     result.vaultId,
+      filename:    result.originalFileName,
+      mimeType:    result.originalMimeType,
+      buffer,
     });
 
     res.status(201).json({
@@ -173,13 +184,19 @@ export async function retrieveFromVault(
       'X-Original-Size':     String(result.originalSizeBytes),
     });
 
+    // Audit the retrieval
+    auditService.log({
+      eventType: 'VAULT_RETRIEVED', vaultId: id,
+      filename: result.originalFileName, fileType: result.originalMimeType,
+      detail: { sizeBytes: result.originalSizeBytes }, req,
+    });
+
     res.status(200).send(result.originalBuffer);
   } catch (err) {
     if (err instanceof Error && err.message.includes('not found')) {
       return next(new AppError(404, err.message));
     }
     if (err instanceof Error && err.message.includes('Unsupported state')) {
-      // AES-GCM auth tag failure — file was tampered with
       return next(new AppError(422, 'Vault file integrity check failed — auth tag mismatch. File may be tampered.'));
     }
     next(err);

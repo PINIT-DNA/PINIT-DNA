@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import type { EncryptionResult } from '../types';
 
 interface Props {
@@ -16,11 +16,6 @@ const STAGES: { key: EncStage; label: string; ms: number }[] = [
   { key: 'complete',       label: 'Encryption complete',       ms: 0 },
 ];
 
-function randomHex(len: number) {
-  return Array.from({ length: len }, () =>
-    Math.floor(Math.random() * 16).toString(16)
-  ).join('');
-}
 
 export function EncryptionStep({ dnaRecordId, onComplete }: Props) {
   const [stageIdx, setStageIdx] = useState(0);
@@ -31,13 +26,9 @@ export function EncryptionStep({ dnaRecordId, onComplete }: Props) {
       if (i >= STAGES.length - 1) {
         // Done — build result
         const result: EncryptionResult = {
-          encryptedId: `ENC-${randomHex(8).toUpperCase()}`,
           algorithm: 'AES-256-GCM',
           keyLength: 256,
-          ivHex: randomHex(24),
-          tagHex: randomHex(32),
           encryptedAt: new Date().toISOString(),
-          fileSizeBytes: 0,
         };
         onComplete(result);
         return;

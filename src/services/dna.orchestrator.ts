@@ -28,6 +28,7 @@ import {
   MetadataLayerResult,
   StegoLayerResult,
 } from '../types/dna.types';
+import { withTimeout, validateFileInput } from '../lib/safe-runner';
 
 export class DnaOrchestrator {
   private readonly layer1 = new CryptographicLayer();
@@ -53,6 +54,9 @@ export class DnaOrchestrator {
   ): Promise<DnaGenerationResult> {
     const pipelineStart = Date.now();
     const dnaRecordId = uuidv4();
+
+    // Phase 4: validate file safety before any processing
+    validateFileInput(image.buffer, image.originalName, 500 * 1024 * 1024);
 
     logger.info('DNA generation started', {
       dnaRecordId,
@@ -166,19 +170,18 @@ export class DnaOrchestrator {
   }
 
   /**
-   * Wrap a layer generator so a thrown error never crashes the pipeline.
-   * Returns the layer result with success=false on any unhandled exception.
+   * Wrap a layer generator with:
+   *   1. 30-second hard timeout (Phase 4 — safe runner)
+   *   2. Error catch — never crashes the pipeline
    */
   private async runLayer<T extends { success: boolean }>(
     fn: () => Promise<T>,
     layerLabel: string
   ): Promise<T> {
     try {
-      return await fn();
+      return await withTimeout(fn, 30_000, layerLabel);
     } catch (err) {
-      logger.error(`Unhandled exception in ${layerLabel}`, { error: err });
-      // Return a minimal failed result — the cast is safe because every
-      // LayerResult has success + error fields at the base
+      logger.error(`Layer failed or timed out: ${layerLabel}`, { error: err });
       return { success: false, error: String(err) } as unknown as T;
     }
   }
@@ -218,7 +221,8 @@ export class DnaOrchestrator {
           data: {
             dnaRecordId,
             edgeMapB64: layers.structural.data.edgeMapB64,
-            edgeVectors: layers.structural.data.edgeVectors,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            edgeVectors: layers.structural.data.edgeVectors as any,
             edgeSignature64: layers.structural.data.edgeSignature64,
             algorithm: layers.structural.data.algorithm,
           },
@@ -248,7 +252,8 @@ export class DnaOrchestrator {
             histogramB: layers.semantic.data.histogramB,
             histogramH: layers.semantic.data.histogramH,
             histogramS: layers.semantic.data.histogramS,
-            dominantColors: layers.semantic.data.dominantColors,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            dominantColors: layers.semantic.data.dominantColors as any,
             colorFingerprint: layers.semantic.data.colorFingerprint,
           },
         });
@@ -259,15 +264,18 @@ export class DnaOrchestrator {
         await tx.metadataLayer.create({
           data: {
             dnaRecordId,
-            exifData: layers.metadata.data.exifData ?? undefined,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            exifData: (layers.metadata.data.exifData ?? undefined) as any,
             deviceMake: layers.metadata.data.deviceMake,
             deviceModel: layers.metadata.data.deviceModel,
             software: layers.metadata.data.software,
             capturedAt: layers.metadata.data.capturedAt,
             gpsLatitude: layers.metadata.data.gpsLatitude,
             gpsLongitude: layers.metadata.data.gpsLongitude,
-            iptcData: layers.metadata.data.iptcData ?? undefined,
-            xmpData: layers.metadata.data.xmpData ?? undefined,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            iptcData: (layers.metadata.data.iptcData ?? undefined) as any,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            xmpData: (layers.metadata.data.xmpData ?? undefined) as any,
             metadataHash: layers.metadata.data.metadataHash,
           },
         });

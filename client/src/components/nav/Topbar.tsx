@@ -13,6 +13,9 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   '/reports':             { title: 'Forensic Reports',        subtitle: 'Analysis, tampering detection & exports'},
   '/certificates':        { title: 'Certificates',            subtitle: 'Ownership and verification proofs'      },
   '/verify-certificate':  { title: 'Certificate Verification',subtitle: 'Verify certificate authenticity live'   },
+  '/search':              { title: 'AI Semantic Search',       subtitle: 'Find documents by meaning using FAISS'        },
+  '/forensic-diff':       { title: 'Forensic Difference Engine', subtitle: 'What changed, where, and how severely'     },
+  '/monitoring':          { title: 'Monitoring & Crawler',       subtitle: 'Watch internet for unauthorized file copies' },
 };
 
 export function Topbar() {

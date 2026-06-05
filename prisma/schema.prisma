@@ -63,6 +63,14 @@ model DnaRecord {
   // Vault storage
   vaultRecord       VaultRecord?
 
+  // Phase 5 — Document intelligence
+  ocrRecord         OcrRecord?
+  lineageFrom       DocumentLineage[] @relation("LineageFrom")
+  lineageTo         DocumentLineage[] @relation("LineageTo")
+
+  // Crawler/Monitoring
+  monitorRecords    MonitorRecord[]
+
   @@map("dna_records")
 }
 
@@ -283,7 +291,184 @@ model VaultRecord {
   @@map("vault_records")
 }
 
+// ─── Users & Auth ─────────────────────────────────────────────────────────────
+
+model User {
+  id           String    @id @default(uuid())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  email        String    @unique
+  passwordHash String
+  fullName     String
+  role         UserRole  @default(USER)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+
+  @@map("refresh_tokens")
+}
+
+// ─── Certificates (Phase 2 hardening) ────────────────────────────────────────
+
+model Certificate {
+  id               String   @id @default(uuid())
+  createdAt        DateTime @default(now())
+  certificateId    String   @unique
+  dnaRecordId      String
+  vaultId          String
+  status           CertStatus @default(ACTIVE)
+  signature        String   @db.Text
+  issuedAt         DateTime @default(now())
+  expiresAt        DateTime?
+  revokedAt        DateTime?
+  revocationReason String?
+  issuedByUserId   String?
+
+  @@index([dnaRecordId])
+  @@index([vaultId])
+  @@map("certificates")
+}
+
+// ─── OCR & Semantic Data ──────────────────────────────────────────────────────
+
+model OcrRecord {
+  id          String    @id @default(uuid())
+  createdAt   DateTime  @default(now())
+
+  dnaRecordId String    @unique
+  dnaRecord   DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+
+  extractedText String?  @db.Text
+  wordCount     Int      @default(0)
+  confidence    Float    @default(0)
+  language      String   @default("eng")
+  processingMs  Int      @default(0)
+  indexed       Boolean  @default(false)
+  ocrStatus     String   @default("PENDING")  // PENDING | PROCESSING | COMPLETE | FAILED
+  errorMessage  String?
+
+  @@map("ocr_records")
+}
+
+// ─── Document Lineage ─────────────────────────────────────────────────────────
+
+model DocumentLineage {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  fromDnaRecordId String
+  toDnaRecordId   String
+  relation        String   // DUPLICATE | DERIVED_FROM | RELATED | MODIFIED_COPY
+  confidence      Float
+
+  fromDnaRecord DnaRecord @relation("LineageFrom", fields: [fromDnaRecordId], references: [id], onDelete: Cascade)
+  toDnaRecord   DnaRecord @relation("LineageTo",   fields: [toDnaRecordId],   references: [id], onDelete: Cascade)
+
+  @@unique([fromDnaRecordId, toDnaRecordId])
+  @@map("document_lineage")
+}
+
+// ─── Audit Events ─────────────────────────────────────────────────────────────
+
+model AuditEvent {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  eventType   String
+  userId      String?
+  dnaRecordId String?
+  vaultId     String?
+  filename    String?
+  fileType    String?
+  ipAddress   String?
+  userAgent   String?  @db.Text
+  browser     String?
+  os          String?
+  device      String?
+  detail      Json?
+
+  @@index([dnaRecordId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("audit_events")
+}
+
+// ─── Crawler & Monitoring ─────────────────────────────────────────────────────
+
+model MonitorRecord {
+  id            String    @id @default(uuid())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  dnaRecordId   String
+  dnaRecord     DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+
+  filename      String
+  fileType      String    @default("UNKNOWN")
+  status        String    @default("ACTIVE")   // ACTIVE | PAUSED | STOPPED
+  checkEveryHrs Int       @default(24)
+  lastCheckedAt DateTime?
+  nextCheckAt   DateTime?
+  totalChecks   Int       @default(0)
+  totalMatches  Int       @default(0)
+
+  watchUrls     String[]  // specific URLs to watch (optional)
+  crawlResults  CrawlResult[]
+
+  @@index([status])
+  @@index([nextCheckAt])
+  @@map("monitor_records")
+}
+
+model CrawlResult {
+  id              String        @id @default(uuid())
+  createdAt       DateTime      @default(now())
+
+  monitorRecordId String
+  monitorRecord   MonitorRecord @relation(fields: [monitorRecordId], references: [id], onDelete: Cascade)
+
+  url             String        @db.Text
+  pageTitle       String?
+  foundText       String?       @db.Text
+  textLength      Int           @default(0)
+  similarity      Float         @default(0)
+  matchType       String        @default("NO_MATCH") // DUPLICATE | NEAR_MATCH | POSSIBLE | NO_MATCH
+  alertStatus     String        @default("PENDING")  // PENDING | CONFIRMED | DISMISSED
+  checkedAt       DateTime      @default(now())
+
+  @@index([monitorRecordId])
+  @@index([matchType])
+  @@index([alertStatus])
+  @@map("crawl_results")
+}
+
 // ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  ANALYST
+  AUDITOR
+  USER
+}
+
+enum CertStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
 
 enum DnaStatus {
   PENDING      // Upload received, processing not started

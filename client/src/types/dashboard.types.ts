@@ -128,8 +128,33 @@ export interface DashboardStats {
   recentActivity: DnaRecord[];
 }
 
-// ─── Certificate ───────────────────────────────────────────────────────────────
+// ─── Certificate (Phase 2 hardened) ──────────────────────────────────────────
 
+export type CertificateStatus = 'ACTIVE' | 'REVOKED' | 'EXPIRED';
+
+export interface IssuedCertificate {
+  certificateId:    string;
+  dnaRecordId:      string;
+  vaultId:          string;
+  status:           CertificateStatus;
+  signature:        string;
+  issuedAt:         string;
+  expiresAt:        string | null;
+  revokedAt:        string | null;
+  revocationReason: string | null;
+  issuedByUserId:   string | null;
+}
+
+export interface CertVerificationResult {
+  valid:           boolean;
+  status:          CertificateStatus | 'NOT_FOUND';
+  signatureValid:  boolean;
+  certificateId:   string;
+  detail:          string;
+  certificate:     IssuedCertificate | null;
+}
+
+// Legacy certificate type kept for compatibility
 export interface Certificate {
   type: 'DNA' | 'VAULT' | 'VERIFICATION';
   id: string;

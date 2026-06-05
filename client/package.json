@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:ngrok": "vite --mode ngrok",
     "build": "tsc && vite build",
+    "build:ngrok": "tsc && vite build --mode ngrok",
     "preview": "vite preview"
   },
   "dependencies": {

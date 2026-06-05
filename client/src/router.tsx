@@ -8,6 +8,9 @@ import { DnaRecordsPage }         from './pages/DnaRecordsPage';
 import { ReportsPage }            from './pages/ReportsPage';
 import { CertificatesPage }       from './pages/CertificatesPage';
 import { TimelinePage }           from './pages/TimelinePage';
+import { ForensicDiffPage }      from './pages/ForensicDiffPage';
+import { SearchPage }            from './pages/SearchPage';
+import { MonitoringPage }        from './pages/MonitoringPage';
 import { VerifyCertificatePage }  from './pages/VerifyCertificatePage';
 import { VaultIntegrityPage }     from './pages/VaultIntegrityPage';
 import { NotFoundPage }           from './pages/NotFoundPage';
@@ -25,6 +28,9 @@ export const router = createBrowserRouter([
       { path: 'dna-records',           element: <DnaRecordsPage />          },
       { path: 'reports',               element: <ReportsPage />             },
       { path: 'timeline',              element: <TimelinePage />            },
+      { path: 'forensic-diff',         element: <ForensicDiffPage />        },
+      { path: 'search',                element: <SearchPage />              },
+      { path: 'monitoring',            element: <MonitoringPage />          },
       { path: 'certificates',          element: <CertificatesPage />        },
       { path: 'verify-certificate',    element: <VerifyCertificatePage />   },
       { path: '*',                     element: <NotFoundPage />            },

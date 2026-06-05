@@ -42,7 +42,8 @@ export function VaultStep({ file, dnaRecordId, onComplete, onError }: Props) {
         if (cancelled) return;
         setStage('complete');
         await delay(600);
-        if (!cancelled) onComplete(result);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (!cancelled) onComplete(result as any);
       } catch (err: unknown) {
         if (cancelled) return;
         const msg = err instanceof Error ? err.message : 'Vault storage failed';

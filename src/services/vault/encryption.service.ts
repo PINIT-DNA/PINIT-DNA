@@ -42,13 +42,13 @@ export interface EncryptResult {
  * Uses HKDF-SHA256 so the master secret is never used directly as a key.
  */
 function deriveKey(vaultId: string): Buffer {
-  return crypto.hkdfSync(
+  return Buffer.from(crypto.hkdfSync(
     'sha256',
     Buffer.from(config.vault.masterSecret, 'utf8'),  // IKM
     Buffer.from(vaultId, 'utf8'),                     // salt  (unique per vault)
     HKDF_INFO,                                        // context info
     KEY_BYTES
-  );
+  ));
 }
 
 /**

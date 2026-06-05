@@ -5,9 +5,11 @@
  */
 
 import axios from 'axios';
+import { API_BASE_URL } from '../config/api.config';
 import type {
   DnaRecord, VaultRecord, SupportedTypesResponse,
   ComparisonResult, DashboardStats,
+  IssuedCertificate, CertVerificationResult,
 } from '../types/dashboard.types';
 
 /**
@@ -34,7 +36,8 @@ export function deriveFileType(record: DnaRecord): string {
   return 'IMAGE'; // safe fallback
 }
 
-const api = axios.create({ baseURL: '/api/v1' });
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const api = axios.create({ baseURL: API_BASE_URL }) as any;
 
 // ─── DNA Records ──────────────────────────────────────────────────────────────
 
@@ -80,6 +83,32 @@ export async function retrieveFromVault(vaultId: string): Promise<Blob> {
   return data;
 }
 
+// ─── Certificate Management (Phase 2) ────────────────────────────────────────
+
+/** Issue (or retrieve existing) certificate for a vault record — idempotent */
+export async function issueCertificate(dnaRecordId: string, vaultId: string): Promise<IssuedCertificate> {
+  const { data } = await api.post('/certificates', { dnaRecordId, vaultId });
+  return data.certificate;
+}
+
+/** List all issued certificates */
+export async function listCertificates(): Promise<IssuedCertificate[]> {
+  const { data } = await api.get('/certificates');
+  return data.certificates ?? [];
+}
+
+/** Verify a certificate by its certificateId */
+export async function verifyCertificateApi(certificateId: string): Promise<CertVerificationResult> {
+  const { data } = await api.get(`/certificates/verify/${certificateId}`);
+  return data;
+}
+
+/** Revoke a certificate */
+export async function revokeCertificate(certificateId: string, reason: string): Promise<IssuedCertificate> {
+  const { data } = await api.post(`/certificates/revoke/${certificateId}`, { reason });
+  return data.certificate;
+}
+
 // ─── DNA Comparison ───────────────────────────────────────────────────────────
 
 export async function compareDna(
@@ -89,7 +118,7 @@ export async function compareDna(
   const form = new FormData();
   form.append('fileA', fileA);
   form.append('fileB', fileB);
-  const { data } = await api.post<ComparisonResult & { success: boolean }>('/dna/compare', form, {
+  const { data } = await api.post('/dna/compare', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return data;

@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Dna, Shield, Archive, FileSearch,
   GitCompare, Award, ChevronRight, Zap, Clock,
-  ShieldCheck, Activity,
+  ShieldCheck, Activity, Microscope, Search, Radio,
 } from 'lucide-react';
 import { cn } from '../ui/utils';
 
@@ -21,6 +21,14 @@ const NAV_GROUPS = [
       { to: '/vault',       icon: Archive,    label: 'Vault Explorer'       },
       { to: '/dna-records', icon: FileSearch, label: 'DNA Records'          },
       { to: '/timeline',    icon: Clock,      label: 'File Timeline'        },
+    ],
+  },
+  {
+    label: 'Intelligence',
+    items: [
+      { to: '/search',             icon: Search,      label: 'AI Semantic Search'   },
+      { to: '/forensic-diff',      icon: Microscope,  label: 'Difference Engine'    },
+      { to: '/monitoring',         icon: Radio,       label: 'Monitoring & Crawler' },
     ],
   },
   {

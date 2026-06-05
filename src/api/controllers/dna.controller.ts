@@ -12,6 +12,8 @@ import { z } from 'zod';
 
 import { DnaVerifier } from '../../services/dna.verifier';
 import { UniversalVerifier } from '../../services/universal-verifier';
+import { auditService }  from '../../services/audit/audit.service';
+import { autoIndexer }   from '../../services/ai/auto-indexer.service';
 import { UniversalFileRouter } from '../../services/universal-file-router';
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../middleware/error.middleware';
@@ -132,6 +134,22 @@ export async function generateDna(
       },
       generatedAt: result.generatedAt.toISOString(),
     };
+
+    // Fire-and-forget: auto-index in FAISS for semantic search
+    autoIndexer.indexAfterDnaGeneration({
+      dnaRecordId: result.dnaRecordId,
+      filename:    req.file?.originalname ?? '',
+      mimeType:    req.file?.mimetype ?? '',
+      fileType:    result.fileType,
+      buffer,
+    });
+
+    // Fire-and-forget audit log
+    auditService.log({
+      eventType: 'DNA_GENERATED', dnaRecordId: result.dnaRecordId,
+      filename: req.file?.originalname, fileType: result.fileType,
+      detail: { status: result.status, layers: result.layerSummary }, req,
+    });
 
     res.status(201).json(response);
   } catch (err) {
