@@ -14,6 +14,10 @@ services:
         fromDatabase:
           name: pinit-dna-db
           property: connectionString
+      - key: DIRECT_URL
+        fromDatabase:
+          name: pinit-dna-db
+          property: connectionString
       - key: JWT_SECRET
         generateValue: true
       - key: LSB_SIGNATURE_SECRET
