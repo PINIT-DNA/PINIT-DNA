@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search, Database, RefreshCw, Eye, GitCompare, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, Database, RefreshCw, Eye, GitCompare, ChevronDown, ChevronUp, Share2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useApi, formatBytes } from '../hooks/useApi';
 import { listDnaRecords, deriveFileType } from '../services/dashboard.api';
@@ -237,6 +237,13 @@ export function DnaRecordsPage() {
                           title="Compare"
                         >
                           <GitCompare size={14} />
+                        </button>
+                        <button
+                          onClick={() => navigate(`/chain/${r.id}`)}
+                          className="btn-ghost btn-icon text-gray-500 hover:text-dna-400"
+                          title="View Propagation Chain"
+                        >
+                          <Share2 size={14} />
                         </button>
                       </div>
                     </td>

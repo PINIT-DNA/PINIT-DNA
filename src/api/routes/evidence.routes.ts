@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { getForwardChain } from '../controllers/forward-chain.controller';
 import {
   generateReport,
   listEvidenceRecords,
@@ -23,3 +24,6 @@ evidenceRouter.patch('/incidents/:id',     updateIncidentStatus);
 
 // ── Recipient Profiles ────────────────────────────────────────────────────────
 evidenceRouter.get('/recipients',          listRecipients);
+
+// ── Forward Chain Graph ───────────────────────────────────────────────────────
+evidenceRouter.get('/chain/:dnaRecordId',  getForwardChain);

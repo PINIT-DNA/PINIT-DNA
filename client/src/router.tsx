@@ -16,6 +16,7 @@ import { VaultIntegrityPage }       from './pages/VaultIntegrityPage';
 import { DuplicateAttemptsPage }   from './pages/DuplicateAttemptsPage';
 import { UnmaskRequestsPage }      from './pages/UnmaskRequestsPage';
 import { SecurityCenterPage }       from './pages/SecurityCenterPage';
+import { ForwardChainPage }         from './pages/ForwardChainPage';
 import { NotFoundPage }             from './pages/NotFoundPage';
 import { ShareViewerPage }          from './pages/ShareViewerPage';
 import { LoginPage }                from './pages/LoginPage';
@@ -52,6 +53,7 @@ export const router = createBrowserRouter([
       { path: 'duplicate-attempts',   element: <DuplicateAttemptsPage />   },
       { path: 'unmask-requests',      element: <UnmaskRequestsPage />      },
       { path: 'security-center',      element: <SecurityCenterPage />      },
+      { path: 'chain/:dnaRecordId',   element: <ForwardChainPage />        },
       { path: 'certificates',          element: <CertificatesPage />        },
       { path: 'verify-certificate',    element: <VerifyCertificatePage />   },
       { path: '*',                     element: <NotFoundPage />            },
