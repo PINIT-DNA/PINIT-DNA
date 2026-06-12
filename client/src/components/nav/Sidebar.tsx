@@ -42,7 +42,7 @@ const NAV_GROUPS = [
       { to: '/duplicate-attempts',   icon: Ban,         label: 'Duplicate Attempts'    },
       { to: '/unmask-requests',      icon: Shield,      label: 'Unmask Requests'       },
       { to: '/security-center',      icon: ShieldAlert, label: 'Security Center'        },
-      { to: '/chain',                icon: Share2,      label: 'Chain Graph'            },
+      { to: '/dna-records',          icon: Share2,      label: 'Chain Graph'            },
     ],
   },
 ];

@@ -887,9 +887,19 @@ export function ShareViewerPage() {
               />
             </div>
           ) : (
-            <iframe src={fileUrl} title={info.filename}
-              className="w-full rounded-xl border border-bg-border"
-              style={{ height: 'calc(100vh - 140px)' }} />
+            /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? (
+              <div className="flex flex-col items-center justify-center gap-4 py-16">
+                <p className="text-gray-400 text-sm">PDF preview not available on mobile</p>
+                <a href={fileUrl} target="_blank" rel="noopener noreferrer"
+                  className="px-6 py-3 bg-dna-500 text-white rounded-xl font-semibold text-sm">
+                  Open PDF
+                </a>
+              </div>
+            ) : (
+              <iframe src={fileUrl} title={info.filename}
+                className="w-full rounded-xl border border-bg-border"
+                style={{ height: 'calc(100vh - 140px)' }} />
+            )
           )
         ) : isDocx ? (
           info.privacyMaskingEnabled && maskedText !== null ? (

@@ -12,4 +12,6 @@ const _env = (import.meta as any).env as Record<string, string | undefined>;
 const RENDER_BACKEND = 'https://pinit-dna-backend.onrender.com/api/v1';
 // Use || not ?? so empty string also falls back to the hardcoded Render URL
 const _raw = (_env['VITE_API_BASE_URL'] ?? '').trim().replace(/\/$/, '');
-export const API_BASE_URL: string = _raw || RENDER_BACKEND;
+// In dev mode (no env var), use '/api/v1' so the Vite proxy forwards to localhost:4000
+// In production, fall back to the hardcoded Render backend URL
+export const API_BASE_URL: string = _raw || (_env['PROD'] ? RENDER_BACKEND : '/api/v1');
