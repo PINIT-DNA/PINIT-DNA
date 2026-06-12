@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Archive, Search, Lock, RefreshCw, Download, Eye, ExternalLink, Share2, Copy, Check, Clock, Ban } from 'lucide-react';
+import { Archive, Search, Lock, RefreshCw, Download, Eye, ExternalLink, Share2, Copy, Check, Clock, Ban, FileSearch } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import axios from 'axios';
@@ -653,6 +654,7 @@ export function VaultPage() {
   const [search, setSearch]   = useState('');
   const [selected, setSelected] = useState<VaultRecord | null>(null);
   const [sharing, setSharing]   = useState<VaultRecord | null>(null);
+  const navigate = useNavigate();
 
   const filtered = (records ?? []).filter(r =>
     r.originalFileName.toLowerCase().includes(search.toLowerCase()) ||
@@ -796,6 +798,13 @@ export function VaultPage() {
                           title="Generate Smart Share Link"
                         >
                           <Share2 size={14} />
+                        </button>
+                        <button
+                          onClick={() => navigate(`/intelligence/${r.id}`)}
+                          className="btn-ghost btn-icon text-gray-500 hover:text-purple-400"
+                          title="Intelligence Report"
+                        >
+                          <FileSearch size={14} />
                         </button>
                         <a
                           href={`/api/v1/dna/${r.dnaRecordId}`}

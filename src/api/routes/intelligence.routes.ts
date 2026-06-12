@@ -12,6 +12,7 @@ import {
   getAuditForRecord,
   getIntelligenceStats,
   exportAuditCsv,
+  getIntelligenceReport,
 } from '../controllers/document-intelligence.controller';
 import { debugIndexed }          from '../controllers/debug-index.controller';
 import { tikaHealth, extractTikaMetadata } from '../controllers/tika.controller';
@@ -38,6 +39,9 @@ router.get('/audit/export', exportAuditCsv);
 
 /** GET  /intelligence/audit/:id       — Audit for one DNA record */
 router.get('/audit/:dnaRecordId', getAuditForRecord);
+
+/** GET  /intelligence/report/:vaultId — Full document intelligence report */
+router.get('/report/:vaultId', getIntelligenceReport);
 
 /** GET  /intelligence/stats           — Intelligence statistics */
 router.get('/stats', getIntelligenceStats);
