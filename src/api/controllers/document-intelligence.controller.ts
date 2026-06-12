@@ -300,16 +300,16 @@ export async function getIntelligenceReport(req: Request, res: Response, next: N
       deviceModel:  meta?.deviceModel ?? null,
       software:     meta?.software    ?? null,
     };
-    // Derive country/city from first share access if metadata GPS missing
+    // Derive country/city from share access logs — prefer first log with real geo data
     if (!meta?.gpsLatitude) {
-      const firstAccess = shareLinks.flatMap(l => l.accessLogs).sort((a, b) =>
-        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-      )[0];
-      if (firstAccess) {
-        provenance.country = firstAccess.country ?? null;
-        provenance.city    = firstAccess.city    ?? null;
-        (provenance as any).accessDevice  = firstAccess.device  ?? null;
-        (provenance as any).accessBrowser = firstAccess.browser ?? null;
+      const allAccessLogs = shareLinks.flatMap(l => l.accessLogs)
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      const geoAccess = allAccessLogs.find(l => l.country) ?? allAccessLogs[0];
+      if (geoAccess) {
+        provenance.country = geoAccess.country ?? null;
+        provenance.city    = geoAccess.city    ?? null;
+        (provenance as any).accessDevice  = geoAccess.device  ?? null;
+        (provenance as any).accessBrowser = geoAccess.browser ?? null;
       }
     }
 
