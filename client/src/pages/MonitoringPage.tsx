@@ -362,7 +362,9 @@ export function MonitoringPage() {
     } catch { toast.error('Failed to update schedule'); }
   };
 
-  const notMonitored = (dnaRecords ?? []).filter(r => !monitors.some(m => m.dnaRecordId === r.id));
+  const notMonitored = (dnaRecords ?? []).filter(r =>
+    !monitors.some(m => m.dnaRecordId === r.id && (m.status === 'ACTIVE' || m.status === 'PAUSED'))
+  );
 
   return (
     <div className="space-y-5 animate-fade-in">
