@@ -71,8 +71,8 @@ export async function listDnaRecords(
       },
     });
 
-    const ownerName  = process.env['OWNER_NAME']  ?? 'PINIT User';
-    const ownerEmail = process.env['OWNER_EMAIL'] ?? null;
+    const owner = await prisma.user.findFirst({ select: { shortId: true } });
+    const ownerUserId = owner?.shortId ?? 'PINIT-UNKNOWN';
 
     res.status(200).json({
       success: true,
@@ -86,8 +86,7 @@ export async function listDnaRecords(
         imageSizeBytes: r.imageSizeBytes,
         createdAt:     r.createdAt.toISOString(),
         vaultId:       r.vaultRecord?.id ?? null,
-        ownerName,
-        ownerEmail,
+        ownerUserId,
       })),
     });
   } catch (err) {
