@@ -141,8 +141,10 @@ if (require.main === module) {
     // Phase 5: Start scheduled tasks
     vaultScheduler.start();
 
-    // Start Python AI microservice as child process (no separate terminal needed)
-    startPythonAI();
+    // Start Python AI only in local dev — too memory-heavy for Render free tier (512MB)
+    if (config.env !== 'production') {
+      startPythonAI();
+    }
 
     // Log Tika status (Tika runs in Docker separately — just check if available)
     setTimeout(async () => {

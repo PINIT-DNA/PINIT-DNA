@@ -427,15 +427,19 @@ model MonitorRecord {
 
   filename      String
   fileType      String    @default("UNKNOWN")
-  status        String    @default("ACTIVE")   // ACTIVE | PAUSED | STOPPED
+  status        String    @default("ACTIVE")    // ACTIVE | PAUSED | STOPPED
+  scanType      String    @default("DAILY")     // MANUAL | DAILY | WEEKLY | CONTINUOUS
   checkEveryHrs Int       @default(24)
   lastCheckedAt DateTime?
   nextCheckAt   DateTime?
   totalChecks   Int       @default(0)
   totalMatches  Int       @default(0)
+  totalFailures Int       @default(0)
+  lastDurationMs Int?
 
-  watchUrls     String[]  // specific URLs to watch (optional)
+  watchUrls     String[]
   crawlResults  CrawlResult[]
+  monitoringRuns MonitoringRun[]
 
   @@index([status])
   @@index([nextCheckAt])
@@ -454,14 +458,56 @@ model CrawlResult {
   foundText       String?       @db.Text
   textLength      Int           @default(0)
   similarity      Float         @default(0)
-  matchType       String        @default("NO_MATCH") // DUPLICATE | NEAR_MATCH | POSSIBLE | NO_MATCH
+  matchType       String        @default("NO_MATCH") // EXACT_MATCH | HIGH_MATCH | POSSIBLE_MATCH | NO_MATCH
   alertStatus     String        @default("PENDING")  // PENDING | CONFIRMED | DISMISSED
   checkedAt       DateTime      @default(now())
+  evidenceGenerated Boolean     @default(false)
+  contentSnapshot String?       @db.Text
+  screenshotPath  String?
 
   @@index([monitorRecordId])
   @@index([matchType])
   @@index([alertStatus])
   @@map("crawl_results")
+}
+
+model MonitoringRun {
+  id              String        @id @default(uuid())
+  createdAt       DateTime      @default(now())
+
+  monitorRecordId String
+  monitorRecord   MonitorRecord @relation(fields: [monitorRecordId], references: [id], onDelete: Cascade)
+
+  status          String        @default("RUNNING")  // RUNNING | COMPLETED | FAILED
+  trigger         String        @default("SCHEDULED") // SCHEDULED | MANUAL | CONTINUOUS
+  startedAt       DateTime      @default(now())
+  completedAt     DateTime?
+  durationMs      Int?
+  candidatesFound Int           @default(0)
+  matchesFound    Int           @default(0)
+  failureReason   String?
+
+  failures        MonitoringFailure[]
+
+  @@index([monitorRecordId])
+  @@index([status])
+  @@map("monitoring_runs")
+}
+
+model MonitoringFailure {
+  id              String        @id @default(uuid())
+  createdAt       DateTime      @default(now())
+
+  monitoringRunId String
+  monitoringRun   MonitoringRun @relation(fields: [monitoringRunId], references: [id], onDelete: Cascade)
+
+  url             String        @db.Text
+  errorCode       String?
+  errorMessage    String?       @db.Text
+  stage           String?       // CRAWL | DOWNLOAD | FINGERPRINT | COMPARE
+
+  @@index([monitoringRunId])
+  @@map("monitoring_failures")
 }
 
 // ─── Smart Links Engine ───────────────────────────────────────────────────────
