@@ -10,7 +10,7 @@ export async function enrollMonitor(req: Request, res: Response, next: NextFunct
   } catch (err) { next(err); }
 }
 
-export async function listMonitors(req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function listMonitors(_req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const monitors = await monitoringService.listMonitors();
     res.json({ success: true, count: monitors.length, monitors });
@@ -26,7 +26,7 @@ export async function runCheckNow(req: Request, res: Response, next: NextFunctio
 
 export async function getMonitorRuns(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const runs = await monitoringService.getMonitorRuns(req.params.id);
+    const runs = await monitoringService.getMonitorRuns(req.params['id']);
     res.json({ success: true, runs });
   } catch (err) { next(err); }
 }
@@ -65,7 +65,7 @@ export async function confirmAlert(req: Request, res: Response, next: NextFuncti
   } catch (err) { next(err); }
 }
 
-export async function getMonitoringStats(req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function getMonitoringStats(_req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const stats = await monitoringService.getStats();
     res.json({ success: true, ...stats });

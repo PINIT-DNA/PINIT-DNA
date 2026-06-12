@@ -42,7 +42,6 @@ function classifyTextSimilarity(sim: number): MatchType {
 const IMAGE_TYPES  = new Set(['IMAGE', 'JPG', 'JPEG', 'PNG', 'WEBP', 'GIF']);
 const AUDIO_TYPES  = new Set(['AUDIO', 'MP3', 'WAV', 'FLAC', 'AAC', 'OGG']);
 const VIDEO_TYPES  = new Set(['VIDEO', 'MP4', 'MOV', 'AVI', 'MKV', 'WEBM']);
-const DOC_TYPES    = new Set(['PDF', 'DOCX', 'DOC', 'TXT', 'PPTX', 'XLSX', 'CSV', 'TEXT', 'DOCUMENT']);
 
 function routeFileType(fileType: string, mimeType?: string): 'IMAGE' | 'AUDIO' | 'VIDEO' | 'DOCUMENT' {
   const ft = (fileType ?? '').toUpperCase();
