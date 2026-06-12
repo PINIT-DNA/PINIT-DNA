@@ -308,6 +308,8 @@ export async function getIntelligenceReport(req: Request, res: Response, next: N
       if (firstAccess) {
         provenance.country = firstAccess.country ?? null;
         provenance.city    = firstAccess.city    ?? null;
+        (provenance as any).accessDevice  = firstAccess.device  ?? null;
+        (provenance as any).accessBrowser = firstAccess.browser ?? null;
       }
     }
 
@@ -354,14 +356,17 @@ export async function getIntelligenceReport(req: Request, res: Response, next: N
     const allLogs    = shareLinks.flatMap(l => l.accessLogs);
     const countries  = [...new Set(allLogs.map(l => l.country).filter(Boolean))] as string[];
     const devices    = [...new Set(allLogs.map(l => l.device).filter(Boolean))]  as string[];
+    const browsers   = [...new Set(allLogs.map(l => l.browser).filter(Boolean))] as string[];
     const recipients = [...new Set(allLogs.map(l => l.recipientName).filter(Boolean))] as string[];
     const distribution = {
       totalShareLinks: shareLinks.length,
       activeLinks:     shareLinks.filter(l => l.isActive).length,
       totalViews:      shareLinks.reduce((s, l) => s + l.viewCount, 0),
       totalDownloads:  shareLinks.reduce((s, l) => s + l.downloadCount, 0),
+      totalEvents:     allLogs.length,
       uniqueCountries: countries,
       uniqueDevices:   devices,
+      uniqueBrowsers:  browsers,
       recipients:      recipients.slice(0, 20),
       timeline: allLogs
         .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())

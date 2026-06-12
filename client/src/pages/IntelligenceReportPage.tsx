@@ -38,8 +38,8 @@ interface IntelReport {
   };
   distribution: {
     totalShareLinks: number; activeLinks: number;
-    totalViews: number; totalDownloads: number;
-    uniqueCountries: string[]; uniqueDevices: string[]; recipients: string[];
+    totalViews: number; totalDownloads: number; totalEvents: number;
+    uniqueCountries: string[]; uniqueDevices: string[]; uniqueBrowsers: string[]; recipients: string[];
     timeline: { action: string; at: string; country: string | null; device: string | null; browser: string | null; riskLevel: string | null }[];
   };
   risk: {
@@ -208,9 +208,9 @@ export function IntelligenceReportPage() {
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
         {[
           { label: 'Risk Score',    value: `${r.risk.riskScore}`,          sub: '/100',    color: r.risk.riskScore > 50 ? 'text-red-400' : 'text-emerald-400' },
-          { label: 'Views',         value: `${r.distribution.totalViews}`, sub: 'total',   color: 'text-dna-400' },
-          { label: 'Downloads',     value: `${r.distribution.totalDownloads}`, sub: 'total', color: 'text-dna-400' },
-          { label: 'Countries',     value: `${r.distribution.uniqueCountries.length}`, sub: 'reached', color: 'text-blue-400' },
+          { label: 'Views',         value: `${r.distribution.totalViews}`,   sub: 'total',   color: 'text-dna-400' },
+          { label: 'Events',        value: `${r.distribution.totalEvents}`,  sub: 'tracked', color: 'text-blue-400' },
+          { label: 'Countries',     value: r.distribution.uniqueCountries.length > 0 ? `${r.distribution.uniqueCountries.length}` : '—', sub: 'reached', color: 'text-blue-400' },
           { label: 'Online Matches',value: `${r.discovery.totalMatches}`,  sub: 'found',   color: r.discovery.totalMatches > 0 ? 'text-orange-400' : 'text-gray-400' },
           { label: 'Evidence',      value: `${r.risk.evidenceCount}`,      sub: 'records', color: r.risk.evidenceCount > 0 ? 'text-yellow-400' : 'text-gray-400' },
         ].map(s => (
@@ -314,10 +314,10 @@ export function IntelligenceReportPage() {
       <Section icon={Globe} title="Distribution Intelligence" accent="bg-purple-500/20 text-purple-400">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
           {[
-            { label: 'Share Links',  value: r.distribution.totalShareLinks, sub: `${r.distribution.activeLinks} active` },
-            { label: 'Total Views',  value: r.distribution.totalViews,      sub: 'all time' },
-            { label: 'Downloads',    value: r.distribution.totalDownloads,  sub: 'all time' },
-            { label: 'Countries',    value: r.distribution.uniqueCountries.length, sub: 'reached' },
+            { label: 'Share Links',   value: r.distribution.totalShareLinks, sub: `${r.distribution.activeLinks} active` },
+            { label: 'Total Views',   value: r.distribution.totalViews,      sub: 'all time' },
+            { label: 'Total Events',  value: r.distribution.totalEvents,     sub: 'tracked' },
+            { label: 'Countries',     value: r.distribution.uniqueCountries.length || '—', sub: 'reached' },
           ].map(s => (
             <div key={s.label} className="bg-bg-elevated rounded-lg p-3 text-center">
               <p className="text-lg font-bold text-dna-400">{s.value}</p>
@@ -339,7 +339,16 @@ export function IntelligenceReportPage() {
           <Row label="Device Types" value={
             <div className="flex flex-wrap gap-1 justify-end">
               {r.distribution.uniqueDevices.map(d => (
-                <span key={d} className="text-2xs bg-bg-elevated border border-bg-border rounded px-2 py-0.5">{d}</span>
+                <span key={d} className="text-2xs bg-bg-elevated border border-bg-border rounded px-2 py-0.5 capitalize">{d}</span>
+              ))}
+            </div>
+          } />
+        )}
+        {r.distribution.uniqueBrowsers.length > 0 && (
+          <Row label="Browsers" value={
+            <div className="flex flex-wrap gap-1 justify-end">
+              {r.distribution.uniqueBrowsers.map(b => (
+                <span key={b} className="text-2xs bg-bg-elevated border border-bg-border rounded px-2 py-0.5">{b}</span>
               ))}
             </div>
           } />
