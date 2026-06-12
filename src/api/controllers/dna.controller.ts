@@ -71,9 +71,6 @@ export async function listDnaRecords(
       },
     });
 
-    const owner = await prisma.user.findFirst({ select: { shortId: true } });
-    const ownerUserId = owner?.shortId ?? 'PINIT-UNKNOWN';
-
     res.status(200).json({
       success: true,
       count: records.length,
@@ -86,7 +83,6 @@ export async function listDnaRecords(
         imageSizeBytes: r.imageSizeBytes,
         createdAt:     r.createdAt.toISOString(),
         vaultId:       r.vaultRecord?.id ?? null,
-        ownerUserId,
       })),
     });
   } catch (err) {

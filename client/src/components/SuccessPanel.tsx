@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { useAuth } from '../context/AuthContext';
 import type { DnaSession } from '../types';
 
 interface Props {
@@ -19,6 +20,7 @@ function formatBytes(b: number) {
 }
 
 export function SuccessPanel({ session, onReset }: Props) {
+  const { user } = useAuth();
   return (
     <div className="max-w-2xl mx-auto w-full">
       {/* Hero */}
@@ -97,6 +99,7 @@ export function SuccessPanel({ session, onReset }: Props) {
             { label: 'Key Derivation',    value: 'HKDF-SHA256',                                  mono: true,  accent: null     },
             { label: 'Generated At',      value: new Date(session.generatedAt).toLocaleString(), mono: false, accent: null     },
             { label: 'Stored At',         value: session.vault ? new Date(session.vault.storedAt).toLocaleString() : '—', mono: false, accent: null },
+            { label: 'Owner User ID',     value: user?.shortId ?? '—',                           mono: true,  accent: 'purple'  },
           ].map((row) => (
             <div key={row.label} className="flex gap-3 bg-bg-base rounded-lg px-3 py-2">
               <span className="text-xs text-gray-500 mono w-36 shrink-0">{row.label}</span>

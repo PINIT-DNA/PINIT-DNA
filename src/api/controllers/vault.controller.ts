@@ -38,9 +38,6 @@ export async function listVaultRecords(
       },
     });
 
-    const owner = await prisma.user.findFirst({ select: { shortId: true } });
-    const ownerUserId = owner?.shortId ?? 'PINIT-UNKNOWN';
-
     res.status(200).json({
       success: true,
       count: records.length,
@@ -54,7 +51,6 @@ export async function listVaultRecords(
         encryptionAlgorithm: r.encryptionAlgorithm,
         keyDerivation:       r.keyDerivation,
         createdAt:           r.createdAt.toISOString(),
-        ownerUserId,
         dnaRecord: {
           id:       r.dnaRecord.id,
           status:   r.dnaRecord.status,

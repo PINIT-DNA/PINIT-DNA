@@ -10,10 +10,12 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { API_BASE_URL } from '../config/api.config';
+import { useAuth } from '../context/AuthContext';
 import type { VaultRecord } from '../types/dashboard.types';
 
 function VaultDetailModal({ record, onClose }: { record: VaultRecord; onClose: () => void }) {
   const [retrieving, setRetrieving] = useState(false);
+  const { user } = useAuth();
 
   const handleRetrieve = async () => {
     setRetrieving(true);
@@ -46,7 +48,7 @@ function VaultDetailModal({ record, onClose }: { record: VaultRecord; onClose: (
             { label: 'Encryption',           value: record.encryptionAlgorithm,    mono: true,  accent: false },
             { label: 'Key Derivation',       value: record.keyDerivation,          mono: true,  accent: false },
             { label: 'Stored At',            value: format(new Date(record.createdAt), 'PPpp'), mono: false, accent: false },
-            { label: 'Owner User ID',        value: record.ownerUserId ?? '—', mono: true, accent: true },
+            { label: 'Owner User ID',        value: user?.shortId ?? '—', mono: true, accent: true },
           ].map(row => (
             <div key={row.label} className="bg-bg-elevated rounded-lg p-3">
               <p className="text-2xs text-gray-500 mono mb-1">{row.label}</p>

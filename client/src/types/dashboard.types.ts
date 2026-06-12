@@ -12,7 +12,6 @@ export interface DnaRecord {
   createdAt: string;
   updatedAt?: string;
   vaultId: string | null;
-  ownerUserId?: string;
 }
 
 export interface VaultRecord {
@@ -25,7 +24,6 @@ export interface VaultRecord {
   encryptionAlgorithm: string;
   keyDerivation: string;
   createdAt: string;
-  ownerUserId?: string;
   dnaRecord: {
     id: string;
     status: string;
