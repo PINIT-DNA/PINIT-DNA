@@ -555,6 +555,106 @@ model UnmaskRequest {
   @@map("unmask_requests")
 }
 
+// ─── Phase 2: Recipient Identity System ──────────────────────────────────────
+
+model RecipientProfile {
+  id            String   @id @default(uuid())
+  recipientCode String   @unique  // REC-001, REC-002, ...
+  fingerprint   String?  @unique  // device fingerprint hash for re-identification
+  firstSeen     DateTime @default(now())
+  lastSeen      DateTime @default(now())
+  countries     String[] @default([])
+  devices       String[] @default([])
+  ipAddresses   String[] @default([])
+  totalSessions Int      @default(0)
+
+  watermarkProfiles WatermarkProfile[]
+
+  @@index([fingerprint])
+  @@map("recipient_profiles")
+}
+
+// ─── Phase 2: Watermark Profiles ─────────────────────────────────────────────
+
+model WatermarkProfile {
+  id               String   @id @default(uuid())
+  createdAt        DateTime @default(now())
+
+  dnaRecordId      String
+  shareLinkId      String
+  recipientId      String?
+  recipientProfile RecipientProfile? @relation(fields: [recipientId], references: [id])
+
+  watermarkCode    String   @unique  // WM-XXXX-YYYY
+  watermarkVersion Int      @default(1)
+  payload          String   @db.Text // JSON: {mfid, shareId, recipientId, timestamp, wmCode}
+
+  // Extraction status (set when leak scan finds this watermark)
+  extractedAt      DateTime?
+  extractedFrom    String?   // path/description of leaked file
+
+  @@index([dnaRecordId])
+  @@index([shareLinkId])
+  @@index([watermarkCode])
+  @@map("watermark_profiles")
+}
+
+// ─── Phase 2: Incidents ───────────────────────────────────────────────────────
+
+model Incident {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  incidentCode String  @unique  // INC-0001
+  dnaRecordId  String?
+  shareLinkId  String?
+  recipientId  String?
+
+  severity     String   // LOW | MEDIUM | HIGH | CRITICAL
+  status       String   @default("OPEN")  // OPEN | INVESTIGATING | RESOLVED | DISMISSED
+  triggerType  String   // SCREENSHOT_BURST | LEAK_MATCH | COUNTRY_VIOLATION | MASS_DOWNLOAD | VPN_DETECTED | MANUAL
+  description  String   @db.Text
+  metadata     String?  @db.Text  // JSON: extra context
+
+  resolvedAt   DateTime?
+  resolvedNote String?  @db.Text
+
+  evidenceRecords EvidenceRecord[]
+
+  @@index([dnaRecordId])
+  @@index([severity])
+  @@index([status])
+  @@map("incidents")
+}
+
+// ─── Phase 2: Evidence Records ────────────────────────────────────────────────
+
+model EvidenceRecord {
+  id           String   @id @default(uuid())
+  createdAt    DateTime @default(now())
+
+  evidenceCode String   @unique  // EVD-0001
+  incidentId   String?
+  incident     Incident? @relation(fields: [incidentId], references: [id])
+
+  dnaRecordId  String?
+  shareLinkId  String?
+  recipientId  String?
+
+  evidenceType String   // WATERMARK_MATCH | ACCESS_LOG | VIOLATION | LEAK_ATTRIBUTION | MANUAL
+  description  String   @db.Text
+  metadata     String?  @db.Text  // JSON: structured evidence data
+  hash         String?  // SHA-256 of evidence content (integrity)
+  storagePath  String?  // path to stored evidence file if any
+
+  collectedAt  DateTime @default(now())
+
+  @@index([incidentId])
+  @@index([dnaRecordId])
+  @@map("evidence_records")
+}
+
 model ShareAccessLog {
   id          String    @id @default(uuid())
   createdAt   DateTime  @default(now())

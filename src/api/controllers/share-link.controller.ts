@@ -13,6 +13,11 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { shareLinkService, geoFromIp } from '../../services/share/share-link.service';
+import {
+  getOrCreateRecipient,
+  createWatermarkProfile,
+  embedWatermark,
+} from '../../services/watermark/watermark.service';
 import { VaultService }     from '../../services/vault/vault.service';
 import { logger }           from '../../lib/logger';
 import { prisma }           from '../../lib/prisma';
@@ -375,7 +380,28 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
       'Pragma':              'no-cache',
       'Expires':             '0',
     });
-    res.send(result.originalBuffer);
+    // ── Invisible watermarking ────────────────────────────────────────────────
+    let fileBuffer = result.originalBuffer;
+    try {
+      const fingerprint = req.headers['x-device-fingerprint'] as string | undefined
+        ?? req.headers['x-fingerprint'] as string | undefined;
+      const { id: recipientId } = await getOrCreateRecipient({
+        fingerprint,
+        country: (req as any).geoCountry ?? undefined,
+        device:  req.headers['user-agent'],
+        ipAddress: realIp,
+      });
+      const { watermarkCode, payload } = await createWatermarkProfile({
+        dnaRecordId: fullLink.dnaRecordId,
+        shareLinkId: fullLink.id,
+        recipientId,
+      });
+      fileBuffer = await embedWatermark(fileBuffer, fullLink.mimeType, watermarkCode, payload);
+    } catch (wmErr) {
+      logger.warn('[Watermark] Watermarking failed — serving original', { error: (wmErr as Error).message });
+    }
+
+    res.send(fileBuffer);
   } catch (err) { next(err); }
 }
 
@@ -671,6 +697,55 @@ export async function getGlobalShareStats(_req: Request, res: Response, next: Ne
         leakIncidents:        null,
         leakSources:          null,
       },
+    });
+  } catch (err) { next(err); }
+}
+
+// ── Leak Attribution — upload a leaked file to identify watermark ─────────────
+
+import multer from 'multer';
+import {
+  extractWatermarkFromFile,
+  attributeLeak,
+} from '../../services/watermark/watermark.service';
+
+const leakUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+export const leakUploadMiddleware = leakUpload.single('file');
+
+export async function attributeLeakedFile(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const file = (req as any).file as Express.Multer.File | undefined;
+    if (!file) {
+      res.status(400).json({ success: false, error: 'No file uploaded' });
+      return;
+    }
+
+    const mimeType = file.mimetype;
+    const extraction = await extractWatermarkFromFile(file.buffer, mimeType);
+
+    if (!extraction.watermarkCode) {
+      res.json({
+        success: true,
+        found: false,
+        message: 'No PINIT-DNA watermark detected in this file',
+        method: extraction.method,
+      });
+      return;
+    }
+
+    const attribution = await attributeLeak(extraction.watermarkCode);
+
+    res.json({
+      success: true,
+      found: attribution.found,
+      watermarkCode: extraction.watermarkCode,
+      extractionMethod: extraction.method,
+      confidence: attribution.confidence,
+      attribution: attribution.found ? {
+        watermarkProfile: attribution.watermarkProfile,
+        recipientProfile: attribution.recipientProfile,
+        shareLink:        attribution.shareLink,
+      } : null,
     });
   } catch (err) { next(err); }
 }
