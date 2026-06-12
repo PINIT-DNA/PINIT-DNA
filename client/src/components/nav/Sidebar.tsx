@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Dna, Shield, Archive, FileSearch,
   GitCompare, Award, ChevronRight, Zap, Clock,
-  ShieldCheck, Activity, Microscope, Search, Radio, Ban, LogOut, User,
+  ShieldCheck, Activity, Microscope, Search, Radio, Ban, LogOut, User, ShieldAlert,
 } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { useAuth } from '../../context/AuthContext';
@@ -41,6 +41,7 @@ const NAV_GROUPS = [
       { to: '/vault-integrity',      icon: Activity,    label: 'Vault Integrity'       },
       { to: '/duplicate-attempts',   icon: Ban,         label: 'Duplicate Attempts'    },
       { to: '/unmask-requests',      icon: Shield,      label: 'Unmask Requests'       },
+      { to: '/security-center',      icon: ShieldAlert, label: 'Security Center'        },
     ],
   },
 ];
