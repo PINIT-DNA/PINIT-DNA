@@ -196,6 +196,17 @@ if (require.main === module) {
       }
     }, 20_000);
 
+    // Keep Render free tier awake — ping self every 14 minutes
+    if (process.env['NODE_ENV'] === 'production' && process.env['RENDER_EXTERNAL_URL']) {
+      const keepAliveUrl = `${process.env['RENDER_EXTERNAL_URL']}/api/v1/health`;
+      setInterval(() => {
+        import('https').then(({ default: https }) =>
+          https.get(keepAliveUrl, () => {}).on('error', () => {})
+        );
+      }, 14 * 60 * 1000);
+      logger.info('Keep-alive ping enabled', { url: keepAliveUrl });
+    }
+
     // Phase 6: Register graceful shutdown (also stops Python AI)
     const { registerGracefulShutdown } = require('./lib/graceful-shutdown');
     registerGracefulShutdown(server);
