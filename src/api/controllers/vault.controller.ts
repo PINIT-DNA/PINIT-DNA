@@ -38,6 +38,9 @@ export async function listVaultRecords(
       },
     });
 
+    const ownerName  = process.env['OWNER_NAME']  ?? 'PINIT User';
+    const ownerEmail = process.env['OWNER_EMAIL'] ?? null;
+
     res.status(200).json({
       success: true,
       count: records.length,
@@ -51,6 +54,8 @@ export async function listVaultRecords(
         encryptionAlgorithm: r.encryptionAlgorithm,
         keyDerivation:       r.keyDerivation,
         createdAt:           r.createdAt.toISOString(),
+        ownerName,
+        ownerEmail,
         dnaRecord: {
           id:       r.dnaRecord.id,
           status:   r.dnaRecord.status,

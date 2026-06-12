@@ -71,6 +71,9 @@ export async function listDnaRecords(
       },
     });
 
+    const ownerName  = process.env['OWNER_NAME']  ?? 'PINIT User';
+    const ownerEmail = process.env['OWNER_EMAIL'] ?? null;
+
     res.status(200).json({
       success: true,
       count: records.length,
@@ -83,6 +86,8 @@ export async function listDnaRecords(
         imageSizeBytes: r.imageSizeBytes,
         createdAt:     r.createdAt.toISOString(),
         vaultId:       r.vaultRecord?.id ?? null,
+        ownerName,
+        ownerEmail,
       })),
     });
   } catch (err) {

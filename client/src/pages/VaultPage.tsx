@@ -46,6 +46,8 @@ function VaultDetailModal({ record, onClose }: { record: VaultRecord; onClose: (
             { label: 'Encryption',           value: record.encryptionAlgorithm,    mono: true,  accent: false },
             { label: 'Key Derivation',       value: record.keyDerivation,          mono: true,  accent: false },
             { label: 'Stored At',            value: format(new Date(record.createdAt), 'PPpp'), mono: false, accent: false },
+            { label: 'Created By',           value: record.ownerName ?? 'PINIT User', mono: false, accent: false },
+            ...(record.ownerEmail ? [{ label: 'Owner Email', value: record.ownerEmail, mono: true, accent: false }] : []),
           ].map(row => (
             <div key={row.label} className="bg-bg-elevated rounded-lg p-3">
               <p className="text-2xs text-gray-500 mono mb-1">{row.label}</p>
