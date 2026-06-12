@@ -21,8 +21,9 @@ interface IntelReport {
   provenance: {
     uploadedAt: string; vaultedAt: string; capturedAt: string | null;
     gpsLatitude: number | null; gpsLongitude: number | null;
+    accessGpsLat: number | null; accessGpsLng: number | null; accessGpsCity: string | null;
     country: string | null; city: string | null;
-    deviceMake: string | null; deviceModel: string | null; software: string | null;
+    deviceModel: string | null; software: string | null;
   };
   integrity: {
     sha256Hash: string | null; normalizedHash: string | null;
@@ -240,11 +241,13 @@ export function IntelligenceReportPage() {
         <Row label="Uploaded At"   value={fmtDate(r.provenance.uploadedAt)} />
         <Row label="Vaulted At"    value={fmtDate(r.provenance.vaultedAt)} />
         <Row label="File Created"  value={r.provenance.capturedAt ? fmtDate(r.provenance.capturedAt) : '—'} />
-        <Row label="Device Make"   value={r.provenance.deviceMake  ?? '—'} />
         <Row label="Device Model"  value={r.provenance.deviceModel ?? '—'} />
         <Row label="Software"      value={r.provenance.software    ?? '—'} />
-        <Row label="GPS Latitude"  value={r.provenance.gpsLatitude  !== null ? `${r.provenance.gpsLatitude}°`  : '—'} />
-        <Row label="GPS Longitude" value={r.provenance.gpsLongitude !== null ? `${r.provenance.gpsLongitude}°` : '—'} />
+        <Row label="File GPS Lat"  value={r.provenance.gpsLatitude  !== null ? `${r.provenance.gpsLatitude}°`  : '—'} />
+        <Row label="File GPS Lng"  value={r.provenance.gpsLongitude !== null ? `${r.provenance.gpsLongitude}°` : '—'} />
+        <Row label="Access GPS Lat"  value={r.provenance.accessGpsLat  !== null ? `${r.provenance.accessGpsLat}°`  : '—'} />
+        <Row label="Access GPS Lng"  value={r.provenance.accessGpsLng  !== null ? `${r.provenance.accessGpsLng}°`  : '—'} />
+        <Row label="Access GPS City" value={r.provenance.accessGpsCity ?? '—'} />
         <Row label="Country"       value={r.provenance.country ?? '—'} />
         <Row label="City"          value={r.provenance.city    ?? '—'} />
       </Section>

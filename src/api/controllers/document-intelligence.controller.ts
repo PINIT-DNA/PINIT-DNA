@@ -288,30 +288,29 @@ export async function getIntelligenceReport(req: Request, res: Response, next: N
 
     // Provenance
     const meta = dna.metadataLayer;
+    const allAccessLogs = shareLinks.flatMap(l => l.accessLogs)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    const geoAccess = allAccessLogs.find(l => l.country) ?? allAccessLogs[0] ?? null;
+    const gpsAccess = allAccessLogs.find(l => l.gpsLat !== null) ?? null;
+
     const provenance = {
-      uploadedAt:   dna.createdAt.toISOString(),
-      vaultedAt:    vault.createdAt.toISOString(),
-      capturedAt:   meta?.capturedAt?.toISOString() ?? null,
-      gpsLatitude:  meta?.gpsLatitude  ?? null,
-      gpsLongitude: meta?.gpsLongitude ?? null,
-      country:      null as string | null,
-      city:         null as string | null,
-      deviceMake:   meta?.deviceMake  ?? null,
-      deviceModel:  meta?.deviceModel ?? null,
-      software:     meta?.software    ?? null,
+      uploadedAt:    dna.createdAt.toISOString(),
+      vaultedAt:     vault.createdAt.toISOString(),
+      capturedAt:    meta?.capturedAt?.toISOString() ?? null,
+      // File EXIF GPS (images only)
+      gpsLatitude:   meta?.gpsLatitude  ?? null,
+      gpsLongitude:  meta?.gpsLongitude ?? null,
+      // Share-link access GPS (viewer's browser location, if consented)
+      accessGpsLat:  gpsAccess?.gpsLat  ?? null,
+      accessGpsLng:  gpsAccess?.gpsLng  ?? null,
+      accessGpsCity: gpsAccess?.gpsCity ?? null,
+      // Geo from IP
+      country:       geoAccess?.country ?? null,
+      city:          geoAccess?.city    ?? null,
+      // Device info (images only — from EXIF)
+      deviceModel:   meta?.deviceModel ?? null,
+      software:      meta?.software    ?? null,
     };
-    // Derive country/city from share access logs — prefer first log with real geo data
-    if (!meta?.gpsLatitude) {
-      const allAccessLogs = shareLinks.flatMap(l => l.accessLogs)
-        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-      const geoAccess = allAccessLogs.find(l => l.country) ?? allAccessLogs[0];
-      if (geoAccess) {
-        provenance.country = geoAccess.country ?? null;
-        provenance.city    = geoAccess.city    ?? null;
-        (provenance as any).accessDevice  = geoAccess.device  ?? null;
-        (provenance as any).accessBrowser = geoAccess.browser ?? null;
-      }
-    }
 
     // Integrity
     const lastVerif = dna.verifications[0];
