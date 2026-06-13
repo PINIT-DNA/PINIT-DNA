@@ -84,6 +84,25 @@ export class PdfDnaEngine {
       });
     }
 
+    // Save extracted text as OCR record — pdf-parse gives us the text for free
+    if (extractedText.trim().length > 0) {
+      const wordCount = (extractedText.match(/\S+/g) ?? []).length;
+      await prisma.ocrRecord.upsert({
+        where:  { dnaRecordId },
+        create: {
+          dnaRecordId,
+          extractedText,
+          wordCount,
+          confidence:  1.0,
+          language:    'eng',
+          processingMs: 0,
+          indexed:     false,
+          ocrStatus:   'COMPLETE',
+        },
+        update: { extractedText, wordCount, ocrStatus: 'COMPLETE', indexed: false },
+      });
+    }
+
     await prisma.dnaRecord.update({
       where: { id: dnaRecordId },
       data: { status, universalFingerprints: { layers } as object },
