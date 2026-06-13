@@ -49,6 +49,7 @@ interface MonitorRecord {
   crawlResults: CrawlResult[];
   monitoringRuns: MonitoringRun[];
   _count: { crawlResults: number; monitoringRuns: number };
+  watchUrls: string[];
 }
 
 interface CrawlResult {
@@ -155,16 +156,36 @@ function AlertCard({ alert, onDismiss, onConfirm }: {
 
 // ─── Monitor Card ─────────────────────────────────────────────────────────────
 
-function MonitorCard({ m, onCheck, onPause, onResume, onScanTypeChange, checking }: {
+function MonitorCard({ m, onCheck, onPause, onResume, onScanTypeChange, checking, onRefresh }: {
   m: MonitorRecord;
   onCheck: () => void;
   onPause: () => void;
   onResume: () => void;
   onScanTypeChange: (t: string) => void;
   checking: boolean;
+  onRefresh: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [showUrlInput, setShowUrlInput] = useState(false);
+  const [newUrl, setNewUrl] = useState('');
+  const [savingUrl, setSavingUrl] = useState(false);
   const cat = fileCategory(m.fileType);
+
+  const handleAddUrl = async () => {
+    if (!newUrl.trim()) return;
+    setSavingUrl(true);
+    try {
+      await axios.patch(`${API_BASE_URL}/monitoring/${m.id}/watch-urls`, {
+        watchUrls: [...(m.watchUrls ?? []), newUrl.trim()],
+      });
+      toast.success('Watch URL added — click Check Now to scan');
+      setNewUrl('');
+      setShowUrlInput(false);
+      onRefresh();
+    } catch {
+      toast.error('Failed to add URL');
+    } finally { setSavingUrl(false); }
+  };
 
   return (
     <div className="card">
@@ -265,18 +286,54 @@ function MonitorCard({ m, onCheck, onPause, onResume, onScanTypeChange, checking
               )}
             </div>
           )}
-        </div>
+
+          {/* Watch URL input */}
+          {showUrlInput && (
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                type="url"
+                value={newUrl}
+                onChange={e => setNewUrl(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAddUrl()}
+                placeholder="https://i.postimg.cc/xxx/filename.jpg"
+                className="input text-xs flex-1"
+                autoFocus
+              />
+              <button onClick={handleAddUrl} disabled={savingUrl} className="btn btn-primary btn-sm text-xs">
+                {savingUrl ? <RefreshCw size={11} className="animate-spin" /> : 'Add'}
+              </button>
+              <button onClick={() => setShowUrlInput(false)} className="btn btn-secondary btn-sm text-xs">Cancel</button>
+            </div>
+          )}
+
+          {/* Existing watch URLs */}
+          {(m.watchUrls ?? []).length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {m.watchUrls.map((u: string) => (
+                <span key={u} className="text-2xs bg-dna-500/10 border border-dna-500/20 text-dna-400 rounded px-2 py-0.5 mono truncate max-w-xs">
+                  {u.length > 50 ? u.slice(0, 50) + '…' : u}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>{/* end flex-1 */}
 
         {/* Actions */}
-        <div className="flex items-center gap-1 shrink-0">
-          <button onClick={onCheck} disabled={checking}
-            className="btn btn-secondary btn-sm text-xs" title="Run check now">
-            {checking ? <RefreshCw size={12} className="animate-spin" /> : <Search size={12} />}
-            {checking ? 'Checking…' : 'Check Now'}
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <div className="flex items-center gap-1">
+            <button onClick={onCheck} disabled={checking}
+              className="btn btn-secondary btn-sm text-xs" title="Run check now">
+              {checking ? <RefreshCw size={12} className="animate-spin" /> : <Search size={12} />}
+              {checking ? 'Checking…' : 'Check Now'}
+            </button>
+            {m.status === 'ACTIVE'
+              ? <button onClick={onPause} className="btn-ghost btn-icon" title="Pause"><Pause size={12} /></button>
+              : <button onClick={onResume} className="btn-ghost btn-icon" title="Resume"><Play size={12} /></button>}
+          </div>
+          <button onClick={() => setShowUrlInput((v: boolean) => !v)}
+            className="text-2xs text-dna-400 hover:text-dna-300 flex items-center gap-1">
+            + Add Watch URL
           </button>
-          {m.status === 'ACTIVE'
-            ? <button onClick={onPause} className="btn-ghost btn-icon" title="Pause"><Pause size={12} /></button>
-            : <button onClick={onResume} className="btn-ghost btn-icon" title="Resume"><Play size={12} /></button>}
         </div>
       </div>
     </div>
@@ -541,9 +598,10 @@ export function MonitoringPage() {
               <MonitorCard key={m.id} m={m}
                 checking={checking === m.id}
                 onCheck={() => handleCheck(m.id)}
-                onPause={() => axios.post(`${API_BASE_URL}/monitor/${m.id}/pause`).then(load)}
-                onResume={() => axios.post(`${API_BASE_URL}/monitor/${m.id}/resume`).then(load)}
-                onScanTypeChange={(t) => handleScanTypeChange(m.id, t)} />
+                onPause={() => axios.post(`${API_BASE_URL}/monitoring/${m.id}/pause`).then(load)}
+                onResume={() => axios.post(`${API_BASE_URL}/monitoring/${m.id}/resume`).then(load)}
+                onScanTypeChange={(t) => handleScanTypeChange(m.id, t)}
+                onRefresh={load} />
             ))}
           </div>
         )}

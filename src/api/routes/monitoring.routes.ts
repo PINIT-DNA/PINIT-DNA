@@ -3,7 +3,7 @@ import {
   enrollMonitor, listMonitors, runCheckNow,
   getAlerts, dismissAlert, confirmAlert,
   getMonitoringStats, pauseMonitor, resumeMonitor, stopMonitor,
-  getMonitorRuns, updateScanType, enrollAll,
+  getMonitorRuns, updateScanType, enrollAll, updateWatchUrls,
 } from '../controllers/monitoring.controller';
 
 const router = Router();
@@ -18,6 +18,7 @@ router.post('/alerts/:id/confirm',    confirmAlert);
 router.post('/:id/check',             runCheckNow);
 router.get('/:id/runs',               getMonitorRuns);
 router.patch('/:id/scan-type',        updateScanType);
+router.patch('/:id/watch-urls',       updateWatchUrls);
 router.post('/:id/pause',             pauseMonitor);
 router.post('/:id/resume',            resumeMonitor);
 router.delete('/:id',                 stopMonitor);

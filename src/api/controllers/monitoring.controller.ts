@@ -101,6 +101,17 @@ export async function stopMonitor(req: Request, res: Response, next: NextFunctio
   } catch (err) { next(err); }
 }
 
+export async function updateWatchUrls(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { watchUrls } = req.body as { watchUrls: string[] };
+    await prisma.monitorRecord.update({
+      where: { id: req.params.id },
+      data: { watchUrls, nextCheckAt: new Date(Date.now() + 5000) },
+    });
+    res.json({ success: true });
+  } catch (err) { next(err); }
+}
+
 // Enroll all DNA records that don't have an active monitor yet
 export async function enrollAll(_req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
