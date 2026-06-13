@@ -43,9 +43,9 @@ function hashOtp(otp: string): string {
 interface GeoInfo { country?: string; city?: string; region?: string; isp?: string; }
 
 export async function geoFromIp(ip: string): Promise<GeoInfo> {
-  // Skip private/loopback IPs
-  if (!ip || ip === '::1' || ip.startsWith('127.') || ip.startsWith('192.168.') || ip.startsWith('10.')) {
-    return {};
+  // Return a local-network label for private/loopback IPs so the UI shows something useful
+  if (!ip || ip === '::1' || ip.startsWith('127.') || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
+    return { country: 'Local Network', city: 'Localhost', region: 'Private', isp: 'Local' };
   }
   try {
     const clean = ip.replace('::ffff:', ''); // strip IPv6-mapped IPv4
