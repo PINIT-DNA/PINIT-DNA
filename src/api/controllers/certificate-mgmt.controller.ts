@@ -78,9 +78,10 @@ export async function revokeCertificate(req: Request, res: Response, next: NextF
 
 // ─── GET /certificates ────────────────────────────────────────────────────────
 
-export async function listCertificates(_req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function listCertificates(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const certs = await certificateService.listAll();
+    const userId = (req as any).user?.sub;
+    const certs = await certificateService.listAll(userId);
     res.status(200).json({ success: true, count: certs.length, certificates: certs });
   } catch (err) {
     next(err);

@@ -12,6 +12,8 @@ import { Router } from 'express';
 import { uploadSingle, uploadComparison } from '../middleware/upload.middleware';
 import { listDnaRecords, generateDna, verifyDna, getDnaRecord, getSupportedTypes, getDuplicateAttempts } from '../controllers/dna.controller';
 import { compareDna } from '../controllers/comparison.controller';
+import { requireAuth } from '../middleware/auth.middleware';
+import { requireDnaOwnership } from '../middleware/ownership.middleware';
 
 const router = Router();
 
@@ -30,7 +32,7 @@ const router = Router();
  *   generatedAt: "ISO8601"
  * }
  */
-router.get('/', listDnaRecords);
+router.get('/', requireAuth, listDnaRecords);
 
 /**
  * GET /dna/supported-types
@@ -72,7 +74,7 @@ router.post('/compare', uploadComparison, compareDna);
  *   verifiedAt: "ISO8601"
  * }
  */
-router.post('/:id/verify', uploadSingle, verifyDna);
+router.post('/:id/verify', requireAuth, requireDnaOwnership, uploadSingle, verifyDna);
 
 /**
  * GET /dna/:id
@@ -88,6 +90,6 @@ router.post('/:id/verify', uploadSingle, verifyDna);
  *   }
  * }
  */
-router.get('/:id', getDnaRecord);
+router.get('/:id', requireAuth, requireDnaOwnership, getDnaRecord);
 
 export { router as dnaRouter };

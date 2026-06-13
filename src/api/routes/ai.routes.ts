@@ -4,16 +4,17 @@ import {
   detectDuplicates, findSimilar, generateEmbedding, aiStats,
 } from '../controllers/ai.controller';
 import { reindexAll } from '../controllers/ai-reindex.controller';
+import { requireAuth } from '../middleware/auth.middleware';
 
 const router = Router();
 
-router.get('/health',              aiHealth);
-router.get('/stats',               aiStats);
-router.post('/embed',              generateEmbedding);
-router.post('/index/:dnaRecordId', indexDocument);
-router.post('/search',             semanticSearch);
-router.post('/duplicates',         detectDuplicates);
-router.post('/similar',            findSimilar);
-router.post('/reindex-all',        reindexAll);
+router.get('/health',              aiHealth);           // public health check
+router.get('/stats',               requireAuth, aiStats);
+router.post('/embed',              requireAuth, generateEmbedding);
+router.post('/index/:dnaRecordId', requireAuth, indexDocument);
+router.post('/search',             requireAuth, semanticSearch);
+router.post('/duplicates',         requireAuth, detectDuplicates);
+router.post('/similar',            requireAuth, findSimilar);
+router.post('/reindex-all',        requireAuth, reindexAll);
 
 export { router as aiRouter };

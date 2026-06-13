@@ -69,12 +69,14 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
 
     if (!vaultId) { res.status(400).json({ success: false, error: 'vaultId is required' }); return; }
 
+    const ownerUserId = (req as any).user?.sub as string | undefined;
     const { devOtp, ...link } = await shareLinkService.create({
       vaultId, expiresIn, maxViews, allowDownload, requireName, note,
       oneTimeUse, maxDownloads, allowedCountries, allowedDeviceTypes, allowedIpPrefixes,
       requireOtp, recipientEmail,
       privacyMaskingEnabled, maskEmail, maskPhone, maskAadhaar, maskPan, maskAddress, maskCustomPatterns,
       requestLocation,
+      ownerUserId,
     });
 
     // Build the public share URL using resolvePublicBaseUrl priority chain:
@@ -97,9 +99,10 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
 
 // ── List all links ────────────────────────────────────────────────────────────
 
-export async function listShareLinks(_req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function listShareLinks(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const links = await shareLinkService.listAll();
+    const userId = (req as any).user?.sub;
+    const links = await shareLinkService.listAll(userId);
     res.json({ success: true, count: links.length, links });
   } catch (err) { next(err); }
 }

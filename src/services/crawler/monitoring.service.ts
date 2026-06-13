@@ -85,11 +85,11 @@ export class MonitoringService {
 
   async enroll(
     dnaRecordId: string,
-    opts: { watchUrls?: string[]; scanType?: string } = {}
+    opts: { watchUrls?: string[]; scanType?: string; ownerUserId?: string } = {}
   ): Promise<string> {
     const record = await prisma.dnaRecord.findUnique({
       where:  { id: dnaRecordId },
-      select: { imageFilename: true, fileType: true },
+      select: { imageFilename: true, fileType: true, ownerUserId: true },
     });
     if (!record) throw new Error(`DNA record not found: ${dnaRecordId}`);
 
@@ -100,10 +100,13 @@ export class MonitoringService {
 
     const scanType    = opts.scanType ?? 'DAILY';
     const checkHrs    = scanType === 'WEEKLY' ? 168 : scanType === 'CONTINUOUS' ? 1 : 24;
+    // Prefer explicitly passed userId, fall back to the DNA record's owner
+    const ownerUserId = opts.ownerUserId ?? record.ownerUserId ?? undefined;
 
     const monitor = await prisma.monitorRecord.create({
       data: {
         dnaRecordId,
+        ownerUserId:  ownerUserId ?? null,
         filename:     record.imageFilename,
         fileType:     record.fileType ?? 'UNKNOWN',
         status:       'ACTIVE',
@@ -379,8 +382,9 @@ export class MonitoringService {
 
   // ─── List / alerts / stats ─────────────────────────────────────────────────
 
-  async listMonitors() {
+  async listMonitors(userId?: string) {
     return prisma.monitorRecord.findMany({
+      where: userId ? { ownerUserId: userId } : undefined,
       orderBy: { createdAt: 'desc' },
       include: {
         crawlResults: {

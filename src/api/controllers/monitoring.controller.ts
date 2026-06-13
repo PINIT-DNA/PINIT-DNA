@@ -12,9 +12,10 @@ export async function enrollMonitor(req: Request, res: Response, next: NextFunct
   } catch (err) { next(err); }
 }
 
-export async function listMonitors(_req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function listMonitors(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const monitors = await monitoringService.listMonitors();
+    const userId = (req as any).user?.sub;
+    const monitors = await monitoringService.listMonitors(userId);
     res.json({ success: true, count: monitors.length, monitors });
   } catch (err) { next(err); }
 }
@@ -113,10 +114,14 @@ export async function updateWatchUrls(req: Request, res: Response, next: NextFun
 }
 
 // Enroll all DNA records that don't have an active monitor yet
-export async function enrollAll(_req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function enrollAll(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    const userId = (req as any).user?.sub;
     const allDna = await prisma.dnaRecord.findMany({
-      where: { status: { in: ['COMPLETE', 'PARTIAL'] } },
+      where: {
+        status: { in: ['COMPLETE', 'PARTIAL'] },
+        ownerUserId: userId ?? undefined,
+      },
       select: { id: true, imageFilename: true },
     });
 

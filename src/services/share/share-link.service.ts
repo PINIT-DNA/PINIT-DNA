@@ -92,6 +92,9 @@ export interface CreateShareLinkInput {
 
   // ── GPS Location Request ──────────────────────────────────────────────
   requestLocation?:       boolean;
+
+  // ── Tenant isolation ──────────────────────────────────────────────────
+  ownerUserId?:           string;
 }
 
 export interface ShareLinkPublicInfo {
@@ -260,6 +263,9 @@ export class ShareLinkService {
           : null,
         // GPS Location Request
         requestLocation: input.requestLocation ?? false,
+
+        // Tenant isolation
+        ownerUserId: input.ownerUserId ?? null,
       },
     });
 
@@ -597,8 +603,9 @@ export class ShareLinkService {
 
   // ── List all share links (admin view) ─────────────────────────────────────
 
-  async listAll() {
+  async listAll(userId?: string) {
     return prisma.shareLink.findMany({
+      where: userId ? { ownerUserId: userId } : undefined,
       orderBy: { createdAt: 'desc' },
       include: {
         _count: { select: { accessLogs: true } },

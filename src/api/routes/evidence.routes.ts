@@ -9,21 +9,22 @@ import {
   updateIncidentStatus,
   listRecipients,
 } from '../controllers/evidence-report.controller';
+import { requireAuth } from '../middleware/auth.middleware';
 
 export const evidenceRouter = Router();
 
 // ── Evidence Reports ──────────────────────────────────────────────────────────
-evidenceRouter.post('/report',             generateReport);
-evidenceRouter.get('/records',             listEvidenceRecords);
-evidenceRouter.get('/records/:id',         getEvidenceRecord);
+evidenceRouter.post('/report',             requireAuth, generateReport);
+evidenceRouter.get('/records',             requireAuth, listEvidenceRecords);
+evidenceRouter.get('/records/:id',         requireAuth, getEvidenceRecord);
 
 // ── Incidents ─────────────────────────────────────────────────────────────────
-evidenceRouter.get('/incidents',           listIncidents);
-evidenceRouter.get('/incidents/:id',       getIncident);
-evidenceRouter.patch('/incidents/:id',     updateIncidentStatus);
+evidenceRouter.get('/incidents',           requireAuth, listIncidents);
+evidenceRouter.get('/incidents/:id',       requireAuth, getIncident);
+evidenceRouter.patch('/incidents/:id',     requireAuth, updateIncidentStatus);
 
 // ── Recipient Profiles ────────────────────────────────────────────────────────
-evidenceRouter.get('/recipients',          listRecipients);
+evidenceRouter.get('/recipients',          requireAuth, listRecipients);
 
 // ── Forward Chain Graph ───────────────────────────────────────────────────────
-evidenceRouter.get('/chain/:dnaRecordId',  getForwardChain);
+evidenceRouter.get('/chain/:dnaRecordId',  requireAuth, getForwardChain);

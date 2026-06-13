@@ -53,12 +53,14 @@ const verifyBodySchema = z.object({
 // ─── GET /dna ─────────────────────────────────────────────────────────────────
 
 export async function listDnaRecords(
-  _req: Request,
+  req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> {
   try {
+    const userId = (req as any).user?.sub;
     const records = await prisma.dnaRecord.findMany({
+      where: { ownerUserId: userId ?? undefined },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -172,6 +174,15 @@ export async function generateDna(
       },
       generatedAt: result.generatedAt.toISOString(),
     };
+
+    // Stamp owner on the DNA record if user is authenticated
+    const userId = (req as any).user?.sub;
+    if (userId) {
+      await prisma.dnaRecord.update({
+        where: { id: result.dnaRecordId },
+        data: { ownerUserId: userId },
+      });
+    }
 
     // Fire-and-forget: auto-index in FAISS for semantic search
     autoIndexer.indexAfterDnaGeneration({

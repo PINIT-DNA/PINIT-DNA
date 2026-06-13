@@ -3,13 +3,14 @@ import {
   issueCertificate, verifyCertificate, revokeCertificate,
   listCertificates, listCertificatesByDna,
 } from '../controllers/certificate-mgmt.controller';
+import { requireAuth } from '../middleware/auth.middleware';
 
 const router = Router();
 
-router.post('/',                    issueCertificate);
-router.get('/verify/:certificateId', verifyCertificate);
-router.post('/revoke/:certificateId', revokeCertificate);
-router.get('/',                     listCertificates);
-router.get('/dna/:dnaRecordId',     listCertificatesByDna);
+router.post('/',                    requireAuth, issueCertificate);
+router.get('/verify/:certificateId', verifyCertificate);   // public — anyone can verify a certificate
+router.post('/revoke/:certificateId', requireAuth, revokeCertificate);
+router.get('/',                     requireAuth, listCertificates);
+router.get('/dna/:dnaRecordId',     requireAuth, listCertificatesByDna);
 
 export { router as certificateMgmtRouter };

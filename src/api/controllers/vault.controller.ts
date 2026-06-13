@@ -25,13 +25,17 @@ const vaultService = new VaultService();
 // ─── GET /vault ───────────────────────────────────────────────────────────────
 
 export async function listVaultRecords(
-  _req: Request,
+  req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> {
   try {
+    const userId = (req as any).user?.sub;
     const { prisma } = await import('../../lib/prisma');
     const records = await prisma.vaultRecord.findMany({
+      where: {
+        dnaRecord: { ownerUserId: userId ?? undefined },
+      },
       orderBy: { createdAt: 'desc' },
       include: {
         dnaRecord: { select: { id: true, status: true, imageFilename: true } },

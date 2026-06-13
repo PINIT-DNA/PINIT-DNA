@@ -19,6 +19,10 @@ model DnaRecord {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Tenant isolation — the user who registered this DNA record
+  ownerUserId  String?
+  ownerUser    User?   @relation(fields: [ownerUserId], references: [id], onDelete: SetNull)
+
   // Original file reference
   // "image" prefix kept for backward compatibility — valid for all file types
   imageFilename     String
@@ -315,6 +319,11 @@ model User {
   lastLoginAt  DateTime?
 
   refreshTokens RefreshToken[]
+  dnaRecords    DnaRecord[]
+  shareLinks    ShareLink[]
+  monitorRecords MonitorRecord[]
+  certificates  Certificate[]
+  evidenceRecords EvidenceRecord[]
 
   @@map("users")
 }
@@ -345,6 +354,10 @@ model Certificate {
   revokedAt        DateTime?
   revocationReason String?
   issuedByUserId   String?
+
+  // Tenant isolation
+  ownerUserId      String?
+  ownerUser        User?    @relation(fields: [ownerUserId], references: [id], onDelete: SetNull)
 
   @@index([dnaRecordId])
   @@index([vaultId])
@@ -421,6 +434,10 @@ model MonitorRecord {
   id            String    @id @default(uuid())
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+
+  // Tenant isolation
+  ownerUserId   String?
+  ownerUser     User?     @relation(fields: [ownerUserId], references: [id], onDelete: SetNull)
 
   dnaRecordId   String
   dnaRecord     DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
@@ -516,6 +533,10 @@ model ShareLink {
   id          String   @id @default(uuid())
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  // Tenant isolation
+  ownerUserId  String?
+  ownerUser    User?   @relation(fields: [ownerUserId], references: [id], onDelete: SetNull)
 
   // What is being shared
   vaultId     String
@@ -683,6 +704,10 @@ model EvidenceRecord {
   evidenceCode String   @unique  // EVD-0001
   incidentId   String?
   incident     Incident? @relation(fields: [incidentId], references: [id])
+
+  // Tenant isolation
+  ownerUserId  String?
+  ownerUser    User?    @relation(fields: [ownerUserId], references: [id], onDelete: SetNull)
 
   dnaRecordId  String?
   shareLinkId  String?
