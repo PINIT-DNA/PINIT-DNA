@@ -504,11 +504,29 @@ export function MonitoringPage() {
 
       {/* Monitors list */}
       <div>
-        <h2 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-          <Radio size={14} className="text-dna-400" />
-          Monitored Files
-          <span className="text-2xs text-gray-600">({monitors.length})</span>
-        </h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+            <Radio size={14} className="text-dna-400" />
+            Monitored Files
+            <span className="text-2xs text-gray-600">({monitors.length})</span>
+          </h2>
+          {monitors.filter(m => m.status === 'ACTIVE').length > 0 && (
+            <button
+              onClick={async () => {
+                const active = monitors.filter(m => m.status === 'ACTIVE');
+                toast('Scanning all files — this may take a minute…');
+                for (const m of active) {
+                  try { await axios.post(`${API_BASE_URL}/monitoring/${m.id}/check`); } catch { /* skip */ }
+                }
+                toast.success('All scans complete — refreshing alerts');
+                load();
+              }}
+              className="btn btn-secondary btn-sm text-xs"
+            >
+              <Play size={12} /> Check All Now
+            </button>
+          )}
+        </div>
         {loading ? (
           <div className="space-y-3">{Array.from({length:3}).map((_,i) => <SkeletonCard key={i} />)}</div>
         ) : monitors.length === 0 ? (
