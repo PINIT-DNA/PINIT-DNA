@@ -6106,5 +6106,17 @@
     "textHash": "7d5e40276485748a",
     "indexedAt": "2026-06-12T04:13:14.665944Z",
     "_deleted": false
+  },
+  {
+    "dnaRecordId": "7e4099bb-1234-41e3-a171-289f5d48bb68",
+    "filename": "Hello World1.docx",
+    "fileType": "DOCX",
+    "title": "Hello World1.docx",
+    "author": "",
+    "snippet": "Hello World. I Am PinIT Who are you Hello Hello",
+    "fullText": "Hello World1.docx Hello World. I Am PinIT Who are you Hello Hello",
+    "textHash": "62b20425fd94f24f",
+    "indexedAt": "2026-06-12T14:19:35.630109Z",
+    "_deleted": false
   }
 ]

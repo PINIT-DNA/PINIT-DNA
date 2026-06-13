@@ -18,6 +18,13 @@ const PYTHON_MAIN = path.join(PYTHON_DIR, 'main.py');
 const AI_PORT     = parseInt(process.env['AI_SERVICE_PORT'] ?? '8001', 10);
 
 export function startPythonAI(): void {
+  // Skip if AI is hosted externally (Hugging Face Spaces or any non-localhost URL)
+  const aiUrl = process.env['AI_SERVICE_URL'] ?? '';
+  if (aiUrl && !aiUrl.includes('localhost') && !aiUrl.includes('127.0.0.1')) {
+    logger.info(`Python AI: using external service at ${aiUrl} — skipping local spawn`);
+    return;
+  }
+
   // Skip if python-ai/main.py doesn't exist
   if (!fs.existsSync(PYTHON_MAIN)) {
     logger.warn('Python AI service not found — skipping', { path: PYTHON_MAIN });

@@ -9,8 +9,10 @@ import { Badge, ClassificationBadge, FileTypeBadge } from '../components/ui/Badg
 import { Modal } from '../components/ui/Modal';
 import type { DnaRecord } from '../types/dashboard.types';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
 function DnaDetailModal({ record, onClose }: { record: DnaRecord; onClose: () => void }) {
+  const { user } = useAuth();
   return (
     <Modal open title="DNA Record Details" onClose={onClose} size="lg">
       <div className="p-6 space-y-3">
@@ -25,6 +27,7 @@ function DnaDetailModal({ record, onClose }: { record: DnaRecord; onClose: () =>
             { label: 'Engine Version',  value: record.engineVersion ?? '1.0.0', mono: true, accent: false },
             { label: 'Schema Version',  value: record.schemaVersion,    mono: true,  accent: false },
             { label: 'Created At',      value: format(new Date(record.createdAt), 'PPpp'), mono: false, accent: false },
+            { label: 'Owner User ID',   value: user?.shortId ?? '—', mono: true, accent: true },
             { label: 'Vault ID',        value: record.vaultId ?? 'Not vaulted', mono: true, accent: !!record.vaultId },
           ].map(row => (
             <div key={row.label} className="bg-bg-elevated rounded-lg p-3">
