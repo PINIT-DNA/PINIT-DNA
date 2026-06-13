@@ -19,14 +19,12 @@
  *   4. Decrypt → return original image bytes + MIME type
  */
 
-import fs from 'fs/promises';
-import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
-import { config } from '../../config';
 import { encrypt, decrypt } from './encryption.service';
+import { uploadVaultFile, downloadVaultFile } from '../../lib/supabase-storage';
 
 export interface StoreResult {
   vaultId:            string;
@@ -56,13 +54,9 @@ export class VaultService {
    * Ensure the vault storage directory exists.
    * Called once at startup or before first write.
    */
-  async ensureStorageDir(): Promise<void> {
-    await fs.mkdir(config.vault.storageDir, { recursive: true });
-  }
-
   /**
-   * Encrypt an image and store it in the vault.
-   * The original image buffer is encrypted in-memory and never written to disk.
+   * Encrypt a file and store it in Supabase Storage (persistent across redeploys).
+   * The original buffer is encrypted in-memory and never written to disk.
    */
   async store(params: {
     dnaRecordId:      string;
@@ -72,42 +66,28 @@ export class VaultService {
   }): Promise<StoreResult> {
     const { dnaRecordId, imageBuffer, originalFileName, originalMimeType } = params;
 
-    logger.info('Vault — storing encrypted image', {
+    logger.info('Vault — storing encrypted file', {
       dnaRecordId,
       originalFileName,
       originalSizeBytes: imageBuffer.length,
     });
 
     // ── Check DNA record exists ────────────────────────────────────────────
-    const dnaRecord = await prisma.dnaRecord.findUnique({
-      where: { id: dnaRecordId },
-    });
-    if (!dnaRecord) {
-      throw new Error(`DNA record not found: ${dnaRecordId}`);
-    }
+    const dnaRecord = await prisma.dnaRecord.findUnique({ where: { id: dnaRecordId } });
+    if (!dnaRecord) throw new Error(`DNA record not found: ${dnaRecordId}`);
 
     // ── Check not already vaulted ─────────────────────────────────────────
-    const existing = await prisma.vaultRecord.findUnique({
-      where: { dnaRecordId },
-    });
-    if (existing) {
-      throw new Error(`DNA record ${dnaRecordId} is already in the vault`);
-    }
+    const existing = await prisma.vaultRecord.findUnique({ where: { dnaRecordId } });
+    if (existing) throw new Error(`DNA record ${dnaRecordId} is already in the vault`);
 
-    // ── Generate vault ID and encrypt ─────────────────────────────────────
-    const vaultId = uuidv4();
-    await this.ensureStorageDir();
-
+    // ── Encrypt in-memory ─────────────────────────────────────────────────
+    const vaultId   = uuidv4();
     const encResult = encrypt(imageBuffer, vaultId);
 
-    // ── Write encrypted file — original bytes never touch disk ────────────
-    const encryptedFilePath = path.join(
-      config.vault.storageDir,
-      `${vaultId}.enc`
-    );
-    await fs.writeFile(encryptedFilePath, encResult.encryptedBuffer);
+    // ── Upload to Supabase Storage ────────────────────────────────────────
+    const encryptedFilePath = await uploadVaultFile(vaultId, encResult.encryptedBuffer);
 
-    logger.debug('Vault — encrypted file written', {
+    logger.debug('Vault — uploaded to Supabase Storage', {
       vaultId,
       encryptedFilePath,
       encryptedSizeBytes: encResult.encryptedSizeBytes,
@@ -176,12 +156,12 @@ export class VaultService {
     });
     if (!record) throw new Error(`Vault record not found: ${vaultId}`);
 
-    // ── Read encrypted file ───────────────────────────────────────────────
+    // ── Download from Supabase Storage ───────────────────────────────────
     let encryptedBuffer: Buffer;
     try {
-      encryptedBuffer = await fs.readFile(record.encryptedFilePath);
-    } catch {
-      throw new Error(`Encrypted vault file missing: ${record.encryptedFilePath}`);
+      encryptedBuffer = await downloadVaultFile(vaultId);
+    } catch (err) {
+      throw new Error(`Vault file unavailable: ${String(err)}`);
     }
 
     // ── Decrypt (key re-derived from vaultId + master secret) ─────────────
