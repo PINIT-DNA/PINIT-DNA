@@ -380,15 +380,17 @@ export function MonitoringPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={async () => {
-              try {
-                const { data } = await axios.post(`${API_BASE_URL}/monitoring/enroll-all`);
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const d = data as any;
-                toast.success(`Enrolled ${d.enrolled} new files for monitoring`);
-                load();
-              } catch {
-                toast.error('Failed to enroll all files');
+              const toEnroll = notMonitored;
+              if (toEnroll.length === 0) { toast('All files are already being monitored'); return; }
+              let enrolled = 0;
+              for (const r of toEnroll) {
+                try {
+                  await axios.post(`${API_BASE_URL}/monitoring/enroll/${r.id}`, { scanType: 'DAILY' });
+                  enrolled++;
+                } catch { /* skip already enrolled */ }
               }
+              toast.success(`Enrolled ${enrolled} files for monitoring`);
+              load();
             }}
             className="btn btn-secondary btn-sm"
             title="Auto-enroll all files that aren't being monitored yet"
@@ -569,14 +571,16 @@ export function MonitoringPage() {
             </div>
           </div>
 
-          {notMonitored.length === 0 ? (
-            <p className="text-sm text-gray-500 text-center py-4">All files are already enrolled.</p>
+          {(dnaRecords ?? []).length === 0 ? (
+            <p className="text-sm text-gray-500 text-center py-4">No files enrolled yet. Generate a DNA first.</p>
           ) : (
             <div className="space-y-2 max-h-52 overflow-y-auto">
-              {notMonitored.map(r => (
-                <button key={r.id} onClick={() => handleEnroll(r.id)}
-                  disabled={enrollingId === r.id}
-                  className="w-full flex items-center gap-3 p-3 bg-bg-elevated hover:bg-bg-muted rounded-xl border border-bg-border transition-all text-left disabled:opacity-60">
+              {(dnaRecords ?? []).map(r => {
+                const alreadyMonitored = monitors.some(m => m.dnaRecordId === r.id && (m.status === 'ACTIVE' || m.status === 'PAUSED'));
+                return (
+                <button key={r.id} onClick={() => !alreadyMonitored && handleEnroll(r.id)}
+                  disabled={enrollingId === r.id || alreadyMonitored}
+                  className={`w-full flex items-center gap-3 p-3 bg-bg-elevated rounded-xl border border-bg-border transition-all text-left ${alreadyMonitored ? 'opacity-50 cursor-not-allowed' : 'hover:bg-bg-muted'} disabled:opacity-60`}>
                   <FileTypeBadge type={deriveFileType(r)} />
                   <span className="text-xs text-gray-500 shrink-0">
                     {FILE_CATEGORY_ICON[fileCategory(deriveFileType(r))]}
@@ -585,11 +589,14 @@ export function MonitoringPage() {
                     <p className="text-sm font-medium text-white truncate">{r.imageFilename}</p>
                     <p className="text-2xs text-gray-500 mono">{r.id.slice(0,12)}…</p>
                   </div>
-                  {enrollingId === r.id
+                  {alreadyMonitored
+                    ? <span className="text-2xs text-success bg-success/10 border border-success/20 px-2 py-0.5 rounded shrink-0">Monitoring</span>
+                    : enrollingId === r.id
                     ? <RefreshCw size={14} className="text-dna-400 shrink-0 animate-spin" />
                     : <Radio size={14} className="text-dna-400 shrink-0" />}
                 </button>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
