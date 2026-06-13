@@ -238,18 +238,33 @@ export function IntelligenceReportPage() {
 
       {/* ── 2. Provenance Intelligence ────────────────────────────────────── */}
       <Section icon={Clock} title="Provenance Intelligence" accent="bg-blue-500/20 text-blue-400">
-        <Row label="Uploaded At"   value={fmtDate(r.provenance.uploadedAt)} />
-        <Row label="Vaulted At"    value={fmtDate(r.provenance.vaultedAt)} />
-        <Row label="File Created"  value={r.provenance.capturedAt ? fmtDate(r.provenance.capturedAt) : 'Not embedded in file'} />
-        <Row label="Device Model"  value={r.provenance.deviceModel ?? 'Not available for this file type'} />
-        <Row label="Software"      value={r.provenance.software    ?? 'Not embedded in file'} />
-        <Row label="File GPS Lat"  value={r.provenance.gpsLatitude  !== null ? `${r.provenance.gpsLatitude}°`  : 'Not embedded in file'} />
-        <Row label="File GPS Lng"  value={r.provenance.gpsLongitude !== null ? `${r.provenance.gpsLongitude}°` : 'Not embedded in file'} />
-        <Row label="Access GPS Lat"  value={r.provenance.accessGpsLat  !== null ? `${r.provenance.accessGpsLat}°`  : '—'} />
-        <Row label="Access GPS Lng"  value={r.provenance.accessGpsLng  !== null ? `${r.provenance.accessGpsLng}°`  : '—'} />
-        <Row label="Access GPS City" value={r.provenance.accessGpsCity ?? '—'} />
-        <Row label="Country"       value={r.provenance.country ?? '—'} />
-        <Row label="City"          value={r.provenance.city    ?? '—'} />
+        <Row label="Uploaded At"  value={fmtDate(r.provenance.uploadedAt)} />
+        <Row label="Vaulted At"   value={fmtDate(r.provenance.vaultedAt)} />
+        {r.provenance.capturedAt  && <Row label="File Created"  value={fmtDate(r.provenance.capturedAt)} />}
+        {r.provenance.deviceModel && <Row label="Device Model"  value={r.provenance.deviceModel} />}
+        {r.provenance.software    && <Row label="Software"      value={r.provenance.software} />}
+        <Row label="Country"      value={r.provenance.country ?? '—'} />
+        <Row label="City"         value={r.provenance.city    ?? '—'} />
+        {r.provenance.accessGpsCity && <Row label="Access City" value={r.provenance.accessGpsCity} />}
+
+        {/* Advanced Forensics — GPS (sensitive, collapsed by default) */}
+        {(r.provenance.gpsLatitude !== null || r.provenance.accessGpsLat !== null) && (
+          <details className="mt-3">
+            <summary className="text-2xs text-gray-500 cursor-pointer hover:text-gray-300 select-none">
+              Advanced Forensics — GPS Metadata
+            </summary>
+            <div className="mt-2 space-y-1">
+              {r.provenance.gpsLatitude !== null && (
+                <Row label="File GPS"
+                  value={`${r.provenance.gpsLatitude.toFixed(2)}°, ${r.provenance.gpsLongitude?.toFixed(2)}°`} />
+              )}
+              {r.provenance.accessGpsLat !== null && (
+                <Row label="Access GPS"
+                  value={`${r.provenance.accessGpsLat.toFixed(2)}°, ${r.provenance.accessGpsLng?.toFixed(2)}°`} />
+              )}
+            </div>
+          </details>
+        )}
       </Section>
 
       {/* ── 3. Integrity Intelligence ─────────────────────────────────────── */}
