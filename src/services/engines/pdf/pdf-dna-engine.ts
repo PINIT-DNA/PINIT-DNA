@@ -46,8 +46,9 @@ export class PdfDnaEngine {
       logger.warn('PDF parse failed', { dnaRecordId, error: parseError });
     }
 
-    // L1 always works (raw bytes)
-    layers.push(await this.runLayer(() => this.layer1(file.buffer)));
+    // L1: raw bytes hash + normalized text hash (once text is available)
+    const extractedText = pdfData?.text ?? '';
+    layers.push(await this.runLayer(() => this.layer1(file.buffer, extractedText)));
 
     if (!pdfData) {
       // Partial DNA: only L1 succeeded
@@ -72,6 +73,17 @@ export class PdfDnaEngine {
     const status = successful === 6 ? 'COMPLETE' : successful > 0 ? 'PARTIAL' : 'FAILED';
     const totalMs = Date.now() - start;
 
+    // Persist L1 hashes to CryptoLayer table so Intelligence Report can read them
+    const l1 = layers.find(l => l.layer === 1 && l.success);
+    if (l1?.data) {
+      const d = l1.data as { sha256Hash: string; normalizedHash: string };
+      await prisma.cryptoLayer.upsert({
+        where:  { dnaRecordId },
+        create: { dnaRecordId, sha256Hash: d.sha256Hash, normalizedHash: d.normalizedHash, blake3Hash: null },
+        update: { sha256Hash: d.sha256Hash, normalizedHash: d.normalizedHash },
+      });
+    }
+
     await prisma.dnaRecord.update({
       where: { id: dnaRecordId },
       data: { status, universalFingerprints: { layers } as object },
@@ -88,12 +100,20 @@ export class PdfDnaEngine {
 
   // ─── L1: Cryptographic ────────────────────────────────────────────────────
 
-  private layer1(buffer: Buffer): UniversalLayerResult {
+  private layer1(buffer: Buffer, text: string): UniversalLayerResult {
     const t = Date.now();
     const sha256Hash = crypto.createHash('sha256').update(buffer).digest('hex');
+
+    // Normalized hash: SHA-256 of cleaned text content
+    // Survives font changes, margin tweaks, re-exports — only changes if text changes
+    const normalizedText = text.toLowerCase().replace(/\s+/g, ' ').trim();
+    const normalizedHash = normalizedText.length > 0
+      ? crypto.createHash('sha256').update(normalizedText, 'utf8').digest('hex')
+      : sha256Hash; // fallback to file hash if no text extracted
+
     return {
       layer: 1, name: 'cryptographic', implementation: 'sha256',
-      fingerprint: sha256Hash, data: { sha256Hash },
+      fingerprint: sha256Hash, data: { sha256Hash, normalizedHash },
       success: true, processingMs: Date.now() - t,
     };
   }
