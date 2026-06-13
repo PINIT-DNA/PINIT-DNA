@@ -14,6 +14,7 @@ import { DnaVerifier } from '../../services/dna.verifier';
 import { UniversalVerifier } from '../../services/universal-verifier';
 import { auditService }  from '../../services/audit/audit.service';
 import { autoIndexer }   from '../../services/ai/auto-indexer.service';
+import { monitoringService } from '../../services/crawler/monitoring.service';
 import { UniversalFileRouter } from '../../services/universal-file-router';
 import { duplicateCheckService } from '../../services/duplicate/duplicate-check.service';
 import { prisma } from '../../lib/prisma';
@@ -180,6 +181,10 @@ export async function generateDna(
       fileType:    result.fileType,
       buffer,
     });
+
+    // Fire-and-forget: auto-start web monitoring for every enrolled file
+    monitoringService.enroll(result.dnaRecordId, { scanType: 'DAILY' })
+      .catch((err: unknown) => logger.warn('[Monitor] Auto-start failed', { error: String(err) }));
 
     // Fire-and-forget audit log
     auditService.log({
