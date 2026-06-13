@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Dna, Shield, Archive, FileSearch,
   GitCompare, Award, ChevronRight, Zap, Clock,
-  ShieldCheck, Activity, Microscope, Search, Radio, Ban, LogOut, User, ShieldAlert, Share2,
+  ShieldCheck, Activity, Microscope, Radio, Ban, LogOut, User, ShieldAlert, Share2,
 } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { useAuth } from '../../context/AuthContext';
@@ -27,7 +27,6 @@ const NAV_GROUPS = [
   {
     label: 'Intelligence',
     items: [
-      { to: '/search',             icon: Search,      label: 'AI Semantic Search'   },
       { to: '/forensic-diff',      icon: Microscope,  label: 'Difference Engine'    },
       { to: '/monitoring',         icon: Radio,       label: 'Monitoring & Crawler' },
     ],

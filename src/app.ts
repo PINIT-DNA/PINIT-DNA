@@ -41,8 +41,8 @@ if (fs.existsSync(reactBuildPath)) {
   app.use(express.static(publicPath));
 }
 
-// ─── Trust proxy (ngrok, load balancers) — enables real IP via X-Forwarded-For
-app.set('trust proxy', true);
+// ─── Trust proxy (Render/Vercel/ngrok) — 1 hop only to avoid rate-limit bypass warning
+app.set('trust proxy', 1);
 
 // ─── Security headers ─────────────────────────────────────────────────────────
 app.use(helmet({ contentSecurityPolicy: false }));
@@ -91,7 +91,9 @@ const apiLimiter = rateLimit({
   max:      config.rateLimit.max,
   standardHeaders: true,
   legacyHeaders:   false,
-  skip: (req) => req.path.startsWith('/api/v1/share/') && req.method === 'GET',
+  skip: (req) =>
+    process.env['NODE_ENV'] !== 'production' ||
+    (req.path.startsWith('/api/v1/share/') && req.method === 'GET'),
 });
 app.use(apiLimiter);
 

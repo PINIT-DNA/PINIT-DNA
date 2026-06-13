@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { Search, Database, RefreshCw, Eye, GitCompare, ChevronDown, ChevronUp, Share2 } from 'lucide-react';
+import { Search, Database, RefreshCw, Eye, GitCompare, ChevronDown, ChevronUp, Share2, Cpu } from 'lucide-react';
+import axios from 'axios';
+import { API_BASE_URL } from '../config/api.config';
 import { format } from 'date-fns';
 import { useApi, formatBytes } from '../hooks/useApi';
 import { listDnaRecords, deriveFileType } from '../services/dashboard.api';
@@ -60,19 +62,48 @@ type SortField = 'createdAt' | 'imageFilename' | 'fileType' | 'status';
 
 export function DnaRecordsPage() {
   const { data: records, loading, error, refetch } = useApi(listDnaRecords);
-  const [search, setSearch]   = useState('');
-  const [filter, setFilter]   = useState('ALL');
-  const [sort, setSort]       = useState<SortField>('createdAt');
-  const [asc, setAsc]         = useState(false);
+  const [search, setSearch]     = useState('');
+  const [filter, setFilter]     = useState('ALL');
+  const [sort, setSort]         = useState<SortField>('createdAt');
+  const [asc, setAsc]           = useState(false);
   const [selected, setSelected] = useState<DnaRecord | null>(null);
+  const [aiMode, setAiMode]     = useState(false);
+  const [aiResults, setAiResults] = useState<string[]>([]); // dnaRecordIds
+  const [aiSearching, setAiSearching] = useState(false);
   const navigate = useNavigate();
 
+  const handleSearch = async (q: string) => {
+    setSearch(q);
+    if (!aiMode || !q.trim()) { setAiResults([]); return; }
+    setAiSearching(true);
+    try {
+      const { data } = await axios.post(`${API_BASE_URL}/ai/search`, {
+        query: q.trim(), topK: 20, threshold: 0.30, mode: 'hybrid',
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const payload: any = (data as any).data ?? data;
+      setAiResults((payload.results ?? []).map((r: { dnaRecordId: string }) => r.dnaRecordId));
+    } catch {
+      setAiResults([]);
+    } finally {
+      setAiSearching(false);
+    }
+  };
+
   const filtered = (records ?? [])
-    .filter(r =>
-      (filter === 'ALL' || deriveFileType(r) === filter || r.status === filter) &&
-      (r.imageFilename.toLowerCase().includes(search.toLowerCase()) ||
-       r.id.toLowerCase().includes(search.toLowerCase()))
-    )
+    .filter(r => {
+      const matchesFilter = filter === 'ALL' || deriveFileType(r) === filter || r.status === filter;
+      if (!matchesFilter) return false;
+      if (!search) return true;
+      const keyword = (
+        r.imageFilename.toLowerCase().includes(search.toLowerCase()) ||
+        r.id.toLowerCase().includes(search.toLowerCase())
+      );
+      if (aiMode && !aiSearching) {
+        return aiResults.length > 0 ? aiResults.includes(r.id) : keyword;
+      }
+      return keyword;
+    })
     .sort((a, b) => {
       let va: string, vb: string;
       if (sort === 'createdAt') { va = a.createdAt; vb = b.createdAt; }
@@ -154,17 +185,31 @@ export function DnaRecordsPage() {
 
       {/* Table */}
       <div className="card overflow-hidden p-0">
-        <div className="p-4 border-b border-bg-border">
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+        <div className="flex items-center gap-3 p-4 border-b border-bg-border">
+          <div className="relative flex-1">
+            {aiSearching
+              ? <RefreshCw size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dna-400 animate-spin" />
+              : <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />}
             <input
               type="text"
-              placeholder="Search by filename or DNA Record ID…"
+              placeholder={aiMode ? 'Search by meaning, content, or filename…' : 'Search by filename or DNA Record ID…'}
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={e => handleSearch(e.target.value)}
               className="input pl-9 text-sm"
             />
           </div>
+          <button
+            onClick={() => { setAiMode(m => !m); setSearch(''); setAiResults([]); }}
+            title={aiMode ? 'Switch to keyword search' : 'Switch to AI semantic search'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all shrink-0 ${
+              aiMode
+                ? 'bg-dna-500/20 border-dna-500/40 text-dna-400'
+                : 'border-bg-border text-gray-500 hover:text-white hover:border-gray-600'
+            }`}
+          >
+            <Cpu size={13} />
+            {aiMode ? 'AI Search ON' : 'AI Search'}
+          </button>
         </div>
 
         <div className="overflow-x-auto">

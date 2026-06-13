@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Archive, Search, Lock, RefreshCw, Download, Eye, ExternalLink, Share2, Copy, Check, Clock, Ban, FileSearch } from 'lucide-react';
+import { Archive, Search, Lock, RefreshCw, Download, Eye, ExternalLink, Share2, Copy, Check, Clock, Ban, FileSearch, Cpu } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
@@ -651,16 +651,45 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
 
 export function VaultPage() {
   const { data: records, loading, error, refetch } = useApi(listVaultRecords);
-  const [search, setSearch]   = useState('');
+  const [search, setSearch]     = useState('');
   const [selected, setSelected] = useState<VaultRecord | null>(null);
   const [sharing, setSharing]   = useState<VaultRecord | null>(null);
+  const [aiMode, setAiMode]     = useState(false);
+  const [aiResults, setAiResults] = useState<string[]>([]); // dnaRecordIds matching AI search
+  const [aiSearching, setAiSearching] = useState(false);
   const navigate = useNavigate();
 
-  const filtered = (records ?? []).filter(r =>
-    r.originalFileName.toLowerCase().includes(search.toLowerCase()) ||
-    r.id.toLowerCase().includes(search.toLowerCase()) ||
-    r.dnaRecordId.toLowerCase().includes(search.toLowerCase())
-  );
+  const handleSearch = async (q: string) => {
+    setSearch(q);
+    if (!aiMode || !q.trim()) { setAiResults([]); return; }
+    setAiSearching(true);
+    try {
+      const { data } = await axios.post(`${API_BASE_URL}/ai/search`, {
+        query: q.trim(), topK: 20, threshold: 0.30, mode: 'hybrid',
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const payload: any = (data as any).data ?? data;
+      setAiResults((payload.results ?? []).map((r: { dnaRecordId: string }) => r.dnaRecordId));
+    } catch {
+      setAiResults([]);
+    } finally {
+      setAiSearching(false);
+    }
+  };
+
+  const filtered = (records ?? []).filter(r => {
+    if (!search) return true;
+    const keyword = (
+      r.originalFileName.toLowerCase().includes(search.toLowerCase()) ||
+      r.id.toLowerCase().includes(search.toLowerCase()) ||
+      r.dnaRecordId.toLowerCase().includes(search.toLowerCase())
+    );
+    if (aiMode && !aiSearching) {
+      // If AI returned results, use them; otherwise fall back to keyword
+      return aiResults.length > 0 ? aiResults.includes(r.dnaRecordId) : keyword;
+    }
+    return keyword;
+  });
 
   if (error) return (
     <div className="flex items-center justify-center h-64 text-center">
@@ -718,15 +747,29 @@ export function VaultPage() {
       <div className="card overflow-hidden p-0">
         <div className="flex items-center gap-3 p-4 border-b border-bg-border">
           <div className="relative flex-1">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+            {aiSearching
+              ? <RefreshCw size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dna-400 animate-spin" />
+              : <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />}
             <input
               type="text"
-              placeholder="Search by filename, vault ID, or DNA record ID…"
+              placeholder={aiMode ? 'Search by meaning, content, or filename…' : 'Search by filename, vault ID, or DNA record ID…'}
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={e => handleSearch(e.target.value)}
               className="input pl-9 text-sm"
             />
           </div>
+          <button
+            onClick={() => { setAiMode(m => !m); setSearch(''); setAiResults([]); }}
+            title={aiMode ? 'Switch to keyword search' : 'Switch to AI semantic search'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all shrink-0 ${
+              aiMode
+                ? 'bg-dna-500/20 border-dna-500/40 text-dna-400'
+                : 'border-bg-border text-gray-500 hover:text-white hover:border-gray-600'
+            }`}
+          >
+            <Cpu size={13} />
+            {aiMode ? 'AI Search ON' : 'AI Search'}
+          </button>
           <Archive size={16} className="text-gray-500 shrink-0" />
         </div>
 
