@@ -24,7 +24,7 @@ export async function generateDna(file: File): Promise<GenerateDnaResponse> {
   form.append('image', file);
 
   try {
-    const { data } = await client.post<GenerateDnaResponse>('/dna/generate', form, {
+    const { data } = await client.post<GenerateDnaResponse>('dna/generate', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
     return data;
@@ -57,7 +57,7 @@ export async function generateDna(file: File): Promise<GenerateDnaResponse> {
  * Calls: GET /api/v1/dna/:id
  */
 export async function getDnaRecord(id: string) {
-  const { data } = await client.get(`/dna/${id}`);
+  const { data } = await client.get(`dna/${id}`);
   return data;
 }
 
@@ -70,7 +70,7 @@ export async function storeInVault(file: File, dnaRecordId: string) {
   form.append('image', file);
   form.append('dnaRecordId', dnaRecordId);
 
-  const { data } = await client.post('/vault/store', form, {
+  const { data } = await client.post('vault/store', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return data;
@@ -81,6 +81,6 @@ export async function storeInVault(file: File, dnaRecordId: string) {
  * Calls: GET /api/v1/vault/:id
  */
 export async function getVaultRecord(vaultId: string) {
-  const { data } = await client.get(`/vault/${vaultId}`);
+  const { data } = await client.get(`vault/${vaultId}`);
   return data;
 }
