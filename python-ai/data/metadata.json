@@ -6250,5 +6250,29 @@
     "textHash": "08760936dcb3e2bf",
     "indexedAt": "2026-06-13T08:36:35.048316Z",
     "_deleted": false
+  },
+  {
+    "dnaRecordId": "b3cc8230-802f-4909-b942-3f999f84b6cf",
+    "filename": "Kavvam_Ashwitha_full stack_ (2).pdf",
+    "fileType": "PDF",
+    "title": "Kavvam_Ashwitha_full stack_ (2).pdf",
+    "author": "",
+    "snippet": "Kavvam Ashwitha Hyderabad, India|Phone+91 6302004848|Envelopeashwithareddykavvam39@gmail.com LINKEDINlinkedin.com/in/kavvam-ashwitha/|Githubgithub.com/ashwitha2004 Professional Summary Full Stack Developer with hands-on experience building scalable web applications using React.js, TypeScript, FastAPI, Python, and Supabase. Skilled in REST APIs, authentication systems, backend integration, and responsive UI development. Experienced in AI-powered image verification workflows and secure full-stack ",
+    "fullText": "Kavvam_Ashwitha_full stack_ (2).pdf Kavvam Ashwitha\nHyderabad, India|Phone+91 6302004848|Envelopeashwithareddykavvam39@gmail.com\nLINKEDINlinkedin.com/in/kavvam-ashwitha/|Githubgithub.com/ashwitha2004\nProfessional Summary\nFull Stack Developer with hands-on experience building scalable web applications using React.js, TypeScript, FastAPI, Python, and\nSupabase. Skilled in REST APIs, authentication systems, backend integration, and responsive UI development. Experienced in AI-powered\nimage verification workflows and secure full-stack application development.\nTechnical Skills\nLanguages: JavaScript, TypeScript, Python, SQL\nFrontend: React.js, HTML5, CSS3, Tailwind CSS\nBackend: FastAPI, REST APIs\nDatabases: PostgreSQL, Supabase, MongoDB, MySQL\nTools: Git, GitHub, Postman, VS Code, Vercel\nOther: JWT Authentication, API Integration, TensorFlow.js, ONNX Runtime\nExperience\nTCT (The Career Tech)Mar 2026 \u2013 Present\nJunior Software DeveloperHyderabad, India\n\u2013 Developed secure digital vault and image verification workflows using React.js, FastAPI, and Supabase.\n\u2013 Built REST APIs, authentication systems, dashboards, and scalable frontend-backend integrations.\n\u2013 Implemented OTP verification, JWT authentication, encrypted storage, and secure sharing workflows.\n\u2013 Worked on AI-powered image verification systems using TensorFlow.js and ONNX Runtime.\n\u2013 Collaborated on debugging, deployment, feature development, and database integration workflows.\nDevTownMar 2024 \u2013 Apr 2024\nFull Stack Web Development InternRemote\n\u2013 Developed responsive frontend components and integrated backend APIs using React.js and FastAPI.\n\u2013 Worked on authentication workflows, debugging, deployment, and database integration tasks.\nProjects\nPINIT Vault \u2014 AI-Based Image Verification System\n\u2013 Developed AI-powered image forensic detection workflows using Python, FastAPI, TensorFlow.js, and ONNX Runtime.\n\u2013 Implemented image authenticity verification using EXIF analysis, FFT analysis, and residual-noise detection.\n\u2013 Built backend inference APIs and real-time verification dashboards for secure image validation workflows.\nPINIT Vault \u2014 Secure Documents & Portfolio Sharing System\n\u2013 Developed scalable full-stack applications using React.js, TypeScript, FastAPI, and Supabase.\n\u2013 Implemented encrypted storage, protected share links, authentication systems, and responsive dashboards.\n\u2013 Designed scalable frontend-backend workflows with secure REST API integrations and optimized database operations.\nGen-AI Placement Management System\n\u2013 Developed a recruitment platform with AI-powered resume analysis using Gemini API.\n\u2013 Built recruiter dashboards, candidate management systems, and authentication workflows.\nEducation\nCMR Institute of TechnologyNov 2022 \u2013 Apr 2026\nBachelor of Technology in Computer Science and Engineering (Data Science)CGPA: 7.75\nCertifications\n\u2022 AWS Academy Graduate \u2014 AWS Academy Cloud Foundations\n\u2022 AI-ML Virtual Internship \u2014 Google for Developers, AICTE & EduSkills\n\u2022 Software Engineering Job Simulation \u2014 Goldman Sachs (Forage)\n\u2022 Full Stack Web Development \u2014 DevTown",
+    "textHash": "b41a641117f98536",
+    "indexedAt": "2026-06-13T14:14:06.987030Z",
+    "_deleted": false
+  },
+  {
+    "dnaRecordId": "6eb89fb2-b597-4b27-8e94-398dd7f55cb8",
+    "filename": "PINIT Edit.txt",
+    "fileType": "TXT",
+    "title": "PINIT Edit.txt",
+    "author": "",
+    "snippet": "Hello World.\r I Am PinIT \r Why are you???\r \r How are doing today? good",
+    "fullText": "PINIT Edit.txt Hello World.\r\nI Am PinIT \r\nWhy are you???\r\n\r\nHow are doing today? good",
+    "textHash": "1fa4f0d7afbb5094",
+    "indexedAt": "2026-06-13T14:19:49.619694Z",
+    "_deleted": false
   }
 ]

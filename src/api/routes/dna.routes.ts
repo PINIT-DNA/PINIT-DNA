@@ -43,9 +43,9 @@ router.get('/', requireAuth, listDnaRecords);
  */
 router.get('/supported-types', getSupportedTypes);
 /** GET /dna/duplicate-attempts — Admin: list all blocked duplicate upload attempts */
-router.get('/duplicate-attempts', getDuplicateAttempts);
+router.get('/duplicate-attempts', requireAuth, getDuplicateAttempts);
 
-router.post('/generate', uploadSingle, generateDna);
+router.post('/generate', requireAuth, uploadSingle, generateDna);
 
 /**
  * POST /dna/compare
@@ -56,7 +56,7 @@ router.post('/generate', uploadSingle, generateDna);
  *
  * Response 200: DnaComparisonResult with forensic report
  */
-router.post('/compare', uploadComparison, compareDna);
+router.post('/compare', requireAuth, uploadComparison, compareDna);
 
 /**
  * POST /dna/:id/verify

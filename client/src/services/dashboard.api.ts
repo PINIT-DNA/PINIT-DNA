@@ -36,27 +36,26 @@ export function deriveFileType(record: DnaRecord): string {
   return 'IMAGE'; // safe fallback
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const api = axios.create({ baseURL: API_BASE_URL }) as any;
+export const api = axios.create({ baseURL: API_BASE_URL });
 
 // Attach JWT to every request from this instance
-api.interceptors.request.use((config: any) => {
+api.interceptors.request.use((config) => {
   const token = localStorage.getItem('pinit_access_token');
-  if (token) config.headers = { ...config.headers, Authorization: `Bearer ${token}` };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (token) (config.headers as any)['Authorization'] = `Bearer ${token}`;
   return config;
 });
 
 // ─── DNA Records ──────────────────────────────────────────────────────────────
 
 export async function listDnaRecords(): Promise<DnaRecord[]> {
-  const { data } = await api.get('/dna');
+  const { data } = await api.get<{ records: DnaRecord[] }>('/dna');
   return data.records ?? [];
 }
 
 export async function getDnaRecord(id: string) {
-  const { data } = await api.get(`/dna/${id}`);
-  // API returns { success, record: { id, status, image: { filename, ... }, ... } }
-  // Flatten image fields to top level for easier consumption
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await api.get<any>(`/dna/${id}`);
   const rec = data.record ?? data;
   return {
     ...rec,
@@ -66,25 +65,25 @@ export async function getDnaRecord(id: string) {
 }
 
 export async function getSupportedTypes(): Promise<SupportedTypesResponse> {
-  const { data } = await api.get('/dna/supported-types');
+  const { data } = await api.get<SupportedTypesResponse>('/dna/supported-types');
   return data;
 }
 
 // ─── Vault Records ────────────────────────────────────────────────────────────
 
 export async function listVaultRecords(): Promise<VaultRecord[]> {
-  const { data } = await api.get('/vault');
+  const { data } = await api.get<{ vaults: VaultRecord[] }>('/vault');
   return data.vaults ?? [];
 }
 
 export async function getVaultRecord(id: string) {
-  const { data } = await api.get(`/vault/${id}`);
-  // API wraps in { success, vault: {...} } — unwrap to get the vault object directly
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await api.get<any>(`/vault/${id}`);
   return data.vault ?? data;
 }
 
 export async function retrieveFromVault(vaultId: string): Promise<Blob> {
-  const { data } = await api.post(`/vault/${vaultId}/retrieve`, {}, {
+  const { data } = await api.post<Blob>(`/vault/${vaultId}/retrieve`, {}, {
     responseType: 'blob',
   });
   return data;
@@ -94,25 +93,27 @@ export async function retrieveFromVault(vaultId: string): Promise<Blob> {
 
 /** Issue (or retrieve existing) certificate for a vault record — idempotent */
 export async function issueCertificate(dnaRecordId: string, vaultId: string): Promise<IssuedCertificate> {
-  const { data } = await api.post('/certificates', { dnaRecordId, vaultId });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await api.post<any>('/certificates', { dnaRecordId, vaultId });
   return data.certificate;
 }
 
 /** List all issued certificates */
 export async function listCertificates(): Promise<IssuedCertificate[]> {
-  const { data } = await api.get('/certificates');
+  const { data } = await api.get<{ certificates: IssuedCertificate[] }>('/certificates');
   return data.certificates ?? [];
 }
 
 /** Verify a certificate by its certificateId */
 export async function verifyCertificateApi(certificateId: string): Promise<CertVerificationResult> {
-  const { data } = await api.get(`/certificates/verify/${certificateId}`);
+  const { data } = await api.get<CertVerificationResult>(`/certificates/verify/${certificateId}`);
   return data;
 }
 
 /** Revoke a certificate */
 export async function revokeCertificate(certificateId: string, reason: string): Promise<IssuedCertificate> {
-  const { data } = await api.post(`/certificates/revoke/${certificateId}`, { reason });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await api.post<any>(`/certificates/revoke/${certificateId}`, { reason });
   return data.certificate;
 }
 
@@ -125,7 +126,7 @@ export async function compareDna(
   const form = new FormData();
   form.append('fileA', fileA);
   form.append('fileB', fileB);
-  const { data } = await api.post('/dna/compare', form, {
+  const { data } = await api.post<ComparisonResult>('/dna/compare', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return data;
