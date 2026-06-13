@@ -7,6 +7,7 @@ import {
   ArrowLeft, RefreshCw, CheckCircle2, XCircle, Minus,
 } from 'lucide-react';
 import { API_BASE_URL } from '../config/api.config';
+import { getAccessToken } from '../lib/auth';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -132,7 +133,9 @@ export function IntelligenceReportPage() {
     setLoading(true);
     setError(null);
     try {
-      const res  = await fetch(`${API_BASE_URL}/intelligence/report/${vaultId}`);
+      const res  = await fetch(`${API_BASE_URL}/intelligence/report/${vaultId}`, {
+        headers: { Authorization: `Bearer ${getAccessToken()}` },
+      });
       const data = await res.json();
       if (!data.success) throw new Error(data.error ?? 'Failed to load report');
       setReport(data);
