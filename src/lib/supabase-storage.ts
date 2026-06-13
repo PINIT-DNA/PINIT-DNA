@@ -6,26 +6,33 @@
  * only for the Storage API (bucket: vault-files).
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { logger } from './logger';
 
-const SUPABASE_URL         = process.env['SUPABASE_URL'] ?? '';
-const SUPABASE_SERVICE_KEY = process.env['SUPABASE_SERVICE_KEY'] ?? '';
-const BUCKET               = 'vault-files';
+const BUCKET = 'vault-files';
 
-if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-  logger.warn('[Storage] SUPABASE_URL or SUPABASE_SERVICE_KEY not set — vault uploads will fail');
+let _client: SupabaseClient | null = null;
+
+function getClient(): SupabaseClient {
+  if (_client) return _client;
+
+  const url = process.env['SUPABASE_URL'] ?? '';
+  const key = process.env['SUPABASE_SERVICE_KEY'] ?? '';
+
+  if (!url || !key) {
+    throw new Error('SUPABASE_URL and SUPABASE_SERVICE_KEY must be set for vault storage');
+  }
+
+  _client = createClient(url, key, { auth: { persistSession: false } });
+  logger.info('[Storage] Supabase Storage client initialised');
+  return _client;
 }
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-  auth: { persistSession: false },
-});
 
 /** Upload encrypted buffer to Supabase Storage. Returns the storage path. */
 export async function uploadVaultFile(vaultId: string, buffer: Buffer): Promise<string> {
   const storagePath = `${vaultId}.enc`;
 
-  const { error } = await supabase.storage
+  const { error } = await getClient().storage
     .from(BUCKET)
     .upload(storagePath, buffer, {
       contentType:  'application/octet-stream',
@@ -43,7 +50,7 @@ export async function uploadVaultFile(vaultId: string, buffer: Buffer): Promise<
 export async function downloadVaultFile(vaultId: string): Promise<Buffer> {
   const storagePath = `${vaultId}.enc`;
 
-  const { data, error } = await supabase.storage
+  const { data, error } = await getClient().storage
     .from(BUCKET)
     .download(storagePath);
 
@@ -57,6 +64,6 @@ export async function downloadVaultFile(vaultId: string): Promise<Buffer> {
 /** Delete vault file from Supabase Storage (on vault record deletion). */
 export async function deleteVaultFile(vaultId: string): Promise<void> {
   const storagePath = `${vaultId}.enc`;
-  const { error } = await supabase.storage.from(BUCKET).remove([storagePath]);
+  const { error } = await getClient().storage.from(BUCKET).remove([storagePath]);
   if (error) logger.warn('[Storage] Delete failed (non-fatal)', { vaultId, error: error.message });
 }
