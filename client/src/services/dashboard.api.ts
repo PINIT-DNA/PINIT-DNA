@@ -36,7 +36,7 @@ export function deriveFileType(record: DnaRecord): string {
   return 'IMAGE'; // safe fallback
 }
 
-export const api = axios.create({ baseURL: API_BASE_URL });
+export const api = axios.create({});
 
 // Attach JWT to every request from this instance
 api.interceptors.request.use((config) => {
@@ -49,13 +49,13 @@ api.interceptors.request.use((config) => {
 // ─── DNA Records ──────────────────────────────────────────────────────────────
 
 export async function listDnaRecords(): Promise<DnaRecord[]> {
-  const { data } = await api.get<{ records: DnaRecord[] }>('/dna');
+  const { data } = await api.get<{ records: DnaRecord[] }>(`${API_BASE_URL}/dna`);
   return data.records ?? [];
 }
 
 export async function getDnaRecord(id: string) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await api.get<any>(`/dna/${id}`);
+  const { data } = await api.get<any>(`${API_BASE_URL}/dna/${id}`);
   const rec = data.record ?? data;
   return {
     ...rec,
@@ -65,25 +65,25 @@ export async function getDnaRecord(id: string) {
 }
 
 export async function getSupportedTypes(): Promise<SupportedTypesResponse> {
-  const { data } = await api.get<SupportedTypesResponse>('/dna/supported-types');
+  const { data } = await api.get<SupportedTypesResponse>(`${API_BASE_URL}/dna/supported-types`);
   return data;
 }
 
 // ─── Vault Records ────────────────────────────────────────────────────────────
 
 export async function listVaultRecords(): Promise<VaultRecord[]> {
-  const { data } = await api.get<{ vaults: VaultRecord[] }>('/vault');
+  const { data } = await api.get<{ vaults: VaultRecord[] }>(`${API_BASE_URL}/vault`);
   return data.vaults ?? [];
 }
 
 export async function getVaultRecord(id: string) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await api.get<any>(`/vault/${id}`);
+  const { data } = await api.get<any>(`${API_BASE_URL}/vault/${id}`);
   return data.vault ?? data;
 }
 
 export async function retrieveFromVault(vaultId: string): Promise<Blob> {
-  const { data } = await api.post<Blob>(`/vault/${vaultId}/retrieve`, {}, {
+  const { data } = await api.post<Blob>(`${API_BASE_URL}/vault/${vaultId}/retrieve`, {}, {
     responseType: 'blob',
   });
   return data;
@@ -94,26 +94,26 @@ export async function retrieveFromVault(vaultId: string): Promise<Blob> {
 /** Issue (or retrieve existing) certificate for a vault record — idempotent */
 export async function issueCertificate(dnaRecordId: string, vaultId: string): Promise<IssuedCertificate> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await api.post<any>('/certificates', { dnaRecordId, vaultId });
+  const { data } = await api.post<any>(`${API_BASE_URL}/certificates`, { dnaRecordId, vaultId });
   return data.certificate;
 }
 
 /** List all issued certificates */
 export async function listCertificates(): Promise<IssuedCertificate[]> {
-  const { data } = await api.get<{ certificates: IssuedCertificate[] }>('/certificates');
+  const { data } = await api.get<{ certificates: IssuedCertificate[] }>(`${API_BASE_URL}/certificates`);
   return data.certificates ?? [];
 }
 
 /** Verify a certificate by its certificateId */
 export async function verifyCertificateApi(certificateId: string): Promise<CertVerificationResult> {
-  const { data } = await api.get<CertVerificationResult>(`/certificates/verify/${certificateId}`);
+  const { data } = await api.get<CertVerificationResult>(`${API_BASE_URL}/certificates/verify/${certificateId}`);
   return data;
 }
 
 /** Revoke a certificate */
 export async function revokeCertificate(certificateId: string, reason: string): Promise<IssuedCertificate> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await api.post<any>(`/certificates/revoke/${certificateId}`, { reason });
+  const { data } = await api.post<any>(`${API_BASE_URL}/certificates/revoke/${certificateId}`, { reason });
   return data.certificate;
 }
 
@@ -126,7 +126,7 @@ export async function compareDna(
   const form = new FormData();
   form.append('fileA', fileA);
   form.append('fileB', fileB);
-  const { data } = await api.post<ComparisonResult>('/dna/compare', form, {
+  const { data } = await api.post<ComparisonResult>(`${API_BASE_URL}/dna/compare`, form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return data;
