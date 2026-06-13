@@ -1,6 +1,7 @@
 import axios from 'axios';
+import { API_BASE_URL } from '../config/api.config';
 
-const BASE = '/api/v1/auth';
+const BASE = `${API_BASE_URL}/auth`;
 
 export interface AuthUser {
   sub: string;
