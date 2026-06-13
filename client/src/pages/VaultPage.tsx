@@ -3,9 +3,8 @@ import { Archive, Search, Lock, RefreshCw, Download, Eye, ExternalLink, Share2, 
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
-import axios from 'axios';
 import { useApi, formatBytes } from '../hooks/useApi';
-import { listVaultRecords, retrieveFromVault } from '../services/dashboard.api';
+import { listVaultRecords, retrieveFromVault, api } from '../services/dashboard.api';
 import { SkeletonTable } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Badge } from '../components/ui/Badge';
@@ -147,7 +146,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
   const fetchLinks = async () => {
     setLoadingLinks(true);
     try {
-      const { data } = await axios.get(`${API_BASE_URL}/share/vault/${record.id}`);
+      const { data } = await api.get(`${API_BASE_URL}/share/vault/${record.id}`);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setExistingLinks((data as any).links ?? []);
     } catch (err) {
@@ -162,7 +161,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
   const handleRevoke = async (token: string) => {
     setRevokingToken(token);
     try {
-      await axios.delete(`${API_BASE_URL}/share/${token}`);
+      await api.delete(`${API_BASE_URL}/share/${token}`);
       toast.success('Link revoked — it will no longer grant access');
       await fetchLinks();
     } catch {
@@ -195,7 +194,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
   const handleCreate = async () => {
     setCreating(true);
     try {
-      const { data } = await axios.post(`${API_BASE_URL}/share`, {
+      const { data } = await api.post(`${API_BASE_URL}/share`, {
         vaultId:      record.id,
         expiresIn:    expiresIn ? Number(expiresIn) : null,
         maxViews:     maxViews  ? Number(maxViews)  : null,
@@ -232,7 +231,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
     await navigator.clipboard.writeText(created.shareUrl);
     setCopied(true);
     // Track copy event
-    axios.post(`${API_BASE_URL}/share/${created.token}/access`, { action: 'COPIED' }).catch(() => {});
+    api.post(`${API_BASE_URL}/share/${created.token}/access`, { action: 'COPIED' }).catch(() => {});
     setTimeout(() => setCopied(false), 2000);
     toast.success('Link copied to clipboard!');
   };
@@ -451,7 +450,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
                     setScanning(true);
                     setScanMsg('');
                     try {
-                      const { data } = await axios.post(`${API_BASE_URL}/vault/${record.id}/scan-sensitive`);
+                      const { data } = await api.post(`${API_BASE_URL}/vault/${record.id}/scan-sensitive`);
                       // eslint-disable-next-line @typescript-eslint/no-explicit-any
                       const d = data as any;
                       setScanSupported(d.supported !== false);
@@ -664,7 +663,7 @@ export function VaultPage() {
     if (!aiMode || !q.trim()) { setAiResults([]); return; }
     setAiSearching(true);
     try {
-      const { data } = await axios.post(`${API_BASE_URL}/ai/search`, {
+      const { data } = await api.post(`${API_BASE_URL}/ai/search`, {
         query: q.trim(), topK: 20, threshold: 0.30, mode: 'hybrid',
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

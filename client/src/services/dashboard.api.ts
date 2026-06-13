@@ -37,7 +37,14 @@ export function deriveFileType(record: DnaRecord): string {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const api = axios.create({ baseURL: API_BASE_URL }) as any;
+export const api = axios.create({ baseURL: API_BASE_URL }) as any;
+
+// Attach JWT to every request from this instance
+api.interceptors.request.use((config: any) => {
+  const token = localStorage.getItem('pinit_access_token');
+  if (token) config.headers = { ...config.headers, Authorization: `Bearer ${token}` };
+  return config;
+});
 
 // ─── DNA Records ──────────────────────────────────────────────────────────────
 

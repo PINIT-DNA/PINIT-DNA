@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+﻿import { Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import {
   Database, Archive, Shield, GitCompare, Zap, TrendingUp,
@@ -8,11 +8,10 @@ import {
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { useApi, formatBytes } from '../hooks/useApi';
-import { getDashboardStats, deriveFileType } from '../services/dashboard.api';
+import { getDashboardStats, deriveFileType, api } from '../services/dashboard.api';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { Badge, FileTypeBadge, ClassificationBadge } from '../components/ui/Badge';
 import { formatDistanceToNow } from 'date-fns';
-import axios from 'axios';
 import { API_BASE_URL } from '../config/api.config';
 
 interface ShareStats {
@@ -67,7 +66,7 @@ export function DashboardPage() {
 
   useEffect(() => {
     const fetch = () =>
-      axios.get(`${API_BASE_URL}/share/analytics/global`)
+      api.get(`${API_BASE_URL}/share/analytics/global`)
         .then(({ data }) => setShareStats((data as any).stats))
         .catch(() => {});
     fetch();

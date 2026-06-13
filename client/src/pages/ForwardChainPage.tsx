@@ -1,3 +1,4 @@
+﻿import { api } from '../services/dashboard.api';
 /**
  * PINIT-DNA — Forward Chain Propagation Graph (Phase 5)
  * Route: /chain/:dnaRecordId
@@ -17,7 +18,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import * as d3 from 'd3';
-import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   RefreshCw, ZoomIn, ZoomOut, Maximize2, ArrowLeft,
@@ -544,7 +544,7 @@ export function ForwardChainPage() {
     if (!dnaRecordId) return;
     setLoading(true); setError(null);
     try {
-      const { data } = await axios.get(`${API_BASE_URL}/evidence/chain/${dnaRecordId}`);
+      const { data } = await api.get(`${API_BASE_URL}/evidence/chain/${dnaRecordId}`);
       setGraph((data as any).graph);
     } catch {
       setError('Failed to load propagation chain');

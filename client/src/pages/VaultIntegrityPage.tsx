@@ -1,3 +1,4 @@
+﻿import { api } from '../services/dashboard.api';
 /**
  * PINIT-DNA — Vault Integrity Monitoring Dashboard (Phase 4.6)
  * Route: /vault-integrity
@@ -12,7 +13,6 @@ import {
   RefreshCw, Lock, Activity, HardDrive,
 } from 'lucide-react';
 import { format } from 'date-fns';
-import axios from 'axios';
 import { Badge } from '../components/ui/Badge';
 import { EmptyState } from '../components/ui/EmptyState';
 import { SkeletonTable } from '../components/ui/Skeleton';
@@ -47,7 +47,7 @@ interface IntegrityReport {
 }
 
 async function runIntegrityCheck(): Promise<IntegrityReport> {
-  const { data } = await axios.get('/api/v1/vault/integrity-check');
+  const { data } = await api.get('/api/v1/vault/integrity-check');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return data as any;
 }

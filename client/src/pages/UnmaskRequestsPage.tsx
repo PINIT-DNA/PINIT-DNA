@@ -1,3 +1,4 @@
+﻿import { api } from '../services/dashboard.api';
 /**
  * PINIT-DNA — Privacy Masking: Unmask Requests Dashboard
  * Route: /unmask-requests
@@ -10,7 +11,6 @@ import { format } from 'date-fns';
 import { Shield, RefreshCw, CheckCircle2, XCircle, Clock, Eye, AlertTriangle } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { API_BASE_URL } from '../config/api.config';
-import axios from 'axios';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 
@@ -35,7 +35,7 @@ interface UnmaskRequest {
 // ─── Fetch ────────────────────────────────────────────────────────────────────
 
 async function fetchRequests(): Promise<UnmaskRequest[]> {
-  const { data } = await axios.get(`${API_BASE_URL}/share/unmask-requests`);
+  const { data } = await api.get(`${API_BASE_URL}/share/unmask-requests`);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (data as any).requests ?? [];
 }
@@ -49,7 +49,7 @@ export function UnmaskRequestsPage() {
   const review = async (id: string, action: 'approve' | 'reject') => {
     setReviewing(id);
     try {
-      await axios.post(`${API_BASE_URL}/share/unmask-requests/${id}/review`, { action });
+      await api.post(`${API_BASE_URL}/share/unmask-requests/${id}/review`, { action });
       refetch();
     } finally {
       setReviewing(null);

@@ -1,3 +1,4 @@
+﻿import { api } from '../services/dashboard.api';
 /**
  * PINIT-DNA — Security Center (Phase 4)
  * Route: /security-center
@@ -17,7 +18,6 @@ import {
   Target, Fingerprint, Globe, X, Shield,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import axios from 'axios';
 import toast from 'react-hot-toast';
 import { formatDistanceToNow, format } from 'date-fns';
 import { API_BASE_URL } from '../config/api.config';
@@ -171,7 +171,7 @@ function IncidentsTab() {
       const params: Record<string, string> = { limit: '100' };
       if (filter.severity) params['severity'] = filter.severity;
       if (filter.status)   params['status']   = filter.status;
-      const { data } = await axios.get(`${API_BASE_URL}/evidence/incidents`, { params });
+      const { data } = await api.get(`${API_BASE_URL}/evidence/incidents`, { params });
       setIncidents((data as any).incidents ?? []);
     } catch { toast.error('Failed to load incidents'); }
     finally { setLoading(false); }
@@ -183,7 +183,7 @@ function IncidentsTab() {
   async function updateStatus(id: string, status: string) {
     setUpdating(id);
     try {
-      await axios.patch(`${API_BASE_URL}/evidence/incidents/${id}`, { status });
+      await api.patch(`${API_BASE_URL}/evidence/incidents/${id}`, { status });
       toast.success(`Incident marked ${status}`);
       load();
     } catch { toast.error('Failed to update incident'); }
@@ -196,7 +196,7 @@ function IncidentsTab() {
       const payload: Record<string, string> = { type: 'INCIDENT', incidentId: inc.id };
       if (inc.dnaRecordId)  payload['dnaRecordId']  = inc.dnaRecordId;
       if (inc.shareLinkId)  payload['shareLinkId']  = inc.shareLinkId;
-      const res = await axios.post(`${API_BASE_URL}/evidence/report`, payload, { responseType: 'blob' });
+      const res = await api.post(`${API_BASE_URL}/evidence/report`, payload, { responseType: 'blob' });
       const url  = URL.createObjectURL(new Blob([res.data as BlobPart], { type: 'application/pdf' }));
       const a    = document.createElement('a');
       a.href     = url;
@@ -407,7 +407,7 @@ function EvidenceTab() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await axios.get(`${API_BASE_URL}/evidence/records?limit=100`);
+      const { data } = await api.get(`${API_BASE_URL}/evidence/records?limit=100`);
       setRecords((data as any).records ?? []);
     } catch { toast.error('Failed to load evidence records'); }
     finally { setLoading(false); }
@@ -482,7 +482,7 @@ function RecipientsTab() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await axios.get(`${API_BASE_URL}/evidence/recipients?limit=100`);
+      const { data } = await api.get(`${API_BASE_URL}/evidence/recipients?limit=100`);
       setRecipients((data as any).recipients ?? []);
     } catch { toast.error('Failed to load recipients'); }
     finally { setLoading(false); }
@@ -654,7 +654,7 @@ function LeakScannerTab() {
     try {
       const form = new FormData();
       form.append('file', file);
-      const { data } = await axios.post(`${API_BASE_URL}/share/forensics/attribute-leak`, form);
+      const { data } = await api.post(`${API_BASE_URL}/share/forensics/attribute-leak`, form);
       setResult(data as AttributionResult);
       if ((data as any).found) {
         toast.success('Watermark detected — source identified!');
@@ -678,7 +678,7 @@ function LeakScannerTab() {
         const sl = result.attribution.shareLink as any;
         if (sl.id)  payload['shareLinkId'] = sl.id;
       }
-      const res = await axios.post(`${API_BASE_URL}/evidence/report`, payload, { responseType: 'blob' });
+      const res = await api.post(`${API_BASE_URL}/evidence/report`, payload, { responseType: 'blob' });
       const url = URL.createObjectURL(new Blob([res.data as BlobPart], { type: 'application/pdf' }));
       const a   = document.createElement('a');
       a.href = url; a.download = `PINIT-DNA-LeakAttribution-${result.watermarkCode}.pdf`; a.click();
@@ -868,9 +868,9 @@ export function SecurityCenterPage() {
     async function loadStats() {
       try {
         const [incRes, recRes, evRes] = await Promise.all([
-          axios.get(`${API_BASE_URL}/evidence/incidents?limit=1000`),
-          axios.get(`${API_BASE_URL}/evidence/recipients?limit=1`),
-          axios.get(`${API_BASE_URL}/evidence/records?limit=1`),
+          api.get(`${API_BASE_URL}/evidence/incidents?limit=1000`),
+          api.get(`${API_BASE_URL}/evidence/recipients?limit=1`),
+          api.get(`${API_BASE_URL}/evidence/records?limit=1`),
         ]);
         const incs: Incident[] = (incRes.data as any).incidents ?? [];
         setStats({

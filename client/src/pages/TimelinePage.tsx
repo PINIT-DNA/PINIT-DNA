@@ -1,4 +1,4 @@
-/**
+﻿/**
  * PINIT-DNA — File Timeline & History (Phase 4.3)
  * Route: /timeline
  *
@@ -14,9 +14,8 @@ import {
   Shield, RefreshCw, Filter, ChevronDown, ChevronUp,
   Share2, Eye, Download, Copy, Ban,
 } from 'lucide-react';
-import axios from 'axios';
 import { useApi } from '../hooks/useApi';
-import { listDnaRecords, listVaultRecords, deriveFileType } from '../services/dashboard.api';
+import { listDnaRecords, listVaultRecords, deriveFileType, api } from '../services/dashboard.api';
 import { FileTypeBadge, Badge } from '../components/ui/Badge';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -452,10 +451,10 @@ export function TimelinePage() {
 
   // Fetch geo + live sessions once on mount (these rarely change mid-session)
   useEffect(() => {
-    axios.get(`${API_BASE_URL}/share/analytics/geo`)
+    api.get(`${API_BASE_URL}/share/analytics/geo`)
       .then(({ data }) => setGeoAnalytics((data as any).analytics ?? []))  // eslint-disable-line @typescript-eslint/no-explicit-any
       .catch(() => {});
-    axios.get(`${API_BASE_URL}/share/sessions/live`)
+    api.get(`${API_BASE_URL}/share/sessions/live`)
       .then(({ data }) => setLiveSessions({ live: (data as any).live ?? [], concurrent: (data as any).concurrent ?? [] }))  // eslint-disable-line @typescript-eslint/no-explicit-any
       .catch(() => {});
   }, []);
@@ -463,7 +462,7 @@ export function TimelinePage() {
   // Poll share events every 20s — only update state when new logs actually arrive
   useEffect(() => {
     const fetchLinks = () => {
-      axios.get(`${API_BASE_URL}/share`)
+      api.get(`${API_BASE_URL}/share`)
         .then(({ data }) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const links: any[] = (data as any).links ?? [];

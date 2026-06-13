@@ -1,3 +1,4 @@
+﻿import { api } from '../services/dashboard.api';
 /**
  * PINIT-DNA — Duplicate Upload Attempts Dashboard
  * Route: /duplicate-attempts
@@ -11,7 +12,6 @@ import { format } from 'date-fns';
 import { Shield, RefreshCw, AlertTriangle, Copy, CheckCircle2 } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { API_BASE_URL } from '../config/api.config';
-import axios from 'axios';
 import { Badge } from '../components/ui/Badge';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -38,7 +38,7 @@ interface DuplicateAttempt {
 // ─── Fetch function ───────────────────────────────────────────────────────────
 
 async function fetchDuplicateAttempts(): Promise<DuplicateAttempt[]> {
-  const { data } = await axios.get(`${API_BASE_URL}/dna/duplicate-attempts?limit=200`);
+  const { data } = await api.get(`${API_BASE_URL}/dna/duplicate-attempts?limit=200`);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (data as any).events ?? [];
 }

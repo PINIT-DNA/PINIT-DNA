@@ -6081,7 +6081,7 @@
     "fullText": "Kavvam_Ashwitha_FuLL_Stack_Resume1.docx Kavvam Ashwitha FuLL Stack Resume1",
     "textHash": "22016c8fcbdaf096",
     "indexedAt": "2026-06-11T12:35:27.970932Z",
-    "_deleted": false
+    "_deleted": true
   },
   {
     "dnaRecordId": "8f33c9ac-41b2-4a2f-91bd-a6e4ab5a4846",
@@ -6105,7 +6105,7 @@
     "fullText": "Kavvam_Ashwitha_Searchlook.pdf Kavvam Ashwitha\nHyderabad, Telangana  |Phone+91 6302004848  |Envelopeashwithareddykavvam39@gmail.com\nLINKEDINLinkedIn|GithubGitHub\nProfessional Summary\nSoftware Engineer with hands-on experience building full-stack web applications, backend services, and AI-powered workflows using Python,\nFastAPI, React.js, Next.js, TypeScript, PostgreSQL, MongoDB, and REST APIs. Experienced in leveraging AI development tools including\nChatGPT, Gemini, Cursor, and GitHub Copilot to accelerate development, debugging, testing, and product delivery.\nTechnical Skills\nLanguages: Python, JavaScript, TypeScript, SQL\nFrameworks: React.js, Next.js, FastAPI, Django, Tailwind CSS\nDatabases: PostgreSQL, MongoDB, SQLite\nTools: Git, GitHub, Postman, VS Code, Cursor\nAI & Cloud: ChatGPT, Gemini, GitHub Copilot, AWS Cloud Foundations\nCore: REST APIs, Authentication, API Integration, SDLC\nExperience\nTCT (The Career Tech)Jan 2026 \u2013 Present\nJunior Software DeveloperRemote\n\u2013 Developed backend services, REST APIs, authentication systems, and database integrations using Python, FastAPI, SQL, and\nPostgreSQL.\n\u2013 Built full-stack application features and business workflows across frontend and backend systems.\n\u2013 Leveraged ChatGPT, Gemini, and Cursor to accelerate coding, debugging, testing, and documentation.\n\u2013 Collaborated on feature development, deployment, maintenance, and performance optimization activities.\nProjects\nPINIT \u2014 Secure Resume Sharing & Verification Platform\n\u2013 Built a full-stack platform using React.js, TypeScript, FastAPI, PostgreSQL, and REST APIs.\n\u2013 Developed authentication, encrypted document storage, secure sharing, and user management features.\n\u2013 Created responsive dashboards, analytics views, and reusable React components.\n\u2013 Implemented OCR-based document processing, classification, and automated verification workflows.\n\u2013 Developed secure sharing with OTP verification, access controls, activity tracking, and audit monitoring.\nPINIT-DNA \u2014 AI-Powered Image Fingerprinting & Secure Smart-Sharing Platform\n\u2013 Built an AI-powered file ownership and verification platform using React.js, TypeScript, Node.js, and PostgreSQL.\n\u2013 Developed secure file-sharing workflows with OTP verification, access controls, and activity monitoring.\n\u2013 Designed analytics dashboards, risk-scoring modules, and audit tracking systems.\n\u2013 Implemented intelligent file similarity detection, tamper analysis, and ownership verification capabilities.\n\u2013 Delivered end-to-end full-stack development across frontend, backend, APIs, databases, and reporting systems.\nGen-AI Placement Management System\n\u2013 Developed an AI-powered recruitment platform with candidate management and recruiter dashboards.\n\u2013 Built full-stack workflows using React.js, Next.js, FastAPI, PostgreSQL, and REST APIs.\n\u2013 Integrated resume analysis, candidate matching, authentication, and reporting modules.\n\u2013 Developed recruiter dashboards, job workflows, and database-driven business processes.\nEducation\nCMR Institute of Technology2022 \u2013 2026\nB.Tech in Computer Science and Engineering (Data Science)CGPA: 7.75\nCertifications\n\u2022 AWS Academy Cloud Foundations\n\u2022 Oracle Analytics Cloud 2025 Certified Professional\n\u2022 Google AI-ML Virtual Internship \u2013 AICTE & EduSkills\n\u2022 Software Engineering Job Simulation \u2013 Goldman Sachs (Forage)\n\u2022 Full Stack Web Development \u2013 DevTown",
     "textHash": "7d5e40276485748a",
     "indexedAt": "2026-06-12T04:13:14.665944Z",
-    "_deleted": false
+    "_deleted": true
   },
   {
     "dnaRecordId": "7e4099bb-1234-41e3-a171-289f5d48bb68",
@@ -6117,6 +6117,138 @@
     "fullText": "Hello World1.docx Hello World. I Am PinIT Who are you Hello Hello",
     "textHash": "62b20425fd94f24f",
     "indexedAt": "2026-06-12T14:19:35.630109Z",
+    "_deleted": true
+  },
+  {
+    "dnaRecordId": "1bbfa157-4176-4b6f-be08-c1fe6f3af047",
+    "filename": "Kavvam_Ashwitha_FuLL_Stack_Resume1.docx",
+    "fileType": "DOCX",
+    "title": "Kavvam_Ashwitha_FuLL_Stack_Resume1.docx",
+    "author": "",
+    "snippet": "Kavvam Ashwitha FuLL Stack Resume1",
+    "fullText": "Kavvam_Ashwitha_FuLL_Stack_Resume1.docx Kavvam Ashwitha FuLL Stack Resume1",
+    "textHash": "22016c8fcbdaf096",
+    "indexedAt": "2026-06-13T07:30:30.692128Z",
+    "_deleted": false
+  },
+  {
+    "dnaRecordId": "b5092fec-f68d-4634-9733-a2b85e61c3fb",
+    "filename": "test.txt",
+    "fileType": "TXT",
+    "title": "test.txt",
+    "author": "",
+    "snippet": "test",
+    "fullText": "test.txt test",
+    "textHash": "388cfd9367a2671a",
+    "indexedAt": "2026-06-13T07:30:30.722327Z",
+    "_deleted": false
+  },
+  {
+    "dnaRecordId": "d0a85ac8-ec2e-4206-9f34-e7fb7411d2d8",
+    "filename": "building.jpeg",
+    "fileType": "IMAGE",
+    "title": "building.jpeg",
+    "author": "",
+    "snippet": "building",
+    "fullText": "building.jpeg building",
+    "textHash": "73b0aca0e2c21904",
+    "indexedAt": "2026-06-13T07:30:30.730422Z",
+    "_deleted": false
+  },
+  {
+    "dnaRecordId": "12c765fb-f591-49e6-86ea-a42536f09c18",
+    "filename": "tiger.jpeg",
+    "fileType": "IMAGE",
+    "title": "tiger.jpeg",
+    "author": "",
+    "snippet": "tiger",
+    "fullText": "tiger.jpeg tiger",
+    "textHash": "4cf5c4759985d00e",
+    "indexedAt": "2026-06-13T07:30:30.751084Z",
+    "_deleted": false
+  },
+  {
+    "dnaRecordId": "8f33c9ac-41b2-4a2f-91bd-a6e4ab5a4846",
+    "filename": "Kavvam_Ashwitha_Searchlook.pdf",
+    "fileType": "PDF",
+    "title": "Kavvam_Ashwitha_Searchlook.pdf",
+    "author": "",
+    "snippet": "Kavvam Ashwitha Searchlook",
+    "fullText": "Kavvam_Ashwitha_Searchlook.pdf Kavvam Ashwitha Searchlook",
+    "textHash": "c4ee86364c9b4915",
+    "indexedAt": "2026-06-13T07:30:30.753014Z",
+    "_deleted": false
+  },
+  {
+    "dnaRecordId": "820775d5-3160-40a3-b1ef-4574f563db1e",
+    "filename": "Kavvam_Ashwitha_Globalco.pdf",
+    "fileType": "PDF",
+    "title": "Kavvam_Ashwitha_Globalco.pdf",
+    "author": "",
+    "snippet": "Kavvam Ashwitha Globalco",
+    "fullText": "Kavvam_Ashwitha_Globalco.pdf Kavvam Ashwitha Globalco",
+    "textHash": "ef30bd3169998f7e",
+    "indexedAt": "2026-06-13T07:30:30.761297Z",
+    "_deleted": false
+  },
+  {
+    "dnaRecordId": "ee2bd3cf-56a9-44cb-9da8-a0fcab97d8c1",
+    "filename": "PINIT DNA User flow check.pdf",
+    "fileType": "PDF",
+    "title": "PINIT DNA User flow check.pdf",
+    "author": "",
+    "snippet": "PINIT DNA User flow check",
+    "fullText": "PINIT DNA User flow check.pdf PINIT DNA User flow check",
+    "textHash": "59b82bfec0c4b79e",
+    "indexedAt": "2026-06-13T07:30:30.770818Z",
+    "_deleted": false
+  },
+  {
+    "dnaRecordId": "7e4099bb-1234-41e3-a171-289f5d48bb68",
+    "filename": "Hello World1.docx",
+    "fileType": "DOCX",
+    "title": "Hello World1.docx",
+    "author": "",
+    "snippet": "Hello World1",
+    "fullText": "Hello World1.docx Hello World1",
+    "textHash": "11f58028b135ab99",
+    "indexedAt": "2026-06-13T07:30:30.799454Z",
+    "_deleted": false
+  },
+  {
+    "dnaRecordId": "d0ccbfe1-75e1-4c03-89f1-ca05de26b06e",
+    "filename": "modi.webp",
+    "fileType": "IMAGE",
+    "title": "modi.webp",
+    "author": "",
+    "snippet": "modi",
+    "fullText": "modi.webp modi",
+    "textHash": "6082ad3e5ee216e5",
+    "indexedAt": "2026-06-13T07:30:30.800684Z",
+    "_deleted": false
+  },
+  {
+    "dnaRecordId": "1d12fc08-6ac8-45ad-a5c1-336762b3cb95",
+    "filename": "renameeed.pdf",
+    "fileType": "PDF",
+    "title": "renameeed.pdf",
+    "author": "",
+    "snippet": "Hello World. I Am PinIT  Who are you Hello Hello",
+    "fullText": "renameeed.pdf Hello World.\nI Am PinIT \nWho are you\nHello\nHello",
+    "textHash": "08760936dcb3e2bf",
+    "indexedAt": "2026-06-13T08:36:27.436020Z",
+    "_deleted": true
+  },
+  {
+    "dnaRecordId": "1d12fc08-6ac8-45ad-a5c1-336762b3cb95",
+    "filename": "renameeed.pdf",
+    "fileType": "PDF",
+    "title": "renameeed.pdf",
+    "author": "",
+    "snippet": "Hello World. I Am PinIT  Who are you Hello Hello",
+    "fullText": "renameeed.pdf Hello World.\nI Am PinIT \nWho are you\nHello\nHello",
+    "textHash": "08760936dcb3e2bf",
+    "indexedAt": "2026-06-13T08:36:35.048316Z",
     "_deleted": false
   }
 ]

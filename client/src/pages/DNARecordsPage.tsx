@@ -1,10 +1,9 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { Search, Database, RefreshCw, Eye, GitCompare, ChevronDown, ChevronUp, Share2, Cpu } from 'lucide-react';
-import axios from 'axios';
 import { API_BASE_URL } from '../config/api.config';
 import { format } from 'date-fns';
 import { useApi, formatBytes } from '../hooks/useApi';
-import { listDnaRecords, deriveFileType } from '../services/dashboard.api';
+import { listDnaRecords, deriveFileType, api } from '../services/dashboard.api';
 import { SkeletonTable } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Badge, ClassificationBadge, FileTypeBadge } from '../components/ui/Badge';
@@ -77,7 +76,7 @@ export function DnaRecordsPage() {
     if (!aiMode || !q.trim()) { setAiResults([]); return; }
     setAiSearching(true);
     try {
-      const { data } = await axios.post(`${API_BASE_URL}/ai/search`, {
+      const { data } = await api.post(`${API_BASE_URL}/ai/search`, {
         query: q.trim(), topK: 20, threshold: 0.30, mode: 'hybrid',
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -1,3 +1,4 @@
+﻿import { api } from '../services/dashboard.api';
 /**
  * PINIT-DNA — Forensic Difference Engine Page
  * Route: /forensic-diff
@@ -14,7 +15,6 @@ import {
   FileText, Image, Tag, ChevronDown, ChevronUp, Shield,
   Minus, Plus, Edit3, Info,
 } from 'lucide-react';
-import axios from 'axios';
 import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../config/api.config';
 import { Badge } from '../components/ui/Badge';
@@ -237,7 +237,7 @@ export function ForensicDiffPage() {
       const form = new FormData();
       form.append('fileA', fileA);
       form.append('fileB', fileB);
-      const { data } = await axios.post<ForensicDiffReport & { success: boolean }>(
+      const { data } = await api.post<ForensicDiffReport & { success: boolean }>(
         `${API_BASE_URL}/forensic/diff`, form,
         { headers: { 'Content-Type': 'multipart/form-data' } }
       );

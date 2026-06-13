@@ -1,3 +1,4 @@
+﻿import { api } from '../services/dashboard.api';
 /**
  * PINIT-DNA — AI Semantic Search Page (v2 — Phases 4 & 5)
  * Hybrid search: keyword 40% + semantic 60%
@@ -10,7 +11,6 @@ import {
   Zap, ToggleLeft, ToggleRight, CheckCircle2,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import axios from 'axios';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { API_BASE_URL } from '../config/api.config';
@@ -62,7 +62,7 @@ export function SearchPage() {
 
   // Check AI health on mount
   useState(() => {
-    axios.get(`${API_BASE_URL}/ai/health`).then(({ data }) => {
+    api.get(`${API_BASE_URL}/ai/health`).then(({ data }) => {
       setIsOnline(true);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setTotalIndexed((data as any).indexed ?? 0);
@@ -73,7 +73,7 @@ export function SearchPage() {
     if (!query.trim()) return;
     setLoading(true);
     try {
-      const { data } = await axios.post(`${API_BASE_URL}/ai/search`, {
+      const { data } = await api.post(`${API_BASE_URL}/ai/search`, {
         query:         query.trim(),
         topK:          20,
         threshold:     0.50,   // Phase 5: 50% minimum
@@ -103,7 +103,7 @@ export function SearchPage() {
   const handleReindex = async () => {
     setReindexing(true);
     try {
-      const { data } = await axios.post(`${API_BASE_URL}/ai/reindex-all`);
+      const { data } = await api.post(`${API_BASE_URL}/ai/reindex-all`);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const d = data as any;
       setTotalIndexed(d.indexed ?? 0);

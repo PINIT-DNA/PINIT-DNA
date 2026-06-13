@@ -1,4 +1,4 @@
-/**
+﻿/**
  * PINIT-DNA — Monitoring & Crawler Dashboard (Production Grade)
  * Route: /monitoring
  */
@@ -10,12 +10,11 @@ import {
   FileText, Image, Music, Video, Zap, BarChart2, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
-import axios from 'axios';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { API_BASE_URL } from '../config/api.config';
 import { useApi } from '../hooks/useApi';
-import { listDnaRecords, deriveFileType } from '../services/dashboard.api';
+import { listDnaRecords, deriveFileType, api } from '../services/dashboard.api';
 import { Badge, FileTypeBadge } from '../components/ui/Badge';
 import { EmptyState } from '../components/ui/EmptyState';
 import { SkeletonCard } from '../components/ui/Skeleton';
@@ -175,7 +174,7 @@ function MonitorCard({ m, onCheck, onPause, onResume, onScanTypeChange, checking
     if (!newUrl.trim()) return;
     setSavingUrl(true);
     try {
-      await axios.patch(`${API_BASE_URL}/monitor/${m.id}/watch-urls`, {
+      await api.patch(`${API_BASE_URL}/monitor/${m.id}/watch-urls`, {
         watchUrls: [...(m.watchUrls ?? []), newUrl.trim()],
       });
       toast.success('Watch URL added — click Check Now to scan');
@@ -361,9 +360,9 @@ export function MonitoringPage() {
     setLoading(true);
     try {
       const [mResp, aResp, sResp] = await Promise.all([
-        axios.get(`${API_BASE_URL}/monitor`),
-        axios.get(`${API_BASE_URL}/monitor/alerts?status=${alertTab}`),
-        axios.get(`${API_BASE_URL}/monitor/stats`),
+        api.get(`${API_BASE_URL}/monitor`),
+        api.get(`${API_BASE_URL}/monitor/alerts?status=${alertTab}`),
+        api.get(`${API_BASE_URL}/monitor/stats`),
       ]);
       setMonitors((mResp.data as any).monitors ?? []);
       setAlerts((aResp.data as any).alerts ?? []);
@@ -378,7 +377,7 @@ export function MonitoringPage() {
     setEnrollingId(dnaRecordId);
     try {
       const watchUrls = enrollUrls.split('\n').map(u => u.trim()).filter(u => u.startsWith('http'));
-      await axios.post(`${API_BASE_URL}/monitor/enroll/${dnaRecordId}`, { watchUrls, scanType: enrollScanType });
+      await api.post(`${API_BASE_URL}/monitor/enroll/${dnaRecordId}`, { watchUrls, scanType: enrollScanType });
       toast.success('File enrolled for monitoring');
       setEnrollOpen(false); setEnrollUrls('');
       load();
@@ -389,7 +388,7 @@ export function MonitoringPage() {
   const handleCheck = async (id: string) => {
     setChecking(id);
     try {
-      const { data } = await axios.post(`${API_BASE_URL}/monitor/${id}/check`);
+      const { data } = await api.post(`${API_BASE_URL}/monitor/${id}/check`);
       const d = data as any;
       const result = d.result ?? d;
       setCheckResult(result);
@@ -400,20 +399,20 @@ export function MonitoringPage() {
   };
 
   const handleDismiss = async (alertId: string) => {
-    await axios.post(`${API_BASE_URL}/monitor/alerts/${alertId}/dismiss`);
+    await api.post(`${API_BASE_URL}/monitor/alerts/${alertId}/dismiss`);
     setAlerts(prev => prev.filter(a => a.id !== alertId));
     toast.success('Alert dismissed');
   };
 
   const handleConfirm = async (alertId: string) => {
-    await axios.post(`${API_BASE_URL}/monitor/alerts/${alertId}/confirm`);
+    await api.post(`${API_BASE_URL}/monitor/alerts/${alertId}/confirm`);
     setAlerts(prev => prev.filter(a => a.id !== alertId));
     toast.success('Match confirmed');
   };
 
   const handleScanTypeChange = async (monitorId: string, scanType: string) => {
     try {
-      await axios.patch(`${API_BASE_URL}/monitor/${monitorId}/scan-type`, { scanType });
+      await api.patch(`${API_BASE_URL}/monitor/${monitorId}/scan-type`, { scanType });
       setMonitors(prev => prev.map(m => m.id === monitorId ? { ...m, scanType } : m));
       toast.success(`Schedule set to ${scanType}`);
     } catch { toast.error('Failed to update schedule'); }
@@ -442,7 +441,7 @@ export function MonitoringPage() {
               let enrolled = 0;
               for (const r of toEnroll) {
                 try {
-                  await axios.post(`${API_BASE_URL}/monitor/enroll/${r.id}`, { scanType: 'DAILY' });
+                  await api.post(`${API_BASE_URL}/monitor/enroll/${r.id}`, { scanType: 'DAILY' });
                   enrolled++;
                 } catch { /* skip already enrolled */ }
               }
@@ -573,7 +572,7 @@ export function MonitoringPage() {
                 const active = monitors.filter(m => m.status === 'ACTIVE');
                 toast('Scanning all files — this may take a minute…');
                 for (const m of active) {
-                  try { await axios.post(`${API_BASE_URL}/monitor/${m.id}/check`); } catch { /* skip */ }
+                  try { await api.post(`${API_BASE_URL}/monitor/${m.id}/check`); } catch { /* skip */ }
                 }
                 toast.success('All scans complete — refreshing alerts');
                 load();
@@ -598,8 +597,8 @@ export function MonitoringPage() {
               <MonitorCard key={m.id} m={m}
                 checking={checking === m.id}
                 onCheck={() => handleCheck(m.id)}
-                onPause={() => axios.post(`${API_BASE_URL}/monitor/${m.id}/pause`).then(load)}
-                onResume={() => axios.post(`${API_BASE_URL}/monitor/${m.id}/resume`).then(load)}
+                onPause={() => api.post(`${API_BASE_URL}/monitor/${m.id}/pause`).then(load)}
+                onResume={() => api.post(`${API_BASE_URL}/monitor/${m.id}/resume`).then(load)}
                 onScanTypeChange={(t) => handleScanTypeChange(m.id, t)}
                 onRefresh={load} />
             ))}
