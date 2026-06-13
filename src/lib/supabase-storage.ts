@@ -28,16 +28,34 @@ function getClient(): SupabaseClient {
   return _client;
 }
 
+/** Ensure the vault-files bucket exists, creating it if not. */
+async function ensureBucket(): Promise<void> {
+  const client = getClient();
+  const { data: buckets } = await client.storage.listBuckets();
+  const exists = buckets?.some((b) => b.name === BUCKET);
+  if (!exists) {
+    const { error } = await client.storage.createBucket(BUCKET, { public: false });
+    if (error) throw new Error(`Failed to create storage bucket: ${error.message}`);
+    logger.info('[Storage] Created bucket', { bucket: BUCKET });
+  }
+}
+
+let _bucketReady = false;
+
 /** Upload encrypted buffer to Supabase Storage. Returns the storage path. */
 export async function uploadVaultFile(vaultId: string, buffer: Buffer): Promise<string> {
   const storagePath = `${vaultId}.enc`;
 
+  if (!_bucketReady) {
+    await ensureBucket();
+    _bucketReady = true;
+  }
+
   const { error } = await getClient().storage
     .from(BUCKET)
     .upload(storagePath, buffer, {
-      contentType:  'application/octet-stream',
-      duplex:       'half',
-      upsert:       false,
+      contentType: 'application/octet-stream',
+      upsert:      false,
     });
 
   if (error) throw new Error(`Supabase upload failed: ${error.message}`);
