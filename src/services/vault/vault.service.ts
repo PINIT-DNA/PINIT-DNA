@@ -19,12 +19,32 @@
  *   4. Decrypt → return original image bytes + MIME type
  */
 
+import path from 'path';
+import fs   from 'fs/promises';
 import { v4 as uuidv4 } from 'uuid';
 
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { encrypt, decrypt } from './encryption.service';
 import { uploadVaultFile, downloadVaultFile } from '../../lib/supabase-storage';
+
+// In development without Supabase configured, fall back to local disk.
+const USE_LOCAL = process.env['NODE_ENV'] !== 'production' &&
+  (!process.env['SUPABASE_URL'] || !process.env['SUPABASE_SERVICE_KEY']);
+
+const LOCAL_DIR = path.resolve(process.env['VAULT_STORAGE_DIR'] ?? './vault/encrypted');
+
+async function writeLocal(vaultId: string, buffer: Buffer): Promise<string> {
+  await fs.mkdir(LOCAL_DIR, { recursive: true });
+  const filePath = path.join(LOCAL_DIR, `${vaultId}.enc`);
+  await fs.writeFile(filePath, buffer);
+  return filePath;
+}
+
+async function readLocal(vaultId: string): Promise<Buffer> {
+  const filePath = path.join(LOCAL_DIR, `${vaultId}.enc`);
+  return fs.readFile(filePath);
+}
 
 export interface StoreResult {
   vaultId:            string;
@@ -84,14 +104,15 @@ export class VaultService {
     const vaultId   = uuidv4();
     const encResult = encrypt(imageBuffer, vaultId);
 
-    // ── Upload to Supabase Storage ────────────────────────────────────────
-    const encryptedFilePath = await uploadVaultFile(vaultId, encResult.encryptedBuffer);
-
-    logger.debug('Vault — uploaded to Supabase Storage', {
-      vaultId,
-      encryptedFilePath,
-      encryptedSizeBytes: encResult.encryptedSizeBytes,
-    });
+    // ── Store encrypted file (local in dev, Supabase in production) ──────
+    let encryptedFilePath: string;
+    if (USE_LOCAL) {
+      encryptedFilePath = await writeLocal(vaultId, encResult.encryptedBuffer);
+      logger.debug('Vault — stored locally', { vaultId, encryptedFilePath });
+    } else {
+      encryptedFilePath = await uploadVaultFile(vaultId, encResult.encryptedBuffer);
+      logger.debug('Vault — uploaded to Supabase Storage', { vaultId, encryptedFilePath });
+    }
 
     // ── Persist vault record ───────────────────────────────────────────────
     const record = await prisma.vaultRecord.create({
@@ -156,10 +177,14 @@ export class VaultService {
     });
     if (!record) throw new Error(`Vault record not found: ${vaultId}`);
 
-    // ── Download from Supabase Storage ───────────────────────────────────
+    // ── Download encrypted file (local in dev, Supabase in production) ──
     let encryptedBuffer: Buffer;
     try {
-      encryptedBuffer = await downloadVaultFile(vaultId);
+      if (USE_LOCAL) {
+        encryptedBuffer = await readLocal(vaultId);
+      } else {
+        encryptedBuffer = await downloadVaultFile(vaultId);
+      }
     } catch (err) {
       throw new Error(`Vault file unavailable: ${String(err)}`);
     }
