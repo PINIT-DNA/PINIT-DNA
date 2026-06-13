@@ -240,11 +240,11 @@ export function IntelligenceReportPage() {
       <Section icon={Clock} title="Provenance Intelligence" accent="bg-blue-500/20 text-blue-400">
         <Row label="Uploaded At"   value={fmtDate(r.provenance.uploadedAt)} />
         <Row label="Vaulted At"    value={fmtDate(r.provenance.vaultedAt)} />
-        <Row label="File Created"  value={r.provenance.capturedAt ? fmtDate(r.provenance.capturedAt) : '—'} />
-        <Row label="Device Model"  value={r.provenance.deviceModel ?? '—'} />
-        <Row label="Software"      value={r.provenance.software    ?? '—'} />
-        <Row label="File GPS Lat"  value={r.provenance.gpsLatitude  !== null ? `${r.provenance.gpsLatitude}°`  : '—'} />
-        <Row label="File GPS Lng"  value={r.provenance.gpsLongitude !== null ? `${r.provenance.gpsLongitude}°` : '—'} />
+        <Row label="File Created"  value={r.provenance.capturedAt ? fmtDate(r.provenance.capturedAt) : 'Not embedded in file'} />
+        <Row label="Device Model"  value={r.provenance.deviceModel ?? 'Not available for this file type'} />
+        <Row label="Software"      value={r.provenance.software    ?? 'Not embedded in file'} />
+        <Row label="File GPS Lat"  value={r.provenance.gpsLatitude  !== null ? `${r.provenance.gpsLatitude}°`  : 'Not embedded in file'} />
+        <Row label="File GPS Lng"  value={r.provenance.gpsLongitude !== null ? `${r.provenance.gpsLongitude}°` : 'Not embedded in file'} />
         <Row label="Access GPS Lat"  value={r.provenance.accessGpsLat  !== null ? `${r.provenance.accessGpsLat}°`  : '—'} />
         <Row label="Access GPS Lng"  value={r.provenance.accessGpsLng  !== null ? `${r.provenance.accessGpsLng}°`  : '—'} />
         <Row label="Access GPS City" value={r.provenance.accessGpsCity ?? '—'} />
@@ -266,7 +266,6 @@ export function IntelligenceReportPage() {
         <Row label="DNA Status"       value={r.integrity.dnaStatus} />
         <Row label="Layers Complete"  value={`${r.integrity.layersComplete}/6`} accent="text-emerald-400" />
         <Row label="SHA-256 Hash"     value={shortHash(r.integrity.sha256Hash)} mono />
-        <Row label="Normalized Hash"  value={shortHash(r.integrity.normalizedHash)} mono />
         {r.integrity.lastVerification && (
           <Row label="Last Verified" value={fmtDate(r.integrity.lastVerification.at)} />
         )}
