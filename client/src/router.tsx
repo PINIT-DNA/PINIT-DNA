@@ -4,7 +4,7 @@ import { DashboardPage }          from './pages/DashboardPage';
 import { GeneratePage }           from './pages/GeneratePage';
 import { ComparePage }            from './pages/ComparePage';
 import { VaultPage }              from './pages/VaultPage';
-import { DnaRecordsPage }         from './pages/DnaRecordsPage';
+import { DnaRecordsPage }         from './pages/DNARecordsPage';
 import { ReportsPage }            from './pages/ReportsPage';
 import { CertificatesPage }       from './pages/CertificatesPage';
 import { TimelinePage }           from './pages/TimelinePage';

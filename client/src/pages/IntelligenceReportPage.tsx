@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  ShieldCheck, AlertTriangle, Globe, Monitor, Clock,
-  Cpu, MapPin, Hash, Eye, Download, Link2, FileSearch,
-  Wifi, BarChart2, Activity, ChevronDown, ChevronUp,
+  ShieldCheck, AlertTriangle, Globe, Clock,
+  Hash, FileSearch,
+  Wifi, Activity, ChevronDown, ChevronUp,
   ArrowLeft, RefreshCw, CheckCircle2, XCircle, Minus,
 } from 'lucide-react';
 import { API_BASE_URL } from '../config/api.config';
