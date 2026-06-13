@@ -378,6 +378,23 @@ export function MonitoringPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={async () => {
+              try {
+                const { data } = await axios.post(`${API_BASE_URL}/monitoring/enroll-all`);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const d = data as any;
+                toast.success(`Enrolled ${d.enrolled} new files for monitoring`);
+                load();
+              } catch {
+                toast.error('Failed to enroll all files');
+              }
+            }}
+            className="btn btn-secondary btn-sm"
+            title="Auto-enroll all files that aren't being monitored yet"
+          >
+            <Radio size={14} /> Monitor All
+          </button>
           <button onClick={() => setEnrollOpen(true)} className="btn btn-primary btn-sm">
             <Radio size={14} /> Enroll File
           </button>

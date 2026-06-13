@@ -3,12 +3,13 @@ import {
   enrollMonitor, listMonitors, runCheckNow,
   getAlerts, dismissAlert, confirmAlert,
   getMonitoringStats, pauseMonitor, resumeMonitor, stopMonitor,
-  getMonitorRuns, updateScanType,
+  getMonitorRuns, updateScanType, enrollAll,
 } from '../controllers/monitoring.controller';
 
 const router = Router();
 
 router.get('/stats',                  getMonitoringStats);
+router.post('/enroll-all',            enrollAll);
 router.get('/',                       listMonitors);
 router.post('/enroll/:dnaRecordId',   enrollMonitor);
 router.get('/alerts',                 getAlerts);

@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { monitoringService } from '../../services/crawler/monitoring.service';
+import { prisma } from '../../lib/prisma';
+import { logger } from '../../lib/logger';
 
 export async function enrollMonitor(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -96,5 +98,35 @@ export async function stopMonitor(req: Request, res: Response, next: NextFunctio
     const { prisma } = await import('../../lib/prisma');
     await prisma.monitorRecord.update({ where: { id: req.params.id }, data: { status: 'STOPPED' } });
     res.json({ success: true });
+  } catch (err) { next(err); }
+}
+
+// Enroll all DNA records that don't have an active monitor yet
+export async function enrollAll(_req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const allDna = await prisma.dnaRecord.findMany({
+      where: { status: { in: ['COMPLETE', 'PARTIAL'] } },
+      select: { id: true, imageFilename: true },
+    });
+
+    const monitored = await prisma.monitorRecord.findMany({
+      where: { status: { not: 'STOPPED' } },
+      select: { dnaRecordId: true },
+    });
+    const monitoredIds = new Set(monitored.map(m => m.dnaRecordId));
+
+    const unmonitored = allDna.filter(r => !monitoredIds.has(r.id));
+
+    let enrolled = 0;
+    for (const record of unmonitored) {
+      try {
+        await monitoringService.enroll(record.id, { scanType: 'DAILY' });
+        enrolled++;
+      } catch (err) {
+        logger.warn('[Monitor] Bulk enroll skip', { id: record.id, error: String(err) });
+      }
+    }
+
+    res.json({ success: true, enrolled, alreadyMonitored: monitoredIds.size, total: allDna.length });
   } catch (err) { next(err); }
 }
