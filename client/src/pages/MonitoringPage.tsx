@@ -175,7 +175,7 @@ function MonitorCard({ m, onCheck, onPause, onResume, onScanTypeChange, checking
     if (!newUrl.trim()) return;
     setSavingUrl(true);
     try {
-      await axios.patch(`${API_BASE_URL}/monitoring/${m.id}/watch-urls`, {
+      await axios.patch(`${API_BASE_URL}/monitor/${m.id}/watch-urls`, {
         watchUrls: [...(m.watchUrls ?? []), newUrl.trim()],
       });
       toast.success('Watch URL added — click Check Now to scan');
@@ -442,7 +442,7 @@ export function MonitoringPage() {
               let enrolled = 0;
               for (const r of toEnroll) {
                 try {
-                  await axios.post(`${API_BASE_URL}/monitoring/enroll/${r.id}`, { scanType: 'DAILY' });
+                  await axios.post(`${API_BASE_URL}/monitor/enroll/${r.id}`, { scanType: 'DAILY' });
                   enrolled++;
                 } catch { /* skip already enrolled */ }
               }
@@ -573,7 +573,7 @@ export function MonitoringPage() {
                 const active = monitors.filter(m => m.status === 'ACTIVE');
                 toast('Scanning all files — this may take a minute…');
                 for (const m of active) {
-                  try { await axios.post(`${API_BASE_URL}/monitoring/${m.id}/check`); } catch { /* skip */ }
+                  try { await axios.post(`${API_BASE_URL}/monitor/${m.id}/check`); } catch { /* skip */ }
                 }
                 toast.success('All scans complete — refreshing alerts');
                 load();
@@ -598,8 +598,8 @@ export function MonitoringPage() {
               <MonitorCard key={m.id} m={m}
                 checking={checking === m.id}
                 onCheck={() => handleCheck(m.id)}
-                onPause={() => axios.post(`${API_BASE_URL}/monitoring/${m.id}/pause`).then(load)}
-                onResume={() => axios.post(`${API_BASE_URL}/monitoring/${m.id}/resume`).then(load)}
+                onPause={() => axios.post(`${API_BASE_URL}/monitor/${m.id}/pause`).then(load)}
+                onResume={() => axios.post(`${API_BASE_URL}/monitor/${m.id}/resume`).then(load)}
                 onScanTypeChange={(t) => handleScanTypeChange(m.id, t)}
                 onRefresh={load} />
             ))}
