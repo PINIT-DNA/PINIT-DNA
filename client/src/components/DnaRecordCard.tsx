@@ -71,7 +71,7 @@ export function DnaRecordCard({
           <div className="bg-bg-base rounded-lg p-3">
             <p className="text-gray-500 text-xs mono mb-1">LAYERS</p>
             <p className="text-layer-complete text-sm font-semibold mono">
-              {successfulLayers}/6 Complete
+              {successfulLayers}/10 Complete
             </p>
           </div>
           <div className="bg-bg-base rounded-lg p-3">

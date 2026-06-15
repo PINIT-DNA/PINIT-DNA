@@ -44,7 +44,7 @@ export function classifyTampering(result: ComparisonResult): TamperingClassifica
   if (classification === 'DNA_MATCH') {
     return {
       classes: ['Exact Match'], primaryClass: 'Exact Match', severity: 'NONE',
-      explanation: 'Files are byte-for-byte identical. All 6 DNA layers match perfectly.',
+      explanation: 'Files are byte-for-byte identical. All 10 DNA layers match perfectly.',
       technicalDetail: 'SHA-256 cryptographic hash matches. No modifications detected at any layer.',
     };
   }

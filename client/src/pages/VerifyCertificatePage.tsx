@@ -56,7 +56,7 @@ async function verifyInputs(
       label: 'DNA Generation Complete',
       passed: res.status === 'COMPLETE',
       detail: res.status === 'COMPLETE'
-        ? '6 fingerprint layers successfully generated'
+        ? '10 fingerprint layers successfully generated'
         : `Status is ${res.status} — not fully complete`,
     });
   } catch {

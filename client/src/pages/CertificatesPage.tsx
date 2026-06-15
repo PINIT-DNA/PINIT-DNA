@@ -283,7 +283,7 @@ function CertificateCard({
                 <Shield size={10} className="text-purple" />
                 <p className="text-2xs text-gray-500">DNA Layers</p>
               </div>
-              <p className="text-xs font-medium text-purple mono">6 Layers</p>
+              <p className="text-xs font-medium text-purple mono">10 Layers</p>
             </div>
           </div>
         </div>

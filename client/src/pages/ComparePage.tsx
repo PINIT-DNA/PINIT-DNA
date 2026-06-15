@@ -432,8 +432,8 @@ export function ComparePage() {
 
           {loading && (
             <div className="mt-4 space-y-2">
-              <p className="text-xs text-center text-gray-500">Running all 6 fingerprint layers in parallel…</p>
-              <div className="grid grid-cols-6 gap-1">
+              <p className="text-xs text-center text-gray-500">Running all 10 fingerprint layers in parallel…</p>
+              <div className="grid grid-cols-10 gap-1">
                 {LAYER_NAMES.map((_name, i) => (
                   <div key={i} className="flex flex-col items-center gap-1">
                     <div className="w-full h-1 bg-bg-elevated rounded-full overflow-hidden">

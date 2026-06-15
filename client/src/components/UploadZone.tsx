@@ -101,7 +101,7 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
           Generate File DNA
         </h2>
         <p className="text-gray-400 text-sm max-w-md mx-auto">
-          Upload any file to generate a 6-layer persistent fingerprint.
+          Upload any file to generate a 10-layer persistent fingerprint.
           Supports <span className="text-dna-400 font-medium">10 file types</span> — images, documents, media, archives and more.
         </p>
       </motion.div>

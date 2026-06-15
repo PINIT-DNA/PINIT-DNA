@@ -16,7 +16,7 @@ client.interceptors.request.use((config) => {
 });
 
 /**
- * Upload an image and generate its 6-layer DNA fingerprint.
+ * Upload an image and generate its 10-layer DNA fingerprint.
  * Calls: POST /api/v1/dna/generate
  */
 export async function generateDna(file: File): Promise<GenerateDnaResponse> {

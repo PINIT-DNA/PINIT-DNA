@@ -8,7 +8,7 @@ interface Props {
 }
 
 const CHECK_ITEMS = [
-  { icon: '🧬', label: 'DNA Protected',         desc: '6-layer persistent fingerprint generated' },
+  { icon: '🧬', label: 'DNA Protected',         desc: '10-layer persistent fingerprint generated' },
   { icon: '🔒', label: 'AES-256-GCM Encrypted', desc: 'DNA record encrypted with 256-bit key'     },
   { icon: '🏛️', label: 'Ready for Vault Storage', desc: 'Secure storage handoff complete'          },
 ];
@@ -43,7 +43,7 @@ export function SuccessPanel({ session, onReset }: Props) {
             : 'File DNA Generated'}
         </h2>
         <p className="text-gray-400 text-sm">
-          All 6 fingerprint layers complete. DNA record secured and encrypted.
+          All 10 fingerprint layers complete. DNA record secured and encrypted.
         </p>
       </motion.div>
 
@@ -93,7 +93,7 @@ export function SuccessPanel({ session, onReset }: Props) {
             { label: 'Engine',            value: session.engineVersion ?? '2.0.0-universal',      mono: true,  accent: null     },
             { label: 'Original Size',     value: formatBytes(session.fileSizeBytes),             mono: true,  accent: null     },
             { label: 'Encrypted Size',    value: session.vault ? formatBytes(session.vault.encryptedSizeBytes) : '—', mono: true, accent: null },
-            { label: 'Layers Complete',   value: `${session.successfulLayers}/6`,                mono: true,  accent: 'green'  },
+            { label: 'Layers Complete',   value: `${session.successfulLayers}/10`,               mono: true,  accent: 'green'  },
             { label: 'Processing Time',   value: `${session.totalProcessingMs}ms`,               mono: true,  accent: null     },
             { label: 'Encryption',        value: session.vault?.encryptionAlgorithm ?? 'AES-256-GCM', mono: true, accent: 'yellow' },
             { label: 'Key Derivation',    value: 'HKDF-SHA256',                                  mono: true,  accent: null     },

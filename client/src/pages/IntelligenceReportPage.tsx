@@ -282,7 +282,7 @@ export function IntelligenceReportPage() {
           )}
         </div>
         <Row label="DNA Status"       value={r.integrity.dnaStatus} />
-        <Row label="Layers Complete"  value={`${r.integrity.layersComplete}/6`} accent="text-emerald-400" />
+        <Row label="Layers Complete"  value={`${r.integrity.layersComplete}/10`} accent="text-emerald-400" />
         <Row label="SHA-256 Hash"      value={shortHash(r.integrity.sha256Hash)} mono />
         <Row label="Normalized Hash"   value={shortHash(r.integrity.normalizedHash)} mono />
         {r.integrity.lastVerification && (

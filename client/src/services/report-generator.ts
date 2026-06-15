@@ -92,13 +92,13 @@ export function exportDNACertificateJSON(vault: VaultRecord, user?: AuthUser): v
     security: {
       encryptionAlgorithm: vault.encryptionAlgorithm,
       keyDerivation:       vault.keyDerivation,
-      dnaLayers:           6,
+      dnaLayers:           10,
     },
     legalStatement:
       `This certificate confirms that the file "${vault.originalFileName}" was registered ` +
       `in the PINIT-DNA system on ${new Date(vault.createdAt).toLocaleDateString()} ` +
       `by user ${user?.name ?? user?.shortId ?? 'unknown'} (ID: ${user?.sub ?? 'unknown'}). ` +
-      `The file has been cryptographically fingerprinted across 6 independent layers ` +
+      `The file has been cryptographically fingerprinted across 10 independent layers ` +
       `and securely stored with AES-256-GCM encryption.`,
   };
   downloadJSON(cert, `${certId}.json`);
@@ -416,7 +416,7 @@ export async function exportCertificatePDF(vault: VaultRecord, user?: AuthUser):
     `This certificate confirms that the file "${vault.originalFileName}" was registered ` +
     `in the PINIT-DNA system on ${new Date(vault.createdAt).toLocaleDateString()} ` +
     `by ${ownerLabel} (User ID: ${user?.sub ?? 'unknown'}). ` +
-    `The file has been cryptographically fingerprinted across 6 independent layers ` +
+    `The file has been cryptographically fingerprinted across 10 independent layers ` +
     `and securely stored with AES-256-GCM encryption. ` +
     `This certificate was generated on ${new Date().toLocaleDateString()}.`;
   const stmtLines = doc.splitTextToSize(stmt, W - MARGIN * 2);

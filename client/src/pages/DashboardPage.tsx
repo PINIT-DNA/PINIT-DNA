@@ -1,4 +1,4 @@
-﻿import { Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import {
   Database, Archive, Shield, GitCompare, Zap, TrendingUp,
@@ -23,7 +23,7 @@ interface ShareStats {
   pageCompletion: null; forwardChains: null; leakIncidents: null; leakSources: null;
 }
 
-// ─── Stat card ────────────────────────────────────────────────────────────────
+// --- Stat card ----------------------------------------------------------------
 
 interface StatCardProps {
   icon: React.ReactNode;
@@ -51,14 +51,14 @@ function StatCard({ icon, label, value, sub, color, to }: StatCardProps) {
   return to ? <Link to={to}>{content}</Link> : <div>{content}</div>;
 }
 
-// ─── File type donut colors ───────────────────────────────────────────────────
+// --- File type donut colors ---------------------------------------------------
 const TYPE_COLORS: Record<string, string> = {
   IMAGE: '#8b5cf6', PDF: '#ef4444', DOCX: '#3b82f6', PPTX: '#f97316',
   TXT: '#6b7280', CSV: '#10b981', JSON: '#f59e0b', ZIP: '#06b6d4',
   VIDEO: '#6366f1', AUDIO: '#3b82f6',
 };
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+// --- Page ---------------------------------------------------------------------
 
 export function DashboardPage() {
   const { data: stats, loading, error, refetch } = useApi(getDashboardStats);
@@ -91,12 +91,12 @@ export function DashboardPage() {
   return (
     <div className="space-y-6 animate-fade-in max-w-[1400px]">
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      {/* -- Header ----------------------------------------------------------- */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-white">Forensic Dashboard</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            Universal File DNA — Real-time system overview
+            Universal File DNA � Real-time system overview
           </p>
         </div>
         <button onClick={refetch} disabled={loading} className="btn btn-secondary btn-sm gap-2">
@@ -105,7 +105,7 @@ export function DashboardPage() {
         </button>
       </div>
 
-      {/* ── Stat cards ─────────────────────────────────────────────────────── */}
+      {/* -- Stat cards ------------------------------------------------------- */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {loading ? (
           Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
@@ -146,7 +146,7 @@ export function DashboardPage() {
         ) : null}
       </div>
 
-      {/* ── Charts + activity row ───────────────────────────────────────────── */}
+      {/* -- Charts + activity row --------------------------------------------- */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
         {/* File type distribution donut */}
@@ -228,7 +228,7 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {/* ── System capabilities + recent activity ──────────────────────────── */}
+      {/* -- System capabilities + recent activity ---------------------------- */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
         {/* Capabilities */}
@@ -237,9 +237,9 @@ export function DashboardPage() {
           <div className="space-y-2.5">
             {[
               { icon: <Zap size={13} className="text-dna-400" />, label: '10 File Types Supported', sub: 'IMAGE, PDF, DOCX, PPTX, TXT, CSV, JSON, ZIP, VIDEO, AUDIO' },
-              { icon: <Shield size={13} className="text-success" />, label: '6 DNA Fingerprint Layers', sub: 'Cryptographic · Structural · Perceptual · Semantic · Metadata · Signature' },
-              { icon: <Archive size={13} className="text-purple" />, label: 'AES-256-GCM Vault Encryption', sub: 'HKDF-SHA256 key derivation · IV per record · Auth tag verified' },
-              { icon: <GitCompare size={13} className="text-cyan" />, label: 'Forensic Comparison Engine', sub: 'Tampering detection · Similarity scoring · Classification' },
+              { icon: <Shield size={13} className="text-success" />, label: '10 DNA Fingerprint Layers', sub: 'Cryptographic � Structural � Perceptual � Semantic � Metadata � HMAC � Behavioral � Relationship � Origin � Evolution' },
+              { icon: <Archive size={13} className="text-purple" />, label: 'AES-256-GCM Vault Encryption', sub: 'HKDF-SHA256 key derivation � IV per record � Auth tag verified' },
+              { icon: <GitCompare size={13} className="text-cyan" />, label: 'Forensic Comparison Engine', sub: 'Tampering detection � Similarity scoring � Classification' },
             ].map(item => (
               <div key={item.label} className="flex items-start gap-3 p-3 rounded-lg bg-bg-elevated border border-bg-border">
                 <div className="mt-0.5">{item.icon}</div>
@@ -257,7 +257,7 @@ export function DashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-white">Recent DNA Records</h2>
             <Link to="/dna-records" className="text-xs text-dna-400 hover:text-dna-300 transition-colors">
-              View all →
+              View all ?
             </Link>
           </div>
           {loading ? (
@@ -293,7 +293,7 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Storage summary ─────────────────────────────────────────────────── */}
+      {/* -- Storage summary --------------------------------------------------- */}
       {!loading && stats && stats.totalVaultRecords > 0 && (
         <div className="card">
           <div className="flex items-center justify-between mb-4">
@@ -302,7 +302,7 @@ export function DashboardPage() {
               <h2 className="text-sm font-semibold text-white">Vault Storage</h2>
             </div>
             <Link to="/vault" className="text-xs text-dna-400 hover:text-dna-300 transition-colors">
-              Open Vault →
+              Open Vault ?
             </Link>
           </div>
           <div className="grid grid-cols-3 gap-4">
@@ -322,23 +322,23 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* ── Smart Link Analytics ───────────────────────────────────────────── */}
+      {/* -- Smart Link Analytics --------------------------------------------- */}
       {shareStats && (
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <Eye size={15} className="text-dna-400" />
             <h2 className="text-sm font-semibold text-white">Smart Link Analytics</h2>
-            <span className="text-2xs text-gray-600 ml-1">· live · auto-refreshes every 15s</span>
+            <span className="text-2xs text-gray-600 ml-1">� live � auto-refreshes every 15s</span>
           </div>
 
-          {/* Row 1 — reach metrics */}
+          {/* Row 1 � reach metrics */}
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
             {[
               { icon: <Eye size={14} className="text-dna-400" />,    label: 'Total Views',       value: shareStats.totalViews,        color: 'bg-dna-500/10 border-dna-500/20' },
               { icon: <Globe size={14} className="text-cyan" />,      label: 'Unique Recipients', value: shareStats.uniqueRecipients,   color: 'bg-cyan/10 border-cyan/20' },
               { icon: <Globe size={14} className="text-blue-400" />,  label: 'Countries',         value: shareStats.countriesReached,   color: 'bg-blue-500/10 border-blue-500/20' },
               { icon: <MapPin size={14} className="text-purple" />,   label: 'Cities',            value: shareStats.citiesReached,      color: 'bg-purple/10 border-purple/20' },
-              { icon: <Clock size={14} className="text-amber-400" />, label: 'Avg View Time',     value: shareStats.avgViewTimeSec > 0 ? `${shareStats.avgViewTimeSec}s` : '—', color: 'bg-amber-500/10 border-amber-500/20' },
+              { icon: <Clock size={14} className="text-amber-400" />, label: 'Avg View Time',     value: shareStats.avgViewTimeSec > 0 ? `${shareStats.avgViewTimeSec}s` : '�', color: 'bg-amber-500/10 border-amber-500/20' },
               { icon: <Download size={14} className="text-success" />,label: 'Downloads',         value: shareStats.downloads,          color: 'bg-success/10 border-success/20' },
             ].map(m => (
               <div key={m.label} className={`rounded-xl border p-3 ${m.color}`}>
@@ -348,15 +348,15 @@ export function DashboardPage() {
             ))}
           </div>
 
-          {/* Row 2 — violation/security metrics */}
+          {/* Row 2 � violation/security metrics */}
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
             {[
               { icon: <Ban size={14} className="text-red-400" />,        label: 'Blocked Downloads', value: shareStats.blockedDownloads,   color: 'bg-red-500/10 border-red-500/20' },
               { icon: <Printer size={14} className="text-orange-400" />, label: 'Print Attempts',    value: shareStats.printAttempts,      color: 'bg-orange-500/10 border-orange-500/20' },
               { icon: <Copy size={14} className="text-yellow-400" />,    label: 'Copy Attempts',     value: shareStats.copyAttempts,       color: 'bg-yellow-500/10 border-yellow-500/20' },
               { icon: <Camera size={14} className="text-pink-400" />,    label: 'Screenshot Attempts', value: shareStats.screenshotAttempts, color: 'bg-pink-500/10 border-pink-500/20' },
-              { icon: <BarChart2 size={14} className="text-gray-400" />, label: 'Forward Chains',    value: '—',                           color: 'bg-gray-500/10 border-gray-500/20' },
-              { icon: <AlertOctagon size={14} className="text-gray-400" />, label: 'Leak Incidents', value: '—',                           color: 'bg-gray-500/10 border-gray-500/20' },
+              { icon: <BarChart2 size={14} className="text-gray-400" />, label: 'Forward Chains',    value: '�',                           color: 'bg-gray-500/10 border-gray-500/20' },
+              { icon: <AlertOctagon size={14} className="text-gray-400" />, label: 'Leak Incidents', value: '�',                           color: 'bg-gray-500/10 border-gray-500/20' },
             ].map(m => (
               <div key={m.label} className={`rounded-xl border p-3 ${m.color}`}>
                 <div className="flex items-center gap-1.5 mb-1.5">{m.icon}<span className="text-2xs text-gray-500 font-medium">{m.label}</span></div>
@@ -390,7 +390,7 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* ── Quick actions ───────────────────────────────────────────────────── */}
+      {/* -- Quick actions ----------------------------------------------------- */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { to: '/generate',    icon: <Database size={16} />,  label: 'Generate DNA',      color: 'hover:border-dna-500/50'    },
