@@ -2,7 +2,8 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Dna, Shield, Archive, FileSearch,
   GitCompare, Award, ChevronRight, Zap, Clock,
-  ShieldCheck, Activity, Microscope, Radio, Ban, LogOut, User, ShieldAlert, Share2,
+  ShieldCheck, Activity, Microscope, Radio, Ban, LogOut, User, ShieldAlert,
+  Search,
 } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { useAuth } from '../../context/AuthContext';
@@ -11,37 +12,43 @@ const NAV_GROUPS = [
   {
     label: 'Core',
     items: [
-      { to: '/',            icon: LayoutDashboard, label: 'Dashboard',          end: true  },
-      { to: '/generate',   icon: Dna,             label: 'Generate DNA'               },
-      { to: '/compare',    icon: GitCompare,       label: 'DNA Compare'                },
+      { to: '/',          icon: LayoutDashboard, label: 'Dashboard',     end: true },
+      { to: '/generate',  icon: Dna,             label: 'Generate DNA'             },
+      { to: '/compare',   icon: GitCompare,      label: 'DNA Compare'              },
     ],
   },
   {
     label: 'Explorer',
     items: [
-      { to: '/vault',       icon: Archive,    label: 'Vault Explorer'       },
-      { to: '/dna-records', icon: FileSearch, label: 'DNA Records'          },
-      { to: '/timeline',    icon: Clock,      label: 'File Timeline'        },
+      { to: '/vault',       icon: Archive,    label: 'Vault Explorer' },
+      { to: '/dna-records', icon: FileSearch, label: 'DNA Records'    },
+      { to: '/timeline',    icon: Clock,      label: 'File Timeline'  },
+      { to: '/search',      icon: Search,     label: 'Search'         },
     ],
   },
   {
     label: 'Intelligence',
     items: [
-      { to: '/forensic-diff',      icon: Microscope,  label: 'Difference Engine'    },
-      { to: '/monitoring',         icon: Radio,       label: 'Monitoring & Crawler' },
+      { to: '/forensic-diff', icon: Microscope, label: 'Difference Engine'    },
+      { to: '/monitoring',    icon: Radio,      label: 'Monitoring & Crawler' },
     ],
   },
   {
     label: 'Forensics',
     items: [
-      { to: '/reports',              icon: Shield,      label: 'Forensic Reports'      },
-      { to: '/certificates',         icon: Award,       label: 'Certificates'          },
-      { to: '/verify-certificate',   icon: ShieldCheck, label: 'Verify Certificate'    },
-      { to: '/vault-integrity',      icon: Activity,    label: 'Vault Integrity'       },
-      { to: '/duplicate-attempts',   icon: Ban,         label: 'Duplicate Attempts'    },
-      { to: '/unmask-requests',      icon: Shield,      label: 'Unmask Requests'       },
-      { to: '/security-center',      icon: ShieldAlert, label: 'Security Center'        },
-      { to: '/dna-records',          icon: Share2,      label: 'Chain Graph'            },
+      { to: '/forensic-dashboard',  icon: ShieldAlert, label: 'Forensic Dashboard'  },
+      { to: '/security-center',     icon: ShieldAlert, label: 'Security Center'     },
+      { to: '/reports',             icon: Shield,      label: 'Forensic Reports'    },
+      { to: '/unmask-requests',     icon: Shield,      label: 'Unmask Requests'     },
+      { to: '/duplicate-attempts',  icon: Ban,         label: 'Duplicate Attempts'  },
+      { to: '/vault-integrity',     icon: Activity,    label: 'Vault Integrity'     },
+    ],
+  },
+  {
+    label: 'Sharing',
+    items: [
+      { to: '/certificates',        icon: Award,       label: 'Certificates'        },
+      { to: '/verify-certificate',  icon: ShieldCheck, label: 'Verify Certificate'  },
     ],
   },
 ];
