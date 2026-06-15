@@ -39,6 +39,30 @@ const LAYERS = [
     label: 'HMAC Signature Seal',
     description: 'HMAC-SHA256 of all layers — proves origin + integrity',
   },
+  {
+    number: 7,
+    icon: '🧠',
+    label: 'Behavioral DNA',
+    description: 'Upload timing, user agent, session — captures upload behaviour',
+  },
+  {
+    number: 8,
+    icon: '🔗',
+    label: 'Relationship DNA',
+    description: 'Graph of duplicate/related files — detects re-uploads across owners',
+  },
+  {
+    number: 9,
+    icon: '🌐',
+    label: 'Origin DNA',
+    description: 'IP, geo-location, device, timestamp — proves where a file came from',
+  },
+  {
+    number: 10,
+    icon: '🧬',
+    label: 'Evolution DNA',
+    description: 'Merkle-tree mutation log — tracks every version of the file over time',
+  },
 ];
 
 interface Props {
@@ -52,7 +76,7 @@ export function LayerPipeline({ layerStates, completedCount }: Props) {
       {/* Progress bar */}
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-gray-400 font-medium">DNA Generation Pipeline</p>
-        <span className="mono text-xs text-dna-400">{completedCount}/6 layers</span>
+        <span className="mono text-xs text-dna-400">{completedCount}/10 layers</span>
       </div>
 
       {/* Progress track */}
@@ -60,7 +84,7 @@ export function LayerPipeline({ layerStates, completedCount }: Props) {
         <motion.div
           className="h-1.5 rounded-full bg-gradient-to-r from-dna-600 to-dna-400"
           initial={{ width: '0%' }}
-          animate={{ width: `${(completedCount / 6) * 100}%` }}
+          animate={{ width: `${(completedCount / 10) * 100}%` }}
           transition={{ duration: 0.5, ease: 'easeOut' }}
         />
       </div>
