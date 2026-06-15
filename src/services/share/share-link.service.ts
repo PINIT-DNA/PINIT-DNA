@@ -906,7 +906,7 @@ export class ShareLinkService {
       orderBy: { createdAt: 'desc' },
       include: {
         _count: { select: { accessLogs: true } },
-        accessLogs: { orderBy: { createdAt: 'desc' }, take: 5 },
+        accessLogs: { orderBy: { createdAt: 'desc' } },
       },
     });
   }
