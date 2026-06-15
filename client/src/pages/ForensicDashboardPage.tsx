@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/dashboard.api';
+import { API_BASE_URL } from '../config/api.config';
 import { Shield, AlertTriangle, Users, TrendingUp, Eye, Globe, Cpu, Activity } from 'lucide-react';
 
 interface Recipient {
@@ -55,11 +56,13 @@ export function ForensicDashboardPage() {
     setLoading(true);
     try {
       const [recRes, linksRes] = await Promise.all([
-        api.get('/recipients'),
-        api.get('/share'),
+        api.get(`${API_BASE_URL}/recipients`),
+        api.get(`${API_BASE_URL}/share`),
       ]);
-      setRecipients(recRes.data.recipients ?? []);
-      const allLinks: ShareLink[] = linksRes.data.links ?? [];
+      const recData = recRes.data as any;
+      const linksData = linksRes.data as any;
+      setRecipients(recData.recipients ?? []);
+      const allLinks: ShareLink[] = linksData.links ?? [];
       setLinks(allLinks.filter(l => l.forwardStatus !== 'CLEAN' || l.forwardRiskScore > 0));
     } catch (e) {
       console.error(e);
@@ -72,7 +75,7 @@ export function ForensicDashboardPage() {
     if (!newLabel.trim()) return;
     setCreating(true);
     try {
-      await api.post('/recipients', { label: newLabel.trim() });
+      await api.post(`${API_BASE_URL}/recipients`, { label: newLabel.trim() });
       setNewLabel('');
       await loadAll();
     } finally {
@@ -82,7 +85,7 @@ export function ForensicDashboardPage() {
 
   async function handleDelete(id: string) {
     if (!confirm('Delete this recipient? All linked share links will lose their recipient binding.')) return;
-    await api.delete(`/recipients/${id}`);
+    await api.delete(`${API_BASE_URL}/recipients/${id}`);
     await loadAll();
   }
 
