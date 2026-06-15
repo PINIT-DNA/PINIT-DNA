@@ -59,7 +59,7 @@ export class TxtDnaEngine {
     layers.push(await this.runLayer(() => this.layer6(fingerprints, dnaRecordId)));
 
     const successful = layers.filter(l => l.success).length;
-    const status = successful === 6 ? 'COMPLETE' : successful > 0 ? 'PARTIAL' : 'FAILED';
+    const status = successful >= 6 ? 'COMPLETE' : successful > 0 ? 'PARTIAL' : 'FAILED';
     const totalMs = Date.now() - start;
 
     // ── Persist ───────────────────────────────────────────────────────────────

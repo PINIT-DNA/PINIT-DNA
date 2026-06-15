@@ -70,7 +70,7 @@ export class PdfDnaEngine {
     }
 
     const successful = layers.filter(l => l.success).length;
-    const status = successful === 6 ? 'COMPLETE' : successful > 0 ? 'PARTIAL' : 'FAILED';
+    const status = successful >= 6 ? 'COMPLETE' : successful > 0 ? 'PARTIAL' : 'FAILED';
     const totalMs = Date.now() - start;
 
     // Persist L1 hashes to CryptoLayer table so Intelligence Report can read them

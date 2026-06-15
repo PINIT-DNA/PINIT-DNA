@@ -67,7 +67,7 @@ export class ZipDnaEngine {
     }
 
     const successful = layers.filter(l => l.success).length;
-    const status = successful === 6 ? 'COMPLETE' : successful > 0 ? 'PARTIAL' : 'FAILED';
+    const status = successful >= 6 ? 'COMPLETE' : successful > 0 ? 'PARTIAL' : 'FAILED';
     const totalMs = Date.now() - start;
 
     // Deep-clone through JSON to strip any non-serializable values (Sets, Dates, BigInt, etc.)
