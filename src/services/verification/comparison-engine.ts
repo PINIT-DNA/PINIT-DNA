@@ -40,15 +40,22 @@ import type {
 
 const LAYER_WEIGHTS: Record<number, number> = {
   1: 0.35, 2: 0.20, 3: 0.20, 4: 0.10, 5: 0.05, 6: 0.10,
+  // L7-L10 are session-specific (behavior/origin/relationships vary per upload)
+  // Weight 0 so they appear in UI but don't skew content-similarity score
+  7: 0, 8: 0, 9: 0, 10: 0,
 };
 
 const LAYER_THRESHOLDS: Record<number, number> = {
-  1: 1.00,  // exact or nothing
+  1: 1.00,
   2: 0.80,
   3: 0.75,
   4: 0.70,
   5: 0.60,
   6: 0.90,
+  7: 0.50,
+  8: 0.50,
+  9: 0.50,
+  10: 1.00, // L10 merkle root matches exactly when file is identical
 };
 
 const ENGINE_VERSION = '2.0.0-universal';
@@ -129,7 +136,7 @@ export class ComparisonEngine {
     layersB: EphemeralLayer[]
   ): LayerComparisonResult[] {
     const results: LayerComparisonResult[] = [];
-    const maxLayers = Math.max(layersA.length, layersB.length, 6);
+    const maxLayers = Math.max(layersA.length, layersB.length, 10);
 
     for (let i = 0; i < maxLayers; i++) {
       const lA = layersA[i];
@@ -273,7 +280,11 @@ export class ComparisonEngine {
       case 3: return `Content perceptually differs (similarity: ${pct}%)`;
       case 4: return `Semantic distribution differs (similarity: ${pct}%)`;
       case 5: return `Metadata provenance differs — may indicate re-save or edit`;
-      case 6: return `Integrity signature differs — seal broken`;
+      case 6:  return `Integrity signature differs — seal broken`;
+      case 7:  return `Behavioral DNA differs — uploaded from different session/device`;
+      case 8:  return `Relationship DNA differs — file has different duplicate graph`;
+      case 9:  return `Origin DNA differs — uploaded from different IP/location/time`;
+      case 10: return `Evolution DNA differs — file versions have diverged`;
       default: return `Layer ${layerNum} fingerprints differ (similarity: ${pct}%)`;
     }
   }

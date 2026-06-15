@@ -216,6 +216,7 @@ export class EphemeralFingerprinter {
       include: {
         cryptoLayer: true, structuralLayer: true, perceptualLayer: true,
         semanticLayer: true, metadataLayer: true, stegoLayer: true,
+        behavioralLayer: true, relationshipLayer: true, originLayer: true, evolutionLayer: true,
       },
     });
 
@@ -309,8 +310,44 @@ export class EphemeralFingerprinter {
       });
     }
 
+    if (record?.behavioralLayer) {
+      layers.push({
+        layer: 7, name: 'behavioral', implementation: 'sha256_behavior_bundle',
+        fingerprint: record.behavioralLayer.behaviorHash,
+        data: { behaviorHash: record.behavioralLayer.behaviorHash, uploadMs: record.behavioralLayer.uploadMs },
+        success: true,
+      });
+    }
+
+    if (record?.relationshipLayer) {
+      layers.push({
+        layer: 8, name: 'relationship', implementation: 'sha256_graph_hash',
+        fingerprint: record.relationshipLayer.graphHash ?? '',
+        data: { graphHash: record.relationshipLayer.graphHash, relatedIds: record.relationshipLayer.relatedIds },
+        success: true,
+      });
+    }
+
+    if (record?.originLayer) {
+      layers.push({
+        layer: 9, name: 'origin', implementation: 'sha256_origin_bundle',
+        fingerprint: record.originLayer.bundleHash,
+        data: { bundleHash: record.originLayer.bundleHash },
+        success: true,
+      });
+    }
+
+    if (record?.evolutionLayer) {
+      layers.push({
+        layer: 10, name: 'evolution', implementation: 'merkle_mutation_log',
+        fingerprint: record.evolutionLayer.merkleRoot ?? '',
+        data: { merkleRoot: record.evolutionLayer.merkleRoot, version: record.evolutionLayer.version },
+        success: true,
+      });
+    }
+
     // Pad any missing layers as failed
-    for (let i = layers.length + 1; i <= 6; i++) {
+    for (let i = layers.length + 1; i <= 10; i++) {
       layers.push({
         layer: i, name: `layer${i}`, implementation: 'missing',
         fingerprint: '', data: {}, success: false,
@@ -320,19 +357,21 @@ export class EphemeralFingerprinter {
     return layers;
   }
 
-  /** Non-IMAGE: fingerprints stored in universalFingerprints JSON */
+  /** Non-IMAGE: L1–L6 from universalFingerprints JSON, L7–L10 from separate tables */
   private async readUniversalLayers(tempId: string): Promise<EphemeralLayer[]> {
     const record = await prisma.dnaRecord.findUnique({
       where: { id: tempId },
-      select: { universalFingerprints: true },
+      select: {
+        universalFingerprints: true,
+        behavioralLayer: true, relationshipLayer: true,
+        originLayer: true, evolutionLayer: true,
+      },
     });
 
     const fp = record?.universalFingerprints as unknown as
       { layers: UniversalLayerResult[] } | null;
 
-    if (!fp?.layers) return [];
-
-    return fp.layers.map((l) => ({
+    const layers: EphemeralLayer[] = (fp?.layers ?? []).map((l) => ({
       layer:          l.layer,
       name:           l.name,
       implementation: l.implementation,
@@ -340,6 +379,21 @@ export class EphemeralFingerprinter {
       data:           l.data,
       success:        l.success,
     }));
+
+    if (record?.behavioralLayer) {
+      layers.push({ layer: 7, name: 'behavioral', implementation: 'sha256_behavior_bundle', fingerprint: record.behavioralLayer.behaviorHash, data: { behaviorHash: record.behavioralLayer.behaviorHash }, success: true });
+    }
+    if (record?.relationshipLayer) {
+      layers.push({ layer: 8, name: 'relationship', implementation: 'sha256_graph_hash', fingerprint: record.relationshipLayer.graphHash ?? '', data: { graphHash: record.relationshipLayer.graphHash }, success: true });
+    }
+    if (record?.originLayer) {
+      layers.push({ layer: 9, name: 'origin', implementation: 'sha256_origin_bundle', fingerprint: record.originLayer.bundleHash, data: { bundleHash: record.originLayer.bundleHash }, success: true });
+    }
+    if (record?.evolutionLayer) {
+      layers.push({ layer: 10, name: 'evolution', implementation: 'merkle_mutation_log', fingerprint: record.evolutionLayer.merkleRoot ?? '', data: { merkleRoot: record.evolutionLayer.merkleRoot }, success: true });
+    }
+
+    return layers;
   }
 
   // ─── Cleanup ──────────────────────────────────────────────────────────────

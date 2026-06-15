@@ -162,12 +162,16 @@ export function explainLayer(l: LayerComparison): LayerExplanation {
   const pct = l.similarityPercent;
 
   const LAYER_META: Record<number, { name: string; algo: string; what: string }> = {
-    1: { name: 'Cryptographic Hash', algo: 'SHA-256 of raw bytes', what: 'Proves byte-for-byte file identity' },
-    2: { name: 'Structural',         algo: 'Sobel edges / page layout / entry tree', what: 'Captures file organisation and internal structure' },
-    3: { name: 'Perceptual',         algo: 'SimHash-64 / DCT pHash', what: 'Detects near-duplicate content regardless of minor edits' },
-    4: { name: 'Semantic',           algo: 'Word freq / colour histogram / type dist', what: 'Analyses the meaning and distribution of content' },
-    5: { name: 'Metadata Provenance',algo: 'EXIF / ID3 / OPC core.xml / container', what: 'Tracks authorship, timestamps, and device information' },
-    6: { name: 'Integrity Signature',algo: 'HMAC-SHA256 content seal', what: 'Cryptographic proof the file was sealed by this system' },
+    1:  { name: 'Cryptographic Hash',  algo: 'SHA-256 of raw bytes',                  what: 'Proves byte-for-byte file identity' },
+    2:  { name: 'Structural',          algo: 'Sobel edges / page layout / entry tree', what: 'Captures file organisation and internal structure' },
+    3:  { name: 'Perceptual',          algo: 'SimHash-64 / DCT pHash',                what: 'Detects near-duplicate content regardless of minor edits' },
+    4:  { name: 'Semantic',            algo: 'Word freq / colour histogram / type dist',what: 'Analyses the meaning and distribution of content' },
+    5:  { name: 'Metadata Provenance', algo: 'EXIF / ID3 / OPC core.xml / container', what: 'Tracks authorship, timestamps, and device information' },
+    6:  { name: 'Integrity Signature', algo: 'HMAC-SHA256 content seal',               what: 'Cryptographic proof the file was sealed by this system' },
+    7:  { name: 'Behavioral DNA',      algo: 'SHA-256 behavior bundle',                what: 'Upload timing, device, session — proves who uploaded it' },
+    8:  { name: 'Relationship DNA',    algo: 'SHA-256 duplicate graph hash',           what: 'Links to duplicate files — proves original ownership' },
+    9:  { name: 'Origin DNA',          algo: 'SHA-256 origin bundle',                  what: 'IP, location, timestamp — proves where file came from' },
+    10: { name: 'Evolution DNA',       algo: 'Merkle tree mutation log',               what: 'Version history — proves file existed at a specific time' },
   };
 
   const meta = LAYER_META[l.layer] ?? { name: l.name, algo: l.implementation, what: '' };

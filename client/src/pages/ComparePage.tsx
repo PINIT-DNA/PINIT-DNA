@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   GitCompare, Upload, X, CheckCircle2, AlertTriangle,
   Shield, RefreshCw, ChevronDown, ChevronUp, FileText,
-  Fingerprint, Eye, Lock, Tag, Cpu,
+  Fingerprint, Eye, Lock, Tag, Cpu, Brain, Network, Globe, GitBranch,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { compareDna } from '../services/dashboard.api';
@@ -14,8 +14,8 @@ import type { ComparisonResult, LayerComparison } from '../types/dashboard.types
 import { cn } from '../components/ui/utils';
 
 // ─── Layer icons ──────────────────────────────────────────────────────────────
-const LAYER_ICONS = [Fingerprint, Cpu, Eye, Tag, FileText, Lock];
-const LAYER_NAMES = ['Cryptographic', 'Structural', 'Perceptual', 'Semantic', 'Metadata', 'Signature'];
+const LAYER_ICONS = [Fingerprint, Cpu, Eye, Tag, FileText, Lock, Brain, Network, Globe, GitBranch];
+const LAYER_NAMES = ['Cryptographic', 'Structural', 'Perceptual', 'Semantic', 'Metadata', 'Signature', 'Behavioral', 'Relationship', 'Origin', 'Evolution'];
 
 function getFileIcon(file: File): string {
   const mime = file.type;
