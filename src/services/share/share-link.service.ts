@@ -96,6 +96,11 @@ export interface CreateShareLinkInput {
   // ── Tenant isolation ──────────────────────────────────────────────────
   ownerUserId?:           string;
 
+  // ── Enterprise Security Controls ─────────────────────────────────────
+  vpnBlock?:       boolean;
+  torBlock?:       boolean;
+  oneDeviceOnly?:  boolean;
+
   // ── Multi-recipient child links ───────────────────────────────────────
   recipients?: Array<{ label: string; email?: string }>;
 }
@@ -156,6 +161,18 @@ export interface AccessLogInput {
   gpsCity?:      string;
   gpsTimestamp?: Date;
   locationShared?: boolean;
+  // Forensic IP intelligence
+  isVpn?:        boolean;
+  isTor?:        boolean;
+  isProxy?:      boolean;
+  isDatacenter?: boolean;
+  asn?:          string;
+  org?:          string;
+  lat?:          number;
+  lng?:          number;
+  canvasFp?:     string;
+  webglFp?:      string;
+  audioFp?:      string;
 }
 
 export interface PolicyCheckResult {
@@ -273,6 +290,11 @@ export class ShareLinkService {
           : null,
         // GPS Location Request
         requestLocation: input.requestLocation ?? false,
+
+        // Enterprise security controls
+        vpnBlock:      input.vpnBlock      ?? false,
+        torBlock:      input.torBlock      ?? true,
+        oneDeviceOnly: input.oneDeviceOnly ?? false,
 
         // Tenant isolation
         ownerUserId: input.ownerUserId ?? null,
@@ -752,6 +774,18 @@ export class ShareLinkService {
         gpsCity:       input.gpsCity       ?? null,
         gpsTimestamp:  input.gpsTimestamp  ?? null,
         locationShared: input.locationShared ?? false,
+        // Forensic IP intelligence
+        isVpn:         input.isVpn         ?? false,
+        isTor:         input.isTor         ?? false,
+        isProxy:       input.isProxy       ?? false,
+        isDatacenter:  input.isDatacenter  ?? false,
+        asn:           input.asn           ?? null,
+        org:           input.org           ?? null,
+        lat:           input.lat           ?? null,
+        lng:           input.lng           ?? null,
+        canvasFp:      input.canvasFp      ?? null,
+        webglFp:       input.webglFp       ?? null,
+        audioFp:       input.audioFp       ?? null,
       },
     });
 

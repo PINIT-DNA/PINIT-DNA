@@ -21,6 +21,7 @@ import { forensicDiffRouter }      from './api/routes/forensic-diff.routes';
 import { aiRouter }               from './api/routes/ai.routes';
 import { monitoringRouter }        from './api/routes/monitoring.routes';
 import { shareRouter }            from './api/routes/share.routes';
+import { recipientsRouter }       from './api/routes/recipients.routes';
 import { evidenceRouter }         from './api/routes/evidence.routes';
 import { authRouter }             from './api/routes/auth.routes';
 import { getHealthReport }         from './lib/health';
@@ -112,8 +113,9 @@ app.use(`${config.apiPrefix}/certificates`, certificateMgmtRouter);
 app.use(`${config.apiPrefix}/forensic`,    forensicDiffRouter);
 app.use(`${config.apiPrefix}/ai`,         aiRouter);
 app.use(`${config.apiPrefix}/monitor`,   monitoringRouter);
-app.use(`${config.apiPrefix}/share`,     shareRouter);
-app.use(`${config.apiPrefix}/evidence`,  evidenceRouter);
+app.use(`${config.apiPrefix}/share`,      shareRouter);
+app.use(`${config.apiPrefix}/recipients`, recipientsRouter);
+app.use(`${config.apiPrefix}/evidence`,   evidenceRouter);
 app.use(`${config.apiPrefix}/auth`,      authRouter);
 
 // ─── React SPA catch-all ─────────────────────────────────────────────────────

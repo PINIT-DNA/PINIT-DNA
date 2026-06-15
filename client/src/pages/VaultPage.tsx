@@ -138,6 +138,11 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
   // ── GPS Location Request ───────────────────────────────────────────────────
   const [requestLocation, setRequestLocation] = useState(false);
 
+  // ── Enterprise Security Controls ──────────────────────────────────────────
+  const [vpnBlock,       setVpnBlock]       = useState(false);
+  const [torBlock,       setTorBlock]       = useState(true);
+  const [oneDeviceOnly,  setOneDeviceOnly]  = useState(false);
+
   // ── Multi-recipient (child links) ─────────────────────────────────────────
   const [recipients, setRecipients] = useState<Array<{ label: string; email: string }>>([]);
   const [childLinks, setChildLinks] = useState<Array<{ token: string; url: string; recipientLabel: string }>>([]);
@@ -226,6 +231,9 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
         maskAddress: privacyMaskingEnabled && maskAddress,
         requestLocation,
         recipients: validRecipients.length > 0 ? validRecipients : undefined,
+        vpnBlock,
+        torBlock,
+        oneDeviceOnly,
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const d = data as any;
@@ -403,6 +411,27 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
                         placeholder="recipient@example.com" className="input text-sm w-full" />
                     </div>
                   )}
+
+                  {/* Enterprise security controls */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-purple-400 uppercase tracking-wide">Enterprise Security</p>
+                    {[
+                      { label: 'Block TOR Access', desc: 'Reject requests from TOR exit nodes (enabled by default)', value: torBlock, set: setTorBlock },
+                      { label: 'Block VPN Access', desc: 'Reject requests originating from VPN providers', value: vpnBlock, set: setVpnBlock },
+                      { label: 'One Device Only', desc: 'Bind link to the first device that accesses it', value: oneDeviceOnly, set: setOneDeviceOnly },
+                    ].map(opt => (
+                      <div key={opt.label} className="flex items-center justify-between p-3 bg-bg-elevated rounded-xl border border-purple-500/20">
+                        <div>
+                          <p className="text-xs font-semibold text-white">{opt.label}</p>
+                          <p className="text-2xs text-gray-500">{opt.desc}</p>
+                        </div>
+                        <button onClick={() => opt.set(!opt.value)}
+                          className={`w-10 h-5 rounded-full transition-all relative ${opt.value ? 'bg-purple-500' : 'bg-bg-border'}`}>
+                          <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all ${opt.value ? 'left-5' : 'left-0.5'}`} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
 
                   <div>
                     <label className="text-xs font-semibold text-gray-300 block mb-1.5">

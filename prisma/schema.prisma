@@ -318,12 +318,13 @@ model User {
   isActive     Boolean   @default(true)
   lastLoginAt  DateTime?
 
-  refreshTokens RefreshToken[]
-  dnaRecords    DnaRecord[]
-  shareLinks    ShareLink[]
-  monitorRecords MonitorRecord[]
-  certificates  Certificate[]
-  evidenceRecords EvidenceRecord[]
+  refreshTokens    RefreshToken[]
+  dnaRecords       DnaRecord[]
+  shareLinks       ShareLink[]
+  shareRecipients  ShareRecipient[]
+  monitorRecords   MonitorRecord[]
+  certificates     Certificate[]
+  evidenceRecords  EvidenceRecord[]
 
   @@map("users")
 }
@@ -594,11 +595,28 @@ model ShareLink {
   depth         Int      @default(0)          // 0=parent, 1=child, 2=grandchild
 
   // ── Per-recipient tracking ────────────────────────────────────────────────
-  recipientLabel      String?   // display name e.g. "ash", "person2"
-  intendedIpAddress   String?   // first IP that accessed this child link
-  intendedDeviceFingerprint String? // device fingerprint of first access
-  forwardingDetected  Boolean  @default(false)
-  forwardedByLabel    String?  // who forwarded (if grandchild)
+  recipientLabel            String?
+  intendedIpAddress         String?
+  intendedDeviceFingerprint String?
+  forwardingDetected        Boolean @default(false)
+  forwardedByLabel          String?
+
+  // ── Enterprise Security Controls ──────────────────────────────────────────
+  oneDeviceOnly         Boolean  @default(false)
+  oneIpOnly             Boolean  @default(false)
+  vpnBlock              Boolean  @default(false)
+  torBlock              Boolean  @default(true)
+  firstViewExpiresAfter Int?
+  domainRestrictions    String[] @default([])
+  corporateIpRanges     String[] @default([])
+
+  // ── Forensic recipient binding ─────────────────────────────────────────────
+  shareRecipientId  String?
+  shareRecipient    ShareRecipient? @relation(fields: [shareRecipientId], references: [id], onDelete: SetNull)
+  watermarkCode     String?
+  forwardRiskScore  Int     @default(0)
+  forwardConfidence Int     @default(0)
+  forwardStatus     String  @default("CLEAN")
 
   // Relations
   accessLogs      ShareAccessLog[]
@@ -609,7 +627,58 @@ model ShareLink {
   @@index([vaultId])
   @@index([dnaRecordId])
   @@index([parentLinkId])
+  @@index([shareRecipientId])
+  @@index([forwardStatus])
   @@map("share_links")
+}
+
+// ─── Forensic Recipient ───────────────────────────────────────────────────────
+
+model ShareRecipient {
+  id            String   @id @default(uuid())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  ownerUserId   String
+  ownerUser     User     @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  label         String
+  recipientCode String   @unique
+  trustScore    Int      @default(100)
+
+  knownDevices     String[] @default([])
+  knownIps         String[] @default([])
+  knownCountries   String[] @default([])
+  totalAccessCount Int      @default(0)
+  lastAccessAt     DateTime?
+  firstAccessAt    DateTime?
+
+  shareLinks  ShareLink[]
+  trustEvents RecipientTrustEvent[]
+
+  @@index([ownerUserId])
+  @@index([recipientCode])
+  @@map("share_recipients")
+}
+
+// ─── Recipient Trust Score History ───────────────────────────────────────────
+
+model RecipientTrustEvent {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+
+  recipientId String
+  recipient   ShareRecipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  eventType   String
+  scoreBefore Int
+  scoreAfter  Int
+  delta       Int
+  reason      String
+  linkId      String?
+
+  @@index([recipientId])
+  @@map("recipient_trust_events")
 }
 
 // ─── Privacy Masking — Unmask Access Requests ────────────────────────────────
@@ -820,6 +889,19 @@ model ShareAccessLog {
   // ── Device Fingerprinting extensions ──────────────────────────────────────
   screenResolution String?  // "1920x1080" — sent by client
   deviceFingerprint String? // sha256 hash of canvas+webgl+fonts signature
+
+  // ── Forensic IP Intelligence ──────────────────────────────────────────────
+  isVpn         Boolean  @default(false)
+  isTor         Boolean  @default(false)
+  isProxy       Boolean  @default(false)
+  isDatacenter  Boolean  @default(false)
+  asn           String?
+  org           String?
+  lat           Float?
+  lng           Float?
+  canvasFp      String?
+  webglFp       String?
+  audioFp       String?
 
   // ── AI Risk Engine — computed at write-time from event + context history ──
   riskScore   Int?      // 0-100

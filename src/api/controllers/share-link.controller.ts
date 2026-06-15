@@ -13,6 +13,8 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { shareLinkService, geoFromIp } from '../../services/share/share-link.service';
+import { getIpIntelligence } from '../../services/forensic/ip-intelligence.service';
+import { detectForwardingForLink } from '../../services/forensic/forward-detection.engine';
 import {
   getOrCreateRecipient,
   createWatermarkProfile,
@@ -241,24 +243,36 @@ export async function recordAccess(req: Request, res: Response, next: NextFuncti
       return;
     }
 
+    // ── IP Intelligence (forensic) ────────────────────────────────────────
+    const ipIntel = realIp ? await getIpIntelligence(realIp) : null;
+
+    // ── Enterprise security controls (vpnBlock, torBlock) ────────────────
+    if (!isSecurityEvent && ipIntel) {
+      if ((fullLink as any).torBlock && ipIntel.isTor) {
+        await shareLinkService.recordAccess({ shareLinkId: fullLink.id, action: 'BLOCKED_TOR', ipAddress: realIp, userAgent: req.headers['user-agent'], sessionId, isTor: true, isProxy: true });
+        res.status(403).json({ success: false, error: 'TOR access is not permitted for this link', blocked: true });
+        return;
+      }
+      if ((fullLink as any).vpnBlock && ipIntel.isVpn) {
+        await shareLinkService.recordAccess({ shareLinkId: fullLink.id, action: 'BLOCKED_VPN', ipAddress: realIp, userAgent: req.headers['user-agent'], sessionId, isVpn: true });
+        res.status(403).json({ success: false, error: 'VPN access is not permitted for this link', blocked: true });
+        return;
+      }
+    }
+
     // ── Forwarding detection for CHILD / GRANDCHILD links ────────────────
     let forwardingDetected = false;
     let grandchildToken: string | undefined;
-    if (fullLink.linkType !== 'PARENT' && (action === 'VIEWED' || !action)) {
-      const geo = await geoFromIp(realIp ?? '');
-      const fwdResult = await shareLinkService.detectForwarding(
-        fullLink as any,
-        realIp ?? '',
-        deviceFingerprint ?? null,
-        { country: geo.country, city: geo.city,
-          browser: parseUaBrowser(req.headers['user-agent'] ?? ''),
-          os: parseUaOs(req.headers['user-agent'] ?? '') }
-      );
-      forwardingDetected = fwdResult.forwarded;
-      grandchildToken = fwdResult.grandchildToken;
+    if (fullLink.linkType !== 'PARENT' && (action === 'VIEWED' || !action) && realIp) {
+      const fwdVerdict = await detectForwardingForLink(fullLink.id, realIp, deviceFingerprint, ipIntel ?? { ip: realIp, country: '', countryCode: '', city: '', region: '', isp: '', org: '', asn: '', timezone: '', lat: 0, lng: 0, isVpn: false, isTor: false, isProxy: false, isDatacenter: false, abuseScore: 0 });
+      forwardingDetected = fwdVerdict.status !== 'CLEAN';
       if (forwardingDetected) {
-        logger.warn('[SmartLink] Forwarding detected and logged', { token, newIp: realIp });
+        logger.warn('[SmartLink] Forwarding detected', { token, score: fwdVerdict.score, status: fwdVerdict.status, reasons: fwdVerdict.reasons });
       }
+      // Also run old detectForwarding for grandchild link creation
+      const geo = await geoFromIp(realIp);
+      const fwdResult = await shareLinkService.detectForwarding(fullLink as any, realIp, deviceFingerprint ?? null, { country: geo.country, city: geo.city, browser: parseUaBrowser(req.headers['user-agent'] ?? ''), os: parseUaOs(req.headers['user-agent'] ?? '') });
+      grandchildToken = fwdResult.grandchildToken;
     }
 
     await shareLinkService.recordAccess({
@@ -275,6 +289,15 @@ export async function recordAccess(req: Request, res: Response, next: NextFuncti
       gpsCity:       gpsCity       ?? undefined,
       gpsTimestamp:  gpsTimestamp  ? new Date(gpsTimestamp) : undefined,
       locationShared: locationShared ?? false,
+      // Forensic IP intelligence fields
+      isVpn:        ipIntel?.isVpn ?? false,
+      isTor:        ipIntel?.isTor ?? false,
+      isProxy:      ipIntel?.isProxy ?? false,
+      isDatacenter: ipIntel?.isDatacenter ?? false,
+      asn:          ipIntel?.asn,
+      org:          ipIntel?.org,
+      lat:          ipIntel?.lat,
+      lng:          ipIntel?.lng,
     });
 
     logger.info('[SmartLink] Access recorded', { token, action, ip: realIp });
