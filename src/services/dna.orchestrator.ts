@@ -18,6 +18,10 @@ import { PerceptualLayer } from './layers/layer3.perceptual';
 import { SemanticLayer } from './layers/layer4.semantic';
 import { MetadataLayer } from './layers/layer5.metadata';
 import { SteganographyLayer } from './layers/layer6.steganography';
+import { BehavioralLayer } from './layers/layer7.behavioral';
+import { RelationshipLayer } from './layers/layer8.relationship';
+import { OriginLayer } from './layers/layer9.origin';
+import { EvolutionLayer } from './layers/layer10.evolution';
 
 import {
   ImageInput,
@@ -28,16 +32,24 @@ import {
   SemanticLayerResult,
   MetadataLayerResult,
   StegoLayerResult,
+  BehavioralLayerResult,
+  RelationshipLayerResult,
+  OriginLayerResult,
+  EvolutionLayerResult,
 } from '../types/dna.types';
 import { withTimeout, validateFileInput } from '../lib/safe-runner';
 
 export class DnaOrchestrator {
-  private readonly layer1 = new CryptographicLayer();
-  private readonly layer2 = new StructuralLayer();
-  private readonly layer3 = new PerceptualLayer();
-  private readonly layer4 = new SemanticLayer();
-  private readonly layer5 = new MetadataLayer();
-  private readonly layer6 = new SteganographyLayer();
+  private readonly layer1  = new CryptographicLayer();
+  private readonly layer2  = new StructuralLayer();
+  private readonly layer3  = new PerceptualLayer();
+  private readonly layer4  = new SemanticLayer();
+  private readonly layer5  = new MetadataLayer();
+  private readonly layer6  = new SteganographyLayer();
+  private readonly layer7  = new BehavioralLayer();
+  private readonly layer8  = new RelationshipLayer();
+  private readonly layer9  = new OriginLayer();
+  private readonly layer10 = new EvolutionLayer();
 
   /**
    * Run the full 6-layer DNA generation pipeline for an uploaded image.
@@ -51,7 +63,16 @@ export class DnaOrchestrator {
    */
   async generate(
     image: ImageInput,
-    universalCtx?: { fileType?: string; engineVersion?: string }
+    universalCtx?: {
+      fileType?: string;
+      engineVersion?: string;
+      uploadStartMs?: number;
+      userAgent?: string;
+      sessionToken?: string;
+      ip?: string;
+      country?: string;
+      city?: string;
+    }
   ): Promise<DnaGenerationResult> {
     const pipelineStart = Date.now();
     const dnaRecordId = uuidv4();
@@ -98,9 +119,9 @@ export class DnaOrchestrator {
       ]);
 
     // ── Layer 5 runs after Layer 1 — embeds a cryptographic link to L1 hash ──
-    const layer1Hash = (cryptoResult as CryptoLayerResult).data?.sha256Hash;
+    const layer1HashForMeta = (cryptoResult as CryptoLayerResult).data?.sha256Hash;
     const metadataResult = await this.runLayer(
-      () => this.layer5.generate(image, dnaRecordId, layer1Hash),
+      () => this.layer5.generate(image, dnaRecordId, layer1HashForMeta),
       'layer5'
     );
 
@@ -110,6 +131,36 @@ export class DnaOrchestrator {
       'layer6'
     );
 
+    // ── Layers 7–10 run in parallel after layer 1 (need sha256Hash) ──────────
+    const layer1Hash = (cryptoResult as CryptoLayerResult).data?.sha256Hash ?? sha256Hash;
+    const [behavioralResult, relationshipResult, originResult, evolutionResult] =
+      await Promise.all([
+        this.runLayer(
+          () => this.layer7.generate(
+            image, dnaRecordId,
+            universalCtx?.uploadStartMs ?? Date.now(),
+            universalCtx?.userAgent,
+            universalCtx?.sessionToken
+          ), 'layer7'
+        ),
+        this.runLayer(
+          () => this.layer8.generate(image, dnaRecordId, layer1Hash),
+          'layer8'
+        ),
+        this.runLayer(
+          () => this.layer9.generate(image, dnaRecordId, {
+            ip:        universalCtx?.ip,
+            userAgent: universalCtx?.userAgent,
+            country:   universalCtx?.country,
+            city:      universalCtx?.city,
+          }), 'layer9'
+        ),
+        this.runLayer(
+          () => this.layer10.generate(image, dnaRecordId, layer1Hash),
+          'layer10'
+        ),
+      ]);
+
     // ── Determine overall status ──────────────────────────────────────────────
     const allLayers = [
       cryptoResult,
@@ -118,20 +169,28 @@ export class DnaOrchestrator {
       semanticResult,
       metadataResult,
       stegoResult,
+      behavioralResult,
+      relationshipResult,
+      originResult,
+      evolutionResult,
     ];
 
     const successCount = allLayers.filter((l) => l.success).length;
     const status =
-      successCount === 6 ? 'COMPLETE' : successCount > 0 ? 'PARTIAL' : 'FAILED';
+      successCount === 10 ? 'COMPLETE' : successCount > 0 ? 'PARTIAL' : 'FAILED';
 
     // ── Persist all layers ────────────────────────────────────────────────────
     await this.persist(dnaRecordId, {
-      crypto: cryptoResult as CryptoLayerResult,
-      structural: structuralResult as StructuralLayerResult,
-      perceptual: perceptualResult as PerceptualLayerResult,
-      semantic: semanticResult as SemanticLayerResult,
-      metadata: metadataResult as MetadataLayerResult,
-      stego: stegoResult as StegoLayerResult,
+      crypto:       cryptoResult       as CryptoLayerResult,
+      structural:   structuralResult   as StructuralLayerResult,
+      perceptual:   perceptualResult   as PerceptualLayerResult,
+      semantic:     semanticResult     as SemanticLayerResult,
+      metadata:     metadataResult     as MetadataLayerResult,
+      stego:        stegoResult        as StegoLayerResult,
+      behavioral:   behavioralResult   as BehavioralLayerResult,
+      relationship: relationshipResult as RelationshipLayerResult,
+      origin:       originResult       as OriginLayerResult,
+      evolution:    evolutionResult    as EvolutionLayerResult,
       status,
     });
 
@@ -159,12 +218,16 @@ export class DnaOrchestrator {
       file: fileInfo,
       image: fileInfo,
       layers: {
-        crypto: cryptoResult as CryptoLayerResult,
-        structural: structuralResult as StructuralLayerResult,
-        perceptual: perceptualResult as PerceptualLayerResult,
-        semantic: semanticResult as SemanticLayerResult,
-        metadata: metadataResult as MetadataLayerResult,
-        stego: stegoResult as StegoLayerResult,
+        crypto:       cryptoResult       as CryptoLayerResult,
+        structural:   structuralResult   as StructuralLayerResult,
+        perceptual:   perceptualResult   as PerceptualLayerResult,
+        semantic:     semanticResult     as SemanticLayerResult,
+        metadata:     metadataResult     as MetadataLayerResult,
+        stego:        stegoResult        as StegoLayerResult,
+        behavioral:   behavioralResult   as BehavioralLayerResult,
+        relationship: relationshipResult as RelationshipLayerResult,
+        origin:       originResult       as OriginLayerResult,
+        evolution:    evolutionResult    as EvolutionLayerResult,
       },
       status,
       totalProcessingMs: totalMs,
@@ -196,13 +259,17 @@ export class DnaOrchestrator {
   private async persist(
     dnaRecordId: string,
     layers: {
-      crypto: CryptoLayerResult;
-      structural: StructuralLayerResult;
-      perceptual: PerceptualLayerResult;
-      semantic: SemanticLayerResult;
-      metadata: MetadataLayerResult;
-      stego: StegoLayerResult;
-      status: 'COMPLETE' | 'PARTIAL' | 'FAILED';
+      crypto:       CryptoLayerResult;
+      structural:   StructuralLayerResult;
+      perceptual:   PerceptualLayerResult;
+      semantic:     SemanticLayerResult;
+      metadata:     MetadataLayerResult;
+      stego:        StegoLayerResult;
+      behavioral:   BehavioralLayerResult;
+      relationship: RelationshipLayerResult;
+      origin:       OriginLayerResult;
+      evolution:    EvolutionLayerResult;
+      status:       'COMPLETE' | 'PARTIAL' | 'FAILED';
     }
   ): Promise<void> {
     await prisma.$transaction(async (tx) => {
@@ -295,6 +362,60 @@ export class DnaOrchestrator {
             payloadHmac: layers.stego.data.payloadHmac,
             channel: layers.stego.data.channel,
             carrierPath: layers.stego.data.carrierPath,
+          },
+        });
+      }
+
+      // ── Layer 7 ────────────────────────────────────────────────────────────
+      if (layers.behavioral.success) {
+        await tx.behavioralLayer.create({
+          data: {
+            dnaRecordId,
+            behaviorHash: layers.behavioral.data.behaviorHash,
+            uploadMs:     layers.behavioral.data.uploadMs,
+            sessionToken: layers.behavioral.data.sessionToken ?? null,
+            userAgent:    layers.behavioral.data.userAgent,
+            processingMs: layers.behavioral.processingMs,
+          },
+        });
+      }
+
+      // ── Layer 8 ────────────────────────────────────────────────────────────
+      if (layers.relationship.success) {
+        await tx.relationshipLayer.create({
+          data: {
+            dnaRecordId,
+            graphHash:     layers.relationship.data.graphHash,
+            relatedIds:    layers.relationship.data.relatedIds,
+            relationTypes: layers.relationship.data.relationTypes,
+            processingMs:  layers.relationship.processingMs,
+          },
+        });
+      }
+
+      // ── Layer 9 ────────────────────────────────────────────────────────────
+      if (layers.origin.success) {
+        await tx.originLayer.create({
+          data: {
+            dnaRecordId,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            originBundle: layers.origin.data.originBundle as any,
+            bundleHash:   layers.origin.data.bundleHash,
+            processingMs: layers.origin.processingMs,
+          },
+        });
+      }
+
+      // ── Layer 10 ───────────────────────────────────────────────────────────
+      if (layers.evolution.success) {
+        await tx.evolutionLayer.create({
+          data: {
+            dnaRecordId,
+            merkleRoot:   layers.evolution.data.merkleRoot,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            mutationLog:  layers.evolution.data.mutationLog as any,
+            version:      layers.evolution.data.version,
+            processingMs: layers.evolution.processingMs,
           },
         });
       }

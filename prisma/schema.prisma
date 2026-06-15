@@ -65,6 +65,10 @@ model DnaRecord {
   semanticLayer     SemanticLayer?
   metadataLayer     MetadataLayer?
   stegoLayer        StegoLayer?
+  behavioralLayer   BehavioralLayer?
+  relationshipLayer RelationshipLayer?
+  originLayer       OriginLayer?
+  evolutionLayer    EvolutionLayer?
 
   // Verification history
   verifications     VerificationLog[]
@@ -242,6 +246,74 @@ model StegoLayer {
   carrierPath  String?
 
   @@map("stego_layers")
+}
+
+// ─── Layer 7: Behavioral DNA ─────────────────────────────────────────────────
+
+model BehavioralLayer {
+  id          String    @id @default(uuid())
+  createdAt   DateTime  @default(now())
+
+  dnaRecordId String    @unique
+  dnaRecord   DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+
+  behaviorHash  String   // SHA-256 of behavior bundle
+  uploadMs      Int      // upload duration in ms
+  sessionToken  String?  // hashed session identifier
+  userAgent     String?  // client user agent string
+  processingMs  Int      @default(0)
+
+  @@map("behavioral_layers")
+}
+
+// ─── Layer 8: Relationship DNA ───────────────────────────────────────────────
+
+model RelationshipLayer {
+  id          String    @id @default(uuid())
+  createdAt   DateTime  @default(now())
+
+  dnaRecordId String    @unique
+  dnaRecord   DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+
+  graphHash     String?   // SHA-256 of sorted related IDs
+  relatedIds    String[]  // IDs of related DnaRecords
+  relationTypes String[]  // DUPLICATE, DERIVATIVE, VERSION, SIMILAR
+  processingMs  Int       @default(0)
+
+  @@map("relationship_layers")
+}
+
+// ─── Layer 9: Origin DNA ─────────────────────────────────────────────────────
+
+model OriginLayer {
+  id          String    @id @default(uuid())
+  createdAt   DateTime  @default(now())
+
+  dnaRecordId  String    @unique
+  dnaRecord    DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+
+  originBundle Json      // { ip, userAgent, geo, timestamp, fileType, sizeBytes }
+  bundleHash   String    // SHA-256 of originBundle JSON
+  processingMs Int       @default(0)
+
+  @@map("origin_layers")
+}
+
+// ─── Layer 10: Evolution DNA ─────────────────────────────────────────────────
+
+model EvolutionLayer {
+  id          String    @id @default(uuid())
+  createdAt   DateTime  @default(now())
+
+  dnaRecordId  String    @unique
+  dnaRecord    DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+
+  merkleRoot   String?   // Merkle root of mutation history
+  mutationLog  Json      @default("[]") // array of { version, hash, ts, type }
+  version      Int       @default(1)
+  processingMs Int       @default(0)
+
+  @@map("evolution_layers")
 }
 
 // ─── Verification Log ────────────────────────────────────────────────────────

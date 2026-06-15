@@ -167,6 +167,54 @@ export interface StegoLayerResult extends LayerResult {
   };
 }
 
+// ─── Layer 7: Behavioral DNA ─────────────────────────────────────────────────
+
+export interface BehavioralLayerResult extends LayerResult {
+  layer: 7;
+  name: 'behavioral';
+  data: {
+    behaviorHash: string;
+    uploadMs: number;
+    sessionToken: string | undefined;
+    userAgent: string | null;
+  };
+}
+
+// ─── Layer 8: Relationship DNA ───────────────────────────────────────────────
+
+export interface RelationshipLayerResult extends LayerResult {
+  layer: 8;
+  name: 'relationship';
+  data: {
+    graphHash: string | null;
+    relatedIds: string[];
+    relationTypes: string[];
+  };
+}
+
+// ─── Layer 9: Origin DNA ─────────────────────────────────────────────────────
+
+export interface OriginLayerResult extends LayerResult {
+  layer: 9;
+  name: 'origin';
+  data: {
+    originBundle: Record<string, unknown>;
+    bundleHash: string;
+  };
+}
+
+// ─── Layer 10: Evolution DNA ─────────────────────────────────────────────────
+
+export interface EvolutionLayerResult extends LayerResult {
+  layer: 10;
+  name: 'evolution';
+  data: {
+    merkleRoot: string | null;
+    mutationLog: unknown[];
+    version: number;
+  };
+}
+
 // ─── Union of all layer results ───────────────────────────────────────────────
 
 export type AnyLayerResult =
@@ -175,7 +223,11 @@ export type AnyLayerResult =
   | PerceptualLayerResult
   | SemanticLayerResult
   | MetadataLayerResult
-  | StegoLayerResult;
+  | StegoLayerResult
+  | BehavioralLayerResult
+  | RelationshipLayerResult
+  | OriginLayerResult
+  | EvolutionLayerResult;
 
 // ─── Full DNA Record (in-memory, before DB persist) ───────────────────────────
 
@@ -209,6 +261,10 @@ export interface DnaGenerationResult {
     semantic: SemanticLayerResult;
     metadata: MetadataLayerResult;
     stego: StegoLayerResult;
+    behavioral: BehavioralLayerResult;
+    relationship: RelationshipLayerResult;
+    origin: OriginLayerResult;
+    evolution: EvolutionLayerResult;
   };
   status: 'COMPLETE' | 'PARTIAL' | 'FAILED';
   totalProcessingMs: number;
