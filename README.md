@@ -1,2 +1,2 @@
-chnagesd by admin
+changed by admin
 # PINIT-DNA
