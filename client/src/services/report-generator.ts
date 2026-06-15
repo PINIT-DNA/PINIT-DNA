@@ -366,7 +366,7 @@ export async function exportCertificatePDF(vault: VaultRecord, user?: AuthUser):
   doc.setFillColor(16, 185, 129);
   doc.roundedRect(W / 2 - 25, 56, 50, 10, 3, 3, 'F');
   doc.setTextColor(255, 255, 255); doc.setFontSize(9);
-  doc.text('✓  VERIFIED', W / 2, 63, { align: 'center' });
+  doc.text('VERIFIED', W / 2, 63, { align: 'center' });
 
   let y = 78;
   const field = (label: string, value: string) => {
