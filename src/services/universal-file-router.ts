@@ -149,7 +149,7 @@ export class UniversalFileRouter {
       status:              result.status,
       totalProcessingMs:   result.totalProcessingMs,
       generatedAt:         result.generatedAt,
-      layerSummary: { total: 6, successful, failed: 6 - successful },
+      layerSummary: { total: 10, successful, failed: 10 - successful },
     };
   }
 
@@ -200,7 +200,7 @@ export class UniversalFileRouter {
       status:              result.status as 'COMPLETE' | 'PARTIAL' | 'FAILED',
       totalProcessingMs:   result.totalProcessingMs,
       generatedAt:         result.generatedAt,
-      layerSummary: { total: 6, successful, failed: 6 - successful },
+      layerSummary: { total: 10, successful, failed: 10 - successful },
     };
   }
 }
