@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
+import toast from 'react-hot-toast';
 import { Shield, AlertTriangle, Users, TrendingUp, Eye, Globe, Cpu, Activity } from 'lucide-react';
 
 interface Recipient {
@@ -64,7 +65,9 @@ export function ForensicDashboardPage() {
       setRecipients(recData.recipients ?? []);
       const allLinks: ShareLink[] = linksData.links ?? [];
       setLinks(allLinks.filter(l => l.forwardStatus !== 'CLEAN' || l.forwardRiskScore > 0));
-    } catch (e) {
+    } catch (e: any) {
+      const msg = e?.response?.data?.error ?? e?.message ?? 'Failed to load data';
+      toast.error(`Load error: ${msg}`);
       console.error(e);
     } finally {
       setLoading(false);
@@ -77,7 +80,11 @@ export function ForensicDashboardPage() {
     try {
       await api.post(`${API_BASE_URL}/recipients`, { label: newLabel.trim() });
       setNewLabel('');
+      toast.success('Recipient created!');
       await loadAll();
+    } catch (e: any) {
+      const msg = e?.response?.data?.error ?? e?.message ?? 'Failed to create recipient';
+      toast.error(msg);
     } finally {
       setCreating(false);
     }
