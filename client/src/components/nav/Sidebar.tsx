@@ -3,7 +3,6 @@ import {
   LayoutDashboard, Dna, Shield, Archive, FileSearch,
   GitCompare, Award, ChevronRight, Zap, Clock,
   ShieldCheck, Activity, Microscope, Radio, Ban, LogOut, User, ShieldAlert,
-  Search,
 } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { useAuth } from '../../context/AuthContext';
@@ -23,7 +22,6 @@ const NAV_GROUPS = [
       { to: '/vault',       icon: Archive,    label: 'Vault Explorer' },
       { to: '/dna-records', icon: FileSearch, label: 'DNA Records'    },
       { to: '/timeline',    icon: Clock,      label: 'File Timeline'  },
-      { to: '/search',      icon: Search,     label: 'Search'         },
     ],
   },
   {
