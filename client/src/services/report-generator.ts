@@ -7,6 +7,7 @@
  */
 
 import type { ComparisonResult, VaultRecord, DnaRecord } from '../types/dashboard.types';
+import type { AuthUser } from '../lib/auth';
 import { classifyTampering, explainLayer } from './forensic-analysis';
 import { formatBytes } from '../hooks/useApi';
 
@@ -65,7 +66,7 @@ export function exportComparisonJSON(result: ComparisonResult): void {
   downloadJSON(report, `forensic-report-${result.comparisonId.slice(0, 8)}.json`);
 }
 
-export function exportDNACertificateJSON(vault: VaultRecord): void {
+export function exportDNACertificateJSON(vault: VaultRecord, user?: AuthUser): void {
   const certId = `CERT-DNA-${vault.id.slice(0, 8).toUpperCase()}`;
   const cert = {
     reportId:        reportId(),
@@ -73,6 +74,11 @@ export function exportDNACertificateJSON(vault: VaultRecord): void {
     reportType:      'DNA_OWNERSHIP_CERTIFICATE',
     generatedAt:     ts(),
     issuedBy:        'PINIT-DNA Universal File DNA Engine v2.0',
+    owner: {
+      userId:    user?.sub    ?? 'unknown',
+      shortId:   user?.shortId ?? 'unknown',
+      name:      user?.name   ?? 'unknown',
+    },
     subject: {
       fileName:      vault.originalFileName,
       mimeType:      vault.originalMimeType,
@@ -90,7 +96,8 @@ export function exportDNACertificateJSON(vault: VaultRecord): void {
     },
     legalStatement:
       `This certificate confirms that the file "${vault.originalFileName}" was registered ` +
-      `in the PINIT-DNA system on ${new Date(vault.createdAt).toLocaleDateString()}. ` +
+      `in the PINIT-DNA system on ${new Date(vault.createdAt).toLocaleDateString()} ` +
+      `by user ${user?.name ?? user?.shortId ?? 'unknown'} (ID: ${user?.sub ?? 'unknown'}). ` +
       `The file has been cryptographically fingerprinted across 6 independent layers ` +
       `and securely stored with AES-256-GCM encryption.`,
   };
@@ -325,7 +332,7 @@ export async function exportComparisonPDF(result: ComparisonResult): Promise<voi
 
 // ─── Certificate PDF ───────────────────────────────────────────────────────────
 
-export async function exportCertificatePDF(vault: VaultRecord): Promise<void> {
+export async function exportCertificatePDF(vault: VaultRecord, user?: AuthUser): Promise<void> {
   const { default: jsPDF } = await import('jspdf');
   const certId = `CERT-DNA-${vault.id.slice(0, 8).toUpperCase()}`;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -344,7 +351,7 @@ export async function exportCertificatePDF(vault: VaultRecord): Promise<void> {
   doc.setFillColor(22, 33, 100);
   doc.rect(10, 10, W - 20, 30, 'F');
 
-  doc.setTextColor(255,255,255);
+  doc.setTextColor(255, 255, 255);
   doc.setFontSize(18); doc.setFont('helvetica', 'bold');
   doc.text('PINIT-DNA', W / 2, 26, { align: 'center' });
   doc.setFontSize(10); doc.setFont('helvetica', 'normal');
@@ -358,35 +365,60 @@ export async function exportCertificatePDF(vault: VaultRecord): Promise<void> {
   // Verified badge
   doc.setFillColor(16, 185, 129);
   doc.roundedRect(W / 2 - 25, 56, 50, 10, 3, 3, 'F');
-  doc.setTextColor(255,255,255); doc.setFontSize(9);
+  doc.setTextColor(255, 255, 255); doc.setFontSize(9);
   doc.text('✓  VERIFIED', W / 2, 63, { align: 'center' });
 
   let y = 78;
   const field = (label: string, value: string) => {
-    doc.setFontSize(8); doc.setTextColor(100,120,150); doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8); doc.setTextColor(100, 120, 150); doc.setFont('helvetica', 'normal');
     doc.text(label.toUpperCase(), MARGIN, y);
-    doc.setFontSize(10); doc.setTextColor(220,225,235); doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10); doc.setTextColor(220, 225, 235); doc.setFont('helvetica', 'bold');
     doc.text(value, MARGIN, y + 5);
     y += 14;
   };
 
-  field('Registered File', vault.originalFileName);
-  field('MIME Type', vault.originalMimeType);
-  field('Original Size', formatBytes(vault.originalSizeBytes));
-  field('Encrypted Size', formatBytes(vault.encryptedSizeBytes));
-  field('DNA Record ID', vault.dnaRecordId);
-  field('Vault ID', vault.id);
-  field('Encryption', `${vault.encryptionAlgorithm} · ${vault.keyDerivation}`);
-  field('Registration Date', new Date(vault.createdAt).toLocaleString());
-  field('DNA Fingerprint Layers', '6 layers · SHA-256, Structural, Perceptual, Semantic, Metadata, HMAC');
+  const sectionDivider = (title: string) => {
+    y += 2;
+    doc.setFillColor(22, 33, 100);
+    doc.rect(MARGIN, y, W - MARGIN * 2, 7, 'F');
+    doc.setFontSize(8); doc.setFont('helvetica', 'bold');
+    doc.setTextColor(148, 130, 240);
+    doc.text(title, MARGIN + 2, y + 5);
+    y += 12;
+  };
 
-  // Statement
-  y += 5;
+  // ── Owner Section ───────────────────────────────────────────────────────────
+  sectionDivider('OWNER INFORMATION');
+  field('Owner Name',    user?.name    ?? 'Unknown');
+  field('Owner ID',      user?.sub     ?? 'Unknown');
+  field('Short ID',      user?.shortId ?? 'Unknown');
+
+  // ── File Section ────────────────────────────────────────────────────────────
+  sectionDivider('FILE INFORMATION');
+  field('Registered File',  vault.originalFileName);
+  field('MIME Type',        vault.originalMimeType);
+  field('Original Size',    formatBytes(vault.originalSizeBytes));
+  field('Encrypted Size',   formatBytes(vault.encryptedSizeBytes));
+  field('Registration Date', new Date(vault.createdAt).toLocaleString());
+
+  // ── Identity Section ────────────────────────────────────────────────────────
+  sectionDivider('IDENTITY & SECURITY');
+  field('DNA Record ID', vault.dnaRecordId);
+  field('Vault ID',      vault.id);
+  field('Encryption',    `${vault.encryptionAlgorithm} · ${vault.keyDerivation}`);
+  field('DNA Layers',    '6 layers · SHA-256, Structural, Perceptual, Semantic, Metadata, HMAC');
+
+  // ── Legal Statement ─────────────────────────────────────────────────────────
+  y += 4;
   doc.setFontSize(8); doc.setTextColor(140); doc.setFont('helvetica', 'normal');
-  const stmt = `This certificate confirms that the above file has been registered in the PINIT-DNA ` +
-               `system and protected with a 6-layer cryptographic DNA fingerprint. ` +
-               `The file is securely stored with AES-256-GCM encryption. ` +
-               `This certificate was generated on ${new Date().toLocaleDateString()}.`;
+  const ownerLabel = user?.name ?? user?.shortId ?? 'the registered owner';
+  const stmt =
+    `This certificate confirms that the file "${vault.originalFileName}" was registered ` +
+    `in the PINIT-DNA system on ${new Date(vault.createdAt).toLocaleDateString()} ` +
+    `by ${ownerLabel} (User ID: ${user?.sub ?? 'unknown'}). ` +
+    `The file has been cryptographically fingerprinted across 6 independent layers ` +
+    `and securely stored with AES-256-GCM encryption. ` +
+    `This certificate was generated on ${new Date().toLocaleDateString()}.`;
   const stmtLines = doc.splitTextToSize(stmt, W - MARGIN * 2);
   doc.text(stmtLines, MARGIN, y);
 

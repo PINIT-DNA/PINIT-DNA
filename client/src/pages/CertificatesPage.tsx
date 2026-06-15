@@ -27,6 +27,7 @@ import {
   revokeCertificate,
 } from '../services/dashboard.api';
 import { exportCertificatePDF, exportDNACertificateJSON } from '../services/report-generator';
+import { useAuth } from '../context/AuthContext';
 import { Badge } from '../components/ui/Badge';
 import { EmptyState } from '../components/ui/EmptyState';
 import { SkeletonCard } from '../components/ui/Skeleton';
@@ -129,6 +130,7 @@ function CertificateCard({
   onRevoked: (certId: string, cert: IssuedCertificate) => void;
 }) {
   const { vault, certificate, loading } = item;
+  const { user } = useAuth();
   const [revoking, setRevoking]         = useState(false);
   const [exporting, setExporting]       = useState(false);
 
@@ -340,7 +342,7 @@ function CertificateCard({
               setExporting(true);
               toast.loading('Generating PDF…');
               try {
-                await exportCertificatePDF(vault);
+                await exportCertificatePDF(vault, user ?? undefined);
                 toast.dismiss(); toast.success('PDF downloaded');
               } catch {
                 toast.dismiss(); toast.error('PDF generation failed');
@@ -358,11 +360,11 @@ function CertificateCard({
           </button>
 
           <button
-            onClick={() => { exportDNACertificateJSON(vault); toast.success('JSON exported'); }}
+            onClick={() => { exportDNACertificateJSON(vault, user ?? undefined); toast.success('JSON exported'); }}
             className="btn btn-secondary btn-sm text-xs"
-            title="Export JSON"
+            title="Export as JSON (raw data)"
           >
-            <Download size={12} />
+            <Download size={12} /> JSON
           </button>
 
           <button
