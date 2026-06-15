@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Archive, Search, Lock, RefreshCw, Download, Eye, ExternalLink, Share2, Copy, Check, Clock, Ban, FileSearch, Cpu, Plus, Trash2, Users, GitBranch } from 'lucide-react';
+import { Archive, Search, Lock, RefreshCw, Download, Eye, ExternalLink, Share2, Copy, Check, Clock, Ban, FileSearch, Cpu, Users, GitBranch } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
@@ -146,10 +146,21 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
   // ── Multi-recipient (child links) ─────────────────────────────────────────
   const [recipients, setRecipients] = useState<Array<{ label: string; email: string }>>([]);
   const [childLinks, setChildLinks] = useState<Array<{ token: string; url: string; recipientLabel: string }>>([]);
-  const addRecipient    = () => setRecipients(r => [...r, { label: '', email: '' }]);
-  const removeRecipient = (i: number) => setRecipients(r => r.filter((_, idx) => idx !== i));
-  const updateRecipient = (i: number, field: 'label' | 'email', val: string) =>
-    setRecipients(r => r.map((rc, idx) => idx === i ? { ...rc, [field]: val } : rc));
+  const [forensicRecipients, setForensicRecipients] = useState<Array<{ id: string; label: string; recipientCode: string }>>([]);
+
+  useEffect(() => {
+    api.get(`${API_BASE_URL}/recipients`).then(res => {
+      const d = res.data as any;
+      setForensicRecipients(d.recipients ?? []);
+    }).catch(() => {});
+  }, []);
+
+  const toggleForensicRecipient = (label: string) =>
+    setRecipients(r =>
+      r.some(x => x.label === label)
+        ? r.filter(x => x.label !== label)
+        : [...r, { label, email: '' }]
+    );
 
   // ── Manage existing links — list + revoke (Smart Links audit: link revocation UI) ──
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -614,35 +625,42 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
                   <span className="text-xs font-semibold text-gray-300">Share with Specific Recipients</span>
                   <span className="text-2xs text-gray-500">(optional — generates unique tracked links per person)</span>
                 </div>
-                <button onClick={addRecipient} className="flex items-center gap-1 text-2xs text-dna-400 hover:text-white transition-colors">
-                  <Plus size={12} /> Add
-                </button>
               </div>
-              {recipients.length === 0 ? (
-                <p className="text-2xs text-gray-600 px-3 py-2 text-center">
-                  No recipients added — one shared link will be created
-                </p>
+              {forensicRecipients.length === 0 ? (
+                <div className="px-3 py-3 text-center">
+                  <p className="text-2xs text-gray-500">No forensic recipients found.</p>
+                  <button
+                    onClick={() => { onClose(); navigate('/forensic-dashboard'); }}
+                    className="text-2xs text-dna-400 hover:text-white mt-1 underline"
+                  >
+                    Go to Forensic Dashboard to create recipients →
+                  </button>
+                </div>
               ) : (
                 <div className="divide-y divide-bg-border">
-                  {recipients.map((r, i) => (
-                    <div key={i} className="flex items-center gap-2 px-3 py-2">
-                      <input
-                        value={r.label}
-                        onChange={e => updateRecipient(i, 'label', e.target.value)}
-                        placeholder="Name *"
-                        className="input input-sm flex-1 min-w-0 text-xs"
-                      />
-                      <input
-                        value={r.email}
-                        onChange={e => updateRecipient(i, 'email', e.target.value)}
-                        placeholder="Email (optional)"
-                        className="input input-sm flex-1 min-w-0 text-xs"
-                      />
-                      <button onClick={() => removeRecipient(i)} className="text-danger hover:opacity-80 shrink-0">
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  ))}
+                  {forensicRecipients.map(fr => {
+                    const selected = recipients.some(r => r.label === fr.label);
+                    return (
+                      <label key={fr.id} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-bg-elevated transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => toggleForensicRecipient(fr.label)}
+                          className="accent-dna-500"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-xs font-medium text-white">{fr.label}</span>
+                          <span className="text-2xs text-gray-500 ml-2 font-mono">{fr.recipientCode}</span>
+                        </div>
+                        {selected && <Check size={13} className="text-dna-400 shrink-0" />}
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+              {recipients.length > 0 && (
+                <div className="px-3 py-2 bg-dna-500/5 border-t border-dna-500/20">
+                  <p className="text-2xs text-dna-400">{recipients.length} recipient{recipients.length > 1 ? 's' : ''} selected — {recipients.length + 1} links will be generated</p>
                 </div>
               )}
             </div>
