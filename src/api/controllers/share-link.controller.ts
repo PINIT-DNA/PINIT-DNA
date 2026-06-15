@@ -33,6 +33,17 @@ import {
 
 const vaultService = new VaultService();
 
+// ── UA parse helpers ──────────────────────────────────────────────────────────
+function parseUaBrowser(ua: string): string {
+  return /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' :
+    /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Unknown';
+}
+function parseUaOs(ua: string): string {
+  return /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'macOS' :
+    /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' :
+    /Linux/.test(ua) ? 'Linux' : 'Unknown';
+}
+
 // ── Create share link ─────────────────────────────────────────────────────────
 
 export async function createShareLink(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -70,28 +81,35 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
     if (!vaultId) { res.status(400).json({ success: false, error: 'vaultId is required' }); return; }
 
     const ownerUserId = (req as any).user?.sub as string | undefined;
-    const { devOtp, ...link } = await shareLinkService.create({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const recipients = (req.body as any).recipients as Array<{ label: string; email?: string }> | undefined;
+
+    const { devOtp, childLinks, ...link } = await shareLinkService.create({
       vaultId, expiresIn, maxViews, allowDownload, requireName, note,
       oneTimeUse, maxDownloads, allowedCountries, allowedDeviceTypes, allowedIpPrefixes,
       requireOtp, recipientEmail,
       privacyMaskingEnabled, maskEmail, maskPhone, maskAadhaar, maskPan, maskAddress, maskCustomPatterns,
       requestLocation,
       ownerUserId,
-    });
+      recipients,
+    }) as any;
 
-    // Build the public share URL using resolvePublicBaseUrl priority chain:
-    // PUBLIC_APP_URL env → NGROK_URL env → x-forwarded-host → req.host → localhost
     const shareUrl = buildShareUrl(req, link.token);
     logger.info('[SmartLink] Share URL generated', { shareUrl, token: link.token });
+
+    // Build child link URLs
+    const appUrl = process.env['PUBLIC_APP_URL'] ?? `${req.protocol}://${req.get('host')}`;
+    const childLinkUrls = (childLinks ?? []).map((c: any) => ({
+      ...c,
+      url: `${appUrl}/s/${c.token}`,
+    }));
 
     res.status(201).json({
       success: true,
       shareUrl,
       token: link.token,
       link,
-      // devOtp is only present when requireOtp+recipientEmail were set AND no
-      // SMTP provider is configured — surfaced to the CREATOR so the demo
-      // flow works end-to-end without email infrastructure.
+      childLinks: childLinkUrls,
       ...(devOtp ? { devOtp, devOtpNote: 'No SMTP configured — share this code with the recipient manually for the demo.' } : {}),
     });
   } catch (err) { next(err); }
@@ -223,15 +241,34 @@ export async function recordAccess(req: Request, res: Response, next: NextFuncti
       return;
     }
 
+    // ── Forwarding detection for CHILD / GRANDCHILD links ────────────────
+    let forwardingDetected = false;
+    let grandchildToken: string | undefined;
+    if (fullLink.linkType !== 'PARENT' && (action === 'VIEWED' || !action)) {
+      const geo = await geoFromIp(realIp ?? '');
+      const fwdResult = await shareLinkService.detectForwarding(
+        fullLink as any,
+        realIp ?? '',
+        deviceFingerprint ?? null,
+        { country: geo.country, city: geo.city,
+          browser: parseUaBrowser(req.headers['user-agent'] ?? ''),
+          os: parseUaOs(req.headers['user-agent'] ?? '') }
+      );
+      forwardingDetected = fwdResult.forwarded;
+      grandchildToken = fwdResult.grandchildToken;
+      if (forwardingDetected) {
+        logger.warn('[SmartLink] Forwarding detected and logged', { token, newIp: realIp });
+      }
+    }
+
     await shareLinkService.recordAccess({
       shareLinkId:  fullLink.id,
-      action:       action ?? 'VIEWED',
+      action:       forwardingDetected ? 'FORWARDING_DETECTED' : (action ?? 'VIEWED'),
       recipientName,
       ipAddress:    realIp,
       userAgent:    req.headers['user-agent'],
       referrer:     req.headers['referer'],
       timezone, sessionId, screenResolution, deviceFingerprint,
-      // GPS — only stored when user consented
       gpsLat:        gpsLat        ?? undefined,
       gpsLng:        gpsLng        ?? undefined,
       gpsAccuracy:   gpsAccuracy   ?? undefined,
@@ -240,8 +277,8 @@ export async function recordAccess(req: Request, res: Response, next: NextFuncti
       locationShared: locationShared ?? false,
     });
 
-    logger.info('[SmartLink] Access recorded', { token, action, ip: realIp, locationShared: locationShared ?? false });
-    res.json({ success: true, link });
+    logger.info('[SmartLink] Access recorded', { token, action, ip: realIp });
+    res.json({ success: true, link, forwardingDetected, ...(grandchildToken ? { grandchildToken } : {}) });
   } catch (err) { next(err); }
 }
 
@@ -366,6 +403,22 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
 
     // Retrieve decrypted file from vault and stream it
     const result = await vaultService.retrieve(fullLink.vaultId);
+
+    // ── File tamper check: re-hash decrypted buffer and compare with stored DNA hash ──
+    const tamperResult = await shareLinkService.checkFileTamper(
+      fullLink.dnaRecordId, fullLink.vaultId, result.originalBuffer,
+      token, realIp ?? undefined,
+      req.headers['user-agent'] ?? undefined
+    );
+    if (tamperResult.tampered) {
+      logger.error('[TamperDetection] CRITICAL — file tampered, blocking serve', { token, vaultId: fullLink.vaultId });
+      res.status(403).json({
+        success: false,
+        error: 'TAMPER_DETECTED',
+        message: 'This file has been tampered with. All share links have been suspended and the owner has been notified.',
+      });
+      return;
+    }
 
     // ── Content-Disposition: inline (view in browser) vs attachment (force download)
     // When allowDownload=false, serve inline only — no download header.
@@ -750,5 +803,17 @@ export async function attributeLeakedFile(req: Request, res: Response, next: Nex
         shareLink:        attribution.shareLink,
       } : null,
     });
+  } catch (err) { next(err); }
+}
+
+
+// ── Get link tree (parent + children + grandchildren) ────────────────────────
+
+export async function getLinkTree(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { token } = req.params as { token: string };
+    const ownerUserId = (req as any).user?.sub as string;
+    const tree = await shareLinkService.getLinkTree(token, ownerUserId);
+    res.json({ success: true, tree });
   } catch (err) { next(err); }
 }

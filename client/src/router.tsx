@@ -18,6 +18,7 @@ import { UnmaskRequestsPage }      from './pages/UnmaskRequestsPage';
 import { SecurityCenterPage }       from './pages/SecurityCenterPage';
 import { ForwardChainPage }         from './pages/ForwardChainPage';
 import { IntelligenceReportPage }   from './pages/IntelligenceReportPage';
+import { LinkTreePage }             from './pages/LinkTreePage';
 import { NotFoundPage }             from './pages/NotFoundPage';
 import { ShareViewerPage }          from './pages/ShareViewerPage';
 import { LoginPage }                from './pages/LoginPage';
@@ -56,6 +57,7 @@ export const router = createBrowserRouter([
       { path: 'security-center',      element: <SecurityCenterPage />      },
       { path: 'chain/:dnaRecordId',   element: <ForwardChainPage />        },
       { path: 'intelligence/:vaultId', element: <IntelligenceReportPage /> },
+      { path: 'link-tree/:parentToken', element: <LinkTreePage /> },
       { path: 'certificates',          element: <CertificatesPage />        },
       { path: 'verify-certificate',    element: <VerifyCertificatePage />   },
       { path: '*',                     element: <NotFoundPage />            },

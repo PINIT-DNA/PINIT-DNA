@@ -586,13 +586,29 @@ model ShareLink {
   // ── GPS Location Request ──────────────────────────────────────────────────
   requestLocation  Boolean  @default(false)  // ask recipient for GPS permission
 
+  // ── Link Hierarchy (Parent → Child → Grandchild chain) ───────────────────
+  linkType      String   @default("PARENT")  // PARENT | CHILD | GRANDCHILD
+  parentLinkId  String?                       // null for parent links
+  parentLink    ShareLink?  @relation("LinkHierarchy", fields: [parentLinkId], references: [id], onDelete: SetNull)
+  childLinks    ShareLink[] @relation("LinkHierarchy")
+  depth         Int      @default(0)          // 0=parent, 1=child, 2=grandchild
+
+  // ── Per-recipient tracking ────────────────────────────────────────────────
+  recipientLabel      String?   // display name e.g. "ash", "person2"
+  intendedIpAddress   String?   // first IP that accessed this child link
+  intendedDeviceFingerprint String? // device fingerprint of first access
+  forwardingDetected  Boolean  @default(false)
+  forwardedByLabel    String?  // who forwarded (if grandchild)
+
   // Relations
-  accessLogs   ShareAccessLog[]
-  unmaskRequests UnmaskRequest[]
+  accessLogs      ShareAccessLog[]
+  unmaskRequests  UnmaskRequest[]
+  forwardEvents   LinkForwardEvent[]
 
   @@index([token])
   @@index([vaultId])
   @@index([dnaRecordId])
+  @@index([parentLinkId])
   @@map("share_links")
 }
 
@@ -620,6 +636,60 @@ model UnmaskRequest {
   @@index([shareToken])
   @@index([status])
   @@map("unmask_requests")
+}
+
+// ─── Link Forwarding Detection ───────────────────────────────────────────────
+
+model LinkForwardEvent {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+
+  shareLinkId       String
+  shareLink         ShareLink @relation(fields: [shareLinkId], references: [id], onDelete: Cascade)
+
+  // Who was supposed to access
+  intendedRecipient String?   // recipientLabel of the child link
+  intendedIp        String?
+  intendedDevice    String?
+
+  // Who actually accessed (the forwarder's recipient)
+  newIp             String?
+  newDevice         String?
+  newCountry        String?
+  newCity           String?
+  newBrowser        String?
+  newOs             String?
+
+  // Auto-created grandchild link token
+  grandchildToken   String?
+
+  // Action taken
+  action            String    @default("FLAGGED") // FLAGGED | BLOCKED | ALLOWED
+
+  @@index([shareLinkId])
+  @@map("link_forward_events")
+}
+
+// ─── File Tamper Events ───────────────────────────────────────────────────────
+
+model FileTamperEvent {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+
+  dnaRecordId   String
+  vaultId       String
+  shareToken    String?   // which share link triggered the detection
+
+  storedHash    String    // original SHA-256 from DNA record
+  detectedHash  String    // hash computed at serve time
+  accessorIp    String?
+  accessorDevice String?
+
+  // All child links suspended as a result
+  linksSupended  Int      @default(0)
+
+  @@index([dnaRecordId])
+  @@map("file_tamper_events")
 }
 
 // ─── Phase 2: Recipient Identity System ──────────────────────────────────────

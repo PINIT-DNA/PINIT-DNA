@@ -95,6 +95,16 @@ export interface CreateShareLinkInput {
 
   // ── Tenant isolation ──────────────────────────────────────────────────
   ownerUserId?:           string;
+
+  // ── Multi-recipient child links ───────────────────────────────────────
+  recipients?: Array<{ label: string; email?: string }>;
+}
+
+export interface ChildLinkResult {
+  label:  string;
+  token:  string;
+  url:    string;
+  email?: string;
 }
 
 export interface ShareLinkPublicInfo {
@@ -271,9 +281,262 @@ export class ShareLinkService {
 
     logger.info('[SmartLink] Created', { token, filename: vault.originalFileName, expiresAt });
 
-    // devOtp is only ever returned to the CREATOR (response to POST /share),
-    // never exposed via the public link-info endpoint.
-    return { ...link, devOtp: plainOtp };
+    // If recipients provided, auto-create child links
+    let childLinks: ChildLinkResult[] = [];
+    if (input.recipients && input.recipients.length > 0) {
+      childLinks = await this._createChildLinks(link.id, link, input.recipients);
+    }
+
+    return { ...link, devOtp: plainOtp, childLinks };
+  }
+
+  // ── Create child links for each recipient ─────────────────────────────────
+
+  private async _createChildLinks(
+    parentLinkId: string,
+    parent: { token: string; vaultId: string; dnaRecordId: string; filename: string; mimeType: string;
+              expiresAt: Date | null; maxViews: number | null; allowDownload: boolean; requireName: boolean;
+              note: string | null; oneTimeUse: boolean; maxDownloads: number | null;
+              allowedCountries: string[]; allowedDeviceTypes: string[]; allowedIpPrefixes: string[];
+              requireOtp: boolean; privacyMaskingEnabled: boolean; maskEmail: boolean; maskPhone: boolean;
+              maskAadhaar: boolean; maskPan: boolean; maskAddress: boolean; maskCustomPatterns: string | null;
+              requestLocation: boolean; ownerUserId: string | null; tokenSignature: string | null; },
+    recipients: Array<{ label: string; email?: string }>
+  ): Promise<ChildLinkResult[]> {
+    const appUrl = process.env['PUBLIC_APP_URL'] ?? 'http://localhost:3000';
+    const results: ChildLinkResult[] = [];
+
+    for (const recipient of recipients) {
+      let token = generateToken();
+      let attempts = 0;
+      while (await prisma.shareLink.findUnique({ where: { token } })) {
+        token = generateToken();
+        if (++attempts > 10) throw new Error('Failed to generate unique child token');
+      }
+      const tokenSignature = signToken(token);
+
+      const child = await prisma.shareLink.create({
+        data: {
+          token,
+          tokenSignature,
+          vaultId:      parent.vaultId,
+          dnaRecordId:  parent.dnaRecordId,
+          filename:     parent.filename,
+          mimeType:     parent.mimeType,
+          expiresAt:    parent.expiresAt,
+          maxViews:     parent.maxViews,
+          allowDownload: parent.allowDownload,
+          requireName:  parent.requireName,
+          note:         parent.note,
+          oneTimeUse:   parent.oneTimeUse,
+          maxDownloads: parent.maxDownloads,
+          allowedCountries:   parent.allowedCountries,
+          allowedDeviceTypes: parent.allowedDeviceTypes,
+          allowedIpPrefixes:  parent.allowedIpPrefixes,
+          requireOtp:   parent.requireOtp,
+          recipientEmail: recipient.email ?? null,
+          privacyMaskingEnabled: parent.privacyMaskingEnabled,
+          maskEmail:    parent.maskEmail,
+          maskPhone:    parent.maskPhone,
+          maskAadhaar:  parent.maskAadhaar,
+          maskPan:      parent.maskPan,
+          maskAddress:  parent.maskAddress,
+          maskCustomPatterns: parent.maskCustomPatterns,
+          requestLocation: parent.requestLocation,
+          ownerUserId:  parent.ownerUserId,
+          // Hierarchy fields
+          linkType:     'CHILD',
+          parentLinkId,
+          depth:        1,
+          recipientLabel: recipient.label,
+        },
+      });
+
+      results.push({
+        label: recipient.label,
+        token: child.token,
+        url:   `${appUrl}/s/${child.token}`,
+        email: recipient.email,
+      });
+      logger.info('[SmartLink] Child link created', { parentToken: parent.token, childToken: token, recipient: recipient.label });
+    }
+
+    return results;
+  }
+
+  // ── Detect forwarding: called on every access to a CHILD link ────────────
+
+  async detectForwarding(
+    link: { id: string; token: string; linkType: string; depth: number;
+            recipientLabel: string | null; intendedIpAddress: string | null;
+            intendedDeviceFingerprint: string | null; forwardingDetected: boolean;
+            parentLinkId: string | null; },
+    incomingIp: string,
+    incomingFingerprint: string | null,
+    accessInfo: { country?: string; city?: string; browser?: string; os?: string }
+  ): Promise<{ forwarded: boolean; grandchildToken?: string }> {
+    if (link.linkType !== 'CHILD' && link.linkType !== 'GRANDCHILD') {
+      return { forwarded: false };
+    }
+
+    // First ever access — register this device as the intended recipient
+    if (!link.intendedIpAddress) {
+      await prisma.shareLink.update({
+        where: { id: link.id },
+        data: {
+          intendedIpAddress: incomingIp,
+          intendedDeviceFingerprint: incomingFingerprint ?? null,
+        },
+      });
+      return { forwarded: false };
+    }
+
+    // Compare against registered device — different IP subnet OR different fingerprint = forwarding
+    const sameSubnet = link.intendedIpAddress.split('.').slice(0, 3).join('.') ===
+                       incomingIp.split('.').slice(0, 3).join('.');
+    const sameFingerprint = !incomingFingerprint || !link.intendedDeviceFingerprint ||
+                            incomingFingerprint === link.intendedDeviceFingerprint;
+
+    if (sameSubnet && sameFingerprint) {
+      return { forwarded: false };
+    }
+
+    // Forwarding detected — create a grandchild link record and log the event
+    logger.warn('[SmartLink] Forwarding detected', {
+      token: link.token, intendedIp: link.intendedIpAddress, newIp: incomingIp,
+    });
+
+    // Auto-create grandchild link
+    let grandchildToken = generateToken();
+    let attempts = 0;
+    while (await prisma.shareLink.findUnique({ where: { token: grandchildToken } })) {
+      grandchildToken = generateToken();
+      if (++attempts > 10) break;
+    }
+
+    const parentLink = await prisma.shareLink.findUnique({ where: { id: link.id } });
+    if (parentLink) {
+      await prisma.shareLink.create({
+        data: {
+          token:        grandchildToken,
+          tokenSignature: signToken(grandchildToken),
+          vaultId:      parentLink.vaultId,
+          dnaRecordId:  parentLink.dnaRecordId,
+          filename:     parentLink.filename,
+          mimeType:     parentLink.mimeType,
+          expiresAt:    parentLink.expiresAt,
+          maxViews:     1,
+          allowDownload: false,
+          requireName:  true,
+          ownerUserId:  parentLink.ownerUserId,
+          linkType:     'GRANDCHILD',
+          parentLinkId: link.id,
+          depth:        2,
+          recipientLabel: `unknown (forwarded by ${link.recipientLabel ?? 'unknown'})`,
+          forwardedByLabel: link.recipientLabel ?? 'unknown',
+        },
+      });
+    }
+
+    // Mark original child link as forwarded
+    await prisma.shareLink.update({
+      where: { id: link.id },
+      data: { forwardingDetected: true },
+    });
+
+    // Log forwarding event
+    await prisma.linkForwardEvent.create({
+      data: {
+        shareLinkId:      link.id,
+        intendedRecipient: link.recipientLabel ?? null,
+        intendedIp:       link.intendedIpAddress,
+        intendedDevice:   link.intendedDeviceFingerprint,
+        newIp:            incomingIp,
+        newDevice:        incomingFingerprint,
+        newCountry:       accessInfo.country ?? null,
+        newCity:          accessInfo.city ?? null,
+        newBrowser:       accessInfo.browser ?? null,
+        newOs:            accessInfo.os ?? null,
+        grandchildToken,
+        action:           'FLAGGED',
+      },
+    });
+
+    return { forwarded: true, grandchildToken };
+  }
+
+  // ── Tamper check: verify file hash on every serve ─────────────────────────
+
+  async checkFileTamper(
+    dnaRecordId: string, vaultId: string, fileBuffer: Buffer,
+    shareToken?: string, accessorIp?: string, accessorDevice?: string
+  ): Promise<{ tampered: boolean }> {
+    const dnaRecord = await prisma.dnaRecord.findUnique({
+      where: { id: dnaRecordId },
+      include: { cryptoLayer: true },
+    });
+
+    const storedHash = dnaRecord?.cryptoLayer?.sha256Hash ?? dnaRecord?.sha256Hash;
+    if (!storedHash) return { tampered: false }; // no hash to compare
+
+    const { createHash } = await import('crypto');
+    const detectedHash = createHash('sha256').update(fileBuffer).digest('hex');
+
+    if (storedHash.toLowerCase() === detectedHash.toLowerCase()) {
+      return { tampered: false };
+    }
+
+    // TAMPER DETECTED
+    logger.error('[TamperDetection] File hash mismatch!', { dnaRecordId, storedHash, detectedHash });
+
+    // Suspend all active child links for this vault
+    const suspended = await prisma.shareLink.updateMany({
+      where: { vaultId, isActive: true, linkType: { in: ['CHILD', 'GRANDCHILD'] } },
+      data:  { isActive: false },
+    });
+
+    // Log tamper event
+    await prisma.fileTamperEvent.create({
+      data: {
+        dnaRecordId, vaultId,
+        shareToken:    shareToken ?? null,
+        storedHash,
+        detectedHash,
+        accessorIp:    accessorIp ?? null,
+        accessorDevice: accessorDevice ?? null,
+        linksSupended: suspended.count,
+      },
+    });
+
+    return { tampered: true };
+  }
+
+  // ── Get link tree (parent + all children + grandchildren) ─────────────────
+
+  async getLinkTree(parentToken: string, ownerUserId: string) {
+    const parent = await prisma.shareLink.findUnique({
+      where: { token: parentToken },
+      include: {
+        accessLogs: { orderBy: { createdAt: 'desc' }, take: 5 },
+        forwardEvents: true,
+        childLinks: {
+          include: {
+            accessLogs:   { orderBy: { createdAt: 'desc' }, take: 5 },
+            forwardEvents: true,
+            childLinks: {   // grandchildren
+              include: {
+                accessLogs: { orderBy: { createdAt: 'desc' }, take: 5 },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!parent) throw new Error('Share link not found');
+    if (parent.ownerUserId !== ownerUserId) throw new Error('Access denied');
+
+    return parent;
   }
 
   // ── Get link public info (no auth required) ───────────────────────────────

@@ -24,6 +24,7 @@ import {
   getGlobalShareStats,
   attributeLeakedFile,
   leakUploadMiddleware,
+  getLinkTree,
 } from '../controllers/share-link.controller';
 
 export const shareRouter = Router();
@@ -56,3 +57,4 @@ shareRouter.get('/:token/logs',                requireAuth, getShareLinkLogs);
 shareRouter.get('/:token/export',              requireAuth, exportShareLogsCsv);
 shareRouter.delete('/:token',                  requireAuth, revokeShareLink);
 shareRouter.post('/:token/force-logout',       requireAuth, forceLogoutLink);
+shareRouter.get('/:token/tree',                requireAuth, getLinkTree);

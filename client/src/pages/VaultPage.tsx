@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Archive, Search, Lock, RefreshCw, Download, Eye, ExternalLink, Share2, Copy, Check, Clock, Ban, FileSearch, Cpu } from 'lucide-react';
+import { Archive, Search, Lock, RefreshCw, Download, Eye, ExternalLink, Share2, Copy, Check, Clock, Ban, FileSearch, Cpu, Plus, Trash2, Users, GitBranch } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
@@ -101,6 +101,7 @@ interface ShareCreated {
 }
 
 function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => void }) {
+  const navigate = useNavigate();
   const [expiresIn, setExpiresIn]       = useState<string>('168');  // 7 days
   const [maxViews, setMaxViews]         = useState<string>('');
   const [allowDownload, setAllowDownload] = useState(false);
@@ -136,6 +137,14 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
 
   // ── GPS Location Request ───────────────────────────────────────────────────
   const [requestLocation, setRequestLocation] = useState(false);
+
+  // ── Multi-recipient (child links) ─────────────────────────────────────────
+  const [recipients, setRecipients] = useState<Array<{ label: string; email: string }>>([]);
+  const [childLinks, setChildLinks] = useState<Array<{ token: string; url: string; recipientLabel: string }>>([]);
+  const addRecipient    = () => setRecipients(r => [...r, { label: '', email: '' }]);
+  const removeRecipient = (i: number) => setRecipients(r => r.filter((_, idx) => idx !== i));
+  const updateRecipient = (i: number, field: 'label' | 'email', val: string) =>
+    setRecipients(r => r.map((rc, idx) => idx === i ? { ...rc, [field]: val } : rc));
 
   // ── Manage existing links — list + revoke (Smart Links audit: link revocation UI) ──
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -194,6 +203,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
   const handleCreate = async () => {
     setCreating(true);
     try {
+      const validRecipients = recipients.filter(r => r.label.trim());
       const { data } = await api.post(`${API_BASE_URL}/share`, {
         vaultId:      record.id,
         expiresIn:    expiresIn ? Number(expiresIn) : null,
@@ -215,11 +225,13 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
         maskPan:     privacyMaskingEnabled && maskPan,
         maskAddress: privacyMaskingEnabled && maskAddress,
         requestLocation,
+        recipients: validRecipients.length > 0 ? validRecipients : undefined,
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const d = data as any;
       setCreated({ shareUrl: d.shareUrl, token: d.token, devOtp: d.devOtp, devOtpNote: d.devOtpNote });
-      toast.success('Share link created!');
+      if (d.childLinks?.length) setChildLinks(d.childLinks);
+      toast.success(d.childLinks?.length ? `Share link + ${d.childLinks.length} recipient links created!` : 'Share link created!');
       fetchLinks();
     } catch {
       toast.error('Failed to create share link');
@@ -565,10 +577,53 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
               </div>
             </label>
 
+            {/* Multi-recipient share ─────────────────────────────────────── */}
+            <div className="border border-bg-border rounded-xl overflow-hidden">
+              <div className="px-3 py-2 bg-bg-elevated flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users size={13} className="text-dna-400" />
+                  <span className="text-xs font-semibold text-gray-300">Share with Specific Recipients</span>
+                  <span className="text-2xs text-gray-500">(optional — generates unique tracked links per person)</span>
+                </div>
+                <button onClick={addRecipient} className="flex items-center gap-1 text-2xs text-dna-400 hover:text-white transition-colors">
+                  <Plus size={12} /> Add
+                </button>
+              </div>
+              {recipients.length === 0 ? (
+                <p className="text-2xs text-gray-600 px-3 py-2 text-center">
+                  No recipients added — one shared link will be created
+                </p>
+              ) : (
+                <div className="divide-y divide-bg-border">
+                  {recipients.map((r, i) => (
+                    <div key={i} className="flex items-center gap-2 px-3 py-2">
+                      <input
+                        value={r.label}
+                        onChange={e => updateRecipient(i, 'label', e.target.value)}
+                        placeholder="Name *"
+                        className="input input-sm flex-1 min-w-0 text-xs"
+                      />
+                      <input
+                        value={r.email}
+                        onChange={e => updateRecipient(i, 'email', e.target.value)}
+                        placeholder="Email (optional)"
+                        className="input input-sm flex-1 min-w-0 text-xs"
+                      />
+                      <button onClick={() => removeRecipient(i)} className="text-danger hover:opacity-80 shrink-0">
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <button onClick={handleCreate} disabled={creating} className="btn btn-primary w-full">
               {creating
                 ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Generating…</>
-                : <><Share2 size={14} /> Generate Smart Link</>}
+                : recipients.filter(r => r.label.trim()).length > 0
+                  ? <><Users size={14} /> Generate {recipients.filter(r => r.label.trim()).length + 1} Links (1 parent + {recipients.filter(r => r.label.trim()).length} recipient)</>
+                  : <><Share2 size={14} /> Generate Smart Link</>}
             </button>
           </>
         ) : (
@@ -635,6 +690,40 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
                 </div>
               )}
             </div>
+
+            {/* Child recipient links */}
+            {childLinks.length > 0 && (
+              <div className="border border-dna-500/30 rounded-xl overflow-hidden">
+                <div className="px-3 py-2 bg-dna-500/10 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <GitBranch size={13} className="text-dna-400" />
+                    <span className="text-xs font-semibold text-dna-300">Recipient Links ({childLinks.length})</span>
+                  </div>
+                  <button
+                    onClick={() => navigate(`/link-tree/${created?.token}`)}
+                    className="flex items-center gap-1 text-2xs text-dna-400 hover:text-white transition-colors"
+                  >
+                    <GitBranch size={11} /> View Tree
+                  </button>
+                </div>
+                <div className="divide-y divide-bg-border max-h-48 overflow-y-auto">
+                  {childLinks.map((cl, i) => (
+                    <div key={i} className="flex items-center gap-2 px-3 py-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-white truncate">{cl.recipientLabel}</p>
+                        <p className="text-2xs text-dna-400 mono truncate">{cl.url}</p>
+                      </div>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(cl.url); toast.success(`Copied link for ${cl.recipientLabel}`); }}
+                        className="btn btn-secondary btn-sm text-2xs shrink-0"
+                      >
+                        <Copy size={11} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <p className="text-2xs text-gray-600 text-center">
               All access events appear in File Timeline with IP, browser, and location
