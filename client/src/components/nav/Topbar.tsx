@@ -1,5 +1,5 @@
 import { useLocation, Link } from 'react-router-dom';
-import { Bell, Plus, ChevronRight } from 'lucide-react';
+import { Bell, Plus, ChevronRight, Menu } from 'lucide-react';
 import { Dna } from 'lucide-react';
 
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
@@ -18,16 +18,29 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   '/monitoring':          { title: 'Monitoring & Crawler',       subtitle: 'Watch internet for unauthorized file copies' },
 };
 
-export function Topbar() {
+interface TopbarProps {
+  /** Open the mobile nav drawer (mobile/APK only). */
+  onMenu?: () => void;
+}
+
+export function Topbar({ onMenu }: TopbarProps) {
   const location = useLocation();
   const meta = PAGE_META[location.pathname] ?? { title: 'Dashboard', subtitle: '' };
 
   return (
-    <header className="h-14 flex items-center justify-between px-6 border-b border-bg-border bg-bg-surface/80 backdrop-blur-sm sticky top-0 z-30">
+    <header className="h-14 flex items-center justify-between px-4 sm:px-6 border-b border-bg-border bg-bg-surface/80 backdrop-blur-sm sticky top-0 z-30">
 
       {/* Page breadcrumb */}
       <div className="flex items-center gap-2 min-w-0">
-        <div className="flex items-center gap-1.5 text-xs text-gray-500 mono shrink-0">
+        {/* Hamburger — mobile/APK only */}
+        <button
+          onClick={onMenu}
+          className="btn-icon btn-ghost lg:hidden -ml-1.5"
+          aria-label="Open menu"
+        >
+          <Menu size={18} className="text-gray-500" />
+        </button>
+        <div className="hidden sm:flex items-center gap-1.5 text-xs text-gray-500 mono shrink-0">
           <Dna size={12} className="text-dna-500" />
           <span>PINIT-DNA</span>
           <ChevronRight size={10} />

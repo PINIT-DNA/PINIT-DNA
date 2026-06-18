@@ -17,10 +17,14 @@ function getClient(): SupabaseClient {
   if (_client) return _client;
 
   const url = process.env['SUPABASE_URL'] ?? '';
-  const key = process.env['SUPABASE_SERVICE_KEY'] ?? '';
+  // Prefer the service-role key (bypasses RLS); fall back to the anon key so the
+  // app still boots on projects where only the public anon key is configured.
+  const key = process.env['SUPABASE_SERVICE_KEY']?.trim()
+    || process.env['SUPABASE_ANON_KEY']?.trim()
+    || '';
 
   if (!url || !key) {
-    throw new Error('SUPABASE_URL and SUPABASE_SERVICE_KEY must be set for vault storage');
+    throw new Error('SUPABASE_URL and a Supabase key (SERVICE or ANON) must be set for vault storage');
   }
 
   _client = createClient(url, key, { auth: { persistSession: false } });

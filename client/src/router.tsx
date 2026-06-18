@@ -22,14 +22,15 @@ import { LinkTreePage }             from './pages/LinkTreePage';
 import { ForensicDashboardPage }   from './pages/ForensicDashboardPage';
 import { NotFoundPage }             from './pages/NotFoundPage';
 import { ShareViewerPage }          from './pages/ShareViewerPage';
-import { LoginPage }                from './pages/LoginPage';
-import { RegisterPage }             from './pages/RegisterPage';
+import { PinitGateway, RegisterGateway } from './pages/auth/PinitGateway';
 import { RequireAuth }              from './components/auth/RequireAuth';
 
 export const router = createBrowserRouter([
-  // ── Auth pages (public) ───────────────────────────────────────────────────
-  { path: '/login',    element: <LoginPage />    },
-  { path: '/register', element: <RegisterPage /> },
+  // ── PINIT HOID auth (public) ──────────────────────────────────────────────
+  // /login is the launch gateway: returning users get the Login flow,
+  // first-time devices are redirected to the Registration flow.
+  { path: '/login',    element: <PinitGateway />    },
+  { path: '/register', element: <RegisterGateway /> },
 
   // ── Public share viewer (no dashboard layout, no auth) ────────────────────
   {

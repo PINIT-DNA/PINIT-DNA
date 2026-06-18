@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Dna, Shield, Archive, FileSearch,
   GitCompare, Award, ChevronRight, Zap, Clock,
-  ShieldCheck, Activity, Microscope, Radio, Ban, LogOut, User, ShieldAlert,
+  ShieldCheck, Activity, Microscope, Radio, Ban, LogOut, User, ShieldAlert, X,
 } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { useAuth } from '../../context/AuthContext';
@@ -51,7 +51,14 @@ const NAV_GROUPS = [
   },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  /** Drawer open state (mobile/APK only). */
+  open?: boolean;
+  /** Close the drawer (mobile/APK only). */
+  onClose?: () => void;
+}
+
+export function Sidebar({ open = false, onClose }: SidebarProps) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -61,7 +68,14 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-60 bg-bg-surface border-r border-bg-border flex flex-col z-40 select-none">
+    <aside
+      className={cn(
+        'fixed left-0 top-0 h-screen w-60 bg-bg-surface border-r border-bg-border flex flex-col z-50 select-none',
+        // Off-canvas drawer on mobile; always docked from lg up (desktop web unchanged).
+        'transform transition-transform duration-200 lg:translate-x-0',
+        open ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:shadow-none'
+      )}
+    >
 
       {/* Logo */}
       <div className="h-14 flex items-center gap-3 px-5 border-b border-bg-border shrink-0">
@@ -74,6 +88,14 @@ export function Sidebar() {
           </p>
           <p className="text-2xs text-gray-500 mono mt-0.5">v2.0 · Universal</p>
         </div>
+        {/* Close button — mobile drawer only */}
+        <button
+          onClick={onClose}
+          className="ml-auto lg:hidden text-gray-500 hover:text-white transition-colors"
+          aria-label="Close menu"
+        >
+          <X size={18} />
+        </button>
       </div>
 
       {/* Nav */}
@@ -89,6 +111,7 @@ export function Sidebar() {
                   <NavLink
                     to={to}
                     end={end}
+                    onClick={onClose}
                     className={({ isActive }) => cn(
                       'group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150',
                       isActive

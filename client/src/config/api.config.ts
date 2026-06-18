@@ -9,7 +9,7 @@
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const _env = (import.meta as any).env as Record<string, string | undefined>;
-const RENDER_BACKEND = 'https://pinit-dna-backend.onrender.com/api/v1';
+const RENDER_BACKEND = 'https://pinit-dna.onrender.com/api/v1';
 // Use || not ?? so empty string also falls back to the hardcoded Render URL
 const _raw = (_env['VITE_API_BASE_URL'] ?? '').trim().replace(/\/$/, '');
 // In dev mode (no env var), use '/api/v1' so the Vite proxy forwards to localhost:4000
