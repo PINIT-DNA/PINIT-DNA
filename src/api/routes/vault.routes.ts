@@ -8,7 +8,7 @@
 
 import { Router } from 'express';
 import { uploadSingle } from '../middleware/upload.middleware';
-import { listVaultRecords, storeInVault, getVaultRecord, retrieveFromVault, scanVaultFile } from '../controllers/vault.controller';
+import { listVaultRecords, storeInVault, getVaultRecord, retrieveFromVault, scanVaultFile, verifyFileIdentity } from '../controllers/vault.controller';
 import { vaultIntegrityCheck } from '../controllers/integrity.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import { requireVaultOwnership } from '../middleware/ownership.middleware';
@@ -60,5 +60,8 @@ router.post('/:id/retrieve', requireAuth, requireVaultOwnership, retrieveFromVau
  * Does NOT mask anything — read-only scan for the share modal UI.
  */
 router.post('/:id/scan-sensitive', requireAuth, requireVaultOwnership, scanVaultFile);
+
+// POST /vault/verify-identity — upload any file to extract & verify embedded PINIT-DNA owner identity
+router.post('/verify-identity', uploadSingle, verifyFileIdentity);
 
 export { router as vaultRouter };

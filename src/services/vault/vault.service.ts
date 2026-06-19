@@ -27,6 +27,7 @@ import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { encrypt, decrypt } from './encryption.service';
 import { uploadVaultFile, downloadVaultFile } from '../../lib/supabase-storage';
+import { identityEmbeddingService } from '../identity/identity-embedding.service';
 
 // In development without Supabase configured, fall back to local disk.
 const USE_LOCAL = process.env['NODE_ENV'] !== 'production' &&
@@ -100,9 +101,37 @@ export class VaultService {
     const existing = await prisma.vaultRecord.findUnique({ where: { dnaRecordId } });
     if (existing) throw new Error(`DNA record ${dnaRecordId} is already in the vault`);
 
+    // ── Embed owner identity into file before encryption ──────────────────
+    // Embeds DNA ID + Vault ID + Owner User ID as a cryptographic signature
+    // inside the file itself. Even if 90% of the file is tampered, this
+    // signature allows us to prove original ownership and detect the culprit.
+    const vaultId = uuidv4();
+    let fileToEncrypt = imageBuffer;
+    try {
+      const embedResult = await identityEmbeddingService.embed(
+        imageBuffer,
+        originalMimeType,
+        originalFileName,
+        {
+          dnaId:       dnaRecordId,
+          vaultId,
+          ownerUserId: dnaRecord.ownerUserId ?? 'unknown',
+        }
+      );
+      if (embedResult.success) {
+        fileToEncrypt = embedResult.buffer;
+        logger.info('Vault — identity embedded', {
+          method: embedResult.method,
+          dnaRecordId,
+          vaultId,
+        });
+      }
+    } catch (embedErr) {
+      logger.warn('Vault — identity embedding failed (proceeding without)', { error: embedErr });
+    }
+
     // ── Encrypt in-memory ─────────────────────────────────────────────────
-    const vaultId   = uuidv4();
-    const encResult = encrypt(imageBuffer, vaultId);
+    const encResult = encrypt(fileToEncrypt, vaultId);
 
     // ── Store encrypted file (local in dev, Supabase in production) ──────
     let encryptedFilePath: string;

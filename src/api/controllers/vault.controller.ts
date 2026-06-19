@@ -13,6 +13,7 @@ import { AppError } from '../middleware/error.middleware';
 import { logger } from '../../lib/logger';
 import { auditService } from '../../services/audit/audit.service';
 import { autoIndexer }  from '../../services/ai/auto-indexer.service';
+import { identityEmbeddingService } from '../../services/identity/identity-embedding.service';
 import {
   detectSensitiveTypes,
   extractTextFromPdf,
@@ -269,6 +270,66 @@ export async function scanVaultFile(req: Request, res: Response, next: NextFunct
     if (err instanceof Error && err.message.includes('not found')) {
       return next(new AppError(404, err.message));
     }
+    next(err);
+  }
+}
+
+
+/**
+ * POST /vault/verify-identity
+ * Upload any file — extract and verify the embedded PINIT-DNA owner identity.
+ * If the file was downloaded and tampered, we can still identify the original owner.
+ */
+export async function verifyFileIdentity(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const file = (req as any).file as Express.Multer.File | undefined;
+    if (!file) { res.status(400).json({ success: false, error: 'No file uploaded' }); return; }
+
+    const result = await identityEmbeddingService.extractAndVerify(
+      file.buffer,
+      file.mimetype,
+      file.originalname,
+    );
+
+    if (!result.found) {
+      res.json({
+        success: true,
+        found: false,
+        message: 'No PINIT-DNA identity signature found in this file. The file may not have been protected by PINIT-DNA, or the signature region was destroyed.',
+      });
+      return;
+    }
+
+    // Look up the owner details from DB if dnaId found
+    let ownerInfo: { email?: string; name?: string } = {};
+    if (result.dnaId) {
+      try {
+        const { prisma } = await import('../../lib/prisma');
+        const dna = await prisma.dnaRecord.findUnique({
+          where: { id: result.dnaId },
+          select: { ownerUser: { select: { email: true, name: true } }, filename: true, createdAt: true },
+        });
+        if (dna?.ownerUser) ownerInfo = { email: dna.ownerUser.email, name: dna.ownerUser.name ?? undefined };
+      } catch { /* non-critical */ }
+    }
+
+    res.json({
+      success: true,
+      found: true,
+      valid: result.valid,
+      tampered: result.tampered,
+      identity: {
+        dnaId:       result.dnaId,
+        vaultId:     result.vaultId,
+        ownerUserId: result.ownerUserId,
+        ownerEmail:  ownerInfo.email,
+        ownerName:   ownerInfo.name,
+      },
+      message: result.valid
+        ? '✅ Identity verified — this file belongs to the identified owner.'
+        : '⚠️ Signature found but HMAC mismatch — file may have been tampered after embedding.',
+    });
+  } catch (err) {
     next(err);
   }
 }
