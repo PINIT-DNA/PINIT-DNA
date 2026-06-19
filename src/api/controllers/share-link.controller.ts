@@ -323,8 +323,9 @@ export async function verifyShareOtp(req: Request, res: Response, next: NextFunc
 
 export async function getGeoAnalytics(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    const ownerUserId = (req as any).user?.sub;
     const dnaRecordId = req.query['dnaRecordId'] as string | undefined;
-    const analytics = await shareLinkService.getGeoAnalytics(dnaRecordId);
+    const analytics = await shareLinkService.getGeoAnalytics(dnaRecordId, ownerUserId);
     res.json({ success: true, analytics });
   } catch (err) { next(err); }
 }
@@ -347,9 +348,10 @@ export async function exportShareLogsCsv(req: Request, res: Response, next: Next
 
 // ── Live / concurrent session monitoring ───────────────────────────────────────
 
-export async function getLiveSessions(_req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function getLiveSessions(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const data = await shareLinkService.getLiveSessions();
+    const ownerUserId = (req as any).user?.sub;
+    const data = await shareLinkService.getLiveSessions(ownerUserId);
     res.json({ success: true, ...data });
   } catch (err) { next(err); }
 }
@@ -725,9 +727,11 @@ export async function reviewUnmaskRequest(req: Request, res: Response, next: Nex
 
 // ── Global Share Analytics — all metrics for dashboard ────────────────────────
 // GET /share/analytics/global
-export async function getGlobalShareStats(_req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function getGlobalShareStats(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    const ownerUserId = (req as any).user?.sub;
     const logs = await prisma.shareAccessLog.findMany({
+      where: { shareLink: { ownerUserId } },
       select: {
         action: true, country: true, city: true,
         sessionDurationSec: true, sessionId: true,

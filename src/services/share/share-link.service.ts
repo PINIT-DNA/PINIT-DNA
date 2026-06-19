@@ -866,10 +866,11 @@ export class ShareLinkService {
 
   // ── Geo analytics aggregation (Geo Intelligence dashboard data) ───────────
 
-  async getGeoAnalytics(dnaRecordId?: string) {
-    const where = dnaRecordId
-      ? { shareLink: { dnaRecordId } }
-      : {};
+  async getGeoAnalytics(dnaRecordId?: string, ownerUserId?: string) {
+    const where = {
+      ...(dnaRecordId ? { shareLink: { dnaRecordId } } : {}),
+      ...(ownerUserId ? { shareLink: { ownerUserId } } : {}),
+    };
     const logs = await prisma.shareAccessLog.findMany({
       where: { ...where, country: { not: null } },
       select: { country: true, city: true, action: true, riskLevel: true },
@@ -968,10 +969,10 @@ export class ShareLinkService {
   // "Force logout" maps to revoking the parent link — the next request from
   // that session is blocked server-side immediately (see recordAccess/serveSharedFile).
 
-  async getLiveSessions() {
+  async getLiveSessions(ownerUserId?: string) {
     const cutoff = new Date(Date.now() - 5 * 60_000);
     const recent = await prisma.shareAccessLog.findMany({
-      where:   { sessionId: { not: null }, createdAt: { gte: cutoff } },
+      where:   { sessionId: { not: null }, createdAt: { gte: cutoff }, ...(ownerUserId ? { shareLink: { ownerUserId } } : {}) },
       orderBy: { createdAt: 'desc' },
       include: { shareLink: { select: { token: true, filename: true, dnaRecordId: true, isActive: true } } },
     });
