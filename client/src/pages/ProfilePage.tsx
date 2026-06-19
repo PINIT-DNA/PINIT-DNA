@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import {
   User, Shield, Bell, Clock, Activity, Save, RefreshCw,
   Dna, Archive, Share2, Award, Eye, Radio, Lock, Trash2,
-  Sun, Moon, Monitor, Smartphone, MapPin, ChevronRight,
+  Sun, Moon, Monitor,
 } from 'lucide-react';
 import { api } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
@@ -170,7 +170,8 @@ function SecurityTab({ profile }: { profile: any }) {
   useEffect(() => {
     api.get(`${API_BASE_URL}/profile/sessions`).then(r => {
       setSessions((r.data as any).sessions ?? []);
-    }).finally(() => setLoadingSessions(false));
+      setLoadingSessions(false);
+    }).catch(() => setLoadingSessions(false));
   }, []);
 
   const handlePasswordChange = async () => {
@@ -318,7 +319,8 @@ function ActivityTab() {
   useEffect(() => {
     api.get(`${API_BASE_URL}/profile/activity`).then(r => {
       setEvents((r.data as any).events ?? []);
-    }).finally(() => setLoading(false));
+      setLoading(false);
+    }).catch(() => setLoading(false));
   }, []);
 
   const typeConfig: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
