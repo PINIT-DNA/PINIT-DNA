@@ -798,6 +798,22 @@ export class ShareLinkService {
       },
     });
 
+    // ── Fire notifications ──────────────────────────────────────────────────
+    if (link.ownerUserId && (input.action === 'VIEWED' || input.action === 'DOWNLOADED')) {
+      import('../../services/notifications/notification.service').then(({ notificationService }) => {
+        const ipKey = input.ipAddress ?? 'Unknown';
+        const countryKey = country ?? 'Unknown';
+
+        // Always notify on link access
+        notificationService.linkViewed(link.ownerUserId!, link.filename ?? 'File', ipKey, countryKey, finalDevice, link.token);
+
+        // Risk alert for HIGH/CRITICAL
+        if (risk.level === 'HIGH' || risk.level === 'CRITICAL') {
+          notificationService.riskAlert(link.ownerUserId!, link.filename ?? 'File', risk.level, ipKey, countryKey, finalDevice, link.token);
+        }
+      }).catch(() => {});
+    }
+
     // Increment view/download counters; honor one-time-use & numeric download caps
     const updateData: Record<string, unknown> = {};
     if (input.action === 'VIEWED') {

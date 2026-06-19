@@ -413,8 +413,34 @@ model User {
   monitorRecords   MonitorRecord[]
   certificates     Certificate[]
   evidenceRecords  EvidenceRecord[]
+  notifications    Notification[]
 
   @@map("users")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type      String   // LINK_VIEWED, RISK_ALERT, FORWARD_DETECTED, CERT_GENERATED, MONITORING_MATCH
+  title     String
+  body      String
+  severity  String   @default("info") // info, warning, critical
+  read      Boolean  @default(false)
+
+  // Optional context
+  linkToken String?
+  fileName  String?
+  ip        String?
+  country   String?
+  device    String?
+  riskLevel String?
+
+  @@index([userId, read])
+  @@index([userId, createdAt])
+  @@map("notifications")
 }
 
 model RefreshToken {

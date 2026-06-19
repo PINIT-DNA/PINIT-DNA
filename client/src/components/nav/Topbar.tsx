@@ -1,7 +1,8 @@
 import { useLocation, Link } from 'react-router-dom';
-import { Bell, Plus, ChevronRight, Menu } from 'lucide-react';
+import { Plus, ChevronRight, Menu } from 'lucide-react';
 import { Dna } from 'lucide-react';
 import { ProfileDropdown } from './ProfileDropdown';
+import { NotificationBell } from './NotificationBell';
 
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   '/':                    { title: 'Dashboard',             subtitle: 'System overview & analytics'              },
@@ -64,9 +65,7 @@ export function Topbar({ onMenu }: TopbarProps) {
           Generate DNA
         </Link>
 
-        <button className="btn-icon btn-ghost relative">
-          <Bell size={16} className="text-gray-400" />
-        </button>
+        <NotificationBell />
 
         <ProfileDropdown />
       </div>
