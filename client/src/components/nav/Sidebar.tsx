@@ -3,9 +3,11 @@ import {
   LayoutDashboard, Dna, Shield, Archive, FileSearch,
   GitCompare, Award, ChevronRight, Zap, Clock,
   ShieldCheck, Activity, Microscope, Radio, Ban, LogOut, User, ShieldAlert, X,
+  Sun, Moon,
 } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../hooks/useTheme';
 
 const NAV_GROUPS = [
   {
@@ -61,6 +63,7 @@ interface SidebarProps {
 export function Sidebar({ open = false, onClose }: SidebarProps) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { theme, toggle: toggleTheme } = useTheme();
 
   async function handleLogout() {
     await logout();
@@ -149,6 +152,13 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                   <p className="text-xs text-dna-400 font-bold truncate mono">{(user as any).shortId ?? user.sub?.slice(0,8)}</p>
                 </div>
               </div>
+              <button
+                onClick={toggleTheme}
+                title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                className="shrink-0 text-gray-500 hover:text-dna-400 transition-colors"
+              >
+                {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
+              </button>
               <button
                 onClick={handleLogout}
                 title="Sign out"
