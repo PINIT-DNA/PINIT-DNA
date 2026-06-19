@@ -104,6 +104,7 @@ export function ShareViewerPage() {
   // ── GPS Location state ────────────────────────────────────────────────────
   const [locationAsked,  setLocationAsked]  = useState(false);  // screen shown
   const [locationDone,   setLocationDone]   = useState(false);  // screen dismissed
+  const [locationDenied, setLocationDenied] = useState(false);  // user denied GPS
   const [gpsData, setGpsData] = useState<{
     lat: number; lng: number; accuracy: number; city?: string; timestamp: string;
   } | null>(null);
@@ -686,8 +687,7 @@ export function ShareViewerPage() {
           setLocationDone(true);
         },
         () => {
-          // User denied — continue without GPS
-          setLocationDone(true);
+          setLocationDenied(true);
         },
         { timeout: 10000, maximumAge: 60000 }
       );
@@ -705,7 +705,7 @@ export function ShareViewerPage() {
               The owner of this document has requested your location for audit purposes.
             </p>
             <p className="text-gray-500 text-xs mt-1">
-              This is optional — you can skip and still access the document.
+              Location sharing is <strong className="text-white">required</strong> to view this document.
             </p>
           </div>
           <div className="card space-y-3">
@@ -726,12 +726,20 @@ export function ShareViewerPage() {
                 : <>📍 Allow Location Sharing (Recommended)</>
               }
             </button>
-            <button
-              onClick={() => setLocationDone(true)}
-              className="btn btn-secondary w-full text-gray-400"
-            >
-              Skip — Continue without location
-            </button>
+            {locationDenied && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-center">
+                <p className="text-sm font-semibold text-red-400">Access Denied</p>
+                <p className="text-2xs text-gray-400 mt-1">
+                  You must allow location sharing to view this document. Please refresh and try again.
+                </p>
+                <button
+                  onClick={() => { setLocationDenied(false); setLocationAsked(false); }}
+                  className="btn btn-primary btn-sm text-xs mt-3"
+                >
+                  Try Again
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
