@@ -717,6 +717,11 @@ export class ShareLinkService {
       isp     = isp    ?? geo.isp    ?? null;
     }
 
+    // Override IP-based city with GPS city when available (GPS is more accurate)
+    if (input.gpsCity) {
+      city = input.gpsCity;
+    }
+
     // ── Session duration: time elapsed since the first event of this session
     let sessionDurationSec: number | null = null;
     if (input.sessionId) {
