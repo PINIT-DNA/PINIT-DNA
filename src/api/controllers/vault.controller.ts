@@ -307,9 +307,9 @@ export async function verifyFileIdentity(req: Request, res: Response, next: Next
         const { prisma } = await import('../../lib/prisma');
         const dna = await prisma.dnaRecord.findUnique({
           where: { id: result.dnaId },
-          select: { ownerUser: { select: { email: true, name: true } }, filename: true, createdAt: true },
+          include: { ownerUser: { select: { email: true, fullName: true } } },
         });
-        if (dna?.ownerUser) ownerInfo = { email: dna.ownerUser.email, name: dna.ownerUser.name ?? undefined };
+        if (dna?.ownerUser) ownerInfo = { email: dna.ownerUser.email ?? undefined, name: dna.ownerUser.fullName ?? undefined };
       } catch { /* non-critical */ }
     }
 

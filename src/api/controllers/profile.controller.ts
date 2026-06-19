@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../../lib/prisma';
-import { logger } from '../../lib/logger';
 import bcrypt from 'bcryptjs';
 
 function userId(req: Request): string {
