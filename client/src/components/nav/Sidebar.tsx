@@ -29,8 +29,9 @@ const NAV_GROUPS = [
   {
     label: 'Intelligence',
     items: [
-      { to: '/forensic-diff', icon: Microscope, label: 'Difference Engine'    },
-      { to: '/monitoring',    icon: Radio,      label: 'Monitoring & Crawler' },
+      { to: '/access-intelligence', icon: Activity, label: 'Access Intelligence' },
+      { to: '/forensic-diff',       icon: Microscope, label: 'Difference Engine'    },
+      { to: '/monitoring',          icon: Radio,      label: 'Monitoring & Crawler' },
     ],
   },
   {
