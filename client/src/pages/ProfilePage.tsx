@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   User, Shield, Bell, Clock, Activity, Save, RefreshCw,
-  Dna, Archive, Share2, Award, Eye, Radio, Lock, Trash2,
+  Dna, Archive, Share2, Award, Eye, Radio, Trash2,
   Sun, Moon, Monitor,
 } from 'lucide-react';
 import { api } from '../services/dashboard.api';
@@ -163,10 +163,6 @@ function ProfileTab({ profile, onUpdate }: { profile: any; onUpdate: (p: any) =>
 function SecurityTab({ profile }: { profile: any }) {
   const [sessions, setSessions] = useState<any[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(true);
-  const [changingPw, setChangingPw] = useState(false);
-  const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '', confirm: '' });
-  const [pwMsg, setPwMsg] = useState('');
-
   useEffect(() => {
     api.get(`${API_BASE_URL}/profile/sessions`).then(r => {
       setSessions((r.data as any).sessions ?? []);
@@ -174,17 +170,6 @@ function SecurityTab({ profile }: { profile: any }) {
     }).catch(() => setLoadingSessions(false));
   }, []);
 
-  const handlePasswordChange = async () => {
-    if (pwForm.newPassword !== pwForm.confirm) { setPwMsg('Passwords do not match'); return; }
-    if (pwForm.newPassword.length < 8) { setPwMsg('Minimum 8 characters'); return; }
-    setChangingPw(true);
-    try {
-      await api.put(`${API_BASE_URL}/profile/password`, { currentPassword: pwForm.currentPassword, newPassword: pwForm.newPassword });
-      setPwMsg('✓ Password updated');
-      setPwForm({ currentPassword: '', newPassword: '', confirm: '' });
-    } catch { setPwMsg('Failed to update password'); }
-    finally { setChangingPw(false); }
-  };
 
   const revokeAll = async () => {
     await api.delete(`${API_BASE_URL}/profile/sessions`);
@@ -197,25 +182,11 @@ function SecurityTab({ profile }: { profile: any }) {
       <div className="card">
         <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-3"><Shield size={14} className="text-dna-400" /> Security Overview</h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <SecurityItem label="Password" value={profile?.passwordHash ? 'Set' : 'Not set'} ok={!!profile?.passwordHash} />
+          <SecurityItem label="Auth Method" value="Biometric (PINIT HOID)" ok={true} />
           <SecurityItem label="Last Login" value={profile?.lastLoginAt ? formatDistanceToNow(new Date(profile.lastLoginAt)) + ' ago' : 'Never'} ok={true} />
           <SecurityItem label="2FA" value="Not enabled" ok={false} />
           <SecurityItem label="Active Sessions" value={String(sessions.length)} ok={true} />
         </div>
-      </div>
-
-      {/* Change Password */}
-      <div className="card">
-        <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-3"><Lock size={14} className="text-dna-400" /> Change Password</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <Field label="Current Password" value={pwForm.currentPassword} onChange={v => setPwForm({ ...pwForm, currentPassword: v })} type="password" />
-          <Field label="New Password" value={pwForm.newPassword} onChange={v => setPwForm({ ...pwForm, newPassword: v })} type="password" />
-          <Field label="Confirm" value={pwForm.confirm} onChange={v => setPwForm({ ...pwForm, confirm: v })} type="password" />
-        </div>
-        {pwMsg && <p className={`text-2xs mt-2 ${pwMsg.startsWith('✓') ? 'text-green-400' : 'text-red-400'}`}>{pwMsg}</p>}
-        <button onClick={handlePasswordChange} disabled={changingPw} className="btn btn-primary btn-sm text-xs mt-3">
-          {changingPw ? <RefreshCw size={12} className="animate-spin" /> : 'Update Password'}
-        </button>
       </div>
 
       {/* Sessions */}
