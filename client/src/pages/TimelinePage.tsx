@@ -8,6 +8,7 @@
  */
 
 import { useState, useMemo, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { format, formatDistanceToNow } from 'date-fns';
 import {
   Clock, Dna, Lock, Search, GitCompare, Award,
@@ -284,7 +285,7 @@ function getStoredComparisons(): ComparisonResult[] {
 // --- File history card --------------------------------------------------------
 
 function FileHistoryCard({ history, expanded, onToggle }: { history: FileHistory; expanded: boolean; onToggle: () => void }) {
-
+  const navigate = useNavigate();
   const typeColor: Record<string, string> = {
     DNA_GENERATED:   'bg-dna-500/20 border-dna-500/40 text-dna-400',
     VAULT_STORED:    'bg-success/20 border-success/40 text-success',
@@ -397,13 +398,21 @@ function FileHistoryCard({ history, expanded, onToggle }: { history: FileHistory
 
                     {/* Audit export � Smart Links CSV download per share token */}
                     {event.type === 'SHARE_CREATED' && event.meta?.['Token'] && (
-                      <a
-                        href={`${API_BASE_URL}/share/${event.meta['Token']}/export`}
-                        target="_blank" rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 mt-2 text-2xs text-dna-400 hover:text-dna-300 underline underline-offset-2"
-                      >
-                        <Download size={11} /> Export full audit log (CSV)
-                      </a>
+                      <div className="flex items-center gap-3 mt-2">
+                        <button
+                          onClick={() => navigate(`/link/${event.meta!['Token']}`)}
+                          className="inline-flex items-center gap-1.5 text-2xs text-dna-400 hover:text-dna-300 bg-dna-500/10 hover:bg-dna-500/20 px-2.5 py-1 rounded-lg transition-colors"
+                        >
+                          <Shield size={11} /> View Link Intelligence
+                        </button>
+                        <a
+                          href={`${API_BASE_URL}/share/${event.meta['Token']}/export`}
+                          target="_blank" rel="noreferrer"
+                          className="inline-flex items-center gap-1.5 text-2xs text-gray-500 hover:text-gray-300 underline underline-offset-2"
+                        >
+                          <Download size={11} /> Export CSV
+                        </a>
+                      </div>
                     )}
                   </div>
 

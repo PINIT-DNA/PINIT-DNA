@@ -22,6 +22,7 @@ import { LinkTreePage }             from './pages/LinkTreePage';
 import { ForensicDashboardPage }   from './pages/ForensicDashboardPage';
 import { NotFoundPage }             from './pages/NotFoundPage';
 import { ProfilePage }              from './pages/ProfilePage';
+import { LinkIntelligencePage }     from './pages/LinkIntelligencePage';
 import { ShareViewerPage }          from './pages/ShareViewerPage';
 import { PinitGateway, RegisterGateway } from './pages/auth/PinitGateway';
 import { RequireAuth }              from './components/auth/RequireAuth';
@@ -63,6 +64,7 @@ export const router = createBrowserRouter([
       { path: 'link-tree/:parentToken', element: <LinkTreePage /> },
       { path: 'forensic-dashboard',    element: <ForensicDashboardPage /> },
       { path: 'profile',               element: <ProfilePage /> },
+      { path: 'link/:token',            element: <LinkIntelligencePage /> },
       { path: 'certificates',          element: <CertificatesPage />        },
       { path: 'verify-certificate',    element: <VerifyCertificatePage />   },
       { path: '*',                     element: <NotFoundPage />            },
