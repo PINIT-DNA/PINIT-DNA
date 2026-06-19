@@ -2,7 +2,7 @@
 
 > A production-ready backend API that generates and verifies a 6-layer invisible fingerprint for any digital image — proving ownership and detecting tampering even after compression, resizing, or colour adjustment.
 
-## ngrok http 3000
+## ngrok http 3000 ##PINIT-KYNYGPTE
 
 ## What Is This Project?
 
@@ -16,36 +16,40 @@ The system takes any uploaded image and simultaneously computes **6 different fi
 
 Every day billions of images are stolen, reposted, and claimed by others. Existing protection methods all fail:
 
-| Method | Why It Fails |
-|---|---|
-| Visible watermark | Anyone can crop it out in seconds |
-| File metadata (EXIF) | Every social media platform strips it automatically |
-| Single hidden watermark | One targeted attack removes all protection |
-| Copyright notice | Cannot be proven technically inside the image |
+| Method                  | Why It Fails                                        |
+| ----------------------- | --------------------------------------------------- |
+| Visible watermark       | Anyone can crop it out in seconds                   |
+| File metadata (EXIF)    | Every social media platform strips it automatically |
+| Single hidden watermark | One targeted attack removes all protection          |
+| Copyright notice        | Cannot be proven technically inside the image       |
 
 ---
 
 ## The 6 Fingerprint Layers
 
 ### Layer 1 — SHA-256 Cryptographic Hash
+
 - Reads every single pixel and feeds them into SHA-256 — always produces the same unique 64-character code for the same input
 - **Two hashes:** Raw file hash + pixel-only hash (survives EXIF stripping)
 - **Survives:** Nothing — any change breaks it. Acts like a wax seal
 - **Purpose:** Proves instantly whether the image is the exact untouched original
 
 ### Layer 2 — Structural Fingerprint (Sobel Edge Detection)
+
 - Detects all edges in the image (where light meets dark, where objects end) and creates a 64-bit signature from the edge pattern across an 8×8 grid of zones
 - Signature is hidden in the **Red channel LSBs** at edge pixel positions — locations where the human eye is least sensitive to change
 - **Survives:** Colour changes, brightness adjustments, mild compression
 - **Defeated by:** Heavy cropping that removes large portions of the image
 
 ### Layer 3 — Perceptual Visual Hash (DCT pHash)
+
 - Shrinks the image to 32×32 greyscale, applies Discrete Cosine Transform (same maths used in JPEG compression), extracts the 64 most visually important patterns, creates a 64-bit code
 - Three hashes computed: **pHash** (DCT-based, primary), **aHash** (average, fast pre-filter), **dHash** (difference, contrast-robust)
 - **Survives:** JPEG compression, resizing, minor brightness changes, format conversion
 - **Defeated by:** Heavy artistic filters, complete redrawing of image content
 
 ### Layer 4 — Semantic Color Fingerprint (RGB Histogram)
+
 - Divides all possible colours into 8 groups and counts how many pixels fall into each group for Red, Green, and Blue separately — creating a 24-number "colour personality" of the image
 - Also extracts the top 5 dominant colours with coverage percentages
 - Compact 12-hex-char fingerprint derived from the 8-bin summaries
@@ -53,12 +57,14 @@ Every day billions of images are stolen, reposted, and claimed by others. Existi
 - **Defeated by:** Complete colour inversion, radical recolouring
 
 ### Layer 5 — Metadata Provenance Record (C2PA-style)
+
 - Extracts all EXIF/IPTC/XMP metadata (camera make/model, GPS, capture time) and creates a structured provenance manifest containing: tool name, version, DNA record ID, timestamp, and a cryptographic link to the Layer 1 hash
 - Follows the C2PA (Coalition for Content Provenance and Authenticity) standard
 - **Survives:** Normal file sharing, email, messaging apps
 - **Defeated by:** Any image editor or social media platform that strips metadata
 
 ### Layer 6 — Hidden AI Signature (LSB Steganography)
+
 - Generates a unique random cryptographic token, converts it to binary, and hides it by changing the very last bit of the **Blue channel** value in consecutive pixels
 - Example: A pixel with blue value 200 (binary: `11001000`) becomes 201 (binary: `11001001`) — a change of just 1 unit, completely invisible to the human eye
 - Payload: Magic header (16 bits) + Token (256 bits) + HMAC-SHA256 (256 bits) = **528 bits total**
@@ -70,15 +76,15 @@ Every day billions of images are stolen, reposted, and claimed by others. Existi
 
 ## Coverage Matrix
 
-| Attack Type | L1 Hash | L2 Structural | L3 pHash | L4 Semantic | L5 Metadata | L6 AI Sig |
-|---|---|---|---|---|---|---|
-| JPEG Compression | FAIL | SURVIVES | SURVIVES | SURVIVES | SURVIVES | SURVIVES |
-| Resize / Scale | FAIL | SURVIVES | SURVIVES | SURVIVES | SURVIVES | PARTIAL |
-| Crop (small) | FAIL | PARTIAL | SURVIVES | SURVIVES | SURVIVES | PARTIAL |
-| Brightness Change | FAIL | SURVIVES | SURVIVES | SURVIVES | SURVIVES | SURVIVES |
-| Metadata Strip | SURVIVES | SURVIVES | SURVIVES | SURVIVES | FAIL | SURVIVES |
-| Format Convert | FAIL | SURVIVES | SURVIVES | SURVIVES | PARTIAL | SURVIVES |
-| Exact Original | SURVIVES | SURVIVES | SURVIVES | SURVIVES | SURVIVES | SURVIVES |
+| Attack Type       | L1 Hash  | L2 Structural | L3 pHash | L4 Semantic | L5 Metadata | L6 AI Sig |
+| ----------------- | -------- | ------------- | -------- | ----------- | ----------- | --------- |
+| JPEG Compression  | FAIL     | SURVIVES      | SURVIVES | SURVIVES    | SURVIVES    | SURVIVES  |
+| Resize / Scale    | FAIL     | SURVIVES      | SURVIVES | SURVIVES    | SURVIVES    | PARTIAL   |
+| Crop (small)      | FAIL     | PARTIAL       | SURVIVES | SURVIVES    | SURVIVES    | PARTIAL   |
+| Brightness Change | FAIL     | SURVIVES      | SURVIVES | SURVIVES    | SURVIVES    | SURVIVES  |
+| Metadata Strip    | SURVIVES | SURVIVES      | SURVIVES | SURVIVES    | FAIL        | SURVIVES  |
+| Format Convert    | FAIL     | SURVIVES      | SURVIVES | SURVIVES    | PARTIAL     | SURVIVES  |
+| Exact Original    | SURVIVES | SURVIVES      | SURVIVES | SURVIVES    | SURVIVES    | SURVIVES  |
 
 For any given attack, **at least 3 to 5 layers survive.**
 
@@ -86,18 +92,18 @@ For any given attack, **at least 3 to 5 layers survive.**
 
 ## Tech Stack
 
-| Component | Technology |
-|---|---|
-| Runtime | Node.js 20 + TypeScript 5 |
-| Framework | Express.js 4 |
-| Database | PostgreSQL 16 (Supabase) |
-| ORM | Prisma 5 |
-| Image Processing | Sharp |
-| Metadata Extraction | exifr |
-| File Upload | Multer |
-| Validation | Zod |
-| Logging | Winston |
-| Testing | Jest + ts-jest |
+| Component           | Technology                |
+| ------------------- | ------------------------- |
+| Runtime             | Node.js 20 + TypeScript 5 |
+| Framework           | Express.js 4              |
+| Database            | PostgreSQL 16 (Supabase)  |
+| ORM                 | Prisma 5                  |
+| Image Processing    | Sharp                     |
+| Metadata Extraction | exifr                     |
+| File Upload         | Multer                    |
+| Validation          | Zod                       |
+| Logging             | Winston                   |
+| Testing             | Jest + ts-jest            |
 
 ---
 
@@ -120,11 +126,11 @@ verification_logs    — Every verification run with per-layer scores
 
 ## API Endpoints
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `GET` | `/health` | Server health check |
-| `POST` | `/api/v1/dna/generate` | Upload image → generate 6-layer DNA |
-| `GET` | `/api/v1/dna/:id` | Retrieve DNA record summary |
+| Method | Endpoint                 | Purpose                                        |
+| ------ | ------------------------ | ---------------------------------------------- |
+| `GET`  | `/health`                | Server health check                            |
+| `POST` | `/api/v1/dna/generate`   | Upload image → generate 6-layer DNA            |
+| `GET`  | `/api/v1/dna/:id`        | Retrieve DNA record summary                    |
 | `POST` | `/api/v1/dna/:id/verify` | Upload probe image → verify against stored DNA |
 
 ### Generate DNA
@@ -167,12 +173,42 @@ image: <probe_file>
   "passed": true,
   "confidenceScore": 0.85,
   "layerResults": [
-    { "layer": "cryptographic", "passed": true, "similarityScore": 1.0, "threshold": 1.0 },
-    { "layer": "structural",    "passed": true, "similarityScore": 0.92, "threshold": 0.75 },
-    { "layer": "perceptual",    "passed": true, "similarityScore": 0.98, "threshold": 0.80 },
-    { "layer": "semantic",      "passed": true, "similarityScore": 0.96, "threshold": 0.70 },
-    { "layer": "metadata",      "passed": true, "similarityScore": 1.0,  "threshold": 0.60 },
-    { "layer": "steganography", "passed": true, "similarityScore": 1.0,  "threshold": 1.0  }
+    {
+      "layer": "cryptographic",
+      "passed": true,
+      "similarityScore": 1.0,
+      "threshold": 1.0
+    },
+    {
+      "layer": "structural",
+      "passed": true,
+      "similarityScore": 0.92,
+      "threshold": 0.75
+    },
+    {
+      "layer": "perceptual",
+      "passed": true,
+      "similarityScore": 0.98,
+      "threshold": 0.8
+    },
+    {
+      "layer": "semantic",
+      "passed": true,
+      "similarityScore": 0.96,
+      "threshold": 0.7
+    },
+    {
+      "layer": "metadata",
+      "passed": true,
+      "similarityScore": 1.0,
+      "threshold": 0.6
+    },
+    {
+      "layer": "steganography",
+      "passed": true,
+      "similarityScore": 1.0,
+      "threshold": 1.0
+    }
   ],
   "verifiedAt": "2026-06-01T06:21:00.000Z"
 }
@@ -184,14 +220,14 @@ image: <probe_file>
 
 Each layer has a weight and pass threshold:
 
-| Layer | Weight | Threshold |
-|---|---|---|
-| Cryptographic | 30% | 1.0 (exact match only) |
-| Structural | 20% | 0.75 |
-| Perceptual | 20% | 0.80 |
-| Semantic | 15% | 0.70 |
-| Metadata | 5% | 0.60 |
-| Steganography | 10% | 1.0 (HMAC verified) |
+| Layer         | Weight | Threshold              |
+| ------------- | ------ | ---------------------- |
+| Cryptographic | 30%    | 1.0 (exact match only) |
+| Structural    | 20%    | 0.75                   |
+| Perceptual    | 20%    | 0.80                   |
+| Semantic      | 15%    | 0.70                   |
+| Metadata      | 5%     | 0.60                   |
+| Steganography | 10%    | 1.0 (HMAC verified)    |
 
 **Pass criteria:** Confidence score ≥ 0.70 AND at least Layer 1 OR Layer 3 individually passes.
 
@@ -246,6 +282,7 @@ Pinit-DNA/
 ## Setup & Installation
 
 ### Prerequisites
+
 - Node.js 20+
 - A PostgreSQL database (Supabase free tier works)
 
@@ -304,15 +341,15 @@ npx jest tests/layers/layer6.steganography.test.ts --no-coverage
 
 ### Test Results
 
-| Layer | Tests | Result |
-|---|---|---|
-| Layer 1 — Cryptographic Hash | 7 | PASS |
-| Layer 2 — Structural Fingerprint | 9 | PASS |
-| Layer 3 — Perceptual Visual Hash | 9 | PASS |
-| Layer 4 — Semantic Color Fingerprint | 11 | PASS |
-| Layer 5 — Metadata Provenance | 11 | PASS |
-| Layer 6 — AI Signature (LSB Stego) | 10 | PASS |
-| **Total** | **57** | **ALL PASS** |
+| Layer                                | Tests  | Result       |
+| ------------------------------------ | ------ | ------------ |
+| Layer 1 — Cryptographic Hash         | 7      | PASS         |
+| Layer 2 — Structural Fingerprint     | 9      | PASS         |
+| Layer 3 — Perceptual Visual Hash     | 9      | PASS         |
+| Layer 4 — Semantic Color Fingerprint | 11     | PASS         |
+| Layer 5 — Metadata Provenance        | 11     | PASS         |
+| Layer 6 — AI Signature (LSB Stego)   | 10     | PASS         |
+| **Total**                            | **57** | **ALL PASS** |
 
 ---
 
