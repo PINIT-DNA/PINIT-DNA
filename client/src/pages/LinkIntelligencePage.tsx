@@ -7,6 +7,7 @@ import {
 import { api } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
 import { formatDistanceToNow, format } from 'date-fns';
+import { FileTrackingMap } from '../components/maps/FileTrackingMap';
 
 interface AccessLog {
   id: string;
@@ -138,11 +139,6 @@ export function LinkIntelligencePage() {
     return Array.from(map.values());
   })();
 
-  // Unique countries for map
-  const geoPoints = viewers
-    .filter(v => v.lat && v.lng)
-    .map(v => ({ lat: v.lat!, lng: v.lng!, country: v.country, city: v.city, viewers: 1, hopNumber: v.hopNumber }));
-
   // Merge by country for the map summary
   const countryStats = viewers.reduce((acc, v) => {
     acc[v.country] = (acc[v.country] || 0) + 1;
@@ -196,56 +192,39 @@ export function LinkIntelligencePage() {
         />
       </div>
 
-      {/* World Map — country access visualization */}
+      {/* Interactive World Map — file tracking visualization */}
       <div className="card mb-6">
         <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-4">
-          <Globe size={14} className="text-dna-400" /> Access Map — Where Your File Traveled
+          <Globe size={14} className="text-dna-400" /> File Tracking Map — Where Your File Traveled
         </h2>
-        {Object.keys(countryStats).length === 0 ? (
-          <div className="py-8 text-center text-xs text-gray-500">No access data yet</div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {/* Country list with visual bars */}
-            <div className="space-y-2">
-              {Object.entries(countryStats)
-                .sort(([,a], [,b]) => b - a)
-                .map(([country, count]) => {
-                  const pct = Math.round((count / viewers.length) * 100);
-                  return (
-                    <div key={country} className="bg-bg-elevated rounded-lg p-3 border border-bg-border">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-2">
-                          <MapPin size={12} className="text-dna-400" />
-                          <span className="text-xs font-medium text-white">{country}</span>
-                        </div>
-                        <span className="text-xs text-dna-400 font-semibold">{count} viewer{count > 1 ? 's' : ''}</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-bg-muted rounded-full overflow-hidden">
-                        <div className="h-full bg-dna-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
 
-            {/* GPS points if available */}
-            {geoPoints.length > 0 && (
-              <div className="bg-bg-elevated rounded-lg p-3 border border-bg-border">
-                <p className="text-2xs text-gray-500 font-medium mb-2">GPS Coordinates Captured</p>
-                <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                  {geoPoints.map((p, i) => (
-                    <div key={i} className="flex items-center justify-between text-2xs">
-                      <span className="text-gray-400">
-                        Hop {p.hopNumber} · {p.city ?? p.country}
-                      </span>
-                      <span className="text-dna-400 font-mono">
-                        {p.lat.toFixed(4)}, {p.lng.toFixed(4)}
-                      </span>
-                    </div>
-                  ))}
+        <FileTrackingMap
+          points={viewers.filter(v => v.lat && v.lng).map(v => ({
+            lat: v.lat!, lng: v.lng!,
+            label: `Hop ${v.hopNumber}`,
+            hopNumber: v.hopNumber,
+            country: v.country, city: v.city,
+            device: v.device, ip: v.ip,
+            riskLevel: v.riskLevel,
+            totalActions: v.totalActions,
+          }))}
+          height="420px"
+        />
+
+        {/* Country breakdown below map */}
+        {Object.keys(countryStats).length > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
+            {Object.entries(countryStats)
+              .sort(([,a], [,b]) => b - a)
+              .map(([country, count]) => (
+                <div key={country} className="bg-bg-elevated rounded-lg px-3 py-2 border border-bg-border flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <MapPin size={10} className="text-dna-400" />
+                    <span className="text-2xs font-medium text-white">{country}</span>
+                  </div>
+                  <span className="text-2xs text-dna-400 font-bold">{count}</span>
                 </div>
-              </div>
-            )}
+              ))}
           </div>
         )}
       </div>
