@@ -390,6 +390,22 @@ model User {
   isActive     Boolean   @default(true)
   lastLoginAt  DateTime?
 
+  // Profile fields
+  phone        String?
+  organization String?
+  jobTitle     String?
+  country      String?
+  avatarUrl    String?
+  bio          String?
+  theme        String    @default("light")
+
+  // Notification preferences
+  notifyShareAccess  Boolean @default(true)
+  notifyRiskAlerts   Boolean @default(true)
+  notifyCertificates Boolean @default(true)
+  notifyMonitoring   Boolean @default(true)
+  notifyUpdates      Boolean @default(false)
+
   refreshTokens    RefreshToken[]
   dnaRecords       DnaRecord[]
   shareLinks       ShareLink[]

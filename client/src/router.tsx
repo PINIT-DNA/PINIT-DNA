@@ -21,6 +21,7 @@ import { IntelligenceReportPage }   from './pages/IntelligenceReportPage';
 import { LinkTreePage }             from './pages/LinkTreePage';
 import { ForensicDashboardPage }   from './pages/ForensicDashboardPage';
 import { NotFoundPage }             from './pages/NotFoundPage';
+import { ProfilePage }              from './pages/ProfilePage';
 import { ShareViewerPage }          from './pages/ShareViewerPage';
 import { PinitGateway, RegisterGateway } from './pages/auth/PinitGateway';
 import { RequireAuth }              from './components/auth/RequireAuth';
@@ -61,6 +62,7 @@ export const router = createBrowserRouter([
       { path: 'intelligence/:vaultId', element: <IntelligenceReportPage /> },
       { path: 'link-tree/:parentToken', element: <LinkTreePage /> },
       { path: 'forensic-dashboard',    element: <ForensicDashboardPage /> },
+      { path: 'profile',               element: <ProfilePage /> },
       { path: 'certificates',          element: <CertificatesPage />        },
       { path: 'verify-certificate',    element: <VerifyCertificatePage />   },
       { path: '*',                     element: <NotFoundPage />            },

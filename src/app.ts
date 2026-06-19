@@ -24,6 +24,7 @@ import { shareRouter }            from './api/routes/share.routes';
 import { recipientsRouter }       from './api/routes/recipients.routes';
 import { evidenceRouter }         from './api/routes/evidence.routes';
 import { authRouter }             from './api/routes/auth.routes';
+import { profileRouter }          from './api/routes/profile.routes';
 import { getHealthReport }         from './lib/health';
 import { vaultScheduler }         from './services/scheduler/vault-scheduler.service';
 import { startPythonAI } from './lib/python-ai-process';
@@ -117,6 +118,7 @@ app.use(`${config.apiPrefix}/share`,      shareRouter);
 app.use(`${config.apiPrefix}/recipients`, recipientsRouter);
 app.use(`${config.apiPrefix}/evidence`,   evidenceRouter);
 app.use(`${config.apiPrefix}/auth`,      authRouter);
+app.use(`${config.apiPrefix}/profile`,   profileRouter);
 
 // ─── React SPA catch-all ─────────────────────────────────────────────────────
 // Serves index.html for /dashboard, /compare, /vault etc. (client-side routing)

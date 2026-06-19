@@ -1,6 +1,7 @@
 import { useLocation, Link } from 'react-router-dom';
 import { Bell, Plus, ChevronRight, Menu } from 'lucide-react';
 import { Dna } from 'lucide-react';
+import { ProfileDropdown } from './ProfileDropdown';
 
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   '/':                    { title: 'Dashboard',             subtitle: 'System overview & analytics'              },
@@ -67,10 +68,7 @@ export function Topbar({ onMenu }: TopbarProps) {
           <Bell size={16} className="text-gray-400" />
         </button>
 
-        {/* Avatar */}
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-dna-500 to-purple flex items-center justify-center text-xs font-bold text-white select-none">
-          P
-        </div>
+        <ProfileDropdown />
       </div>
     </header>
   );
