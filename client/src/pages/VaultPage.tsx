@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Archive, Search, Lock, RefreshCw, Download, Eye, ExternalLink, Share2, Copy, Check, Clock, Ban, FileSearch, Cpu, Users, GitBranch } from 'lucide-react';
+import { Archive, Search, Lock, RefreshCw, Download, Eye, ExternalLink, Share2, Copy, Check, Clock, Ban, FileSearch, Cpu, GitBranch } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
@@ -143,24 +143,8 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
   const [torBlock,       setTorBlock]       = useState(true);
   const [oneDeviceOnly,  setOneDeviceOnly]  = useState(false);
 
-  // ── Multi-recipient (child links) ─────────────────────────────────────────
-  const [recipients, setRecipients] = useState<Array<{ label: string; email: string }>>([]);
+  // ── Child links (kept for API compatibility) ──────────────────────────────
   const [childLinks, setChildLinks] = useState<Array<{ token: string; url: string; recipientLabel: string }>>([]);
-  const [forensicRecipients, setForensicRecipients] = useState<Array<{ id: string; label: string; recipientCode: string }>>([]);
-
-  useEffect(() => {
-    api.get(`${API_BASE_URL}/recipients`).then(res => {
-      const d = res.data as any;
-      setForensicRecipients(d.recipients ?? []);
-    }).catch(() => {});
-  }, []);
-
-  const toggleForensicRecipient = (label: string) =>
-    setRecipients(r =>
-      r.some(x => x.label === label)
-        ? r.filter(x => x.label !== label)
-        : [...r, { label, email: '' }]
-    );
 
   // ── Manage existing links — list + revoke (Smart Links audit: link revocation UI) ──
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -219,7 +203,6 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
   const handleCreate = async () => {
     setCreating(true);
     try {
-      const validRecipients = recipients.filter(r => r.label.trim());
       const { data } = await api.post(`${API_BASE_URL}/share`, {
         vaultId:      record.id,
         expiresIn:    expiresIn ? Number(expiresIn) : null,
@@ -241,7 +224,6 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
         maskPan:     privacyMaskingEnabled && maskPan,
         maskAddress: privacyMaskingEnabled && maskAddress,
         requestLocation,
-        recipients: validRecipients.length > 0 ? validRecipients : undefined,
         vpnBlock,
         torBlock,
         oneDeviceOnly,
@@ -617,60 +599,10 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
               </div>
             </label>
 
-            {/* Multi-recipient share ─────────────────────────────────────── */}
-            <div className="border border-bg-border rounded-xl overflow-hidden">
-              <div className="px-3 py-2 bg-bg-elevated flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Users size={13} className="text-dna-400" />
-                  <span className="text-xs font-semibold text-gray-300">Share with Specific Recipients</span>
-                  <span className="text-2xs text-gray-500">(optional — generates unique tracked links per person)</span>
-                </div>
-              </div>
-              {forensicRecipients.length === 0 ? (
-                <div className="px-3 py-3 text-center">
-                  <p className="text-2xs text-gray-500">No forensic recipients found.</p>
-                  <button
-                    onClick={() => { onClose(); navigate('/forensic-dashboard'); }}
-                    className="text-2xs text-dna-400 hover:text-white mt-1 underline"
-                  >
-                    Go to Forensic Dashboard to create recipients →
-                  </button>
-                </div>
-              ) : (
-                <div className="divide-y divide-bg-border">
-                  {forensicRecipients.map(fr => {
-                    const selected = recipients.some(r => r.label === fr.label);
-                    return (
-                      <label key={fr.id} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-bg-elevated transition-colors">
-                        <input
-                          type="checkbox"
-                          checked={selected}
-                          onChange={() => toggleForensicRecipient(fr.label)}
-                          className="accent-dna-500"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <span className="text-xs font-medium text-white">{fr.label}</span>
-                          <span className="text-2xs text-gray-500 ml-2 font-mono">{fr.recipientCode}</span>
-                        </div>
-                        {selected && <Check size={13} className="text-dna-400 shrink-0" />}
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-              {recipients.length > 0 && (
-                <div className="px-3 py-2 bg-dna-500/5 border-t border-dna-500/20">
-                  <p className="text-2xs text-dna-400">{recipients.length} recipient{recipients.length > 1 ? 's' : ''} selected — {recipients.length + 1} links will be generated</p>
-                </div>
-              )}
-            </div>
-
             <button onClick={handleCreate} disabled={creating} className="btn btn-primary w-full">
               {creating
                 ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Generating…</>
-                : recipients.filter(r => r.label.trim()).length > 0
-                  ? <><Users size={14} /> Generate {recipients.filter(r => r.label.trim()).length + 1} Links (1 parent + {recipients.filter(r => r.label.trim()).length} recipient)</>
-                  : <><Share2 size={14} /> Generate Smart Link</>}
+                : <><Share2 size={14} /> Generate Smart Link</>}
             </button>
           </>
         ) : (
