@@ -181,6 +181,7 @@ function buildHistory(
         if (log.recipientName) meta['Recipient'] = log.recipientName;
         meta['IP Address'] = isLocalhost ? 'Local (::1)' : (log.ipAddress ?? 'Unknown');
         meta['Location']   = log.country ? `${log.country}${log.city ? `, ${log.city}` : ''}` : isLocalhost ? 'Local network' : 'Unknown';
+        if (log.device)    meta['Device'] = log.device;
         if (log.browser)   meta['Browser'] = log.browser;
         if (log.os)        meta['OS'] = log.os;
         if (log.timezone)  meta['Timezone'] = log.timezone;
