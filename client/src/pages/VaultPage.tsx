@@ -140,7 +140,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
 
   // ── Enterprise Security Controls ──────────────────────────────────────────
   const [vpnBlock,       setVpnBlock]       = useState(false);
-  const [torBlock,       setTorBlock]       = useState(true);
+  const [torBlock,       setTorBlock]       = useState(false);
   const [oneDeviceOnly,  setOneDeviceOnly]  = useState(false);
 
   // ── Child links (kept for API compatibility) ──────────────────────────────
