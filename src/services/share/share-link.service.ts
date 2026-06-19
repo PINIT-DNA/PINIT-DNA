@@ -693,7 +693,16 @@ export class ShareLinkService {
 
     const ua = input.userAgent ?? '';
     const { browser, os, device } = parseUserAgent(ua);
-    const finalDevice = input.device ?? device;
+    // Improve device detection: screen width < 768 is almost certainly mobile
+    let finalDevice = input.device ?? device;
+    if (finalDevice === 'desktop' && input.screenResolution) {
+      const w = parseInt(input.screenResolution.split('x')[0], 10);
+      if (w > 0 && w < 768) finalDevice = 'Mobile';
+      else if (w >= 768 && w < 1024) finalDevice = 'Tablet';
+      else finalDevice = 'Desktop';
+    } else {
+      finalDevice = finalDevice === 'mobile' ? 'Mobile' : finalDevice === 'tablet' ? 'Tablet' : 'Desktop';
+    }
 
     // Auto-geolocate if country not provided
     let country = input.country ?? null;
