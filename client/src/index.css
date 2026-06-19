@@ -8,8 +8,12 @@
 @layer base {
   html, body, #root {
     height: 100%;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;           /* no black gutter from any stray horizontal overflow */
     background-color: #f6f8fb;
     color: #1e293b;
+    color-scheme: light;          /* stop Android WebView dark-mode from auto-darkening */
     font-family: 'Inter', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
