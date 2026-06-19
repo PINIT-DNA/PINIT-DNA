@@ -58,7 +58,7 @@ export function ProfileDropdown() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-10 w-72 bg-bg-card border border-bg-border rounded-xl shadow-xl z-50 overflow-hidden animate-fade-in">
+        <div className="absolute right-0 top-10 w-72 bg-bg-card border border-bg-border rounded-xl shadow-2xl z-[9999] overflow-hidden animate-fade-in">
           {/* Header */}
           <div className="p-4 border-b border-bg-border">
             <div className="flex items-center gap-3">
