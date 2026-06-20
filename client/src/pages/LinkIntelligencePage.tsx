@@ -369,10 +369,16 @@ export function LinkIntelligencePage() {
                   <div className="flex items-center gap-2 mb-2">
                     <MapPin size={12} className={activeViewer.locationSource === 'gps' ? 'text-green-400' : 'text-yellow-400'} />
                     <span className="text-2xs font-semibold text-white">
-                      Location Source: {activeViewer.locationSource === 'gps' ? '📍 GPS (Precise)' : '🌐 IP Approximation'}
+                      {activeViewer.gpsAccuracy && activeViewer.gpsAccuracy < 500
+                        ? '📍 GPS (Precise)'
+                        : activeViewer.locationSource === 'gps'
+                          ? '📡 WiFi/Cell Tower (Approximate)'
+                          : '🌐 IP Lookup (City-level)'}
                     </span>
                     {activeViewer.gpsAccuracy && (
-                      <span className="text-2xs text-green-400">±{Math.round(activeViewer.gpsAccuracy)}m accuracy</span>
+                      <span className={`text-2xs ${activeViewer.gpsAccuracy < 100 ? 'text-green-400' : activeViewer.gpsAccuracy < 1000 ? 'text-yellow-400' : 'text-orange-400'}`}>
+                        ±{activeViewer.gpsAccuracy < 1000 ? `${Math.round(activeViewer.gpsAccuracy)}m` : `${Math.round(activeViewer.gpsAccuracy / 1000)}km`}
+                      </span>
                     )}
                   </div>
 

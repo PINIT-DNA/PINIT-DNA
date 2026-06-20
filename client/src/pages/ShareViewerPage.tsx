@@ -191,7 +191,7 @@ export function ShareViewerPage() {
         setGpsData({ lat, lng, accuracy, timestamp: new Date().toISOString(), ...geo });
       },
       () => { /* denied or unavailable — silent */ },
-      { timeout: 8000, maximumAge: 120000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   }, []);
 
@@ -706,7 +706,7 @@ export function ShareViewerPage() {
         () => {
           setLocationDenied(true);
         },
-        { timeout: 10000, maximumAge: 60000 }
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
       );
     };
 
