@@ -1026,12 +1026,19 @@ model ShareAccessLog {
   sessionDurationSec Int?
 
   // ── GPS Location (optional — user consent required) ───────────────────────
-  gpsLat        Float?    // latitude  (null if denied / not requested)
-  gpsLng        Float?    // longitude
-  gpsAccuracy   Float?    // accuracy radius in metres
-  gpsCity       String?   // reverse-geocoded city name
-  gpsTimestamp  DateTime? // when the browser captured the position
-  locationShared Boolean  @default(false) // true=allowed, false=denied/skipped
+  gpsLat          Float?    // latitude  (null if denied / not requested)
+  gpsLng          Float?    // longitude
+  gpsAccuracy     Float?    // accuracy radius in metres
+  gpsCity         String?   // reverse-geocoded city/village name
+  gpsTimestamp    DateTime? // when the browser captured the position
+  locationShared  Boolean   @default(false) // true=allowed, false=denied/skipped
+  gpsVillage      String?   // village/hamlet name
+  gpsMandal       String?   // mandal/taluk/sub-district
+  gpsDistrict     String?   // district
+  gpsState        String?   // state/province
+  gpsPincode      String?   // postal code
+  gpsFullAddress  String?   // complete formatted address
+  locationSource  String?   // "gps" | "ip" | "wifi"
 
   // What happened
   action      String    // VIEWED | DOWNLOADED | BLOCKED_* | COPY_ATTEMPT | SCREENSHOT_ATTEMPT | ...

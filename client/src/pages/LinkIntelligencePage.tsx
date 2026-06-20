@@ -29,6 +29,14 @@ interface AccessLog {
   gpsLat: number | null;
   gpsLng: number | null;
   gpsCity: string | null;
+  gpsVillage: string | null;
+  gpsMandal: string | null;
+  gpsDistrict: string | null;
+  gpsState: string | null;
+  gpsPincode: string | null;
+  gpsFullAddress: string | null;
+  gpsAccuracy: number | null;
+  locationSource: string | null;
   sessionDurationSec: number | null;
   recipientName: string | null;
   deviceFingerprint: string | null;
@@ -57,6 +65,14 @@ interface Viewer {
   isp: string | null;
   timezone: string | null;
   gpsCity: string | null;
+  gpsVillage: string | null;
+  gpsMandal: string | null;
+  gpsDistrict: string | null;
+  gpsState: string | null;
+  gpsPincode: string | null;
+  gpsFullAddress: string | null;
+  gpsAccuracy: number | null;
+  locationSource: string | null;
   device: string;
   browser: string;
   os: string;
@@ -127,6 +143,14 @@ export function LinkIntelligencePage() {
           isp: log.isp ?? null,
           timezone: log.timezone ?? null,
           gpsCity: log.gpsCity ?? null,
+          gpsVillage: log.gpsVillage ?? null,
+          gpsMandal: log.gpsMandal ?? null,
+          gpsDistrict: log.gpsDistrict ?? null,
+          gpsState: log.gpsState ?? null,
+          gpsPincode: log.gpsPincode ?? null,
+          gpsFullAddress: log.gpsFullAddress ?? null,
+          gpsAccuracy: log.gpsAccuracy ?? null,
+          locationSource: log.locationSource ?? null,
           device: log.device ?? 'Unknown',
           browser: log.browser ?? 'Unknown',
           os: log.os ?? 'Unknown',
@@ -241,6 +265,12 @@ export function LinkIntelligencePage() {
             device: v.device, ip: v.ip,
             riskLevel: v.riskLevel,
             totalActions: v.totalActions,
+            gpsVillage: v.gpsVillage,
+            gpsMandal: v.gpsMandal,
+            gpsDistrict: v.gpsDistrict,
+            gpsState: v.gpsState,
+            gpsPincode: v.gpsPincode,
+            gpsAccuracy: v.gpsAccuracy,
           }))}
           height="420px"
         />
@@ -334,15 +364,43 @@ export function LinkIntelligencePage() {
                   <div><span className="text-gray-500">First Seen:</span> <span className="text-white">{format(new Date(activeViewer.firstSeen), 'MMM d, yyyy · h:mm:ss a')}</span></div>
                   {activeViewer.isp && <div><span className="text-gray-500">ISP:</span> <span className="text-white">{activeViewer.isp}</span></div>}
                 </div>
-                <div className="border-t border-bg-border pt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  <div><span className="text-gray-500">Country:</span> <span className="text-white">{activeViewer.country}</span></div>
-                  {activeViewer.region && <div><span className="text-gray-500">State/Region:</span> <span className="text-white">{activeViewer.region}</span></div>}
-                  <div><span className="text-gray-500">City (IP):</span> <span className="text-white">{activeViewer.city ?? 'Unknown'}</span></div>
-                  {activeViewer.gpsCity && <div><span className="text-gray-500">📍 GPS Location:</span> <span className="text-dna-400 font-semibold">{activeViewer.gpsCity}</span></div>}
-                  {activeViewer.lat && activeViewer.lng && (
-                    <div><span className="text-gray-500">Coordinates:</span> <span className="text-dna-400 font-mono">{activeViewer.lat.toFixed(5)}, {activeViewer.lng.toFixed(5)}</span></div>
+                {/* Location — GPS or IP fallback */}
+                <div className="border-t border-bg-border pt-2">
+                  <div className="flex items-center gap-2 mb-2">
+                    <MapPin size={12} className={activeViewer.locationSource === 'gps' ? 'text-green-400' : 'text-yellow-400'} />
+                    <span className="text-2xs font-semibold text-white">
+                      Location Source: {activeViewer.locationSource === 'gps' ? '📍 GPS (Precise)' : '🌐 IP Approximation'}
+                    </span>
+                    {activeViewer.gpsAccuracy && (
+                      <span className="text-2xs text-green-400">±{Math.round(activeViewer.gpsAccuracy)}m accuracy</span>
+                    )}
+                  </div>
+
+                  {activeViewer.gpsVillage || activeViewer.gpsFullAddress ? (
+                    <div className="bg-bg-card rounded-lg p-2.5 border border-dna-500/20 space-y-1">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                        {activeViewer.gpsVillage && <div><span className="text-gray-500">Village:</span> <span className="text-dna-400 font-semibold">{activeViewer.gpsVillage}</span></div>}
+                        {activeViewer.gpsMandal && <div><span className="text-gray-500">Mandal:</span> <span className="text-white">{activeViewer.gpsMandal}</span></div>}
+                        {activeViewer.gpsDistrict && <div><span className="text-gray-500">District:</span> <span className="text-white">{activeViewer.gpsDistrict}</span></div>}
+                        {activeViewer.gpsState && <div><span className="text-gray-500">State:</span> <span className="text-white">{activeViewer.gpsState}</span></div>}
+                        {activeViewer.gpsPincode && <div><span className="text-gray-500">Pincode:</span> <span className="text-white">{activeViewer.gpsPincode}</span></div>}
+                        <div><span className="text-gray-500">Country:</span> <span className="text-white">{activeViewer.country}</span></div>
+                      </div>
+                      {activeViewer.lat && activeViewer.lng && (
+                        <div className="pt-1 border-t border-bg-border mt-1">
+                          <span className="text-gray-500">Coordinates:</span> <span className="text-dna-400 font-mono">{activeViewer.lat.toFixed(5)}, {activeViewer.lng.toFixed(5)}</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      <div><span className="text-gray-500">Country:</span> <span className="text-white">{activeViewer.country}</span></div>
+                      {activeViewer.region && <div><span className="text-gray-500">State:</span> <span className="text-white">{activeViewer.region}</span></div>}
+                      <div><span className="text-gray-500">City (IP):</span> <span className="text-yellow-400">{activeViewer.city ?? 'Unknown'}</span></div>
+                      <div className="col-span-full text-2xs text-yellow-500 italic">⚠ IP-based location — accuracy ~50-200km. Viewer denied precise GPS access.</div>
+                    </div>
                   )}
-                  {activeViewer.timezone && <div><span className="text-gray-500">Timezone:</span> <span className="text-white">{activeViewer.timezone}</span></div>}
+                  {activeViewer.timezone && <div className="mt-1"><span className="text-gray-500">Timezone:</span> <span className="text-white">{activeViewer.timezone}</span></div>}
                 </div>
               </div>
 

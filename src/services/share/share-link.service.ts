@@ -155,12 +155,19 @@ export interface AccessLogInput {
   screenResolution?: string;
   deviceFingerprint?: string;
   // GPS — optional, user-consented
-  gpsLat?:       number;
-  gpsLng?:       number;
-  gpsAccuracy?:  number;
-  gpsCity?:      string;
-  gpsTimestamp?: Date;
+  gpsLat?:         number;
+  gpsLng?:         number;
+  gpsAccuracy?:    number;
+  gpsCity?:        string;
+  gpsTimestamp?:   Date;
   locationShared?: boolean;
+  gpsVillage?:     string;
+  gpsMandal?:      string;
+  gpsDistrict?:    string;
+  gpsState?:       string;
+  gpsPincode?:     string;
+  gpsFullAddress?: string;
+  locationSource?: string;
   // Forensic IP intelligence
   isVpn?:        boolean;
   isTor?:        boolean;
@@ -787,7 +794,14 @@ export class ShareLinkService {
         gpsAccuracy:   input.gpsAccuracy   ?? null,
         gpsCity:       input.gpsCity       ?? null,
         gpsTimestamp:  input.gpsTimestamp  ?? null,
-        locationShared: input.locationShared ?? false,
+        locationShared:  input.locationShared ?? false,
+        gpsVillage:      input.gpsVillage     ?? null,
+        gpsMandal:       input.gpsMandal      ?? null,
+        gpsDistrict:     input.gpsDistrict    ?? null,
+        gpsState:        input.gpsState       ?? null,
+        gpsPincode:      input.gpsPincode     ?? null,
+        gpsFullAddress:  input.gpsFullAddress ?? null,
+        locationSource:  input.locationSource ?? (input.locationShared ? 'gps' : 'ip'),
         // Forensic IP intelligence
         isVpn:         input.isVpn         ?? false,
         isTor:         input.isTor         ?? false,

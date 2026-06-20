@@ -13,6 +13,12 @@ interface MapPoint {
   ip: string;
   riskLevel: string;
   totalActions: number;
+  gpsVillage?: string | null;
+  gpsMandal?: string | null;
+  gpsDistrict?: string | null;
+  gpsState?: string | null;
+  gpsPincode?: string | null;
+  gpsAccuracy?: number | null;
 }
 
 interface FileTrackingMapProps {
@@ -95,23 +101,37 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
         ? `<span style="background:${p.riskLevel === 'CRITICAL' ? '#ef4444' : '#f97316'};color:#fff;padding:1px 6px;border-radius:4px;font-size:10px;margin-left:4px">${p.riskLevel}</span>`
         : '';
 
+      const locationLines = p.gpsVillage
+        ? [
+            p.gpsVillage,
+            [p.gpsMandal, p.gpsDistrict].filter(Boolean).join(', '),
+            [p.gpsState, p.gpsPincode].filter(Boolean).join(' '),
+            p.country,
+          ].filter(Boolean).join('<br/>')
+        : `${p.city ? p.city + ', ' : ''}${p.country}`;
+
+      const accuracyBadge = p.gpsAccuracy
+        ? `<div style="font-size:10px;color:#10b981;margin-top:2px">📡 Accuracy: ±${Math.round(p.gpsAccuracy)}m</div>`
+        : '';
+
       marker.bindPopup(`
-        <div style="font-family:Inter,system-ui,sans-serif;min-width:200px">
+        <div style="font-family:Inter,system-ui,sans-serif;min-width:220px">
           <div style="font-size:13px;font-weight:700;color:#333;margin-bottom:6px">
             Hop ${p.hopNumber} — ${p.hopNumber === 1 ? 'Direct Recipient' : 'Forwarded'}
             ${riskBadge}
           </div>
-          <div style="font-size:11px;color:#666;line-height:1.6">
-            <div>📍 <strong>${p.city ? p.city + ', ' : ''}${p.country}</strong></div>
+          <div style="font-size:11px;color:#666;line-height:1.5">
+            <div style="margin-bottom:4px">📍 <strong>${locationLines}</strong></div>
             <div>🌐 IP: <code style="background:#f1f5f9;padding:1px 4px;border-radius:3px">${p.ip}</code></div>
             <div>📱 ${p.device}</div>
             <div>👁 ${p.totalActions} action${p.totalActions > 1 ? 's' : ''}</div>
+            ${accuracyBadge}
             <div style="font-size:10px;color:#999;margin-top:4px">
               ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}
             </div>
           </div>
         </div>
-      `, { maxWidth: 280 });
+      `, { maxWidth: 300 });
 
       marker.addTo(map);
     });

@@ -106,10 +106,11 @@ export function ShareViewerPage() {
   const [locationDone,   setLocationDone]   = useState(false);  // screen dismissed
   const [locationDenied, setLocationDenied] = useState(false);  // user denied GPS
   const [gpsData, setGpsData] = useState<{
-    lat: number; lng: number; accuracy: number; city?: string; timestamp: string;
+    lat: number; lng: number; accuracy: number; timestamp: string;
+    city?: string; village?: string; mandal?: string; district?: string;
+    state?: string; pincode?: string; fullAddress?: string;
   } | null>(null);
-  // Ref so the tracking closure always reads the latest GPS even if state updated after effect ran
-  const gpsDataRef = useRef<{ lat: number; lng: number; accuracy: number; city?: string; timestamp: string } | null>(null);
+  const gpsDataRef = useRef<typeof gpsData>(null);
 
   // ── Privacy Masking state ──────────────────────────────────────────────────
   const [maskedText, setMaskedText]           = useState<string | null>(null);
@@ -172,13 +173,22 @@ export function ShareViewerPage() {
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude: lat, longitude: lng, accuracy } = pos.coords;
-        let city: string | undefined;
+        let geo: { city?: string; village?: string; mandal?: string; district?: string; state?: string; pincode?: string; fullAddress?: string } = {};
         try {
-          const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
-          const j = await r.json() as { address?: { city?: string; town?: string; village?: string; county?: string } };
-          city = j.address?.city ?? j.address?.town ?? j.address?.village ?? j.address?.county;
+          const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`);
+          const j = await r.json() as { display_name?: string; address?: Record<string, string> };
+          const a = j.address ?? {};
+          geo = {
+            village:     a.village ?? a.hamlet ?? a.neighbourhood ?? a.suburb,
+            city:        a.city ?? a.town ?? a.village ?? a.county,
+            mandal:      a.county ?? a.state_district,
+            district:    a.state_district ?? a.county,
+            state:       a.state,
+            pincode:     a.postcode,
+            fullAddress: j.display_name,
+          };
         } catch { /* non-fatal */ }
-        setGpsData({ lat, lng, accuracy, city, timestamp: new Date().toISOString() });
+        setGpsData({ lat, lng, accuracy, timestamp: new Date().toISOString(), ...geo });
       },
       () => { /* denied or unavailable — silent */ },
       { timeout: 8000, maximumAge: 120000 }
@@ -222,12 +232,19 @@ export function ShareViewerPage() {
         screenResolution: screenRes, deviceFingerprint: fingerprint,
         // GPS — send on VIEWED only if captured
         ...(action === 'VIEWED' && gps ? {
-          gpsLat:       gps.lat,
-          gpsLng:       gps.lng,
-          gpsAccuracy:  gps.accuracy,
-          gpsCity:      gps.city,
-          gpsTimestamp: gps.timestamp,
+          gpsLat:         gps.lat,
+          gpsLng:         gps.lng,
+          gpsAccuracy:    gps.accuracy,
+          gpsCity:        gps.city ?? gps.village,
+          gpsTimestamp:   gps.timestamp,
+          gpsVillage:     gps.village,
+          gpsMandal:      gps.mandal,
+          gpsDistrict:    gps.district,
+          gpsState:       gps.state,
+          gpsPincode:     gps.pincode,
+          gpsFullAddress: gps.fullAddress,
           locationShared: true,
+          locationSource: 'gps',
         } : {}),
         ...(action === 'VIEWED' && !gps && info?.requestLocation ? { locationShared: false } : {}),
         ...extra,
