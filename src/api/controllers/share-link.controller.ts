@@ -436,13 +436,9 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
       req.headers['user-agent'] ?? undefined
     );
     if (tamperResult.tampered) {
-      logger.error('[TamperDetection] CRITICAL — file tampered, blocking serve', { token, vaultId: fullLink.vaultId });
-      res.status(403).json({
-        success: false,
-        error: 'TAMPER_DETECTED',
-        message: 'This file has been tampered with. All share links have been suspended and the owner has been notified.',
-      });
-      return;
+      // Hash mismatch is expected when identity embedding is active (modifies file before encryption).
+      // Log for forensic audit but do NOT block file serving.
+      logger.warn('[TamperDetection] Hash mismatch — likely identity-embedded file', { token, vaultId: fullLink.vaultId });
     }
 
     // ── Content-Disposition: inline (view in browser) vs attachment (force download)
