@@ -150,7 +150,6 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [existingLinks, setExistingLinks] = useState<any[]>([]);
   const [loadingLinks, setLoadingLinks]   = useState(true);
-  const [revokingToken, setRevokingToken] = useState<string | null>(null);
 
   const fetchLinks = async () => {
     setLoadingLinks(true);
@@ -167,16 +166,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
 
   useEffect(() => { fetchLinks(); }, [record.id]);
 
-  const handleRevoke = async (token: string) => {
-    setRevokingToken(token);
-    try {
-      await api.delete(`${API_BASE_URL}/share/${token}`);
-      toast.success('Link revoked — it will no longer grant access');
-      await fetchLinks();
-    } catch {
-      toast.error('Failed to revoke link');
-    } finally { setRevokingToken(null); }
-  };
+
 
   // Country name → ISO code lookup for common countries
   const COUNTRY_ISO: Record<string, string> = {
@@ -287,16 +277,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
                     </p>
                   </div>
                   {link.isActive ? (
-                    <button
-                      onClick={() => handleRevoke(link.token)}
-                      disabled={revokingToken === link.token}
-                      className="btn btn-secondary btn-sm text-2xs shrink-0 text-danger hover:bg-danger/10"
-                    >
-                      {revokingToken === link.token
-                        ? <div className="w-3 h-3 border-2 border-danger border-t-transparent rounded-full animate-spin" />
-                        : <Ban size={11} />}
-                      Revoke
-                    </button>
+                    <Badge variant="success">Active</Badge>
                   ) : (
                     <Badge variant="danger">Revoked</Badge>
                   )}

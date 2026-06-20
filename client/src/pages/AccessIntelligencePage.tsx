@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Eye, Download, Globe, Users, Clock, RefreshCw, AlertTriangle, ChevronRight } from 'lucide-react';
+import { Shield, Eye, Download, Globe, Users, Clock, RefreshCw, AlertTriangle, ChevronRight, XCircle, Ban } from 'lucide-react';
 import { api } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
 import { formatDistanceToNow } from 'date-fns';
@@ -139,7 +139,27 @@ export function AccessIntelligencePage() {
                       </div>
                     </div>
 
-                    <ChevronRight size={16} className="text-gray-600 group-hover:text-dna-400 transition-colors shrink-0 mt-1" />
+                    <div className="flex flex-col gap-1.5 shrink-0">
+                      {link.isActive ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!confirm(`Revoke link ${link.token}? All active sessions will be terminated.`)) return;
+                            api.delete(`${API_BASE_URL}/share/${link.token}`).then(() => {
+                              setLinks(prev => prev.map(l => l.id === link.id ? { ...l, isActive: false } : l));
+                            });
+                          }}
+                          className="flex items-center gap-1 px-2 py-1 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-2xs font-medium rounded-lg transition-colors"
+                        >
+                          <XCircle size={10} /> Revoke
+                        </button>
+                      ) : (
+                        <span className="flex items-center gap-1 px-2 py-1 bg-gray-500/10 border border-gray-500/30 text-gray-500 text-2xs rounded-lg">
+                          <Ban size={10} /> Revoked
+                        </span>
+                      )}
+                      <ChevronRight size={14} className="text-gray-600 group-hover:text-dna-400 transition-colors mx-auto" />
+                    </div>
                   </div>
                 </button>
               );
