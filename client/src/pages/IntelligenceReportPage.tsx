@@ -111,10 +111,11 @@ function Section({
 }
 
 function Row({ label, value, mono = false, accent }: { label: string; value: React.ReactNode; mono?: boolean; accent?: string }) {
+  const display = value === null || value === undefined || value === '' ? '—' : value;
   return (
     <div className="flex items-start justify-between gap-4 py-2 border-b border-bg-border/50 last:border-0">
       <span className="text-xs text-gray-500 shrink-0 w-40">{label}</span>
-      <span className={`text-xs text-right break-all ${mono ? 'font-mono' : ''} ${accent ?? 'text-gray-200'}`}>{value}</span>
+      <span className={`text-xs text-right break-all ${mono ? 'font-mono' : ''} ${accent ?? 'text-gray-200'}`}>{display}</span>
     </div>
   );
 }

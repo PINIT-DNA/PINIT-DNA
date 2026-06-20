@@ -1,5 +1,5 @@
 /**
- * PINIT-DNA � File Timeline & History (Phase 4.3)
+ * PINIT-DNA · File Timeline & History (Phase 4.3)
  * Route: /timeline
  *
  * Reads DNA records + vault records + session comparison reports.
@@ -68,7 +68,7 @@ function buildHistory(
       timestamp: r.createdAt,
       type: 'DNA_GENERATED',
       title: '10-Layer DNA Fingerprint Generated',
-      detail: `${r.status} � ${deriveFileType(r)} � ${Math.round(r.imageSizeBytes / 1024)} KB`,
+      detail: `${r.status} · ${deriveFileType(r)} · ${Math.round(r.imageSizeBytes / 1024)} KB`,
       icon: <Dna size={14} />, color: 'bg-dna-500/20 border-dna-500/40 text-dna-400',
       meta: { 'DNA Record ID': r.id, Status: r.status, 'Engine': r.engineVersion ?? '1.0.0' },
     });
@@ -80,7 +80,7 @@ function buildHistory(
         timestamp: vault.createdAt,
         type: 'VAULT_STORED',
         title: 'AES-256-GCM Encrypted & Vaulted',
-        detail: `${vault.encryptionAlgorithm} � ${Math.round(vault.encryptedSizeBytes / 1024)} KB encrypted`,
+        detail: `${vault.encryptionAlgorithm} · ${Math.round(vault.encryptedSizeBytes / 1024)} KB encrypted`,
         icon: <Lock size={14} />, color: 'bg-success/20 border-success/40 text-success',
         meta: { 'Vault ID': vault.id, Encryption: vault.encryptionAlgorithm, 'Key Derivation': vault.keyDerivation },
       });
@@ -91,7 +91,7 @@ function buildHistory(
         timestamp: vault.createdAt,
         type: 'CERTIFICATE',
         title: 'Ownership Certificate Available',
-        detail: `CERT-DNA-${vault.id.slice(0, 8).toUpperCase()} � Available for download`,
+        detail: `CERT-DNA-${vault.id.slice(0, 8).toUpperCase()} · Available for download`,
         icon: <Award size={14} />, color: 'bg-purple/20 border-purple/40 text-purple',
         meta: { 'Certificate ID': `CERT-DNA-${vault.id.slice(0, 8).toUpperCase()}` },
       });
@@ -106,7 +106,7 @@ function buildHistory(
         timestamp: link.createdAt,
         type: 'SHARE_CREATED',
         title: 'Smart Share Link Generated',
-        detail: `Token: ${link.token} � ${link.expiresAt ? `Expires ${new Date(link.expiresAt).toLocaleDateString()}` : 'No expiry'}${link.maxViews ? ` � Max ${link.maxViews} views` : ''}`,
+        detail: `Token: ${link.token} · ${link.expiresAt ? `Expires ${new Date(link.expiresAt).toLocaleDateString()}` : 'No expiry'}${link.maxViews ? ` · Max ${link.maxViews} views` : ''}`,
         icon: <Share2 size={14} />, color: 'bg-orange/20 border-orange/40 text-orange',
         meta: {
           Token: link.token,
@@ -164,14 +164,14 @@ function buildHistory(
           SCROLL:             'Scroll Activity',
           TAB_SWITCH:         'Tab Switch Detected',
           PRINT_ATTEMPT:      '⚠️ Print Attempt Detected',
-          BLOCKED_EXPIRED:    'Access Blocked � Link Expired',
-          BLOCKED_MAX_VIEWS:  'Access Blocked � View Limit Reached',
+          BLOCKED_EXPIRED:    'Access Blocked · Link Expired',
+          BLOCKED_MAX_VIEWS:  'Access Blocked · View Limit Reached',
         };
 
         // [DEBUG] Stage-5: log raw IP value from API before display logic
         console.debug('[IP-AUDIT] Stage-5 UI received log', { action: log.action, ipAddress: log.ipAddress ?? 'NULL', country: log.country });
 
-        // Format IP � show friendly label for localhost
+        // Format IP · show friendly label for localhost
         const isLocalhost = !log.ipAddress || log.ipAddress === '::1' || log.ipAddress?.startsWith('127.');
         const ipDisplay   = isLocalhost ? '📍 Local Dev' : `📍 ${log.ipAddress}`;
         const geoDisplay  = log.country
@@ -190,7 +190,7 @@ function buildHistory(
         if (log.isp)       meta['ISP'] = log.isp;
         if (log.screenResolution) meta['Screen'] = log.screenResolution;
         if (log.sessionDurationSec != null) meta['Session'] = `${log.sessionDurationSec}s`;
-        // -- GPS Location � use own GPS or propagate from session's VIEWED event --
+        // -- GPS Location · use own GPS or propagate from session's VIEWED event --
         const gpsSource = log.locationShared && log.gpsLat != null
           ? log
           : (log.sessionId && sessionGps[log.sessionId]) ?? null;
@@ -200,9 +200,9 @@ function buildHistory(
             : null;
           const accuracy = gpsSource.gpsAccuracy != null ? `�${Math.round(gpsSource.gpsAccuracy)}m` : null;
           const gpsCity  = gpsSource.gpsCity ?? null;
-          meta['GPS Location'] = [gpsCity, coords, accuracy].filter(Boolean).join(' � ');
+          meta['GPS Location'] = [gpsCity, coords, accuracy].filter(Boolean).join(' · ');
         }
-        // -- AI Risk Engine output � surfaced per-event for the audit trail --
+        // -- AI Risk Engine output · surfaced per-event for the audit trail --
         if (log.riskLevel) {
           meta['Risk'] = `${log.riskLevel}${log.riskScore != null ? ` (${log.riskScore})` : ''}`;
         }
@@ -210,7 +210,7 @@ function buildHistory(
           try {
             const factors: string[] = JSON.parse(log.riskFactors);
             if (factors.length) meta['Risk Factors'] = factors.join('; ');
-          } catch { /* not JSON � show raw */ if (log.riskFactors) meta['Risk Factors'] = log.riskFactors; }
+          } catch { /* not JSON · show raw */ if (log.riskFactors) meta['Risk Factors'] = log.riskFactors; }
         }
 
         events.push({
@@ -224,11 +224,11 @@ function buildHistory(
             ipDisplay,
             geoDisplay,
             gpsSource
-              ? `?? GPS: ${gpsSource.gpsCity ?? `${Number(gpsSource.gpsLat).toFixed(3)}, ${Number(gpsSource.gpsLng).toFixed(3)}`} �${Math.round(gpsSource.gpsAccuracy ?? 0)}m`
+              ? `GPS: ${gpsSource.gpsCity ?? `${Number(gpsSource.gpsLat).toFixed(3)}, ${Number(gpsSource.gpsLng).toFixed(3)}`} ±${Math.round(gpsSource.gpsAccuracy ?? 0)}m`
               : null,
             log.browser ? log.browser : null,
             log.os      ? log.os      : null,
-          ].filter(Boolean).join(' � '),
+          ].filter(Boolean).join(' ·  '),
           icon:  actionIcon[log.action]  ?? <Eye size={14} />,
           color: actionColor[log.action] ?? 'bg-gray-500/20 border-gray-500/40 text-gray-400',
           meta,
@@ -244,8 +244,8 @@ function buildHistory(
           id: `cmp-${c.comparisonId}-${r.id}`,
           timestamp: c.comparedAt,
           type: 'COMPARED',
-          title: `DNA Comparison � ${c.classification.replace('_', ' ')}`,
-          detail: `${c.overallConfidenceScore}% confidence � ${c.tamperingDetected ? 'Tampering detected' : 'No tampering'}`,
+          title: `DNA Comparison · ${c.classification.replace('_', ' ')}`,
+          detail: `${c.overallConfidenceScore}% confidence · ${c.tamperingDetected ? 'Tampering detected' : 'No tampering'}`,
           icon: <GitCompare size={14} />, color: 'bg-cyan/20 border-cyan/40 text-cyan',
           meta: {
             'Comparison ID': c.comparisonId.slice(0, 12),
@@ -321,7 +321,7 @@ function FileHistoryCard({ history, expanded, onToggle }: { history: FileHistory
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-white truncate">{history.filename}</p>
           <p className="text-xs text-gray-500 mono mt-0.5">
-            {history.dnaRecordId.slice(0, 16)}� � {history.events.length} events
+            {history.dnaRecordId.slice(0, 16)}� · {history.events.length} events
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
@@ -396,7 +396,7 @@ function FileHistoryCard({ history, expanded, onToggle }: { history: FileHistory
                       </div>
                     )}
 
-                    {/* Audit export � Smart Links CSV download per share token */}
+                    {/* Audit export · Smart Links CSV download per share token */}
                     {event.type === 'SHARE_CREATED' && event.meta?.['Token'] && (
                       <div className="flex items-center gap-3 mt-2">
                         <button
@@ -447,7 +447,7 @@ export function TimelinePage() {
   const comparisons = useMemo(getStoredComparisons, []);
   const loading = loadDna || loadVault;
 
-  // Lifted expand state � keyed by dnaRecordId so it survives auto-refresh re-renders
+  // Lifted expand state · keyed by dnaRecordId so it survives auto-refresh re-renders
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const toggleExpanded = (id: string) =>
     setExpandedIds(prev => {
@@ -469,7 +469,7 @@ export function TimelinePage() {
       .catch(() => {});
   }, []);
 
-  // Poll share events every 20s � only update state when new logs actually arrive
+  // Poll share events every 20s · only update state when new logs actually arrive
   useEffect(() => {
     const fetchLinks = () => {
       api.get(`${API_BASE_URL}/share`)
@@ -478,7 +478,7 @@ export function TimelinePage() {
           const links: any[] = (data as any).links ?? [];
           const totalLogs = links.reduce((s: number, l: any) => s + (l.accessLogs?.length ?? 0), 0);  // eslint-disable-line @typescript-eslint/no-explicit-any
 
-          // Only update state if new events arrived � avoids unnecessary re-renders
+          // Only update state if new events arrived · avoids unnecessary re-renders
           if (totalLogs === lastLogCount.current) return;
           lastLogCount.current = totalLogs;
 
@@ -522,7 +522,7 @@ export function TimelinePage() {
           <p className="text-sm text-gray-500 mt-0.5">Complete lifecycle history for every registered file</p>
         </div>
         <div className="flex items-center gap-2">
-          {!loading && <Badge variant="dna">{histories.length} files � {totalEvents} events</Badge>}
+          {!loading && <Badge variant="dna">{histories.length} files · {totalEvents} events</Badge>}
           <button onClick={refetch} disabled={loading} className="btn btn-secondary btn-sm">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           </button>
@@ -601,7 +601,7 @@ export function TimelinePage() {
           {/* Geo analytics */}
           {geoAnalytics.length > 0 && (
             <div className="card">
-              <p className="text-xs font-semibold text-white mb-3">🌍 Geo Intelligence · Access by Country</p>
+              <p className="text-xs font-semibold text-white mb-3">🌍 Geo Intelligence ·  Access by Country</p>
               <div className="space-y-2">
                 {geoAnalytics.slice(0, 6).map((g, i) => (
                   <div key={i} className="flex items-center justify-between text-xs">
@@ -624,7 +624,7 @@ export function TimelinePage() {
           {/* Live / concurrent sessions */}
           {(liveSessions.live.length > 0 || liveSessions.concurrent.length > 0) && (
             <div className="card">
-              <p className="text-xs font-semibold text-white mb-3">👁️ Session Monitoring · Live Activity</p>
+              <p className="text-xs font-semibold text-white mb-3">👁️ Session Monitoring ·  Live Activity</p>
               <div className="space-y-2">
                 {liveSessions.live.length === 0 && (
                   <p className="text-2xs text-gray-500">No active sessions in the last 5 minutes</p>
