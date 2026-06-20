@@ -53,6 +53,10 @@ interface Viewer {
   ip: string;
   country: string;
   city: string | null;
+  region: string | null;
+  isp: string | null;
+  timezone: string | null;
+  gpsCity: string | null;
   device: string;
   browser: string;
   os: string;
@@ -119,6 +123,10 @@ export function LinkIntelligencePage() {
           ip: log.ipAddress ?? 'Unknown',
           country: log.country ?? 'Unknown',
           city: log.city ?? null,
+          region: log.region ?? null,
+          isp: log.isp ?? null,
+          timezone: log.timezone ?? null,
+          gpsCity: log.gpsCity ?? null,
           device: log.device ?? 'Unknown',
           browser: log.browser ?? 'Unknown',
           os: log.os ?? 'Unknown',
@@ -283,7 +291,7 @@ export function LinkIntelligencePage() {
                     <p className="text-xs font-medium text-white">
                       {v.hopNumber === 1 ? 'Direct Recipient' : `Viewer ${v.hopNumber}`}
                     </p>
-                    <p className="text-2xs text-gray-500">{v.country}{v.city ? `, ${v.city}` : ''} · {v.ip}</p>
+                    <p className="text-2xs text-gray-500">{v.gpsCity ?? v.city ?? v.country}{v.region ? `, ${v.region}` : ''}, {v.country} · {v.ip}</p>
                   </div>
                 </div>
                 <span className={`text-2xs px-1.5 py-0.5 rounded font-medium ${RISK_COLOR[v.riskLevel] ?? RISK_COLOR['LOW']}`}>
@@ -317,13 +325,25 @@ export function LinkIntelligencePage() {
               </div>
 
               {/* Viewer identity card */}
-              <div className="bg-bg-elevated rounded-lg p-3 border border-bg-border mb-4 grid grid-cols-2 sm:grid-cols-3 gap-2 text-2xs">
-                <div><span className="text-gray-500">IP:</span> <span className="text-white font-mono">{activeViewer.ip}</span></div>
-                <div><span className="text-gray-500">Country:</span> <span className="text-white">{activeViewer.country}{activeViewer.city ? `, ${activeViewer.city}` : ''}</span></div>
-                <div><span className="text-gray-500">Device:</span> <span className="text-white">{activeViewer.device}</span></div>
-                <div><span className="text-gray-500">Browser:</span> <span className="text-white">{activeViewer.browser}</span></div>
-                <div><span className="text-gray-500">OS:</span> <span className="text-white">{activeViewer.os}</span></div>
-                <div><span className="text-gray-500">Risk:</span> <span className={RISK_COLOR[activeViewer.riskLevel]?.split(' ')[0] ?? 'text-green-400'}>{activeViewer.riskLevel}</span></div>
+              <div className="bg-bg-elevated rounded-lg p-3 border border-bg-border mb-4 space-y-2 text-2xs">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <div><span className="text-gray-500">IP:</span> <span className="text-white font-mono">{activeViewer.ip}</span></div>
+                  <div><span className="text-gray-500">Device:</span> <span className="text-white">{activeViewer.device}</span></div>
+                  <div><span className="text-gray-500">Browser:</span> <span className="text-white">{activeViewer.browser} · {activeViewer.os}</span></div>
+                  <div><span className="text-gray-500">Risk:</span> <span className={RISK_COLOR[activeViewer.riskLevel]?.split(' ')[0] ?? 'text-green-400'}>{activeViewer.riskLevel}</span></div>
+                  <div><span className="text-gray-500">First Seen:</span> <span className="text-white">{format(new Date(activeViewer.firstSeen), 'MMM d, yyyy · h:mm:ss a')}</span></div>
+                  {activeViewer.isp && <div><span className="text-gray-500">ISP:</span> <span className="text-white">{activeViewer.isp}</span></div>}
+                </div>
+                <div className="border-t border-bg-border pt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <div><span className="text-gray-500">Country:</span> <span className="text-white">{activeViewer.country}</span></div>
+                  {activeViewer.region && <div><span className="text-gray-500">State/Region:</span> <span className="text-white">{activeViewer.region}</span></div>}
+                  <div><span className="text-gray-500">City (IP):</span> <span className="text-white">{activeViewer.city ?? 'Unknown'}</span></div>
+                  {activeViewer.gpsCity && <div><span className="text-gray-500">📍 GPS Location:</span> <span className="text-dna-400 font-semibold">{activeViewer.gpsCity}</span></div>}
+                  {activeViewer.lat && activeViewer.lng && (
+                    <div><span className="text-gray-500">Coordinates:</span> <span className="text-dna-400 font-mono">{activeViewer.lat.toFixed(5)}, {activeViewer.lng.toFixed(5)}</span></div>
+                  )}
+                  {activeViewer.timezone && <div><span className="text-gray-500">Timezone:</span> <span className="text-white">{activeViewer.timezone}</span></div>}
+                </div>
               </div>
 
               {/* Action timeline */}
@@ -336,7 +356,7 @@ export function LinkIntelligencePage() {
                       <span className="text-xs text-white flex-1">{cfg.label}</span>
                       {log.screenResolution && <span className="text-2xs text-gray-600">{log.screenResolution}</span>}
                       {log.sessionDurationSec != null && <span className="text-2xs text-gray-600">{log.sessionDurationSec}s</span>}
-                      <span className="text-2xs text-gray-600">{format(new Date(log.createdAt), 'h:mm:ss a')}</span>
+                      <span className="text-2xs text-gray-500">{format(new Date(log.createdAt), 'MMM d, h:mm:ss a')}</span>
                     </div>
                   );
                 })}
