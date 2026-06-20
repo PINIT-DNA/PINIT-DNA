@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, RefreshCw, Globe, Eye, Download, Copy, Ban, Shield,
-  Users, Clock, Smartphone, Monitor, MapPin, AlertTriangle, ExternalLink,
+  Users, Clock, Smartphone, Monitor, MapPin, AlertTriangle, ExternalLink, XCircle,
 } from 'lucide-react';
 import { api } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
@@ -90,6 +90,8 @@ export function LinkIntelligencePage() {
   const [link, setLink] = useState<LinkInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedViewer, setSelectedViewer] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState(false);
+  const [revoked, setRevoked] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -173,9 +175,33 @@ export function LinkIntelligencePage() {
             {link.filename} · Token: {link.token.slice(0, 12)}... · Created {formatDistanceToNow(new Date(link.createdAt))} ago
           </p>
         </div>
-        <button onClick={load} className="text-gray-400 hover:text-white transition-colors">
-          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={load} className="text-gray-400 hover:text-white transition-colors">
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+          </button>
+          {link.isActive && !revoked ? (
+            <button
+              onClick={async () => {
+                if (!confirm('Revoke this link? All active sessions will be terminated immediately.')) return;
+                setRevoking(true);
+                try {
+                  await api.delete(`${API_BASE_URL}/share/${token}`);
+                  setRevoked(true);
+                } catch { /* */ }
+                setRevoking(false);
+              }}
+              disabled={revoking}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-xs font-medium rounded-lg transition-colors"
+            >
+              {revoking ? <RefreshCw size={12} className="animate-spin" /> : <XCircle size={12} />}
+              Revoke Link
+            </button>
+          ) : (
+            <span className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-medium rounded-lg">
+              <Ban size={12} /> Revoked
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Stats row */}
