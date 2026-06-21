@@ -14,6 +14,7 @@ import { collectFingerprint } from '../../lib/device-fingerprint';
 import { generateHoid, saveRegistration } from '../../lib/hoid';
 import { registerDeviceCredential } from '../../lib/webauthn';
 import { storeIdentity } from '../../lib/identity-store';
+import { warmBackend } from '../../lib/auth';
 
 type Step =
   | 'welcome' | 'permissions' | 'face' | 'liveness'
@@ -143,6 +144,9 @@ function Permissions({ deviceFpRef, onNext }: { deviceFpRef: React.MutableRefObj
 
   async function allow() {
     setBusy(true);
+    // Wake the backend now so it's ready by the time identity creation runs
+    // (the rest of the flow takes ~20-30s — enough for a cold start to finish).
+    warmBackend();
     // Trigger the OS permission prompts, then release the tracks immediately.
     try {
       const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -395,33 +399,48 @@ function Biometric({
   );
 }
 
+/** Turn a raw network/axios error into a friendly, actionable message. */
+function friendlyError(e: unknown): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const status = (e as any)?.response?.status as number | undefined;
+  const msg = (e instanceof Error ? e.message : String(e)) || '';
+  if (status === undefined || /network|timeout|status code 5\d\d/i.test(msg) || (status && status >= 500)) {
+    return 'The server is waking up — this can take a moment on first use. Please tap Retry.';
+  }
+  return 'Identity creation failed. Please tap Retry.';
+}
+
 /* ── Screen 7 — Identity Creation ─────────────────────────────────────────── */
 function Creating({
   run, onDone, onError, error,
 }: { run: () => Promise<void>; onDone: () => void; onError: (m: string) => void; error: string }) {
-  const [items, setItems] = useState<CheckItem[]>([
+  const INITIAL: CheckItem[] = [
     { label: 'Face Verified', done: false },
     { label: 'Voice Verified', done: false },
     { label: 'Human Presence Verified', done: false },
     { label: 'Device Verified', done: false },
     { label: 'Cryptographic Keys Generated', done: false },
-  ]);
-  const ran = useRef(false);
+  ];
+  const [items, setItems] = useState<CheckItem[]>(INITIAL);
+  const [tries, setTries] = useState(0);
+  const ranRef = useRef(-1);
 
   useEffect(() => {
-    if (ran.current) return;
-    ran.current = true;
+    if (ranRef.current === tries) return;
+    ranRef.current = tries;
+    onError('');
+    setItems(INITIAL.map((it) => ({ ...it, done: false })));
 
     // Reveal the checklist as the account is provisioned in the background.
-    items.forEach((_, i) =>
+    INITIAL.forEach((_, i) =>
       setTimeout(() => setItems((prev) => prev.map((it, j) => (j <= i ? { ...it, done: true } : it))), 500 * (i + 1))
     );
 
     run()
       .then(() => setTimeout(onDone, 3200))
-      .catch((e) => onError(e?.message || 'Identity creation failed. Please try again.'));
+      .catch((e) => onError(friendlyError(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [tries]);
 
   return (
     <div className="pa-card">
@@ -433,7 +452,12 @@ function Creating({
       <Checklist items={items} />
       <SystemTrace lines={['Generate HOID', 'Issue Presence Certificate', 'Create Identity Record', 'Register Device']} />
       {error && (
-        <p style={{ color: '#fca5a5', fontSize: 13, textAlign: 'center', marginTop: 14 }}>{error}</p>
+        <div style={{ marginTop: 14, textAlign: 'center' }}>
+          <p style={{ color: '#b45309', fontSize: 13, lineHeight: 1.5 }}>{error}</p>
+          <button className="pa-btn" style={{ marginTop: 12 }} onClick={() => setTries((t) => t + 1)}>
+            Retry
+          </button>
+        </div>
       )}
     </div>
   );

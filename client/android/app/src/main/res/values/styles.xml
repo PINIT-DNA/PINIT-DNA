@@ -19,9 +19,10 @@
     </style>
 
 
+    <!-- Launch splash: navy to match the in-app PINIT DNA splash (no white flash). -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@color/pinitBg</item>
-        <item name="windowSplashScreenBackground">@color/pinitBg</item>
+        <item name="android:background">@color/pinitSplash</item>
+        <item name="windowSplashScreenBackground">@color/pinitSplash</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 </resources>

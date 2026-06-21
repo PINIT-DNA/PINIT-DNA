@@ -28,6 +28,13 @@ import { VerifyLeakedFilePage }    from './pages/VerifyLeakedFilePage';
 import { ShareViewerPage }          from './pages/ShareViewerPage';
 import { PinitGateway, RegisterGateway } from './pages/auth/PinitGateway';
 import { RequireAuth }              from './components/auth/RequireAuth';
+import { IS_NATIVE_APP }            from './native/platform';
+import { NativeShell }              from './native/NativeShell';
+import { HomeScreen }               from './native/screens/HomeScreen';
+import { DnaScreen }                from './native/screens/DnaScreen';
+import { VaultScreen }              from './native/screens/VaultScreen';
+import { ForensicsScreen }          from './native/screens/ForensicsScreen';
+import { ProfileScreen }            from './native/screens/ProfileScreen';
 
 export const router = createBrowserRouter([
   // ── PINIT HOID auth (public) ──────────────────────────────────────────────
@@ -43,11 +50,18 @@ export const router = createBrowserRouter([
   },
 
   // ── Dashboard (protected) ─────────────────────────────────────────────────
+  // APK → native shell (bottom tabs + new screens); web → existing dashboard.
   {
     path: '/',
-    element: <RequireAuth><DashboardLayout /></RequireAuth>,
+    element: <RequireAuth>{IS_NATIVE_APP ? <NativeShell /> : <DashboardLayout />}</RequireAuth>,
     children: [
-      { index: true,                   element: <DashboardPage />           },
+      { index: true,                   element: IS_NATIVE_APP ? <HomeScreen /> : <DashboardPage /> },
+      ...(IS_NATIVE_APP ? [
+        { path: 'app/dna',       element: <DnaScreen /> },
+        { path: 'app/vault',     element: <VaultScreen /> },
+        { path: 'app/forensics', element: <ForensicsScreen /> },
+        { path: 'app/profile',   element: <ProfileScreen /> },
+      ] : []),
       { path: 'generate',              element: <GeneratePage />            },
       { path: 'compare',               element: <ComparePage />             },
       { path: 'vault',                 element: <VaultPage />               },
