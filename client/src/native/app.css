@@ -246,3 +246,30 @@
   background: var(--card-2); color: var(--text); display: flex; align-items: center; justify-content: center;
 }
 .pinit-app .pa-feature-hd span { font-size: 15px; font-weight: 700; color: var(--text); }
+
+/* ── Mobile table fix — ensure data-tables scroll horizontally, not clip ──── */
+.pinit-app .data-table { font-size: 13px; }
+.pinit-app .overflow-x-auto { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.pinit-app .data-table th,
+.pinit-app .data-table td { white-space: nowrap; padding: 10px 12px; font-size: 12.5px; }
+.pinit-app .data-table th:first-child,
+.pinit-app .data-table td:first-child { white-space: normal; min-width: 100px; max-width: 140px; word-break: break-word; }
+
+/* ── Status badges & file-type badges — compact on mobile ────────────────── */
+.pinit-app .badge { font-size: 10px; padding: 2px 7px; }
+
+/* ── Cards inside web pages — full width, no extra margin ────────────────── */
+.pinit-app .card, .pinit-app .card-sm, .pinit-app .card-hover { border-radius: 14px; }
+
+/* ── Search bar — don't overflow ─────────────────────────────────────────── */
+.pinit-app input[type="text"],
+.pinit-app input[type="search"] { max-width: 100%; font-size: 13px; }
+
+/* ── Page headings — smaller on mobile ───────────────────────────────────── */
+.pinit-app h1 { font-size: 20px !important; }
+.pinit-app h2 { font-size: 16px !important; }
+
+/* ── Buttons row — wrap on narrow screens ────────────────────────────────── */
+.pinit-app .flex { flex-wrap: wrap; }
+.pinit-app .gap-2 { gap: 6px; }
+.pinit-app .btn-sm { font-size: 12px; padding: 6px 10px; }
