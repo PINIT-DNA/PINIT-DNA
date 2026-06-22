@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import {
   ShieldAlert, ShieldCheck, FileText, EyeOff, Copy, Activity, AlertTriangle, ChevronRight,
-  Radio, LayoutDashboard, Search,
+  Radio, LayoutDashboard, Search, Eye, Clock,
 } from 'lucide-react';
 import { AppHeader } from './parts';
 
@@ -24,6 +24,8 @@ export function ForensicsScreen() {
     { t: 'Duplicate Attempts', s: 'Detect duplicate or reused files', icon: Copy, pill: '3 Detected', cls: 'red', to: '/duplicate-attempts' },
     { t: 'Vault Integrity', s: 'Check vault health & tamper logs', icon: Activity, pill: 'Healthy', cls: 'green', to: '/vault-integrity' },
     { t: 'Verify Leaked File', s: 'Upload to identify original owner', icon: Search, pill: 'Open', cls: 'violet', to: '/verify-leaked' },
+    { t: 'Access Intelligence', s: 'Per-link analytics & revoke', icon: Eye, pill: 'Open', cls: 'blue', to: '/access-intelligence' },
+    { t: 'File Timeline', s: 'Complete lifecycle audit trail', icon: Clock, pill: 'Open', cls: 'violet', to: '/timeline' },
   ];
 
   return (

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Archive, ShieldCheck, FileText, Plus, RefreshCw, Eye, Share2, Lock } from 'lucide-react';
+import { Archive, ShieldCheck, FileText, Plus, RefreshCw, Eye, Share2, Lock, Award, Activity, Clock, ChevronRight, Radio } from 'lucide-react';
 import { AppHeader } from './parts';
 import { listVaultRecords } from '../../services/dashboard.api';
 import { formatBytes } from '../../hooks/useApi';
@@ -27,45 +27,56 @@ export function VaultScreen() {
 
   const totalEnc = files.reduce((s, f) => s + f.encSize, 0);
 
+  const actions = [
+    { t: 'Upload', icon: Plus, color: '#6366f1', bg: 'rgba(99,102,241,0.14)', to: '/generate' },
+    { t: 'Explorer', icon: Eye, color: '#10b981', bg: 'rgba(16,185,129,0.14)', to: '/vault' },
+    { t: 'Integrity', icon: ShieldCheck, color: '#f59e0b', bg: 'rgba(245,158,11,0.16)', to: '/vault-integrity' },
+    { t: 'Share', icon: Share2, color: '#3b82f6', bg: 'rgba(59,130,246,0.14)', to: '/vault' },
+  ];
+
+  const tools = [
+    { t: 'Vault Explorer', s: 'AES-256-GCM encrypted file storage', icon: Archive, to: '/vault' },
+    { t: 'Vault Integrity', s: 'Check vault health & tamper logs', icon: Activity, to: '/vault-integrity' },
+    { t: 'Certificates', s: 'Ownership and verification proofs', icon: Award, to: '/certificates' },
+    { t: 'Verify Certificate', s: 'Check certificate authenticity', icon: ShieldCheck, to: '/verify-certificate' },
+    { t: 'File Timeline', s: 'Complete lifecycle audit trail', icon: Clock, to: '/timeline' },
+    { t: 'Monitoring & Crawler', s: 'Watch for unauthorized copies', icon: Radio, to: '/monitoring' },
+  ];
+
   return (
     <>
       <AppHeader icon={<Archive size={22} color="#fff" />} title="Vault" tagline="Secure. Organize. Protect." />
 
-      {/* Stats */}
       <div className="pa-stats" style={{ marginBottom: 6 }}>
-        <div className="pa-stat">
-          <div className="pa-stat-ic" style={{ background: 'rgba(99,102,241,0.14)' }}><Lock size={17} color="var(--primary)" /></div>
-          <div className="pa-stat-n">{files.length}</div><div className="pa-stat-l">Encrypted</div>
-        </div>
-        <div className="pa-stat">
-          <div className="pa-stat-ic" style={{ background: 'rgba(16,185,129,0.14)' }}><ShieldCheck size={17} color="#10b981" /></div>
-          <div className="pa-stat-n">{formatBytes(totalEnc)}</div><div className="pa-stat-l">Total Size</div>
-        </div>
-        <div className="pa-stat">
-          <div className="pa-stat-ic" style={{ background: 'rgba(139,92,246,0.14)' }}><Archive size={17} color="#8b5cf6" /></div>
-          <div className="pa-stat-n">AES</div><div className="pa-stat-l">256-GCM</div>
-        </div>
-        <div className="pa-stat">
-          <div className="pa-stat-ic" style={{ background: 'rgba(59,130,246,0.14)' }}><ShieldCheck size={17} color="#3b82f6" /></div>
-          <div className="pa-stat-n">100%</div><div className="pa-stat-l">Coverage</div>
-        </div>
+        <div className="pa-stat"><div className="pa-stat-ic" style={{ background: 'rgba(99,102,241,0.14)' }}><Lock size={17} color="var(--primary)" /></div><div className="pa-stat-n">{files.length}</div><div className="pa-stat-l">Encrypted</div></div>
+        <div className="pa-stat"><div className="pa-stat-ic" style={{ background: 'rgba(16,185,129,0.14)' }}><ShieldCheck size={17} color="#10b981" /></div><div className="pa-stat-n">{formatBytes(totalEnc)}</div><div className="pa-stat-l">Total Size</div></div>
+        <div className="pa-stat"><div className="pa-stat-ic" style={{ background: 'rgba(139,92,246,0.14)' }}><Archive size={17} color="#8b5cf6" /></div><div className="pa-stat-n">AES</div><div className="pa-stat-l">256-GCM</div></div>
+        <div className="pa-stat"><div className="pa-stat-ic" style={{ background: 'rgba(59,130,246,0.14)' }}><ShieldCheck size={17} color="#3b82f6" /></div><div className="pa-stat-n">100%</div><div className="pa-stat-l">Coverage</div></div>
       </div>
 
-      {/* Actions */}
-      <div className="pa-section"><h2>Actions</h2></div>
+      <div className="pa-section"><h2>Quick Actions</h2></div>
       <div className="pa-actions">
-        <div className="pa-action" onClick={() => navigate('/generate')}><div className="pa-action-ic" style={{ background: 'rgba(99,102,241,0.14)' }}><Plus size={20} color="var(--primary)" /></div><div className="pa-action-t">Upload</div></div>
-        <div className="pa-action" onClick={() => navigate('/vault')}><div className="pa-action-ic" style={{ background: 'rgba(16,185,129,0.14)' }}><Eye size={20} color="#10b981" /></div><div className="pa-action-t">Explorer</div></div>
-        <div className="pa-action" onClick={() => navigate('/vault-integrity')}><div className="pa-action-ic" style={{ background: 'rgba(245,158,11,0.16)' }}><ShieldCheck size={20} color="#f59e0b" /></div><div className="pa-action-t">Integrity</div></div>
-        <div className="pa-action" onClick={() => navigate('/vault')}><div className="pa-action-ic" style={{ background: 'rgba(59,130,246,0.14)' }}><Share2 size={20} color="#3b82f6" /></div><div className="pa-action-t">Share</div></div>
+        {actions.map((a) => (
+          <div key={a.t} className="pa-action" onClick={() => navigate(a.to)}>
+            <div className="pa-action-ic" style={{ background: a.bg }}><a.icon size={20} color={a.color} /></div>
+            <div className="pa-action-t">{a.t}</div>
+          </div>
+        ))}
       </div>
 
-      {/* Files */}
-      <div className="pa-section">
-        <h2>Vault Files</h2>
-        <button className="pa-link" onClick={load} style={{ background: 'none', border: 0 }}>
-          <RefreshCw size={14} className={loading ? 'pa-spin' : ''} /> Refresh
-        </button>
+      <div className="pa-section"><h2>Vault Tools</h2></div>
+      <div className="pa-card">
+        {tools.map((t) => (
+          <div className="pa-row" key={t.t} onClick={() => navigate(t.to)} style={{ cursor: 'pointer' }}>
+            <div className="pa-row-ic" style={{ background: 'rgba(99,102,241,0.12)' }}><t.icon size={18} color="var(--primary)" /></div>
+            <div style={{ minWidth: 0, flex: 1 }}><div className="pa-row-t">{t.t}</div><div className="pa-row-s">{t.s}</div></div>
+            <ChevronRight size={16} color="var(--muted)" />
+          </div>
+        ))}
+      </div>
+
+      <div className="pa-section"><h2>Vault Files</h2>
+        <button className="pa-link" onClick={load} style={{ background: 'none', border: 0 }}><RefreshCw size={14} className={loading ? 'pa-spin' : ''} /> Refresh</button>
       </div>
       <div className="pa-card">
         {files.length === 0 && !loading && (

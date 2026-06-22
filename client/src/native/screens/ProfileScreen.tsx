@@ -58,6 +58,8 @@ export function ProfileScreen() {
         <SetRow icon={<FileSearch size={17} color="#10b981" />} bg="rgba(16,185,129,0.14)" label="DNA Records" onClick={() => navigate('/dna-records')} />
         <SetRow icon={<ShieldCheck size={17} color="#f59e0b" />} bg="rgba(245,158,11,0.16)" label="Security Center" onClick={() => navigate('/security-center')} />
         <SetRow icon={<Settings size={17} color="#8b80f8" />} bg="rgba(124,108,240,0.16)" label="Account Details" onClick={() => navigate('/profile')} />
+        <SetRow icon={<Award size={17} color="#10b981" />} bg="rgba(16,185,129,0.14)" label="Verify Certificate" onClick={() => navigate('/verify-certificate')} />
+        <SetRow icon={<FileSearch size={17} color="#ef4444" />} bg="rgba(239,68,68,0.14)" label="Verify Leaked File" onClick={() => navigate('/verify-leaked')} />
       </div>
 
       {/* Logout */}
