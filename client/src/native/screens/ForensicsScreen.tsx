@@ -32,7 +32,7 @@ export function ForensicsScreen() {
 
   return (
     <>
-      <AppHeader icon={<ShieldAlert size={22} color="#fff" />} title="Forensics" tagline="Detect. Analyze. Protect." />
+      <AppHeader icon={<ShieldAlert size={22} color="#fff" />} title="Security" tagline="Forensics · Monitoring · Protection" />
 
       <div className="pa-stats" style={{ marginBottom: 6 }}>
         {stats.map((s) => (

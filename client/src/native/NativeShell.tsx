@@ -40,7 +40,7 @@ function Shell() {
         style={isHome ? {} : { padding: 0, paddingBottom: 88 }}
       >
         {(isFeature || isWebPage) ? (
-          <div style={{ padding: '16px 16px 0' }}><Outlet /></div>
+          <div style={{ padding: pathname === '/generate' ? '0' : '16px 16px 0' }}><Outlet /></div>
         ) : (
           <Outlet />
         )}

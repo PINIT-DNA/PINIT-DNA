@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Archive, ShieldCheck, FileText, Plus, RefreshCw, Eye, Share2, Lock, Activity } from 'lucide-react';
+import { Archive, ShieldCheck, FileText, Plus, RefreshCw, Eye, Lock } from 'lucide-react';
 import { AppHeader } from './parts';
 import { listVaultRecords } from '../../services/dashboard.api';
 import { formatBytes } from '../../hooks/useApi';

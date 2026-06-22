@@ -5,7 +5,7 @@ const TABS = [
   { to: '/',              label: 'Home',       icon: Home },
   { to: '/app/dna',       label: 'DNA',        icon: Dna },
   { to: '/app/vault',     label: 'Vault',      icon: Archive },
-  { to: '/app/forensics', label: 'Forensics',  icon: ShieldAlert },
+  { to: '/app/forensics', label: 'Security',   icon: ShieldAlert },
   { to: '/app/profile',   label: 'Profile',    icon: User },
 ];
 
