@@ -1,12 +1,12 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Home, Dna, Archive, ShieldAlert, Radio } from 'lucide-react';
+import { Home, Dna, Archive, ShieldAlert, User } from 'lucide-react';
 
 const TABS = [
   { to: '/',              label: 'Home',       icon: Home },
   { to: '/app/dna',       label: 'DNA',        icon: Dna },
   { to: '/app/vault',     label: 'Vault',      icon: Archive },
   { to: '/app/forensics', label: 'Forensics',  icon: ShieldAlert },
-  { to: '/app/monitor',   label: 'Monitor',    icon: Radio },
+  { to: '/app/profile',   label: 'Profile',    icon: User },
 ];
 
 /** Bottom navigation for the native app (APK only). */

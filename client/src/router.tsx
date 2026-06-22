@@ -34,7 +34,6 @@ import { HomeScreen }               from './native/screens/HomeScreen';
 import { DnaScreen }                from './native/screens/DnaScreen';
 import { VaultScreen }              from './native/screens/VaultScreen';
 import { ForensicsScreen }          from './native/screens/ForensicsScreen';
-import { MonitorScreen }            from './native/screens/MonitorScreen';
 import { ProfileScreen }            from './native/screens/ProfileScreen';
 
 export const router = createBrowserRouter([
@@ -62,7 +61,6 @@ export const router = createBrowserRouter([
         { path: 'app/dna',       element: <DnaScreen /> },
         { path: 'app/vault',     element: <VaultScreen /> },
         { path: 'app/forensics', element: <ForensicsScreen /> },
-        { path: 'app/monitor',   element: <MonitorScreen /> },
         { path: 'app/profile',   element: <ProfileScreen /> },
       ] : []),
       { path: 'generate',              element: <GeneratePage />            },

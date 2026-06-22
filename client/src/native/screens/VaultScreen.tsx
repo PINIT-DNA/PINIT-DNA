@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Archive, ShieldCheck, FileText, Plus, RefreshCw, Eye, Share2, Lock, Award, Activity, Clock, ChevronRight, Radio } from 'lucide-react';
+import { Archive, ShieldCheck, FileText, Plus, RefreshCw, Eye, Share2, Lock, Activity } from 'lucide-react';
 import { AppHeader } from './parts';
 import { listVaultRecords } from '../../services/dashboard.api';
 import { formatBytes } from '../../hooks/useApi';
@@ -30,17 +30,8 @@ export function VaultScreen() {
   const actions = [
     { t: 'Upload', icon: Plus, color: '#6366f1', bg: 'rgba(99,102,241,0.14)', to: '/generate' },
     { t: 'Explorer', icon: Eye, color: '#10b981', bg: 'rgba(16,185,129,0.14)', to: '/vault' },
-    { t: 'Integrity', icon: ShieldCheck, color: '#f59e0b', bg: 'rgba(245,158,11,0.16)', to: '/vault-integrity' },
+    { t: 'Integrity', icon: Activity, color: '#f59e0b', bg: 'rgba(245,158,11,0.16)', to: '/vault-integrity' },
     { t: 'Share', icon: Share2, color: '#3b82f6', bg: 'rgba(59,130,246,0.14)', to: '/vault' },
-  ];
-
-  const tools = [
-    { t: 'Vault Explorer', s: 'AES-256-GCM encrypted file storage', icon: Archive, to: '/vault' },
-    { t: 'Vault Integrity', s: 'Check vault health & tamper logs', icon: Activity, to: '/vault-integrity' },
-    { t: 'Certificates', s: 'Ownership and verification proofs', icon: Award, to: '/certificates' },
-    { t: 'Verify Certificate', s: 'Check certificate authenticity', icon: ShieldCheck, to: '/verify-certificate' },
-    { t: 'File Timeline', s: 'Complete lifecycle audit trail', icon: Clock, to: '/timeline' },
-    { t: 'Monitoring & Crawler', s: 'Watch for unauthorized copies', icon: Radio, to: '/monitoring' },
   ];
 
   return (
@@ -64,19 +55,11 @@ export function VaultScreen() {
         ))}
       </div>
 
-      <div className="pa-section"><h2>Vault Tools</h2></div>
-      <div className="pa-card">
-        {tools.map((t) => (
-          <div className="pa-row" key={t.t} onClick={() => navigate(t.to)} style={{ cursor: 'pointer' }}>
-            <div className="pa-row-ic" style={{ background: 'rgba(99,102,241,0.12)' }}><t.icon size={18} color="var(--primary)" /></div>
-            <div style={{ minWidth: 0, flex: 1 }}><div className="pa-row-t">{t.t}</div><div className="pa-row-s">{t.s}</div></div>
-            <ChevronRight size={16} color="var(--muted)" />
-          </div>
-        ))}
-      </div>
-
-      <div className="pa-section"><h2>Vault Files</h2>
-        <button className="pa-link" onClick={load} style={{ background: 'none', border: 0 }}><RefreshCw size={14} className={loading ? 'pa-spin' : ''} /> Refresh</button>
+      <div className="pa-section">
+        <h2>Vault Files</h2>
+        <button className="pa-link" onClick={load} style={{ background: 'none', border: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+          <RefreshCw size={14} className={loading ? 'pa-spin' : ''} /> Refresh
+        </button>
       </div>
       <div className="pa-card">
         {files.length === 0 && !loading && (
@@ -99,6 +82,13 @@ export function VaultScreen() {
             <span className="pa-pill green"><ShieldCheck size={11} style={{ verticalAlign: -1 }} /> Protected</span>
           </div>
         ))}
+        {files.length > 0 && (
+          <div style={{ padding: '10px 16px', textAlign: 'center' }}>
+            <button className="pa-link" onClick={() => navigate('/vault')} style={{ background: 'none', border: 0 }}>
+              <Eye size={14} style={{ verticalAlign: -2 }} /> Open Vault Explorer →
+            </button>
+          </div>
+        )}
       </div>
     </>
   );

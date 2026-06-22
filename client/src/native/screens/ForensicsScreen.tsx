@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import {
   ShieldAlert, ShieldCheck, FileText, EyeOff, Copy, Activity, AlertTriangle, ChevronRight,
-  Radio, LayoutDashboard, Search, Eye, Clock,
+  Radio, LayoutDashboard, Search, Eye, Clock, Award,
 } from 'lucide-react';
 import { AppHeader } from './parts';
 
@@ -26,13 +26,14 @@ export function ForensicsScreen() {
     { t: 'Verify Leaked File', s: 'Upload to identify original owner', icon: Search, pill: 'Open', cls: 'violet', to: '/verify-leaked' },
     { t: 'Access Intelligence', s: 'Per-link analytics & revoke', icon: Eye, pill: 'Open', cls: 'blue', to: '/access-intelligence' },
     { t: 'File Timeline', s: 'Complete lifecycle audit trail', icon: Clock, pill: 'Open', cls: 'violet', to: '/timeline' },
+    { t: 'Certificates', s: 'Ownership and verification proofs', icon: Award, pill: 'Open', cls: 'green', to: '/certificates' },
+    { t: 'Verify Certificate', s: 'Check certificate authenticity', icon: ShieldCheck, pill: 'Open', cls: 'violet', to: '/verify-certificate' },
   ];
 
   return (
     <>
       <AppHeader icon={<ShieldAlert size={22} color="#fff" />} title="Forensics" tagline="Detect. Analyze. Protect." />
 
-      {/* Stats */}
       <div className="pa-stats" style={{ marginBottom: 6 }}>
         {stats.map((s) => (
           <div className="pa-stat" key={s.l}>
@@ -42,16 +43,12 @@ export function ForensicsScreen() {
         ))}
       </div>
 
-      {/* Forensic Tools */}
-      <div className="pa-section"><h2>Forensic Tools</h2></div>
+      <div className="pa-section"><h2>All Tools</h2></div>
       <div className="pa-card">
         {tools.map((t) => (
           <div className="pa-row" key={t.t} onClick={() => navigate(t.to)} style={{ cursor: 'pointer' }}>
             <div className="pa-row-ic" style={{ background: 'rgba(124,108,240,0.14)' }}><t.icon size={18} color="var(--primary)" /></div>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div className="pa-row-t">{t.t}</div>
-              <div className="pa-row-s">{t.s}</div>
-            </div>
+            <div style={{ minWidth: 0, flex: 1 }}><div className="pa-row-t">{t.t}</div><div className="pa-row-s">{t.s}</div></div>
             <span className={`pa-pill ${t.cls}`}>{t.pill}</span>
             <ChevronRight size={16} color="var(--muted)" />
           </div>
