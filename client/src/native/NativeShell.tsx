@@ -24,13 +24,11 @@ function Shell() {
   const isTab = TAB_ROUTES.includes(pathname);
   const isHome = pathname === '/';
   const isFeature = !isTab;
-  // Web feature pages (DNA Records, Vault Explorer, etc.) bring their own
-  // layout padding. Only the custom Home screen needs the shell's padding.
   const isWebPage = isTab && !isHome;
   const title = FEATURE_TITLES[pathname] ?? 'Back';
 
   return (
-    <div className="pinit-app" data-theme={(isFeature || isWebPage) ? 'light' : mode}>
+    <div className="pinit-app" data-theme={mode}>
       {isFeature && (
         <div className="pa-feature-hd">
           <button onClick={() => navigate(-1)} aria-label="Back"><ArrowLeft size={20} /></button>
@@ -38,13 +36,9 @@ function Shell() {
         </div>
       )}
       <div
-        className="pa-scroll"
-        style={{
-          ...(isHome ? {} : { padding: 0, paddingBottom: 88 }),
-          ...((isFeature || isWebPage) ? { background: '#f6f8fb' } : {}),
-        }}
+        className={`pa-scroll${(isFeature || isWebPage) ? ' pa-webpage' : ''}`}
+        style={isHome ? {} : { padding: 0, paddingBottom: 88 }}
       >
-        {/* Web pages need the dashboard padding wrapper the DashboardLayout normally provides */}
         {(isFeature || isWebPage) ? (
           <div style={{ padding: '16px 16px 0' }}><Outlet /></div>
         ) : (

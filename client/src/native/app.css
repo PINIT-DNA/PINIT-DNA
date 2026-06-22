@@ -273,3 +273,63 @@
 .pinit-app .flex { flex-wrap: wrap; }
 .pinit-app .gap-2 { gap: 6px; }
 .pinit-app .btn-sm { font-size: 12px; padding: 6px 10px; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Dark-mode overrides for web feature pages rendered inside the native shell.
+   The web pages use Tailwind utility classes (.text-white, .bg-bg-card, etc.)
+   which were remapped to light colours by the app's global index.css. These
+   overrides re-invert them when the native shell is in dark mode.
+   ════════════════════════════════════════════════════════════════════════════ */
+.pinit-app[data-theme='dark'] .pa-webpage {
+  background: var(--bg) !important;
+  color: var(--text) !important;
+}
+
+/* Headings + text */
+.pinit-app[data-theme='dark'] .pa-webpage h1,
+.pinit-app[data-theme='dark'] .pa-webpage h2,
+.pinit-app[data-theme='dark'] .pa-webpage h3,
+.pinit-app[data-theme='dark'] .pa-webpage h4 { color: #f4f5ff !important; }
+.pinit-app[data-theme='dark'] .pa-webpage .text-white { color: #f4f5ff !important; }
+.pinit-app[data-theme='dark'] .pa-webpage .text-gray-400 { color: #a3a7c4 !important; }
+.pinit-app[data-theme='dark'] .pa-webpage .text-gray-500 { color: #8b8fad !important; }
+.pinit-app[data-theme='dark'] .pa-webpage .text-gray-600 { color: #6b6f8c !important; }
+.pinit-app[data-theme='dark'] .pa-webpage .text-gray-300 { color: #c4c8e0 !important; }
+.pinit-app[data-theme='dark'] .pa-webpage .text-gray-200 { color: #d8daf0 !important; }
+.pinit-app[data-theme='dark'] .pa-webpage .text-gray-700 { color: #a3a7c4 !important; }
+
+/* Backgrounds — cards, elevated, surface */
+.pinit-app[data-theme='dark'] .pa-webpage .bg-bg-card,
+.pinit-app[data-theme='dark'] .pa-webpage .bg-white,
+.pinit-app[data-theme='dark'] .pa-webpage .card,
+.pinit-app[data-theme='dark'] .pa-webpage .card-sm,
+.pinit-app[data-theme='dark'] .pa-webpage .card-hover { background: #12121d !important; border-color: #20202e !important; }
+.pinit-app[data-theme='dark'] .pa-webpage .bg-bg-base { background: #07070f !important; }
+.pinit-app[data-theme='dark'] .pa-webpage .bg-bg-surface { background: #0d0d18 !important; }
+.pinit-app[data-theme='dark'] .pa-webpage .bg-bg-elevated { background: #161622 !important; }
+.pinit-app[data-theme='dark'] .pa-webpage .bg-bg-muted { background: #191926 !important; }
+
+/* Borders */
+.pinit-app[data-theme='dark'] .pa-webpage .border-bg-border { border-color: #20202e !important; }
+
+/* Table */
+.pinit-app[data-theme='dark'] .pa-webpage .data-table th { background: #0d0d18 !important; color: #8b8fad !important; border-color: #20202e !important; }
+.pinit-app[data-theme='dark'] .pa-webpage .data-table td { color: #c4c8e0 !important; border-color: #1a1a28 !important; }
+.pinit-app[data-theme='dark'] .pa-webpage .data-table tr:hover td { background: rgba(99,102,241,0.06) !important; }
+
+/* Inputs */
+.pinit-app[data-theme='dark'] .pa-webpage input,
+.pinit-app[data-theme='dark'] .pa-webpage .input { background: #161622 !important; border-color: #20202e !important; color: #f4f5ff !important; }
+.pinit-app[data-theme='dark'] .pa-webpage input::placeholder { color: #6b6f8c !important; }
+
+/* Buttons */
+.pinit-app[data-theme='dark'] .pa-webpage .btn-secondary { background: #161622 !important; border-color: #20202e !important; color: #a3a7c4 !important; }
+.pinit-app[data-theme='dark'] .pa-webpage .btn-ghost { color: #a3a7c4 !important; }
+
+/* Scrollbar */
+.pinit-app[data-theme='dark'] .pa-webpage ::-webkit-scrollbar-track { background: #0d0d18 !important; }
+.pinit-app[data-theme='dark'] .pa-webpage ::-webkit-scrollbar-thumb { background: #2a2a3c !important; }
+
+/* Stat cards in Monitoring/Vault pages */
+.pinit-app[data-theme='dark'] .pa-webpage .rounded-xl,
+.pinit-app[data-theme='dark'] .pa-webpage .rounded-2xl { border-color: #20202e !important; }
