@@ -4,7 +4,7 @@ import { ThemeProvider, useTheme } from './theme';
 import { TabBar } from './TabBar';
 import './app.css';
 
-const TAB_ROUTES = ['/', '/app/dna', '/app/vault', '/app/forensics', '/app/profile'];
+const TAB_ROUTES = ['/', '/app/dna', '/app/vault', '/app/forensics', '/app/profile', '/monitoring'];
 
 // Friendly titles for feature pages opened from the tabs.
 const FEATURE_TITLES: Record<string, string> = {
