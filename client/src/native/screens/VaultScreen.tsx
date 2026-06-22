@@ -37,8 +37,8 @@ export function VaultScreen() {
     <>
       <AppHeader icon={<Archive size={22} color="#fff" />} title="Vault" tagline="Secure. Organize. Protect." />
 
-      {/* Overview */}
-      <div className="pa-hero" style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+      {/* Overview → opens Vault Explorer */}
+      <div className="pa-hero" style={{ display: 'flex', alignItems: 'center', gap: 18 }} onClick={() => navigate('/vault')}>
         <Archive className="pa-hero-helix" size={170} color="#a78bfa" strokeWidth={1} />
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 600, opacity: 0.9 }}>Used Storage</div>
@@ -76,7 +76,7 @@ export function VaultScreen() {
       <div className="pa-section"><h2>Recent Files</h2><span className="pa-link" onClick={() => navigate('/vault')}>View All</span></div>
       <div className="pa-card">
         {(files.length ? files : SAMPLE).map((f, i) => (
-          <div className="pa-row" key={i}>
+          <div className="pa-row" key={i} onClick={() => navigate('/vault')}>
             <div className="pa-row-ic" style={{ background: 'rgba(99,102,241,0.12)' }}><FileText size={18} color="#8b80f8" /></div>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div className="pa-row-t" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 170 }}>{f.name}</div>

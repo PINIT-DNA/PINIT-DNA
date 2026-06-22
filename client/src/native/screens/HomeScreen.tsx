@@ -125,8 +125,8 @@ export function HomeScreen() {
           <span style={{ fontSize: 12, color: 'var(--muted)' }}>{s ? formatBytes(s.bytes) : '0 B'} / 256 GB</span>
         </div>
         <div className="pa-bar"><i style={{ width: '12%' }} /></div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 12, fontSize: 12, color: 'var(--muted)' }}>
-          <Link2 size={14} color="#10b981" /> Monitoring & Crawler active
+        <div onClick={() => navigate('/monitoring')} style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 12, fontSize: 12, color: 'var(--muted)' }}>
+          <Link2 size={14} color="#10b981" /> Monitoring & Crawler active <span className="pa-link" style={{ marginLeft: 'auto' }}>Open</span>
         </div>
       </div>
     </>

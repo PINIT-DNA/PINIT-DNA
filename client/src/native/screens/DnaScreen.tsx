@@ -36,8 +36,8 @@ export function DnaScreen() {
     <>
       <AppHeader icon={<Dna size={22} color="#fff" />} title="DNA Intelligence" tagline="Digital Identity. Verified." />
 
-      {/* Hero — Match Score */}
-      <div className="pa-hero">
+      {/* Hero — Match Score → opens DNA Records */}
+      <div className="pa-hero" onClick={() => navigate('/dna-records')}>
         <Dna className="pa-hero-helix" size={190} color="#a78bfa" strokeWidth={1} />
         <div style={{ display: 'flex', gap: 8, position: 'absolute', top: 16, right: 16 }}>
           <span className="pa-hero-chip" style={{ position: 'static' }}>Confidence 97%</span>
@@ -79,7 +79,7 @@ export function DnaScreen() {
       <div className="pa-section"><h2>Recent DNA Profiles</h2><span className="pa-link" onClick={() => navigate('/dna-records')}>View All</span></div>
       <div className="pa-card">
         {(profiles.length ? profiles : SAMPLE).map((p, i) => (
-          <div className="pa-row" key={i}>
+          <div className="pa-row" key={i} onClick={() => navigate('/dna-records')}>
             <div className="pa-row-ic" style={{ background: 'rgba(99,102,241,0.12)' }}><FileText size={18} color="#8b80f8" /></div>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div className="pa-row-t" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{p.name}</div>

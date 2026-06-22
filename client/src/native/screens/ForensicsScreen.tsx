@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import {
   ShieldAlert, ShieldCheck, FileText, EyeOff, Copy, Activity, AlertTriangle, ChevronRight,
+  Radio, LayoutDashboard,
 } from 'lucide-react';
 import { AppHeader } from './parts';
 
@@ -15,6 +16,8 @@ export function ForensicsScreen() {
   ];
 
   const tools = [
+    { t: 'Forensic Intelligence Dashboard', s: 'Full forensic overview & analytics.', icon: LayoutDashboard, pill: 'Open', cls: 'violet', to: '/forensic-dashboard' },
+    { t: 'Monitoring & Crawler', s: 'Watch the internet for unauthorized copies.', icon: Radio, pill: 'Active', cls: 'green', to: '/monitoring' },
     { t: 'Security Center', s: 'Monitor threats & anomalies in real-time.', icon: ShieldCheck, pill: '3 Alerts', cls: 'red', to: '/security-center' },
     { t: 'Forensic Reports', s: 'View and export analysis reports.', icon: FileText, pill: '5 New', cls: 'blue', to: '/reports' },
     { t: 'Unmask Requests', s: 'Review requests to unmask identities.', icon: EyeOff, pill: '2 Pending', cls: 'amber', to: '/unmask-requests' },
