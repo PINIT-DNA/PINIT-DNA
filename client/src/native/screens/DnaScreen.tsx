@@ -1,130 +1,105 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Dna, GitCompare, FileSearch, Microscope, Activity, ShieldCheck, Fingerprint, FileText } from 'lucide-react';
+import { Dna, GitCompare, FileSearch, Microscope, ShieldCheck, FileText, Plus, RefreshCw } from 'lucide-react';
 import { AppHeader } from './parts';
-import { listDnaRecords } from '../../services/dashboard.api';
+import { listDnaRecords, deriveFileType } from '../../services/dashboard.api';
 
-interface Prof { name: string; score: number; }
+interface Rec { name: string; size: number; type: string; status: string; id: string; }
 
 export function DnaScreen() {
   const navigate = useNavigate();
-  const [profiles, setProfiles] = useState<Prof[]>([]);
+  const [records, setRecords] = useState<Rec[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  function load() {
+    setLoading(true);
     listDnaRecords()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .then((rs: any[]) => setProfiles(rs.slice(0, 4).map((r) => ({
-        name: r.filename ?? r.imageFilename ?? 'file', score: 90 + Math.round(Math.random() * 9),
+      .then((rs: any[]) => setRecords(rs.map((r) => ({
+        name: r.filename ?? r.imageFilename ?? 'file',
+        size: r.imageSizeBytes ?? 0,
+        type: deriveFileType(r),
+        status: r.status ?? 'PARTIAL',
+        id: r.id,
       }))))
-      .catch(() => setProfiles([]));
-  }, []);
+      .catch(() => setRecords([]))
+      .finally(() => setLoading(false));
+  }
+  useEffect(load, []);
 
   const actions = [
-    { t: 'Generate DNA', sub: 'Create new profile', icon: Dna,        color: '#8b80f8', bg: 'rgba(139,128,248,0.16)', to: '/generate' },
-    { t: 'Compare DNA',  sub: 'Compare identities', icon: GitCompare, color: '#60a5fa', bg: 'rgba(96,165,250,0.16)',  to: '/compare' },
-    { t: 'DNA Records',  sub: 'View all profiles',  icon: FileSearch, color: '#34d399', bg: 'rgba(52,211,153,0.16)',  to: '/dna-records' },
-    { t: 'Difference',   sub: 'Detect changes',     icon: Microscope, color: '#a78bfa', bg: 'rgba(167,139,250,0.16)', to: '/forensic-diff' },
-  ];
-
-  const insights = [
-    { icon: Activity,    color: '#8b80f8', t: 'Identity Pattern Stable', s: 'No significant changes in the last 30 days.', pill: 'Stable', cls: 'green' },
-    { icon: ShieldCheck, color: '#60a5fa', t: 'High Integrity', s: 'Excellent integrity across all checks.', pill: '98%', cls: 'green' },
-    { icon: Fingerprint, color: '#a78bfa', t: 'Unique Signature', s: 'No matches found in our database.', pill: 'Unique', cls: 'violet' },
+    { t: 'Generate DNA', icon: Plus, color: '#6366f1', bg: 'rgba(99,102,241,0.14)', to: '/generate' },
+    { t: 'Compare', icon: GitCompare, color: '#3b82f6', bg: 'rgba(59,130,246,0.14)', to: '/compare' },
+    { t: 'Difference', icon: Microscope, color: '#a78bfa', bg: 'rgba(167,139,250,0.16)', to: '/forensic-diff' },
+    { t: 'All Records', icon: FileSearch, color: '#10b981', bg: 'rgba(16,185,129,0.14)', to: '/dna-records' },
   ];
 
   return (
     <>
       <AppHeader icon={<Dna size={22} color="#fff" />} title="DNA Intelligence" tagline="Digital Identity. Verified." />
 
-      {/* Hero — Match Score → opens DNA Records */}
-      <div className="pa-hero" onClick={() => navigate('/dna-records')}>
-        <Dna className="pa-hero-helix" size={190} color="#a78bfa" strokeWidth={1} />
-        <div style={{ display: 'flex', gap: 8, position: 'absolute', top: 16, right: 16 }}>
-          <span className="pa-hero-chip" style={{ position: 'static' }}>Confidence 97%</span>
+      {/* Stats */}
+      <div className="pa-stats" style={{ marginBottom: 6 }}>
+        <div className="pa-stat">
+          <div className="pa-stat-ic" style={{ background: 'rgba(99,102,241,0.14)' }}><Dna size={17} color="var(--primary)" /></div>
+          <div className="pa-stat-n">{records.length}</div><div className="pa-stat-l">Total Records</div>
         </div>
-        <div style={{ fontSize: 13, fontWeight: 600, opacity: 0.9 }}>DNA Match Score</div>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, marginTop: 6 }}>
-          <span className="pa-hero-big">98.7</span><span className="pa-hero-pct">%</span>
+        <div className="pa-stat">
+          <div className="pa-stat-ic" style={{ background: 'rgba(16,185,129,0.14)' }}><ShieldCheck size={17} color="#10b981" /></div>
+          <div className="pa-stat-n">{records.filter(r => r.status === 'COMPLETE').length}</div><div className="pa-stat-l">Complete</div>
         </div>
-        <div className="pa-hero-badge" style={{ color: '#c4b5fd' }}><ShieldCheck size={15} /> Authentic — pattern matches all data points</div>
+        <div className="pa-stat">
+          <div className="pa-stat-ic" style={{ background: 'rgba(245,158,11,0.16)' }}><FileText size={17} color="#f59e0b" /></div>
+          <div className="pa-stat-n">{records.filter(r => r.status === 'PARTIAL').length}</div><div className="pa-stat-l">Partial</div>
+        </div>
+        <div className="pa-stat">
+          <div className="pa-stat-ic" style={{ background: 'rgba(239,68,68,0.14)' }}><FileText size={17} color="#ef4444" /></div>
+          <div className="pa-stat-n">{records.filter(r => r.status === 'FAILED').length}</div><div className="pa-stat-l">Failed</div>
+        </div>
       </div>
 
       {/* Quick Actions */}
-      <div className="pa-section"><h2>Quick Actions</h2><span className="pa-link" onClick={() => navigate('/dna-records')}>View All</span></div>
+      <div className="pa-section"><h2>Quick Actions</h2></div>
       <div className="pa-actions">
         {actions.map((a) => (
           <div key={a.t} className="pa-action" onClick={() => navigate(a.to)}>
             <div className="pa-action-ic" style={{ background: a.bg }}><a.icon size={20} color={a.color} /></div>
-            <div className="pa-action-t">{a.t}</div><div className="pa-action-s">{a.sub}</div>
+            <div className="pa-action-t">{a.t}</div>
           </div>
         ))}
       </div>
 
-      {/* DNA Insights */}
-      <div className="pa-section"><h2>DNA Insights</h2></div>
+      {/* Records list */}
+      <div className="pa-section">
+        <h2>DNA Records</h2>
+        <button className="pa-link" onClick={load} style={{ background: 'none', border: 0 }}>
+          <RefreshCw size={14} className={loading ? 'pa-spin' : ''} /> Refresh
+        </button>
+      </div>
       <div className="pa-card">
-        {insights.map((n) => (
-          <div className="pa-row" key={n.t}>
-            <div className="pa-row-ic" style={{ background: 'rgba(139,128,248,0.14)' }}><n.icon size={18} color={n.color} /></div>
+        {records.length === 0 && !loading && (
+          <div style={{ padding: 32, textAlign: 'center' }}>
+            <Dna size={36} color="var(--muted)" style={{ margin: '0 auto 10px', opacity: 0.5 }} />
+            <div style={{ fontSize: 14, fontWeight: 600 }}>No DNA records</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Generate a fingerprint to see records here</div>
+            <button onClick={() => navigate('/generate')} style={{ marginTop: 14, padding: '10px 18px', borderRadius: 12, border: 0, fontWeight: 700, fontSize: 13, color: '#fff', background: 'linear-gradient(135deg, var(--primary), var(--primary-2))' }}>
+              <Plus size={14} style={{ verticalAlign: -2 }} /> Generate DNA
+            </button>
+          </div>
+        )}
+        {records.map((r) => (
+          <div className="pa-row" key={r.id} onClick={() => navigate('/dna-records')}>
+            <div className="pa-row-ic" style={{ background: 'rgba(99,102,241,0.12)' }}><FileText size={18} color="var(--primary)" /></div>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div className="pa-row-t">{n.t}</div>
-              <div className="pa-row-s">{n.s}</div>
+              <div className="pa-row-t" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>{r.name}</div>
+              <div className="pa-row-s">{r.type} · {(r.size / 1024).toFixed(1)} KB</div>
             </div>
-            <span className={`pa-pill ${n.cls}`}>{n.pill}</span>
+            <span className={`pa-pill ${r.status === 'COMPLETE' ? 'green' : r.status === 'FAILED' ? 'red' : 'amber'}`}>
+              {r.status === 'COMPLETE' ? 'Complete' : r.status === 'FAILED' ? 'Failed' : 'Partial'}
+            </span>
           </div>
         ))}
-      </div>
-
-      {/* Recent DNA Profiles */}
-      <div className="pa-section"><h2>Recent DNA Profiles</h2><span className="pa-link" onClick={() => navigate('/dna-records')}>View All</span></div>
-      <div className="pa-card">
-        {(profiles.length ? profiles : SAMPLE).map((p, i) => (
-          <div className="pa-row" key={i} onClick={() => navigate('/dna-records')}>
-            <div className="pa-row-ic" style={{ background: 'rgba(99,102,241,0.12)' }}><FileText size={18} color="#8b80f8" /></div>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div className="pa-row-t" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{p.name}</div>
-              <div className="pa-row-s">{p.score}% match score</div>
-            </div>
-            <span className="pa-pill green">Authentic</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Relationship graph */}
-      <div className="pa-section"><h2>DNA Relationship Graph</h2></div>
-      <div className="pa-graph">
-        <div style={{ position: 'relative', width: '100%', height: 130 }}>
-          <Center />
-          <Node style={{ left: 6, top: 6 }} label="report.docx" />
-          <Node style={{ right: 6, top: 6 }} label="certificate" />
-          <Node style={{ left: 6, bottom: 6 }} label="identity" />
-          <Node style={{ right: 6, bottom: 6 }} label="agreement" />
-        </div>
       </div>
     </>
   );
 }
-
-function Center() {
-  return (
-    <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)' }} className="pa-node">
-      <div className="pa-node-dot" style={{ width: 52, height: 52, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', border: 0 }}>
-        <FileText size={22} color="#fff" />
-      </div>
-      <span style={{ color: 'var(--text)', fontWeight: 600 }}>contract · 98.7%</span>
-    </div>
-  );
-}
-function Node({ label, style }: { label: string; style: React.CSSProperties }) {
-  return (
-    <div className="pa-node" style={{ position: 'absolute', ...style }}>
-      <div className="pa-node-dot"><FileText size={16} color="var(--primary)" /></div>
-      <span>{label}</span>
-    </div>
-  );
-}
-
-const SAMPLE: Prof[] = [
-  { name: 'contract_v2.pdf', score: 98 }, { name: 'report_final.docx', score: 96 },
-  { name: 'financial_statement.xlsx', score: 94 }, { name: 'presentation.pptx', score: 92 },
-];

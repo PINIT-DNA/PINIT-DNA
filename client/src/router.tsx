@@ -31,6 +31,10 @@ import { RequireAuth }              from './components/auth/RequireAuth';
 import { IS_NATIVE_APP }            from './native/platform';
 import { NativeShell }              from './native/NativeShell';
 import { HomeScreen }               from './native/screens/HomeScreen';
+import { DnaScreen }                from './native/screens/DnaScreen';
+import { VaultScreen }              from './native/screens/VaultScreen';
+import { ForensicsScreen }          from './native/screens/ForensicsScreen';
+import { MonitorScreen }            from './native/screens/MonitorScreen';
 import { ProfileScreen }            from './native/screens/ProfileScreen';
 
 export const router = createBrowserRouter([
@@ -53,11 +57,12 @@ export const router = createBrowserRouter([
     element: <RequireAuth>{IS_NATIVE_APP ? <NativeShell /> : <DashboardLayout />}</RequireAuth>,
     children: [
       { index: true,                   element: IS_NATIVE_APP ? <HomeScreen /> : <DashboardPage /> },
-      // Native tabs → render the REAL web feature pages directly (same features as web)
+      // Native tabs → custom designed screens, fully wired to real features
       ...(IS_NATIVE_APP ? [
-        { path: 'app/dna',       element: <DnaRecordsPage /> },
-        { path: 'app/vault',     element: <VaultPage /> },
-        { path: 'app/forensics', element: <ForensicDashboardPage /> },
+        { path: 'app/dna',       element: <DnaScreen /> },
+        { path: 'app/vault',     element: <VaultScreen /> },
+        { path: 'app/forensics', element: <ForensicsScreen /> },
+        { path: 'app/monitor',   element: <MonitorScreen /> },
         { path: 'app/profile',   element: <ProfileScreen /> },
       ] : []),
       { path: 'generate',              element: <GeneratePage />            },

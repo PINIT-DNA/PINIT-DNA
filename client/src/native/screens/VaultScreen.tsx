@@ -1,115 +1,94 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Archive, Search, Image, Video, Music, FileText, Code, Brain, Box, Database,
-  FileArchive, HelpCircle, ShieldCheck, Radio,
-} from 'lucide-react';
+import { Archive, ShieldCheck, FileText, Plus, RefreshCw, Eye, Share2, Lock } from 'lucide-react';
 import { AppHeader } from './parts';
 import { listVaultRecords } from '../../services/dashboard.api';
 import { formatBytes } from '../../hooks/useApi';
 
+interface VFile { id: string; name: string; mime: string; size: number; encSize: number; }
+
 export function VaultScreen() {
   const navigate = useNavigate();
-  const [files, setFiles] = useState<Array<{ name: string; size: number }>>([]);
-  const [bytes, setBytes] = useState(0);
-  const [count, setCount] = useState(0);
+  const [files, setFiles] = useState<VFile[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  function load() {
+    setLoading(true);
     listVaultRecords()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .then((vs: any[]) => {
-        setCount(vs.length);
-        setBytes(vs.reduce((s, v) => s + (v.encryptedSizeBytes || 0), 0));
-        setFiles(vs.slice(0, 5).map((v) => ({ name: v.originalFileName ?? 'file', size: v.encryptedSizeBytes || 0 })));
-      })
-      .catch(() => {});
-  }, []);
+      .then((vs: any[]) => setFiles(vs.map((v) => ({
+        id: v.id, name: v.originalFileName ?? 'file', mime: v.originalMimeType ?? '',
+        size: v.originalSizeBytes || 0, encSize: v.encryptedSizeBytes || 0,
+      }))))
+      .catch(() => setFiles([]))
+      .finally(() => setLoading(false));
+  }
+  useEffect(load, []);
 
-  const assets = [
-    { l: 'Visual Media', n: 520, icon: Image, c: '#8b80f8' }, { l: 'Video', n: 213, icon: Video, c: '#ef4444' },
-    { l: 'Audio', n: 248, icon: Music, c: '#10b981' }, { l: 'Documents', n: 198, icon: FileText, c: '#60a5fa' },
-    { l: 'Source Code', n: 156, icon: Code, c: '#f59e0b' }, { l: 'AI-Generated', n: 86, icon: Brain, c: '#a78bfa' },
-    { l: '3D/Spatial', n: 34, icon: Box, c: '#06b6d4' }, { l: 'Datasets', n: 71, icon: Database, c: '#f97316' },
-    { l: 'Composite', n: 64, icon: FileArchive, c: '#10b981' }, { l: 'Future', n: 12, icon: HelpCircle, c: '#9499b3' },
-  ];
+  const totalEnc = files.reduce((s, f) => s + f.encSize, 0);
 
   return (
     <>
       <AppHeader icon={<Archive size={22} color="#fff" />} title="Vault" tagline="Secure. Organize. Protect." />
 
-      {/* Overview → opens Vault Explorer */}
-      <div className="pa-hero" style={{ display: 'flex', alignItems: 'center', gap: 18 }} onClick={() => navigate('/vault')}>
-        <Archive className="pa-hero-helix" size={170} color="#a78bfa" strokeWidth={1} />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, opacity: 0.9 }}>Used Storage</div>
-          <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.1 }}>{bytes ? formatBytes(bytes) : '0 B'}</div>
-          <div style={{ display: 'flex', gap: 16, marginTop: 12 }}>
-            <Mini n={count || 0} l="Files" />
-            <Mini n="98%" l="Protected" />
-            <Mini n="12" l="Types" />
-          </div>
+      {/* Stats */}
+      <div className="pa-stats" style={{ marginBottom: 6 }}>
+        <div className="pa-stat">
+          <div className="pa-stat-ic" style={{ background: 'rgba(99,102,241,0.14)' }}><Lock size={17} color="var(--primary)" /></div>
+          <div className="pa-stat-n">{files.length}</div><div className="pa-stat-l">Encrypted</div>
         </div>
-        <div className="pa-ring" style={{ ['--p' as string]: '64%' }}><span>64%</span></div>
+        <div className="pa-stat">
+          <div className="pa-stat-ic" style={{ background: 'rgba(16,185,129,0.14)' }}><ShieldCheck size={17} color="#10b981" /></div>
+          <div className="pa-stat-n">{formatBytes(totalEnc)}</div><div className="pa-stat-l">Total Size</div>
+        </div>
+        <div className="pa-stat">
+          <div className="pa-stat-ic" style={{ background: 'rgba(139,92,246,0.14)' }}><Archive size={17} color="#8b5cf6" /></div>
+          <div className="pa-stat-n">AES</div><div className="pa-stat-l">256-GCM</div>
+        </div>
+        <div className="pa-stat">
+          <div className="pa-stat-ic" style={{ background: 'rgba(59,130,246,0.14)' }}><ShieldCheck size={17} color="#3b82f6" /></div>
+          <div className="pa-stat-n">100%</div><div className="pa-stat-l">Coverage</div>
+        </div>
       </div>
 
-      {/* Search */}
-      <div
-        onClick={() => navigate('/vault')}
-        style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16, padding: '13px 14px', borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--muted)', fontSize: 13 }}
-      >
-        <Search size={16} /> Search files, assets, or metadata…
+      {/* Actions */}
+      <div className="pa-section"><h2>Actions</h2></div>
+      <div className="pa-actions">
+        <div className="pa-action" onClick={() => navigate('/generate')}><div className="pa-action-ic" style={{ background: 'rgba(99,102,241,0.14)' }}><Plus size={20} color="var(--primary)" /></div><div className="pa-action-t">Upload</div></div>
+        <div className="pa-action" onClick={() => navigate('/vault')}><div className="pa-action-ic" style={{ background: 'rgba(16,185,129,0.14)' }}><Eye size={20} color="#10b981" /></div><div className="pa-action-t">Explorer</div></div>
+        <div className="pa-action" onClick={() => navigate('/vault-integrity')}><div className="pa-action-ic" style={{ background: 'rgba(245,158,11,0.16)' }}><ShieldCheck size={20} color="#f59e0b" /></div><div className="pa-action-t">Integrity</div></div>
+        <div className="pa-action" onClick={() => navigate('/vault')}><div className="pa-action-ic" style={{ background: 'rgba(59,130,246,0.14)' }}><Share2 size={20} color="#3b82f6" /></div><div className="pa-action-t">Share</div></div>
       </div>
 
-      {/* Asset Types */}
-      <div className="pa-section"><h2>Asset Types</h2><span className="pa-link" onClick={() => navigate('/vault')}>View All</span></div>
-      <div className="pa-asset-grid">
-        {assets.map((a) => (
-          <div className="pa-asset" key={a.l} onClick={() => navigate('/vault')}>
-            <div className="pa-asset-ic" style={{ background: a.c + '22' }}><a.icon size={17} color={a.c} /></div>
-            <div className="pa-asset-l">{a.l}</div>
-            <div className="pa-asset-n">{a.n}</div>
-          </div>
-        ))}
+      {/* Files */}
+      <div className="pa-section">
+        <h2>Vault Files</h2>
+        <button className="pa-link" onClick={load} style={{ background: 'none', border: 0 }}>
+          <RefreshCw size={14} className={loading ? 'pa-spin' : ''} /> Refresh
+        </button>
       </div>
-
-      {/* Recent Files */}
-      <div className="pa-section"><h2>Recent Files</h2><span className="pa-link" onClick={() => navigate('/vault')}>View All</span></div>
       <div className="pa-card">
-        {(files.length ? files : SAMPLE).map((f, i) => (
-          <div className="pa-row" key={i} onClick={() => navigate('/vault')}>
-            <div className="pa-row-ic" style={{ background: 'rgba(99,102,241,0.12)' }}><FileText size={18} color="#8b80f8" /></div>
+        {files.length === 0 && !loading && (
+          <div style={{ padding: 32, textAlign: 'center' }}>
+            <Archive size={36} color="var(--muted)" style={{ margin: '0 auto 10px', opacity: 0.5 }} />
+            <div style={{ fontSize: 14, fontWeight: 600 }}>No vault records</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Encrypt and store files via Generate DNA</div>
+            <button onClick={() => navigate('/generate')} style={{ marginTop: 14, padding: '10px 18px', borderRadius: 12, border: 0, fontWeight: 700, fontSize: 13, color: '#fff', background: 'linear-gradient(135deg, var(--primary), var(--primary-2))' }}>
+              <Plus size={14} style={{ verticalAlign: -2 }} /> Upload File
+            </button>
+          </div>
+        )}
+        {files.map((f) => (
+          <div className="pa-row" key={f.id} onClick={() => navigate('/vault')}>
+            <div className="pa-row-ic" style={{ background: 'rgba(99,102,241,0.12)' }}><FileText size={18} color="var(--primary)" /></div>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div className="pa-row-t" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 170 }}>{f.name}</div>
-              <div className="pa-row-s">{formatBytes(f.size)}</div>
+              <div className="pa-row-t" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 155 }}>{f.name}</div>
+              <div className="pa-row-s">{f.mime.split('/')[1] || 'file'} · {formatBytes(f.size)}</div>
             </div>
             <span className="pa-pill green"><ShieldCheck size={11} style={{ verticalAlign: -1 }} /> Protected</span>
           </div>
         ))}
       </div>
-
-      {/* Monitoring */}
-      <div className="pa-card" style={{ marginTop: 16, padding: 16, display: 'flex', alignItems: 'center', gap: 12 }} onClick={() => navigate('/monitoring')}>
-        <div className="pa-row-ic" style={{ background: 'rgba(124,108,240,0.16)' }}><Radio size={18} color="#8b80f8" /></div>
-        <div style={{ flex: 1 }}>
-          <div className="pa-row-t">Monitoring & Crawler</div>
-          <div className="pa-row-s">Watching for unauthorized copies</div>
-        </div>
-        <span className="pa-pill green">Active</span>
-      </div>
     </>
   );
 }
-
-function Mini({ n, l }: { n: React.ReactNode; l: string }) {
-  return (
-    <div>
-      <div style={{ fontSize: 16, fontWeight: 800 }}>{n}</div>
-      <div style={{ fontSize: 10.5, opacity: 0.85 }}>{l}</div>
-    </div>
-  );
-}
-
-const SAMPLE = [
-  { name: 'Research_Paper.pdf', size: 2_400_000 }, { name: 'project_diagram.png', size: 1_800_000 },
-  { name: 'product_demo.mp4', size: 24_600_000 }, { name: 'config_system.json', size: 8_700 },
-];

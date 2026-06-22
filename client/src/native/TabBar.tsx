@@ -6,7 +6,7 @@ const TABS = [
   { to: '/app/dna',       label: 'DNA',        icon: Dna },
   { to: '/app/vault',     label: 'Vault',      icon: Archive },
   { to: '/app/forensics', label: 'Forensics',  icon: ShieldAlert },
-  { to: '/monitoring',    label: 'Monitor',    icon: Radio },
+  { to: '/app/monitor',   label: 'Monitor',    icon: Radio },
 ];
 
 /** Bottom navigation for the native app (APK only). */
