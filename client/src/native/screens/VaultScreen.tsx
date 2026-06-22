@@ -27,13 +27,6 @@ export function VaultScreen() {
 
   const totalEnc = files.reduce((s, f) => s + f.encSize, 0);
 
-  const actions = [
-    { t: 'Upload', icon: Plus, color: '#6366f1', bg: 'rgba(99,102,241,0.14)', to: '/generate' },
-    { t: 'Explorer', icon: Eye, color: '#10b981', bg: 'rgba(16,185,129,0.14)', to: '/vault' },
-    { t: 'Integrity', icon: Activity, color: '#f59e0b', bg: 'rgba(245,158,11,0.16)', to: '/vault-integrity' },
-    { t: 'Share', icon: Share2, color: '#3b82f6', bg: 'rgba(59,130,246,0.14)', to: '/vault' },
-  ];
-
   return (
     <>
       <AppHeader icon={<Archive size={22} color="#fff" />} title="Vault" tagline="Secure. Organize. Protect." />
@@ -43,16 +36,6 @@ export function VaultScreen() {
         <div className="pa-stat"><div className="pa-stat-ic" style={{ background: 'rgba(16,185,129,0.14)' }}><ShieldCheck size={17} color="#10b981" /></div><div className="pa-stat-n">{formatBytes(totalEnc)}</div><div className="pa-stat-l">Total Size</div></div>
         <div className="pa-stat"><div className="pa-stat-ic" style={{ background: 'rgba(139,92,246,0.14)' }}><Archive size={17} color="#8b5cf6" /></div><div className="pa-stat-n">AES</div><div className="pa-stat-l">256-GCM</div></div>
         <div className="pa-stat"><div className="pa-stat-ic" style={{ background: 'rgba(59,130,246,0.14)' }}><ShieldCheck size={17} color="#3b82f6" /></div><div className="pa-stat-n">100%</div><div className="pa-stat-l">Coverage</div></div>
-      </div>
-
-      <div className="pa-section"><h2>Quick Actions</h2></div>
-      <div className="pa-actions">
-        {actions.map((a) => (
-          <div key={a.t} className="pa-action" onClick={() => navigate(a.to)}>
-            <div className="pa-action-ic" style={{ background: a.bg }}><a.icon size={20} color={a.color} /></div>
-            <div className="pa-action-t">{a.t}</div>
-          </div>
-        ))}
       </div>
 
       <div className="pa-section">
