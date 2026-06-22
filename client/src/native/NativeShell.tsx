@@ -22,20 +22,34 @@ function Shell() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const isTab = TAB_ROUTES.includes(pathname);
+  const isHome = pathname === '/';
+  const isFeature = !isTab;
+  // Web feature pages (DNA Records, Vault Explorer, etc.) bring their own
+  // layout padding. Only the custom Home screen needs the shell's padding.
+  const isWebPage = isTab && !isHome;
   const title = FEATURE_TITLES[pathname] ?? 'Back';
 
   return (
-    // Feature (web) pages are light-designed → always render them on a light
-    // surface so they stay readable even when the app is in dark mode.
-    <div className="pinit-app" data-theme={isTab ? mode : 'light'}>
-      {!isTab && (
+    <div className="pinit-app" data-theme={(isFeature || isWebPage) ? 'light' : mode}>
+      {isFeature && (
         <div className="pa-feature-hd">
           <button onClick={() => navigate(-1)} aria-label="Back"><ArrowLeft size={20} /></button>
           <span>{title}</span>
         </div>
       )}
-      <div className="pa-scroll" style={!isTab ? { paddingTop: 8, background: '#f6f8fb' } : undefined}>
-        <Outlet />
+      <div
+        className="pa-scroll"
+        style={{
+          ...(isHome ? {} : { padding: 0, paddingBottom: 88 }),
+          ...((isFeature || isWebPage) ? { background: '#f6f8fb' } : {}),
+        }}
+      >
+        {/* Web pages need the dashboard padding wrapper the DashboardLayout normally provides */}
+        {(isFeature || isWebPage) ? (
+          <div style={{ padding: '16px 16px 0' }}><Outlet /></div>
+        ) : (
+          <Outlet />
+        )}
       </div>
       <TabBar />
     </div>
