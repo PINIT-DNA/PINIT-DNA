@@ -183,8 +183,8 @@ export function VaultScreen() {
                 </button>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <a href={`https://wa.me/?text=${encodeURIComponent('Secure file: ' + shareUrl)}`} target="_blank" rel="noreferrer" style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)', textAlign: 'center', fontSize: 13, fontWeight: 600, color: 'var(--text)', textDecoration: 'none' }}>WhatsApp</a>
-                <a href={`mailto:?subject=Shared+File&body=${encodeURIComponent('Access this secure file: ' + shareUrl)}`} style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)', textAlign: 'center', fontSize: 13, fontWeight: 600, color: 'var(--text)', textDecoration: 'none' }}>Email</a>
+                <a href={`https://wa.me/?text=${encodeURIComponent(`📄 ${sharing.name}\n🔒 Protected by PINIT DNA (AES-256-GCM)\n\nAccess this secure file:\n${shareUrl}\n\nPowered by PINIT DNA — Human Origin Identity`)}`} target="_blank" rel="noreferrer" style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)', textAlign: 'center', fontSize: 13, fontWeight: 600, color: 'var(--text)', textDecoration: 'none' }}>WhatsApp</a>
+                <a href={`mailto:?subject=${encodeURIComponent(`Secure File: ${sharing.name}`)}&body=${encodeURIComponent(`Hi,\n\nI'm sharing a secure file with you via PINIT DNA.\n\n📄 File: ${sharing.name}\n🔒 Encryption: AES-256-GCM\n\nAccess the file here:\n${shareUrl}\n\nAll access is tracked and logged.\n\n— Sent via PINIT DNA`)}`} style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)', textAlign: 'center', fontSize: 13, fontWeight: 600, color: 'var(--text)', textDecoration: 'none' }}>Email</a>
               </div>
               <div style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'center', marginTop: 12 }}>Access is tracked — every view logged with IP, browser, location</div>
             </>
