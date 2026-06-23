@@ -13,6 +13,7 @@ import rateLimit from 'express-rate-limit';
 
 import { config } from './config';
 import { logger } from './lib/logger';
+import { prisma } from './lib/prisma';
 import { dnaRouter }               from './api/routes/dna.routes';
 import { vaultRouter }             from './api/routes/vault.routes';
 import { intelligenceRouter }      from './api/routes/intelligence.routes';
@@ -121,6 +122,50 @@ app.use(`${config.apiPrefix}/evidence`,   evidenceRouter);
 app.use(`${config.apiPrefix}/auth`,      authRouter);
 app.use(`${config.apiPrefix}/profile`,       profileRouter);
 app.use(`${config.apiPrefix}/notifications`, notificationRouter);
+
+// ─── Share viewer with dynamic OG meta tags (trackable preview) ──────────────
+// When WhatsApp/Telegram crawl /s/:token, they get OG tags with our trackable
+// preview image URL. Tapping the preview opens the share viewer (tracked).
+app.get('/s/:token', async (req, res) => {
+  const reactIndex = path.join(__dirname, '..', 'client', 'dist', 'index.html');
+  if (!fs.existsSync(reactIndex)) {
+    res.status(404).json({ success: false, error: 'Route not found' });
+    return;
+  }
+
+  const { token } = req.params;
+  let title = 'PINIT DNA — Secure File';
+  let description = 'Access this encrypted file securely. Protected by PINIT DNA.';
+  let filename = 'Secure File';
+
+  try {
+    const link = await prisma.shareLink.findUnique({ where: { token } });
+    if (link) {
+      filename = link.filename || 'Secure File';
+      title = `${filename} — PINIT DNA`;
+      description = `🔒 ${filename} · AES-256-GCM Encrypted · Access tracked. Open to view this secure file.`;
+    }
+  } catch { /* serve with defaults */ }
+
+  const previewUrl = `https://${req.get('host')}${config.apiPrefix}/share/${token}/preview.png`;
+  const pageUrl = `https://${req.get('host')}/s/${token}`;
+
+  let html = fs.readFileSync(reactIndex, 'utf-8');
+  const ogTags = `
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="${title.replace(/"/g, '&quot;')}" />
+    <meta property="og:description" content="${description.replace(/"/g, '&quot;')}" />
+    <meta property="og:image" content="${previewUrl}" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:url" content="${pageUrl}" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${title.replace(/"/g, '&quot;')}" />
+    <meta name="twitter:description" content="${description.replace(/"/g, '&quot;')}" />
+    <meta name="twitter:image" content="${previewUrl}" />`;
+  html = html.replace('</head>', `${ogTags}\n  </head>`);
+  res.send(html);
+});
 
 // ─── React SPA catch-all ─────────────────────────────────────────────────────
 // Serves index.html for /dashboard, /compare, /vault etc. (client-side routing)

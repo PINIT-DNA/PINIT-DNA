@@ -840,3 +840,67 @@ export async function getLinkTree(req: Request, res: Response, next: NextFunctio
     res.json({ success: true, tree });
   } catch (err) { next(err); }
 }
+
+
+// ── Trackable preview image (used as og:image in share viewer) ───────────────
+// Every request to this endpoint is logged — so when WhatsApp crawls the OG
+// image, or when a user taps the preview thumbnail, we record it.
+// Serves a branded 1200x630 PNG with the file name overlaid.
+
+export async function previewImage(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { token } = req.params as { token: string };
+
+    // Look up the share link
+    const link = await prisma.shareLink.findUnique({ where: { token } });
+    if (!link || !link.isActive) {
+      res.status(404).json({ success: false, error: 'Share link not found' });
+      return;
+    }
+
+    // Log this preview-image fetch as a PREVIEW_FETCH action
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || '';
+    const ua = req.headers['user-agent'] || '';
+    try {
+      await prisma.shareAccessLog.create({
+        data: {
+          shareLinkId: link.id,
+          ipAddress:   ip,
+          userAgent:   ua,
+          action:      'PREVIEW_FETCH',
+          browser:     ua.includes('WhatsApp') ? 'WhatsApp' : ua.includes('Telegram') ? 'Telegram' : 'Unknown',
+          device:      'crawler',
+        },
+      });
+      logger.info('[SmartLink] Preview image fetched (tracked)', { token, ip, ua: ua.slice(0, 60) });
+    } catch {
+      // Non-fatal — still serve the image
+    }
+
+    // Generate a simple branded SVG → convert to PNG-like response
+    // (We use SVG served as image/svg+xml — universally supported by WhatsApp/Telegram/etc.)
+    const filename = link.filename || 'Secure File';
+    const truncName = filename.length > 40 ? filename.slice(0, 37) + '...' : filename;
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4f46e5"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <text x="100" y="200" font-family="Arial,sans-serif" font-size="72" font-weight="bold" fill="#ffffff">PINIT DNA</text>
+  <text x="100" y="270" font-family="Arial,sans-serif" font-size="32" fill="#c4b5fd">Secure File Sharing · Human Origin Identity</text>
+  <rect x="80" y="320" width="1040" height="200" rx="20" fill="rgba(255,255,255,0.12)"/>
+  <text x="130" y="390" font-family="Arial,sans-serif" font-size="28" fill="#e0e7ff">📄 File</text>
+  <text x="130" y="440" font-family="Arial,sans-serif" font-size="36" font-weight="bold" fill="#ffffff">${truncName}</text>
+  <text x="130" y="490" font-family="Arial,sans-serif" font-size="24" fill="#a5b4fc">🔒 AES-256-GCM Encrypted · Access Tracked</text>
+  <text x="100" y="590" font-family="Arial,sans-serif" font-size="22" fill="#818cf8">pinit-dna.onrender.com</text>
+</svg>`;
+
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(svg);
+  } catch (err) { next(err); }
+}
