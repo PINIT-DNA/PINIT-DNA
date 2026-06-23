@@ -32,7 +32,6 @@ import { IS_NATIVE_APP }            from './native/platform';
 import { NativeShell }              from './native/NativeShell';
 import { HomeScreen }               from './native/screens/HomeScreen';
 import { DnaScreen }                from './native/screens/DnaScreen';
-import { VaultScreen }              from './native/screens/VaultScreen';
 import { ForensicsScreen }          from './native/screens/ForensicsScreen';
 import { ProfileScreen }            from './native/screens/ProfileScreen';
 
@@ -59,7 +58,7 @@ export const router = createBrowserRouter([
       // Native tabs → custom designed screens, fully wired to real features
       ...(IS_NATIVE_APP ? [
         { path: 'app/dna',       element: <DnaScreen /> },
-        { path: 'app/vault',     element: <VaultScreen /> },
+        { path: 'app/vault',     element: <VaultPage /> },
         { path: 'app/forensics', element: <ForensicsScreen /> },
         { path: 'app/profile',   element: <ProfileScreen /> },
       ] : []),
