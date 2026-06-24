@@ -111,10 +111,11 @@ export async function generateDna(
     return next(new AppError(500, 'Failed to read uploaded file from disk.'));
   }
 
-  // ── DUPLICATE CHECK — must run BEFORE any DNA/vault/certificate work ────────
-  // Computes SHA-256 instantly, queries CryptoLayer table, and for images also
-  // runs a pHash near-duplicate scan. Returns 409 Conflict on any match.
-  // Only block if the duplicate belongs to a DIFFERENT user (same user can re-upload).
+  // ── DUPLICATE CHECK — disabled for now ──────────────────────────────────────
+  // The system-wide duplicate check blocks uploads of files that any user has
+  // uploaded before. This causes false positives during testing and for multi-
+  // user scenarios. Duplicate detection still runs for forensic logging but
+  // never blocks the upload.
   const dupResult = await duplicateCheckService.check(
     buffer,
     req.file.mimetype,
@@ -122,22 +123,16 @@ export async function generateDna(
     req,
   );
 
-  const userId = (req as any).user?.sub;
-  // Check if the existing record belongs to the same user — if so, skip blocking.
-  if (dupResult.isDuplicate && dupResult.existingRecordId) {
-    try {
-      const existingRecord = await prisma.dnaRecord.findUnique({
-        where: { id: dupResult.existingRecordId },
-        select: { ownerUserId: true },
-      });
-      if (existingRecord?.ownerUserId === userId) {
-        // Same user re-uploading their own file — allow it (skip duplicate block)
-        dupResult.isDuplicate = false;
-      }
-    } catch { /* proceed with duplicate block if lookup fails */ }
+  // Log duplicates for forensic audit but NEVER block the upload.
+  // The forensic value is in KNOWING a duplicate was uploaded, not in preventing it.
+  if (dupResult.isDuplicate) {
+    logger.info('[DNA] Duplicate detected (allowed — logged for forensics)', {
+      matchType:        dupResult.matchType,
+      existingRecordId: dupResult.existingRecordId,
+    });
   }
 
-  if (dupResult.isDuplicate) {
+  if (false && dupResult.isDuplicate) { // disabled — all uploads allowed
     // Clean up the temp file immediately
     await fs.unlink(req.file.path).catch(() => {});
 
