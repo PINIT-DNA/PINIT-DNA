@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Dna, GitCompare, FolderUp, ShieldCheck, Bell, Menu, Sun, Moon,
+  Dna, GitCompare, FolderUp, ShieldCheck, Bell, Sun, Moon,
   TrendingUp, CheckCircle2, AlertTriangle, Award, Link2,
 } from 'lucide-react';
 import { useTheme } from '../theme';
@@ -53,9 +53,6 @@ export function HomeScreen() {
     <>
       {/* Top bar */}
       <div className="pa-top">
-        <button className="pa-icon-btn" onClick={toggle} aria-label="Toggle theme">
-          {mode === 'dark' ? <Sun size={18} /> : <Menu size={18} />}
-        </button>
         <div className="pa-logo"><Dna size={22} color="#fff" /></div>
         <div style={{ flex: 1 }}>
           <div className="pa-title">PINIT<span style={{ color: 'var(--primary)' }}>-DNA</span></div>
