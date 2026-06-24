@@ -183,7 +183,7 @@ export class CertificateService {
 
   async listAll(userId?: string): Promise<IssuedCertificate[]> {
     const certs = await prisma.certificate.findMany({
-      where: userId ? { ownerUserId: userId } : undefined,
+      where: userId ? { issuedByUserId: userId } : undefined,
       orderBy: { issuedAt: 'desc' },
     });
     return certs.map(c => this.toDto(c));

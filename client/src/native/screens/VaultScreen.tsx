@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Archive, ShieldCheck, FileText, RefreshCw, Lock, Eye, Share2, Download,
-  Image, FileVideo, Music, File, X, CheckCircle2, Copy, Loader2,
+  Image, FileVideo, Music, File, X, CheckCircle2, Copy, Loader2, Award,
 } from 'lucide-react';
 import { AppHeader } from './parts';
 import { listVaultRecords, retrieveFromVault } from '../../services/dashboard.api';
@@ -37,6 +37,9 @@ export function VaultScreen() {
   const [shareLoading, setShareLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [retrieving, setRetrieving] = useState('');
+  const [certModal, setCertModal] = useState<VFile | null>(null);
+  const [certResult, setCertResult] = useState<{ id: string; status: string } | null>(null);
+  const [certLoading, setCertLoading] = useState(false);
 
   function load() {
     setLoading(true);
@@ -64,6 +67,20 @@ export function VaultScreen() {
       setShareUrl((data as { shareUrl?: string }).shareUrl || '');
     } catch { setShareUrl('error'); }
     setShareLoading(false);
+  }
+
+  async function handleCert(f: VFile) {
+    setCertModal(f); setCertResult(null); setCertLoading(true);
+    try {
+      const token = localStorage.getItem('pinit_access_token');
+      const { data } = await axios.post(`${API_BASE_URL}/certificates`, { dnaRecordId: f.dnaRecordId, vaultId: f.id }, {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 60000,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cert = (data as any).certificate || {};
+      setCertResult({ id: cert.certificateId || '', status: cert.status || 'ACTIVE' });
+    } catch { setCertResult({ id: 'error', status: 'FAILED' }); }
+    setCertLoading(false);
   }
 
   async function handleRetrieve(f: VFile) {
@@ -132,11 +149,12 @@ export function VaultScreen() {
               <ShieldCheck size={15} color="#10b981" />
               <span style={{ fontSize: 12, fontWeight: 600, color: '#059669' }}>{f.encryption} · {formatBytes(f.encSize)} encrypted</span>
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <ActBtn icon={<Eye size={15} />} label="View" onClick={() => setDetail(f)} />
-              <ActBtn icon={<Share2 size={15} />} label="Share" primary onClick={() => handleShare(f)} />
-              <ActBtn icon={retrieving === f.id ? <Loader2 size={15} className="pa-spin" /> : <Download size={15} />} label="Retrieve" onClick={() => handleRetrieve(f)} />
-              <ActBtn icon={<FileText size={15} />} label="Details" onClick={() => setDetail(f)} />
+            <div style={{ display: 'flex', gap: 6 }}>
+              <ActBtn icon={<Eye size={14} />} label="View" onClick={() => setDetail(f)} />
+              <ActBtn icon={<Share2 size={14} />} label="Share" primary onClick={() => handleShare(f)} />
+              <ActBtn icon={retrieving === f.id ? <Loader2 size={14} className="pa-spin" /> : <Download size={14} />} label="Get" onClick={() => handleRetrieve(f)} />
+              <ActBtn icon={<Award size={14} />} label="Cert" onClick={() => handleCert(f)} />
+              <ActBtn icon={<FileText size={14} />} label="Info" onClick={() => setDetail(f)} />
             </div>
           </div>
         ))}
@@ -188,6 +206,43 @@ export function VaultScreen() {
               </div>
               <div style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'center', marginTop: 12 }}>Access is tracked — every view logged with IP, browser, location</div>
             </>
+          )}
+        </Modal>
+      )}
+
+      {/* ── Certificate modal ─────────────────────────────────────────── */}
+      {certModal && (
+        <Modal title="Issue Certificate" onClose={() => { setCertModal(null); setCertResult(null); }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(16,185,129,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Award size={20} color="#10b981" /></div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{certModal.name}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>{formatBytes(certModal.size)} · {certModal.encryption}</div>
+            </div>
+          </div>
+          {certLoading && <div style={{ textAlign: 'center', padding: 20 }}><Loader2 size={24} className="pa-spin" color="var(--primary)" /><div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>Issuing certificate...</div></div>}
+          {certResult && certResult.id !== 'error' && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px', borderRadius: 12, background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', marginBottom: 14 }}>
+                <CheckCircle2 size={18} color="#10b981" />
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#059669' }}>Certificate Issued!</div>
+                  <div style={{ fontSize: 11, color: '#10b981' }}>DNA Ownership Certificate · {certResult.status}</div>
+                </div>
+              </div>
+              <Row label="Certificate ID" value={certResult.id} mono />
+              <Row label="Status" value={certResult.status} accent />
+              <Row label="File" value={certModal.name} />
+              <Row label="Encryption" value={certModal.encryption} accent />
+              <Row label="Vault ID" value={certModal.id} mono />
+              <Row label="DNA Record" value={certModal.dnaRecordId} mono />
+              <div style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'center', marginTop: 14 }}>
+                SHA-256 Verified · AES-256-GCM Sealed · HKDF Secured · Auth Tag Intact
+              </div>
+            </>
+          )}
+          {certResult && certResult.id === 'error' && (
+            <div style={{ color: '#ef4444', fontSize: 13, textAlign: 'center', padding: 16 }}>Failed to issue certificate. Try again.</div>
           )}
         </Modal>
       )}

@@ -25,7 +25,8 @@ export async function issueCertificate(req: Request, res: Response, next: NextFu
   }
 
   try {
-    const cert = await certificateService.issue({ dnaRecordId, vaultId, expiresInDays });
+    const userId = (req as any).user?.sub;
+    const cert = await certificateService.issue({ dnaRecordId, vaultId, expiresInDays, issuedByUserId: userId });
 
     await auditService.log({
       eventType: 'CERTIFICATE_ISSUED', dnaRecordId, vaultId: cert.vaultId,
