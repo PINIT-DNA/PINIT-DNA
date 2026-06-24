@@ -91,14 +91,23 @@ export function HomeScreen() {
       {/* Recent Activity */}
       <div className="pa-section"><h2>Recent Activity</h2><span className="pa-link" onClick={() => navigate('/timeline')}>View All</span></div>
       <div className="pa-card">
-        {(s?.recent.length ? s.recent : SAMPLE).map((r, i) => (
-          <div className="pa-row" key={i}>
-            <div className="pa-row-ic" style={{ background: 'rgba(99,102,241,0.12)' }}><Dna size={18} color="#6366f1" /></div>
-            <div style={{ minWidth: 0 }}>
+        {(!s?.recent.length) ? (
+          <div style={{ padding: 24, textAlign: 'center' }}>
+            <Dna size={30} color="var(--muted)" style={{ margin: '0 auto 8px', opacity: 0.4 }} />
+            <div style={{ fontSize: 13, fontWeight: 600 }}>No activity yet</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Generate a DNA fingerprint to see activity</div>
+          </div>
+        ) : s.recent.map((r, i) => (
+          <div className="pa-row" key={i} onClick={() => navigate('/dna-records')}>
+            <div className="pa-row-ic" style={{ background: r.status === 'COMPLETE' ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)' }}>
+              <Dna size={18} color={r.status === 'COMPLETE' ? '#10b981' : '#f59e0b'} />
+            </div>
+            <div style={{ minWidth: 0, flex: 1 }}>
               <div className="pa-row-t">{r.status === 'COMPLETE' ? 'DNA Generated' : 'DNA Record'}</div>
               <div className="pa-row-s" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 170 }}>{r.filename}</div>
             </div>
             <div className="pa-row-meta">
+              {r.createdAt && <div className="pa-time">{timeAgo(r.createdAt)}</div>}
               <span className={`pa-pill ${r.status === 'COMPLETE' ? 'green' : 'amber'}`}>{r.status === 'COMPLETE' ? 'Success' : 'Partial'}</span>
             </div>
           </div>
@@ -140,8 +149,14 @@ function Stat({ icon, bg, n, l }: { icon: React.ReactNode; bg: string; n: React.
   );
 }
 
-const SAMPLE = [
-  { filename: 'contract_v2.pdf', status: 'COMPLETE', createdAt: '' },
-  { filename: 'report_v2.pdf', status: 'COMPLETE', createdAt: '' },
-  { filename: 'certificate.pdf', status: 'COMPLETE', createdAt: '' },
-];
+function timeAgo(iso: string): string {
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
