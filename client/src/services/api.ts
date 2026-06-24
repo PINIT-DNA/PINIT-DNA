@@ -15,13 +15,39 @@ client.interceptors.request.use((config) => {
   return config;
 });
 
-// Retry on 5xx / network / timeout (handles Render free-tier cold starts ~50s)
-// 6 retries with 8s gaps = waits up to ~48s total, covering a full cold start.
+// Handle 401 (expired token) — try to refresh, or redirect to login.
+// Also retry on 5xx / network / timeout (Render free-tier cold starts ~50s).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 client.interceptors.response.use((r: any) => r, async (error: any) => {
   const config = error.config;
-  if (!config || config._retryCount >= 6) throw error;
   const status = error.response?.status;
+
+  // 401 = expired/invalid token → try refresh, then redirect to login
+  if (status === 401 && !config._authRetried) {
+    config._authRetried = true;
+    try {
+      const refreshToken = localStorage.getItem('pinit_refresh_token');
+      if (refreshToken && refreshToken !== 'x') {
+        const { data } = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken }, { timeout: 30000 });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const d = (data as any).data ?? data;
+        if (d.accessToken) {
+          localStorage.setItem('pinit_access_token', d.accessToken);
+          if (d.refreshToken) localStorage.setItem('pinit_refresh_token', d.refreshToken);
+          config.headers = { ...config.headers, Authorization: `Bearer ${d.accessToken}` };
+          return client.request(config);
+        }
+      }
+    } catch { /* refresh failed — fall through to redirect */ }
+    // Refresh failed or no refresh token → clear session and redirect to login
+    localStorage.removeItem('pinit_access_token');
+    localStorage.removeItem('pinit_refresh_token');
+    window.location.href = '/login';
+    throw error;
+  }
+
+  // 5xx / network / timeout → retry (cold start handling)
+  if (!config || config._retryCount >= 6) throw error;
   const retryable = !status || status >= 500;
   if (!retryable) throw error;
   config._retryCount = (config._retryCount || 0) + 1;
