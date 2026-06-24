@@ -15,16 +15,17 @@ client.interceptors.request.use((config) => {
   return config;
 });
 
-// Retry on 5xx / network / timeout (handles Render free-tier cold starts)
+// Retry on 5xx / network / timeout (handles Render free-tier cold starts ~50s)
+// 6 retries with 8s gaps = waits up to ~48s total, covering a full cold start.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 client.interceptors.response.use((r: any) => r, async (error: any) => {
   const config = error.config;
-  if (!config || config._retryCount >= 3) throw error;
+  if (!config || config._retryCount >= 6) throw error;
   const status = error.response?.status;
   const retryable = !status || status >= 500;
   if (!retryable) throw error;
   config._retryCount = (config._retryCount || 0) + 1;
-  await new Promise((r) => setTimeout(r, 1500 * config._retryCount));
+  await new Promise((r) => setTimeout(r, 8000));
   return client.request(config);
 });
 
