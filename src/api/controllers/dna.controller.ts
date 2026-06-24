@@ -114,12 +114,28 @@ export async function generateDna(
   // ── DUPLICATE CHECK — must run BEFORE any DNA/vault/certificate work ────────
   // Computes SHA-256 instantly, queries CryptoLayer table, and for images also
   // runs a pHash near-duplicate scan. Returns 409 Conflict on any match.
+  // Only block if the duplicate belongs to a DIFFERENT user (same user can re-upload).
   const dupResult = await duplicateCheckService.check(
     buffer,
     req.file.mimetype,
     req.file.originalname,
     req,
   );
+
+  const userId = (req as any).user?.sub;
+  // Check if the existing record belongs to the same user — if so, skip blocking.
+  if (dupResult.isDuplicate && dupResult.existingRecordId) {
+    try {
+      const existingRecord = await prisma.dnaRecord.findUnique({
+        where: { id: dupResult.existingRecordId },
+        select: { ownerUserId: true },
+      });
+      if (existingRecord?.ownerUserId === userId) {
+        // Same user re-uploading their own file — allow it (skip duplicate block)
+        dupResult.isDuplicate = false;
+      }
+    } catch { /* proceed with duplicate block if lookup fails */ }
+  }
 
   if (dupResult.isDuplicate) {
     // Clean up the temp file immediately
