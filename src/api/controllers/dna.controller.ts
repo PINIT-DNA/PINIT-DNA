@@ -134,7 +134,7 @@ export async function generateDna(
 
   if (false && dupResult.isDuplicate) { // disabled — all uploads allowed
     // Clean up the temp file immediately
-    await fs.unlink(req.file.path).catch(() => {});
+    await fs.unlink(req.file!.path).catch(() => {});
 
     logger.warn('[DNA] Duplicate upload blocked', {
       matchType:        dupResult.matchType,
