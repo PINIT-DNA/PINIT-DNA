@@ -7,7 +7,8 @@ import axios from 'axios';
 import type { GenerateDnaResponse } from '../types';
 import { API_BASE_URL } from '../config/api.config';
 
-const client = axios.create({ baseURL: API_BASE_URL, timeout: 90000 });
+// 120s timeout — large file uploads + DNA processing can take 60-90s on free tier
+const client = axios.create({ baseURL: API_BASE_URL, timeout: 120000 });
 
 client.interceptors.request.use((config) => {
   const token = localStorage.getItem('pinit_access_token');
@@ -46,12 +47,14 @@ client.interceptors.response.use((r: any) => r, async (error: any) => {
     throw error;
   }
 
-  // 5xx / network / timeout → retry (cold start handling)
-  if (!config || config._retryCount >= 6) throw error;
+  // 5xx / network / timeout → retry with smart backoff
+  // Only retry on actual server errors, not on slow processing
+  if (!config || config._retryCount >= 3) throw error;
   const retryable = !status || status >= 500;
   if (!retryable) throw error;
   config._retryCount = (config._retryCount || 0) + 1;
-  await new Promise((r) => setTimeout(r, 8000));
+  // Quick retries: 2s, 4s, 6s — total 12s, enough for a cold start wake
+  await new Promise((r) => setTimeout(r, 2000 * config._retryCount));
   return client.request(config);
 });
 
