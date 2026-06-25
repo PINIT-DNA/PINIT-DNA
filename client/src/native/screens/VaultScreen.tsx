@@ -136,6 +136,14 @@ export function VaultScreen() {
         </button>
       </div>
 
+      {loading && (
+        <div className="pa-card" style={{ padding: 40, textAlign: 'center' }}>
+          <Loader2 size={32} className="pa-spin" color="var(--primary)" style={{ margin: '0 auto 12px' }} />
+          <div style={{ fontSize: 14, fontWeight: 600 }}>Loading vault...</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>This may take a moment on first use</div>
+        </div>
+      )}
+
       {files.length === 0 && !loading && (
         <div className="pa-card" style={{ padding: 32, textAlign: 'center' }}>
           <Archive size={40} color="var(--muted)" style={{ margin: '0 auto 12px', opacity: 0.4 }} />

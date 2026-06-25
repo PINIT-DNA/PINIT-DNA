@@ -62,6 +62,13 @@ export function DnaScreen() {
         </button>
       </div>
       <div className="pa-card">
+        {loading && (
+          <div style={{ padding: 40, textAlign: 'center' }}>
+            <RefreshCw size={28} className="pa-spin" color="var(--primary)" style={{ margin: '0 auto 10px' }} />
+            <div style={{ fontSize: 14, fontWeight: 600 }}>Loading records...</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>This may take a moment on first use</div>
+          </div>
+        )}
         {records.length === 0 && !loading && (
           <div style={{ padding: 32, textAlign: 'center' }}>
             <Dna size={36} color="var(--muted)" style={{ margin: '0 auto 10px', opacity: 0.5 }} />
