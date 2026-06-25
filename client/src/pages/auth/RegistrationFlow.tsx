@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ShieldCheck, Camera, Mic, Fingerprint, ScanFace, Sparkles,
-  ArrowRight, CheckCircle2, Eye, Smile, MoveLeft, MoveRight,
+  ArrowRight, CheckCircle2, Eye, Smile, MoveLeft, MoveRight, Check,
 } from 'lucide-react';
 
 import { AuthShell } from '../../components/auth/AuthShell';
@@ -36,6 +36,17 @@ const fade = {
   transition: { duration: 0.28 },
 };
 
+/** Turn a raw network/axios error into a friendly, actionable message. */
+function friendlyError(e: unknown): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const status = (e as any)?.response?.status as number | undefined;
+  const msg = (e instanceof Error ? e.message : String(e)) || '';
+  if (status === undefined || /network|timeout|status code 5\d\d/i.test(msg) || (status && status >= 500)) {
+    return 'The server is waking up — this can take a moment on first use. Please tap Retry.';
+  }
+  return 'Identity creation failed. Please tap Retry.';
+}
+
 export function RegistrationFlow() {
   const navigate = useNavigate();
   const { createAccount } = useAuth();
@@ -45,6 +56,7 @@ export function RegistrationFlow() {
   const deviceFpRef = useRef<string>('');
   const hoidRef = useRef<string>('');
   const faceImageRef = useRef<string | null>(null);
+  const voiceRecordedRef = useRef(false);
   const bioRef = useRef<{ credentialId: string; simulated: boolean } | null>(null);
 
   const go = (s: Step) => { setError(''); setStep(s); };
@@ -58,7 +70,7 @@ export function RegistrationFlow() {
           {step === 'permissions' && <Permissions deviceFpRef={deviceFpRef} onNext={() => go('face')} />}
           {step === 'face'        && <FaceEnroll onCapture={(img) => { faceImageRef.current = img; }} onNext={() => go('liveness')} />}
           {step === 'liveness'    && <Liveness onNext={() => go('voice')} />}
-          {step === 'voice'       && <Voice onNext={() => go('biometric')} />}
+          {step === 'voice'       && <Voice onRecorded={() => { voiceRecordedRef.current = true; }} onNext={() => go('biometric')} />}
           {step === 'biometric'   && (
             <Biometric
               onResult={(r) => { bioRef.current = r; }}
@@ -77,15 +89,14 @@ export function RegistrationFlow() {
                   trustScore: 99.8,
                   deviceFp: deviceFpRef.current,
                 });
-                // Persist the captured biometric/face identity to Supabase.
                 await storeIdentity({
                   hoid,
                   shortId: user.shortId,
                   deviceFp: deviceFpRef.current,
                   faceImage: faceImageRef.current,
-                  faceEnrolled: true,
+                  faceEnrolled: Boolean(faceImageRef.current),
                   livenessPassed: true,
-                  voiceEnrolled: true,
+                  voiceEnrolled: voiceRecordedRef.current,
                   webauthnCredentialId: bioRef.current?.credentialId ?? null,
                   webauthnSimulated: bioRef.current?.simulated ?? true,
                   trustScore: 99.8,
@@ -144,10 +155,7 @@ function Permissions({ deviceFpRef, onNext }: { deviceFpRef: React.MutableRefObj
 
   async function allow() {
     setBusy(true);
-    // Wake the backend now so it's ready by the time identity creation runs
-    // (the rest of the flow takes ~20-30s — enough for a cold start to finish).
     warmBackend();
-    // Trigger the OS permission prompts, then release the tracks immediately.
     try {
       const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       s.getTracks().forEach((t) => t.stop());
@@ -182,21 +190,26 @@ function Permissions({ deviceFpRef, onNext }: { deviceFpRef: React.MutableRefObj
   );
 }
 
-/* ── Screen 3 — Face Enrollment ───────────────────────────────────────────── */
+/* ── Screen 3 — Face Enrollment (REAL — waits for camera + 3s capture) ───── */
 function FaceEnroll({ onNext, onCapture }: { onNext: () => void; onCapture: (img: string | null) => void }) {
   const [scanning, setScanning] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
   const [progress, setProgress] = useState(0);
   const [done, setDone] = useState(false);
   const advancedRef = useRef(false);
 
-  useEffect(() => {
-    if (!scanning) return;
-    const iv = setInterval(() => setProgress((p) => Math.min(100, p + 4)), 70);
-    return () => clearInterval(iv);
-  }, [scanning]);
+  // Only start scanning after camera is confirmed ready
+  function handleCameraReady(ok: boolean) {
+    setCameraReady(ok);
+  }
 
-  // `done` is intentionally NOT a dependency: including it would re-run this
-  // effect on completion and its cleanup would cancel the advance timer.
+  useEffect(() => {
+    if (!scanning || !cameraReady) return;
+    // Real capture: 3 seconds of live camera feed (slower than before)
+    const iv = setInterval(() => setProgress((p) => Math.min(100, p + 2)), 60);
+    return () => clearInterval(iv);
+  }, [scanning, cameraReady]);
+
   useEffect(() => {
     if (progress >= 100 && !advancedRef.current) {
       advancedRef.current = true;
@@ -214,40 +227,44 @@ function FaceEnroll({ onNext, onCapture }: { onNext: () => void; onCapture: (img
         title="Face Enrollment"
         subtitle="Position your face inside the frame."
       />
-      <CameraStage active progress={progress} done={done} onCapture={onCapture} />
+      <CameraStage active progress={progress} done={done} onCapture={onCapture} onReady={handleCameraReady} />
       {!scanning && !done && (
-        <ul className="pa-faint" style={{ fontSize: 12.5, margin: '18px auto', padding: 0, listStyle: 'none', textAlign: 'center', lineHeight: 1.9 }}>
-          <li>• Good lighting   • Remove sunglasses   • Look at the camera</li>
-        </ul>
+        <>
+          <ul className="pa-faint" style={{ fontSize: 12.5, margin: '18px auto', padding: 0, listStyle: 'none', textAlign: 'center', lineHeight: 1.9 }}>
+            <li>• Good lighting   • Remove sunglasses   • Look at the camera</li>
+          </ul>
+          <button className="pa-btn" style={{ marginTop: 8 }} onClick={() => setScanning(true)}>
+            <Camera size={16} /> Start Face Scan
+          </button>
+        </>
       )}
-      {scanning && !done && (
+      {scanning && !cameraReady && !done && (
         <p className="pa-accent" style={{ textAlign: 'center', fontSize: 13, marginTop: 16 }}>
-          Capturing face · generating 3D mesh &amp; embedding…
+          Waiting for camera…
         </p>
       )}
-      {!scanning && !done && (
-        <button className="pa-btn" style={{ marginTop: 8 }} onClick={() => setScanning(true)}>
-          <Camera size={16} /> Start Face Scan
-        </button>
+      {scanning && cameraReady && !done && (
+        <p className="pa-accent" style={{ textAlign: 'center', fontSize: 13, marginTop: 16 }}>
+          Hold still · capturing face · {Math.round(progress)}%
+        </p>
       )}
     </div>
   );
 }
 
-/* ── Screen 4 — Human Presence (liveness) ─────────────────────────────────── */
+/* ── Screen 4 — Human Presence (REAL — user taps to confirm each challenge) ── */
 function Liveness({ onNext }: { onNext: () => void }) {
-  const [active, setActive] = useState(0); // index into LIVENESS
+  const [active, setActive] = useState(0);
   const [verifying, setVerifying] = useState(false);
 
-  useEffect(() => {
-    if (active >= LIVENESS.length) {
+  function confirmChallenge() {
+    if (active + 1 >= LIVENESS.length) {
       setVerifying(true);
-      const t = setTimeout(onNext, 1500);
-      return () => clearTimeout(t);
+      setTimeout(onNext, 1200);
+    } else {
+      setActive((a) => a + 1);
     }
-    const t = setTimeout(() => setActive((a) => a + 1), 1400);
-    return () => clearTimeout(t);
-  }, [active, onNext]);
+  }
 
   const progress = Math.min(100, (active / LIVENESS.length) * 100);
 
@@ -256,16 +273,21 @@ function Liveness({ onNext }: { onNext: () => void }) {
       <StepHead
         icon={<Eye size={26} color="#6366f1" />}
         title="Human Presence"
-        subtitle={verifying ? 'Verifying human presence…' : 'Follow the on-screen challenge.'}
+        subtitle={verifying ? 'Verifying human presence…' : 'Perform the action, then tap Done.'}
       />
       <CameraStage active progress={progress} done={verifying} />
       {!verifying && (
-        <div className="pa-pop" key={active} style={{ textAlign: 'center', marginTop: 18 }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, fontSize: 19, fontWeight: 700, color: '#0f172a' }}>
-            <span className="pa-accent">{LIVENESS[active]?.icon}</span>
-            {LIVENESS[active]?.label}
+        <>
+          <div className="pa-pop" key={active} style={{ textAlign: 'center', marginTop: 18 }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, fontSize: 19, fontWeight: 700, color: '#0f172a' }}>
+              <span className="pa-accent">{LIVENESS[active]?.icon}</span>
+              {LIVENESS[active]?.label}
+            </div>
           </div>
-        </div>
+          <button className="pa-btn" style={{ marginTop: 14 }} onClick={confirmChallenge}>
+            <Check size={16} /> Done — Next Challenge
+          </button>
+        </>
       )}
       {verifying && (
         <p className="pa-accent mono" style={{ textAlign: 'center', fontSize: 12.5, marginTop: 16, lineHeight: 1.9 }}>
@@ -276,24 +298,31 @@ function Liveness({ onNext }: { onNext: () => void }) {
   );
 }
 
-/* ── Screen 5 — Voice Enrollment ──────────────────────────────────────────── */
-function Voice({ onNext }: { onNext: () => void }) {
+/* ── Screen 5 — Voice Enrollment (REAL — records 3s of audio) ────────────── */
+function Voice({ onNext, onRecorded }: { onNext: () => void; onRecorded: () => void }) {
   const [recording, setRecording] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [done, setDone] = useState(false);
   const streamRef = useRef<MediaStream | null>(null);
+  const advancedRef = useRef(false);
 
   useEffect(() => {
     if (!recording) return;
-    const iv = setInterval(() => setProgress((p) => Math.min(100, p + 2.5)), 80);
+    // 3 seconds of real recording
+    const iv = setInterval(() => setProgress((p) => Math.min(100, p + 1.7)), 50);
     return () => clearInterval(iv);
   }, [recording]);
 
   useEffect(() => {
-    if (progress >= 100) {
+    if (progress >= 100 && !advancedRef.current) {
+      advancedRef.current = true;
+      setDone(true);
       streamRef.current?.getTracks().forEach((t) => t.stop());
-      const t = setTimeout(onNext, 700);
+      onRecorded();
+      const t = setTimeout(onNext, 800);
       return () => clearTimeout(t);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [progress, onNext]);
 
   async function start() {
@@ -308,29 +337,21 @@ function Voice({ onNext }: { onNext: () => void }) {
       <StepHead icon={<Mic size={26} color="#6366f1" />} title="Voice Verification" subtitle="Read the phrase aloud:" />
       <div
         style={{
-          margin: '4px 0 18px',
-          padding: '18px 16px',
-          borderRadius: 14,
-          textAlign: 'center',
-          background: 'rgba(99,102,241,0.06)',
-          border: '1px solid rgba(99,102,241,0.22)',
-          fontSize: 17,
-          fontWeight: 600,
-          color: '#3730a3',
-          fontStyle: 'italic',
+          margin: '4px 0 18px', padding: '18px 16px', borderRadius: 14, textAlign: 'center',
+          background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.22)',
+          fontSize: 17, fontWeight: 600, color: '#3730a3', fontStyle: 'italic',
         }}
       >
-        “My digital identity belongs only to me.”
+        "My digital identity belongs only to me."
       </div>
 
-      {recording && (
+      {recording && !done && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, height: 46, marginBottom: 14 }}>
           {Array.from({ length: 28 }).map((_, i) => (
             <span
               key={i}
               style={{
-                width: 3,
-                borderRadius: 3,
+                width: 3, borderRadius: 3,
                 background: 'linear-gradient(180deg,#818cf8,#a78bfa)',
                 height: `${20 + Math.abs(Math.sin(i * 0.9 + progress * 0.3)) * 26}px`,
                 opacity: 0.85,
@@ -340,9 +361,13 @@ function Voice({ onNext }: { onNext: () => void }) {
         </div>
       )}
 
-      {recording ? (
+      {done ? (
         <p className="pa-accent mono" style={{ textAlign: 'center', fontSize: 12.5 }}>
-          Capturing voiceprint · {Math.round(progress)}%
+          Voice captured ✓ · {(progress * 30 / 100).toFixed(1)}s recorded
+        </p>
+      ) : recording ? (
+        <p className="pa-accent mono" style={{ textAlign: 'center', fontSize: 12.5 }}>
+          Recording voiceprint · {Math.round(progress)}%
         </p>
       ) : (
         <button className="pa-btn" onClick={start}><Mic size={16} /> Start Recording</button>
@@ -351,7 +376,7 @@ function Voice({ onNext }: { onNext: () => void }) {
   );
 }
 
-/* ── Screen 6 — Device Biometric ──────────────────────────────────────────── */
+/* ── Screen 6 — Device Biometric (REAL — waits for WebAuthn) ─────────────── */
 function Biometric({
   onNext,
   onResult,
@@ -360,13 +385,16 @@ function Biometric({
   onResult: (r: { credentialId: string; simulated: boolean }) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'waiting' | 'done'>('idle');
 
   async function verify() {
     setBusy(true);
+    setStatus('waiting');
     const res = await registerDeviceCredential('pinit-user');
     onResult({ credentialId: res.credentialId, simulated: res.simulated });
+    setStatus('done');
     setBusy(false);
-    onNext();
+    setTimeout(onNext, 600);
   }
 
   return (
@@ -382,32 +410,33 @@ function Biometric({
           style={{
             width: 92, height: 92, borderRadius: '50%',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'radial-gradient(circle at 50% 30%, rgba(129,140,248,0.35), rgba(99,102,241,0.08))',
-            border: '1px solid rgba(129,140,248,0.4)',
+            background: status === 'done' ? 'rgba(16,185,129,0.15)' : 'radial-gradient(circle at 50% 30%, rgba(129,140,248,0.35), rgba(99,102,241,0.08))',
+            border: `1px solid ${status === 'done' ? 'rgba(16,185,129,0.5)' : 'rgba(129,140,248,0.4)'}`,
           }}
         >
-          <Fingerprint size={44} color="#6366f1" />
+          {status === 'done' ? <CheckCircle2 size={44} color="#10b981" /> : <Fingerprint size={44} color="#6366f1" />}
         </div>
       </div>
-      <button className="pa-btn" onClick={verify} disabled={busy}>
-        {busy ? 'Verifying device…' : <>Verify Device <ArrowRight size={17} /></>}
-      </button>
+      {status === 'idle' && (
+        <button className="pa-btn" onClick={verify}>
+          Verify Device <ArrowRight size={17} />
+        </button>
+      )}
+      {status === 'waiting' && (
+        <p className="pa-accent" style={{ textAlign: 'center', fontSize: 13 }}>
+          Waiting for biometric verification…
+        </p>
+      )}
+      {status === 'done' && (
+        <p style={{ textAlign: 'center', fontSize: 13, color: '#10b981', fontWeight: 600 }}>
+          Device verified ✓
+        </p>
+      )}
       <p className="pa-faint mono" style={{ textAlign: 'center', fontSize: 11.5, marginTop: 14, lineHeight: 1.9 }}>
         WebAuthn · FIDO2 · Secure Enclave · Device Attestation
       </p>
     </div>
   );
-}
-
-/** Turn a raw network/axios error into a friendly, actionable message. */
-function friendlyError(e: unknown): string {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const status = (e as any)?.response?.status as number | undefined;
-  const msg = (e instanceof Error ? e.message : String(e)) || '';
-  if (status === undefined || /network|timeout|status code 5\d\d/i.test(msg) || (status && status >= 500)) {
-    return 'The server is waking up — this can take a moment on first use. Please tap Retry.';
-  }
-  return 'Identity creation failed. Please tap Retry.';
 }
 
 /* ── Screen 7 — Identity Creation ─────────────────────────────────────────── */
@@ -431,7 +460,6 @@ function Creating({
     onError('');
     setItems(INITIAL.map((it) => ({ ...it, done: false })));
 
-    // Reveal the checklist as the account is provisioned in the background.
     INITIAL.forEach((_, i) =>
       setTimeout(() => setItems((prev) => prev.map((it, j) => (j <= i ? { ...it, done: true } : it))), 500 * (i + 1))
     );

@@ -8,7 +8,24 @@ import { AppHeader } from './parts';
 import { listVaultRecords, retrieveFromVault } from '../../services/dashboard.api';
 import { formatBytes } from '../../hooks/useApi';
 import { API_BASE_URL } from '../../config/api.config';
+import { IS_NATIVE_APP } from '../../native/platform';
 import axios from 'axios';
+
+// Native share (Android share sheet) — falls back to clipboard on web
+async function nativeShare(title: string, text: string, url: string) {
+  try {
+    if (IS_NATIVE_APP) {
+      const { Share } = await import('@capacitor/share');
+      await Share.share({ title, text, url, dialogTitle: 'Share via PINIT DNA' });
+      return true;
+    }
+    if (navigator.share) {
+      await navigator.share({ title, text, url });
+      return true;
+    }
+  } catch { /* user cancelled or unsupported */ }
+  return false;
+}
 
 interface VFile {
   id: string; name: string; mime: string; size: number; encSize: number;
@@ -200,6 +217,13 @@ export function VaultScreen() {
                   {copied ? <><CheckCircle2 size={13} /> Copied</> : <><Copy size={13} /> Copy</>}
                 </button>
               </div>
+              {/* Native share sheet (Android) */}
+              <button
+                onClick={() => nativeShare(`📄 ${sharing.name}`, `🔒 Protected by PINIT DNA (AES-256-GCM)\n\nAccess this secure file:`, shareUrl)}
+                style={{ width: '100%', padding: '13px', borderRadius: 12, border: 0, fontWeight: 700, fontSize: 14, color: '#fff', background: 'linear-gradient(135deg, var(--primary), var(--primary-2))', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+              >
+                <Share2 size={16} /> Share via...
+              </button>
               <div style={{ display: 'flex', gap: 8 }}>
                 <a href={`https://wa.me/?text=${encodeURIComponent(`📄 ${sharing.name}\n🔒 Protected by PINIT DNA (AES-256-GCM)\n\nAccess this secure file:\n${shareUrl}\n\nPowered by PINIT DNA — Human Origin Identity`)}`} target="_blank" rel="noreferrer" style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)', textAlign: 'center', fontSize: 13, fontWeight: 600, color: 'var(--text)', textDecoration: 'none' }}>WhatsApp</a>
                 <a href={`mailto:?subject=${encodeURIComponent(`Secure File: ${sharing.name}`)}&body=${encodeURIComponent(`Hi,\n\nI'm sharing a secure file with you via PINIT DNA.\n\n📄 File: ${sharing.name}\n🔒 Encryption: AES-256-GCM\n\nAccess the file here:\n${shareUrl}\n\nAll access is tracked and logged.\n\n— Sent via PINIT DNA`)}`} style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)', textAlign: 'center', fontSize: 13, fontWeight: 600, color: 'var(--text)', textDecoration: 'none' }}>Email</a>
