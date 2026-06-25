@@ -29,7 +29,7 @@ export function MonitorScreen() {
         });
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .then(() => setLoading(false)).catch(() => setLoading(false));
   }
   useEffect(load, []);
 
