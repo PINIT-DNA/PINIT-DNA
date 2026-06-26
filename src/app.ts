@@ -2,6 +2,8 @@
  * PINIT-DNA — Application Entry Point
  */
 
+import './bootstrap-env';
+
 import 'express-async-errors';
 import fs   from 'fs';
 import path from 'path';
