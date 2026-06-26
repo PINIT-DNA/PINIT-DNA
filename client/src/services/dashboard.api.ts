@@ -6,6 +6,7 @@
 
 import axios from 'axios';
 import { API_BASE_URL } from '../config/api.config';
+import { refreshAccessToken, clearTokens } from '../lib/auth';
 import type {
   DnaRecord, VaultRecord, SupportedTypesResponse,
   ComparisonResult, DashboardStats,
@@ -45,6 +46,31 @@ api.interceptors.request.use((config) => {
   if (token) (config.headers as any)['Authorization'] = `Bearer ${token}`;
   return config;
 });
+
+// On 401, refresh the access token once and retry; otherwise clear session → login
+api.interceptors.response.use(
+  (res) => res,
+  async (error) => {
+    const config = error.config;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (!config || (config as any)._authRetried || error.response?.status !== 401) {
+      throw error;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (config as any)._authRetried = true;
+    const newToken = await refreshAccessToken();
+    if (!newToken) {
+      clearTokens();
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login';
+      }
+      throw error;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (config.headers as any)['Authorization'] = `Bearer ${newToken}`;
+    return api.request(config);
+  },
+);
 
 // ─── DNA Records ──────────────────────────────────────────────────────────────
 

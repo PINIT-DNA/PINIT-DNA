@@ -29,6 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (payload.exp && payload.exp * 1000 < Date.now()) {
       refreshAccessToken().then(t => {
         if (t) setUser(parseJwt(t));
+        else { clearTokens(); setUser(null); }
         setLoading(false);
       });
     } else {
