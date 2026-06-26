@@ -15,13 +15,13 @@ import type { AppStage, LayerState, DnaSession, EncryptionResult, VaultStoreResp
 
 // Per-layer animation delay in ms — simulates sequential progress visually
 // while the actual API runs all layers in parallel in the background.
-const LAYER_DELAYS = [200, 600, 1200, 2400, 3600, 4800, 5400, 6200, 7000, 7800];
+const LAYER_DELAYS = [200, 600, 1200, 2400, 3600, 4800, 5400, 6200, 7000, 7800, 8400, 9000, 9600, 10200, 10800];
 
 export default function App() {
   const [stage, setStage] = useState<AppStage | 'vaulting'>('idle');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [layerStates, setLayerStates] = useState<LayerState[]>(
-    Array.from({ length: 10 }, () => ({ status: 'pending' as const }))
+    Array.from({ length: 15 }, () => ({ status: 'pending' as const }))
   );
   const [session, setSession] = useState<DnaSession | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +53,7 @@ export default function App() {
     setStage('processing');
 
     // Reset all layers to pending
-    setLayerStates(Array.from({ length: 10 }, () => ({ status: 'pending' as const })));
+    setLayerStates(Array.from({ length: 15 }, () => ({ status: 'pending' as const })));
 
     // Animate layers one by one with staggered delays (visual simulation)
     LAYER_DELAYS.forEach((delay, idx) => {
@@ -71,10 +71,10 @@ export default function App() {
       const result = await generateDna(selectedFile);
 
       // Mark all layers complete with timing from result
-      const processingPerLayer = Math.round(result.summary.totalProcessingMs / 10);
+      const processingPerLayer = Math.round(result.summary.totalProcessingMs / 15);
       setLayerStates(
-        Array.from({ length: 10 }, (_, i) => ({
-          status: result.summary.failedLayers > 0 && i === 9 ? 'failed' : 'complete',
+        Array.from({ length: 15 }, (_, i) => ({
+          status: result.summary.failedLayers > 0 && i === 14 ? 'failed' : 'complete',
           processingMs: processingPerLayer + Math.round(Math.random() * 200),
         }))
       );

@@ -237,7 +237,8 @@ function buildHistory(
     }
 
     // Comparisons involving this DNA record
-    for (const c of comparisons) {
+    for (const c of (comparisons ?? [])) {
+      if (!c?.fileA?.filename || !c?.fileB?.filename) continue;
       const involved = c.fileA.filename === r.imageFilename || c.fileB.filename === r.imageFilename;
       if (involved) {
         events.push({
@@ -278,8 +279,16 @@ function buildHistory(
 }
 
 function getStoredComparisons(): ComparisonResult[] {
-  try { return JSON.parse(sessionStorage.getItem('pinit_dna_reports') ?? '[]'); }
-  catch { return []; }
+  try {
+    const raw = sessionStorage.getItem('pinit_dna_reports');
+    const parsed = JSON.parse(raw ?? '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is ComparisonResult => {
+      return item && typeof item === 'object' && typeof (item as any).comparisonId === 'string';
+    });
+  } catch {
+    return [];
+  }
 }
 
 // --- File history card --------------------------------------------------------

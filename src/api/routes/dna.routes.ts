@@ -12,6 +12,7 @@ import { Router } from 'express';
 import { uploadSingle, uploadComparison } from '../middleware/upload.middleware';
 import { listDnaRecords, generateDna, verifyDna, getDnaRecord, getSupportedTypes, getDuplicateAttempts } from '../controllers/dna.controller';
 import { compareDna } from '../controllers/comparison.controller';
+import { autoCompareDna } from '../controllers/auto-compare.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import { requireDnaOwnership } from '../middleware/ownership.middleware';
 
@@ -57,6 +58,7 @@ router.post('/generate', requireAuth, uploadSingle, generateDna);
  * Response 200: DnaComparisonResult with forensic report
  */
 router.post('/compare', requireAuth, uploadComparison, compareDna);
+router.post('/auto-compare', requireAuth, uploadSingle, autoCompareDna);
 
 /**
  * POST /dna/:id/verify

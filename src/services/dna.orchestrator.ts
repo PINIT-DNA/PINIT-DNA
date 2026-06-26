@@ -18,6 +18,7 @@ import { PerceptualLayer } from './layers/layer3.perceptual';
 import { SemanticLayer } from './layers/layer4.semantic';
 import { MetadataLayer } from './layers/layer5.metadata';
 import { SteganographyLayer } from './layers/layer6.steganography';
+import { processAdvancedLayers } from './layers/layers-11-15.service';
 import { BehavioralLayer } from './layers/layer7.behavioral';
 import { RelationshipLayer } from './layers/layer8.relationship';
 import { OriginLayer } from './layers/layer9.origin';
@@ -194,9 +195,16 @@ export class DnaOrchestrator {
       status,
     });
 
+    // ── Layers 11-15: Advanced (run in parallel, non-blocking) ──────────────
+    const ownerUserId = (await prisma.dnaRecord.findUnique({ where: { id: dnaRecordId }, select: { ownerUserId: true } }))?.ownerUserId;
+    if (ownerUserId) {
+      processAdvancedLayers(dnaRecordId, image.buffer, image.mimeType, ownerUserId, image.originalName)
+        .catch(err => logger.warn('Advanced layers (11-15) failed', { error: String(err) }));
+    }
+
     const totalMs = Date.now() - pipelineStart;
 
-    logger.info('DNA generation complete', {
+    logger.info('DNA generation complete (15 layers)', {
       dnaRecordId,
       status,
       successCount,

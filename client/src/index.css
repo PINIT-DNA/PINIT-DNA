@@ -251,6 +251,78 @@
 @keyframes scan { 0% { top: 0%; } 100% { top: 100%; } }
 .scan-line { animation: scan 2s linear infinite; }
 
+/* ═══════════════════════════════════════════════════════════════════════════════
+   MOBILE RESPONSIVE — Enterprise-grade clean layout on all screen sizes
+   ═══════════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  /* Cards — reduce padding on mobile */
+  .card { padding: 14px !important; }
+  .card-sm { padding: 10px !important; }
+
+  /* Buttons — full width on mobile, prevent cramped layouts */
+  .btn-sm { font-size: 11px; padding: 7px 10px; }
+
+  /* Stat grids — 2 columns max on mobile */
+  .grid-cols-3, .grid-cols-4 { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* Tables — horizontal scroll */
+  table { display: block; overflow-x: auto; white-space: nowrap; }
+
+  /* Compare page — stack file drop zones vertically */
+  .flex.gap-4 > .flex-1 { min-width: 100% !important; }
+
+  /* Modal — full width on mobile */
+  [class*="max-w-lg"], [class*="max-w-md"], [class*="max-w-2xl"] {
+    max-width: 100% !important;
+    margin: 8px !important;
+  }
+
+  /* Topbar — compact */
+  .text-xl { font-size: 16px !important; }
+
+  /* Hide horizontal scrollbar on inner tabs */
+  .overflow-x-auto::-webkit-scrollbar { display: none; }
+
+  /* DNA layer grid — 2 columns on mobile */
+  .grid.grid-cols-5 { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* Vault table — stack on mobile */
+  .data-table th, .data-table td { padding: 8px 10px !important; font-size: 11px !important; }
+
+  /* Upload zone — less padding */
+  .rounded-2xl.border-dashed { padding: 24px 12px !important; }
+
+  /* Map — shorter on mobile */
+  [class*="h-[300px]"], [class*="h-[350px]"], [class*="h-[400px]"] { height: 200px !important; }
+
+  /* Viewer cards — stack content */
+  .viewer-card { flex-direction: column; align-items: flex-start; }
+
+  /* Face auth — smaller viewfinder */
+  .aspect-\[4\/3\] { aspect-ratio: 4/3; max-height: 280px; }
+
+  /* Admin portal — stack panels */
+  .grid-cols-1.lg\:grid-cols-2 { grid-template-columns: 1fr !important; }
+}
+
+@media (max-width: 480px) {
+  /* Extra small — tighter spacing */
+  main.p-4, main.sm\:p-6 { padding: 10px !important; }
+  .card { padding: 12px !important; border-radius: 12px !important; }
+  .text-2xl, .text-3xl { font-size: 18px !important; }
+  .text-lg { font-size: 14px !important; }
+  h1 { font-size: 16px !important; }
+
+  /* Stat cards — smaller text */
+  .text-2xl.font-black, .text-xl.font-black { font-size: 18px !important; }
+
+  /* Buttons row — stack if more than 2 */
+  .grid.grid-cols-3.gap-2 { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* Mode toggle — compact */
+  .flex.gap-2 > button { font-size: 12px; padding: 8px 12px; }
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
    PINIT HOID Authentication — clean white, professional, trust-first theme
    Scoped under .pinit-auth so it is isolated from the rest of the app.

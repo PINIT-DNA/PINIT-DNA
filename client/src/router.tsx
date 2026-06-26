@@ -27,14 +27,15 @@ import { AccessIntelligencePage }  from './pages/AccessIntelligencePage';
 import { VerifyLeakedFilePage }    from './pages/VerifyLeakedFilePage';
 import { ShareViewerPage }          from './pages/ShareViewerPage';
 import { PinitGateway, RegisterGateway } from './pages/auth/PinitGateway';
+import { FaceLoginPage } from './pages/auth/FaceLoginPage';
+import { AdminPortalPage } from './pages/AdminPortalPage';
 import { RequireAuth }              from './components/auth/RequireAuth';
 
 export const router = createBrowserRouter([
   // ── PINIT HOID auth (public) ──────────────────────────────────────────────
-  // /login is the launch gateway: returning users get the Login flow,
-  // first-time devices are redirected to the Registration flow.
   { path: '/login',    element: <PinitGateway />    },
   { path: '/register', element: <RegisterGateway /> },
+  { path: '/face-auth', element: <FaceLoginPage /> },
 
   // ── Public share viewer (no dashboard layout, no auth) ────────────────────
   {
@@ -71,6 +72,7 @@ export const router = createBrowserRouter([
       { path: 'link/:token',            element: <LinkIntelligencePage /> },
       { path: 'certificates',          element: <CertificatesPage />        },
       { path: 'verify-certificate',    element: <VerifyCertificatePage />   },
+      { path: 'admin',                  element: <AdminPortalPage /> },
       { path: '*',                     element: <NotFoundPage />            },
     ],
   },

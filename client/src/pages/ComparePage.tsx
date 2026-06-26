@@ -7,7 +7,7 @@ import {
   Fingerprint, Eye, Lock, Tag, Cpu, Brain, Network, Globe, GitBranch,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { compareDna } from '../services/dashboard.api';
+import { compareDna, autoCompareDna } from '../services/dashboard.api';
 import { Badge, ClassificationBadge } from '../components/ui/Badge';
 import { formatBytes } from '../hooks/useApi';
 import type { ComparisonResult, LayerComparison } from '../types/dashboard.types';
@@ -338,27 +338,50 @@ function ResultPanel({ result }: { result: ComparisonResult }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function ComparePage() {
+  const [mode, setMode] = useState<'auto' | 'manual'>('auto');
   const [fileA, setFileA] = useState<File | null>(null);
   const [fileB, setFileB] = useState<File | null>(null);
+  const [autoFile, setAutoFile] = useState<File | null>(null);
   const [result, setResult] = useState<ComparisonResult | null>(null);
+  const [autoResult, setAutoResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
-  const canCompare = fileA && fileB && !loading;
+  const canCompare = mode === 'manual' ? fileA && fileB && !loading : autoFile && !loading;
 
   const handleCompare = async () => {
-    if (!fileA || !fileB) return;
     setLoading(true);
     setResult(null);
+    setAutoResult(null);
     try {
-      const res = await compareDna(fileA, fileB);
-      setResult(res);
+      let storedResult: ComparisonResult | null = null;
+      if (mode === 'auto' && autoFile) {
+        const res = await autoCompareDna(autoFile);
+        if (res.autoMatched) {
+          setAutoResult(res);
+          setResult(res as ComparisonResult);
+          storedResult = res as ComparisonResult;
+          toast.success('Auto-match found — comparison complete');
+        } else {
+          toast.error(res.message || 'No PINIT-DNA identity found in this file');
+          setAutoResult(res);
+        }
+      } else if (fileA && fileB) {
+        const res = await compareDna(fileA, fileB);
+        setResult(res);
+        storedResult = res;
+        toast.success('Comparison complete');
+      }
+
       // Persist to sessionStorage for Reports page
-      try {
-        const existing = JSON.parse(sessionStorage.getItem('pinit_dna_reports') ?? '[]');
-        existing.unshift(res);
-        sessionStorage.setItem('pinit_dna_reports', JSON.stringify(existing.slice(0, 50)));
-      } catch { /* ignore storage errors */ }
-      toast.success('Comparison complete');
+      if (storedResult) {
+        try {
+          const existing = JSON.parse(sessionStorage.getItem('pinit_dna_reports') ?? '[]');
+          if (Array.isArray(existing)) {
+            existing.unshift(storedResult);
+            sessionStorage.setItem('pinit_dna_reports', JSON.stringify(existing.slice(0, 50)));
+          }
+        } catch { /* ignore storage errors */ }
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Comparison failed');
     } finally {
@@ -367,7 +390,8 @@ export function ComparePage() {
   };
 
   const handleReset = () => {
-    setFileA(null); setFileB(null); setResult(null);
+    setFileA(null); setFileB(null); setAutoFile(null);
+    setResult(null); setAutoResult(null);
   };
 
   return (
@@ -380,59 +404,116 @@ export function ComparePage() {
             Layer-by-layer forensic analysis with tampering detection
           </p>
         </div>
-        {result && (
+        {(result || autoResult) && (
           <button onClick={handleReset} className="btn btn-secondary btn-sm">
             <RefreshCw size={13} /> New Comparison
           </button>
         )}
       </div>
 
+      {/* Mode Toggle */}
+      {!result && !autoResult && (
+        <div className="flex gap-2">
+          <button
+            onClick={() => { setMode('auto'); setFileA(null); setFileB(null); }}
+            className={cn(
+              'flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2',
+              mode === 'auto'
+                ? 'bg-dna-500/15 text-dna-400 border border-dna-500/30'
+                : 'bg-bg-elevated text-gray-400 border border-bg-border hover:border-dna-500/20'
+            )}
+          >
+            <Shield size={14} />
+            Auto Compare
+          </button>
+          <button
+            onClick={() => { setMode('manual'); setAutoFile(null); }}
+            className={cn(
+              'flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2',
+              mode === 'manual'
+                ? 'bg-dna-500/15 text-dna-400 border border-dna-500/30'
+                : 'bg-bg-elevated text-gray-400 border border-bg-border hover:border-dna-500/20'
+            )}
+          >
+            <GitCompare size={14} />
+            Manual Compare
+          </button>
+        </div>
+      )}
+
       {/* Upload section — hide when result is shown */}
-      {!result && (
+      {!result && !autoResult && (
         <div className="card">
-          <div className="flex items-center gap-2 mb-5">
-            <GitCompare size={18} className="text-dna-400" />
-            <h2 className="text-sm font-semibold text-white">Upload Files to Compare</h2>
-          </div>
-
-          {/* Drop zones */}
-          <div className="flex gap-4 mb-5">
-            <FileDropZone label="File A — Original" file={fileA} onFile={setFileA} onClear={() => setFileA(null)} />
-            <div className="flex items-center justify-center shrink-0 text-gray-600">
-              <GitCompare size={20} />
-            </div>
-            <FileDropZone label="File B — Comparison" file={fileB} onFile={setFileB} onClear={() => setFileB(null)} />
-          </div>
-
-          {/* Status hints */}
-          {(!fileA || !fileB) && (
-            <p className="text-xs text-gray-600 text-center mb-4">
-              Upload both files to enable comparison · Supports all 10 file types · Cross-type comparison allowed
-            </p>
+          {mode === 'auto' ? (
+            <>
+              <div className="flex items-center gap-2 mb-2">
+                <Shield size={18} className="text-dna-400" />
+                <h2 className="text-sm font-semibold text-white">Auto Compare — Upload Suspected File</h2>
+              </div>
+              <p className="text-xs text-gray-500 mb-5">
+                Upload a file you suspect is tampered or leaked. We'll automatically find the original from your vault using the embedded identity signature, then run a full DNA comparison.
+              </p>
+              <FileDropZone label="Suspected / Tampered File" file={autoFile} onFile={setAutoFile} onClear={() => setAutoFile(null)} />
+              <div className="mt-4 grid grid-cols-3 gap-3">
+                <div className="rounded-xl bg-bg-elevated border border-bg-border p-3 text-center">
+                  <Fingerprint size={16} className="text-dna-400 mx-auto mb-1" />
+                  <p className="text-2xs text-gray-400 font-semibold">Extract Identity</p>
+                </div>
+                <div className="rounded-xl bg-bg-elevated border border-bg-border p-3 text-center">
+                  <Lock size={16} className="text-success mx-auto mb-1" />
+                  <p className="text-2xs text-gray-400 font-semibold">Find Original in Vault</p>
+                </div>
+                <div className="rounded-xl bg-bg-elevated border border-bg-border p-3 text-center">
+                  <GitCompare size={16} className="text-warning mx-auto mb-1" />
+                  <p className="text-2xs text-gray-400 font-semibold">10-Layer DNA Compare</p>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 mb-5">
+                <GitCompare size={18} className="text-dna-400" />
+                <h2 className="text-sm font-semibold text-white">Upload Files to Compare</h2>
+              </div>
+              <div className="flex gap-4 mb-5">
+                <FileDropZone label="File A — Original" file={fileA} onFile={setFileA} onClear={() => setFileA(null)} />
+                <div className="flex items-center justify-center shrink-0 text-gray-600">
+                  <GitCompare size={20} />
+                </div>
+                <FileDropZone label="File B — Comparison" file={fileB} onFile={setFileB} onClear={() => setFileB(null)} />
+              </div>
+              {(!fileA || !fileB) && (
+                <p className="text-xs text-gray-600 text-center mb-4">
+                  Upload both files to enable comparison · Supports all 10 file types · Cross-type comparison allowed
+                </p>
+              )}
+            </>
           )}
 
           {/* Compare button */}
           <button
             onClick={handleCompare}
             disabled={!canCompare}
-            className="btn btn-primary w-full btn-lg"
+            className="btn btn-primary w-full btn-lg mt-4"
           >
             {loading ? (
               <>
                 <RefreshCw size={16} className="animate-spin" />
-                Analysing DNA layers…
+                {mode === 'auto' ? 'Scanning identity & comparing…' : 'Analysing DNA layers…'}
               </>
             ) : (
               <>
-                <GitCompare size={16} />
-                Compare DNA Fingerprints
+                {mode === 'auto' ? <Shield size={16} /> : <GitCompare size={16} />}
+                {mode === 'auto' ? 'Auto Compare with Vault Original' : 'Compare DNA Fingerprints'}
               </>
             )}
           </button>
 
           {loading && (
             <div className="mt-4 space-y-2">
-              <p className="text-xs text-center text-gray-500">Running all 10 fingerprint layers in parallel…</p>
+              <p className="text-xs text-center text-gray-500">
+                {mode === 'auto' ? 'Extracting identity → Finding vault original → Comparing 15 layers…' : 'Running all 10 fingerprint layers in parallel…'}
+              </p>
               <div className="grid grid-cols-10 gap-1">
                 {LAYER_NAMES.map((_name, i) => (
                   <div key={i} className="flex flex-col items-center gap-1">
@@ -451,6 +532,82 @@ export function ComparePage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Auto-match failed (no identity found) */}
+      {autoResult && !autoResult.autoMatched && (
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card border-warning/20">
+          <div className="flex items-center gap-3 mb-3">
+            <AlertTriangle size={20} className="text-warning" />
+            <h3 className="text-sm font-bold text-warning">No PINIT-DNA Identity Found</h3>
+          </div>
+          <p className="text-sm text-gray-400">{autoResult.message}</p>
+          <p className="text-xs text-gray-500 mt-2">This file may not have been protected by PINIT-DNA, or the identity region was destroyed. Try manual comparison instead.</p>
+          <button onClick={() => { setMode('manual'); setAutoResult(null); }} className="btn btn-secondary btn-sm mt-4">
+            <GitCompare size={13} /> Switch to Manual Compare
+          </button>
+        </motion.div>
+      )}
+
+      {/* Auto-match identity banner */}
+      {autoResult?.autoMatched && autoResult.identity && (
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card border-dna-500/20">
+          <div className="flex items-center gap-2 mb-1">
+            <Shield size={16} className="text-dna-400" />
+            <h3 className="text-sm font-semibold text-white">Auto-Matched from Vault</h3>
+            <Badge variant={autoResult.matchConfidence === 'EXACT' ? 'success' : autoResult.matchConfidence === 'HIGH' ? 'dna' : 'warning'}>
+              {autoResult.matchConfidence === 'EXACT' ? 'Exact Match' : `Tier ${autoResult.matchTier} Match`}
+            </Badge>
+            {autoResult.tampered
+              ? <Badge variant="danger" dot pulse>Tampered</Badge>
+              : <Badge variant="success">Identical</Badge>}
+          </div>
+          <p className="text-2xs text-gray-500 mb-3">{autoResult.matchMethod}</p>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <p className="text-2xs text-gray-500 font-semibold uppercase tracking-wider">Original Owner</p>
+              <div className="bg-bg-elevated rounded-xl p-3 border border-bg-border space-y-1.5">
+                {autoResult.identity.ownerName && (
+                  <div className="flex justify-between">
+                    <span className="text-xs text-gray-500">Name</span>
+                    <span className="text-xs text-white font-semibold">{autoResult.identity.ownerName}</span>
+                  </div>
+                )}
+                {autoResult.identity.ownerShortId && (
+                  <div className="flex justify-between">
+                    <span className="text-xs text-gray-500">PINIT ID</span>
+                    <span className="text-xs text-dna-400 font-semibold mono">{autoResult.identity.ownerShortId}</span>
+                  </div>
+                )}
+                {autoResult.identity.ownerEmail && (
+                  <div className="flex justify-between">
+                    <span className="text-xs text-gray-500">Email</span>
+                    <span className="text-xs text-gray-300">{autoResult.identity.ownerEmail}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <p className="text-2xs text-gray-500 font-semibold uppercase tracking-wider">Vault Record</p>
+              <div className="bg-bg-elevated rounded-xl p-3 border border-bg-border space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-xs text-gray-500">Original File</span>
+                  <span className="text-xs text-white font-semibold truncate ml-2">{autoResult.originalFile?.fileName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-xs text-gray-500">DNA Record</span>
+                  <span className="text-xs text-gray-300 mono">{autoResult.identity.dnaId?.slice(0, 12)}…</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-xs text-gray-500">Tamper Status</span>
+                  <span className={`text-xs font-bold ${autoResult.tampered ? 'text-danger' : 'text-success'}`}>
+                    {autoResult.tampered ? 'TAMPERED' : 'INTACT'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
       )}
 
       {/* Result */}

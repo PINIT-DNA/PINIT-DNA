@@ -132,6 +132,15 @@ export async function compareDna(
   return data;
 }
 
+export async function autoCompareDna(file: File): Promise<any> {
+  const form = new FormData();
+  form.append('image', file);
+  const { data } = await api.post(`${API_BASE_URL}/dna/auto-compare`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
+}
+
 // ─── Dashboard Aggregation ────────────────────────────────────────────────────
 
 /** Read comparison count from sessionStorage (where ComparePage stores results) */

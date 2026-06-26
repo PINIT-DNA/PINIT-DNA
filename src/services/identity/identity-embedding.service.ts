@@ -123,9 +123,9 @@ export class IdentityEmbeddingService {
       if (mimeType.startsWith('video/') || ['mp4','mov','avi','mkv','webm'].includes(ext)) {
         return this.embedBinaryTail(buffer, signature, 'video');
       }
-      // Images — embed in EXIF comment (LSB already done by Layer 6)
+      // Images — embed identity in pixel LSB data (survives camera capture)
       if (mimeType.startsWith('image/') || ['png','jpg','jpeg','webp','gif','bmp'].includes(ext)) {
-        return this.embedImageComment(buffer, signature);
+        return await this.embedImageLSB(buffer, signature);
       }
       // Fallback: binary tail
       return this.embedBinaryTail(buffer, signature, 'unknown');
@@ -141,8 +141,11 @@ export class IdentityEmbeddingService {
     const doc = await PDFDocument.load(buffer, { ignoreEncryption: true });
     doc.setKeywords([signature]);
     doc.setSubject(`PINIT-DNA Protected Document`);
-    const outBuffer = Buffer.from(await doc.save());
-    return { success: true, method: 'pdf-metadata', signature, buffer: outBuffer };
+    let outBuffer = Buffer.from(await doc.save());
+    // Also append binary tail so extraction is reliable even if PDF metadata gets stripped
+    const tailMarker = Buffer.from(`\x00PINIT-DNA-SIG:${signature}:END-PINIT-DNA\x00`, 'latin1');
+    outBuffer = Buffer.concat([outBuffer, tailMarker]);
+    return { success: true, method: 'pdf-metadata+tail', signature, buffer: outBuffer };
   }
 
   // ── Office Open XML: custom.xml property ─────────────────────────────────────
@@ -223,11 +226,111 @@ export class IdentityEmbeddingService {
 
   // ── Image: embed as comment in a PNG/JPEG tEXt chunk ─────────────────────────
 
-  private embedImageComment(buffer: Buffer, signature: string): EmbedResult {
-    // For PNG: append a tEXt chunk with the signature
-    // For JPG: append a COM marker
-    // Simple approach: append as binary tail (images already have LSB from Layer 6)
-    return this.embedBinaryTail(buffer, signature, 'image');
+  private async embedImageLSB(buffer: Buffer, signature: string): Promise<EmbedResult> {
+    try {
+      const sharp = (await import('sharp')).default;
+      const { data: rawRgb, info } = await sharp(buffer)
+        .removeAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+
+      const { width, height } = info;
+      const sigBytes = Buffer.from(signature, 'utf8');
+      // Payload: [4 bytes length] + [signature bytes]
+      const lenBuf = Buffer.alloc(4);
+      lenBuf.writeUInt32BE(sigBytes.length);
+      const payload = Buffer.concat([Buffer.from('PDNA'), lenBuf, sigBytes]);
+      const totalBits = payload.length * 8;
+
+      if (width * height < totalBits) {
+        // Image too small for LSB, fallback to binary tail
+        return this.embedBinaryTail(buffer, signature, 'image');
+      }
+
+      // Embed in blue channel LSBs
+      const carrier = Buffer.from(rawRgb);
+      for (let i = 0; i < totalBits; i++) {
+        const byteIdx = Math.floor(i / 8);
+        const bitIdx = 7 - (i % 8);
+        const bit = (payload[byteIdx]! >> bitIdx) & 1;
+        const blueIdx = i * 3 + 2;
+        carrier[blueIdx] = (carrier[blueIdx]! & 0xfe) | bit;
+      }
+
+      const outBuffer = await sharp(carrier, { raw: { width, height, channels: 3 } })
+        .png()
+        .toBuffer();
+
+      // Also append binary tail as backup
+      const tailMarker = Buffer.from(`\x00PINIT-DNA-SIG:${signature}:END-PINIT-DNA\x00`, 'latin1');
+      const finalBuffer = Buffer.concat([outBuffer, tailMarker]);
+
+      return { success: true, method: 'image-lsb+tail', signature, buffer: finalBuffer };
+    } catch (err) {
+      logger.warn('[IdentityEmbed] LSB failed, falling back to binary tail', { error: String(err) });
+      return this.embedBinaryTail(buffer, signature, 'image');
+    }
+  }
+
+  // Extract identity from image LSB pixels (works on camera captures of the original)
+  async extractImageLSB(buffer: Buffer): Promise<string | null> {
+    try {
+      const sharp = (await import('sharp')).default;
+      const { data: rawRgb } = await sharp(buffer)
+        .removeAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+
+      // Read first 4 bytes (32 bits) to check for "PDNA" magic
+      const headerBits: number[] = [];
+      for (let i = 0; i < 32; i++) {
+        headerBits.push(rawRgb[i * 3 + 2]! & 1);
+      }
+      const headerBytes = Buffer.alloc(4);
+      for (let i = 0; i < 4; i++) {
+        let byte = 0;
+        for (let j = 0; j < 8; j++) byte = (byte << 1) | (headerBits[i * 8 + j] ?? 0);
+        headerBytes[i] = byte;
+      }
+
+      if (headerBytes.toString('ascii') !== 'PDNA') return null;
+
+      // Read next 4 bytes (32 bits) for signature length
+      const lenBits: number[] = [];
+      for (let i = 32; i < 64; i++) {
+        lenBits.push(rawRgb[i * 3 + 2]! & 1);
+      }
+      const lenBytes = Buffer.alloc(4);
+      for (let i = 0; i < 4; i++) {
+        let byte = 0;
+        for (let j = 0; j < 8; j++) byte = (byte << 1) | (lenBits[i * 8 + j] ?? 0);
+        lenBytes[i] = byte;
+      }
+      const sigLen = lenBytes.readUInt32BE();
+
+      if (sigLen <= 0 || sigLen > 1000) return null;
+
+      // Read signature bytes
+      const totalBits = (8 + sigLen) * 8; // header(4) + len(4) + sig
+      if (rawRgb.length / 3 < totalBits) return null;
+
+      const sigBits: number[] = [];
+      for (let i = 64; i < 64 + sigLen * 8; i++) {
+        sigBits.push(rawRgb[i * 3 + 2]! & 1);
+      }
+      const sigBytes = Buffer.alloc(sigLen);
+      for (let i = 0; i < sigLen; i++) {
+        let byte = 0;
+        for (let j = 0; j < 8; j++) byte = (byte << 1) | (sigBits[i * 8 + j] ?? 0);
+        sigBytes[i] = byte;
+      }
+
+      const sig = sigBytes.toString('utf8');
+      if (sig.startsWith(MARKER)) return sig;
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   // ── Binary tail: append to end of file ───────────────────────────────────────
@@ -248,7 +351,12 @@ export class IdentityEmbeddingService {
     const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
     const attempts: Array<() => Promise<string | null>> = [];
 
-    // Try binary tail first (works for all types)
+    // Try image LSB first (survives camera capture/screenshots)
+    if (mimeType.startsWith('image/') || ['png','jpg','jpeg','webp','gif','bmp'].includes(ext)) {
+      attempts.push(() => this.extractImageLSB(buffer));
+    }
+
+    // Binary tail (works for all types)
     attempts.push(() => Promise.resolve(this.extractBinaryTail(buffer)));
 
     // Type-specific extractors

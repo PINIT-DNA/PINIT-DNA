@@ -63,6 +63,36 @@ const LAYERS = [
     label: 'Evolution DNA',
     description: 'Merkle-tree mutation log — tracks every version of the file over time',
   },
+  {
+    number: 11,
+    icon: '🤖',
+    label: 'AI Deepfake Detection',
+    description: 'Pixel noise analysis — detects AI-generated or manipulated files',
+  },
+  {
+    number: 12,
+    icon: '🔲',
+    label: 'DCT Watermark',
+    description: 'Invisible frequency-domain watermark — survives screenshots + re-encoding',
+  },
+  {
+    number: 13,
+    icon: '⚖️',
+    label: 'Legal Chain of Custody',
+    description: 'Court-admissible evidence chain — timestamps, hashes, DMCA-ready proof',
+  },
+  {
+    number: 14,
+    icon: '🔑',
+    label: 'Zero-Knowledge Proof',
+    description: 'Prove file ownership without revealing contents — for confidential docs',
+  },
+  {
+    number: 15,
+    icon: '👤',
+    label: 'Biometric Identity Bind',
+    description: 'Binds uploader face biometric hash to file — proves the exact person',
+  },
 ];
 
 interface Props {
@@ -76,7 +106,7 @@ export function LayerPipeline({ layerStates, completedCount }: Props) {
       {/* Progress bar */}
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-gray-400 font-medium">DNA Generation Pipeline</p>
-        <span className="mono text-xs text-dna-400">{completedCount}/10 layers</span>
+        <span className="mono text-xs text-dna-400">{completedCount}/{layerStates.length} layers</span>
       </div>
 
       {/* Progress track */}
