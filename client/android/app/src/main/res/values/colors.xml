@@ -5,4 +5,6 @@
     <color name="colorAccent">#6366F1</color>
     <!-- App background — keeps the window light even in system dark mode -->
     <color name="pinitBg">#F6F8FB</color>
+    <!-- Launch splash background — navy, matches the in-app PINIT DNA splash -->
+    <color name="pinitSplash">#0A1330</color>
 </resources>

@@ -25,6 +25,7 @@ import {
   attributeLeakedFile,
   leakUploadMiddleware,
   getLinkTree,
+  previewImage,
 } from '../controllers/share-link.controller';
 
 export const shareRouter = Router();
@@ -48,6 +49,7 @@ shareRouter.get('/:token',                     getShareLinkInfo);
 shareRouter.post('/:token/access',             recordAccess);
 shareRouter.post('/:token/verify-otp',         verifyShareOtp);
 shareRouter.get('/:token/file',                serveSharedFile);
+shareRouter.get('/:token/preview.png',         previewImage);              // ── Trackable OG preview image
 shareRouter.get('/:token/masked-text',         getMaskedText);            // ── Privacy Masking — masked content
 shareRouter.post('/:token/unmask-request',     requestUnmask);            // ── Privacy Masking — request access
 shareRouter.get('/:token/unmask-status',       getUnmaskStatus);          // ── Privacy Masking — check approval

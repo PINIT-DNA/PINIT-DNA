@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getStoredShortId, getTrustScore, getLastLogin, recordLogin, clearRegistration } from '../../lib/hoid';
 import { assertDeviceCredential } from '../../lib/webauthn';
 import { touchLastLogin } from '../../lib/identity-store';
+import { warmBackend } from '../../lib/auth';
 
 type Step = 'welcome' | 'face' | 'biometric' | 'presence' | 'success';
 const ORDER: Step[] = ['welcome', 'face', 'biometric', 'presence', 'success'];
@@ -29,6 +30,9 @@ export function LoginFlow() {
   const [error, setError] = useState('');
   const go = (s: Step) => { setError(''); setStep(s); };
   const idx = ORDER.indexOf(step);
+
+  // Wake the backend as soon as the login flow opens (covers Render cold start).
+  useEffect(() => { warmBackend(); }, []);
 
   function useDifferentIdentity() {
     clearRegistration();

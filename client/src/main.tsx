@@ -4,6 +4,9 @@ import { RouterProvider } from 'react-router-dom';
 import { router } from './router';
 import { AuthProvider } from './context/AuthContext';
 import { supabase, SUPABASE_PROJECT_URL } from './lib/supabase';
+import { warmBackend } from './lib/auth';
+import { IS_NATIVE_APP } from './native/platform';
+import { NativeApp } from './native/NativeApp';
 import './index.css';
 
 // Verify the Supabase connection (project: kqdqmimdqecensurjplh) on startup.
@@ -13,10 +16,20 @@ supabase.auth.getSession()
   .then(() => console.info('[PINIT] Supabase connected:', SUPABASE_PROJECT_URL))
   .catch((e) => console.warn('[PINIT] Supabase connectivity check failed:', e?.message ?? e));
 
+// Wake the Render free-tier backend as early as possible (it sleeps when idle),
+// so it's ready by the time the registration/login flow finishes.
+warmBackend();
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <AuthProvider>
-      <RouterProvider router={router} />
-    </AuthProvider>
+    {IS_NATIVE_APP ? (
+      // APK build → separate app UI (splash → biometric/face login → dashboard)
+      <NativeApp />
+    ) : (
+      // Web build → existing UI, untouched
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>
+    )}
   </React.StrictMode>
 );

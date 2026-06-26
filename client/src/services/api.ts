@@ -7,12 +7,26 @@ import axios from 'axios';
 import type { GenerateDnaResponse } from '../types';
 import { API_BASE_URL } from '../config/api.config';
 
-const client = axios.create({ baseURL: API_BASE_URL });
+const client = axios.create({ baseURL: API_BASE_URL, timeout: 90000 });
 
 client.interceptors.request.use((config) => {
   const token = localStorage.getItem('pinit_access_token');
   if (token) config.headers = { ...config.headers, Authorization: `Bearer ${token}` } as typeof config.headers;
   return config;
+});
+
+// Retry on 5xx / network / timeout (handles Render free-tier cold starts ~50s)
+// 6 retries with 8s gaps = waits up to ~48s total, covering a full cold start.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+client.interceptors.response.use((r: any) => r, async (error: any) => {
+  const config = error.config;
+  if (!config || config._retryCount >= 6) throw error;
+  const status = error.response?.status;
+  const retryable = !status || status >= 500;
+  if (!retryable) throw error;
+  config._retryCount = (config._retryCount || 0) + 1;
+  await new Promise((r) => setTimeout(r, 8000));
+  return client.request(config);
 });
 
 /**
