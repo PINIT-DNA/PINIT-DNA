@@ -1,15 +1,20 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { FaceAuth } from '../../components/auth/FaceAuth';
 import { Dna, Shield, Fingerprint } from 'lucide-react';
 
 export function FaceLoginPage() {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const location = useLocation();
+  const [mode, setMode] = useState<'login' | 'register'>(
+    location.pathname.includes('register') ? 'register' : 'login',
+  );
   const navigate = useNavigate();
-  const handleSuccess = (data: any) => {
-    if (data.accessToken) {
+  const handleSuccess = (data: Record<string, unknown>) => {
+    if (typeof data.accessToken === 'string') {
       localStorage.setItem('pinit_access_token', data.accessToken);
-      if (data.refreshToken) localStorage.setItem('pinit_refresh_token', data.refreshToken);
+      if (typeof data.refreshToken === 'string') {
+        localStorage.setItem('pinit_refresh_token', data.refreshToken);
+      }
     }
     setTimeout(() => { window.location.href = '/'; }, 1200);
   };

@@ -15,16 +15,16 @@ import { AppError } from '../middleware/error.middleware';
 
 import { config } from '../../config';
 const JWT_SECRET = config.jwt.secret;
-const MATCH_THRESHOLD = 0.45;
+/** Login: same person across lighting/camera (face-api typical match < 0.55) */
+const LOGIN_THRESHOLD = 0.55;
+/** Register: block duplicate faces only when very close */
+const DUPLICATE_THRESHOLD = 0.42;
 
-function generateShortId(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let id = '';
-  const bytes = crypto.randomBytes(8);
-  for (let i = 0; i < 8; i++) {
-    id += chars[bytes[i]! % chars.length];
-  }
-  return `PINIT-${id}`;
+function normalizeEmbedding(embedding: number[]): number[] {
+  let norm = 0;
+  for (const v of embedding) norm += v * v;
+  norm = Math.sqrt(norm) || 1;
+  return embedding.map((v) => v / norm);
 }
 
 function euclideanDistance(a: number[], b: number[]): number {
@@ -36,18 +36,24 @@ function euclideanDistance(a: number[], b: number[]): number {
   return Math.sqrt(sum);
 }
 
-function createTokens(userId: string, shortId: string) {
+function createTokens(user: { id: string; shortId: string; fullName: string; role: string }) {
   const accessToken = jwt.sign(
-    { sub: userId, shortId, type: 'access' },
+    { sub: user.id, shortId: user.shortId, name: user.fullName, role: user.role },
     JWT_SECRET,
-    { expiresIn: '7d' }
+    { expiresIn: '7d' },
   );
-  const refreshToken = jwt.sign(
-    { sub: userId, type: 'refresh' },
-    JWT_SECRET,
-    { expiresIn: '30d' }
-  );
+  const refreshToken = jwt.sign({ sub: user.id }, JWT_SECRET, { expiresIn: '30d' });
   return { accessToken, refreshToken };
+}
+
+function generateShortId(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let id = '';
+  const bytes = crypto.randomBytes(8);
+  for (let i = 0; i < 8; i++) {
+    id += chars[bytes[i]! % chars.length];
+  }
+  return `PINIT-${id}`;
 }
 
 // ── REGISTER ────────────────────────────────────────────────────────────────
@@ -59,6 +65,8 @@ export async function faceRegister(req: Request, res: Response, next: NextFuncti
       return next(new AppError(400, 'Invalid face embedding. Must be 128-dimensional float array.'));
     }
 
+    const normalized = normalizeEmbedding(embedding as number[]);
+
     // Check if this face already exists
     const allUsers = await prisma.user.findMany({
       where: { faceRegistered: true },
@@ -67,11 +75,11 @@ export async function faceRegister(req: Request, res: Response, next: NextFuncti
 
     for (const user of allUsers) {
       if (user.faceEmbedding.length === 128) {
-        const dist = euclideanDistance(embedding, user.faceEmbedding);
-        if (dist < MATCH_THRESHOLD) {
+        const dist = euclideanDistance(normalized, normalizeEmbedding(user.faceEmbedding));
+        if (dist < DUPLICATE_THRESHOLD) {
           res.status(409).json({
             success: false,
-            message: 'This face is already registered.',
+            message: 'This face is already registered. Please login instead.',
             shortId: user.shortId,
           });
           return;
@@ -85,7 +93,7 @@ export async function faceRegister(req: Request, res: Response, next: NextFuncti
       data: {
         shortId,
         fullName: 'PINIT User',
-        faceEmbedding: embedding,
+        faceEmbedding: normalized,
         faceRegistered: true,
         faceRegisteredAt: new Date(),
         authMethod: 'face',
@@ -106,7 +114,12 @@ export async function faceRegister(req: Request, res: Response, next: NextFuncti
       },
     });
 
-    const tokens = createTokens(user.id, shortId);
+    const tokens = createTokens({
+      id: user.id,
+      shortId: user.shortId,
+      fullName: user.fullName,
+      role: user.role,
+    });
 
     // Store refresh token
     await prisma.refreshToken.create({
@@ -144,6 +157,8 @@ export async function faceLogin(req: Request, res: Response, next: NextFunction)
       return next(new AppError(400, 'Invalid face embedding. Must be 128-dimensional float array.'));
     }
 
+    const normalized = normalizeEmbedding(embedding as number[]);
+
     const allUsers = await prisma.user.findMany({
       where: { faceRegistered: true, isActive: true },
       select: {
@@ -157,7 +172,7 @@ export async function faceLogin(req: Request, res: Response, next: NextFunction)
 
     for (const user of allUsers) {
       if (user.faceEmbedding.length !== 128) continue;
-      const dist = euclideanDistance(embedding, user.faceEmbedding);
+      const dist = euclideanDistance(normalized, normalizeEmbedding(user.faceEmbedding));
       if (dist < bestDistance) {
         bestDistance = dist;
         bestMatch = user;
@@ -167,7 +182,7 @@ export async function faceLogin(req: Request, res: Response, next: NextFunction)
     const ip = req.headers['x-forwarded-for']?.toString().split(',')[0] ?? req.ip;
     const ua = req.headers['user-agent'] ?? '';
 
-    if (!bestMatch || bestDistance >= MATCH_THRESHOLD) {
+    if (!bestMatch || bestDistance >= LOGIN_THRESHOLD) {
       // Log failed attempt
       if (bestMatch) {
         await prisma.loginHistory.create({
@@ -176,7 +191,7 @@ export async function faceLogin(req: Request, res: Response, next: NextFunction)
             method: 'face_login',
             ip, userAgent: ua,
             success: false,
-            failReason: `Distance ${bestDistance.toFixed(4)} exceeds threshold ${MATCH_THRESHOLD}`,
+            failReason: `Distance ${bestDistance.toFixed(4)} exceeds threshold ${LOGIN_THRESHOLD}`,
           },
         });
       }
@@ -206,7 +221,12 @@ export async function faceLogin(req: Request, res: Response, next: NextFunction)
       },
     });
 
-    const tokens = createTokens(bestMatch.id, bestMatch.shortId);
+    const tokens = createTokens({
+      id: bestMatch.id,
+      shortId: bestMatch.shortId,
+      fullName: bestMatch.fullName,
+      role: bestMatch.role,
+    });
 
     await prisma.refreshToken.create({
       data: {
@@ -216,7 +236,7 @@ export async function faceLogin(req: Request, res: Response, next: NextFunction)
       },
     });
 
-    const confidence = Math.max(0, Math.min(100, Math.round((1 - bestDistance / MATCH_THRESHOLD) * 100)));
+    const confidence = Math.max(0, Math.min(100, Math.round((1 - bestDistance / LOGIN_THRESHOLD) * 100)));
 
     logger.info('Face login success', {
       shortId: bestMatch.shortId,
