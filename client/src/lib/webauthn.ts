@@ -36,11 +36,20 @@ export interface BiometricResult {
   simulated: boolean;
 }
 
+export interface BiometricOptions {
+  /** When true, throws instead of simulating success if WebAuthn unavailable/cancelled. */
+  strict?: boolean;
+}
+
 /** Create a FIDO2 credential bound to this device (registration). */
-export async function registerDeviceCredential(userId: string): Promise<BiometricResult> {
+export async function registerDeviceCredential(userId: string, opts: BiometricOptions = {}): Promise<BiometricResult> {
+  const { strict = false } = opts;
   try {
     const available = await platformAuthenticatorAvailable();
-    if (!available) return { ok: true, credentialId: simulatedId(), simulated: true };
+    if (!available) {
+      if (strict) throw new Error('Device biometrics unavailable. Enable Face ID or fingerprint.');
+      return { ok: true, credentialId: simulatedId(), simulated: true };
+    }
 
     const cred = (await navigator.credentials.create({
       publicKey: {
@@ -65,19 +74,29 @@ export async function registerDeviceCredential(userId: string): Promise<Biometri
       },
     })) as PublicKeyCredential | null;
 
-    if (!cred) return { ok: true, credentialId: simulatedId(), simulated: true };
+    if (!cred) {
+      if (strict) throw new Error('Biometric verification was cancelled.');
+      return { ok: true, credentialId: simulatedId(), simulated: true };
+    }
     return { ok: true, credentialId: cred.id, simulated: false };
-  } catch {
-    // User cancellation or unsupported — fall back so the flow is not blocked.
+  } catch (e) {
+    if (strict) throw e instanceof Error ? e : new Error('Biometric verification failed.');
     return { ok: true, credentialId: simulatedId(), simulated: true };
   }
 }
 
 /** Assert an existing device credential (returning-user login). */
-export async function assertDeviceCredential(): Promise<BiometricResult> {
+export async function assertDeviceCredential(
+  expectedCredentialId?: string | null,
+  opts: BiometricOptions = {},
+): Promise<BiometricResult> {
+  const { strict = false } = opts;
   try {
     const available = await platformAuthenticatorAvailable();
-    if (!available) return { ok: true, credentialId: simulatedId(), simulated: true };
+    if (!available) {
+      if (strict) throw new Error('Device biometrics unavailable. Enable Face ID or fingerprint.');
+      return { ok: true, credentialId: simulatedId(), simulated: true };
+    }
 
     const assertion = (await navigator.credentials.get({
       publicKey: {
@@ -88,9 +107,16 @@ export async function assertDeviceCredential(): Promise<BiometricResult> {
       },
     })) as PublicKeyCredential | null;
 
-    if (!assertion) return { ok: true, credentialId: simulatedId(), simulated: true };
+    if (!assertion) {
+      if (strict) throw new Error('Biometric verification was cancelled.');
+      return { ok: true, credentialId: simulatedId(), simulated: true };
+    }
+    if (expectedCredentialId && !expectedCredentialId.startsWith('sim_') && assertion.id !== expectedCredentialId) {
+      throw new Error('Device biometric does not match your registered identity.');
+    }
     return { ok: true, credentialId: assertion.id, simulated: false };
-  } catch {
+  } catch (e) {
+    if (strict) throw e instanceof Error ? e : new Error('Biometric verification failed.');
     return { ok: true, credentialId: simulatedId(), simulated: true };
   }
 }

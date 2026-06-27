@@ -19,6 +19,9 @@ const JWT_SECRET = config.jwt.secret;
 const LOGIN_THRESHOLD = 0.55;
 /** Register: block duplicate faces only when very close */
 const DUPLICATE_THRESHOLD = 0.42;
+/** Voice duplicate detection (spectral fingerprint) */
+const VOICE_DUPLICATE_THRESHOLD = 0.35;
+const VOICE_LOGIN_THRESHOLD = 0.45;
 
 function normalizeEmbedding(embedding: number[]): number[] {
   let norm = 0;
@@ -56,16 +59,54 @@ function generateShortId(): string {
   return `PINIT-${id}`;
 }
 
+function isValidFingerprint(arr: unknown, dim = 128): arr is number[] {
+  return Array.isArray(arr) && arr.length === dim && arr.every((v) => typeof v === 'number' && Number.isFinite(v));
+}
+
+async function findVoiceDuplicate(normalized: number[]): Promise<{ shortId: string } | null> {
+  const users = await prisma.user.findMany({
+    where: { voiceRegistered: true },
+    select: { shortId: true, voiceEmbedding: true },
+  });
+  for (const user of users) {
+    if (user.voiceEmbedding.length !== 128) continue;
+    const dist = euclideanDistance(normalized, normalizeEmbedding(user.voiceEmbedding));
+    if (dist < VOICE_DUPLICATE_THRESHOLD) return { shortId: user.shortId };
+  }
+  return null;
+}
+
 // ── REGISTER ────────────────────────────────────────────────────────────────
 export async function faceRegister(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { embedding } = req.body;
+    const { embedding, voiceFingerprint, webauthnCredentialId, deviceFingerprint } = req.body as {
+      embedding?: number[];
+      voiceFingerprint?: number[];
+      webauthnCredentialId?: string;
+      deviceFingerprint?: string;
+    };
 
-    if (!embedding || !Array.isArray(embedding) || embedding.length !== 128) {
+    if (!isValidFingerprint(embedding)) {
       return next(new AppError(400, 'Invalid face embedding. Must be 128-dimensional float array.'));
     }
 
-    const normalized = normalizeEmbedding(embedding as number[]);
+    const normalized = normalizeEmbedding(embedding);
+
+    // Block duplicate device fingerprint
+    if (deviceFingerprint && typeof deviceFingerprint === 'string') {
+      const existingDevice = await prisma.user.findFirst({
+        where: { deviceFingerprint, faceRegistered: true },
+        select: { shortId: true },
+      });
+      if (existingDevice) {
+        res.status(409).json({
+          success: false,
+          message: 'This device already has a registered identity. Please login instead.',
+          shortId: existingDevice.shortId,
+        });
+        return;
+      }
+    }
 
     // Check if this face already exists
     const allUsers = await prisma.user.findMany({
@@ -87,6 +128,23 @@ export async function faceRegister(req: Request, res: Response, next: NextFuncti
       }
     }
 
+    let voiceNorm: number[] | undefined;
+    if (voiceFingerprint) {
+      if (!isValidFingerprint(voiceFingerprint)) {
+        return next(new AppError(400, 'Invalid voice fingerprint. Must be 128-dimensional float array.'));
+      }
+      voiceNorm = normalizeEmbedding(voiceFingerprint);
+      const voiceDup = await findVoiceDuplicate(voiceNorm);
+      if (voiceDup) {
+        res.status(409).json({
+          success: false,
+          message: 'This voice is already registered. Please login instead.',
+          shortId: voiceDup.shortId,
+        });
+        return;
+      }
+    }
+
     // Create new user with face
     const shortId = generateShortId();
     const user = await prisma.user.create({
@@ -96,6 +154,10 @@ export async function faceRegister(req: Request, res: Response, next: NextFuncti
         faceEmbedding: normalized,
         faceRegistered: true,
         faceRegisteredAt: new Date(),
+        voiceEmbedding: voiceNorm ?? [],
+        voiceRegistered: Boolean(voiceNorm),
+        webauthnCredentialId: webauthnCredentialId ?? null,
+        deviceFingerprint: deviceFingerprint ?? null,
         authMethod: 'face',
         role: 'USER',
       },
@@ -151,13 +213,16 @@ export async function faceRegister(req: Request, res: Response, next: NextFuncti
 // ── LOGIN ───────────────────────────────────────────────────────────────────
 export async function faceLogin(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { embedding } = req.body;
+    const { embedding, voiceFingerprint } = req.body as {
+      embedding?: number[];
+      voiceFingerprint?: number[];
+    };
 
-    if (!embedding || !Array.isArray(embedding) || embedding.length !== 128) {
+    if (!isValidFingerprint(embedding)) {
       return next(new AppError(400, 'Invalid face embedding. Must be 128-dimensional float array.'));
     }
 
-    const normalized = normalizeEmbedding(embedding as number[]);
+    const normalized = normalizeEmbedding(embedding);
 
     const allUsers = await prisma.user.findMany({
       where: { faceRegistered: true, isActive: true },
@@ -203,6 +268,54 @@ export async function faceLogin(req: Request, res: Response, next: NextFunction)
         distance: bestDistance === Infinity ? null : bestDistance.toFixed(4),
       });
       return;
+    }
+
+    // Verify voice if user has voice enrolled
+    if (bestMatch && voiceFingerprint) {
+      const fullUser = await prisma.user.findUnique({
+        where: { id: bestMatch.id },
+        select: { voiceRegistered: true, voiceEmbedding: true },
+      });
+      if (fullUser?.voiceRegistered && fullUser.voiceEmbedding.length === 128) {
+        if (!isValidFingerprint(voiceFingerprint)) {
+          res.status(400).json({ success: false, matched: false, message: 'Voice verification required.' });
+          return;
+        }
+        const voiceDist = euclideanDistance(
+          normalizeEmbedding(voiceFingerprint),
+          normalizeEmbedding(fullUser.voiceEmbedding),
+        );
+        if (voiceDist >= VOICE_LOGIN_THRESHOLD) {
+          await prisma.loginHistory.create({
+            data: {
+              userId: bestMatch.id,
+              method: 'voice_login',
+              ip, userAgent: ua,
+              success: false,
+              failReason: `Voice distance ${voiceDist.toFixed(4)} exceeds threshold`,
+            },
+          });
+          res.status(200).json({
+            success: false,
+            matched: false,
+            message: 'Face matched but voice did not verify. Please try again.',
+          });
+          return;
+        }
+      }
+    } else if (bestMatch) {
+      const fullUser = await prisma.user.findUnique({
+        where: { id: bestMatch.id },
+        select: { voiceRegistered: true },
+      });
+      if (fullUser?.voiceRegistered) {
+        res.status(200).json({
+          success: false,
+          matched: false,
+          message: 'Voice verification required for this identity.',
+        });
+        return;
+      }
     }
 
     // Update last login
@@ -271,12 +384,13 @@ export async function faceStatus(req: Request, res: Response, next: NextFunction
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { faceRegistered: true, faceRegisteredAt: true, authMethod: true },
+      select: { faceRegistered: true, faceRegisteredAt: true, voiceRegistered: true, authMethod: true },
     });
 
     res.json({
       faceRegistered: user?.faceRegistered ?? false,
       faceRegisteredAt: user?.faceRegisteredAt,
+      voiceRegistered: user?.voiceRegistered ?? false,
       authMethod: user?.authMethod ?? 'password',
     });
   } catch (err) {

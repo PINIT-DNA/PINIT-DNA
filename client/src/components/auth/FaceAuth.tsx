@@ -4,9 +4,10 @@ import { RefreshCw, CheckCircle, AlertTriangle, UserPlus, LogIn } from 'lucide-r
 import { API_BASE_URL } from '../../config/api.config';
 
 interface FaceAuthProps {
-  mode: 'login' | 'register';
+  mode: 'login' | 'register' | 'capture';
+  variant?: 'standalone' | 'embedded';
   onSuccess: (data: Record<string, unknown>) => void;
-  onSwitchMode: () => void;
+  onSwitchMode?: () => void;
 }
 
 type LivenessStep = 'init' | 'detecting' | 'blink' | 'smile' | 'capture' | 'processing' | 'done' | 'error';
@@ -71,7 +72,7 @@ async function postFaceApi(path: string, body: unknown): Promise<{ ok: boolean; 
   throw lastErr ?? new Error('Face API unreachable');
 }
 
-export function FaceAuth({ mode, onSuccess, onSwitchMode }: FaceAuthProps) {
+export function FaceAuth({ mode, variant = 'standalone', onSuccess, onSwitchMode }: FaceAuthProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [modelsLoaded, setModelsLoaded] = useState(false);
@@ -124,6 +125,14 @@ export function FaceAuth({ mode, onSuccess, onSwitchMode }: FaceAuthProps) {
         for (let i = 0; i < 128; i++) avg[i] += emb[i]! / embeddingsRef.current.length;
       }
       const embedding = normalizeEmbedding(avg);
+
+      if (mode === 'capture') {
+        updateStep('done');
+        setProgress(100);
+        stopCamera();
+        onSuccess({ embedding, success: true });
+        return;
+      }
 
       const path = mode === 'register' ? '/auth/face/register' : '/auth/face/login';
       const { status, data } = await postFaceApi(path, { embedding });
@@ -261,7 +270,7 @@ export function FaceAuth({ mode, onSuccess, onSwitchMode }: FaceAuthProps) {
   };
 
   return (
-    <div className="w-full max-w-md mx-auto">
+    <div className={variant === 'embedded' ? 'w-full' : 'w-full max-w-md mx-auto'}>
       <div className="relative rounded-2xl overflow-hidden bg-black aspect-[4/3] mb-4">
         <video
           ref={videoRef}
@@ -324,22 +333,24 @@ export function FaceAuth({ mode, onSuccess, onSwitchMode }: FaceAuthProps) {
 
       {step === 'error' && (
         <div className="space-y-3">
-          <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-xl">
-            <AlertTriangle size={20} className="text-red-400" />
+          <div className={`flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-xl ${variant === 'embedded' ? '' : ''}`}>
+            <AlertTriangle size={20} className="text-red-400 shrink-0" />
             <p className="text-sm text-red-400 font-semibold">{error}</p>
           </div>
           <div className="flex gap-2">
-            <button onClick={retry} className="btn btn-primary flex-1">
+            <button onClick={retry} className={variant === 'embedded' ? 'pa-btn flex-1' : 'btn btn-primary flex-1'}>
               <RefreshCw size={14} /> Try Again
             </button>
-            <button onClick={onSwitchMode} className="btn btn-secondary flex-1">
-              {mode === 'login' ? <><UserPlus size={14} /> Register</> : <><LogIn size={14} /> Login</>}
-            </button>
+            {onSwitchMode && (
+              <button onClick={onSwitchMode} className={variant === 'embedded' ? 'pa-btn pa-btn-ghost flex-1' : 'btn btn-secondary flex-1'}>
+                {mode === 'login' ? <><UserPlus size={14} /> Register</> : <><LogIn size={14} /> Login</>}
+              </button>
+            )}
           </div>
         </div>
       )}
 
-      {step === 'done' && (
+      {step === 'done' && variant === 'standalone' && (
         <div className="flex items-center gap-3 p-4 bg-green-500/10 border border-green-500/20 rounded-xl">
           <CheckCircle size={20} className="text-green-400" />
           <p className="text-sm text-green-400 font-semibold">
@@ -348,7 +359,7 @@ export function FaceAuth({ mode, onSuccess, onSwitchMode }: FaceAuthProps) {
         </div>
       )}
 
-      {step !== 'done' && step !== 'error' && (
+      {step !== 'done' && step !== 'error' && onSwitchMode && variant === 'standalone' && (
         <button onClick={onSwitchMode} className="w-full text-center text-xs text-gray-500 hover:text-dna-400 transition mt-2">
           {mode === 'login' ? "Don't have an account? Register with face" : 'Already registered? Login with face'}
         </button>

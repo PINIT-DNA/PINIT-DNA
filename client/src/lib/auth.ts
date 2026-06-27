@@ -8,6 +8,15 @@ const BASE = `${API_BASE_URL}/auth`;
  * after ~15 min idle and the first request can 5xx / time out while it wakes).
  * Retries on network errors, timeouts, and 5xx responses.
  */
+function toApiError(e: unknown): Error {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ax = e as any;
+  const msg = ax?.response?.data?.error as string | undefined;
+  if (msg) return new Error(msg);
+  if (typeof ax?.message === 'string' && ax.message) return new Error(ax.message);
+  return new Error('Request failed. Please try again.');
+}
+
 async function postWithRetry(url: string, body?: unknown, attempts = 4): Promise<{ data: unknown }> {
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
@@ -22,7 +31,7 @@ async function postWithRetry(url: string, body?: unknown, attempts = 4): Promise
       await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
     }
   }
-  throw lastErr;
+  throw toApiError(lastErr);
 }
 
 /**
@@ -74,6 +83,19 @@ export async function apiCreateAccount(): Promise<AuthUser> {
   return parseJwt(accessToken)!;
 }
 
+/** Check shortId against the server without persisting tokens (login pre-flight). */
+export async function apiVerifyShortId(shortId: string): Promise<{ valid: boolean; error?: string }> {
+  try {
+    await axios.post(`${BASE}/login`, { shortId }, { timeout: 70000 });
+    return { valid: true };
+  } catch (e: unknown) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const status = (e as any)?.response?.status as number | undefined;
+    if (status === 401) return { valid: false, error: toApiError(e).message };
+    throw toApiError(e);
+  }
+}
+
 export async function apiLogin(shortId: string): Promise<AuthUser> {
   const res = await postWithRetry(`${BASE}/login`, { shortId });
   const { accessToken, refreshToken } = (res.data as any).data;
@@ -99,4 +121,11 @@ export async function refreshAccessToken(): Promise<string | null> {
     clearTokens();
     return null;
   }
+}
+
+/** Apply tokens returned from face register/login endpoints. */
+export function applyFaceAuthTokens(data: { accessToken?: string; refreshToken?: string }): AuthUser | null {
+  if (!data.accessToken) return null;
+  saveTokens(data.accessToken, data.refreshToken ?? '');
+  return parseJwt(data.accessToken);
 }

@@ -334,6 +334,10 @@ model User {
   faceEmbedding      Float[]          @default([])
   faceRegistered     Boolean          @default(false)
   faceRegisteredAt   DateTime?
+  voiceEmbedding     Float[]          @default([])
+  voiceRegistered    Boolean          @default(false)
+  webauthnCredentialId String?
+  deviceFingerprint  String?
   authMethod         String           @default("password")
 
   certificates       Certificate[]

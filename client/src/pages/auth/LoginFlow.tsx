@@ -1,19 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ScanFace, Fingerprint, ShieldCheck, ArrowRight, CheckCircle2, UserCheck } from 'lucide-react';
+import { ScanFace, Fingerprint, Mic, ArrowRight, CheckCircle2, UserCheck } from 'lucide-react';
 
 import { AuthShell } from '../../components/auth/AuthShell';
-import { CameraStage } from '../../components/auth/CameraStage';
-import { StepHead, Checklist, SystemTrace, TrustBadge, type CheckItem } from '../../components/auth/parts';
+import { FaceAuth } from '../../components/auth/FaceAuth';
+import { StepHead, TrustBadge } from '../../components/auth/parts';
 import { useAuth } from '../../context/AuthContext';
-import { getStoredShortId, getTrustScore, getLastLogin, recordLogin, clearRegistration } from '../../lib/hoid';
+import {
+  getTrustScore, getLastLogin, recordLogin, clearRegistration,
+  saveRegistration, getStoredWebAuthnCredential, generateHoid,
+} from '../../lib/hoid';
 import { assertDeviceCredential } from '../../lib/webauthn';
 import { touchLastLogin } from '../../lib/identity-store';
 import { warmBackend } from '../../lib/auth';
+import { loginWithFace } from '../../lib/face-api-client';
+import { captureVoiceFingerprint } from '../../lib/voice-fingerprint';
+import { collectFingerprint } from '../../lib/device-fingerprint';
 
-type Step = 'welcome' | 'face' | 'biometric' | 'presence' | 'success';
-const ORDER: Step[] = ['welcome', 'face', 'biometric', 'presence', 'success'];
+type Step = 'welcome' | 'face' | 'voice' | 'biometric' | 'success';
+const ORDER: Step[] = ['welcome', 'face', 'voice', 'biometric', 'success'];
 
 const fade = {
   initial: { opacity: 0, y: 16 },
@@ -24,14 +30,15 @@ const fade = {
 
 export function LoginFlow() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { loginWithFaceResponse } = useAuth();
 
   const [step, setStep] = useState<Step>('welcome');
   const [error, setError] = useState('');
+  const faceEmbeddingRef = useRef<number[] | null>(null);
+
   const go = (s: Step) => { setError(''); setStep(s); };
   const idx = ORDER.indexOf(step);
 
-  // Wake the backend as soon as the login flow opens (covers Render cold start).
   useEffect(() => { warmBackend(); }, []);
 
   function useDifferentIdentity() {
@@ -43,32 +50,77 @@ export function LoginFlow() {
     <AuthShell steps={ORDER.length} current={idx} tagline="Verify Your Presence">
       <AnimatePresence mode="wait">
         <motion.div key={step} {...fade}>
-          {step === 'welcome'   && <WelcomeBack onNext={() => go('face')} onSwitch={useDifferentIdentity} />}
-          {step === 'face'      && <FaceAuth onNext={() => go('biometric')} />}
-          {step === 'biometric' && <BiometricConfirm onNext={() => go('presence')} />}
-          {step === 'presence'  && (
-            <Presence
+          {step === 'welcome' && (
+            <WelcomeBack
+              onNext={() => go('face')}
+              onSwitch={useDifferentIdentity}
+            />
+          )}
+          {step === 'face' && (
+            <div className="pa-card">
+              <StepHead icon={<ScanFace size={26} color="#6366f1" />} title="Face Authentication" subtitle="Look at the camera — blink and smile when prompted." />
+              <FaceAuth
+                mode="capture"
+                variant="embedded"
+                onSuccess={(data) => {
+                  const emb = data.embedding as number[] | undefined;
+                  if (!emb?.length) {
+                    setError('Face capture failed.');
+                    return;
+                  }
+                  faceEmbeddingRef.current = emb;
+                  go('voice');
+                }}
+              />
+              {error && <p style={{ color: '#fca5a5', fontSize: 13, marginTop: 12, textAlign: 'center' }}>{error}</p>}
+            </div>
+          )}
+          {step === 'voice' && (
+            <VoiceLogin
               error={error}
-              run={async () => {
-                const shortId = getStoredShortId();
-                if (!shortId) throw new Error('No identity bound to this device.');
-                await login(shortId);
-                recordLogin();
-                await touchLastLogin(shortId);
+              onDone={async (voiceFp) => {
+                const embedding = faceEmbeddingRef.current;
+                if (!embedding) throw new Error('Face data missing.');
+                const result = await loginWithFace({
+                  embedding,
+                  voiceFingerprint: voiceFp,
+                });
+                loginWithFaceResponse(result);
+                const shortId = result.user?.shortId ?? '';
+                if (shortId) {
+                  let deviceFp = '';
+                  try { deviceFp = (await collectFingerprint()).hash; } catch { /* noop */ }
+                  saveRegistration({
+                    hoid: generateHoid(deviceFp),
+                    shortId,
+                    trustScore: getTrustScore(),
+                    deviceFp,
+                    webauthnCredentialId: getStoredWebAuthnCredential() ?? undefined,
+                  });
+                  recordLogin();
+                  await touchLastLogin(shortId);
+                }
+                go('biometric');
               }}
-              onDone={() => go('success')}
               onError={(m) => setError(m)}
               onSwitch={useDifferentIdentity}
             />
           )}
-          {step === 'success'   && <LoginSuccess onEnter={() => navigate('/', { replace: true })} />}
+          {step === 'biometric' && (
+            <BiometricConfirm
+              error={error}
+              onNext={() => go('success')}
+              onError={(m) => setError(m)}
+              onSwitch={useDifferentIdentity}
+            />
+          )}
+          {step === 'success' && <LoginSuccess onEnter={() => navigate('/', { replace: true })} />}
         </motion.div>
       </AnimatePresence>
     </AuthShell>
   );
 }
 
-/* ── Screen 1 — Welcome Back ──────────────────────────────────────────────── */
 function WelcomeBack({ onNext, onSwitch }: { onNext: () => void; onSwitch: () => void }) {
   return (
     <div className="pa-card" style={{ textAlign: 'center' }}>
@@ -77,51 +129,75 @@ function WelcomeBack({ onNext, onSwitch }: { onNext: () => void; onSwitch: () =>
       </div>
       <h1 style={{ fontSize: 23, fontWeight: 800 }}>Welcome Back</h1>
       <p className="pa-muted" style={{ fontSize: 14, marginTop: 8, marginBottom: 22 }}>
-        Verify your presence to continue.
+        Verify your face, voice, and device to sign in.
       </p>
       <button className="pa-btn" onClick={onNext}><ScanFace size={17} /> Verify Identity</button>
       <button className="pa-btn pa-btn-ghost" style={{ marginTop: 10 }} onClick={onSwitch}>
-        Use a different identity
+        Register a new identity
       </button>
     </div>
   );
 }
 
-/* ── Screen 2 — Face Authentication ───────────────────────────────────────── */
-function FaceAuth({ onNext }: { onNext: () => void }) {
+function VoiceLogin({
+  onDone, onError, onSwitch, error,
+}: {
+  onDone: (fp: number[]) => Promise<void>;
+  onError: (m: string) => void;
+  onSwitch: () => void;
+  error: string;
+}) {
+  const [recording, setRecording] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [done, setDone] = useState(false);
-  const advancedRef = useRef(false);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    const iv = setInterval(() => setProgress((p) => Math.min(100, p + 4)), 65);
-    return () => clearInterval(iv);
-  }, []);
-
-  // `done` is intentionally NOT a dependency (see RegistrationFlow FaceEnroll).
-  useEffect(() => {
-    if (progress >= 100 && !advancedRef.current) {
-      advancedRef.current = true;
-      setDone(true);
-      const t = setTimeout(onNext, 850);
-      return () => clearTimeout(t);
+  async function start() {
+    setRecording(true);
+    setBusy(true);
+    setProgress(0);
+    try {
+      const fp = await captureVoiceFingerprint(setProgress);
+      await onDone(fp);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Voice verification failed.');
+      setRecording(false);
+    } finally {
+      setBusy(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [progress, onNext]);
+  }
 
   return (
     <div className="pa-card">
-      <StepHead icon={<ScanFace size={26} color="#6366f1" />} title="Face Authentication" subtitle="Look at the camera." />
-      <CameraStage active progress={progress} done={done} />
-      <p className="pa-accent mono" style={{ textAlign: 'center', fontSize: 12.5, marginTop: 16, lineHeight: 1.9 }}>
-        {done ? 'Face matched ✓' : 'Face scan · matching · liveness · deepfake check…'}
-      </p>
+      <StepHead icon={<Mic size={26} color="#6366f1" />} title="Voice Verification" subtitle="Confirm your voice to complete login." />
+      <div style={{ margin: '4px 0 18px', padding: '18px 16px', borderRadius: 14, textAlign: 'center', background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.22)', fontSize: 17, fontWeight: 600, color: '#3730a3', fontStyle: 'italic' }}>
+        “My digital identity belongs only to me.”
+      </div>
+      {recording && (
+        <p className="pa-accent mono" style={{ textAlign: 'center', fontSize: 12.5, marginBottom: 14 }}>
+          Verifying voiceprint · {Math.round(progress)}%
+        </p>
+      )}
+      {error && (
+        <div style={{ marginBottom: 14, textAlign: 'center' }}>
+          <p style={{ color: '#fca5a5', fontSize: 13 }}>{error}</p>
+          <button className="pa-btn pa-btn-ghost" style={{ marginTop: 10 }} onClick={onSwitch}>Register instead</button>
+        </div>
+      )}
+      {!recording && !busy && (
+        <button className="pa-btn" onClick={start}><Mic size={16} /> Verify Voice &amp; Sign In</button>
+      )}
     </div>
   );
 }
 
-/* ── Screen 3 — Device Biometric ──────────────────────────────────────────── */
-function BiometricConfirm({ onNext }: { onNext: () => void }) {
+function BiometricConfirm({
+  onNext, onError, onSwitch, error,
+}: {
+  onNext: () => void;
+  onError: (m: string) => void;
+  onSwitch: () => void;
+  error: string;
+}) {
   const [busy, setBusy] = useState(false);
   const ran = useRef(false);
 
@@ -130,65 +206,28 @@ function BiometricConfirm({ onNext }: { onNext: () => void }) {
     ran.current = true;
     (async () => {
       setBusy(true);
-      await assertDeviceCredential();
-      setBusy(false);
-      setTimeout(onNext, 400);
+      try {
+        const expected = getStoredWebAuthnCredential();
+        await assertDeviceCredential(expected, { strict: Boolean(expected && !expected.startsWith('sim_')) });
+        setBusy(false);
+        setTimeout(onNext, 400);
+      } catch (e) {
+        onError(e instanceof Error ? e.message : 'Device biometric failed.');
+        setBusy(false);
+      }
     })();
-  }, [onNext]);
+  }, [onNext, onError]);
 
   return (
     <div className="pa-card" style={{ textAlign: 'center' }}>
-      <StepHead icon={<Fingerprint size={26} color="#6366f1" />} title="Confirm Identity" subtitle="Use Face ID or Fingerprint" />
+      <StepHead icon={<Fingerprint size={26} color="#6366f1" />} title="Confirm Device" subtitle="Use Face ID or Fingerprint" />
       <div style={{ display: 'flex', justifyContent: 'center', margin: '10px 0 18px' }}>
         <div className={busy ? 'pa-spin' : 'pa-pop'} style={{ width: 92, height: 92, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at 50% 30%, rgba(129,140,248,0.35), rgba(99,102,241,0.08))', border: '1px solid rgba(129,140,248,0.4)' }}>
           <Fingerprint size={44} color="#6366f1" />
         </div>
       </div>
-      <p className="pa-faint mono" style={{ fontSize: 11.5, lineHeight: 1.9 }}>
-        WebAuthn Assertion · Secure Enclave · FIDO2
-      </p>
-    </div>
-  );
-}
-
-/* ── Screen 4 — Presence Verification ─────────────────────────────────────── */
-function Presence({
-  run, onDone, onError, onSwitch, error,
-}: {
-  run: () => Promise<void>;
-  onDone: () => void;
-  onError: (m: string) => void;
-  onSwitch: () => void;
-  error: string;
-}) {
-  const [items, setItems] = useState<CheckItem[]>([
-    { label: 'Face Match', done: false },
-    { label: 'Voice Profile', done: false },
-    { label: 'Device Signature', done: false },
-    { label: 'Presence Certificate', done: false },
-    { label: 'Trust Score', done: false },
-  ]);
-  const ran = useRef(false);
-
-  useEffect(() => {
-    if (ran.current) return;
-    ran.current = true;
-    items.forEach((_, i) =>
-      setTimeout(() => setItems((prev) => prev.map((it, j) => (j <= i ? { ...it, done: true } : it))), 420 * (i + 1))
-    );
-    run()
-      .then(() => setTimeout(onDone, 2600))
-      .catch((e) => onError(e?.message || 'Verification failed.'));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  return (
-    <div className="pa-card">
-      <StepHead icon={<ShieldCheck size={26} color="#6366f1" />} title="Presence Verification" subtitle="Validating your identity signals…" />
-      <Checklist items={items} />
-      <SystemTrace lines={['Validate Face Match', 'Verify Device Signature', 'Check Presence Certificate', 'Compute Trust Score']} />
       {error && (
-        <div style={{ marginTop: 14, textAlign: 'center' }}>
+        <div style={{ marginTop: 10 }}>
           <p style={{ color: '#fca5a5', fontSize: 13 }}>{error}</p>
           <button className="pa-btn pa-btn-ghost" style={{ marginTop: 10 }} onClick={onSwitch}>Register a new identity</button>
         </div>
@@ -197,7 +236,6 @@ function Presence({
   );
 }
 
-/* ── Screen 5 — Login Success ─────────────────────────────────────────────── */
 function LoginSuccess({ onEnter }: { onEnter: () => void }) {
   const last = getLastLogin();
   const lastStr = last
