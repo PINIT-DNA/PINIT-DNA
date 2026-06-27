@@ -1,7 +1,8 @@
 import { useRef } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { FaceLoginPage } from './FaceLoginPage';
+import { LoginFlow } from './LoginFlow';
+import { RegistrationFlow } from './RegistrationFlow';
 
 function Booting() {
   return (
@@ -23,12 +24,12 @@ export function PinitGateway() {
   const wasAuthed = useWasAuthedOnMount();
   if (wasAuthed === null) return <Booting />;
   if (wasAuthed) return <Navigate to="/" replace />;
-  return <FaceLoginPage />;
+  return <LoginFlow />;
 }
 
 export function RegisterGateway() {
   const wasAuthed = useWasAuthedOnMount();
   if (wasAuthed === null) return <Booting />;
   if (wasAuthed) return <Navigate to="/" replace />;
-  return <FaceLoginPage />;
+  return <RegistrationFlow />;
 }
