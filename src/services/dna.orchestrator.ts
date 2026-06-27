@@ -19,6 +19,7 @@ import { SemanticLayer } from './layers/layer4.semantic';
 import { MetadataLayer } from './layers/layer5.metadata';
 import { SteganographyLayer } from './layers/layer6.steganography';
 import { processAdvancedLayers } from './layers/layers-11-15.service';
+import { TOTAL_DNA_LAYERS } from '../constants/dna-layers';
 import { BehavioralLayer } from './layers/layer7.behavioral';
 import { RelationshipLayer } from './layers/layer8.relationship';
 import { OriginLayer } from './layers/layer9.origin';
@@ -73,6 +74,7 @@ export class DnaOrchestrator {
       ip?: string;
       country?: string;
       city?: string;
+      ownerUserId?: string;
     }
   ): Promise<DnaGenerationResult> {
     const pipelineStart = Date.now();
@@ -98,6 +100,7 @@ export class DnaOrchestrator {
         schemaVersion:   config.dna.schemaVersion,
         status:          'PENDING',
         sha256Hash,
+        ownerUserId:     universalCtx?.ownerUserId ?? null,
         // Universal engine fields (null-safe for legacy callers)
         fileType:        universalCtx?.fileType    ?? null,
         engineVersion:   universalCtx?.engineVersion ?? null,
@@ -177,10 +180,8 @@ export class DnaOrchestrator {
     ];
 
     const successCount = allLayers.filter((l) => l.success).length;
-    const status =
-      successCount === 10 ? 'COMPLETE' : successCount > 0 ? 'PARTIAL' : 'FAILED';
 
-    // ── Persist all layers ────────────────────────────────────────────────────
+    // ── Persist layers 1–10 ───────────────────────────────────────────────────
     await this.persist(dnaRecordId, {
       crypto:       cryptoResult       as CryptoLayerResult,
       structural:   structuralResult   as StructuralLayerResult,
@@ -192,22 +193,44 @@ export class DnaOrchestrator {
       relationship: relationshipResult as RelationshipLayerResult,
       origin:       originResult       as OriginLayerResult,
       evolution:    evolutionResult    as EvolutionLayerResult,
-      status,
+      status:       'PROCESSING',
     });
 
-    // ── Layers 11-15: Advanced (run in parallel, non-blocking) ──────────────
-    const ownerUserId = (await prisma.dnaRecord.findUnique({ where: { id: dnaRecordId }, select: { ownerUserId: true } }))?.ownerUserId;
+    // ── Layers 11–15: Advanced protection (awaited — part of full pipeline) ───
+    let advancedSuccessful = 0;
+    const ownerUserId = universalCtx?.ownerUserId;
     if (ownerUserId) {
-      processAdvancedLayers(dnaRecordId, image.buffer, image.mimeType, ownerUserId, image.originalName)
-        .catch(err => logger.warn('Advanced layers (11-15) failed', { error: String(err) }));
+      const advanced = await processAdvancedLayers(
+        dnaRecordId,
+        image.buffer,
+        image.mimeType,
+        ownerUserId,
+        image.originalName,
+      );
+      advancedSuccessful = advanced.successful;
+    } else {
+      logger.warn('Layers 11–15 skipped — no ownerUserId on DNA record', { dnaRecordId });
     }
+
+    const totalSuccessful = successCount + advancedSuccessful;
+    const status =
+      totalSuccessful === TOTAL_DNA_LAYERS ? 'COMPLETE'
+        : totalSuccessful > 0 ? 'PARTIAL'
+        : 'FAILED';
+
+    await prisma.dnaRecord.update({
+      where: { id: dnaRecordId },
+      data: { status },
+    });
 
     const totalMs = Date.now() - pipelineStart;
 
     logger.info('DNA generation complete (15 layers)', {
       dnaRecordId,
       status,
-      successCount,
+      coreLayers: successCount,
+      advancedLayers: advancedSuccessful,
+      totalSuccessful,
       totalMs,
     });
 
@@ -240,6 +263,11 @@ export class DnaOrchestrator {
       status,
       totalProcessingMs: totalMs,
       generatedAt: new Date(),
+      layerSummary: {
+        total: TOTAL_DNA_LAYERS,
+        successful: totalSuccessful,
+        failed: TOTAL_DNA_LAYERS - totalSuccessful,
+      },
     };
   }
 
@@ -277,7 +305,7 @@ export class DnaOrchestrator {
       relationship: RelationshipLayerResult;
       origin:       OriginLayerResult;
       evolution:    EvolutionLayerResult;
-      status:       'COMPLETE' | 'PARTIAL' | 'FAILED';
+      status:       'COMPLETE' | 'PARTIAL' | 'FAILED' | 'PROCESSING';
     }
   ): Promise<void> {
     await prisma.$transaction(async (tx) => {

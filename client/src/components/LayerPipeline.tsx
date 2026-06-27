@@ -114,7 +114,7 @@ export function LayerPipeline({ layerStates, completedCount }: Props) {
         <motion.div
           className="h-1.5 rounded-full bg-gradient-to-r from-dna-600 to-dna-400"
           initial={{ width: '0%' }}
-          animate={{ width: `${(completedCount / 10) * 100}%` }}
+          animate={{ width: `${(completedCount / layerStates.length) * 100}%` }}
           transition={{ duration: 0.5, ease: 'easeOut' }}
         />
       </div>

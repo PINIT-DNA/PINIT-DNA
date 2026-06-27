@@ -21,7 +21,7 @@ export async function processLayer11(
   dnaRecordId: string,
   buffer: Buffer,
   mimeType: string
-): Promise<void> {
+): Promise<boolean> {
   const start = Date.now();
   try {
     let deepfakeScore = 0;
@@ -66,8 +66,10 @@ export async function processLayer11(
       flagged: deepfakeScore > 70,
       ms: Date.now() - start,
     });
+    return true;
   } catch (err) {
     logger.error('Layer 11 failed', { dnaRecordId, error: String(err) });
+    return false;
   }
 }
 
@@ -140,7 +142,7 @@ export async function processLayer12(
   _buffer: Buffer,
   mimeType: string,
   ownerUserId: string
-): Promise<void> {
+): Promise<boolean> {
   const start = Date.now();
   try {
     // Create a watermark payload from owner ID + timestamp
@@ -172,8 +174,10 @@ export async function processLayer12(
     logger.info('Layer 12 — DCT watermark complete', {
       dnaRecordId, method, strength, ms: Date.now() - start,
     });
+    return true;
   } catch (err) {
     logger.error('Layer 12 failed', { dnaRecordId, error: String(err) });
+    return false;
   }
 }
 
@@ -187,7 +191,7 @@ export async function processLayer13(
   buffer: Buffer,
   ownerUserId: string,
   filename: string
-): Promise<void> {
+): Promise<boolean> {
   const start = Date.now();
   try {
     const fileHash = crypto.createHash('sha256').update(buffer).digest('hex');
@@ -226,8 +230,10 @@ export async function processLayer13(
     logger.info('Layer 13 — Legal custody chain created', {
       dnaRecordId, evidenceHash: evidenceHash.slice(0, 16), ms: Date.now() - start,
     });
+    return true;
   } catch (err) {
     logger.error('Layer 13 failed', { dnaRecordId, error: String(err) });
+    return false;
   }
 }
 
@@ -241,7 +247,7 @@ export async function processLayer14(
   dnaRecordId: string,
   buffer: Buffer,
   ownerUserId: string
-): Promise<void> {
+): Promise<boolean> {
   const start = Date.now();
   try {
     const fileHash = crypto.createHash('sha256').update(buffer).digest('hex');
@@ -286,8 +292,10 @@ export async function processLayer14(
     logger.info('Layer 14 — ZK proof created', {
       dnaRecordId, publicKey: publicKey.slice(0, 16), ms: Date.now() - start,
     });
+    return true;
   } catch (err) {
     logger.error('Layer 14 failed', { dnaRecordId, error: String(err) });
+    return false;
   }
 }
 
@@ -299,7 +307,7 @@ export async function processLayer14(
 export async function processLayer15(
   dnaRecordId: string,
   ownerUserId: string
-): Promise<void> {
+): Promise<boolean> {
   const start = Date.now();
   try {
     // Fetch user's face embedding
@@ -321,7 +329,7 @@ export async function processLayer15(
         },
       });
       logger.info('Layer 15 — No biometric available', { dnaRecordId });
-      return;
+      return true;
     }
 
     // Convert face embedding to a deterministic hash
@@ -347,13 +355,21 @@ export async function processLayer15(
       biometricHash: biometricHash.slice(0, 16),
       ms: Date.now() - start,
     });
+    return true;
   } catch (err) {
     logger.error('Layer 15 failed', { dnaRecordId, error: String(err) });
+    return false;
   }
 }
 
+export interface AdvancedLayersResult {
+  successful: number;
+  failed: number;
+  completedLayers: number[];
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
-// PROCESS ALL 5 LAYERS (called after DNA generation)
+// PROCESS ALL 5 LAYERS (L11–L15) — awaited as part of the full 15-layer pipeline
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function processAdvancedLayers(
   dnaRecordId: string,
@@ -361,22 +377,23 @@ export async function processAdvancedLayers(
   mimeType: string,
   ownerUserId: string,
   filename: string
-): Promise<{ success: boolean; layers: number[] }> {
-  const results: number[] = [];
+): Promise<AdvancedLayersResult> {
+  const settled = await Promise.all([
+    processLayer11(dnaRecordId, buffer, mimeType),
+    processLayer12(dnaRecordId, buffer, mimeType, ownerUserId),
+    processLayer13(dnaRecordId, buffer, ownerUserId, filename),
+    processLayer14(dnaRecordId, buffer, ownerUserId),
+    processLayer15(dnaRecordId, ownerUserId),
+  ]);
 
-  try {
-    await Promise.allSettled([
-      processLayer11(dnaRecordId, buffer, mimeType).then(() => results.push(11)),
-      processLayer12(dnaRecordId, buffer, mimeType, ownerUserId).then(() => results.push(12)),
-      processLayer13(dnaRecordId, buffer, ownerUserId, filename).then(() => results.push(13)),
-      processLayer14(dnaRecordId, buffer, ownerUserId).then(() => results.push(14)),
-      processLayer15(dnaRecordId, ownerUserId).then(() => results.push(15)),
-    ]);
+  const completedLayers = [11, 12, 13, 14, 15].filter((_, i) => settled[i]);
+  const successful = completedLayers.length;
 
-    logger.info('Layers 11-15 complete', { dnaRecordId, completed: results.sort() });
-    return { success: true, layers: results.sort() };
-  } catch (err) {
-    logger.error('Advanced layers failed', { dnaRecordId, error: String(err) });
-    return { success: false, layers: results };
-  }
+  logger.info('Layers 11-15 complete', { dnaRecordId, successful, completedLayers });
+
+  return {
+    successful,
+    failed: 5 - successful,
+    completedLayers,
+  };
 }

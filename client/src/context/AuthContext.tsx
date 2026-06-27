@@ -39,7 +39,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   function loginWithFaceResponse(data: { accessToken?: string; refreshToken?: string }) {
     const u = applyFaceAuthTokens(data);
-    if (u) setUser(u);
+    if (u) {
+      setUser(u);
+    } else if (data.accessToken) {
+      const parsed = parseJwt(data.accessToken);
+      if (parsed) setUser(parsed);
+    }
   }
 
   async function logout() {

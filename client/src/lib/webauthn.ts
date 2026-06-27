@@ -30,6 +30,23 @@ export async function platformAuthenticatorAvailable(): Promise<boolean> {
   }
 }
 
+/** Phone/tablet — fingerprint / Face ID required when available. */
+export function isMobileDevice(): boolean {
+  const ua = navigator.userAgent;
+  if (/Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|IEMobile|Opera Mini/i.test(ua)) return true;
+  return navigator.maxTouchPoints > 1 && window.innerWidth < 900;
+}
+
+/** Laptops/desktops: face + voice only. Mobile app: also bind device biometrics. */
+export function biometricStrictMode(): boolean {
+  return isMobileDevice();
+}
+
+export async function shouldUseDeviceBiometric(): Promise<boolean> {
+  if (!biometricStrictMode()) return false;
+  return platformAuthenticatorAvailable();
+}
+
 export interface BiometricResult {
   ok: boolean;
   credentialId: string;
@@ -124,4 +141,9 @@ export async function assertDeviceCredential(
 function simulatedId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(8));
   return 'sim_' + Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Laptop/desktop skip — face + voice are the primary keys on web. */
+export function laptopBiometricSkip(): BiometricResult {
+  return { ok: true, credentialId: simulatedId(), simulated: true };
 }

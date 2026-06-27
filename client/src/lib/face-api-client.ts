@@ -42,7 +42,7 @@ export async function registerFaceIdentity(payload: {
 }): Promise<FaceAuthResponse> {
   const { status, data } = await postFace('/register', payload);
   if (status === 409 || data.success === false) {
-    throw new Error(data.message ?? 'This identity is already registered.');
+    throw new Error(data.message ?? 'This biometric identity already exists. Please sign in using your existing identity.');
   }
   if (!data.accessToken) throw new Error('Registration failed. Please try again.');
   return data;
@@ -51,10 +51,12 @@ export async function registerFaceIdentity(payload: {
 export async function loginWithFace(payload: {
   embedding: number[];
   voiceFingerprint?: number[];
+  webauthnCredentialId?: string;
+  deviceFingerprint?: string;
 }): Promise<FaceAuthResponse> {
   const { data } = await postFace('/login', payload);
   if (data.success !== true || data.matched === false) {
-    throw new Error(data.message ?? 'Face not recognized. Register first or try again.');
+    throw new Error(data.message ?? 'No identity found. Please register.');
   }
   if (!data.accessToken) throw new Error('Login failed. Please try again.');
   return data;

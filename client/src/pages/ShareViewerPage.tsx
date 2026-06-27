@@ -13,6 +13,7 @@ import { Shield, Lock, Download, Eye, AlertTriangle, CheckCircle2, Clock, Ban } 
 import axios from 'axios';
 import { format } from 'date-fns';
 import { API_BASE_URL } from '../config/api.config';
+import { isValidMapCoordinate } from '../lib/geo-coords';
 import * as docxPreview from 'docx-preview';
 import { formatTextAsDocument, DOCUMENT_STYLES } from '../utils/document-formatter';
 
@@ -88,6 +89,41 @@ function computeDeviceFingerprint(): string {
 
 function getScreenResolution(): string {
   try { return `${screen.width}x${screen.height}`; } catch { return ''; }
+}
+
+type GpsCapture = {
+  lat: number; lng: number; accuracy: number; timestamp: string;
+  city?: string; village?: string; mandal?: string; district?: string;
+  state?: string; pincode?: string; fullAddress?: string;
+};
+
+function buildGpsPayload(gps: GpsCapture | null, requestLocation?: boolean) {
+  if (gps && isValidMapCoordinate(gps.lat, gps.lng)) {
+    return {
+      gpsLat: gps.lat,
+      gpsLng: gps.lng,
+      gpsAccuracy: gps.accuracy,
+      gpsCity: gps.city ?? gps.village,
+      gpsTimestamp: gps.timestamp,
+      gpsVillage: gps.village,
+      gpsMandal: gps.mandal,
+      gpsDistrict: gps.district,
+      gpsState: gps.state,
+      gpsPincode: gps.pincode,
+      gpsFullAddress: gps.fullAddress,
+      locationShared: true,
+      locationSource: 'gps' as const,
+    };
+  }
+  if (requestLocation) return { locationShared: false, locationSource: 'denied' as const };
+  return {};
+}
+
+function shareTrackingHeaders() {
+  return {
+    'X-PINIT-Session': getSessionId(),
+    'X-PINIT-Fingerprint': computeDeviceFingerprint(),
+  };
 }
 
 export function ShareViewerPage() {
@@ -223,30 +259,12 @@ export function ShareViewerPage() {
     const fingerprint = computeDeviceFingerprint();
 
     const track = (action: string, extra?: Record<string, string>) => {
-      // Always read GPS from ref so we get the latest value even if state
-      // updated after this closure was created (ref is always current)
       const gps = gpsDataRef.current;
       return axios.post(`${API_BASE_URL}/share/${token}/access`, {
         action, recipientName: nameRef.current || undefined,
         timezone: tz, sessionId: sid,
         screenResolution: screenRes, deviceFingerprint: fingerprint,
-        // GPS — send on VIEWED only if captured
-        ...(action === 'VIEWED' && gps ? {
-          gpsLat:         gps.lat,
-          gpsLng:         gps.lng,
-          gpsAccuracy:    gps.accuracy,
-          gpsCity:        gps.city ?? gps.village,
-          gpsTimestamp:   gps.timestamp,
-          gpsVillage:     gps.village,
-          gpsMandal:      gps.mandal,
-          gpsDistrict:    gps.district,
-          gpsState:       gps.state,
-          gpsPincode:     gps.pincode,
-          gpsFullAddress: gps.fullAddress,
-          locationShared: true,
-          locationSource: 'gps',
-        } : {}),
-        ...(action === 'VIEWED' && !gps && info?.requestLocation ? { locationShared: false } : {}),
+        ...buildGpsPayload(gps, info?.requestLocation),
         ...extra,
       }).catch((err) => {
         // eslint-disable-next-line no-console
@@ -433,6 +451,7 @@ export function ShareViewerPage() {
     try {
       const resp = await axios.get<Blob>(`${API_BASE_URL}/share/${token}/file`, {
         responseType: 'blob',
+        headers: shareTrackingHeaders(),
       });
       const url = URL.createObjectURL(resp.data);
       const a   = document.createElement('a');
@@ -444,6 +463,9 @@ export function ShareViewerPage() {
         action: 'DOWNLOADED', recipientName: name || undefined,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         sessionId: getSessionId(),
+        screenResolution: getScreenResolution(),
+        deviceFingerprint: computeDeviceFingerprint(),
+        ...buildGpsPayload(gpsDataRef.current, info?.requestLocation),
       }).catch(() => {});
     } catch {
       alert('Download failed. The file may have been removed.');
@@ -461,7 +483,10 @@ export function ShareViewerPage() {
     if (info.requireName && !nameSubmitted) return;
     if (fileLoadedRef.current) return;   // already loaded — don't re-fetch on info updates
     fileLoadedRef.current = true;
-    axios.get<Blob>(`${API_BASE_URL}/share/${token}/file`, { responseType: 'blob' })
+    axios.get<Blob>(`${API_BASE_URL}/share/${token}/file`, {
+      responseType: 'blob',
+      headers: shareTrackingHeaders(),
+    })
       .then(({ data }) => {
         fileBlobRef.current = data;
         const url = URL.createObjectURL(data);

@@ -48,6 +48,7 @@ model DnaRecord {
   custodyLayer          CustodyLayer?
   zkProofLayer          ZkProofLayer?
   biometricBindLayer    BiometricBindLayer?
+  trackedExports        TrackedExportPackage[]
 
   @@map("dna_records")
 }
@@ -350,6 +351,12 @@ model User {
   shareLinks         ShareLink[]
   shareRecipients    ShareRecipient[]
 
+  // Enterprise biometric auth (separate from business data)
+  biometricIdentity  BiometricIdentity?
+  userSessions       UserSession[]
+  userDevices        UserDevice[]
+  securityEvents     SecurityEvent[]
+
   @@map("users")
 }
 
@@ -372,6 +379,123 @@ model LoginHistory {
   @@index([userId])
   @@index([createdAt])
   @@map("login_history")
+}
+
+// ── Enterprise Biometric Authentication ───────────────────────────────────────
+
+model BiometricIdentity {
+  id               String              @id @default(uuid())
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  userId           String              @unique
+  identityHash     String              @unique
+  status           String              @default("ACTIVE")
+  enrolledAt       DateTime            @default(now())
+  lastVerifiedAt   DateTime?
+  fusionVersion    String              @default("1.0")
+  user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  faceTemplate     FaceTemplate?
+  voiceTemplate    VoiceTemplate?
+  fingerprintTemplate FingerprintTemplate?
+
+  @@map("biometric_identities")
+}
+
+model FaceTemplate {
+  id                  String            @id @default(uuid())
+  createdAt           DateTime          @default(now())
+  biometricIdentityId String            @unique
+  templateCipher      String
+  templateHash        String            @unique
+  dimension           Int               @default(128)
+  algorithm           String            @default("face-api-v1")
+  biometricIdentity   BiometricIdentity @relation(fields: [biometricIdentityId], references: [id], onDelete: Cascade)
+
+  @@index([templateHash])
+  @@map("face_templates")
+}
+
+model VoiceTemplate {
+  id                  String            @id @default(uuid())
+  createdAt           DateTime          @default(now())
+  biometricIdentityId String            @unique
+  templateCipher      String
+  templateHash        String            @unique
+  dimension           Int               @default(128)
+  algorithm           String            @default("web-audio-fft-v1")
+  biometricIdentity   BiometricIdentity @relation(fields: [biometricIdentityId], references: [id], onDelete: Cascade)
+
+  @@index([templateHash])
+  @@map("voice_templates")
+}
+
+model FingerprintTemplate {
+  id                  String            @id @default(uuid())
+  createdAt           DateTime          @default(now())
+  biometricIdentityId String            @unique
+  templateCipher      String
+  templateHash        String            @unique
+  dimension           Int               @default(128)
+  algorithm           String            @default("webauthn-device-v1")
+  credentialId        String?
+  biometricIdentity   BiometricIdentity @relation(fields: [biometricIdentityId], references: [id], onDelete: Cascade)
+
+  @@index([templateHash])
+  @@map("fingerprint_templates")
+}
+
+model UserSession {
+  id           String    @id @default(uuid())
+  createdAt    DateTime  @default(now())
+  userId       String
+  sessionHash  String    @unique
+  deviceId     String?
+  ip           String?
+  userAgent    String?
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  lastActiveAt DateTime  @default(now())
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("user_sessions")
+}
+
+model UserDevice {
+  id                   String   @id @default(uuid())
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  userId               String
+  deviceFingerprint    String?
+  webauthnCredentialId String?
+  deviceLabel          String?
+  lastSeenAt           DateTime @default(now())
+  registeredAt         DateTime @default(now())
+  isTrusted            Boolean  @default(true)
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceFingerprint])
+  @@index([userId])
+  @@map("user_devices")
+}
+
+model SecurityEvent {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  userId    String?
+  eventType String
+  ip        String?
+  userAgent String?
+  deviceId  String?
+  success   Boolean  @default(true)
+  detail    Json?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("security_events")
 }
 
 model Notification {
@@ -625,6 +749,7 @@ model ShareLink {
   watermarkCode             String?
   forwardEvents             LinkForwardEvent[]
   accessLogs                ShareAccessLog[]
+  blockedViewers            BlockedShareViewer[]
   ownerUser                 User?              @relation(fields: [ownerUserId], references: [id])
   parentLink                ShareLink?         @relation("LinkHierarchy", fields: [parentLinkId], references: [id])
   childLinks                ShareLink[]        @relation("LinkHierarchy")
@@ -771,6 +896,49 @@ model WatermarkProfile {
   @@map("watermark_profiles")
 }
 
+// ── TEP v3.0 — Tracked Export Package (per-recipient downloadable attribution) ─
+model TrackedExportPackage {
+  id                 String    @id @default(uuid())
+  createdAt          DateTime  @default(now())
+  tepCode            String    @unique
+  dnaRecordId        String
+  vaultId            String
+  shareLinkId        String
+  recipientId        String?
+  watermarkCode      String?
+  watermarkProfileId String?
+  sessionToken       String?
+  recipientEmail     String?
+  sourceSha256       String    @db.Char(64)
+  exportSha256       String    @db.Char(64)
+  watermarkHash      String    @db.Char(64)
+  embeddedLayers     Json      @default("{}")
+  geoCountry         String?
+  geoCity            String?
+  deviceContext      String?
+  ipAddress          String?
+  ownerUserId        String?
+  expiresAt          DateTime?
+  status             TepStatus @default(ACTIVE)
+  rediscoveredAt     DateTime?
+  dnaRecord          DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+
+  @@index([dnaRecordId])
+  @@index([vaultId])
+  @@index([shareLinkId])
+  @@index([exportSha256])
+  @@index([watermarkCode])
+  @@index([ownerUserId])
+  @@map("tracked_export_packages")
+}
+
+enum TepStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+  REDISCOVERED
+}
+
 model Incident {
   id              String           @id @default(uuid())
   createdAt       DateTime         @default(now())
@@ -871,6 +1039,25 @@ model ShareAccessLog {
   @@index([action])
   @@index([sessionId])
   @@map("share_access_logs")
+}
+
+/// Per-viewer access revocation — blocks a specific device/session/IP without killing the whole link.
+model BlockedShareViewer {
+  id                String    @id @default(uuid())
+  createdAt         DateTime  @default(now())
+  shareLinkId       String
+  deviceFingerprint String?
+  sessionId         String?
+  ipAddress         String?
+  label             String?
+  blockedByUserId   String?
+  reason            String?
+  shareLink         ShareLink @relation(fields: [shareLinkId], references: [id], onDelete: Cascade)
+
+  @@index([shareLinkId])
+  @@index([deviceFingerprint])
+  @@index([sessionId])
+  @@map("blocked_share_viewers")
 }
 
 enum UserRole {

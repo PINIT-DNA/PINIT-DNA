@@ -190,48 +190,64 @@ export async function watermarkPdf(
 
 // ── Image watermarking (LSB steganography) ────────────────────────────────────
 
-export async function watermarkImage(
+const IDENTITY_TAIL_START = '\x00PINIT-DNA-SIG:';
+
+/** Preserve vault identity + TEP tails when re-encoding images for share watermarking. */
+function splitAttributionTails(buffer: Buffer): { image: Buffer; tail: Buffer | null } {
+  const latin = buffer.toString('latin1');
+  const markers = [
+    latin.lastIndexOf(IDENTITY_TAIL_START),
+    latin.lastIndexOf('\x00TEP-MANIFEST:'),
+  ].filter(i => i >= 0);
+  if (!markers.length) return { image: buffer, tail: null };
+  const start = Math.min(...markers);
+  return { image: buffer.subarray(0, start), tail: buffer.subarray(start) };
+}
+
+async function watermarkImage(
   fileBuffer: Buffer,
   mimeType: string,
   watermarkCode: string,
   payload: string,
 ): Promise<Buffer> {
   try {
+    const { image, tail } = splitAttributionTails(fileBuffer);
     // Dynamic import of sharp — only available if installed
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const sharp = require('sharp') as typeof import('sharp');
     const encoded = encodePayload(payload);
 
     // Embed watermark in EXIF/metadata using sharp
-    const image = sharp(fileBuffer);
-    const metadata = await image.metadata();
+    const imageSharp = sharp(image);
+    const metadata = await imageSharp.metadata();
 
     // Build watermark comment to embed in EXIF
     const wmComment = `PINIT-DNA:${watermarkCode}:${encoded.slice(0, 100)}`;
 
     let result: Buffer;
     if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
-      result = await image
+      result = await imageSharp
         .withMetadata({ exif: { IFD0: { ImageDescription: wmComment, Software: `PINIT-DNA|${watermarkCode}` } } })
         .jpeg({ quality: 95 })
         .toBuffer();
     } else if (mimeType === 'image/png') {
-      result = await image
+      result = await imageSharp
         .withMetadata({ exif: { IFD0: { ImageDescription: wmComment, Software: `PINIT-DNA|${watermarkCode}` } } })
         .png()
         .toBuffer();
     } else if (mimeType === 'image/webp') {
-      result = await image
+      result = await imageSharp
         .withMetadata({ exif: { IFD0: { ImageDescription: wmComment } } })
         .webp({ quality: 95 })
         .toBuffer();
     } else {
-      // For other image types, embed in metadata only
-      result = await image.withMetadata().toBuffer();
+      result = await imageSharp.withMetadata().toBuffer();
     }
 
-    logger.info('[Watermark] Image watermarked', { watermarkCode, format: metadata.format });
-    return result;
+    const finalBuffer = tail ? Buffer.concat([result, tail]) : result;
+
+    logger.info('[Watermark] Image watermarked', { watermarkCode, format: metadata.format, tailPreserved: !!tail });
+    return finalBuffer;
   } catch (err) {
     logger.warn('[Watermark] Image watermarking failed — serving original', { error: (err as Error).message });
     return fileBuffer;

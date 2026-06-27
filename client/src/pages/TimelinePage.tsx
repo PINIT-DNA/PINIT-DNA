@@ -409,7 +409,7 @@ function FileHistoryCard({ history, expanded, onToggle }: { history: FileHistory
                     {event.type === 'SHARE_CREATED' && event.meta?.['Token'] && (
                       <div className="flex items-center gap-3 mt-2">
                         <button
-                          onClick={() => navigate(`/link/${event.meta!['Token']}`)}
+                          onClick={() => navigate(`/access-intelligence/${encodeURIComponent(event.meta!['Token'] as string)}`)}
                           className="inline-flex items-center gap-1.5 text-2xs text-dna-400 hover:text-dna-300 bg-dna-500/10 hover:bg-dna-500/20 px-2.5 py-1 rounded-lg transition-colors"
                         >
                           <Shield size={11} /> View Link Intelligence

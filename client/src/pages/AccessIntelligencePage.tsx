@@ -94,7 +94,7 @@ export function AccessIntelligencePage() {
               return (
                 <button
                   key={link.id}
-                  onClick={() => navigate(`/link/${link.token}`)}
+                  onClick={() => navigate(`/access-intelligence/${encodeURIComponent(link.token)}`)}
                   className="w-full text-left card hover:border-dna-500/30 transition-all group"
                 >
                   <div className="flex items-start justify-between gap-4">

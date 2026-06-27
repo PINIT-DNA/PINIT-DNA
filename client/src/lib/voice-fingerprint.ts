@@ -1,51 +1,82 @@
 /**
  * Capture a normalized voice fingerprint from the microphone using Web Audio FFT bins.
- * Returns a 128-dimensional vector suitable for server-side duplicate detection.
  */
 export async function captureVoiceFingerprint(
   onProgress?: (pct: number) => void,
 ): Promise<number[]> {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  const ctx = new AudioContext();
-  const source = ctx.createMediaStreamSource(stream);
-  const analyser = ctx.createAnalyser();
-  analyser.fftSize = 256;
-  source.connect(analyser);
+  onProgress?.(2);
 
-  const bins = new Float32Array(analyser.frequencyBinCount);
-  const samples: number[][] = [];
-  const durationMs = 3500;
-  const start = Date.now();
-
-  return new Promise((resolve, reject) => {
-    function tick() {
-      analyser.getFloatFrequencyData(bins);
-      samples.push(Array.from(bins));
-      const pct = Math.min(100, ((Date.now() - start) / durationMs) * 100);
-      onProgress?.(pct);
-
-      if (Date.now() - start >= durationMs) {
-        stream.getTracks().forEach((t) => t.stop());
-        void ctx.close();
-        resolve(normalizeVector(averageSamples(samples, 128)));
-        return;
-      }
-      requestAnimationFrame(tick);
-    }
-
-    try {
-      tick();
-    } catch (e) {
-      stream.getTracks().forEach((t) => t.stop());
-      void ctx.close();
-      reject(e);
-    }
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    },
   });
+
+  const ctx = new AudioContext();
+  try {
+    if (ctx.state === 'suspended') await ctx.resume();
+
+    const source = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.4;
+    source.connect(analyser);
+
+    const bins = new Float32Array(analyser.frequencyBinCount);
+    const samples: number[][] = [];
+    const durationMs = 1600;
+    const start = Date.now();
+    let heardVoice = false;
+
+    await new Promise<void>((resolve, reject) => {
+      function tick() {
+        try {
+          analyser.getFloatFrequencyData(bins);
+          const frame = Array.from(bins);
+          samples.push(frame);
+
+          const peak = Math.max(...frame);
+          if (peak > -55) heardVoice = true;
+
+          const pct = Math.min(99, ((Date.now() - start) / durationMs) * 100);
+          onProgress?.(pct);
+
+          if (Date.now() - start >= durationMs) {
+            resolve();
+            return;
+          }
+          requestAnimationFrame(tick);
+        } catch (e) {
+          reject(e);
+        }
+      }
+      tick();
+    });
+
+    stream.getTracks().forEach((t) => t.stop());
+    await ctx.close();
+
+    if (!samples.length) {
+      throw new Error('Microphone did not respond. Check mic permissions.');
+    }
+
+    if (!heardVoice) {
+      throw new Error('No voice detected. Speak the phrase clearly and try again.');
+    }
+
+    onProgress?.(100);
+    return normalizeVector(averageSamples(samples, 128));
+  } catch (e) {
+    stream.getTracks().forEach((t) => t.stop());
+    await ctx.close().catch(() => {});
+    throw e;
+  }
 }
 
 function averageSamples(samples: number[][], dim: number): number[] {
   const avg = new Array(dim).fill(0);
-  if (!samples.length) return avg;
   for (const s of samples) {
     for (let i = 0; i < dim; i++) avg[i] += (s[i % s.length] ?? 0) / samples.length;
   }

@@ -35,6 +35,8 @@ import { BehavioralLayer }  from './layers/layer7.behavioral';
 import { RelationshipLayer } from './layers/layer8.relationship';
 import { OriginLayer }       from './layers/layer9.origin';
 import { EvolutionLayer }    from './layers/layer10.evolution';
+import { processAdvancedLayers } from './layers/layers-11-15.service';
+import { TOTAL_DNA_LAYERS } from '../constants/dna-layers';
 
 // ─── Universal input type ────────────────────────────────────────────────────
 
@@ -45,6 +47,13 @@ export interface FileInput {
   declaredMimeType: string;
   sizeBytes: number;
   buffer: Buffer;
+  /** Authenticated uploader — required for L11–L15 */
+  ownerUserId?: string;
+  uploadStartMs?: number;
+  userAgent?: string;
+  ip?: string;
+  country?: string;
+  city?: string;
 }
 
 // ─── Engine version ───────────────────────────────────────────────────────────
@@ -142,10 +151,15 @@ export class UniversalFileRouter {
     };
 
     const result = await this.imageEngine.generate(imageInput, {
-      fileType: 'IMAGE', engineVersion: UNIVERSAL_ENGINE_VERSION,
+      fileType: 'IMAGE',
+      engineVersion: UNIVERSAL_ENGINE_VERSION,
+      ownerUserId: file.ownerUserId,
+      uploadStartMs: file.uploadStartMs,
+      userAgent: file.userAgent,
+      ip: file.ip,
+      country: file.country,
+      city: file.city,
     });
-
-    const successful = Object.values(result.layers).filter(l => l.success).length;
 
     return {
       dnaRecordId:         result.dnaRecordId,
@@ -157,7 +171,7 @@ export class UniversalFileRouter {
       status:              result.status,
       totalProcessingMs:   result.totalProcessingMs,
       generatedAt:         result.generatedAt,
-      layerSummary: { total: 10, successful, failed: 10 - successful },
+      layerSummary:        result.layerSummary,
     };
   }
 
@@ -188,6 +202,7 @@ export class UniversalFileRouter {
         fileType,
         engineVersion:  UNIVERSAL_ENGINE_VERSION,
         sha256Hash,
+        ownerUserId:    file.ownerUserId ?? null,
       },
     });
 
@@ -196,7 +211,7 @@ export class UniversalFileRouter {
     });
 
     const result = await runEngine(dnaRecordId);
-    const uploadStartMs = Date.now();
+    const uploadStartMs = file.uploadStartMs ?? Date.now();
 
     // Build a minimal ImageInput-compatible object so L7–L10 can run on any file type
     const fileAsImage: ImageInput = {
@@ -236,8 +251,26 @@ export class UniversalFileRouter {
     });
 
     const allLayers = [...result.layers, ...extraLayers];
-    const successful = allLayers.filter(l => l.success).length;
-    const status = successful === 10 ? 'COMPLETE' : successful > 0 ? 'PARTIAL' : 'FAILED';
+    const coreSuccessful = allLayers.filter(l => l.success).length;
+
+    // ── Layers 11–15 (advanced protection) ───────────────────────────────────
+    let advancedSuccessful = 0;
+    if (file.ownerUserId) {
+      const advanced = await processAdvancedLayers(
+        dnaRecordId,
+        file.buffer,
+        detection.mimeType,
+        file.ownerUserId,
+        file.originalName,
+      );
+      advancedSuccessful = advanced.successful;
+    }
+
+    const successful = coreSuccessful + advancedSuccessful;
+    const status =
+      successful === TOTAL_DNA_LAYERS ? 'COMPLETE'
+        : successful > 0 ? 'PARTIAL'
+        : 'FAILED';
 
     // Update final status
     await prisma.dnaRecord.update({ where: { id: dnaRecordId }, data: { status } });
@@ -252,7 +285,11 @@ export class UniversalFileRouter {
       status,
       totalProcessingMs:   result.totalProcessingMs,
       generatedAt:         result.generatedAt,
-      layerSummary: { total: 10, successful, failed: 10 - successful },
+      layerSummary: {
+        total: TOTAL_DNA_LAYERS,
+        successful,
+        failed: TOTAL_DNA_LAYERS - successful,
+      },
     };
   }
 }

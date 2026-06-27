@@ -11,6 +11,7 @@ import axios    from 'axios';
 import { prisma } from '../../lib/prisma';
 import { logger }  from '../../lib/logger';
 import { riskEngineService } from './risk-engine.service';
+import { sanitizeCoordinatePair } from '../../lib/geo-coords';
 
 // ─── HMAC token signing (integrity layer — detects tampered/guessed tokens) ──
 const HMAC_SECRET = process.env['SHARE_HMAC_SECRET'] || 'pinit-dna-dev-secret-change-me';
@@ -765,6 +766,9 @@ export class ShareLinkService {
       city,
     });
 
+    const gpsCoords = sanitizeCoordinatePair(input.gpsLat, input.gpsLng);
+    const ipCoords  = sanitizeCoordinatePair(input.lat, input.lng);
+
     await prisma.shareAccessLog.create({
       data: {
         shareLinkId:   input.shareLinkId,
@@ -788,9 +792,8 @@ export class ShareLinkService {
         riskLevel:     risk.level,
         riskFactors:   JSON.stringify(risk.factors),
         sessionDurationSec,
-        // GPS — stored only when user consented
-        gpsLat:        input.gpsLat        ?? null,
-        gpsLng:        input.gpsLng        ?? null,
+        gpsLat:        gpsCoords?.lat ?? null,
+        gpsLng:        gpsCoords?.lng ?? null,
         gpsAccuracy:   input.gpsAccuracy   ?? null,
         gpsCity:       input.gpsCity       ?? null,
         gpsTimestamp:  input.gpsTimestamp  ?? null,
@@ -801,16 +804,19 @@ export class ShareLinkService {
         gpsState:        input.gpsState       ?? null,
         gpsPincode:      input.gpsPincode     ?? null,
         gpsFullAddress:  input.gpsFullAddress ?? null,
-        locationSource:  input.locationSource ?? (input.locationShared ? 'gps' : 'ip'),
-        // Forensic IP intelligence
+        locationSource:  gpsCoords
+          ? (input.locationSource ?? 'gps')
+          : ipCoords
+            ? 'ip'
+            : (input.locationSource ?? null),
         isVpn:         input.isVpn         ?? false,
         isTor:         input.isTor         ?? false,
         isProxy:       input.isProxy       ?? false,
         isDatacenter:  input.isDatacenter  ?? false,
         asn:           input.asn           ?? null,
         org:           input.org           ?? null,
-        lat:           input.lat           ?? null,
-        lng:           input.lng           ?? null,
+        lat:           ipCoords?.lat ?? null,
+        lng:           ipCoords?.lng ?? null,
         canvasFp:      input.canvasFp      ?? null,
         webglFp:       input.webglFp       ?? null,
         audioFp:       input.audioFp       ?? null,
@@ -959,13 +965,89 @@ export class ShareLinkService {
   // ── Get a specific link with full logs ────────────────────────────────────
 
   async getWithLogs(token: string) {
-    return prisma.shareLink.findUnique({
-      where:   { token },
-      include: {
-        accessLogs: { orderBy: { createdAt: 'desc' } },
-        _count: { select: { accessLogs: true } },
+    const baseInclude = {
+      accessLogs: { orderBy: { createdAt: 'desc' as const } },
+      _count: { select: { accessLogs: true } },
+    };
+
+    try {
+      return await prisma.shareLink.findUnique({
+        where: { token },
+        include: {
+          ...baseInclude,
+          blockedViewers: { orderBy: { createdAt: 'desc' as const } },
+        },
+      });
+    } catch (err) {
+      // Graceful fallback if blocked_share_viewers table not yet migrated
+      logger.warn('[SmartLink] getWithLogs fallback (no blockedViewers)', { token, error: String(err) });
+      return prisma.shareLink.findUnique({
+        where: { token },
+        include: baseInclude,
+      });
+    }
+  }
+
+  // ── Per-viewer block / revoke ─────────────────────────────────────────────
+
+  async isViewerBlocked(
+    shareLinkId: string,
+    viewer: { deviceFingerprint?: string | null; sessionId?: string | null; ipAddress?: string | null },
+  ): Promise<boolean> {
+    const blocks = await prisma.blockedShareViewer.findMany({ where: { shareLinkId } });
+    if (!blocks.length) return false;
+    return blocks.some((b) =>
+      (b.deviceFingerprint && viewer.deviceFingerprint && b.deviceFingerprint === viewer.deviceFingerprint)
+      || (b.sessionId && viewer.sessionId && b.sessionId === viewer.sessionId)
+      || (b.ipAddress && viewer.ipAddress && b.ipAddress === viewer.ipAddress),
+    );
+  }
+
+  async blockViewer(
+    token: string,
+    ownerUserId: string,
+    input: { deviceFingerprint?: string; sessionId?: string; ipAddress?: string; label?: string; reason?: string },
+  ) {
+    const link = await prisma.shareLink.findUnique({ where: { token } });
+    if (!link) throw new Error(`Share link not found: ${token}`);
+    if (link.ownerUserId && link.ownerUserId !== ownerUserId) {
+      throw new Error('Unauthorized — you do not own this share link');
+    }
+
+    const block = await prisma.blockedShareViewer.create({
+      data: {
+        shareLinkId: link.id,
+        deviceFingerprint: input.deviceFingerprint ?? null,
+        sessionId: input.sessionId ?? null,
+        ipAddress: input.ipAddress ?? null,
+        label: input.label ?? null,
+        reason: input.reason ?? 'Revoked by owner',
+        blockedByUserId: ownerUserId,
       },
     });
+
+    logger.info('[SmartLink] Viewer blocked', {
+      token,
+      deviceFingerprint: input.deviceFingerprint?.slice(0, 12),
+      sessionId: input.sessionId?.slice(0, 12),
+      ipAddress: input.ipAddress,
+    });
+
+    return block;
+  }
+
+  async unblockViewer(token: string, ownerUserId: string, blockId: string) {
+    const link = await prisma.shareLink.findUnique({ where: { token } });
+    if (!link) throw new Error(`Share link not found: ${token}`);
+    if (link.ownerUserId && link.ownerUserId !== ownerUserId) {
+      throw new Error('Unauthorized — you do not own this share link');
+    }
+
+    await prisma.blockedShareViewer.deleteMany({
+      where: { id: blockId, shareLinkId: link.id },
+    });
+
+    return { ok: true };
   }
 
   // ── Revoke ────────────────────────────────────────────────────────────────

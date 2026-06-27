@@ -126,6 +126,7 @@ export async function refreshAccessToken(): Promise<string | null> {
 /** Apply tokens returned from face register/login endpoints. */
 export function applyFaceAuthTokens(data: { accessToken?: string; refreshToken?: string }): AuthUser | null {
   if (!data.accessToken) return null;
-  saveTokens(data.accessToken, data.refreshToken ?? '');
+  const refresh = data.refreshToken || getRefreshToken() || '';
+  saveTokens(data.accessToken, refresh);
   return parseJwt(data.accessToken);
 }

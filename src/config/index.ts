@@ -76,6 +76,24 @@ export const config = {
     secret: optional('JWT_SECRET', 'dev_jwt_secret_change_in_prod_min_32_chars_long!!'),
   },
 
+  biometric: {
+    encryptionKey: optional('BIOMETRIC_ENCRYPTION_KEY', optional('VAULT_MASTER_SECRET', 'dev_biometric_key_change_in_prod')),
+    thresholds: {
+      faceLogin: parseFloat(optional('BIOMETRIC_FACE_LOGIN_THRESHOLD', '0.62')),
+      faceDuplicate: parseFloat(optional('BIOMETRIC_FACE_DUPLICATE_THRESHOLD', '0.42')),
+      voiceLogin: parseFloat(optional('BIOMETRIC_VOICE_LOGIN_THRESHOLD', '0.45')),
+      voiceDuplicate: parseFloat(optional('BIOMETRIC_VOICE_DUPLICATE_THRESHOLD', '0.35')),
+      fingerprintLogin: parseFloat(optional('BIOMETRIC_FINGERPRINT_LOGIN_THRESHOLD', '0.40')),
+      fingerprintDuplicate: parseFloat(optional('BIOMETRIC_FINGERPRINT_DUPLICATE_THRESHOLD', '0.30')),
+      fusionMinConfidence: parseFloat(optional('BIOMETRIC_FUSION_MIN_CONFIDENCE', '72')),
+      weights: {
+        face: parseFloat(optional('BIOMETRIC_WEIGHT_FACE', '0.50')),
+        voice: parseFloat(optional('BIOMETRIC_WEIGHT_VOICE', '0.30')),
+        fingerprint: parseFloat(optional('BIOMETRIC_WEIGHT_FINGERPRINT', '0.20')),
+      },
+    },
+  },
+
   rateLimit: {
     windowMs: optionalInt('RATE_LIMIT_WINDOW_MS', 15 * 60 * 1000), // 15 min
     max: optionalInt('RATE_LIMIT_MAX', 2000),

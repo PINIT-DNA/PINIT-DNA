@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { isPrivateIp } from '../../lib/geo-coords';
 
 export interface IpIntelligenceResult {
   ip: string;
@@ -38,7 +39,7 @@ async function fetchTorExitNodes(): Promise<void> {
 export async function getIpIntelligence(ip: string): Promise<IpIntelligenceResult> {
   await fetchTorExitNodes().catch(() => {});
 
-  const isPrivate = /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|127\.|::1|localhost)/.test(ip);
+  const isPrivate = isPrivateIp(ip);
   if (isPrivate) {
     return {
       ip, country: 'Local Network', countryCode: '--', city: 'Local', region: '',

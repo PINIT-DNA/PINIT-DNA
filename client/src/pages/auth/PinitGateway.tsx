@@ -1,4 +1,3 @@
-import { useRef } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { LoginFlow } from './LoginFlow';
@@ -12,24 +11,17 @@ function Booting() {
   );
 }
 
-function useWasAuthedOnMount(): boolean | null {
-  const { user, loading } = useAuth();
-  const snap = useRef<boolean | null>(null);
-  if (loading) return null;
-  if (snap.current === null) snap.current = Boolean(user);
-  return snap.current;
-}
-
+/** If already signed in, go straight to dashboard — stays in sync after login completes. */
 export function PinitGateway() {
-  const wasAuthed = useWasAuthedOnMount();
-  if (wasAuthed === null) return <Booting />;
-  if (wasAuthed) return <Navigate to="/" replace />;
+  const { user, loading } = useAuth();
+  if (loading) return <Booting />;
+  if (user) return <Navigate to="/" replace />;
   return <LoginFlow />;
 }
 
 export function RegisterGateway() {
-  const wasAuthed = useWasAuthedOnMount();
-  if (wasAuthed === null) return <Booting />;
-  if (wasAuthed) return <Navigate to="/" replace />;
+  const { user, loading } = useAuth();
+  if (loading) return <Booting />;
+  if (user) return <Navigate to="/" replace />;
   return <RegistrationFlow />;
 }

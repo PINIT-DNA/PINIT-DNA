@@ -25,8 +25,13 @@ export default function App() {
   );
   const [session, setSession] = useState<DnaSession | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [duplicateInfo, setDuplicateInfo] = useState<any | null>(null);
+  const [duplicateInfo, setDuplicateInfo] = useState<{
+    existingRecordId?: string;
+    existingFilename?: string;
+    matchType?: string;
+    riskLevel?: string;
+    ownerShortId?: string;
+  } | null>(null);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -88,6 +93,7 @@ export default function App() {
         engineVersion:    result.engineVersion ?? '2.0.0-universal',
         status:           result.status,
         successfulLayers: result.summary.successfulLayers,
+        totalLayers:      result.summary.totalLayers,
         totalProcessingMs: result.summary.totalProcessingMs,
         generatedAt:      result.generatedAt,
       });
@@ -104,6 +110,7 @@ export default function App() {
           existingFilename: anyErr.existingFilename,
           matchType:        anyErr.matchType,
           riskLevel:        anyErr.riskLevel,
+          ownerShortId:     anyErr.ownerShortId,
         });
         setError(anyErr.message);
       } else {
@@ -189,7 +196,11 @@ export default function App() {
                       <div className="bg-bg-elevated rounded-lg px-3 py-2">
                         <p className="text-2xs text-gray-500 uppercase tracking-wide">Match Type</p>
                         <p className="text-xs text-white font-mono mt-0.5">
-                          {duplicateInfo.matchType === 'EXACT_HASH' ? '🔴 Exact SHA-256 Match' : '🟡 Near-Duplicate (pHash)'}
+                          {duplicateInfo.matchType === 'EXACT_HASH' ? '🔴 Exact SHA-256 Match'
+                            : duplicateInfo.matchType === 'TEP_TRACKED_EXPORT' ? '🔴 TEP Tracked Export (Share Download)'
+                            : duplicateInfo.matchType === 'EMBEDDED_IDENTITY' ? '🔴 PINIT Identity Embedded'
+                            : duplicateInfo.matchType === 'NORMALIZED_HASH' ? '🟠 Same Pixel Content'
+                            : '🟡 Near-Duplicate (pHash)'}
                         </p>
                       </div>
                       <div className="bg-bg-elevated rounded-lg px-3 py-2">
@@ -200,6 +211,12 @@ export default function App() {
                         <div className="bg-bg-elevated rounded-lg px-3 py-2 col-span-2">
                           <p className="text-2xs text-gray-500 uppercase tracking-wide">Existing DNA Record ID</p>
                           <p className="text-xs text-dna-400 font-mono mt-0.5">{duplicateInfo.existingRecordId}</p>
+                        </div>
+                      )}
+                      {duplicateInfo.ownerShortId && (
+                        <div className="bg-bg-elevated rounded-lg px-3 py-2 col-span-2">
+                          <p className="text-2xs text-gray-500 uppercase tracking-wide">Registered Owner (PINIT ID)</p>
+                          <p className="text-xs text-amber-400 font-mono mt-0.5">{duplicateInfo.ownerShortId}</p>
                         </div>
                       )}
                     </div>
@@ -285,6 +302,7 @@ export default function App() {
                     status={session.status}
                     generatedAt={session.generatedAt}
                     successfulLayers={session.successfulLayers}
+                    totalLayers={session.totalLayers}
                     fileType={session.fileType}
                     engineVersion={session.engineVersion}
                   />

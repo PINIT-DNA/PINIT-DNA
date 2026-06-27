@@ -90,6 +90,7 @@ export interface DnaSession {
   engineVersion: string;
   status: string;
   successfulLayers: number;
+  totalLayers: number;
   totalProcessingMs: number;
   generatedAt: string;
   encryption?: EncryptionResult;

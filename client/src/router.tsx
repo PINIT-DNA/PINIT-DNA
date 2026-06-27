@@ -67,6 +67,7 @@ export const router = createBrowserRouter([
       { path: 'link-tree/:parentToken', element: <LinkTreePage /> },
       { path: 'forensic-dashboard',    element: <ForensicDashboardPage /> },
       { path: 'profile',               element: <ProfilePage /> },
+      { path: 'access-intelligence/:token', element: <LinkIntelligencePage /> },
       { path: 'access-intelligence',     element: <AccessIntelligencePage /> },
       { path: 'verify-leaked',           element: <VerifyLeakedFilePage /> },
       { path: 'link/:token',            element: <LinkIntelligencePage /> },

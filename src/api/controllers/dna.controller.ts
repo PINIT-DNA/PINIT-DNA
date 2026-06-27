@@ -111,11 +111,9 @@ export async function generateDna(
     return next(new AppError(500, 'Failed to read uploaded file from disk.'));
   }
 
-  // ── DUPLICATE CHECK — disabled for now ──────────────────────────────────────
-  // The system-wide duplicate check blocks uploads of files that any user has
-  // uploaded before. This causes false positives during testing and for multi-
-  // user scenarios. Duplicate detection still runs for forensic logging but
-  // never blocks the upload.
+  // ── DUPLICATE CHECK — global PINIT vault registry (Layer 1 SHA-256) ─────────
+  // Blocks identical files anywhere in the system — not per-user isolated.
+  // Catches: re-upload, share-link download → re-upload, cross-account copies.
   const dupResult = await duplicateCheckService.check(
     buffer,
     req.file.mimetype,
@@ -123,33 +121,35 @@ export async function generateDna(
     req,
   );
 
-  // Log duplicates for forensic audit but NEVER block the upload.
-  // The forensic value is in KNOWING a duplicate was uploaded, not in preventing it.
   if (dupResult.isDuplicate) {
-    logger.info('[DNA] Duplicate detected (allowed — logged for forensics)', {
+    await fs.unlink(req.file.path).catch(() => {});
+
+    const ownerLabel = dupResult.ownerShortId
+      ? ` This file belongs to ${dupResult.ownerShortId}.`
+      : dupResult.matchType === 'PINIT_VAULT_SIGNATURE'
+        ? ' This image contains PINIT-DNA vault watermarks or share-link signatures.'
+        : '';
+
+    const duplicateReason = dupResult.matchType === 'PINIT_VAULT_SIGNATURE'
+      ? `Protected PINIT content detected.${ownerLabel} DNA cannot be generated from watermarked or share-viewer captures.`
+      : `This file already exists in the PINIT-DNA global registry.${ownerLabel} Duplicate DNA cannot be generated.`;
+
+    logger.warn('[DNA] Duplicate upload blocked (global registry)', {
       matchType:        dupResult.matchType,
       existingRecordId: dupResult.existingRecordId,
-    });
-  }
-
-  if (false && dupResult.isDuplicate) { // disabled — all uploads allowed
-    // Clean up the temp file immediately
-    await fs.unlink(req.file!.path).catch(() => {});
-
-    logger.warn('[DNA] Duplicate upload blocked', {
-      matchType:        dupResult.matchType,
-      existingRecordId: dupResult.existingRecordId,
+      ownerShortId:     dupResult.ownerShortId,
       isHighRisk:       dupResult.isHighRisk,
     });
 
     res.status(409).json({
       success:   false,
       duplicate: true,
-      error:     'This file already exists in the PINIT-DNA registry. Duplicate uploads are not permitted.',
+      error:     duplicateReason,
       matchType:           dupResult.matchType,
       existingRecordId:    dupResult.existingRecordId,
       existingFilename:    dupResult.existingFilename,
       existingCreatedAt:   dupResult.existingCreatedAt,
+      ownerShortId:        dupResult.ownerShortId ?? null,
       sha256Hash:          dupResult.sha256Hash,
       pHashSimilarity:     dupResult.pHashSimilarity,
       riskLevel:           dupResult.isHighRisk ? 'HIGH' : 'LOW',
@@ -160,12 +160,16 @@ export async function generateDna(
 
   try {
     // UniversalFileRouter: detects file type → routes to correct engine
+    const userId = (req as any).user?.sub;
     const result = await router.route({
       filePath:        req.file.path,
       originalName:    req.file.originalname,
       declaredMimeType: req.file.mimetype,
       sizeBytes:       req.file.size,
       buffer,
+      ownerUserId:     userId,
+      uploadStartMs:   Date.now(),
+      userAgent:       req.headers['user-agent'] as string | undefined,
     });
 
     const response: GenerateDnaResponse = {
@@ -186,8 +190,7 @@ export async function generateDna(
       generatedAt: result.generatedAt.toISOString(),
     };
 
-    // Stamp owner on the DNA record if user is authenticated
-    const userId = (req as any).user?.sub;
+    // Owner already stamped during pipeline; ensure it is set if route missed it
     if (userId) {
       await prisma.dnaRecord.update({
         where: { id: result.dnaRecordId },

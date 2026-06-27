@@ -283,7 +283,7 @@ export function IntelligenceReportPage() {
           )}
         </div>
         <Row label="DNA Status"       value={r.integrity.dnaStatus} />
-        <Row label="Layers Complete"  value={`${r.integrity.layersComplete}/10`} accent="text-emerald-400" />
+        <Row label="Layers Complete"  value={`${r.integrity.layersComplete}/15`} accent="text-emerald-400" />
         <Row label="SHA-256 Hash"      value={shortHash(r.integrity.sha256Hash)} mono />
         {r.integrity.lastVerification && (
           <Row label="Last Verified" value={fmtDate(r.integrity.lastVerification.at)} />

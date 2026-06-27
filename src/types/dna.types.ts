@@ -269,6 +269,11 @@ export interface DnaGenerationResult {
   status: 'COMPLETE' | 'PARTIAL' | 'FAILED';
   totalProcessingMs: number;
   generatedAt: Date;
+  layerSummary: {
+    total: number;
+    successful: number;
+    failed: number;
+  };
 }
 
 // ─── Verification ─────────────────────────────────────────────────────────────

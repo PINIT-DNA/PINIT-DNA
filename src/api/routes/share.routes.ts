@@ -10,6 +10,8 @@ import {
   getVaultShareLinks,
   getShareTimeline,
   revokeShareLink,
+  blockShareViewer,
+  unblockShareViewer,
   verifyShareOtp,
   getGeoAnalytics,
   exportShareLogsCsv,
@@ -58,5 +60,7 @@ shareRouter.get('/:token/unmask-status',       getUnmaskStatus);          // ─
 shareRouter.get('/:token/logs',                requireAuth, getShareLinkLogs);
 shareRouter.get('/:token/export',              requireAuth, exportShareLogsCsv);
 shareRouter.delete('/:token',                  requireAuth, revokeShareLink);
+shareRouter.post('/:token/block-viewer',       requireAuth, blockShareViewer);
+shareRouter.delete('/:token/block-viewer/:blockId', requireAuth, unblockShareViewer);
 shareRouter.post('/:token/force-logout',       requireAuth, forceLogoutLink);
 shareRouter.get('/:token/tree',                requireAuth, getLinkTree);

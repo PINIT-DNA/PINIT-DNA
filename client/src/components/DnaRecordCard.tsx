@@ -7,6 +7,7 @@ interface Props {
   status: string;
   generatedAt?: string;
   successfulLayers: number;
+  totalLayers?: number;
   fileType?: string;
   engineVersion?: string;
 }
@@ -18,6 +19,7 @@ export function DnaRecordCard({
   status,
   generatedAt,
   successfulLayers,
+  totalLayers = 15,
   fileType,
   engineVersion,
 }: Props) {
@@ -71,7 +73,7 @@ export function DnaRecordCard({
           <div className="bg-bg-base rounded-lg p-3">
             <p className="text-gray-500 text-xs mono mb-1">LAYERS</p>
             <p className="text-layer-complete text-sm font-semibold mono">
-              {successfulLayers}/10 Complete
+              {successfulLayers}/{totalLayers} Complete
             </p>
           </div>
           <div className="bg-bg-base rounded-lg p-3">

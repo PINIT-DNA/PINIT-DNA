@@ -60,6 +60,8 @@ export async function generateDna(file: File): Promise<GenerateDnaResponse> {
       dupErr.existingFilename   = body.existingFilename;
       dupErr.matchType          = body.matchType;
       dupErr.riskLevel          = body.riskLevel;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (dupErr as any).ownerShortId = body.ownerShortId;
       throw dupErr;
     }
     throw err;

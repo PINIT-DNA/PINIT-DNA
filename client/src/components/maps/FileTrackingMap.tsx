@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { isValidMapCoordinate } from '../../lib/geo-coords';
 
 interface MapPoint {
   lat: number;
@@ -19,6 +20,8 @@ interface MapPoint {
   gpsState?: string | null;
   gpsPincode?: string | null;
   gpsAccuracy?: number | null;
+  gpsFullAddress?: string | null;
+  locationSource?: string | null;
 }
 
 interface FileTrackingMapProps {
@@ -68,7 +71,8 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
   const mapInstance = useRef<L.Map | null>(null);
 
   useEffect(() => {
-    if (!mapRef.current || points.length === 0) return;
+    const validPoints = points.filter(p => isValidMapCoordinate(p.lat, p.lng));
+    if (!mapRef.current || validPoints.length === 0) return;
 
     // Clean up previous map
     if (mapInstance.current) {
@@ -91,7 +95,7 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
     const markers: L.LatLng[] = [];
 
     // Add markers
-    points.forEach((p) => {
+    validPoints.forEach((p) => {
       const latlng = L.latLng(p.lat, p.lng);
       markers.push(latlng);
 
@@ -101,7 +105,9 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
         ? `<span style="background:${p.riskLevel === 'CRITICAL' ? '#ef4444' : '#f97316'};color:#fff;padding:1px 6px;border-radius:4px;font-size:10px;margin-left:4px">${p.riskLevel}</span>`
         : '';
 
-      const locationLines = p.gpsVillage
+      const locationLines = p.gpsFullAddress
+        ? p.gpsFullAddress.replace(/,/g, '<br/>')
+        : p.gpsVillage
         ? [
             p.gpsVillage,
             [p.gpsMandal, p.gpsDistrict].filter(Boolean).join(', '),
@@ -111,8 +117,10 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
         : `${p.city ? p.city + ', ' : ''}${p.country}`;
 
       const accuracyBadge = p.gpsAccuracy
-        ? `<div style="font-size:10px;color:#10b981;margin-top:2px">📡 Accuracy: ±${Math.round(p.gpsAccuracy)}m</div>`
-        : '';
+        ? `<div style="font-size:10px;color:#10b981;margin-top:2px">📡 Accuracy: ±${p.gpsAccuracy < 1000 ? Math.round(p.gpsAccuracy) + 'm' : Math.round(p.gpsAccuracy / 1000) + 'km'}</div>`
+        : p.locationSource === 'ip'
+          ? `<div style="font-size:10px;color:#eab308;margin-top:2px">🌐 IP-based location (approximate)</div>`
+          : '';
 
       marker.bindPopup(`
         <div style="font-family:Inter,system-ui,sans-serif;min-width:220px">
@@ -138,7 +146,7 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
 
     // Draw polyline connecting hops in order
     if (markers.length > 1) {
-      const sortedPoints = [...points].sort((a, b) => a.hopNumber - b.hopNumber);
+      const sortedPoints = [...validPoints].sort((a, b) => a.hopNumber - b.hopNumber);
       const lineCoords = sortedPoints.map(p => L.latLng(p.lat, p.lng));
 
       L.polyline(lineCoords, {
@@ -179,12 +187,14 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
     };
   }, [points]);
 
-  if (points.length === 0) {
+  const validCount = points.filter(p => isValidMapCoordinate(p.lat, p.lng)).length;
+
+  if (validCount === 0) {
     return (
       <div style={{ height }} className="bg-bg-elevated rounded-lg flex items-center justify-center border border-bg-border">
         <div className="text-center">
-          <p className="text-xs text-gray-500">No GPS data available</p>
-          <p className="text-2xs text-gray-600 mt-1">Map will appear when viewers share their location</p>
+          <p className="text-xs text-gray-500">No location data available yet</p>
+          <p className="text-2xs text-gray-600 mt-1">Map appears when viewers share GPS or IP geolocation is resolved</p>
         </div>
       </div>
     );
