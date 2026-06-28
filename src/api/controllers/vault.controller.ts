@@ -10,10 +10,10 @@ import { Request, Response, NextFunction } from 'express';
 import fs from 'fs/promises';
 import { VaultService } from '../../services/vault/vault.service';
 import { AppError } from '../middleware/error.middleware';
+import { getAuthUserId, vaultOwnerWhere } from '../../lib/tenant-scope';
 import { logger } from '../../lib/logger';
 import { auditService } from '../../services/audit/audit.service';
 import { autoIndexer }  from '../../services/ai/auto-indexer.service';
-import { identityEmbeddingService } from '../../services/identity/identity-embedding.service';
 import {
   detectSensitiveTypes,
   extractTextFromPdf,
@@ -31,12 +31,10 @@ export async function listVaultRecords(
   next: NextFunction
 ): Promise<void> {
   try {
-    const userId = (req as any).user?.sub;
+    const userId = getAuthUserId(req);
     const { prisma } = await import('../../lib/prisma');
     const records = await prisma.vaultRecord.findMany({
-      where: {
-        dnaRecord: { ownerUserId: userId ?? undefined },
-      },
+      where: vaultOwnerWhere(userId),
       orderBy: { createdAt: 'desc' },
       include: {
         dnaRecord: { select: { id: true, status: true, imageFilename: true } },
@@ -92,8 +90,10 @@ export async function storeInVault(
   }
 
   try {
+    const ownerUserId = getAuthUserId(req);
     const result = await vaultService.store({
       dnaRecordId:      dnaRecordId.trim(),
+      ownerUserId,
       imageBuffer:      buffer,
       originalFileName: req.file.originalname,
       originalMimeType: req.file.mimetype,
@@ -184,7 +184,8 @@ export async function retrieveFromVault(
   const { id } = req.params;
 
   try {
-    const result = await vaultService.retrieve(id);
+    const userId = getAuthUserId(req);
+    const result = await vaultService.retrieve(id, userId);
 
     // Stream the decrypted image back as binary
     res.set({
@@ -222,7 +223,8 @@ export async function retrieveFromVault(
 export async function scanVaultFile(req: Request, res: Response, next: NextFunction): Promise<void> {
   const { id } = req.params;
   try {
-    const result = await vaultService.retrieve(id);
+    const userId = getAuthUserId(req);
+    const result = await vaultService.retrieve(id, userId);
     const mime   = result.originalMimeType;
     const buffer = result.originalBuffer;
 
@@ -277,59 +279,41 @@ export async function scanVaultFile(req: Request, res: Response, next: NextFunct
 
 /**
  * POST /vault/verify-identity
- * Upload any file — extract and verify the embedded PINIT-DNA owner identity.
- * If the file was downloaded and tampered, we can still identify the original owner.
+ * Multi-vector leaked-file forensics: embedded identity, TEP, share-viewer OCR,
+ * watermarks, and visual fingerprint — without touching duplicate-check on upload.
  */
 export async function verifyFileIdentity(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const file = (req as any).file as Express.Multer.File | undefined;
-    if (!file) { res.status(400).json({ success: false, error: 'No file uploaded' }); return; }
+  const file = (req as any).file as Express.Multer.File | undefined;
+  if (!file) { res.status(400).json({ success: false, error: 'No file uploaded' }); return; }
 
-    const result = await identityEmbeddingService.extractAndVerify(
-      file.buffer,
-      file.mimetype,
+  try {
+    const buffer = file.buffer ?? await fs.readFile(file.path);
+    let mimeType = file.mimetype;
+    if (!mimeType || mimeType === 'application/octet-stream') {
+      const ext = file.originalname.split('.').pop()?.toLowerCase();
+      if (ext === 'pdf') mimeType = 'application/pdf';
+      else if (ext === 'png') mimeType = 'image/png';
+      else if (ext === 'jpg' || ext === 'jpeg') mimeType = 'image/jpeg';
+    }
+
+    const { leakedFileVerifyService } = await import('../../services/forensics/leaked-file-verify.service');
+    const result = await leakedFileVerifyService.verify(
+      buffer,
+      mimeType,
       file.originalname,
     );
 
-    if (!result.found) {
-      res.json({
-        success: true,
-        found: false,
-        message: 'No PINIT-DNA identity signature found in this file. The file may not have been protected by PINIT-DNA, or the signature region was destroyed.',
-      });
-      return;
-    }
-
-    // Look up the owner details from DB if dnaId found
-    let ownerInfo: { email?: string; name?: string } = {};
-    if (result.dnaId) {
-      try {
-        const { prisma } = await import('../../lib/prisma');
-        const dna = await prisma.dnaRecord.findUnique({
-          where: { id: result.dnaId },
-          include: { ownerUser: { select: { email: true, fullName: true } } },
-        });
-        if (dna?.ownerUser) ownerInfo = { email: dna.ownerUser.email ?? undefined, name: dna.ownerUser.fullName ?? undefined };
-      } catch { /* non-critical */ }
-    }
-
-    res.json({
-      success: true,
-      found: true,
-      valid: result.valid,
-      tampered: result.tampered,
-      identity: {
-        dnaId:       result.dnaId,
-        vaultId:     result.vaultId,
-        ownerUserId: result.ownerUserId,
-        ownerEmail:  ownerInfo.email,
-        ownerName:   ownerInfo.name,
-      },
-      message: result.valid
-        ? '✅ Identity verified — this file belongs to the identified owner.'
-        : '⚠️ Signature found but HMAC mismatch — file may have been tampered after embedding.',
+    logger.info('[LeakedVerify] Scan complete', {
+      found: result.found,
+      method: result.detectionMethod,
+      fileName: file.originalname,
+      size: buffer.length,
     });
+
+    res.json({ success: true, ...result });
   } catch (err) {
     next(err);
+  } finally {
+    if (file.path) fs.unlink(file.path).catch(() => {});
   }
 }

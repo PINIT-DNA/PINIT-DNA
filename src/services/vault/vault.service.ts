@@ -28,6 +28,7 @@ import { logger } from '../../lib/logger';
 import { encrypt, decrypt } from './encryption.service';
 import { uploadVaultFile, downloadVaultFile } from '../../lib/supabase-storage';
 import { identityEmbeddingService } from '../identity/identity-embedding.service';
+import { assertRecordOwner } from '../../lib/tenant-scope';
 
 // In development without Supabase configured, fall back to local disk.
 const USE_LOCAL = process.env['NODE_ENV'] !== 'production' &&
@@ -81,11 +82,12 @@ export class VaultService {
    */
   async store(params: {
     dnaRecordId:      string;
+    ownerUserId:      string;
     imageBuffer:      Buffer;
     originalFileName: string;
     originalMimeType: string;
   }): Promise<StoreResult> {
-    const { dnaRecordId, imageBuffer, originalFileName, originalMimeType } = params;
+    const { dnaRecordId, ownerUserId, imageBuffer, originalFileName, originalMimeType } = params;
 
     logger.info('Vault — storing encrypted file', {
       dnaRecordId,
@@ -96,6 +98,7 @@ export class VaultService {
     // ── Check DNA record exists ────────────────────────────────────────────
     const dnaRecord = await prisma.dnaRecord.findUnique({ where: { id: dnaRecordId } });
     if (!dnaRecord) throw new Error(`DNA record not found: ${dnaRecordId}`);
+    assertRecordOwner(dnaRecord.ownerUserId, ownerUserId, 'DNA record');
 
     // ── Check not already vaulted ─────────────────────────────────────────
     const existing = await prisma.vaultRecord.findUnique({ where: { dnaRecordId } });
@@ -139,7 +142,7 @@ export class VaultService {
       encryptedFilePath = await writeLocal(vaultId, encResult.encryptedBuffer);
       logger.debug('Vault — stored locally', { vaultId, encryptedFilePath });
     } else {
-      encryptedFilePath = await uploadVaultFile(vaultId, encResult.encryptedBuffer);
+      encryptedFilePath = await uploadVaultFile(vaultId, encResult.encryptedBuffer, ownerUserId);
       logger.debug('Vault — uploaded to Supabase Storage', { vaultId, encryptedFilePath });
     }
 
@@ -198,13 +201,18 @@ export class VaultService {
    * Reads the encrypted file, decrypts it in-memory, returns original bytes.
    * If the auth tag is invalid (file tampered), AES-GCM will throw automatically.
    */
-  async retrieve(vaultId: string): Promise<RetrieveResult> {
+  async retrieve(vaultId: string, requestingUserId?: string): Promise<RetrieveResult> {
     logger.info('Vault — retrieving encrypted image', { vaultId });
 
     const record = await prisma.vaultRecord.findUnique({
       where: { id: vaultId },
+      include: { dnaRecord: { select: { ownerUserId: true } } },
     });
     if (!record) throw new Error(`Vault record not found: ${vaultId}`);
+    if (requestingUserId) {
+      assertRecordOwner(record.dnaRecord?.ownerUserId, requestingUserId, 'Vault');
+    }
+    const ownerUserId = record.dnaRecord?.ownerUserId ?? undefined;
 
     // ── Download encrypted file (local in dev, Supabase in production) ──
     let encryptedBuffer: Buffer;
@@ -212,7 +220,7 @@ export class VaultService {
       if (USE_LOCAL) {
         encryptedBuffer = await readLocal(vaultId);
       } else {
-        encryptedBuffer = await downloadVaultFile(vaultId);
+        encryptedBuffer = await downloadVaultFile(vaultId, ownerUserId);
       }
     } catch (err) {
       throw new Error(`Vault file unavailable: ${String(err)}`);

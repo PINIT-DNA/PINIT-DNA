@@ -17,6 +17,7 @@ import { autoIndexer }   from '../../services/ai/auto-indexer.service';
 import { monitoringService } from '../../services/crawler/monitoring.service';
 import { UniversalFileRouter } from '../../services/universal-file-router';
 import { duplicateCheckService } from '../../services/duplicate/duplicate-check.service';
+import { getAuthUserId, dnaOwnerWhere } from '../../lib/tenant-scope';
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../middleware/error.middleware';
 import { logger } from '../../lib/logger';
@@ -58,9 +59,9 @@ export async function listDnaRecords(
   next: NextFunction
 ): Promise<void> {
   try {
-    const userId = (req as any).user?.sub;
+    const userId = getAuthUserId(req);
     const records = await prisma.dnaRecord.findMany({
-      where: { ownerUserId: userId ?? undefined },
+      where: dnaOwnerWhere(userId),
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -208,7 +209,7 @@ export async function generateDna(
     });
 
     // Fire-and-forget: auto-start web monitoring for every enrolled file
-    monitoringService.enroll(result.dnaRecordId, { scanType: 'DAILY' })
+    monitoringService.enroll(result.dnaRecordId, { scanType: 'DAILY', ownerUserId: userId })
       .catch((err: unknown) => logger.warn('[Monitor] Auto-start failed', { error: String(err) }));
 
     // Fire-and-forget audit log
@@ -420,17 +421,32 @@ export async function getDuplicateAttempts(
   next: NextFunction,
 ): Promise<void> {
   try {
+    const userId = getAuthUserId(req);
     const limit  = Math.min(parseInt(req.query['limit']  as string ?? '100', 10), 500);
     const offset = parseInt(req.query['offset'] as string ?? '0',   10);
 
+    const ownedDna = await prisma.dnaRecord.findMany({
+      where: { ownerUserId: userId },
+      select: { id: true },
+    });
+    const ownedDnaIds = ownedDna.map((d) => d.id);
+
+    const dupWhere = {
+      eventType: 'DUPLICATE_UPLOAD_ATTEMPT' as const,
+      OR: [
+        { userId },
+        ...(ownedDnaIds.length ? [{ dnaRecordId: { in: ownedDnaIds } }] : []),
+      ],
+    };
+
     const [events, total] = await Promise.all([
       prisma.auditEvent.findMany({
-        where:   { eventType: 'DUPLICATE_UPLOAD_ATTEMPT' },
+        where: dupWhere,
         orderBy: { createdAt: 'desc' },
         take:    limit,
         skip:    offset,
       }),
-      prisma.auditEvent.count({ where: { eventType: 'DUPLICATE_UPLOAD_ATTEMPT' } }),
+      prisma.auditEvent.count({ where: dupWhere }),
     ]);
 
     res.json({

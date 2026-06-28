@@ -82,8 +82,14 @@ export class IdentityEmbeddingService {
       .createHmac('sha256', SECRET)
       .update(data)
       .digest('hex');
+    let valid = false;
+    try {
+      valid = crypto.timingSafeEqual(Buffer.from(hmacHex, 'hex'), Buffer.from(expected, 'hex'));
+    } catch {
+      valid = false;
+    }
     return {
-      valid: crypto.timingSafeEqual(Buffer.from(hmacHex, 'hex'), Buffer.from(expected, 'hex')),
+      valid,
       dnaId, vaultId, ownerUserId,
     };
   }
@@ -389,6 +395,39 @@ export class IdentityEmbeddingService {
           };
         }
       } catch { /* try next */ }
+    }
+
+    return { found: false, valid: false, tampered: false };
+  }
+
+  /**
+   * Scan for partially surviving identity markers after heavy tampering.
+   * Finds PINIT-DNA:v1 payloads even when HMAC region is corrupted.
+   */
+  async extractLoose(buffer: Buffer, mimeType: string, fileName: string): Promise<VerifyResult> {
+    const strict = await this.extractAndVerify(buffer, mimeType, fileName);
+    if (strict.found) return strict;
+
+    const haystacks = [
+      buffer.toString('latin1'),
+      buffer.toString('utf8'),
+    ];
+
+    for (const text of haystacks) {
+      const match = text.match(/PINIT-DNA:v1:([0-9a-f-]{36}):([0-9a-f-]{36}):([0-9a-f-]{36})/i);
+      if (match) {
+        const sig = match[0];
+        const verified = this.verifySignature(sig);
+        return {
+          found: true,
+          valid: verified.valid,
+          dnaId: verified.dnaId ?? match[1],
+          vaultId: verified.vaultId ?? match[2],
+          ownerUserId: verified.ownerUserId ?? match[3],
+          tampered: !verified.valid,
+          method: 'loose_scan',
+        };
+      }
     }
 
     return { found: false, valid: false, tampered: false };

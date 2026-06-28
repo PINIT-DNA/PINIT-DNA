@@ -11,7 +11,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { certificateService } from '../../services/certificates/certificate.service';
 import { auditService }       from '../../services/audit/audit.service';
-import { AppError }           from '../middleware/error.middleware';
+import { getAuthUserId } from '../../lib/tenant-scope';
+import { AppError } from '../middleware/error.middleware';
 
 // ─── POST /certificates/issue ─────────────────────────────────────────────────
 
@@ -25,7 +26,12 @@ export async function issueCertificate(req: Request, res: Response, next: NextFu
   }
 
   try {
-    const cert = await certificateService.issue({ dnaRecordId, vaultId, expiresInDays });
+    const ownerUserId = getAuthUserId(req);
+    const cert = await certificateService.issue({
+      dnaRecordId, vaultId, expiresInDays,
+      issuedByUserId: ownerUserId,
+      ownerUserId,
+    });
 
     await auditService.log({
       eventType: 'CERTIFICATE_ISSUED', dnaRecordId, vaultId: cert.vaultId,
@@ -61,7 +67,8 @@ export async function revokeCertificate(req: Request, res: Response, next: NextF
   }
 
   try {
-    const cert = await certificateService.revoke(certificateId, reason.trim());
+    const revokedByUserId = getAuthUserId(req);
+    const cert = await certificateService.revoke(certificateId, reason.trim(), revokedByUserId);
 
     await auditService.log({
       eventType: 'CERTIFICATE_REVOKED', dnaRecordId: cert.dnaRecordId, vaultId: cert.vaultId,
@@ -80,7 +87,7 @@ export async function revokeCertificate(req: Request, res: Response, next: NextF
 
 export async function listCertificates(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const userId = (req as any).user?.sub;
+    const userId = getAuthUserId(req);
     const certs = await certificateService.listAll(userId);
     res.status(200).json({ success: true, count: certs.length, certificates: certs });
   } catch (err) {
@@ -92,7 +99,8 @@ export async function listCertificates(req: Request, res: Response, next: NextFu
 
 export async function listCertificatesByDna(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const certs = await certificateService.listByDnaRecord(req.params['dnaRecordId']);
+    const userId = getAuthUserId(req);
+    const certs = await certificateService.listByDnaRecord(req.params['dnaRecordId'], userId);
     res.status(200).json({ success: true, count: certs.length, certificates: certs });
   } catch (err) {
     next(err);

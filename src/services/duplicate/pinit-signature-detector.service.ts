@@ -7,39 +7,27 @@
 import sharp from 'sharp';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
-import { OcrService } from '../ocr/ocr.service';
 import { extractWatermarkFromFile } from '../watermark/watermark.service';
+import { resolveShareTokenFromText } from '../share/share-token-resolver';
 
-const ocrService = new OcrService();
-
-/** Share link tokens are 10 URL-safe chars (base64url slice). */
-const SHARE_TOKEN_RE = /\b([A-Za-z0-9_-]{10})\b/g;
 const WATERMARK_CODE_RE = /WM-[A-Z0-9]{4,}-[A-Z0-9]{4,}/gi;
 
+/** OCR-only markers — never match raw PNG/JPEG bytes (too many false positives). */
 const VISIBLE_MARKERS: RegExp[] = [
   /PINIT\s*[-·\s]*DNA/i,
   /Protected\s+by\s+PINIT/i,
   /PINIT-DNA\s+Smart\s+Links/i,
-  /Smart\s+Links/i,
   /PINIT\s+Vault/i,
   /Secure\s+Viewer/i,
   /Access\s+is\s+tracked\s+and\s+logged/i,
+  /File\s+Tracking\s+Map/i,
+  /Unique\s+Viewers/i,
+  /Token:\s*[A-Za-z0-9_-]{8,}/i,
   /PINIT-WM:/i,
   /TEP-MANIFEST:/i,
   /PINIT-DNA-SIG:/i,
   /PINIT-DNA:v1:/i,
 ];
-
-const BINARY_MARKERS = [
-  'PINIT-DNA',
-  'PINIT-DNA-SIG:',
-  'PINIT-DNA:v1:',
-  'TEP-MANIFEST:',
-  'Smart Links',
-  'Protected by PINIT',
-  'PINIT-WM:',
-  'WM-',
-] as const;
 
 export interface PinitSignatureHit {
   detected: boolean;
@@ -50,6 +38,7 @@ export interface PinitSignatureHit {
   dnaRecordId?: string;
   ownerUserId?: string;
   ownerShortId?: string;
+  ocrFullText?: string;
 }
 
 export class PinitSignatureDetectorService {
@@ -75,49 +64,43 @@ export class PinitSignatureDetectorService {
       logger.debug('[PinitSignature] Metadata extraction skipped', { error: String(err) });
     }
 
-    // ── 2. Fast binary / latin1 scan ─────────────────────────────────────────
-    const latin = buffer.toString('latin1');
-    for (const marker of BINARY_MARKERS) {
-      if (latin.includes(marker)) {
-        signals.push(`binary:${marker}`);
-        if (method === 'none') method = 'binary_scan';
-      }
-    }
-
-    const wmFromBinary = latin.match(WATERMARK_CODE_RE);
-    if (wmFromBinary?.[0] && !watermarkCode) {
-      watermarkCode = wmFromBinary[0].toUpperCase();
-      signals.push(`binary:watermark_code:${watermarkCode}`);
-      if (method === 'none') method = 'binary_scan';
-    }
-
-    // ── 3. OCR on images (screenshots of share viewer) ───────────────────────
+    // ── 2. OCR on images (screenshots of share viewer) ───────────────────────
     let ocrFullText = '';
     if (mimeType.startsWith('image/')) {
       const ocrHits = await this._detectViaOcr(buffer, mimeType);
       ocrFullText = ocrHits.fullText;
       for (const hit of ocrHits.signals) signals.push(hit);
-      if (ocrHits.shareToken && !shareToken) shareToken = ocrHits.shareToken;
       if (ocrHits.watermarkCode && !watermarkCode) watermarkCode = ocrHits.watermarkCode;
       if (ocrHits.signals.length && method === 'none') method = 'ocr_visible';
     }
 
-    // ── 4. Parse tokens / codes from combined signal text ────────────────────
-    const combinedText = [signals.join('\n'), ocrFullText, latin.slice(0, 500_000)].join('\n');
-    if (!shareToken) shareToken = await this._resolveShareTokenFromText(combinedText);
+    // ── 3. Parse tokens / codes from OCR + metadata text only ────────────────
+    const combinedText = [signals.join('\n'), ocrFullText].join('\n');
+    shareToken = await resolveShareTokenFromText(combinedText);
     if (!watermarkCode) {
       const wmMatch = combinedText.match(WATERMARK_CODE_RE);
       if (wmMatch?.[0]) watermarkCode = wmMatch[0].toUpperCase();
     }
 
-    const markerHit = VISIBLE_MARKERS.some((re) => re.test(combinedText));
-    const detected = signals.length > 0 || markerHit || Boolean(shareToken) || Boolean(watermarkCode);
+    const resolved = await this._resolveToDnaRecord(shareToken, watermarkCode);
+
+    // Block only when tied to a known vault record OR OCR clearly shows PINIT share-viewer UI.
+    const ocrConfident = this._isHighConfidenceOcr(ocrFullText);
+    const detected = Boolean(resolved.dnaRecordId) || ocrConfident;
 
     if (!detected) {
-      return { detected: false, method: 'none', signals: [] };
+      return {
+        detected: false,
+        method: 'none',
+        signals: [],
+        ocrFullText: ocrFullText || undefined,
+        shareToken: shareToken ?? undefined,
+        watermarkCode,
+        dnaRecordId: resolved.dnaRecordId,
+        ownerUserId: resolved.ownerUserId,
+        ownerShortId: resolved.ownerShortId,
+      };
     }
-
-    const resolved = await this._resolveToDnaRecord(shareToken, watermarkCode);
 
     logger.info('[PinitSignature] PINIT vault signature detected', {
       method,
@@ -131,75 +114,88 @@ export class PinitSignatureDetectorService {
       detected: true,
       method,
       signals,
-      shareToken,
+      shareToken: shareToken ?? undefined,
       watermarkCode,
       dnaRecordId: resolved.dnaRecordId,
       ownerUserId: resolved.ownerUserId,
       ownerShortId: resolved.ownerShortId,
+      ocrFullText: ocrFullText || undefined,
     };
   }
 
-  private _extractShareToken(text: string): string | undefined {
-    const afterPinit = text.match(/PINIT\s*[-·\s]*DNA[\s·\-]*([A-Za-z0-9_-]{8,12})/i);
-    if (afterPinit?.[1] && afterPinit[1].length === 10) return afterPinit[1];
+  /**
+   * Require unmistakable PINIT vault UI text — not generic words like "Smart Links" alone.
+   * A single "PINIT-DNA" line, or Protected-by-PINIT + Secure Viewer together.
+   */
+  private _isHighConfidenceOcr(text: string): boolean {
+    if (!text.trim()) return false;
 
-    const tokens = [...text.matchAll(SHARE_TOKEN_RE)].map((m) => m[1]!);
-    return tokens.find((t) => t.length === 10 && !t.startsWith('WM-'));
+    const hasPinitDna = /PINIT\s*[-·\s]*DNA/i.test(text);
+    const hasProtected = /Protected\s+by\s+PINIT/i.test(text);
+    const hasSecureViewer = /Secure\s+Viewer/i.test(text);
+    const hasTracked = /Access\s+is\s+tracked\s+and\s+logged/i.test(text);
+    const hasPinitVault = /PINIT\s+Vault/i.test(text);
+    const hasSmartLinksFooter = /PINIT-DNA\s+Smart\s+Links/i.test(text);
+
+    if (hasPinitDna && (hasProtected || hasSecureViewer || hasTracked || hasSmartLinksFooter)) {
+      return true;
+    }
+    if (hasProtected && hasSecureViewer) return true;
+    if (hasPinitVault && hasTracked) return true;
+    // Share-viewer page title / header: "PINIT-DNA Secure Viewer"
+    if (hasPinitDna && hasSecureViewer) return true;
+    if (/PINIT/i.test(text) && hasProtected && hasTracked) return true;
+    // Link Intelligence dashboard (/link/{token}) — filename bar + tracking map
+    const hasTrackingMap = /File\s+Tracking\s+Map|Tracing\s+Map/i.test(text);
+    const hasTokenLine = /Token:\s*[A-Za-z0-9_-]{8,}/i.test(text);
+    if (hasTrackingMap && (hasTokenLine || hasPinitDna)) return true;
+    if (hasPinitDna && /Unique\s+Viewers|Total\s+Views/i.test(text)) return true;
+    return false;
   }
 
-  /** Resolve any 10-char URL-safe token found in OCR/binary text against share_links. */
-  private async _resolveShareTokenFromText(text: string): Promise<string | undefined> {
-    const direct = this._extractShareToken(text);
-    if (direct) {
-      const link = await prisma.shareLink.findUnique({ where: { token: direct }, select: { token: true } });
-      if (link) return direct;
-    }
-
-    const candidates = [...new Set([...text.matchAll(SHARE_TOKEN_RE)].map((m) => m[1]!))]
-      .filter((t) => t.length === 10 && !t.startsWith('WM-'));
-
-    for (const token of candidates) {
-      const link = await prisma.shareLink.findUnique({ where: { token }, select: { token: true } });
-      if (link) return token;
-    }
-    return undefined;
+  /** Run OCR passes and return combined text — for leaked-file forensics. */
+  async extractOcrText(buffer: Buffer, mimeType: string): Promise<string> {
+    if (!mimeType.startsWith('image/')) return '';
+    const ocrHits = await this._detectViaOcr(buffer, mimeType);
+    return ocrHits.fullText;
   }
 
   private async _detectViaOcr(
     buffer: Buffer,
     mimeType: string,
-  ): Promise<{ signals: string[]; shareToken?: string; watermarkCode?: string; fullText: string }> {
+  ): Promise<{ signals: string[]; watermarkCode?: string; fullText: string }> {
     const signals: string[] = [];
-    let shareToken: string | undefined;
     let watermarkCode: string | undefined;
     let fullText = '';
 
     const variants = await this._ocrVariants(buffer);
-    for (const variant of variants) {
-      const ocr = await ocrService.extractText(variant.buffer, mimeType);
-      if (!ocr.success || !ocr.text) continue;
+    let worker: import('tesseract.js').Worker | undefined;
 
-      const text = ocr.text;
-      fullText += `\n${text}`;
+    try {
+      const { createWorker } = await import('tesseract.js');
+      worker = await createWorker('eng', 1, { logger: () => {} });
 
-      for (const re of VISIBLE_MARKERS) {
-        if (re.test(text)) signals.push(`ocr:${re.source.slice(0, 40)}`);
+      for (const variant of variants) {
+        const { data } = await worker.recognize(variant.buffer);
+        const text = data.text?.trim();
+        if (!text) continue;
+
+        fullText += `\n${text}`;
+
+        for (const re of VISIBLE_MARKERS) {
+          if (re.test(text)) signals.push(`ocr:${re.source.slice(0, 40)}`);
+        }
+
+        const wm = text.match(WATERMARK_CODE_RE);
+        if (wm?.[0] && !watermarkCode) watermarkCode = wm[0].toUpperCase();
       }
-
-      const wm = text.match(WATERMARK_CODE_RE);
-      if (wm?.[0] && !watermarkCode) watermarkCode = wm[0].toUpperCase();
-
-      const token = this._extractShareToken(text);
-      if (token && !shareToken) shareToken = token;
-
-      if (signals.length) break;
+    } catch (err) {
+      logger.warn('[PinitSignature] OCR failed', { error: String(err) });
+    } finally {
+      if (worker) await worker.terminate();
     }
 
-    if (!shareToken && fullText) {
-      shareToken = await this._resolveShareTokenFromText(fullText);
-    }
-
-    return { signals, shareToken, watermarkCode, fullText };
+    return { signals, watermarkCode, fullText };
   }
 
   /** Preprocess image regions to surface faint diagonal share-viewer watermarks. */
@@ -238,7 +234,51 @@ export class PinitSignatureDetectorService {
             .png()
             .toBuffer(),
         });
+
+        // Browser URL bar — localhost/link/{token}
+        const urlBarH = Math.max(40, Math.floor(h * 0.15));
+        out.push({
+          label: 'urlbar',
+          buffer: await sharp(buffer)
+            .extract({ left: 0, top: 0, width: w, height: urlBarH })
+            .resize(w && w < 2000 ? 2000 : undefined, null, { withoutEnlargement: false })
+            .normalize()
+            .sharpen()
+            .greyscale()
+            .linear(2.0, -60)
+            .png()
+            .toBuffer(),
+        });
+
+        // Link Intelligence title band — filename + Token: wKb7... (below browser chrome)
+        const titleTop = Math.max(0, Math.floor(h * 0.08));
+        const titleH = Math.max(60, Math.floor(h * 0.28));
+        out.push({
+          label: 'title-band',
+          buffer: await sharp(buffer)
+            .extract({ left: 0, top: titleTop, width: w, height: Math.min(titleH, h - titleTop) })
+            .resize(w && w < 2400 ? 2400 : undefined, null, { withoutEnlargement: false })
+            .normalize()
+            .sharpen()
+            .greyscale()
+            .png()
+            .toBuffer(),
+        });
       }
+
+      // Diagonal watermark tiles — rotate to horizontal for OCR
+      out.push({
+        label: 'watermark-rotated',
+        buffer: await sharp(buffer)
+          .resize(w && w < 1800 ? 1800 : undefined, null, { withoutEnlargement: false })
+          .rotate(-30, { background: { r: 0, g: 0, b: 0, alpha: 0 } })
+          .normalize()
+          .sharpen()
+          .greyscale()
+          .linear(2.0, -50)
+          .png()
+          .toBuffer(),
+      });
     } catch (err) {
       logger.warn('[PinitSignature] OCR preprocess failed — using raw buffer', { error: String(err) });
       out.push({ label: 'raw', buffer });

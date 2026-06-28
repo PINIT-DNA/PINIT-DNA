@@ -10,6 +10,7 @@ import crypto   from 'crypto';
 import axios    from 'axios';
 import { prisma } from '../../lib/prisma';
 import { logger }  from '../../lib/logger';
+import { assertRecordOwner } from '../../lib/tenant-scope';
 import { riskEngineService } from './risk-engine.service';
 import { sanitizeCoordinatePair } from '../../lib/geo-coords';
 
@@ -226,12 +227,15 @@ export class ShareLinkService {
   // ── Create share link ─────────────────────────────────────────────────────
 
   async create(input: CreateShareLinkInput) {
+    if (!input.ownerUserId) throw new Error('Authentication required to create share links');
+
     // Fetch vault + dna record info
     const vault = await prisma.vaultRecord.findUnique({
       where: { id: input.vaultId },
-      include: { dnaRecord: { select: { id: true, imageFilename: true, imageMimeType: true } } },
+      include: { dnaRecord: { select: { id: true, imageFilename: true, imageMimeType: true, ownerUserId: true } } },
     });
     if (!vault) throw new Error(`Vault record not found: ${input.vaultId}`);
+    assertRecordOwner(vault.dnaRecord?.ownerUserId, input.ownerUserId, 'Vault');
 
     // Generate unique token
     let token = generateToken();
@@ -305,7 +309,7 @@ export class ShareLinkService {
         oneDeviceOnly: input.oneDeviceOnly ?? false,
 
         // Tenant isolation
-        ownerUserId: input.ownerUserId ?? null,
+        ownerUserId: input.ownerUserId,
       },
     });
 
@@ -941,9 +945,16 @@ export class ShareLinkService {
 
   // ── Get all links for a vault record ─────────────────────────────────────
 
-  async listByVault(vaultId: string) {
+  async listByVault(vaultId: string, ownerUserId: string) {
+    const vault = await prisma.vaultRecord.findUnique({
+      where: { id: vaultId },
+      include: { dnaRecord: { select: { ownerUserId: true } } },
+    });
+    if (!vault) throw new Error(`Vault record not found: ${vaultId}`);
+    assertRecordOwner(vault.dnaRecord?.ownerUserId, ownerUserId, 'Vault');
+
     return prisma.shareLink.findMany({
-      where:   { vaultId },
+      where:   { vaultId, ownerUserId },
       orderBy: { createdAt: 'desc' },
       include: { accessLogs: { orderBy: { createdAt: 'desc' }, take: 10 } },
     });
@@ -951,9 +962,9 @@ export class ShareLinkService {
 
   // ── List all share links (admin view) ─────────────────────────────────────
 
-  async listAll(userId?: string) {
+  async listAll(userId: string) {
     return prisma.shareLink.findMany({
-      where: userId ? { ownerUserId: userId } : undefined,
+      where: { ownerUserId: userId },
       orderBy: { createdAt: 'desc' },
       include: {
         _count: { select: { accessLogs: true } },
@@ -1052,9 +1063,10 @@ export class ShareLinkService {
 
   // ── Revoke ────────────────────────────────────────────────────────────────
 
-  async revoke(token: string) {
+  async revoke(token: string, ownerUserId: string) {
     const link = await prisma.shareLink.findUnique({ where: { token } });
     if (!link) throw new Error(`Share link not found: ${token}`);
+    assertRecordOwner(link.ownerUserId, ownerUserId, 'Share link');
 
     await prisma.shareLink.update({
       where: { token },
@@ -1070,10 +1082,10 @@ export class ShareLinkService {
   // "Force logout" maps to revoking the parent link — the next request from
   // that session is blocked server-side immediately (see recordAccess/serveSharedFile).
 
-  async getLiveSessions(ownerUserId?: string) {
+  async getLiveSessions(ownerUserId: string) {
     const cutoff = new Date(Date.now() - 5 * 60_000);
     const recent = await prisma.shareAccessLog.findMany({
-      where:   { sessionId: { not: null }, createdAt: { gte: cutoff }, ...(ownerUserId ? { shareLink: { ownerUserId } } : {}) },
+      where:   { sessionId: { not: null }, createdAt: { gte: cutoff }, shareLink: { ownerUserId } },
       orderBy: { createdAt: 'desc' },
       include: { shareLink: { select: { token: true, filename: true, dnaRecordId: true, isActive: true } } },
     });
@@ -1122,9 +1134,16 @@ export class ShareLinkService {
 
   // ── Get access logs for File Timeline ────────────────────────────────────
 
-  async getTimelineEvents(dnaRecordId: string) {
+  async getTimelineEvents(dnaRecordId: string, ownerUserId: string) {
+    const dna = await prisma.dnaRecord.findUnique({
+      where: { id: dnaRecordId },
+      select: { ownerUserId: true },
+    });
+    if (!dna) throw new Error(`DNA record not found: ${dnaRecordId}`);
+    assertRecordOwner(dna.ownerUserId, ownerUserId, 'DNA record');
+
     const links = await prisma.shareLink.findMany({
-      where:   { dnaRecordId },
+      where:   { dnaRecordId, ownerUserId },
       orderBy: { createdAt: 'asc' },
       include: { accessLogs: { orderBy: { createdAt: 'asc' } } },
     });

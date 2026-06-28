@@ -17,17 +17,18 @@ import {
 import { debugIndexed }          from '../controllers/debug-index.controller';
 import { tikaHealth, extractTikaMetadata } from '../controllers/tika.controller';
 import { requireAuth } from '../middleware/auth.middleware';
+import { requireDnaOwnership, requireVaultOwnership } from '../middleware/ownership.middleware';
 
 const router = Router();
 
 /** POST /intelligence/ocr/:dnaRecordId — Extract text via OCR */
-router.post('/ocr/:dnaRecordId', requireAuth, runOcr);
+router.post('/ocr/:dnaRecordId', requireAuth, requireDnaOwnership, runOcr);
 
 /** GET  /intelligence/search?q=...    — Semantic full-text search */
 router.get('/search', requireAuth, semanticSearch);
 
 /** GET  /intelligence/lineage/:id     — Document lineage graph */
-router.get('/lineage/:dnaRecordId', requireAuth, getLineage);
+router.get('/lineage/:dnaRecordId', requireAuth, requireDnaOwnership, getLineage);
 
 /** GET  /intelligence/duplicates      — Find duplicate clusters */
 router.get('/duplicates', requireAuth, getDuplicates);
@@ -39,10 +40,10 @@ router.get('/audit', requireAuth, getAuditLog);
 router.get('/audit/export', requireAuth, exportAuditCsv);
 
 /** GET  /intelligence/audit/:id       — Audit for one DNA record */
-router.get('/audit/:dnaRecordId', requireAuth, getAuditForRecord);
+router.get('/audit/:dnaRecordId', requireAuth, requireDnaOwnership, getAuditForRecord);
 
 /** GET  /intelligence/report/:vaultId — Full document intelligence report */
-router.get('/report/:vaultId', requireAuth, getIntelligenceReport);
+router.get('/report/:vaultId', requireAuth, requireVaultOwnership, getIntelligenceReport);
 
 /** GET  /intelligence/stats           — Intelligence statistics */
 router.get('/stats', requireAuth, getIntelligenceStats);
@@ -54,6 +55,6 @@ router.get('/debug/indexed', requireAuth, debugIndexed);
 router.get('/tika/health', tikaHealth);   // public health check
 
 /** POST /intelligence/tika/:dnaRecordId — Extract Tika metadata for a vaulted file */
-router.post('/tika/:dnaRecordId', requireAuth, extractTikaMetadata);
+router.post('/tika/:dnaRecordId', requireAuth, requireDnaOwnership, extractTikaMetadata);
 
 export { router as intelligenceRouter };

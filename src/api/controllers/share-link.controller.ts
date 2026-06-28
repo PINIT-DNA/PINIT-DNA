@@ -23,6 +23,7 @@ import { prisma }           from '../../lib/prisma';
 import { auditService }     from '../../services/audit/audit.service';
 import { resolveClientIp, buildShareUrl, dumpIpHeaders, resolvePublicBaseUrl } from '../../lib/request-utils';
 import { sanitizeCoordinatePair } from '../../lib/geo-coords';
+import { getAuthUserId } from '../../lib/tenant-scope';
 
 /** Parse GPS + address fields from share access POST body. */
 function parseAccessGps(body: Record<string, unknown>) {
@@ -122,7 +123,7 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
 
     if (!vaultId) { res.status(400).json({ success: false, error: 'vaultId is required' }); return; }
 
-    const ownerUserId = (req as any).user?.sub as string | undefined;
+    const ownerUserId = getAuthUserId(req);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const recipients = (req.body as any).recipients as Array<{ label: string; email?: string }> | undefined;
 
@@ -161,7 +162,7 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
 
 export async function listShareLinks(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const userId = (req as any).user?.sub;
+    const userId = getAuthUserId(req);
     const links = await shareLinkService.listAll(userId);
     res.json({ success: true, count: links.length, links });
   } catch (err) { next(err); }
@@ -415,7 +416,7 @@ export async function exportShareLogsCsv(req: Request, res: Response, next: Next
 
 export async function getLiveSessions(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const ownerUserId = (req as any).user?.sub;
+    const ownerUserId = getAuthUserId(req);
     const data = await shareLinkService.getLiveSessions(ownerUserId);
     res.json({ success: true, ...data });
   } catch (err) { next(err); }
@@ -425,7 +426,8 @@ export async function getLiveSessions(req: Request, res: Response, next: NextFun
 
 export async function forceLogoutLink(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const link = await shareLinkService.revoke(req.params['token']!);
+    const ownerUserId = getAuthUserId(req);
+    const link = await shareLinkService.revoke(req.params['token']!, ownerUserId);
     logger.info('[SmartLink] Force logout — link revoked', { token: link.token });
     res.json({ success: true, message: 'All active sessions for this link have been terminated', token: link.token });
   } catch (err) { next(err); }
@@ -580,7 +582,8 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
 
 export async function getVaultShareLinks(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const links = await shareLinkService.listByVault(req.params['vaultId']!);
+    const ownerUserId = getAuthUserId(req);
+    const links = await shareLinkService.listByVault(req.params['vaultId']!, ownerUserId);
     res.json({ success: true, count: links.length, links });
   } catch (err) { next(err); }
 }
@@ -589,7 +592,8 @@ export async function getVaultShareLinks(req: Request, res: Response, next: Next
 
 export async function getShareTimeline(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const events = await shareLinkService.getTimelineEvents(req.params['dnaId']!);
+    const ownerUserId = getAuthUserId(req);
+    const events = await shareLinkService.getTimelineEvents(req.params['dnaId']!, ownerUserId);
     res.json({ success: true, events });
   } catch (err) { next(err); }
 }
@@ -598,7 +602,8 @@ export async function getShareTimeline(req: Request, res: Response, next: NextFu
 
 export async function revokeShareLink(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const link = await shareLinkService.revoke(req.params['token']!);
+    const ownerUserId = getAuthUserId(req);
+    const link = await shareLinkService.revoke(req.params['token']!, ownerUserId);
     res.json({ success: true, message: 'Share link revoked', token: link.token });
   } catch (err) { next(err); }
 }
@@ -810,9 +815,11 @@ export async function getUnmaskStatus(req: Request, res: Response, next: NextFun
 // ── Privacy Masking — List all unmask requests (owner dashboard) ──────────────
 // GET /share/unmask-requests
 
-export async function listUnmaskRequests(_req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function listUnmaskRequests(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    const ownerUserId = getAuthUserId(req);
     const requests = await prisma.unmaskRequest.findMany({
+      where: { shareLink: { ownerUserId } },
       orderBy: { createdAt: 'desc' },
       take: 200,
       include: { shareLink: { select: { filename: true, token: true } } },
@@ -833,6 +840,21 @@ export async function reviewUnmaskRequest(req: Request, res: Response, next: Nex
 
     if (!['approve', 'reject'].includes(action)) {
       res.status(400).json({ success: false, error: 'action must be approve or reject' });
+      return;
+    }
+
+    const ownerUserId = getAuthUserId(req);
+
+    const existing = await prisma.unmaskRequest.findUnique({
+      where: { id },
+      include: { shareLink: { select: { ownerUserId: true, filename: true } } },
+    });
+    if (!existing) {
+      res.status(404).json({ success: false, error: 'Unmask request not found' });
+      return;
+    }
+    if (existing.shareLink.ownerUserId !== ownerUserId) {
+      res.status(403).json({ success: false, error: 'Access denied' });
       return;
     }
 
@@ -858,7 +880,7 @@ export async function reviewUnmaskRequest(req: Request, res: Response, next: Nex
 // GET /share/analytics/global
 export async function getGlobalShareStats(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const ownerUserId = (req as any).user?.sub;
+    const ownerUserId = getAuthUserId(req);
     const logs = await prisma.shareAccessLog.findMany({
       where: { shareLink: { ownerUserId } },
       select: {

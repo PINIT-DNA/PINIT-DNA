@@ -47,8 +47,8 @@ async function ensureBucket(): Promise<void> {
 let _bucketReady = false;
 
 /** Upload encrypted buffer to Supabase Storage. Returns the storage path. */
-export async function uploadVaultFile(vaultId: string, buffer: Buffer): Promise<string> {
-  const storagePath = `${vaultId}.enc`;
+export async function uploadVaultFile(vaultId: string, buffer: Buffer, ownerUserId?: string): Promise<string> {
+  const storagePath = ownerUserId ? `${ownerUserId}/${vaultId}.enc` : `${vaultId}.enc`;
 
   if (!_bucketReady) {
     await ensureBucket();
@@ -69,18 +69,22 @@ export async function uploadVaultFile(vaultId: string, buffer: Buffer): Promise<
 }
 
 /** Download encrypted buffer from Supabase Storage. */
-export async function downloadVaultFile(vaultId: string): Promise<Buffer> {
-  const storagePath = `${vaultId}.enc`;
+export async function downloadVaultFile(vaultId: string, ownerUserId?: string): Promise<Buffer> {
+  const paths = ownerUserId
+    ? [`${ownerUserId}/${vaultId}.enc`, `${vaultId}.enc`]
+    : [`${vaultId}.enc`];
 
-  const { data, error } = await getClient().storage
-    .from(BUCKET)
-    .download(storagePath);
+  let lastError: Error | null = null;
+  for (const storagePath of paths) {
+    const { data, error } = await getClient().storage.from(BUCKET).download(storagePath);
+    if (!error && data) {
+      const arrayBuffer = await data.arrayBuffer();
+      return Buffer.from(arrayBuffer);
+    }
+    lastError = error ? new Error(error.message) : new Error(`No data for ${storagePath}`);
+  }
 
-  if (error) throw new Error(`Supabase download failed: ${error.message}`);
-  if (!data)  throw new Error(`No data returned for vault file: ${storagePath}`);
-
-  const arrayBuffer = await data.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+  throw new Error(`Supabase download failed: ${lastError?.message ?? 'unknown'}`);
 }
 
 /** Delete vault file from Supabase Storage (on vault record deletion). */

@@ -61,8 +61,20 @@ export class CertificateService {
     dnaRecordId:    string;
     vaultId:        string;
     issuedByUserId? :string;
+    ownerUserId?:   string;
     expiresInDays?  :number;   // optional expiry — null = never expires
   }): Promise<IssuedCertificate> {
+    const dna = await prisma.dnaRecord.findUnique({
+      where: { id: params.dnaRecordId },
+      select: { ownerUserId: true },
+    });
+    if (!dna) throw new Error(`DNA record not found: ${params.dnaRecordId}`);
+    if (params.ownerUserId) {
+      const { assertRecordOwner } = await import('../../lib/tenant-scope');
+      assertRecordOwner(dna.ownerUserId, params.ownerUserId, 'DNA record');
+    }
+    const ownerUserId = dna.ownerUserId ?? params.ownerUserId ?? params.issuedByUserId ?? null;
+
     // Check existing
     const existing = await prisma.certificate.findFirst({
       where: {
@@ -93,6 +105,7 @@ export class CertificateService {
         issuedAt,
         expiresAt,
         issuedByUserId: params.issuedByUserId ?? null,
+        ownerUserId,
       },
     });
 
@@ -161,6 +174,10 @@ export class CertificateService {
     const cert = await prisma.certificate.findUnique({ where: { certificateId } });
     if (!cert) throw new Error(`Certificate not found: ${certificateId}`);
     if (cert.status === 'REVOKED') throw new Error('Certificate is already revoked');
+    if (revokedByUserId) {
+      const { assertCertificateOwnerByCertId } = await import('../../lib/tenant-scope');
+      await assertCertificateOwnerByCertId(certificateId, revokedByUserId);
+    }
 
     const updated = await prisma.certificate.update({
       where: { certificateId },
@@ -173,17 +190,17 @@ export class CertificateService {
 
   // ─── List ────────────────────────────────────────────────────────────────────
 
-  async listByDnaRecord(dnaRecordId: string): Promise<IssuedCertificate[]> {
+  async listByDnaRecord(dnaRecordId: string, userId: string): Promise<IssuedCertificate[]> {
     const certs = await prisma.certificate.findMany({
-      where:   { dnaRecordId },
+      where:   { dnaRecordId, ownerUserId: userId },
       orderBy: { issuedAt: 'desc' },
     });
     return certs.map(c => this.toDto(c));
   }
 
-  async listAll(userId?: string): Promise<IssuedCertificate[]> {
+  async listAll(userId: string): Promise<IssuedCertificate[]> {
     const certs = await prisma.certificate.findMany({
-      where: userId ? { ownerUserId: userId } : undefined,
+      where: { ownerUserId: userId },
       orderBy: { issuedAt: 'desc' },
     });
     return certs.map(c => this.toDto(c));

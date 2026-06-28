@@ -67,6 +67,22 @@ export function clearTokens() {
   localStorage.removeItem('pinit_refresh_token');
 }
 
+/** Clear all user-specific client caches on logout — prevents cross-tenant data bleed. */
+export function clearUserSessionCaches() {
+  try {
+    sessionStorage.removeItem('pinit_dna_reports');
+    sessionStorage.removeItem('pinit_session');
+  } catch { /* SSR / privacy mode */ }
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith('pinit_') && k !== 'pinit_theme') keysToRemove.push(k);
+    }
+    for (const k of keysToRemove) localStorage.removeItem(k);
+  } catch { /* ignore */ }
+}
+
 export function parseJwt(token: string): AuthUser | null {
   try {
     const p = JSON.parse(atob(token.split('.')[1]));
@@ -106,6 +122,7 @@ export async function apiLogin(shortId: string): Promise<AuthUser> {
 export async function apiLogout() {
   const refreshToken = getRefreshToken();
   clearTokens();
+  clearUserSessionCaches();
   if (refreshToken) await axios.post(`${BASE}/logout`, { refreshToken }).catch(() => {});
 }
 

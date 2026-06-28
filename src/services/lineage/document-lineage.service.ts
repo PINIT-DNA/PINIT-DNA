@@ -161,10 +161,21 @@ export class DocumentLineageService {
   /**
    * Get all duplicate clusters — groups of files that are copies of each other.
    */
-  async getDuplicateClusters(): Promise<LineageNode[][]> {
+  async getDuplicateClusters(ownerUserId: string): Promise<LineageNode[][]> {
     try {
+      const ownedDna = await prisma.dnaRecord.findMany({
+        where: { ownerUserId },
+        select: { id: true },
+      });
+      const ownedIds = ownedDna.map((d) => d.id);
+      if (!ownedIds.length) return [];
+
       const duplicates = await prisma.documentLineage.findMany({
-        where:   { relation: 'DUPLICATE' },
+        where: {
+          relation: 'DUPLICATE',
+          fromDnaRecordId: { in: ownedIds },
+          toDnaRecordId: { in: ownedIds },
+        },
         include: {
           fromDnaRecord: { select: { id: true, imageFilename: true, fileType: true, createdAt: true } },
           toDnaRecord:   { select: { id: true, imageFilename: true, fileType: true, createdAt: true } },

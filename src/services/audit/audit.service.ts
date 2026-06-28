@@ -146,18 +146,37 @@ export class AuditService {
   /**
    * Get recent audit events across the system.
    */
-  async getRecentEvents(limit = 50) {
+  async getRecentEvents(limit = 50, userId?: string) {
+    const scope = userId ? await this.userEventScope(userId) : undefined;
     return prisma.auditEvent.findMany({
+      where: scope,
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
   }
 
+  private async userEventScope(userId: string) {
+    const ownedDna = await prisma.dnaRecord.findMany({
+      where: { ownerUserId: userId },
+      select: { id: true },
+    });
+    const dnaIds = ownedDna.map((d) => d.id);
+    return {
+      OR: [
+        { userId },
+        ...(dnaIds.length ? [{ dnaRecordId: { in: dnaIds } }] : []),
+      ],
+    };
+  }
+
   /**
    * Export audit log as CSV string.
    */
-  async exportCsv(params?: { from?: string; to?: string; eventType?: string }): Promise<string> {
+  async exportCsv(params?: { from?: string; to?: string; eventType?: string; userId?: string }): Promise<string> {
     const where: Record<string, unknown> = {};
+    if (params?.userId) {
+      Object.assign(where, await this.userEventScope(params.userId));
+    }
     if (params?.from || params?.to) {
       where['createdAt'] = {};
       if (params.from) (where['createdAt'] as Record<string, unknown>)['gte'] = new Date(params.from);
@@ -186,11 +205,13 @@ export class AuditService {
   /**
    * Get audit statistics.
    */
-  async getStats() {
+  async getStats(userId?: string) {
+    const scope = userId ? await this.userEventScope(userId) : undefined;
     const [total, byType] = await Promise.all([
-      prisma.auditEvent.count(),
+      prisma.auditEvent.count({ where: scope }),
       prisma.auditEvent.groupBy({
         by:      ['eventType'],
+        where:   scope,
         _count:  { eventType: true },
         orderBy: { _count: { eventType: 'desc' } },
       }),

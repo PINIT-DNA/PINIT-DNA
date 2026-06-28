@@ -199,6 +199,7 @@ export default function App() {
                           {duplicateInfo.matchType === 'EXACT_HASH' ? '🔴 Exact SHA-256 Match'
                             : duplicateInfo.matchType === 'TEP_TRACKED_EXPORT' ? '🔴 TEP Tracked Export (Share Download)'
                             : duplicateInfo.matchType === 'EMBEDDED_IDENTITY' ? '🔴 PINIT Identity Embedded'
+                            : duplicateInfo.matchType === 'PINIT_VAULT_SIGNATURE' ? '🔴 PINIT Vault / Share-Viewer Capture'
                             : duplicateInfo.matchType === 'NORMALIZED_HASH' ? '🟠 Same Pixel Content'
                             : '🟡 Near-Duplicate (pHash)'}
                         </p>

@@ -14,6 +14,7 @@
 
 import { prisma }      from '../../lib/prisma';
 import { logger }      from '../../lib/logger';
+import { assertRecordOwner } from '../../lib/tenant-scope';
 import { webCrawler }  from './web-crawler.service';
 import { aiService }   from '../ai/ai-embeddings.service';
 import { imageMonitoringService } from './image-monitoring.service';
@@ -85,13 +86,14 @@ export class MonitoringService {
 
   async enroll(
     dnaRecordId: string,
-    opts: { watchUrls?: string[]; scanType?: string; ownerUserId?: string } = {}
+    opts: { watchUrls?: string[]; scanType?: string; ownerUserId: string }
   ): Promise<string> {
     const record = await prisma.dnaRecord.findUnique({
       where:  { id: dnaRecordId },
       select: { imageFilename: true, fileType: true, ownerUserId: true },
     });
     if (!record) throw new Error(`DNA record not found: ${dnaRecordId}`);
+    assertRecordOwner(record.ownerUserId, opts.ownerUserId, 'DNA record');
 
     const existing = await prisma.monitorRecord.findFirst({
       where: { dnaRecordId, status: { not: 'STOPPED' } },
@@ -100,13 +102,12 @@ export class MonitoringService {
 
     const scanType    = opts.scanType ?? 'DAILY';
     const checkHrs    = scanType === 'WEEKLY' ? 168 : scanType === 'CONTINUOUS' ? 1 : 24;
-    // Prefer explicitly passed userId, fall back to the DNA record's owner
-    const ownerUserId = opts.ownerUserId ?? record.ownerUserId ?? undefined;
+    const ownerUserId = record.ownerUserId ?? opts.ownerUserId;
 
     const monitor = await prisma.monitorRecord.create({
       data: {
         dnaRecordId,
-        ownerUserId:  ownerUserId ?? null,
+        ownerUserId,
         filename:     record.imageFilename,
         fileType:     record.fileType ?? 'UNKNOWN',
         status:       'ACTIVE',
@@ -382,9 +383,9 @@ export class MonitoringService {
 
   // ─── List / alerts / stats ─────────────────────────────────────────────────
 
-  async listMonitors(userId?: string) {
+  async listMonitors(userId: string) {
     return prisma.monitorRecord.findMany({
-      where: userId ? { ownerUserId: userId } : undefined,
+      where: { ownerUserId: userId },
       orderBy: { createdAt: 'desc' },
       include: {
         crawlResults: {
@@ -411,9 +412,13 @@ export class MonitoringService {
     });
   }
 
-  async getAlerts(status = 'PENDING') {
+  async getAlerts(status = 'PENDING', userId: string) {
     return prisma.crawlResult.findMany({
-      where:   { alertStatus: status, matchType: { not: MATCH.NONE } },
+      where: {
+        alertStatus: status,
+        matchType: { not: MATCH.NONE },
+        monitorRecord: { ownerUserId: userId },
+      },
       orderBy: { similarity: 'desc' },
       include: { monitorRecord: { select: { filename: true, fileType: true, dnaRecordId: true } } },
       take:    50,
@@ -428,14 +433,16 @@ export class MonitoringService {
     await prisma.crawlResult.update({ where: { id }, data: { alertStatus: 'CONFIRMED' } });
   }
 
-  async getStats() {
+  async getStats(userId: string) {
+    const monitorWhere = { ownerUserId: userId };
+    const alertWhere = { alertStatus: 'PENDING' as const, matchType: { not: MATCH.NONE }, monitorRecord: monitorWhere };
     const [total, active, pending, confirmed, runs, exactMatches] = await Promise.all([
-      prisma.monitorRecord.count(),
-      prisma.monitorRecord.count({ where: { status: 'ACTIVE' } }),
-      prisma.crawlResult.count({ where: { alertStatus: 'PENDING', matchType: { not: MATCH.NONE } } }),
-      prisma.crawlResult.count({ where: { alertStatus: 'CONFIRMED' } }),
-      prisma.monitoringRun.count({ where: { status: 'COMPLETED' } }),
-      prisma.crawlResult.count({ where: { matchType: MATCH.EXACT } }),
+      prisma.monitorRecord.count({ where: monitorWhere }),
+      prisma.monitorRecord.count({ where: { ...monitorWhere, status: 'ACTIVE' } }),
+      prisma.crawlResult.count({ where: alertWhere }),
+      prisma.crawlResult.count({ where: { alertStatus: 'CONFIRMED', monitorRecord: monitorWhere } }),
+      prisma.monitoringRun.count({ where: { status: 'COMPLETED', monitorRecord: monitorWhere } }),
+      prisma.crawlResult.count({ where: { matchType: MATCH.EXACT, monitorRecord: monitorWhere } }),
     ]);
     return { totalMonitored: total, activeMonitors: active, pendingAlerts: pending,
              confirmedMatches: confirmed, totalRuns: runs, exactMatches };

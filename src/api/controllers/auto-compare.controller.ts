@@ -18,6 +18,7 @@ import { logger } from '../../lib/logger';
 import { DnaComparisonService } from '../../services/verification/dna-comparison.service';
 import { identityEmbeddingService } from '../../services/identity/identity-embedding.service';
 import { VaultService } from '../../services/vault/vault.service';
+import { getAuthUserId } from '../../lib/tenant-scope';
 import { prisma } from '../../lib/prisma';
 
 const comparisonService = new DnaComparisonService();
@@ -38,7 +39,7 @@ export async function autoCompareDna(
   next: NextFunction
 ): Promise<void> {
   const multerFile = req.file;
-  const userId = (req as any).user?.sub;
+  const userId = getAuthUserId(req);
 
   if (!multerFile) {
     return next(new AppError(400, 'Missing file. Upload the suspected file using field "image".'));
@@ -98,7 +99,11 @@ export async function autoCompareDna(
         );
 
         if (identity.found && identity.dnaId && identity.vaultId) {
-          const { dnaId, vaultId, ownerUserId } = identity as { dnaId: string; vaultId: string; ownerUserId: string };
+          const { dnaId, vaultId, ownerUserId: sigOwner } = identity as { dnaId: string; vaultId: string; ownerUserId: string };
+          const dnaRec = await prisma.dnaRecord.findUnique({ where: { id: dnaId }, select: { ownerUserId: true } });
+          if (!dnaRec || dnaRec.ownerUserId !== userId) {
+            logger.info('Tier 2 skipped — signature belongs to another tenant', { dnaId });
+          } else {
           const vaultExists = await prisma.vaultRecord.findUnique({ where: { id: vaultId } });
           if (vaultExists) {
             match = {
@@ -106,10 +111,11 @@ export async function autoCompareDna(
               method: `Identity signature extracted (${identity.tampered ? 'signature present but file modified' : 'signature verified intact'})`,
               dnaRecordId: dnaId,
               vaultId,
-              ownerUserId,
+              ownerUserId: sigOwner,
               confidence: identity.valid ? 'HIGH' : 'MEDIUM',
             };
             logger.info('Tier 2 matched', { dnaId, vaultId });
+          }
           }
         }
       } catch (e) {
@@ -215,7 +221,7 @@ export async function autoCompareDna(
     // ═══════════════════════════════════════════════════════════════════
     let original;
     try {
-      original = await vaultService.retrieve(match.vaultId);
+      original = await vaultService.retrieve(match.vaultId, userId);
     } catch (e) {
       logger.error('Failed to retrieve vault file', { vaultId: match.vaultId, error: String(e) });
       res.status(200).json({

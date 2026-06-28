@@ -12,6 +12,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
+import { getAuthUserId, vaultOwnerWhere } from '../../lib/tenant-scope';
 
 export interface VaultIntegrityResult {
   vaultId: string;
@@ -26,14 +27,16 @@ export interface VaultIntegrityResult {
 }
 
 export async function vaultIntegrityCheck(
-  _req: Request,
+  req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> {
   try {
-    logger.info('Vault integrity check started');
+    const userId = getAuthUserId(req);
+    logger.info('Vault integrity check started', { userId });
 
     const vaultRecords = await prisma.vaultRecord.findMany({
+      where: vaultOwnerWhere(userId),
       select: {
         id: true,
         originalFileName: true,
