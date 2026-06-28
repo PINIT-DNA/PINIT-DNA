@@ -17,6 +17,7 @@ import { prisma }       from '../../lib/prisma';
 import { logger }       from '../../lib/logger';
 import { auditService } from '../audit/audit.service';
 import { config }       from '../../config';
+import { isMonitoringCrawlerEnabled } from '../crawler/monitoring.service';
 
 export class VaultSchedulerService {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -56,16 +57,19 @@ export class VaultSchedulerService {
       }, { timezone: 'Asia/Kolkata' })
     );
 
-    // ── Crawler: run due monitoring checks every hour ─────────────────────────
-    this.tasks.push(
-      cron.schedule('0 * * * *', () => {
-        import('../crawler/monitoring.service')
-          .then(m => m.monitoringService.runDueChecks())
-          .catch(err => logger.error('Monitoring check failed', { error: String(err) }));
-      })
-    );
-
-    logger.info('Vault scheduler started — 4 tasks active (+ monitoring crawler)');
+    // ── Crawler: run due monitoring checks every hour (opt-in) ───────────────
+    if (isMonitoringCrawlerEnabled()) {
+      this.tasks.push(
+        cron.schedule('0 * * * *', () => {
+          import('../crawler/monitoring.service')
+            .then(m => m.monitoringService.runDueChecks())
+            .catch(err => logger.error('Monitoring check failed', { error: String(err) }));
+        })
+      );
+      logger.info('Vault scheduler started — 4 tasks active (+ monitoring crawler enabled)');
+    } else {
+      logger.info('Vault scheduler started — 3 tasks active (monitoring crawler disabled)');
+    }
   }
 
   stop(): void {

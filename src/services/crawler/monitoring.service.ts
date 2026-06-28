@@ -29,6 +29,12 @@ export const MATCH = {
   NONE:     'NO_MATCH',
 } as const;
 
+/** Off by default — enable when Bing/crawler is configured (MONITORING_CRAWLER_ENABLED=true). */
+export function isMonitoringCrawlerEnabled(): boolean {
+  const v = (process.env['MONITORING_CRAWLER_ENABLED'] ?? '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
 export type MatchType = typeof MATCH[keyof typeof MATCH];
 
 function classifyTextSimilarity(sim: number): MatchType {
@@ -88,6 +94,10 @@ export class MonitoringService {
     dnaRecordId: string,
     opts: { watchUrls?: string[]; scanType?: string; ownerUserId: string }
   ): Promise<string> {
+    if (!isMonitoringCrawlerEnabled()) {
+      throw new Error('Monitoring crawler is disabled. Set MONITORING_CRAWLER_ENABLED=true when ready.');
+    }
+
     const record = await prisma.dnaRecord.findUnique({
       where:  { id: dnaRecordId },
       select: { imageFilename: true, fileType: true, ownerUserId: true },
@@ -128,6 +138,10 @@ export class MonitoringService {
     monitorRecordId: string,
     trigger: 'MANUAL' | 'SCHEDULED' | 'CONTINUOUS' = 'SCHEDULED'
   ): Promise<MonitoringSummary | ImageMonitoringSummary> {
+    if (!isMonitoringCrawlerEnabled()) {
+      throw new Error('Monitoring crawler is disabled. Set MONITORING_CRAWLER_ENABLED=true when ready.');
+    }
+
     const monitor = await prisma.monitorRecord.findUnique({
       where:   { id: monitorRecordId },
       include: { dnaRecord: { include: { ocrRecord: true } } },
@@ -366,6 +380,8 @@ export class MonitoringService {
   // ─── Run all due checks ────────────────────────────────────────────────────
 
   async runDueChecks(): Promise<void> {
+    if (!isMonitoringCrawlerEnabled()) return;
+
     const due = await prisma.monitorRecord.findMany({
       where: { status: 'ACTIVE', nextCheckAt: { lte: new Date() } },
       take: 10,
