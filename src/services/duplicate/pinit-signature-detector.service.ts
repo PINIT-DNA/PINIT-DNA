@@ -162,7 +162,7 @@ export class PinitSignatureDetectorService {
 
   private async _detectViaOcr(
     buffer: Buffer,
-    mimeType: string,
+    _mimeType: string,
   ): Promise<{ signals: string[]; watermarkCode?: string; fullText: string }> {
     const signals: string[] = [];
     let watermarkCode: string | undefined;
