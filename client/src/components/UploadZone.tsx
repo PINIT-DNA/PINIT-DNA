@@ -1,8 +1,8 @@
-import { useCallback, useState, useRef } from 'react';
+import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion } from 'framer-motion';
-import { Camera, Upload, ScanLine, X, Plus, FileText, Trash2 } from 'lucide-react';
-import { jsPDF } from 'jspdf';
+import { Upload, ScanLine } from 'lucide-react';
+import { DocumentScanner } from './DocumentScanner';
 
 interface Props {
   onFileSelected: (file: File) => void;
@@ -65,11 +65,6 @@ const formatBytes = (b: number) =>
 export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) {
   const [preview, setPreview] = useState<string | null>(null);
   const [scanMode, setScanMode] = useState(false);
-  const [cameraActive, setCameraActive] = useState(false);
-  const [scannedPages, setScannedPages] = useState<string[]>([]);
-  const [buildingPdf, setBuildingPdf] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileReady = useCallback((file: File) => {
     onFileSelected(file);
@@ -79,7 +74,6 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
       setPreview(null);
     }
     setScanMode(false);
-    setCameraActive(false);
   }, [onFileSelected]);
 
   const onDrop = useCallback(
@@ -90,91 +84,6 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
     },
     [handleFileReady]
   );
-
-  const startCamera = async () => {
-    setCameraActive(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
-    } catch {
-      setCameraActive(false);
-      cameraInputRef.current?.click();
-    }
-  };
-
-  // Capture a single page and add to scannedPages array
-  const capturePage = () => {
-    if (!videoRef.current) return;
-    const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(videoRef.current, 0, 0);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-    setScannedPages(prev => [...prev, dataUrl]);
-  };
-
-  // Single page capture (original behavior)
-  const captureAndFinish = () => {
-    if (!videoRef.current) return;
-    const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(videoRef.current, 0, 0);
-    canvas.toBlob((blob) => {
-      if (blob) {
-        const file = new File([blob], `scan_${Date.now()}.jpg`, { type: 'image/jpeg' });
-        stopCamera();
-        handleFileReady(file);
-      }
-    }, 'image/jpeg', 0.92);
-  };
-
-  // Combine all scanned pages into a single PDF
-  const buildPdf = async () => {
-    if (scannedPages.length === 0) return;
-    setBuildingPdf(true);
-    try {
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: 'a4' });
-      const pageW = pdf.internal.pageSize.getWidth();
-      const pageH = pdf.internal.pageSize.getHeight();
-
-      for (let i = 0; i < scannedPages.length; i++) {
-        if (i > 0) pdf.addPage();
-        pdf.addImage(scannedPages[i]!, 'JPEG', 0, 0, pageW, pageH);
-      }
-
-      const blob = pdf.output('blob');
-      const file = new File([blob], `scanned_${scannedPages.length}pages_${Date.now()}.pdf`, { type: 'application/pdf' });
-      stopCamera();
-      setScannedPages([]);
-      handleFileReady(file);
-    } catch {
-      // fallback: just use last page as image
-      captureAndFinish();
-    }
-    setBuildingPdf(false);
-  };
-
-  const removePage = (index: number) => {
-    setScannedPages(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const stopCamera = () => {
-    if (videoRef.current?.srcObject) {
-      (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
-      videoRef.current.srcObject = null;
-    }
-    setCameraActive(false);
-  };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -204,16 +113,6 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
         </p>
       </motion.div>
 
-      {/* Hidden camera input (mobile fallback) */}
-      <input
-        ref={cameraInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={e => { if (e.target.files?.[0]) handleFileReady(e.target.files[0]); }}
-      />
-
       {/* Mode toggle: Upload / Scan */}
       {!selectedFile && (
         <motion.div
@@ -223,7 +122,7 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
           className="flex gap-2 mb-4"
         >
           <button
-            onClick={() => { setScanMode(false); stopCamera(); }}
+            onClick={() => setScanMode(false)}
             className={`flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
               !scanMode
                 ? 'bg-dna-500/15 text-dna-400 border border-dna-500/30'
@@ -252,82 +151,11 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.1 }}
         >
-          {cameraActive ? (
-            <div className="space-y-3">
-              <div className="relative rounded-2xl overflow-hidden border-2 border-dna-500/30">
-                <video ref={videoRef} className="w-full rounded-2xl" autoPlay playsInline muted />
-                <div className="absolute inset-0 pointer-events-none">
-                  <div className="absolute inset-6 border-2 border-dna-400/40 rounded-xl">
-                    <div className="absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-dna-400 rounded-tl-lg" />
-                    <div className="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-dna-400 rounded-tr-lg" />
-                    <div className="absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-dna-400 rounded-bl-lg" />
-                    <div className="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-dna-400 rounded-br-lg" />
-                  </div>
-                  <div className="absolute top-1/2 left-6 right-6 h-0.5 bg-dna-500/50 animate-pulse" />
-                </div>
-                {scannedPages.length > 0 && (
-                  <div className="absolute top-3 right-3 bg-dna-500 text-white text-xs font-bold px-2.5 py-1 rounded-full">
-                    {scannedPages.length} {scannedPages.length === 1 ? 'page' : 'pages'}
-                  </div>
-                )}
-                <p className="absolute bottom-3 left-0 right-0 text-center text-xs text-dna-400 font-semibold drop-shadow-lg">
-                  {scannedPages.length === 0 ? 'Align document within the frame' : `Page ${scannedPages.length + 1} — align next page`}
-                </p>
-              </div>
-
-              {/* Scanned page thumbnails */}
-              {scannedPages.length > 0 && (
-                <div className="flex gap-2 overflow-x-auto pb-1">
-                  {scannedPages.map((page, i) => (
-                    <div key={i} className="relative shrink-0 w-16 h-20 rounded-lg overflow-hidden border border-bg-border group">
-                      <img src={page} alt={`Page ${i + 1}`} className="w-full h-full object-cover" />
-                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
-                        <button onClick={() => removePage(i)} className="text-white"><Trash2 size={14} /></button>
-                      </div>
-                      <span className="absolute bottom-0.5 left-0 right-0 text-center text-[8px] text-white font-bold drop-shadow">{i + 1}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Action buttons */}
-              <div className="flex gap-2">
-                <button onClick={capturePage} className="bg-bg-elevated border border-bg-border text-white flex-1 py-3 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold hover:bg-bg-muted transition-colors">
-                  <Plus size={16} /> Add Page
-                </button>
-                {scannedPages.length > 0 ? (
-                  <button onClick={buildPdf} disabled={buildingPdf} className="btn-primary flex-1 py-3 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold">
-                    <FileText size={16} /> {buildingPdf ? 'Building PDF...' : `Generate PDF (${scannedPages.length} pages)`}
-                  </button>
-                ) : (
-                  <button onClick={captureAndFinish} className="btn-primary flex-1 py-3 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold">
-                    <Camera size={16} /> Single Page
-                  </button>
-                )}
-                <button onClick={() => { stopCamera(); setScanMode(false); setScannedPages([]); }} className="bg-bg-elevated border border-bg-border text-gray-400 hover:text-white px-4 py-3 rounded-xl text-sm font-semibold transition-colors">
-                  <X size={16} />
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-2xl border-2 border-dashed border-bg-border bg-bg-card text-center py-14 px-6">
-              <div className="w-16 h-16 rounded-2xl bg-dna-500/10 flex items-center justify-center mx-auto mb-4">
-                <ScanLine size={28} className="text-dna-400" />
-              </div>
-              <p className="text-white font-semibold text-lg mb-5">Scan a Document</p>
-              <div className="flex gap-3 max-w-xs mx-auto">
-                <button onClick={startCamera} className="btn-primary flex-1 py-3 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold">
-                  <Camera size={15} /> Open Camera
-                </button>
-                <button
-                  onClick={() => cameraInputRef.current?.click()}
-                  className="bg-bg-elevated border border-bg-border text-gray-300 hover:text-white flex-1 py-3 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-colors"
-                >
-                  <Upload size={15} /> Gallery
-                </button>
-              </div>
-            </div>
-          )}
+          <DocumentScanner
+            onScanComplete={handleFileReady}
+            onCancel={() => setScanMode(false)}
+            subtitle="Camera opens automatically — hold document steady to auto-capture"
+          />
         </motion.div>
       )}
 

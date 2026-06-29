@@ -6,17 +6,23 @@ import crypto from 'crypto';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { identityEmbeddingService } from '../identity/identity-embedding.service';
+import { PerceptualLayer } from '../layers/layer3.perceptual';
+
+const PHASH_MATCH_THRESHOLD = 0.88;
 
 export interface VaultMatchResult {
-  tier: 1 | 2 | 3;
+  tier: 1 | 2 | 3 | 4;
   method: string;
   dnaRecordId: string;
   vaultId: string;
   ownerUserId: string;
   confidence: string;
+  visualSimilarity?: number;
 }
 
 export class VaultAutoMatchService {
+  private readonly perceptual = new PerceptualLayer();
+
   async findMatch(
     buffer: Buffer,
     mimeType: string,
@@ -47,7 +53,7 @@ export class VaultAutoMatchService {
     }
 
     try {
-      const identity = await identityEmbeddingService.extractAndVerify(buffer, mimeType, originalName);
+      const identity = await identityEmbeddingService.extractLoose(buffer, mimeType, originalName);
       if (identity.found && identity.dnaId && identity.vaultId) {
         const dnaRec = await prisma.dnaRecord.findUnique({
           where: { id: identity.dnaId },
@@ -71,11 +77,23 @@ export class VaultAutoMatchService {
       logger.warn('Vault auto-match Tier 2 failed', { error: String(e) });
     }
 
+    // Tier 4: Visual fingerprint (images) — same engine as Verify Leaked File / DNA Compare scenarios
+    if (mimeType.startsWith('image/')) {
+      try {
+        const visual = await this.matchByPerceptualHash(buffer, ownerUserId);
+        if (visual) return visual;
+      } catch (e) {
+        logger.warn('Vault auto-match Tier 4 failed', { error: String(e) });
+      }
+    }
+
     const cleanName = originalName
       .replace(/\s*\(\d+\)\s*/g, '')
       .replace(/\s*-\s*copy/gi, '')
       .replace(/\s*copy\s*/gi, '')
       .trim();
+
+    const isCameraScan = /^(scan_|captured_|photo_|IMG_|image_)/i.test(cleanName);
 
     const filenameMatches = await prisma.vaultRecord.findMany({
       where: { dnaRecord: { ownerUserId } },
@@ -112,7 +130,7 @@ export class VaultAutoMatchService {
       }
     }
 
-    if (bestMatch && bestScore >= 50) {
+    if (bestMatch && bestScore >= (isCameraScan ? 90 : 50)) {
       return {
         tier: 3,
         method: `Fuzzy filename match (${bestScore}%)`,
@@ -124,6 +142,66 @@ export class VaultAutoMatchService {
     }
 
     return null;
+  }
+
+  private async matchByPerceptualHash(
+    buffer: Buffer,
+    ownerUserId: string,
+  ): Promise<VaultMatchResult | null> {
+    const probe = await this.perceptual.computeFingerprints(buffer);
+    const stored = await prisma.perceptualLayer.findMany({
+      where: {
+        dnaRecord: {
+          ownerUserId,
+          vaultRecord: { isNot: null },
+        },
+      },
+      select: {
+        pHash64: true,
+        aHash64: true,
+        dHash64: true,
+        dnaRecordId: true,
+        dnaRecord: {
+          select: {
+            ownerUserId: true,
+            vaultRecord: { select: { id: true } },
+          },
+        },
+      },
+      take: 500,
+    });
+
+    let best: { similarity: number; dnaRecordId: string; vaultId: string; ownerUserId: string } | null = null;
+
+    for (const row of stored) {
+      if (!row.pHash64 || !row.dnaRecord.vaultRecord) continue;
+      const sim = this.perceptual.verify(probe, {
+        pHash64: row.pHash64,
+        aHash64: row.aHash64 ?? '',
+        dHash64: row.dHash64 ?? '',
+      });
+      if (sim >= PHASH_MATCH_THRESHOLD && (!best || sim > best.similarity)) {
+        best = {
+          similarity: sim,
+          dnaRecordId: row.dnaRecordId,
+          vaultId: row.dnaRecord.vaultRecord.id,
+          ownerUserId: row.dnaRecord.ownerUserId ?? ownerUserId,
+        };
+      }
+    }
+
+    if (!best) return null;
+
+    const pct = Math.round(best.similarity * 100);
+    return {
+      tier: 4,
+      method: `Visual DNA match (${pct}% similar to vault original)`,
+      dnaRecordId: best.dnaRecordId,
+      vaultId: best.vaultId,
+      ownerUserId: best.ownerUserId,
+      confidence: String(pct),
+      visualSimilarity: best.similarity,
+    };
   }
 }
 

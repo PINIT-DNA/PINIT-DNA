@@ -26,8 +26,23 @@ const TEP_SECRET = process.env['TEP_SIGNING_SECRET']
   ?? 'pinit-tep-default-secret';
 
 export const TEP_MARKER_PREFIX = 'TEP:v1:';
+/** Synthetic shareLinkId for owner Protected Download exports (no ShareLink row). */
+export const PROTECTED_DOWNLOAD_TEP_PREFIX = 'protected-download:';
 const TEP_TAIL_START = '\x00TEP-MANIFEST:';
 const TEP_TAIL_END   = ':END-TEP-MANIFEST\x00';
+
+export function isProtectedDownloadTepChannel(shareLinkId: string | undefined): boolean {
+  return !!shareLinkId?.startsWith(PROTECTED_DOWNLOAD_TEP_PREFIX);
+}
+
+export function protectedDownloadTepChannelId(vaultId: string): string {
+  return `${PROTECTED_DOWNLOAD_TEP_PREFIX}${vaultId}`;
+}
+
+export function isTepProtectedDownloadEnabled(): boolean {
+  const v = (process.env['TEP_PROTECTED_DOWNLOAD_ENABLED'] ?? 'true').trim().toLowerCase();
+  return v !== '0' && v !== 'false' && v !== 'no';
+}
 
 const TEP_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -232,6 +247,9 @@ export class TepService {
           metadata: true,
           structuralTail: true,
           watermarkCode,
+          exportChannel: isProtectedDownloadTepChannel(input.shareLinkId)
+            ? 'PROTECTED_DOWNLOAD'
+            : 'SHARE_LINK',
         },
         geoCountry: input.geoCountry ?? null,
         geoCity: input.geoCity ?? null,

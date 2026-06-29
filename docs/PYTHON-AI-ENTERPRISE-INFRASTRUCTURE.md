@@ -113,8 +113,10 @@ Deploy as a separate Render **Background Worker** or **Web Service** on port `80
 
 ```env
 AI_SERVICE_URL=http://localhost:8001
-PYTHON_AI_AUTO_START=true
+AI_SERVICE_PORT=8001
 ```
+
+Local `npm run dev` auto-starts Python on 8001. On Render, set `AI_SERVICE_URL` to your external AI service only (no local spawn).
 
 ---
 
@@ -163,7 +165,7 @@ Existing fields preserved (`status`, `service`, `version`, `model`, `dimension`,
 | OpenCV / ImageHash | Computer vision + screenshot modules disabled |
 | librosa | Audio module disabled |
 
-Node.js backend (`PYTHON_AI_AUTO_START=false`) continues normally without Python AI.
+Node.js backend continues normally if Python AI is unavailable (features degrade gracefully).
 
 ---
 

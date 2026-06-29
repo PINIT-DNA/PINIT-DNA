@@ -142,13 +142,16 @@ export async function prepareProtectedDownload(vaultId: string): Promise<Protect
   return data;
 }
 
-export async function protectedDownloadFromVault(vaultId: string): Promise<Blob> {
-  const { data } = await api.post<Blob>(
+export async function protectedDownloadFromVault(
+  vaultId: string,
+): Promise<{ blob: Blob; tepCode?: string }> {
+  const response = await api.post<Blob>(
     `${API_BASE_URL}/vault/${vaultId}/protected-download`,
     {},
     { responseType: 'blob' },
   );
-  return data;
+  const tepCode = response.headers['x-tep-code'] as string | undefined;
+  return { blob: response.data, tepCode };
 }
 
 // ─── Certificate Management (Phase 2) ────────────────────────────────────────

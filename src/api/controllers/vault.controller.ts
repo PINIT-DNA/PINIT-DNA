@@ -7,6 +7,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
 import fs from 'fs/promises';
 import { VaultService } from '../../services/vault/vault.service';
 import { AppError } from '../middleware/error.middleware';
@@ -15,6 +16,13 @@ import { logger } from '../../lib/logger';
 import { auditService } from '../../services/audit/audit.service';
 import { autoIndexer }  from '../../services/ai/auto-indexer.service';
 import { protectedDownloadService } from '../../services/vault/protected-download.service';
+import { geoFromIp } from '../../services/share/share-link.service';
+import {
+  tepService,
+  protectedDownloadTepChannelId,
+  isTepProtectedDownloadEnabled,
+} from '../../services/tep/tep.service';
+import { resolveClientIp } from '../../lib/request-utils';
 import {
   detectSensitiveTypes,
   extractTextFromPdf,
@@ -281,16 +289,49 @@ export async function protectedDownloadFromVault(
     const userId = getAuthUserId(req);
     const result = await protectedDownloadService.prepare(id, userId);
 
+    let fileBuffer = result.buffer;
+    let tepCode: string | undefined;
+
+    if (isTepProtectedDownloadEnabled()) {
+      try {
+        const realIp = resolveClientIp(req);
+        const geo = realIp ? await geoFromIp(realIp) : null;
+        const tep = await tepService.createTrackedExport({
+          fileBuffer: result.buffer,
+          mimeType: result.originalMimeType,
+          filename: result.originalFileName,
+          dnaRecordId: result.dnaRecordId,
+          vaultId: result.vaultId,
+          shareLinkId: protectedDownloadTepChannelId(result.vaultId),
+          recipientId: `owner:${userId}`,
+          sessionToken: req.headers['x-session-id'] as string | undefined,
+          ipAddress: realIp ?? undefined,
+          geoCountry: geo?.country ?? undefined,
+          geoCity: geo?.city ?? undefined,
+          deviceContext: req.headers['user-agent'] as string | undefined,
+          ownerUserId: userId,
+        });
+        fileBuffer = tep.buffer;
+        tepCode = tep.tepCode;
+      } catch (tepErr) {
+        logger.warn('[TEP] Protected download tracking failed — serving without TEP', {
+          vaultId: id,
+          error: (tepErr as Error).message,
+        });
+      }
+    }
+
     res.set({
       'Content-Type': result.originalMimeType,
-      'Content-Length': String(result.buffer.length),
+      'Content-Length': String(fileBuffer.length),
       'Content-Disposition': `attachment; filename="${result.originalFileName}"`,
       'X-Vault-Id': result.vaultId,
       'X-DNA-Record-Id': result.dnaRecordId,
       'X-Certificate-Id': result.certificateId ?? '',
       'X-PINIT-Protected-Download': 'true',
       'X-PINIT-Forensic-Preserved': String(result.forensicPreserved),
-      'X-Original-Size': String(result.buffer.length),
+      'X-Original-Size': String(fileBuffer.length),
+      ...(tepCode ? { 'X-TEP-Code': tepCode } : {}),
     });
 
     auditService.log({
@@ -302,13 +343,14 @@ export async function protectedDownloadFromVault(
       detail: {
         certificateId: result.certificateId,
         forensicPreserved: result.forensicPreserved,
-        fileSha256: result.fileSha256,
+        fileSha256: crypto.createHash('sha256').update(fileBuffer).digest('hex'),
         steps: result.steps.map((s) => s.id),
+        tepCode,
       },
       req,
     });
 
-    res.status(200).send(result.buffer);
+    res.status(200).send(fileBuffer);
   } catch (err) {
     if (err instanceof Error && err.message.includes('not found')) {
       return next(new AppError(404, err.message));

@@ -93,6 +93,8 @@ interface InvestigationReport {
     fileB?: { filename: string; mimeType: string; sizeBytes: number };
   } | null;
   message?: string;
+  matchTier?: number;
+  matchMethod?: string;
 }
 
 const WATERMARK_STATUS_STYLE: Record<string, string> = {
@@ -303,9 +305,10 @@ export function UnifiedInvestigationPage() {
             </div>
           ) : (
             <DocumentScanner
+              captureMode="single"
               onScanComplete={handleScanComplete}
               onCancel={handleReset}
-              subtitle="Capture one or more pages, then generate a PDF or single image for full forensic investigation"
+              subtitle="Camera opens automatically — hold document steady to auto-capture, then run investigation"
             />
           )}
         </div>
@@ -376,6 +379,12 @@ export function UnifiedInvestigationPage() {
           </Section>
 
           <Section title="2. Original Owner" icon={User}>
+            {report.matchMethod && (
+              <p className="text-xs text-dna-400 mb-3">
+                Vault match: {report.matchMethod}
+                {report.matchTier != null ? ` (tier ${report.matchTier})` : ''}
+              </p>
+            )}
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
               {Object.entries({
                 'Owner Name': report.owner.ownerName,

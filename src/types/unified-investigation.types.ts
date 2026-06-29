@@ -14,6 +14,7 @@ export interface LeakedFileAccessEntry {
   browser?: string;
   os?: string;
   riskLevel?: string;
+  locationShared?: boolean;
 }
 
 export interface LeakedVerifySnapshot {

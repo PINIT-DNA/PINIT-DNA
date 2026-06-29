@@ -7,71 +7,66 @@
  */
 
 import { spawn, ChildProcess } from 'child_process';
+import net from 'net';
 import path from 'path';
-import fs   from 'fs';
+import fs from 'fs';
 import { logger } from './logger';
 
 let pythonProcess: ChildProcess | null = null;
+let shuttingDown = false;
 
-const PYTHON_DIR  = path.resolve(__dirname, '../../python-ai');
+const PYTHON_DIR = path.resolve(__dirname, '../../python-ai');
 const PYTHON_MAIN = path.join(PYTHON_DIR, 'main.py');
-const AI_PORT     = parseInt(process.env['AI_SERVICE_PORT'] ?? '8001', 10);
+const AI_PORT = parseInt(process.env['AI_SERVICE_PORT'] ?? '8001', 10);
+
+export function markPythonShuttingDown(): void {
+  shuttingDown = true;
+}
 
 export function startPythonAI(): void {
-  // Skip local spawn when disabled (e.g. dev without Python deps)
-  if (process.env['PYTHON_AI_AUTO_START'] === 'false') {
-    logger.info('Python AI auto-start disabled (PYTHON_AI_AUTO_START=false)');
-    return;
-  }
+  if (shuttingDown) return;
 
-  // Skip if AI is hosted externally (Hugging Face Spaces or any non-localhost URL)
   const aiUrl = process.env['AI_SERVICE_URL'] ?? '';
   if (aiUrl && !aiUrl.includes('localhost') && !aiUrl.includes('127.0.0.1')) {
     logger.info(`Python AI: using external service at ${aiUrl} — skipping local spawn`);
     return;
   }
 
-  // Skip if python-ai/main.py doesn't exist
   if (!fs.existsSync(PYTHON_MAIN)) {
     logger.warn('Python AI service not found — skipping', { path: PYTHON_MAIN });
     return;
   }
 
-  // Skip if already running as child process
   if (pythonProcess && !pythonProcess.killed) return;
 
-  // Check if port is already in use (Python running in another terminal)
-  const net = require('net');
   const tester = net.createServer()
     .once('error', () => {
-      // Port already in use — Python is already running externally
       logger.info(`Python AI already running on port ${AI_PORT} — skipping auto-start`);
     })
     .once('listening', () => {
       tester.close(() => {
-        // Port is free — start Python as child process
         _doStartPython();
       });
     })
     .listen(AI_PORT, '127.0.0.1');
-  return;
+  void tester;
 }
 
 function _doStartPython(): void {
+  if (shuttingDown) return;
 
-  // Try python3 first, fall back to python
   const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
 
   logger.info('Starting Python AI service…', { port: AI_PORT });
 
   pythonProcess = spawn(
     pythonCmd,
-    ['-m', 'uvicorn', 'main:app', '--host', '0.0.0.0', '--port', String(AI_PORT)],
+    ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', String(AI_PORT)],
     {
-      cwd:   PYTHON_DIR,
+      cwd: PYTHON_DIR,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env:   { ...process.env, PYTHONUNBUFFERED: '1' },
-    }
+      env: { ...process.env, PYTHONUNBUFFERED: '1' },
+    },
   );
 
   pythonProcess.stdout?.on('data', (data: Buffer) => {
@@ -100,16 +95,20 @@ function _doStartPython(): void {
   pythonProcess.on('exit', (code, signal) => {
     logger.warn('Python AI process exited', { code, signal });
     pythonProcess = null;
-    // Do NOT restart if dependencies are missing — would loop forever
-    if (missingModule) {
-      logger.warn('Python AI disabled — install dependencies first: cd python-ai && pip install -r requirements.txt');
+
+    if (shuttingDown || missingModule) {
+      if (missingModule) {
+        logger.warn('Python AI disabled — install dependencies first: cd python-ai && pip install -r requirements.txt');
+      }
       return;
     }
-    // Auto-restart after 5s on unexpected crash
+
     if (code !== 0 && signal !== 'SIGTERM') {
       setTimeout(() => {
-        logger.info('Restarting Python AI service…');
-        startPythonAI();
+        if (!shuttingDown) {
+          logger.info('Restarting Python AI service…');
+          startPythonAI();
+        }
       }, 5000);
     }
   });
@@ -121,11 +120,17 @@ function _doStartPython(): void {
   });
 }
 
-
 export function stopPythonAI(): void {
-  if (pythonProcess && !pythonProcess.killed) {
-    logger.info('Stopping Python AI service…');
-    pythonProcess.kill('SIGTERM');
-    pythonProcess = null;
+  if (!pythonProcess || pythonProcess.killed) return;
+
+  logger.info('Stopping Python AI service…');
+  const proc = pythonProcess;
+  pythonProcess = null;
+
+  if (process.platform === 'win32' && proc.pid) {
+    spawn('taskkill', ['/pid', String(proc.pid), '/f', '/t'], { stdio: 'ignore' });
+    return;
   }
+
+  proc.kill('SIGTERM');
 }

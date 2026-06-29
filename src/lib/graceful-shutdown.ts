@@ -1,30 +1,36 @@
 /**
- * PINIT-DNA — Graceful Shutdown Handler (Phase 6)
+ * PINIT-DNA — Graceful Shutdown Handler
  *
- * Handles SIGTERM and SIGINT signals:
- *   1. Stop accepting new connections
- *   2. Complete in-flight requests (30s timeout)
- *   3. Stop scheduled tasks
- *   4. Close DB connection
- *   5. Exit cleanly
+ * Registers once per process. Closes the HTTP server before exit so hot-reload
+ * (ts-node-dev / nodemon) does not hit EADDRINUSE on the next start.
  */
 
 import http from 'http';
 import { logger } from './logger';
 import { prisma } from './prisma';
 import { vaultScheduler } from '../services/scheduler/vault-scheduler.service';
-import { stopPythonAI } from './python-ai-process';
+import { markPythonShuttingDown, stopPythonAI } from './python-ai-process';
 
 const SHUTDOWN_TIMEOUT_MS = 30_000;
 
-export function registerGracefulShutdown(server: http.Server): void {
-  let isShuttingDown = false;
+let activeServer: http.Server | null = null;
+let handlersRegistered = false;
+let isShuttingDown = false;
 
-  const shutdown = async (signal: string) => {
+export function setActiveServer(server: http.Server): void {
+  activeServer = server;
+}
+
+export function registerGracefulShutdown(): void {
+  if (handlersRegistered) return;
+  handlersRegistered = true;
+
+  const shutdown = async (signal: string, options?: { reemitUsr2?: boolean }) => {
     if (isShuttingDown) return;
     isShuttingDown = true;
 
     logger.info(`Received ${signal} — starting graceful shutdown`, { timeoutMs: SHUTDOWN_TIMEOUT_MS });
+    markPythonShuttingDown();
 
     const shutdownTimer = setTimeout(() => {
       logger.error('Graceful shutdown timed out — forcing exit');
@@ -32,25 +38,27 @@ export function registerGracefulShutdown(server: http.Server): void {
     }, SHUTDOWN_TIMEOUT_MS);
 
     try {
-      // 1. Stop accepting new connections
-      await new Promise<void>((resolve, reject) => {
-        server.close(err => err ? reject(err) : resolve());
-      });
-      logger.info('HTTP server closed — no new connections accepted');
+      if (activeServer) {
+        await new Promise<void>((resolve, reject) => {
+          activeServer!.close((err) => (err ? reject(err) : resolve()));
+        });
+        activeServer = null;
+        logger.info('HTTP server closed — port released');
+      }
 
-      // 2. Stop scheduled tasks
       vaultScheduler.stop();
-      logger.info('Scheduled tasks stopped');
-
-      // 3. Stop Python AI child process
       stopPythonAI();
 
-      // 3. Close DB connection
       await prisma.$disconnect();
       logger.info('Database connection closed');
 
       clearTimeout(shutdownTimer);
       logger.info('Graceful shutdown complete');
+
+      if (options?.reemitUsr2) {
+        process.kill(process.pid, 'SIGUSR2');
+        return;
+      }
       process.exit(0);
     } catch (err) {
       logger.error('Error during shutdown', { error: String(err) });
@@ -59,12 +67,14 @@ export function registerGracefulShutdown(server: http.Server): void {
     }
   };
 
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT',  () => shutdown('SIGINT'));
+  process.once('SIGTERM', () => { void shutdown('SIGTERM'); });
+  process.once('SIGINT', () => { void shutdown('SIGINT'); });
+  // nodemon restart signal — close server first, then allow nodemon to respawn
+  process.once('SIGUSR2', () => { void shutdown('SIGUSR2', { reemitUsr2: true }); });
 
   process.on('uncaughtException', (err) => {
     logger.error('Uncaught exception', { error: err.message, stack: err.stack });
-    shutdown('uncaughtException');
+    void shutdown('uncaughtException');
   });
 
   process.on('unhandledRejection', (reason) => {

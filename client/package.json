@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:hint": "echo Start backend first from project root: npm run dev",
     "dev:ngrok": "vite --mode ngrok",
     "build": "tsc && vite build",
     "build:ngrok": "tsc && vite build --mode ngrok",

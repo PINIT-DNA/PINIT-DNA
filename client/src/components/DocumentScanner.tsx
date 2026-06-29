@@ -1,30 +1,46 @@
-import { useRef, useState } from 'react';
-import { Camera, Upload, ScanLine, X, Plus, FileText, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Camera, Upload, ScanLine, X, Plus, FileText, Trash2, Zap } from 'lucide-react';
 import { jsPDF } from 'jspdf';
+import { useAutoDocumentCapture } from '../hooks/useAutoDocumentCapture';
 
 interface DocumentScannerProps {
   onScanComplete: (file: File) => void;
   onCancel?: () => void;
   subtitle?: string;
+  /** Open camera immediately when scan view appears (default: true) */
+  autoStart?: boolean;
+  /** single = auto-finish after first capture; multi = collect pages for PDF */
+  captureMode?: 'single' | 'multi';
 }
 
-export function DocumentScanner({ onScanComplete, onCancel, subtitle }: DocumentScannerProps) {
+export function DocumentScanner({
+  onScanComplete,
+  onCancel,
+  subtitle,
+  autoStart = true,
+  captureMode = 'multi',
+}: DocumentScannerProps) {
   const [cameraActive, setCameraActive] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
   const [scannedPages, setScannedPages] = useState<string[]>([]);
   const [buildingPdf, setBuildingPdf] = useState(false);
+  const [flashCapture, setFlashCapture] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const autoStartedRef = useRef(false);
 
-  const stopCamera = () => {
+  const stopCamera = useCallback(() => {
     if (videoRef.current?.srcObject) {
       (videoRef.current.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
       videoRef.current.srcObject = null;
     }
     setCameraActive(false);
-  };
+    setCameraReady(false);
+  }, []);
 
-  const startCamera = async () => {
+  const startCamera = useCallback(async () => {
     setCameraActive(true);
+    setCameraReady(false);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
@@ -32,25 +48,55 @@ export function DocumentScanner({ onScanComplete, onCancel, subtitle }: Document
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
+        setCameraReady(true);
       }
     } catch {
       setCameraActive(false);
+      setCameraReady(false);
       cameraInputRef.current?.click();
     }
-  };
+  }, []);
 
-  const capturePage = () => {
-    if (!videoRef.current) return;
+  useEffect(() => {
+    if (autoStart && !autoStartedRef.current) {
+      autoStartedRef.current = true;
+      startCamera();
+    }
+  }, [autoStart, startCamera]);
+
+  const grabFrameDataUrl = useCallback((): string | null => {
+    if (!videoRef.current) return null;
     const canvas = document.createElement('canvas');
     canvas.width = videoRef.current.videoWidth;
     canvas.height = videoRef.current.videoHeight;
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) return null;
     ctx.drawImage(videoRef.current, 0, 0);
-    setScannedPages((prev) => [...prev, canvas.toDataURL('image/jpeg', 0.92)]);
-  };
+    return canvas.toDataURL('image/jpeg', 0.92);
+  }, []);
 
-  const captureAndFinish = () => {
+  const finishWithBlob = useCallback(
+    (blob: Blob) => {
+      const file = new File([blob], `scan_${Date.now()}.jpg`, { type: 'image/jpeg' });
+      stopCamera();
+      setScannedPages([]);
+      onScanComplete(file);
+    },
+    [onScanComplete, stopCamera],
+  );
+
+  const capturePage = useCallback(() => {
+    const dataUrl = grabFrameDataUrl();
+    if (!dataUrl) return;
+    setFlashCapture(true);
+    window.setTimeout(() => setFlashCapture(false), 280);
+    setScannedPages((prev) => [...prev, dataUrl]);
+  }, [grabFrameDataUrl]);
+
+  const capturePageRef = useRef(capturePage);
+  capturePageRef.current = capturePage;
+
+  const captureAndFinish = useCallback(() => {
     if (!videoRef.current) return;
     const canvas = document.createElement('canvas');
     canvas.width = videoRef.current.videoWidth;
@@ -59,13 +105,31 @@ export function DocumentScanner({ onScanComplete, onCancel, subtitle }: Document
     if (!ctx) return;
     ctx.drawImage(videoRef.current, 0, 0);
     canvas.toBlob((blob) => {
-      if (blob) {
-        const file = new File([blob], `scan_${Date.now()}.jpg`, { type: 'image/jpeg' });
-        stopCamera();
-        setScannedPages([]);
-        onScanComplete(file);
-      }
+      if (blob) finishWithBlob(blob);
     }, 'image/jpeg', 0.92);
+  }, [finishWithBlob]);
+
+  const handleAutoCapture = useCallback(() => {
+    setFlashCapture(true);
+    window.setTimeout(() => setFlashCapture(false), 280);
+
+    if (captureMode === 'single') {
+      captureAndFinish();
+      return;
+    }
+    capturePageRef.current();
+  }, [captureMode, captureAndFinish]);
+
+  const { phase, progress, hint, armed, armNextCapture, resetCapture, notifyCaptured } =
+    useAutoDocumentCapture(videoRef, {
+      enabled: cameraActive && cameraReady,
+      onCapture: handleAutoCapture,
+      pauseAfterCapture: captureMode === 'multi',
+    });
+
+  const handleManualPage = () => {
+    capturePage();
+    notifyCaptured();
   };
 
   const buildPdf = async () => {
@@ -98,6 +162,7 @@ export function DocumentScanner({ onScanComplete, onCancel, subtitle }: Document
 
   const removePage = (index: number) => {
     setScannedPages((prev) => prev.filter((_, i) => i !== index));
+    resetCapture();
   };
 
   const handleGallery = (f: File) => {
@@ -111,6 +176,13 @@ export function DocumentScanner({ onScanComplete, onCancel, subtitle }: Document
     setScannedPages([]);
     onCancel?.();
   };
+
+  const scanLineClass =
+    phase === 'locking'
+      ? 'bg-dna-400 animate-pulse'
+      : phase === 'captured'
+        ? 'bg-green-400'
+        : 'bg-dna-500/50 animate-pulse';
 
   return (
     <div className="space-y-3">
@@ -127,25 +199,47 @@ export function DocumentScanner({ onScanComplete, onCancel, subtitle }: Document
         <div className="space-y-3">
           <div className="relative rounded-2xl overflow-hidden border-2 border-dna-500/30">
             <video ref={videoRef} className="w-full rounded-2xl" autoPlay playsInline muted />
+            <div
+              className={`absolute inset-0 pointer-events-none transition-colors duration-200 ${
+                flashCapture ? 'bg-white/35' : ''
+              }`}
+            />
             <div className="absolute inset-0 pointer-events-none">
-              <div className="absolute inset-6 border-2 border-dna-400/40 rounded-xl">
+              <div
+                className={`absolute inset-6 border-2 rounded-xl transition-colors duration-300 ${
+                  phase === 'locking' ? 'border-dna-400' : 'border-dna-400/40'
+                }`}
+              >
                 <div className="absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-dna-400 rounded-tl-lg" />
                 <div className="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-dna-400 rounded-tr-lg" />
                 <div className="absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-dna-400 rounded-bl-lg" />
                 <div className="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-dna-400 rounded-br-lg" />
               </div>
-              <div className="absolute top-1/2 left-6 right-6 h-0.5 bg-dna-500/50 animate-pulse" />
+              <div className={`absolute top-1/2 left-6 right-6 h-0.5 ${scanLineClass}`} />
             </div>
+
             {scannedPages.length > 0 && (
               <div className="absolute top-3 right-3 bg-dna-500 text-white text-xs font-bold px-2.5 py-1 rounded-full">
                 {scannedPages.length} {scannedPages.length === 1 ? 'page' : 'pages'}
               </div>
             )}
-            <p className="absolute bottom-3 left-0 right-0 text-center text-xs text-dna-400 font-semibold drop-shadow-lg">
-              {scannedPages.length === 0
-                ? 'Align document within the frame'
-                : `Page ${scannedPages.length + 1} — align next page`}
-            </p>
+
+            <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/50 backdrop-blur rounded-full px-2.5 py-1">
+              <Zap size={12} className={phase === 'locking' ? 'text-dna-300' : 'text-dna-400'} />
+              <span className="text-[10px] font-semibold text-dna-300">Auto-scan</span>
+            </div>
+
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent pt-8 pb-3 px-4">
+              <p className="text-center text-xs text-white font-semibold drop-shadow-lg">{hint}</p>
+              {phase === 'locking' && (
+                <div className="mt-2 mx-auto max-w-[200px] h-1 rounded-full bg-white/20 overflow-hidden">
+                  <div
+                    className="h-full bg-dna-400 transition-all duration-100"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+              )}
+            </div>
           </div>
 
           {scannedPages.length > 0 && (
@@ -167,31 +261,44 @@ export function DocumentScanner({ onScanComplete, onCancel, subtitle }: Document
           )}
 
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={capturePage}
-              className="bg-bg-elevated border border-bg-border text-white flex-1 py-3 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold hover:bg-bg-muted transition-colors"
-            >
-              <Plus size={16} /> Add Page
-            </button>
-            {scannedPages.length > 0 ? (
-              <button
-                type="button"
-                onClick={buildPdf}
-                disabled={buildingPdf}
-                className="btn btn-primary flex-1 py-3 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold"
-              >
-                <FileText size={16} />
-                {buildingPdf ? 'Building PDF…' : `Generate PDF (${scannedPages.length} pages)`}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={captureAndFinish}
-                className="btn btn-primary flex-1 py-3 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold"
-              >
-                <Camera size={16} /> Single Page
-              </button>
+            {captureMode === 'multi' && (
+              <>
+                {!armed && scannedPages.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={armNextCapture}
+                    className="btn btn-primary flex-1 py-3 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold"
+                  >
+                    <ScanLine size={16} /> Scan Next Page
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleManualPage}
+                  className="bg-bg-elevated border border-bg-border text-white flex-1 py-3 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold hover:bg-bg-muted transition-colors"
+                >
+                  <Plus size={16} /> Manual Page
+                </button>
+                {scannedPages.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={buildPdf}
+                    disabled={buildingPdf}
+                    className="btn btn-primary flex-1 py-3 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold"
+                  >
+                    <FileText size={16} />
+                    {buildingPdf ? 'Building PDF…' : `Done (${scannedPages.length} pages)`}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={captureAndFinish}
+                    className="btn btn-secondary flex-1 py-3 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold"
+                  >
+                    <Camera size={16} /> Manual Capture
+                  </button>
+                )}
+              </>
             )}
             <button
               type="button"
@@ -210,7 +317,7 @@ export function DocumentScanner({ onScanComplete, onCancel, subtitle }: Document
           <div>
             <p className="text-sm font-semibold text-white">Scan a Document</p>
             <p className="text-2xs text-gray-500 mt-1">
-              {subtitle ?? 'Capture one or more pages — combine into a PDF for investigation'}
+              {subtitle ?? 'Camera opens automatically — hold document in frame to capture'}
             </p>
           </div>
           <div className="flex gap-2 max-w-xs mx-auto">
@@ -222,7 +329,7 @@ export function DocumentScanner({ onScanComplete, onCancel, subtitle }: Document
             </button>
           </div>
           <div className="flex flex-wrap justify-center gap-2 pt-2">
-            <span className="text-2xs bg-bg-elevated border border-bg-border rounded-full px-2.5 py-1 text-gray-500">Single page</span>
+            <span className="text-2xs bg-dna-500/10 border border-dna-500/20 rounded-full px-2.5 py-1 text-dna-400">Auto-capture</span>
             <span className="text-2xs bg-bg-elevated border border-bg-border rounded-full px-2.5 py-1 text-gray-500">Multi-page PDF</span>
             <span className="text-2xs bg-bg-elevated border border-bg-border rounded-full px-2.5 py-1 text-gray-500">Full investigation</span>
           </div>

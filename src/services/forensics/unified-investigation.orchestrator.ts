@@ -21,9 +21,8 @@ import type {
   UnifiedInvestigationReport,
   InvestigationPipelineStep,
   TamperAnalysisSection,
+  LeakedFileAccessEntry,
 } from '../../types/unified-investigation.types';
-import type { FileInput } from '../universal-file-router';
-
 const vaultService = new VaultService();
 const comparisonService = new DnaComparisonService();
 
@@ -148,34 +147,48 @@ export class UnifiedInvestigationOrchestrator {
       pipeline.push(step('certificate', 'Verify certificate', 'warning', 'No active certificate'));
     }
 
-    // 6. Full DNA comparison
+    // 6. Full DNA comparison (same inputs as Auto Compare — do not alter DnaComparisonService)
     let comparison = null;
+    let isIdentical = false;
     try {
       const original = await vaultService.retrieve(match.vaultId, ownerUserId);
-      comparison = await comparisonService.compare(
-        {
-          filePath: '',
-          originalName: original.originalFileName,
-          declaredMimeType: original.originalMimeType,
-          sizeBytes: original.originalSizeBytes,
-          buffer: original.originalBuffer,
-          ownerUserId,
-        } as FileInput,
-        {
-          filePath: '',
-          originalName,
-          declaredMimeType: mimeType,
-          sizeBytes,
-          buffer,
-          ownerUserId,
-        } as FileInput,
-      );
-      pipeline.push(step(
-        'dna_compare',
-        '15-layer DNA comparison',
-        'complete',
-        `${comparison.overallConfidenceScore}% — ${comparison.classification}`,
-      ));
+      isIdentical = original.originalBuffer.equals(buffer);
+      try {
+        comparison = await comparisonService.compare(
+          {
+            filePath: '',
+            originalName: original.originalFileName,
+            declaredMimeType: original.originalMimeType,
+            sizeBytes: original.originalSizeBytes,
+            buffer: original.originalBuffer,
+          },
+          {
+            filePath: '',
+            originalName,
+            declaredMimeType: mimeType,
+            sizeBytes,
+            buffer,
+          },
+        );
+        pipeline.push(step(
+          'dna_compare',
+          '15-layer DNA comparison',
+          'complete',
+          `${comparison.overallConfidenceScore}% — ${comparison.classification}`,
+        ));
+      } catch (cmpErr) {
+        logger.error('Unified investigation DNA compare failed', { error: String(cmpErr) });
+        pipeline.push(step(
+          'dna_compare',
+          '15-layer DNA comparison',
+          isIdentical ? 'complete' : 'warning',
+          isIdentical
+            ? 'Byte-identical to vault original'
+            : match.visualSimilarity
+              ? `Visual match ${Math.round((match.visualSimilarity ?? 0) * 100)}% — layer compare unavailable`
+              : String(cmpErr),
+        ));
+      }
     } catch (e) {
       pipeline.push(step('dna_compare', '15-layer DNA comparison', 'failed', String(e)));
     }
@@ -184,8 +197,15 @@ export class UnifiedInvestigationOrchestrator {
     const tamperAnalysis = this.buildTamperAnalysis(comparison, leakVerify);
     pipeline.push(step('tamper', 'Tamper analysis', 'complete', tamperAnalysis.primaryVector));
 
+    const accessIntelligence = await this.loadAccessIntelligence(
+      match.dnaRecordId,
+      ownerUserId,
+      leakVerify.accessHistory ?? [],
+    );
+
     // 8–11. Recipient + sharing + access
-    const hasShare = !!(leakVerify.shareLink || leakVerify.recipient);
+    const hasShare = !!(leakVerify.shareLink || leakVerify.recipient)
+      || accessIntelligence.some((a) => a.action && !a.action.startsWith('TEP_'));
     pipeline.push(step(
       'recipient',
       'Recipient attribution',
@@ -196,8 +216,8 @@ export class UnifiedInvestigationOrchestrator {
     pipeline.push(step(
       'access_history',
       'Access history',
-      leakVerify.accessHistory?.length ? 'complete' : 'skipped',
-      `${leakVerify.accessHistory?.length ?? 0} events`,
+      'complete',
+      `${accessIntelligence.length} events`,
     ));
 
     // 12. Timeline
@@ -233,9 +253,26 @@ export class UnifiedInvestigationOrchestrator {
       select: { createdAt: true, imageFilename: true },
     });
 
-    const dnaPct = comparison?.overallConfidenceScore ?? (leakVerify.confidence ?? 0);
+    const dnaPct = comparison?.overallConfidenceScore
+      ?? (isIdentical ? 100 : undefined)
+      ?? (match.visualSimilarity ? Math.round(match.visualSimilarity * 100) : undefined)
+      ?? (Number.parseInt(match.confidence, 10) || undefined)
+      ?? (leakVerify.confidence ?? 0);
+
+    const identityFromVault = owner?.shortId ?? leakVerify.identity?.ownerShortId;
+    const identityStatus = leakVerify.valid
+      ? 'VERIFIED'
+      : leakVerify.found
+        ? 'PARTIAL'
+        : identityFromVault
+          ? identityFromVault
+          : 'NOT_FOUND';
+
     const ownershipConf = Math.min(100, Math.round(
-      dnaPct * 0.6 + (leakVerify.valid ? 25 : 10) + (certStatus === 'VALID' ? 15 : 0),
+      dnaPct * 0.6
+      + (leakVerify.valid ? 25 : identityFromVault ? 20 : 5)
+      + (certStatus === 'VALID' ? 15 : 0)
+      + (match.tier <= 2 ? 10 : 0),
     ));
 
     const layerAnalysis = (comparison?.layerComparisons ?? []).map((l) => ({
@@ -250,7 +287,7 @@ export class UnifiedInvestigationOrchestrator {
       ownershipConfidence: ownershipConf,
       dnaMatchPercent: dnaPct,
       certificateStatus: certStatus,
-      identityStatus: leakVerify.valid ? 'VERIFIED' : leakVerify.found ? 'PARTIAL' : 'NOT_FOUND',
+      identityStatus,
       tamperSeverity: tamperAnalysis.primaryVector,
       riskLevel: riskFromScores(dnaPct, tamperAnalysis.overallTamperScore, true),
     };
@@ -272,24 +309,30 @@ export class UnifiedInvestigationOrchestrator {
         originalFilename: dnaRec?.imageFilename ?? leakVerify.identity?.originalFilename,
         createdAt: dnaRec?.createdAt?.toISOString(),
       },
-      recipientAttribution: this.buildRecipientSection(leakVerify),
+      recipientAttribution: this.buildRecipientSection(leakVerify, accessIntelligence),
       dnaComparison: comparison,
       layerAnalysis,
       tamperAnalysis,
       timeline: timelineEvents,
-      accessIntelligence: leakVerify.accessHistory ?? [],
+      accessIntelligence,
       leakIntelligence: leakIntel,
       identityProof: {
         vaultId: match.vaultId,
         dnaRecordId: match.dnaRecordId,
         certificateId: cert?.certificateId,
-        ownerPinitId: owner?.shortId ?? undefined,
+        ownerPinitId: owner?.shortId ?? leakVerify.identity?.ownerShortId,
         digitalSignatureValid: !!leakVerify.valid,
         watermark: resolveWatermarkProof(leakVerify, {
           vaultId: match.vaultId,
           ownerPinitId: owner?.shortId ?? undefined,
         }, phase3Recovery ?? undefined),
-        identityVerification: leakVerify.valid ? 'PASSED' : leakVerify.found ? 'DAMAGED' : 'NOT_FOUND',
+        identityVerification: leakVerify.valid
+          ? 'PASSED'
+          : identityFromVault
+            ? `VAULT_OWNER:${identityFromVault}`
+            : leakVerify.found
+              ? 'DAMAGED'
+              : 'NOT_FOUND',
       },
       leakVerify: {
         found: leakVerify.found,
@@ -299,7 +342,7 @@ export class UnifiedInvestigationOrchestrator {
         leakVector: leakVerify.leakVector,
         confidence: leakVerify.confidence,
         message: leakVerify.message,
-        accessHistory: leakVerify.accessHistory,
+        accessHistory: accessIntelligence,
       },
       matchTier: match.tier,
       matchMethod: match.method,
@@ -408,13 +451,18 @@ export class UnifiedInvestigationOrchestrator {
     return { primaryVector, overallTamperScore, vectors, description };
   }
 
-  private buildRecipientSection(leakVerify: Awaited<ReturnType<typeof leakedFileVerifyService.verify>>) {
-    const fromShare = !!(leakVerify.shareLink || leakVerify.recipient);
+  private buildRecipientSection(
+    leakVerify: Awaited<ReturnType<typeof leakedFileVerifyService.verify>>,
+    accessHistory: LeakedFileAccessEntry[] = [],
+  ) {
+    const history = accessHistory.length ? accessHistory : (leakVerify.accessHistory ?? []);
+    const fromShare = !!(leakVerify.shareLink || leakVerify.recipient)
+      || history.some((a) => a.action && !a.action.startsWith('TEP_') && !a.action.startsWith('PROTECTED_'));
     if (!fromShare) {
       return { fromShare: false, message: 'Original Owner Only — no share recipient attribution.' };
     }
-    const dl = leakVerify.accessHistory?.find((a) => a.action?.toLowerCase().includes('download'));
-    const view = leakVerify.accessHistory?.find((a) => a.action?.toLowerCase().includes('view'));
+    const dl = history.find((a) => a.action?.toLowerCase().includes('download'));
+    const view = history.find((a) => a.action?.toLowerCase().includes('view'));
     return {
       fromShare: true,
       recipientName: leakVerify.recipient?.label ?? leakVerify.shareLink?.recipientLabel,
@@ -424,7 +472,7 @@ export class UnifiedInvestigationOrchestrator {
       downloadTime: dl?.timestamp,
       screenshotDetected: leakVerify.leakVector === 'SCREENSHOT',
       screenRecordingDetected: leakVerify.leakVector === 'RECORDING',
-      lastDevice: leakVerify.accessHistory?.[0]?.device,
+      lastDevice: history[0]?.device,
       message: 'File traced to a shared copy recipient.',
     };
   }
@@ -447,6 +495,68 @@ export class UnifiedInvestigationOrchestrator {
     out.push({ stage: 'Verified', timestamp: new Date().toISOString(), detail: 'Unified Investigation' });
     out.push({ stage: 'Crawler Detection', detail: 'Future — monitoring framework ready' });
     return out;
+  }
+
+  private async loadAccessIntelligence(
+    dnaRecordId: string,
+    ownerUserId: string,
+    fromLeakVerify: LeakedFileAccessEntry[],
+  ): Promise<LeakedFileAccessEntry[]> {
+    const merged = new Map<string, LeakedFileAccessEntry>();
+
+    const add = (entry: LeakedFileAccessEntry) => {
+      const key = `${entry.timestamp}|${entry.action}|${entry.ipAddress ?? ''}`;
+      if (!merged.has(key)) merged.set(key, entry);
+    };
+
+    for (const e of fromLeakVerify) add(e);
+
+    const links = await prisma.shareLink.findMany({
+      where: { dnaRecordId, ownerUserId },
+      include: {
+        accessLogs: { orderBy: { createdAt: 'desc' }, take: 40 },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    for (const link of links) {
+      for (const log of link.accessLogs) {
+        add({
+          timestamp: log.createdAt.toISOString(),
+          action: log.action,
+          ipAddress: log.ipAddress ?? undefined,
+          country: log.country ?? undefined,
+          city: log.city ?? undefined,
+          region: log.region ?? undefined,
+          device: log.device ?? log.userAgent ?? undefined,
+          browser: log.browser ?? undefined,
+          os: log.os ?? undefined,
+          riskLevel: log.riskLevel ?? undefined,
+          locationShared: log.locationShared,
+        });
+      }
+    }
+
+    const tepExports = await prisma.trackedExportPackage.findMany({
+      where: { dnaRecordId, ownerUserId },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    });
+
+    for (const tep of tepExports) {
+      add({
+        timestamp: tep.createdAt.toISOString(),
+        action: 'TEP_EXPORT',
+        ipAddress: tep.ipAddress ?? undefined,
+        country: tep.geoCountry ?? undefined,
+        city: tep.geoCity ?? undefined,
+        device: tep.deviceContext ?? undefined,
+      });
+    }
+
+    return [...merged.values()].sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+    );
   }
 
   private async buildLeakIntelligence(dnaRecordId: string, ownerUserId: string) {

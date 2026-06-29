@@ -122,7 +122,7 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
     }, 600);
 
     try {
-      const blob = await protectedDownloadFromVault(record.id);
+      const { blob, tepCode } = await protectedDownloadFromVault(record.id);
       setForensicPreserved(true);
       setActiveStep(PROTECTED_STEPS.length - 2);
 
@@ -135,7 +135,11 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
 
       setActiveStep(PROTECTED_STEPS.length - 1);
       setPhase('done');
-      toast.success('Protected download complete — forensic identity preserved');
+      toast.success(
+        tepCode
+          ? `Protected download complete — TEP ${tepCode} embedded for leak tracking`
+          : 'Protected download complete — forensic identity preserved',
+      );
     } catch (err) {
       setPhase('error');
       setError(err instanceof Error ? err.message : 'Protected download failed');

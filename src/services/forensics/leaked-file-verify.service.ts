@@ -10,7 +10,7 @@ import crypto from 'crypto';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { identityEmbeddingService } from '../identity/identity-embedding.service';
-import { tepService } from '../tep/tep.service';
+import { tepService, isProtectedDownloadTepChannel } from '../tep/tep.service';
 import { extractTepTail } from '../tep/tep.service';
 import { pinitSignatureDetector } from '../duplicate/pinit-signature-detector.service';
 import { extractWatermarkFromFile } from '../watermark/watermark.service';
@@ -173,17 +173,21 @@ export class LeakedFileVerifyService {
     try {
       const tep = await tepService.extractFromFile(buffer, effectiveMime, fileName);
       if (tep.found && tep.dnaRecordId) {
+        const protectedExport = isProtectedDownloadTepChannel(tep.shareLinkId);
         const base = await this._buildFromIds({
           dnaRecordId: tep.dnaRecordId,
           vaultId: tep.vaultId,
           shareLinkId: tep.shareLinkId,
+          tepCode: tep.tepCode,
           detectionMethod: 'TEP_EXPORT',
-          leakVector: 'DOWNLOAD_REUPLOAD',
+          leakVector: protectedExport ? 'ORIGINAL_FILE' : 'DOWNLOAD_REUPLOAD',
           valid: tep.valid,
           tampered: !tep.valid,
           confidence: tep.valid ? 97 : 85,
           message: tep.valid
-            ? 'Tracked Export Package (TEP) detected — file was downloaded via a PINIT share link.'
+            ? protectedExport
+              ? 'Tracked Export Package (TEP) detected — file was exported via PINIT Protected Download (owner vault export).'
+              : 'Tracked Export Package (TEP) detected — file was downloaded via a PINIT share link.'
             : 'TEP markers found but signature damaged — file was downloaded then tampered.',
         });
         return {
@@ -275,6 +279,11 @@ export class LeakedFileVerifyService {
       pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       txt: 'text/plain',
       csv: 'text/csv',
+      mp4: 'video/mp4',
+      mov: 'video/quicktime',
+      webm: 'video/webm',
+      mkv: 'video/x-matroska',
+      avi: 'video/x-msvideo',
     };
     return map[ext] ?? mimeType;
   }
@@ -307,18 +316,24 @@ export class LeakedFileVerifyService {
       orderBy: { createdAt: 'desc' },
     });
     if (manifest) {
+      const protectedExport = isProtectedDownloadTepChannel(manifest.shareLinkId);
       return this._buildFromIds({
         dnaRecordId: manifest.dnaRecordId,
         vaultId: manifest.vaultId,
         shareLinkId: manifest.shareLinkId,
+        tepCode: manifest.tepCode,
         detectionMethod: 'TEP_EXPORT',
-        leakVector: 'DOWNLOAD_REUPLOAD',
+        leakVector: protectedExport ? 'ORIGINAL_FILE' : 'DOWNLOAD_REUPLOAD',
         valid: true,
         tampered: manifest.exportSha256 !== sha256,
         confidence: 98,
         message: manifest.exportSha256 === sha256
-          ? 'Exact match with TEP tracked export registry — this is the downloaded share file.'
-          : 'Matches pre-export vault bytes — file may be an unmarked copy of the shared content.',
+          ? protectedExport
+            ? 'Exact match with TEP registry — this is a Protected Download export from the vault.'
+            : 'Exact match with TEP tracked export registry — this is the downloaded share file.'
+          : protectedExport
+            ? 'Matches pre-export vault bytes — file may be an unmarked copy of protected content.'
+            : 'Matches pre-export vault bytes — file may be an unmarked copy of the shared content.',
       }).then((base) => ({
         ...base,
         tep: { code: manifest.tepCode, valid: true },
@@ -593,6 +608,7 @@ export class LeakedFileVerifyService {
     dnaRecordId?: string;
     vaultId?: string;
     shareLinkId?: string;
+    tepCode?: string;
     detectionMethod: LeakDetectionMethod;
     leakVector: LeakVector;
     valid: boolean;
@@ -621,7 +637,33 @@ export class LeakedFileVerifyService {
       return { found: false, message: 'Tracking markers found but linked DNA record could not be resolved.' };
     }
 
-    return this._assemble(rec, params.shareLinkId, params);
+    return this._assemble(rec, params.shareLinkId, params, params.tepCode);
+  }
+
+  private async _loadTepContext(tepCode: string): Promise<{
+    accessHistory?: LeakedFileAccessEntry[];
+    recipient?: LeakedFileVerifyResult['recipient'];
+  }> {
+    const manifest = await prisma.trackedExportPackage.findUnique({ where: { tepCode } });
+    if (!manifest) return {};
+
+    const protectedExport = isProtectedDownloadTepChannel(manifest.shareLinkId);
+    return {
+      accessHistory: [{
+        timestamp: manifest.createdAt.toISOString(),
+        action: protectedExport ? 'PROTECTED_DOWNLOAD' : 'TEP_EXPORT',
+        ipAddress: manifest.ipAddress ?? undefined,
+        country: manifest.geoCountry ?? undefined,
+        city: manifest.geoCity ?? undefined,
+        device: manifest.deviceContext ?? undefined,
+      }],
+      recipient: {
+        label: protectedExport ? 'Owner (Protected Download)' : 'Share recipient',
+        recipientCode: manifest.recipientId ?? undefined,
+        email: manifest.recipientEmail ?? undefined,
+        knownCountries: manifest.geoCountry ? [manifest.geoCountry] : undefined,
+      },
+    };
   }
 
   private async _assemble(
@@ -646,8 +688,10 @@ export class LeakedFileVerifyService {
       signals?: string[];
       pHashSimilarity?: number;
     },
+    tepCode?: string,
   ): Promise<LeakedFileVerifyResult> {
-    const { shareLink, accessHistory, recipient } = await this._loadShareContext(shareLinkId, opts.shareToken);
+    const shareCtx = await this._loadShareContext(shareLinkId, opts.shareToken);
+    const tepCtx = tepCode ? await this._loadTepContext(tepCode) : {};
 
     return {
       found: true,
@@ -667,12 +711,12 @@ export class LeakedFileVerifyService {
         originalFilename: rec.imageFilename,
         dnaCreatedAt: rec.createdAt.toISOString(),
       },
-      shareLink,
-      recipient,
-      accessHistory,
+      shareLink: shareCtx.shareLink,
+      recipient: tepCtx.recipient ?? shareCtx.recipient,
+      accessHistory: tepCtx.accessHistory ?? shareCtx.accessHistory,
       forensic: {
         signals: opts.signals,
-        shareToken: opts.shareToken ?? shareLink?.token,
+        shareToken: opts.shareToken ?? shareCtx.shareLink?.token,
         signatureMethod: opts.signatureMethod,
         pHashSimilarity: opts.pHashSimilarity,
       },
