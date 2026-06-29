@@ -27,6 +27,9 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { dnaEnhancements } from '../../config/dna-enhancements';
+import { tamperClassifierService } from '../forensics/tamper-classifier.service';
+import type { LayerScoreInput } from '../../types/dna-enhancements.types';
 import type { EphemeralFingerprint, EphemeralLayer } from './ephemeral-fingerprinter';
 import type {
   DnaComparisonResult,
@@ -100,6 +103,17 @@ export class ComparisonEngine {
       tamperingDetected, indicators, changedLayers, matchedLayers,
     });
 
+    let enhancedForensic: DnaComparisonResult['enhancedForensic'];
+    if (dnaEnhancements.enabled && dnaEnhancements.verify.tamperClassification) {
+      const layerInputs = this.toLayerScoreInputs(layerComparisons);
+      const tamper = tamperClassifierService.classify(layerInputs);
+      enhancedForensic = {
+        tamperVector: tamper.primaryVector,
+        tamperDescription: tamper.description,
+        tamperConfidence: tamper.tamperConfidence,
+      };
+    }
+
     return {
       comparisonId,
       fileA: {
@@ -126,7 +140,28 @@ export class ComparisonEngine {
       forensicReport,
       processingMs,
       comparedAt: new Date().toISOString(),
+      enhancedForensic,
     };
+  }
+
+  /** Map ephemeral layer comparison results to weighted scorer layer names */
+  private toLayerScoreInputs(layers: LayerComparisonResult[]): LayerScoreInput[] {
+    const nameMap: Record<number, string> = {
+      1: 'cryptographic',
+      2: 'structural',
+      3: 'perceptual',
+      4: 'semantic',
+      5: 'metadata',
+      6: 'steganography',
+    };
+    return layers
+      .filter((l) => l.layer <= 6)
+      .map((l) => ({
+        layer: nameMap[l.layer] ?? l.name,
+        score: l.similarityScore,
+        weight: LAYER_WEIGHTS[l.layer] ?? 0,
+        passed: l.matched,
+      }));
   }
 
   // ─── Layer comparison ─────────────────────────────────────────────────────

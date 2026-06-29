@@ -302,6 +302,19 @@ export interface DnaVerificationResult {
   layersChecked: LayerName[];
   verifiedAt: Date;
   verificationLogId: string;
+  /** v2.1+ enterprise forensic scoring — present when DNA_ENHANCEMENTS_ENABLED=true */
+  forensic?: {
+    overallMatchScore?: number;
+    ownershipConfidence?: number;
+    tamperConfidence?: number;
+    tamperVector?: string;
+    tamperDescription?: string;
+    mediaProfile?: string;
+    explanation?: import('./dna-enhancements.types').DnaExplanationResult;
+    evidenceConfidence?: import('./dna-enhancements.types').EvidenceConfidenceResult;
+    crossMedia?: import('./dna-enhancements.types').CrossMediaMatchResult;
+    transformationHistory?: import('./dna-enhancements.types').TransformationHistoryEntry[];
+  };
 }
 
 // ─── API Request / Response shapes ───────────────────────────────────────────

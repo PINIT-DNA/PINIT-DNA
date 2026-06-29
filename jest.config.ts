@@ -5,6 +5,7 @@ const config: Config = {
   testEnvironment: 'node',
   roots: ['<rootDir>/tests'],
   testMatch: ['**/*.test.ts'],
+  transformIgnorePatterns: ['/node_modules/(?!@noble/)'],
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/app.ts',

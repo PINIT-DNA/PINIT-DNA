@@ -106,4 +106,11 @@ export interface DnaComparisonResult {
   processingMs: number;
 
   comparedAt: string;
+
+  /** v2.1 — optional tamper vector when DNA_VERIFY_TAMPER_CLASS=true */
+  enhancedForensic?: {
+    tamperVector: string;
+    tamperDescription: string;
+    tamperConfidence: number;
+  };
 }

@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import { getForwardChain } from '../controllers/forward-chain.controller';
 import {
+  getEvidencePublicKeyHandler,
+  verifyEvidenceReport,
+  signReportManifestHandler,
+} from '../controllers/evidence-verify.controller';
+import {
   generateReport,
   listEvidenceRecords,
   getEvidenceRecord,
@@ -12,6 +17,12 @@ import {
 import { requireAuth } from '../middleware/auth.middleware';
 
 export const evidenceRouter = Router();
+
+// ── Phase 3 — Signed reports & QR verification ───────────────────────────────
+evidenceRouter.get('/public-key',              getEvidencePublicKeyHandler);
+evidenceRouter.get('/verify/:reportId',        verifyEvidenceReport);
+evidenceRouter.post('/verify/:reportId',       verifyEvidenceReport);
+evidenceRouter.post('/sign-manifest',          requireAuth, signReportManifestHandler);
 
 // ── Evidence Reports ──────────────────────────────────────────────────────────
 evidenceRouter.post('/report',             requireAuth, generateReport);

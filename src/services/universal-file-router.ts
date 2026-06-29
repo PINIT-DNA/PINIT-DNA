@@ -37,6 +37,8 @@ import { OriginLayer }       from './layers/layer9.origin';
 import { EvolutionLayer }    from './layers/layer10.evolution';
 import { processAdvancedLayers } from './layers/layers-11-15.service';
 import { TOTAL_DNA_LAYERS } from '../constants/dna-layers';
+import { buildEnhancementBundle, mergeUniversalFingerprints } from './forensics/dna-enhancement-bundle.service';
+import { dnaEnhancements } from '../config/dna-enhancements';
 
 // ─── Universal input type ────────────────────────────────────────────────────
 
@@ -274,6 +276,31 @@ export class UniversalFileRouter {
 
     // Update final status
     await prisma.dnaRecord.update({ where: { id: dnaRecordId }, data: { status } });
+
+    // ── v2.2 Phase 2 enhancement bundle (non-fatal) ─────────────────────────
+    if (dnaEnhancements.enabled) {
+      try {
+        const bundle = await buildEnhancementBundle(file.buffer, {
+          mimeType: detection.mimeType,
+          fileType,
+          tempPath: file.filePath,
+        });
+        if (bundle) {
+          const rec = await prisma.dnaRecord.findUnique({
+            where: { id: dnaRecordId },
+            select: { universalFingerprints: true },
+          });
+          await prisma.dnaRecord.update({
+            where: { id: dnaRecordId },
+            data: {
+              universalFingerprints: mergeUniversalFingerprints(rec?.universalFingerprints, bundle) as object,
+            },
+          });
+        }
+      } catch (err) {
+        logger.warn('Phase 2 enhancement bundle skipped (non-fatal)', { dnaRecordId, error: String(err) });
+      }
+    }
 
     return {
       dnaRecordId,

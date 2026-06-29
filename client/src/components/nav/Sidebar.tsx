@@ -37,6 +37,7 @@ const NAV_GROUPS = [
   {
     label: 'Forensics',
     items: [
+      { to: '/unified-investigation', icon: ShieldCheck, label: 'Unified Investigation' },
       { to: '/verify-leaked',         icon: FileSearch,  label: 'Verify Leaked File'  },
       { to: '/forensic-dashboard',  icon: ShieldAlert, label: 'Forensic Dashboard'  },
       { to: '/security-center',     icon: ShieldAlert, label: 'Security Center'     },

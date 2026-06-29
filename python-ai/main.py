@@ -1,17 +1,22 @@
 """
-PINIT-DNA — Python AI Microservice v2.0
+PINIT-DNA — Python AI Microservice v2.1 (Enterprise infrastructure)
 FastAPI service on port 8001
 
 Phase 1: /embed, /index, /search, /health
 Phase 3: /search/hybrid (keyword + semantic)
 Phase 4: Confidence thresholds — hide weak matches
 Phase 5: /ocr, /duplicates, /similar
+Enterprise prep: modular services/, startup diagnostics, enhanced /health
 """
 
 import os, json, time, hashlib, re, logging
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
+
+from config import SERVICE_NAME, SERVICE_VERSION, EMBEDDING_MODEL, EMBEDDING_DIMENSION
+from diagnostics import run_startup_diagnostics, get_health_extensions
+from services import enterprise_services_status
 
 import numpy as np
 import faiss
@@ -24,6 +29,10 @@ from sentence_transformers import SentenceTransformer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("pinit-dna-ai")
+
+# ── Enterprise dependency diagnostics (non-fatal for optional modules) ────────
+
+run_startup_diagnostics()
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -38,10 +47,10 @@ MODEL_CACHE_DIR.mkdir(exist_ok=True)
 
 # ── Model & Index ─────────────────────────────────────────────────────────────
 
-DIMENSION = 384
+DIMENSION = EMBEDDING_DIMENSION
 
-log.info("Loading sentence-transformer model (all-MiniLM-L6-v2)…")
-model = SentenceTransformer("all-MiniLM-L6-v2", cache_folder=str(MODEL_CACHE_DIR))
+log.info("Loading sentence-transformer model (%s)…", EMBEDDING_MODEL)
+model = SentenceTransformer(EMBEDDING_MODEL, cache_folder=str(MODEL_CACHE_DIR))
 log.info("Model loaded.")
 
 def load_or_create_index():
@@ -62,7 +71,7 @@ def save_index():
 
 # ── FastAPI ───────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="PINIT-DNA AI Microservice", version="2.0.0")
+app = FastAPI(title=SERVICE_NAME, version=SERVICE_VERSION)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # ── Request models ────────────────────────────────────────────────────────────
@@ -122,14 +131,26 @@ def keyword_score(query: str, text: str) -> float:
 
 @app.get("/health")
 def health():
+    diag = get_health_extensions()
     return {
         "status":    "online",
-        "service":   "PINIT-DNA AI Microservice",
-        "version":   "2.0.0",
-        "model":     "all-MiniLM-L6-v2",
+        "service":   SERVICE_NAME,
+        "version":   SERVICE_VERSION,
+        "model":     EMBEDDING_MODEL,
         "dimension": DIMENSION,
         "indexed":   index.ntotal,
         "timestamp": datetime.utcnow().isoformat() + "Z",
+        # Enterprise extensions (additive — existing clients ignore unknown keys)
+        "pythonVersion": diag.get("pythonVersion"),
+        "ocrAvailable": diag.get("ocrAvailable"),
+        "opencvAvailable": diag.get("opencvAvailable"),
+        "torchAvailable": diag.get("torchAvailable"),
+        "gpuAvailable": diag.get("gpuAvailable"),
+        "installedModules": diag.get("modules"),
+        "moduleDetails": diag.get("moduleDetails"),
+        "enterpriseServices": enterprise_services_status(),
+        "platform": diag.get("platform"),
+        "diagnosticWarnings": diag.get("warnings", []),
     }
 
 # ── Phase 1: Embed ────────────────────────────────────────────────────────────
@@ -389,7 +410,7 @@ def get_stats():
         "totalVectors":    index.ntotal,
         "activeDocuments": len(active),
         "fileTypeBreakdown": ft_count,
-        "model":           "all-MiniLM-L6-v2",
+        "model":           EMBEDDING_MODEL,
         "dimension":       DIMENSION,
         "indexSizeBytes":  INDEX_FILE.stat().st_size if INDEX_FILE.exists() else 0,
     }

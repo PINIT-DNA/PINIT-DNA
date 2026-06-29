@@ -14,6 +14,7 @@ import { getAuthUserId, vaultOwnerWhere } from '../../lib/tenant-scope';
 import { logger } from '../../lib/logger';
 import { auditService } from '../../services/audit/audit.service';
 import { autoIndexer }  from '../../services/ai/auto-indexer.service';
+import { protectedDownloadService } from '../../services/vault/protected-download.service';
 import {
   detectSensitiveTypes,
   extractTextFromPdf,
@@ -210,6 +211,113 @@ export async function retrieveFromVault(
     }
     if (err instanceof Error && err.message.includes('Unsupported state')) {
       return next(new AppError(422, 'Vault file integrity check failed — auth tag mismatch. File may be tampered.'));
+    }
+    next(err);
+  }
+}
+
+// ─── POST /vault/:id/protected-download/prepare ───────────────────────────────
+
+export async function prepareProtectedDownload(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  const { id } = req.params;
+  try {
+    const userId = getAuthUserId(req);
+    const result = await protectedDownloadService.prepare(id, userId);
+
+    auditService.log({
+      eventType: 'PROTECTED_DOWNLOAD_PREPARED' as never,
+      vaultId: id,
+      dnaRecordId: result.dnaRecordId,
+      filename: result.originalFileName,
+      fileType: result.originalMimeType,
+      detail: {
+        certificateId: result.certificateId,
+        forensicPreserved: result.forensicPreserved,
+        fileSha256: result.fileSha256,
+      },
+      req,
+    });
+
+    res.status(200).json({
+      success: true,
+      ready: true,
+      vaultId: result.vaultId,
+      dnaRecordId: result.dnaRecordId,
+      certificateId: result.certificateId,
+      ownerShortId: result.ownerShortId,
+      forensicPreserved: result.forensicPreserved,
+      fileSha256: result.fileSha256,
+      steps: result.steps,
+      originalFileName: result.originalFileName,
+      originalMimeType: result.originalMimeType,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('not found')) {
+      return next(new AppError(404, err.message));
+    }
+    if (err instanceof Error && err.message.includes('Certificate verification failed')) {
+      return next(new AppError(422, err.message));
+    }
+    if (err instanceof Error && err.message.includes('disabled')) {
+      return next(new AppError(503, err.message));
+    }
+    next(err);
+  }
+}
+
+// ─── POST /vault/:id/protected-download ───────────────────────────────────────
+
+export async function protectedDownloadFromVault(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  const { id } = req.params;
+  try {
+    const userId = getAuthUserId(req);
+    const result = await protectedDownloadService.prepare(id, userId);
+
+    res.set({
+      'Content-Type': result.originalMimeType,
+      'Content-Length': String(result.buffer.length),
+      'Content-Disposition': `attachment; filename="${result.originalFileName}"`,
+      'X-Vault-Id': result.vaultId,
+      'X-DNA-Record-Id': result.dnaRecordId,
+      'X-Certificate-Id': result.certificateId ?? '',
+      'X-PINIT-Protected-Download': 'true',
+      'X-PINIT-Forensic-Preserved': String(result.forensicPreserved),
+      'X-Original-Size': String(result.buffer.length),
+    });
+
+    auditService.log({
+      eventType: 'PROTECTED_DOWNLOAD' as never,
+      vaultId: id,
+      dnaRecordId: result.dnaRecordId,
+      filename: result.originalFileName,
+      fileType: result.originalMimeType,
+      detail: {
+        certificateId: result.certificateId,
+        forensicPreserved: result.forensicPreserved,
+        fileSha256: result.fileSha256,
+        steps: result.steps.map((s) => s.id),
+      },
+      req,
+    });
+
+    res.status(200).send(result.buffer);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('not found')) {
+      return next(new AppError(404, err.message));
+    }
+    if (err instanceof Error && err.message.includes('Certificate verification failed')) {
+      return next(new AppError(422, err.message));
+    }
+    if (err instanceof Error && err.message.includes('Unsupported state')) {
+      return next(new AppError(422, 'Vault file integrity check failed'));
     }
     next(err);
   }

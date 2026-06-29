@@ -40,6 +40,8 @@ import {
   EvolutionLayerResult,
 } from '../types/dna.types';
 import { withTimeout, validateFileInput } from '../lib/safe-runner';
+import { Prisma } from '@prisma/client';
+import { buildEnhancementBundle, mergeUniversalFingerprints } from './forensics/dna-enhancement-bundle.service';
 
 export class DnaOrchestrator {
   private readonly layer1  = new CryptographicLayer();
@@ -222,6 +224,32 @@ export class DnaOrchestrator {
       where: { id: dnaRecordId },
       data: { status },
     });
+
+    // ── v2.1 forensic enhancement bundle (optional, backward compatible) ─────
+    try {
+      const enhancementBundle = await buildEnhancementBundle(image.buffer, {
+        mimeType: image.mimeType,
+        fileType: 'IMAGE',
+        tempPath: image.filePath,
+      });
+      if (enhancementBundle) {
+        const rec = await prisma.dnaRecord.findUnique({
+          where: { id: dnaRecordId },
+          select: { universalFingerprints: true },
+        });
+        await prisma.dnaRecord.update({
+          where: { id: dnaRecordId },
+          data: {
+            universalFingerprints: mergeUniversalFingerprints(
+              rec?.universalFingerprints,
+              enhancementBundle,
+            ) as Prisma.InputJsonValue,
+          },
+        });
+      }
+    } catch (err) {
+      logger.warn('DNA enhancement bundle skipped (non-fatal)', { dnaRecordId, error: String(err) });
+    }
 
     const totalMs = Date.now() - pipelineStart;
 

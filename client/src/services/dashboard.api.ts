@@ -115,6 +115,42 @@ export async function retrieveFromVault(vaultId: string): Promise<Blob> {
   return data;
 }
 
+export interface ProtectedDownloadStep {
+  id: string;
+  label: string;
+  status: 'pending' | 'running' | 'complete' | 'warning' | 'failed';
+  detail?: string;
+}
+
+export interface ProtectedDownloadPrepareResult {
+  success: boolean;
+  ready: boolean;
+  vaultId: string;
+  dnaRecordId: string;
+  certificateId: string | null;
+  ownerShortId: string | null;
+  forensicPreserved: boolean;
+  steps: ProtectedDownloadStep[];
+  originalFileName: string;
+}
+
+export async function prepareProtectedDownload(vaultId: string): Promise<ProtectedDownloadPrepareResult> {
+  const { data } = await api.post<ProtectedDownloadPrepareResult>(
+    `${API_BASE_URL}/vault/${vaultId}/protected-download/prepare`,
+    {},
+  );
+  return data;
+}
+
+export async function protectedDownloadFromVault(vaultId: string): Promise<Blob> {
+  const { data } = await api.post<Blob>(
+    `${API_BASE_URL}/vault/${vaultId}/protected-download`,
+    {},
+    { responseType: 'blob' },
+  );
+  return data;
+}
+
 // ─── Certificate Management (Phase 2) ────────────────────────────────────────
 
 /** Issue (or retrieve existing) certificate for a vault record — idempotent */
@@ -165,6 +201,47 @@ export async function autoCompareDna(file: File): Promise<any> {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return data;
+}
+
+export async function unifiedInvestigate(file: File): Promise<{ success: boolean; report: Record<string, unknown> }> {
+  const form = new FormData();
+  form.append('image', file);
+  const { data } = await api.post<{ success: boolean; report: Record<string, unknown> }>(
+    `${API_BASE_URL}/forensics/unified-investigate`,
+    form,
+    { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 300_000 },
+  );
+  return data;
+}
+
+export interface SignedReportManifest {
+  reportId: string;
+  reportType: string;
+  investigationId: string;
+  reportHash: string;
+  issuedAt: string;
+  signature: string;
+  verifyUrl: string;
+  certificateStatus?: string;
+  engineVersion: string;
+  publicKeyFingerprint: string;
+}
+
+export async function signReportManifest(payload: {
+  investigationId: string;
+  reportType: 'INVESTIGATION' | 'DNA' | 'TIMELINE' | 'EVIDENCE_PACKAGE';
+  reportHash: string;
+  certificateStatus?: string;
+}): Promise<SignedReportManifest | null> {
+  try {
+    const { data } = await api.post<{ success: boolean; manifest: SignedReportManifest }>(
+      `${API_BASE_URL}/evidence/sign-manifest`,
+      payload,
+    );
+    return data.manifest ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // ─── Dashboard Aggregation ────────────────────────────────────────────────────

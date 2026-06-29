@@ -18,6 +18,12 @@ const PYTHON_MAIN = path.join(PYTHON_DIR, 'main.py');
 const AI_PORT     = parseInt(process.env['AI_SERVICE_PORT'] ?? '8001', 10);
 
 export function startPythonAI(): void {
+  // Skip local spawn when disabled (e.g. dev without Python deps)
+  if (process.env['PYTHON_AI_AUTO_START'] === 'false') {
+    logger.info('Python AI auto-start disabled (PYTHON_AI_AUTO_START=false)');
+    return;
+  }
+
   // Skip if AI is hosted externally (Hugging Face Spaces or any non-localhost URL)
   const aiUrl = process.env['AI_SERVICE_URL'] ?? '';
   if (aiUrl && !aiUrl.includes('localhost') && !aiUrl.includes('127.0.0.1')) {
@@ -75,10 +81,13 @@ function _doStartPython(): void {
 
   let missingModule = false;
 
+  const isMissingPythonDep = (msg: string) =>
+    msg.includes('ModuleNotFoundError') || /No module named/i.test(msg);
+
   pythonProcess.stderr?.on('data', (data: Buffer) => {
     const msg = data.toString().trim();
     if (!msg) return;
-    if (msg.includes('ModuleNotFoundError')) {
+    if (isMissingPythonDep(msg)) {
       missingModule = true;
       logger.warn('Python AI: missing module — run: cd python-ai && pip install -r requirements.txt');
     } else if (msg.includes('Uvicorn running')) {

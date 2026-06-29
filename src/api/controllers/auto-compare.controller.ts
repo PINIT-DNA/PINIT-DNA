@@ -16,22 +16,13 @@ import fs from 'fs/promises';
 import { AppError } from '../middleware/error.middleware';
 import { logger } from '../../lib/logger';
 import { DnaComparisonService } from '../../services/verification/dna-comparison.service';
-import { identityEmbeddingService } from '../../services/identity/identity-embedding.service';
+import { vaultAutoMatchService } from '../../services/forensics/vault-auto-match.service';
 import { VaultService } from '../../services/vault/vault.service';
 import { getAuthUserId } from '../../lib/tenant-scope';
 import { prisma } from '../../lib/prisma';
 
 const comparisonService = new DnaComparisonService();
 const vaultService = new VaultService();
-
-interface MatchResult {
-  tier: 1 | 2 | 3;
-  method: string;
-  dnaRecordId: string;
-  vaultId: string;
-  ownerUserId: string;
-  confidence: string;
-}
 
 export async function autoCompareDna(
   req: Request,
@@ -53,159 +44,17 @@ export async function autoCompareDna(
   }
 
   try {
-    let match: MatchResult | null = null;
-
-    // ═══════════════════════════════════════════════════════════════════
-    // TIER 1: SHA-256 Exact Hash Match
-    // If the file is identical to the original, hash will match exactly.
-    // If tampered, hash won't match — but we still try other tiers.
-    // ═══════════════════════════════════════════════════════════════════
     const uploadedHash = crypto.createHash('sha256').update(suspectedBuffer).digest('hex');
-    logger.info('Auto-compare Tier 1: SHA-256 hash', { hash: uploadedHash.slice(0, 16) });
+    logger.info('Auto-compare: vault match search', { hash: uploadedHash.slice(0, 16) });
 
-    const exactMatch = await prisma.dnaRecord.findFirst({
-      where: {
-        sha256Hash: uploadedHash,
-        ownerUserId: userId,
-        vaultRecord: { isNot: null },
-      },
-      include: { vaultRecord: true },
-    });
+    const match = await vaultAutoMatchService.findMatch(
+      suspectedBuffer,
+      multerFile.mimetype,
+      multerFile.originalname,
+      multerFile.size,
+      userId,
+    );
 
-    if (exactMatch?.vaultRecord) {
-      match = {
-        tier: 1,
-        method: 'SHA-256 exact hash match — file is identical to vault original',
-        dnaRecordId: exactMatch.id,
-        vaultId: exactMatch.vaultRecord.id,
-        ownerUserId: exactMatch.ownerUserId ?? userId,
-        confidence: 'EXACT',
-      };
-      logger.info('Tier 1 matched', { dnaRecordId: exactMatch.id });
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // TIER 2: Embedded Identity Signature Extraction
-    // Works even if file content was modified — the signature is hidden
-    // in metadata (PDF keywords), custom XML (Office), binary tail, etc.
-    // ═══════════════════════════════════════════════════════════════════
-    if (!match) {
-      try {
-        logger.info('Auto-compare Tier 2: Identity extraction');
-        const identity = await identityEmbeddingService.extractAndVerify(
-          suspectedBuffer,
-          multerFile.mimetype,
-          multerFile.originalname
-        );
-
-        if (identity.found && identity.dnaId && identity.vaultId) {
-          const { dnaId, vaultId, ownerUserId: sigOwner } = identity as { dnaId: string; vaultId: string; ownerUserId: string };
-          const dnaRec = await prisma.dnaRecord.findUnique({ where: { id: dnaId }, select: { ownerUserId: true } });
-          if (!dnaRec || dnaRec.ownerUserId !== userId) {
-            logger.info('Tier 2 skipped — signature belongs to another tenant', { dnaId });
-          } else {
-          const vaultExists = await prisma.vaultRecord.findUnique({ where: { id: vaultId } });
-          if (vaultExists) {
-            match = {
-              tier: 2,
-              method: `Identity signature extracted (${identity.tampered ? 'signature present but file modified' : 'signature verified intact'})`,
-              dnaRecordId: dnaId,
-              vaultId,
-              ownerUserId: sigOwner,
-              confidence: identity.valid ? 'HIGH' : 'MEDIUM',
-            };
-            logger.info('Tier 2 matched', { dnaId, vaultId });
-          }
-          }
-        }
-      } catch (e) {
-        logger.warn('Tier 2 identity extraction failed, continuing', { error: String(e) });
-      }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // TIER 3: Fuzzy Match — Search by filename similarity + CryptoLayer
-    // Compare the uploaded file's hash against CryptoLayer normalizedHash,
-    // and also try filename-based matching across user's vault files.
-    // ═══════════════════════════════════════════════════════════════════
-    if (!match) {
-      logger.info('Auto-compare Tier 3: Fuzzy match');
-
-      // Strategy A: Match by original filename (strip common suffixes like (1), copy, etc.)
-      const cleanName = multerFile.originalname
-        .replace(/\s*\(\d+\)\s*/g, '')  // Remove (1), (2)
-        .replace(/\s*-\s*copy/gi, '')    // Remove - Copy
-        .replace(/\s*copy\s*/gi, '')     // Remove copy
-        .trim();
-
-      const filenameMatches = await prisma.vaultRecord.findMany({
-        where: {
-          dnaRecord: { ownerUserId: userId },
-        },
-        include: { dnaRecord: true },
-        orderBy: { createdAt: 'desc' },
-        take: 50,
-      });
-
-      // Score each candidate by filename similarity
-      let bestMatch: typeof filenameMatches[0] | null = null;
-      let bestScore = 0;
-
-      for (const candidate of filenameMatches) {
-        let score = 0;
-        const candidateName = candidate.originalFileName
-          .replace(/\s*\(\d+\)\s*/g, '')
-          .replace(/\s*-\s*copy/gi, '')
-          .trim();
-
-        // Exact filename match (ignoring copy suffixes)
-        if (candidateName.toLowerCase() === cleanName.toLowerCase()) {
-          score = 100;
-        }
-        // Filename contains the other
-        else if (
-          candidateName.toLowerCase().includes(cleanName.toLowerCase().replace(/\.[^.]+$/, '')) ||
-          cleanName.toLowerCase().includes(candidateName.toLowerCase().replace(/\.[^.]+$/, ''))
-        ) {
-          score = 70;
-        }
-        // Same mime type + same extension
-        else if (candidate.originalMimeType === multerFile.mimetype) {
-          score = 30;
-        }
-
-        // Boost if file sizes are similar (within 50%)
-        const sizeRatio = Math.min(candidate.originalSizeBytes, multerFile.size) /
-                          Math.max(candidate.originalSizeBytes, multerFile.size);
-        if (sizeRatio > 0.5) score += 20;
-        if (sizeRatio > 0.8) score += 10;
-
-        if (score > bestScore) {
-          bestScore = score;
-          bestMatch = candidate;
-        }
-      }
-
-      if (bestMatch && bestScore >= 50) {
-        match = {
-          tier: 3,
-          method: `Fuzzy match by filename similarity (${bestScore}% confidence) — "${bestMatch.originalFileName}"`,
-          dnaRecordId: bestMatch.dnaRecordId,
-          vaultId: bestMatch.id,
-          ownerUserId: bestMatch.dnaRecord?.ownerUserId ?? userId,
-          confidence: bestScore >= 80 ? 'HIGH' : 'MEDIUM',
-        };
-        logger.info('Tier 3 matched', {
-          vaultId: bestMatch.id,
-          score: bestScore,
-          originalFileName: bestMatch.originalFileName,
-        });
-      }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // NO MATCH FOUND
-    // ═══════════════════════════════════════════════════════════════════
     if (!match) {
       res.status(200).json({
         success: false,

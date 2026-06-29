@@ -25,6 +25,7 @@ import { ProfilePage }              from './pages/ProfilePage';
 import { LinkIntelligencePage }     from './pages/LinkIntelligencePage';
 import { AccessIntelligencePage }  from './pages/AccessIntelligencePage';
 import { VerifyLeakedFilePage }    from './pages/VerifyLeakedFilePage';
+import { UnifiedInvestigationPage } from './pages/UnifiedInvestigationPage';
 import { ShareViewerPage }          from './pages/ShareViewerPage';
 import { PinitGateway, RegisterGateway } from './pages/auth/PinitGateway';
 import { FaceLoginPage } from './pages/auth/FaceLoginPage';
@@ -70,6 +71,7 @@ export const router = createBrowserRouter([
       { path: 'access-intelligence/:token', element: <LinkIntelligencePage /> },
       { path: 'access-intelligence',     element: <AccessIntelligencePage /> },
       { path: 'verify-leaked',           element: <VerifyLeakedFilePage /> },
+      { path: 'unified-investigation',    element: <UnifiedInvestigationPage /> },
       { path: 'link/:token',            element: <LinkIntelligencePage /> },
       { path: 'certificates',          element: <CertificatesPage />        },
       { path: 'verify-certificate',    element: <VerifyCertificatePage />   },

@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Archive, Search, Lock, RefreshCw, Download, Eye, ExternalLink, Share2, Copy, Check, Clock, Ban, FileSearch, Cpu, GitBranch } from 'lucide-react';
+import { Archive, Search, Lock, RefreshCw, Download, Eye, ExternalLink, Share2, Copy, Check, Clock, Ban, FileSearch, Cpu, GitBranch, ShieldCheck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { useApi, formatBytes } from '../hooks/useApi';
-import { listVaultRecords, retrieveFromVault, api } from '../services/dashboard.api';
+import { listVaultRecords, retrieveFromVault, protectedDownloadFromVault, api } from '../services/dashboard.api';
 import { SkeletonTable } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Badge } from '../components/ui/Badge';
@@ -73,18 +73,133 @@ function VaultDetailModal({ record, onClose }: { record: VaultRecord; onClose: (
         </div>
 
         {/* Actions */}
+        <div className="flex flex-col gap-3 pt-2">
+          <div className="flex gap-3">
+            <button
+              onClick={handleRetrieve}
+              disabled={retrieving}
+              className="btn btn-secondary flex-1"
+            >
+              {retrieving ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
+              {retrieving ? 'Decrypting…' : 'Retrieve & Decrypt'}
+            </button>
+            <button onClick={onClose} className="btn btn-secondary">
+              Close
+            </button>
+          </div>
+          <p className="text-2xs text-gray-500 text-center">
+            Use <strong className="text-dna-400">Protected Download</strong> from the vault table for DNA + certificate verified export.
+          </p>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── Protected Download Modal ─────────────────────────────────────────────────
+
+const PROTECTED_STEPS = [
+  { id: 'ownership', label: 'Verifying ownership…' },
+  { id: 'dna', label: 'Verifying DNA…' },
+  { id: 'certificate', label: 'Verifying Certificate…' },
+  { id: 'prepare', label: 'Preparing Protected File…' },
+  { id: 'ready', label: 'Download Ready' },
+];
+
+function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onClose: () => void }) {
+  const [phase, setPhase] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [activeStep, setActiveStep] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [forensicPreserved, setForensicPreserved] = useState(false);
+
+  const runProtectedDownload = async () => {
+    setPhase('running');
+    setError(null);
+    setActiveStep(0);
+
+    const stepTimer = window.setInterval(() => {
+      setActiveStep((s) => Math.min(s + 1, PROTECTED_STEPS.length - 2));
+    }, 600);
+
+    try {
+      const blob = await protectedDownloadFromVault(record.id);
+      setForensicPreserved(true);
+      setActiveStep(PROTECTED_STEPS.length - 2);
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = record.originalFileName;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setActiveStep(PROTECTED_STEPS.length - 1);
+      setPhase('done');
+      toast.success('Protected download complete — forensic identity preserved');
+    } catch (err) {
+      setPhase('error');
+      setError(err instanceof Error ? err.message : 'Protected download failed');
+      toast.error('Protected download failed');
+    } finally {
+      window.clearInterval(stepTimer);
+    }
+  };
+
+  return (
+    <Modal open title="Protected Download" onClose={onClose} size="md">
+      <div className="p-6 space-y-4">
+        <div className="rounded-xl bg-dna-500/10 border border-dna-500/30 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <ShieldCheck size={16} className="text-dna-400" />
+            <p className="text-sm font-semibold text-white">{record.originalFileName}</p>
+          </div>
+          <p className="text-2xs text-gray-400">
+            Downloads your file with all embedded forensic markers intact — DNA fingerprints,
+            invisible identity, watermarks, and certificate linkage remain recoverable via DNA Compare.
+          </p>
+        </div>
+
+        <ul className="space-y-2">
+          {PROTECTED_STEPS.map((step, i) => {
+            const done = phase === 'done' ? true : i < activeStep;
+            const current = phase === 'running' && i === activeStep;
+            return (
+              <li
+                key={step.id}
+                className={`flex items-center gap-2 text-xs rounded-lg px-3 py-2 ${
+                  done ? 'bg-success/10 text-success' : current ? 'bg-dna-500/10 text-dna-300' : 'bg-bg-elevated text-gray-500'
+                }`}
+              >
+                {done ? <Check size={14} /> : current ? <RefreshCw size={14} className="animate-spin" /> : <Clock size={14} />}
+                {step.label}
+              </li>
+            );
+          })}
+        </ul>
+
+        {phase === 'done' && forensicPreserved && (
+          <p className="text-2xs text-success text-center">Embedded PINIT-DNA identity verified in downloaded file.</p>
+        )}
+
+        {error && (
+          <p className="text-xs text-danger text-center">{error}</p>
+        )}
+
         <div className="flex gap-3 pt-2">
-          <button
-            onClick={handleRetrieve}
-            disabled={retrieving}
-            className="btn btn-primary flex-1"
-          >
-            {retrieving ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
-            {retrieving ? 'Decrypting…' : 'Retrieve & Decrypt'}
-          </button>
-          <button onClick={onClose} className="btn btn-secondary">
-            Close
-          </button>
+          {phase === 'idle' || phase === 'error' ? (
+            <button onClick={runProtectedDownload} className="btn btn-primary flex-1">
+              <ShieldCheck size={14} /> Start Protected Download
+            </button>
+          ) : phase === 'running' ? (
+            <button disabled className="btn btn-primary flex-1 opacity-70">
+              <RefreshCw size={14} className="animate-spin" /> Processing…
+            </button>
+          ) : (
+            <button onClick={onClose} className="btn btn-primary flex-1">Done</button>
+          )}
+          {phase !== 'running' && (
+            <button onClick={onClose} className="btn btn-secondary">Close</button>
+          )}
         </div>
       </div>
     </Modal>
@@ -696,6 +811,7 @@ export function VaultPage() {
   const [search, setSearch]     = useState('');
   const [selected, setSelected] = useState<VaultRecord | null>(null);
   const [sharing, setSharing]   = useState<VaultRecord | null>(null);
+  const [protecting, setProtecting] = useState<VaultRecord | null>(null);
   const [aiMode, setAiMode]     = useState(false);
   const [aiResults, setAiResults] = useState<string[]>([]); // dnaRecordIds matching AI search
   const [aiSearching, setAiSearching] = useState(false);
@@ -885,6 +1001,13 @@ export function VaultPage() {
                           <Share2 size={14} />
                         </button>
                         <button
+                          onClick={() => setProtecting(r)}
+                          className="btn-ghost btn-icon text-gray-500 hover:text-success"
+                          title="Protected Download"
+                        >
+                          <ShieldCheck size={14} />
+                        </button>
+                        <button
                           onClick={() => navigate(`/intelligence/${r.id}`)}
                           className="btn-ghost btn-icon text-gray-500 hover:text-purple-400"
                           title="Intelligence Report"
@@ -915,6 +1038,9 @@ export function VaultPage() {
       )}
       {sharing && (
         <ShareModal record={sharing} onClose={() => setSharing(null)} />
+      )}
+      {protecting && (
+        <ProtectedDownloadModal record={protecting} onClose={() => setProtecting(null)} />
       )}
     </div>
   );

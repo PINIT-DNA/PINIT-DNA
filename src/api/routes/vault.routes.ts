@@ -8,7 +8,7 @@
 
 import { Router } from 'express';
 import { uploadSingle } from '../middleware/upload.middleware';
-import { listVaultRecords, storeInVault, getVaultRecord, retrieveFromVault, scanVaultFile, verifyFileIdentity } from '../controllers/vault.controller';
+import { listVaultRecords, storeInVault, getVaultRecord, retrieveFromVault, scanVaultFile, verifyFileIdentity, prepareProtectedDownload, protectedDownloadFromVault } from '../controllers/vault.controller';
 import { vaultIntegrityCheck } from '../controllers/integrity.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import { requireVaultOwnership } from '../middleware/ownership.middleware';
@@ -52,6 +52,18 @@ router.get('/:id', requireAuth, requireVaultOwnership, getVaultRecord);
  *   X-Vault-Id: uuid
  */
 router.post('/:id/retrieve', requireAuth, requireVaultOwnership, retrieveFromVault);
+
+/**
+ * POST /vault/:id/protected-download/prepare
+ * Verifies DNA + certificate + forensic identity — returns step manifest (no file bytes).
+ */
+router.post('/:id/protected-download/prepare', requireAuth, requireVaultOwnership, prepareProtectedDownload);
+
+/**
+ * POST /vault/:id/protected-download
+ * Protected owner download — decrypts without stripping forensic markers.
+ */
+router.post('/:id/protected-download', requireAuth, requireVaultOwnership, protectedDownloadFromVault);
 
 /**
  * POST /vault/:id/scan-sensitive

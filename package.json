@@ -23,6 +23,7 @@
     "db:seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
+    "@noble/hashes": "^2.2.0",
     "@prisma/client": "^5.14.0",
     "@supabase/supabase-js": "^2.108.1",
     "@types/axios": "^0.9.36",

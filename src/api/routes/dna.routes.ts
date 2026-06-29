@@ -13,6 +13,13 @@ import { uploadSingle, uploadComparison } from '../middleware/upload.middleware'
 import { listDnaRecords, generateDna, verifyDna, getDnaRecord, getSupportedTypes, getDuplicateAttempts } from '../controllers/dna.controller';
 import { compareDna } from '../controllers/comparison.controller';
 import { autoCompareDna } from '../controllers/auto-compare.controller';
+import {
+  generateLightweightDnaHandler,
+  compareLightweightDnaHandler,
+  extractImageFingerprintHandler,
+  extractVideoFingerprintHandler,
+  extractAudioFingerprintHandler,
+} from '../controllers/lightweight-dna.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import { requireDnaOwnership } from '../middleware/ownership.middleware';
 
@@ -59,6 +66,13 @@ router.post('/generate', requireAuth, uploadSingle, generateDna);
  */
 router.post('/compare', requireAuth, uploadComparison, compareDna);
 router.post('/auto-compare', requireAuth, uploadSingle, autoCompareDna);
+
+/** Phase 2 — Lightweight DNA APIs for Internet Intelligence Engine (feature-flagged) */
+router.post('/generate-lightweight-dna', requireAuth, uploadSingle, generateLightweightDnaHandler);
+router.post('/compare-lightweight-dna', requireAuth, compareLightweightDnaHandler);
+router.post('/extract-image-fingerprint', requireAuth, uploadSingle, extractImageFingerprintHandler);
+router.post('/extract-video-fingerprint', requireAuth, uploadSingle, extractVideoFingerprintHandler);
+router.post('/extract-audio-fingerprint', requireAuth, uploadSingle, extractAudioFingerprintHandler);
 
 /**
  * POST /dna/:id/verify
