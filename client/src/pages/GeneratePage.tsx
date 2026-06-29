@@ -6,7 +6,7 @@ import App from '../App';
 
 export function GeneratePage() {
   return (
-    <div className="-m-6">
+    <div className="w-full lg:-m-6">
       <App />
     </div>
   );

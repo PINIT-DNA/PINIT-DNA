@@ -238,23 +238,24 @@ export function DashboardPage() {
       {/* -- System capabilities + recent activity ---------------------------- */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-        {/* Capabilities */}
+        {/* Quick actions */}
         <div className="card">
-          <h2 className="text-sm font-semibold text-white mb-4">Engine Capabilities</h2>
-          <div className="space-y-2.5">
+          <h2 className="text-sm font-semibold text-white mb-4">Quick Actions</h2>
+          <div className="grid grid-cols-2 gap-2">
             {[
-              { icon: <Zap size={13} className="text-dna-400" />, label: '10 File Types Supported', sub: 'IMAGE, PDF, DOCX, PPTX, TXT, CSV, JSON, ZIP, VIDEO, AUDIO' },
-              { icon: <Shield size={13} className="text-success" />, label: '10 DNA Fingerprint Layers', sub: 'Cryptographic � Structural � Perceptual � Semantic � Metadata � HMAC � Behavioral � Relationship � Origin � Evolution' },
-              { icon: <Archive size={13} className="text-purple" />, label: 'AES-256-GCM Vault Encryption', sub: 'HKDF-SHA256 key derivation � IV per record � Auth tag verified' },
-              { icon: <GitCompare size={13} className="text-cyan" />, label: 'Forensic Comparison Engine', sub: 'Tampering detection � Similarity scoring � Classification' },
+              { to: '/generate', label: 'Generate DNA', icon: <Zap size={13} className="text-dna-400" /> },
+              { to: '/compare', label: 'Compare Files', icon: <GitCompare size={13} className="text-cyan" /> },
+              { to: '/vault', label: 'Vault', icon: <Archive size={13} className="text-purple" /> },
+              { to: '/certificates', label: 'Certificates', icon: <Shield size={13} className="text-success" /> },
             ].map(item => (
-              <div key={item.label} className="flex items-start gap-3 p-3 rounded-lg bg-bg-elevated border border-bg-border">
-                <div className="mt-0.5">{item.icon}</div>
-                <div>
-                  <p className="text-xs font-semibold text-white">{item.label}</p>
-                  <p className="text-2xs text-gray-500 mt-0.5">{item.sub}</p>
-                </div>
-              </div>
+              <Link
+                key={item.to}
+                to={item.to}
+                className="flex items-center gap-2 p-3 rounded-lg bg-bg-elevated border border-bg-border hover:border-dna-500/30 transition-all text-xs font-semibold text-white"
+              >
+                {item.icon}
+                {item.label}
+              </Link>
             ))}
           </div>
         </div>

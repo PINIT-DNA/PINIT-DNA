@@ -18,10 +18,7 @@ export function DnaRecordCard({
   fileSizeBytes,
   status,
   generatedAt,
-  successfulLayers,
-  totalLayers = 15,
   fileType,
-  engineVersion,
 }: Props) {
   const formatBytes = (b: number) =>
     b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(2)} MB` : `${(b / 1024).toFixed(1)} KB`;
@@ -71,23 +68,11 @@ export function DnaRecordCard({
             <p className="text-white text-sm font-medium">{formatBytes(fileSizeBytes)}</p>
           </div>
           <div className="bg-bg-base rounded-lg p-3">
-            <p className="text-gray-500 text-xs mono mb-1">LAYERS</p>
-            <p className="text-layer-complete text-sm font-semibold mono">
-              {successfulLayers}/{totalLayers} Complete
-            </p>
-          </div>
-          <div className="bg-bg-base rounded-lg p-3">
             <p className="text-gray-500 text-xs mono mb-1">FILE TYPE</p>
             <p className="text-dna-400 text-sm font-semibold mono">
               {fileType ?? 'IMAGE'}
             </p>
           </div>
-          {engineVersion && (
-            <div className="bg-bg-base rounded-lg p-3 col-span-2">
-              <p className="text-gray-500 text-xs mono mb-1">ENGINE</p>
-              <p className="text-white text-xs mono">{engineVersion}</p>
-            </div>
-          )}
         </div>
 
         {generatedAt && (

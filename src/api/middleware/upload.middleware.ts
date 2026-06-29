@@ -17,6 +17,7 @@ import path from 'path';
 import fs from 'fs';
 import { Request } from 'express';
 import { config } from '../../config';
+import { mimeMatchesAllowed } from '../../lib/mime-normalize';
 
 // Ensure temp directory exists at startup
 if (!fs.existsSync(config.upload.tempDir)) {
@@ -44,7 +45,7 @@ const fileFilter = (
   file: Express.Multer.File,
   cb: FileFilterCallback
 ): void => {
-  if (config.upload.allowedMimeTypes.includes(file.mimetype)) {
+  if (mimeMatchesAllowed(file.mimetype, config.upload.allowedMimeTypes)) {
     cb(null, true);
   } else {
     cb(

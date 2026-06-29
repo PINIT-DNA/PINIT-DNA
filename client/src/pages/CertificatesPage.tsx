@@ -11,8 +11,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Award, Download, Printer, Shield, Archive, Dna,
-  Lock, CheckCircle2, Calendar, FileText, XCircle,
+  Award, Download, Printer, Archive, Dna,
+  CheckCircle2, Calendar, FileText, XCircle,
   AlertTriangle, RefreshCw, Ban,
 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -214,7 +214,7 @@ function CertificateCard({
               <p className={cn('text-xs font-bold mono', isRevoked ? 'text-danger' : isExpired ? 'text-warning' : 'text-dna-400')}>
                 {certId}
               </p>
-              <p className="text-xs text-gray-500">DNA Ownership Certificate</p>
+              <p className="text-xs text-gray-500">Ownership Certificate</p>
             </div>
           </div>
           <Badge variant={statusCfg.variant} dot>
@@ -270,44 +270,6 @@ function CertificateCard({
               <p className="text-2xs text-gray-600 mono mt-0.5">{formatBytes(vault.originalSizeBytes)}</p>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="bg-bg-elevated rounded-lg p-2.5">
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <Lock size={10} className="text-success" />
-                <p className="text-2xs text-gray-500">Encryption</p>
-              </div>
-              <p className="text-xs font-medium text-success mono">{vault.encryptionAlgorithm}</p>
-            </div>
-            <div className="bg-bg-elevated rounded-lg p-2.5">
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <Shield size={10} className="text-purple" />
-                <p className="text-2xs text-gray-500">DNA Layers</p>
-              </div>
-              <p className="text-xs font-medium text-purple mono">10 Layers</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Verification chain — greyed out when revoked */}
-        <div className={cn('bg-bg-elevated rounded-xl p-3 mb-4 space-y-1.5', isRevoked && 'opacity-50')}>
-          {[
-            { label: 'SHA-256 Fingerprint', value: isRevoked ? 'Revoked' : 'Verified', ok: !isRevoked },
-            { label: 'AES-256-GCM Seal',    value: isRevoked ? 'Revoked' : 'Active',   ok: !isRevoked },
-            { label: 'HKDF Key Derivation',  value: 'Secured',   ok: true  },
-            { label: 'Auth Tag Integrity',   value: 'Intact',    ok: true  },
-          ].map(item => (
-            <div key={item.label} className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                {item.ok
-                  ? <CheckCircle2 size={11} className="text-success" />
-                  : <XCircle size={11} className="text-danger" />}
-                <span className="text-2xs text-gray-400">{item.label}</span>
-              </div>
-              <span className={cn('text-2xs font-medium', item.ok ? 'text-success' : 'text-danger')}>
-                {item.value}
-              </span>
-            </div>
-          ))}
         </div>
 
         {/* IDs */}
@@ -492,9 +454,6 @@ export function CertificatesPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold text-white">Ownership Certificates</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Cryptographic proof of file ownership and DNA fingerprint registration
-          </p>
         </div>
         <div className="flex items-center gap-2">
           {!loading && (
@@ -506,23 +465,6 @@ export function CertificatesPage() {
           <button onClick={load} disabled={loading} className="btn btn-secondary btn-sm">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           </button>
-        </div>
-      </div>
-
-      {/* Info banner */}
-      <div className="card bg-dna-500/5 border-dna-500/20">
-        <div className="flex gap-4">
-          <div className="w-10 h-10 rounded-xl bg-dna-500/15 flex items-center justify-center shrink-0">
-            <Award size={18} className="text-dna-400" />
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-white mb-1">What is a DNA Certificate?</p>
-            <p className="text-xs text-gray-400 leading-relaxed">
-              Each certificate is cryptographically signed with HMAC-SHA256 and persisted in the registry.
-              Certificates can be verified, and revoked when a file is compromised.
-              Revoked certificates remain in the registry as forensic evidence.
-            </p>
-          </div>
         </div>
       </div>
 

@@ -400,9 +400,6 @@ export function ComparePage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-white">DNA Comparison</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Layer-by-layer forensic analysis with tampering detection
-          </p>
         </div>
         {(result || autoResult) && (
           <button onClick={handleReset} className="btn btn-secondary btn-sm">
@@ -446,28 +443,11 @@ export function ComparePage() {
         <div className="card">
           {mode === 'auto' ? (
             <>
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-2 mb-5">
                 <Shield size={18} className="text-dna-400" />
-                <h2 className="text-sm font-semibold text-white">Auto Compare — Upload Suspected File</h2>
+                <h2 className="text-sm font-semibold text-white">Upload suspected file</h2>
               </div>
-              <p className="text-xs text-gray-500 mb-5">
-                Upload a file you suspect is tampered or leaked. We'll automatically find the original from your vault using the embedded identity signature, then run a full DNA comparison.
-              </p>
               <FileDropZone label="Suspected / Tampered File" file={autoFile} onFile={setAutoFile} onClear={() => setAutoFile(null)} />
-              <div className="mt-4 grid grid-cols-3 gap-3">
-                <div className="rounded-xl bg-bg-elevated border border-bg-border p-3 text-center">
-                  <Fingerprint size={16} className="text-dna-400 mx-auto mb-1" />
-                  <p className="text-2xs text-gray-400 font-semibold">Extract Identity</p>
-                </div>
-                <div className="rounded-xl bg-bg-elevated border border-bg-border p-3 text-center">
-                  <Lock size={16} className="text-success mx-auto mb-1" />
-                  <p className="text-2xs text-gray-400 font-semibold">Find Original in Vault</p>
-                </div>
-                <div className="rounded-xl bg-bg-elevated border border-bg-border p-3 text-center">
-                  <GitCompare size={16} className="text-warning mx-auto mb-1" />
-                  <p className="text-2xs text-gray-400 font-semibold">10-Layer DNA Compare</p>
-                </div>
-              </div>
             </>
           ) : (
             <>
@@ -475,7 +455,7 @@ export function ComparePage() {
                 <GitCompare size={18} className="text-dna-400" />
                 <h2 className="text-sm font-semibold text-white">Upload Files to Compare</h2>
               </div>
-              <div className="flex gap-4 mb-5">
+              <div className="flex flex-col sm:flex-row gap-4 mb-5">
                 <FileDropZone label="File A — Original" file={fileA} onFile={setFileA} onClear={() => setFileA(null)} />
                 <div className="flex items-center justify-center shrink-0 text-gray-600">
                   <GitCompare size={20} />
@@ -484,7 +464,7 @@ export function ComparePage() {
               </div>
               {(!fileA || !fileB) && (
                 <p className="text-xs text-gray-600 text-center mb-4">
-                  Upload both files to enable comparison · Supports all 10 file types · Cross-type comparison allowed
+                  Upload both files to compare
                 </p>
               )}
             </>
@@ -499,36 +479,19 @@ export function ComparePage() {
             {loading ? (
               <>
                 <RefreshCw size={16} className="animate-spin" />
-                {mode === 'auto' ? 'Scanning identity & comparing…' : 'Analysing DNA layers…'}
+                Comparing…
               </>
             ) : (
               <>
                 {mode === 'auto' ? <Shield size={16} /> : <GitCompare size={16} />}
-                {mode === 'auto' ? 'Auto Compare with Vault Original' : 'Compare DNA Fingerprints'}
+                {mode === 'auto' ? 'Compare with Vault' : 'Compare Files'}
               </>
             )}
           </button>
 
           {loading && (
-            <div className="mt-4 space-y-2">
-              <p className="text-xs text-center text-gray-500">
-                {mode === 'auto' ? 'Extracting identity → Finding vault original → Comparing 15 layers…' : 'Running all 10 fingerprint layers in parallel…'}
-              </p>
-              <div className="grid grid-cols-10 gap-1">
-                {LAYER_NAMES.map((_name, i) => (
-                  <div key={i} className="flex flex-col items-center gap-1">
-                    <div className="w-full h-1 bg-bg-elevated rounded-full overflow-hidden">
-                      <motion.div
-                        className="h-full bg-dna-500 rounded-full"
-                        initial={{ width: '0%' }}
-                        animate={{ width: '100%' }}
-                        transition={{ duration: 1.5, delay: i * 0.2, ease: 'easeInOut', repeat: Infinity }}
-                      />
-                    </div>
-                    <span className="text-2xs text-gray-600">L{i + 1}</span>
-                  </div>
-                ))}
-              </div>
+            <div className="mt-4 flex justify-center">
+              <div className="w-6 h-6 border-2 border-dna-500 border-t-transparent rounded-full animate-spin" />
             </div>
           )}
         </div>

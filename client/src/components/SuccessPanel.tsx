@@ -8,9 +8,9 @@ interface Props {
 }
 
 const CHECK_ITEMS = [
-  { icon: '🧬', label: 'DNA Protected',         desc: '15-layer persistent fingerprint generated' },
-  { icon: '🔒', label: 'AES-256-GCM Encrypted', desc: 'DNA record encrypted with 256-bit key'     },
-  { icon: '🏛️', label: 'Ready for Vault Storage', desc: 'Secure storage handoff complete'          },
+  { icon: '🧬', label: 'DNA Protected' },
+  { icon: '🔒', label: 'Encrypted' },
+  { icon: '🏛️', label: 'Ready for Vault' },
 ];
 
 function formatBytes(b: number) {
@@ -43,7 +43,7 @@ export function SuccessPanel({ session, onReset }: Props) {
             : 'File DNA Generated'}
         </h2>
         <p className="text-gray-400 text-sm">
-          All {session.totalLayers} fingerprint layers complete. DNA record secured and encrypted.
+          Your file is protected and ready for the vault.
         </p>
       </motion.div>
 
@@ -60,7 +60,6 @@ export function SuccessPanel({ session, onReset }: Props) {
             <div className="text-2xl">{item.icon}</div>
             <div className="flex-1">
               <p className="font-semibold text-white">{item.label}</p>
-              <p className="text-xs text-gray-400">{item.desc}</p>
             </div>
             <motion.div
               initial={{ scale: 0 }}

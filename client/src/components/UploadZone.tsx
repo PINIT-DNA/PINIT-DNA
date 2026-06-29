@@ -1,242 +1,228 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion } from 'framer-motion';
-import { Upload, ScanLine } from 'lucide-react';
+import { Upload, ScanLine, Video, Mic, FileUp } from 'lucide-react';
 import { DocumentScanner } from './DocumentScanner';
+import { MediaRecorderPanel } from './MediaRecorderPanel';
+import {
+  ACCEPT_MAP,
+  FILE_TYPES,
+  formatBytes,
+  getFileIcon,
+  getFileTypeLabel,
+  isAudioFile,
+  isImageFile,
+  isPdfFile,
+  isVideoFile,
+} from '../lib/file-type-utils';
+
+export type CaptureMode = 'upload' | 'scan' | 'video' | 'audio';
 
 interface Props {
-  onFileSelected: (file: File) => void;
+  onFileSelected: (file: File | null) => void;
   onGenerate: () => void;
   selectedFile: File | null;
 }
 
-// ─── File type config ──────────────────────────────────────────────────────────
-
-const FILE_TYPES = [
-  { label: 'IMAGE',   exts: ['.jpg','.jpeg','.png','.webp','.tiff','.gif','.bmp'], icon: '🖼️',  color: 'text-pink-400',   mime: 'image/*' },
-  { label: 'PDF',     exts: ['.pdf'],                                              icon: '📄',  color: 'text-red-400',    mime: 'application/pdf' },
-  { label: 'DOCX',    exts: ['.docx'],                                             icon: '📝',  color: 'text-blue-400',   mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
-  { label: 'PPTX',    exts: ['.pptx'],                                             icon: '📊',  color: 'text-orange-400', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' },
-  { label: 'TXT',     exts: ['.txt','.md','.log'],                                 icon: '📃',  color: 'text-gray-300',   mime: 'text/plain' },
-  { label: 'CSV',     exts: ['.csv'],                                              icon: '📋',  color: 'text-green-400',  mime: 'text/csv' },
-  { label: 'JSON',    exts: ['.json'],                                             icon: '🗃️',  color: 'text-yellow-400', mime: 'application/json' },
-  { label: 'ZIP',     exts: ['.zip'],                                              icon: '🗜️',  color: 'text-purple-400', mime: 'application/zip' },
-  { label: 'VIDEO',   exts: ['.mp4','.mov','.avi','.mkv','.webm'],                icon: '🎬',  color: 'text-cyan-400',   mime: 'video/*' },
-  { label: 'AUDIO',   exts: ['.mp3','.wav','.flac','.ogg','.aac','.m4a'],         icon: '🎵',  color: 'text-indigo-400', mime: 'audio/*' },
+const CAPTURE_MODES: { id: CaptureMode; label: string; icon: typeof Upload; desc: string }[] = [
+  { id: 'upload', label: 'Upload', icon: Upload, desc: 'Any file type' },
+  { id: 'scan', label: 'Scan', icon: ScanLine, desc: 'Camera → PDF' },
+  { id: 'video', label: 'Video', icon: Video, desc: 'Record clip' },
+  { id: 'audio', label: 'Audio', icon: Mic, desc: 'Record voice' },
 ];
 
-// Build dropzone accept map from all types
-const ACCEPT_MAP = FILE_TYPES.reduce<Record<string, string[]>>((acc, ft) => {
-  acc[ft.mime] = ft.exts;
-  return acc;
-}, {});
+function FilePreview({ file }: { file: File }) {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
 
-function getFileIcon(file: File): string {
-  const ext = '.' + file.name.split('.').pop()?.toLowerCase();
-  const mime = file.type.toLowerCase();
-  for (const ft of FILE_TYPES) {
-    if (ft.exts.includes(ext) || mime.startsWith(ft.mime.replace('*', ''))) return ft.icon;
+  useEffect(() => {
+    if (isImageFile(file) || isVideoFile(file) || isAudioFile(file)) {
+      const url = URL.createObjectURL(file);
+      setObjectUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setObjectUrl(null);
+    return undefined;
+  }, [file]);
+
+  const icon = getFileIcon(file);
+  const label = getFileTypeLabel(file);
+
+  if (objectUrl && isImageFile(file)) {
+    return (
+      <img
+        src={objectUrl}
+        alt="Preview"
+        className="w-full h-full object-cover rounded-xl"
+      />
+    );
   }
-  return '📁';
-}
 
-function getFileTypeLabel(file: File): string {
-  const ext = '.' + file.name.split('.').pop()?.toLowerCase();
-  const mime = file.type.toLowerCase();
-  for (const ft of FILE_TYPES) {
-    if (ft.exts.includes(ext) || mime.startsWith(ft.mime.replace('*', ''))) return ft.label;
+  if (objectUrl && isVideoFile(file)) {
+    return (
+      <video
+        src={objectUrl}
+        className="w-full h-full object-cover rounded-xl"
+        controls
+        playsInline
+      />
+    );
   }
-  return 'FILE';
+
+  if (objectUrl && isAudioFile(file)) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-3 p-4 bg-bg-surface rounded-xl">
+        <span className="text-4xl">{icon}</span>
+        <audio src={objectUrl} controls className="w-full max-w-[200px]" />
+      </div>
+    );
+  }
+
+  if (isPdfFile(file)) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-red-500/5 rounded-xl border border-red-500/20">
+        <span className="text-5xl">📄</span>
+        <span className="mono text-xs text-red-400 font-bold">PDF</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-bg-surface rounded-xl">
+      <span className="text-5xl">{icon}</span>
+      <span className="mono text-xs text-dna-400 font-bold">{label}</span>
+    </div>
+  );
 }
-
-function isImageFile(file: File): boolean {
-  return file.type.startsWith('image/');
-}
-
-const formatBytes = (b: number) =>
-  b >= 1024 * 1024 * 1024
-    ? `${(b / 1024 / 1024 / 1024).toFixed(2)} GB`
-    : b >= 1024 * 1024
-    ? `${(b / 1024 / 1024).toFixed(2)} MB`
-    : `${(b / 1024).toFixed(1)} KB`;
-
-// ─── Component ────────────────────────────────────────────────────────────────
 
 export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) {
-  const [preview, setPreview] = useState<string | null>(null);
-  const [scanMode, setScanMode] = useState(false);
+  const [captureMode, setCaptureMode] = useState<CaptureMode>('upload');
 
-  const handleFileReady = useCallback((file: File) => {
-    onFileSelected(file);
-    if (isImageFile(file)) {
-      setPreview(URL.createObjectURL(file));
-    } else {
-      setPreview(null);
-    }
-    setScanMode(false);
-  }, [onFileSelected]);
+  const handleFileReady = useCallback(
+    (file: File) => {
+      onFileSelected(file);
+      setCaptureMode('upload');
+    },
+    [onFileSelected],
+  );
 
   const onDrop = useCallback(
     (accepted: File[]) => {
       const file = accepted[0];
-      if (!file) return;
-      handleFileReady(file);
+      if (file) handleFileReady(file);
     },
-    [handleFileReady]
+    [handleFileReady],
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: ACCEPT_MAP,
     maxFiles: 1,
-    maxSize: 500 * 1024 * 1024, // 500MB global ceiling
+    maxSize: 500 * 1024 * 1024,
   });
 
-  const fileIcon  = selectedFile ? getFileIcon(selectedFile) : '📁';
   const fileLabel = selectedFile ? getFileTypeLabel(selectedFile) : '';
 
   return (
-    <div className="max-w-2xl mx-auto w-full">
-      {/* Hero */}
+    <div className="max-w-3xl mx-auto w-full">
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="text-center mb-10"
+        className="text-center mb-8"
       >
         <div className="text-6xl mb-4 dna-float">🧬</div>
-        <h2 className="text-3xl font-bold text-white mb-2">
-          Generate File DNA
-        </h2>
-        <p className="text-gray-400 text-sm max-w-md mx-auto">
-          Upload any file to generate a 10-layer persistent fingerprint.
-          Supports <span className="text-dna-400 font-medium">10 file types</span> — images, documents, media, archives and more.
+        <h2 className="text-3xl font-bold text-white mb-2">Generate File DNA</h2>
+        <p className="text-gray-400 text-sm max-w-lg mx-auto">
+          Upload, scan, or record a file to protect it with PINIT-DNA.
         </p>
       </motion.div>
 
-      {/* Mode toggle: Upload / Scan */}
       {!selectedFile && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 0.08 }}
-          className="flex gap-2 mb-4"
+          transition={{ delay: 0.06 }}
+          className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-5"
         >
-          <button
-            onClick={() => setScanMode(false)}
-            className={`flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
-              !scanMode
-                ? 'bg-dna-500/15 text-dna-400 border border-dna-500/30'
-                : 'bg-bg-elevated text-gray-400 border border-bg-border hover:border-dna-500/20'
-            }`}
-          >
-            <Upload size={14} /> Upload File
-          </button>
-          <button
-            onClick={() => setScanMode(true)}
-            className={`flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
-              scanMode
-                ? 'bg-dna-500/15 text-dna-400 border border-dna-500/30'
-                : 'bg-bg-elevated text-gray-400 border border-bg-border hover:border-dna-500/20'
-            }`}
-          >
-            <ScanLine size={14} /> Scan Document
-          </button>
+          {CAPTURE_MODES.map(({ id, label, icon: Icon, desc }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setCaptureMode(id)}
+              className={`rounded-xl border p-3 text-left transition-all ${
+                captureMode === id
+                  ? 'bg-dna-500/12 border-dna-500/40 shadow-sm'
+                  : 'bg-bg-card border-bg-border hover:border-dna-500/25'
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <Icon size={15} className={captureMode === id ? 'text-dna-500' : 'text-gray-400'} />
+                <span className={`text-sm font-semibold ${captureMode === id ? 'text-dna-500' : 'text-white'}`}>
+                  {label}
+                </span>
+              </div>
+              <p className="text-2xs text-gray-500">{desc}</p>
+            </button>
+          ))}
         </motion.div>
       )}
 
-      {/* ── SCAN MODE ── */}
-      {scanMode && !selectedFile && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.97 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.1 }}
-        >
+      {!selectedFile && captureMode === 'scan' && (
+        <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
           <DocumentScanner
             onScanComplete={handleFileReady}
-            onCancel={() => setScanMode(false)}
-            subtitle="Camera opens automatically — hold document steady to auto-capture"
+            onCancel={() => setCaptureMode('upload')}
+            subtitle="Auto-capture documents — multi-page builds a PDF"
           />
         </motion.div>
       )}
 
-      {/* ── UPLOAD MODE (Drop zone) ── */}
-      {!scanMode && (
-      <motion.div
-        initial={{ opacity: 0, scale: 0.97 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ delay: 0.1 }}
-      >
-        <div
-          {...getRootProps()}
-          className={`
-            relative rounded-2xl border-2 border-dashed cursor-pointer
-            transition-all duration-300 overflow-hidden
-            ${isDragActive
-              ? 'border-dna-500 bg-dna-500/10 glow-purple'
-              : selectedFile
-              ? 'border-layer-complete bg-layer-complete/5 glow-green'
-              : 'border-bg-border bg-bg-card hover:border-dna-500/50 hover:bg-bg-card/80'
-            }
-          `}
-        >
-          <input {...getInputProps()} />
+      {!selectedFile && captureMode === 'video' && (
+        <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
+          <MediaRecorderPanel
+            mode="video"
+            onComplete={handleFileReady}
+            onCancel={() => setCaptureMode('upload')}
+          />
+        </motion.div>
+      )}
 
-          {selectedFile ? (
-            <div className="flex flex-col sm:flex-row items-center gap-6 p-6">
-              {/* Preview or icon */}
-              <div className="relative shrink-0">
-                {preview ? (
-                  <img
-                    src={preview}
-                    alt="Preview"
-                    className="w-36 h-36 object-cover rounded-xl border border-bg-border shadow-xl"
-                  />
-                ) : (
-                  <div className="w-36 h-36 rounded-xl border border-bg-border bg-bg-surface shadow-xl flex flex-col items-center justify-center gap-2">
-                    <span className="text-5xl">{fileIcon}</span>
-                    <span className="mono text-xs text-dna-400 font-bold">{fileLabel}</span>
-                  </div>
-                )}
-                <div className="absolute -top-2 -right-2 bg-layer-complete rounded-full p-1">
-                  <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-              </div>
-              {/* File info */}
-              <div className="flex-1 text-left">
-                <div className="flex items-center gap-2 mb-1">
-                  <p className="text-layer-complete font-semibold text-sm">File Ready</p>
-                  <span className="mono text-xs bg-dna-500/20 text-dna-400 px-2 py-0.5 rounded">
-                    {fileLabel}
-                  </span>
-                </div>
-                <p className="text-white font-medium text-lg truncate">{selectedFile.name}</p>
-                <div className="flex gap-4 mt-2">
-                  <span className="mono text-xs text-gray-400">{formatBytes(selectedFile.size)}</span>
-                  <span className="mono text-xs text-gray-400">{selectedFile.type || 'unknown type'}</span>
-                </div>
-                <p className="text-gray-500 text-xs mt-3">Click or drop to change file</p>
-              </div>
-            </div>
-          ) : (
-            /* Empty state */
-            <div className="flex flex-col items-center justify-center py-16 px-6">
+      {!selectedFile && captureMode === 'audio' && (
+        <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
+          <MediaRecorderPanel
+            mode="audio"
+            onComplete={handleFileReady}
+            onCancel={() => setCaptureMode('upload')}
+          />
+        </motion.div>
+      )}
+
+      {!selectedFile && captureMode === 'upload' && (
+        <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
+          <div
+            {...getRootProps()}
+            className={`
+              relative rounded-2xl border-2 border-dashed cursor-pointer transition-all duration-300 overflow-hidden
+              ${isDragActive
+                ? 'border-dna-500 bg-dna-500/10 glow-purple'
+                : 'border-bg-border bg-bg-card hover:border-dna-500/50 hover:bg-bg-card/80'
+              }
+            `}
+          >
+            <input {...getInputProps()} />
+            <div className="flex flex-col items-center justify-center py-14 px-6">
               {isDragActive ? (
                 <>
-                  <div className="text-5xl mb-4">📂</div>
-                  <p className="text-dna-400 font-semibold">Drop it here</p>
+                  <FileUp size={48} className="text-dna-400 mb-3" />
+                  <p className="text-dna-400 font-semibold">Drop file here</p>
                 </>
               ) : (
                 <>
-                  <div className="text-5xl mb-5">📁</div>
-                  <p className="text-white font-semibold text-lg mb-1">
-                    Drag & drop any file
-                  </p>
-                  <p className="text-gray-500 text-sm mb-5">or click to browse files</p>
-
-                  {/* File type grid */}
-                  <div className="grid grid-cols-5 gap-2 mb-4">
+                  <div className="w-16 h-16 rounded-2xl bg-dna-500/10 flex items-center justify-center mb-4">
+                    <Upload size={28} className="text-dna-400" />
+                  </div>
+                  <p className="text-white font-semibold text-lg mb-1">Drag & drop any file</p>
+                  <p className="text-gray-500 text-sm mb-5">or click to browse</p>
+                  <div className="grid grid-cols-5 gap-2 mb-4 max-w-md w-full">
                     {FILE_TYPES.map((ft) => (
                       <div
                         key={ft.label}
@@ -247,16 +233,48 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
                       </div>
                     ))}
                   </div>
-                  <p className="text-gray-600 text-xs">Max 500MB · All file types supported</p>
+                  <p className="text-gray-600 text-xs">Max 500 MB</p>
                 </>
               )}
             </div>
-          )}
-        </div>
-      </motion.div>
+          </div>
+        </motion.div>
       )}
 
-      {/* Generate button */}
+      {selectedFile && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.98 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="rounded-2xl border-2 border-layer-complete bg-layer-complete/5 glow-green overflow-hidden"
+        >
+          <div className="flex flex-col sm:flex-row items-stretch gap-0">
+            <div className="sm:w-48 h-48 sm:h-auto shrink-0 p-4">
+              <div className="w-full h-full min-h-[160px] rounded-xl border border-bg-border overflow-hidden shadow-lg">
+                <FilePreview file={selectedFile} />
+              </div>
+            </div>
+            <div className="flex-1 p-6 flex flex-col justify-center">
+              <div className="flex items-center gap-2 mb-1">
+                <p className="text-layer-complete font-semibold text-sm">Capture Ready</p>
+                <span className="mono text-xs bg-dna-500/20 text-dna-400 px-2 py-0.5 rounded">{fileLabel}</span>
+              </div>
+              <p className="text-white font-medium text-lg truncate">{selectedFile.name}</p>
+              <div className="flex flex-wrap gap-4 mt-2">
+                <span className="mono text-xs text-gray-400">{formatBytes(selectedFile.size)}</span>
+                <span className="mono text-xs text-gray-400">{selectedFile.type || 'unknown'}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => onFileSelected(null)}
+                className="mt-4 text-xs text-gray-500 hover:text-dna-400 transition-colors text-left w-fit"
+              >
+                ← Choose a different capture method
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {selectedFile && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -270,39 +288,6 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
         </motion.div>
       )}
 
-      {/* Layer overview */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.3 }}
-        className="mt-10 grid grid-cols-2 sm:grid-cols-5 gap-3"
-      >
-        {[
-          { icon: '🔐', label: 'Cryptographic Hash', num: 1 },
-          { icon: '🏗️', label: 'Structural',          num: 2 },
-          { icon: '👁️', label: 'Perceptual Hash',     num: 3 },
-          { icon: '🎨', label: 'Semantic Analysis',   num: 4 },
-          { icon: '🏷️', label: 'Metadata Provenance', num: 5 },
-          { icon: '🔏', label: 'HMAC Signature',       num: 6 },
-          { icon: '🧠', label: 'Behavioral Context',  num: 7 },
-          { icon: '🔗', label: 'Relationship Graph',  num: 8 },
-          { icon: '🌍', label: 'Origin Context',       num: 9 },
-          { icon: '🌳', label: 'Evolution Tree',       num: 10 },
-          { icon: '🤖', label: 'Deepfake Detection',  num: 11 },
-          { icon: '🔲', label: 'DCT Watermark',       num: 12 },
-          { icon: '⚖️', label: 'Legal Custody',        num: 13 },
-          { icon: '🔑', label: 'Zero-Knowledge Proof', num: 14 },
-          { icon: '👤', label: 'Biometric Bind',       num: 15 },
-        ].map((l) => (
-          <div key={l.num} className="card flex items-center gap-3 py-3 px-4 opacity-60">
-            <span className="text-xl">{l.icon}</span>
-            <div>
-              <p className="mono text-xs text-dna-400">Layer {l.num}</p>
-              <p className="text-xs text-gray-300 font-medium">{l.label}</p>
-            </div>
-          </div>
-        ))}
-      </motion.div>
     </div>
   );
 }

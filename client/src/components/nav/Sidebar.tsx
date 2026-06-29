@@ -180,7 +180,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           </div>
           <div className="flex items-center gap-1.5 text-2xs text-gray-600 mono">
             <Zap size={10} className="text-dna-500" />
-            <span>10 file types · 15 DNA layers</span>
+            <span>All systems operational</span>
           </div>
         </div>
       </div>

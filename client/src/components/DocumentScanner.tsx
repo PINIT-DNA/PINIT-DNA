@@ -189,7 +189,7 @@ export function DocumentScanner({
       <input
         ref={cameraInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,application/pdf"
         capture="environment"
         className="hidden"
         onChange={(e) => { if (e.target.files?.[0]) handleGallery(e.target.files[0]); }}
