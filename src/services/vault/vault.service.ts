@@ -78,6 +78,7 @@ export interface RetrieveResult {
   originalMimeType:  string;
   originalSizeBytes: number;
   vaultId:           string;
+  dnaRecordId:       string;
 }
 
 export class VaultService {
@@ -278,6 +279,7 @@ export class VaultService {
       originalMimeType:  record.originalMimeType,
       originalSizeBytes: record.originalSizeBytes,
       vaultId,
+      dnaRecordId:       record.dnaRecordId,
     };
   }
 }

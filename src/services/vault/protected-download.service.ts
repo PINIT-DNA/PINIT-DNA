@@ -9,9 +9,7 @@ import { VaultService } from './vault.service';
 import { certificateService } from '../certificates/certificate.service';
 import { identityEmbeddingService } from '../identity/identity-embedding.service';
 import { assertRecordOwner } from '../../lib/tenant-scope';
-import { isPhase3ProtectedDownloadTokenActive } from '../../config/dna-phase3';
-import { issueIdentityToken } from '../evidence/identity-token.service';
-import { phase3WatermarkEngine } from '../watermark/phase3-watermark-engine.service';
+import { vaultDownloadIdentityService } from './vault-download-identity.service';
 
 function flag(key: string, defaultValue = true): boolean {
   const v = (process.env[key] ?? '').trim().toLowerCase();
@@ -165,37 +163,33 @@ export class ProtectedDownloadService {
     let identityTokenEmbedded = false;
     let watermarkMethod: string | undefined;
 
-    if (isPhase3ProtectedDownloadTokenActive() && record.dnaRecord?.ownerUserId) {
-      const token = issueIdentityToken({
-        vaultId,
-        dnaRecordId: record.dnaRecordId,
-        certificateId,
-        ownerUserId: record.dnaRecord.ownerUserId,
+    const ownerId = record.dnaRecord?.ownerUserId ?? requestingUserId;
+    const embedded = await vaultDownloadIdentityService.embedForDownload(
+      outBuffer,
+      retrieved.originalMimeType,
+      retrieved.originalFileName,
+      vaultId,
+      record.dnaRecordId,
+      ownerId,
+    );
+    outBuffer = embedded.buffer;
+    identityTokenEmbedded = embedded.identityEmbedded;
+    watermarkMethod = embedded.methods.join(', ') || undefined;
+
+    if (identityTokenEmbedded) {
+      steps.push({
+        id: 'identity_token',
+        label: 'Forensic identity embedded',
+        status: 'complete',
+        detail: embedded.detail,
       });
-      if (token) {
-        const embedded = await phase3WatermarkEngine.embed(
-          outBuffer,
-          retrieved.originalMimeType,
-          {
-            vaultId,
-            dnaRecordId: record.dnaRecordId,
-            certificateId,
-            ownerUserId: record.dnaRecord.ownerUserId,
-            identityToken: token,
-          },
-        );
-        if (embedded.embedded) {
-          outBuffer = embedded.buffer;
-          identityTokenEmbedded = true;
-          watermarkMethod = embedded.method;
-          steps.push({
-            id: 'identity_token',
-            label: 'Identity token embedded',
-            status: 'complete',
-            detail: `Phase 3 encrypted token via ${embedded.method}`,
-          });
-        }
-      }
+    } else {
+      steps.push({
+        id: 'identity_token',
+        label: 'Identity embedding',
+        status: 'warning',
+        detail: embedded.detail,
+      });
     }
 
     steps.push({

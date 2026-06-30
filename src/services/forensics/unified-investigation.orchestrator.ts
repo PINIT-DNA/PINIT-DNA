@@ -20,6 +20,7 @@ import { identityRecoveryEngine } from './identity-recovery-engine.service';
 import { enterpriseRecoveryPipeline } from './enterprise-recovery-pipeline.service';
 import { isTrustedVaultMatch, isAcceptedAfterDnaCompare, isCameraScanFileName, explainMatchBasis } from './vault-match-validator.service';
 import { evidenceConfidenceService } from './evidence-confidence.service';
+import { auditService } from '../audit/audit.service';
 import crypto from 'crypto';
 import type {
   UnifiedInvestigationReport,
@@ -229,6 +230,7 @@ export class UnifiedInvestigationOrchestrator {
             sizeBytes,
             buffer,
           },
+          { vaultDnaRecordId: match.dnaRecordId },
         );
         pipeline.push(step(
           'dna_compare',
@@ -304,15 +306,37 @@ export class UnifiedInvestigationOrchestrator {
       `${accessIntelligence.length} events`,
     ));
 
-    // 12. Timeline
+    // 12. Timeline (vault audit + share + access)
+    const dnaRec = await prisma.dnaRecord.findUnique({
+      where: { id: match.dnaRecordId },
+      select: { createdAt: true, imageFilename: true, sha256Hash: true },
+    });
+
     let timelineEvents: Array<{ stage: string; timestamp?: string; detail?: string }> = [];
     try {
       const shareTimeline = await shareLinkService.getTimelineEvents(match.dnaRecordId, ownerUserId);
-      timelineEvents = this.buildTimeline(match.dnaRecordId, shareTimeline, leakVerify, accessIntelligence);
+      const auditEvents = await auditService.getEventsForRecord(match.dnaRecordId);
+      timelineEvents = this.buildTimeline(
+        match.dnaRecordId,
+        match.vaultId,
+        dnaRec ? { createdAt: dnaRec.createdAt, filename: dnaRec.imageFilename } : null,
+        shareTimeline,
+        leakVerify,
+        accessIntelligence,
+        auditEvents,
+      );
       pipeline.push(step('timeline', 'Retrieve timeline', 'complete', `${timelineEvents.length} events`));
     } catch {
       pipeline.push(step('timeline', 'Retrieve timeline', 'warning', 'Timeline partial'));
-      timelineEvents = this.buildTimeline(match.dnaRecordId, [], leakVerify, accessIntelligence);
+      timelineEvents = this.buildTimeline(
+        match.dnaRecordId,
+        match.vaultId,
+        dnaRec ? { createdAt: dnaRec.createdAt, filename: dnaRec.imageFilename } : null,
+        [],
+        leakVerify,
+        accessIntelligence,
+        [],
+      );
     }
 
     // 13. Crawler / monitoring
@@ -330,11 +354,6 @@ export class UnifiedInvestigationOrchestrator {
     const owner = await prisma.user.findUnique({
       where: { id: match.ownerUserId },
       select: { fullName: true, shortId: true, email: true },
-    });
-
-    const dnaRec = await prisma.dnaRecord.findUnique({
-      where: { id: match.dnaRecordId },
-      select: { createdAt: true, imageFilename: true, sha256Hash: true },
     });
 
     const dnaPct = comparison?.overallConfidenceScore
@@ -678,9 +697,12 @@ export class UnifiedInvestigationOrchestrator {
 
   private buildTimeline(
     dnaRecordId: string,
+    vaultId: string,
+    dnaMeta: { createdAt: Date; filename: string } | null,
     shareEvents: unknown[],
     leakVerify: Awaited<ReturnType<typeof leakedFileVerifyService.verify>>,
     accessHistory: LeakedFileAccessEntry[] = [],
+    auditEvents: Awaited<ReturnType<typeof auditService.getEventsForRecord>> = [],
   ): Array<{ stage: string; timestamp?: string; detail?: string }> {
     const out: Array<{ stage: string; timestamp?: string; detail?: string }> = [];
 
@@ -688,24 +710,34 @@ export class UnifiedInvestigationOrchestrator {
       out.push({ stage, timestamp, detail });
     };
 
-    if (leakVerify.identity?.dnaCreatedAt) {
+    if (dnaMeta?.createdAt) {
+      push('DNA Generated', dnaMeta.createdAt.toISOString(), dnaMeta.filename);
+    } else if (leakVerify.identity?.dnaCreatedAt) {
       push('DNA Generated', leakVerify.identity.dnaCreatedAt);
     } else {
       push('DNA Generated', undefined, 'No evidence available');
     }
 
-    if (leakVerify.identity?.vaultId) {
-      push('Stored in Vault', undefined, leakVerify.identity.vaultId);
+    if (vaultId || leakVerify.identity?.vaultId) {
+      push('Stored in Vault', undefined, vaultId || leakVerify.identity?.vaultId);
     } else {
       push('Stored in Vault', undefined, 'No evidence available');
     }
 
+    const vaultDownload = auditEvents.find((e) =>
+      e.eventType === 'VAULT_RETRIEVED' || e.eventType === 'FILE_DOWNLOADED',
+    );
     const downloads = accessHistory.filter((a) => a.action?.toLowerCase().includes('download'));
     const views = accessHistory.filter((a) => a.action?.toLowerCase().includes('view'));
     const shares = accessHistory.filter((a) => a.action?.toLowerCase().includes('share'));
 
-    if (downloads[0]) push('Downloaded', downloads[0].timestamp, downloads[0].device);
-    else push('Downloaded', undefined, 'No evidence available');
+    if (vaultDownload) {
+      push('Downloaded', vaultDownload.createdAt.toISOString(), vaultDownload.device ?? vaultDownload.filename ?? 'Vault export');
+    } else if (downloads[0]) {
+      push('Downloaded', downloads[0].timestamp, downloads[0].device);
+    } else {
+      push('Downloaded', undefined, 'No evidence available');
+    }
 
     if (shares.length || (shareEvents as unknown[]).length) {
       for (const ev of shareEvents as Array<{ type?: string; timestamp?: string; title?: string }>) {

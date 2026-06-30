@@ -153,7 +153,8 @@ export async function autoCompareDna(
         declaredMimeType: multerFile.mimetype,
         sizeBytes: multerFile.size,
         buffer: suspectedBuffer,
-      }
+      },
+      { vaultDnaRecordId: resolvedMatch.dnaRecordId },
     );
     } catch (e) {
       logger.error('DNA comparison failed', { error: String(e) });

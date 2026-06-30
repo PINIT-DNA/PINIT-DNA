@@ -346,8 +346,8 @@ export class EphemeralFingerprinter {
       });
     }
 
-    // Pad any missing layers as failed
-    for (let i = layers.length + 1; i <= 10; i++) {
+    // Pad any missing layers as failed (L1–L15)
+    for (let i = layers.length + 1; i <= 15; i++) {
       layers.push({
         layer: i, name: `layer${i}`, implementation: 'missing',
         fingerprint: '', data: {}, success: false,

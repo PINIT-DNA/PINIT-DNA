@@ -25,7 +25,7 @@ function VaultDetailModal({ record, onClose }: { record: VaultRecord; onClose: (
       const a = document.createElement('a');
       a.href = url; a.download = record.originalFileName;
       a.click(); URL.revokeObjectURL(url);
-      toast.success('File retrieved and decrypted successfully');
+      toast.success('File downloaded with forensic identity embedded (lifetime tracking active)');
     } catch {
       toast.error('Failed to retrieve file from vault');
     } finally {
@@ -88,7 +88,7 @@ function VaultDetailModal({ record, onClose }: { record: VaultRecord; onClose: (
             </button>
           </div>
           <p className="text-2xs text-gray-500 text-center">
-            Use <strong className="text-dna-400">Protected Download</strong> from the vault table for DNA + certificate verified export.
+            Every download embeds a unique forensic identity (watermark + signature + recovery token) — like a QR code for lifetime tracking.
           </p>
         </div>
       </div>

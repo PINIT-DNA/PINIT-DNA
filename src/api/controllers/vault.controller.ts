@@ -16,6 +16,7 @@ import { logger } from '../../lib/logger';
 import { auditService } from '../../services/audit/audit.service';
 import { autoIndexer }  from '../../services/ai/auto-indexer.service';
 import { protectedDownloadService } from '../../services/vault/protected-download.service';
+import { vaultDownloadIdentityService } from '../../services/vault/vault-download-identity.service';
 import { geoFromIp } from '../../services/share/share-link.service';
 import {
   tepService,
@@ -196,23 +197,34 @@ export async function retrieveFromVault(
     const userId = getAuthUserId(req);
     const result = await vaultService.retrieve(id, userId);
 
-    // Stream the decrypted image back as binary
+    const embedded = await vaultDownloadIdentityService.embedForDownload(
+      result.originalBuffer,
+      result.originalMimeType,
+      result.originalFileName,
+      id,
+      result.dnaRecordId,
+      userId,
+      req,
+    );
+
     res.set({
       'Content-Type':        result.originalMimeType,
-      'Content-Length':      String(result.originalBuffer.length),
+      'Content-Length':      String(embedded.buffer.length),
       'Content-Disposition': `attachment; filename="${result.originalFileName}"`,
       'X-Vault-Id':          result.vaultId,
       'X-Original-Size':     String(result.originalSizeBytes),
+      'X-PINIT-Identity-Embedded': String(embedded.identityEmbedded),
     });
 
-    // Audit the retrieval
     auditService.log({
       eventType: 'VAULT_RETRIEVED', vaultId: id,
+      dnaRecordId: result.dnaRecordId,
       filename: result.originalFileName, fileType: result.originalMimeType,
-      detail: { sizeBytes: result.originalSizeBytes }, req,
+      detail: { sizeBytes: result.originalSizeBytes, identityEmbedded: embedded.identityEmbedded },
+      req,
     });
 
-    res.status(200).send(result.originalBuffer);
+    res.status(200).send(embedded.buffer);
   } catch (err) {
     if (err instanceof Error && err.message.includes('not found')) {
       return next(new AppError(404, err.message));

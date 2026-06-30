@@ -1,7 +1,6 @@
 /**
  * Resolves watermark proof status for Unified Investigation reports.
  */
-import { isInvisibleWatermarkVaultEmbeddingEnabled } from '../../config/watermark';
 import type { LeakedFileVerifyResult } from './leaked-file-verify.service';
 
 export type WatermarkProofStatus = 'DETECTED' | 'DAMAGED' | 'NOT_EMBEDDED';
@@ -34,6 +33,18 @@ export function resolveWatermarkProof(
     };
   }
 
+  if (leakVerify.valid && leakVerify.found) {
+    return {
+      status: 'DETECTED',
+      code: leakVerify.identity?.vaultId?.slice(0, 12) ?? 'EMBEDDED-IDENTITY',
+      extractionMethod: leakVerify.detectionMethod ?? 'EMBEDDED_IDENTITY',
+      vaultId: context.vaultId ?? leakVerify.identity?.vaultId,
+      ownerPinitId: context.ownerPinitId ?? leakVerify.identity?.ownerShortId,
+      confidence: leakVerify.confidence ?? 95,
+      reason: 'Forensic identity signature/manifest recovered — unique vault linkage (QR-equivalent)',
+    };
+  }
+
   const watermarkLineage =
     leakVerify.detectionMethod === 'WATERMARK' ||
     leakVerify.detectionMethod === 'TEP_EXPORT' ||
@@ -55,15 +66,15 @@ export function resolveWatermarkProof(
     };
   }
 
-  if (!isInvisibleWatermarkVaultEmbeddingEnabled()) {
+  if (context.vaultId && leakVerify.found) {
     return {
-      status: 'NOT_EMBEDDED',
-      reason: 'Invisible watermark embedding is not enabled for this file.',
+      status: 'DAMAGED',
+      reason: 'Vault match confirmed via DNA — watermark may be damaged in this copy (screenshot/re-encode).',
     };
   }
 
   return {
     status: 'NOT_EMBEDDED',
-    reason: 'No invisible watermark detected in this file.',
+    reason: 'No forensic identity detected. Download from Vault Explorer to embed lifetime tracking markers.',
   };
 }

@@ -16,12 +16,19 @@
 
 import { logger }                 from '../../lib/logger';
 import { EphemeralFingerprinter } from './ephemeral-fingerprinter';
+import { StoredDnaFingerprinter } from './stored-dna-fingerprinter.service';
 import { ComparisonEngine }       from './comparison-engine';
 import type { FileInput }         from '../universal-file-router';
 import type { DnaComparisonResult } from '../../types/comparison.types';
 
+export interface DnaCompareOptions {
+  /** Use vault registry DNA for file A (original) — correct for investigation & auto-compare */
+  vaultDnaRecordId?: string;
+}
+
 export class DnaComparisonService {
   private readonly fingerprinter = new EphemeralFingerprinter();
+  private readonly storedFp      = new StoredDnaFingerprinter();
   private readonly engine        = new ComparisonEngine();
 
   /**
@@ -29,33 +36,36 @@ export class DnaComparisonService {
    *
    * @param fileA  First file (treated as the "original" in the report)
    * @param fileB  Second file (treated as the "comparison" in the report)
+   * @param options  When vaultDnaRecordId is set, file A layers come from vault registry (L1–L15)
    */
   async compare(
     fileA: FileInput,
-    fileB: FileInput
+    fileB: FileInput,
+    options?: DnaCompareOptions,
   ): Promise<DnaComparisonResult> {
     const start = Date.now();
+    const vaultCompare = !!options?.vaultDnaRecordId;
 
     logger.info('DNA comparison started', {
       fileA: fileA.originalName,
       fileB: fileB.originalName,
+      vaultCompare,
     });
 
-    // ── Generate fingerprints for both files in PARALLEL ──────────────────────
-    // Each runs its own engine with a temp DB record that is cleaned up
     const [fpA, fpB] = await Promise.all([
-      this.fingerprinter.fingerprint(fileA),
+      options?.vaultDnaRecordId
+        ? this.storedFp.fromDnaRecord(options.vaultDnaRecordId)
+        : this.fingerprinter.fingerprint(fileA),
       this.fingerprinter.fingerprint(fileB),
     ]);
 
-    logger.info('Ephemeral fingerprints ready', {
-      fileA: { name: fpA.filename, type: fpA.fileType, layers: fpA.layers.length },
+    logger.info('Fingerprints ready', {
+      fileA: { name: fpA.filename, type: fpA.fileType, layers: fpA.layers.length, source: vaultCompare ? 'vault-registry' : 'ephemeral' },
       fileB: { name: fpB.filename, type: fpB.fileType, layers: fpB.layers.length },
     });
 
-    // ── Run comparison engine ─────────────────────────────────────────────────
     const processingMs = Date.now() - start;
-    const result = this.engine.compare(fpA, fpB, processingMs);
+    const result = this.engine.compare(fpA, fpB, processingMs, { vaultCompare });
 
     logger.info('DNA comparison complete', {
       comparisonId:    result.comparisonId,
