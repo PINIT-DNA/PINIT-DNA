@@ -61,6 +61,18 @@ export class ForensicImagePreprocessor {
         .jpeg({ quality: 90 })
         .toBuffer();
       variants.push({ label: 'grayscale_contrast', buffer: contrast, mimeType: 'image/jpeg' });
+
+      const recompressed = await sharp(buffer)
+        .rotate()
+        .jpeg({ quality: 72, mozjpeg: true })
+        .toBuffer();
+      variants.push({ label: 'jpeg_recompress', buffer: recompressed, mimeType: 'image/jpeg' });
+
+      const rotated = await sharp(buffer)
+        .rotate(2)
+        .jpeg({ quality: 88 })
+        .toBuffer();
+      variants.push({ label: 'perspective_hint', buffer: rotated, mimeType: 'image/jpeg' });
     } catch (err) {
       logger.debug('[ForensicPreprocessor] Variant generation partial', { error: String(err) });
     }

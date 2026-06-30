@@ -459,10 +459,16 @@ export async function verifyFileIdentity(req: Request, res: Response, next: Next
     }
 
     const { leakedFileVerifyService } = await import('../../services/forensics/leaked-file-verify.service');
+    let ownerUserId: string | undefined;
+    try {
+      ownerUserId = getAuthUserId(req);
+    } catch { /* public verify — no JWT */ }
+
     const result = await leakedFileVerifyService.verify(
       buffer,
       mimeType,
       file.originalname,
+      ownerUserId ? { ownerUserId } : undefined,
     );
 
     logger.info('[LeakedVerify] Scan complete', {

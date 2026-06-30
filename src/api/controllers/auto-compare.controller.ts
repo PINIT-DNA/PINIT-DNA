@@ -219,6 +219,11 @@ export async function autoCompareDna(
       candidateRanking: recovery.candidates.slice(0, 10),
       fusionBreakdown: recovery.fusion.breakdown,
       ownershipConfidence: recovery.fusion.ownershipConfidence,
+      identified: recovery.identified,
+      recoveredSignals: recovery.recoveredSignals,
+      deepCompareResults: recovery.deepCompareResults,
+      tamperingSummary: recovery.tamperingSummary,
+      certificateId: recovery.certificateId,
       isIdentical,
       identity: {
         dnaRecordId: resolvedMatch.dnaRecordId,

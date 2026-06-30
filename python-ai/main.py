@@ -10,6 +10,12 @@ Enterprise prep: modular services/, startup diagnostics, enhanced /health
 """
 
 import os, json, time, hashlib, re, logging
+
+# Silence HuggingFace / tqdm progress bars in Node dev logs (stderr → [warn])
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("TQDM_DISABLE", "1")
+
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
@@ -52,6 +58,10 @@ DIMENSION = EMBEDDING_DIMENSION
 log.info("Loading sentence-transformer model (%s)…", EMBEDDING_MODEL)
 model = SentenceTransformer(EMBEDDING_MODEL, cache_folder=str(MODEL_CACHE_DIR))
 log.info("Model loaded.")
+
+
+def encode_one(text: str) -> np.ndarray:
+    return model.encode([text], show_progress_bar=False)[0]
 
 def load_or_create_index():
     if INDEX_FILE.exists() and META_FILE.exists():
@@ -159,7 +169,7 @@ def health():
 def embed(req: EmbedRequest):
     if not req.text.strip(): raise HTTPException(400, "text must not be empty")
     start = time.time()
-    vec   = model.encode([req.text])[0].tolist()
+    vec   = encode_one(req.text).tolist()
     return { "embedding": vec, "dimension": len(vec), "processingMs": round((time.time()-start)*1000,1) }
 
 # ── Phase 1 + 3: Index (content-first) ───────────────────────────────────────
@@ -184,7 +194,7 @@ def index_document(req: IndexRequest):
     ]
     full_text = " ".join(p for p in parts if p).strip()
 
-    vec = model.encode([full_text])[0]
+    vec = encode_one(full_text)
     index.add(np.array([vec], dtype=np.float32))
 
     entry = {
@@ -214,7 +224,7 @@ def semantic_search(req: SearchRequest):
     if index.ntotal == 0: return { "results": [], "query": req.query, "totalIndexed": 0, "count": 0 }
 
     start = time.time()
-    vec   = model.encode([req.query])[0]
+    vec   = encode_one(req.query)
     k     = min(req.topK * 4, index.ntotal)
     D, I  = index.search(np.array([vec], dtype=np.float32), k)
 
@@ -268,7 +278,7 @@ def hybrid_search(req: HybridSearchRequest):
     start = time.time()
 
     # Step 1: Get semantic results (lower threshold to get more candidates)
-    vec  = model.encode([req.query])[0]
+    vec  = encode_one(req.query)
     k    = min(req.topK * 6, index.ntotal)
     D, I = index.search(np.array([vec], dtype=np.float32), k)
 
@@ -350,13 +360,34 @@ async def ocr_extract(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(500, f"OCR failed: {str(e)}")
 
+# ── Computer vision: ORB/AKAZE compare ───────────────────────────────────────
+
+@app.post("/cv/compare")
+async def cv_compare_images(
+    probe: UploadFile = File(...),
+    reference: UploadFile = File(...),
+):
+    from services.computer_vision import computer_vision_service
+
+    start = time.time()
+    probe_bytes = await probe.read()
+    ref_bytes = await reference.read()
+    result = computer_vision_service.compare_images(probe_bytes, ref_bytes)
+    if not result.success:
+        raise HTTPException(503, result.message or "CV compare failed")
+    return {
+        "success": True,
+        **result.data,
+        "processingMs": round((time.time() - start) * 1000, 1),
+    }
+
 # ── Phase 6: Duplicate detection ─────────────────────────────────────────────
 
 @app.post("/duplicates")
 def detect_duplicates(req: DuplicateRequest):
     if index.ntotal == 0: return { "duplicates": [], "nearMatches": [] }
 
-    vec  = model.encode([req.text])[0]
+    vec  = encode_one(req.text)
     k    = min(req.topK, index.ntotal)
     D, I = index.search(np.array([vec], dtype=np.float32), k)
 

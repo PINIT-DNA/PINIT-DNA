@@ -245,6 +245,35 @@ export class AIEmbeddingsService {
     } catch { /* non-fatal */ }
   }
 
+  /** ORB/AKAZE image similarity via Python OpenCV (graceful offline fallback). */
+  async compareImages(
+    probe: Buffer,
+    reference: Buffer,
+  ): Promise<{ similarity: number; method: string; keypointMatches?: number } | null> {
+    try {
+      const FormData = require('form-data');
+      const form = new FormData();
+      form.append('probe', probe, { filename: 'probe.jpg', contentType: 'image/jpeg' });
+      form.append('reference', reference, { filename: 'ref.jpg', contentType: 'image/jpeg' });
+
+      const { data } = await client.post('/cv/compare', form, {
+        headers: form.getHeaders(),
+        timeout: 25_000,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = data as any;
+      if (typeof d.similarity !== 'number') return null;
+      return {
+        similarity: d.similarity,
+        method: d.method ?? 'opencv_orb',
+        keypointMatches: d.keypointMatches,
+      };
+    } catch (err) {
+      this.logError('cv/compare', err);
+      return null;
+    }
+  }
+
   // ─── Error helper ──────────────────────────────────────────────────────────
 
   private logError(operation: string, err: unknown): void {

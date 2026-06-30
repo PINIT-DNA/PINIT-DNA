@@ -127,7 +127,12 @@ export class LeakedFileVerifyService {
   private readonly perceptualLayer = new PerceptualLayer();
   private readonly cryptoLayer = new CryptographicLayer();
 
-  async verify(buffer: Buffer, mimeType: string, fileName: string): Promise<LeakedFileVerifyResult> {
+  async verify(
+    buffer: Buffer,
+    mimeType: string,
+    fileName: string,
+    options?: { ownerUserId?: string },
+  ): Promise<LeakedFileVerifyResult> {
     const effectiveMime = this._resolveMimeType(mimeType, fileName);
 
     // ── 0. Share-link filename registry (works for downloaded PDF/DOCX/images) ─
@@ -256,6 +261,35 @@ export class LeakedFileVerifyService {
         if (near) return near;
       } catch (err) {
         logger.warn('[LeakedVerify] pHash check failed (non-fatal)', { error: String(err) });
+      }
+    }
+
+    // ── 7. Enterprise identification engine (exhaustive vault recovery) ─────
+    if (options?.ownerUserId) {
+      try {
+        const { pinitIdentificationEngine } = await import('./pinit-identification-engine.service');
+        const id = await pinitIdentificationEngine.identify(
+          buffer,
+          effectiveMime,
+          fileName,
+          buffer.length,
+          options.ownerUserId,
+        );
+        const m = id.match ?? id.probableMatch;
+        if (m && (id.identified || id.fusion.ownershipConfidence >= 52)) {
+          const deep = id.bestDeepCompare;
+          return this._fromDnaRecord(m.dnaRecordId, {
+            detectionMethod: deep?.tamperingDetected ? 'NEAR_DUPLICATE_PHASH' : 'EMBEDDED_IDENTITY',
+            leakVector: deep?.tamperingDetected ? 'SCREENSHOT' : 'DOWNLOAD_REUPLOAD',
+            valid: !deep?.tamperingDetected,
+            tampered: deep?.tamperingDetected ?? false,
+            confidence: id.fusion.ownershipConfidence,
+            message: id.tamperingSummary
+              ?? `PINIT identification engine — ${id.fusion.ownershipConfidence}% ownership confidence (${m.method}).`,
+          });
+        }
+      } catch (err) {
+        logger.warn('[LeakedVerify] Identification engine fallback failed', { error: String(err) });
       }
     }
 
