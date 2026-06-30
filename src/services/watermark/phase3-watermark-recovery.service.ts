@@ -33,8 +33,15 @@ export class Phase3WatermarkRecoveryService {
     if (!isPhase3WatermarkRecoveryActive()) {
       return { recovered: false, method: 'disabled', detail: 'Phase 3 recovery disabled', fallbackToDna: true };
     }
+    return this.recoverForensic(buffer, mimeType, ownerUserId);
+  }
 
-    // 1. Legacy/share watermark extraction
+  /** Always-on forensic watermark/token extraction (vault + share watermarks). */
+  async recoverForensic(
+    buffer: Buffer,
+    mimeType: string,
+    ownerUserId?: string,
+  ): Promise<Phase3RecoveryResult> {
     const legacy = await extractWatermarkFromFile(buffer, mimeType);
     if (legacy.watermarkCode) {
       const profile = await prisma.watermarkProfile.findUnique({
@@ -117,8 +124,13 @@ export class Phase3WatermarkRecoveryService {
   }
 
   private async extractPhase3Payload(buffer: Buffer, mimeType: string): Promise<string | null> {
-    const tail = buffer.slice(Math.max(0, buffer.length - 4096)).toString('utf8');
-    const tailMatch = tail.match(/PINIT-P3TAIL\|([^\n]+)/) ?? tail.match(/PINIT-IDT\|([A-Za-z0-9_-]+)/);
+    const tail = buffer.slice(Math.max(0, buffer.length - 8192)).toString('utf8');
+    const latin = buffer.slice(Math.max(0, buffer.length - 8192)).toString('latin1');
+    const tailMatch = tail.match(/PINIT-P3TAIL\|([^\n]+)/)
+      ?? tail.match(/PINIT-VAULT-TAIL\|([^\n]+)/)
+      ?? tail.match(/PINIT-VAULT-IMG\|([^\n]+)/)
+      ?? tail.match(/PINIT-IDT\|([A-Za-z0-9_-]+)/)
+      ?? latin.match(/PINIT-DNA-SIG:(PINIT-DNA:v1:[^\x00]+)/);
     if (tailMatch) {
       return tailMatch[0].includes('PINIT-IDT') ? tailMatch[0] : `PINIT-IDT|${tailMatch[1]}`;
     }

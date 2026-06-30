@@ -16,9 +16,9 @@ import { isPhase2Active } from '../../config/dna-phase2';
 import { generateLightweightDna } from './lightweight-dna.service';
 import { resolveWatermarkProof } from './watermark-status.service';
 import { phase3WatermarkRecovery } from '../watermark/phase3-watermark-recovery.service';
-import { isPhase3WatermarkRecoveryActive } from '../../config/dna-phase3';
 import { identityRecoveryEngine } from './identity-recovery-engine.service';
 import { enterpriseRecoveryPipeline } from './enterprise-recovery-pipeline.service';
+import { isTrustedVaultMatch, isAcceptedAfterDnaCompare, isCameraScanFileName, explainMatchBasis } from './vault-match-validator.service';
 import { evidenceConfidenceService } from './evidence-confidence.service';
 import crypto from 'crypto';
 import type {
@@ -75,17 +75,15 @@ export class UnifiedInvestigationOrchestrator {
       leakVerify.detectionMethod ?? leakVerify.message,
     ));
 
-    // Phase 3: watermark recovery → vault resolution (falls back to DNA compare)
-    let phase3Recovery: Awaited<ReturnType<typeof phase3WatermarkRecovery.recover>> | null = null;
-    if (isPhase3WatermarkRecoveryActive()) {
-      phase3Recovery = await phase3WatermarkRecovery.recover(buffer, mimeType, ownerUserId);
-      pipeline.push(step(
-        'watermark_recovery',
-        'Watermark recovery',
-        phase3Recovery.recovered ? 'complete' : phase3Recovery.fallbackToDna ? 'skipped' : 'warning',
-        phase3Recovery.detail,
-      ));
-    }
+    // Phase 3: watermark recovery → vault resolution (always-on forensic extraction)
+    let phase3Recovery: Awaited<ReturnType<typeof phase3WatermarkRecovery.recoverForensic>> | null = null;
+    phase3Recovery = await phase3WatermarkRecovery.recoverForensic(buffer, mimeType, ownerUserId);
+    pipeline.push(step(
+      'watermark_recovery',
+      'Watermark recovery',
+      phase3Recovery.recovered ? 'complete' : phase3Recovery.fallbackToDna ? 'skipped' : 'warning',
+      phase3Recovery.detail,
+    ));
 
     // 2. Lightweight DNA (Phase 2 when enabled)
     if (isPhase2Active()) {
@@ -139,7 +137,8 @@ export class UnifiedInvestigationOrchestrator {
         ));
       }
       rankedCandidates = enterprise.candidates;
-      match = enterprise.match ?? enterprise.probableMatch;
+      const candidate = enterprise.match ?? enterprise.probableMatch;
+      match = candidate && isTrustedVaultMatch(candidate) ? candidate : null;
       if (enterprise.probableMatch && !enterprise.match) {
         pipeline.push(step(
           'probable_match',
@@ -237,6 +236,30 @@ export class UnifiedInvestigationOrchestrator {
           'complete',
           `${comparison.overallConfidenceScore}% — ${comparison.classification}`,
         ));
+
+        const isCameraScan = isCameraScanFileName(originalName);
+        if (!isAcceptedAfterDnaCompare(match, comparison.overallConfidenceScore, comparison.classification, isCameraScan)) {
+          logger.warn('Unified investigation: match rejected after DNA comparison', {
+            vaultId: match.vaultId,
+            score: comparison.overallConfidenceScore,
+            classification: comparison.classification,
+          });
+          pipeline.push(step(
+            'match_validation',
+            'Validate vault match',
+            'failed',
+            `Rejected — ${comparison.overallConfidenceScore}% DNA score does not confirm vault pairing`,
+          ));
+          return this.noMatchReport(
+            investigationId,
+            pipeline,
+            leakVerify,
+            identityRecovery,
+            currentFileHash,
+            `Vault candidate rejected after 15-layer compare (${comparison.overallConfidenceScore}% — ${comparison.classification}). Scanned file does not match this vault record.`,
+          );
+        }
+        pipeline.push(step('match_validation', 'Validate vault match', 'complete', explainMatchBasis(match)));
       } catch (cmpErr) {
         logger.error('Unified investigation DNA compare failed', { error: String(cmpErr) });
         pipeline.push(step(
@@ -496,6 +519,7 @@ export class UnifiedInvestigationOrchestrator {
     leakVerify: Awaited<ReturnType<typeof leakedFileVerifyService.verify>>,
     identityRecovery?: Awaited<ReturnType<typeof identityRecoveryEngine.recover>>,
     currentFileHash?: string,
+    customMessage?: string,
   ): UnifiedInvestigationReport {
     pipeline.push(step('report', 'Generate investigation report', 'complete', 'No vault match'));
     const recovery = identityRecovery ?? {
@@ -551,7 +575,7 @@ export class UnifiedInvestigationOrchestrator {
         message: leakVerify.message,
         accessHistory: leakVerify.accessHistory,
       },
-      message: 'Could not locate original vault file in your account. Identity signals may still be present.',
+      message: customMessage ?? 'Could not locate original vault file in your account. Identity signals may still be present.',
       identityRecovery: recovery,
       currentFileHash,
     };

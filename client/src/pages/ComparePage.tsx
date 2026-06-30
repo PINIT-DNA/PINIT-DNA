@@ -131,11 +131,13 @@ function AutoMatchIdentityBanner({ autoResult }: { autoResult: Record<string, an
               ? `Probable Match · ${autoResult.ownershipConfidence ?? autoResult.candidateRanking?.[0]?.compositeScore ?? '?'}%`
               : `Tier ${autoResult.matchTier} Match`}
         </Badge>
-        {autoResult.tampered
-          ? <Badge variant="danger" dot pulse>Tampered</Badge>
-          : <Badge variant="success">Identical</Badge>}
+        {autoResult.tamperLabel
+          ? <Badge variant={autoResult.tampered ? 'danger' : 'success'}>{autoResult.tamperLabel}</Badge>
+          : autoResult.tampered
+            ? <Badge variant="danger" dot pulse>Tampered</Badge>
+            : <Badge variant="success">Identical</Badge>}
       </div>
-      <p className="text-2xs text-gray-500 mb-4">{autoResult.matchMethod}</p>
+      <p className="text-2xs text-gray-500 mb-4">{autoResult.matchBasis ?? autoResult.matchMethod}</p>
 
       {/* Original file — prominent */}
       <div className="rounded-xl border border-dna-500/25 bg-dna-500/5 p-4 mb-4">
@@ -487,6 +489,9 @@ export function ComparePage() {
           setResult(res as ComparisonResult);
           storedResult = res as ComparisonResult;
           toast.success('Auto-match found — comparison complete');
+        } else if (res.matchRejected) {
+          toast.error(res.message || 'Vault match rejected — files are not the same');
+          setAutoResult(res);
         } else {
           toast.error(res.message || 'No PINIT-DNA identity found in this file');
           setAutoResult(res);
@@ -680,10 +685,26 @@ export function ComparePage() {
           <div className="flex items-center gap-3 mb-3">
             <AlertTriangle size={20} className="text-warning" />
             <h3 className="text-sm font-bold text-warning">
-              {autoResult.bestCandidate ? 'No Exact Match — Best Vault Candidate' : 'No PINIT-DNA Identity Found'}
+              {autoResult.matchRejected
+                ? 'Wrong Vault Match Rejected'
+                : autoResult.bestCandidate
+                  ? 'No Exact Match — Best Vault Candidate'
+                  : 'No PINIT-DNA Identity Found'}
             </h3>
           </div>
           <p className="text-sm text-gray-400">{autoResult.message}</p>
+          {autoResult.matchRejected && autoResult.rejectedMatch && (
+            <div className="mt-4 rounded-xl border border-danger/25 bg-danger/5 p-4">
+              <p className="text-2xs text-danger font-semibold uppercase tracking-wider mb-2">Rejected pairing</p>
+              <p className="text-xs text-gray-400">{autoResult.rejectedMatch.method}</p>
+              <p className="text-sm font-bold text-white mt-2">
+                DNA compare: {autoResult.rejectedMatch.compareScore}% — {autoResult.rejectedMatch.classification}
+              </p>
+              <p className="text-2xs text-gray-500 mt-2 mono">
+                Vault {autoResult.rejectedMatch.vaultId?.slice(0, 12)}…
+              </p>
+            </div>
+          )}
           {autoResult.bestCandidate && (
             <div className="mt-4 rounded-xl border border-dna-500/25 bg-dna-500/5 p-4">
               <p className="text-2xs text-dna-400 font-semibold uppercase tracking-wider mb-2">Best vault candidate</p>

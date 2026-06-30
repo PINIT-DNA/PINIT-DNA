@@ -7,6 +7,7 @@ import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { identityEmbeddingService } from '../identity/identity-embedding.service';
 import { PerceptualLayer } from '../layers/layer3.perceptual';
+import { isCameraScanFileName } from './vault-match-validator.service';
 
 const PHASH_MATCH_THRESHOLD = 0.88;
 
@@ -32,7 +33,7 @@ export class VaultAutoMatchService {
     buffer: Buffer,
     mimeType: string,
     originalName: string,
-    sizeBytes: number,
+    _sizeBytes: number,
     ownerUserId: string,
     options?: VaultMatchOptions,
   ): Promise<VaultMatchResult | null> {
@@ -101,52 +102,36 @@ export class VaultAutoMatchService {
       .replace(/\s*copy\s*/gi, '')
       .trim();
 
-    const isCameraScan = /^(scan_|captured_|photo_|IMG_|image_)/i.test(cleanName);
+    // Tier 3: exact filename only (never fuzzy/mime for camera scans — causes false positives)
+    const isCameraScan = isCameraScanFileName(cleanName);
 
-    const filenameMatches = await prisma.vaultRecord.findMany({
-      where: { dnaRecord: { ownerUserId } },
-      include: { dnaRecord: true },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    });
+    if (!isCameraScan) {
+      const filenameMatches = await prisma.vaultRecord.findMany({
+        where: { dnaRecord: { ownerUserId } },
+        include: { dnaRecord: true },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      });
 
-    let bestMatch: (typeof filenameMatches)[0] | null = null;
-    let bestScore = 0;
+      const probeStem = cleanName.toLowerCase().replace(/\.[^.]+$/, '');
+      for (const candidate of filenameMatches) {
+        const candidateName = candidate.originalFileName
+          .replace(/\s*\(\d+\)\s*/g, '')
+          .replace(/\s*-\s*copy/gi, '')
+          .trim();
+        const vaultStem = candidateName.toLowerCase().replace(/\.[^.]+$/, '');
 
-    for (const candidate of filenameMatches) {
-      let score = 0;
-      const candidateName = candidate.originalFileName
-        .replace(/\s*\(\d+\)\s*/g, '')
-        .replace(/\s*-\s*copy/gi, '')
-        .trim();
-
-      if (candidateName.toLowerCase() === cleanName.toLowerCase()) score = 100;
-      else if (
-        candidateName.toLowerCase().includes(cleanName.toLowerCase().replace(/\.[^.]+$/, ''))
-        || cleanName.toLowerCase().includes(candidateName.toLowerCase().replace(/\.[^.]+$/, ''))
-      ) score = 70;
-      else if (candidate.originalMimeType === mimeType) score = 30;
-
-      const sizeRatio = Math.min(candidate.originalSizeBytes, sizeBytes)
-        / Math.max(candidate.originalSizeBytes, sizeBytes);
-      if (sizeRatio > 0.5) score += 20;
-      if (sizeRatio > 0.8) score += 10;
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestMatch = candidate;
+        if (candidateName.toLowerCase() === cleanName.toLowerCase() || vaultStem === probeStem) {
+          return {
+            tier: 3,
+            method: `Exact filename match (${candidateName})`,
+            dnaRecordId: candidate.dnaRecordId,
+            vaultId: candidate.id,
+            ownerUserId: candidate.dnaRecord?.ownerUserId ?? ownerUserId,
+            confidence: 'HIGH',
+          };
+        }
       }
-    }
-
-    if (bestMatch && bestScore >= (isCameraScan ? 40 : 50)) {
-      return {
-        tier: 3,
-        method: `Fuzzy filename match (${bestScore}%)`,
-        dnaRecordId: bestMatch.dnaRecordId,
-        vaultId: bestMatch.id,
-        ownerUserId: bestMatch.dnaRecord?.ownerUserId ?? ownerUserId,
-        confidence: bestScore >= 80 ? 'HIGH' : 'MEDIUM',
-      };
     }
 
     return null;

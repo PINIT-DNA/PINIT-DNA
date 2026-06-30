@@ -13,6 +13,7 @@ import { forensicImagePreprocessor } from './forensic-image-preprocessor.service
 import { vaultCandidateRankingService } from './vault-candidate-ranking.service';
 import { vaultAutoMatchService, type VaultMatchResult } from './vault-auto-match.service';
 import { confidenceFusionEngine, type FusionResult } from './confidence-fusion-engine.service';
+import { isCameraScanFileName, candidateHasVisualSignal } from './vault-match-validator.service';
 import type { RankedVaultCandidate } from '../../types/unified-investigation.types';
 
 export interface RecoveryStage {
@@ -33,8 +34,7 @@ export interface EnterpriseRecoveryResult {
   watermarkRecovered: boolean;
 }
 
-const PROBABLE_THRESHOLD = 42;
-const CAMERA_NAME_RE = /^(scan_|captured_|photo_|IMG_|image_)/i;
+const PROBABLE_THRESHOLD = 58;
 
 export class EnterpriseRecoveryPipeline {
   async run(
@@ -154,7 +154,7 @@ export class EnterpriseRecoveryPipeline {
       } catch { /* continue */ }
 
       try {
-        const wm = await phase3WatermarkRecovery.recover(variant.buffer, variant.mimeType, ownerUserId);
+        const wm = await phase3WatermarkRecovery.recoverForensic(variant.buffer, variant.mimeType, ownerUserId);
         if (wm.recovered) {
           watermarkRecovered = true;
           watermarkScore = Math.max(watermarkScore, wm.tokenValid ? 94 : 72);
@@ -183,7 +183,7 @@ export class EnterpriseRecoveryPipeline {
       stages.push({ stage: 'watermark_recovery', status: 'failed', detail: 'Watermark not recovered — continuing visual DNA' });
     }
 
-    const isCamera = CAMERA_NAME_RE.test(originalName);
+    const isCamera = isCameraScanFileName(originalName);
     let candidates: RankedVaultCandidate[] = [];
 
     for (const variant of variants) {
@@ -233,7 +233,7 @@ export class EnterpriseRecoveryPipeline {
           originalName,
           sizeBytes,
           ownerUserId,
-          { relaxedVisual: true, phashThreshold: isCamera ? 0.68 : 0.78 },
+          { phashThreshold: isCamera ? 0.62 : 0.78 },
         );
         if (m) {
           match = { ...m, method: `${m.method} (${variant.label})` };
@@ -243,8 +243,14 @@ export class EnterpriseRecoveryPipeline {
     }
 
     const bestCandidate = candidates[0] ?? null;
-    const probableMatch = !match && bestCandidate && bestCandidate.compositeScore >= PROBABLE_THRESHOLD
-      ? vaultCandidateRankingService.toVaultMatch(bestCandidate)
+    const probableCandidate = bestCandidate
+      && bestCandidate.compositeScore >= PROBABLE_THRESHOLD
+      && candidateHasVisualSignal(bestCandidate)
+      ? bestCandidate
+      : null;
+
+    const probableMatch = !match && probableCandidate
+      ? vaultCandidateRankingService.toVaultMatch(probableCandidate)
       : null;
 
     const effectiveMatch = match ?? probableMatch;

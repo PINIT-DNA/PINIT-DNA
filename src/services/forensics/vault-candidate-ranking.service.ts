@@ -9,6 +9,7 @@ import { PerceptualLayer } from '../layers/layer3.perceptual';
 import { aiService } from '../ai/ai-embeddings.service';
 import type { VaultMatchResult } from './vault-auto-match.service';
 import type { RankedVaultCandidate } from '../../types/unified-investigation.types';
+import { isCameraScanFileName, candidateHasVisualSignal } from './vault-match-validator.service';
 
 const PHASH_THRESHOLD = 0.65;
 const MAX_CANDIDATES = 100;
@@ -89,6 +90,8 @@ export class VaultCandidateRankingService {
       .trim()
       .toLowerCase();
 
+    const isCameraScan = isCameraScanFileName(originalName);
+
     let probe: Awaited<ReturnType<PerceptualLayer['computeFingerprints']>> | null = null;
     if (mimeType.startsWith('image/')) {
       try {
@@ -106,14 +109,14 @@ export class VaultCandidateRankingService {
       if (fname === cleanName.replace(/\.[^.]+$/, '')) {
         prelim = Math.max(prelim, 85);
         signals.push('filename_exact');
-      } else if (fname.includes(cleanName.replace(/\.[^.]+$/, '')) || cleanName.includes(fname)) {
+      } else if (!isCameraScan && (fname.includes(cleanName.replace(/\.[^.]+$/, '')) || cleanName.includes(fname))) {
         prelim = Math.max(prelim, 55);
         signals.push('filename_fuzzy');
       }
 
       const sizeRatio = Math.min(row.originalSizeBytes, sizeBytes) / Math.max(row.originalSizeBytes, sizeBytes);
-      if (sizeRatio > 0.75) { prelim += 10; signals.push('size_match'); }
-      else if (sizeRatio > 0.45) { prelim += 5; }
+      if (!isCameraScan && sizeRatio > 0.75) { prelim += 10; signals.push('size_match'); }
+      else if (!isCameraScan && sizeRatio > 0.45) { prelim += 5; }
 
       if (probe && row.dnaRecord.perceptualLayer?.pHash64) {
         const pl = row.dnaRecord.perceptualLayer;
@@ -183,10 +186,11 @@ export class VaultCandidateRankingService {
     };
   }
 
-  selectBestCandidate(candidates: RankedVaultCandidate[], minScore = 40): VaultMatchResult | null {
+  selectBestCandidate(candidates: RankedVaultCandidate[], minScore = 55): VaultMatchResult | null {
     if (!candidates.length) return null;
-    const best = candidates[0];
-    if (!best || best.compositeScore < minScore) return null;
+    const forensic = candidates.filter((c) => candidateHasVisualSignal(c) && c.compositeScore >= minScore);
+    const best = forensic[0] ?? null;
+    if (!best) return null;
     return this.toVaultMatch(best);
   }
 
