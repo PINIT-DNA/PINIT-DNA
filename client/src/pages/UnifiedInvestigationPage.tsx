@@ -59,6 +59,8 @@ interface InvestigationReport {
     hasPublicLeak: boolean;
     entries: Array<{ platform: string; url: string; firstSeen?: string; lastSeen?: string; status: string }>;
     message: string;
+    leakChain?: Array<{ platform: string; date?: string; status: string }>;
+    currentStatus?: string;
   };
   identityProof: {
     vaultId?: string;
