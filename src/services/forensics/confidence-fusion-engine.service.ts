@@ -1,8 +1,17 @@
 /**
- * Enterprise confidence fusion — weighted ownership score from all recovery signals.
+ * Phase 6 — PINIT Original Identity Recovery confidence fusion.
+ *
+ * Identity token .......... 30%
+ * Invisible watermark ..... 25%
+ * 15-layer DNA compare .... 20%
+ * ORB ..................... 10%
+ * CLIP ....................... 5%
+ * Structural fingerprint ..... 5%
+ * Perceptual hashes .......... 5%
  */
 import type { RankedVaultCandidate } from '../../types/unified-investigation.types';
 import type { VaultMatchResult } from './vault-auto-match.service';
+import { pinitIdentificationConfig } from '../../config/pinit-identification';
 
 export interface FusionInput {
   watermarkScore?: number;
@@ -10,6 +19,7 @@ export interface FusionInput {
   manifestScore?: number;
   certificateScore?: number;
   sha256Score?: number;
+  dna15LayerScore?: number;
   visualDnaScore?: number;
   perceptualHashScore?: number;
   structuralScore?: number;
@@ -20,28 +30,26 @@ export interface FusionInput {
   metadataScore?: number;
   candidate?: RankedVaultCandidate | null;
   match?: VaultMatchResult | null;
+  vaultVectorComposite?: number;
 }
 
 export interface FusionResult {
   ownershipConfidence: number;
   identityConfidence: number;
   trustScore: number;
+  highConfidence: boolean;
+  fusionMode: 'enterprise';
   breakdown: Array<{ label: string; score: number; weight: number; contribution: number }>;
 }
 
-const FUSION_WEIGHTS = {
-  invisibleWatermark: 0.18,
-  identityToken: 0.16,
-  manifest: 0.08,
-  certificate: 0.06,
-  sha256: 0.10,
-  visualDna: 0.10,
-  perceptualHash: 0.08,
-  structural: 0.06,
-  semantic: 0.05,
-  localFeatures: 0.08,
-  texture: 0.03,
-  ocr: 0.02,
+const ENTERPRISE_WEIGHTS = {
+  identityToken: 0.30,
+  invisibleWatermark: 0.25,
+  dna15Layer: 0.20,
+  orb: 0.10,
+  clip: 0.05,
+  structural: 0.05,
+  perceptual: 0.05,
 } as const;
 
 function clamp(n: number): number {
@@ -50,34 +58,32 @@ function clamp(n: number): number {
 
 export class ConfidenceFusionEngine {
   fuse(input: FusionInput): FusionResult {
-    const candidateScore = input.candidate?.compositeScore ?? 0;
-    const matchBoost = input.match
-      ? input.match.tier === 1
-        ? 100
-        : input.match.tier === 2
-          ? 88
-          : input.match.visualSimilarity
-            ? Math.round(input.match.visualSimilarity * 100)
-            : 70
-      : 0;
-
-    const visual = Math.max(input.visualDnaScore ?? 0, input.perceptualHashScore ?? 0, candidateScore, matchBoost);
-    const structural = input.structuralScore ?? (candidateScore > 0 ? candidateScore * 0.85 : 0);
-    const texture = input.textureScore ?? (visual > 0 ? visual * 0.9 : 0);
+    const identityToken = clamp(Math.max(input.identityTokenScore ?? 0, input.ocrScore ?? 0));
+    const watermark = clamp(input.watermarkScore ?? 0);
+    const dna15 = clamp(input.dna15LayerScore ?? 0);
+    const orb = clamp(Math.max(
+      input.localFeatureScore ?? 0,
+      input.candidate?.signals.some((s) => s === 'local_features' || s.startsWith('opencv')) ? input.candidate.compositeScore : 0,
+    ));
+    const clip = clamp(input.semanticScore ?? 0);
+    const structural = clamp(Math.max(
+      input.structuralScore ?? 0,
+      input.candidate?.signals.includes('structural_fingerprint') ? input.candidate.compositeScore : 0,
+    ));
+    const perceptual = clamp(Math.max(
+      input.perceptualHashScore ?? 0,
+      input.visualDnaScore ?? 0,
+      input.candidate?.signals.includes('perceptual_hash') ? input.candidate.compositeScore : 0,
+    ));
 
     const rows: FusionResult['breakdown'] = [
-      { label: 'Invisible Watermark', score: clamp(input.watermarkScore ?? 0), weight: FUSION_WEIGHTS.invisibleWatermark, contribution: 0 },
-      { label: 'Identity Token', score: clamp(input.identityTokenScore ?? 0), weight: FUSION_WEIGHTS.identityToken, contribution: 0 },
-      { label: 'Integrity Manifest', score: clamp(input.manifestScore ?? 0), weight: FUSION_WEIGHTS.manifest, contribution: 0 },
-      { label: 'Certificate', score: clamp(input.certificateScore ?? 0), weight: FUSION_WEIGHTS.certificate, contribution: 0 },
-      { label: 'SHA-256', score: clamp(input.sha256Score ?? 0), weight: FUSION_WEIGHTS.sha256, contribution: 0 },
-      { label: 'Visual DNA', score: clamp(visual), weight: FUSION_WEIGHTS.visualDna, contribution: 0 },
-      { label: 'Perceptual Hash', score: clamp(input.perceptualHashScore ?? visual), weight: FUSION_WEIGHTS.perceptualHash, contribution: 0 },
-      { label: 'Structural', score: clamp(structural), weight: FUSION_WEIGHTS.structural, contribution: 0 },
-      { label: 'Semantic', score: clamp(input.semanticScore ?? 0), weight: FUSION_WEIGHTS.semantic, contribution: 0 },
-      { label: 'Local Features (ORB)', score: clamp(input.localFeatureScore ?? 0), weight: FUSION_WEIGHTS.localFeatures, contribution: 0 },
-      { label: 'Texture', score: clamp(texture), weight: FUSION_WEIGHTS.texture, contribution: 0 },
-      { label: 'OCR Signals', score: clamp(input.ocrScore ?? 0), weight: FUSION_WEIGHTS.ocr, contribution: 0 },
+      { label: 'Identity Token', score: identityToken, weight: ENTERPRISE_WEIGHTS.identityToken, contribution: 0 },
+      { label: 'Invisible Watermark', score: watermark, weight: ENTERPRISE_WEIGHTS.invisibleWatermark, contribution: 0 },
+      { label: '15-Layer DNA Compare', score: dna15, weight: ENTERPRISE_WEIGHTS.dna15Layer, contribution: 0 },
+      { label: 'ORB / Local Features', score: orb, weight: ENTERPRISE_WEIGHTS.orb, contribution: 0 },
+      { label: 'CLIP / Semantic', score: clip, weight: ENTERPRISE_WEIGHTS.clip, contribution: 0 },
+      { label: 'Structural Fingerprint', score: structural, weight: ENTERPRISE_WEIGHTS.structural, contribution: 0 },
+      { label: 'Perceptual Hashes', score: perceptual, weight: ENTERPRISE_WEIGHTS.perceptual, contribution: 0 },
     ];
 
     let weighted = 0;
@@ -86,21 +92,39 @@ export class ConfidenceFusionEngine {
       weighted += row.contribution;
     }
 
-    const ownershipConfidence = clamp(weighted);
+    // Vault-vector composite reinforces visual identification when identity signals are stripped
+    const vectorBoost = input.vaultVectorComposite ?? input.candidate?.compositeScore ?? 0;
+    let ownershipConfidence = clamp(weighted);
+
+    if (vectorBoost >= 85 && orb >= 70) {
+      ownershipConfidence = Math.max(ownershipConfidence, 93);
+    } else if (vectorBoost >= 78 && (orb >= 55 || perceptual >= 65)) {
+      ownershipConfidence = Math.max(ownershipConfidence, 88);
+    }
+
+    if (input.sha256Score === 100) ownershipConfidence = 100;
+    if (identityToken >= 90 && watermark >= 70) {
+      ownershipConfidence = Math.max(ownershipConfidence, 96);
+    }
+
     const identityConfidence = clamp(
-      (input.identityTokenScore ?? 0) * 0.35
-      + (input.manifestScore ?? 0) * 0.25
-      + (input.watermarkScore ?? 0) * 0.25
-      + visual * 0.15,
-    );
-    const trustScore = clamp(
-      ownershipConfidence * 0.45
-      + identityConfidence * 0.35
-      + (input.certificateScore ?? 0) * 0.1
-      + (input.metadataScore ?? 0) * 0.1,
+      identityToken * 0.40 + watermark * 0.30 + dna15 * 0.20 + perceptual * 0.10,
     );
 
-    return { ownershipConfidence, identityConfidence, trustScore, breakdown: rows };
+    const trustScore = clamp(
+      ownershipConfidence * 0.55 + identityConfidence * 0.30 + (input.certificateScore ?? 0) * 0.15,
+    );
+
+    const highConfidence = ownershipConfidence >= pinitIdentificationConfig.highConfidenceThreshold;
+
+    return {
+      ownershipConfidence,
+      identityConfidence,
+      trustScore,
+      highConfidence,
+      fusionMode: 'enterprise',
+      breakdown: rows,
+    };
   }
 }
 

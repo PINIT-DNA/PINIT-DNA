@@ -173,14 +173,18 @@ export class VaultCandidateRankingService {
   }
 
   toVaultMatch(candidate: RankedVaultCandidate): VaultMatchResult {
+    const hasVisualDna = candidate.signals.includes('perceptual_hash')
+      || candidate.signals.includes('structural_fingerprint')
+      || candidate.signals.some((s) => s === 'local_features' || s === 'opencv_orb' || s === 'orb_akaze');
+    const tier = candidate.tier ?? (hasVisualDna && candidate.compositeScore >= 80 ? 4 : 3);
     return {
-      tier: (candidate.tier ?? 3) as VaultMatchResult['tier'],
+      tier: tier as VaultMatchResult['tier'],
       method: `${candidate.method} (rank #${candidate.rank}, ${candidate.compositeScore}%)`,
       dnaRecordId: candidate.dnaRecordId,
       vaultId: candidate.vaultId,
       ownerUserId: candidate.ownerUserId,
       confidence: String(candidate.compositeScore),
-      visualSimilarity: candidate.signals.includes('perceptual_hash')
+      visualSimilarity: hasVisualDna || candidate.compositeScore >= 75
         ? candidate.compositeScore / 100
         : undefined,
     };

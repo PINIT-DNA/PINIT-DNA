@@ -13,6 +13,7 @@ import { identityEmbeddingService } from '../identity/identity-embedding.service
 import { tepService, isProtectedDownloadTepChannel } from '../tep/tep.service';
 import { extractTepTail } from '../tep/tep.service';
 import { pinitSignatureDetector } from '../duplicate/pinit-signature-detector.service';
+import { pinitIdentificationConfig } from '../../config/pinit-identification';
 import { extractWatermarkFromFile } from '../watermark/watermark.service';
 import { PerceptualLayer } from '../layers/layer3.perceptual';
 import { CryptographicLayer } from '../layers/layer1.cryptographic';
@@ -276,7 +277,7 @@ export class LeakedFileVerifyService {
           options.ownerUserId,
         );
         const m = id.match ?? id.probableMatch;
-        if (m && (id.identified || id.fusion.ownershipConfidence >= 52)) {
+        if (m && (id.identified || id.fusion.ownershipConfidence >= pinitIdentificationConfig.identifyThreshold)) {
           const deep = id.bestDeepCompare;
           return this._fromDnaRecord(m.dnaRecordId, {
             detectionMethod: deep?.tamperingDetected ? 'NEAR_DUPLICATE_PHASH' : 'EMBEDDED_IDENTITY',

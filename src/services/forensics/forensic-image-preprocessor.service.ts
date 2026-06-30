@@ -73,6 +73,44 @@ export class ForensicImagePreprocessor {
         .jpeg({ quality: 88 })
         .toBuffer();
       variants.push({ label: 'perspective_hint', buffer: rotated, mimeType: 'image/jpeg' });
+
+      // Phase 1 / Phase 5 — social & messenger compression simulation
+      const whatsapp = await sharp(buffer).rotate().jpeg({ quality: 55, mozjpeg: true }).toBuffer();
+      variants.push({ label: 'whatsapp_compress', buffer: whatsapp, mimeType: 'image/jpeg' });
+
+      const telegram = await sharp(buffer).rotate().webp({ quality: 50 }).toBuffer();
+      variants.push({ label: 'telegram_compress', buffer: telegram, mimeType: 'image/webp' });
+
+      const instagram = await sharp(buffer)
+        .rotate()
+        .resize({ width: Math.min(w, 1080), height: Math.min(h, 1080), fit: 'inside' })
+        .jpeg({ quality: 82 })
+        .toBuffer();
+      variants.push({ label: 'instagram_sim', buffer: instagram, mimeType: 'image/jpeg' });
+
+      if (w > 64 && h > 64) {
+        const cropW = Math.round(w * 0.82);
+        const cropH = Math.round(h * 0.82);
+        const cropped = await sharp(buffer)
+          .extract({
+            left: Math.round((w - cropW) / 2),
+            top: Math.round((h - cropH) / 2),
+            width: cropW,
+            height: cropH,
+          })
+          .jpeg({ quality: 90 })
+          .toBuffer();
+        variants.push({ label: 'center_crop', buffer: cropped, mimeType: 'image/jpeg' });
+      }
+
+      const bright = await sharp(buffer).rotate().modulate({ brightness: 1.22 }).jpeg({ quality: 88 }).toBuffer();
+      variants.push({ label: 'brightness_up', buffer: bright, mimeType: 'image/jpeg' });
+
+      const dark = await sharp(buffer).rotate().modulate({ brightness: 0.78 }).jpeg({ quality: 88 }).toBuffer();
+      variants.push({ label: 'brightness_down', buffer: dark, mimeType: 'image/jpeg' });
+
+      const rotate90 = await sharp(buffer).rotate(90).jpeg({ quality: 90 }).toBuffer();
+      variants.push({ label: 'rotate_90', buffer: rotate90, mimeType: 'image/jpeg' });
     } catch (err) {
       logger.debug('[ForensicPreprocessor] Variant generation partial', { error: String(err) });
     }

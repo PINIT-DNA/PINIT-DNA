@@ -1,13 +1,10 @@
 /**
- * PINIT-DNA — Auto Compare Controller (Advanced 3-Tier Matching)
+ * PINIT-DNA — Auto Compare Controller
  *
  * POST /api/v1/dna/auto-compare
  *
- * Upload ONE file → system finds the original from vault using 3 strategies:
- *   Tier 1: SHA-256 exact hash match against all DNA records
- *   Tier 2: Embedded identity signature extraction (HMAC-based)
- *   Tier 3: Fuzzy match — file name + mime type similarity across vault
- * Then runs full 10-layer DNA comparison.
+ * Upload ONE file → PINIT Original Identity Recovery Algorithm finds the vault original,
+ * runs full 15-layer DNA comparison, returns owner identity + tampering report.
  */
 
 import crypto from 'crypto';
@@ -16,15 +13,8 @@ import fs from 'fs/promises';
 import { AppError } from '../middleware/error.middleware';
 import { logger } from '../../lib/logger';
 import { DnaComparisonService } from '../../services/verification/dna-comparison.service';
-import { vaultAutoMatchService } from '../../services/forensics/vault-auto-match.service';
 import { enterpriseRecoveryPipeline } from '../../services/forensics/enterprise-recovery-pipeline.service';
-import {
-  isTrustedVaultMatch,
-  isAcceptedAfterDnaCompare,
-  isCameraScanFileName,
-  tamperStatusFromCompare,
-  explainMatchBasis,
-} from '../../services/forensics/vault-match-validator.service';
+import { tamperStatusFromCompare, explainMatchBasis } from '../../services/forensics/vault-match-validator.service';
 import { VaultService } from '../../services/vault/vault.service';
 import { getAuthUserId } from '../../lib/tenant-scope';
 import { prisma } from '../../lib/prisma';
@@ -35,7 +25,7 @@ const vaultService = new VaultService();
 export async function autoCompareDna(
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> {
   const multerFile = req.file;
   const userId = getAuthUserId(req);
@@ -53,9 +43,7 @@ export async function autoCompareDna(
 
   try {
     const uploadedHash = crypto.createHash('sha256').update(suspectedBuffer).digest('hex');
-    logger.info('Auto-compare: enterprise recovery search', { hash: uploadedHash.slice(0, 16) });
-
-    const isCameraScan = isCameraScanFileName(multerFile.originalname);
+    logger.info('Auto-compare: PINIT Original Identity Recovery', { hash: uploadedHash.slice(0, 16) });
 
     const recovery = await enterpriseRecoveryPipeline.run(
       suspectedBuffer,
@@ -65,45 +53,28 @@ export async function autoCompareDna(
       userId,
     );
 
-    let resolvedMatch = recovery.match ?? recovery.probableMatch;
-
-    if (!resolvedMatch) {
-      const quick = await vaultAutoMatchService.findMatch(
-        suspectedBuffer,
-        multerFile.mimetype,
-        multerFile.originalname,
-        multerFile.size,
-        userId,
-      );
-      if (quick && isTrustedVaultMatch(quick)) {
-        resolvedMatch = quick;
-      }
-    } else if (!isTrustedVaultMatch(resolvedMatch)) {
-      resolvedMatch = null;
-    }
+    const resolvedMatch = recovery.identified ? recovery.match : null;
 
     if (!resolvedMatch) {
       res.status(200).json({
         success: false,
         autoMatched: false,
+        identified: false,
         searchedHash: uploadedHash.slice(0, 16) + '…',
-        message: isCameraScan
-          ? 'No forensic match found. Camera scans require visual DNA, watermark, or embedded identity — not filename alone.'
-          : 'Could not find matching original in your vault. The file may not have been uploaded to PINIT-DNA, or belongs to another user.',
+        message: 'No PINIT signature found.',
         recoveryStages: recovery.stages,
         bestCandidate: recovery.candidates[0] ?? null,
         candidateRanking: recovery.candidates.slice(0, 10),
         ownershipConfidence: recovery.fusion.ownershipConfidence,
         fusionBreakdown: recovery.fusion.breakdown,
+        fusionMode: recovery.fusion.fusionMode,
+        probableMatch: recovery.probableMatch ?? null,
+        recoveredSignals: recovery.recoveredSignals,
+        deepCompareResults: recovery.deepCompareResults,
       });
       return;
     }
 
-    const isProbable = !recovery.match && !!recovery.probableMatch;
-
-    // ═══════════════════════════════════════════════════════════════════
-    // MATCH FOUND — Retrieve original from vault and run full comparison
-    // ═══════════════════════════════════════════════════════════════════
     let original;
     try {
       original = await vaultService.retrieve(resolvedMatch.vaultId, userId);
@@ -112,8 +83,8 @@ export async function autoCompareDna(
       res.status(200).json({
         success: false,
         autoMatched: false,
-        message: `Found a match in vault but failed to retrieve the original file: ${String(e)}`,
-        recoveryStages: recovery?.stages ?? [],
+        message: `Found vault match but failed to retrieve original: ${String(e)}`,
+        recoveryStages: recovery.stages,
       });
       return;
     }
@@ -133,93 +104,65 @@ export async function autoCompareDna(
       select: { createdAt: true, originalFileName: true },
     });
 
-    // Check if files are byte-identical
     const isIdentical = original.originalBuffer.equals(suspectedBuffer);
 
-    // Run full 10-layer DNA comparison
     let result;
     try {
-    result = await comparisonService.compare(
-      {
-        filePath: '',
-        originalName: original.originalFileName,
-        declaredMimeType: original.originalMimeType,
-        sizeBytes: original.originalSizeBytes,
-        buffer: original.originalBuffer,
-      },
-      {
-        filePath: multerFile.path,
-        originalName: multerFile.originalname,
-        declaredMimeType: multerFile.mimetype,
-        sizeBytes: multerFile.size,
-        buffer: suspectedBuffer,
-      },
-      { vaultDnaRecordId: resolvedMatch.dnaRecordId },
-    );
+      result = await comparisonService.compare(
+        {
+          filePath: '',
+          originalName: original.originalFileName,
+          declaredMimeType: original.originalMimeType,
+          sizeBytes: original.originalSizeBytes,
+          buffer: original.originalBuffer,
+        },
+        {
+          filePath: multerFile.path,
+          originalName: multerFile.originalname,
+          declaredMimeType: multerFile.mimetype,
+          sizeBytes: multerFile.size,
+          buffer: suspectedBuffer,
+        },
+        { vaultDnaRecordId: resolvedMatch.dnaRecordId },
+      );
     } catch (e) {
       logger.error('DNA comparison failed', { error: String(e) });
       result = null;
     }
 
-    const compareScore = result?.overallConfidenceScore ?? 0;
-    const classification = result?.classification ?? 'DIFFERENT';
+    const compareScore = result?.overallConfidenceScore ?? recovery.bestDeepCompare?.overallConfidenceScore ?? 0;
+    const classification = result?.classification ?? recovery.bestDeepCompare?.classification ?? 'DIFFERENT';
     const tamperFlags = tamperStatusFromCompare(
       isIdentical,
       compareScore,
       classification,
-      result?.tamperingDetected ?? false,
+      result?.tamperingDetected ?? recovery.bestDeepCompare?.tamperingDetected ?? false,
     );
 
-    if (result && !isAcceptedAfterDnaCompare(resolvedMatch, compareScore, classification, isCameraScan)) {
-      logger.warn('Auto-compare: match rejected after DNA comparison', {
-        vaultId: resolvedMatch.vaultId,
-        compareScore,
-        classification,
-        method: resolvedMatch.method,
-      });
-      res.status(200).json({
-        success: false,
-        autoMatched: false,
-        matchRejected: true,
-        message: `Vault candidate rejected — 15-layer DNA compare scored ${compareScore}% (${classification}). The scanned file does not match this vault record.`,
-        recoveryStages: recovery.stages,
-        bestCandidate: recovery.candidates[0] ?? null,
-        candidateRanking: recovery.candidates.slice(0, 10),
-        ownershipConfidence: recovery.fusion.ownershipConfidence,
-        rejectedMatch: {
-          vaultId: resolvedMatch.vaultId,
-          dnaRecordId: resolvedMatch.dnaRecordId,
-          method: explainMatchBasis(resolvedMatch),
-          compareScore,
-          classification,
-        },
-        ...(result ?? {}),
-      });
-      return;
-    }
-
     logger.info('Auto-compare complete', {
+      identified: true,
       tier: resolvedMatch.tier,
       method: resolvedMatch.method,
-      probable: isProbable,
-      classification: result?.classification ?? 'N/A',
-      tamperingDetected: result?.tamperingDetected ?? false,
-      isIdentical,
+      ownershipConfidence: recovery.fusion.ownershipConfidence,
+      classification,
     });
 
     res.status(200).json({
       success: true,
       autoMatched: true,
-      probableMatch: isProbable,
+      identified: true,
+      pinitOriginalIdentified: true,
       matchTier: resolvedMatch.tier,
       matchMethod: explainMatchBasis(resolvedMatch),
       matchBasis: explainMatchBasis(resolvedMatch),
-      matchConfidence: isProbable ? 'PROBABLE' : resolvedMatch.confidence,
+      matchConfidence: recovery.highConfidence ? 'ENTERPRISE' : resolvedMatch.confidence,
       recoveryStages: recovery.stages,
       candidateRanking: recovery.candidates.slice(0, 10),
       fusionBreakdown: recovery.fusion.breakdown,
       ownershipConfidence: recovery.fusion.ownershipConfidence,
-      identified: recovery.identified,
+      highConfidence: recovery.highConfidence,
+      fusionMode: recovery.fusion.fusionMode,
+      identificationPhase: 1,
       recoveredSignals: recovery.recoveredSignals,
       deepCompareResults: recovery.deepCompareResults,
       tamperingSummary: recovery.tamperingSummary,
@@ -232,7 +175,7 @@ export async function autoCompareDna(
         ownerUserId: resolvedMatch.ownerUserId,
         ownerName: owner?.fullName ?? null,
         ownerEmail: owner?.email ?? null,
-        ownerShortId: owner?.shortId ?? null,
+        ownerShortId: owner?.shortId ?? recovery.ownerShortId ?? null,
         originalFilename: original.originalFileName,
         dnaFilename: dnaRecord?.imageFilename ?? original.originalFileName,
         registeredAt: dnaRecord?.createdAt?.toISOString() ?? null,

@@ -1,12 +1,9 @@
 /**
  * Enterprise multi-stage identity recovery pipeline.
- * Delegates to PINIT Identification Engine (12-stage exhaustive recovery).
+ * Delegates to PINIT Original Identity Recovery Algorithm (7-stage).
  */
-import {
-  pinitIdentificationEngine,
-  type PinitIdentificationResult,
-  type RecoveryStage,
-} from './pinit-identification-engine.service';
+import { pinitOriginalIdentityRecoveryService } from './pinit-original-identity-recovery.service';
+import type { PinitIdentificationResult, RecoveryStage } from './pinit-identification-engine.service';
 
 export type { RecoveryStage };
 export type EnterpriseRecoveryResult = PinitIdentificationResult;
@@ -19,7 +16,7 @@ export class EnterpriseRecoveryPipeline {
     sizeBytes: number,
     ownerUserId: string,
   ): Promise<EnterpriseRecoveryResult> {
-    return pinitIdentificationEngine.identify(
+    return pinitOriginalIdentityRecoveryService.recover(
       buffer,
       mimeType,
       originalName,
