@@ -20,6 +20,11 @@ export interface VaultMatchResult {
   visualSimilarity?: number;
 }
 
+export interface VaultMatchOptions {
+  relaxedVisual?: boolean;
+  phashThreshold?: number;
+}
+
 export class VaultAutoMatchService {
   private readonly perceptual = new PerceptualLayer();
 
@@ -29,7 +34,10 @@ export class VaultAutoMatchService {
     originalName: string,
     sizeBytes: number,
     ownerUserId: string,
+    options?: VaultMatchOptions,
   ): Promise<VaultMatchResult | null> {
+    const phashThreshold = options?.phashThreshold
+      ?? (options?.relaxedVisual ? 0.72 : PHASH_MATCH_THRESHOLD);
     const uploadedHash = crypto.createHash('sha256').update(buffer).digest('hex');
 
     const exactMatch = await prisma.dnaRecord.findFirst({
@@ -80,7 +88,7 @@ export class VaultAutoMatchService {
     // Tier 4: Visual fingerprint (images) — same engine as Verify Leaked File / DNA Compare scenarios
     if (mimeType.startsWith('image/')) {
       try {
-        const visual = await this.matchByPerceptualHash(buffer, ownerUserId);
+        const visual = await this.matchByPerceptualHash(buffer, ownerUserId, phashThreshold);
         if (visual) return visual;
       } catch (e) {
         logger.warn('Vault auto-match Tier 4 failed', { error: String(e) });
@@ -130,7 +138,7 @@ export class VaultAutoMatchService {
       }
     }
 
-    if (bestMatch && bestScore >= (isCameraScan ? 90 : 50)) {
+    if (bestMatch && bestScore >= (isCameraScan ? 40 : 50)) {
       return {
         tier: 3,
         method: `Fuzzy filename match (${bestScore}%)`,
@@ -147,6 +155,7 @@ export class VaultAutoMatchService {
   private async matchByPerceptualHash(
     buffer: Buffer,
     ownerUserId: string,
+    threshold = PHASH_MATCH_THRESHOLD,
   ): Promise<VaultMatchResult | null> {
     const probe = await this.perceptual.computeFingerprints(buffer);
     const stored = await prisma.perceptualLayer.findMany({
@@ -180,7 +189,7 @@ export class VaultAutoMatchService {
         aHash64: row.aHash64 ?? '',
         dHash64: row.dHash64 ?? '',
       });
-      if (sim >= PHASH_MATCH_THRESHOLD && (!best || sim > best.similarity)) {
+      if (sim >= threshold && (!best || sim > best.similarity)) {
         best = {
           similarity: sim,
           dnaRecordId: row.dnaRecordId,

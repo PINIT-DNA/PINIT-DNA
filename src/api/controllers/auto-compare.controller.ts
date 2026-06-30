@@ -17,6 +17,7 @@ import { AppError } from '../middleware/error.middleware';
 import { logger } from '../../lib/logger';
 import { DnaComparisonService } from '../../services/verification/dna-comparison.service';
 import { vaultAutoMatchService } from '../../services/forensics/vault-auto-match.service';
+import { enterpriseRecoveryPipeline } from '../../services/forensics/enterprise-recovery-pipeline.service';
 import { VaultService } from '../../services/vault/vault.service';
 import { getAuthUserId } from '../../lib/tenant-scope';
 import { prisma } from '../../lib/prisma';
@@ -55,44 +56,64 @@ export async function autoCompareDna(
       userId,
     );
 
-    if (!match) {
+    let recovery = null;
+    let resolvedMatch = match;
+
+    if (!resolvedMatch) {
+      recovery = await enterpriseRecoveryPipeline.run(
+        suspectedBuffer,
+        multerFile.mimetype,
+        multerFile.originalname,
+        multerFile.size,
+        userId,
+      );
+      resolvedMatch = recovery.match ?? recovery.probableMatch;
+    }
+
+    if (!resolvedMatch) {
       res.status(200).json({
         success: false,
         autoMatched: false,
         searchedHash: uploadedHash.slice(0, 16) + '…',
         message: 'Could not find matching original in your vault. The file may not have been uploaded to PINIT-DNA, or belongs to another user.',
+        recoveryStages: recovery?.stages ?? [],
+        bestCandidate: recovery?.candidates[0] ?? null,
+        ownershipConfidence: recovery?.fusion.ownershipConfidence ?? 0,
       });
       return;
     }
+
+    const isProbable = !match && !!recovery?.probableMatch;
 
     // ═══════════════════════════════════════════════════════════════════
     // MATCH FOUND — Retrieve original from vault and run full comparison
     // ═══════════════════════════════════════════════════════════════════
     let original;
     try {
-      original = await vaultService.retrieve(match.vaultId, userId);
+      original = await vaultService.retrieve(resolvedMatch.vaultId, userId);
     } catch (e) {
-      logger.error('Failed to retrieve vault file', { vaultId: match.vaultId, error: String(e) });
+      logger.error('Failed to retrieve vault file', { vaultId: resolvedMatch.vaultId, error: String(e) });
       res.status(200).json({
         success: false,
         autoMatched: false,
         message: `Found a match in vault but failed to retrieve the original file: ${String(e)}`,
+        recoveryStages: recovery?.stages ?? [],
       });
       return;
     }
 
     const owner = await prisma.user.findUnique({
-      where: { id: match.ownerUserId },
+      where: { id: resolvedMatch.ownerUserId },
       select: { id: true, fullName: true, email: true, shortId: true },
     });
 
     const dnaRecord = await prisma.dnaRecord.findUnique({
-      where: { id: match.dnaRecordId },
+      where: { id: resolvedMatch.dnaRecordId },
       select: { imageFilename: true, createdAt: true, status: true },
     });
 
     const vaultRecord = await prisma.vaultRecord.findUnique({
-      where: { id: match.vaultId },
+      where: { id: resolvedMatch.vaultId },
       select: { createdAt: true, originalFileName: true },
     });
 
@@ -124,8 +145,9 @@ export async function autoCompareDna(
     }
 
     logger.info('Auto-compare complete', {
-      tier: match.tier,
-      method: match.method,
+      tier: resolvedMatch.tier,
+      method: resolvedMatch.method,
+      probable: isProbable,
       classification: result?.classification ?? 'N/A',
       tamperingDetected: result?.tamperingDetected ?? false,
       isIdentical,
@@ -134,15 +156,20 @@ export async function autoCompareDna(
     res.status(200).json({
       success: true,
       autoMatched: true,
-      matchTier: match.tier,
-      matchMethod: match.method,
-      matchConfidence: match.confidence,
+      probableMatch: isProbable,
+      matchTier: resolvedMatch.tier,
+      matchMethod: resolvedMatch.method,
+      matchConfidence: isProbable ? 'PROBABLE' : resolvedMatch.confidence,
+      ownershipConfidence: recovery?.fusion.ownershipConfidence ?? (isProbable ? recovery?.candidates[0]?.compositeScore : undefined),
+      recoveryStages: recovery?.stages ?? [],
+      candidateRanking: recovery?.candidates?.slice(0, 10) ?? [],
+      fusionBreakdown: recovery?.fusion.breakdown ?? [],
       isIdentical,
       identity: {
-        dnaRecordId: match.dnaRecordId,
-        dnaId: match.dnaRecordId,
-        vaultId: match.vaultId,
-        ownerUserId: match.ownerUserId,
+        dnaRecordId: resolvedMatch.dnaRecordId,
+        dnaId: resolvedMatch.dnaRecordId,
+        vaultId: resolvedMatch.vaultId,
+        ownerUserId: resolvedMatch.ownerUserId,
         ownerName: owner?.fullName ?? null,
         ownerEmail: owner?.email ?? null,
         ownerShortId: owner?.shortId ?? null,

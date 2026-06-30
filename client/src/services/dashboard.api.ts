@@ -47,28 +47,42 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// On 401, refresh the access token once and retry; otherwise clear session → login
+// On 401, refresh once; on network/5xx retry for Render cold starts
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
-    const config = error.config;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (!config || (config as any)._authRetried || error.response?.status !== 401) {
-      throw error;
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (config as any)._authRetried = true;
-    const newToken = await refreshAccessToken();
-    if (!newToken) {
-      clearTokens();
-      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
-        window.location.href = '/login';
+    const config = error.config as (typeof error.config & { _authRetried?: boolean; _netRetryCount?: number }) | undefined;
+    if (!config) throw error;
+
+    if (!config._authRetried && error.response?.status === 401) {
+      config._authRetried = true;
+      const newToken = await refreshAccessToken();
+      if (!newToken) {
+        clearTokens();
+        if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+          window.location.href = '/login';
+        }
+        throw error;
       }
-      throw error;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (config.headers as any)['Authorization'] = `Bearer ${newToken}`;
+      return api.request(config);
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (config.headers as any)['Authorization'] = `Bearer ${newToken}`;
-    return api.request(config);
+
+    const count = config._netRetryCount ?? 0;
+    const status = error.response?.status;
+    const retryable = count < 6 && (
+      !status || status >= 500
+      || error.code === 'ECONNABORTED'
+      || String(error.message ?? '').toLowerCase().includes('network')
+    );
+    if (retryable) {
+      config._netRetryCount = count + 1;
+      await new Promise((r) => setTimeout(r, 6000 + count * 2000));
+      return api.request(config);
+    }
+
+    throw error;
   },
 );
 

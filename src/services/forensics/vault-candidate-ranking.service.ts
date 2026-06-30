@@ -14,6 +14,10 @@ const PHASH_THRESHOLD = 0.65;
 const MAX_CANDIDATES = 100;
 const DEEP_COMPARE_TOP = 5;
 
+export interface CandidateRankingOptions {
+  relaxedVisual?: boolean;
+}
+
 export class VaultCandidateRankingService {
   private readonly perceptual = new PerceptualLayer();
 
@@ -23,7 +27,9 @@ export class VaultCandidateRankingService {
     originalName: string,
     sizeBytes: number,
     ownerUserId: string,
+    options?: CandidateRankingOptions,
   ): Promise<RankedVaultCandidate[]> {
+    const phashThreshold = options?.relaxedVisual ? 0.52 : PHASH_THRESHOLD;
     const uploadedHash = crypto.createHash('sha256').update(buffer).digest('hex');
     const scoreMap = new Map<string, RankedVaultCandidate>();
 
@@ -116,13 +122,13 @@ export class VaultCandidateRankingService {
           aHash64: pl.aHash64 ?? '',
           dHash64: pl.dHash64 ?? '',
         });
-        if (sim >= PHASH_THRESHOLD) {
+        if (sim >= phashThreshold) {
           prelim = Math.max(prelim, Math.round(sim * 100));
           signals.push('perceptual_hash');
         }
       }
 
-      if (prelim >= 40) {
+      if (prelim >= (options?.relaxedVisual ? 30 : 40)) {
         add({
           dnaRecordId: row.dnaRecordId,
           vaultId: row.id,
@@ -177,10 +183,10 @@ export class VaultCandidateRankingService {
     };
   }
 
-  selectBestCandidate(candidates: RankedVaultCandidate[]): VaultMatchResult | null {
+  selectBestCandidate(candidates: RankedVaultCandidate[], minScore = 40): VaultMatchResult | null {
     if (!candidates.length) return null;
     const best = candidates[0];
-    if (best.compositeScore < 40) return null;
+    if (!best || best.compositeScore < minScore) return null;
     return this.toVaultMatch(best);
   }
 

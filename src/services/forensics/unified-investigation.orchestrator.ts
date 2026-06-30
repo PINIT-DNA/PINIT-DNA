@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { leakedFileVerifyService } from './leaked-file-verify.service';
-import { vaultAutoMatchService, type VaultMatchResult } from './vault-auto-match.service';
+import { type VaultMatchResult } from './vault-auto-match.service';
 import { VaultService } from '../vault/vault.service';
 import { DnaComparisonService } from '../verification/dna-comparison.service';
 import { certificateService } from '../certificates/certificate.service';
@@ -18,7 +18,7 @@ import { resolveWatermarkProof } from './watermark-status.service';
 import { phase3WatermarkRecovery } from '../watermark/phase3-watermark-recovery.service';
 import { isPhase3WatermarkRecoveryActive } from '../../config/dna-phase3';
 import { identityRecoveryEngine } from './identity-recovery-engine.service';
-import { vaultCandidateRankingService } from './vault-candidate-ranking.service';
+import { enterpriseRecoveryPipeline } from './enterprise-recovery-pipeline.service';
 import { evidenceConfidenceService } from './evidence-confidence.service';
 import crypto from 'crypto';
 import type {
@@ -127,24 +127,29 @@ export class UnifiedInvestigationOrchestrator {
     }
 
     if (!match) {
-      rankedCandidates = await vaultCandidateRankingService.findRankedCandidates(
+      const enterprise = await enterpriseRecoveryPipeline.run(
         buffer, mimeType, originalName, sizeBytes, ownerUserId,
       );
-      pipeline.push(step(
-        'candidate_ranking',
-        'Rank vault candidates',
-        rankedCandidates.length ? 'complete' : 'warning',
-        rankedCandidates.length
-          ? `Top ${rankedCandidates.length} candidates · best ${rankedCandidates[0]?.compositeScore ?? 0}%`
-          : 'No candidates above threshold',
-      ));
-      match = vaultCandidateRankingService.selectBestCandidate(rankedCandidates);
+      for (const s of enterprise.stages) {
+        pipeline.push(step(
+          s.stage,
+          s.stage.replace(/_/g, ' '),
+          s.status === 'complete' ? 'complete' : s.status === 'partial' ? 'warning' : 'skipped',
+          s.detail,
+        ));
+      }
+      rankedCandidates = enterprise.candidates;
+      match = enterprise.match ?? enterprise.probableMatch;
+      if (enterprise.probableMatch && !enterprise.match) {
+        pipeline.push(step(
+          'probable_match',
+          'Probable vault match (visual DNA)',
+          'warning',
+          `${enterprise.fusion.ownershipConfidence}% ownership confidence`,
+        ));
+      }
     } else {
       pipeline.push(step('candidate_ranking', 'Rank vault candidates', 'skipped', 'Direct identity match'));
-    }
-
-    if (!match) {
-      match = await vaultAutoMatchService.findMatch(buffer, mimeType, originalName, sizeBytes, ownerUserId);
     }
 
     const identityRecovery = await identityRecoveryEngine.recover({

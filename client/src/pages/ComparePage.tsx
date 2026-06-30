@@ -124,8 +124,12 @@ function AutoMatchIdentityBanner({ autoResult }: { autoResult: Record<string, an
       <div className="flex items-center gap-2 mb-1 flex-wrap">
         <Shield size={16} className="text-dna-400" />
         <h3 className="text-sm font-semibold text-white">Auto-Matched from Vault</h3>
-        <Badge variant={autoResult.matchConfidence === 'EXACT' ? 'success' : autoResult.matchConfidence === 'HIGH' ? 'dna' : 'warning'}>
-          {autoResult.matchConfidence === 'EXACT' ? 'Exact Match' : `Tier ${autoResult.matchTier} Match`}
+        <Badge variant={autoResult.matchConfidence === 'EXACT' ? 'success' : autoResult.matchConfidence === 'HIGH' ? 'dna' : autoResult.probableMatch || autoResult.matchConfidence === 'PROBABLE' ? 'warning' : 'warning'}>
+          {autoResult.matchConfidence === 'EXACT'
+            ? 'Exact Match'
+            : autoResult.probableMatch || autoResult.matchConfidence === 'PROBABLE'
+              ? `Probable Match · ${autoResult.ownershipConfidence ?? autoResult.candidateRanking?.[0]?.compositeScore ?? '?'}%`
+              : `Tier ${autoResult.matchTier} Match`}
         </Badge>
         {autoResult.tampered
           ? <Badge variant="danger" dot pulse>Tampered</Badge>
@@ -675,10 +679,28 @@ export function ComparePage() {
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card border-warning/20">
           <div className="flex items-center gap-3 mb-3">
             <AlertTriangle size={20} className="text-warning" />
-            <h3 className="text-sm font-bold text-warning">No PINIT-DNA Identity Found</h3>
+            <h3 className="text-sm font-bold text-warning">
+              {autoResult.bestCandidate ? 'No Exact Match — Best Vault Candidate' : 'No PINIT-DNA Identity Found'}
+            </h3>
           </div>
           <p className="text-sm text-gray-400">{autoResult.message}</p>
-          <p className="text-xs text-gray-500 mt-2">This file may not have been protected by PINIT-DNA, or the identity region was destroyed. Try manual comparison instead.</p>
+          {autoResult.bestCandidate && (
+            <div className="mt-4 rounded-xl border border-dna-500/25 bg-dna-500/5 p-4">
+              <p className="text-2xs text-dna-400 font-semibold uppercase tracking-wider mb-2">Best vault candidate</p>
+              <p className="text-lg font-bold text-white">{autoResult.bestCandidate.compositeScore}% similarity</p>
+              <p className="text-xs text-gray-500 mt-1 mono">Vault {autoResult.bestCandidate.vaultId?.slice(0, 12)}…</p>
+              <p className="text-2xs text-gray-500 mt-2">
+                Signals: {autoResult.bestCandidate.signals?.join(', ') ?? autoResult.bestCandidate.method}
+              </p>
+              {autoResult.ownershipConfidence != null && autoResult.ownershipConfidence > 0 && (
+                <p className="text-xs text-dna-400 mt-2">Ownership confidence: {autoResult.ownershipConfidence}%</p>
+              )}
+            </div>
+          )}
+          <p className="text-xs text-gray-500 mt-3">
+            Enterprise recovery ran preprocessing, watermark, token, manifest, and visual DNA search.
+            Try manual comparison with the original vault file for side-by-side analysis.
+          </p>
           <button onClick={() => { setMode('manual'); setAutoResult(null); }} className="btn btn-secondary btn-sm mt-4">
             <GitCompare size={13} /> Switch to Manual Compare
           </button>
