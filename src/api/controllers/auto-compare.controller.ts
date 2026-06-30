@@ -86,6 +86,16 @@ export async function autoCompareDna(
       select: { id: true, fullName: true, email: true, shortId: true },
     });
 
+    const dnaRecord = await prisma.dnaRecord.findUnique({
+      where: { id: match.dnaRecordId },
+      select: { imageFilename: true, createdAt: true, status: true },
+    });
+
+    const vaultRecord = await prisma.vaultRecord.findUnique({
+      where: { id: match.vaultId },
+      select: { createdAt: true, originalFileName: true },
+    });
+
     // Check if files are byte-identical
     const isIdentical = original.originalBuffer.equals(suspectedBuffer);
 
@@ -130,16 +140,25 @@ export async function autoCompareDna(
       isIdentical,
       identity: {
         dnaRecordId: match.dnaRecordId,
+        dnaId: match.dnaRecordId,
         vaultId: match.vaultId,
         ownerUserId: match.ownerUserId,
         ownerName: owner?.fullName ?? null,
         ownerEmail: owner?.email ?? null,
         ownerShortId: owner?.shortId ?? null,
+        originalFilename: original.originalFileName,
+        dnaFilename: dnaRecord?.imageFilename ?? original.originalFileName,
+        registeredAt: dnaRecord?.createdAt?.toISOString() ?? null,
+        vaultedAt: vaultRecord?.createdAt?.toISOString() ?? null,
+        dnaStatus: dnaRecord?.status ?? null,
       },
       originalFile: {
         fileName: original.originalFileName,
         mimeType: original.originalMimeType,
         sizeBytes: original.originalSizeBytes,
+        dnaFilename: dnaRecord?.imageFilename ?? original.originalFileName,
+        vaultedAt: vaultRecord?.createdAt?.toISOString() ?? null,
+        registeredAt: dnaRecord?.createdAt?.toISOString() ?? null,
       },
       suspectedFile: {
         fileName: multerFile.originalname,

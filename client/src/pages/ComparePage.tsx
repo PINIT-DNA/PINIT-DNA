@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   GitCompare, Upload, X, CheckCircle2, AlertTriangle,
   Shield, RefreshCw, ChevronDown, ChevronUp, FileText,
-  Fingerprint, Eye, Lock, Tag, Cpu, Brain, Network, Globe, GitBranch,
+  Fingerprint, Eye, Lock, Tag, Cpu, Brain, Network, Globe, GitBranch, ScanLine,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { compareDna, autoCompareDna } from '../services/dashboard.api';
@@ -12,6 +12,7 @@ import { Badge, ClassificationBadge } from '../components/ui/Badge';
 import { formatBytes } from '../hooks/useApi';
 import type { ComparisonResult, LayerComparison } from '../types/dashboard.types';
 import { cn } from '../components/ui/utils';
+import { DocumentScanner } from '../components/DocumentScanner';
 
 // ─── Layer icons ──────────────────────────────────────────────────────────────
 const LAYER_ICONS = [Fingerprint, Cpu, Eye, Tag, FileText, Lock, Brain, Network, Globe, GitBranch];
@@ -35,10 +36,11 @@ function getFileIcon(file: File): string {
 // ─── Drop Zone ────────────────────────────────────────────────────────────────
 
 function FileDropZone({
-  label, file, onFile, onClear,
+  label, file, onFile, onClear, onScan,
 }: {
   label: string; file: File | null;
   onFile: (f: File) => void; onClear: () => void;
+  onScan?: () => void;
 }) {
   const onDrop = useCallback((accepted: File[]) => {
     if (accepted[0]) onFile(accepted[0]);
@@ -85,7 +87,126 @@ function FileDropZone({
           </div>
         )}
       </div>
+      {onScan && !file && (
+        <button
+          type="button"
+          onClick={onScan}
+          className="mt-2 w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 bg-bg-elevated border border-bg-border text-dna-400 hover:border-dna-500/40 transition-colors"
+        >
+          <ScanLine size={13} /> Scan with camera
+        </button>
+      )}
     </div>
+  );
+}
+
+function AutoMatchIdentityBanner({ autoResult }: { autoResult: Record<string, any> }) {
+  const id = autoResult.identity ?? {};
+  const orig = autoResult.originalFile ?? {};
+  const originalName =
+    id.originalFilename ??
+    id.dnaFilename ??
+    orig.fileName ??
+    orig.dnaFilename ??
+    'Unknown file';
+
+  const fmtDate = (iso?: string | null) => {
+    if (!iso) return null;
+    try {
+      return new Date(iso).toLocaleString();
+    } catch {
+      return iso;
+    }
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card border-dna-500/20">
+      <div className="flex items-center gap-2 mb-1 flex-wrap">
+        <Shield size={16} className="text-dna-400" />
+        <h3 className="text-sm font-semibold text-white">Auto-Matched from Vault</h3>
+        <Badge variant={autoResult.matchConfidence === 'EXACT' ? 'success' : autoResult.matchConfidence === 'HIGH' ? 'dna' : 'warning'}>
+          {autoResult.matchConfidence === 'EXACT' ? 'Exact Match' : `Tier ${autoResult.matchTier} Match`}
+        </Badge>
+        {autoResult.tampered
+          ? <Badge variant="danger" dot pulse>Tampered</Badge>
+          : <Badge variant="success">Identical</Badge>}
+      </div>
+      <p className="text-2xs text-gray-500 mb-4">{autoResult.matchMethod}</p>
+
+      {/* Original file — prominent */}
+      <div className="rounded-xl border border-dna-500/25 bg-dna-500/5 p-4 mb-4">
+        <p className="text-2xs text-dna-400 font-semibold uppercase tracking-wider mb-2">Original Vault File</p>
+        <p className="text-base font-bold text-white break-all">{originalName}</p>
+        <div className="flex flex-wrap gap-2 mt-2">
+          {orig.mimeType && <Badge variant="dna">{orig.mimeType}</Badge>}
+          {orig.sizeBytes != null && (
+            <span className="text-2xs text-gray-500 mono">{formatBytes(orig.sizeBytes)}</span>
+          )}
+          {id.dnaStatus && (
+            <span className="text-2xs text-gray-500">DNA: {id.dnaStatus}</span>
+          )}
+        </div>
+        {(fmtDate(orig.registeredAt) || fmtDate(orig.vaultedAt)) && (
+          <p className="text-2xs text-gray-500 mt-2">
+            {fmtDate(orig.registeredAt) && <>Registered {fmtDate(orig.registeredAt)}</>}
+            {fmtDate(orig.registeredAt) && fmtDate(orig.vaultedAt) && ' · '}
+            {fmtDate(orig.vaultedAt) && <>Vaulted {fmtDate(orig.vaultedAt)}</>}
+          </p>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <p className="text-2xs text-gray-500 font-semibold uppercase tracking-wider">Original Owner</p>
+          <div className="bg-bg-elevated rounded-xl p-3 border border-bg-border space-y-1.5">
+            {id.ownerName && (
+              <div className="flex justify-between gap-2">
+                <span className="text-xs text-gray-500 shrink-0">Name</span>
+                <span className="text-xs text-white font-semibold text-right">{id.ownerName}</span>
+              </div>
+            )}
+            {id.ownerShortId && (
+              <div className="flex justify-between gap-2">
+                <span className="text-xs text-gray-500 shrink-0">PINIT ID</span>
+                <span className="text-xs text-dna-400 font-semibold mono">{id.ownerShortId}</span>
+              </div>
+            )}
+            {id.ownerEmail && (
+              <div className="flex justify-between gap-2">
+                <span className="text-xs text-gray-500 shrink-0">Email</span>
+                <span className="text-xs text-gray-300 text-right truncate">{id.ownerEmail}</span>
+              </div>
+            )}
+            {!id.ownerName && !id.ownerEmail && id.ownerShortId && (
+              <p className="text-2xs text-gray-500">Owner profile name not set — PINIT ID is the account identifier.</p>
+            )}
+          </div>
+        </div>
+        <div className="space-y-2">
+          <p className="text-2xs text-gray-500 font-semibold uppercase tracking-wider">Record IDs</p>
+          <div className="bg-bg-elevated rounded-xl p-3 border border-bg-border space-y-1.5">
+            <div className="flex justify-between gap-2">
+              <span className="text-xs text-gray-500 shrink-0">Vault ID</span>
+              <span className="text-xs text-gray-300 mono truncate">{id.vaultId?.slice(0, 16)}…</span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-xs text-gray-500 shrink-0">DNA Record</span>
+              <span className="text-xs text-gray-300 mono truncate">{(id.dnaRecordId ?? id.dnaId)?.slice(0, 16)}…</span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-xs text-gray-500 shrink-0">Suspected file</span>
+              <span className="text-xs text-white font-medium truncate">{autoResult.suspectedFile?.fileName}</span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-xs text-gray-500 shrink-0">Tamper status</span>
+              <span className={`text-xs font-bold ${autoResult.tampered ? 'text-danger' : 'text-success'}`}>
+                {autoResult.tampered ? 'TAMPERED' : 'INTACT'}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </motion.div>
   );
 }
 
@@ -269,7 +390,7 @@ function ResultPanel({ result }: { result: ComparisonResult }) {
         {[result.fileA, result.fileB].map((f, i) => (
           <div key={i} className="card-sm">
             <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-              File {String.fromCharCode(65 + i)} — Original
+              File {String.fromCharCode(65 + i)} — {i === 0 ? 'Original' : 'Comparison'}
             </p>
             <p className="text-sm font-medium text-white truncate">{f.filename}</p>
             <div className="flex items-center gap-2 mt-1.5 flex-wrap">
@@ -342,6 +463,7 @@ export function ComparePage() {
   const [fileA, setFileA] = useState<File | null>(null);
   const [fileB, setFileB] = useState<File | null>(null);
   const [autoFile, setAutoFile] = useState<File | null>(null);
+  const [scanSlot, setScanSlot] = useState<'auto' | 'A' | 'B' | null>(null);
   const [result, setResult] = useState<ComparisonResult | null>(null);
   const [autoResult, setAutoResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -392,6 +514,14 @@ export function ComparePage() {
   const handleReset = () => {
     setFileA(null); setFileB(null); setAutoFile(null);
     setResult(null); setAutoResult(null);
+    setScanSlot(null);
+  };
+
+  const handleScanComplete = (slot: 'auto' | 'A' | 'B', file: File) => {
+    if (slot === 'auto') setAutoFile(file);
+    if (slot === 'A') setFileA(file);
+    if (slot === 'B') setFileB(file);
+    setScanSlot(null);
   };
 
   return (
@@ -441,35 +571,76 @@ export function ComparePage() {
       {/* Upload section — hide when result is shown */}
       {!result && !autoResult && (
         <div className="card">
-          {mode === 'auto' ? (
+          {scanSlot ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-white">
+                  {scanSlot === 'auto'
+                    ? 'Scan suspected file'
+                    : scanSlot === 'A'
+                      ? 'Scan File A (Original)'
+                      : 'Scan File B (Comparison)'}
+                </p>
+                <button type="button" onClick={() => setScanSlot(null)} className="btn btn-secondary btn-sm">
+                  <X size={12} /> Back to upload
+                </button>
+              </div>
+              <DocumentScanner
+                captureMode="single"
+                onScanComplete={(f) => handleScanComplete(scanSlot, f)}
+                onCancel={() => setScanSlot(null)}
+                subtitle="Fit the document in frame — tap Capture Now for instant scan"
+              />
+            </div>
+          ) : mode === 'auto' ? (
             <>
               <div className="flex items-center gap-2 mb-5">
                 <Shield size={18} className="text-dna-400" />
                 <h2 className="text-sm font-semibold text-white">Upload suspected file</h2>
               </div>
-              <FileDropZone label="Suspected / Tampered File" file={autoFile} onFile={setAutoFile} onClear={() => setAutoFile(null)} />
+              <FileDropZone
+                label="Suspected / Tampered File"
+                file={autoFile}
+                onFile={setAutoFile}
+                onClear={() => setAutoFile(null)}
+                onScan={() => setScanSlot('auto')}
+              />
             </>
           ) : (
             <>
               <div className="flex items-center gap-2 mb-5">
                 <GitCompare size={18} className="text-dna-400" />
-                <h2 className="text-sm font-semibold text-white">Upload Files to Compare</h2>
+                <h2 className="text-sm font-semibold text-white">Upload or Scan Files to Compare</h2>
               </div>
               <div className="flex flex-col sm:flex-row gap-4 mb-5">
-                <FileDropZone label="File A — Original" file={fileA} onFile={setFileA} onClear={() => setFileA(null)} />
+                <FileDropZone
+                  label="File A — Original"
+                  file={fileA}
+                  onFile={setFileA}
+                  onClear={() => setFileA(null)}
+                  onScan={() => setScanSlot('A')}
+                />
                 <div className="flex items-center justify-center shrink-0 text-gray-600">
                   <GitCompare size={20} />
                 </div>
-                <FileDropZone label="File B — Comparison" file={fileB} onFile={setFileB} onClear={() => setFileB(null)} />
+                <FileDropZone
+                  label="File B — Comparison"
+                  file={fileB}
+                  onFile={setFileB}
+                  onClear={() => setFileB(null)}
+                  onScan={() => setScanSlot('B')}
+                />
               </div>
               {(!fileA || !fileB) && (
                 <p className="text-xs text-gray-600 text-center mb-4">
-                  Upload both files to compare
+                  Upload or scan both files to compare
                 </p>
               )}
             </>
           )}
 
+          {!scanSlot && (
+          <>
           {/* Compare button */}
           <button
             onClick={handleCompare}
@@ -494,6 +665,8 @@ export function ComparePage() {
               <div className="w-6 h-6 border-2 border-dna-500 border-t-transparent rounded-full animate-spin" />
             </div>
           )}
+          </>
+          )}
         </div>
       )}
 
@@ -514,63 +687,7 @@ export function ComparePage() {
 
       {/* Auto-match identity banner */}
       {autoResult?.autoMatched && autoResult.identity && (
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card border-dna-500/20">
-          <div className="flex items-center gap-2 mb-1">
-            <Shield size={16} className="text-dna-400" />
-            <h3 className="text-sm font-semibold text-white">Auto-Matched from Vault</h3>
-            <Badge variant={autoResult.matchConfidence === 'EXACT' ? 'success' : autoResult.matchConfidence === 'HIGH' ? 'dna' : 'warning'}>
-              {autoResult.matchConfidence === 'EXACT' ? 'Exact Match' : `Tier ${autoResult.matchTier} Match`}
-            </Badge>
-            {autoResult.tampered
-              ? <Badge variant="danger" dot pulse>Tampered</Badge>
-              : <Badge variant="success">Identical</Badge>}
-          </div>
-          <p className="text-2xs text-gray-500 mb-3">{autoResult.matchMethod}</p>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <p className="text-2xs text-gray-500 font-semibold uppercase tracking-wider">Original Owner</p>
-              <div className="bg-bg-elevated rounded-xl p-3 border border-bg-border space-y-1.5">
-                {autoResult.identity.ownerName && (
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Name</span>
-                    <span className="text-xs text-white font-semibold">{autoResult.identity.ownerName}</span>
-                  </div>
-                )}
-                {autoResult.identity.ownerShortId && (
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">PINIT ID</span>
-                    <span className="text-xs text-dna-400 font-semibold mono">{autoResult.identity.ownerShortId}</span>
-                  </div>
-                )}
-                {autoResult.identity.ownerEmail && (
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Email</span>
-                    <span className="text-xs text-gray-300">{autoResult.identity.ownerEmail}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="space-y-2">
-              <p className="text-2xs text-gray-500 font-semibold uppercase tracking-wider">Vault Record</p>
-              <div className="bg-bg-elevated rounded-xl p-3 border border-bg-border space-y-1.5">
-                <div className="flex justify-between">
-                  <span className="text-xs text-gray-500">Original File</span>
-                  <span className="text-xs text-white font-semibold truncate ml-2">{autoResult.originalFile?.fileName}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-xs text-gray-500">DNA Record</span>
-                  <span className="text-xs text-gray-300 mono">{autoResult.identity.dnaId?.slice(0, 12)}…</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-xs text-gray-500">Tamper Status</span>
-                  <span className={`text-xs font-bold ${autoResult.tampered ? 'text-danger' : 'text-success'}`}>
-                    {autoResult.tampered ? 'TAMPERED' : 'INTACT'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </motion.div>
+        <AutoMatchIdentityBanner autoResult={autoResult} />
       )}
 
       {/* Result */}
