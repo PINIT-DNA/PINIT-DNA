@@ -11,29 +11,44 @@ import net from 'net';
 import path from 'path';
 import fs from 'fs';
 import { logger } from './logger';
+import type { AiBannerStatus } from './dev-startup-banner';
 
 let pythonProcess: ChildProcess | null = null;
 let shuttingDown = false;
+let aiReadyNotified = false;
+
+export type PythonAiReadyCallback = (status: AiBannerStatus) => void;
 
 const PYTHON_DIR = path.resolve(__dirname, '../../python-ai');
 const PYTHON_MAIN = path.join(PYTHON_DIR, 'main.py');
 const AI_PORT = parseInt(process.env['AI_SERVICE_PORT'] ?? '8001', 10);
 
+function notifyAiReady(cb: PythonAiReadyCallback | undefined, status: AiBannerStatus): void {
+  if (!cb || aiReadyNotified) return;
+  if (status === 'starting') return;
+  aiReadyNotified = true;
+  cb(status);
+}
+
 export function markPythonShuttingDown(): void {
   shuttingDown = true;
 }
 
-export function startPythonAI(): void {
+export function startPythonAI(opts?: { onReady?: PythonAiReadyCallback }): void {
+  const onReady = opts?.onReady;
+
   if (shuttingDown) return;
 
   const aiUrl = process.env['AI_SERVICE_URL'] ?? '';
   if (aiUrl && !aiUrl.includes('localhost') && !aiUrl.includes('127.0.0.1')) {
     logger.info(`Python AI: using external service at ${aiUrl} — skipping local spawn`);
+    notifyAiReady(onReady, 'external');
     return;
   }
 
   if (!fs.existsSync(PYTHON_MAIN)) {
     logger.warn('Python AI service not found — skipping', { path: PYTHON_MAIN });
+    notifyAiReady(onReady, 'unavailable');
     return;
   }
 
@@ -42,20 +57,30 @@ export function startPythonAI(): void {
   const tester = net.createServer()
     .once('error', () => {
       logger.info(`Python AI already running on port ${AI_PORT} — skipping auto-start`);
+      notifyAiReady(onReady, 'already-running');
     })
     .once('listening', () => {
       tester.close(() => {
-        _doStartPython();
+        _doStartPython(onReady);
       });
     })
     .listen(AI_PORT, '127.0.0.1');
   void tester;
 }
 
-function _doStartPython(): void {
+function resolvePythonCmd(): string {
+  const venvPython =
+    process.platform === 'win32'
+      ? path.join(PYTHON_DIR, '.venv', 'Scripts', 'python.exe')
+      : path.join(PYTHON_DIR, '.venv', 'bin', 'python3');
+  if (fs.existsSync(venvPython)) return venvPython;
+  return process.platform === 'win32' ? 'python' : 'python3';
+}
+
+function _doStartPython(onReady?: PythonAiReadyCallback): void {
   if (shuttingDown) return;
 
-  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+  const pythonCmd = resolvePythonCmd();
 
   logger.info('Starting Python AI service…', { port: AI_PORT });
 
@@ -69,9 +94,19 @@ function _doStartPython(): void {
     },
   );
 
+  const signalReady = (msg: string) => {
+    if (msg.includes('Uvicorn running') || msg.includes('Application startup complete')) {
+      logger.info(`Python AI service ready on port ${AI_PORT}`);
+      notifyAiReady(onReady, 'ready');
+    }
+  };
+
   pythonProcess.stdout?.on('data', (data: Buffer) => {
     const msg = data.toString().trim();
-    if (msg) logger.info(`[python-ai] ${msg}`);
+    if (msg) {
+      logger.info(`[python-ai] ${msg}`);
+      signalReady(msg);
+    }
   });
 
   let missingModule = false;
@@ -84,10 +119,11 @@ function _doStartPython(): void {
     if (!msg) return;
     if (isMissingPythonDep(msg)) {
       missingModule = true;
-      logger.warn('Python AI: missing module — run: cd python-ai && pip install -r requirements.txt');
-    } else if (msg.includes('Uvicorn running')) {
-      logger.info(`Python AI service ready on port ${AI_PORT}`);
-    } else if (!msg.includes('INFO') && !msg.includes('WARNING')) {
+      logger.warn('Python AI: missing module — run: npm run dev:ai:setup');
+    } else {
+      signalReady(msg);
+    }
+    if (!isMissingPythonDep(msg) && !msg.includes('INFO') && !msg.includes('WARNING')) {
       logger.warn(`[python-ai] ${msg.slice(0, 200)}`);
     }
   });
@@ -98,7 +134,8 @@ function _doStartPython(): void {
 
     if (shuttingDown || missingModule) {
       if (missingModule) {
-        logger.warn('Python AI disabled — install dependencies first: cd python-ai && pip install -r requirements.txt');
+        logger.warn('Python AI disabled — install dependencies first: npm run dev:ai:setup');
+        notifyAiReady(onReady, 'unavailable');
       }
       return;
     }
@@ -117,6 +154,7 @@ function _doStartPython(): void {
     logger.error('Failed to start Python AI', { error: err.message });
     logger.warn('Python AI unavailable — AI features degraded gracefully');
     pythonProcess = null;
+    notifyAiReady(onReady, 'unavailable');
   });
 }
 

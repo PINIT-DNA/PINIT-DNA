@@ -35,6 +35,8 @@ interface InvestigationReport {
     identityStatus: string;
     tamperSeverity: string;
     riskLevel: string;
+    trustScore?: number;
+    identityConfidence?: number;
   };
   owner: Record<string, string | null | undefined>;
   recipientAttribution: Record<string, unknown>;
@@ -95,6 +97,40 @@ interface InvestigationReport {
   message?: string;
   matchTier?: number;
   matchMethod?: string;
+  identityRecovery?: {
+    enginesRun: number;
+    enginesRecovered: number;
+    message: string;
+    compositeScores: { ownershipConfidence: number; trustScore: number; identityConfidence: number };
+    signals: Array<{ label: string; score: number; weight: number; weightedContribution: number; status: string; detail?: string }>;
+    transformations: Array<{ type: string; detected: boolean; detail?: string }>;
+  };
+  candidateRanking?: Array<{
+    rank: number;
+    vaultId: string;
+    dnaRecordId: string;
+    compositeScore: number;
+    method: string;
+    signals: string[];
+    selected?: boolean;
+    dnaMatchPercent?: number;
+  }>;
+  identityRecoveryReport?: {
+    recovered: boolean;
+    message: string;
+    originalOwner?: string | null;
+    ownerPinitId?: string | null;
+    vaultId?: string;
+    dnaRecordId?: string;
+    certificateId?: string | null;
+    originalFilename?: string;
+    originalHash?: string;
+    currentHash?: string;
+    evidenceConfidence?: number;
+    protectedDownloadDate?: string;
+    registrationTimestamp?: string;
+  };
+  currentFileHash?: string;
 }
 
 const WATERMARK_STATUS_STYLE: Record<string, string> = {
@@ -212,7 +248,7 @@ export function UnifiedInvestigationPage() {
   };
 
   const completedSteps = report?.pipeline.filter((s) => s.status === 'complete').length ?? 0;
-  const totalSteps = report?.pipeline.length ?? 14;
+  const totalSteps = report?.pipeline.length ?? 16;
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -223,7 +259,7 @@ export function UnifiedInvestigationPage() {
         <div>
           <h1 className="text-lg font-bold text-white">Unified Forensic Investigation Center</h1>
           <p className="text-xs text-gray-500">
-            Upload or scan a suspected file to perform a complete forensic investigation.
+            Upload or scan a suspected file — both modes run the full PINIT identity recovery pipeline.
           </p>
         </div>
       </div>
@@ -276,7 +312,7 @@ export function UnifiedInvestigationPage() {
           {loading ? (
             <div>
               <RefreshCw size={32} className="text-dna-400 mx-auto mb-3 animate-spin" />
-              <p className="text-sm font-semibold text-white">Running 14-step investigation pipeline…</p>
+              <p className="text-sm font-semibold text-white">Running enterprise investigation pipeline…</p>
               <p className="text-2xs text-gray-500 mt-1">{file?.name}</p>
             </div>
           ) : file ? (
@@ -300,7 +336,7 @@ export function UnifiedInvestigationPage() {
           {loading ? (
             <div className="card text-center py-12">
               <RefreshCw size={32} className="text-dna-400 mx-auto mb-3 animate-spin" />
-              <p className="text-sm font-semibold text-white">Running 14-step investigation pipeline…</p>
+              <p className="text-sm font-semibold text-white">Running enterprise investigation pipeline…</p>
               <p className="text-2xs text-gray-500 mt-1">{file?.name}</p>
             </div>
           ) : (
@@ -308,7 +344,7 @@ export function UnifiedInvestigationPage() {
               captureMode="single"
               onScanComplete={handleScanComplete}
               onCancel={handleReset}
-              subtitle="Camera opens automatically — hold document steady to auto-capture, then run investigation"
+              subtitle="Smart capture waits for a sharp, steady frame (~3–5s) then auto-starts PINIT verification"
             />
           )}
         </div>
@@ -364,6 +400,8 @@ export function UnifiedInvestigationPage() {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {[
                 { label: 'Ownership Confidence', value: `${report.summary.ownershipConfidence}%` },
+                { label: 'Identity Confidence', value: `${report.summary.identityConfidence ?? report.identityRecovery?.compositeScores.identityConfidence ?? '—'}${typeof report.summary.identityConfidence === 'number' ? '%' : ''}` },
+                { label: 'Trust Score', value: `${report.summary.trustScore ?? report.identityRecovery?.compositeScores.trustScore ?? '—'}${typeof report.summary.trustScore === 'number' ? '%' : ''}` },
                 { label: 'DNA Match', value: `${report.summary.dnaMatchPercent}%` },
                 { label: 'Certificate', value: report.summary.certificateStatus },
                 { label: 'Identity', value: report.summary.identityStatus },
@@ -377,6 +415,75 @@ export function UnifiedInvestigationPage() {
               ))}
             </div>
           </Section>
+
+          {report.identityRecovery && (
+            <Section title="1b. Multi-Layer Identity Recovery" icon={Fingerprint} defaultOpen={false}>
+              <p className="text-xs text-gray-400 mb-3">{report.identityRecovery.message}</p>
+              <div className="space-y-2">
+                {report.identityRecovery.signals.filter((s) => s.weight > 0).map((s) => (
+                  <div key={s.label} className="flex items-center gap-3 p-2 rounded-lg bg-bg-elevated text-xs">
+                    <span className="flex-1 text-white">{s.label}</span>
+                    <span className="mono text-gray-400">{Math.round(s.weight * 100)}% wt</span>
+                    <span className="font-bold text-white mono w-10 text-right">{s.score}%</span>
+                    <span className={cn(
+                      'text-2xs px-2 py-0.5 rounded-full uppercase',
+                      s.status === 'recovered' ? 'bg-green-500/15 text-green-400'
+                        : s.status === 'partial' ? 'bg-yellow-500/15 text-yellow-400'
+                          : 'bg-gray-500/15 text-gray-500',
+                    )}>{s.status}</span>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
+
+          {report.identityRecoveryReport && (
+            <Section title="1c. Identity Recovery Report" icon={Lock}>
+              <p className={cn('text-xs mb-3', report.identityRecoveryReport.recovered ? 'text-green-400' : 'text-yellow-400')}>
+                {report.identityRecoveryReport.message}
+              </p>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                {Object.entries({
+                  'Original Owner': report.identityRecoveryReport.originalOwner,
+                  'Owner PINIT ID': report.identityRecoveryReport.ownerPinitId,
+                  'Vault ID': report.identityRecoveryReport.vaultId,
+                  'DNA ID': report.identityRecoveryReport.dnaRecordId,
+                  'Certificate ID': report.identityRecoveryReport.certificateId,
+                  'Original Filename': report.identityRecoveryReport.originalFilename,
+                  'Original Hash': report.identityRecoveryReport.originalHash,
+                  'Current Hash': report.identityRecoveryReport.currentHash ?? report.currentFileHash,
+                  'Evidence Confidence': report.identityRecoveryReport.evidenceConfidence != null
+                    ? `${report.identityRecoveryReport.evidenceConfidence}%` : undefined,
+                  'Protected Download': report.identityRecoveryReport.protectedDownloadDate,
+                  'Registered': report.identityRecoveryReport.registrationTimestamp,
+                }).map(([k, v]) => (
+                  <div key={k} className="flex justify-between gap-2 py-1 border-b border-bg-border/50">
+                    <dt className="text-gray-500">{k}</dt>
+                    <dd className="text-white mono text-right truncate max-w-[60%]">{v ?? 'No evidence available'}</dd>
+                  </div>
+                ))}
+              </dl>
+            </Section>
+          )}
+
+          {report.candidateRanking && report.candidateRanking.length > 0 && (
+            <Section title="1d. Vault Candidate Ranking" icon={Dna} defaultOpen={false}>
+              <p className="text-xs text-gray-500 mb-3">Top {report.candidateRanking.length} vault candidates scored — best match selected for deep comparison</p>
+              <div className="space-y-1">
+                {report.candidateRanking.slice(0, 10).map((c) => (
+                  <div key={c.vaultId} className={cn(
+                    'flex items-center gap-2 p-2 rounded-lg text-xs',
+                    c.selected ? 'bg-dna-500/10 border border-dna-500/30' : 'bg-bg-elevated',
+                  )}>
+                    <span className="mono text-gray-500 w-6">#{c.rank}</span>
+                    <span className="flex-1 truncate text-white">{c.method}</span>
+                    <span className="font-bold mono">{c.compositeScore}%</span>
+                    {c.selected && <span className="text-2xs text-dna-400">SELECTED</span>}
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
 
           <Section title="2. Original Owner" icon={User}>
             {report.matchMethod && (
@@ -509,6 +616,22 @@ export function UnifiedInvestigationPage() {
           </Section>
 
           <Section title="8. Leak Intelligence" icon={Globe} defaultOpen={false}>
+            {report.leakIntelligence.leakChain && report.leakIntelligence.leakChain.length > 0 && (
+              <div className="mb-4 space-y-0">
+                <p className="text-2xs text-gray-500 uppercase tracking-wider mb-2">Leak chain (crawler)</p>
+                {report.leakIntelligence.leakChain.map((e, i) => (
+                  <div key={i} className="flex gap-3 py-2 border-l-2 border-red-500/30 pl-4 ml-2">
+                    <div>
+                      <p className="text-xs font-semibold text-red-400">{e.platform}</p>
+                      <p className="text-2xs text-gray-500">{e.date ?? '—'} · {e.status}</p>
+                    </div>
+                  </div>
+                ))}
+                <p className="text-2xs text-gray-500 mt-2">
+                  Current status: {report.leakIntelligence.currentStatus ?? 'Unknown'}
+                </p>
+              </div>
+            )}
             {report.leakIntelligence.hasPublicLeak ? (
               <div className="space-y-2">
                 {report.leakIntelligence.entries.map((e, i) => (

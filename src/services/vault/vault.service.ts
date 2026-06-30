@@ -4,13 +4,14 @@
  * Orchestrates encrypted storage and retrieval of DNA-protected images.
  *
  * Storage flow:
- *   1. Receive original image buffer + dnaRecordId
+ *   1. Receive original file buffer + dnaRecordId
  *   2. Generate a vaultId (UUID)
- *   3. Derive AES-256 key via HKDF(masterSecret, vaultId)
- *   4. Encrypt image → [IV][AuthTag][Ciphertext]
- *   5. Write encrypted file to VAULT_STORAGE_DIR — original is NEVER written
- *   6. Persist vault_records row in DB
- *   7. Return vault metadata
+ *   3. Run identity embedding pipeline (watermark + signature + manifest)
+ *   4. Derive AES-256 key via HKDF(masterSecret, vaultId)
+ *   5. Encrypt file → [IV][AuthTag][Ciphertext]
+ *   6. Write encrypted file to storage — original is NEVER written
+ *   7. Persist vault_records row in DB
+ *   8. Return vault metadata
  *
  * Retrieval flow:
  *   1. Load vault_records row by vaultId
@@ -27,8 +28,8 @@ import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { encrypt, decrypt } from './encryption.service';
 import { uploadVaultFile, downloadVaultFile } from '../../lib/supabase-storage';
-import { identityEmbeddingService } from '../identity/identity-embedding.service';
 import { assertRecordOwner } from '../../lib/tenant-scope';
+import { identityEmbeddingPipeline } from '../identity/identity-embedding-pipeline.service';
 
 // In development without Supabase configured, fall back to local disk.
 const USE_LOCAL = process.env['NODE_ENV'] !== 'production' &&
@@ -60,6 +61,15 @@ export interface StoreResult {
   ivHex:              string;
   authTagHex:         string;
   createdAt:          Date;
+  identityEmbedding?: {
+    success:           boolean;
+    methods:           string[];
+    verified:          boolean;
+    watermarkEmbedded: boolean;
+    signatureEmbedded: boolean;
+    manifestEmbedded:  boolean;
+    detail:            string;
+  };
 }
 
 export interface RetrieveResult {
@@ -109,28 +119,55 @@ export class VaultService {
     // inside the file itself. Even if 90% of the file is tampered, this
     // signature allows us to prove original ownership and detect the culprit.
     const vaultId = uuidv4();
+    const certificateId = await identityEmbeddingPipeline.resolveCertificateId(dnaRecordId);
+
     let fileToEncrypt = imageBuffer;
+    let embedAudit: StoreResult['identityEmbedding'];
+
     try {
-      const embedResult = await identityEmbeddingService.embed(
+      const pipelineResult = await identityEmbeddingPipeline.process(
         imageBuffer,
         originalMimeType,
         originalFileName,
         {
-          dnaId:       dnaRecordId,
           vaultId,
-          ownerUserId: dnaRecord.ownerUserId ?? 'unknown',
-        }
-      );
-      if (embedResult.success) {
-        fileToEncrypt = embedResult.buffer;
-        logger.info('Vault — identity embedded', {
-          method: embedResult.method,
           dnaRecordId,
-          vaultId,
-        });
+          ownerUserId: dnaRecord.ownerUserId ?? ownerUserId,
+          certificateId,
+        },
+      );
+
+      if (pipelineResult.success) {
+        fileToEncrypt = pipelineResult.buffer;
       }
+
+      embedAudit = {
+        success: pipelineResult.success,
+        methods: pipelineResult.methods,
+        verified: pipelineResult.verified,
+        watermarkEmbedded: pipelineResult.watermarkEmbedded,
+        signatureEmbedded: pipelineResult.signatureEmbedded,
+        manifestEmbedded: pipelineResult.manifestEmbedded,
+        detail: pipelineResult.detail,
+      };
+
+      logger.info('Vault — identity pipeline complete', {
+        vaultId,
+        dnaRecordId,
+        methods: pipelineResult.methods,
+        verified: pipelineResult.verified,
+      });
     } catch (embedErr) {
-      logger.warn('Vault — identity embedding failed (proceeding without)', { error: embedErr });
+      logger.warn('Vault — identity pipeline failed (proceeding without)', { error: embedErr });
+      embedAudit = {
+        success: false,
+        methods: [],
+        verified: false,
+        watermarkEmbedded: false,
+        signatureEmbedded: false,
+        manifestEmbedded: false,
+        detail: 'Pipeline failed — stored without embedded identity',
+      };
     }
 
     // ── Encrypt in-memory ─────────────────────────────────────────────────
@@ -177,6 +214,7 @@ export class VaultService {
       ivHex:              record.ivHex,
       authTagHex:         record.authTagHex,
       createdAt:          record.createdAt,
+      identityEmbedding:  embedAudit,
     };
   }
 

@@ -17,11 +17,17 @@ import { generateLightweightDna } from './lightweight-dna.service';
 import { resolveWatermarkProof } from './watermark-status.service';
 import { phase3WatermarkRecovery } from '../watermark/phase3-watermark-recovery.service';
 import { isPhase3WatermarkRecoveryActive } from '../../config/dna-phase3';
+import { identityRecoveryEngine } from './identity-recovery-engine.service';
+import { vaultCandidateRankingService } from './vault-candidate-ranking.service';
+import { evidenceConfidenceService } from './evidence-confidence.service';
+import crypto from 'crypto';
 import type {
   UnifiedInvestigationReport,
   InvestigationPipelineStep,
   TamperAnalysisSection,
   LeakedFileAccessEntry,
+  RankedVaultCandidate,
+  IdentityRecoveryReportSection,
 } from '../../types/unified-investigation.types';
 const vaultService = new VaultService();
 const comparisonService = new DnaComparisonService();
@@ -93,7 +99,11 @@ export class UnifiedInvestigationOrchestrator {
       pipeline.push(step('lightweight_dna', 'Generate lightweight DNA', 'skipped', 'DNA_PHASE2_ENABLED=false'));
     }
 
-    // 3–4. Vault match
+    // Phase 5: Multi-layer identity recovery (all engines — never abort on failure)
+    const currentFileHash = crypto.createHash('sha256').update(buffer).digest('hex');
+    let rankedCandidates: RankedVaultCandidate[] = [];
+
+    // 3–4. Vault match — direct signals first, then enterprise candidate ranking
     let match: VaultMatchResult | null = leakVerify.identity?.vaultId && leakVerify.identity?.dnaId
       ? {
           tier: 2 as const,
@@ -117,8 +127,47 @@ export class UnifiedInvestigationOrchestrator {
     }
 
     if (!match) {
+      rankedCandidates = await vaultCandidateRankingService.findRankedCandidates(
+        buffer, mimeType, originalName, sizeBytes, ownerUserId,
+      );
+      pipeline.push(step(
+        'candidate_ranking',
+        'Rank vault candidates',
+        rankedCandidates.length ? 'complete' : 'warning',
+        rankedCandidates.length
+          ? `Top ${rankedCandidates.length} candidates · best ${rankedCandidates[0]?.compositeScore ?? 0}%`
+          : 'No candidates above threshold',
+      ));
+      match = vaultCandidateRankingService.selectBestCandidate(rankedCandidates);
+    } else {
+      pipeline.push(step('candidate_ranking', 'Rank vault candidates', 'skipped', 'Direct identity match'));
+    }
+
+    if (!match) {
       match = await vaultAutoMatchService.findMatch(buffer, mimeType, originalName, sizeBytes, ownerUserId);
     }
+
+    const identityRecovery = await identityRecoveryEngine.recover({
+      buffer,
+      mimeType,
+      originalName,
+      ownerUserId,
+      leakVerify,
+      phase3Recovery,
+      bestVisualSimilarity: match?.visualSimilarity
+        ?? (rankedCandidates[0]?.compositeScore ? rankedCandidates[0].compositeScore / 100 : undefined),
+      semanticMatchScore: (() => {
+        const sem = rankedCandidates.find((c) => c.signals.includes('semantic_dna'));
+        return sem?.compositeScore ? sem.compositeScore / 100 : undefined;
+      })(),
+      accessEventCount: leakVerify.accessHistory?.length ?? 0,
+    });
+    pipeline.push(step(
+      'recovery_engines',
+      'Multi-layer identity recovery',
+      identityRecovery.enginesRecovered > 0 ? 'complete' : 'warning',
+      identityRecovery.message,
+    ));
 
     pipeline.push(step(
       'vault_search',
@@ -128,7 +177,14 @@ export class UnifiedInvestigationOrchestrator {
     ));
 
     if (!match) {
-      return this.noMatchReport(investigationId, pipeline, leakVerify);
+      return this.noMatchReport(investigationId, pipeline, leakVerify, identityRecovery, currentFileHash);
+    }
+
+    if (rankedCandidates.length) {
+      rankedCandidates = rankedCandidates.map((c) => ({
+        ...c,
+        selected: c.vaultId === match!.vaultId,
+      }));
     }
 
     pipeline.push(step('vault_locate', 'Locate original vault file', 'complete', match.vaultId));
@@ -224,11 +280,11 @@ export class UnifiedInvestigationOrchestrator {
     let timelineEvents: Array<{ stage: string; timestamp?: string; detail?: string }> = [];
     try {
       const shareTimeline = await shareLinkService.getTimelineEvents(match.dnaRecordId, ownerUserId);
-      timelineEvents = this.buildTimeline(match.dnaRecordId, shareTimeline, leakVerify);
+      timelineEvents = this.buildTimeline(match.dnaRecordId, shareTimeline, leakVerify, accessIntelligence);
       pipeline.push(step('timeline', 'Retrieve timeline', 'complete', `${timelineEvents.length} events`));
     } catch {
       pipeline.push(step('timeline', 'Retrieve timeline', 'warning', 'Timeline partial'));
-      timelineEvents = this.buildTimeline(match.dnaRecordId, [], leakVerify);
+      timelineEvents = this.buildTimeline(match.dnaRecordId, [], leakVerify, accessIntelligence);
     }
 
     // 13. Crawler / monitoring
@@ -250,7 +306,7 @@ export class UnifiedInvestigationOrchestrator {
 
     const dnaRec = await prisma.dnaRecord.findUnique({
       where: { id: match.dnaRecordId },
-      select: { createdAt: true, imageFilename: true },
+      select: { createdAt: true, imageFilename: true, sha256Hash: true },
     });
 
     const dnaPct = comparison?.overallConfidenceScore
@@ -269,11 +325,53 @@ export class UnifiedInvestigationOrchestrator {
           : 'NOT_FOUND';
 
     const ownershipConf = Math.min(100, Math.round(
-      dnaPct * 0.6
-      + (leakVerify.valid ? 25 : identityFromVault ? 20 : 5)
-      + (certStatus === 'VALID' ? 15 : 0)
-      + (match.tier <= 2 ? 10 : 0),
+      Math.max(
+        identityRecovery.compositeScores.ownershipConfidence,
+        dnaPct * 0.6
+        + (leakVerify.valid ? 25 : identityFromVault ? 20 : 5)
+        + (certStatus === 'VALID' ? 15 : 0)
+        + (match.tier <= 2 ? 10 : 0),
+      ),
     ));
+
+    const trustScore = identityRecovery.compositeScores.trustScore;
+    const identityConfidence = identityRecovery.compositeScores.identityConfidence;
+
+    const evidenceConf = evidenceConfidenceService.compute(
+      dnaPct,
+      (comparison?.layerComparisons ?? []).slice(0, 6).map((l) => ({
+        layer: l.name.toLowerCase().replace(/\s+/g, '_'),
+        score: l.similarityScore,
+        weight: 0.15,
+        passed: l.matched,
+      })),
+      tamperAnalysis.primaryVector as never,
+      certStatus === 'VALID',
+      identityConfidence / 100,
+    );
+
+    const summary = {
+      ownershipConfidence: ownershipConf,
+      dnaMatchPercent: dnaPct,
+      certificateStatus: certStatus,
+      identityStatus,
+      tamperSeverity: tamperAnalysis.primaryVector,
+      riskLevel: riskFromScores(dnaPct, tamperAnalysis.overallTamperScore, true),
+      trustScore,
+      identityConfidence,
+    };
+
+    const identityRecoveryReport = this.buildIdentityRecoveryReport({
+      match,
+      owner,
+      dnaRec,
+      cert,
+      leakVerify,
+      currentFileHash,
+      ownershipConf,
+      accessIntelligence,
+      evidenceConf,
+    });
 
     const layerAnalysis = (comparison?.layerComparisons ?? []).map((l) => ({
       layer: l.layer,
@@ -283,14 +381,10 @@ export class UnifiedInvestigationOrchestrator {
       explanation: l.changeDescription,
     }));
 
-    const summary = {
-      ownershipConfidence: ownershipConf,
-      dnaMatchPercent: dnaPct,
-      certificateStatus: certStatus,
-      identityStatus,
-      tamperSeverity: tamperAnalysis.primaryVector,
-      riskLevel: riskFromScores(dnaPct, tamperAnalysis.overallTamperScore, true),
-    };
+    if (rankedCandidates.length && comparison) {
+      const sel = rankedCandidates.find((c) => c.selected);
+      if (sel) sel.dnaMatchPercent = dnaPct;
+    }
 
     logger.info('Unified investigation complete', { investigationId, dnaRecordId: match.dnaRecordId });
 
@@ -346,6 +440,48 @@ export class UnifiedInvestigationOrchestrator {
       },
       matchTier: match.tier,
       matchMethod: match.method,
+      identityRecovery,
+      candidateRanking: rankedCandidates.length ? rankedCandidates : undefined,
+      identityRecoveryReport,
+      currentFileHash,
+    };
+  }
+
+  private buildIdentityRecoveryReport(params: {
+    match: VaultMatchResult;
+    owner: { fullName: string; shortId: string; email: string | null } | null;
+    dnaRec: { createdAt: Date; imageFilename: string; sha256Hash?: string | null } | null;
+    cert: { certificateId: string } | null;
+    leakVerify: Awaited<ReturnType<typeof leakedFileVerifyService.verify>>;
+    currentFileHash: string;
+    ownershipConf: number;
+    accessIntelligence: LeakedFileAccessEntry[];
+    evidenceConf?: ReturnType<typeof evidenceConfidenceService.compute>;
+  }): IdentityRecoveryReportSection {
+    const { match, owner, dnaRec, cert, leakVerify, currentFileHash, ownershipConf, accessIntelligence, evidenceConf } = params;
+    const protectedDl = accessIntelligence.find((a) =>
+      a.action?.includes('PROTECTED') || a.action?.includes('TEP_EXPORT'),
+    );
+    const device = accessIntelligence.find((a) => a.device)?.device;
+
+    return {
+      recovered: ownershipConf >= 50,
+      originalOwner: owner?.fullName ?? leakVerify.identity?.ownerName,
+      ownerPinitId: owner?.shortId ?? leakVerify.identity?.ownerShortId,
+      vaultId: match.vaultId,
+      dnaRecordId: match.dnaRecordId,
+      certificateId: cert?.certificateId ?? null,
+      originalFilename: dnaRec?.imageFilename ?? leakVerify.identity?.originalFilename,
+      createdAt: dnaRec?.createdAt?.toISOString(),
+      protectedDownloadDate: protectedDl?.timestamp,
+      originalDevice: device,
+      registrationTimestamp: leakVerify.identity?.dnaCreatedAt ?? dnaRec?.createdAt?.toISOString(),
+      originalHash: dnaRec?.sha256Hash ?? undefined,
+      currentHash: currentFileHash,
+      evidenceConfidence: evidenceConf?.trustScore ?? ownershipConf,
+      message: ownershipConf >= 50
+        ? 'Original identity recovered from multi-layer forensic signals'
+        : 'Partial recovery — confidence below enterprise threshold',
     };
   }
 
@@ -353,20 +489,35 @@ export class UnifiedInvestigationOrchestrator {
     investigationId: string,
     pipeline: InvestigationPipelineStep[],
     leakVerify: Awaited<ReturnType<typeof leakedFileVerifyService.verify>>,
+    identityRecovery?: Awaited<ReturnType<typeof identityRecoveryEngine.recover>>,
+    currentFileHash?: string,
   ): UnifiedInvestigationReport {
     pipeline.push(step('report', 'Generate investigation report', 'complete', 'No vault match'));
+    const recovery = identityRecovery ?? {
+      enginesRun: 0,
+      enginesRecovered: 0,
+      signals: [],
+      compositeScores: { ownershipConfidence: 0, trustScore: 0, identityConfidence: 0 },
+      transformations: [],
+      message: 'Recovery engines not run',
+    };
     return {
       success: false,
       investigationId,
       investigatedAt: new Date().toISOString(),
       pipeline,
       summary: {
-        ownershipConfidence: leakVerify.found ? Math.round((leakVerify.confidence ?? 0) * 0.5) : 0,
+        ownershipConfidence: Math.max(
+          recovery.compositeScores.ownershipConfidence,
+          leakVerify.found ? Math.round((leakVerify.confidence ?? 0) * 0.5) : 0,
+        ),
         dnaMatchPercent: 0,
         certificateStatus: 'UNKNOWN',
         identityStatus: leakVerify.found ? 'DETECTED_NO_VAULT' : 'NOT_FOUND',
         tamperSeverity: 'UNKNOWN',
         riskLevel: 'UNKNOWN',
+        trustScore: recovery.compositeScores.trustScore,
+        identityConfidence: recovery.compositeScores.identityConfidence,
       },
       owner: {
         ownerName: leakVerify.identity?.ownerName,
@@ -396,6 +547,8 @@ export class UnifiedInvestigationOrchestrator {
         accessHistory: leakVerify.accessHistory,
       },
       message: 'Could not locate original vault file in your account. Identity signals may still be present.',
+      identityRecovery: recovery,
+      currentFileHash,
     };
   }
 
@@ -422,10 +575,27 @@ export class UnifiedInvestigationOrchestrator {
       const l1 = comparison.layerComparisons.find((l) => l.layer === 1);
       const l3 = comparison.layerComparisons.find((l) => l.layer === 3);
       const l5 = comparison.layerComparisons.find((l) => l.layer === 5);
-      if (l1?.changed && l3 && l3.similarityPercent >= 90) vectors[0]!.detected = true;
-      if (l3 && l3.similarityPercent >= 60 && l3.similarityPercent < 85) vectors[1]!.detected = true;
-      if (l5?.changed && !l1?.changed) vectors[5]!.detected = true;
+      const l11 = comparison.layerComparisons.find((l) => l.layer === 11);
+      if (l1?.changed && l3 && l3.similarityPercent >= 85 && l3.similarityPercent < 99) vectors.find((v) => v.label === 'Compression')!.detected = true;
+      if (l3 && l3.similarityPercent >= 55 && l3.similarityPercent < 85) {
+        vectors.find((v) => v.label === 'Crop')!.detected = true;
+        vectors.find((v) => v.label === 'Resize')!.detected = true;
+      }
+      if (l3 && l3.similarityPercent < 70) vectors.find((v) => v.label === 'Screenshot')!.detected = true;
+      if (l5?.changed && !l1?.changed) vectors.find((v) => v.label === 'Metadata Removed')!.detected = true;
+      if (l11?.changed || (l11 && l11.similarityPercent < 80)) vectors.find((v) => v.label === 'AI Enhancement')!.detected = true;
+      if (l3 && l3.similarityPercent >= 70 && l3.similarityPercent < 92) vectors.find((v) => v.label === 'Sharpen')!.detected = true;
     }
+
+    const extraVectors = [
+      { label: 'Rotation', detected: false },
+      { label: 'Blur', detected: false },
+      { label: 'Contrast / Brightness', detected: false },
+      { label: 'Color Filters', detected: false },
+      { label: 'Format Conversion', detected: !!leakVerify.tampered },
+      { label: 'Sharpen', detected: false },
+    ];
+    vectors.push(...extraVectors);
 
     let primaryVector = 'NONE';
     let overallTamperScore = 10;
@@ -478,22 +648,71 @@ export class UnifiedInvestigationOrchestrator {
   }
 
   private buildTimeline(
-    _dnaRecordId: string,
+    dnaRecordId: string,
     shareEvents: unknown[],
     leakVerify: Awaited<ReturnType<typeof leakedFileVerifyService.verify>>,
+    accessHistory: LeakedFileAccessEntry[] = [],
   ): Array<{ stage: string; timestamp?: string; detail?: string }> {
     const out: Array<{ stage: string; timestamp?: string; detail?: string }> = [];
+
+    const push = (stage: string, timestamp?: string, detail?: string) => {
+      out.push({ stage, timestamp, detail });
+    };
+
     if (leakVerify.identity?.dnaCreatedAt) {
-      out.push({ stage: 'DNA Generated', timestamp: leakVerify.identity.dnaCreatedAt });
+      push('DNA Generated', leakVerify.identity.dnaCreatedAt);
+    } else {
+      push('DNA Generated', undefined, 'No evidence available');
     }
-    out.push({ stage: 'Stored in Vault', detail: leakVerify.identity?.vaultId });
-    for (const ev of shareEvents as Array<{ type?: string; timestamp?: string; title?: string }>) {
-      out.push({ stage: ev.title ?? ev.type ?? 'Share Event', timestamp: ev.timestamp });
+
+    if (leakVerify.identity?.vaultId) {
+      push('Stored in Vault', undefined, leakVerify.identity.vaultId);
+    } else {
+      push('Stored in Vault', undefined, 'No evidence available');
     }
-    if (leakVerify.leakVector === 'SCREENSHOT') out.push({ stage: 'Screenshot', detail: 'Detected' });
-    if (leakVerify.tampered) out.push({ stage: 'Modified', detail: leakVerify.detectionMethod });
-    out.push({ stage: 'Verified', timestamp: new Date().toISOString(), detail: 'Unified Investigation' });
-    out.push({ stage: 'Crawler Detection', detail: 'Future — monitoring framework ready' });
+
+    const downloads = accessHistory.filter((a) => a.action?.toLowerCase().includes('download'));
+    const views = accessHistory.filter((a) => a.action?.toLowerCase().includes('view'));
+    const shares = accessHistory.filter((a) => a.action?.toLowerCase().includes('share'));
+
+    if (downloads[0]) push('Downloaded', downloads[0].timestamp, downloads[0].device);
+    else push('Downloaded', undefined, 'No evidence available');
+
+    if (shares.length || (shareEvents as unknown[]).length) {
+      for (const ev of shareEvents as Array<{ type?: string; timestamp?: string; title?: string }>) {
+        push(ev.title ?? ev.type ?? 'Shared', ev.timestamp);
+      }
+    } else {
+      push('Shared', undefined, 'No evidence available');
+    }
+
+    if (views[0]) push('Recipient Opened', views[0].timestamp, views[0].device);
+    else push('Recipient Opened', undefined, 'No evidence available');
+
+    if (downloads[1]) push('Recipient Downloaded', downloads[1].timestamp);
+    else if (downloads[0] && shares.length) push('Recipient Downloaded', undefined, 'No evidence available');
+
+    if (leakVerify.leakVector === 'SCREENSHOT') {
+      push('Recipient Screenshot', undefined, 'Detected via leak vector');
+    } else {
+      push('Recipient Screenshot', undefined, 'No evidence available');
+    }
+
+    if (leakVerify.leakVector === 'RECORDING') {
+      push('Recipient Screen Recording', undefined, 'Detected via leak vector');
+    } else {
+      push('Recipient Screen Recording', undefined, 'No evidence available');
+    }
+
+    if (leakVerify.tampered) {
+      push('Recipient Edited', undefined, leakVerify.detectionMethod);
+    } else {
+      push('Recipient Edited', undefined, 'No evidence available');
+    }
+
+    push('Public Leak Detected', undefined, 'No evidence available — crawler pending');
+    push('Current Investigation', new Date().toISOString(), `DNA ${dnaRecordId.slice(0, 8)}…`);
+
     return out;
   }
 
@@ -560,25 +779,58 @@ export class UnifiedInvestigationOrchestrator {
   }
 
   private async buildLeakIntelligence(dnaRecordId: string, ownerUserId: string) {
+    const platformFromUrl = (url: string): string => {
+      const u = url.toLowerCase();
+      if (u.includes('t.me') || u.includes('telegram')) return 'Telegram';
+      if (u.includes('reddit')) return 'Reddit';
+      if (u.includes('instagram')) return 'Instagram';
+      if (u.includes('pinterest')) return 'Pinterest';
+      if (u.includes('facebook') || u.includes('fb.com')) return 'Facebook';
+      if (u.includes('twitter') || u.includes('x.com')) return 'X';
+      if (u.includes('whatsapp')) return 'WhatsApp';
+      if (u.includes('youtube')) return 'YouTube';
+      return 'Web';
+    };
+
     try {
       const monitors = await monitoringService.listMonitors(ownerUserId);
       const related = monitors.filter((m) => m.dnaRecordId === dnaRecordId);
       const entries = related.flatMap((m) =>
         (m.crawlResults ?? []).map((cr) => ({
-          platform: 'Web',
+          platform: platformFromUrl(cr.url),
           url: cr.url,
           firstSeen: cr.createdAt?.toISOString?.() ?? String(cr.createdAt),
           lastSeen: cr.createdAt?.toISOString?.() ?? String(cr.createdAt),
           status: cr.matchType ?? 'DETECTED',
+          source: 'crawler' as const,
         })),
       );
+
+      const leakChain = entries
+        .map((e) => ({
+          platform: e.platform,
+          date: e.firstSeen?.slice(0, 10),
+          status: e.status,
+        }))
+        .sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
+
       return {
         hasPublicLeak: entries.length > 0,
         entries,
-        message: entries.length ? `${entries.length} crawler match(es)` : 'No public leak detected.',
+        leakChain,
+        currentStatus: entries.length ? 'Public' : 'No public leak recorded',
+        message: entries.length
+          ? `${entries.length} crawler match(es) — chronological leak chain available`
+          : 'No public leak detected. Crawler will populate when monitoring is active.',
       };
     } catch {
-      return { hasPublicLeak: false, entries: [], message: 'No public leak detected.' };
+      return {
+        hasPublicLeak: false,
+        entries: [],
+        leakChain: [],
+        currentStatus: 'Unknown',
+        message: 'No public leak detected.',
+      };
     }
   }
 }

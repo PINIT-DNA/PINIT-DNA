@@ -4,8 +4,12 @@ export interface FrameMetrics {
   motion: number;
   contrast: number;
   edgeDensity: number;
+  sharpness: number;
   documentPresent: boolean;
   stable: boolean;
+  /** Composite 0–1 — high when frame is clear enough for forensic OCR / visual DNA */
+  qualityScore: number;
+  qualityOk: boolean;
 }
 
 function luminance(data: Uint8ClampedArray, i: number): number {
@@ -70,6 +74,18 @@ export function analyzeDocumentFrame(
   const contrast = Math.min(1, Math.sqrt(variance) / 72);
   const edgeDensity = edges / n;
 
+  let laplacianSum = 0;
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const p = y * w + x;
+      const lap = Math.abs(
+        4 * lum[p]! - lum[p - 1]! - lum[p + 1]! - lum[p - w]! - lum[p + w]!,
+      );
+      laplacianSum += lap;
+    }
+  }
+  const sharpness = Math.min(1, laplacianSum / n / 36);
+
   let motion = 1;
   if (previousLum && previousLum.length === n) {
     let diff = 0;
@@ -85,8 +101,19 @@ export function analyzeDocumentFrame(
 
   const stable = motion < 0.04;
 
+  const qualityScore = Math.min(1,
+    contrast * 0.3 + sharpness * 0.35 + edgeDensity * 12 + (stable ? 0.2 : 0) + (documentPresent ? 0.15 : 0),
+  );
+
+  const qualityOk =
+    documentPresent &&
+    stable &&
+    sharpness >= 0.14 &&
+    contrast >= 0.11 &&
+    edgeDensity >= 0.02;
+
   return {
-    metrics: { motion, contrast, edgeDensity, documentPresent, stable },
+    metrics: { motion, contrast, edgeDensity, sharpness, documentPresent, stable, qualityScore, qualityOk },
     luminance: lum,
   };
 }

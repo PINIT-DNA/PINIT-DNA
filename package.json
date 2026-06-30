@@ -8,6 +8,8 @@
     "dev": "ts-node-dev --respawn --transpile-only --exit-child --ignore-watch node_modules src/server.ts",
     "dev:backend": "npm run dev",
     "dev:client": "cd client && npm run dev",
+    "dev:ai:setup": "cd python-ai && setup-venv.bat",
+    "dev:ai": "cd python-ai && .venv\\Scripts\\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8001 --reload",
     "build": "tsc --project tsconfig.json",
     "build:client": "cd client && npm run build",
     "build:all": "npm run build:client && npm run build",

@@ -31,6 +31,16 @@ function opaqueRef(namespace: string, id: string): string {
   return crypto.createHmac('sha256', secret).update(`${namespace}:${id}`).digest('base64url').slice(0, 22);
 }
 
+/** Issue identity token at vault-store time (always available when pipeline runs). */
+export function issueVaultIdentityToken(context: {
+  vaultId: string;
+  dnaRecordId: string;
+  certificateId: string | null;
+  ownerUserId: string;
+}): IdentityTokenEnvelope | null {
+  return buildIdentityTokenEnvelope(context);
+}
+
 export function issueIdentityToken(context: {
   vaultId: string;
   dnaRecordId: string;
@@ -38,7 +48,15 @@ export function issueIdentityToken(context: {
   ownerUserId: string;
 }): IdentityTokenEnvelope | null {
   if (!isPhase3ProtectedDownloadTokenActive()) return null;
+  return buildIdentityTokenEnvelope(context);
+}
 
+function buildIdentityTokenEnvelope(context: {
+  vaultId: string;
+  dnaRecordId: string;
+  certificateId: string | null;
+  ownerUserId: string;
+}): IdentityTokenEnvelope | null {
   const inner: IdentityTokenInner = {
     vaultRef: opaqueRef('vault', context.vaultId),
     dnaRef: opaqueRef('dna', context.dnaRecordId),

@@ -3,17 +3,39 @@ import { analyzeDocumentFrame, sampleVideoFrame } from '../lib/document-frame-an
 
 export type AutoScanPhase = 'idle' | 'warming' | 'searching' | 'locking' | 'captured' | 'paused';
 
-const WARMUP_MS = 600;
-const INTERVAL_MS = 120;
-const STABLE_FRAMES_REQUIRED = 5;
+/** Fast multi-page document scanning */
+const FAST = {
+  warmupMs: 600,
+  intervalMs: 120,
+  stableFramesRequired: 5,
+  motionMax: 0.04,
+  requireQuality: false,
+};
+
+/**
+ * Forensic single capture (Unified Investigation) — wait for focus + stability
+ * before auto-starting investigation (~3–5s typical).
+ */
+const FORENSIC = {
+  warmupMs: 2200,
+  intervalMs: 150,
+  stableFramesRequired: 14,
+  motionMax: 0.022,
+  requireQuality: true,
+};
+
 /** Frames must differ from last capture by at least this much before another auto-shot. */
 const MIN_CHANGE_AFTER_CAPTURE = 0.08;
+
+export type AutoCaptureProfile = 'fast' | 'forensic';
 
 interface Options {
   enabled: boolean;
   onCapture: () => void;
   /** When true (default), auto-capture stops after each shot until armNextCapture(). */
   pauseAfterCapture?: boolean;
+  /** forensic = stricter focus/stability for PINIT investigation scans */
+  profile?: AutoCaptureProfile;
 }
 
 function frameChangeScore(current: Float32Array, baseline: Float32Array): number {
@@ -25,8 +47,10 @@ function frameChangeScore(current: Float32Array, baseline: Float32Array): number
 
 export function useAutoDocumentCapture(
   videoRef: RefObject<HTMLVideoElement | null>,
-  { enabled, onCapture, pauseAfterCapture = true }: Options,
+  { enabled, onCapture, pauseAfterCapture = true, profile = 'fast' }: Options,
 ) {
+  const cfg = profile === 'forensic' ? FORENSIC : FAST;
+
   const [phase, setPhase] = useState<AutoScanPhase>('idle');
   const [progress, setProgress] = useState(0);
   const [hint, setHint] = useState('Opening camera…');
@@ -64,7 +88,7 @@ export function useAutoDocumentCapture(
       setProgress(0);
     } else {
       setPhase('captured');
-      setHint('Captured!');
+      setHint('Clear capture — starting investigation…');
       setProgress(100);
       window.setTimeout(() => {
         setPhase('searching');
@@ -103,7 +127,9 @@ export function useAutoDocumentCapture(
 
     const startedAt = Date.now();
     setPhase('warming');
-    setHint('Point camera at document…');
+    setHint(profile === 'forensic'
+      ? 'Hold camera steady — focusing…'
+      : 'Point camera at document…');
     stableCountRef.current = 0;
     prevLumRef.current = null;
     armedRef.current = true;
@@ -119,9 +145,13 @@ export function useAutoDocumentCapture(
       }
 
       const now = Date.now();
-      if (now - startedAt < WARMUP_MS) {
+      if (now - startedAt < cfg.warmupMs) {
         setPhase('warming');
-        setHint('Point camera at document…');
+        const warmupPct = Math.round(((now - startedAt) / cfg.warmupMs) * 100);
+        setProgress(warmupPct);
+        setHint(profile === 'forensic'
+          ? 'Hold camera steady — focusing…'
+          : 'Point camera at document…');
         return;
       }
 
@@ -129,6 +159,7 @@ export function useAutoDocumentCapture(
       if (!frame) {
         setPhase('searching');
         setHint('Adjust lighting and hold document in frame');
+        setProgress(0);
         return;
       }
 
@@ -149,26 +180,46 @@ export function useAutoDocumentCapture(
       if (!metrics.documentPresent) {
         stableCountRef.current = 0;
         setPhase('searching');
-        setHint('Align document inside the frame');
+        setHint(profile === 'forensic'
+          ? 'Center the PINIT file in the frame'
+          : 'Align document inside the frame');
         setProgress(0);
         return;
       }
 
-      if (!metrics.stable) {
+      const isStable = metrics.motion < cfg.motionMax;
+
+      if (!isStable) {
         stableCountRef.current = 0;
         setPhase('searching');
-        setHint('Hold steady…');
+        setHint('Hold steady — reduce shake');
         setProgress(0);
+        return;
+      }
+
+      if (cfg.requireQuality && !metrics.qualityOk) {
+        stableCountRef.current = 0;
+        setPhase('searching');
+        if (metrics.sharpness < 0.14) {
+          setHint('Move closer or tap to focus — image too blurry');
+        } else if (metrics.contrast < 0.11) {
+          setHint('Improve lighting — document not clear enough');
+        } else {
+          setHint('Hold steady until the frame is sharp');
+        }
+        setProgress(Math.round(metrics.qualityScore * 50));
         return;
       }
 
       stableCountRef.current += 1;
-      const pct = Math.min(100, Math.round((stableCountRef.current / STABLE_FRAMES_REQUIRED) * 100));
+      const pct = Math.min(100, Math.round((stableCountRef.current / cfg.stableFramesRequired) * 100));
       setProgress(pct);
       setPhase('locking');
-      setHint('Document detected — hold steady…');
+      setHint(profile === 'forensic'
+        ? pct >= 85 ? 'Perfect — capturing…' : 'Sharp frame detected — hold steady…'
+        : 'Document detected — hold steady…');
 
-      if (stableCountRef.current >= STABLE_FRAMES_REQUIRED) {
+      if (stableCountRef.current >= cfg.stableFramesRequired) {
         try {
           navigator.vibrate?.(40);
         } catch {
@@ -179,9 +230,9 @@ export function useAutoDocumentCapture(
       }
     };
 
-    const id = window.setInterval(tick, INTERVAL_MS);
+    const id = window.setInterval(tick, cfg.intervalMs);
     return () => window.clearInterval(id);
-  }, [enabled, videoRef, notifyCaptured]);
+  }, [enabled, videoRef, notifyCaptured, cfg, profile]);
 
   return { phase, progress, hint, armed, armNextCapture, resetCapture, notifyCaptured };
 }

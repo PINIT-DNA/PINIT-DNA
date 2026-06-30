@@ -106,8 +106,8 @@ export function DocumentScanner({
     ctx.drawImage(videoRef.current, 0, 0);
     canvas.toBlob((blob) => {
       if (blob) finishWithBlob(blob);
-    }, 'image/jpeg', 0.92);
-  }, [finishWithBlob]);
+    }, 'image/jpeg', captureMode === 'single' ? 0.96 : 0.92);
+  }, [finishWithBlob, captureMode]);
 
   const handleAutoCapture = useCallback(() => {
     setFlashCapture(true);
@@ -125,6 +125,7 @@ export function DocumentScanner({
       enabled: cameraActive && cameraReady,
       onCapture: handleAutoCapture,
       pauseAfterCapture: captureMode === 'multi',
+      profile: captureMode === 'single' ? 'forensic' : 'fast',
     });
 
   const handleManualPage = () => {
@@ -226,12 +227,14 @@ export function DocumentScanner({
 
             <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/50 backdrop-blur rounded-full px-2.5 py-1">
               <Zap size={12} className={phase === 'locking' ? 'text-dna-300' : 'text-dna-400'} />
-              <span className="text-[10px] font-semibold text-dna-300">Auto-scan</span>
+              <span className="text-[10px] font-semibold text-dna-300">
+                {captureMode === 'single' ? 'Smart capture' : 'Auto-scan'}
+              </span>
             </div>
 
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent pt-8 pb-3 px-4">
               <p className="text-center text-xs text-white font-semibold drop-shadow-lg">{hint}</p>
-              {phase === 'locking' && (
+              {(phase === 'locking' || phase === 'warming') && (
                 <div className="mt-2 mx-auto max-w-[200px] h-1 rounded-full bg-white/20 overflow-hidden">
                   <div
                     className="h-full bg-dna-400 transition-all duration-100"
@@ -261,6 +264,15 @@ export function DocumentScanner({
           )}
 
           <div className="flex gap-2">
+            {captureMode === 'single' && (
+              <button
+                type="button"
+                onClick={captureAndFinish}
+                className="btn btn-secondary flex-1 py-3 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold"
+              >
+                <Camera size={16} /> Capture Now
+              </button>
+            )}
             {captureMode === 'multi' && (
               <>
                 {!armed && scannedPages.length > 0 && (

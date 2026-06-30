@@ -14,6 +14,7 @@ import { logger } from './lib/logger';
 import { vaultScheduler } from './services/scheduler/vault-scheduler.service';
 import { startPythonAI } from './lib/python-ai-process';
 import { registerGracefulShutdown, setActiveServer } from './lib/graceful-shutdown';
+import { printDevStackBanner } from './lib/dev-startup-banner';
 
 let httpServer: http.Server | null = null;
 let bootstrapped = false;
@@ -56,11 +57,22 @@ function listenWithRetry(expressApp: Express, port: number, maxAttempts = 10): P
 async function onServerReady(): Promise<void> {
   vaultScheduler.start();
 
+  const aiPort = parseInt(process.env['AI_SERVICE_PORT'] ?? '8001', 10);
+
   if (config.env !== 'production') {
     logger.info('Starting Python AI sidecar (OCR · embeddings · vision · documents)…', {
-      aiPort: process.env['AI_SERVICE_PORT'] ?? '8001',
+      aiPort,
     });
-    startPythonAI();
+    startPythonAI({
+      onReady: (status) => {
+        printDevStackBanner({
+          nodePort: config.port,
+          aiPort,
+          aiStatus: status,
+          aiUrl: process.env['AI_SERVICE_URL'],
+        });
+      },
+    });
   }
 
   setTimeout(async () => {
@@ -149,17 +161,13 @@ export async function startHttpServer(): Promise<http.Server> {
       prefix: config.apiPrefix,
       engineVersion: config.dna.engineVersion,
     });
-    console.log('');
-    console.log('  ┌─────────────────────────────────────────────┐');
-    console.log('  │  PINIT-DNA Backend READY                      │');
-    console.log('  ├─────────────────────────────────────────────┤');
-    console.log(`  │  Node.js API     →  http://localhost:${config.port}       │`);
-    console.log(`  │  Python AI       →  http://localhost:${process.env['AI_SERVICE_PORT'] ?? '8001'} (auto-start) │`);
-    console.log('  ├─────────────────────────────────────────────┤');
-    console.log('  │  Frontend (Terminal 2):                     │');
-    console.log('  │    cd client && npm run dev  →  :3000        │');
-    console.log('  └─────────────────────────────────────────────┘');
-    console.log('');
+    const aiPort = parseInt(process.env['AI_SERVICE_PORT'] ?? '8001', 10);
+    printDevStackBanner({
+      nodePort: config.port,
+      aiPort,
+      aiStatus: 'starting',
+      aiUrl: process.env['AI_SERVICE_URL'],
+    });
     void onServerReady();
   }
 
