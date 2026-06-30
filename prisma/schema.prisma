@@ -49,8 +49,54 @@ model DnaRecord {
   zkProofLayer          ZkProofLayer?
   biometricBindLayer    BiometricBindLayer?
   trackedExports        TrackedExportPackage[]
+  localFeatureIndex     LocalFeatureIndex?
 
   @@map("dna_records")
+}
+
+// ── Local DNA Feature Index (patch-level fingerprints for crop/screenshot recovery) ──
+model LocalFeatureIndex {
+  id              String          @id @default(uuid())
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  dnaRecordId     String          @unique
+  ownerUserId     String
+  vaultId         String?
+  imageWidth      Int
+  imageHeight     Int
+  patchSize       Int             @default(32)
+  gridCols        Int
+  gridRows        Int
+  patchCount      Int
+  globalPHash     String?
+  orbKeypoints    Int             @default(0)
+  orbDescriptors  Json?
+  indexVersion    String          @default("1.0.0")
+  status          String          @default("COMPLETE")
+  dnaRecord       DnaRecord       @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+  ownerUser       User            @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  patches         LocalDnaPatch[]
+
+  @@index([ownerUserId])
+  @@map("local_feature_indexes")
+}
+
+model LocalDnaPatch {
+  id              String            @id @default(uuid())
+  indexId         String
+  patchIndex      Int
+  gridX           Int
+  gridY           Int
+  pHash16         String
+  edgeSignature   String?
+  colorVector     Json?
+  frequencySig    String?
+  index           LocalFeatureIndex @relation(fields: [indexId], references: [id], onDelete: Cascade)
+
+  @@unique([indexId, patchIndex])
+  @@index([indexId])
+  @@index([pHash16])
+  @@map("local_dna_patches")
 }
 
 // ── Layer 11: AI Deepfake Detection ──────────────────────────────────────────
@@ -343,6 +389,7 @@ model User {
 
   certificates       Certificate[]
   dnaRecords         DnaRecord[]
+  localFeatureIndexes LocalFeatureIndex[]
   evidenceRecords    EvidenceRecord[]
   loginHistory       LoginHistory[]
   monitorRecords     MonitorRecord[]

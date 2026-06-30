@@ -485,3 +485,19 @@ export async function verifyFileIdentity(req: Request, res: Response, next: Next
     if (file.path) fs.unlink(file.path).catch(() => {});
   }
 }
+
+/** POST /vault/local-dna/backfill — build patch indexes for existing vaulted images */
+export async function backfillLocalDnaIndex(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const ownerUserId = getAuthUserId(req);
+    const { localDnaIndexService } = await import('../../services/forensics/local-dna-index.service');
+    const result = await localDnaIndexService.backfillOwner(ownerUserId);
+    res.json({
+      success: true,
+      message: `Local DNA index backfill complete — ${result.indexed} indexed, ${result.failed} failed`,
+      ...result,
+    });
+  } catch (err) {
+    next(err);
+  }
+}

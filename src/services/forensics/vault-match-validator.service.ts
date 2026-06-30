@@ -22,7 +22,7 @@ const FORENSIC_SIGNALS = new Set([
   'manifest',
 ]);
 
-const LOCAL_FEATURE_SIGNALS = new Set(['local_features', 'opencv_orb', 'orb_akaze']);
+const LOCAL_FEATURE_SIGNALS = new Set(['local_features', 'opencv_orb', 'orb_akaze', 'local_patch_dna', 'fragment_recovery']);
 
 function matchScore(match: VaultMatchResult): number {
   const parsed = Number.parseInt(match.confidence, 10);
@@ -37,6 +37,9 @@ export function isTrustedVaultMatch(match: VaultMatchResult): boolean {
     const score = matchScore(match);
     const vis = match.visualSimilarity ?? score / 100;
     return score >= 62 || (!Number.isNaN(vis) && vis >= 0.62);
+  }
+  if (match.tier === 3 && match.method.includes('Local patch DNA')) {
+    return matchScore(match) >= 55;
   }
   // Tier 3 filename-only matches are never trusted without visual DNA
   return false;
@@ -91,6 +94,9 @@ export function isAcceptedAfterDnaCompare(
     const min = isCameraScan ? 32 : 42;
     return overallConfidenceScore >= min && classification !== 'DIFFERENT';
   }
+  if (match.tier === 3 && match.method.includes('Local patch DNA')) {
+    return vaultSearchScore >= 55 && classification !== 'DIFFERENT';
+  }
   return overallConfidenceScore >= 75 && classification === 'DNA_MATCH';
 }
 
@@ -98,6 +104,9 @@ export function explainMatchBasis(match: VaultMatchResult): string {
   if (match.tier === 1) return 'Cryptographic SHA-256 exact match';
   if (match.tier === 2) return 'Forensic identity — watermark, signature, token, or manifest';
   if (match.tier === 4) return `Visual DNA perceptual hash (${match.confidence}% similar)`;
+  if (match.tier === 3 && match.method.includes('Local patch DNA')) {
+    return `Local patch DNA fragment recovery (${match.confidence}% patch votes)`;
+  }
   return match.method;
 }
 

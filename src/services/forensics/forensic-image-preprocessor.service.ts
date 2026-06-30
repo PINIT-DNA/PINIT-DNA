@@ -10,8 +10,17 @@ export interface ForensicImageVariant {
   mimeType: string;
 }
 
+export interface ForensicPreprocessorOptions {
+  /** Investigation / compare fast path — fewer variants, much faster */
+  fast?: boolean;
+}
+
 export class ForensicImagePreprocessor {
-  async generateVariants(buffer: Buffer, mimeType: string): Promise<ForensicImageVariant[]> {
+  async generateVariants(
+    buffer: Buffer,
+    mimeType: string,
+    options?: ForensicPreprocessorOptions,
+  ): Promise<ForensicImageVariant[]> {
     if (!mimeType.startsWith('image/')) {
       return [{ label: 'original', buffer, mimeType }];
     }
@@ -67,6 +76,10 @@ export class ForensicImagePreprocessor {
         .jpeg({ quality: 72, mozjpeg: true })
         .toBuffer();
       variants.push({ label: 'jpeg_recompress', buffer: recompressed, mimeType: 'image/jpeg' });
+
+      if (options?.fast) {
+        return variants;
+      }
 
       const rotated = await sharp(buffer)
         .rotate(2)

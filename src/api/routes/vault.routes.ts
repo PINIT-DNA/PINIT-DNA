@@ -8,7 +8,7 @@
 
 import { Router } from 'express';
 import { uploadSingle } from '../middleware/upload.middleware';
-import { listVaultRecords, storeInVault, getVaultRecord, retrieveFromVault, scanVaultFile, verifyFileIdentity, prepareProtectedDownload, protectedDownloadFromVault } from '../controllers/vault.controller';
+import { listVaultRecords, storeInVault, getVaultRecord, retrieveFromVault, scanVaultFile, verifyFileIdentity, prepareProtectedDownload, protectedDownloadFromVault, backfillLocalDnaIndex } from '../controllers/vault.controller';
 import { vaultIntegrityCheck } from '../controllers/integrity.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import { requireVaultOwnership } from '../middleware/ownership.middleware';
@@ -35,6 +35,7 @@ const router = Router();
 router.get('/', requireAuth, listVaultRecords);
 /** GET /vault/integrity-check — Phase 4.6: check all vault files exist on disk */
 router.get('/integrity-check', requireAuth, vaultIntegrityCheck);
+router.post('/local-dna/backfill', requireAuth, backfillLocalDnaIndex);
 router.post('/store', requireAuth, uploadSingle, storeInVault);
 
 /**

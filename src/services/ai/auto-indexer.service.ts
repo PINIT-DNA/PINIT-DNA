@@ -97,6 +97,34 @@ export class AutoIndexerService {
     this.doOcrAndIndex(params).catch(err =>
       logger.debug('OCR auto-index failed (non-fatal)', { error: String(err) })
     );
+    this.doLocalDnaIndex(params).catch(err =>
+      logger.warn('Local DNA index failed (non-fatal)', { dnaRecordId: params.dnaRecordId.slice(0, 8), error: String(err) })
+    );
+  }
+
+  private async doLocalDnaIndex(params: {
+    dnaRecordId: string;
+    vaultId:     string;
+    filename:    string;
+    mimeType:    string;
+    buffer:      Buffer;
+  }): Promise<void> {
+    if (!params.mimeType.startsWith('image/')) return;
+
+    const record = await prisma.dnaRecord.findUnique({
+      where: { id: params.dnaRecordId },
+      select: { ownerUserId: true },
+    });
+    if (!record?.ownerUserId) return;
+
+    const { localDnaIndexService } = await import('../forensics/local-dna-index.service');
+    await localDnaIndexService.buildIndex({
+      buffer: params.buffer,
+      mimeType: params.mimeType,
+      dnaRecordId: params.dnaRecordId,
+      vaultId: params.vaultId,
+      ownerUserId: record.ownerUserId,
+    });
   }
 
   private async doOcrAndIndex(params: {

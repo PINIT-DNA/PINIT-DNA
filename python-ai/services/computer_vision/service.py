@@ -106,5 +106,110 @@ class ComputerVisionService(EnterpriseAIService):
             "method": cmp.data.get("method", "orb"),
         }, "OK", self.name)
 
+    def extract_local_index(
+        self,
+        image_bytes: bytes,
+        patch_size: int = 32,
+        max_keypoints: int = 1500,
+    ) -> ServiceResult:
+        """Extract global ORB/AKAZE descriptors + patch grid metadata for vault indexing."""
+        if not self.is_available():
+            return ServiceResult(False, {}, "OpenCV/Pillow not available", self.name)
+
+        import cv2
+        import base64
+
+        gray = self._decode_gray(image_bytes, max_dim=1280)
+        if gray is None:
+            return ServiceResult(False, {}, "Failed to decode image", self.name)
+
+        try:
+            h, w = gray.shape[:2]
+            orb = cv2.ORB_create(nfeatures=max_keypoints, scaleFactor=1.2, nlevels=8)
+            kp, des = orb.detectAndCompute(gray, None)
+            method = "opencv_orb"
+
+            if des is None or len(kp) < 8:
+                akaze = cv2.AKAZE_create()
+                kp, des = akaze.detectAndCompute(gray, None)
+                method = "opencv_akaze"
+
+            keypoints: list[dict[str, Any]] = []
+            if des is not None and kp:
+                for i, k in enumerate(kp[:max_keypoints]):
+                    desc_row = des[i].tolist() if i < len(des) else []
+                    keypoints.append({
+                        "x": round(float(k.pt[0]) / max(w, 1), 5),
+                        "y": round(float(k.pt[1]) / max(h, 1), 5),
+                        "size": round(float(k.size), 2),
+                        "angle": round(float(k.angle), 2),
+                        "response": round(float(k.response), 4),
+                        "descriptor": base64.b64encode(bytes(desc_row)).decode("ascii") if desc_row else "",
+                    })
+
+            return ServiceResult(True, {
+                "method": method,
+                "imageWidth": w,
+                "imageHeight": h,
+                "patchSize": patch_size,
+                "orbKeypoints": len(keypoints),
+                "orbDescriptors": {"keypoints": keypoints, "method": method},
+            }, "OK", self.name)
+        except Exception as exc:
+            return ServiceResult(False, {}, str(exc), self.name)
+
+    def match_local_descriptors(
+        self,
+        probe_bytes: bytes,
+        reference_descriptors: dict[str, Any],
+    ) -> ServiceResult:
+        """Match probe ORB keypoints against stored vault descriptor set."""
+        if not self.is_available():
+            return ServiceResult(False, {}, "OpenCV/Pillow not available", self.name)
+
+        import cv2
+        import base64
+        import numpy as np
+
+        gray = self._decode_gray(probe_bytes, max_dim=1280)
+        if gray is None:
+            return ServiceResult(False, {}, "Failed to decode probe", self.name)
+
+        stored = reference_descriptors.get("keypoints", [])
+        if not stored:
+            return ServiceResult(True, {"similarity": 0.0, "matches": 0, "method": "none"}, "No stored keypoints", self.name)
+
+        try:
+            ref_des = []
+            for kp in stored:
+                raw = base64.b64decode(kp.get("descriptor", ""))
+                if raw:
+                    ref_des.append(np.frombuffer(raw, dtype=np.uint8))
+            if not ref_des:
+                return ServiceResult(True, {"similarity": 0.0, "matches": 0, "method": "none"}, "Empty descriptors", self.name)
+
+            orb = cv2.ORB_create(nfeatures=2000)
+            probe_kp, probe_des = orb.detectAndCompute(gray, None)
+            if probe_des is None or len(probe_des) < 4:
+                return ServiceResult(True, {"similarity": 0.0, "matches": 0, "method": "opencv_orb"}, "Insufficient probe keypoints", self.name)
+
+            ref_mat = np.vstack(ref_des).astype(np.uint8)
+            bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+            matches = bf.match(probe_des, ref_mat)
+            good = [m for m in matches if m.distance < 55]
+            match_count = len(good)
+            denom = max(len(probe_kp), len(ref_des), 1)
+            similarity = min(1.0, match_count / max(denom * 0.10, 1))
+
+            return ServiceResult(True, {
+                "similarity": round(float(similarity), 4),
+                "matches": match_count,
+                "method": reference_descriptors.get("method", "opencv_orb"),
+                "probeKeypoints": len(probe_kp),
+                "referenceKeypoints": len(ref_des),
+            }, "OK", self.name)
+        except Exception as exc:
+            return ServiceResult(False, {}, str(exc), self.name)
+
 
 computer_vision_service = ComputerVisionService()

@@ -15,6 +15,8 @@ import { certificateService } from '../certificates/certificate.service';
 import { EphemeralFingerprinter } from '../verification/ephemeral-fingerprinter';
 import { forensicImagePreprocessor } from './forensic-image-preprocessor.service';
 import { vaultSimilarityVectorService } from './vault-similarity-vector.service';
+import { vaultLocalDnaSearchService } from './vault-local-dna-search.service';
+import { localDnaConfig } from '../../config/local-dna';
 import { deepVaultCompareService } from './deep-vault-compare.service';
 import { confidenceFusionEngine } from './confidence-fusion-engine.service';
 import { vaultCandidateRankingService } from './vault-candidate-ranking.service';
@@ -26,10 +28,20 @@ import type {
   RecoveredIdentitySignal,
 } from './pinit-identification-engine.service';
 
+export interface RecoveryOptions {
+  /** Skip slow EphemeralFingerprinter (15-layer probe) — use for Unified Investigation */
+  skipProbeDna?: boolean;
+  /** Fewer image variants for faster scans */
+  fastVariants?: boolean;
+  /** ORB refine top-K vault candidates */
+  orbTopK?: number;
+}
+
 const STAGE = {
   FORENSIC: 'stage1_forensic_recovery',
   PROBE_DNA: 'stage2_probe_dna',
   VAULT_SEARCH: 'stage3_vault_search',
+  LOCAL_DNA: 'stage3b_local_dna_index',
   SIMILARITY_VECTOR: 'stage4_similarity_vector',
   DEEP_COMPARE: 'stage5_deep_dna_compare',
   FUSION: 'stage6_confidence_fusion',
@@ -45,6 +57,7 @@ export class PinitOriginalIdentityRecoveryService {
     originalName: string,
     sizeBytes: number,
     ownerUserId: string,
+    options?: RecoveryOptions,
   ): Promise<PinitIdentificationResult> {
     const stages: RecoveryStage[] = [];
     const recoveredSignals: RecoveredIdentitySignal[] = [];
@@ -66,10 +79,15 @@ export class PinitOriginalIdentityRecoveryService {
     let certificateId: string | null = null;
     let ownerShortId: string | null = null;
 
-    const variants = await forensicImagePreprocessor.generateVariants(buffer, mimeType);
+    const variants = await forensicImagePreprocessor.generateVariants(buffer, mimeType, {
+      fast: options?.fastVariants,
+    });
+    const forensicVariants = options?.fastVariants
+      ? variants.filter((v) => v.label === 'original' || v.label === 'normalized')
+      : variants;
 
     // ═══ Stage 1 — Forensic recovery (never stop) ═══════════════════════════
-    for (const variant of variants) {
+    for (const variant of forensicVariants) {
       try {
         const wm = await phase3WatermarkRecovery.recoverForensic(variant.buffer, variant.mimeType, ownerUserId);
         if (wm.recovered) {
@@ -183,26 +201,98 @@ export class PinitOriginalIdentityRecoveryService {
 
     // ═══ Stage 2 — Fresh 15-layer DNA on probe ════════════════════════════
     let probeLayerCount = 0;
-    try {
-      const probeFp = await this.probeFingerprinter.fingerprint({
-        filePath: '', originalName, declaredMimeType: mimeType, sizeBytes, buffer,
-      });
-      probeLayerCount = probeFp.layers.filter((l) => l.success).length;
+    if (options?.skipProbeDna) {
       stages.push({
         stage: STAGE.PROBE_DNA,
-        status: probeLayerCount >= 8 ? 'complete' : 'partial',
-        detail: `Probe DNA: ${probeLayerCount}/15 layers generated`,
+        status: 'skipped',
+        detail: 'Probe DNA skipped (investigation fast path)',
       });
-    } catch (e) {
-      stages.push({ stage: STAGE.PROBE_DNA, status: 'failed', detail: `Probe DNA failed: ${String(e).slice(0, 80)}` });
+    } else {
+      try {
+        const probeFp = await this.probeFingerprinter.fingerprint({
+          filePath: '', originalName, declaredMimeType: mimeType, sizeBytes, buffer,
+        });
+        probeLayerCount = probeFp.layers.filter((l) => l.success).length;
+        stages.push({
+          stage: STAGE.PROBE_DNA,
+          status: probeLayerCount >= 8 ? 'complete' : 'partial',
+          detail: `Probe DNA: ${probeLayerCount}/15 layers generated`,
+        });
+      } catch (e) {
+        stages.push({ stage: STAGE.PROBE_DNA, status: 'failed', detail: `Probe DNA failed: ${String(e).slice(0, 80)}` });
+      }
+    }
+
+    // ═══ Stage 3b — Local DNA patch index search (fragment / crop recovery) ═══
+    let localDnaScore = 0;
+    let localDnaHit: Awaited<ReturnType<typeof vaultLocalDnaSearchService.search>>[0] | null = null;
+
+    if (localDnaConfig.enabled && mimeType.startsWith('image/')) {
+      const localHits = await vaultLocalDnaSearchService.search(buffer, ownerUserId, mimeType);
+      localDnaHit = localHits[0] ?? null;
+      localDnaScore = localDnaHit?.compositeScore ?? 0;
+
+      stages.push({
+        stage: STAGE.LOCAL_DNA,
+        status: localDnaHit ? 'complete' : 'partial',
+        detail: localDnaHit
+          ? `${localDnaHit.patchMatchCount} patch matches (${Math.round(localDnaHit.matchRatio * 100)}% of probe) · score ${localDnaScore}%`
+          : 'No local patch matches — vault index may need backfill',
+      });
+
+      if (localDnaHit && localDnaScore >= localDnaConfig.identifyCompositeThreshold && !identityHit) {
+        identityHit = {
+          tier: 3,
+          method: `Local patch DNA (${localDnaHit.patchMatchCount} patches, ${Math.round(localDnaHit.matchRatio * 100)}% fragment)`,
+          dnaRecordId: localDnaHit.dnaRecordId,
+          vaultId: localDnaHit.vaultId,
+          ownerUserId: localDnaHit.ownerUserId,
+          confidence: String(localDnaScore),
+          visualSimilarity: (localDnaHit.orbRefineScore || localDnaScore) / 100,
+        };
+        push(STAGE.LOCAL_DNA, localDnaScore, true, `Fragment recovery via ${localDnaHit.patchMatchCount} patch votes`);
+      } else if (localDnaHit && localDnaScore >= 50) {
+        push(STAGE.LOCAL_DNA, localDnaScore, true, `Partial fragment match — ${localDnaHit.patchMatchCount} patches`);
+      }
+    } else {
+      stages.push({
+        stage: STAGE.LOCAL_DNA,
+        status: 'skipped',
+        detail: 'Local DNA index disabled or non-image probe',
+      });
     }
 
     // ═══ Stages 3–4 — Score ENTIRE vault (similarity vectors) ═════════════
+    const orbTopK = options?.orbTopK ?? 15;
     const vectors = await vaultSimilarityVectorService.scoreEntireVault(
       buffer, mimeType, originalName, sizeBytes, ownerUserId, variants,
-      { relaxedVisual: true, orbTopK: 15 },
+      { relaxedVisual: true, orbTopK },
     );
     let candidates = vaultSimilarityVectorService.toRankedCandidates(vectors);
+
+    // Promote local-DNA hit into candidate list for deep compare + fusion
+    if (localDnaHit && localDnaScore >= 50) {
+      const existing = candidates.find((c) => c.vaultId === localDnaHit!.vaultId);
+      if (existing) {
+        existing.compositeScore = Math.max(existing.compositeScore, localDnaScore);
+        existing.signals = [...new Set([...existing.signals, ...localDnaHit.signals])];
+        existing.method = existing.method || `Local patch DNA (${localDnaHit.patchMatchCount} patches)`;
+      } else {
+        candidates.unshift({
+          rank: 0,
+          dnaRecordId: localDnaHit.dnaRecordId,
+          vaultId: localDnaHit.vaultId,
+          ownerUserId: localDnaHit.ownerUserId,
+          preliminaryScore: localDnaScore,
+          compositeScore: localDnaScore,
+          tier: 3,
+          method: `Local patch DNA (${localDnaHit.patchMatchCount} patches)`,
+          signals: localDnaHit.signals,
+        });
+      }
+      candidates.sort((a, b) => b.compositeScore - a.compositeScore);
+      candidates = candidates.map((c, i) => ({ ...c, rank: i + 1 }));
+    }
 
     stages.push({
       stage: STAGE.VAULT_SEARCH,
@@ -244,6 +334,18 @@ export class PinitOriginalIdentityRecoveryService {
 
     if (!match && topVector && topVector.scores.composite >= 55) {
       match = vaultCandidateRankingService.toVaultMatch(candidates[0]!);
+    }
+
+    if (!match && localDnaHit && localDnaScore >= 55) {
+      match = {
+        tier: 3,
+        method: `Local patch DNA (${localDnaHit.patchMatchCount} patches)`,
+        dnaRecordId: localDnaHit.dnaRecordId,
+        vaultId: localDnaHit.vaultId,
+        ownerUserId: localDnaHit.ownerUserId,
+        confidence: String(localDnaScore),
+        visualSimilarity: (localDnaHit.orbRefineScore || localDnaScore) / 100,
+      };
     }
 
     if (!match && bestDeep && bestDeep.overallConfidenceScore >= 38) {
@@ -297,7 +399,8 @@ export class PinitOriginalIdentityRecoveryService {
       perceptualHashScore: topVector?.scores.perceptualBlend ?? 0,
       structuralScore: topVector?.scores.structural ?? 0,
       semanticScore: topVector?.scores.clip ?? 0,
-      localFeatureScore: topVector?.scores.orb ?? 0,
+      localFeatureScore: Math.max(topVector?.scores.orb ?? 0, localDnaScore, localDnaHit?.orbRefineScore ?? 0),
+      localPatchScore: localDnaScore,
       ocrScore,
       candidate: candidates[0] ?? null,
       match,
@@ -318,6 +421,7 @@ export class PinitOriginalIdentityRecoveryService {
       || watermarkScore >= 50
       || manifestScore >= 50
       || ocrScore >= 65
+      || localDnaScore >= 60
       || (topVector?.scores.orb ?? 0) >= 55
       || (topVector?.scores.perceptualBlend ?? 0) >= 58
       || (topVector?.scores.structural ?? 0) >= 62

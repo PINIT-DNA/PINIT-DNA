@@ -25,6 +25,7 @@ export interface FusionInput {
   structuralScore?: number;
   semanticScore?: number;
   localFeatureScore?: number;
+  localPatchScore?: number;
   textureScore?: number;
   ocrScore?: number;
   metadataScore?: number;
@@ -63,7 +64,8 @@ export class ConfidenceFusionEngine {
     const dna15 = clamp(input.dna15LayerScore ?? 0);
     const orb = clamp(Math.max(
       input.localFeatureScore ?? 0,
-      input.candidate?.signals.some((s) => s === 'local_features' || s.startsWith('opencv')) ? input.candidate.compositeScore : 0,
+      input.localPatchScore ?? 0,
+      input.candidate?.signals.some((s) => s === 'local_features' || s.startsWith('opencv') || s === 'local_patch_dna') ? input.candidate.compositeScore : 0,
     ));
     const clip = clamp(input.semanticScore ?? 0);
     const structural = clamp(Math.max(
@@ -100,6 +102,10 @@ export class ConfidenceFusionEngine {
       ownershipConfidence = Math.max(ownershipConfidence, 93);
     } else if (vectorBoost >= 78 && (orb >= 55 || perceptual >= 65)) {
       ownershipConfidence = Math.max(ownershipConfidence, 88);
+    } else if ((input.localPatchScore ?? 0) >= 72) {
+      ownershipConfidence = Math.max(ownershipConfidence, 90);
+    } else if ((input.localPatchScore ?? 0) >= 55 && orb >= 45) {
+      ownershipConfidence = Math.max(ownershipConfidence, 82);
     }
 
     if (input.sha256Score === 100) ownershipConfidence = 100;

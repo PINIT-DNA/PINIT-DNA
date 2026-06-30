@@ -274,6 +274,38 @@ export class AIEmbeddingsService {
     }
   }
 
+  /** Extract ORB/AKAZE global descriptors for PINIT Local DNA vault index. */
+  async extractLocalDnaIndex(
+    buffer: Buffer,
+    mimeType: string,
+    patchSize = 32,
+  ): Promise<{ orbKeypoints: number; orbDescriptors: unknown; method?: string } | null> {
+    try {
+      const FormData = require('form-data');
+      const form = new FormData();
+      form.append('image', buffer, {
+        filename: 'vault.jpg',
+        contentType: mimeType || 'image/jpeg',
+      });
+
+      const { data } = await client.post(`/cv/local-index?patch_size=${patchSize}`, form, {
+        headers: form.getHeaders(),
+        timeout: 45_000,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = data as any;
+      if (!d.success) return null;
+      return {
+        orbKeypoints: d.orbKeypoints ?? 0,
+        orbDescriptors: d.orbDescriptors ?? null,
+        method: d.method,
+      };
+    } catch (err) {
+      this.logError('cv/local-index', err);
+      return null;
+    }
+  }
+
   // ─── Error helper ──────────────────────────────────────────────────────────
 
   private logError(operation: string, err: unknown): void {

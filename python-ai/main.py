@@ -65,11 +65,22 @@ def encode_one(text: str) -> np.ndarray:
 
 def load_or_create_index():
     if INDEX_FILE.exists() and META_FILE.exists():
-        log.info("Loading existing FAISS index from disk…")
-        idx  = faiss.read_index(str(INDEX_FILE))
-        meta = json.loads(META_FILE.read_text())
-        log.info(f"Index loaded: {idx.ntotal} vectors")
-        return idx, meta
+        try:
+            if INDEX_FILE.stat().st_size < 16:
+                raise RuntimeError("FAISS index file is empty or truncated")
+            log.info("Loading existing FAISS index from disk…")
+            idx = faiss.read_index(str(INDEX_FILE))
+            meta = json.loads(META_FILE.read_text())
+            log.info(f"Index loaded: {idx.ntotal} vectors")
+            return idx, meta
+        except Exception as exc:
+            backup = INDEX_FILE.with_suffix(".bin.corrupt")
+            try:
+                INDEX_FILE.rename(backup)
+                log.warning("Corrupt FAISS index quarantined to %s — creating fresh index (%s)", backup.name, exc)
+            except OSError:
+                INDEX_FILE.unlink(missing_ok=True)
+                log.warning("Corrupt FAISS index removed — creating fresh index (%s)", exc)
     log.info("Creating new FAISS index…")
     return faiss.IndexFlatL2(DIMENSION), []
 
@@ -375,6 +386,48 @@ async def cv_compare_images(
     result = computer_vision_service.compare_images(probe_bytes, ref_bytes)
     if not result.success:
         raise HTTPException(503, result.message or "CV compare failed")
+    return {
+        "success": True,
+        **result.data,
+        "processingMs": round((time.time() - start) * 1000, 1),
+    }
+
+@app.post("/cv/local-index")
+async def cv_extract_local_index(
+    image: UploadFile = File(...),
+    patch_size: int = 32,
+):
+    """Extract global ORB/AKAZE descriptors for PINIT Local DNA vault index."""
+    from services.computer_vision import computer_vision_service
+
+    start = time.time()
+    image_bytes = await image.read()
+    result = computer_vision_service.extract_local_index(image_bytes, patch_size=patch_size)
+    if not result.success:
+        raise HTTPException(503, result.message or "Local index extract failed")
+    return {
+        "success": True,
+        **result.data,
+        "processingMs": round((time.time() - start) * 1000, 1),
+    }
+
+@app.post("/cv/match-descriptors")
+async def cv_match_descriptors(
+    probe: UploadFile = File(...),
+    descriptors: str = "",
+):
+    """Match probe image against stored ORB descriptor JSON."""
+    from services.computer_vision import computer_vision_service
+
+    start = time.time()
+    probe_bytes = await probe.read()
+    try:
+        ref_desc = json.loads(descriptors) if descriptors else {}
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid descriptors JSON")
+    result = computer_vision_service.match_local_descriptors(probe_bytes, ref_desc)
+    if not result.success:
+        raise HTTPException(503, result.message or "Descriptor match failed")
     return {
         "success": True,
         **result.data,

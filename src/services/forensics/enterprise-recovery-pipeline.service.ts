@@ -4,6 +4,7 @@
  */
 import { pinitOriginalIdentityRecoveryService } from './pinit-original-identity-recovery.service';
 import type { PinitIdentificationResult, RecoveryStage } from './pinit-identification-engine.service';
+import type { RecoveryOptions } from './pinit-original-identity-recovery.service';
 
 export type { RecoveryStage };
 export type EnterpriseRecoveryResult = PinitIdentificationResult;
@@ -15,6 +16,7 @@ export class EnterpriseRecoveryPipeline {
     originalName: string,
     sizeBytes: number,
     ownerUserId: string,
+    options?: RecoveryOptions,
   ): Promise<EnterpriseRecoveryResult> {
     return pinitOriginalIdentityRecoveryService.recover(
       buffer,
@@ -22,6 +24,7 @@ export class EnterpriseRecoveryPipeline {
       originalName,
       sizeBytes,
       ownerUserId,
+      options,
     );
   }
 }
