@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Shield, Upload, CheckCircle, AlertTriangle, RefreshCw, ScanLine,
   ChevronDown, ChevronUp, Fingerprint, Dna, User, Clock, Activity,
@@ -199,14 +199,37 @@ function Section({
   );
 }
 
+const INVESTIGATION_STEPS = [
+  'Uploading capture…',
+  'Extracting identity markers…',
+  'Matching vault candidates…',
+  'Running 15-layer DNA compare…',
+  'Building forensic report…',
+];
+
 export function UnifiedInvestigationPage() {
   const [file, setFile] = useState<File | null>(null);
   const [mode, setMode] = useState<'upload' | 'scan'>('upload');
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState(0);
   const [exporting, setExporting] = useState(false);
   const [report, setReport] = useState<InvestigationReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const previewUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+
+  useEffect(() => {
+    if (!loading) {
+      setLoadingStep(0);
+      return;
+    }
+    const id = window.setInterval(() => {
+      setLoadingStep((s) => (s < INVESTIGATION_STEPS.length - 1 ? s + 1 : s));
+    }, 4500);
+    return () => window.clearInterval(id);
+  }, [loading]);
 
   const runInvestigation = useCallback(async (f: File) => {
     setLoading(true);
@@ -336,17 +359,41 @@ export function UnifiedInvestigationPage() {
       {!report && mode === 'scan' && (
         <div className="space-y-3">
           {loading ? (
-            <div className="card text-center py-12">
-              <RefreshCw size={32} className="text-dna-400 mx-auto mb-3 animate-spin" />
-              <p className="text-sm font-semibold text-white">Running enterprise investigation pipeline…</p>
-              <p className="text-2xs text-gray-500 mt-1">{file?.name}</p>
+            <div className="card text-center py-8 space-y-4">
+              {previewUrl && (
+                <img
+                  src={previewUrl}
+                  alt="Captured"
+                  className="mx-auto max-h-36 rounded-lg border border-bg-border object-contain bg-black/40"
+                />
+              )}
+              <RefreshCw size={28} className="text-dna-400 mx-auto animate-spin" />
+              <div>
+                <p className="text-sm font-semibold text-white">Running investigation…</p>
+                <p className="text-xs text-dna-400 mt-1">{INVESTIGATION_STEPS[loadingStep]}</p>
+                <p className="text-2xs text-gray-500 mt-2">
+                  First request may take 30–90s while the server wakes up. Please keep this tab open.
+                </p>
+                {file?.name && <p className="text-2xs text-gray-600 mt-1 mono truncate px-4">{file.name}</p>}
+              </div>
+              <div className="flex justify-center gap-1.5 pt-1">
+                {INVESTIGATION_STEPS.map((_, i) => (
+                  <span
+                    key={i}
+                    className={cn(
+                      'w-2 h-2 rounded-full transition-colors',
+                      i <= loadingStep ? 'bg-dna-400' : 'bg-bg-border',
+                    )}
+                  />
+                ))}
+              </div>
             </div>
           ) : (
             <DocumentScanner
               captureMode="single"
               onScanComplete={handleScanComplete}
               onCancel={handleReset}
-              subtitle="Smart capture waits for a sharp, steady frame (~3–5s) then auto-starts PINIT verification"
+              subtitle="Fit the vault file in the frame — tap Capture Now for instant results"
             />
           )}
         </div>

@@ -1,7 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Upload, ScanLine, X, Plus, FileText, Trash2, Zap } from 'lucide-react';
+import { Camera, Upload, ScanLine, X, Plus, FileText, Trash2, Zap, RefreshCw } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { useAutoDocumentCapture } from '../hooks/useAutoDocumentCapture';
+
+function useIsMobileViewport() {
+  const [mobile, setMobile] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 640px)');
+    const fn = () => setMobile(mq.matches);
+    mq.addEventListener('change', fn);
+    return () => mq.removeEventListener('change', fn);
+  }, []);
+  return mobile;
+}
 
 interface DocumentScannerProps {
   onScanComplete: (file: File) => void;
@@ -28,6 +41,12 @@ export function DocumentScanner({
   const videoRef = useRef<HTMLVideoElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const autoStartedRef = useRef(false);
+  const isMobile = useIsMobileViewport();
+
+  const captureProfile =
+    captureMode === 'single'
+      ? (isMobile ? 'screen' as const : 'forensic' as const)
+      : 'fast' as const;
 
   const stopCamera = useCallback(() => {
     if (videoRef.current?.srcObject) {
@@ -43,10 +62,17 @@ export function DocumentScanner({
     setCameraReady(false);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 1280, min: 640 },
+          height: { ideal: 720, min: 480 },
+        },
+        audio: false,
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute('playsinline', 'true');
+        videoRef.current.setAttribute('webkit-playsinline', 'true');
         await videoRef.current.play();
         setCameraReady(true);
       }
@@ -125,7 +151,7 @@ export function DocumentScanner({
       enabled: cameraActive && cameraReady,
       onCapture: handleAutoCapture,
       pauseAfterCapture: captureMode === 'multi',
-      profile: captureMode === 'single' ? 'forensic' : 'fast',
+      profile: captureProfile,
     });
 
   const handleManualPage = () => {
@@ -198,25 +224,37 @@ export function DocumentScanner({
 
       {cameraActive ? (
         <div className="space-y-3">
-          <div className="relative rounded-2xl overflow-hidden border-2 border-dna-500/30">
-            <video ref={videoRef} className="w-full rounded-2xl" autoPlay playsInline muted />
+          <div className="relative w-full mx-auto max-w-lg aspect-[4/3] max-h-[min(42vh,280px)] sm:max-h-[340px] rounded-2xl overflow-hidden border-2 border-dna-500/30 bg-black">
+            <video
+              ref={videoRef}
+              className="absolute inset-0 w-full h-full object-cover"
+              autoPlay
+              playsInline
+              muted
+            />
+            {!cameraReady && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/90 z-10">
+                <RefreshCw size={24} className="text-dna-400 animate-spin" />
+                <span className="text-xs text-gray-400">Starting camera…</span>
+              </div>
+            )}
             <div
               className={`absolute inset-0 pointer-events-none transition-colors duration-200 ${
                 flashCapture ? 'bg-white/35' : ''
               }`}
             />
-            <div className="absolute inset-0 pointer-events-none">
+            <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-3 sm:p-4">
               <div
-                className={`absolute inset-6 border-2 rounded-xl transition-colors duration-300 ${
-                  phase === 'locking' ? 'border-dna-400' : 'border-dna-400/40'
+                className={`relative w-[92%] max-w-[280px] aspect-[3/4] border-2 rounded-lg transition-colors duration-300 ${
+                  phase === 'locking' ? 'border-dna-400' : 'border-dna-400/50'
                 }`}
               >
-                <div className="absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-dna-400 rounded-tl-lg" />
-                <div className="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-dna-400 rounded-tr-lg" />
-                <div className="absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-dna-400 rounded-bl-lg" />
-                <div className="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-dna-400 rounded-br-lg" />
+                <div className="absolute top-0 left-0 w-6 h-6 border-t-2 border-l-2 border-dna-400 rounded-tl-md" />
+                <div className="absolute top-0 right-0 w-6 h-6 border-t-2 border-r-2 border-dna-400 rounded-tr-md" />
+                <div className="absolute bottom-0 left-0 w-6 h-6 border-b-2 border-l-2 border-dna-400 rounded-bl-md" />
+                <div className="absolute bottom-0 right-0 w-6 h-6 border-b-2 border-r-2 border-dna-400 rounded-br-md" />
+                <div className={`absolute top-1/2 left-2 right-2 h-0.5 -translate-y-1/2 ${scanLineClass}`} />
               </div>
-              <div className={`absolute top-1/2 left-6 right-6 h-0.5 ${scanLineClass}`} />
             </div>
 
             {scannedPages.length > 0 && (
@@ -225,17 +263,17 @@ export function DocumentScanner({
               </div>
             )}
 
-            <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/50 backdrop-blur rounded-full px-2.5 py-1">
+            <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/50 backdrop-blur rounded-full px-2.5 py-1 z-10">
               <Zap size={12} className={phase === 'locking' ? 'text-dna-300' : 'text-dna-400'} />
               <span className="text-[10px] font-semibold text-dna-300">
-                {captureMode === 'single' ? 'Smart capture' : 'Auto-scan'}
+                {captureMode === 'single' ? (isMobile ? 'Screen scan' : 'Smart capture') : 'Auto-scan'}
               </span>
             </div>
 
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent pt-8 pb-3 px-4">
-              <p className="text-center text-xs text-white font-semibold drop-shadow-lg">{hint}</p>
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent pt-6 pb-2 px-3 z-10">
+              <p className="text-center text-[11px] text-white font-medium drop-shadow-lg leading-snug">{hint}</p>
               {(phase === 'locking' || phase === 'warming') && (
-                <div className="mt-2 mx-auto max-w-[200px] h-1 rounded-full bg-white/20 overflow-hidden">
+                <div className="mt-1.5 mx-auto max-w-[180px] h-1 rounded-full bg-white/20 overflow-hidden">
                   <div
                     className="h-full bg-dna-400 transition-all duration-100"
                     style={{ width: `${progress}%` }}
@@ -268,9 +306,9 @@ export function DocumentScanner({
               <button
                 type="button"
                 onClick={captureAndFinish}
-                className="btn btn-secondary flex-1 py-3 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold"
+                className="btn btn-primary flex-1 py-3 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold"
               >
-                <Camera size={16} /> Capture Now
+                <Camera size={16} /> {isMobile ? 'Capture Now' : 'Capture Now'}
               </button>
             )}
             {captureMode === 'multi' && (

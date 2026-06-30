@@ -13,29 +13,44 @@ const FAST = {
 };
 
 /**
- * Forensic single capture (Unified Investigation) — wait for focus + stability
- * before auto-starting investigation (~3–5s typical).
+ * Forensic single capture (Unified Investigation) — balanced speed + quality.
+ * ~2–3s typical; manual "Capture Now" always available.
  */
 const FORENSIC = {
-  warmupMs: 2200,
-  intervalMs: 150,
-  stableFramesRequired: 14,
-  motionMax: 0.022,
-  requireQuality: true,
+  warmupMs: 900,
+  intervalMs: 120,
+  stableFramesRequired: 7,
+  motionMax: 0.032,
+  requireQuality: false,
+};
+
+/** Mobile / screen-photo capture — relaxed detection for vault UI screenshots */
+const SCREEN = {
+  warmupMs: 500,
+  intervalMs: 100,
+  stableFramesRequired: 4,
+  motionMax: 0.05,
+  requireQuality: false,
 };
 
 /** Frames must differ from last capture by at least this much before another auto-shot. */
 const MIN_CHANGE_AFTER_CAPTURE = 0.08;
 
-export type AutoCaptureProfile = 'fast' | 'forensic';
+export type AutoCaptureProfile = 'fast' | 'forensic' | 'screen';
 
 interface Options {
   enabled: boolean;
   onCapture: () => void;
   /** When true (default), auto-capture stops after each shot until armNextCapture(). */
   pauseAfterCapture?: boolean;
-  /** forensic = stricter focus/stability for PINIT investigation scans */
+  /** forensic = investigation scans; screen = relaxed for phone screenshots */
   profile?: AutoCaptureProfile;
+}
+
+function resolveProfile(profile: AutoCaptureProfile) {
+  if (profile === 'forensic') return FORENSIC;
+  if (profile === 'screen') return SCREEN;
+  return FAST;
 }
 
 function frameChangeScore(current: Float32Array, baseline: Float32Array): number {
@@ -49,7 +64,7 @@ export function useAutoDocumentCapture(
   videoRef: RefObject<HTMLVideoElement | null>,
   { enabled, onCapture, pauseAfterCapture = true, profile = 'fast' }: Options,
 ) {
-  const cfg = profile === 'forensic' ? FORENSIC : FAST;
+  const cfg = resolveProfile(profile);
 
   const [phase, setPhase] = useState<AutoScanPhase>('idle');
   const [progress, setProgress] = useState(0);
@@ -128,8 +143,10 @@ export function useAutoDocumentCapture(
     const startedAt = Date.now();
     setPhase('warming');
     setHint(profile === 'forensic'
-      ? 'Hold camera steady — focusing…'
-      : 'Point camera at document…');
+      ? 'Hold steady — auto-capture in a moment…'
+      : profile === 'screen'
+        ? 'Point at your vault screen — tap Capture Now anytime'
+        : 'Point camera at document…');
     stableCountRef.current = 0;
     prevLumRef.current = null;
     armedRef.current = true;
@@ -150,8 +167,10 @@ export function useAutoDocumentCapture(
         const warmupPct = Math.round(((now - startedAt) / cfg.warmupMs) * 100);
         setProgress(warmupPct);
         setHint(profile === 'forensic'
-          ? 'Hold camera steady — focusing…'
-          : 'Point camera at document…');
+          ? 'Hold steady — auto-capture in a moment…'
+          : profile === 'screen'
+            ? 'Center the vault file on screen'
+            : 'Point camera at document…');
         return;
       }
 
@@ -177,11 +196,11 @@ export function useAutoDocumentCapture(
         }
       }
 
-      if (!metrics.documentPresent) {
+      if (!metrics.documentPresent && profile !== 'screen') {
         stableCountRef.current = 0;
         setPhase('searching');
         setHint(profile === 'forensic'
-          ? 'Center the PINIT file in the frame'
+          ? 'Center the file in the frame'
           : 'Align document inside the frame');
         setProgress(0);
         return;
