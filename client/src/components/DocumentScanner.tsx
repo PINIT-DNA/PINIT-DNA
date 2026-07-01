@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Camera, Upload, ScanLine, X, Plus, FileText, Trash2, Zap, RefreshCw } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { useAutoDocumentCapture } from '../hooks/useAutoDocumentCapture';
+import { captureForensicScan, validateCaptureQuality, cropToGuideRegion } from '../lib/document-capture-pipeline';
 
 function useIsMobileViewport() {
   const [mobile, setMobile] = useState(() =>
@@ -40,8 +41,14 @@ export function DocumentScanner({
   const [flashCapture, setFlashCapture] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const [captureError, setCaptureError] = useState<string | null>(null);
+  const enhanceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const autoStartedRef = useRef(false);
   const isMobile = useIsMobileViewport();
+
+  if (!enhanceCanvasRef.current) {
+    enhanceCanvasRef.current = document.createElement('canvas');
+  }
 
   const captureProfile =
     captureMode === 'single'
@@ -63,12 +70,21 @@ export function DocumentScanner({
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: 'environment',
-          width: { ideal: 1280, min: 640 },
-          height: { ideal: 720, min: 480 },
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920, min: 1280 },
+          height: { ideal: 1080, min: 720 },
         },
         audio: false,
       });
+      // Best-effort continuous autofocus when supported (Android Chrome)
+      const track = stream.getVideoTracks()[0];
+      if (track) {
+        try {
+          await track.applyConstraints({
+            advanced: [{ focusMode: 'continuous' }] as unknown as MediaTrackConstraintSet[],
+          });
+        } catch { /* unsupported */ }
+      }
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.setAttribute('playsinline', 'true');
@@ -106,10 +122,46 @@ export function DocumentScanner({
       const file = new File([blob], `scan_${Date.now()}.jpg`, { type: 'image/jpeg' });
       stopCamera();
       setScannedPages([]);
+      setCaptureError(null);
       onScanComplete(file);
     },
     [onScanComplete, stopCamera],
   );
+
+  const captureAndFinish = useCallback(async () => {
+    if (!videoRef.current) return;
+    setCaptureError(null);
+
+    const useForensicPipeline = captureMode === 'single';
+    if (useForensicPipeline) {
+      const canvas = enhanceCanvasRef.current!;
+      const preview = cropToGuideRegion(videoRef.current, canvas);
+      if (preview) {
+        const gate = validateCaptureQuality(preview);
+        if (!gate.ok) {
+          setCaptureError(gate.reason ?? 'Capture quality too low');
+          return;
+        }
+      }
+      const blob = await captureForensicScan(videoRef.current, { burstCount: 5, jpegQuality: 0.97 });
+      if (blob) {
+        setFlashCapture(true);
+        window.setTimeout(() => setFlashCapture(false), 280);
+        finishWithBlob(blob);
+        return;
+      }
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(videoRef.current, 0, 0);
+    canvas.toBlob((blob) => {
+      if (blob) finishWithBlob(blob);
+    }, 'image/jpeg', captureMode === 'single' ? 0.96 : 0.92);
+  }, [finishWithBlob, captureMode]);
 
   const capturePage = useCallback(() => {
     const dataUrl = grabFrameDataUrl();
@@ -122,25 +174,12 @@ export function DocumentScanner({
   const capturePageRef = useRef(capturePage);
   capturePageRef.current = capturePage;
 
-  const captureAndFinish = useCallback(() => {
-    if (!videoRef.current) return;
-    const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(videoRef.current, 0, 0);
-    canvas.toBlob((blob) => {
-      if (blob) finishWithBlob(blob);
-    }, 'image/jpeg', captureMode === 'single' ? 0.96 : 0.92);
-  }, [finishWithBlob, captureMode]);
-
   const handleAutoCapture = useCallback(() => {
     setFlashCapture(true);
     window.setTimeout(() => setFlashCapture(false), 280);
 
     if (captureMode === 'single') {
-      captureAndFinish();
+      void captureAndFinish();
       return;
     }
     capturePageRef.current();
@@ -272,6 +311,9 @@ export function DocumentScanner({
 
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent pt-6 pb-2 px-3 z-10">
               <p className="text-center text-[11px] text-white font-medium drop-shadow-lg leading-snug">{hint}</p>
+              {captureError && (
+                <p className="text-center text-[10px] text-orange-300 mt-1">{captureError}</p>
+              )}
               {(phase === 'locking' || phase === 'warming') && (
                 <div className="mt-1.5 mx-auto max-w-[180px] h-1 rounded-full bg-white/20 overflow-hidden">
                   <div
@@ -305,10 +347,10 @@ export function DocumentScanner({
             {captureMode === 'single' && (
               <button
                 type="button"
-                onClick={captureAndFinish}
+                onClick={() => { void captureAndFinish(); }}
                 className="btn btn-primary flex-1 py-3 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold"
               >
-                <Camera size={16} /> {isMobile ? 'Capture Now' : 'Capture Now'}
+                <Camera size={16} /> Capture Now
               </button>
             )}
             {captureMode === 'multi' && (

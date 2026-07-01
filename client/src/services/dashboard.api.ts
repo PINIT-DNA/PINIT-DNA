@@ -41,19 +41,20 @@ export const api = axios.create({});
 
 /** Human-readable message for failed API calls (proxy offline, 5xx, etc.) */
 export function formatApiError(err: unknown): string {
-  if (axios.isAxiosError(err)) {
-    const data = err.response?.data as { error?: string; code?: string } | undefined;
-    if (data?.code === 'BACKEND_OFFLINE' || (err.response?.status === 503 && !data?.error)) {
+  if (err && typeof err === 'object' && 'isAxiosError' in err && (err as { isAxiosError?: boolean }).isAxiosError) {
+    const ax = err as unknown as { response?: { status?: number; data?: { error?: string; code?: string } }; message: string };
+    const data = ax.response?.data;
+    if (data?.code === 'BACKEND_OFFLINE' || (ax.response?.status === 503 && !data?.error)) {
       return 'Backend offline — start the API from project root: npm run dev';
     }
     if (typeof data?.error === 'string' && data.error) return data.error;
-    if (err.response?.status === 503) {
+    if (ax.response?.status === 503) {
       return 'Service unavailable — ensure the backend is running on port 4000';
     }
-    if (!err.response) {
+    if (!ax.response) {
       return 'Cannot reach API — start the backend (npm run dev) and retry';
     }
-    return err.message;
+    return ax.message;
   }
   return err instanceof Error ? err.message : 'Request failed';
 }

@@ -17,20 +17,20 @@ const FAST = {
  * ~2–3s typical; manual "Capture Now" always available.
  */
 const FORENSIC = {
-  warmupMs: 900,
-  intervalMs: 120,
-  stableFramesRequired: 7,
-  motionMax: 0.032,
-  requireQuality: false,
+  warmupMs: 800,
+  intervalMs: 100,
+  stableFramesRequired: 6,
+  motionMax: 0.028,
+  requireQuality: true,
 };
 
-/** Mobile / screen-photo capture — relaxed detection for vault UI screenshots */
+/** Mobile / screen-photo capture — relaxed detection, still quality-aware */
 const SCREEN = {
-  warmupMs: 500,
+  warmupMs: 600,
   intervalMs: 100,
-  stableFramesRequired: 4,
-  motionMax: 0.05,
-  requireQuality: false,
+  stableFramesRequired: 5,
+  motionMax: 0.045,
+  requireQuality: true,
 };
 
 /** Frames must differ from last capture by at least this much before another auto-shot. */
@@ -220,11 +220,15 @@ export function useAutoDocumentCapture(
         stableCountRef.current = 0;
         setPhase('searching');
         if (metrics.sharpness < 0.14) {
-          setHint('Move closer or tap to focus — image too blurry');
+          setHint('Hold steady — image too blurry');
+        } else if (metrics.glare > 0.2) {
+          setHint('Glare detected — tilt device to reduce reflection');
+        } else if (!metrics.exposureOk) {
+          setHint('Adjust lighting — document over or under exposed');
         } else if (metrics.contrast < 0.11) {
           setHint('Improve lighting — document not clear enough');
         } else {
-          setHint('Hold steady until the frame is sharp');
+          setHint('Center entire document in frame');
         }
         setProgress(Math.round(metrics.qualityScore * 50));
         return;

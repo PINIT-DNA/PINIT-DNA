@@ -18,8 +18,8 @@ import { vaultSimilarityVectorService } from './vault-similarity-vector.service'
 import { enterpriseRetrievalEngine } from './enterprise-retrieval-engine.service';
 import type { LocalDnaSearchHit } from './vault-local-dna-search.service';
 import { localDnaConfig } from '../../config/local-dna';
-import { deepVaultCompareService } from './deep-vault-compare.service';
-import { confidenceFusionEngine } from './confidence-fusion-engine.service';
+import { deepVaultCompareService, type DeepCompareResult } from './deep-vault-compare.service';
+import { confidenceFusionEngine, FORENSIC_VERDICT_LABELS } from './confidence-fusion-engine.service';
 import { vaultCandidateRankingService } from './vault-candidate-ranking.service';
 import { pinitIdentificationConfig } from '../../config/pinit-identification';
 import { investigationPerformanceConfig, clampCandidatePool } from '../../config/investigation-performance';
@@ -34,6 +34,65 @@ import type {
   RecoveryStage,
   RecoveredIdentitySignal,
 } from './pinit-identification-engine.service';
+
+function deepCompareToMatch(deep: DeepCompareResult, ownerUserId: string): VaultMatchResult {
+  return {
+    tier: 4,
+    method: `15-layer DNA compare (${deep.overallConfidenceScore}%)`,
+    dnaRecordId: deep.dnaRecordId,
+    vaultId: deep.vaultId,
+    ownerUserId,
+    confidence: String(deep.overallConfidenceScore),
+    visualSimilarity: deep.overallConfidenceScore / 100,
+  };
+}
+
+function localHitToMatch(hit: LocalDnaSearchHit, score: number): VaultMatchResult {
+  return {
+    tier: 3,
+    method: `Local patch DNA (${hit.patchMatchCount} patches)`,
+    dnaRecordId: hit.dnaRecordId,
+    vaultId: hit.vaultId,
+    ownerUserId: hit.ownerUserId,
+    confidence: String(score),
+    visualSimilarity: (hit.orbRefineScore || score) / 100,
+  };
+}
+
+function resolveBestCandidate(
+  match: VaultMatchResult | null,
+  localDnaHit: LocalDnaSearchHit | null,
+  localDnaScore: number,
+  bestDeep: DeepCompareResult | null,
+  candidates: import('../../types/unified-investigation.types').RankedVaultCandidate[],
+  ownerUserId: string,
+): VaultMatchResult | null {
+  if (match) return match;
+  if (localDnaHit && localDnaScore >= 30) return localHitToMatch(localDnaHit, localDnaScore);
+  if (bestDeep && bestDeep.overallConfidenceScore >= 30) return deepCompareToMatch(bestDeep, ownerUserId);
+  if (candidates[0] && candidates[0].compositeScore >= 30) {
+    return vaultCandidateRankingService.toVaultMatch(candidates[0]);
+  }
+  return null;
+}
+
+function logCandidateStage(
+  stage: string,
+  candidate: VaultMatchResult | null,
+  fusion?: { retrievalConfidence: number; identityConfidence: number; ownershipVerificationConfidence: number; forensicVerdict: string },
+  extra?: Record<string, unknown>,
+): void {
+  logger.info(`[PinitOIR:${stage}]`, {
+    vaultId: candidate?.vaultId?.slice(0, 8) ?? null,
+    dnaRecordId: candidate?.dnaRecordId?.slice(0, 8) ?? null,
+    ownerUserId: candidate?.ownerUserId?.slice(0, 8) ?? null,
+    retrievalConfidence: fusion?.retrievalConfidence,
+    identityRecovery: fusion?.identityConfidence,
+    ownershipVerification: fusion?.ownershipVerificationConfidence,
+    forensicVerdict: fusion?.forensicVerdict,
+    ...extra,
+  });
+}
 
 async function loadVaultOwnerSnapshot(
   vaultId: string,
@@ -155,8 +214,8 @@ export class PinitOriginalIdentityRecoveryService {
       { stage: STAGE.VAULT_SEARCH, status: 'complete', detail: `Exact match ${exact.imageFilename}` },
       { stage: STAGE.SIMILARITY_VECTOR, status: 'complete', detail: '100% cryptographic match' },
       { stage: STAGE.DEEP_COMPARE, status: 'skipped', detail: 'Exact hash — compare skipped' },
-      { stage: STAGE.FUSION, status: 'complete', detail: `Ownership ${fusion.ownershipConfidence}%` },
-      { stage: STAGE.DECISION, status: 'complete', detail: `PINIT Original Identified — ${fusion.ownershipConfidence}%` },
+      { stage: STAGE.FUSION, status: 'complete', detail: `Retrieval ${fusion.retrievalConfidence}% · identity ${fusion.identityConfidence}% · ownership ${fusion.ownershipVerificationConfidence}%` },
+      { stage: STAGE.DECISION, status: 'complete', detail: `${FORENSIC_VERDICT_LABELS[fusion.forensicVerdict]} — retrieval ${fusion.retrievalConfidence}%` },
     ];
 
     const candidates = vaultSimilarityVectorService.toRankedCandidates([{
@@ -176,6 +235,7 @@ export class PinitOriginalIdentityRecoveryService {
     return {
       match,
       probableMatch: null,
+      bestCandidate: match,
       candidates,
       fusion,
       stages,
@@ -886,33 +946,31 @@ export class PinitOriginalIdentityRecoveryService {
     // Select winning vault record — priority: identity hit > vector top > deep compare
     let match: VaultMatchResult | null = identityHit;
 
-    if (!match && topVector && topVector.scores.composite >= 55) {
+    if (!match && topVector && topVector.scores.composite >= 38) {
       match = vaultCandidateRankingService.toVaultMatch(candidates[0]!);
     }
 
-    if (!match && localDnaHit && localDnaScore >= 55) {
-      match = {
-        tier: 3,
-        method: `Local patch DNA (${localDnaHit.patchMatchCount} patches)`,
-        dnaRecordId: localDnaHit.dnaRecordId,
-        vaultId: localDnaHit.vaultId,
-        ownerUserId: localDnaHit.ownerUserId,
-        confidence: String(localDnaScore),
-        visualSimilarity: (localDnaHit.orbRefineScore || localDnaScore) / 100,
-      };
+    if (!match && localDnaHit && localDnaScore >= 38) {
+      match = localHitToMatch(localDnaHit, localDnaScore);
     }
 
-    if (!match && bestDeep && bestDeep.overallConfidenceScore >= 38) {
-      match = {
-        tier: 4,
-        method: `15-layer DNA compare (${bestDeep.overallConfidenceScore}%)`,
-        dnaRecordId: bestDeep.dnaRecordId,
-        vaultId: bestDeep.vaultId,
-        ownerUserId,
-        confidence: String(bestDeep.overallConfidenceScore),
-        visualSimilarity: bestDeep.overallConfidenceScore / 100,
-      };
+    if (!match && bestDeep && bestDeep.overallConfidenceScore >= 30) {
+      match = deepCompareToMatch(bestDeep, ownerUserId);
     }
+
+    // Always preserve winning candidate for report hydration even if thresholds above missed
+    const bestCandidate = resolveBestCandidate(match, localDnaHit, localDnaScore, bestDeep, candidates, ownerUserId);
+    if (!match && bestCandidate) {
+      match = bestCandidate;
+      logCandidateStage('match_fallback', bestCandidate, undefined, { reason: 'bestCandidate promoted for fusion' });
+    }
+
+    logCandidateStage('pre_fusion', match, undefined, {
+      dna15: dna15Score,
+      localDnaScore,
+      vectorComposite: topVector?.scores.composite,
+      bestDeepScore: bestDeep?.overallConfidenceScore,
+    });
 
     // Prefer vector winner when deep compare is weak but vector is strong (regression fix)
     if (topVector && match) {
@@ -923,9 +981,10 @@ export class PinitOriginalIdentityRecoveryService {
     }
 
     if (match && !certificateId) {
-      const cert = await prisma.certificate.findFirst({
-        where: { dnaRecordId: match.dnaRecordId, status: 'ACTIVE' },
-        orderBy: { issuedAt: 'desc' },
+      const cert = await certificateService.findActiveForAsset({
+        dnaRecordId: match.dnaRecordId,
+        vaultId: match.vaultId,
+        ownerUserId: match.ownerUserId,
       });
       if (cert) {
         certificateId = cert.certificateId;
@@ -965,11 +1024,11 @@ export class PinitOriginalIdentityRecoveryService {
 
     stages.push({
       stage: STAGE.FUSION,
-      status: fusion.ownershipConfidence >= pinitIdentificationConfig.identifyThreshold ? 'complete' : 'partial',
-      detail: `Ownership ${fusion.ownershipConfidence}% · identity ${fusion.identityConfidence}% · mode ${fusion.fusionMode}`,
+      status: fusion.retrievalConfidence >= 75 ? 'complete' : fusion.retrievalConfidence >= 50 ? 'partial' : 'failed',
+      detail: `Retrieval ${fusion.retrievalConfidence}% · identity ${fusion.identityConfidence}% · ownership ${fusion.ownershipVerificationConfidence}%`,
     });
 
-    // ═══ Stage 7 — Decision (never guess) ═══════════════════════════════════
+    // ═══ Stage 7 — Decision (retrieval-first; identity recovery is separate) ═══
     const margin = (topVector?.scores.composite ?? 0) - (secondVector?.scores.composite ?? 0);
     const patchVotes = localDnaHit?.patchMatchCount ?? 0;
     const hasForensicAnchor =
@@ -983,44 +1042,43 @@ export class PinitOriginalIdentityRecoveryService {
       || (topVector?.scores.orb ?? 0) >= 45
       || (topVector?.scores.perceptualBlend ?? 0) >= 52
       || (topVector?.scores.structural ?? 0) >= 55
-      || dna15Score >= 38;
+      || dna15Score >= 38
+      || fusion.retrievalConfidence >= 50;
 
     const filenameOnly = candidates[0]?.signals.length === 0
       && !hasForensicAnchor;
 
     const ambiguous = margin < 3
-      && fusion.ownershipConfidence < 90
+      && fusion.retrievalConfidence < 90
       && sha256Score < 100
-      && identityTokenScore < 70
       && patchVotes < 30;
 
-    const dynamicThreshold = patchVotes >= 50
-      ? Math.min(pinitIdentificationConfig.identifyThreshold, 72)
-      : patchVotes >= 25
-        ? Math.min(pinitIdentificationConfig.identifyThreshold, 78)
-        : pinitIdentificationConfig.identifyThreshold;
+    const retrievalConf = fusion.retrievalConfidence;
+    const forensicVerdict = fusion.forensicVerdict;
 
     const retrievalIdentified =
       !!match
+      && !filenameOnly
       && hasForensicAnchor
       && (
-        fusion.ownershipConfidence >= dynamicThreshold
-        || (dna15Score >= 45 && (localDnaScore >= 48 || (topVector?.scores.composite ?? 0) >= 62))
-        || (patchVotes >= 35 && localDnaScore >= 55)
-        || (patchVotes >= 80 && dna15Score >= 35)
-        || (patchVotes >= 100 && localDnaScore >= 40)
-        || (patchVotes >= 200 && (localDnaHit?.spatialConsistency ?? 0) >= 0.35)
+        retrievalConf >= 75
+        || sha256Score === 100
+        || (retrievalConf >= 50 && margin >= 2 && dna15Score >= 38)
       );
 
-    const identified = !filenameOnly && !ambiguous && retrievalIdentified;
+    const identified = retrievalIdentified && !(ambiguous && retrievalConf < 90);
 
     stages.push({
       stage: STAGE.DECISION,
-      status: identified ? 'complete' : 'failed',
+      status: identified ? 'complete' : retrievalConf >= 50 ? 'partial' : 'failed',
       detail: identified
-        ? `PINIT Original Identified — ${fusion.ownershipConfidence}% confidence`
-        : `No PINIT signature found — confidence ${fusion.ownershipConfidence}% (anchor=${hasForensicAnchor}, margin=${margin})`,
+        ? `${FORENSIC_VERDICT_LABELS[forensicVerdict]} — retrieval ${retrievalConf}%`
+        : retrievalConf >= 50
+          ? `${FORENSIC_VERDICT_LABELS[forensicVerdict]} — identity partially recovered (retrieval ${retrievalConf}%)`
+          : `${FORENSIC_VERDICT_LABELS.NO_SIGNATURE} — retrieval ${retrievalConf}%`,
     });
+
+    logCandidateStage('decision', match, fusion, { identified, probable: !identified && !!match });
 
     const tamperingSummary = bestDeep
       ? bestDeep.tamperingDetected
@@ -1030,7 +1088,9 @@ export class PinitOriginalIdentityRecoveryService {
 
     logger.info('[PinitOIR] Recovery complete', {
       identified,
-      ownershipConfidence: fusion.ownershipConfidence,
+      retrievalConfidence: fusion.retrievalConfidence,
+      forensicVerdict: fusion.forensicVerdict,
+      ownershipVerification: fusion.ownershipVerificationConfidence,
       topVector: topVector?.scores.composite,
       dna15: dna15Score,
       vaultId: match?.vaultId?.slice(0, 8),
@@ -1043,6 +1103,7 @@ export class PinitOriginalIdentityRecoveryService {
     return {
       match: identified ? match : null,
       probableMatch: !identified && match ? match : null,
+      bestCandidate: bestCandidate ?? match,
       candidates,
       fusion,
       stages,

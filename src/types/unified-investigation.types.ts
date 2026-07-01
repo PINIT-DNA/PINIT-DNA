@@ -77,6 +77,12 @@ export interface InvestigationProgressEvent {
   };
 }
 
+export type ForensicVerdict =
+  | 'ORIGINAL_VERIFIED'
+  | 'ORIGINAL_FOUND_PARTIAL'
+  | 'POSSIBLE_ASSET'
+  | 'NO_SIGNATURE';
+
 export interface InvestigationSummary {
   ownershipConfidence: number;
   dnaMatchPercent: number;
@@ -87,6 +93,14 @@ export interface InvestigationSummary {
   /** Phase 5 — multi-signal composite scores */
   trustScore?: number;
   identityConfidence?: number;
+  /** Retrieval — patch DNA, ORB, local DNA, structural, 15-layer */
+  retrievalConfidence?: number;
+  /** Certificate + vault ownership proof */
+  ownershipVerificationConfidence?: number;
+  /** Final forensic state derived from retrieval confidence */
+  forensicVerdict?: ForensicVerdict;
+  /** Human-readable reasons when identity signals are degraded */
+  forensicReasons?: string[];
 }
 
 export interface RecoverySignal {
@@ -107,6 +121,8 @@ export interface IdentityRecoverySection {
     ownershipConfidence: number;
     trustScore: number;
     identityConfidence: number;
+    retrievalConfidence?: number;
+    ownershipVerificationConfidence?: number;
   };
   transformations: Array<{ type: string; detected: boolean; detail?: string }>;
   message: string;

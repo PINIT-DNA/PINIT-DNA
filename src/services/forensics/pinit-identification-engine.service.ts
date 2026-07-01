@@ -24,6 +24,8 @@ export interface RecoveredIdentitySignal {
 export interface PinitIdentificationResult {
   match: VaultMatchResult | null;
   probableMatch: VaultMatchResult | null;
+  /** Winning vault candidate — never cleared once selected (used for report hydration) */
+  bestCandidate: VaultMatchResult | null;
   candidates: RankedVaultCandidate[];
   fusion: FusionResult;
   stages: RecoveryStage[];

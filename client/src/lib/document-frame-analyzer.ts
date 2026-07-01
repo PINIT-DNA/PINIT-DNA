@@ -5,6 +5,8 @@ export interface FrameMetrics {
   contrast: number;
   edgeDensity: number;
   sharpness: number;
+  glare: number;
+  exposureOk: boolean;
   documentPresent: boolean;
   stable: boolean;
   /** Composite 0–1 — high when frame is clear enough for forensic OCR / visual DNA */
@@ -86,6 +88,14 @@ export function analyzeDocumentFrame(
   }
   const sharpness = Math.min(1, laplacianSum / n / 36);
 
+  let glarePixels = 0;
+  for (let p = 0, i = 0; p < n; p++, i += 4) {
+    if (lum[p]! > 238) glarePixels++;
+  }
+  const glare = glarePixels / n;
+
+  const exposureOk = mean >= 35 && mean <= 228;
+
   let motion = 1;
   if (previousLum && previousLum.length === n) {
     let diff = 0;
@@ -102,18 +112,24 @@ export function analyzeDocumentFrame(
   const stable = motion < 0.04;
 
   const qualityScore = Math.min(1,
-    contrast * 0.3 + sharpness * 0.35 + edgeDensity * 12 + (stable ? 0.2 : 0) + (documentPresent ? 0.15 : 0),
+    contrast * 0.28 + sharpness * 0.32 + edgeDensity * 12 + (stable ? 0.18 : 0)
+    + (documentPresent ? 0.12 : 0) + (exposureOk ? 0.05 : 0) + (glare < 0.15 ? 0.05 : 0),
   );
 
   const qualityOk =
     documentPresent &&
     stable &&
+    exposureOk &&
+    glare < 0.2 &&
     sharpness >= 0.14 &&
     contrast >= 0.11 &&
     edgeDensity >= 0.02;
 
   return {
-    metrics: { motion, contrast, edgeDensity, sharpness, documentPresent, stable, qualityScore, qualityOk },
+    metrics: {
+      motion, contrast, edgeDensity, sharpness, glare, exposureOk,
+      documentPresent, stable, qualityScore, qualityOk,
+    },
     luminance: lum,
   };
 }

@@ -4,7 +4,7 @@
 import type { VaultMatchResult } from './vault-auto-match.service';
 import type { RankedVaultCandidate } from '../../types/unified-investigation.types';
 
-export const CAMERA_SCAN_NAME_RE = /^(scan_|captured_|photo_|IMG_|image_|WhatsApp_)/i;
+export const CAMERA_SCAN_NAME_RE = /^(scan_|captured_|photo_|IMG_|image_|WhatsApp[\s_])/i;
 
 export function isCameraScanFileName(name: string): boolean {
   return CAMERA_SCAN_NAME_RE.test(name.trim());
@@ -84,7 +84,11 @@ export function isAcceptedAfterDnaCompare(
   overallConfidenceScore: number,
   classification: string,
   isCameraScan: boolean,
+  retrievalConfidence?: number,
 ): boolean {
+  if ((retrievalConfidence ?? 0) >= 40 && overallConfidenceScore >= 30 && classification !== 'DIFFERENT') {
+    return true;
+  }
   const vaultSearchScore = matchScore(match);
   if (match.tier === 1) return true;
   if (match.tier === 2) return overallConfidenceScore >= 20 || classification !== 'DIFFERENT';

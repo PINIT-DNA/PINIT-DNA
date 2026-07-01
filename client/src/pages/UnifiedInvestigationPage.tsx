@@ -38,6 +38,10 @@ interface InvestigationReport {
     riskLevel: string;
     trustScore?: number;
     identityConfidence?: number;
+    retrievalConfidence?: number;
+    ownershipVerificationConfidence?: number;
+    forensicVerdict?: 'ORIGINAL_VERIFIED' | 'ORIGINAL_FOUND_PARTIAL' | 'POSSIBLE_ASSET' | 'NO_SIGNATURE';
+    forensicReasons?: string[];
   };
   owner: Record<string, string | null | undefined>;
   recipientAttribution: Record<string, unknown>;
@@ -146,6 +150,20 @@ function watermarkDisplayLabel(status: string): string {
   if (status === 'NOT_EMBEDDED') return 'NOT EMBEDDED';
   return status;
 }
+
+const FORENSIC_VERDICT_LABELS: Record<string, string> = {
+  ORIGINAL_VERIFIED: 'Original PINIT Asset Verified',
+  ORIGINAL_FOUND_PARTIAL: 'Original PINIT Asset Found (Partial Identity)',
+  POSSIBLE_ASSET: 'Possible PINIT Asset',
+  NO_SIGNATURE: 'No PINIT Signature Found',
+};
+
+const FORENSIC_VERDICT_STYLE: Record<string, string> = {
+  ORIGINAL_VERIFIED: 'text-green-400 bg-green-500/10 border-green-500/30',
+  ORIGINAL_FOUND_PARTIAL: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+  POSSIBLE_ASSET: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30',
+  NO_SIGNATURE: 'text-red-400 bg-red-500/10 border-red-500/30',
+};
 
 const RISK_COLORS: Record<string, string> = {
   LOW: 'text-green-400 bg-green-500/10 border-green-500/30',
@@ -449,7 +467,15 @@ export function UnifiedInvestigationPage() {
       {report && (
         <>
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {report.summary.forensicVerdict && (
+                <span className={cn(
+                  'text-xs font-bold px-3 py-1 rounded-full border',
+                  FORENSIC_VERDICT_STYLE[report.summary.forensicVerdict] ?? RISK_COLORS.UNKNOWN,
+                )}>
+                  {FORENSIC_VERDICT_LABELS[report.summary.forensicVerdict] ?? report.summary.forensicVerdict}
+                </span>
+              )}
               <span className={cn('text-xs font-bold px-3 py-1 rounded-full border', RISK_COLORS[report.summary.riskLevel] ?? RISK_COLORS.UNKNOWN)}>
                 Risk: {report.summary.riskLevel}
               </span>
@@ -484,12 +510,13 @@ export function UnifiedInvestigationPage() {
           <Section title="1. Investigation Summary" icon={Shield}>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {[
-                { label: 'Ownership Confidence', value: `${report.summary.ownershipConfidence}%` },
-                { label: 'Identity Confidence', value: `${report.summary.identityConfidence ?? report.identityRecovery?.compositeScores.identityConfidence ?? '—'}${typeof report.summary.identityConfidence === 'number' ? '%' : ''}` },
-                { label: 'Trust Score', value: `${report.summary.trustScore ?? report.identityRecovery?.compositeScores.trustScore ?? '—'}${typeof report.summary.trustScore === 'number' ? '%' : ''}` },
+                { label: 'Retrieval Confidence', value: `${report.summary.retrievalConfidence ?? report.summary.dnaMatchPercent}%` },
+                { label: 'Identity Recovery', value: `${report.summary.identityConfidence ?? report.identityRecovery?.compositeScores.identityConfidence ?? '—'}${typeof report.summary.identityConfidence === 'number' ? '%' : ''}` },
+                { label: 'Ownership Verification', value: `${report.summary.ownershipVerificationConfidence ?? report.summary.ownershipConfidence}%` },
                 { label: 'DNA Match', value: `${report.summary.dnaMatchPercent}%` },
+                { label: 'Trust Score', value: `${report.summary.trustScore ?? report.identityRecovery?.compositeScores.trustScore ?? '—'}${typeof report.summary.trustScore === 'number' ? '%' : ''}` },
                 { label: 'Certificate', value: report.summary.certificateStatus },
-                { label: 'Identity', value: report.summary.identityStatus },
+                { label: 'Identity', value: report.summary.identityStatus.replace(/_/g, ' ') },
                 { label: 'Tamper Severity', value: report.summary.tamperSeverity },
                 { label: 'Risk Level', value: report.summary.riskLevel },
               ].map(({ label, value }) => (
@@ -656,17 +683,29 @@ export function UnifiedInvestigationPage() {
           </Section>
 
           <Section title="6. Timeline" icon={Clock} defaultOpen={false}>
-            <div className="space-y-0">
-              {report.timeline.map((ev, i) => (
-                <div key={i} className="flex gap-3 py-2 border-l-2 border-dna-500/30 pl-4 ml-2">
-                  <div>
-                    <p className="text-xs font-semibold text-white">{ev.stage}</p>
-                    {ev.timestamp && <p className="text-2xs text-gray-500 mono">{ev.timestamp}</p>}
-                    {ev.detail && <p className="text-2xs text-gray-400">{ev.detail}</p>}
+            {report.timeline.length === 0 ? (
+              <p className="text-xs text-gray-500">No timeline events recorded for this investigation.</p>
+            ) : (
+              <div className="space-y-0" key={report.investigationId}>
+                {report.timeline.map((ev, i) => (
+                  <div
+                    key={`${report.investigationId}-${ev.stage}-${ev.timestamp ?? i}`}
+                    className={cn(
+                      'flex gap-3 py-2 border-l-2 pl-4 ml-2',
+                      ev.stage.includes('this session')
+                        ? 'border-dna-400 bg-dna-500/5 rounded-r-lg'
+                        : 'border-dna-500/30',
+                    )}
+                  >
+                    <div>
+                      <p className="text-xs font-semibold text-white">{ev.stage}</p>
+                      {ev.timestamp && <p className="text-2xs text-gray-500 mono">{ev.timestamp}</p>}
+                      {ev.detail && <p className="text-2xs text-gray-400 mt-0.5">{ev.detail}</p>}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </Section>
 
           <Section title="7. Access Intelligence" icon={Activity} defaultOpen={false}>
@@ -736,7 +775,7 @@ export function UnifiedInvestigationPage() {
               {[
                 ['Vault ID', report.identityProof.vaultId],
                 ['DNA Record ID', report.identityProof.dnaRecordId],
-                ['Certificate ID', report.identityProof.certificateId],
+                ['Certificate ID', report.identityProof.certificateId ?? report.owner.certificateId ?? report.identityRecoveryReport?.certificateId],
                 ['Owner PINIT ID', report.identityProof.ownerPinitId],
                 ['Digital Signature', report.identityProof.digitalSignatureValid ? 'VALID' : 'INVALID'],
                 ['Identity Verification', report.identityProof.identityVerification],

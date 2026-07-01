@@ -168,6 +168,61 @@ export class CertificateService {
     };
   }
 
+  /**
+   * Resolve the best active certificate for a vault asset.
+   * Tries hint ID → DNA+vault → DNA only → vault only (tenant-scoped when ownerUserId given).
+   */
+  async findActiveForAsset(params: {
+    dnaRecordId?: string;
+    vaultId?: string;
+    ownerUserId?: string;
+    hintCertificateId?: string | null;
+  }): Promise<IssuedCertificate | null> {
+    const ownerFilter = params.ownerUserId ? { ownerUserId: params.ownerUserId } : {};
+
+    if (params.hintCertificateId) {
+      const hinted = await prisma.certificate.findUnique({
+        where: { certificateId: params.hintCertificateId },
+      });
+      if (hinted?.status === 'ACTIVE') {
+        if (!params.ownerUserId || hinted.ownerUserId === params.ownerUserId) {
+          return this.toDto(hinted);
+        }
+      }
+    }
+
+    if (params.dnaRecordId && params.vaultId) {
+      const exact = await prisma.certificate.findFirst({
+        where: {
+          dnaRecordId: params.dnaRecordId,
+          vaultId: params.vaultId,
+          status: 'ACTIVE',
+          ...ownerFilter,
+        },
+        orderBy: { issuedAt: 'desc' },
+      });
+      if (exact) return this.toDto(exact);
+    }
+
+    if (params.dnaRecordId) {
+      const byDna = await prisma.certificate.findFirst({
+        where: { dnaRecordId: params.dnaRecordId, status: 'ACTIVE', ...ownerFilter },
+        orderBy: { issuedAt: 'desc' },
+      });
+      if (byDna) return this.toDto(byDna);
+    }
+
+    if (params.vaultId) {
+      const byVault = await prisma.certificate.findFirst({
+        where: { vaultId: params.vaultId, status: 'ACTIVE', ...ownerFilter },
+        orderBy: { issuedAt: 'desc' },
+      });
+      if (byVault) return this.toDto(byVault);
+    }
+
+    return null;
+  }
+
   // ─── Revoke ──────────────────────────────────────────────────────────────────
 
   async revoke(certificateId: string, reason: string, revokedByUserId?: string): Promise<IssuedCertificate> {
