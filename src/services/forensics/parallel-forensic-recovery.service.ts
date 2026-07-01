@@ -5,7 +5,6 @@ import { phase3WatermarkRecovery } from '../watermark/phase3-watermark-recovery.
 import { identityEmbeddingService } from '../identity/identity-embedding.service';
 import { extractManifest } from '../identity/integrity-manifest.service';
 import { verifyRecoveryToken, RECOVERY_TOKEN_PREFIX } from '../identity/recovery-token.service';
-import { forensicComputationCache } from './forensic-computation-cache.service';
 import { prisma } from '../../lib/prisma';
 import { withTimeoutSoft } from '../../lib/safe-runner';
 import type { VaultMatchResult } from './vault-auto-match.service';

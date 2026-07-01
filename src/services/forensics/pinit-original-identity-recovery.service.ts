@@ -42,22 +42,39 @@ async function loadVaultOwnerSnapshot(
   const [vaultRow, dnaRow] = await Promise.all([
     prisma.vaultRecord.findUnique({
       where: { id: vaultId },
-      select: { originalFileName: true, ownerUserId: true },
+      select: { originalFileName: true, dnaRecordId: true },
     }),
     dnaRecordId
-      ? prisma.dnaRecord.findUnique({ where: { id: dnaRecordId }, select: { imageFilename: true } })
+      ? prisma.dnaRecord.findUnique({
+        where: { id: dnaRecordId },
+        select: { imageFilename: true, ownerUserId: true },
+      })
       : Promise.resolve(null),
   ]);
-  const ownerRow = vaultRow?.ownerUserId
+  const ownerUserId = dnaRow?.ownerUserId
+    ?? (vaultRow?.dnaRecordId
+      ? (await prisma.dnaRecord.findUnique({
+        where: { id: vaultRow.dnaRecordId },
+        select: { ownerUserId: true, imageFilename: true },
+      }))?.ownerUserId
+      : undefined);
+  const filename = dnaRow?.imageFilename
+    ?? (vaultRow?.dnaRecordId
+      ? (await prisma.dnaRecord.findUnique({
+        where: { id: vaultRow.dnaRecordId },
+        select: { imageFilename: true },
+      }))?.imageFilename
+      : undefined);
+  const ownerRow = ownerUserId
     ? await prisma.user.findUnique({
-      where: { id: vaultRow.ownerUserId },
+      where: { id: ownerUserId },
       select: { fullName: true, shortId: true },
     })
     : null;
   return {
     ownerName: ownerRow?.fullName ?? undefined,
     ownerPinitId: ownerRow?.shortId ?? undefined,
-    originalFilename: dnaRow?.imageFilename ?? vaultRow?.originalFileName ?? undefined,
+    originalFilename: filename ?? vaultRow?.originalFileName ?? undefined,
   };
 }
 
@@ -191,8 +208,10 @@ export class PinitOriginalIdentityRecoveryService {
     const timer = options?.stageTimer ?? createStageTimer();
     const emit = (event: InvestigationProgressEvent) => options?.onProgress?.(event);
     let liveSnapshot: InvestigationLiveSnapshot | null = null;
+    let earlyVaultShown = false;
     const emitPhase = (patch: Partial<InvestigationLiveSnapshot>) => {
       liveSnapshot = mergeSnapshot(liveSnapshot, patch);
+      if (patch.vaultId) earlyVaultShown = true;
       emit({
         type: 'phase',
         stepId: `phase_${liveSnapshot.phase}`,
@@ -546,7 +565,7 @@ export class PinitOriginalIdentityRecoveryService {
       }
 
       const topFast = fastVectors[0];
-      if (topFast && !identityHit && !liveSnapshot?.vaultId) {
+      if (topFast && !identityHit && !earlyVaultShown) {
         const ownerSnap = await loadVaultOwnerSnapshot(topFast.vaultId, topFast.dnaRecordId);
         emitPhase({
           phase: 1,
@@ -670,7 +689,7 @@ export class PinitOriginalIdentityRecoveryService {
         elapsedMs: timer.getTimings().find((t) => t.stage === 'local_dna')?.durationMs,
       });
       if (localDnaHit) {
-        const hadPriorPhase = !!liveSnapshot?.vaultId;
+        const hadPriorPhase = earlyVaultShown;
         if (!hadPriorPhase) {
           const ownerSnap = await loadVaultOwnerSnapshot(localDnaHit.vaultId, localDnaHit.dnaRecordId);
           emitPhase({
