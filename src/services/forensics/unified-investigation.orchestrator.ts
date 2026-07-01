@@ -10,17 +10,24 @@ import { VaultService } from '../vault/vault.service';
 import { DnaComparisonService } from '../verification/dna-comparison.service';
 import { certificateService } from '../certificates/certificate.service';
 import { shareLinkService } from '../share/share-link.service';
-import { monitoringService } from '../crawler/monitoring.service';
 import { tamperClassifierService } from './tamper-classifier.service';
 import { isPhase2Active } from '../../config/dna-phase2';
 import { resolveWatermarkProof } from './watermark-status.service';
 import { enterpriseRecoveryPipeline, type EnterpriseRecoveryResult } from './enterprise-recovery-pipeline.service';
 import { FORENSIC_VERDICT_LABELS, type ForensicVerdict } from './confidence-fusion-engine.service';
+import {
+  deriveInvestigationOutcome,
+  downgradeToPossibleAfterWeakDna,
+  forensicVerdictForSummary,
+  logInvestigationDecision,
+  REPORT_STATE_LABELS,
+  shouldRetainRetrievalCandidateAsPossible,
+  type InvestigationOutcome,
+} from './investigation-decision-resolver.service';
 import { investigationPerformanceConfig } from '../../config/investigation-performance';
 import { createStageTimer } from '../../lib/stage-timer';
+import { withTimeoutSoft } from '../../lib/safe-runner';
 import { isAcceptedAfterDnaCompare, isCameraScanFileName, explainMatchBasis } from './vault-match-validator.service';
-import { vaultCandidateRankingService } from './vault-candidate-ranking.service';
-import type { DeepCompareResult } from './deep-vault-compare.service';
 import { evidenceConfidenceService } from './evidence-confidence.service';
 import { auditService } from '../audit/audit.service';
 import crypto from 'crypto';
@@ -59,57 +66,6 @@ function riskFromScores(dnaPct: number, tamper: number, found: boolean): Unified
   if (dnaPct >= 95 && tamper < 20) return 'LOW';
   if (dnaPct >= 70) return 'MEDIUM';
   return 'HIGH';
-}
-
-function deepCompareToVaultMatch(deep: DeepCompareResult, ownerUserId: string): VaultMatchResult {
-  return {
-    tier: 4,
-    method: `15-layer DNA compare (${deep.overallConfidenceScore}%)`,
-    dnaRecordId: deep.dnaRecordId,
-    vaultId: deep.vaultId,
-    ownerUserId,
-    confidence: String(deep.overallConfidenceScore),
-    visualSimilarity: deep.overallConfidenceScore / 100,
-  };
-}
-
-/** Never discard a vault winner once retrieval has selected it */
-function resolveWinningCandidate(enterprise: EnterpriseRecoveryResult, ownerUserId: string): VaultMatchResult | null {
-  const retrieval = enterprise.fusion.retrievalConfidence ?? enterprise.fusion.ownershipConfidence ?? 0;
-
-  if (enterprise.identified && enterprise.match) return enterprise.match;
-  if (enterprise.probableMatch) return enterprise.probableMatch;
-  if (enterprise.bestCandidate) return enterprise.bestCandidate;
-  if (enterprise.bestDeepCompare && enterprise.bestDeepCompare.overallConfidenceScore >= 30) {
-    const uid = enterprise.candidates[0]?.ownerUserId ?? ownerUserId;
-    return deepCompareToVaultMatch(enterprise.bestDeepCompare, uid);
-  }
-  if (enterprise.candidates[0] && (enterprise.candidates[0].compositeScore >= 30 || retrieval >= 40)) {
-    return vaultCandidateRankingService.toVaultMatch(enterprise.candidates[0]);
-  }
-  return null;
-}
-
-function logOrchestratorCandidate(
-  stage: string,
-  match: VaultMatchResult | null,
-  enterprise: EnterpriseRecoveryResult,
-  extra?: Record<string, unknown>,
-): void {
-  logger.info(`[UnifiedInvestigation:${stage}]`, {
-    vaultId: match?.vaultId?.slice(0, 8) ?? null,
-    dnaRecordId: match?.dnaRecordId?.slice(0, 8) ?? null,
-    ownerUserId: match?.ownerUserId?.slice(0, 8) ?? null,
-    retrievalConfidence: enterprise.fusion.retrievalConfidence,
-    identityRecovery: enterprise.fusion.identityConfidence,
-    ownershipVerification: enterprise.fusion.ownershipVerificationConfidence,
-    forensicVerdict: enterprise.fusion.forensicVerdict,
-    identified: enterprise.identified,
-    hasProbableMatch: !!enterprise.probableMatch,
-    hasBestCandidate: !!enterprise.bestCandidate,
-    topCandidateScore: enterprise.candidates[0]?.compositeScore,
-    ...extra,
-  });
 }
 
 function auditEventLabel(eventType: string): string | null {
@@ -226,27 +182,13 @@ function mapIdentityStatus(
   return 'NOT_FOUND';
 }
 
-function ownerVerificationLabel(conf: number): string {
-  if (conf >= 70) return 'Verified';
-  if (conf >= 40) return 'Partially Verified';
-  return 'Unknown';
-}
-
 function buildIdentityRecoveryFromEnterprise(
   enterprise: EnterpriseRecoveryResult,
+  outcome: InvestigationOutcome,
 ): IdentityRecoverySection {
-  const retrieval = enterprise.fusion.retrievalConfidence;
-  const verdict = enterprise.fusion.forensicVerdict;
-  const verdictLabel = FORENSIC_VERDICT_LABELS[verdict];
-
-  let message: string;
-  if (enterprise.identified) {
-    message = `${verdictLabel} — retrieval ${retrieval}%`;
-  } else if (enterprise.probableMatch && retrieval >= 50) {
-    message = `${verdictLabel} — identity partially recovered (retrieval ${retrieval}%)`;
-  } else {
-    message = `${FORENSIC_VERDICT_LABELS.NO_SIGNATURE} — retrieval ${retrieval}%`;
-  }
+  const message = outcome.state === 'NO_SIGNATURE'
+    ? `${REPORT_STATE_LABELS.NO_SIGNATURE} — ${outcome.decisionReason}`
+    : `${outcome.displayLabel} — ${outcome.decisionReason}`;
 
   return {
     enginesRun: enterprise.recoveredSignals.length,
@@ -343,51 +285,27 @@ export class UnifiedInvestigationOrchestrator {
     }
 
     let rankedCandidates: RankedVaultCandidate[] = enterprise.candidates;
-    let match: VaultMatchResult | null = resolveWinningCandidate(enterprise, ownerUserId);
+    const outcome = deriveInvestigationOutcome(enterprise);
+    let reportOutcome = outcome;
+    logInvestigationDecision('post_enterprise_recovery', reportOutcome, {
+      identified: enterprise.identified,
+      fusionVerdict: enterprise.fusion.forensicVerdict,
+    });
 
-    logOrchestratorCandidate('post_enterprise_recovery', match, enterprise);
+    let match: VaultMatchResult | null = reportOutcome.candidate;
 
-    if (!match && leakVerify.identity?.vaultId && leakVerify.identity?.dnaId) {
-      match = {
-        tier: 2 as const,
-        method: leakVerify.detectionMethod ?? 'Leaked-file identity',
-        dnaRecordId: leakVerify.identity.dnaId,
-        vaultId: leakVerify.identity.vaultId,
-        ownerUserId: leakVerify.identity.ownerUserId ?? ownerUserId,
-        confidence: leakVerify.valid ? 'HIGH' : 'MEDIUM',
-      };
-      logOrchestratorCandidate('leak_verify_match', match, enterprise);
-    }
+    const retrievalConf = reportOutcome.retrievalConfidence;
 
-    const retrievalConf = enterprise.fusion.retrievalConfidence ?? enterprise.fusion.ownershipConfidence ?? 0;
-
-    if (!match && enterprise.probableMatch) {
+    if (reportOutcome.state === 'POSSIBLE' && match) {
       pipeline.push(step(
         'probable_match',
         'Probable vault match (visual DNA)',
-        retrievalConf >= 40 ? 'warning' : 'failed',
-        `Retrieval ${retrievalConf}% — ${FORENSIC_VERDICT_LABELS[enterprise.fusion.forensicVerdict]}`,
-      ));
-    }
-
-    // Promote winning candidate when retrieval found a consistent vault (threshold 40 for WhatsApp/crops)
-    if (!match && (enterprise.probableMatch || enterprise.bestCandidate) && retrievalConf >= 40) {
-      match = enterprise.probableMatch ?? enterprise.bestCandidate;
-      pipeline.push(step(
-        'retrieval_candidate',
-        'Enterprise retrieval candidate',
         'warning',
-        `${FORENSIC_VERDICT_LABELS[enterprise.fusion.forensicVerdict]} — retrieval ${retrievalConf}%`,
+        `${reportOutcome.displayLabel} — retrieval ${retrievalConf}% · vault ${match.vaultId.slice(0, 8)}…`,
       ));
-      logOrchestratorCandidate('retrieval_promoted', match, enterprise);
     }
 
-    if (!match && enterprise.bestCandidate) {
-      match = enterprise.bestCandidate;
-      logOrchestratorCandidate('best_candidate_fallback', match, enterprise);
-    }
-
-    const identityRecovery = buildIdentityRecoveryFromEnterprise(enterprise);
+    const identityRecovery = buildIdentityRecoveryFromEnterprise(enterprise, reportOutcome);
     pipeline.push(step(
       'recovery_engines',
       'Multi-layer identity recovery',
@@ -402,12 +320,17 @@ export class UnifiedInvestigationOrchestrator {
       match ? `Match tier ${match.tier}: ${match.method}` : 'No vault match in your account',
     ));
 
-    if (!match) {
-      logOrchestratorCandidate('no_match_report', null, enterprise, { reason: 'no winning candidate after resolution' });
-      return this.buildNoMatchReport(investigationId, pipeline, leakVerify, ownerUserId, identityRecovery, currentFileHash, originalName, undefined, enterprise);
+    if (!match || reportOutcome.state === 'NO_SIGNATURE') {
+      logInvestigationDecision('no_match_report', { ...reportOutcome, candidate: null, state: 'NO_SIGNATURE' });
+      return this.buildNoMatchReport(
+        investigationId, pipeline, leakVerify, ownerUserId, identityRecovery,
+        currentFileHash, originalName, reportOutcome, enterprise,
+      );
     }
 
-    logOrchestratorCandidate('report_build_start', match, enterprise);
+    logInvestigationDecision('report_build_start', reportOutcome);
+
+    emit({ type: 'timeline', stepId: 'final_report', label: 'Final Report', status: 'running' });
 
     if (rankedCandidates.length) {
       rankedCandidates = rankedCandidates.map((c) => ({
@@ -418,13 +341,25 @@ export class UnifiedInvestigationOrchestrator {
 
     pipeline.push(step('vault_locate', 'Locate original vault file', 'complete', match.vaultId));
 
-    // 5. Certificate — resolve from certificates table (DNA → vault → enterprise hint)
-    const resolvedCert = await certificateService.findActiveForAsset({
-      dnaRecordId: match.dnaRecordId,
-      vaultId: match.vaultId,
-      ownerUserId,
-      hintCertificateId: enterprise.certificateId,
-    });
+    const enterpriseValidated = enterprise.identified && enterprise.match?.vaultId === match.vaultId;
+    const alreadyDeepCompared = enterprise.bestDeepCompare?.vaultId === match.vaultId;
+    const enterpriseDeepScore = enterprise.bestDeepCompare?.overallConfidenceScore ?? 0;
+    const skipHeavyCompare = investigationPerformanceConfig.skipOrchestratorRecompare
+      && (!!alreadyDeepCompared || match.tier === 1 || enterpriseValidated);
+
+    const [resolvedCert, dnaPrefetch] = await Promise.all([
+      certificateService.findActiveForAsset({
+        dnaRecordId: match.dnaRecordId,
+        vaultId: match.vaultId,
+        ownerUserId,
+        hintCertificateId: enterprise.certificateId,
+      }),
+      prisma.dnaRecord.findUnique({
+        where: { id: match.dnaRecordId },
+        select: { createdAt: true, imageFilename: true, sha256Hash: true },
+      }),
+    ]);
+
     let certStatus = 'NOT_ISSUED';
     if (resolvedCert) {
       const v = await certificateService.verify(resolvedCert.certificateId);
@@ -435,22 +370,12 @@ export class UnifiedInvestigationOrchestrator {
     }
     const cert = resolvedCert ? { certificateId: resolvedCert.certificateId } : null;
 
-    // 6. Full DNA comparison — reuse enterprise deep compare when already run
+    // 6. DNA comparison — reuse enterprise deep compare (never re-run when already done)
     let comparison = null;
-    let isIdentical = false;
-    const enterpriseValidated = enterprise.identified && enterprise.match?.vaultId === match.vaultId;
-    const alreadyDeepCompared = enterprise.bestDeepCompare?.vaultId === match.vaultId;
-    const enterpriseDeepScore = enterprise.bestDeepCompare?.overallConfidenceScore ?? 0;
-    const skipHeavyCompare = (enterpriseValidated && (match.tier === 1 || !!alreadyDeepCompared))
-      || (!!alreadyDeepCompared && enterpriseDeepScore >= 35)
-      || (match.tier <= 2 && enterprise.watermarkRecovered && !!alreadyDeepCompared)
-      || (retrievalConf >= 40 && !!alreadyDeepCompared && enterpriseDeepScore >= 30);
+    let isIdentical = dnaPrefetch?.sha256Hash === currentFileHash;
 
     try {
-      const original = await vaultService.retrieve(match.vaultId, ownerUserId);
-      isIdentical = original.originalBuffer.equals(buffer);
-
-      if (skipHeavyCompare) {
+      if (skipHeavyCompare || isIdentical) {
         const score = isIdentical ? 100 : enterpriseDeepScore || retrievalConf;
         pipeline.push(step(
           'dna_compare',
@@ -472,6 +397,22 @@ export class UnifiedInvestigationOrchestrator {
           );
         if (acceptRetrieval) {
           pipeline.push(step('match_validation', 'Validate vault match', 'complete', explainMatchBasis(match)));
+        } else if (shouldRetainRetrievalCandidateAsPossible(
+          enterprise, match, enterpriseDeepScore || score, retrievalConf,
+        )) {
+          reportOutcome = downgradeToPossibleAfterWeakDna(
+            match,
+            reportOutcome,
+            enterpriseDeepScore || score,
+            enterprise.bestDeepCompare?.classification ?? 'VARIANT',
+          );
+          pipeline.push(step(
+            'match_validation',
+            'Validate vault match',
+            'warning',
+            `Weak DNA ${enterpriseDeepScore || score}% — retained as possible match (${explainMatchBasis(match)})`,
+          ));
+          logInvestigationDecision('match_downgraded_to_possible', reportOutcome, { dnaScore: enterpriseDeepScore });
         } else {
           logger.warn('Unified investigation: match rejected after enterprise deep compare', {
             vaultId: match.vaultId,
@@ -484,6 +425,16 @@ export class UnifiedInvestigationOrchestrator {
             'failed',
             `Rejected — ${enterpriseDeepScore}% DNA score does not confirm vault pairing`,
           ));
+          const rejectedOutcome: InvestigationOutcome = {
+            state: 'NO_SIGNATURE',
+            candidate: null,
+            retrievalConfidence: retrievalConf,
+            forensicVerdict: 'NO_SIGNATURE',
+            displayLabel: REPORT_STATE_LABELS.NO_SIGNATURE,
+            decisionReason: `DNA compare rejected candidate vault ${match.vaultId.slice(0, 8)}… — score ${enterpriseDeepScore}%`,
+          };
+          logInvestigationDecision('match_rejected', rejectedOutcome);
+          emit({ type: 'timeline', stepId: 'final_report', label: 'Final Report', status: 'complete' });
           return this.buildNoMatchReport(
             investigationId,
             pipeline,
@@ -492,12 +443,29 @@ export class UnifiedInvestigationOrchestrator {
             identityRecovery,
             currentFileHash,
             originalName,
-            `Vault candidate rejected after 15-layer compare (${enterpriseDeepScore}%).`,
+            rejectedOutcome,
             enterprise,
-            match,
+            `Vault candidate rejected after 15-layer compare (${enterpriseDeepScore}%).`,
           );
         }
-      } else if (isIdentical || match.tier === 1) {
+      } else {
+      const original = await withTimeoutSoft(
+        () => vaultService.retrieve(match.vaultId, ownerUserId),
+        investigationPerformanceConfig.vaultRetrieveTimeoutMs,
+        'orchestrator_vault_retrieve',
+      );
+      if (!original) {
+        pipeline.push(step('dna_compare', '15-layer DNA comparison', 'warning', 'Vault retrieve timed out — using retrieval scores'));
+        if (shouldRetainRetrievalCandidateAsPossible(enterprise, match, enterpriseDeepScore || retrievalConf, retrievalConf)) {
+          reportOutcome = downgradeToPossibleAfterWeakDna(
+            match, reportOutcome, enterpriseDeepScore || retrievalConf,
+            enterprise.bestDeepCompare?.classification ?? 'VARIANT',
+          );
+        }
+      } else {
+      isIdentical = original.originalBuffer.equals(buffer);
+
+      if (isIdentical || match.tier === 1) {
         pipeline.push(step(
           'dna_compare',
           '15-layer DNA comparison',
@@ -507,23 +475,37 @@ export class UnifiedInvestigationOrchestrator {
         pipeline.push(step('match_validation', 'Validate vault match', 'complete', explainMatchBasis(match)));
       } else {
       try {
-        comparison = await comparisonService.compare(
-          {
-            filePath: '',
-            originalName: original.originalFileName,
-            declaredMimeType: original.originalMimeType,
-            sizeBytes: original.originalSizeBytes,
-            buffer: original.originalBuffer,
-          },
-          {
-            filePath: '',
-            originalName,
-            declaredMimeType: mimeType,
-            sizeBytes,
-            buffer,
-          },
-          { vaultDnaRecordId: match.dnaRecordId },
+        comparison = await withTimeoutSoft(
+          () => comparisonService.compare(
+            {
+              filePath: '',
+              originalName: original.originalFileName,
+              declaredMimeType: original.originalMimeType,
+              sizeBytes: original.originalSizeBytes,
+              buffer: original.originalBuffer,
+            },
+            {
+              filePath: '',
+              originalName,
+              declaredMimeType: mimeType,
+              sizeBytes,
+              buffer,
+            },
+            { vaultDnaRecordId: match.dnaRecordId },
+          ),
+          investigationPerformanceConfig.orchestratorCompareTimeoutMs,
+          'orchestrator_dna_compare',
         );
+        if (!comparison && alreadyDeepCompared) {
+          pipeline.push(step(
+            'dna_compare',
+            '15-layer DNA comparison',
+            'complete',
+            `${enterpriseDeepScore}% — enterprise retrieval (orchestrator compare timed out)`,
+          ));
+        } else if (!comparison) {
+          pipeline.push(step('dna_compare', '15-layer DNA comparison', 'warning', 'Layer compare timed out'));
+        } else {
         pipeline.push(step(
           'dna_compare',
           '15-layer DNA comparison',
@@ -532,24 +514,56 @@ export class UnifiedInvestigationOrchestrator {
         ));
 
         const isCameraScan = isCameraScanFileName(originalName);
-        if (!enterpriseValidated && !isAcceptedAfterDnaCompare(
+        const cmpScore = comparison?.overallConfidenceScore ?? enterpriseDeepScore;
+        const cmpClass = comparison?.classification ?? enterprise.bestDeepCompare?.classification ?? 'VARIANT';
+        if (comparison && !enterpriseValidated && !isAcceptedAfterDnaCompare(
           match,
-          comparison.overallConfidenceScore,
-          comparison.classification,
+          cmpScore,
+          cmpClass,
           isCameraScan,
           retrievalConf,
         )) {
+          if (shouldRetainRetrievalCandidateAsPossible(
+            enterprise, match, cmpScore, retrievalConf,
+          )) {
+            reportOutcome = downgradeToPossibleAfterWeakDna(
+              match,
+              reportOutcome,
+              cmpScore,
+              cmpClass,
+            );
+            pipeline.push(step(
+              'match_validation',
+              'Validate vault match',
+              'warning',
+              `Weak DNA ${cmpScore}% (${cmpClass}) — retained as possible match`,
+            ));
+            logInvestigationDecision('match_downgraded_to_possible', reportOutcome, {
+              dnaScore: cmpScore,
+              classification: cmpClass,
+            });
+          } else {
           logger.warn('Unified investigation: match rejected after DNA comparison', {
             vaultId: match.vaultId,
-            score: comparison.overallConfidenceScore,
-            classification: comparison.classification,
+            score: cmpScore,
+            classification: cmpClass,
           });
           pipeline.push(step(
             'match_validation',
             'Validate vault match',
             'failed',
-            `Rejected — ${comparison.overallConfidenceScore}% DNA score does not confirm vault pairing`,
+            `Rejected — ${cmpScore}% DNA score does not confirm vault pairing`,
           ));
+          const rejectedOutcome: InvestigationOutcome = {
+            state: 'NO_SIGNATURE',
+            candidate: null,
+            retrievalConfidence: retrievalConf,
+            forensicVerdict: 'NO_SIGNATURE',
+            displayLabel: REPORT_STATE_LABELS.NO_SIGNATURE,
+            decisionReason: `DNA compare rejected candidate vault ${match.vaultId.slice(0, 8)}… — ${cmpScore}% ${cmpClass}`,
+          };
+          logInvestigationDecision('match_rejected', rejectedOutcome);
+          emit({ type: 'timeline', stepId: 'final_report', label: 'Final Report', status: 'complete' });
           return this.buildNoMatchReport(
             investigationId,
             pipeline,
@@ -558,12 +572,15 @@ export class UnifiedInvestigationOrchestrator {
             identityRecovery,
             currentFileHash,
             originalName,
-            `Vault candidate rejected after 15-layer compare (${comparison.overallConfidenceScore}% — ${comparison.classification}). Scanned file does not match this vault record.`,
+            rejectedOutcome,
             enterprise,
-            match,
+            `Vault candidate rejected after 15-layer compare (${cmpScore}% — ${cmpClass}). Scanned file does not match this vault record.`,
           );
-        }
+          }
+        } else {
         pipeline.push(step('match_validation', 'Validate vault match', 'complete', explainMatchBasis(match)));
+        }
+        }
       } catch (cmpErr) {
         logger.error('Unified investigation DNA compare failed', { error: String(cmpErr) });
         pipeline.push(step(
@@ -578,20 +595,34 @@ export class UnifiedInvestigationOrchestrator {
         ));
       }
       }
+      }
+      }
     } catch (e) {
       pipeline.push(step('dna_compare', '15-layer DNA comparison', 'failed', String(e)));
+    }
+
+    const resolvedDnaScore = comparison?.overallConfidenceScore
+      ?? enterprise.bestDeepCompare?.overallConfidenceScore
+      ?? (isIdentical ? 100 : undefined);
+    if (resolvedDnaScore != null
+      && resolvedDnaScore < 50
+      && reportOutcome.state === 'VERIFIED'
+      && shouldRetainRetrievalCandidateAsPossible(enterprise, match, resolvedDnaScore, retrievalConf)) {
+      reportOutcome = downgradeToPossibleAfterWeakDna(
+        match,
+        reportOutcome,
+        resolvedDnaScore,
+        comparison?.classification ?? enterprise.bestDeepCompare?.classification ?? 'VARIANT',
+      );
+      logInvestigationDecision('verified_downgraded_to_possible', reportOutcome, { dnaScore: resolvedDnaScore });
     }
 
     // 7. Tamper analysis
     const tamperAnalysis = this.buildTamperAnalysis(comparison, leakVerify);
     pipeline.push(step('tamper', 'Tamper analysis', 'complete', tamperAnalysis.primaryVector));
 
-    const [accessIntelligence, dnaRec, vaultRow, owner, leakIntel] = await Promise.all([
+    const [accessIntelligence, vaultRow, owner, leakIntel] = await Promise.all([
       this.loadAccessIntelligence(match.dnaRecordId, ownerUserId, leakVerify.accessHistory ?? []),
-      prisma.dnaRecord.findUnique({
-        where: { id: match.dnaRecordId },
-        select: { createdAt: true, imageFilename: true, sha256Hash: true },
-      }),
       prisma.vaultRecord.findUnique({
         where: { id: match.vaultId },
         select: { originalFileName: true },
@@ -602,6 +633,7 @@ export class UnifiedInvestigationOrchestrator {
       }),
       this.buildLeakIntelligence(match.dnaRecordId, ownerUserId),
     ]);
+    const dnaRec = dnaPrefetch;
     const originalFilename = dnaRec?.imageFilename ?? vaultRow?.originalFileName ?? leakVerify.identity?.originalFilename;
 
     // 8–11. Recipient + sharing + access
@@ -621,13 +653,19 @@ export class UnifiedInvestigationOrchestrator {
       `${accessIntelligence.length} events`,
     ));
 
-    // 12. Timeline (vault audit + share + access)
+    // 12. Timeline (vault audit + share + access) — time-capped enrichment
     let timelineEvents: Array<{ stage: string; timestamp?: string; detail?: string }> = [];
-    try {
-      const [shareTimeline, auditEvents] = await Promise.all([
+    const enrichmentMs = investigationPerformanceConfig.orchestratorEnrichmentTimeoutMs;
+    const timelineBundle = await withTimeoutSoft(
+      () => Promise.all([
         shareLinkService.getTimelineEvents(match.dnaRecordId, ownerUserId),
         auditService.getEventsForRecord(match.dnaRecordId),
-      ]);
+      ]),
+      enrichmentMs,
+      'investigation_timeline',
+    );
+    if (timelineBundle) {
+      const [shareTimeline, auditEvents] = timelineBundle;
       timelineEvents = this.buildTimeline({
         investigationId,
         investigatedAt: new Date().toISOString(),
@@ -644,11 +682,11 @@ export class UnifiedInvestigationOrchestrator {
         dnaMatchPercent: comparison?.overallConfidenceScore
           ?? enterprise.bestDeepCompare?.overallConfidenceScore
           ?? (Number.parseInt(match.confidence, 10) || undefined),
-        forensicVerdict: enterprise.fusion.forensicVerdict,
+        forensicVerdict: forensicVerdictForSummary(reportOutcome),
       });
       pipeline.push(step('timeline', 'Retrieve timeline', 'complete', `${timelineEvents.length} events`));
-    } catch {
-      pipeline.push(step('timeline', 'Retrieve timeline', 'warning', 'Timeline partial'));
+    } else {
+      pipeline.push(step('timeline', 'Retrieve timeline', 'warning', 'Timeline enrichment timed out — partial'));
       timelineEvents = this.buildTimeline({
         investigationId,
         investigatedAt: new Date().toISOString(),
@@ -663,7 +701,7 @@ export class UnifiedInvestigationOrchestrator {
         auditEvents: [],
         leakIntel,
         dnaMatchPercent: enterprise.bestDeepCompare?.overallConfidenceScore,
-        forensicVerdict: enterprise.fusion.forensicVerdict,
+        forensicVerdict: forensicVerdictForSummary(reportOutcome),
       });
     }
 
@@ -685,10 +723,10 @@ export class UnifiedInvestigationOrchestrator {
       ?? (Number.parseInt(match.confidence, 10) || undefined)
       ?? (leakVerify.confidence ?? 0);
 
-    const identityFromVault = owner?.shortId ?? leakVerify.identity?.ownerShortId;
-    const retrievalConfidence = enterprise.fusion.retrievalConfidence;
+    const identityFromVault = owner?.shortId ?? null;
+    const retrievalConfidence = reportOutcome.retrievalConfidence;
     const ownershipVerification = enterprise.fusion.ownershipVerificationConfidence;
-    const forensicVerdict = enterprise.fusion.forensicVerdict;
+    const forensicVerdict = forensicVerdictForSummary(reportOutcome);
     const forensicReasons = buildForensicReasons(enterprise, originalName, certStatus);
 
     const identityStatus = mapIdentityStatus(
@@ -713,22 +751,23 @@ export class UnifiedInvestigationOrchestrator {
       identityConfidence / 100,
     );
 
-    const verdictLabel = FORENSIC_VERDICT_LABELS[forensicVerdict];
-    const reportMessage = forensicVerdict === 'NO_SIGNATURE'
-      ? verdictLabel
-      : `${verdictLabel}. Owner: ${ownerVerificationLabel(ownershipConf)}. Identity: ${identityStatus === 'NOT_FOUND' ? 'partially recovered' : identityStatus.toLowerCase().replace(/_/g, ' ')}.${forensicReasons.length ? ` Reason: ${forensicReasons.join('; ')}.` : ''}`;
+    const reportMessage = `${reportOutcome.displayLabel}. ${reportOutcome.decisionReason}${forensicReasons.length ? ` Reason: ${forensicReasons.join('; ')}.` : ''}`;
+
+    logInvestigationDecision('final_report', reportOutcome, { dnaMatchPercent: dnaPct, certificateStatus: certStatus });
 
     const summary = {
       ownershipConfidence: ownershipConf,
       retrievalConfidence,
       ownershipVerificationConfidence: ownershipVerification,
       forensicVerdict,
+      reportState: reportOutcome.state,
+      decisionReason: reportOutcome.decisionReason,
       forensicReasons: forensicReasons.length ? forensicReasons : undefined,
       dnaMatchPercent: dnaPct,
       certificateStatus: certStatus,
       identityStatus,
       tamperSeverity: tamperAnalysis.primaryVector,
-      riskLevel: riskFromScores(dnaPct, tamperAnalysis.overallTamperScore, retrievalConfidence >= 50),
+      riskLevel: riskFromScores(dnaPct, tamperAnalysis.overallTamperScore, true),
       trustScore,
       identityConfidence,
     };
@@ -781,8 +820,8 @@ export class UnifiedInvestigationOrchestrator {
       summary,
       message: reportMessage,
       owner: {
-        ownerName: owner?.fullName ?? leakVerify.identity?.ownerName,
-        ownerPinitId: owner?.shortId ?? leakVerify.identity?.ownerShortId,
+        ownerName: owner?.fullName ?? null,
+        ownerPinitId: owner?.shortId ?? null,
         vaultId: match.vaultId,
         dnaRecordId: match.dnaRecordId,
         certificateId: cert?.certificateId ?? null,
@@ -800,7 +839,7 @@ export class UnifiedInvestigationOrchestrator {
         vaultId: match.vaultId,
         dnaRecordId: match.dnaRecordId,
         certificateId: cert?.certificateId ?? enterprise.certificateId ?? undefined,
-        ownerPinitId: owner?.shortId ?? leakVerify.identity?.ownerShortId,
+        ownerPinitId: owner?.shortId ?? undefined,
         digitalSignatureValid: !!leakVerify.valid,
         watermark: resolveWatermarkProof(leakVerify, {
           vaultId: match.vaultId,
@@ -855,12 +894,12 @@ export class UnifiedInvestigationOrchestrator {
 
     return {
       recovered: ownershipConf >= 50,
-      originalOwner: owner?.fullName ?? leakVerify.identity?.ownerName,
-      ownerPinitId: owner?.shortId ?? leakVerify.identity?.ownerShortId,
+      originalOwner: owner?.fullName ?? null,
+      ownerPinitId: owner?.shortId ?? null,
       vaultId: match.vaultId,
       dnaRecordId: match.dnaRecordId,
       certificateId: cert?.certificateId ?? null,
-      originalFilename: originalFilename ?? dnaRec?.imageFilename ?? leakVerify.identity?.originalFilename,
+      originalFilename: originalFilename ?? dnaRec?.imageFilename ?? undefined,
       createdAt: dnaRec?.createdAt?.toISOString(),
       protectedDownloadDate: protectedDl?.timestamp,
       originalDevice: device,
@@ -874,243 +913,89 @@ export class UnifiedInvestigationOrchestrator {
     };
   }
 
-  private async loadVaultOwnerEnrichment(
-    vaultId: string | undefined,
-    dnaRecordId: string | undefined,
-    ownerUserId: string,
-    hintCertificateId?: string | null,
-  ): Promise<{
-    ownerName: string | null;
-    ownerPinitId: string | null;
-    originalFilename: string | null;
-    createdAt: string | null;
-    certificateId: string | null;
-    certificateStatus: string;
-  }> {
-    const empty = {
-      ownerName: null,
-      ownerPinitId: null,
-      originalFilename: null,
-      createdAt: null,
-      certificateId: null,
-      certificateStatus: 'UNKNOWN',
-    };
-    if (!vaultId && !dnaRecordId) return empty;
-
-    const [dnaRec, vaultRec, resolvedCert] = await Promise.all([
-      dnaRecordId
-        ? prisma.dnaRecord.findUnique({
-          where: { id: dnaRecordId },
-          select: { imageFilename: true, createdAt: true, ownerUserId: true },
-        })
-        : Promise.resolve(null),
-      vaultId
-        ? prisma.vaultRecord.findUnique({
-          where: { id: vaultId },
-          select: { originalFileName: true, dnaRecordId: true },
-        })
-        : Promise.resolve(null),
-      certificateService.findActiveForAsset({
-        dnaRecordId: dnaRecordId ?? undefined,
-        vaultId: vaultId ?? undefined,
-        ownerUserId,
-        hintCertificateId,
-      }),
-    ]);
-
-    const resolvedOwnerId = dnaRec?.ownerUserId ?? ownerUserId;
-    const owner = await prisma.user.findUnique({
-      where: { id: resolvedOwnerId },
-      select: { fullName: true, shortId: true },
-    });
-
-    let certificateStatus = resolvedCert ? 'ISSUED' : 'NOT_ISSUED';
-    if (resolvedCert) {
-      const v = await certificateService.verify(resolvedCert.certificateId);
-      certificateStatus = v.valid ? 'VALID' : v.status;
-    }
-
-    return {
-      ownerName: owner?.fullName ?? null,
-      ownerPinitId: owner?.shortId ?? null,
-      originalFilename: dnaRec?.imageFilename ?? vaultRec?.originalFileName ?? null,
-      createdAt: dnaRec?.createdAt?.toISOString() ?? null,
-      certificateId: resolvedCert?.certificateId ?? null,
-      certificateStatus,
-    };
-  }
-
   private async buildNoMatchReport(
     investigationId: string,
     pipeline: InvestigationPipelineStep[],
     leakVerify: Awaited<ReturnType<typeof leakedFileVerifyService.verify>>,
-    ownerUserId: string,
+    _ownerUserId: string,
     identityRecovery: IdentityRecoverySection | undefined,
     currentFileHash: string | undefined,
     suspectFilename: string,
-    customMessage?: string,
+    outcome: InvestigationOutcome,
     enterprise?: EnterpriseRecoveryResult,
-    rejectedMatch?: VaultMatchResult,
+    customMessage?: string,
   ): Promise<UnifiedInvestigationReport> {
-    pipeline.push(step('report', 'Generate investigation report', 'complete', 'No vault match'));
+    pipeline.push(step('report', 'Generate investigation report', 'complete', REPORT_STATE_LABELS.NO_SIGNATURE));
     const recovery = identityRecovery ?? {
       enginesRun: 0,
       enginesRecovered: 0,
       signals: [],
       compositeScores: { ownershipConfidence: 0, trustScore: 0, identityConfidence: 0 },
       transformations: [],
-      message: 'Recovery engines not run',
+      message: REPORT_STATE_LABELS.NO_SIGNATURE,
     };
-    const ownershipConfidence = enterprise?.fusion.ownershipVerificationConfidence
-      ?? enterprise?.fusion.ownershipConfidence
-      ?? recovery.compositeScores.ownershipConfidence;
-    const retrievalConfidence = enterprise?.fusion.retrievalConfidence ?? 0;
-    const ownershipVerificationConfidence = enterprise?.fusion.ownershipVerificationConfidence ?? ownershipConfidence;
-    const forensicVerdict: ForensicVerdict = enterprise?.fusion.forensicVerdict
-      ?? (retrievalConfidence >= 90 ? 'ORIGINAL_VERIFIED'
-        : retrievalConfidence >= 75 ? 'ORIGINAL_FOUND_PARTIAL'
-          : retrievalConfidence >= 50 ? 'POSSIBLE_ASSET'
-            : 'NO_SIGNATURE');
+
+    const noSignatureOutcome: InvestigationOutcome = {
+      ...outcome,
+      state: 'NO_SIGNATURE',
+      candidate: null,
+      forensicVerdict: 'NO_SIGNATURE',
+      displayLabel: REPORT_STATE_LABELS.NO_SIGNATURE,
+    };
+    logInvestigationDecision('build_no_match_report', noSignatureOutcome);
+
+    const retrievalConfidence = noSignatureOutcome.retrievalConfidence;
+    const ownershipVerificationConfidence = enterprise?.fusion.ownershipVerificationConfidence ?? 0;
     const trustScore = Math.max(enterprise?.fusion.trustScore ?? 0, recovery.compositeScores.trustScore);
     const identityConfidence = Math.max(enterprise?.fusion.identityConfidence ?? 0, recovery.compositeScores.identityConfidence);
-    const probableButNotIdentified = !!(enterprise?.probableMatch && !enterprise?.identified);
-
-    const vaultId = rejectedMatch?.vaultId
-      ?? enterprise?.match?.vaultId
-      ?? enterprise?.probableMatch?.vaultId
-      ?? enterprise?.bestCandidate?.vaultId
-      ?? enterprise?.bestDeepCompare?.vaultId
-      ?? enterprise?.candidates[0]?.vaultId
-      ?? leakVerify.identity?.vaultId;
-    const dnaRecordId = rejectedMatch?.dnaRecordId
-      ?? enterprise?.match?.dnaRecordId
-      ?? enterprise?.probableMatch?.dnaRecordId
-      ?? enterprise?.bestCandidate?.dnaRecordId
-      ?? enterprise?.bestDeepCompare?.dnaRecordId
-      ?? enterprise?.candidates[0]?.dnaRecordId
-      ?? leakVerify.identity?.dnaId;
-
-    if (enterprise) {
-      logOrchestratorCandidate('build_no_match_report', rejectedMatch ?? enterprise.bestCandidate, enterprise, {
-        vaultId: vaultId?.slice(0, 8),
-        dnaRecordId: dnaRecordId?.slice(0, 8),
-      });
-    }
-
-    const enriched = await this.loadVaultOwnerEnrichment(vaultId, dnaRecordId, ownerUserId, enterprise?.certificateId);
-    const ownerPinitId = enriched.ownerPinitId
-      ?? enterprise?.ownerShortId
-      ?? leakVerify.identity?.ownerShortId
-      ?? undefined;
-
-    const forensicReasons = enterprise
-      ? buildForensicReasons(enterprise, suspectFilename, enriched.certificateStatus)
-      : [];
-
-    const identityStatus = enterprise
-      ? mapIdentityStatus(enterprise, leakVerify, ownerPinitId, retrievalConfidence)
-      : leakVerify.found ? 'DETECTED_NO_VAULT' : vaultId ? 'CANDIDATE_REJECTED' : 'NOT_FOUND';
-
-    const verdictLabel = FORENSIC_VERDICT_LABELS[forensicVerdict];
-    const noMatchMessage = customMessage ?? (
-      retrievalConfidence >= 50 && vaultId
-        ? `${verdictLabel}. Owner: ${ownerVerificationLabel(ownershipVerificationConfidence)}. Identity partially recovered.${forensicReasons.length ? ` Reason: ${forensicReasons.join('; ')}.` : ''}`
-        : probableButNotIdentified
-          ? `${verdictLabel} — retrieval ${retrievalConfidence}%. Try a clearer scan or use a shared/downloaded copy.`
-          : 'Could not locate original vault file in your account. Identity signals may still be present.'
-    );
-
     const investigatedAt = new Date().toISOString();
-    let timelineEvents: Array<{ stage: string; timestamp?: string; detail?: string }> = [];
 
-    if (vaultId && dnaRecordId) {
-      try {
-        const [shareTimeline, auditEvents, dnaRec] = await Promise.all([
-          shareLinkService.getTimelineEvents(dnaRecordId, ownerUserId),
-          auditService.getEventsForRecord(dnaRecordId),
-          prisma.dnaRecord.findUnique({
-            where: { id: dnaRecordId },
-            select: { createdAt: true, imageFilename: true },
-          }),
-        ]);
-        timelineEvents = this.buildTimeline({
-          investigationId,
-          investigatedAt,
-          suspectFilename,
-          suspectFileHash: currentFileHash,
-          dnaRecordId,
-          vaultId,
-          dnaMeta: dnaRec ? { createdAt: dnaRec.createdAt, filename: dnaRec.imageFilename } : null,
-          shareLinks: shareTimeline,
-          leakVerify,
-          accessHistory: leakVerify.accessHistory ?? [],
-          auditEvents,
-          dnaMatchPercent: enterprise?.bestDeepCompare?.overallConfidenceScore
-            ?? enterprise?.candidates[0]?.compositeScore,
-          forensicVerdict,
-        });
-      } catch {
-        timelineEvents = this.buildTimeline({
-          investigationId,
-          investigatedAt,
-          suspectFilename,
-          suspectFileHash: currentFileHash,
-          dnaRecordId,
-          vaultId,
-          dnaMeta: null,
-          shareLinks: [],
-          leakVerify,
-          accessHistory: leakVerify.accessHistory ?? [],
-          auditEvents: [],
-          dnaMatchPercent: enterprise?.bestDeepCompare?.overallConfidenceScore,
-          forensicVerdict,
-        });
-      }
-    } else {
-      timelineEvents = this.buildTimeline({
-        investigationId,
-        investigatedAt,
-        suspectFilename,
-        suspectFileHash: currentFileHash,
-        dnaRecordId: dnaRecordId ?? 'unresolved',
-        vaultId: vaultId ?? 'unresolved',
-        dnaMeta: null,
-        shareLinks: [],
-        leakVerify,
-        accessHistory: leakVerify.accessHistory ?? [],
-        auditEvents: [],
-        forensicVerdict,
-      });
-    }
+    const timelineEvents = this.buildTimeline({
+      investigationId,
+      investigatedAt,
+      suspectFilename,
+      suspectFileHash: currentFileHash,
+      dnaRecordId: 'none',
+      vaultId: 'none',
+      dnaMeta: null,
+      shareLinks: [],
+      leakVerify,
+      accessHistory: leakVerify.accessHistory ?? [],
+      auditEvents: [],
+      forensicVerdict: 'NO_SIGNATURE',
+    });
+
+    const noMatchMessage = customMessage ?? noSignatureOutcome.decisionReason;
 
     return {
-      success: retrievalConfidence >= 50 && !!vaultId,
+      success: false,
       investigationId,
       investigatedAt,
       pipeline,
       summary: {
-        ownershipConfidence,
+        ownershipConfidence: ownershipVerificationConfidence,
         retrievalConfidence,
         ownershipVerificationConfidence,
-        forensicVerdict,
-        forensicReasons: forensicReasons.length ? forensicReasons : undefined,
-        dnaMatchPercent: enterprise?.candidates[0]?.compositeScore ?? enterprise?.bestDeepCompare?.overallConfidenceScore ?? 0,
-        certificateStatus: enriched.certificateStatus,
-        identityStatus,
+        forensicVerdict: 'NO_SIGNATURE',
+        reportState: 'NO_SIGNATURE',
+        decisionReason: noSignatureOutcome.decisionReason,
+        dnaMatchPercent: 0,
+        certificateStatus: 'UNKNOWN',
+        identityStatus: 'NOT_FOUND',
         tamperSeverity: 'UNKNOWN',
-        riskLevel: retrievalConfidence >= 75 ? 'MEDIUM' : retrievalConfidence >= 50 ? 'HIGH' : 'UNKNOWN',
+        riskLevel: 'UNKNOWN',
         trustScore,
         identityConfidence,
       },
       message: noMatchMessage,
       owner: {
-        ownerName: enriched.ownerName ?? leakVerify.identity?.ownerName,
-        ownerPinitId: ownerPinitId ?? null,
-        vaultId,
-        dnaRecordId,
-        certificateId: enriched.certificateId ?? enterprise?.certificateId ?? undefined,
-        originalFilename: enriched.originalFilename ?? leakVerify.identity?.originalFilename ?? undefined,
-        createdAt: enriched.createdAt ?? undefined,
+        ownerName: null,
+        ownerPinitId: null,
+        vaultId: undefined,
+        dnaRecordId: undefined,
+        certificateId: undefined,
+        originalFilename: undefined,
+        createdAt: undefined,
       },
       recipientAttribution: this.buildRecipientSection(leakVerify),
       layerAnalysis: [],
@@ -1119,16 +1004,9 @@ export class UnifiedInvestigationOrchestrator {
       accessIntelligence: leakVerify.accessHistory ?? [],
       leakIntelligence: { hasPublicLeak: false, entries: [], message: 'No public leak detected.' },
       identityProof: {
-        vaultId,
-        dnaRecordId,
-        certificateId: enriched.certificateId ?? enterprise?.certificateId ?? undefined,
-        ownerPinitId,
-        digitalSignatureValid: !!leakVerify.valid,
-        watermark: resolveWatermarkProof(leakVerify, {
-          vaultId,
-          ownerPinitId,
-        }),
-        identityVerification: leakVerify.valid ? 'PASSED' : vaultId ? 'CANDIDATE_REJECTED' : 'NOT_FOUND',
+        digitalSignatureValid: false,
+        identityVerification: 'NOT_FOUND',
+        watermark: resolveWatermarkProof(leakVerify, {}),
       },
       leakVerify: {
         found: leakVerify.found,
@@ -1136,7 +1014,7 @@ export class UnifiedInvestigationOrchestrator {
         accessHistory: leakVerify.accessHistory,
       },
       identityRecovery: recovery,
-      candidateRanking: enterprise?.candidates.length ? enterprise.candidates : undefined,
+      candidateRanking: undefined,
       currentFileHash,
     };
   }
@@ -1250,7 +1128,7 @@ export class UnifiedInvestigationOrchestrator {
       add('DNA Generated', input.leakVerify.identity.dnaCreatedAt, input.leakVerify.identity.originalFilename ?? undefined);
     }
 
-    if (input.vaultId) {
+    if (input.vaultId && input.vaultId !== 'none') {
       add('Stored in Vault', input.dnaMeta?.createdAt?.toISOString(), `Vault ${input.vaultId.slice(0, 8)}… · DNA ${input.dnaRecordId.slice(0, 8)}…`);
     }
 
@@ -1383,6 +1261,18 @@ export class UnifiedInvestigationOrchestrator {
   }
 
   private async buildLeakIntelligence(dnaRecordId: string, ownerUserId: string) {
+    const empty = {
+      hasPublicLeak: false,
+      entries: [] as Array<{ platform: string; url: string; firstSeen?: string; lastSeen?: string; status: string }>,
+      leakChain: [] as Array<{ platform: string; date?: string; status: string }>,
+      currentStatus: 'No public leak recorded',
+      message: 'No public leak detected.',
+    };
+
+    if (investigationPerformanceConfig.skipCrawlerOnInvestigation) {
+      return empty;
+    }
+
     const platformFromUrl = (url: string): string => {
       const u = url.toLowerCase();
       if (u.includes('t.me') || u.includes('telegram')) return 'Telegram';
@@ -1397,8 +1287,25 @@ export class UnifiedInvestigationOrchestrator {
     };
 
     try {
-      const monitors = await monitoringService.listMonitors(ownerUserId);
-      const related = monitors.filter((m) => m.dnaRecordId === dnaRecordId);
+      const monitors = await withTimeoutSoft(
+        () => prisma.monitorRecord.findMany({
+          where: { ownerUserId, dnaRecordId },
+          take: 5,
+          include: {
+            crawlResults: {
+              where: { matchType: { not: 'NONE' } },
+              orderBy: { createdAt: 'desc' },
+              take: 10,
+            },
+          },
+        }),
+        investigationPerformanceConfig.orchestratorEnrichmentTimeoutMs,
+        'investigation_crawler',
+      );
+      if (!monitors) {
+        return { ...empty, message: 'Crawler enrichment timed out.' };
+      }
+      const related = monitors;
       const entries = related.flatMap((m) =>
         (m.crawlResults ?? []).map((cr) => ({
           platform: platformFromUrl(cr.url),
@@ -1428,13 +1335,7 @@ export class UnifiedInvestigationOrchestrator {
           : 'No public leak detected. Crawler will populate when monitoring is active.',
       };
     } catch {
-      return {
-        hasPublicLeak: false,
-        entries: [],
-        leakChain: [],
-        currentStatus: 'Unknown',
-        message: 'No public leak detected.',
-      };
+      return empty;
     }
   }
 }

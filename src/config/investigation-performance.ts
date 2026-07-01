@@ -46,6 +46,14 @@ export const investigationPerformanceConfig = {
   /** Local patch search time budget (tampered / compressed probes) */
   localDnaTimeoutMs: intEnv('PINIT_INVESTIGATION_LOCAL_DNA_TIMEOUT_MS', 35_000),
   deepCompareTimeoutMs: intEnv('PINIT_INVESTIGATION_DEEP_COMPARE_TIMEOUT_MS', 45_000),
+  /** Post-retrieval report enrichment (timeline, crawler) — hard cap */
+  orchestratorEnrichmentTimeoutMs: intEnv('PINIT_INVESTIGATION_ENRICHMENT_TIMEOUT_MS', 6_000),
+  /** Skip crawler monitor scan during unified investigation (major latency win) */
+  skipCrawlerOnInvestigation: flag('PINIT_INVESTIGATION_SKIP_CRAWLER', true),
+  /** Never re-run 15-layer compare when enterprise pipeline already compared this vault */
+  skipOrchestratorRecompare: flag('PINIT_INVESTIGATION_SKIP_RECOMPARE', true),
+  orchestratorCompareTimeoutMs: intEnv('PINIT_INVESTIGATION_ORCHESTRATOR_COMPARE_MS', 20_000),
+  vaultRetrieveTimeoutMs: intEnv('PINIT_INVESTIGATION_VAULT_RETRIEVE_MS', 12_000),
   /** Fewer patch scales in investigation (32+64 vs 16+32+64+128) */
   investigationPatchScales: scalesFromEnv('PINIT_INVESTIGATION_PATCH_SCALES', [32, 64]),
   cacheTtlMs: intEnv('PINIT_INVESTIGATION_CACHE_TTL_MS', 900_000),

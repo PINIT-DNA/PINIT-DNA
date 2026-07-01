@@ -17,12 +17,13 @@ function phaseLabel(phase: InvestigationLiveSnapshot['phase']): string {
   if (phase === 1) return 'Identity located';
   if (phase === 2) return 'Patch DNA verified';
   if (phase === 3) return 'Deep forensic verification';
+  if (phase === 'final') return 'Final decision';
   return 'Investigation complete';
 }
 
 export function InvestigationLivePanel({ snapshot, previewUrl, fileName }: Props) {
   const phase = snapshot.phase;
-  const phaseNum = typeof phase === 'number' ? phase : 3;
+  const phaseNum = typeof phase === 'number' ? phase : phase === 'final' ? 4 : 3;
   const confidence = snapshot.dnaMatchPercent ?? snapshot.confidence;
 
   return (
@@ -45,7 +46,11 @@ export function InvestigationLivePanel({ snapshot, previewUrl, fileName }: Props
               )}
               <div>
                 <p className="text-sm font-bold text-white">
-                  {snapshot.signatureFound ? '✓ PINIT Signature Found' : 'Scanning for PINIT signature…'}
+                  {snapshot.signatureFound
+                    ? '✓ PINIT Signature Found'
+                    : phaseNum >= 4
+                      ? 'No PINIT Signature Found'
+                      : 'Scanning for PINIT signature…'}
                 </p>
                 <p className="text-2xs text-dna-400">{phaseLabel(phase)}</p>
               </div>

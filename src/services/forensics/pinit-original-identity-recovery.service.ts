@@ -20,6 +20,7 @@ import type { LocalDnaSearchHit } from './vault-local-dna-search.service';
 import { localDnaConfig } from '../../config/local-dna';
 import { deepVaultCompareService, type DeepCompareResult } from './deep-vault-compare.service';
 import { confidenceFusionEngine, FORENSIC_VERDICT_LABELS } from './confidence-fusion-engine.service';
+import { REPORT_STATE_LABELS } from './investigation-decision-resolver.service';
 import { vaultCandidateRankingService } from './vault-candidate-ranking.service';
 import { pinitIdentificationConfig } from '../../config/pinit-identification';
 import { investigationPerformanceConfig, clampCandidatePool } from '../../config/investigation-performance';
@@ -57,23 +58,6 @@ function localHitToMatch(hit: LocalDnaSearchHit, score: number): VaultMatchResul
     confidence: String(score),
     visualSimilarity: (hit.orbRefineScore || score) / 100,
   };
-}
-
-function resolveBestCandidate(
-  match: VaultMatchResult | null,
-  localDnaHit: LocalDnaSearchHit | null,
-  localDnaScore: number,
-  bestDeep: DeepCompareResult | null,
-  candidates: import('../../types/unified-investigation.types').RankedVaultCandidate[],
-  ownerUserId: string,
-): VaultMatchResult | null {
-  if (match) return match;
-  if (localDnaHit && localDnaScore >= 30) return localHitToMatch(localDnaHit, localDnaScore);
-  if (bestDeep && bestDeep.overallConfidenceScore >= 30) return deepCompareToMatch(bestDeep, ownerUserId);
-  if (candidates[0] && candidates[0].compositeScore >= 30) {
-    return vaultCandidateRankingService.toVaultMatch(candidates[0]);
-  }
-  return null;
 }
 
 function logCandidateStage(
@@ -235,7 +219,10 @@ export class PinitOriginalIdentityRecoveryService {
     return {
       match,
       probableMatch: null,
+      verifiedCandidate: match,
       bestCandidate: match,
+      reportState: 'VERIFIED' as const,
+      reportStateReason: 'SHA-256 exact hash match',
       candidates,
       fusion,
       stages,
@@ -958,19 +945,16 @@ export class PinitOriginalIdentityRecoveryService {
       match = deepCompareToMatch(bestDeep, ownerUserId);
     }
 
-    // Always preserve winning candidate for report hydration even if thresholds above missed
-    const bestCandidate = resolveBestCandidate(match, localDnaHit, localDnaScore, bestDeep, candidates, ownerUserId);
-    if (!match && bestCandidate) {
-      match = bestCandidate;
-      logCandidateStage('match_fallback', bestCandidate, undefined, { reason: 'bestCandidate promoted for fusion' });
+    // Always preserve retrieval-selected candidate for audit (do not substitute a different vault)
+    const verifiedCandidate = match;
+    if (match) {
+      logCandidateStage('pre_fusion', match, undefined, {
+        dna15: dna15Score,
+        localDnaScore,
+        vectorComposite: topVector?.scores.composite,
+        bestDeepScore: bestDeep?.overallConfidenceScore,
+      });
     }
-
-    logCandidateStage('pre_fusion', match, undefined, {
-      dna15: dna15Score,
-      localDnaScore,
-      vectorComposite: topVector?.scores.composite,
-      bestDeepScore: bestDeep?.overallConfidenceScore,
-    });
 
     // Prefer vector winner when deep compare is weak but vector is strong (regression fix)
     if (topVector && match) {
@@ -1054,7 +1038,6 @@ export class PinitOriginalIdentityRecoveryService {
       && patchVotes < 30;
 
     const retrievalConf = fusion.retrievalConfidence;
-    const forensicVerdict = fusion.forensicVerdict;
 
     const retrievalIdentified =
       !!match
@@ -1068,17 +1051,65 @@ export class PinitOriginalIdentityRecoveryService {
 
     const identified = retrievalIdentified && !(ambiguous && retrievalConf < 90);
 
+    const reportState: 'VERIFIED' | 'POSSIBLE' | 'NO_SIGNATURE' = !verifiedCandidate
+      ? 'NO_SIGNATURE'
+      : identified || retrievalConf >= 75
+        ? 'VERIFIED'
+        : 'POSSIBLE';
+
+    const reportStateReason = !verifiedCandidate
+      ? `No retrieval anchor — retrieval ${retrievalConf}%`
+      : reportState === 'VERIFIED'
+        ? `Verified — retrieval ${retrievalConf}%, margin ${margin}, dna15 ${dna15Score}%`
+        : `Possible match — retrieval ${retrievalConf}%, identity signals degraded`;
+
     stages.push({
       stage: STAGE.DECISION,
-      status: identified ? 'complete' : retrievalConf >= 50 ? 'partial' : 'failed',
-      detail: identified
-        ? `${FORENSIC_VERDICT_LABELS[forensicVerdict]} — retrieval ${retrievalConf}%`
-        : retrievalConf >= 50
-          ? `${FORENSIC_VERDICT_LABELS[forensicVerdict]} — identity partially recovered (retrieval ${retrievalConf}%)`
-          : `${FORENSIC_VERDICT_LABELS.NO_SIGNATURE} — retrieval ${retrievalConf}%`,
+      status: reportState === 'VERIFIED' ? 'complete' : reportState === 'POSSIBLE' ? 'partial' : 'failed',
+      detail: reportState === 'NO_SIGNATURE'
+        ? `${FORENSIC_VERDICT_LABELS.NO_SIGNATURE} — retrieval ${retrievalConf}%`
+        : reportState === 'VERIFIED'
+          ? `Verified Original PINIT Asset — retrieval ${retrievalConf}%`
+          : `Possible PINIT Asset — vault ${verifiedCandidate!.vaultId.slice(0, 8)}… · retrieval ${retrievalConf}%`,
     });
 
-    logCandidateStage('decision', match, fusion, { identified, probable: !identified && !!match });
+    logCandidateStage('decision', verifiedCandidate, fusion, {
+      identified,
+      reportState,
+      reportStateReason,
+      probable: reportState === 'POSSIBLE',
+    });
+
+    if (verifiedCandidate && reportState !== 'NO_SIGNATURE') {
+      const ownerSnap = await loadVaultOwnerSnapshot(
+        verifiedCandidate.vaultId,
+        verifiedCandidate.dnaRecordId,
+      );
+      emitPhase({
+        phase: 'final',
+        signatureFound: true,
+        vaultId: verifiedCandidate.vaultId,
+        dnaRecordId: verifiedCandidate.dnaRecordId,
+        confidence: retrievalConf,
+        similarityScore: topVector?.scores.perceptualBlend,
+        statusMessage: reportState === 'VERIFIED'
+          ? REPORT_STATE_LABELS.VERIFIED
+          : REPORT_STATE_LABELS.POSSIBLE,
+        ...ownerSnap,
+      });
+    } else {
+      emitPhase({
+        phase: 'final',
+        signatureFound: false,
+        vaultId: undefined,
+        dnaRecordId: undefined,
+        ownerName: undefined,
+        ownerPinitId: undefined,
+        originalFilename: undefined,
+        confidence: retrievalConf,
+        statusMessage: REPORT_STATE_LABELS.NO_SIGNATURE,
+      });
+    }
 
     const tamperingSummary = bestDeep
       ? bestDeep.tamperingDetected
@@ -1101,9 +1132,12 @@ export class PinitOriginalIdentityRecoveryService {
     if (twoStage) timer.logSummary('PinitOIR-Investigation');
 
     return {
-      match: identified ? match : null,
-      probableMatch: !identified && match ? match : null,
-      bestCandidate: bestCandidate ?? match,
+      match: identified ? verifiedCandidate : null,
+      probableMatch: !identified && verifiedCandidate ? verifiedCandidate : null,
+      verifiedCandidate,
+      bestCandidate: verifiedCandidate,
+      reportState,
+      reportStateReason,
       candidates,
       fusion,
       stages,

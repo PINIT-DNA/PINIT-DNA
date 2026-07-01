@@ -27,8 +27,8 @@ export function resolveWatermarkProof(
       status: 'DETECTED',
       code: code ?? 'PHASE3-TOKEN',
       extractionMethod: phase3?.method ?? leakVerify.watermark?.extractionMethod,
-      vaultId: context.vaultId ?? leakVerify.identity?.vaultId,
-      ownerPinitId: context.ownerPinitId ?? leakVerify.identity?.ownerShortId,
+      vaultId: context.vaultId,
+      ownerPinitId: context.ownerPinitId,
       confidence: leakVerify.confidence ?? 99,
     };
   }
@@ -38,8 +38,8 @@ export function resolveWatermarkProof(
       status: 'DETECTED',
       code: leakVerify.identity?.vaultId?.slice(0, 12) ?? 'EMBEDDED-IDENTITY',
       extractionMethod: leakVerify.detectionMethod ?? 'EMBEDDED_IDENTITY',
-      vaultId: context.vaultId ?? leakVerify.identity?.vaultId,
-      ownerPinitId: context.ownerPinitId ?? leakVerify.identity?.ownerShortId,
+      vaultId: context.vaultId,
+      ownerPinitId: context.ownerPinitId,
       confidence: leakVerify.confidence ?? 95,
       reason: 'Forensic identity signature/manifest recovered — unique vault linkage (QR-equivalent)',
     };

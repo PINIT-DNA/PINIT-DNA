@@ -41,6 +41,8 @@ interface InvestigationReport {
     retrievalConfidence?: number;
     ownershipVerificationConfidence?: number;
     forensicVerdict?: 'ORIGINAL_VERIFIED' | 'ORIGINAL_FOUND_PARTIAL' | 'POSSIBLE_ASSET' | 'NO_SIGNATURE';
+    reportState?: 'VERIFIED' | 'POSSIBLE' | 'NO_SIGNATURE';
+    decisionReason?: string;
     forensicReasons?: string[];
   };
   owner: Record<string, string | null | undefined>;
@@ -150,6 +152,18 @@ function watermarkDisplayLabel(status: string): string {
   if (status === 'NOT_EMBEDDED') return 'NOT EMBEDDED';
   return status;
 }
+
+const REPORT_STATE_LABELS: Record<string, string> = {
+  VERIFIED: 'Verified Original PINIT Asset',
+  POSSIBLE: 'Possible PINIT Asset',
+  NO_SIGNATURE: 'No PINIT Signature Found',
+};
+
+const REPORT_STATE_STYLE: Record<string, string> = {
+  VERIFIED: 'text-green-400 bg-green-500/10 border-green-500/30',
+  POSSIBLE: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30',
+  NO_SIGNATURE: 'text-red-400 bg-red-500/10 border-red-500/30',
+};
 
 const FORENSIC_VERDICT_LABELS: Record<string, string> = {
   ORIGINAL_VERIFIED: 'Original PINIT Asset Verified',
@@ -464,16 +478,23 @@ export function UnifiedInvestigationPage() {
         </div>
       )}
 
-      {report && (
+      {report && (() => {
+        const reportState = report.summary.reportState;
+        const hasVaultMatch = reportState !== 'NO_SIGNATURE' && !!(report.owner.vaultId || report.identityProof.vaultId);
+        return (
         <>
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
-              {report.summary.forensicVerdict && (
+              {(report.summary.reportState || report.summary.forensicVerdict) && (
                 <span className={cn(
                   'text-xs font-bold px-3 py-1 rounded-full border',
-                  FORENSIC_VERDICT_STYLE[report.summary.forensicVerdict] ?? RISK_COLORS.UNKNOWN,
+                  REPORT_STATE_STYLE[report.summary.reportState ?? ''] 
+                    ?? FORENSIC_VERDICT_STYLE[report.summary.forensicVerdict ?? ''] 
+                    ?? RISK_COLORS.UNKNOWN,
                 )}>
-                  {FORENSIC_VERDICT_LABELS[report.summary.forensicVerdict] ?? report.summary.forensicVerdict}
+                  {report.summary.reportState
+                    ? REPORT_STATE_LABELS[report.summary.reportState]
+                    : FORENSIC_VERDICT_LABELS[report.summary.forensicVerdict!] ?? report.summary.forensicVerdict}
                 </span>
               )}
               <span className={cn('text-xs font-bold px-3 py-1 rounded-full border', RISK_COLORS[report.summary.riskLevel] ?? RISK_COLORS.UNKNOWN)}>
@@ -502,8 +523,18 @@ export function UnifiedInvestigationPage() {
           </div>
 
           {report.message && (
-            <div className="card border border-yellow-500/30 bg-yellow-500/5 p-3 text-xs text-yellow-400">
+            <div className={cn(
+              'card border p-3 text-xs',
+              reportState === 'NO_SIGNATURE'
+                ? 'border-red-500/30 bg-red-500/5 text-red-400'
+                : reportState === 'POSSIBLE'
+                  ? 'border-yellow-500/30 bg-yellow-500/5 text-yellow-400'
+                  : 'border-green-500/30 bg-green-500/5 text-green-400',
+            )}>
               {report.message}
+              {report.summary.decisionReason && report.summary.decisionReason !== report.message && (
+                <p className="mt-1 opacity-80">{report.summary.decisionReason}</p>
+              )}
             </div>
           )}
 
@@ -549,7 +580,7 @@ export function UnifiedInvestigationPage() {
             </Section>
           )}
 
-          {report.identityRecoveryReport && (
+          {hasVaultMatch && report.identityRecoveryReport && (
             <Section title="1c. Identity Recovery Report" icon={Lock}>
               <p className={cn('text-xs mb-3', report.identityRecoveryReport.recovered ? 'text-green-400' : 'text-yellow-400')}>
                 {report.identityRecoveryReport.message}
@@ -578,7 +609,7 @@ export function UnifiedInvestigationPage() {
             </Section>
           )}
 
-          {report.candidateRanking && report.candidateRanking.length > 0 && (
+          {hasVaultMatch && report.candidateRanking && report.candidateRanking.length > 0 && (
             <Section title="1d. Vault Candidate Ranking" icon={Dna} defaultOpen={false}>
               <p className="text-xs text-gray-500 mb-3">Top {report.candidateRanking.length} vault candidates scored — best match selected for deep comparison</p>
               <div className="space-y-1">
@@ -597,6 +628,7 @@ export function UnifiedInvestigationPage() {
             </Section>
           )}
 
+          {hasVaultMatch ? (
           <Section title="2. Original Owner" icon={User}>
             {report.matchMethod && (
               <p className="text-xs text-dna-400 mb-3">
@@ -621,6 +653,14 @@ export function UnifiedInvestigationPage() {
               ))}
             </dl>
           </Section>
+          ) : reportState === 'NO_SIGNATURE' ? (
+            <Section title="2. Vault Match" icon={User}>
+              <p className="text-sm text-red-400">No PINIT signature found — no vault owner details to display.</p>
+              {report.summary.decisionReason && (
+                <p className="text-xs text-gray-500 mt-2">{report.summary.decisionReason}</p>
+              )}
+            </Section>
+          ) : null}
 
           <Section title="3. Recipient Attribution" icon={Eye}>
             {report.recipientAttribution.fromShare ? (
@@ -771,11 +811,12 @@ export function UnifiedInvestigationPage() {
           </Section>
 
           <Section title="9. Identity Proof" icon={Fingerprint} defaultOpen={false}>
+            {hasVaultMatch && (
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs mb-4">
               {[
                 ['Vault ID', report.identityProof.vaultId],
                 ['DNA Record ID', report.identityProof.dnaRecordId],
-                ['Certificate ID', report.identityProof.certificateId ?? report.owner.certificateId ?? report.identityRecoveryReport?.certificateId],
+                ['Certificate ID', report.identityProof.certificateId ?? report.owner.certificateId],
                 ['Owner PINIT ID', report.identityProof.ownerPinitId],
                 ['Digital Signature', report.identityProof.digitalSignatureValid ? 'VALID' : 'INVALID'],
                 ['Identity Verification', report.identityProof.identityVerification],
@@ -786,12 +827,13 @@ export function UnifiedInvestigationPage() {
                 </div>
               ))}
             </dl>
+            )}
             <div className={cn('rounded-xl border p-4', WATERMARK_STATUS_STYLE[report.identityProof.watermark?.status ?? 'NOT_EMBEDDED'])}>
               <p className="text-xs font-bold uppercase tracking-wide mb-2">Watermark Status</p>
               <p className="text-sm font-bold">
                 {watermarkDisplayLabel(report.identityProof.watermark?.status ?? 'NOT_EMBEDDED')}
               </p>
-              {report.identityProof.watermark?.status === 'DETECTED' ? (
+              {report.identityProof.watermark?.status === 'DETECTED' && hasVaultMatch ? (
                 <dl className="mt-3 space-y-1.5 text-xs">
                   {report.identityProof.watermark.vaultId && (
                     <div className="flex justify-between"><dt className="opacity-80">Vault ID</dt><dd className="mono">{report.identityProof.watermark.vaultId}</dd></div>
@@ -868,7 +910,8 @@ export function UnifiedInvestigationPage() {
             </p>
           </Section>
         </>
-      )}
+        );
+      })()}
     </div>
   );
 }

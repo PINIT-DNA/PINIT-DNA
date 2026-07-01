@@ -99,6 +99,9 @@ export interface InvestigationSummary {
   ownershipVerificationConfidence?: number;
   /** Final forensic state derived from retrieval confidence */
   forensicVerdict?: ForensicVerdict;
+  /** Three-state report outcome */
+  reportState?: 'VERIFIED' | 'POSSIBLE' | 'NO_SIGNATURE';
+  decisionReason?: string;
   /** Human-readable reasons when identity signals are degraded */
   forensicReasons?: string[];
 }
