@@ -5,6 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "node ../scripts/check-backend-port.cjs",
     "dev": "vite",
     "dev:hint": "echo Start backend first from project root: npm run dev",
     "dev:ngrok": "vite --mode ngrok",

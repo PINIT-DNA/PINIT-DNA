@@ -132,7 +132,7 @@ export class LeakedFileVerifyService {
     buffer: Buffer,
     mimeType: string,
     fileName: string,
-    options?: { ownerUserId?: string },
+    options?: { ownerUserId?: string; lightweight?: boolean },
   ): Promise<LeakedFileVerifyResult> {
     const effectiveMime = this._resolveMimeType(mimeType, fileName);
 
@@ -209,7 +209,7 @@ export class LeakedFileVerifyService {
     }
 
     // ── 3. Share-viewer screenshot (images) — OCR + DB before heavy hash scans ─
-    if (effectiveMime.startsWith('image/')) {
+    if (effectiveMime.startsWith('image/') && !options?.lightweight) {
       try {
         const screenshot = await this._traceScreenshotLeak(buffer, effectiveMime, fileName);
         if (screenshot) return screenshot;
@@ -256,7 +256,7 @@ export class LeakedFileVerifyService {
     }
 
     // ── 6. pHash visual match (screenshot / recording / re-encoded tampered copy) ─
-    if (effectiveMime.startsWith('image/')) {
+    if (effectiveMime.startsWith('image/') && !options?.lightweight) {
       try {
         const near = await this._checkPHashMatch(buffer);
         if (near) return near;
@@ -266,7 +266,7 @@ export class LeakedFileVerifyService {
     }
 
     // ── 7. Enterprise identification engine (exhaustive vault recovery) ─────
-    if (options?.ownerUserId) {
+    if (options?.ownerUserId && !options?.lightweight) {
       try {
         const { pinitIdentificationEngine } = await import('./pinit-identification-engine.service');
         const id = await pinitIdentificationEngine.identify(

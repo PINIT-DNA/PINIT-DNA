@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { formatApiError } from '../services/dashboard.api';
 
 export interface ApiState<T> {
   data: T | null;
@@ -29,7 +30,7 @@ export function useApi<T>(
       if (!abortRef.current) setData(result);
     } catch (err) {
       if (!abortRef.current) {
-        setError(err instanceof Error ? err.message : 'Request failed');
+        setError(formatApiError(err));
       }
     } finally {
       if (!abortRef.current) setLoading(false);

@@ -71,7 +71,7 @@ model LocalFeatureIndex {
   globalPHash     String?
   orbKeypoints    Int             @default(0)
   orbDescriptors  Json?
-  indexVersion    String          @default("1.0.0")
+  indexVersion    String          @default("2.0.0")
   status          String          @default("COMPLETE")
   dnaRecord       DnaRecord       @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
   ownerUser       User            @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
@@ -87,14 +87,19 @@ model LocalDnaPatch {
   patchIndex      Int
   gridX           Int
   gridY           Int
+  scale           Int               @default(32)
   pHash16         String
+  dHash8          String?
+  aHash8          String?
   edgeSignature   String?
   colorVector     Json?
   frequencySig    String?
+  textureSig      String?
   index           LocalFeatureIndex @relation(fields: [indexId], references: [id], onDelete: Cascade)
 
   @@unique([indexId, patchIndex])
   @@index([indexId])
+  @@index([indexId, scale])
   @@index([pHash16])
   @@map("local_dna_patches")
 }

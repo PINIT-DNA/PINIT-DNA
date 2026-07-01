@@ -4,9 +4,10 @@ import {
   ChevronDown, ChevronUp, Fingerprint, Dna, User, Clock, Activity,
   FileDown, Globe, Lock, Eye, Download, Microscope,
 } from 'lucide-react';
-import { unifiedInvestigate } from '../services/dashboard.api';
+import { unifiedInvestigateStream, type InvestigationProgressEvent, type InvestigationLiveSnapshot } from '../services/dashboard.api';
 import { cn } from '../components/ui/utils';
 import { DocumentScanner } from '../components/DocumentScanner';
+import { InvestigationLivePanel } from '../components/InvestigationLivePanel';
 import {
   downloadInvestigationReportPdf,
   downloadDnaReportPdf,
@@ -199,19 +200,21 @@ function Section({
   );
 }
 
-const INVESTIGATION_STEPS = [
-  'Uploading capture…',
-  'Extracting identity markers…',
-  'Matching vault candidates…',
-  'Running 15-layer DNA compare…',
-  'Building forensic report…',
-];
+const LIVE_TIMELINE = [
+  { id: 'preprocessing', label: 'Preprocessing' },
+  { id: 'identity_recovery', label: 'Identity Recovery' },
+  { id: 'vault_search', label: 'Vault Search' },
+  { id: 'orb_verification', label: 'ORB Verification' },
+  { id: 'deep_dna_compare', label: 'Deep DNA Compare' },
+  { id: 'final_report', label: 'Final Report' },
+] as const;
 
 export function UnifiedInvestigationPage() {
   const [file, setFile] = useState<File | null>(null);
   const [mode, setMode] = useState<'upload' | 'scan'>('upload');
   const [loading, setLoading] = useState(false);
-  const [loadingStep, setLoadingStep] = useState(0);
+  const [liveTimeline, setLiveTimeline] = useState<Record<string, InvestigationProgressEvent['status']>>({});
+  const [liveSnapshot, setLiveSnapshot] = useState<InvestigationLiveSnapshot | null>(null);
   const [exporting, setExporting] = useState(false);
   const [report, setReport] = useState<InvestigationReport | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -220,23 +223,24 @@ export function UnifiedInvestigationPage() {
   const previewUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
-  useEffect(() => {
-    if (!loading) {
-      setLoadingStep(0);
-      return;
-    }
-    const id = window.setInterval(() => {
-      setLoadingStep((s) => (s < INVESTIGATION_STEPS.length - 1 ? s + 1 : s));
-    }, 4500);
-    return () => window.clearInterval(id);
-  }, [loading]);
-
   const runInvestigation = useCallback(async (f: File) => {
     setLoading(true);
     setError(null);
     setReport(null);
+    setLiveSnapshot(null);
+    const initial: Record<string, InvestigationProgressEvent['status']> = {};
+    for (const s of LIVE_TIMELINE) initial[s.id] = 'pending';
+    setLiveTimeline(initial);
+
     try {
-      const { report: r } = await unifiedInvestigate(f);
+      const { report: r } = await unifiedInvestigateStream(f, (event) => {
+        if (event.type === 'phase' && event.snapshot) {
+          setLiveSnapshot(event.snapshot);
+        }
+        if (event.stepId) {
+          setLiveTimeline((prev) => ({ ...prev, [event.stepId]: event.status }));
+        }
+      });
       setReport(r as unknown as InvestigationReport);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Investigation failed';
@@ -270,6 +274,15 @@ export function UnifiedInvestigationPage() {
     setFile(null);
     setReport(null);
     setError(null);
+    setLiveSnapshot(null);
+    setLiveTimeline({});
+  };
+
+  const timelineIcon = (status: InvestigationProgressEvent['status'] | undefined) => {
+    if (status === 'complete') return '✔';
+    if (status === 'running') return '⏳';
+    if (status === 'warning' || status === 'failed') return '⚠';
+    return '○';
   };
 
   const completedSteps = report?.pipeline.filter((s) => s.status === 'complete').length ?? 0;
@@ -288,6 +301,24 @@ export function UnifiedInvestigationPage() {
           </p>
         </div>
       </div>
+
+      {!report && loading && liveSnapshot && (
+        <InvestigationLivePanel
+          snapshot={liveSnapshot}
+          previewUrl={previewUrl}
+          fileName={file?.name}
+        />
+      )}
+
+      {!report && loading && !liveSnapshot && (
+        <div className="card border border-dna-500/20 p-4 flex items-center gap-3">
+          <RefreshCw size={20} className="text-dna-400 animate-spin shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-white">Analyzing upload…</p>
+            <p className="text-xs text-gray-500">PINIT signature scan — usually under 2 seconds</p>
+          </div>
+        </div>
+      )}
 
       {!report && (
         <div className="flex gap-2">
@@ -335,10 +366,21 @@ export function UnifiedInvestigationPage() {
             onChange={(e) => { if (e.target.files?.[0]) handleFileSelect(e.target.files[0]); }}
           />
           {loading ? (
-            <div>
-              <RefreshCw size={32} className="text-dna-400 mx-auto mb-3 animate-spin" />
-              <p className="text-sm font-semibold text-white">Running enterprise investigation pipeline…</p>
-              <p className="text-2xs text-gray-500 mt-1">{file?.name}</p>
+            <div className="py-6">
+              <p className="text-xs text-gray-500 mb-3">Pipeline progress</p>
+              <div className="space-y-1.5 text-left max-w-sm mx-auto">
+                {LIVE_TIMELINE.map((step) => {
+                  const st = liveTimeline[step.id] ?? 'pending';
+                  return (
+                    <div key={step.id} className="flex items-center gap-2 text-xs text-gray-400">
+                      <span className="w-5 text-center">{timelineIcon(st)}</span>
+                      <span className={cn(st === 'running' && 'text-dna-400', st === 'complete' && 'text-green-400')}>
+                        {step.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           ) : file ? (
             <div>
@@ -359,33 +401,27 @@ export function UnifiedInvestigationPage() {
       {!report && mode === 'scan' && (
         <div className="space-y-3">
           {loading ? (
-            <div className="card text-center py-8 space-y-4">
-              {previewUrl && (
+            <div className="card text-center py-6 space-y-4">
+              {previewUrl && !liveSnapshot && (
                 <img
                   src={previewUrl}
                   alt="Captured"
                   className="mx-auto max-h-36 rounded-lg border border-bg-border object-contain bg-black/40"
                 />
               )}
-              <RefreshCw size={28} className="text-dna-400 mx-auto animate-spin" />
-              <div>
-                <p className="text-sm font-semibold text-white">Running investigation…</p>
-                <p className="text-xs text-dna-400 mt-1">{INVESTIGATION_STEPS[loadingStep]}</p>
-                <p className="text-2xs text-gray-500 mt-2">
-                  First request may take 30–90s while the server wakes up. Please keep this tab open.
-                </p>
-                {file?.name && <p className="text-2xs text-gray-600 mt-1 mono truncate px-4">{file.name}</p>}
-              </div>
-              <div className="flex justify-center gap-1.5 pt-1">
-                {INVESTIGATION_STEPS.map((_, i) => (
-                  <span
-                    key={i}
-                    className={cn(
-                      'w-2 h-2 rounded-full transition-colors',
-                      i <= loadingStep ? 'bg-dna-400' : 'bg-bg-border',
-                    )}
-                  />
-                ))}
+              <p className="text-xs text-gray-500">Pipeline progress</p>
+              <div className="space-y-1.5 text-left max-w-xs mx-auto">
+                {LIVE_TIMELINE.map((step) => {
+                  const st = liveTimeline[step.id] ?? 'pending';
+                  return (
+                    <div key={step.id} className="flex items-center gap-2 text-xs text-gray-400">
+                      <span className="w-5 text-center">{timelineIcon(st)}</span>
+                      <span className={cn(st === 'running' && 'text-dna-400', st === 'complete' && 'text-green-400')}>
+                        {step.label}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ) : (

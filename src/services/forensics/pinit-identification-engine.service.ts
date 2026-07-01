@@ -39,6 +39,7 @@ export interface PinitIdentificationResult {
   ownerShortId: string | null;
   tamperingSummary: string | null;
   bestDeepCompare: DeepCompareResult | null;
+  stageTimings?: Array<{ stage: string; durationMs: number; detail?: string }>;
 }
 
 export class PinitIdentificationEngine {

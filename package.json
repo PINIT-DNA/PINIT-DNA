@@ -6,6 +6,7 @@
   "scripts": {
     "predev": "node scripts/free-dev-ports.cjs",
     "dev": "ts-node-dev --respawn --transpile-only --exit-child --ignore-watch node_modules src/server.ts",
+    "dev:all": "node scripts/dev-stack.cjs",
     "dev:backend": "npm run dev",
     "dev:client": "cd client && npm run dev",
     "dev:ai:setup": "cd python-ai && setup-venv.bat",

@@ -49,10 +49,13 @@ export function NotificationBell() {
 
   const fetchNotifs = useCallback(() => {
     api.get(`${API_BASE_URL}/notifications?limit=20`).then(r => {
-      const data = r.data as any;
+      const data = r.data as { notifications?: Notification[]; unreadCount?: number };
       setNotifications(data.notifications ?? []);
       setUnreadCount(data.unreadCount ?? 0);
-    }).catch(() => {});
+    }).catch((err: unknown) => {
+      const code = (err as { response?: { data?: { code?: string } } })?.response?.data?.code;
+      if (code === 'BACKEND_OFFLINE') return;
+    });
   }, []);
 
   // Poll every 30 seconds

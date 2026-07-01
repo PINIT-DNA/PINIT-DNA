@@ -10,6 +10,7 @@ import { StructuralLayer } from '../layers/layer2.structural';
 import { aiService } from '../ai/ai-embeddings.service';
 import { SemanticLayer } from '../layers/layer4.semantic';
 import { localFeatureMatchService } from './local-feature-match.service';
+import { forensicComputationCache } from './forensic-computation-cache.service';
 import type { RankedVaultCandidate } from '../../types/unified-investigation.types';
 import type { ForensicImageVariant } from './forensic-image-preprocessor.service';
 
@@ -71,9 +72,22 @@ export class VaultSimilarityVectorService {
     probeSize: number,
     ownerUserId: string,
     variants: ForensicImageVariant[],
-    options?: { orbTopK?: number; relaxedVisual?: boolean },
+    options?: {
+      orbTopK?: number;
+      relaxedVisual?: boolean;
+      /** Stage-1 fast filter — skip expensive ORB/AKAZE */
+      skipOrb?: boolean;
+      /** Only score these vault IDs (stage-2 deep filter) */
+      candidateVaultIds?: string[];
+      /** Cap returned vectors after sort */
+      limit?: number;
+    },
   ): Promise<VaultSimilarityVector[]> {
     const orbTopK = options?.orbTopK ?? 15;
+    const skipOrb = options?.skipOrb ?? false;
+    const candidateSet = options?.candidateVaultIds?.length
+      ? new Set(options.candidateVaultIds)
+      : null;
     const relaxed = options?.relaxedVisual ?? true;
     const phashFloor = relaxed ? 0.38 : 0.52;
 
@@ -88,36 +102,58 @@ export class VaultSimilarityVectorService {
 
     if (bestVariant.mimeType.startsWith('image/')) {
       try {
-        probeP = await this.perceptual.computeFingerprints(bestVariant.buffer);
-        const sg = await this.structural.generate({
-          filePath: '',
-          buffer: bestVariant.buffer,
-          originalName: probeName,
-          mimeType: bestVariant.mimeType,
-          sizeBytes: probeSize,
-        });
-        if (sg.success) probeS = sg.data;
+        probeP = await forensicComputationCache.getOrCompute(
+          bestVariant.buffer,
+          'perceptual',
+          () => this.perceptual.computeFingerprints(bestVariant.buffer),
+        );
+        probeS = await forensicComputationCache.getOrCompute(
+          bestVariant.buffer,
+          'structural',
+          async () => {
+            const sg = await this.structural.generate({
+              filePath: '',
+              buffer: bestVariant.buffer,
+              originalName: probeName,
+              mimeType: bestVariant.mimeType,
+              sizeBytes: probeSize,
+            });
+            return sg.success ? sg.data : null;
+          },
+        );
 
-        try {
-          const sem = await this.semantic.generate({
-            filePath: '',
-            buffer: bestVariant.buffer,
-            originalName: probeName,
-            mimeType: bestVariant.mimeType,
-            sizeBytes: probeSize,
-          });
-          if (sem.success && sem.data?.colorFingerprint) {
-            probeColorFp = sem.data.colorFingerprint as string;
-          }
-        } catch { /* optional */ }
-
+        probeColorFp = await forensicComputationCache.getOrCompute(
+          bestVariant.buffer,
+          'semantic-color',
+          async () => {
+            try {
+              const sem = await this.semantic.generate({
+                filePath: '',
+                buffer: bestVariant.buffer,
+                originalName: probeName,
+                mimeType: bestVariant.mimeType,
+                sizeBytes: probeSize,
+              });
+              return sem.success && sem.data?.colorFingerprint
+                ? (sem.data.colorFingerprint as string)
+                : null;
+            } catch {
+              return null;
+            }
+          },
+        );
       } catch (e) {
         logger.debug('[VaultVector] Probe fingerprint partial', { error: String(e) });
       }
     }
 
     const vaultRows = await prisma.dnaRecord.findMany({
-      where: { ownerUserId, vaultRecord: { isNot: null } },
+      where: {
+        ownerUserId,
+        vaultRecord: candidateSet
+          ? { id: { in: [...candidateSet] } }
+          : { isNot: null },
+      },
       include: {
         vaultRecord: { select: { id: true, originalFileName: true, originalSizeBytes: true } },
         cryptoLayer: { select: { sha256Hash: true } },
@@ -213,16 +249,31 @@ export class VaultSimilarityVectorService {
 
     vectors.sort((a, b) => b.scores.composite - a.scores.composite);
 
-    // ORB/AKAZE refinement on top-K only (expensive)
-    if (probeBuffer && bestVariant.mimeType.startsWith('image/')) {
+    // ORB/AKAZE refinement on top-K only (expensive) — skipped in stage-1 fast filter
+    if (!skipOrb && probeBuffer && bestVariant.mimeType.startsWith('image/')) {
       const probeBuf = bestVariant.buffer;
-      for (const vec of vectors.slice(0, orbTopK)) {
+      const orbTargets = candidateSet
+        ? vectors.filter((v) => candidateSet.has(v.vaultId)).slice(0, orbTopK)
+        : vectors.slice(0, orbTopK);
+      await Promise.allSettled(orbTargets.map(async (vec) => {
         try {
+          const cachedOrb = forensicComputationCache.get<number>(probeBuf, 'orb-compare', vec.vaultId);
+          if (cachedOrb !== null) {
+            vec.scores.orb = cachedOrb;
+            if (cachedOrb >= 35) {
+              vec.signals.push('local_features', 'cached_orb');
+              vec.scores.composite = Math.round(
+                vec.scores.composite * (1 - VECTOR_WEIGHTS.orb) + cachedOrb * VECTOR_WEIGHTS.orb,
+              );
+            }
+            return;
+          }
           const { VaultService } = await import('../vault/vault.service');
           const vaultSvc = new VaultService();
           const retrieved = await vaultSvc.retrieve(vec.vaultId, ownerUserId);
           const local = await localFeatureMatchService.compare(probeBuf, retrieved.originalBuffer);
           vec.scores.orb = Math.round(local.similarity * 100);
+          forensicComputationCache.set(probeBuf, 'orb-compare', vec.scores.orb, vec.vaultId);
           if (local.similarity >= 0.35) {
             vec.signals.push('local_features', local.method);
             vec.scores.composite = Math.round(
@@ -231,18 +282,22 @@ export class VaultSimilarityVectorService {
             );
           }
         } catch { /* skip */ }
-      }
+      }));
       vectors.sort((a, b) => b.scores.composite - a.scores.composite);
     }
+
+    const limited = options?.limit ? vectors.slice(0, options.limit) : vectors;
 
     logger.info('[VaultVector] Entire vault scored', {
       ownerUserId: ownerUserId.slice(0, 8),
       vaultRecords: vaultRows.length,
-      vectorsReturned: vectors.length,
-      topComposite: vectors[0]?.scores.composite ?? 0,
+      vectorsReturned: limited.length,
+      topComposite: limited[0]?.scores.composite ?? 0,
+      skipOrb,
+      scoped: !!candidateSet,
     });
 
-    return vectors;
+    return limited;
   }
 
   toRankedCandidates(vectors: VaultSimilarityVector[]): RankedVaultCandidate[] {

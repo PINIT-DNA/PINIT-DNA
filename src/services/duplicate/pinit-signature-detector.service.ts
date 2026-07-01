@@ -207,7 +207,7 @@ export class PinitSignatureDetectorService {
       const w = meta.width ?? 0;
       const h = meta.height ?? 0;
 
-      out.push({ label: 'full', buffer: await base.clone().png().toBuffer() });
+      out.push({ label: 'full', buffer: await base.clone().withMetadata({ density: 72 }).png().toBuffer() });
 
       out.push({
         label: 'contrast',
@@ -217,6 +217,7 @@ export class PinitSignatureDetectorService {
           .sharpen()
           .greyscale()
           .linear(1.8, -40)
+          .withMetadata({ density: 72 })
           .png()
           .toBuffer(),
       });
@@ -231,6 +232,7 @@ export class PinitSignatureDetectorService {
             .normalize()
             .sharpen()
             .greyscale()
+            .withMetadata({ density: 72 })
             .png()
             .toBuffer(),
         });
@@ -246,6 +248,7 @@ export class PinitSignatureDetectorService {
             .sharpen()
             .greyscale()
             .linear(2.0, -60)
+            .withMetadata({ density: 72 })
             .png()
             .toBuffer(),
         });
@@ -261,6 +264,7 @@ export class PinitSignatureDetectorService {
             .normalize()
             .sharpen()
             .greyscale()
+            .withMetadata({ density: 72 })
             .png()
             .toBuffer(),
         });
@@ -276,6 +280,7 @@ export class PinitSignatureDetectorService {
           .sharpen()
           .greyscale()
           .linear(2.0, -50)
+          .withMetadata({ density: 72 })
           .png()
           .toBuffer(),
       });

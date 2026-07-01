@@ -43,6 +43,19 @@ export async function withTimeout<T>(
   }
 }
 
+/** Like withTimeout but returns null instead of throwing — for optional fast-path steps */
+export async function withTimeoutSoft<T>(
+  fn: () => Promise<T>,
+  timeoutMs: number,
+  label = 'operation',
+): Promise<T | null> {
+  try {
+    return await withTimeout(fn, timeoutMs, label);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Validate basic file safety before processing.
  * Rejects clearly invalid or dangerous inputs.

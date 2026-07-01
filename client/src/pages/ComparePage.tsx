@@ -123,13 +123,13 @@ function AutoMatchIdentityBanner({ autoResult }: { autoResult: Record<string, an
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card border-dna-500/20">
       <div className="flex items-center gap-2 mb-1 flex-wrap">
         <Shield size={16} className="text-dna-400" />
-        <h3 className="text-sm font-bold text-white">Auto-Matched from Vault</h3>
-        <Badge variant={autoResult.pinitOriginalIdentified || autoResult.highConfidence ? 'success' : 'dna'}>
-          {autoResult.pinitOriginalIdentified
-            ? `PINIT Original Identified · ${autoResult.ownershipConfidence ?? '?'}%`
-            : autoResult.highConfidence
-              ? `Enterprise ID · ${autoResult.ownershipConfidence}%+`
-              : `Match · ${autoResult.ownershipConfidence ?? '?'}%`}
+        <h3 className="text-sm font-semibold text-white">Auto-Matched from Vault</h3>
+        <Badge variant={autoResult.matchConfidence === 'EXACT' ? 'success' : autoResult.matchConfidence === 'HIGH' ? 'dna' : autoResult.probableMatch || autoResult.matchConfidence === 'PROBABLE' ? 'warning' : 'warning'}>
+          {autoResult.matchConfidence === 'EXACT'
+            ? 'Exact Match'
+            : autoResult.probableMatch || autoResult.matchConfidence === 'PROBABLE'
+              ? `Probable Match · ${autoResult.ownershipConfidence ?? autoResult.candidateRanking?.[0]?.compositeScore ?? '?'}%`
+              : `Tier ${autoResult.matchTier} Match`}
         </Badge>
         {autoResult.tamperLabel
           ? <Badge variant={autoResult.tampered ? 'danger' : 'success'}>{autoResult.tamperLabel}</Badge>
@@ -206,18 +206,9 @@ function AutoMatchIdentityBanner({ autoResult }: { autoResult: Record<string, an
             <div className="flex justify-between gap-2">
               <span className="text-xs text-gray-500 shrink-0">Tamper status</span>
               <span className={`text-xs font-bold ${autoResult.tampered ? 'text-danger' : 'text-success'}`}>
-                {autoResult.tamperLabel ?? (autoResult.tampered ? 'TAMPERED' : 'INTACT')}
+                {autoResult.tampered ? 'TAMPERED' : 'INTACT'}
               </span>
             </div>
-            {autoResult.certificateId && (
-              <div className="flex justify-between gap-2">
-                <span className="text-xs text-gray-500 shrink-0">Certificate</span>
-                <span className="text-xs text-dna-400 mono truncate">{autoResult.certificateId}</span>
-              </div>
-            )}
-            {autoResult.tamperingSummary && (
-              <p className="text-2xs text-gray-500 pt-1 border-t border-bg-border">{autoResult.tamperingSummary}</p>
-            )}
           </div>
         </div>
       </div>
@@ -697,7 +688,7 @@ export function ComparePage() {
               {autoResult.matchRejected
                 ? 'Wrong Vault Match Rejected'
                 : autoResult.bestCandidate
-                  ? 'No PINIT Signature Found'
+                  ? 'No Exact Match — Best Vault Candidate'
                   : 'No PINIT-DNA Identity Found'}
             </h3>
           </div>

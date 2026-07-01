@@ -31,8 +31,50 @@ export interface LeakedVerifySnapshot {
 export interface InvestigationPipelineStep {
   id: string;
   label: string;
-  status: 'complete' | 'warning' | 'failed' | 'skipped';
+  status: 'complete' | 'warning' | 'failed' | 'skipped' | 'running' | 'pending';
   detail?: string;
+  elapsedMs?: number;
+}
+
+/** Progressive UI snapshot — phased live results */
+export interface InvestigationLiveSnapshot {
+  phase: 1 | 2 | 3 | 'final';
+  signatureFound: boolean;
+  ownerName?: string;
+  ownerPinitId?: string;
+  vaultId?: string;
+  dnaRecordId?: string;
+  originalFilename?: string;
+  confidence?: number;
+  patchVotes?: number;
+  orbScore?: number;
+  similarityScore?: number;
+  watermarkStatus?: string;
+  certificateStatus?: string;
+  dnaMatchPercent?: number;
+  statusMessage?: string;
+  deepVerificationRunning?: boolean;
+}
+
+/** Live progress event streamed during investigation (SSE) */
+export interface InvestigationProgressEvent {
+  type: 'timeline' | 'partial' | 'phase' | 'complete' | 'error';
+  stepId: string;
+  label: string;
+  status: 'pending' | 'running' | 'complete' | 'warning' | 'failed' | 'skipped';
+  detail?: string;
+  elapsedMs?: number;
+  snapshot?: InvestigationLiveSnapshot;
+  partial?: {
+    vaultId?: string;
+    ownerPinitId?: string;
+    ownerName?: string;
+    ownershipConfidence?: number;
+    candidateCount?: number;
+    originalFilename?: string;
+    patchVotes?: number;
+    orbScore?: number;
+  };
 }
 
 export interface InvestigationSummary {
@@ -196,4 +238,8 @@ export interface UnifiedInvestigationReport {
   candidateRanking?: RankedVaultCandidate[];
   identityRecoveryReport?: IdentityRecoveryReportSection;
   currentFileHash?: string;
+  /** Per-stage execution timings (performance diagnostics) */
+  stageTimings?: Array<{ stage: string; durationMs: number; detail?: string }>;
+  /** Live progress timeline steps */
+  progressTimeline?: InvestigationProgressEvent[];
 }

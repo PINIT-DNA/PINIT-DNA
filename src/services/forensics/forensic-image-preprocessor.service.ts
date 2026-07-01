@@ -13,6 +13,10 @@ export interface ForensicImageVariant {
 export interface ForensicPreprocessorOptions {
   /** Investigation / compare fast path — fewer variants, much faster */
   fast?: boolean;
+  /** Unified investigation — original + normalized only (skip denoise/upscale) */
+  minimal?: boolean;
+  /** Enterprise camera-scan pipeline — moiré, reflection, screen boundary */
+  scanner?: boolean;
 }
 
 export class ForensicImagePreprocessor {
@@ -44,6 +48,10 @@ export class ForensicImagePreprocessor {
         .jpeg({ quality: 92 })
         .toBuffer();
       variants.push({ label: 'normalized', buffer: normalized, mimeType: 'image/jpeg' });
+
+      if (options?.minimal) {
+        return variants;
+      }
 
       const denoised = await sharp(buffer)
         .rotate()
@@ -79,6 +87,48 @@ export class ForensicImagePreprocessor {
 
       if (options?.fast) {
         return variants;
+      }
+
+      // Enterprise camera-scan pipeline (Phase 5)
+      if (options?.scanner) {
+        const moireReduced = await sharp(buffer)
+          .rotate()
+          .blur(0.6)
+          .sharpen({ sigma: 1.2 })
+          .normalize()
+          .jpeg({ quality: 90 })
+          .toBuffer();
+        variants.push({ label: 'moire_reduction', buffer: moireReduced, mimeType: 'image/jpeg' });
+
+        const reflectionRemoved = await sharp(buffer)
+          .rotate()
+          .modulate({ brightness: 1.08, saturation: 0.85 })
+          .gamma(1.1)
+          .jpeg({ quality: 91 })
+          .toBuffer();
+        variants.push({ label: 'reflection_removal', buffer: reflectionRemoved, mimeType: 'image/jpeg' });
+
+        if (w > 120 && h > 120) {
+          const marginX = Math.round(w * 0.04);
+          const marginY = Math.round(h * 0.04);
+          const screenCrop = await sharp(buffer)
+            .extract({
+              left: marginX,
+              top: marginY,
+              width: w - marginX * 2,
+              height: h - marginY * 2,
+            })
+            .jpeg({ quality: 92 })
+            .toBuffer();
+          variants.push({ label: 'screen_boundary', buffer: screenCrop, mimeType: 'image/jpeg' });
+        }
+
+        const perspectiveCorrect = await sharp(buffer)
+          .rotate(-1.5)
+          .affine([1, 0.02, 0, 1], { background: { r: 0, g: 0, b: 0 } })
+          .jpeg({ quality: 90 })
+          .toBuffer();
+        variants.push({ label: 'perspective_correct', buffer: perspectiveCorrect, mimeType: 'image/jpeg' });
       }
 
       const rotated = await sharp(buffer)

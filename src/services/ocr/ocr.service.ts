@@ -7,6 +7,7 @@
  */
 
 import { createWorker } from 'tesseract.js';
+import sharp from 'sharp';
 import { logger } from '../../lib/logger';
 
 export interface OcrResult {
@@ -48,7 +49,9 @@ export class OcrService {
         logger: () => {}, // suppress tesseract progress logs
       });
 
-      const { data } = await worker.recognize(buffer);
+      // Normalize DPI — WhatsApp/social JPEGs often use 25 dpi and spam Tesseract stderr
+      const ocrBuffer = await sharp(buffer).rotate().withMetadata({ density: 72 }).png().toBuffer();
+      const { data } = await worker.recognize(ocrBuffer);
       const text      = data.text?.trim() ?? '';
       const wordCount = text.split(/\s+/).filter(Boolean).length;
       const confidence = Math.round(data.confidence ?? 0);
