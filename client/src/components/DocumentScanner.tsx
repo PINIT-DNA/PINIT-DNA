@@ -4,6 +4,7 @@ import { jsPDF } from 'jspdf';
 import { useAutoDocumentCapture } from '../hooks/useAutoDocumentCapture';
 import {
   captureForensicScan,
+  captureInvestigationInput,
   validateCaptureQuality,
   cropToGuideRegion,
   normalizeScannerBlob,
@@ -12,6 +13,7 @@ import {
   scanTypeLabel,
   type ScanType,
 } from '../lib/document-capture-pipeline';
+import { extractVideoFrameBlob, isImageFile, isVideoFile } from '../lib/scanner-media-utils';
 
 function useIsMobileViewport() {
   const [mobile, setMobile] = useState(() =>
@@ -37,8 +39,14 @@ interface DocumentScannerProps {
   /**
    * Unified Investigation — instant single-frame capture, no burst/normalize overlay.
    * Same file → investigation API as upload. Other pages keep full forensic pipeline.
+   * @deprecated Use unifiedInvestigation instead — enables full normalization pipeline.
    */
   quickCapture?: boolean;
+  /**
+   * Unified Investigation Center — scanner is an input source for the same backend pipeline as upload.
+   * Runs full client-side normalization; does NOT change upload behavior elsewhere.
+   */
+  unifiedInvestigation?: boolean;
 }
 
 export function DocumentScanner({
@@ -48,6 +56,7 @@ export function DocumentScanner({
   autoStart = true,
   captureMode = 'multi',
   quickCapture = false,
+  unifiedInvestigation = false,
 }: DocumentScannerProps) {
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
@@ -58,6 +67,7 @@ export function DocumentScanner({
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [normalizing, setNormalizing] = useState(false);
+  const [normalizeStep, setNormalizeStep] = useState<string | null>(null);
   const [detectedScanType, setDetectedScanType] = useState<ScanType | null>(null);
   const enhanceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const autoStartedRef = useRef(false);
@@ -68,9 +78,15 @@ export function DocumentScanner({
   }
 
   const captureProfile =
-    captureMode === 'single'
-      ? (isMobile ? 'screen' as const : 'forensic' as const)
-      : 'fast' as const;
+    unifiedInvestigation && captureMode === 'single'
+      ? ('forensic' as const)
+      : captureMode === 'single'
+        ? (isMobile ? 'screen' as const : 'forensic' as const)
+        : 'fast' as const;
+
+  const onNormalizeProgress = useCallback((_: string, label: string) => {
+    setNormalizeStep(label);
+  }, []);
 
   const stopCamera = useCallback(() => {
     if (videoRef.current?.srcObject) {
@@ -141,6 +157,7 @@ export function DocumentScanner({
       setScannedPages([]);
       setCaptureError(null);
       setNormalizing(false);
+      setNormalizeStep(null);
       setDetectedScanType(scanType ?? null);
       onScanComplete(file);
     },
@@ -150,10 +167,10 @@ export function DocumentScanner({
   const captureAndFinish = useCallback(async () => {
     if (!videoRef.current) return;
     setCaptureError(null);
-    setNormalizing(false);
+    setNormalizeStep(null);
 
-    // Unified Investigation — fast path: one frame → investigation (same as upload)
-    if (captureMode === 'single' && quickCapture) {
+    // Legacy fast path — only when explicitly requested (not used by Unified Investigation)
+    if (captureMode === 'single' && quickCapture && !unifiedInvestigation) {
       try {
         const canvas = enhanceCanvasRef.current!;
         let imageData = cropToGuideRegion(videoRef.current, canvas);
@@ -185,7 +202,7 @@ export function DocumentScanner({
       try {
         const canvas = enhanceCanvasRef.current!;
         const preview = cropToGuideRegion(videoRef.current, canvas);
-        if (preview) {
+        if (preview && !unifiedInvestigation) {
           const gate = validateCaptureQuality(preview);
           if (!gate.ok) {
             setCaptureError(gate.reason ?? 'Capture quality too low');
@@ -193,7 +210,14 @@ export function DocumentScanner({
           }
         }
         setNormalizing(true);
-        const result = await captureForensicScan(videoRef.current, { burstCount: 5, jpegQuality: 0.97 });
+        const result = unifiedInvestigation
+          ? await captureInvestigationInput(videoRef.current, {
+              burstCount: 3,
+              jpegQuality: 0.97,
+              relaxedQualityGate: true,
+              onProgress: onNormalizeProgress,
+            })
+          : await captureForensicScan(videoRef.current, { burstCount: 5, jpegQuality: 0.97 });
         if (result) {
           setFlashCapture(true);
           window.setTimeout(() => setFlashCapture(false), 280);
@@ -202,6 +226,7 @@ export function DocumentScanner({
         }
       } catch (err) {
         setNormalizing(false);
+        setNormalizeStep(null);
         if (err instanceof ScannerQualityGateError) {
           setCaptureError(err.message);
           return;
@@ -210,6 +235,7 @@ export function DocumentScanner({
         return;
       }
       setNormalizing(false);
+      setNormalizeStep(null);
     }
 
     const canvas = document.createElement('canvas');
@@ -221,7 +247,7 @@ export function DocumentScanner({
     canvas.toBlob((blob) => {
       if (blob) finishWithBlob(blob);
     }, 'image/jpeg', captureMode === 'single' ? 0.96 : 0.92);
-  }, [finishWithBlob, captureMode, quickCapture]);
+  }, [finishWithBlob, captureMode, quickCapture, unifiedInvestigation, onNormalizeProgress]);
 
   const capturePage = useCallback(() => {
     const dataUrl = grabFrameDataUrl();
@@ -292,12 +318,63 @@ export function DocumentScanner({
   };
 
   const handleGallery = async (f: File) => {
-    if (captureMode === 'single' && quickCapture) {
+    if (captureMode === 'single' && quickCapture && !unifiedInvestigation) {
       stopCamera();
       setScannedPages([]);
       onScanComplete(f);
       return;
     }
+
+    if (captureMode === 'single' && unifiedInvestigation) {
+      try {
+        setNormalizing(true);
+        setNormalizeStep('Loading source…');
+        setCaptureError(null);
+
+        let sourceBlob: Blob = f;
+        if (isVideoFile(f)) {
+          setNormalizeStep('Extracting video frame…');
+          const frame = await extractVideoFrameBlob(f);
+          if (!frame) {
+            setCaptureError('Could not extract a video frame — try another clip');
+            setNormalizing(false);
+            setNormalizeStep(null);
+            return;
+          }
+          sourceBlob = frame;
+        }
+
+        if (isImageFile(f) || isVideoFile(f)) {
+          const normalized = await normalizeScannerBlob(sourceBlob, {
+            jpegQuality: 0.97,
+            relaxedQualityGate: true,
+            onProgress: onNormalizeProgress,
+          });
+          stopCamera();
+          setScannedPages([]);
+          if (normalized) {
+            finishWithBlob(normalized.blob, normalized.scanType);
+            return;
+          }
+        }
+
+        // PDF / other types — pass through to same investigation API as upload
+        stopCamera();
+        setScannedPages([]);
+        onScanComplete(f);
+        return;
+      } catch (err) {
+        setNormalizing(false);
+        setNormalizeStep(null);
+        if (err instanceof ScannerQualityGateError) {
+          setCaptureError(err.message);
+          return;
+        }
+      }
+      setNormalizing(false);
+      setNormalizeStep(null);
+    }
+
     if (captureMode === 'single' && f.type.startsWith('image/')) {
       try {
         setNormalizing(true);
@@ -341,7 +418,7 @@ export function DocumentScanner({
       <input
         ref={cameraInputRef}
         type="file"
-        accept="image/*,application/pdf"
+        accept="image/*,application/pdf,video/*"
         capture="environment"
         className="hidden"
         onChange={(e) => { if (e.target.files?.[0]) handleGallery(e.target.files[0]); }}
@@ -363,10 +440,15 @@ export function DocumentScanner({
                 <span className="text-xs text-gray-400">Starting camera…</span>
               </div>
             )}
-            {normalizing && !quickCapture && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/75 z-20">
+            {normalizing && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/75 z-20 px-4">
                 <RefreshCw size={22} className="text-dna-400 animate-spin" />
-                <span className="text-xs text-dna-300 font-medium">Normalizing capture…</span>
+                <span className="text-xs text-dna-300 font-medium text-center">
+                  {unifiedInvestigation ? 'Preparing investigation input…' : 'Normalizing capture…'}
+                </span>
+                {normalizeStep && (
+                  <span className="text-[10px] text-gray-400 text-center">{normalizeStep}</span>
+                )}
               </div>
             )}
             <div
@@ -397,7 +479,11 @@ export function DocumentScanner({
             <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/50 backdrop-blur rounded-full px-2.5 py-1 z-10">
               <Zap size={12} className={phase === 'locking' ? 'text-dna-300' : 'text-dna-400'} />
               <span className="text-[10px] font-semibold text-dna-300">
-                {captureMode === 'single' ? (isMobile ? 'Screen scan' : 'Smart capture') : 'Auto-scan'}
+                {unifiedInvestigation
+                  ? 'Investigation scan'
+                  : captureMode === 'single'
+                    ? (isMobile ? 'Screen scan' : 'Smart capture')
+                    : 'Auto-scan'}
               </span>
             </div>
             {captureMode === 'single' && detectedScanType && !normalizing && (
@@ -518,9 +604,19 @@ export function DocumentScanner({
             </button>
           </div>
           <div className="flex flex-wrap justify-center gap-2 pt-2">
-            <span className="text-2xs bg-dna-500/10 border border-dna-500/20 rounded-full px-2.5 py-1 text-dna-400">Auto-capture</span>
-            <span className="text-2xs bg-bg-elevated border border-bg-border rounded-full px-2.5 py-1 text-gray-500">Multi-page PDF</span>
-            <span className="text-2xs bg-bg-elevated border border-bg-border rounded-full px-2.5 py-1 text-gray-500">Full investigation</span>
+            {unifiedInvestigation ? (
+              <>
+                <span className="text-2xs bg-dna-500/10 border border-dna-500/20 rounded-full px-2.5 py-1 text-dna-400">Same pipeline as upload</span>
+                <span className="text-2xs bg-bg-elevated border border-bg-border rounded-full px-2.5 py-1 text-gray-500">Auto normalize</span>
+                <span className="text-2xs bg-bg-elevated border border-bg-border rounded-full px-2.5 py-1 text-gray-500">Screens · prints · video</span>
+              </>
+            ) : (
+              <>
+                <span className="text-2xs bg-dna-500/10 border border-dna-500/20 rounded-full px-2.5 py-1 text-dna-400">Auto-capture</span>
+                <span className="text-2xs bg-bg-elevated border border-bg-border rounded-full px-2.5 py-1 text-gray-500">Multi-page PDF</span>
+                <span className="text-2xs bg-bg-elevated border border-bg-border rounded-full px-2.5 py-1 text-gray-500">Full investigation</span>
+              </>
+            )}
           </div>
         </div>
       )}

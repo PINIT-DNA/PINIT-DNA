@@ -440,10 +440,10 @@ export function UnifiedInvestigationPage() {
       {!report && mode === 'scan' && !loading && (
         <DocumentScanner
           captureMode="single"
-          quickCapture
+          unifiedInvestigation
           onScanComplete={handleScanComplete}
           onCancel={handleReset}
-          subtitle="Point at a PINIT-protected file — capture runs the same investigation as upload"
+          subtitle="Camera capture is normalized then sent to the same investigation engine as upload"
         />
       )}
 

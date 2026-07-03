@@ -7,11 +7,14 @@ import { analyzeDocumentFrame } from './document-frame-analyzer';
 import {
   normalizeScannerImage,
   runQualityGate,
+  runQualityGateRelaxed,
+  classifyScanType,
   ScannerQualityGateError,
   type ScanType,
+  type NormalizationProgressCallback,
 } from './scanner-normalization-pipeline';
 
-export { ScannerQualityGateError, runQualityGate, type ScanType };
+export { ScannerQualityGateError, runQualityGate, type ScanType, type NormalizationProgressCallback };
 export { scanTypeLabel, classifyScanType, normalizeScannerBlob } from './scanner-normalization-pipeline';
 
 const GUIDE_WIDTH_RATIO = 0.92;
@@ -117,6 +120,55 @@ export interface ForensicCaptureResult {
   pipelineSteps: string[];
 }
 
+export interface InvestigationCaptureOptions {
+  burstCount?: number;
+  jpegQuality?: number;
+  relaxedQualityGate?: boolean;
+  onProgress?: (phase: string, label: string) => void;
+}
+
+/**
+ * Unified Investigation scanner input — burst capture, fuse, normalize, JPEG.
+ * Output feeds the SAME backend endpoint as file upload (no duplicate investigation logic).
+ */
+export async function captureInvestigationInput(
+  video: HTMLVideoElement,
+  options?: InvestigationCaptureOptions,
+): Promise<ForensicCaptureResult | null> {
+  const onProgress = options?.onProgress;
+  onProgress?.('burst', 'Capturing frames…');
+
+  const canvas = document.createElement('canvas');
+  const burstCount = options?.burstCount ?? 3;
+  const burst = await grabFrameBurst(video, canvas, burstCount, 35);
+  if (!burst.length) return null;
+
+  onProgress?.('fuse', 'Fusing frames…');
+  const sharpest = [...burst].sort((a, b) => frameSharpness(b) - frameSharpness(a))[0]!;
+  const fused = fuseFrameBurst(burst) ?? sharpest;
+
+  const gateFn = options?.relaxedQualityGate ? runQualityGateRelaxed : runQualityGate;
+  const [gate, scanType] = await Promise.all([
+    Promise.resolve(gateFn(fused)),
+    Promise.resolve(classifyScanType(fused)),
+  ]);
+
+  if (!gate.ok) {
+    throw new ScannerQualityGateError(gate.guidance ?? 'Capture quality too low');
+  }
+
+  onProgress?.('normalize', 'Normalizing capture…');
+  const normalized = normalizeScannerImage(fused, scanType, onProgress);
+  const blob = await imageDataToJpegBlob(normalized.imageData, options?.jpegQuality ?? 0.97);
+  if (!blob) return null;
+
+  return {
+    blob,
+    scanType: normalized.scanType,
+    pipelineSteps: normalized.pipelineSteps,
+  };
+}
+
 /**
  * Full scanner capture:
  * multi-frame burst → fuse → quality gate → normalization → JPEG.
@@ -126,32 +178,11 @@ export async function captureForensicScan(
   video: HTMLVideoElement,
   options?: { burstCount?: number; jpegQuality?: number },
 ): Promise<ForensicCaptureResult | null> {
-  const canvas = document.createElement('canvas');
-  const burst = await grabFrameBurst(
-    video,
-    canvas,
-    options?.burstCount ?? 5,
-    40,
-  );
-  if (!burst.length) return null;
-
-  const sharpest = [...burst].sort((a, b) => frameSharpness(b) - frameSharpness(a))[0]!;
-  const fused = fuseFrameBurst(burst) ?? sharpest;
-
-  const gate = runQualityGate(fused);
-  if (!gate.ok) {
-    throw new ScannerQualityGateError(gate.guidance ?? 'Capture quality too low');
-  }
-
-  const normalized = normalizeScannerImage(fused);
-  const blob = await imageDataToJpegBlob(normalized.imageData, options?.jpegQuality ?? 0.97);
-  if (!blob) return null;
-
-  return {
-    blob,
-    scanType: normalized.scanType,
-    pipelineSteps: normalized.pipelineSteps,
-  };
+  return captureInvestigationInput(video, {
+    burstCount: options?.burstCount ?? 5,
+    jpegQuality: options?.jpegQuality ?? 0.97,
+    relaxedQualityGate: false,
+  });
 }
 
 /** Quick quality gate — reject blurry / dark captures before investigation. */

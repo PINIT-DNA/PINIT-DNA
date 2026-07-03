@@ -408,8 +408,100 @@ function superResolveIfNeeded(imageData: ImageData): ImageData {
   return ctx.getImageData(0, 0, nw, nh);
 }
 
+function rotateImageData(imageData: ImageData, degrees: number): ImageData {
+  if (Math.abs(degrees) < 0.25) return cloneImageData(imageData);
+  const rad = (degrees * Math.PI) / 180;
+  const sin = Math.abs(Math.sin(rad));
+  const cos = Math.abs(Math.cos(rad));
+  const nw = Math.round(imageData.width * cos + imageData.height * sin);
+  const nh = Math.round(imageData.width * sin + imageData.height * cos);
+  const canvas = document.createElement('canvas');
+  canvas.width = nw;
+  canvas.height = nh;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return cloneImageData(imageData);
+  ctx.translate(nw / 2, nh / 2);
+  ctx.rotate(rad);
+  ctx.drawImage(
+    (() => {
+      const c = document.createElement('canvas');
+      c.width = imageData.width;
+      c.height = imageData.height;
+      c.getContext('2d')!.putImageData(imageData, 0, 0);
+      return c;
+    })(),
+    -imageData.width / 2,
+    -imageData.height / 2,
+  );
+  return ctx.getImageData(0, 0, nw, nh);
+}
+
+/** Horizontal projection variance — higher when text lines are aligned. */
+function projectionScore(imageData: ImageData, angleDeg: number): number {
+  const rotated = rotateImageData(imageData, angleDeg);
+  const { width: w, height: h, data } = rotated;
+  const rowSum = new Float32Array(h);
+  for (let y = 0; y < h; y++) {
+    let s = 0;
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      s += luminance(data, i);
+    }
+    rowSum[y] = s / w;
+  }
+  let variance = 0;
+  const mean = rowSum.reduce((a, b) => a + b, 0) / h;
+  for (let y = 0; y < h; y++) variance += (rowSum[y]! - mean) ** 2;
+  return variance / h;
+}
+
+/** Deskew printed / photographed documents (±8°). */
+function deskew(imageData: ImageData): ImageData {
+  let bestAngle = 0;
+  let bestScore = projectionScore(imageData, 0);
+  for (let a = -8; a <= 8; a += 0.5) {
+    const score = projectionScore(imageData, a);
+    if (score > bestScore) {
+      bestScore = score;
+      bestAngle = a;
+    }
+  }
+  return rotateImageData(imageData, bestAngle);
+}
+
+/** Rotate portrait content that was captured in landscape orientation. */
 function fixOrientation(imageData: ImageData): ImageData {
+  const bounds = detectDocumentBounds(imageData);
+  const contentAspect = bounds.w / Math.max(1, bounds.h);
+  const frameAspect = imageData.width / imageData.height;
+  if (contentAspect < 0.85 && frameAspect > 1.15) {
+    return rotateImageData(imageData, 90);
+  }
+  if (contentAspect > 1.2 && frameAspect < 0.85) {
+    return rotateImageData(imageData, -90);
+  }
   return cloneImageData(imageData);
+}
+
+/** Sharpen text edges for downstream OCR / visual DNA (scanner-only). */
+function ocrPreprocess(imageData: ImageData, scanType: ScanType): ImageData {
+  if (scanType === 'screenshot' || scanType === 'desktop_screen') {
+    return cloneImageData(imageData);
+  }
+  const { width: w, height: h, data } = imageData;
+  const out = cloneImageData(imageData);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = (y * w + x) * 4;
+      for (let c = 0; c < 3; c++) {
+        const blur =
+          (data[i + c - w * 4]! + data[i + c + w * 4]! + data[i + c - 4]! + data[i + c + 4]!) / 4;
+        const sharp = data[i + c]!;
+        out.data[i + c] = Math.min(255, Math.max(0, Math.round(sharp * 1.12 + (sharp - blur) * 0.35)));
+      }
+    }
+  }
+  return out;
 }
 
 const SCREEN_TYPES: ScanType[] = ['desktop_screen', 'laptop_screen', 'phone_screen', 'screenshot'];
@@ -417,53 +509,96 @@ const SCREEN_TYPES: ScanType[] = ['desktop_screen', 'laptop_screen', 'phone_scre
 /**
  * Full normalization — transforms scanner capture toward upload-like quality.
  */
+export type NormalizationProgressCallback = (step: string, label: string) => void;
+
+const STEP_LABELS: Record<string, string> = {
+  preserve_resolution: 'Preserving capture resolution',
+  orientation_fix: 'Auto rotation',
+  document_boundary_detection: 'Auto crop',
+  deskew: 'Deskew',
+  perspective_correction: 'Perspective correction',
+  reflection_removal: 'Glare reduction',
+  shadow_removal: 'Shadow removal',
+  brightness_normalization: 'Exposure correction',
+  contrast_normalization: 'Contrast normalization',
+  color_calibration: 'Color calibration',
+  noise_reduction: 'Denoise',
+  jpeg_artifact_removal: 'JPEG artifact removal',
+  moire_removal: 'Screen moiré removal',
+  super_resolution: 'Super resolution',
+  ocr_preprocessing: 'OCR preprocessing',
+  edge_enhancement: 'Edge enhancement',
+};
+
+function emitStep(steps: string[], onStep: NormalizationProgressCallback | undefined, id: string) {
+  steps.push(id);
+  onStep?.(id, STEP_LABELS[id] ?? id);
+}
+
 export function normalizeScannerImage(
   imageData: ImageData,
   scanType?: ScanType,
+  onStep?: NormalizationProgressCallback,
 ): NormalizationResult {
   const type = scanType ?? classifyScanType(imageData);
   const quality = runQualityGate(imageData);
-  const steps: string[] = ['preserve_resolution'];
+  const steps: string[] = [];
 
   let img = preserveResolution(imageData);
-  steps.push('orientation_fix');
+  emitStep(steps, onStep, 'preserve_resolution');
+  emitStep(steps, onStep, 'orientation_fix');
   img = fixOrientation(img);
 
-  steps.push('document_boundary_detection');
+  emitStep(steps, onStep, 'document_boundary_detection');
   const bounds = detectDocumentBounds(img);
   img = cropImageData(img, bounds);
 
-  steps.push('perspective_correction');
+  emitStep(steps, onStep, 'deskew');
+  img = deskew(img);
+  emitStep(steps, onStep, 'perspective_correction');
   img = perspectiveCorrect(img, type);
 
-  steps.push('reflection_removal');
+  emitStep(steps, onStep, 'reflection_removal');
   img = removeReflections(img);
-  steps.push('shadow_removal');
+  emitStep(steps, onStep, 'shadow_removal');
   img = removeShadows(img);
-  steps.push('brightness_normalization');
+  emitStep(steps, onStep, 'brightness_normalization');
   img = normalizeBrightnessContrast(img);
-  steps.push('contrast_normalization');
-  steps.push('color_calibration');
+  emitStep(steps, onStep, 'contrast_normalization');
+  emitStep(steps, onStep, 'color_calibration');
   img = colorCalibrate(img);
-  steps.push('noise_reduction');
+  emitStep(steps, onStep, 'noise_reduction');
   img = reduceNoise(img);
-  steps.push('jpeg_artifact_removal');
+  emitStep(steps, onStep, 'jpeg_artifact_removal');
   img = removeJpegArtifacts(img);
 
   if (SCREEN_TYPES.includes(type)) {
-    steps.push('moire_removal');
+    emitStep(steps, onStep, 'moire_removal');
     img = removeMoire(img);
   }
 
   if (Math.min(img.width, img.height) < 1280) {
-    steps.push('super_resolution');
+    emitStep(steps, onStep, 'super_resolution');
     img = superResolveIfNeeded(img);
   }
 
-  steps.push('edge_enhancement');
+  emitStep(steps, onStep, 'ocr_preprocessing');
+  img = ocrPreprocess(img, type);
+  emitStep(steps, onStep, 'edge_enhancement');
   img = edgeEnhance(img);
 
   return { imageData: img, scanType: type, quality, pipelineSteps: steps };
+}
+
+/** Relaxed gate for partial / damaged captures — still proceeds to normalization. */
+export function runQualityGateRelaxed(imageData: ImageData): QualityGateResult {
+  const gate = runQualityGate(imageData);
+  if (gate.ok) return gate;
+  const m = analyzeDocumentFrame(imageData, null).metrics;
+  if (m.sharpness >= 0.05 && m.contrast >= 0.05) {
+    return { ...gate, ok: true, guidance: 'Partial capture — proceeding with enhanced preprocessing' };
+  }
+  return gate;
 }
 
 export async function blobToImageData(blob: Blob): Promise<ImageData | null> {
@@ -480,17 +615,22 @@ export async function blobToImageData(blob: Blob): Promise<ImageData | null> {
 
 export async function normalizeScannerBlob(
   blob: Blob,
-  options?: { jpegQuality?: number; skipQualityGate?: boolean },
+  options?: {
+    jpegQuality?: number;
+    skipQualityGate?: boolean;
+    relaxedQualityGate?: boolean;
+    onProgress?: NormalizationProgressCallback;
+  },
 ): Promise<{ blob: Blob; scanType: ScanType; pipelineSteps: string[] } | null> {
   const raw = await blobToImageData(blob);
   if (!raw) return null;
 
   if (!options?.skipQualityGate) {
-    const gate = runQualityGate(raw);
+    const gate = options?.relaxedQualityGate ? runQualityGateRelaxed(raw) : runQualityGate(raw);
     if (!gate.ok) throw new ScannerQualityGateError(gate.guidance ?? 'Capture quality too low');
   }
 
-  const { imageData, scanType, pipelineSteps } = normalizeScannerImage(raw);
+  const { imageData, scanType, pipelineSteps } = normalizeScannerImage(raw, undefined, options?.onProgress);
   const canvas = document.createElement('canvas');
   canvas.width = imageData.width;
   canvas.height = imageData.height;
