@@ -259,14 +259,27 @@ export class VaultService {
       if (USE_LOCAL) {
         encryptedBuffer = await readLocal(vaultId);
       } else {
-        encryptedBuffer = await downloadVaultFile(vaultId, ownerUserId);
+        encryptedBuffer = await downloadVaultFile(
+          vaultId,
+          ownerUserId,
+          record.encryptedFilePath ? [record.encryptedFilePath] : [],
+        );
       }
     } catch (err) {
       throw new Error(`Vault file unavailable: ${String(err)}`);
     }
 
     // ── Decrypt (key re-derived from vaultId + master secret) ─────────────
-    const originalBuffer = decrypt(encryptedBuffer, vaultId);
+    let originalBuffer: Buffer;
+    try {
+      originalBuffer = decrypt(encryptedBuffer, vaultId);
+    } catch (err) {
+      const detail = (err as Error).message ?? String(err);
+      throw new Error(
+        `Vault decrypt failed for ${vaultId}: ${detail}. `
+        + 'Ensure VAULT_MASTER_SECRET on the server matches the key used when this file was vaulted.',
+      );
+    }
 
     logger.info('Vault — retrieval complete', {
       vaultId,

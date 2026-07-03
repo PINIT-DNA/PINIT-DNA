@@ -96,11 +96,31 @@ export function analyzeDocumentFrame(
 
   const exposureOk = mean >= 35 && mean <= 228;
 
-  let motion = 1;
+  // 0 = no prior frame (single-frame / post-fusion gate). Live preview compares frames below.
+  let motion = 0;
   if (previousLum && previousLum.length === n) {
+    let prevMean = 0;
+    for (let p = 0; p < n; p++) prevMean += previousLum[p]!;
+    prevMean /= n;
+
+    // High-frequency diff — ignores global auto-exposure / autofocus brightness shifts
     let diff = 0;
-    for (let p = 0; p < n; p++) diff += Math.abs(lum[p]! - previousLum[p]!);
-    motion = diff / n / 255;
+    let samples = 0;
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const p = y * w + x;
+        const hpC =
+          lum[p]! -
+          (lum[p - 1]! + lum[p + 1]! + lum[p - w]! + lum[p + w]!) * 0.25;
+        const hpP =
+          previousLum[p]! -
+          (previousLum[p - 1]! + previousLum[p + 1]! + previousLum[p - w]! + previousLum[p + w]!) *
+            0.25;
+        diff += Math.abs(hpC - hpP);
+        samples++;
+      }
+    }
+    motion = samples ? diff / samples / 255 : 0;
   }
 
   const documentPresent =
@@ -109,7 +129,7 @@ export function analyzeDocumentFrame(
     mean > 28 &&
     mean < 235;
 
-  const stable = motion < 0.04;
+  const stable = motion < 0.12;
 
   const qualityScore = Math.min(1,
     contrast * 0.28 + sharpness * 0.32 + edgeDensity * 12 + (stable ? 0.18 : 0)
@@ -118,12 +138,11 @@ export function analyzeDocumentFrame(
 
   const qualityOk =
     documentPresent &&
-    stable &&
     exposureOk &&
-    glare < 0.2 &&
-    sharpness >= 0.14 &&
-    contrast >= 0.11 &&
-    edgeDensity >= 0.02;
+    glare < 0.22 &&
+    sharpness >= 0.10 &&
+    contrast >= 0.09 &&
+    edgeDensity >= 0.018;
 
   return {
     metrics: {

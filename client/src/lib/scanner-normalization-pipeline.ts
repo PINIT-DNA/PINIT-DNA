@@ -116,10 +116,11 @@ export function runQualityGate(
   const reflection = m.glare;
   const motion = m.motion;
 
-  if (m.sharpness < 0.11) {
+  if (m.sharpness < 0.09) {
     return { ok: false, blur, focus, lighting, reflection, motion, guidance: 'Hold device steady — image is too blurry' };
   }
-  if (m.motion > 0.06) {
+  // Motion is only measured live (frame-to-frame). Single-frame / fused captures skip this check.
+  if (motion > 0 && motion < 0.99 && motion > 0.20) {
     return { ok: false, blur, focus, lighting, reflection, motion, guidance: 'Hold device steady — motion detected' };
   }
   if (m.contrast < 0.08 || !m.exposureOk) {

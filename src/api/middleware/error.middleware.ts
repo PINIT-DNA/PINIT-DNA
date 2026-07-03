@@ -32,6 +32,17 @@ export function errorMiddleware(
     return;
   }
 
+  // Vault storage / decryption — surface actionable message (share links, downloads)
+  if (
+    err.message.includes('Vault file unavailable')
+    || err.message.includes('Vault decrypt failed')
+    || err.message.includes('Supabase download failed')
+    || err.message.includes('SUPABASE_URL')
+  ) {
+    res.status(503).json({ success: false, error: err.message });
+    return;
+  }
+
   logger.error('Unhandled error', { error: err.message, stack: err.stack });
   res.status(500).json({ success: false, error: 'Internal server error' });
 }

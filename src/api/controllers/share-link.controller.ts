@@ -24,6 +24,8 @@ import { auditService }     from '../../services/audit/audit.service';
 import { resolveClientIp, buildShareUrl, dumpIpHeaders, resolvePublicBaseUrl } from '../../lib/request-utils';
 import { sanitizeCoordinatePair } from '../../lib/geo-coords';
 import { getAuthUserId } from '../../lib/tenant-scope';
+import { isSupabaseStorageConfigured } from '../../lib/supabase-storage';
+import { AppError } from '../middleware/error.middleware';
 
 /** Parse GPS + address fields from share access POST body. */
 function parseAccessGps(body: Record<string, unknown>) {
@@ -459,7 +461,10 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
     const sessionId = (req.headers['x-pinit-session'] as string | undefined) ?? undefined;
     const deviceFingerprint = (req.headers['x-pinit-fingerprint'] as string | undefined) ?? undefined;
 
-    if (await shareLinkService.isViewerBlocked(fullLink.id, { deviceFingerprint, sessionId, ipAddress: realIp })) {
+    if (await shareLinkService.isViewerBlocked(fullLink.id, { deviceFingerprint, sessionId, ipAddress: realIp }).catch((err) => {
+      logger.warn('[SmartLink] isViewerBlocked check failed — allowing access', { token, error: String(err) });
+      return false;
+    })) {
       res.status(403).json({
         success: false,
         error: 'Your access to this link has been revoked by the owner',
@@ -498,6 +503,16 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
     }
 
     // Audit file delivery — client POST /access records the tracked VIEWED event with GPS
+    if (process.env['NODE_ENV'] === 'production' && !isSupabaseStorageConfigured()) {
+      throw new AppError(
+        503,
+        'Vault storage is not configured on the server. Set SUPABASE_URL and SUPABASE_SERVICE_KEY in Render environment variables.',
+      );
+    }
+
+    // Retrieve decrypted file from vault and stream it (public — no owner auth gate)
+    const result = await vaultService.retrieve(fullLink.vaultId);
+
     await shareLinkService.recordAccess({
       shareLinkId: fullLink.id,
       action:      'FILE_SERVED',
@@ -506,17 +521,19 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
       referrer:    req.headers['referer'],
       sessionId,
       deviceFingerprint,
+    }).catch((err) => {
+      logger.warn('[SmartLink] FILE_SERVED audit log failed (non-fatal)', { token, error: String(err) });
     });
-
-    // Retrieve decrypted file from vault and stream it
-    const result = await vaultService.retrieve(fullLink.vaultId);
 
     // ── File tamper check: re-hash decrypted buffer and compare with stored DNA hash ──
     const tamperResult = await shareLinkService.checkFileTamper(
       fullLink.dnaRecordId, fullLink.vaultId, result.originalBuffer,
       token, realIp ?? undefined,
       req.headers['user-agent'] ?? undefined
-    );
+    ).catch((err) => {
+      logger.warn('[TamperDetection] checkFileTamper failed (non-fatal)', { token, error: String(err) });
+      return { tampered: false };
+    });
     if (tamperResult.tampered) {
       // Hash mismatch is expected when identity embedding is active (modifies file before encryption).
       // Log for forensic audit but do NOT block file serving.

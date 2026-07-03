@@ -23,7 +23,15 @@ services:
       - key: LSB_SIGNATURE_SECRET
         generateValue: true
       - key: VAULT_MASTER_SECRET
-        generateValue: true
+        sync: false
+      # MUST match the secret used when files were vaulted (same value as local .env).
+      # Do NOT rotate without re-encrypting all vault files.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SHARE_HMAC_SECRET
+        sync: false
       - key: VAULT_STORAGE_DIR
         value: ./vault/encrypted
       - key: UPLOAD_TEMP_DIR

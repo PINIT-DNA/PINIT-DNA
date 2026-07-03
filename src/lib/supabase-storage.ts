@@ -68,20 +68,55 @@ export async function uploadVaultFile(vaultId: string, buffer: Buffer, ownerUser
   return storagePath;
 }
 
+/** True when Supabase Storage env vars are present (required in production). */
+export function isSupabaseStorageConfigured(): boolean {
+  const url = process.env['SUPABASE_URL']?.trim() ?? '';
+  const key = process.env['SUPABASE_SERVICE_KEY']?.trim()
+    || process.env['SUPABASE_ANON_KEY']?.trim()
+    || '';
+  return Boolean(url && key);
+}
+
+/** Normalise a DB-stored path to a Supabase object key. */
+export function normalizeVaultStoragePath(storedPath: string, vaultId: string): string {
+  const norm = storedPath.replace(/\\/g, '/');
+  // Already a bucket-relative key, e.g. "{ownerUserId}/{vaultId}.enc"
+  if (!norm.includes(':') && norm.endsWith('.enc') && !norm.startsWith('/')) {
+    return norm;
+  }
+  const base = norm.split('/').filter(Boolean).pop();
+  return base?.endsWith('.enc') ? base : `${vaultId}.enc`;
+}
+
+/** Download encrypted buffer from Supabase Storage by object key. */
+export async function downloadVaultFileByPath(storagePath: string): Promise<Buffer> {
+  const { data, error } = await getClient().storage.from(BUCKET).download(storagePath);
+  if (error || !data) {
+    throw new Error(`Supabase download failed: ${error?.message ?? `no data for ${storagePath}`}`);
+  }
+  const arrayBuffer = await data.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
 /** Download encrypted buffer from Supabase Storage. */
-export async function downloadVaultFile(vaultId: string, ownerUserId?: string): Promise<Buffer> {
-  const paths = ownerUserId
-    ? [`${ownerUserId}/${vaultId}.enc`, `${vaultId}.enc`]
-    : [`${vaultId}.enc`];
+export async function downloadVaultFile(
+  vaultId: string,
+  ownerUserId?: string,
+  extraPaths: string[] = [],
+): Promise<Buffer> {
+  const paths = [
+    ...extraPaths.map((p) => normalizeVaultStoragePath(p, vaultId)),
+    ownerUserId ? `${ownerUserId}/${vaultId}.enc` : null,
+    `${vaultId}.enc`,
+  ].filter((p, i, arr): p is string => Boolean(p) && arr.indexOf(p) === i);
 
   let lastError: Error | null = null;
   for (const storagePath of paths) {
-    const { data, error } = await getClient().storage.from(BUCKET).download(storagePath);
-    if (!error && data) {
-      const arrayBuffer = await data.arrayBuffer();
-      return Buffer.from(arrayBuffer);
+    try {
+      return await downloadVaultFileByPath(storagePath);
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
     }
-    lastError = error ? new Error(error.message) : new Error(`No data for ${storagePath}`);
   }
 
   throw new Error(`Supabase download failed: ${lastError?.message ?? 'unknown'}`);

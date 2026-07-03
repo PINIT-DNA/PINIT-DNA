@@ -1,36 +1,50 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
-import { analyzeDocumentFrame, sampleVideoFrame } from '../lib/document-frame-analyzer';
+import { analyzeDocumentFrame, sampleVideoFrame, type FrameMetrics } from '../lib/document-frame-analyzer';
 
 export type AutoScanPhase = 'idle' | 'warming' | 'searching' | 'locking' | 'captured' | 'paused';
 
+interface CaptureProfileConfig {
+  warmupMs: number;
+  intervalMs: number;
+  /** Continuous stability window before auto-capture (ms). */
+  stableMsRequired: number;
+  motionMax: number;
+  requireQuality: boolean;
+  /** Force capture after this wait if quality is acceptable (ms). */
+  maxWaitMs: number;
+}
+
 /** Fast multi-page document scanning */
-const FAST = {
-  warmupMs: 600,
-  intervalMs: 120,
-  stableFramesRequired: 5,
-  motionMax: 0.04,
+const FAST: CaptureProfileConfig = {
+  warmupMs: 400,
+  intervalMs: 80,
+  stableMsRequired: 500,
+  motionMax: 0.14,
   requireQuality: false,
+  maxWaitMs: 3000,
 };
 
 /**
  * Forensic single capture (Unified Investigation) — balanced speed + quality.
- * ~2–3s typical; manual "Capture Now" always available.
+ * Manual "Capture Now" always available.
  */
-const FORENSIC = {
-  warmupMs: 800,
-  intervalMs: 100,
-  stableFramesRequired: 6,
-  motionMax: 0.028,
+const FORENSIC: CaptureProfileConfig = {
+  warmupMs: 500,
+  intervalMs: 80,
+  stableMsRequired: 650,
+  motionMax: 0.12,
   requireQuality: true,
+  maxWaitMs: 3000,
 };
 
 /** Mobile / screen-photo capture — relaxed detection, still quality-aware */
-const SCREEN = {
-  warmupMs: 600,
-  intervalMs: 100,
-  stableFramesRequired: 5,
-  motionMax: 0.045,
+const SCREEN: CaptureProfileConfig = {
+  warmupMs: 400,
+  intervalMs: 80,
+  stableMsRequired: 600,
+  motionMax: 0.14,
   requireQuality: true,
+  maxWaitMs: 3000,
 };
 
 /** Frames must differ from last capture by at least this much before another auto-shot. */
@@ -47,7 +61,7 @@ interface Options {
   profile?: AutoCaptureProfile;
 }
 
-function resolveProfile(profile: AutoCaptureProfile) {
+function resolveProfile(profile: AutoCaptureProfile): CaptureProfileConfig {
   if (profile === 'forensic') return FORENSIC;
   if (profile === 'screen') return SCREEN;
   return FAST;
@@ -58,6 +72,26 @@ function frameChangeScore(current: Float32Array, baseline: Float32Array): number
   const n = Math.min(current.length, baseline.length);
   for (let i = 0; i < n; i++) diff += Math.abs(current[i]! - baseline[i]!);
   return diff / n / 255;
+}
+
+/** Relaxed quality bar for capture — no motion requirement (stability handled live). */
+function isQualityAcceptable(metrics: FrameMetrics, captureProfile: AutoCaptureProfile): boolean {
+  if (captureProfile === 'screen') {
+    return (
+      metrics.exposureOk &&
+      metrics.glare < 0.35 &&
+      metrics.sharpness >= 0.07 &&
+      metrics.contrast >= 0.06
+    );
+  }
+  return (
+    metrics.documentPresent &&
+    metrics.exposureOk &&
+    metrics.glare < 0.28 &&
+    metrics.sharpness >= 0.09 &&
+    metrics.contrast >= 0.08 &&
+    metrics.edgeDensity >= 0.015
+  );
 }
 
 export function useAutoDocumentCapture(
@@ -74,7 +108,8 @@ export function useAutoDocumentCapture(
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const prevLumRef = useRef<Float32Array | null>(null);
   const lastCaptureLumRef = useRef<Float32Array | null>(null);
-  const stableCountRef = useRef(0);
+  const stableSinceRef = useRef<number | null>(null);
+  const readySinceRef = useRef<number | null>(null);
   const armedRef = useRef(true);
   const onCaptureRef = useRef(onCapture);
   onCaptureRef.current = onCapture;
@@ -82,7 +117,8 @@ export function useAutoDocumentCapture(
   const armNextCapture = useCallback(() => {
     armedRef.current = true;
     setArmed(true);
-    stableCountRef.current = 0;
+    stableSinceRef.current = null;
+    readySinceRef.current = null;
     prevLumRef.current = null;
     setPhase('searching');
     setHint('Align next page in the frame');
@@ -90,7 +126,8 @@ export function useAutoDocumentCapture(
   }, []);
 
   const notifyCaptured = useCallback((luminance?: Float32Array | null) => {
-    stableCountRef.current = 0;
+    stableSinceRef.current = null;
+    readySinceRef.current = null;
     prevLumRef.current = null;
     if (luminance) {
       lastCaptureLumRef.current = new Float32Array(luminance);
@@ -116,7 +153,8 @@ export function useAutoDocumentCapture(
   const resetCapture = useCallback(() => {
     armedRef.current = true;
     setArmed(true);
-    stableCountRef.current = 0;
+    stableSinceRef.current = null;
+    readySinceRef.current = null;
     prevLumRef.current = null;
     lastCaptureLumRef.current = null;
     setPhase('searching');
@@ -129,7 +167,8 @@ export function useAutoDocumentCapture(
       setPhase('idle');
       setProgress(0);
       setHint('Opening camera…');
-      stableCountRef.current = 0;
+      stableSinceRef.current = null;
+      readySinceRef.current = null;
       prevLumRef.current = null;
       armedRef.current = true;
       setArmed(true);
@@ -147,10 +186,21 @@ export function useAutoDocumentCapture(
       : profile === 'screen'
         ? 'Point at your vault screen — tap Capture Now anytime'
         : 'Point camera at document…');
-    stableCountRef.current = 0;
+    stableSinceRef.current = null;
+    readySinceRef.current = null;
     prevLumRef.current = null;
     armedRef.current = true;
     setArmed(true);
+
+    const fireCapture = (luminance: Float32Array) => {
+      try {
+        navigator.vibrate?.(40);
+      } catch {
+        /* unsupported */
+      }
+      onCaptureRef.current();
+      notifyCaptured(luminance);
+    };
 
     const tick = () => {
       const video = videoRef.current;
@@ -174,8 +224,13 @@ export function useAutoDocumentCapture(
         return;
       }
 
+      if (readySinceRef.current === null) {
+        readySinceRef.current = now;
+      }
+
       const frame = sampleVideoFrame(video, canvasRef.current!);
       if (!frame) {
+        stableSinceRef.current = null;
         setPhase('searching');
         setHint('Adjust lighting and hold document in frame');
         setProgress(0);
@@ -188,7 +243,7 @@ export function useAutoDocumentCapture(
       if (lastCaptureLumRef.current) {
         const change = frameChangeScore(luminance, lastCaptureLumRef.current);
         if (change < MIN_CHANGE_AFTER_CAPTURE) {
-          stableCountRef.current = 0;
+          stableSinceRef.current = null;
           setPhase('searching');
           setHint('Move to a new page or tap Scan Next Page');
           setProgress(0);
@@ -197,7 +252,7 @@ export function useAutoDocumentCapture(
       }
 
       if (!metrics.documentPresent && profile !== 'screen') {
-        stableCountRef.current = 0;
+        stableSinceRef.current = null;
         setPhase('searching');
         setHint(profile === 'forensic'
           ? 'Center the file in the frame'
@@ -207,49 +262,58 @@ export function useAutoDocumentCapture(
       }
 
       const isStable = metrics.motion < cfg.motionMax;
+      const qualityOk = !cfg.requireQuality || isQualityAcceptable(metrics, profile);
+      const waitedMs = now - (readySinceRef.current ?? now);
+      const timedOut = waitedMs >= cfg.maxWaitMs;
 
       if (!isStable) {
-        stableCountRef.current = 0;
+        stableSinceRef.current = null;
         setPhase('searching');
-        setHint('Hold steady — reduce shake');
-        setProgress(0);
+        setHint('Hold still — almost there…');
+        setProgress(Math.min(40, Math.round(metrics.qualityScore * 40)));
         return;
       }
 
-      if (cfg.requireQuality && !metrics.qualityOk) {
-        stableCountRef.current = 0;
+      if (stableSinceRef.current === null) {
+        stableSinceRef.current = now;
+      }
+      const stableMs = now - stableSinceRef.current;
+
+      if (cfg.requireQuality && !qualityOk && !timedOut) {
         setPhase('searching');
-        if (metrics.sharpness < 0.14) {
-          setHint('Hold steady — image too blurry');
-        } else if (metrics.glare > 0.2) {
-          setHint('Glare detected — tilt device to reduce reflection');
+        if (metrics.sharpness < 0.09) {
+          setHint('Move closer or improve focus');
+        } else if (metrics.glare > 0.22) {
+          setHint('Tilt device slightly to reduce glare');
         } else if (!metrics.exposureOk) {
-          setHint('Adjust lighting — document over or under exposed');
-        } else if (metrics.contrast < 0.11) {
-          setHint('Improve lighting — document not clear enough');
+          setHint('Adjust lighting — too dark or bright');
         } else {
-          setHint('Center entire document in frame');
+          setHint('Center the document in the frame');
         }
         setProgress(Math.round(metrics.qualityScore * 50));
         return;
       }
 
-      stableCountRef.current += 1;
-      const pct = Math.min(100, Math.round((stableCountRef.current / cfg.stableFramesRequired) * 100));
+      const stablePct = Math.min(100, Math.round((stableMs / cfg.stableMsRequired) * 100));
+      const waitPct = Math.min(100, Math.round((waitedMs / cfg.maxWaitMs) * 100));
+      const pct = Math.max(stablePct, timedOut ? waitPct : 0);
+
       setProgress(pct);
       setPhase('locking');
-      setHint(profile === 'forensic'
-        ? pct >= 85 ? 'Perfect — capturing…' : 'Sharp frame detected — hold steady…'
-        : 'Document detected — hold steady…');
+      setHint(
+        timedOut && qualityOk
+          ? 'Capturing now…'
+          : pct >= 85
+            ? 'Perfect — capturing…'
+            : 'Document detected — hold steady…',
+      );
 
-      if (stableCountRef.current >= cfg.stableFramesRequired) {
-        try {
-          navigator.vibrate?.(40);
-        } catch {
-          /* unsupported */
-        }
-        onCaptureRef.current();
-        notifyCaptured(luminance);
+      const shouldCapture =
+        (stableMs >= cfg.stableMsRequired && qualityOk) ||
+        (timedOut && qualityOk);
+
+      if (shouldCapture) {
+        fireCapture(luminance);
       }
     };
 

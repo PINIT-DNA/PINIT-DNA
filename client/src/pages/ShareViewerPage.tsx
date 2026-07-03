@@ -126,6 +126,27 @@ function shareTrackingHeaders() {
   };
 }
 
+/** Axios blob responses return JSON errors as Blob — parse for a readable message. */
+async function extractApiError(err: unknown): Promise<string | undefined> {
+  const ax = err as { response?: { data?: unknown } };
+  const data = ax.response?.data;
+  if (!data) return undefined;
+  if (typeof data === 'object' && data !== null && 'error' in data) {
+    const msg = (data as { error?: unknown }).error;
+    return typeof msg === 'string' ? msg : undefined;
+  }
+  if (data instanceof Blob) {
+    try {
+      const text = await data.text();
+      const parsed = JSON.parse(text) as { error?: string };
+      return typeof parsed.error === 'string' ? parsed.error : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 export function ShareViewerPage() {
   const { token } = useParams<{ token: string }>();
   const [info, setInfo]           = useState<LinkInfo | null>(null);
@@ -490,19 +511,21 @@ export function ShareViewerPage() {
       .then(({ data }) => {
         fileBlobRef.current = data;
         const url = URL.createObjectURL(data);
+        setFileLoadError(null);
         setFileUrl(url);
       })
-      .catch((err) => {
+      .catch(async (err) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const status = (err as any)?.response?.status;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const msg    = (err as any)?.response?.data?.error;
+        const msg    = await extractApiError(err);
         if (status === 403) {
           setFileLoadError(msg ?? 'Access denied: your country, device, or IP is not permitted by the sender\'s policy.');
         } else if (status === 410) {
           setFileLoadError(msg ?? 'This link has been revoked or has reached its download limit.');
+        } else if (status === 503) {
+          setFileLoadError(msg ?? 'The file could not be loaded from vault storage. The server may need configuration.');
         } else {
-          setFileLoadError('Failed to load the file. The server may be unreachable.');
+          setFileLoadError(msg ?? 'Failed to load the file. The server may be unreachable.');
         }
       });
   }, [info, nameSubmitted, token]);
