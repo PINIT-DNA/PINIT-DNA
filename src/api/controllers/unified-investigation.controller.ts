@@ -6,7 +6,27 @@ import { Request, Response, NextFunction } from 'express';
 import fs from 'fs/promises';
 import { AppError } from '../middleware/error.middleware';
 import { getAuthUserId } from '../../lib/tenant-scope';
+import { logger } from '../../lib/logger';
 import { unifiedInvestigationOrchestrator } from '../../services/forensics/unified-investigation.orchestrator';
+
+function writeSse(res: Response, payload: unknown): void {
+  if (res.writableEnded) return;
+  try {
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  } catch (e) {
+    logger.warn('[UnifiedInvestigate] SSE write failed', { error: String(e) });
+  }
+}
+
+function endSse(res: Response): void {
+  if (!res.writableEnded) {
+    try {
+      res.end();
+    } catch {
+      /* already closed */
+    }
+  }
+}
 
 export async function unifiedInvestigate(
   req: Request,
@@ -49,13 +69,20 @@ export async function unifiedInvestigate(
           userId,
           {
             onProgress: (event) => {
-              res.write(`data: ${JSON.stringify(event)}\n\n`);
+              writeSse(res, event);
             },
           },
         );
 
-        res.write(`data: ${JSON.stringify({ type: 'complete', report })}\n\n`);
-        res.end();
+        writeSse(res, { type: 'complete', report });
+        endSse(res);
+      } catch (err) {
+        logger.error('[UnifiedInvestigate] Stream investigation error', { error: String(err) });
+        writeSse(res, {
+          type: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        });
+        endSse(res);
       } finally {
         clearInterval(heartbeat);
       }
@@ -70,9 +97,9 @@ export async function unifiedInvestigate(
     );
     res.status(200).json({ success: true, report });
   } catch (err) {
-    if (stream && !res.headersSent) {
-      res.write(`data: ${JSON.stringify({ type: 'error', message: String(err) })}\n\n`);
-      res.end();
+    if (stream) {
+      writeSse(res, { type: 'error', message: String(err) });
+      endSse(res);
       return;
     }
     next(err);

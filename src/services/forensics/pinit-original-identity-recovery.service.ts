@@ -18,10 +18,9 @@ import { vaultSimilarityVectorService } from './vault-similarity-vector.service'
 import { enterpriseRetrievalEngine } from './enterprise-retrieval-engine.service';
 import type { LocalDnaSearchHit } from './vault-local-dna-search.service';
 import { localDnaConfig } from '../../config/local-dna';
-import { deepVaultCompareService, type DeepCompareResult } from './deep-vault-compare.service';
+import { deepVaultCompareService } from './deep-vault-compare.service';
 import { confidenceFusionEngine, FORENSIC_VERDICT_LABELS } from './confidence-fusion-engine.service';
 import { REPORT_STATE_LABELS } from './investigation-decision-resolver.service';
-import { vaultCandidateRankingService } from './vault-candidate-ranking.service';
 import { pinitIdentificationConfig } from '../../config/pinit-identification';
 import { investigationPerformanceConfig, clampCandidatePool } from '../../config/investigation-performance';
 import { runParallelForensicRecovery } from './parallel-forensic-recovery.service';
@@ -35,30 +34,17 @@ import type {
   RecoveryStage,
   RecoveredIdentitySignal,
 } from './pinit-identification-engine.service';
-
-function deepCompareToMatch(deep: DeepCompareResult, ownerUserId: string): VaultMatchResult {
-  return {
-    tier: 4,
-    method: `15-layer DNA compare (${deep.overallConfidenceScore}%)`,
-    dnaRecordId: deep.dnaRecordId,
-    vaultId: deep.vaultId,
-    ownerUserId,
-    confidence: String(deep.overallConfidenceScore),
-    visualSimilarity: deep.overallConfidenceScore / 100,
-  };
-}
-
-function localHitToMatch(hit: LocalDnaSearchHit, score: number): VaultMatchResult {
-  return {
-    tier: 3,
-    method: `Local patch DNA (${hit.patchMatchCount} patches)`,
-    dnaRecordId: hit.dnaRecordId,
-    vaultId: hit.vaultId,
-    ownerUserId: hit.ownerUserId,
-    confidence: String(score),
-    visualSimilarity: (hit.orbRefineScore || score) / 100,
-  };
-}
+import {
+  logVaultRecordsLoaded,
+  logVectorScores,
+} from './investigation-pipeline-audit.service';
+import type { RetrievalSelectionStep } from '../../types/investigation-pipeline-audit.types';
+import type { AuthoritativeAsset } from '../../types/authoritative-asset.types';
+import {
+  buildAuthoritativeAsset,
+  deepCompareForVault,
+  selectAuthoritativeMatch,
+} from './authoritative-asset.service';
 
 function logCandidateStage(
   stage: string,
@@ -216,28 +202,82 @@ export class PinitOriginalIdentityRecoveryService {
 
     logger.info('[PinitOIR] Exact hash fast path', { dnaRecordId: exact.id.slice(0, 8) });
 
+    const authoritativeAsset = await buildAuthoritativeAsset({
+      selection: { match, source: 'sha256_exact' },
+      candidates,
+      vectors: [{
+        vaultId: match.vaultId,
+        dnaRecordId: match.dnaRecordId,
+        ownerUserId: match.ownerUserId,
+        filename: exact.imageFilename,
+        scores: {
+          sha256: 100, pHash: 100, aHash: 100, dHash: 100, perceptualBlend: 100,
+          structural: 100, semanticColor: 100, clip: 100, orb: 100, aspectRatio: 100, composite: 100,
+        },
+        signals: ['cryptographic_hash'],
+      }],
+      deepCompareResults: [],
+      localDnaHit: null,
+      ownerUserId: exact.ownerUserId ?? ownerUserId,
+    });
+
+    let certificateScore = 0;
+    if (authoritativeAsset.certificateId) {
+      const v = await certificateService.verify(authoritativeAsset.certificateId);
+      certificateScore = v.valid ? 95 : 40;
+    }
+
+    const fusionWithCert = confidenceFusionEngine.fuse({
+      sha256Score: 100,
+      dna15LayerScore: 100,
+      certificateScore,
+      watermarkScore: 0,
+      identityTokenScore: 0,
+      match,
+      candidate: candidates[0] ?? null,
+      vaultVectorComposite: 100,
+    });
+
     return {
       match,
       probableMatch: null,
       verifiedCandidate: match,
       bestCandidate: match,
+      authoritativeAsset,
       reportState: 'VERIFIED' as const,
       reportStateReason: 'SHA-256 exact hash match',
       candidates,
-      fusion,
+      fusion: fusionWithCert,
       stages,
       variantCount: 1,
       manifestRecovered: false,
       identityTokenRecovered: false,
       watermarkRecovered: false,
       identified: true,
-      highConfidence: fusion.highConfidence,
+      highConfidence: fusionWithCert.highConfidence,
       recoveredSignals: [{ stage: STAGE.FORENSIC, score: 100, recovered: true, detail: 'SHA-256 exact' }],
       deepCompareResults: [],
-      certificateId: null,
-      ownerShortId: exact.ownerUser?.shortId ?? null,
+      certificateId: authoritativeAsset.certificateId,
+      ownerShortId: authoritativeAsset.ownerPinitId,
       tamperingSummary: 'Byte-identical to vault original',
       bestDeepCompare: null,
+      auditContext: {
+        vectors: [{
+          vaultId: match.vaultId,
+          dnaRecordId: match.dnaRecordId,
+          ownerUserId: match.ownerUserId,
+          filename: exact.imageFilename,
+          scores: {
+            sha256: 100, pHash: 100, aHash: 100, dHash: 100, perceptualBlend: 100,
+            structural: 100, semanticColor: 100, clip: 100, orb: 100, aspectRatio: 100, composite: 100,
+          },
+          signals: ['cryptographic_hash'],
+        }],
+        vaultRecordIds: [match.vaultId],
+        selectionSteps: [{ stage: 'sha256_exact', vaultId: match.vaultId, dnaRecordId: match.dnaRecordId, detail: 'Exact hash fast path' }],
+        identityHit: match,
+        localDnaHit: null,
+      },
     };
   }
 
@@ -289,6 +329,8 @@ export class PinitOriginalIdentityRecoveryService {
     let identityHit: VaultMatchResult | null = null;
     let certificateId: string | null = null;
     let ownerShortId: string | null = null;
+    const selectionSteps: RetrievalSelectionStep[] = [];
+    let vaultRecordIdsLoaded: string[] = [];
 
     const useFullRetrieval = !twoStage && (options?.retrievalMode || !options?.investigationMode);
 
@@ -594,6 +636,13 @@ export class PinitOriginalIdentityRecoveryService {
 
     if (twoStage && !isExactVaultMatch) {
       candidateVaultIds = fastVectors.map((v) => v.vaultId);
+      if (candidateVaultIds.length) {
+        logVaultRecordsLoaded(ownerUserId, candidateVaultIds);
+        selectionSteps.push({
+          stage: 'fast_filter',
+          detail: `${candidateVaultIds.length} vault records from fast vector filter`,
+        });
+      }
       if (identityHit?.vaultId && !candidateVaultIds.includes(identityHit.vaultId)) {
         candidateVaultIds.unshift(identityHit.vaultId);
       }
@@ -862,19 +911,68 @@ export class PinitOriginalIdentityRecoveryService {
     });
 
     const topVector = vectors[0] ?? null;
-    const secondVector = vectors[1] ?? null;
 
-    // ═══ Stage 5 — 15-layer DNA compare on Top N ════════════════════════════
+    vaultRecordIdsLoaded = vectors.map((v) => v.vaultId);
+    logVaultRecordsLoaded(ownerUserId, vaultRecordIdsLoaded);
+    logVectorScores(vectors);
+    selectionSteps.push({
+      stage: 'vault_vector_scoring',
+      detail: `${vectors.length} vault records scored — top composite ${topVector?.scores.composite ?? 0}%`,
+    });
+    if (identityHit) {
+      selectionSteps.push({
+        stage: 'identity_hit',
+        vaultId: identityHit.vaultId,
+        dnaRecordId: identityHit.dnaRecordId,
+        detail: identityHit.method,
+      });
+    }
+    if (localDnaHit) {
+      selectionSteps.push({
+        stage: 'local_patch_dna',
+        vaultId: localDnaHit.vaultId,
+        dnaRecordId: localDnaHit.dnaRecordId,
+        detail: `patchVotes=${localDnaHit.patchMatchCount} score=${localDnaScore} orb=${localDnaHit.orbRefineScore ?? 0}`,
+      });
+    }
+
+    // ═══ Stage 5 — Authoritative asset selection + 15-layer DNA on that vault only ═══
     let deepCompareResults: Awaited<ReturnType<typeof deepVaultCompareService.compareTopCandidates>> = [];
-    let bestDeep: (typeof deepCompareResults)[0] | null = null;
+    let authoritativeAsset: AuthoritativeAsset | null = null;
     let dna15Score = isExactVaultMatch ? 100 : 0;
 
-    if (isExactVaultMatch) {
+    const preliminarySelection = selectAuthoritativeMatch({
+      identityHit,
+      candidates,
+      localDnaHit,
+      localDnaScore,
+      deepCompare: null,
+      isExactVaultMatch,
+      ownerUserId,
+    });
+
+    selectionSteps.push({
+      stage: 'authoritative_preselection',
+      vaultId: preliminarySelection?.match.vaultId,
+      dnaRecordId: preliminarySelection?.match.dnaRecordId,
+      detail: preliminarySelection?.source ?? 'none',
+    });
+
+    if (isExactVaultMatch && preliminarySelection) {
       stages.push({
         stage: STAGE.DEEP_COMPARE,
         status: 'skipped',
         detail: 'SHA-256 exact match — 15-layer compare skipped',
       });
+      authoritativeAsset = await buildAuthoritativeAsset({
+        selection: preliminarySelection,
+        candidates,
+        vectors,
+        deepCompareResults: [],
+        localDnaHit,
+        ownerUserId,
+      });
+      dna15Score = 100;
     } else {
       timer.start('deep_dna_compare');
       emit({ type: 'timeline', stepId: 'deep_dna_compare', label: 'Deep DNA Compare', status: 'running' });
@@ -884,11 +982,16 @@ export class PinitOriginalIdentityRecoveryService {
         statusMessage: 'Running 15-layer forensic verification…',
       });
 
-      let deepCandidates = candidates;
-      const deepTopN = twoStage && hasStrongIdentityAnchor
+      const deepTopN = preliminarySelection
         ? 1
-        : (options?.deepCompareTopN ?? pinitIdentificationConfig.deepCompareTopN);
-      if (twoStage && hasStrongIdentityAnchor && identityHit) {
+        : (twoStage && hasStrongIdentityAnchor
+          ? 1
+          : (options?.deepCompareTopN ?? pinitIdentificationConfig.deepCompareTopN));
+
+      let deepCandidates = preliminarySelection
+        ? candidates.filter((c) => c.vaultId === preliminarySelection.match.vaultId)
+        : candidates;
+      if (twoStage && hasStrongIdentityAnchor && identityHit && !preliminarySelection) {
         deepCandidates = candidates.filter((c) => c.vaultId === identityHit!.vaultId);
       }
 
@@ -899,16 +1002,47 @@ export class PinitOriginalIdentityRecoveryService {
         investigationPerformanceConfig.deepCompareTimeoutMs,
         'deep_dna_compare',
       ) ?? [];
-      bestDeep = deepCompareResults[0] ?? null;
-      dna15Score = bestDeep?.overallConfidenceScore ?? 0;
 
-      if (bestDeep) {
+      const authoritativeDeep = preliminarySelection
+        ? deepCompareForVault(deepCompareResults, preliminarySelection.match.vaultId)
+        : deepCompareResults[0] ?? null;
+
+      const finalSelection = preliminarySelection ?? selectAuthoritativeMatch({
+        identityHit,
+        candidates,
+        localDnaHit,
+        localDnaScore,
+        deepCompare: authoritativeDeep,
+        isExactVaultMatch,
+        ownerUserId,
+      });
+
+      if (finalSelection) {
+        authoritativeAsset = await buildAuthoritativeAsset({
+          selection: finalSelection,
+          candidates,
+          vectors,
+          deepCompareResults,
+          localDnaHit,
+          ownerUserId,
+        });
+        dna15Score = authoritativeAsset.deepCompare?.overallConfidenceScore ?? 0;
+        selectionSteps.push({
+          stage: 'authoritative_asset_locked',
+          vaultId: authoritativeAsset.vaultId,
+          dnaRecordId: authoritativeAsset.dnaRecordId,
+          certificateId: authoritativeAsset.certificateId,
+          detail: `source=${authoritativeAsset.selectionSource} file=${authoritativeAsset.originalFilename}`,
+        });
+      }
+
+      if (authoritativeAsset?.deepCompare) {
         emitPhase({
           phase: 3,
           deepVerificationRunning: false,
-          dnaMatchPercent: bestDeep.overallConfidenceScore,
-          confidence: bestDeep.overallConfidenceScore,
-          statusMessage: `15-layer DNA: ${bestDeep.overallConfidenceScore}% — ${bestDeep.classification}`,
+          dnaMatchPercent: authoritativeAsset.deepCompare.overallConfidenceScore,
+          confidence: authoritativeAsset.deepCompare.overallConfidenceScore,
+          statusMessage: `15-layer DNA: ${authoritativeAsset.deepCompare.overallConfidenceScore}% — ${authoritativeAsset.deepCompare.classification}`,
         });
       }
 
@@ -917,75 +1051,49 @@ export class PinitOriginalIdentityRecoveryService {
         type: 'timeline',
         stepId: 'deep_dna_compare',
         label: 'Deep DNA Compare',
-        status: bestDeep ? 'complete' : 'skipped',
+        status: authoritativeAsset?.deepCompare ? 'complete' : 'skipped',
         elapsedMs: timer.getTimings().find((t) => t.stage === 'deep_dna_compare')?.durationMs,
       });
 
       stages.push({
         stage: STAGE.DEEP_COMPARE,
-        status: bestDeep ? 'complete' : 'skipped',
-        detail: bestDeep
-          ? `15-layer compare: ${bestDeep.overallConfidenceScore}% (${bestDeep.classification}) · ${bestDeep.matchedLayerCount}/${bestDeep.totalLayers} layers`
+        status: authoritativeAsset?.deepCompare ? 'complete' : 'skipped',
+        detail: authoritativeAsset?.deepCompare
+          ? `15-layer compare: ${authoritativeAsset.deepCompare.overallConfidenceScore}% (${authoritativeAsset.deepCompare.classification}) · ${authoritativeAsset.deepCompare.matchedLayerCount}/${authoritativeAsset.deepCompare.totalLayers} layers`
           : 'No deep compare',
       });
     }
 
-    // Select winning vault record — priority: identity hit > vector top > deep compare
-    let match: VaultMatchResult | null = identityHit;
+    const assetVector = authoritativeAsset?.vector ?? null;
+    const secondVector = authoritativeAsset
+      ? vectors.find((v) => v.vaultId !== authoritativeAsset!.vaultId) ?? null
+      : vectors[1] ?? null;
+    const verifiedCandidate = authoritativeAsset?.match ?? null;
 
-    if (!match && topVector && topVector.scores.composite >= 38) {
-      match = vaultCandidateRankingService.toVaultMatch(candidates[0]!);
+    certificateId = authoritativeAsset?.certificateId ?? null;
+    if (authoritativeAsset?.certificateId) {
+      const v = await certificateService.verify(authoritativeAsset.certificateId);
+      certificateScore = v.valid ? 95 : 40;
+      selectionSteps.push({
+        stage: 'certificate_lookup',
+        vaultId: authoritativeAsset.vaultId,
+        dnaRecordId: authoritativeAsset.dnaRecordId,
+        certificateId: authoritativeAsset.certificateId,
+        detail: 'Certificate from authoritative asset',
+      });
     }
+    ownerShortId = authoritativeAsset?.ownerPinitId ?? null;
 
-    if (!match && localDnaHit && localDnaScore >= 38) {
-      match = localHitToMatch(localDnaHit, localDnaScore);
-    }
-
-    if (!match && bestDeep && bestDeep.overallConfidenceScore >= 30) {
-      match = deepCompareToMatch(bestDeep, ownerUserId);
-    }
-
-    // Always preserve retrieval-selected candidate for audit (do not substitute a different vault)
-    const verifiedCandidate = match;
-    if (match) {
-      logCandidateStage('pre_fusion', match, undefined, {
+    if (verifiedCandidate) {
+      logCandidateStage('pre_fusion', verifiedCandidate, undefined, {
         dna15: dna15Score,
-        localDnaScore,
-        vectorComposite: topVector?.scores.composite,
-        bestDeepScore: bestDeep?.overallConfidenceScore,
+        localDnaScore: authoritativeAsset?.localDnaHit ? localDnaScore : 0,
+        vectorComposite: assetVector?.scores.composite,
+        bestDeepScore: authoritativeAsset?.deepCompare?.overallConfidenceScore,
       });
     }
 
-    // Prefer vector winner when deep compare is weak but vector is strong (regression fix)
-    if (topVector && match) {
-      const matchScore = Number.parseInt(match.confidence, 10) || 0;
-      if (topVector.scores.composite >= 82 && topVector.scores.composite > matchScore + 10) {
-        match = vaultCandidateRankingService.toVaultMatch(candidates[0]!);
-      }
-    }
-
-    if (match && !certificateId) {
-      const cert = await certificateService.findActiveForAsset({
-        dnaRecordId: match.dnaRecordId,
-        vaultId: match.vaultId,
-        ownerUserId: match.ownerUserId,
-      });
-      if (cert) {
-        certificateId = cert.certificateId;
-        const v = await certificateService.verify(cert.certificateId);
-        certificateScore = v.valid ? 95 : 40;
-      }
-    }
-
-    if (match && !ownerShortId) {
-      const owner = await prisma.user.findUnique({
-        where: { id: match.ownerUserId },
-        select: { shortId: true },
-      });
-      ownerShortId = owner?.shortId ?? null;
-    }
-
-    // ═══ Stage 6 — Confidence fusion ════════════════════════════════════════
+    // ═══ Stage 6 — Confidence fusion (authoritative vault scores only) ════════
     const fusion = confidenceFusionEngine.fuse({
       watermarkScore,
       identityTokenScore: Math.max(identityTokenScore, ocrScore),
@@ -993,17 +1101,21 @@ export class PinitOriginalIdentityRecoveryService {
       certificateScore,
       sha256Score,
       dna15LayerScore: dna15Score,
-      perceptualHashScore: topVector?.scores.perceptualBlend ?? 0,
-      structuralScore: topVector?.scores.structural ?? 0,
-      semanticScore: topVector?.scores.clip ?? 0,
-      localFeatureScore: Math.max(topVector?.scores.orb ?? 0, localDnaScore, localDnaHit?.orbRefineScore ?? 0),
-      localPatchScore: localDnaScore,
-      patchVoteCount: localDnaHit?.patchMatchCount ?? 0,
-      geometricScore: localDnaHit?.geometricScore ?? 0,
+      perceptualHashScore: assetVector?.scores.perceptualBlend ?? 0,
+      structuralScore: assetVector?.scores.structural ?? 0,
+      semanticScore: assetVector?.scores.clip ?? 0,
+      localFeatureScore: Math.max(
+        assetVector?.scores.orb ?? 0,
+        authoritativeAsset?.localDnaHit ? localDnaScore : 0,
+        authoritativeAsset?.localDnaHit?.orbRefineScore ?? 0,
+      ),
+      localPatchScore: authoritativeAsset?.localDnaHit ? localDnaScore : 0,
+      patchVoteCount: authoritativeAsset?.localDnaHit?.patchMatchCount ?? 0,
+      geometricScore: authoritativeAsset?.localDnaHit?.geometricScore ?? 0,
       ocrScore,
-      candidate: candidates[0] ?? null,
-      match,
-      vaultVectorComposite: topVector?.scores.composite,
+      candidate: authoritativeAsset?.rankedCandidate ?? null,
+      match: verifiedCandidate,
+      vaultVectorComposite: assetVector?.scores.composite,
     });
 
     stages.push({
@@ -1013,23 +1125,24 @@ export class PinitOriginalIdentityRecoveryService {
     });
 
     // ═══ Stage 7 — Decision (retrieval-first; identity recovery is separate) ═══
-    const margin = (topVector?.scores.composite ?? 0) - (secondVector?.scores.composite ?? 0);
-    const patchVotes = localDnaHit?.patchMatchCount ?? 0;
+    const margin = (assetVector?.scores.composite ?? 0) - (secondVector?.scores.composite ?? 0);
+    const patchVotes = authoritativeAsset?.localDnaHit?.patchMatchCount ?? 0;
     const hasForensicAnchor =
       sha256Score === 100
       || identityTokenScore >= 50
       || watermarkScore >= 50
       || manifestScore >= 50
       || ocrScore >= 65
-      || localDnaScore >= 45
+      || (authoritativeAsset?.localDnaHit && localDnaScore >= 45)
       || patchVotes >= 20
-      || (topVector?.scores.orb ?? 0) >= 45
-      || (topVector?.scores.perceptualBlend ?? 0) >= 52
-      || (topVector?.scores.structural ?? 0) >= 55
+      || (assetVector?.scores.orb ?? 0) >= 45
+      || (assetVector?.scores.perceptualBlend ?? 0) >= 52
+      || (assetVector?.scores.structural ?? 0) >= 55
       || dna15Score >= 38
       || fusion.retrievalConfidence >= 50;
 
-    const filenameOnly = candidates[0]?.signals.length === 0
+    const filenameOnly = (authoritativeAsset?.rankedCandidate?.signals.length === 0
+      || (!authoritativeAsset && candidates[0]?.signals.length === 0))
       && !hasForensicAnchor;
 
     const ambiguous = margin < 3
@@ -1040,7 +1153,7 @@ export class PinitOriginalIdentityRecoveryService {
     const retrievalConf = fusion.retrievalConfidence;
 
     const retrievalIdentified =
-      !!match
+      !!verifiedCandidate
       && !filenameOnly
       && hasForensicAnchor
       && (
@@ -1091,7 +1204,7 @@ export class PinitOriginalIdentityRecoveryService {
         vaultId: verifiedCandidate.vaultId,
         dnaRecordId: verifiedCandidate.dnaRecordId,
         confidence: retrievalConf,
-        similarityScore: topVector?.scores.perceptualBlend,
+        similarityScore: assetVector?.scores.perceptualBlend,
         statusMessage: reportState === 'VERIFIED'
           ? REPORT_STATE_LABELS.VERIFIED
           : REPORT_STATE_LABELS.POSSIBLE,
@@ -1111,10 +1224,11 @@ export class PinitOriginalIdentityRecoveryService {
       });
     }
 
-    const tamperingSummary = bestDeep
-      ? bestDeep.tamperingDetected
-        ? `Tampering detected — ${bestDeep.classification} (${bestDeep.overallConfidenceScore}%)`
-        : `Content verified — ${bestDeep.classification}`
+    const authDeep = authoritativeAsset?.deepCompare ?? null;
+    const tamperingSummary = authDeep
+      ? authDeep.tamperingDetected
+        ? `Tampering detected — ${authDeep.classification} (${authDeep.overallConfidenceScore}%)`
+        : `Content verified — ${authDeep.classification}`
       : identified ? 'Identified via vault similarity vector' : null;
 
     logger.info('[PinitOIR] Recovery complete', {
@@ -1122,9 +1236,9 @@ export class PinitOriginalIdentityRecoveryService {
       retrievalConfidence: fusion.retrievalConfidence,
       forensicVerdict: fusion.forensicVerdict,
       ownershipVerification: fusion.ownershipVerificationConfidence,
-      topVector: topVector?.scores.composite,
+      authoritativeVault: authoritativeAsset?.vaultId?.slice(0, 8),
+      authoritativeSource: authoritativeAsset?.selectionSource,
       dna15: dna15Score,
-      vaultId: match?.vaultId?.slice(0, 8),
       twoStage,
       totalMs: timer.totalMs(),
     });
@@ -1136,6 +1250,7 @@ export class PinitOriginalIdentityRecoveryService {
       probableMatch: !identified && verifiedCandidate ? verifiedCandidate : null,
       verifiedCandidate,
       bestCandidate: verifiedCandidate,
+      authoritativeAsset,
       reportState,
       reportStateReason,
       candidates,
@@ -1148,12 +1263,19 @@ export class PinitOriginalIdentityRecoveryService {
       identified,
       highConfidence: fusion.highConfidence,
       recoveredSignals,
-      deepCompareResults,
+      deepCompareResults: authDeep ? [authDeep] : [],
       certificateId,
       ownerShortId,
       tamperingSummary,
-      bestDeepCompare: bestDeep,
+      bestDeepCompare: authDeep,
       stageTimings: timer.getTimings(),
+      auditContext: {
+        vectors,
+        vaultRecordIds: vaultRecordIdsLoaded,
+        selectionSteps,
+        identityHit,
+        localDnaHit,
+      },
     };
   }
 }

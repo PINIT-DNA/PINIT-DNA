@@ -186,7 +186,21 @@ export class CertificateService {
       });
       if (hinted?.status === 'ACTIVE') {
         if (!params.ownerUserId || hinted.ownerUserId === params.ownerUserId) {
-          return this.toDto(hinted);
+          if (params.vaultId && hinted.vaultId !== params.vaultId) {
+            logger.warn('Certificate hint rejected — vault mismatch', {
+              hint: params.hintCertificateId.slice(0, 12),
+              expectedVault: params.vaultId.slice(0, 8),
+              certVault: hinted.vaultId.slice(0, 8),
+            });
+          } else if (params.dnaRecordId && hinted.dnaRecordId !== params.dnaRecordId) {
+            logger.warn('Certificate hint rejected — DNA mismatch', {
+              hint: params.hintCertificateId.slice(0, 12),
+              expectedDna: params.dnaRecordId.slice(0, 8),
+              certDna: hinted.dnaRecordId.slice(0, 8),
+            });
+          } else {
+            return this.toDto(hinted);
+          }
         }
       }
     }

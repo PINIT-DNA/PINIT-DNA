@@ -5,6 +5,7 @@ import { logger } from '../../lib/logger';
 import { VaultService } from '../vault/vault.service';
 import { DnaComparisonService } from '../verification/dna-comparison.service';
 import type { RankedVaultCandidate } from '../../types/unified-investigation.types';
+import { logDeepCompareCandidate } from './investigation-pipeline-audit.service';
 
 export interface DeepCompareResult {
   vaultId: string;
@@ -14,6 +15,13 @@ export interface DeepCompareResult {
   tamperingDetected: boolean;
   matchedLayerCount: number;
   totalLayers: number;
+  /** Per-layer scores for pipeline audit trace */
+  layerComparisons?: Array<{
+    layer: number;
+    name: string;
+    similarityPercent: number;
+    matched: boolean;
+  }>;
 }
 
 export class DeepVaultCompareService {
@@ -54,7 +62,13 @@ export class DeepVaultCompareService {
         );
 
         const matchedLayerCount = cmp.layerComparisons.filter((l) => l.matched).length;
-        results.push({
+        const layerComparisons = cmp.layerComparisons.map((l) => ({
+          layer: l.layer,
+          name: l.name,
+          similarityPercent: l.similarityPercent,
+          matched: l.matched,
+        }));
+        const entry: DeepCompareResult = {
           vaultId: c.vaultId,
           dnaRecordId: c.dnaRecordId,
           overallConfidenceScore: cmp.overallConfidenceScore,
@@ -62,7 +76,10 @@ export class DeepVaultCompareService {
           tamperingDetected: cmp.tamperingDetected,
           matchedLayerCount,
           totalLayers: cmp.layerComparisons.length,
-        });
+          layerComparisons,
+        };
+        logDeepCompareCandidate(c.vaultId, c.dnaRecordId, entry);
+        results.push(entry);
       } catch (e) {
         logger.warn('Deep vault compare failed for candidate', {
           vaultId: c.vaultId,

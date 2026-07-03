@@ -26,6 +26,7 @@ import {
 import { VaultService } from '../../services/vault/vault.service';
 import { getAuthUserId } from '../../lib/tenant-scope';
 import { prisma } from '../../lib/prisma';
+import { assertVaultScope, assertDnaScope } from '../../services/forensics/authoritative-asset.service';
 
 const comparisonService = new DnaComparisonService();
 const vaultService = new VaultService();
@@ -85,7 +86,12 @@ export async function autoCompareDna(
           orbTopK: investigationPerformanceConfig.orbRefineTopK,
         },
       );
-      const candidate = recovery.match ?? recovery.probableMatch;
+      const auth = recovery.authoritativeAsset;
+      const candidate = auth?.match ?? recovery.match ?? recovery.probableMatch;
+      if (candidate && auth) {
+        assertVaultScope(auth.vaultId, candidate.vaultId, 'auto-compare:recovery_candidate');
+        assertDnaScope(auth.dnaRecordId, candidate.dnaRecordId, 'auto-compare:recovery_candidate');
+      }
       if (candidate && isTrustedVaultMatch(candidate)) {
         resolvedMatch = candidate;
       }
@@ -106,6 +112,11 @@ export async function autoCompareDna(
         fusionBreakdown: recovery?.fusion.breakdown ?? [],
       });
       return;
+    }
+
+    if (recovery?.authoritativeAsset && resolvedMatch) {
+      assertVaultScope(recovery.authoritativeAsset.vaultId, resolvedMatch.vaultId, 'auto-compare:resolved_match');
+      assertDnaScope(recovery.authoritativeAsset.dnaRecordId, resolvedMatch.dnaRecordId, 'auto-compare:resolved_match');
     }
 
     const isProbable = !recovery?.match && !!recovery?.probableMatch;

@@ -356,6 +356,7 @@ async def ocr_extract(file: UploadFile = File(...)):
         contents = await file.read()
         start    = time.time()
         image    = Image.open(io.BytesIO(contents)).convert("RGB")
+        image.info["dpi"] = (72, 72)
         text     = pytesseract.image_to_string(image, lang="eng").strip()
         ms       = round((time.time()-start)*1000,1)
 

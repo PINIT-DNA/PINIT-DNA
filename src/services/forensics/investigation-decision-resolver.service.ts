@@ -26,12 +26,14 @@ export interface InvestigationOutcome {
 }
 
 /**
- * Authoritative candidate — ONLY from enterprise retrieval decision outputs.
- * Never candidates[0], leak-verify, or deep-compare fallbacks.
+ * Authoritative candidate — ONLY from enterprise authoritativeAsset.
  */
 export function resolveAuthoritativeCandidate(
   enterprise: EnterpriseRecoveryResult,
 ): VaultMatchResult | null {
+  if (enterprise.authoritativeAsset) {
+    return enterprise.authoritativeAsset.match;
+  }
   if (enterprise.verifiedCandidate) {
     return enterprise.verifiedCandidate;
   }
@@ -64,7 +66,13 @@ export function deriveInvestigationOutcome(
   }
 
   const vaultConsistent =
-    (!enterprise.match || enterprise.match.vaultId === candidate.vaultId)
+    (!enterprise.authoritativeAsset
+      || (
+        (!enterprise.match || enterprise.match.vaultId === candidate.vaultId)
+        && (!enterprise.probableMatch || enterprise.probableMatch.vaultId === candidate.vaultId)
+        && enterprise.authoritativeAsset.vaultId === candidate.vaultId
+      ))
+    && (!enterprise.match || enterprise.match.vaultId === candidate.vaultId)
     && (!enterprise.probableMatch || enterprise.probableMatch.vaultId === candidate.vaultId);
 
   if (!vaultConsistent) {
@@ -156,7 +164,9 @@ export function shouldRetainRetrievalCandidateAsPossible(
   dnaScore: number,
   retrievalConfidence: number,
 ): boolean {
-  const anchoredVault = enterprise.verifiedCandidate?.vaultId ?? enterprise.probableMatch?.vaultId;
+  const anchoredVault = enterprise.authoritativeAsset?.vaultId
+    ?? enterprise.verifiedCandidate?.vaultId
+    ?? enterprise.probableMatch?.vaultId;
   if (!anchoredVault || anchoredVault !== match.vaultId) return false;
   if (dnaScore >= MIN_DNA_FOR_POSSIBLE_REPORT) return true;
   return retrievalConfidence >= 20 && dnaScore >= 10;

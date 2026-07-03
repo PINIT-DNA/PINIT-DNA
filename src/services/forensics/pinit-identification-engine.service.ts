@@ -7,6 +7,10 @@ import type { DeepCompareResult } from './deep-vault-compare.service';
 import type { FusionResult } from './confidence-fusion-engine.service';
 import type { VaultMatchResult } from './vault-auto-match.service';
 import type { RankedVaultCandidate } from '../../types/unified-investigation.types';
+import type { AuthoritativeAsset } from '../../types/authoritative-asset.types';
+import type { VaultSimilarityVector } from './vault-similarity-vector.service';
+import type { LocalDnaSearchHit } from './vault-local-dna-search.service';
+import type { RetrievalSelectionStep } from '../../types/investigation-pipeline-audit.types';
 
 export interface RecoveryStage {
   stage: string;
@@ -47,6 +51,16 @@ export interface PinitIdentificationResult {
   tamperingSummary: string | null;
   bestDeepCompare: DeepCompareResult | null;
   stageTimings?: Array<{ stage: string; durationMs: number; detail?: string }>;
+  /** Immutable winner — single source for vault, DNA, certificate, filename, scores */
+  authoritativeAsset: AuthoritativeAsset | null;
+  /** Structured audit context for pipeline trace */
+  auditContext?: {
+    vectors: VaultSimilarityVector[];
+    vaultRecordIds: string[];
+    selectionSteps: RetrievalSelectionStep[];
+    identityHit: VaultMatchResult | null;
+    localDnaHit: LocalDnaSearchHit | null;
+  };
 }
 
 export class PinitIdentificationEngine {

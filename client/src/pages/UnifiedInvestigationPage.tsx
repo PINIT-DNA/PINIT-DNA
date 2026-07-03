@@ -8,6 +8,7 @@ import { unifiedInvestigateStream, type InvestigationProgressEvent, type Investi
 import { cn } from '../components/ui/utils';
 import { DocumentScanner } from '../components/DocumentScanner';
 import { InvestigationLivePanel } from '../components/InvestigationLivePanel';
+import { InvestigationSideBySideCompare } from '../components/InvestigationSideBySideCompare';
 import {
   downloadInvestigationReportPdf,
   downloadDnaReportPdf,
@@ -515,6 +516,24 @@ export function UnifiedInvestigationPage() {
                 <p className="mt-1 opacity-80">{report.summary.decisionReason}</p>
               )}
             </div>
+          )}
+
+          {hasVaultMatch && (
+            <InvestigationSideBySideCompare
+              vaultId={report.owner.vaultId ?? report.identityProof.vaultId}
+              probePreviewUrl={previewUrl}
+              probeFileName={file?.name ?? report.dnaComparison?.fileB?.filename}
+              probeMimeType={file?.type ?? report.dnaComparison?.fileB?.mimeType}
+              originalFilename={
+                report.owner.originalFilename
+                ?? report.identityRecoveryReport?.originalFilename
+                ?? report.dnaComparison?.fileA?.filename
+              }
+              ownerPinitId={report.owner.ownerPinitId ?? report.identityProof.ownerPinitId}
+              dnaMatchPercent={report.summary.dnaMatchPercent}
+              dnaRecordId={report.owner.dnaRecordId ?? report.identityProof.dnaRecordId}
+              certificateId={report.owner.certificateId ?? report.identityProof.certificateId}
+            />
           )}
 
           <Section title="1. Investigation Summary" icon={Shield}>

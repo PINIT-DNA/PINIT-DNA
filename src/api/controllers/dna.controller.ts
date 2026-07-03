@@ -28,6 +28,7 @@ import {
   GetDnaRecordResponse,
   LayerName,
 } from '../../types/dna.types';
+import { dnaStorageAuditService } from '../../services/forensics/dna-storage-audit.service';
 
 const router             = new UniversalFileRouter();
 const imageVerifier      = new DnaVerifier();
@@ -474,6 +475,21 @@ export async function getDuplicateAttempts(
         };
       }),
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** GET /dna/storage-audit — verify 15-layer persistence and authoritative linkage per owner */
+export async function getDnaStorageAudit(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const ownerUserId = getAuthUserId(req);
+    const report = await dnaStorageAuditService.auditOwner(ownerUserId);
+    res.json({ success: true, audit: report });
   } catch (err) {
     next(err);
   }

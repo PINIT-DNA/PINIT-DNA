@@ -261,4 +261,6 @@ export interface UnifiedInvestigationReport {
   stageTimings?: Array<{ stage: string; durationMs: number; detail?: string }>;
   /** Live progress timeline steps */
   progressTimeline?: InvestigationProgressEvent[];
+  /** Full retrieval→report audit trace (diagnostic; no threshold changes) */
+  pipelineAudit?: import('./investigation-pipeline-audit.types').InvestigationPipelineAudit;
 }
