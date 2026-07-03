@@ -267,6 +267,9 @@ export class UnifiedInvestigationOrchestrator {
       });
     };
 
+    const isVideoProbe = mimeType.startsWith('video/')
+      || /\.(mp4|mov|avi|mkv|webm|m4v|mpeg|mpg)$/i.test(originalName);
+
     try {
     orchestratorTimer.start('enterprise_recovery');
     const recoveryStage = await executeStage(
@@ -286,7 +289,9 @@ export class UnifiedInvestigationOrchestrator {
         return { enterprise: ent, leakVerify: leak };
       },
       {
-        timeoutMs: 120_000,
+        timeoutMs: isVideoProbe
+          ? investigationPerformanceConfig.videoRecoveryTimeoutMs
+          : 120_000,
         onComplete: stageOnComplete('enterprise_recovery', 'Identity Recovery'),
       },
     );

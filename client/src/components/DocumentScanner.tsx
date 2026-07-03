@@ -10,9 +10,11 @@ import {
   normalizeScannerBlob,
   imageDataToJpegBlob,
   ScannerQualityGateError,
+  ScannerStageTimeoutError,
   scanTypeLabel,
   type ScanType,
 } from '../lib/document-capture-pipeline';
+import { runTimedStage } from '../lib/scanner-async-utils';
 import { extractVideoFrameBlob, isImageFile, isVideoFile } from '../lib/scanner-media-utils';
 
 function useIsMobileViewport() {
@@ -210,14 +212,16 @@ export function DocumentScanner({
           }
         }
         setNormalizing(true);
+        setCaptureError(null);
         const result = unifiedInvestigation
-          ? await captureInvestigationInput(videoRef.current, {
+          ? await runTimedStage('captureInvestigationInput', () =>
+            captureInvestigationInput(videoRef.current!, {
               burstCount: 3,
               jpegQuality: 0.97,
               relaxedQualityGate: true,
               onProgress: onNormalizeProgress,
-            })
-          : await captureForensicScan(videoRef.current, { burstCount: 5, jpegQuality: 0.97 });
+            }), 28_000)
+          : await captureForensicScan(videoRef.current!, { burstCount: 5, jpegQuality: 0.97 });
         if (result) {
           setFlashCapture(true);
           window.setTimeout(() => setFlashCapture(false), 280);
@@ -225,17 +229,18 @@ export function DocumentScanner({
           return;
         }
       } catch (err) {
-        setNormalizing(false);
-        setNormalizeStep(null);
         if (err instanceof ScannerQualityGateError) {
           setCaptureError(err.message);
-          return;
+        } else if (err instanceof ScannerStageTimeoutError) {
+          setCaptureError('Capture timed out — tap Capture to retry');
+        } else {
+          setCaptureError('Capture failed — try again with better lighting');
         }
-        setCaptureError('Capture failed — try again with better lighting');
         return;
+      } finally {
+        setNormalizing(false);
+        setNormalizeStep(null);
       }
-      setNormalizing(false);
-      setNormalizeStep(null);
     }
 
     const canvas = document.createElement('canvas');
@@ -345,11 +350,13 @@ export function DocumentScanner({
         }
 
         if (isImageFile(f) || isVideoFile(f)) {
-          const normalized = await normalizeScannerBlob(sourceBlob, {
-            jpegQuality: 0.97,
-            relaxedQualityGate: true,
-            onProgress: onNormalizeProgress,
-          });
+          const normalized = await runTimedStage('normalizeScannerBlob', () =>
+            normalizeScannerBlob(sourceBlob, {
+              jpegQuality: 0.97,
+              relaxedQualityGate: true,
+              investigationFast: unifiedInvestigation,
+              onProgress: onNormalizeProgress,
+            }), 25_000);
           stopCamera();
           setScannedPages([]);
           if (normalized) {
@@ -364,15 +371,15 @@ export function DocumentScanner({
         onScanComplete(f);
         return;
       } catch (err) {
-        setNormalizing(false);
-        setNormalizeStep(null);
         if (err instanceof ScannerQualityGateError) {
           setCaptureError(err.message);
-          return;
+        } else if (err instanceof ScannerStageTimeoutError) {
+          setCaptureError('Processing timed out — try again');
         }
+      } finally {
+        setNormalizing(false);
+        setNormalizeStep(null);
       }
-      setNormalizing(false);
-      setNormalizeStep(null);
     }
 
     if (captureMode === 'single' && f.type.startsWith('image/')) {

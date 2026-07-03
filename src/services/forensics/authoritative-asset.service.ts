@@ -147,6 +147,55 @@ export function candidateForVault(
   return candidates.find((c) => c.vaultId === vaultId) ?? null;
 }
 
+/**
+ * Build deep-compare candidate list for video/audio/document probes.
+ * Avoids locking to a single wrong vector-top vault before perceptual compare runs.
+ */
+export function buildMediaDeepCandidates(
+  candidates: RankedVaultCandidate[],
+  identityHit: VaultMatchResult | null,
+  preliminary: SelectAuthoritativeResult | null,
+  probeFilename: string,
+  filenameByVault?: Array<{ vaultId: string; filename: string }>,
+): RankedVaultCandidate[] {
+  const seen = new Set<string>();
+  const out: RankedVaultCandidate[] = [];
+  const push = (c: RankedVaultCandidate | null | undefined) => {
+    if (c && !seen.has(c.vaultId)) {
+      seen.add(c.vaultId);
+      out.push(c);
+    }
+  };
+
+  if (identityHit) {
+    push(candidates.find((c) => c.vaultId === identityHit.vaultId));
+  }
+
+  const stem = probeFilename.replace(/\.[^.]+$/i, '').toLowerCase();
+  if (stem.length >= 3) {
+    for (const c of candidates) {
+      if (c.signals.some((s) => s.startsWith('filename_'))) {
+        push(c);
+      }
+      const fn = filenameByVault?.find((f) => f.vaultId === c.vaultId)?.filename?.toLowerCase() ?? '';
+      const fnStem = fn.replace(/\.[^.]+$/i, '');
+      if (fn && (fn.includes(stem) || stem.includes(fnStem) || fnStem === stem)) {
+        push(c);
+      }
+    }
+  }
+
+  if (preliminary) {
+    push(candidates.find((c) => c.vaultId === preliminary.match.vaultId));
+  }
+
+  for (const c of candidates.slice(0, 5)) {
+    push(c);
+  }
+
+  return out.length > 0 ? out : candidates.slice(0, 5);
+}
+
 export interface BuildAuthoritativeInput {
   selection: SelectAuthoritativeResult;
   candidates: RankedVaultCandidate[];

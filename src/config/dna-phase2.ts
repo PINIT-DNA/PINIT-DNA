@@ -4,6 +4,24 @@
  */
 import { dnaEnhancements as base } from './dna-enhancements';
 
+function resolveBundledFfmpeg(): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const bundled = require('ffmpeg-static') as string | null;
+    if (bundled && typeof bundled === 'string') return bundled;
+  } catch { /* optional dev dependency */ }
+  return 'ffmpeg';
+}
+
+function resolveBundledFfprobe(): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const bundled = require('@ffprobe-installer/ffprobe') as { path?: string };
+    if (bundled?.path) return bundled.path;
+  } catch { /* optional dev dependency */ }
+  return 'ffprobe';
+}
+
 function flag(key: string, defaultValue = false): boolean {
   const v = (process.env[key] ?? '').trim().toLowerCase();
   if (!v) return defaultValue;
@@ -31,8 +49,8 @@ export const dnaPhase2 = {
   /** Lazy OCR — skip when file has no text-like content heuristic */
   ocrLazy: flag('DNA_P2_OCR_LAZY', true),
 
-  ffmpegPath: process.env['FFMPEG_PATH'] ?? 'ffmpeg',
-  ffprobePath: process.env['FFPROBE_PATH'] ?? 'ffprobe',
+  ffmpegPath: process.env['FFMPEG_PATH'] ?? resolveBundledFfmpeg(),
+  ffprobePath: process.env['FFPROBE_PATH'] ?? resolveBundledFfprobe(),
   fpcalcPath: process.env['FPCALC_PATH'] ?? 'fpcalc',
 
   maxVideoKeyframes: parseInt(process.env['DNA_P2_VIDEO_KEYFRAMES'] ?? '8', 10),

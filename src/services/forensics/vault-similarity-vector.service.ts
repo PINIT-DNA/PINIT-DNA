@@ -75,14 +75,26 @@ export class VaultSimilarityVectorService {
     options?: {
       orbTopK?: number;
       relaxedVisual?: boolean;
-      /** Stage-1 fast filter — skip expensive ORB/AKAZE */
       skipOrb?: boolean;
-      /** Only score these vault IDs (stage-2 deep filter) */
       candidateVaultIds?: string[];
-      /** Cap returned vectors after sort */
       limit?: number;
+      /** Video partial recovery — fast perceptual-only pass */
+      lightMode?: boolean;
     },
   ): Promise<VaultSimilarityVector[]> {
+    const isVideoProbe = probeMime.startsWith('video/')
+      || /\.(mp4|mov|avi|mkv|webm|m4v|mpeg|mpg)$/i.test(probeName);
+
+    if (isVideoProbe) {
+      const { partialVideoVaultSearch } = await import('./partial-video-recovery.service');
+      return partialVideoVaultSearch(probeBuffer, probeMime, probeName, ownerUserId, {
+        candidateVaultIds: options?.candidateVaultIds,
+        limit: options?.limit,
+        orbTopK: options?.orbTopK,
+        lightMode: options?.lightMode,
+      });
+    }
+
     const orbTopK = options?.orbTopK ?? 15;
     const skipOrb = options?.skipOrb ?? false;
     const candidateSet = options?.candidateVaultIds?.length

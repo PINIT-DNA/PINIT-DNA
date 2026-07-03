@@ -51,6 +51,10 @@ export interface FusionInput {
   candidate?: RankedVaultCandidate | null;
   match?: VaultMatchResult | null;
   vaultVectorComposite?: number;
+  /** Partial video forensic recovery — trimmed / clipped probe clips */
+  partialVideoScore?: number;
+  partialVideoFrameRatio?: number;
+  partialVideoFrameCount?: number;
 }
 
 export interface FusionResult {
@@ -137,6 +141,27 @@ function computeRetrievalConfidence(input: FusionInput): number {
   if (dna15 >= 75 && orb >= 50) retrieval = Math.max(retrieval, 94);
   if (dna15 >= 55 && patchVotes >= 20) retrieval = Math.max(retrieval, 85);
 
+  const partialVideo = clamp(input.partialVideoScore ?? 0);
+  const frameRatio = Math.max(0, Math.min(1, input.partialVideoFrameRatio ?? 0));
+  const frameCount = input.partialVideoFrameCount ?? 0;
+  const hasStrongPartialFrames = frameCount >= 3 && frameRatio >= 0.35;
+  const hasPartialVideoRecovery = partialVideo >= 30 || hasStrongPartialFrames;
+
+  if (hasPartialVideoRecovery) {
+    const partialRetrieval = clamp(
+      partialVideo * 0.82
+      + frameRatio * 100 * 0.12
+      + dna15 * 0.06,
+    );
+    retrieval = Math.max(retrieval, partialRetrieval);
+    if (hasStrongPartialFrames) {
+      retrieval = Math.max(retrieval, clamp(38 + frameRatio * 42));
+    }
+    if (frameCount >= 5 && frameRatio >= 0.45 && partialVideo >= 50) {
+      retrieval = Math.max(retrieval, clamp(55 + frameRatio * 25));
+    }
+  }
+
   return clamp(retrieval);
 }
 
@@ -147,11 +172,29 @@ function computeIdentityRecoveryConfidence(
   orb: number,
   manifest: number,
   ocr: number,
+  partialVideo?: { score: number; frameRatio: number; frameCount: number },
 ): number {
+  let base: number;
   if (watermark > 0) {
-    return clamp(identityToken * 0.35 + watermark * 0.30 + manifest * 0.15 + ocr * 0.10 + dna15 * 0.10);
+    base = clamp(identityToken * 0.35 + watermark * 0.30 + manifest * 0.15 + ocr * 0.10 + dna15 * 0.10);
+  } else {
+    base = clamp(identityToken * 0.30 + manifest * 0.15 + ocr * 0.15 + dna15 * 0.20 + orb * 0.20);
   }
-  return clamp(identityToken * 0.30 + manifest * 0.15 + ocr * 0.15 + dna15 * 0.20 + orb * 0.20);
+
+  if (partialVideo && partialVideo.frameCount >= 2 && partialVideo.frameRatio >= 0.25) {
+    const forensicIdentity = clamp(
+      partialVideo.score * 0.50
+      + partialVideo.frameRatio * 100 * 0.28
+      + dna15 * 0.12
+      + orb * 0.10,
+    );
+    base = Math.max(base, forensicIdentity);
+    if (partialVideo.frameCount >= 3 && partialVideo.frameRatio >= 0.35) {
+      base = Math.max(base, clamp(42 + partialVideo.frameRatio * 38));
+    }
+  }
+
+  return base;
 }
 
 function computeOwnershipVerificationConfidence(
@@ -200,8 +243,20 @@ export class ConfidenceFusionEngine {
 
     const retrievalConfidence = computeRetrievalConfidence(input);
 
+    const partialFrameCount = input.partialVideoFrameCount ?? 0;
+    const partialFrameRatio = input.partialVideoFrameRatio ?? 0;
+    const partialVideoScore = clamp(input.partialVideoScore ?? 0);
+
     const identityConfidence = computeIdentityRecoveryConfidence(
-      identityToken, watermark, dna15, orb, manifest, clamp(input.ocrScore ?? 0),
+      identityToken,
+      watermark,
+      dna15,
+      orb,
+      manifest,
+      clamp(input.ocrScore ?? 0),
+      partialFrameCount >= 2
+        ? { score: partialVideoScore, frameRatio: partialFrameRatio, frameCount: partialFrameCount }
+        : undefined,
     );
 
     const ownershipVerificationConfidence = computeOwnershipVerificationConfidence(

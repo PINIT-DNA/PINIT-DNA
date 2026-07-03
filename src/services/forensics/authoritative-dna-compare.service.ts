@@ -9,6 +9,8 @@ import type { DnaComparisonResult } from '../../types/comparison.types';
 import type { AuthoritativeAsset } from '../../types/authoritative-asset.types';
 import type { DeepCompareResult } from './deep-vault-compare.service';
 import { assertDnaScope, assertVaultScope } from './authoritative-asset.service';
+import { detectMediaProfile } from './adaptive-scoring.service';
+import { compareVideoInvestigation } from './video-forensic-compare.service';
 
 const vaultService = new VaultService();
 const comparisonService = new DnaComparisonService();
@@ -40,7 +42,54 @@ export async function compareProbeToAuthoritativeAsset(
     dnaRecordId: authAsset.dnaRecordId.slice(0, 8),
     probe: probe.originalName,
     original: original.originalFileName,
+    mediaProfile: detectMediaProfile(probe.mimeType),
   });
+
+  const mediaProfile = detectMediaProfile(probe.mimeType);
+
+  if (mediaProfile === 'video') {
+    const base = await comparisonService.compare(
+      {
+        filePath: '',
+        originalName: original.originalFileName,
+        declaredMimeType: original.originalMimeType,
+        sizeBytes: original.originalSizeBytes,
+        buffer: original.originalBuffer,
+      },
+      {
+        filePath: '',
+        originalName: probe.originalName,
+        declaredMimeType: probe.mimeType,
+        sizeBytes: probe.sizeBytes,
+        buffer: probe.buffer,
+      },
+      { vaultDnaRecordId: authAsset.dnaRecordId },
+    ).catch(() => null);
+
+    const result = await compareVideoInvestigation(
+      {
+        buffer: original.originalBuffer,
+        mimeType: original.originalMimeType,
+        originalName: original.originalFileName,
+        sizeBytes: original.originalSizeBytes,
+      },
+      {
+        buffer: probe.buffer,
+        mimeType: probe.mimeType,
+        originalName: probe.originalName,
+        sizeBytes: probe.sizeBytes,
+      },
+      base,
+    );
+
+    logger.info('[AuthoritativeDnaCompare] Video forensic complete', {
+      vaultId: authAsset.vaultId.slice(0, 8),
+      score: result.overallConfidenceScore,
+      classification: result.classification,
+    });
+
+    return result;
+  }
 
   const result = await comparisonService.compare(
     {

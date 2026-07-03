@@ -6,6 +6,8 @@ import { VaultService } from '../vault/vault.service';
 import { DnaComparisonService } from '../verification/dna-comparison.service';
 import type { RankedVaultCandidate } from '../../types/unified-investigation.types';
 import { logDeepCompareCandidate } from './investigation-pipeline-audit.service';
+import { detectMediaProfile } from './adaptive-scoring.service';
+import { compareVideoInvestigation } from './video-forensic-compare.service';
 
 export interface DeepCompareResult {
   vaultId: string;
@@ -43,23 +45,40 @@ export class DeepVaultCompareService {
     for (const c of top) {
       try {
         const original = await this.vault.retrieve(c.vaultId, ownerUserId);
-        const cmp = await this.comparison.compare(
-          {
-            filePath: '',
-            originalName: original.originalFileName,
-            declaredMimeType: original.originalMimeType,
-            sizeBytes: original.originalSizeBytes,
-            buffer: original.originalBuffer,
-          },
-          {
-            filePath: '',
-            originalName: suspectName,
-            declaredMimeType: suspectMime,
-            sizeBytes: suspectSize,
-            buffer: suspectBuffer,
-          },
-          { vaultDnaRecordId: c.dnaRecordId },
-        );
+        const isVideoProbe = detectMediaProfile(suspectMime) === 'video';
+
+        const cmp = isVideoProbe
+          ? await compareVideoInvestigation(
+              {
+                buffer: original.originalBuffer,
+                mimeType: original.originalMimeType,
+                originalName: original.originalFileName,
+                sizeBytes: original.originalSizeBytes,
+              },
+              {
+                buffer: suspectBuffer,
+                mimeType: suspectMime,
+                originalName: suspectName,
+                sizeBytes: suspectSize,
+              },
+            )
+          : await this.comparison.compare(
+              {
+                filePath: '',
+                originalName: original.originalFileName,
+                declaredMimeType: original.originalMimeType,
+                sizeBytes: original.originalSizeBytes,
+                buffer: original.originalBuffer,
+              },
+              {
+                filePath: '',
+                originalName: suspectName,
+                declaredMimeType: suspectMime,
+                sizeBytes: suspectSize,
+                buffer: suspectBuffer,
+              },
+              { vaultDnaRecordId: c.dnaRecordId },
+            );
 
         const matchedLayerCount = cmp.layerComparisons.filter((l) => l.matched).length;
         const layerComparisons = cmp.layerComparisons.map((l) => ({

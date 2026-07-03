@@ -24,6 +24,15 @@ function guessImageFromName(name?: string | null): boolean {
   return /\.(jpe?g|png|gif|webp|bmp|heic|heif|tiff?|jfif)$/i.test(name);
 }
 
+function isVideoMime(mime?: string | null): boolean {
+  return !!mime && mime.startsWith('video/');
+}
+
+function guessVideoFromName(name?: string | null): boolean {
+  if (!name) return false;
+  return /\.(mp4|webm|mov|avi|mkv|m4v|mpeg|mpg)$/i.test(name);
+}
+
 function FilePlaceholder({
   label,
   filename,
@@ -52,7 +61,8 @@ function ComparePanel({
   title,
   badge,
   badgeClass,
-  imageUrl,
+  mediaUrl,
+  mediaKind,
   filename,
   meta,
   footer,
@@ -61,13 +71,14 @@ function ComparePanel({
   title: string;
   badge: string;
   badgeClass: string;
-  imageUrl?: string | null;
+  mediaUrl?: string | null;
+  mediaKind?: 'image' | 'video';
   filename?: string;
   meta: Array<{ label: string; value?: string | null }>;
   footer?: React.ReactNode;
   variant: 'original' | 'suspect';
 }) {
-  const showImage = !!imageUrl;
+  const showMedia = !!mediaUrl;
 
   return (
     <div className={cn(
@@ -80,13 +91,23 @@ function ComparePanel({
       </div>
 
       <div className="p-3 flex-1 flex flex-col gap-3">
-        {showImage ? (
+        {showMedia ? (
           <div className="relative rounded-lg overflow-hidden bg-black/40 aspect-[4/3] flex items-center justify-center">
-            <img
-              src={imageUrl}
-              alt={filename ?? title}
-              className="max-w-full max-h-[280px] object-contain"
-            />
+            {mediaKind === 'video' ? (
+              <video
+                src={mediaUrl!}
+                className="max-w-full max-h-[280px] object-contain"
+                controls
+                playsInline
+                preload="metadata"
+              />
+            ) : (
+              <img
+                src={mediaUrl!}
+                alt={filename ?? title}
+                className="max-w-full max-h-[280px] object-contain"
+              />
+            )}
           </div>
         ) : (
           <FilePlaceholder label={title} filename={filename} variant={variant} />
@@ -124,6 +145,7 @@ export function InvestigationSideBySideCompare({
   const [loadState, setLoadState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
 
   const probeIsImage = isImageMime(probeMimeType) || guessImageFromName(probeFileName);
+  const probeIsVideo = isVideoMime(probeMimeType) || guessVideoFromName(probeFileName);
 
   useEffect(() => {
     if (!vaultId) {
@@ -153,6 +175,7 @@ export function InvestigationSideBySideCompare({
   }, [vaultId]);
 
   const originalIsImage = isImageMime(originalMime) || guessImageFromName(originalFilename);
+  const originalIsVideo = isVideoMime(originalMime) || guessVideoFromName(originalFilename);
 
   if (!vaultId && !probePreviewUrl) return null;
 
@@ -178,7 +201,8 @@ export function InvestigationSideBySideCompare({
           title="Original (Vault)"
           badge="AUTHORITATIVE"
           badgeClass="border-dna-500/40 text-dna-400 bg-dna-500/10"
-          imageUrl={originalIsImage ? originalUrl : null}
+          mediaUrl={originalIsImage || originalIsVideo ? originalUrl : null}
+          mediaKind={originalIsVideo ? 'video' : 'image'}
           filename={originalFilename ?? undefined}
           variant="original"
           meta={[
@@ -206,7 +230,8 @@ export function InvestigationSideBySideCompare({
           title="Suspect / Probe"
           badge="UNDER INVESTIGATION"
           badgeClass="border-yellow-500/40 text-yellow-400 bg-yellow-500/10"
-          imageUrl={probeIsImage ? probePreviewUrl : null}
+          mediaUrl={probeIsImage || probeIsVideo ? probePreviewUrl : null}
+          mediaKind={probeIsVideo ? 'video' : 'image'}
           filename={probeFileName}
           variant="suspect"
           meta={[

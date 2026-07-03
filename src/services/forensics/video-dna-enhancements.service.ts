@@ -47,7 +47,11 @@ function gopFingerprint(buf: Buffer): string {
 
 export async function generateVideoDna(buffer: Buffer): Promise<VideoDnaData | undefined> {
   if (!isPhase2Active() || !dnaPhase2.video) return undefined;
+  return generateInvestigationVideoDna(buffer);
+}
 
+/** Investigation pipeline — always attempts ffmpeg keyframes (not gated on DNA_PHASE2). */
+export async function generateInvestigationVideoDna(buffer: Buffer, _ext = 'mp4'): Promise<VideoDnaData> {
   const ffmpegOk = await isFfmpegAvailable();
   const count = dnaPhase2.maxVideoKeyframes;
   let keyframeHashes: string[] = [];

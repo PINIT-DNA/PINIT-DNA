@@ -7,6 +7,12 @@
  * Does NOT implement comparison, retrieval, or confidence logic.
  */
 import { analyzeDocumentFrame, type FrameMetrics } from './document-frame-analyzer';
+import {
+  canvasToBlobWithTimeout,
+  createImageBitmapWithTimeout,
+  runTimedStage,
+  runTimedStageSync,
+} from './scanner-async-utils';
 
 export type ScanType =
   | 'camera_photo'
@@ -590,6 +596,37 @@ export function normalizeScannerImage(
   return { imageData: img, scanType: type, quality, pipelineSteps: steps };
 }
 
+/**
+ * Fast normalization for Unified Investigation scanner — skips deskew sweep,
+ * super-resolution, and heavy screen pipelines that block the main thread.
+ */
+export function normalizeScannerImageForInvestigation(
+  imageData: ImageData,
+  onStep?: NormalizationProgressCallback,
+): NormalizationResult {
+  const type = classifyScanType(imageData);
+  const quality = runQualityGateRelaxed(imageData);
+  const steps: string[] = [];
+
+  let img = preserveResolution(imageData);
+  emitStep(steps, onStep, 'orientation_fix');
+  img = fixOrientation(img);
+
+  emitStep(steps, onStep, 'document_boundary_detection');
+  const bounds = detectDocumentBounds(img);
+  img = cropImageData(img, bounds);
+
+  emitStep(steps, onStep, 'brightness_normalization');
+  img = normalizeBrightnessContrast(img);
+  emitStep(steps, onStep, 'contrast_normalization');
+  emitStep(steps, onStep, 'noise_reduction');
+  img = reduceNoise(img);
+  emitStep(steps, onStep, 'edge_enhancement');
+  img = edgeEnhance(img);
+
+  return { imageData: img, scanType: type, quality, pipelineSteps: steps };
+}
+
 /** Relaxed gate for partial / damaged captures — still proceeds to normalization. */
 export function runQualityGateRelaxed(imageData: ImageData): QualityGateResult {
   const gate = runQualityGate(imageData);
@@ -602,15 +639,18 @@ export function runQualityGateRelaxed(imageData: ImageData): QualityGateResult {
 }
 
 export async function blobToImageData(blob: Blob): Promise<ImageData | null> {
-  const bitmap = await createImageBitmap(blob);
-  const canvas = document.createElement('canvas');
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-  ctx.drawImage(bitmap, 0, 0);
-  bitmap.close();
-  return ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const bitmap = await createImageBitmapWithTimeout(blob);
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(bitmap, 0, 0);
+    return ctx.getImageData(0, 0, canvas.width, canvas.height);
+  } finally {
+    bitmap.close();
+  }
 }
 
 export async function normalizeScannerBlob(
@@ -619,10 +659,11 @@ export async function normalizeScannerBlob(
     jpegQuality?: number;
     skipQualityGate?: boolean;
     relaxedQualityGate?: boolean;
+    investigationFast?: boolean;
     onProgress?: NormalizationProgressCallback;
   },
 ): Promise<{ blob: Blob; scanType: ScanType; pipelineSteps: string[] } | null> {
-  const raw = await blobToImageData(blob);
+  const raw = await runTimedStage('blobToImageData', () => blobToImageData(blob), 12_000);
   if (!raw) return null;
 
   if (!options?.skipQualityGate) {
@@ -630,16 +671,24 @@ export async function normalizeScannerBlob(
     if (!gate.ok) throw new ScannerQualityGateError(gate.guidance ?? 'Capture quality too low');
   }
 
-  const { imageData, scanType, pipelineSteps } = normalizeScannerImage(raw, undefined, options?.onProgress);
+  const normalized = options?.investigationFast
+    ? runTimedStageSync('normalizeInvestigation', () =>
+      normalizeScannerImageForInvestigation(raw, options?.onProgress))
+    : runTimedStageSync('normalizeFull', () =>
+      normalizeScannerImage(raw, undefined, options?.onProgress));
+
+  const { imageData, scanType, pipelineSteps } = normalized;
   const canvas = document.createElement('canvas');
   canvas.width = imageData.width;
   canvas.height = imageData.height;
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
   ctx.putImageData(imageData, 0, 0);
-  const outBlob = await new Promise<Blob | null>((resolve) => {
-    canvas.toBlob((b) => resolve(b), 'image/jpeg', options?.jpegQuality ?? 0.97);
-  });
+  const outBlob = await runTimedStage(
+    'canvas.toBlob',
+    () => canvasToBlobWithTimeout(canvas, 'image/jpeg', options?.jpegQuality ?? 0.97),
+    10_000,
+  );
   if (!outBlob) return null;
   return { blob: outBlob, scanType, pipelineSteps };
 }

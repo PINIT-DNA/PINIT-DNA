@@ -42,9 +42,11 @@ import type { RetrievalSelectionStep } from '../../types/investigation-pipeline-
 import type { AuthoritativeAsset } from '../../types/authoritative-asset.types';
 import {
   buildAuthoritativeAsset,
+  buildMediaDeepCandidates,
   deepCompareForVault,
   selectAuthoritativeMatch,
 } from './authoritative-asset.service';
+import { detectMediaProfile } from './adaptive-scoring.service';
 
 function logCandidateStage(
   stage: string,
@@ -309,6 +311,9 @@ export class PinitOriginalIdentityRecoveryService {
     };
     const twoStage = options?.twoStageRetrieval === true;
     const poolSize = clampCandidatePool(options?.candidatePoolSize);
+    const isVideoProbeEarly = detectMediaProfile(mimeType) === 'video'
+      || /\.(mp4|mov|avi|mkv|webm|m4v|mpeg|mpg)$/i.test(originalName);
+    const videoOriginalVariant = [{ label: 'original' as const, buffer, mimeType }];
 
     const stages: RecoveryStage[] = [];
     const recoveredSignals: RecoveredIdentitySignal[] = [];
@@ -337,24 +342,30 @@ export class PinitOriginalIdentityRecoveryService {
     timer.start('preprocessing');
     emit({ type: 'timeline', stepId: 'preprocessing', label: 'Preprocessing', status: 'running' });
 
-    const variants = await forensicImagePreprocessor.generateVariants(buffer, mimeType, {
-      fast: twoStage || (options?.fastVariants && !useFullRetrieval),
-      minimal: twoStage,
-      scanner: twoStage ? false : pinitIdentificationConfig.phase5ScannerPipeline,
-    });
-    const forensicVariants = twoStage
-      ? [{ label: 'original', buffer, mimeType }]
-      : useFullRetrieval
-        ? variants
-        : options?.investigationMode
-          ? [{ label: 'original', buffer, mimeType }]
-          : options?.fastVariants
-            ? variants.filter((v) => v.label === 'original' || v.label === 'normalized')
-            : variants;
+    const variants = isVideoProbeEarly
+      ? videoOriginalVariant
+      : await forensicImagePreprocessor.generateVariants(buffer, mimeType, {
+        fast: twoStage || (options?.fastVariants && !useFullRetrieval),
+        minimal: twoStage,
+        scanner: twoStage ? false : pinitIdentificationConfig.phase5ScannerPipeline,
+      });
+    const forensicVariants = isVideoProbeEarly
+      ? videoOriginalVariant
+      : twoStage
+        ? [{ label: 'original', buffer, mimeType }]
+        : useFullRetrieval
+          ? variants
+          : options?.investigationMode
+            ? [{ label: 'original', buffer, mimeType }]
+            : options?.fastVariants
+              ? variants.filter((v) => v.label === 'original' || v.label === 'normalized')
+              : variants;
 
-    const vectorVariants = twoStage
-      ? variants.filter((v) => v.label === 'original' || v.label === 'normalized')
-      : variants;
+    const vectorVariants = isVideoProbeEarly
+      ? videoOriginalVariant
+      : twoStage
+        ? variants.filter((v) => v.label === 'original' || v.label === 'normalized')
+        : variants;
 
     timer.end('preprocessing', `${vectorVariants.length} variants`);
     emit({ type: 'timeline', stepId: 'preprocessing', label: 'Preprocessing', status: 'complete', elapsedMs: timer.getTimings().find((t) => t.stage === 'preprocessing')?.durationMs });
@@ -397,29 +408,42 @@ export class PinitOriginalIdentityRecoveryService {
       timer.start('vault_search');
       emit({ type: 'timeline', stepId: 'vault_search', label: 'Vault Search', status: 'running' });
 
-      const [parallel, fastVectorsResult] = await Promise.all([
-        runParallelForensicRecovery(buffer, mimeType, originalName, ownerUserId, {
-          skipOcr: investigationPerformanceConfig.skipInvestigationOcr,
-          watermarkTimeoutMs: investigationPerformanceConfig.watermarkTimeoutMs,
-          embeddingTimeoutMs: investigationPerformanceConfig.embeddingTimeoutMs,
-        }),
-        vaultSimilarityVectorService.scoreEntireVault(
+      if (isVideoProbeEarly) {
+        fastVectors = await vaultSimilarityVectorService.scoreEntireVault(
           buffer, mimeType, originalName, sizeBytes, ownerUserId, vectorVariants,
-          { relaxedVisual: true, skipOrb: true, limit: poolSize },
-        ),
-      ]);
-      fastVectors = fastVectorsResult;
+          { relaxedVisual: true, limit: poolSize, lightMode: true },
+        );
+        stages.push({
+          stage: STAGE.FORENSIC,
+          status: 'skipped',
+          detail: 'Video probe — watermark/token/OCR skipped; partial keyframe recovery',
+        });
+        push(STAGE.FORENSIC, 0, false, 'Video investigation uses keyframe partial recovery');
+      } else {
+        const [parallel, fastVectorsResult] = await Promise.all([
+          runParallelForensicRecovery(buffer, mimeType, originalName, ownerUserId, {
+            skipOcr: investigationPerformanceConfig.skipInvestigationOcr,
+            watermarkTimeoutMs: investigationPerformanceConfig.watermarkTimeoutMs,
+            embeddingTimeoutMs: investigationPerformanceConfig.embeddingTimeoutMs,
+          }),
+          vaultSimilarityVectorService.scoreEntireVault(
+            buffer, mimeType, originalName, sizeBytes, ownerUserId, vectorVariants,
+            { relaxedVisual: true, skipOrb: true, limit: poolSize },
+          ),
+        ]);
+        fastVectors = fastVectorsResult;
 
-      watermarkRecovered = parallel.watermarkRecovered;
-      identityTokenRecovered = parallel.identityTokenRecovered;
-      manifestRecovered = parallel.manifestRecovered;
-      watermarkScore = parallel.watermarkScore;
-      identityTokenScore = parallel.identityTokenScore;
-      manifestScore = parallel.manifestScore;
-      ocrScore = parallel.ocrScore;
-      if (!identityHit) identityHit = parallel.identityHit;
-      for (const s of parallel.signals) {
-        push(s.stage, s.score, s.recovered, s.detail);
+        watermarkRecovered = parallel.watermarkRecovered;
+        identityTokenRecovered = parallel.identityTokenRecovered;
+        manifestRecovered = parallel.manifestRecovered;
+        watermarkScore = parallel.watermarkScore;
+        identityTokenScore = parallel.identityTokenScore;
+        manifestScore = parallel.manifestScore;
+        ocrScore = parallel.ocrScore;
+        if (!identityHit) identityHit = parallel.identityHit;
+        for (const s of parallel.signals) {
+          push(s.stage, s.score, s.recovered, s.detail);
+        }
       }
       if (identityHit) {
         const [dnaRow, vaultRow, ownerRow] = await Promise.all([
@@ -835,17 +859,29 @@ export class PinitOriginalIdentityRecoveryService {
         signals: ['cryptographic_hash'],
       }];
     } else if (twoStage && candidateVaultIds.length) {
-      const skipVectorOrb = hasStrongIdentityAnchor && investigationPerformanceConfig.skipVectorOrbWhenWatermark;
-      vectors = await vaultSimilarityVectorService.scoreEntireVault(
-        buffer, mimeType, originalName, sizeBytes, ownerUserId, vectorVariants,
-        {
-          relaxedVisual: true,
-          candidateVaultIds,
-          orbTopK: skipVectorOrb ? 0 : Math.min(3, orbTopK),
-          skipOrb: skipVectorOrb,
-          limit: poolSize,
-        },
-      );
+      if (isVideoProbeEarly && fastVectors.length) {
+        vectors = [...fastVectors];
+        const topId = vectors[0]?.vaultId;
+        if (topId && (vectors[0]?.scores.composite ?? 0) >= 28) {
+          const refined = await vaultSimilarityVectorService.scoreEntireVault(
+            buffer, mimeType, originalName, sizeBytes, ownerUserId, vectorVariants,
+            { candidateVaultIds: [topId], limit: 1, lightMode: false },
+          );
+          if (refined[0]) vectors[0] = refined[0];
+        }
+      } else {
+        const skipVectorOrb = hasStrongIdentityAnchor && investigationPerformanceConfig.skipVectorOrbWhenWatermark;
+        vectors = await vaultSimilarityVectorService.scoreEntireVault(
+          buffer, mimeType, originalName, sizeBytes, ownerUserId, vectorVariants,
+          {
+            relaxedVisual: true,
+            candidateVaultIds,
+            orbTopK: skipVectorOrb ? 0 : Math.min(3, orbTopK),
+            skipOrb: skipVectorOrb,
+            limit: poolSize,
+          },
+        );
+      }
       const topVec = vectors[0];
       if (topVec && !localDnaHit) {
         emitPhase({
@@ -869,6 +905,42 @@ export class PinitOriginalIdentityRecoveryService {
       );
     }
     let candidates = vaultSimilarityVectorService.toRankedCandidates(vectors);
+
+    let partialVideoScore = 0;
+    let partialVideoFrameRatio = 0;
+    let partialVideoMatchedFrames = 0;
+
+    if (isVideoProbeEarly && vectors[0]) {
+      const topV = vectors[0];
+      const frameSignal = topV.signals.find((s) => s.startsWith('matched_probe_frames:'));
+      partialVideoMatchedFrames = frameSignal
+        ? parseInt(frameSignal.split(':')[1] ?? '0', 10)
+        : 0;
+      partialVideoFrameRatio = topV.scores.aspectRatio / 100;
+      partialVideoScore = topV.scores.composite;
+
+      const hasPartialAnchor = topV.signals.includes('partial_video_recovery')
+        || (partialVideoMatchedFrames >= 3 && partialVideoFrameRatio >= 0.35)
+        || (partialVideoMatchedFrames >= 2 && topV.scores.composite >= 40);
+
+      if (hasPartialAnchor && !identityHit) {
+        identityHit = {
+          tier: 3,
+          method: `Partial video frame recovery (${Math.round(partialVideoFrameRatio * 100)}% probe frames, ${partialVideoMatchedFrames} matched)`,
+          dnaRecordId: topV.dnaRecordId,
+          vaultId: topV.vaultId,
+          ownerUserId: topV.ownerUserId,
+          confidence: topV.scores.composite >= 60 ? 'HIGH' : 'MEDIUM',
+          visualSimilarity: partialVideoFrameRatio,
+        };
+        selectionSteps.push({
+          stage: 'partial_video_recovery',
+          vaultId: topV.vaultId,
+          dnaRecordId: topV.dnaRecordId,
+          detail: `Partial keyframe match — composite ${topV.scores.composite}% · frames ${partialVideoMatchedFrames}/${topV.scores.aspectRatio}%`,
+        });
+      }
+    }
 
     // Promote local-DNA hit into candidate list for deep compare + fusion
     if (localDnaHit && localDnaScore >= 50) {
@@ -982,7 +1054,9 @@ export class PinitOriginalIdentityRecoveryService {
         statusMessage: 'Running 15-layer forensic verification…',
       });
 
-      const deepTopN = preliminarySelection
+      const isImageProbe = detectMediaProfile(mimeType) === 'image';
+
+      let deepTopN = preliminarySelection
         ? 1
         : (twoStage && hasStrongIdentityAnchor
           ? 1
@@ -995,6 +1069,17 @@ export class PinitOriginalIdentityRecoveryService {
         deepCandidates = candidates.filter((c) => c.vaultId === identityHit!.vaultId);
       }
 
+      if (!isImageProbe) {
+        deepCandidates = buildMediaDeepCandidates(
+          candidates,
+          identityHit,
+          preliminarySelection,
+          originalName,
+          vectors.map((v) => ({ vaultId: v.vaultId, filename: v.filename })),
+        );
+        deepTopN = Math.min(5, deepCandidates.length);
+      }
+
       deepCompareResults = await withTimeoutSoft(
         () => deepVaultCompareService.compareTopCandidates(
           buffer, mimeType, originalName, sizeBytes, deepCandidates, ownerUserId, deepTopN,
@@ -1003,19 +1088,31 @@ export class PinitOriginalIdentityRecoveryService {
         'deep_dna_compare',
       ) ?? [];
 
-      const authoritativeDeep = preliminarySelection
-        ? deepCompareForVault(deepCompareResults, preliminarySelection.match.vaultId)
-        : deepCompareResults[0] ?? null;
+      const authoritativeDeep = !isImageProbe
+        ? (deepCompareResults[0] ?? null)
+        : (preliminarySelection
+          ? deepCompareForVault(deepCompareResults, preliminarySelection.match.vaultId)
+          : deepCompareResults[0] ?? null);
 
-      const finalSelection = preliminarySelection ?? selectAuthoritativeMatch({
-        identityHit,
-        candidates,
-        localDnaHit,
-        localDnaScore,
-        deepCompare: authoritativeDeep,
-        isExactVaultMatch,
-        ownerUserId,
-      });
+      const finalSelection = !isImageProbe
+        ? selectAuthoritativeMatch({
+          identityHit,
+          candidates,
+          localDnaHit,
+          localDnaScore,
+          deepCompare: authoritativeDeep,
+          isExactVaultMatch,
+          ownerUserId,
+        })
+        : (preliminarySelection ?? selectAuthoritativeMatch({
+          identityHit,
+          candidates,
+          localDnaHit,
+          localDnaScore,
+          deepCompare: authoritativeDeep,
+          isExactVaultMatch,
+          ownerUserId,
+        }));
 
       if (finalSelection) {
         authoritativeAsset = await buildAuthoritativeAsset({
@@ -1116,6 +1213,9 @@ export class PinitOriginalIdentityRecoveryService {
       candidate: authoritativeAsset?.rankedCandidate ?? null,
       match: verifiedCandidate,
       vaultVectorComposite: assetVector?.scores.composite,
+      partialVideoScore: isVideoProbeEarly ? partialVideoScore : undefined,
+      partialVideoFrameRatio: isVideoProbeEarly ? partialVideoFrameRatio : undefined,
+      partialVideoFrameCount: isVideoProbeEarly ? partialVideoMatchedFrames : undefined,
     });
 
     stages.push({
@@ -1127,6 +1227,12 @@ export class PinitOriginalIdentityRecoveryService {
     // ═══ Stage 7 — Decision (retrieval-first; identity recovery is separate) ═══
     const margin = (assetVector?.scores.composite ?? 0) - (secondVector?.scores.composite ?? 0);
     const patchVotes = authoritativeAsset?.localDnaHit?.patchMatchCount ?? 0;
+    const hasPartialVideoAnchor = isVideoProbeEarly && (
+      assetVector?.signals.includes('partial_video_recovery')
+      || (partialVideoMatchedFrames >= 3 && partialVideoFrameRatio >= 0.35)
+      || partialVideoScore >= 40
+    );
+
     const hasForensicAnchor =
       sha256Score === 100
       || identityTokenScore >= 50
@@ -1139,6 +1245,7 @@ export class PinitOriginalIdentityRecoveryService {
       || (assetVector?.scores.perceptualBlend ?? 0) >= 52
       || (assetVector?.scores.structural ?? 0) >= 55
       || dna15Score >= 38
+      || hasPartialVideoAnchor
       || fusion.retrievalConfidence >= 50;
 
     const filenameOnly = (authoritativeAsset?.rankedCandidate?.signals.length === 0

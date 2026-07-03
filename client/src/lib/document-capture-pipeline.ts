@@ -6,6 +6,7 @@
 import { analyzeDocumentFrame } from './document-frame-analyzer';
 import {
   normalizeScannerImage,
+  normalizeScannerImageForInvestigation,
   runQualityGate,
   runQualityGateRelaxed,
   classifyScanType,
@@ -13,6 +14,13 @@ import {
   type ScanType,
   type NormalizationProgressCallback,
 } from './scanner-normalization-pipeline';
+import {
+  canvasToBlobWithTimeout,
+  delay,
+  runTimedStage,
+  runTimedStageSync,
+  ScannerStageTimeoutError,
+} from './scanner-async-utils';
 
 export { ScannerQualityGateError, runQualityGate, type ScanType, type NormalizationProgressCallback };
 export { scanTypeLabel, classifyScanType, normalizeScannerBlob } from './scanner-normalization-pipeline';
@@ -91,9 +99,7 @@ export function imageDataToJpegBlob(imageData: ImageData, quality = 0.97): Promi
   const ctx = canvas.getContext('2d');
   if (!ctx) return Promise.resolve(null);
   ctx.putImageData(imageData, 0, 0);
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => resolve(blob), 'image/jpeg', quality);
-  });
+  return canvasToBlobWithTimeout(canvas, 'image/jpeg', quality);
 }
 
 /** Grab N frames from live video (multi-frame fusion burst). */
@@ -108,7 +114,7 @@ export async function grabFrameBurst(
     const frame = cropToGuideRegion(video, canvas);
     if (frame) frames.push(frame);
     if (i < count - 1) {
-      await new Promise((r) => window.setTimeout(r, gapMs));
+      await delay(gapMs);
     }
   }
   return frames;
@@ -136,38 +142,54 @@ export async function captureInvestigationInput(
   options?: InvestigationCaptureOptions,
 ): Promise<ForensicCaptureResult | null> {
   const onProgress = options?.onProgress;
-  onProgress?.('burst', 'Capturing frames…');
-
-  const canvas = document.createElement('canvas');
   const burstCount = options?.burstCount ?? 3;
-  const burst = await grabFrameBurst(video, canvas, burstCount, 35);
-  if (!burst.length) return null;
+  const jpegQuality = options?.jpegQuality ?? 0.97;
+  const CAPTURE_BUDGET_MS = 25_000;
 
-  onProgress?.('fuse', 'Fusing frames…');
-  const sharpest = [...burst].sort((a, b) => frameSharpness(b) - frameSharpness(a))[0]!;
-  const fused = fuseFrameBurst(burst) ?? sharpest;
+  return runTimedStage('captureInvestigationInput', async () => {
+    onProgress?.('burst', 'Capturing frames…');
 
-  const gateFn = options?.relaxedQualityGate ? runQualityGateRelaxed : runQualityGate;
-  const [gate, scanType] = await Promise.all([
-    Promise.resolve(gateFn(fused)),
-    Promise.resolve(classifyScanType(fused)),
-  ]);
+    const canvas = document.createElement('canvas');
+    const burst = await runTimedStage(
+      'grabFrameBurst',
+      () => grabFrameBurst(video, canvas, burstCount, 35),
+      8_000,
+    );
+    if (!burst.length) return null;
 
-  if (!gate.ok) {
-    throw new ScannerQualityGateError(gate.guidance ?? 'Capture quality too low');
-  }
+    onProgress?.('fuse', 'Fusing frames…');
+    const fused = runTimedStageSync('fuseFrameBurst', () => {
+      const sharpest = [...burst].sort((a, b) => frameSharpness(b) - frameSharpness(a))[0]!;
+      return fuseFrameBurst(burst) ?? sharpest;
+    });
 
-  onProgress?.('normalize', 'Normalizing capture…');
-  const normalized = normalizeScannerImage(fused, scanType, onProgress);
-  const blob = await imageDataToJpegBlob(normalized.imageData, options?.jpegQuality ?? 0.97);
-  if (!blob) return null;
+    const gateFn = options?.relaxedQualityGate ? runQualityGateRelaxed : runQualityGate;
+    const gate = gateFn(fused);
 
-  return {
-    blob,
-    scanType: normalized.scanType,
-    pipelineSteps: normalized.pipelineSteps,
-  };
+    if (!gate.ok) {
+      throw new ScannerQualityGateError(gate.guidance ?? 'Capture quality too low');
+    }
+
+    onProgress?.('normalize', 'Preparing investigation input…');
+    const normalized = runTimedStageSync('normalizeInvestigation', () =>
+      normalizeScannerImageForInvestigation(fused, (step, label) => onProgress?.(step, label)));
+
+    const blob = await runTimedStage(
+      'imageDataToJpegBlob',
+      () => imageDataToJpegBlob(normalized.imageData, jpegQuality),
+      10_000,
+    );
+    if (!blob) return null;
+
+    return {
+      blob,
+      scanType: normalized.scanType,
+      pipelineSteps: normalized.pipelineSteps,
+    };
+  }, CAPTURE_BUDGET_MS);
 }
+
+export { ScannerStageTimeoutError };
 
 /**
  * Full scanner capture:
@@ -178,11 +200,28 @@ export async function captureForensicScan(
   video: HTMLVideoElement,
   options?: { burstCount?: number; jpegQuality?: number },
 ): Promise<ForensicCaptureResult | null> {
-  return captureInvestigationInput(video, {
-    burstCount: options?.burstCount ?? 5,
-    jpegQuality: options?.jpegQuality ?? 0.97,
-    relaxedQualityGate: false,
-  });
+  const onProgress = options as { onProgress?: InvestigationCaptureOptions['onProgress'] } | undefined;
+  const burstCount = options?.burstCount ?? 5;
+  const canvas = document.createElement('canvas');
+  const burst = await grabFrameBurst(video, canvas, burstCount, 35);
+  if (!burst.length) return null;
+
+  const sharpest = [...burst].sort((a, b) => frameSharpness(b) - frameSharpness(a))[0]!;
+  const fused = fuseFrameBurst(burst) ?? sharpest;
+  const gate = runQualityGate(fused);
+  if (!gate.ok) throw new ScannerQualityGateError(gate.guidance ?? 'Capture quality too low');
+
+  const scanType = classifyScanType(fused);
+  const normalized = runTimedStageSync('normalizeFull', () =>
+    normalizeScannerImage(fused, scanType, onProgress?.onProgress));
+  const blob = await imageDataToJpegBlob(normalized.imageData, options?.jpegQuality ?? 0.97);
+  if (!blob) return null;
+
+  return {
+    blob,
+    scanType: normalized.scanType,
+    pipelineSteps: normalized.pipelineSteps,
+  };
 }
 
 /** Quick quality gate — reject blurry / dark captures before investigation. */

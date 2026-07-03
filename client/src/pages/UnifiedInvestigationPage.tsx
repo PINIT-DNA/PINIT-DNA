@@ -1,13 +1,13 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
-  Shield, Upload, CheckCircle, AlertTriangle, RefreshCw, ScanLine,
+  Shield, Upload, AlertTriangle, RefreshCw, ScanLine,
   ChevronDown, ChevronUp, Fingerprint, Dna, User, Clock, Activity,
   FileDown, Globe, Lock, Eye, Download, Microscope,
 } from 'lucide-react';
-import { unifiedInvestigateStream, type InvestigationProgressEvent, type InvestigationLiveSnapshot } from '../services/dashboard.api';
+import { unifiedInvestigateStream } from '../services/dashboard.api';
 import { cn } from '../components/ui/utils';
-import { DocumentScanner } from '../components/DocumentScanner';
-import { InvestigationLivePanel } from '../components/InvestigationLivePanel';
+import { InvestigationScanner } from '../components/InvestigationScanner';
+import { InvestigationProcessingCard } from '../components/InvestigationProcessingCard';
 import { InvestigationSideBySideCompare } from '../components/InvestigationSideBySideCompare';
 import {
   downloadInvestigationReportPdf,
@@ -233,46 +233,35 @@ function Section({
   );
 }
 
-const LIVE_TIMELINE = [
-  { id: 'preprocessing', label: 'Preprocessing' },
-  { id: 'identity_recovery', label: 'Identity Recovery' },
-  { id: 'vault_search', label: 'Vault Search' },
-  { id: 'orb_verification', label: 'ORB Verification' },
-  { id: 'deep_dna_compare', label: 'Deep DNA Compare' },
-  { id: 'final_report', label: 'Final Report' },
-] as const;
-
 export function UnifiedInvestigationPage() {
   const [file, setFile] = useState<File | null>(null);
   const [mode, setMode] = useState<'upload' | 'scan'>('upload');
   const [loading, setLoading] = useState(false);
-  const [liveTimeline, setLiveTimeline] = useState<Record<string, InvestigationProgressEvent['status']>>({});
-  const [liveSnapshot, setLiveSnapshot] = useState<InvestigationLiveSnapshot | null>(null);
   const [exporting, setExporting] = useState(false);
   const [report, setReport] = useState<InvestigationReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [captureProcessing, setCaptureProcessing] = useState(false);
+  const [scannerKey, setScannerKey] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const reportRef = useRef<HTMLDivElement>(null);
 
   const previewUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+
+  useEffect(() => {
+    if (report) {
+      reportRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [report]);
 
   const runInvestigation = useCallback(async (f: File) => {
     setLoading(true);
     setError(null);
     setReport(null);
-    setLiveSnapshot(null);
-    const initial: Record<string, InvestigationProgressEvent['status']> = {};
-    for (const s of LIVE_TIMELINE) initial[s.id] = 'pending';
-    setLiveTimeline(initial);
 
     try {
-      const { report: r } = await unifiedInvestigateStream(f, (event) => {
-        if (event.type === 'phase' && event.snapshot) {
-          setLiveSnapshot(event.snapshot);
-        }
-        if (event.stepId) {
-          setLiveTimeline((prev) => ({ ...prev, [event.stepId]: event.status }));
-        }
+      const { report: r } = await unifiedInvestigateStream(f, () => {
+        /* progress handled server-side; UI shows unified processing card */
       });
       setReport(r as unknown as InvestigationReport);
     } catch (e: unknown) {
@@ -294,7 +283,19 @@ export function UnifiedInvestigationPage() {
     setReport(null);
     setError(null);
     setFile(f);
+    setCaptureProcessing(false);
     runInvestigation(f);
+  };
+
+  const handleScanProcessingStart = () => {
+    setCaptureProcessing(true);
+    setError(null);
+  };
+
+  const handleScanCaptureError = (message: string) => {
+    setCaptureProcessing(false);
+    setError(message);
+    setScannerKey((k) => k + 1);
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -307,16 +308,11 @@ export function UnifiedInvestigationPage() {
     setFile(null);
     setReport(null);
     setError(null);
-    setLiveSnapshot(null);
-    setLiveTimeline({});
+    setCaptureProcessing(false);
+    setScannerKey((k) => k + 1);
   };
 
-  const timelineIcon = (status: InvestigationProgressEvent['status'] | undefined) => {
-    if (status === 'complete') return '✔';
-    if (status === 'running') return '⏳';
-    if (status === 'warning' || status === 'failed') return '⚠';
-    return '○';
-  };
+  const investigating = loading || captureProcessing;
 
   const completedSteps = report?.pipeline.filter((s) => s.status === 'complete').length ?? 0;
   const totalSteps = report?.pipeline.length ?? 16;
@@ -335,31 +331,11 @@ export function UnifiedInvestigationPage() {
         </div>
       </div>
 
-      {!report && loading && liveSnapshot && (
-        <InvestigationLivePanel
-          snapshot={liveSnapshot}
-          previewUrl={previewUrl}
-          fileName={file?.name}
-        />
+      {!report && investigating && (
+        <InvestigationProcessingCard file={file} />
       )}
 
-      {!report && loading && !liveSnapshot && (
-        <div className="card border border-dna-500/20 p-4 flex items-center gap-3">
-          <RefreshCw size={20} className="text-dna-400 animate-spin shrink-0" />
-          <div>
-            <p className="text-sm font-semibold text-white">
-              {mode === 'scan' ? 'Running investigation on scan…' : 'Analyzing upload…'}
-            </p>
-            <p className="text-xs text-gray-500">
-              {mode === 'scan'
-                ? 'Verifying original owner, DNA match, and tamper details'
-                : 'PINIT signature scan — usually under 2 seconds'}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {!report && (
+      {!report && !investigating && (
         <div className="flex gap-2">
           <button
             type="button"
@@ -375,7 +351,7 @@ export function UnifiedInvestigationPage() {
           </button>
           <button
             type="button"
-            onClick={() => { setMode('scan'); setFile(null); }}
+            onClick={() => { setMode('scan'); setFile(null); setError(null); setScannerKey((k) => k + 1); }}
             className={cn(
               'flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2',
               mode === 'scan'
@@ -388,15 +364,12 @@ export function UnifiedInvestigationPage() {
         </div>
       )}
 
-      {!report && mode === 'upload' && (
+      {!report && !investigating && mode === 'upload' && (
         <div
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleDrop}
-          onClick={() => !loading && inputRef.current?.click()}
-          className={cn(
-            'card border-2 border-dashed text-center py-12 transition-colors',
-            loading ? 'opacity-60 cursor-wait' : 'cursor-pointer hover:border-dna-500/50 border-bg-border',
-          )}
+          onClick={() => inputRef.current?.click()}
+          className="card border-2 border-dashed text-center py-12 cursor-pointer hover:border-dna-500/50 border-bg-border transition-colors"
         >
           <input
             ref={inputRef}
@@ -404,50 +377,23 @@ export function UnifiedInvestigationPage() {
             className="hidden"
             onChange={(e) => { if (e.target.files?.[0]) handleFileSelect(e.target.files[0]); }}
           />
-          {loading ? (
-            <div className="py-6">
-              <p className="text-xs text-gray-500 mb-3">Pipeline progress</p>
-              <div className="space-y-1.5 text-left max-w-sm mx-auto">
-                {LIVE_TIMELINE.map((step) => {
-                  const st = liveTimeline[step.id] ?? 'pending';
-                  return (
-                    <div key={step.id} className="flex items-center gap-2 text-xs text-gray-400">
-                      <span className="w-5 text-center">{timelineIcon(st)}</span>
-                      <span className={cn(st === 'running' && 'text-dna-400', st === 'complete' && 'text-green-400')}>
-                        {step.label}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : file ? (
-            <div>
-              <CheckCircle size={32} className="text-green-400 mx-auto mb-3" />
-              <p className="text-sm font-semibold text-white">{file.name}</p>
-              <p className="text-2xs text-gray-500 mt-1">Investigation starting…</p>
-            </div>
-          ) : (
-            <div>
-              <Upload size={32} className="text-gray-500 mx-auto mb-3" />
-              <p className="text-sm text-gray-400">Drop a suspected file here or click to upload</p>
-              <p className="text-2xs text-gray-600 mt-1">Single file · max 500MB · investigation runs automatically</p>
-            </div>
-          )}
+          <Upload size={32} className="text-gray-500 mx-auto mb-3" />
+          <p className="text-sm text-gray-400">Drop a suspected file here or click to upload</p>
+          <p className="text-2xs text-gray-600 mt-1">Investigation runs automatically after upload</p>
         </div>
       )}
 
-      {!report && mode === 'scan' && !loading && (
-        <DocumentScanner
-          captureMode="single"
-          unifiedInvestigation
+      {!report && !investigating && mode === 'scan' && (
+        <InvestigationScanner
+          key={scannerKey}
           onScanComplete={handleScanComplete}
-          onCancel={handleReset}
-          subtitle="Camera capture is normalized then sent to the same investigation engine as upload"
+          onProcessingStart={handleScanProcessingStart}
+          onCaptureError={handleScanCaptureError}
+          onCancel={() => { setMode('upload'); handleReset(); }}
         />
       )}
 
-      {error && (
+      {error && !investigating && (
         <div className="card border border-red-500/30 bg-red-500/5 p-4 flex items-start gap-3">
           <AlertTriangle size={18} className="text-red-400 shrink-0 mt-0.5" />
           <div>
@@ -462,7 +408,7 @@ export function UnifiedInvestigationPage() {
         const reportState = report.summary.reportState;
         const hasVaultMatch = reportState !== 'NO_SIGNATURE' && !!(report.owner.vaultId || report.identityProof.vaultId);
         return (
-        <>
+        <div ref={reportRef} className="space-y-6 scroll-mt-6">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
               {(report.summary.reportState || report.summary.forensicVerdict) && (
@@ -907,7 +853,7 @@ export function UnifiedInvestigationPage() {
               Legal Evidence Bundle — coming soon.
             </p>
           </Section>
-        </>
+        </div>
         );
       })()}
     </div>
