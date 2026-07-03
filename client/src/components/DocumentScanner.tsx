@@ -2,7 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Camera, Upload, ScanLine, X, Plus, FileText, Trash2, Zap, RefreshCw } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { useAutoDocumentCapture } from '../hooks/useAutoDocumentCapture';
-import { captureForensicScan, validateCaptureQuality, cropToGuideRegion } from '../lib/document-capture-pipeline';
+import {
+  captureForensicScan,
+  validateCaptureQuality,
+  cropToGuideRegion,
+  normalizeScannerBlob,
+  ScannerQualityGateError,
+  scanTypeLabel,
+  type ScanType,
+} from '../lib/document-capture-pipeline';
 
 function useIsMobileViewport() {
   const [mobile, setMobile] = useState(() =>
@@ -42,6 +50,8 @@ export function DocumentScanner({
   const videoRef = useRef<HTMLVideoElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const [captureError, setCaptureError] = useState<string | null>(null);
+  const [normalizing, setNormalizing] = useState(false);
+  const [detectedScanType, setDetectedScanType] = useState<ScanType | null>(null);
   const enhanceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const autoStartedRef = useRef(false);
   const isMobile = useIsMobileViewport();
@@ -71,8 +81,8 @@ export function DocumentScanner({
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: 'environment' },
-          width: { ideal: 1920, min: 1280 },
-          height: { ideal: 1080, min: 720 },
+          width: { ideal: 3840, min: 1920 },
+          height: { ideal: 2160, min: 1080 },
         },
         audio: false,
       });
@@ -118,11 +128,13 @@ export function DocumentScanner({
   }, []);
 
   const finishWithBlob = useCallback(
-    (blob: Blob) => {
+    (blob: Blob, scanType?: ScanType) => {
       const file = new File([blob], `scan_${Date.now()}.jpg`, { type: 'image/jpeg' });
       stopCamera();
       setScannedPages([]);
       setCaptureError(null);
+      setNormalizing(false);
+      setDetectedScanType(scanType ?? null);
       onScanComplete(file);
     },
     [onScanComplete, stopCamera],
@@ -131,25 +143,38 @@ export function DocumentScanner({
   const captureAndFinish = useCallback(async () => {
     if (!videoRef.current) return;
     setCaptureError(null);
+    setNormalizing(false);
 
     const useForensicPipeline = captureMode === 'single';
     if (useForensicPipeline) {
-      const canvas = enhanceCanvasRef.current!;
-      const preview = cropToGuideRegion(videoRef.current, canvas);
-      if (preview) {
-        const gate = validateCaptureQuality(preview);
-        if (!gate.ok) {
-          setCaptureError(gate.reason ?? 'Capture quality too low');
+      try {
+        const canvas = enhanceCanvasRef.current!;
+        const preview = cropToGuideRegion(videoRef.current, canvas);
+        if (preview) {
+          const gate = validateCaptureQuality(preview);
+          if (!gate.ok) {
+            setCaptureError(gate.reason ?? 'Capture quality too low');
+            return;
+          }
+        }
+        setNormalizing(true);
+        const result = await captureForensicScan(videoRef.current, { burstCount: 5, jpegQuality: 0.97 });
+        if (result) {
+          setFlashCapture(true);
+          window.setTimeout(() => setFlashCapture(false), 280);
+          finishWithBlob(result.blob, result.scanType);
           return;
         }
-      }
-      const blob = await captureForensicScan(videoRef.current, { burstCount: 5, jpegQuality: 0.97 });
-      if (blob) {
-        setFlashCapture(true);
-        window.setTimeout(() => setFlashCapture(false), 280);
-        finishWithBlob(blob);
+      } catch (err) {
+        setNormalizing(false);
+        if (err instanceof ScannerQualityGateError) {
+          setCaptureError(err.message);
+          return;
+        }
+        setCaptureError('Capture failed — try again with better lighting');
         return;
       }
+      setNormalizing(false);
     }
 
     const canvas = document.createElement('canvas');
@@ -231,7 +256,27 @@ export function DocumentScanner({
     resetCapture();
   };
 
-  const handleGallery = (f: File) => {
+  const handleGallery = async (f: File) => {
+    if (captureMode === 'single' && f.type.startsWith('image/')) {
+      try {
+        setNormalizing(true);
+        setCaptureError(null);
+        const normalized = await normalizeScannerBlob(f, { jpegQuality: 0.97 });
+        stopCamera();
+        setScannedPages([]);
+        if (normalized) {
+          finishWithBlob(normalized.blob, normalized.scanType);
+          return;
+        }
+      } catch (err) {
+        setNormalizing(false);
+        if (err instanceof ScannerQualityGateError) {
+          setCaptureError(err.message);
+          return;
+        }
+      }
+      setNormalizing(false);
+    }
     stopCamera();
     setScannedPages([]);
     onScanComplete(f);
@@ -277,6 +322,12 @@ export function DocumentScanner({
                 <span className="text-xs text-gray-400">Starting camera…</span>
               </div>
             )}
+            {normalizing && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/75 z-20">
+                <RefreshCw size={22} className="text-dna-400 animate-spin" />
+                <span className="text-xs text-dna-300 font-medium">Normalizing capture…</span>
+              </div>
+            )}
             <div
               className={`absolute inset-0 pointer-events-none transition-colors duration-200 ${
                 flashCapture ? 'bg-white/35' : ''
@@ -308,6 +359,11 @@ export function DocumentScanner({
                 {captureMode === 'single' ? (isMobile ? 'Screen scan' : 'Smart capture') : 'Auto-scan'}
               </span>
             </div>
+            {captureMode === 'single' && detectedScanType && !normalizing && (
+              <div className="absolute top-3 right-3 bg-black/50 backdrop-blur rounded-full px-2.5 py-1 z-10">
+                <span className="text-[10px] text-gray-300">{scanTypeLabel(detectedScanType)}</span>
+              </div>
+            )}
 
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent pt-6 pb-2 px-3 z-10">
               <p className="text-center text-[11px] text-white font-medium drop-shadow-lg leading-snug">{hint}</p>
