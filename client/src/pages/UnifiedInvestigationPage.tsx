@@ -346,8 +346,14 @@ export function UnifiedInvestigationPage() {
         <div className="card border border-dna-500/20 p-4 flex items-center gap-3">
           <RefreshCw size={20} className="text-dna-400 animate-spin shrink-0" />
           <div>
-            <p className="text-sm font-semibold text-white">Analyzing upload…</p>
-            <p className="text-xs text-gray-500">PINIT signature scan — usually under 2 seconds</p>
+            <p className="text-sm font-semibold text-white">
+              {mode === 'scan' ? 'Running investigation on scan…' : 'Analyzing upload…'}
+            </p>
+            <p className="text-xs text-gray-500">
+              {mode === 'scan'
+                ? 'Verifying original owner, DNA match, and tamper details'
+                : 'PINIT signature scan — usually under 2 seconds'}
+            </p>
           </div>
         </div>
       )}
@@ -430,41 +436,14 @@ export function UnifiedInvestigationPage() {
         </div>
       )}
 
-      {!report && mode === 'scan' && (
-        <div className="space-y-3">
-          {loading ? (
-            <div className="card text-center py-6 space-y-4">
-              {previewUrl && !liveSnapshot && (
-                <img
-                  src={previewUrl}
-                  alt="Captured"
-                  className="mx-auto max-h-36 rounded-lg border border-bg-border object-contain bg-black/40"
-                />
-              )}
-              <p className="text-xs text-gray-500">Pipeline progress</p>
-              <div className="space-y-1.5 text-left max-w-xs mx-auto">
-                {LIVE_TIMELINE.map((step) => {
-                  const st = liveTimeline[step.id] ?? 'pending';
-                  return (
-                    <div key={step.id} className="flex items-center gap-2 text-xs text-gray-400">
-                      <span className="w-5 text-center">{timelineIcon(st)}</span>
-                      <span className={cn(st === 'running' && 'text-dna-400', st === 'complete' && 'text-green-400')}>
-                        {step.label}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <DocumentScanner
-              captureMode="single"
-              onScanComplete={handleScanComplete}
-              onCancel={handleReset}
-              subtitle="Fit the vault file in the frame — tap Capture Now for instant results"
-            />
-          )}
-        </div>
+      {!report && mode === 'scan' && !loading && (
+        <DocumentScanner
+          captureMode="single"
+          quickCapture
+          onScanComplete={handleScanComplete}
+          onCancel={handleReset}
+          subtitle="Point at a PINIT-protected file — capture runs the same investigation as upload"
+        />
       )}
 
       {error && (

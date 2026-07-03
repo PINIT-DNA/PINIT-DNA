@@ -7,6 +7,7 @@ import {
   validateCaptureQuality,
   cropToGuideRegion,
   normalizeScannerBlob,
+  imageDataToJpegBlob,
   ScannerQualityGateError,
   scanTypeLabel,
   type ScanType,
@@ -33,6 +34,11 @@ interface DocumentScannerProps {
   autoStart?: boolean;
   /** single = auto-finish after first capture; multi = collect pages for PDF */
   captureMode?: 'single' | 'multi';
+  /**
+   * Unified Investigation — instant single-frame capture, no burst/normalize overlay.
+   * Same file → investigation API as upload. Other pages keep full forensic pipeline.
+   */
+  quickCapture?: boolean;
 }
 
 export function DocumentScanner({
@@ -41,6 +47,7 @@ export function DocumentScanner({
   subtitle,
   autoStart = true,
   captureMode = 'multi',
+  quickCapture = false,
 }: DocumentScannerProps) {
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
@@ -145,6 +152,34 @@ export function DocumentScanner({
     setCaptureError(null);
     setNormalizing(false);
 
+    // Unified Investigation — fast path: one frame → investigation (same as upload)
+    if (captureMode === 'single' && quickCapture) {
+      try {
+        const canvas = enhanceCanvasRef.current!;
+        let imageData = cropToGuideRegion(videoRef.current, canvas);
+        if (!imageData) {
+          canvas.width = videoRef.current.videoWidth;
+          canvas.height = videoRef.current.videoHeight;
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          if (ctx) {
+            ctx.drawImage(videoRef.current, 0, 0);
+            imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          }
+        }
+        if (!imageData) {
+          setCaptureError('Capture failed — try again');
+          return;
+        }
+        setFlashCapture(true);
+        window.setTimeout(() => setFlashCapture(false), 280);
+        const blob = await imageDataToJpegBlob(imageData, 0.92);
+        if (blob) finishWithBlob(blob);
+      } catch {
+        setCaptureError('Capture failed — try again');
+      }
+      return;
+    }
+
     const useForensicPipeline = captureMode === 'single';
     if (useForensicPipeline) {
       try {
@@ -186,7 +221,7 @@ export function DocumentScanner({
     canvas.toBlob((blob) => {
       if (blob) finishWithBlob(blob);
     }, 'image/jpeg', captureMode === 'single' ? 0.96 : 0.92);
-  }, [finishWithBlob, captureMode]);
+  }, [finishWithBlob, captureMode, quickCapture]);
 
   const capturePage = useCallback(() => {
     const dataUrl = grabFrameDataUrl();
@@ -257,6 +292,12 @@ export function DocumentScanner({
   };
 
   const handleGallery = async (f: File) => {
+    if (captureMode === 'single' && quickCapture) {
+      stopCamera();
+      setScannedPages([]);
+      onScanComplete(f);
+      return;
+    }
     if (captureMode === 'single' && f.type.startsWith('image/')) {
       try {
         setNormalizing(true);
@@ -322,7 +363,7 @@ export function DocumentScanner({
                 <span className="text-xs text-gray-400">Starting camera…</span>
               </div>
             )}
-            {normalizing && (
+            {normalizing && !quickCapture && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/75 z-20">
                 <RefreshCw size={22} className="text-dna-400 animate-spin" />
                 <span className="text-xs text-dna-300 font-medium">Normalizing capture…</span>
