@@ -46,7 +46,7 @@ import {
   deepCompareForVault,
   selectAuthoritativeMatch,
 } from './authoritative-asset.service';
-import { detectMediaProfile } from './adaptive-scoring.service';
+import { resolveMediaProfile } from './adaptive-scoring.service';
 
 function logCandidateStage(
   stage: string,
@@ -311,8 +311,7 @@ export class PinitOriginalIdentityRecoveryService {
     };
     const twoStage = options?.twoStageRetrieval === true;
     const poolSize = clampCandidatePool(options?.candidatePoolSize);
-    const isVideoProbeEarly = detectMediaProfile(mimeType) === 'video'
-      || /\.(mp4|mov|avi|mkv|webm|m4v|mpeg|mpg)$/i.test(originalName);
+    const isVideoProbeEarly = resolveMediaProfile(mimeType, originalName) === 'video';
     const videoOriginalVariant = [{ label: 'original' as const, buffer, mimeType }];
 
     const stages: RecoveryStage[] = [];
@@ -1054,7 +1053,7 @@ export class PinitOriginalIdentityRecoveryService {
         statusMessage: 'Running 15-layer forensic verification…',
       });
 
-      const isImageProbe = detectMediaProfile(mimeType) === 'image';
+      const isImageProbe = resolveMediaProfile(mimeType, originalName) === 'image';
 
       let deepTopN = preliminarySelection
         ? 1

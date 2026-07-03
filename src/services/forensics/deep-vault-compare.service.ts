@@ -6,7 +6,7 @@ import { VaultService } from '../vault/vault.service';
 import { DnaComparisonService } from '../verification/dna-comparison.service';
 import type { RankedVaultCandidate } from '../../types/unified-investigation.types';
 import { logDeepCompareCandidate } from './investigation-pipeline-audit.service';
-import { detectMediaProfile } from './adaptive-scoring.service';
+import { resolveMediaProfile } from './adaptive-scoring.service';
 import { compareVideoInvestigation } from './video-forensic-compare.service';
 
 export interface DeepCompareResult {
@@ -45,7 +45,7 @@ export class DeepVaultCompareService {
     for (const c of top) {
       try {
         const original = await this.vault.retrieve(c.vaultId, ownerUserId);
-        const isVideoProbe = detectMediaProfile(suspectMime) === 'video';
+        const isVideoProbe = resolveMediaProfile(suspectMime, suspectName) === 'video';
 
         const cmp = isVideoProbe
           ? await compareVideoInvestigation(

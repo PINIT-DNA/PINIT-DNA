@@ -8,7 +8,9 @@ import { unifiedInvestigateStream } from '../services/dashboard.api';
 import { cn } from '../components/ui/utils';
 import { InvestigationScanner } from '../components/InvestigationScanner';
 import { InvestigationProcessingCard } from '../components/InvestigationProcessingCard';
+import { InvestigationLivePanel } from '../components/InvestigationLivePanel';
 import { InvestigationSideBySideCompare } from '../components/InvestigationSideBySideCompare';
+import type { InvestigationLiveSnapshot } from '../services/dashboard.api';
 import {
   downloadInvestigationReportPdf,
   downloadDnaReportPdf,
@@ -241,6 +243,7 @@ export function UnifiedInvestigationPage() {
   const [report, setReport] = useState<InvestigationReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [captureProcessing, setCaptureProcessing] = useState(false);
+  const [liveSnapshot, setLiveSnapshot] = useState<InvestigationLiveSnapshot | null>(null);
   const [scannerKey, setScannerKey] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const reportRef = useRef<HTMLDivElement>(null);
@@ -258,10 +261,11 @@ export function UnifiedInvestigationPage() {
     setLoading(true);
     setError(null);
     setReport(null);
+    setLiveSnapshot(null);
 
     try {
-      const { report: r } = await unifiedInvestigateStream(f, () => {
-        /* progress handled server-side; UI shows unified processing card */
+      const { report: r } = await unifiedInvestigateStream(f, (event) => {
+        if (event.snapshot) setLiveSnapshot(event.snapshot);
       });
       setReport(r as unknown as InvestigationReport);
     } catch (e: unknown) {
@@ -269,6 +273,7 @@ export function UnifiedInvestigationPage() {
       setError(msg);
     } finally {
       setLoading(false);
+      setLiveSnapshot(null);
     }
   }, []);
 
@@ -332,7 +337,11 @@ export function UnifiedInvestigationPage() {
       </div>
 
       {!report && investigating && (
-        <InvestigationProcessingCard file={file} />
+        liveSnapshot ? (
+          <InvestigationLivePanel snapshot={liveSnapshot} file={file} fileName={file?.name} />
+        ) : (
+          <InvestigationProcessingCard file={file} />
+        )
       )}
 
       {!report && !investigating && (

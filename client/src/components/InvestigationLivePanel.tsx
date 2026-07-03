@@ -1,9 +1,12 @@
 import { CheckCircle, Dna, Fingerprint, Loader2, Shield, User } from 'lucide-react';
 import type { InvestigationLiveSnapshot } from '../services/dashboard.api';
+import { InvestigationFilePreview } from './InvestigationFilePreview';
 import { cn } from './ui/utils';
 
 interface Props {
   snapshot: InvestigationLiveSnapshot;
+  /** Prefer file for video/audio/PDF preview — blob img breaks for video */
+  file?: File | null;
   previewUrl?: string | null;
   fileName?: string;
 }
@@ -21,7 +24,7 @@ function phaseLabel(phase: InvestigationLiveSnapshot['phase']): string {
   return 'Investigation complete';
 }
 
-export function InvestigationLivePanel({ snapshot, previewUrl, fileName }: Props) {
+export function InvestigationLivePanel({ snapshot, file, previewUrl, fileName }: Props) {
   const phase = snapshot.phase;
   const phaseNum = typeof phase === 'number' ? phase : phase === 'final' ? 4 : 3;
   const confidence = snapshot.dnaMatchPercent ?? snapshot.confidence;
@@ -29,12 +32,18 @@ export function InvestigationLivePanel({ snapshot, previewUrl, fileName }: Props
   return (
     <div className="card border border-dna-500/30 bg-dna-500/5 overflow-hidden">
       <div className="flex flex-col sm:flex-row gap-4 p-4">
-        {previewUrl && (
-          <img
-            src={previewUrl}
-            alt="Probe"
-            className="w-full sm:w-28 h-28 rounded-lg border border-bg-border object-contain bg-black/40 shrink-0"
-          />
+        {(file || previewUrl) && (
+          <div className="w-full sm:w-28 h-28 rounded-lg border border-bg-border bg-black/40 shrink-0 overflow-hidden">
+            {file ? (
+              <InvestigationFilePreview file={file} className="w-full h-full object-contain" />
+            ) : (
+              <img
+                src={previewUrl!}
+                alt="Probe"
+                className="w-full h-full object-contain"
+              />
+            )}
+          </div>
         )}
         <div className="flex-1 min-w-0 space-y-3">
           <div className="flex items-start justify-between gap-3">

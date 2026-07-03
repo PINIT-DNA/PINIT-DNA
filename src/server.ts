@@ -141,6 +141,17 @@ async function onServerReady(): Promise<void> {
   }
 }
 
+async function logFfmpegAvailability(): Promise<void> {
+  const { isFfmpegAvailable } = await import('./services/forensics/media-tools.service');
+  const { dnaPhase2 } = await import('./config/dna-phase2');
+  const ffmpegOk = await isFfmpegAvailable();
+  logger.info('FFmpeg availability', {
+    available: ffmpegOk,
+    ffmpegPath: dnaPhase2.ffmpegPath,
+    ffprobePath: dnaPhase2.ffprobePath,
+  });
+}
+
 export async function startHttpServer(): Promise<http.Server> {
   if (httpServer?.listening) {
     logger.warn('HTTP server already listening — ignoring duplicate start');
@@ -169,6 +180,7 @@ export async function startHttpServer(): Promise<http.Server> {
       aiUrl: process.env['AI_SERVICE_URL'],
     });
     void onServerReady();
+    void logFfmpegAvailability();
   }
 
   return httpServer;

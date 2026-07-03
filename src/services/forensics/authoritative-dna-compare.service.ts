@@ -9,7 +9,7 @@ import type { DnaComparisonResult } from '../../types/comparison.types';
 import type { AuthoritativeAsset } from '../../types/authoritative-asset.types';
 import type { DeepCompareResult } from './deep-vault-compare.service';
 import { assertDnaScope, assertVaultScope } from './authoritative-asset.service';
-import { detectMediaProfile } from './adaptive-scoring.service';
+import { resolveMediaProfile } from './adaptive-scoring.service';
 import { compareVideoInvestigation } from './video-forensic-compare.service';
 
 const vaultService = new VaultService();
@@ -42,10 +42,10 @@ export async function compareProbeToAuthoritativeAsset(
     dnaRecordId: authAsset.dnaRecordId.slice(0, 8),
     probe: probe.originalName,
     original: original.originalFileName,
-    mediaProfile: detectMediaProfile(probe.mimeType),
+    mediaProfile: resolveMediaProfile(probe.mimeType, probe.originalName),
   });
 
-  const mediaProfile = detectMediaProfile(probe.mimeType);
+  const mediaProfile = resolveMediaProfile(probe.mimeType, probe.originalName);
 
   if (mediaProfile === 'video') {
     const base = await comparisonService.compare(

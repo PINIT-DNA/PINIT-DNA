@@ -59,6 +59,18 @@ export function detectMediaProfile(
   return 'unknown';
 }
 
+/** Probe uploads — extension fallback when browser sends application/octet-stream */
+export function resolveMediaProfile(mimeType: string, fileName?: string, fileType?: string): MediaProfile {
+  const direct = detectMediaProfile(mimeType, fileType);
+  if (direct !== 'unknown') return direct;
+  const name = fileName ?? '';
+  if (/\.(mp4|mov|avi|mkv|webm|m4v|mpeg|mpg)$/i.test(name)) return 'video';
+  if (/\.(mp3|wav|flac|ogg|aac|m4a)$/i.test(name)) return 'audio';
+  if (/\.(pdf|docx|pptx|txt|csv)$/i.test(name)) return 'document';
+  if (/\.(jpe?g|png|gif|webp|bmp|heic|tiff?)$/i.test(name)) return 'image';
+  return 'unknown';
+}
+
 export class AdaptiveScoringService {
   compute(
     mediaProfile: MediaProfile,

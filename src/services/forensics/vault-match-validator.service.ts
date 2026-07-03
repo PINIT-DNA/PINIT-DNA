@@ -101,6 +101,9 @@ export function isAcceptedAfterDnaCompare(
   if (match.tier === 3 && match.method.includes('Local patch DNA')) {
     return vaultSearchScore >= 55 && classification !== 'DIFFERENT';
   }
+  if (match.tier === 3 && /partial video/i.test(match.method)) {
+    return (retrievalConfidence ?? 0) >= 30 || overallConfidenceScore >= 20;
+  }
   return overallConfidenceScore >= 75 && classification === 'DNA_MATCH';
 }
 

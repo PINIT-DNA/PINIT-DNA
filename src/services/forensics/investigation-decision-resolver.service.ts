@@ -168,7 +168,17 @@ export function shouldRetainRetrievalCandidateAsPossible(
     ?? enterprise.verifiedCandidate?.vaultId
     ?? enterprise.probableMatch?.vaultId;
   if (!anchoredVault || anchoredVault !== match.vaultId) return false;
+
+  // Embedded identity / SHA256 exact — cryptographic anchor. The probe file
+  // literally carries the vault's identity marker. Never dismiss on weak 15-layer
+  // (video frame compare can fail when FFmpeg isn't available on the host).
+  const source = enterprise.authoritativeAsset?.selectionSource;
+  if (source === 'identity_hit' || source === 'sha256_exact') return true;
+
   if (dnaScore >= MIN_DNA_FOR_POSSIBLE_REPORT) return true;
+  if (/partial video/i.test(match.method) && retrievalConfidence >= 28) return true;
+  const vectorComposite = enterprise.authoritativeAsset?.vector?.scores.composite ?? 0;
+  if (vectorComposite >= 35 && retrievalConfidence >= 25) return true;
   return retrievalConfidence >= 20 && dnaScore >= 10;
 }
 

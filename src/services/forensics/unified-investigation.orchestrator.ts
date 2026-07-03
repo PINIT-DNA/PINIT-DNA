@@ -530,6 +530,8 @@ export class UnifiedInvestigationOrchestrator {
               vaultId: match.vaultId,
               score: cmpScore,
               classification: cmpClass,
+              selectionSource: enterprise.authoritativeAsset?.selectionSource,
+              method: match.method,
             });
             pipeline.push(step(
               'match_validation',

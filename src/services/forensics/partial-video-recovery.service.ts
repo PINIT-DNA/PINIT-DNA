@@ -362,6 +362,28 @@ export async function partialVideoVaultSearch(
   const probeHash = crypto.createHash('sha256').update(probeBuffer).digest('hex');
   const vaultSvc = new VaultService();
   const vectors: VaultSimilarityVector[] = [];
+
+  for (const row of videoRows) {
+    if (!row.vaultRecord) continue;
+    if (row.sha256Hash === probeHash || row.cryptoLayer?.sha256Hash === probeHash) {
+      vectors.push({
+        vaultId: row.vaultRecord.id,
+        dnaRecordId: row.id,
+        ownerUserId,
+        filename: row.vaultRecord.originalFileName,
+        scores: {
+          sha256: 100, pHash: 100, aHash: 100, dHash: 100, perceptualBlend: 100,
+          structural: 100, semanticColor: 0, clip: 100, orb: 100, aspectRatio: 100, composite: 100,
+        },
+        signals: ['cryptographic_hash', 'partial_video_exact'],
+      });
+    }
+  }
+  if (vectors.length) {
+    vectors.sort((a, b) => b.scores.composite - a.scores.composite);
+    return vectors.slice(0, options?.limit ?? 10);
+  }
+
   const lightMode = options?.lightMode !== false && !options?.candidateVaultIds?.length;
   const probeFrameTarget = lightMode ? PROBE_KEYFRAMES_LIGHT : PROBE_KEYFRAMES;
   const vaultFrameTarget = lightMode ? VAULT_KEYFRAMES_LIGHT : VAULT_KEYFRAMES;
@@ -373,6 +395,30 @@ export async function partialVideoVaultSearch(
   const probeAudio = lightMode ? null : await extractAudioSample(probeBuffer, ext);
 
   if (!probeFrames.length) {
+    const probeStem = probeName.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    for (const row of videoRows) {
+      if (!row.vaultRecord) continue;
+      const vaultStem = row.vaultRecord.originalFileName.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      if (!probeStem || !vaultStem) continue;
+      const overlap = probeStem.length >= 8 && (probeStem.includes(vaultStem) || vaultStem.includes(probeStem));
+      if (overlap) {
+        vectors.push({
+          vaultId: row.vaultRecord.id,
+          dnaRecordId: row.id,
+          ownerUserId,
+          filename: row.vaultRecord.originalFileName,
+          scores: {
+            sha256: 0, pHash: 42, aHash: 0, dHash: 0, perceptualBlend: 42,
+            structural: 35, semanticColor: 0, clip: 48, orb: 0, aspectRatio: 50, composite: 45,
+          },
+          signals: ['partial_video_filename_anchor', 'ffmpeg_unavailable'],
+        });
+      }
+    }
+    if (vectors.length) {
+      vectors.sort((a, b) => b.scores.composite - a.scores.composite);
+      return vectors.slice(0, options?.limit ?? 10);
+    }
     logger.warn('[PartialVideoRecovery] No probe keyframes — check FFMPEG_PATH', {
       probe: probeName,
       ffmpeg: await isFfmpegAvailable(),
