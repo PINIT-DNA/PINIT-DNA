@@ -49,7 +49,6 @@ import { resolveMediaProfile } from './adaptive-scoring.service';
 import { isCameraScanFileName } from './vault-match-validator.service';
 import {
   LOCAL_PATCH_RESCUE_MIN,
-  RANKING_LIVE_LEAD_MIN,
   RANKING_TOP_DEEP,
   RANKING_TRUSTED_LEAD_MIN,
   selectWinnerByRanking,
