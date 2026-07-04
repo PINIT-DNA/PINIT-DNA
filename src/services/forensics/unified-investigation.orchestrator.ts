@@ -1150,7 +1150,11 @@ export class UnifiedInvestigationOrchestrator {
   }): Promise<UnifiedInvestigationReport> {
     const { snapshot } = params;
     const vaultId = snapshot.vaultId!;
-    const conf = Math.max(snapshot.confidence ?? 0, snapshot.dnaMatchPercent ?? 0, 30);
+    // Never invent floors (was max(..., 30) / max(conf, 40)) — that turned weak
+    // lookalike leads into "Original Found — Derivative Detected" (false positives).
+    const liveConf = Math.max(0, snapshot.confidence ?? 0);
+    const realDna = snapshot.dnaMatchPercent;
+    const hasRealDna = typeof realDna === 'number' && realDna >= 40;
 
     const vaultRow = await prisma.vaultRecord.findFirst({
       where: { id: vaultId, dnaRecord: { ownerUserId: params.ownerUserId } },
@@ -1191,7 +1195,9 @@ export class UnifiedInvestigationOrchestrator {
       'identity',
       'Extract embedded identity',
       'warning',
-      `Live match retained after timeout — vault ${vaultId.slice(0, 8)}…`,
+      hasRealDna
+        ? `Live DNA retained after timeout — vault ${vaultId.slice(0, 8)}…`
+        : `Unconfirmed live lead ${vaultId.slice(0, 8)}… — DNA not completed`,
     ));
     params.pipeline.push(step(
       'report',
@@ -1200,9 +1206,38 @@ export class UnifiedInvestigationOrchestrator {
       `Partial report — ${params.error}`,
     ));
 
-    const investigatedAt = new Date().toISOString();
-    const decisionReason = `Possible PINIT asset — vault located before timeout (${params.error})`;
+    // Acceptance only verifies when phase-3 DNA actually completed.
+    // Weak vector leads (~30%) must not become VERIFIED_DERIVATIVE.
+    const decision = runAcceptanceEngine({
+      analysisComplete: hasRealDna,
+      hasCandidate: hasRealDna,
+      vaultId: hasRealDna ? vaultId : undefined,
+      dnaRecordId: hasRealDna ? dnaRecordId : undefined,
+      ownerUserId: params.ownerUserId,
+      ownerPinitId: hasRealDna ? (ownerPinitId ?? undefined) : undefined,
+      dna: hasRealDna
+        ? passChannel(realDna!, 'completed_deep_dna')
+        : failChannel(liveConf, 'deep_dna_not_completed'),
+      certificate: hasRealDna && certificateId
+        ? passChannel(50, certificateId)
+        : skippedChannel('No certificate'),
+      vault: hasRealDna ? passChannel(100, vaultId) : failChannel(0, 'unconfirmed_live_lead'),
+      owner: hasRealDna ? passChannel(50) : failChannel(0, 'unconfirmed_live_lead'),
+      timeline: hasRealDna ? passChannel(50) : failChannel(0, 'incomplete'),
+      visual: hasRealDna && liveConf >= 40
+        ? passChannel(liveConf)
+        : failChannel(liveConf, 'visual_unconfirmed'),
+      watermark: failChannel(0),
+      metadata: skippedChannel(),
+      tamperDetected: hasRealDna,
+      failureReason: hasRealDna ? undefined : params.error,
+    });
 
+    const conf = hasRealDna
+      ? Math.max(liveConf, realDna!)
+      : 0;
+
+    const investigatedAt = new Date().toISOString();
     const report: UnifiedInvestigationReport = {
       success: true,
       investigationId: params.investigationId,
@@ -1212,27 +1247,41 @@ export class UnifiedInvestigationOrchestrator {
         ownershipConfidence: conf,
         retrievalConfidence: conf,
         ownershipVerificationConfidence: conf,
-        forensicVerdict: 'POSSIBLE_ASSET',
-        reportState: 'POSSIBLE',
-        decisionReason,
-        dnaMatchPercent: snapshot.dnaMatchPercent ?? conf,
-        certificateStatus: certificateId ? 'ACTIVE' : 'UNKNOWN',
-        identityStatus: ownerPinitId ? 'PARTIALLY_RECOVERED' : 'FOUND',
-        tamperSeverity: 'UNKNOWN',
-        riskLevel: 'MEDIUM',
+        forensicVerdict: mapAcceptanceToForensicVerdict(decision.verdict),
+        reportState: mapAcceptanceToReportState(decision.verdict),
+        decisionReason: decision.decisionReason,
+        dnaMatchPercent: hasRealDna ? realDna! : 0,
+        certificateStatus: hasRealDna && certificateId ? 'ACTIVE' : 'UNKNOWN',
+        identityStatus: hasRealDna
+          ? (ownerPinitId ? 'PARTIALLY_RECOVERED' : 'FOUND')
+          : 'NOT_FOUND',
+        tamperSeverity: hasRealDna ? 'UNKNOWN' : 'UNKNOWN',
+        riskLevel: hasRealDna ? 'MEDIUM' : 'UNKNOWN',
         trustScore: conf,
         identityConfidence: conf,
+        acceptanceVerdict: decision.verdict,
       },
-      message: `PINIT signature located (vault ${vaultId.slice(0, 8)}…) — full deep compare timed out; report retained from live identity recovery.`,
-      owner: {
-        ownerName,
-        ownerPinitId,
-        vaultId,
-        dnaRecordId,
-        certificateId,
-        originalFilename,
-        createdAt: vaultRow?.dnaRecord?.createdAt?.toISOString(),
-      },
+      message: hasRealDna
+        ? `Deep DNA completed before timeout (vault ${vaultId.slice(0, 8)}…) — ${decision.displayLabel}`
+        : `Investigation incomplete — live lead ${vaultId.slice(0, 8)}… was not DNA-verified (${params.error}). Not treated as an original match.`,
+      owner: hasRealDna
+        ? {
+            ownerName,
+            ownerPinitId,
+            vaultId,
+            dnaRecordId,
+            certificateId,
+            originalFilename,
+            createdAt: vaultRow?.dnaRecord?.createdAt?.toISOString(),
+          }
+        : {
+            ownerName: null,
+            ownerPinitId: null,
+            vaultId: undefined,
+            dnaRecordId: undefined,
+            certificateId: undefined,
+            originalFilename: undefined,
+          },
       recipientAttribution: {
         fromShare: false,
         message: 'Original Owner Only — no share recipient attribution.',
@@ -1243,36 +1292,40 @@ export class UnifiedInvestigationOrchestrator {
       accessIntelligence: [],
       leakIntelligence: { hasPublicLeak: false, entries: [], message: 'Unavailable (partial report)' },
       identityProof: {
-        vaultId,
-        dnaRecordId,
-        certificateId,
-        ownerPinitId: ownerPinitId ?? undefined,
+        vaultId: hasRealDna ? vaultId : undefined,
+        dnaRecordId: hasRealDna ? dnaRecordId : undefined,
+        certificateId: hasRealDna ? certificateId : undefined,
+        ownerPinitId: hasRealDna ? (ownerPinitId ?? undefined) : undefined,
         digitalSignatureValid: false,
-        identityVerification: 'PARTIALLY_RECOVERED',
+        identityVerification: hasRealDna ? 'PARTIALLY_RECOVERED' : 'NOT_FOUND',
         watermark: {
-          status: 'DETECTED',
-          reason: 'Live identity match retained after stage timeout',
-          vaultId,
-          ownerPinitId: ownerPinitId ?? undefined,
+          status: 'NOT_EMBEDDED',
+          reason: hasRealDna
+            ? 'DNA completed before timeout'
+            : 'Live vector lead only — not DNA-verified',
           confidence: conf,
         },
       },
       leakVerify: {
-        found: true,
-        message: 'Identity located before stage timeout',
+        found: hasRealDna,
+        message: hasRealDna
+          ? 'Identity DNA-verified before stage timeout'
+          : 'Live lead not DNA-verified',
         accessHistory: [],
       },
       identityRecovery: {
         enginesRun: 1,
-        enginesRecovered: 1,
+        enginesRecovered: hasRealDna ? 1 : 0,
         signals: [{
           engine: 'live_snapshot',
           label: 'Live identity recovery',
-          score: conf,
+          score: hasRealDna ? conf : liveConf,
           weight: 1,
-          weightedContribution: conf,
-          status: 'recovered',
-          detail: `Vault ${vaultId.slice(0, 8)}… retained after ${params.error}`,
+          weightedContribution: hasRealDna ? conf : 0,
+          status: hasRealDna ? 'recovered' : 'partial',
+          detail: hasRealDna
+            ? `Vault ${vaultId.slice(0, 8)}… DNA ${realDna}% before timeout`
+            : `Unconfirmed lead ${vaultId.slice(0, 8)}… conf ${liveConf}% — ${params.error}`,
         }],
         compositeScores: {
           ownershipConfidence: conf,
@@ -1280,49 +1333,36 @@ export class UnifiedInvestigationOrchestrator {
           identityConfidence: conf,
         },
         transformations: [],
-        message: REPORT_STATE_LABELS.POSSIBLE,
+        message: decision.displayLabel,
       },
       identityRecoveryReport: {
-        recovered: true,
-        originalOwner: ownerName,
-        ownerPinitId,
-        vaultId,
-        dnaRecordId,
-        certificateId: certificateId ?? null,
-        originalFilename,
+        recovered: hasRealDna,
+        originalOwner: hasRealDna ? ownerName : null,
+        ownerPinitId: hasRealDna ? ownerPinitId : null,
+        vaultId: hasRealDna ? vaultId : undefined,
+        dnaRecordId: hasRealDna ? dnaRecordId : undefined,
+        certificateId: hasRealDna ? (certificateId ?? null) : null,
+        originalFilename: hasRealDna ? originalFilename : undefined,
         currentHash: params.currentFileHash,
         evidenceConfidence: conf,
-        message: 'Identity recovered from live investigation snapshot (deep stages timed out)',
+        message: hasRealDna
+          ? 'Identity DNA-verified from live investigation snapshot before timeout'
+          : `Unconfirmed live lead ${vaultId.slice(0, 8)}… — deep DNA did not complete; not an original match`,
       },
-      matchTier: 2,
-      matchMethod: 'Live identity recovery (timeout partial)',
+      matchTier: hasRealDna ? 2 : undefined,
+      matchMethod: hasRealDna
+        ? 'Live identity recovery (DNA before timeout)'
+        : 'Unconfirmed live lead (DNA incomplete)',
       currentFileHash: params.currentFileHash,
       progressTimeline: params.progressTimeline,
     };
 
-    const decision = runAcceptanceEngine({
-      analysisComplete: true,
-      hasCandidate: true,
-      vaultId,
-      dnaRecordId,
-      ownerUserId: params.ownerUserId,
-      ownerPinitId: ownerPinitId ?? undefined,
-      dna: passChannel(Math.max(conf, 40), 'live_snapshot'),
-      certificate: certificateId ? passChannel(50, certificateId) : skippedChannel('No certificate'),
-      vault: passChannel(100, vaultId),
-      owner: passChannel(50),
-      timeline: passChannel(50),
-      visual: passChannel(Math.max(conf, 40)),
-      watermark: failChannel(0),
-      metadata: skippedChannel(),
-      tamperDetected: true,
-    });
     const outcome: InvestigationOutcome = {
       state: mapAcceptanceToReportState(decision.verdict),
       candidate: decision.retainCandidate
         ? {
             tier: 2,
-            method: 'Live identity recovery (timeout partial)',
+            method: 'Live identity recovery (DNA before timeout)',
             vaultId,
             dnaRecordId: dnaRecordId ?? '',
             ownerUserId: params.ownerUserId,
