@@ -26,10 +26,12 @@ import { vaultCandidateRankingService } from './vault-candidate-ranking.service'
 export const RANKING_TOP_VECTOR = 100;
 export const RANKING_TOP_IDENTITY = 30;
 export const RANKING_TOP_MEDIA = 20;
-/** Max deep DNA compares when lead is weak */
-export const RANKING_TOP_DEEP = 5;
-/** When identity hit or strong vector lead — only verify top few (avoids 180s timeouts) */
+/** Max deep DNA compares when lead is weak (no live vault yet) */
+export const RANKING_TOP_DEEP = 3;
+/** Live vault lead (any composite) — verify top only; walk one fallback if DNA rejects */
 export const RANKING_TOP_DEEP_STRONG_LEAD = 2;
+/** Composite threshold for "we already showed a vault in SSE" — skip slow paths */
+export const RANKING_LIVE_LEAD_MIN = 25;
 
 const WINNING_VERDICTS: AcceptanceVerdict[] = [
   'VERIFIED_ORIGINAL',
@@ -282,7 +284,8 @@ export async function selectWinnerByRanking(params: {
   const afterIdentity = Math.min(staged.length, RANKING_TOP_IDENTITY);
   const afterMedia = staged.length;
   const topScore = staged[0]?.compositeScore ?? 0;
-  const strongLead = !!params.identityHit || topScore >= 45;
+  // Any live-panel lead (≥25%) — only deep-verify top 2 (not 5× slow decrypt/DNA).
+  const strongLead = !!params.identityHit || topScore >= RANKING_LIVE_LEAD_MIN;
   const deepLimit = strongLead ? RANKING_TOP_DEEP_STRONG_LEAD : RANKING_TOP_DEEP;
   const deepPool = staged.slice(0, deepLimit);
 

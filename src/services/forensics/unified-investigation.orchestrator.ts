@@ -300,12 +300,10 @@ export class UnifiedInvestigationOrchestrator {
 
     const isVideoProbe = mimeType.startsWith('video/')
       || /\.(mp4|mov|avi|mkv|webm|m4v|mpeg|mpg)$/i.test(originalName);
-    const isCameraScan = isCameraScanFileName(originalName);
+    // Live-lead fast path finishes well under this; hard cap avoids 3–10 min hangs.
     const recoveryTimeoutMs = isVideoProbe
       ? investigationPerformanceConfig.videoRecoveryTimeoutMs
-      : isCameraScan
-        ? Math.max(investigationPerformanceConfig.imageRecoveryTimeoutMs, 180_000)
-        : investigationPerformanceConfig.imageRecoveryTimeoutMs;
+      : investigationPerformanceConfig.imageRecoveryTimeoutMs;
 
     try {
     orchestratorTimer.start('enterprise_recovery');

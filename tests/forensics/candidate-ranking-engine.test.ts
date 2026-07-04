@@ -78,7 +78,7 @@ describe('CandidateRankingEngine', () => {
     expect(staged.length).toBeLessThanOrEqual(20);
     expect(staged.length).toBeGreaterThan(0);
     expect(RANKING_TOP_VECTOR).toBe(100);
-    expect(RANKING_TOP_DEEP).toBe(5);
+    expect(RANKING_TOP_DEEP).toBe(3);
   });
 
   it('rejects high-similarity low-DNA candidate and accepts later winner', async () => {
@@ -178,6 +178,39 @@ describe('CandidateRankingEngine', () => {
     expect(result.logs[0]?.dnaScore).toBe(55);
     expect(result.logs[0]?.dnaClassification).toBe('SIMILAR');
     expect(compareCalls).toBe(1); // stopped after winner — no wasted compares
+  });
+
+  it('limits deep pool to 2 when live lead is modest (30% WhatsApp case)', async () => {
+    const candidates = [
+      candidate('lead', 30, 1),
+      candidate('b', 28, 2),
+      candidate('c', 26, 3),
+      candidate('d', 24, 4),
+    ];
+    const vectors = [
+      vector('lead', 30),
+      vector('b', 28),
+      vector('c', 26),
+      vector('d', 24),
+    ];
+    let compareCalls = 0;
+    const result = await selectWinnerByRanking({
+      candidates,
+      vectors,
+      localDnaHit: null,
+      localDnaScore: 0,
+      identityHit: null,
+      isExactVaultMatch: false,
+      mediaType: 'image',
+      compareCandidate: async (c) => {
+        compareCalls++;
+        if (c.vaultId === 'vault-lead') return deep('lead', 40, 'SIMILAR');
+        return deep(c.vaultId.replace('vault-', ''), 10, 'DIFFERENT');
+      },
+    });
+    expect(result.winner?.vaultId).toBe('vault-lead');
+    expect(compareCalls).toBe(1);
+    expect(result.stages.afterDeepPool).toBe(2);
   });
 });
 

@@ -48,6 +48,7 @@ import {
 import { resolveMediaProfile } from './adaptive-scoring.service';
 import { isCameraScanFileName } from './vault-match-validator.service';
 import {
+  RANKING_LIVE_LEAD_MIN,
   RANKING_TOP_DEEP,
   selectWinnerByRanking,
   stageCandidates,
@@ -746,11 +747,11 @@ export class PinitOriginalIdentityRecoveryService {
       identityHit
       && (identityHit.tier <= 2 || watermarkRecovered || manifestRecovered || identityTokenRecovered)
     );
-    const strongVectorLead = (fastVectors[0]?.scores.composite ?? 0) >= 45;
+    // Live panel already showed a vault (even at ~30%) — never burn 20–55s on patch search.
+    const strongVectorLead = (fastVectors[0]?.scores.composite ?? 0) >= RANKING_LIVE_LEAD_MIN;
     const skipLocalDna = (twoStage
       && hasStrongIdentityAnchor
       && investigationPerformanceConfig.skipLocalDnaWhenWatermark)
-      // Strong vector lead already points at a vault — skip slow patch search (WhatsApp/scanner timeouts).
       || (twoStage && strongVectorLead);
 
     if (skipLocalDna) {
@@ -775,9 +776,9 @@ export class PinitOriginalIdentityRecoveryService {
       emit({ type: 'timeline', stepId: 'orb_verification', label: 'ORB Verification', status: 'running' });
 
       const isCameraProbe = isCameraScanFileName(originalName);
-      // Scanner / camera captures need more patch-search budget — this is the reliable ID path.
+      // Camera probes get a modest extra budget only when no live vault lead exists.
       const localDnaBudgetMs = isCameraProbe
-        ? Math.max(investigationPerformanceConfig.localDnaTimeoutMs, 55_000)
+        ? Math.max(investigationPerformanceConfig.localDnaTimeoutMs, 30_000)
         : investigationPerformanceConfig.localDnaTimeoutMs;
 
       const retrieval = await (twoStage
@@ -890,7 +891,10 @@ export class PinitOriginalIdentityRecoveryService {
         signals: ['cryptographic_hash'],
       }];
     } else if (twoStage && candidateVaultIds.length) {
-      if (isVideoProbeEarly && fastVectors.length) {
+      // Live vault lead already scored in fast filter — skip second full vault pass (major latency).
+      if (fastVectors.length && (fastVectors[0]?.scores.composite ?? 0) >= RANKING_LIVE_LEAD_MIN) {
+        vectors = [...fastVectors];
+      } else if (isVideoProbeEarly && fastVectors.length) {
         vectors = [...fastVectors];
         const topId = vectors[0]?.vaultId;
         if (topId && (vectors[0]?.scores.composite ?? 0) >= 28) {
@@ -1152,7 +1156,8 @@ export class PinitOriginalIdentityRecoveryService {
         rankingPool = rankingPool.slice(0, RANKING_TOP_DEEP);
       }
 
-      // Per-candidate deep DNA during walk — never discard completed scores via batch timeout.
+      // Per-candidate deep DNA with hard cap — hung decrypt must not burn minutes.
+      const deepMs = investigationPerformanceConfig.deepCompareTimeoutMs;
       const ranking = await selectWinnerByRanking({
         candidates: rankingPool.length ? rankingPool : candidates,
         vectors,
@@ -1161,9 +1166,22 @@ export class PinitOriginalIdentityRecoveryService {
         identityHit,
         isExactVaultMatch,
         mediaType: mediaKey,
-        compareCandidate: (c) => deepVaultCompareService.compareOneCandidate(
-          buffer, mimeType, originalName, sizeBytes, c, ownerUserId,
-        ),
+        compareCandidate: async (c) => {
+          const result = await withTimeoutSoft(
+            () => deepVaultCompareService.compareOneCandidate(
+              buffer, mimeType, originalName, sizeBytes, c, ownerUserId,
+            ),
+            deepMs,
+            `deep_compare_${c.vaultId.slice(0, 8)}`,
+          );
+          if (!result) {
+            logger.warn('Deep compare timed out for candidate', {
+              vaultId: c.vaultId,
+              timeoutMs: deepMs,
+            });
+          }
+          return result;
+        },
       });
       candidateRankingLogs = ranking.logs;
       deepCompareResults = ranking.allDeepResults;
