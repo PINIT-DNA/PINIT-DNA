@@ -4,7 +4,7 @@
 import type { VaultMatchResult } from './vault-auto-match.service';
 import type { RankedVaultCandidate } from '../../types/unified-investigation.types';
 
-export const CAMERA_SCAN_NAME_RE = /^(scan_|captured_|photo_|IMG_|image_|WhatsApp[\s_])/i;
+export const CAMERA_SCAN_NAME_RE = /^(scan_|captured_|photo_|IMG_|image_|evidence_|WhatsApp[\s_])/i;
 
 export function isCameraScanFileName(name: string): boolean {
   return CAMERA_SCAN_NAME_RE.test(name.trim());

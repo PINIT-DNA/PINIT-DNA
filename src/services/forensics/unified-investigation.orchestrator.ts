@@ -32,6 +32,7 @@ import type {
   UnifiedInvestigationReport,
   InvestigationPipelineStep,
   InvestigationProgressEvent,
+  InvestigationLiveSnapshot,
   LeakedFileAccessEntry,
   RankedVaultCandidate,
   IdentityRecoveryReportSection,
@@ -245,7 +246,22 @@ export class UnifiedInvestigationOrchestrator {
     const progressTimeline: InvestigationProgressEvent[] = [];
     const orchestratorTimer = createStageTimer();
 
+    let lastLiveSnapshot: InvestigationLiveSnapshot | null = null;
     const emit = (event: InvestigationProgressEvent) => {
+      if (event.snapshot?.vaultId) lastLiveSnapshot = event.snapshot;
+      else if (event.partial?.vaultId) {
+        lastLiveSnapshot = {
+          phase: lastLiveSnapshot?.phase ?? 1,
+          signatureFound: true,
+          vaultId: event.partial.vaultId,
+          ownerPinitId: event.partial.ownerPinitId ?? lastLiveSnapshot?.ownerPinitId,
+          ownerName: event.partial.ownerName ?? lastLiveSnapshot?.ownerName,
+          originalFilename: event.partial.originalFilename ?? lastLiveSnapshot?.originalFilename,
+          confidence: event.partial.ownershipConfidence ?? lastLiveSnapshot?.confidence,
+          patchVotes: event.partial.patchVotes ?? lastLiveSnapshot?.patchVotes,
+          orbScore: event.partial.orbScore ?? lastLiveSnapshot?.orbScore,
+        };
+      }
       progressTimeline.push(event);
       options?.onProgress?.(event);
     };
@@ -269,6 +285,12 @@ export class UnifiedInvestigationOrchestrator {
 
     const isVideoProbe = mimeType.startsWith('video/')
       || /\.(mp4|mov|avi|mkv|webm|m4v|mpeg|mpg)$/i.test(originalName);
+    const isCameraScan = isCameraScanFileName(originalName);
+    const recoveryTimeoutMs = isVideoProbe
+      ? investigationPerformanceConfig.videoRecoveryTimeoutMs
+      : isCameraScan
+        ? Math.max(investigationPerformanceConfig.imageRecoveryTimeoutMs, 180_000)
+        : investigationPerformanceConfig.imageRecoveryTimeoutMs;
 
     try {
     orchestratorTimer.start('enterprise_recovery');
@@ -289,15 +311,30 @@ export class UnifiedInvestigationOrchestrator {
         return { enterprise: ent, leakVerify: leak };
       },
       {
-        timeoutMs: isVideoProbe
-          ? investigationPerformanceConfig.videoRecoveryTimeoutMs
-          : 120_000,
+        timeoutMs: recoveryTimeoutMs,
         onComplete: stageOnComplete('enterprise_recovery', 'Identity Recovery'),
       },
     );
     orchestratorTimer.end('enterprise_recovery');
 
     if (!recoveryStage.success || !recoveryStage.data) {
+      const timeoutError = recoveryStage.error ?? 'Enterprise recovery failed';
+      if (lastLiveSnapshot?.vaultId) {
+        logger.warn('Enterprise recovery timed out — retaining live vault match', {
+          vaultId: lastLiveSnapshot.vaultId,
+          error: timeoutError,
+        });
+        return this.buildPartialFromLiveSnapshot({
+          investigationId,
+          pipeline,
+          progressTimeline,
+          currentFileHash,
+          originalName,
+          ownerUserId,
+          snapshot: lastLiveSnapshot,
+          error: timeoutError,
+        });
+      }
       return this.buildFaultTolerantReport({
         investigationId,
         pipeline,
@@ -305,7 +342,7 @@ export class UnifiedInvestigationOrchestrator {
         currentFileHash,
         originalName,
         leakVerify: null,
-        error: recoveryStage.error ?? 'Enterprise recovery failed',
+        error: timeoutError,
       });
     }
 
@@ -1017,6 +1054,173 @@ export class UnifiedInvestigationOrchestrator {
       message: ownershipConf >= 50
         ? 'Original identity recovered from multi-layer forensic signals'
         : 'Partial recovery — confidence below enterprise threshold',
+    };
+  }
+
+  /**
+   * When enterprise recovery times out after live SSE already located a vault,
+   * return a POSSIBLE report so scanner/upload UI keeps owner + vault details.
+   */
+  private async buildPartialFromLiveSnapshot(params: {
+    investigationId: string;
+    pipeline: InvestigationPipelineStep[];
+    progressTimeline: InvestigationProgressEvent[];
+    currentFileHash: string;
+    originalName: string;
+    ownerUserId: string;
+    snapshot: InvestigationLiveSnapshot;
+    error: string;
+  }): Promise<UnifiedInvestigationReport> {
+    const { snapshot } = params;
+    const vaultId = snapshot.vaultId!;
+    const conf = Math.max(snapshot.confidence ?? 0, snapshot.dnaMatchPercent ?? 0, 30);
+
+    const vaultRow = await prisma.vaultRecord.findFirst({
+      where: { id: vaultId, dnaRecord: { ownerUserId: params.ownerUserId } },
+      include: {
+        dnaRecord: {
+          select: {
+            id: true,
+            imageFilename: true,
+            createdAt: true,
+            ownerUser: { select: { fullName: true, shortId: true } },
+          },
+        },
+      },
+    });
+
+    const dnaRecordId = vaultRow?.dnaRecordId ?? snapshot.dnaRecordId ?? undefined;
+    const ownerName = vaultRow?.dnaRecord?.ownerUser?.fullName
+      ?? snapshot.ownerName
+      ?? null;
+    const ownerPinitId = vaultRow?.dnaRecord?.ownerUser?.shortId
+      ?? snapshot.ownerPinitId
+      ?? null;
+    const originalFilename = vaultRow?.originalFileName
+      ?? snapshot.originalFilename
+      ?? undefined;
+
+    let certificateId: string | undefined;
+    if (dnaRecordId) {
+      const cert = await prisma.certificate.findFirst({
+        where: { vaultId, dnaRecordId, status: 'ACTIVE' },
+        orderBy: { issuedAt: 'desc' },
+        select: { certificateId: true },
+      });
+      certificateId = cert?.certificateId;
+    }
+
+    params.pipeline.push(step(
+      'identity',
+      'Extract embedded identity',
+      'warning',
+      `Live match retained after timeout — vault ${vaultId.slice(0, 8)}…`,
+    ));
+    params.pipeline.push(step(
+      'report',
+      'Generate investigation report',
+      'warning',
+      `Partial report — ${params.error}`,
+    ));
+
+    const investigatedAt = new Date().toISOString();
+    const decisionReason = `Possible PINIT asset — vault located before timeout (${params.error})`;
+
+    return {
+      success: true,
+      investigationId: params.investigationId,
+      investigatedAt,
+      pipeline: params.pipeline,
+      summary: {
+        ownershipConfidence: conf,
+        retrievalConfidence: conf,
+        ownershipVerificationConfidence: conf,
+        forensicVerdict: 'POSSIBLE_ASSET',
+        reportState: 'POSSIBLE',
+        decisionReason,
+        dnaMatchPercent: snapshot.dnaMatchPercent ?? conf,
+        certificateStatus: certificateId ? 'ACTIVE' : 'UNKNOWN',
+        identityStatus: ownerPinitId ? 'PARTIALLY_RECOVERED' : 'FOUND',
+        tamperSeverity: 'UNKNOWN',
+        riskLevel: 'MEDIUM',
+        trustScore: conf,
+        identityConfidence: conf,
+      },
+      message: `PINIT signature located (vault ${vaultId.slice(0, 8)}…) — full deep compare timed out; report retained from live identity recovery.`,
+      owner: {
+        ownerName,
+        ownerPinitId,
+        vaultId,
+        dnaRecordId,
+        certificateId,
+        originalFilename,
+        createdAt: vaultRow?.dnaRecord?.createdAt?.toISOString(),
+      },
+      recipientAttribution: {
+        fromShare: false,
+        message: 'Original Owner Only — no share recipient attribution.',
+      },
+      layerAnalysis: [],
+      tamperAnalysis: emptyTamperAnalysis(params.error),
+      timeline: [],
+      accessIntelligence: [],
+      leakIntelligence: { hasPublicLeak: false, entries: [], message: 'Unavailable (partial report)' },
+      identityProof: {
+        vaultId,
+        dnaRecordId,
+        certificateId,
+        ownerPinitId: ownerPinitId ?? undefined,
+        digitalSignatureValid: false,
+        identityVerification: 'PARTIALLY_RECOVERED',
+        watermark: {
+          status: 'DETECTED',
+          reason: 'Live identity match retained after stage timeout',
+          vaultId,
+          ownerPinitId: ownerPinitId ?? undefined,
+          confidence: conf,
+        },
+      },
+      leakVerify: {
+        found: true,
+        message: 'Identity located before stage timeout',
+        accessHistory: [],
+      },
+      identityRecovery: {
+        enginesRun: 1,
+        enginesRecovered: 1,
+        signals: [{
+          engine: 'live_snapshot',
+          label: 'Live identity recovery',
+          score: conf,
+          weight: 1,
+          weightedContribution: conf,
+          status: 'recovered',
+          detail: `Vault ${vaultId.slice(0, 8)}… retained after ${params.error}`,
+        }],
+        compositeScores: {
+          ownershipConfidence: conf,
+          trustScore: conf,
+          identityConfidence: conf,
+        },
+        transformations: [],
+        message: REPORT_STATE_LABELS.POSSIBLE,
+      },
+      identityRecoveryReport: {
+        recovered: true,
+        originalOwner: ownerName,
+        ownerPinitId,
+        vaultId,
+        dnaRecordId,
+        certificateId: certificateId ?? null,
+        originalFilename,
+        currentHash: params.currentFileHash,
+        evidenceConfidence: conf,
+        message: 'Identity recovered from live investigation snapshot (deep stages timed out)',
+      },
+      matchTier: 2,
+      matchMethod: 'Live identity recovery (timeout partial)',
+      currentFileHash: params.currentFileHash,
+      progressTimeline: params.progressTimeline,
     };
   }
 

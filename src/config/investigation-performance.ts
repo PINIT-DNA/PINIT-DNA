@@ -46,6 +46,8 @@ export const investigationPerformanceConfig = {
   /** Local patch search time budget (tampered / compressed probes) */
   localDnaTimeoutMs: intEnv('PINIT_INVESTIGATION_LOCAL_DNA_TIMEOUT_MS', 35_000),
   deepCompareTimeoutMs: intEnv('PINIT_INVESTIGATION_DEEP_COMPARE_TIMEOUT_MS', 45_000),
+  /** Image / scanner enterprise recovery budget (camera captures are slower on Render) */
+  imageRecoveryTimeoutMs: intEnv('PINIT_INVESTIGATION_IMAGE_RECOVERY_MS', 180_000),
   /** Video partial recovery — enterprise stage budget */
   videoRecoveryTimeoutMs: intEnv('PINIT_INVESTIGATION_VIDEO_RECOVERY_MS', 180_000),
   /** Post-retrieval report enrichment (timeline, crawler) — hard cap */
