@@ -259,6 +259,38 @@ export interface UnifiedInvestigationReport {
   }>;
   tamperAnalysis: TamperAnalysisSection;
   timeline: Array<{ stage: string; timestamp?: string; detail?: string }>;
+  /**
+   * Append-only forensic provenance (chain of custody).
+   * Separate from DNA — location/downloads/tamper/investigations never mutate DNA.
+   */
+  evidenceTimeline?: Array<{
+    id: string;
+    eventType: string;
+    summary: string;
+    timestamp: string;
+    locationLabel?: string;
+    actorLabel?: string;
+    device?: string;
+    tepCode?: string;
+    certificateId?: string;
+    source?: 'provenance' | 'legacy';
+  }>;
+  provenanceSummary?: {
+    creationLocation?: string;
+    creationTime?: string;
+    lastDownload?: string;
+    lastProtectedExport?: string;
+    lastKnownDevice?: string;
+    lastKnownLocation?: string;
+    firstInvestigation?: string;
+    latestInvestigation?: string;
+    tamperCount: number;
+    downloadCount: number;
+    shareCount: number;
+    investigationCount: number;
+    countriesSeen: string[];
+    devicesSeen: string[];
+  };
   accessIntelligence: LeakedFileAccessEntry[];
   leakIntelligence: LeakIntelligenceSection;
   identityProof: IdentityProofSection;

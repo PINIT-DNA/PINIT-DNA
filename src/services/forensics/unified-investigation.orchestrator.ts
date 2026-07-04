@@ -788,6 +788,80 @@ export class UnifiedInvestigationOrchestrator {
       leakIntel.message,
     ));
 
+    // Forensic provenance — append investigation/tamper events (DNA unchanged), then read timeline
+    let evidenceTimeline: UnifiedInvestigationReport['evidenceTimeline'] = [];
+    let provenanceSummary: UnifiedInvestigationReport['provenanceSummary'];
+    try {
+      const { forensicProvenanceService } = await import('./forensic-provenance.service');
+      const tamperVectors = (tamperAnalysis.vectors ?? [])
+        .filter((v) => v.detected)
+        .map((v) => v.label);
+
+      forensicProvenanceService.appendAsync({
+        eventType: 'INVESTIGATED',
+        summary: `Investigation — ${reportOutcome.displayLabel}`,
+        dnaRecordId: match.dnaRecordId,
+        vaultId: match.vaultId,
+        investigationId,
+        actorUserId: ownerUserId,
+        payload: {
+          verdict: reportOutcome.acceptanceVerdict,
+          dnaMatchPercent: comparison?.overallConfidenceScore ?? 0,
+          probeFilename: originalName,
+          probeSha256: currentFileHash,
+        },
+        dedupeKey: `investigated:${investigationId}`,
+      });
+
+      if (tamperVectors.length > 0 || (comparison?.tamperingDetected && (comparison.overallConfidenceScore ?? 100) < 95)) {
+        forensicProvenanceService.appendAsync({
+          eventType: 'TAMPERED',
+          summary: `Tamper indicators — ${tamperAnalysis.primaryVector ?? 'detected'}`,
+          dnaRecordId: match.dnaRecordId,
+          vaultId: match.vaultId,
+          investigationId,
+          payload: {
+            primaryVector: tamperAnalysis.primaryVector,
+            overallTamperScore: tamperAnalysis.overallTamperScore,
+            vectors: tamperVectors,
+          },
+          dedupeKey: `tampered:${investigationId}`,
+        });
+      }
+
+      const provenanceEvents = await withTimeoutSoft(
+        () => forensicProvenanceService.getTimeline({
+          dnaRecordId: match.dnaRecordId,
+          vaultId: match.vaultId,
+        }),
+        enrichmentMs,
+        'forensic_provenance',
+      ) ?? [];
+
+      evidenceTimeline = provenanceEvents.map((e) => ({
+        id: e.id,
+        eventType: e.eventType,
+        summary: e.summary,
+        timestamp: e.timestamp,
+        locationLabel: e.locationLabel,
+        actorLabel: e.actorLabel,
+        device: e.device,
+        tepCode: e.tepCode,
+        certificateId: e.certificateId,
+        source: e.source,
+      }));
+      provenanceSummary = forensicProvenanceService.buildSummary(provenanceEvents);
+      pipeline.push(step(
+        'provenance',
+        'Evidence timeline',
+        'complete',
+        `${evidenceTimeline.length} custody events`,
+      ));
+    } catch (err) {
+      logger.warn('Forensic provenance enrichment failed (non-fatal)', { error: String(err) });
+      pipeline.push(step('provenance', 'Evidence timeline', 'warning', 'Provenance unavailable'));
+    }
+
     // 14. Report
     pipeline.push(step('report', 'Generate investigation report', 'complete'));
 
@@ -906,6 +980,8 @@ export class UnifiedInvestigationOrchestrator {
       layerAnalysis,
       tamperAnalysis,
       timeline: timelineEvents,
+      evidenceTimeline,
+      provenanceSummary,
       accessIntelligence,
       leakIntelligence: leakIntel,
       identityProof: {

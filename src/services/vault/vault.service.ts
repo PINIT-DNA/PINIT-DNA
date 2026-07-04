@@ -203,6 +203,32 @@ export class VaultService {
 
     logger.info('Vault — storage complete', { vaultId, dnaRecordId });
 
+    try {
+      const { forensicProvenanceService } = await import('../forensics/forensic-provenance.service');
+      forensicProvenanceService.appendAsync({
+        eventType: 'ENCRYPTED',
+        summary: `Encrypted — AES-256-GCM`,
+        dnaRecordId,
+        vaultId,
+        payload: { algorithm: 'AES-256-GCM' },
+        dedupeKey: `encrypted:${vaultId}`,
+      });
+      forensicProvenanceService.appendAsync({
+        eventType: 'VAULT_STORED',
+        summary: `Stored in vault — ${originalFileName}`,
+        dnaRecordId,
+        vaultId,
+        actorUserId: ownerUserId,
+        payload: {
+          originalSizeBytes: record.originalSizeBytes,
+          encryptedSizeBytes: record.encryptedSizeBytes,
+        },
+        dedupeKey: `vault_stored:${vaultId}`,
+      });
+    } catch {
+      /* non-fatal */
+    }
+
     return {
       vaultId:            record.id,
       dnaRecordId:        record.dnaRecordId,

@@ -64,6 +64,34 @@ interface InvestigationReport {
     description?: string;
   };
   timeline: Array<{ stage: string; timestamp?: string; detail?: string }>;
+  evidenceTimeline?: Array<{
+    id: string;
+    eventType: string;
+    summary: string;
+    timestamp: string;
+    locationLabel?: string;
+    actorLabel?: string;
+    device?: string;
+    tepCode?: string;
+    certificateId?: string;
+    source?: 'provenance' | 'legacy';
+  }>;
+  provenanceSummary?: {
+    creationLocation?: string;
+    creationTime?: string;
+    lastDownload?: string;
+    lastProtectedExport?: string;
+    lastKnownDevice?: string;
+    lastKnownLocation?: string;
+    firstInvestigation?: string;
+    latestInvestigation?: string;
+    tamperCount: number;
+    downloadCount: number;
+    shareCount: number;
+    investigationCount: number;
+    countriesSeen: string[];
+    devicesSeen: string[];
+  };
   accessIntelligence: Array<Record<string, string | undefined>>;
   leakIntelligence: {
     hasPublicLeak: boolean;
@@ -700,7 +728,60 @@ export function UnifiedInvestigationPage() {
             </div>
           </Section>
 
-          <Section title="6. Timeline" icon={Clock} defaultOpen={false}>
+          <Section title="6. Evidence Timeline (Chain of Custody)" icon={Clock} defaultOpen>
+            <p className="text-2xs text-gray-500 mb-3">
+              Append-only forensic history — DNA identity is never modified by these events.
+            </p>
+            {report.provenanceSummary && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
+                {[
+                  ['Created', report.provenanceSummary.creationTime ? new Date(report.provenanceSummary.creationTime).toLocaleString() : '—'],
+                  ['Creation location', report.provenanceSummary.creationLocation ?? '—'],
+                  ['Last download', report.provenanceSummary.lastDownload ? new Date(report.provenanceSummary.lastDownload).toLocaleString() : '—'],
+                  ['Last protected export', report.provenanceSummary.lastProtectedExport ? new Date(report.provenanceSummary.lastProtectedExport).toLocaleString() : '—'],
+                  ['Last known location', report.provenanceSummary.lastKnownLocation ?? '—'],
+                  ['Last known device', report.provenanceSummary.lastKnownDevice ?? '—'],
+                  ['Downloads', String(report.provenanceSummary.downloadCount)],
+                  ['Shares', String(report.provenanceSummary.shareCount)],
+                  ['Investigations', String(report.provenanceSummary.investigationCount)],
+                  ['Tamper events', String(report.provenanceSummary.tamperCount)],
+                  ['Countries seen', report.provenanceSummary.countriesSeen.join(', ') || '—'],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-lg border border-bg-border bg-bg-elevated/40 px-2 py-1.5">
+                    <p className="text-2xs text-gray-500">{label}</p>
+                    <p className="text-xs text-white truncate" title={value}>{value}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            {(report.evidenceTimeline?.length ?? 0) === 0 ? (
+              <p className="text-xs text-gray-500">No custody events recorded for this asset yet.</p>
+            ) : (
+              <div className="space-y-0">
+                {report.evidenceTimeline!.map((ev) => (
+                  <div
+                    key={ev.id}
+                    className="flex gap-3 py-2 border-l-2 border-dna-500/30 pl-4 ml-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-2xs font-semibold text-dna-300 uppercase tracking-wide">{ev.eventType.replace(/_/g, ' ')}</p>
+                      <p className="text-xs font-semibold text-white">{ev.summary}</p>
+                      <p className="text-2xs text-gray-500 mono">{new Date(ev.timestamp).toLocaleString()}</p>
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-2xs text-gray-400">
+                        {ev.locationLabel && <span>{ev.locationLabel}</span>}
+                        {ev.actorLabel && <span>{ev.actorLabel}</span>}
+                        {ev.device && <span>{ev.device}</span>}
+                        {ev.tepCode && <span className="mono">TEP {ev.tepCode}</span>}
+                        {ev.certificateId && <span className="mono truncate max-w-[12rem]">{ev.certificateId}</span>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Section>
+
+          <Section title="6b. Session Timeline" icon={Clock} defaultOpen={false}>
             {report.timeline.length === 0 ? (
               <p className="text-xs text-gray-500">No timeline events recorded for this investigation.</p>
             ) : (

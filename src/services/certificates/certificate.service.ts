@@ -110,6 +110,23 @@ export class CertificateService {
     });
 
     logger.info('Certificate issued', { certificateId, dnaRecordId: params.dnaRecordId });
+
+    try {
+      const { forensicProvenanceService } = await import('../forensics/forensic-provenance.service');
+      forensicProvenanceService.appendAsync({
+        eventType: 'CERTIFICATE_ISSUED',
+        summary: `Certificate issued — ${certificateId}`,
+        dnaRecordId: params.dnaRecordId,
+        vaultId: params.vaultId,
+        certificateId,
+        actorUserId: ownerUserId,
+        payload: { expiresAt: expiresAt?.toISOString() ?? null },
+        dedupeKey: `cert_issued:${certificateId}`,
+      });
+    } catch {
+      /* non-fatal */
+    }
+
     return this.toDto(cert);
   }
 

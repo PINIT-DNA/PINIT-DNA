@@ -285,6 +285,37 @@ export class TepService {
       exportSha256: exportSha256.slice(0, 16),
     });
 
+    try {
+      const { forensicProvenanceService } = await import('../forensics/forensic-provenance.service');
+      const isProtected = isProtectedDownloadTepChannel(input.shareLinkId);
+      forensicProvenanceService.appendAsync({
+        eventType: isProtected ? 'PROTECTED_EXPORT' : 'TEP_CREATED',
+        summary: isProtected
+          ? `Protected download — TEP ${tepCode}`
+          : `Tracked export package — ${tepCode}`,
+        dnaRecordId: input.dnaRecordId,
+        vaultId: input.vaultId,
+        tepCode,
+        shareLinkId: input.shareLinkId,
+        actorUserId: input.ownerUserId ?? null,
+        actorLabel: input.recipientEmail ?? input.recipientId ?? null,
+        country: input.geoCountry ?? null,
+        city: input.geoCity ?? null,
+        ipAddress: input.ipAddress ?? null,
+        device: input.deviceContext ?? null,
+        locationSource: input.geoCountry ? 'ip' : 'none',
+        payload: {
+          watermarkCode,
+          exportSha256,
+          recipientId: input.recipientId,
+          expiresAt: expiresAt.toISOString(),
+        },
+        dedupeKey: `tep:${tepCode}`,
+      });
+    } catch {
+      /* non-fatal */
+    }
+
     return {
       buffer,
       tepCode,

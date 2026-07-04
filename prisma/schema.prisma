@@ -50,8 +50,50 @@ model DnaRecord {
   biometricBindLayer    BiometricBindLayer?
   trackedExports        TrackedExportPackage[]
   localFeatureIndex     LocalFeatureIndex?
+  provenanceEvents      ForensicProvenanceEvent[]
 
   @@map("dna_records")
+}
+
+// ── Forensic Provenance (append-only lifecycle events — NEVER mutates DNA) ─────
+// DNA = immutable identity. Location, downloads, tamper, investigations are events.
+model ForensicProvenanceEvent {
+  id            String   @id @default(uuid())
+  createdAt     DateTime @default(now())
+  /// Append-only event type (DNA_GENERATED, VAULT_STORED, CERTIFICATE_ISSUED, …)
+  eventType     String
+  dnaRecordId   String?
+  vaultId       String?
+  certificateId String?
+  tepCode       String?
+  shareLinkId   String?
+  investigationId String?
+  actorUserId   String?
+  actorLabel    String?
+  /// Human-readable summary for reports
+  summary       String
+  /// Structured payload (geo, device, hashes, tamper flags) — never written into DNA
+  payload       Json     @default("{}")
+  country       String?
+  region        String?
+  city          String?
+  latitude      Float?
+  longitude     Float?
+  /// ip | gps | none — never fabricate GPS
+  locationSource String?
+  ipAddress     String?
+  userAgent     String?
+  device        String?
+  /// Optional idempotency key to avoid duplicate appends for the same action
+  dedupeKey     String?  @unique
+
+  dnaRecord     DnaRecord? @relation(fields: [dnaRecordId], references: [id], onDelete: SetNull)
+
+  @@index([dnaRecordId, createdAt])
+  @@index([vaultId, createdAt])
+  @@index([eventType])
+  @@index([investigationId])
+  @@map("forensic_provenance_events")
 }
 
 // ── Local DNA Feature Index (patch-level fingerprints for crop/screenshot recovery) ──

@@ -262,6 +262,35 @@ export class DnaOrchestrator {
       totalMs,
     });
 
+    // Forensic provenance — only for registered assets (never ephemeral probe DNA)
+    if (universalCtx?.ownerUserId) {
+      try {
+        const { forensicProvenanceService } = await import('./forensics/forensic-provenance.service');
+        forensicProvenanceService.appendAsync({
+          eventType: 'DNA_GENERATED',
+          summary: `DNA generated — ${image.originalName}`,
+          dnaRecordId,
+          actorUserId: universalCtx.ownerUserId,
+          userAgent: universalCtx?.userAgent ?? null,
+          country: universalCtx?.country ?? null,
+          city: universalCtx?.city ?? null,
+          ipAddress: universalCtx?.ip ?? null,
+          locationSource: universalCtx?.country ? 'ip' : 'none',
+          payload: {
+            mimeType: image.mimeType,
+            sizeBytes: image.sizeBytes,
+            sha256: sha256Hash,
+            status,
+            schemaVersion: config.dna.schemaVersion,
+            engineVersion: universalCtx?.engineVersion ?? null,
+          },
+          dedupeKey: `dna_generated:${dnaRecordId}`,
+        });
+      } catch {
+        /* non-fatal */
+      }
+    }
+
     const fileInfo = {
       filename: image.originalName,
       mimeType: image.mimeType,
