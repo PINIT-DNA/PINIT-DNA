@@ -48,8 +48,10 @@ import {
 import { resolveMediaProfile } from './adaptive-scoring.service';
 import { isCameraScanFileName } from './vault-match-validator.service';
 import {
+  LOCAL_PATCH_RESCUE_MIN,
   RANKING_LIVE_LEAD_MIN,
   RANKING_TOP_DEEP,
+  RANKING_TRUSTED_LEAD_MIN,
   selectWinnerByRanking,
   stageCandidates,
   type CandidateRankingLog,
@@ -747,12 +749,13 @@ export class PinitOriginalIdentityRecoveryService {
       identityHit
       && (identityHit.tier <= 2 || watermarkRecovered || manifestRecovered || identityTokenRecovered)
     );
-    // Live panel already showed a vault (even at ~30%) — never burn 20–55s on patch search.
-    const strongVectorLead = (fastVectors[0]?.scores.composite ?? 0) >= RANKING_LIVE_LEAD_MIN;
+    // Only skip patch search on a trusted lead (≥50%). Modest leads (~30%) are often
+    // wrong vaults on heavy crop/compress — local DNA is the fragment recovery path.
+    const trustedVectorLead = (fastVectors[0]?.scores.composite ?? 0) >= RANKING_TRUSTED_LEAD_MIN;
     const skipLocalDna = (twoStage
       && hasStrongIdentityAnchor
       && investigationPerformanceConfig.skipLocalDnaWhenWatermark)
-      || (twoStage && strongVectorLead);
+      || (twoStage && trustedVectorLead);
 
     if (skipLocalDna) {
       emit({
@@ -760,15 +763,15 @@ export class PinitOriginalIdentityRecoveryService {
         stepId: 'orb_verification',
         label: 'ORB Verification',
         status: 'skipped',
-        detail: strongVectorLead && !hasStrongIdentityAnchor
-          ? 'Skipped — strong vector lead (deep DNA will verify)'
+        detail: trustedVectorLead && !hasStrongIdentityAnchor
+          ? 'Skipped — trusted vector lead (deep DNA will verify)'
           : 'Skipped — vault already identified via watermark/token',
       });
       stages.push({
         stage: STAGE.LOCAL_DNA,
         status: 'skipped',
-        detail: strongVectorLead && !hasStrongIdentityAnchor
-          ? `Strong vector lead ${fastVectors[0]?.scores.composite}% — patch search skipped`
+        detail: trustedVectorLead && !hasStrongIdentityAnchor
+          ? `Trusted vector lead ${fastVectors[0]?.scores.composite}% — patch search skipped`
           : `Watermark/identity anchor — patch search skipped (${identityHit?.method ?? 'tier ≤2'})`,
       });
     } else if (localDnaConfig.enabled && mimeType.startsWith('image/') && !isExactVaultMatch) {
@@ -812,9 +815,11 @@ export class PinitOriginalIdentityRecoveryService {
           : 'No local patch matches — vault index may need backfill',
       });
 
-      // Camera scans: lock identity from patch DNA at 55% (default identify threshold is 65).
-      const identifyThreshold = isCameraProbe
-        ? Math.min(localDnaConfig.identifyCompositeThreshold, 55)
+      // Camera / heavy-tamper: lock identity from patch DNA at a lower bar when
+      // global vector is weak (crops often false-lead on the wrong vault).
+      const weakVectorLead = (fastVectors[0]?.scores.composite ?? 0) < RANKING_TRUSTED_LEAD_MIN;
+      const identifyThreshold = isCameraProbe || weakVectorLead
+        ? Math.min(localDnaConfig.identifyCompositeThreshold, LOCAL_PATCH_RESCUE_MIN)
         : localDnaConfig.identifyCompositeThreshold;
 
       if (localDnaHit && localDnaScore >= identifyThreshold && !identityHit) {
@@ -891,8 +896,9 @@ export class PinitOriginalIdentityRecoveryService {
         signals: ['cryptographic_hash'],
       }];
     } else if (twoStage && candidateVaultIds.length) {
-      // Live vault lead already scored in fast filter — skip second full vault pass (major latency).
-      if (fastVectors.length && (fastVectors[0]?.scores.composite ?? 0) >= RANKING_LIVE_LEAD_MIN) {
+      // Trusted lead already scored — skip second full vault pass. Modest leads still
+      // re-score so a wrong ~30% crop match can be displaced by better candidates.
+      if (fastVectors.length && (fastVectors[0]?.scores.composite ?? 0) >= RANKING_TRUSTED_LEAD_MIN) {
         vectors = [...fastVectors];
       } else if (isVideoProbeEarly && fastVectors.length) {
         vectors = [...fastVectors];
@@ -978,7 +984,7 @@ export class PinitOriginalIdentityRecoveryService {
     }
 
     // Promote local-DNA hit into candidate list for deep compare + fusion
-    if (localDnaHit && localDnaScore >= 50) {
+    if (localDnaHit && localDnaScore >= LOCAL_PATCH_RESCUE_MIN) {
       const existing = candidates.find((c) => c.vaultId === localDnaHit!.vaultId);
       if (existing) {
         existing.compositeScore = Math.max(existing.compositeScore, localDnaScore);

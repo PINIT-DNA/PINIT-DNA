@@ -26,12 +26,16 @@ import { vaultCandidateRankingService } from './vault-candidate-ranking.service'
 export const RANKING_TOP_VECTOR = 100;
 export const RANKING_TOP_IDENTITY = 30;
 export const RANKING_TOP_MEDIA = 20;
-/** Max deep DNA compares when lead is weak (no live vault yet) */
-export const RANKING_TOP_DEEP = 3;
-/** Live vault lead (any composite) — verify top only; walk one fallback if DNA rejects */
+/** Max deep DNA compares when lead is weak / heavily tampered */
+export const RANKING_TOP_DEEP = 4;
+/** Trusted lead (≥50%) or identity — verify top only; one fallback if DNA rejects */
 export const RANKING_TOP_DEEP_STRONG_LEAD = 2;
-/** Composite threshold for "we already showed a vault in SSE" — skip slow paths */
+/** Live SSE may show a vault at this score — not trusted alone (crops often false-lead) */
 export const RANKING_LIVE_LEAD_MIN = 25;
+/** Only skip patch DNA / shrink deep pool when vector lead is this strong */
+export const RANKING_TRUSTED_LEAD_MIN = 50;
+/** Local patch DNA can rescue a heavy crop when full-frame DNA is weak */
+export const LOCAL_PATCH_RESCUE_MIN = 45;
 
 const WINNING_VERDICTS: AcceptanceVerdict[] = [
   'VERIFIED_ORIGINAL',
@@ -159,16 +163,33 @@ function evidenceForCandidate(params: {
 }): AcceptanceEvidence {
   const { candidate, vector, deep, localDnaHit, localDnaScore, certificateId, isExactMatch } = params;
 
+  const patchRescue = !!(
+    localDnaHit
+    && localDnaHit.vaultId === candidate.vaultId
+    && localDnaScore >= LOCAL_PATCH_RESCUE_MIN
+  );
+  const deepScore = deep?.overallConfidenceScore ?? 0;
+  // Heavy crop/compress: full-frame DNA often <40% even on the true vault —
+  // local patch votes are the fragment identity signal.
   const dnaScore = isExactMatch
     ? 100
-    : (deep?.overallConfidenceScore ?? 0);
+    : patchRescue
+      ? Math.max(deepScore, localDnaScore)
+      : deepScore;
   const classification = isExactMatch
     ? 'DNA_MATCH'
-    : (deep?.classification ?? 'MISSING');
+    : patchRescue && deepScore < 40
+      ? 'SIMILAR'
+      : (deep?.classification ?? (patchRescue ? 'SIMILAR' : 'MISSING'));
 
   let dnaState: AcceptanceEvidence['dna'];
   if (isExactMatch) {
     dnaState = { ...passChannel(100, 'SHA-256 exact'), classification: 'DNA_MATCH' };
+  } else if (patchRescue && dnaScore >= LOCAL_PATCH_RESCUE_MIN) {
+    dnaState = {
+      ...passChannel(dnaScore, `local_patch_${localDnaHit!.patchMatchCount}`),
+      classification,
+    };
   } else if (!deep) {
     dnaState = { ...failChannel(0, 'No DNA compare'), classification: 'MISSING' };
   } else if (classification.toUpperCase() === 'DIFFERENT' && dnaScore < 55) {
@@ -284,10 +305,20 @@ export async function selectWinnerByRanking(params: {
   const afterIdentity = Math.min(staged.length, RANKING_TOP_IDENTITY);
   const afterMedia = staged.length;
   const topScore = staged[0]?.compositeScore ?? 0;
-  // Any live-panel lead (≥25%) — only deep-verify top 2 (not 5× slow decrypt/DNA).
-  const strongLead = !!params.identityHit || topScore >= RANKING_LIVE_LEAD_MIN;
-  const deepLimit = strongLead ? RANKING_TOP_DEEP_STRONG_LEAD : RANKING_TOP_DEEP;
-  const deepPool = staged.slice(0, deepLimit);
+  // Only shrink deep pool on trusted lead — modest scores often false-lead on heavy crops.
+  const trustedLead = !!params.identityHit || topScore >= RANKING_TRUSTED_LEAD_MIN;
+  const deepLimit = trustedLead ? RANKING_TOP_DEEP_STRONG_LEAD : RANKING_TOP_DEEP;
+  let deepPool = staged.slice(0, deepLimit);
+
+  // Always evaluate local-patch hit first (fragment / >60% crop path).
+  if (params.localDnaHit && params.localDnaScore >= LOCAL_PATCH_RESCUE_MIN) {
+    const lid = params.localDnaHit.vaultId;
+    const patchRow = staged.find((c) => c.vaultId === lid)
+      ?? params.candidates.find((c) => c.vaultId === lid);
+    if (patchRow) {
+      deepPool = [patchRow, ...deepPool.filter((c) => c.vaultId !== lid)].slice(0, deepLimit + 1);
+    }
+  }
 
   let evaluated = 0;
 
@@ -296,6 +327,11 @@ export async function selectWinnerByRanking(params: {
     const vector = vectorFor(candidate.vaultId, params.vectors);
     const isExact = params.isExactVaultMatch
       && params.identityHit?.vaultId === candidate.vaultId;
+    const isLocalPatchHit = !!(
+      params.localDnaHit
+      && params.localDnaHit.vaultId === candidate.vaultId
+      && params.localDnaScore >= LOCAL_PATCH_RESCUE_MIN
+    );
 
     // Deep-compare this candidate now (or use precomputed result).
     let deep = deepFor(candidate.vaultId, deepResults);
@@ -307,8 +343,13 @@ export async function selectWinnerByRanking(params: {
     const dnaScore = deep?.overallConfidenceScore ?? 0;
     const dnaClass = deep?.classification ?? 'MISSING';
 
-    // Hard reject: DNA DIFFERENT / low DNA / missing — never accept via similarity alone
-    if (!isExact && (!deep || (dnaClass.toUpperCase() === 'DIFFERENT' && dnaScore < 42) || dnaScore < 40)) {
+    // Hard reject: DNA DIFFERENT / low DNA / missing — never accept via similarity alone.
+    // Exception: strong local-patch hit on this vault (heavy crop/compress fragment).
+    if (
+      !isExact
+      && !isLocalPatchHit
+      && (!deep || (dnaClass.toUpperCase() === 'DIFFERENT' && dnaScore < 42) || dnaScore < 40)
+    ) {
       evaluated++;
       const reasons = !deep
         ? ['dna_missing_or_decrypt_failed']

@@ -11,6 +11,7 @@ import {
 import type { RankedVaultCandidate } from '../../src/types/unified-investigation.types';
 import type { VaultSimilarityVector } from '../../src/services/forensics/vault-similarity-vector.service';
 import type { DeepCompareResult } from '../../src/services/forensics/deep-vault-compare.service';
+import type { LocalDnaSearchHit } from '../../src/services/forensics/vault-local-dna-search.service';
 
 function candidate(
   id: string,
@@ -78,7 +79,7 @@ describe('CandidateRankingEngine', () => {
     expect(staged.length).toBeLessThanOrEqual(20);
     expect(staged.length).toBeGreaterThan(0);
     expect(RANKING_TOP_VECTOR).toBe(100);
-    expect(RANKING_TOP_DEEP).toBe(3);
+    expect(RANKING_TOP_DEEP).toBe(4);
   });
 
   it('rejects high-similarity low-DNA candidate and accepts later winner', async () => {
@@ -180,18 +181,18 @@ describe('CandidateRankingEngine', () => {
     expect(compareCalls).toBe(1); // stopped after winner — no wasted compares
   });
 
-  it('limits deep pool to 2 when live lead is modest (30% WhatsApp case)', async () => {
+  it('limits deep pool to 2 only when vector lead is trusted (≥50%)', async () => {
     const candidates = [
-      candidate('lead', 30, 1),
-      candidate('b', 28, 2),
-      candidate('c', 26, 3),
-      candidate('d', 24, 4),
+      candidate('lead', 55, 1),
+      candidate('b', 40, 2),
+      candidate('c', 30, 3),
+      candidate('d', 20, 4),
     ];
     const vectors = [
-      vector('lead', 30),
-      vector('b', 28),
-      vector('c', 26),
-      vector('d', 24),
+      vector('lead', 55),
+      vector('b', 40),
+      vector('c', 30),
+      vector('d', 20),
     ];
     let compareCalls = 0;
     const result = await selectWinnerByRanking({
@@ -204,13 +205,56 @@ describe('CandidateRankingEngine', () => {
       mediaType: 'image',
       compareCandidate: async (c) => {
         compareCalls++;
-        if (c.vaultId === 'vault-lead') return deep('lead', 40, 'SIMILAR');
+        if (c.vaultId === 'vault-lead') return deep('lead', 55, 'SIMILAR');
         return deep(c.vaultId.replace('vault-', ''), 10, 'DIFFERENT');
       },
     });
     expect(result.winner?.vaultId).toBe('vault-lead');
     expect(compareCalls).toBe(1);
-    expect(result.stages.afterDeepPool).toBe(2);
+    expect(result.deepComparePool.length).toBe(2);
+  });
+
+  it('rescues heavy crop via local patch DNA when full-frame DNA is weak', async () => {
+    // Wrong vault leads on global vector; true original only wins via patch votes.
+    const candidates = [
+      candidate('wrong', 36, 1),
+      candidate('original', 22, 2),
+    ];
+    const vectors = [vector('wrong', 36), vector('original', 22)];
+    const localDnaHit: LocalDnaSearchHit = {
+      vaultId: 'vault-original',
+      dnaRecordId: 'dna-original',
+      ownerUserId: 'owner-1',
+      patchMatchCount: 12,
+      probePatchCount: 40,
+      vaultPatchCount: 200,
+      matchRatio: 0.35,
+      coverageRatio: 0.3,
+      spatialConsistency: 0.6,
+      geometricScore: 50,
+      orbRefineScore: 48,
+      compositeScore: 52,
+      signals: ['local_patch_dna'],
+    };
+
+    const result = await selectWinnerByRanking({
+      candidates,
+      vectors,
+      localDnaHit,
+      localDnaScore: 52,
+      identityHit: null,
+      isExactVaultMatch: false,
+      mediaType: 'image',
+      compareCandidate: async (c) => {
+        // Full-frame DNA fails on both (heavy crop) — patch rescue must still accept original.
+        return deep(c.vaultId.replace('vault-', ''), 28, 'DIFFERENT');
+      },
+    });
+
+    expect(result.winner?.vaultId).toBe('vault-original');
+    expect(result.source).toBe('local_patch');
+    expect(result.logs[0]?.decision).toBe('ACCEPT');
+    expect(result.logs[0]?.vaultId).toBe('vault-original');
   });
 });
 
