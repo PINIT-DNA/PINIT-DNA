@@ -101,10 +101,27 @@ export async function createWatermarkProfile(opts: {
     if (!exists) break;
   }
 
+  // recipientId on WatermarkProfile is an optional FK to RecipientProfile.
+  // Protected downloads pass "owner:<userId>" which is NOT a profile id — storing it
+  // caused watermark_profiles_recipientId_fkey failures and TEP tracking was skipped.
+  const logicalRecipient = opts.recipientId ?? 'anonymous';
+  let recipientFk: string | null = null;
+  if (
+    opts.recipientId
+    && !opts.recipientId.startsWith('owner:')
+    && opts.recipientId !== 'anonymous'
+  ) {
+    const profile = await prisma.recipientProfile.findUnique({
+      where: { id: opts.recipientId },
+      select: { id: true },
+    });
+    recipientFk = profile?.id ?? null;
+  }
+
   const payload = JSON.stringify({
     mfid:        opts.dnaRecordId,
     shareId:     opts.shareLinkId,
-    recipientId: opts.recipientId ?? 'anonymous',
+    recipientId: logicalRecipient,
     wmCode,
     ts:          Date.now(),
   });
@@ -113,7 +130,7 @@ export async function createWatermarkProfile(opts: {
     data: {
       dnaRecordId:  opts.dnaRecordId,
       shareLinkId:  opts.shareLinkId,
-      recipientId:  opts.recipientId ?? null,
+      recipientId:  recipientFk,
       watermarkCode: wmCode!,
       payload,
     },

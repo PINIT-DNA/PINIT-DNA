@@ -348,10 +348,24 @@ export async function protectedDownloadFromVault(
     let fileBuffer = result.buffer;
     let tepCode: string | undefined;
 
+    const realIp = resolveClientIp(req);
+    const geo = realIp ? await geoFromIp(realIp) : null;
+    const userAgent = (req.headers['user-agent'] as string | undefined) ?? undefined;
+    let tepTrackingFailed = false;
+    let tepFailReason: string | undefined;
+
+    logger.info('[ProtectedDownload] Download request', {
+      packageVaultId: result.vaultId,
+      dnaRecordId: result.dnaRecordId,
+      authenticatedUser: userId,
+      recipient: `owner:${userId}`,
+      ip: realIp,
+      country: geo?.country,
+      city: geo?.city,
+    });
+
     if (isTepProtectedDownloadEnabled()) {
       try {
-        const realIp = resolveClientIp(req);
-        const geo = realIp ? await geoFromIp(realIp) : null;
         const tep = await tepService.createTrackedExport({
           fileBuffer: result.buffer,
           mimeType: result.originalMimeType,
@@ -359,22 +373,71 @@ export async function protectedDownloadFromVault(
           dnaRecordId: result.dnaRecordId,
           vaultId: result.vaultId,
           shareLinkId: protectedDownloadTepChannelId(result.vaultId),
+          // Logical recipient only — not a RecipientProfile FK (see watermark.service)
           recipientId: `owner:${userId}`,
           sessionToken: req.headers['x-session-id'] as string | undefined,
           ipAddress: realIp ?? undefined,
           geoCountry: geo?.country ?? undefined,
           geoCity: geo?.city ?? undefined,
-          deviceContext: req.headers['user-agent'] as string | undefined,
+          deviceContext: userAgent,
           ownerUserId: userId,
         });
         fileBuffer = tep.buffer;
         tepCode = tep.tepCode;
+        logger.info('[ProtectedDownload] TEP package created', {
+          tepCode,
+          vaultId: result.vaultId,
+          dnaRecordId: result.dnaRecordId,
+        });
       } catch (tepErr) {
-        logger.warn('[TEP] Protected download tracking failed — serving without TEP', {
+        tepTrackingFailed = true;
+        tepFailReason = (tepErr as Error).message;
+        logger.warn('[TEP] Protected download tracking failed — serving file, still recording download event', {
           vaultId: id,
-          error: (tepErr as Error).message,
+          error: tepFailReason,
         });
       }
+    }
+
+    // Always append download custody evidence (even if TEP embed failed).
+    // This is the "download event" — not continuous tracking after the file leaves PINIT.
+    const downloadEventId = crypto.randomUUID();
+    try {
+      const { forensicProvenanceService } = await import('../../services/forensics/forensic-provenance.service');
+      await forensicProvenanceService.append({
+        eventType: 'DOWNLOADED',
+        summary: tepCode
+          ? `Protected download — TEP ${tepCode}`
+          : 'Protected download (TEP embed unavailable)',
+        dnaRecordId: result.dnaRecordId,
+        vaultId: result.vaultId,
+        tepCode: tepCode ?? null,
+        certificateId: result.certificateId ?? null,
+        actorUserId: userId,
+        actorLabel: `owner:${userId}`,
+        ipAddress: realIp ?? null,
+        country: geo?.country ?? null,
+        city: geo?.city ?? null,
+        region: geo?.region ?? null,
+        locationSource: geo?.country ? 'ip' : 'none',
+        userAgent: userAgent ?? null,
+        device: userAgent ?? null,
+        payload: {
+          downloadEventId,
+          status: tepCode ? 'TEP_TRACKED' : 'DOWNLOAD_RECORDED',
+          tepTrackingFailed,
+          tepFailReason: tepFailReason ?? null,
+          certificateId: result.certificateId,
+          forensicPreserved: result.forensicPreserved,
+          fileSha256: crypto.createHash('sha256').update(fileBuffer).digest('hex'),
+          shareLinkId: protectedDownloadTepChannelId(result.vaultId),
+        },
+        dedupeKey: `protected_download:${downloadEventId}`,
+      });
+    } catch (provErr) {
+      logger.warn('[ProtectedDownload] Provenance append failed (non-fatal)', {
+        error: String(provErr),
+      });
     }
 
     res.set({
@@ -386,8 +449,10 @@ export async function protectedDownloadFromVault(
       'X-Certificate-Id': result.certificateId ?? '',
       'X-PINIT-Protected-Download': 'true',
       'X-PINIT-Forensic-Preserved': String(result.forensicPreserved),
+      'X-PINIT-Download-Event-Id': downloadEventId,
       'X-Original-Size': String(fileBuffer.length),
       ...(tepCode ? { 'X-TEP-Code': tepCode } : {}),
+      ...(tepTrackingFailed ? { 'X-PINIT-TEP-Tracking': 'partial' } : { 'X-PINIT-TEP-Tracking': tepCode ? 'full' : 'off' }),
     });
 
     auditService.log({
@@ -402,6 +467,8 @@ export async function protectedDownloadFromVault(
         fileSha256: crypto.createHash('sha256').update(fileBuffer).digest('hex'),
         steps: result.steps.map((s) => s.id),
         tepCode,
+        downloadEventId,
+        tepTrackingFailed,
       },
       req,
     });
