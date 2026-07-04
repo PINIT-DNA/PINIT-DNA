@@ -43,11 +43,11 @@ import type { AuthoritativeAsset } from '../../types/authoritative-asset.types';
 import {
   buildAuthoritativeAsset,
   buildMediaDeepCandidates,
-  deepCompareForVault,
   selectAuthoritativeMatch,
 } from './authoritative-asset.service';
 import { resolveMediaProfile } from './adaptive-scoring.service';
 import { isCameraScanFileName } from './vault-match-validator.service';
+import { selectAcceptedImageCandidate } from './image-candidate-acceptance.service';
 
 function logCandidateStage(
   stage: string,
@@ -1046,20 +1046,15 @@ export class PinitOriginalIdentityRecoveryService {
       detail: preliminarySelection?.source ?? 'none',
     });
 
-    const skipDeepForStrongLocal = !!(
-      preliminarySelection
-      && localDnaHit
-      && localDnaScore >= 55
-      && (preliminarySelection.source === 'identity_hit' || preliminarySelection.source === 'local_patch')
-    );
+    const isImageProbe = resolveMediaProfile(mimeType, originalName) === 'image';
 
-    if ((isExactVaultMatch || skipDeepForStrongLocal) && preliminarySelection) {
+    // Images: never skip DNA on local-patch alone (false positives e.g. logo → portrait).
+    // Video: may skip when SHA-256 exact.
+    if (isExactVaultMatch && preliminarySelection) {
       stages.push({
         stage: STAGE.DEEP_COMPARE,
         status: 'skipped',
-        detail: isExactVaultMatch
-          ? 'SHA-256 exact match — 15-layer compare skipped'
-          : `Strong local patch DNA (${localDnaScore}%) — 15-layer compare skipped`,
+        detail: 'SHA-256 exact match — 15-layer compare skipped',
       });
       authoritativeAsset = await buildAuthoritativeAsset({
         selection: preliminarySelection,
@@ -1069,7 +1064,7 @@ export class PinitOriginalIdentityRecoveryService {
         localDnaHit,
         ownerUserId,
       });
-      dna15Score = isExactVaultMatch ? 100 : localDnaScore;
+      dna15Score = 100;
       emitPhase({
         phase: 3,
         deepVerificationRunning: false,
@@ -1078,11 +1073,9 @@ export class PinitOriginalIdentityRecoveryService {
         dnaRecordId: authoritativeAsset.dnaRecordId,
         originalFilename: authoritativeAsset.originalFilename,
         ownerPinitId: authoritativeAsset.ownerPinitId ?? undefined,
-        confidence: dna15Score,
-        dnaMatchPercent: dna15Score,
-        statusMessage: isExactVaultMatch
-          ? 'Exact vault match verified'
-          : `Original identified via patch DNA (${localDnaScore}%)`,
+        confidence: 100,
+        dnaMatchPercent: 100,
+        statusMessage: 'Exact vault match verified',
       });
     } else {
       timer.start('deep_dna_compare');
@@ -1093,18 +1086,22 @@ export class PinitOriginalIdentityRecoveryService {
         statusMessage: 'Running 15-layer forensic verification…',
       });
 
-      const isImageProbe = resolveMediaProfile(mimeType, originalName) === 'image';
-
-      let deepTopN = preliminarySelection
-        ? 1
-        : (twoStage && hasStrongIdentityAnchor
+      // Images: compare top-N and walk until one passes DNA+ORB+fusion.
+      // Video: keep prior media-aware candidate scoping.
+      let deepTopN = isImageProbe
+        ? Math.min(5, Math.max(candidates.length, 1))
+        : (preliminarySelection
           ? 1
-          : (options?.deepCompareTopN ?? pinitIdentificationConfig.deepCompareTopN));
+          : (twoStage && hasStrongIdentityAnchor
+            ? 1
+            : (options?.deepCompareTopN ?? pinitIdentificationConfig.deepCompareTopN)));
 
-      let deepCandidates = preliminarySelection
-        ? candidates.filter((c) => c.vaultId === preliminarySelection.match.vaultId)
-        : candidates;
-      if (twoStage && hasStrongIdentityAnchor && identityHit && !preliminarySelection) {
+      let deepCandidates = isImageProbe
+        ? candidates.slice(0, deepTopN)
+        : (preliminarySelection
+          ? candidates.filter((c) => c.vaultId === preliminarySelection.match.vaultId)
+          : candidates);
+      if (!isImageProbe && twoStage && hasStrongIdentityAnchor && identityHit && !preliminarySelection) {
         deepCandidates = candidates.filter((c) => c.vaultId === identityHit!.vaultId);
       }
 
@@ -1119,6 +1116,25 @@ export class PinitOriginalIdentityRecoveryService {
         deepTopN = Math.min(5, deepCandidates.length);
       }
 
+      // Include identity-hit vault in image deep compare list when missing.
+      if (isImageProbe && identityHit && !deepCandidates.some((c) => c.vaultId === identityHit!.vaultId)) {
+        deepCandidates = [
+          {
+            rank: 0,
+            dnaRecordId: identityHit.dnaRecordId,
+            vaultId: identityHit.vaultId,
+            ownerUserId: identityHit.ownerUserId,
+            preliminaryScore: 80,
+            compositeScore: 80,
+            tier: 2,
+            method: identityHit.method,
+            signals: ['identity_signature'],
+          },
+          ...deepCandidates,
+        ].slice(0, 5);
+        deepTopN = deepCandidates.length;
+      }
+
       deepCompareResults = await withTimeoutSoft(
         () => deepVaultCompareService.compareTopCandidates(
           buffer, mimeType, originalName, sizeBytes, deepCandidates, ownerUserId, deepTopN,
@@ -1127,55 +1143,83 @@ export class PinitOriginalIdentityRecoveryService {
         'deep_dna_compare',
       ) ?? [];
 
-      const authoritativeDeep = !isImageProbe
-        ? (deepCompareResults[0] ?? null)
-        : (preliminarySelection
-          ? deepCompareForVault(deepCompareResults, preliminarySelection.match.vaultId)
-          : deepCompareResults[0] ?? null);
-
-      const finalSelection = !isImageProbe
-        ? selectAuthoritativeMatch({
-          identityHit,
-          candidates,
-          localDnaHit,
-          localDnaScore,
-          deepCompare: authoritativeDeep,
-          isExactVaultMatch,
-          ownerUserId,
-        })
-        : (preliminarySelection ?? selectAuthoritativeMatch({
-          identityHit,
-          candidates,
-          localDnaHit,
-          localDnaScore,
-          deepCompare: authoritativeDeep,
-          isExactVaultMatch,
-          ownerUserId,
-        }));
-
-      if (finalSelection) {
-        authoritativeAsset = await buildAuthoritativeAsset({
-          selection: finalSelection,
-          candidates,
+      if (isImageProbe) {
+        const imagePick = selectAcceptedImageCandidate({
+          candidates: deepCandidates.length ? deepCandidates : candidates,
           vectors,
           deepCompareResults,
           localDnaHit,
+          localDnaScore,
+          ownerUserId,
+          identityHit,
+          isExactVaultMatch,
+        });
+
+        if (imagePick.accepted && imagePick.match && imagePick.source !== 'none') {
+          authoritativeAsset = await buildAuthoritativeAsset({
+            selection: { match: imagePick.match, source: imagePick.source },
+            candidates,
+            vectors,
+            deepCompareResults,
+            localDnaHit,
+            ownerUserId,
+          });
+          dna15Score = imagePick.deepCompare?.overallConfidenceScore
+            ?? authoritativeAsset.deepCompare?.overallConfidenceScore
+            ?? 0;
+          selectionSteps.push({
+            stage: 'authoritative_asset_locked',
+            vaultId: authoritativeAsset.vaultId,
+            dnaRecordId: authoritativeAsset.dnaRecordId,
+            certificateId: authoritativeAsset.certificateId,
+            detail: `source=${authoritativeAsset.selectionSource} file=${authoritativeAsset.originalFilename} · image walk accepted`,
+          });
+        } else {
+          // All image candidates rejected — do not lock a weak vault.
+          authoritativeAsset = null;
+          dna15Score = 0;
+          selectionSteps.push({
+            stage: 'authoritative_asset_locked',
+            detail: `all ${imagePick.logs.length} image candidates rejected (DNA/ORB/fusion gates)`,
+          });
+        }
+      } else {
+        const authoritativeDeep = deepCompareResults[0] ?? null;
+        const finalSelection = selectAuthoritativeMatch({
+          identityHit,
+          candidates,
+          localDnaHit,
+          localDnaScore,
+          deepCompare: authoritativeDeep,
+          isExactVaultMatch,
           ownerUserId,
         });
-        dna15Score = authoritativeAsset.deepCompare?.overallConfidenceScore ?? 0;
-        selectionSteps.push({
-          stage: 'authoritative_asset_locked',
-          vaultId: authoritativeAsset.vaultId,
-          dnaRecordId: authoritativeAsset.dnaRecordId,
-          certificateId: authoritativeAsset.certificateId,
-          detail: `source=${authoritativeAsset.selectionSource} file=${authoritativeAsset.originalFilename}`,
-        });
+
+        if (finalSelection) {
+          authoritativeAsset = await buildAuthoritativeAsset({
+            selection: finalSelection,
+            candidates,
+            vectors,
+            deepCompareResults,
+            localDnaHit,
+            ownerUserId,
+          });
+          dna15Score = authoritativeAsset.deepCompare?.overallConfidenceScore ?? 0;
+          selectionSteps.push({
+            stage: 'authoritative_asset_locked',
+            vaultId: authoritativeAsset.vaultId,
+            dnaRecordId: authoritativeAsset.dnaRecordId,
+            certificateId: authoritativeAsset.certificateId,
+            detail: `source=${authoritativeAsset.selectionSource} file=${authoritativeAsset.originalFilename}`,
+          });
+        }
       }
 
       if (authoritativeAsset?.deepCompare) {
         emitPhase({
           phase: 3,
           deepVerificationRunning: false,
+          signatureFound: true,
           vaultId: authoritativeAsset.vaultId,
           dnaRecordId: authoritativeAsset.dnaRecordId,
           originalFilename: authoritativeAsset.originalFilename,
@@ -1184,8 +1228,7 @@ export class PinitOriginalIdentityRecoveryService {
           confidence: authoritativeAsset.deepCompare.overallConfidenceScore,
           statusMessage: `15-layer DNA: ${authoritativeAsset.deepCompare.overallConfidenceScore}% — ${authoritativeAsset.deepCompare.classification}`,
         });
-      } else if (authoritativeAsset) {
-        // Deep compare failed (e.g. Prisma txn timeout) — still lock live vault match
+      } else if (authoritativeAsset && !isImageProbe) {
         const vectorConf = authoritativeAsset.vector?.scores.composite
           ?? authoritativeAsset.rankedCandidate?.compositeScore
           ?? 30;
@@ -1201,6 +1244,13 @@ export class PinitOriginalIdentityRecoveryService {
           dnaMatchPercent: vectorConf,
           statusMessage: `Vault match retained (${authoritativeAsset.selectionSource}) — deep DNA incomplete`,
         });
+      } else {
+        emitPhase({
+          phase: 3,
+          deepVerificationRunning: false,
+          signatureFound: false,
+          statusMessage: 'No vault candidate passed DNA / ORB / fusion gates',
+        });
       }
 
       timer.end('deep_dna_compare');
@@ -1208,18 +1258,18 @@ export class PinitOriginalIdentityRecoveryService {
         type: 'timeline',
         stepId: 'deep_dna_compare',
         label: 'Deep DNA Compare',
-        status: authoritativeAsset?.deepCompare ? 'complete' : authoritativeAsset ? 'warning' : 'skipped',
+        status: authoritativeAsset?.deepCompare ? 'complete' : authoritativeAsset ? 'warning' : 'failed',
         elapsedMs: timer.getTimings().find((t) => t.stage === 'deep_dna_compare')?.durationMs,
       });
 
       stages.push({
         stage: STAGE.DEEP_COMPARE,
-        status: authoritativeAsset?.deepCompare ? 'complete' : authoritativeAsset ? 'partial' : 'skipped',
+        status: authoritativeAsset?.deepCompare ? 'complete' : authoritativeAsset ? 'partial' : 'failed',
         detail: authoritativeAsset?.deepCompare
           ? `15-layer compare: ${authoritativeAsset.deepCompare.overallConfidenceScore}% (${authoritativeAsset.deepCompare.classification}) · ${authoritativeAsset.deepCompare.matchedLayerCount}/${authoritativeAsset.deepCompare.totalLayers} layers`
           : authoritativeAsset
             ? `Deep DNA incomplete — retained ${authoritativeAsset.selectionSource} vault ${authoritativeAsset.vaultId.slice(0, 8)}…`
-            : 'No deep compare',
+            : 'All candidates rejected after DNA / ORB / fusion gates',
       });
     }
 
@@ -1252,8 +1302,9 @@ export class PinitOriginalIdentityRecoveryService {
       });
     }
 
-    // When deep DNA write fails, only proxy dna15 from a *strong* vector or local-patch lock.
-    if (dna15Score === 0 && authoritativeAsset) {
+    // Video only: proxy dna15 from strong vector/local-patch when deep DNA incomplete.
+    // Images must never inflate DNA from retrieval alone (causes logo→portrait false locks).
+    if (dna15Score === 0 && authoritativeAsset && !isImageProbe) {
       const src = authoritativeAsset.selectionSource;
       if (src === 'local_patch' && localDnaScore >= 45) {
         dna15Score = localDnaScore;

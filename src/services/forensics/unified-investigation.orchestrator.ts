@@ -540,6 +540,7 @@ export class UnifiedInvestigationOrchestrator {
         const cmpScore = comparison.overallConfidenceScore;
         const cmpClass = comparison.classification;
         const isCameraScan = isCameraScanFileName(originalName);
+        const videoProbe = isVideoProbe;
 
         if (!isAcceptedAfterDnaCompare(
           match,
@@ -547,9 +548,11 @@ export class UnifiedInvestigationOrchestrator {
           cmpClass,
           isCameraScan,
           retrievalConf,
+          { isVideoProbe: videoProbe },
         )) {
           if (shouldRetainRetrievalCandidateAsPossible(
             enterprise, match, cmpScore, retrievalConf,
+            { isVideoProbe: videoProbe },
           )) {
             reportOutcome = downgradeToPossibleAfterWeakDna(
               match,
@@ -581,10 +584,11 @@ export class UnifiedInvestigationOrchestrator {
               'failed',
               `Rejected — ${cmpScore}% DNA score does not confirm vault pairing`,
             ));
+            // Do not reuse retrieval confidence after rejection.
             const rejectedOutcome: InvestigationOutcome = {
               state: 'NO_SIGNATURE',
               candidate: null,
-              retrievalConfidence: retrievalConf,
+              retrievalConfidence: 0,
               forensicVerdict: 'NO_SIGNATURE',
               displayLabel: REPORT_STATE_LABELS.NO_SIGNATURE,
               decisionReason: `DNA compare rejected candidate vault ${match.vaultId.slice(0, 8)}… — ${cmpScore}% ${cmpClass}`,
@@ -600,7 +604,7 @@ export class UnifiedInvestigationOrchestrator {
               currentFileHash,
               originalName,
               rejectedOutcome,
-              enterprise,
+              undefined,
               `Vault candidate rejected after 15-layer compare (${cmpScore}% — ${cmpClass}).`,
             );
             return this.attachPipelineAudit(rejected, {
@@ -627,7 +631,9 @@ export class UnifiedInvestigationOrchestrator {
     if (resolvedDnaScore != null
       && resolvedDnaScore < 50
       && reportOutcome.state === 'VERIFIED'
-      && shouldRetainRetrievalCandidateAsPossible(enterprise, match, resolvedDnaScore, retrievalConf)) {
+      && shouldRetainRetrievalCandidateAsPossible(
+        enterprise, match, resolvedDnaScore, retrievalConf, { isVideoProbe },
+      )) {
       reportOutcome = downgradeToPossibleAfterWeakDna(
         match,
         reportOutcome,

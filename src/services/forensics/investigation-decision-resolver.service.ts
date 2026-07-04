@@ -152,40 +152,40 @@ export function labelForOutcome(outcome: InvestigationOutcome): string {
 }
 
 /** Minimum 15-layer DNA score to show vault in report when retrieval anchored this vault */
-export const MIN_DNA_FOR_POSSIBLE_REPORT = 20;
+export const MIN_DNA_FOR_POSSIBLE_REPORT = 40;
 
 /**
  * When retrieval found a vault candidate but 15-layer DNA is weak (edited/cropped capture),
  * retain as Possible instead of NO_SIGNATURE.
+ *
+ * Images: NEVER retain when DNA is DIFFERENT or below threshold — retrieval confidence
+ * must not override a failed DNA compare (logo→portrait false positives).
+ * Video: identity_hit / sha256 / partial-video anchors may retain.
  */
 export function shouldRetainRetrievalCandidateAsPossible(
   enterprise: EnterpriseRecoveryResult,
   match: VaultMatchResult,
   dnaScore: number,
   retrievalConfidence: number,
+  options?: { isVideoProbe?: boolean },
 ): boolean {
   const anchoredVault = enterprise.authoritativeAsset?.vaultId
     ?? enterprise.verifiedCandidate?.vaultId
     ?? enterprise.probableMatch?.vaultId;
   if (!anchoredVault || anchoredVault !== match.vaultId) return false;
 
-  // Embedded identity / SHA256 exact — cryptographic anchor. The probe file
-  // literally carries the vault's identity marker. Never dismiss on weak 15-layer
-  // (video frame compare can fail when FFmpeg isn't available on the host).
   const source = enterprise.authoritativeAsset?.selectionSource;
-  if (source === 'identity_hit' || source === 'sha256_exact') return true;
-  // Strong local-patch only — weak vector_top caused false "signature found" on wrong vaults.
-  if (source === 'local_patch' && retrievalConfidence >= 45) return true;
-  if (source === 'vector_top') {
-    const vectorComposite = enterprise.authoritativeAsset?.vector?.scores.composite ?? 0;
-    return vectorComposite >= 50 && retrievalConfidence >= 45;
+  const isVideo = options?.isVideoProbe === true
+    || /partial video/i.test(match.method);
+
+  if (isVideo) {
+    if (source === 'identity_hit' || source === 'sha256_exact') return true;
+    if (/partial video/i.test(match.method) && retrievalConfidence >= 28) return true;
   }
 
-  if (dnaScore >= MIN_DNA_FOR_POSSIBLE_REPORT) return true;
-  if (/partial video/i.test(match.method) && retrievalConfidence >= 28) return true;
-  const vectorComposite = enterprise.authoritativeAsset?.vector?.scores.composite ?? 0;
-  if (vectorComposite >= 50 && retrievalConfidence >= 40) return true;
-  return retrievalConfidence >= 35 && dnaScore >= 20;
+  // Images (and non-video): DNA must confirm the pairing. Do not reuse retrieval %.
+  if (dnaScore < MIN_DNA_FOR_POSSIBLE_REPORT) return false;
+  return dnaScore >= MIN_DNA_FOR_POSSIBLE_REPORT;
 }
 
 export function downgradeToPossibleAfterWeakDna(

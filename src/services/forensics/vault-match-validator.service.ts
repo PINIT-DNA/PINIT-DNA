@@ -85,24 +85,40 @@ export function isAcceptedAfterDnaCompare(
   classification: string,
   isCameraScan: boolean,
   retrievalConfidence?: number,
+  options?: { isVideoProbe?: boolean },
 ): boolean {
-  if ((retrievalConfidence ?? 0) >= 40 && overallConfidenceScore >= 30 && classification !== 'DIFFERENT') {
-    return true;
+  const isVideo = options?.isVideoProbe === true
+    || /partial video/i.test(match.method);
+
+  // Hard reject: DNA says DIFFERENT with low score — never accept via retrieval alone.
+  if (classification === 'DIFFERENT' && overallConfidenceScore < 42 && !isVideo) {
+    return false;
   }
+
+  if (isVideo) {
+    if ((retrievalConfidence ?? 0) >= 40 && overallConfidenceScore >= 30 && classification !== 'DIFFERENT') {
+      return true;
+    }
+    if (match.tier === 3 && /partial video/i.test(match.method)) {
+      return (retrievalConfidence ?? 0) >= 30 || overallConfidenceScore >= 20;
+    }
+  }
+
   const vaultSearchScore = matchScore(match);
   if (match.tier === 1) return true;
-  if (match.tier === 2) return overallConfidenceScore >= 20 || classification !== 'DIFFERENT';
+  if (match.tier === 2) {
+    // Embedded identity still needs DNA confirmation for images.
+    if (!isVideo && (classification === 'DIFFERENT' || overallConfidenceScore < 42)) return false;
+    return overallConfidenceScore >= 20 || classification !== 'DIFFERENT';
+  }
   if (match.tier === 4) {
-    // Strong vault-wide structural/ORB hit — accept transformed captures (screenshots, photos)
-    if (vaultSearchScore >= 85 && classification !== 'DIFFERENT') return true;
-    const min = isCameraScan ? 32 : 42;
+    if (vaultSearchScore >= 85 && classification !== 'DIFFERENT' && overallConfidenceScore >= 42) return true;
+    const min = isCameraScan ? 42 : 42;
     return overallConfidenceScore >= min && classification !== 'DIFFERENT';
   }
   if (match.tier === 3 && match.method.includes('Local patch DNA')) {
-    return vaultSearchScore >= 55 && classification !== 'DIFFERENT';
-  }
-  if (match.tier === 3 && /partial video/i.test(match.method)) {
-    return (retrievalConfidence ?? 0) >= 30 || overallConfidenceScore >= 20;
+    // Local patch alone is not enough — DNA must confirm (prevents logo→portrait).
+    return overallConfidenceScore >= 42 && classification !== 'DIFFERENT';
   }
   return overallConfidenceScore >= 75 && classification === 'DNA_MATCH';
 }
