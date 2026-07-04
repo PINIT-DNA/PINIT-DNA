@@ -1,13 +1,16 @@
 /**
- * Investigation decision resolver — single authoritative candidate for reports.
- * No fallback substitution from unrelated vault records.
+ * Investigation decision resolver — maps Acceptance Engine output to report fields.
+ * Final verdict authority: acceptance-engine.service.ts only.
  */
 import { logger } from '../../lib/logger';
 import type { EnterpriseRecoveryResult } from './enterprise-recovery-pipeline.service';
 import type { VaultMatchResult } from './vault-auto-match.service';
 import type { ForensicVerdict } from './confidence-fusion-engine.service';
+import type { AcceptanceDecision, AcceptanceVerdict } from '../../types/acceptance.types';
+import { runAcceptanceEngine } from './acceptance-engine.service';
+import { buildAcceptanceEvidenceFromEnterprise } from './acceptance-evidence.builder';
 
-/** Three report states exposed to investigators */
+/** Legacy three-state UI mapping (UI unchanged). */
 export type InvestigationReportState = 'VERIFIED' | 'POSSIBLE' | 'NO_SIGNATURE';
 
 export const REPORT_STATE_LABELS: Record<InvestigationReportState, string> = {
@@ -23,6 +26,11 @@ export interface InvestigationOutcome {
   forensicVerdict: ForensicVerdict;
   displayLabel: string;
   decisionReason: string;
+  /** Frozen acceptance verdict — sole decision authority */
+  acceptanceVerdict: AcceptanceVerdict;
+  acceptancePolicyVersion: string;
+  dnaAlgorithmVersion: string;
+  acceptanceConfidence: number;
 }
 
 /**
@@ -46,78 +54,103 @@ export function resolveAuthoritativeCandidate(
   return null;
 }
 
+export function mapAcceptanceToReportState(verdict: AcceptanceVerdict): InvestigationReportState {
+  switch (verdict) {
+    case 'VERIFIED_ORIGINAL':
+    case 'VERIFIED_DERIVATIVE':
+      return 'VERIFIED';
+    case 'POSSIBLE_MATCH':
+      return 'POSSIBLE';
+    case 'NOT_PINIT':
+    case 'INSUFFICIENT_EVIDENCE':
+    default:
+      return 'NO_SIGNATURE';
+  }
+}
+
+export function mapAcceptanceToForensicVerdict(
+  verdict: AcceptanceVerdict,
+): ForensicVerdict {
+  switch (verdict) {
+    case 'VERIFIED_ORIGINAL':
+      return 'ORIGINAL_VERIFIED';
+    case 'VERIFIED_DERIVATIVE':
+      return 'ORIGINAL_FOUND_PARTIAL';
+    case 'POSSIBLE_MATCH':
+      return 'POSSIBLE_ASSET';
+    case 'NOT_PINIT':
+    case 'INSUFFICIENT_EVIDENCE':
+    default:
+      return 'NO_SIGNATURE';
+  }
+}
+
+function outcomeFromAcceptance(
+  decision: AcceptanceDecision,
+  candidate: VaultMatchResult | null,
+): InvestigationOutcome {
+  const retain = decision.retainCandidate ? candidate : null;
+  return {
+    state: mapAcceptanceToReportState(decision.verdict),
+    candidate: retain,
+    retrievalConfidence: decision.retrievalConfidence,
+    forensicVerdict: mapAcceptanceToForensicVerdict(decision.verdict),
+    displayLabel: decision.displayLabel,
+    decisionReason: decision.decisionReason,
+    acceptanceVerdict: decision.verdict,
+    acceptancePolicyVersion: decision.acceptancePolicyVersion,
+    dnaAlgorithmVersion: decision.dnaAlgorithmVersion,
+    acceptanceConfidence: decision.confidence,
+  };
+}
+
+/**
+ * Derive report outcome — verdict comes ONLY from Acceptance Engine.
+ */
 export function deriveInvestigationOutcome(
   enterprise: EnterpriseRecoveryResult,
+  options?: { analysisComplete?: boolean; failureReason?: string },
 ): InvestigationOutcome {
   const candidate = resolveAuthoritativeCandidate(enterprise);
-  const retrievalConfidence = enterprise.fusion.retrievalConfidence ?? 0;
-
-  if (!candidate) {
-    const reason = enterprise.reportStateReason
-      ?? `No retrieval candidate — fusion verdict ${enterprise.fusion.forensicVerdict}, retrieval ${retrievalConfidence}%`;
-    return {
-      state: 'NO_SIGNATURE',
-      candidate: null,
-      retrievalConfidence,
-      forensicVerdict: 'NO_SIGNATURE',
-      displayLabel: REPORT_STATE_LABELS.NO_SIGNATURE,
-      decisionReason: reason,
-    };
-  }
 
   const vaultConsistent =
-    (!enterprise.authoritativeAsset
-      || (
-        (!enterprise.match || enterprise.match.vaultId === candidate.vaultId)
-        && (!enterprise.probableMatch || enterprise.probableMatch.vaultId === candidate.vaultId)
-        && enterprise.authoritativeAsset.vaultId === candidate.vaultId
-      ))
-    && (!enterprise.match || enterprise.match.vaultId === candidate.vaultId)
-    && (!enterprise.probableMatch || enterprise.probableMatch.vaultId === candidate.vaultId);
+    !candidate
+    || (
+      (!enterprise.authoritativeAsset
+        || enterprise.authoritativeAsset.vaultId === candidate.vaultId)
+      && (!enterprise.match || enterprise.match.vaultId === candidate.vaultId)
+      && (!enterprise.probableMatch || enterprise.probableMatch.vaultId === candidate.vaultId)
+    );
 
-  if (!vaultConsistent) {
+  if (candidate && !vaultConsistent) {
     logger.error('[InvestigationDecision] Candidate vault mismatch — discarding for report', {
       candidateVault: candidate.vaultId?.slice(0, 8),
       matchVault: enterprise.match?.vaultId?.slice(0, 8),
       probableVault: enterprise.probableMatch?.vaultId?.slice(0, 8),
     });
-    return {
-      state: 'NO_SIGNATURE',
-      candidate: null,
-      retrievalConfidence,
-      forensicVerdict: 'NO_SIGNATURE',
-      displayLabel: REPORT_STATE_LABELS.NO_SIGNATURE,
-      decisionReason: 'Retrieval candidate inconsistent across pipeline stages',
-    };
+    const decision = runAcceptanceEngine({
+      analysisComplete: options?.analysisComplete !== false,
+      failureReason: 'Retrieval candidate inconsistent across pipeline stages',
+      hasCandidate: false,
+      dna: { state: 'FAIL', score: 0 },
+      certificate: { state: 'FAIL', score: 0 },
+      vault: { state: 'FAIL', score: 0 },
+      owner: { state: 'FAIL', score: 0 },
+      timeline: { state: 'FAIL', score: 0 },
+      visual: { state: 'FAIL', score: 0 },
+      watermark: { state: 'FAIL', score: 0 },
+      metadata: { state: 'SKIPPED', score: 0 },
+      tamperDetected: false,
+    });
+    return outcomeFromAcceptance(decision, null);
   }
 
-  const reportState = enterprise.reportState
-    ?? (enterprise.identified || retrievalConfidence >= 75 ? 'VERIFIED' : 'POSSIBLE');
-
-  if (reportState === 'VERIFIED') {
-    const forensicVerdict: ForensicVerdict = retrievalConfidence >= 90
-      ? 'ORIGINAL_VERIFIED'
-      : 'ORIGINAL_FOUND_PARTIAL';
-    return {
-      state: 'VERIFIED',
-      candidate,
-      retrievalConfidence,
-      forensicVerdict,
-      displayLabel: REPORT_STATE_LABELS.VERIFIED,
-      decisionReason: enterprise.reportStateReason
-        ?? `Verified original asset — retrieval ${retrievalConfidence}%, vault ${candidate.vaultId.slice(0, 8)}…`,
-    };
-  }
-
-  return {
-    state: 'POSSIBLE',
-    candidate,
-    retrievalConfidence,
-    forensicVerdict: 'POSSIBLE_ASSET',
-    displayLabel: REPORT_STATE_LABELS.POSSIBLE,
-    decisionReason: enterprise.reportStateReason
-      ?? `Possible PINIT asset — retrieval ${retrievalConfidence}%, vault ${candidate.vaultId.slice(0, 8)}…`,
-  };
+  const evidence = buildAcceptanceEvidenceFromEnterprise(enterprise, {
+    analysisComplete: options?.analysisComplete,
+    failureReason: options?.failureReason,
+  });
+  const decision = runAcceptanceEngine(evidence);
+  return outcomeFromAcceptance(decision, candidate);
 }
 
 export function logInvestigationDecision(
@@ -127,6 +160,7 @@ export function logInvestigationDecision(
 ): void {
   logger.info(`[InvestigationDecision:${stage}]`, {
     state: outcome.state,
+    acceptanceVerdict: outcome.acceptanceVerdict,
     displayLabel: outcome.displayLabel,
     decisionReason: outcome.decisionReason,
     vaultId: outcome.candidate?.vaultId ?? null,
@@ -135,16 +169,14 @@ export function logInvestigationDecision(
     similarityScore: outcome.candidate?.confidence ?? null,
     retrievalConfidence: outcome.retrievalConfidence,
     forensicVerdict: outcome.forensicVerdict,
+    acceptanceConfidence: outcome.acceptanceConfidence,
+    acceptancePolicyVersion: outcome.acceptancePolicyVersion,
     ...extra,
   });
 }
 
 export function forensicVerdictForSummary(outcome: InvestigationOutcome): ForensicVerdict {
-  if (outcome.state === 'NO_SIGNATURE') return 'NO_SIGNATURE';
-  if (outcome.state === 'VERIFIED') {
-    return outcome.retrievalConfidence >= 90 ? 'ORIGINAL_VERIFIED' : 'ORIGINAL_FOUND_PARTIAL';
-  }
-  return 'POSSIBLE_ASSET';
+  return outcome.forensicVerdict;
 }
 
 export function labelForOutcome(outcome: InvestigationOutcome): string {
@@ -158,8 +190,7 @@ export const MIN_DNA_FOR_POSSIBLE_REPORT = 40;
  * When retrieval found a vault candidate but 15-layer DNA is weak (edited/cropped capture),
  * retain as Possible instead of NO_SIGNATURE.
  *
- * Images: NEVER retain when DNA is DIFFERENT or below threshold — retrieval confidence
- * must not override a failed DNA compare (logo→portrait false positives).
+ * Images: NEVER retain when DNA is DIFFERENT or below threshold.
  * Video: identity_hit / sha256 / partial-video anchors may retain.
  */
 export function shouldRetainRetrievalCandidateAsPossible(
@@ -183,23 +214,89 @@ export function shouldRetainRetrievalCandidateAsPossible(
     if (/partial video/i.test(match.method) && retrievalConfidence >= 28) return true;
   }
 
-  // Images (and non-video): DNA must confirm the pairing. Do not reuse retrieval %.
   if (dnaScore < MIN_DNA_FOR_POSSIBLE_REPORT) return false;
   return dnaScore >= MIN_DNA_FOR_POSSIBLE_REPORT;
 }
 
+/**
+ * Re-run Acceptance Engine after DNA compare updates evidence.
+ * Does not invent verdicts outside the engine.
+ */
 export function downgradeToPossibleAfterWeakDna(
   match: VaultMatchResult,
-  current: InvestigationOutcome,
+  _current: InvestigationOutcome,
   dnaScore: number,
   classification: string,
 ): InvestigationOutcome {
+  const decision = runAcceptanceEngine({
+    analysisComplete: true,
+    hasCandidate: true,
+    vaultId: match.vaultId,
+    dnaRecordId: match.dnaRecordId,
+    ownerUserId: match.ownerUserId,
+    dna: {
+      state: dnaScore >= MIN_DNA_FOR_POSSIBLE_REPORT ? 'PASS' : 'FAIL',
+      score: dnaScore,
+      classification,
+    },
+    certificate: { state: 'FAIL', score: 0, detail: 'Re-evaluated after DNA' },
+    vault: { state: 'PASS', score: 100 },
+    owner: { state: 'PASS', score: 50 },
+    timeline: { state: 'PASS', score: 50 },
+    visual: { state: 'PASS', score: 50 },
+    watermark: { state: 'FAIL', score: 0 },
+    metadata: { state: 'SKIPPED', score: 0 },
+    tamperDetected: true,
+  });
+
   return {
-    state: 'POSSIBLE',
-    candidate: match,
-    retrievalConfidence: current.retrievalConfidence,
-    forensicVerdict: 'POSSIBLE_ASSET',
-    displayLabel: REPORT_STATE_LABELS.POSSIBLE,
-    decisionReason: `Possible PINIT asset — vault ${match.vaultId.slice(0, 8)}… · DNA ${dnaScore}% (${classification}) · retrieval ${current.retrievalConfidence}%`,
+    state: mapAcceptanceToReportState(decision.verdict),
+    candidate: decision.retainCandidate ? match : null,
+    retrievalConfidence: decision.retrievalConfidence,
+    forensicVerdict: mapAcceptanceToForensicVerdict(decision.verdict),
+    displayLabel: decision.displayLabel,
+    decisionReason: decision.decisionReason,
+    acceptanceVerdict: decision.verdict,
+    acceptancePolicyVersion: decision.acceptancePolicyVersion,
+    dnaAlgorithmVersion: decision.dnaAlgorithmVersion,
+    acceptanceConfidence: decision.confidence,
   };
+}
+
+/** Build outcome for incomplete analysis (timeout, corrupt, missing tools). */
+export function insufficientEvidenceOutcome(failureReason: string): InvestigationOutcome {
+  const decision = runAcceptanceEngine({
+    analysisComplete: false,
+    failureReason,
+    hasCandidate: false,
+    dna: { state: 'SKIPPED', score: 0 },
+    certificate: { state: 'SKIPPED', score: 0 },
+    vault: { state: 'SKIPPED', score: 0 },
+    owner: { state: 'SKIPPED', score: 0 },
+    timeline: { state: 'SKIPPED', score: 0 },
+    visual: { state: 'SKIPPED', score: 0 },
+    watermark: { state: 'SKIPPED', score: 0 },
+    metadata: { state: 'SKIPPED', score: 0 },
+    tamperDetected: false,
+  });
+  return outcomeFromAcceptance(decision, null);
+}
+
+/** Build NOT_PINIT outcome after candidate rejection (retrieval confidence = 0). */
+export function notPinitOutcome(reason: string): InvestigationOutcome {
+  const decision = runAcceptanceEngine({
+    analysisComplete: true,
+    failureReason: reason,
+    hasCandidate: false,
+    dna: { state: 'FAIL', score: 0, detail: reason },
+    certificate: { state: 'FAIL', score: 0 },
+    vault: { state: 'FAIL', score: 0 },
+    owner: { state: 'FAIL', score: 0 },
+    timeline: { state: 'FAIL', score: 0 },
+    visual: { state: 'FAIL', score: 0 },
+    watermark: { state: 'FAIL', score: 0 },
+    metadata: { state: 'SKIPPED', score: 0 },
+    tamperDetected: false,
+  });
+  return outcomeFromAcceptance(decision, null);
 }

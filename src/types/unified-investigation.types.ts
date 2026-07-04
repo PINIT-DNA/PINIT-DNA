@@ -99,11 +99,20 @@ export interface InvestigationSummary {
   ownershipVerificationConfidence?: number;
   /** Final forensic state derived from retrieval confidence */
   forensicVerdict?: ForensicVerdict;
-  /** Three-state report outcome */
+  /** Three-state report outcome (UI mapping from Acceptance Engine) */
   reportState?: 'VERIFIED' | 'POSSIBLE' | 'NO_SIGNATURE';
   decisionReason?: string;
   /** Human-readable reasons when identity signals are degraded */
   forensicReasons?: string[];
+  /** Frozen Acceptance Engine verdict — sole decision authority */
+  acceptanceVerdict?:
+    | 'VERIFIED_ORIGINAL'
+    | 'VERIFIED_DERIVATIVE'
+    | 'POSSIBLE_MATCH'
+    | 'NOT_PINIT'
+    | 'INSUFFICIENT_EVIDENCE';
+  acceptancePolicyVersion?: string;
+  acceptanceConfidence?: number;
 }
 
 export interface RecoverySignal {

@@ -16,7 +16,9 @@ import {
   deriveInvestigationOutcome,
   downgradeToPossibleAfterWeakDna,
   forensicVerdictForSummary,
+  insufficientEvidenceOutcome,
   logInvestigationDecision,
+  notPinitOutcome,
   REPORT_STATE_LABELS,
   shouldRetainRetrievalCandidateAsPossible,
   type InvestigationOutcome,
@@ -584,15 +586,10 @@ export class UnifiedInvestigationOrchestrator {
               'failed',
               `Rejected — ${cmpScore}% DNA score does not confirm vault pairing`,
             ));
-            // Do not reuse retrieval confidence after rejection.
-            const rejectedOutcome: InvestigationOutcome = {
-              state: 'NO_SIGNATURE',
-              candidate: null,
-              retrievalConfidence: 0,
-              forensicVerdict: 'NO_SIGNATURE',
-              displayLabel: REPORT_STATE_LABELS.NO_SIGNATURE,
-              decisionReason: `DNA compare rejected candidate vault ${match.vaultId.slice(0, 8)}… — ${cmpScore}% ${cmpClass}`,
-            };
+            // Acceptance Engine only — do not reuse retrieval confidence after rejection.
+            const rejectedOutcome = notPinitOutcome(
+              `DNA compare rejected candidate vault ${match.vaultId.slice(0, 8)}… — ${cmpScore}% ${cmpClass}`,
+            );
             logInvestigationDecision('match_rejected', rejectedOutcome);
             emit({ type: 'timeline', stepId: 'final_report', label: 'Final Report', status: 'complete' });
             const rejected = await this.buildNoMatchReport(
@@ -828,6 +825,9 @@ export class UnifiedInvestigationOrchestrator {
       riskLevel: riskFromScores(dnaPct, tamperAnalysis.overallTamperScore, true),
       trustScore,
       identityConfidence,
+      acceptanceVerdict: reportOutcome.acceptanceVerdict,
+      acceptancePolicyVersion: reportOutcome.acceptancePolicyVersion,
+      acceptanceConfidence: reportOutcome.acceptanceConfidence,
     };
 
     const identityRecoveryReport = this.buildIdentityRecoveryReport({
@@ -1245,7 +1245,9 @@ export class UnifiedInvestigationOrchestrator {
     error: string;
   }): UnifiedInvestigationReport {
     const investigatedAt = new Date().toISOString();
-    params.pipeline.push(step('report', 'Generate investigation report', 'warning', 'Partial report — stage failure recovered'));
+    const acceptance = insufficientEvidenceOutcome(params.error);
+    logInvestigationDecision('insufficient_evidence', acceptance);
+    params.pipeline.push(step('report', 'Generate investigation report', 'warning', acceptance.displayLabel));
     const leakVerify = params.leakVerify ?? {
       found: false,
       valid: false,
@@ -1263,9 +1265,9 @@ export class UnifiedInvestigationOrchestrator {
         ownershipConfidence: 0,
         retrievalConfidence: 0,
         ownershipVerificationConfidence: 0,
-        forensicVerdict: 'NO_SIGNATURE',
-        reportState: 'NO_SIGNATURE',
-        decisionReason: `Investigation recovered from error: ${params.error}`,
+        forensicVerdict: acceptance.forensicVerdict,
+        reportState: acceptance.state,
+        decisionReason: acceptance.decisionReason,
         dnaMatchPercent: 0,
         certificateStatus: 'UNKNOWN',
         identityStatus: 'NOT_FOUND',
@@ -1273,8 +1275,12 @@ export class UnifiedInvestigationOrchestrator {
         riskLevel: 'UNKNOWN',
         trustScore: 0,
         identityConfidence: 0,
+        acceptanceVerdict: acceptance.acceptanceVerdict,
+        acceptancePolicyVersion: acceptance.acceptancePolicyVersion,
+        acceptanceConfidence: acceptance.acceptanceConfidence,
       },
-      message: `Investigation completed with errors — ${params.error}`,
+      message: acceptance.displayLabel,
+
       owner: {
         ownerName: null,
         ownerPinitId: null,
@@ -1325,22 +1331,26 @@ export class UnifiedInvestigationOrchestrator {
     enterprise?: EnterpriseRecoveryResult,
     customMessage?: string,
   ): Promise<UnifiedInvestigationReport> {
-    pipeline.push(step('report', 'Generate investigation report', 'complete', REPORT_STATE_LABELS.NO_SIGNATURE));
+    const noSignatureOutcome: InvestigationOutcome = {
+      ...outcome,
+      candidate: null,
+      retrievalConfidence: outcome.acceptanceVerdict === 'INSUFFICIENT_EVIDENCE'
+        ? 0
+        : outcome.retrievalConfidence,
+    };
+    pipeline.push(step(
+      'report',
+      'Generate investigation report',
+      'complete',
+      noSignatureOutcome.displayLabel,
+    ));
     const recovery = identityRecovery ?? {
       enginesRun: 0,
       enginesRecovered: 0,
       signals: [],
       compositeScores: { ownershipConfidence: 0, trustScore: 0, identityConfidence: 0 },
       transformations: [],
-      message: REPORT_STATE_LABELS.NO_SIGNATURE,
-    };
-
-    const noSignatureOutcome: InvestigationOutcome = {
-      ...outcome,
-      state: 'NO_SIGNATURE',
-      candidate: null,
-      forensicVerdict: 'NO_SIGNATURE',
-      displayLabel: REPORT_STATE_LABELS.NO_SIGNATURE,
+      message: noSignatureOutcome.displayLabel,
     };
     logInvestigationDecision('build_no_match_report', noSignatureOutcome);
 
@@ -1376,8 +1386,8 @@ export class UnifiedInvestigationOrchestrator {
         ownershipConfidence: ownershipVerificationConfidence,
         retrievalConfidence,
         ownershipVerificationConfidence,
-        forensicVerdict: 'NO_SIGNATURE',
-        reportState: 'NO_SIGNATURE',
+        forensicVerdict: noSignatureOutcome.forensicVerdict,
+        reportState: noSignatureOutcome.state,
         decisionReason: noSignatureOutcome.decisionReason,
         dnaMatchPercent: 0,
         certificateStatus: 'UNKNOWN',
@@ -1386,6 +1396,9 @@ export class UnifiedInvestigationOrchestrator {
         riskLevel: 'UNKNOWN',
         trustScore,
         identityConfidence,
+        acceptanceVerdict: noSignatureOutcome.acceptanceVerdict,
+        acceptancePolicyVersion: noSignatureOutcome.acceptancePolicyVersion,
+        acceptanceConfidence: noSignatureOutcome.acceptanceConfidence,
       },
       message: noMatchMessage,
       owner: {
