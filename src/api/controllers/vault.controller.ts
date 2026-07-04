@@ -408,7 +408,7 @@ export async function protectedDownloadFromVault(
       ? req.body.recipientLabel
       : `owner:${userId}`;
 
-    let downloadEventId = crypto.randomUUID();
+    let downloadEventId: string = crypto.randomUUID();
     try {
       const { recordProtectedDownload } = await import('../../services/provenance');
       const recorded = await recordProtectedDownload({
@@ -431,7 +431,7 @@ export async function protectedDownloadFromVault(
         city: geo?.city ?? null,
         region: geo?.region ?? null,
       });
-      downloadEventId = recorded.downloadEventId;
+      downloadEventId = String(recorded.downloadEventId);
     } catch (provErr) {
       logger.warn('[ProtectedDownload] Provenance append failed (non-fatal)', {
         error: String(provErr),
@@ -661,7 +661,7 @@ export async function revokeVaultTep(
     if (!result.success && result.status === 'FORBIDDEN') {
       return next(new AppError(403, result.message));
     }
-    res.status(200).json({ success: result.success, ...result });
+    res.status(200).json(result);
   } catch (err) {
     next(err);
   }
