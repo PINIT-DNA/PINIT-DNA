@@ -1136,9 +1136,30 @@ export class PinitOriginalIdentityRecoveryService {
         emitPhase({
           phase: 3,
           deepVerificationRunning: false,
+          vaultId: authoritativeAsset.vaultId,
+          dnaRecordId: authoritativeAsset.dnaRecordId,
+          originalFilename: authoritativeAsset.originalFilename,
+          ownerPinitId: authoritativeAsset.ownerPinitId ?? undefined,
           dnaMatchPercent: authoritativeAsset.deepCompare.overallConfidenceScore,
           confidence: authoritativeAsset.deepCompare.overallConfidenceScore,
           statusMessage: `15-layer DNA: ${authoritativeAsset.deepCompare.overallConfidenceScore}% — ${authoritativeAsset.deepCompare.classification}`,
+        });
+      } else if (authoritativeAsset) {
+        // Deep compare failed (e.g. Prisma txn timeout) — still lock live vault match
+        const vectorConf = authoritativeAsset.vector?.scores.composite
+          ?? authoritativeAsset.rankedCandidate?.compositeScore
+          ?? 30;
+        emitPhase({
+          phase: 3,
+          deepVerificationRunning: false,
+          signatureFound: true,
+          vaultId: authoritativeAsset.vaultId,
+          dnaRecordId: authoritativeAsset.dnaRecordId,
+          originalFilename: authoritativeAsset.originalFilename,
+          ownerPinitId: authoritativeAsset.ownerPinitId ?? undefined,
+          confidence: vectorConf,
+          dnaMatchPercent: vectorConf,
+          statusMessage: `Vault match retained (${authoritativeAsset.selectionSource}) — deep DNA incomplete`,
         });
       }
 
@@ -1147,16 +1168,18 @@ export class PinitOriginalIdentityRecoveryService {
         type: 'timeline',
         stepId: 'deep_dna_compare',
         label: 'Deep DNA Compare',
-        status: authoritativeAsset?.deepCompare ? 'complete' : 'skipped',
+        status: authoritativeAsset?.deepCompare ? 'complete' : authoritativeAsset ? 'warning' : 'skipped',
         elapsedMs: timer.getTimings().find((t) => t.stage === 'deep_dna_compare')?.durationMs,
       });
 
       stages.push({
         stage: STAGE.DEEP_COMPARE,
-        status: authoritativeAsset?.deepCompare ? 'complete' : 'skipped',
+        status: authoritativeAsset?.deepCompare ? 'complete' : authoritativeAsset ? 'partial' : 'skipped',
         detail: authoritativeAsset?.deepCompare
           ? `15-layer compare: ${authoritativeAsset.deepCompare.overallConfidenceScore}% (${authoritativeAsset.deepCompare.classification}) · ${authoritativeAsset.deepCompare.matchedLayerCount}/${authoritativeAsset.deepCompare.totalLayers} layers`
-          : 'No deep compare',
+          : authoritativeAsset
+            ? `Deep DNA incomplete — retained ${authoritativeAsset.selectionSource} vault ${authoritativeAsset.vaultId.slice(0, 8)}…`
+            : 'No deep compare',
       });
     }
 
@@ -1187,6 +1210,16 @@ export class PinitOriginalIdentityRecoveryService {
         vectorComposite: assetVector?.scores.composite,
         bestDeepScore: authoritativeAsset?.deepCompare?.overallConfidenceScore,
       });
+    }
+
+    // When deep DNA write fails (Prisma txn timeout), use vector composite as dna15 proxy
+    // so fusion still reflects the locked vault match.
+    if (dna15Score === 0 && authoritativeAsset && assetVector) {
+      dna15Score = Math.max(
+        assetVector.scores.composite,
+        assetVector.scores.perceptualBlend,
+        authoritativeAsset.rankedCandidate?.compositeScore ?? 0,
+      );
     }
 
     // ═══ Stage 6 — Confidence fusion (authoritative vault scores only) ════════

@@ -336,6 +336,8 @@ export class DnaOrchestrator {
       status:       'COMPLETE' | 'PARTIAL' | 'FAILED' | 'PROCESSING';
     }
   ): Promise<void> {
+    // Ephemeral investigation fingerprints on Render/Supabase often exceed the
+    // default 5s interactive transaction budget (metadataLayer.create fails mid-write).
     await prisma.$transaction(async (tx) => {
       // ── Layer 1 ────────────────────────────────────────────────────────────
       if (layers.crypto.success) {
@@ -489,6 +491,6 @@ export class DnaOrchestrator {
         where: { id: dnaRecordId },
         data: { status: layers.status },
       });
-    });
+    }, { timeout: 30_000, maxWait: 10_000 });
   }
 }

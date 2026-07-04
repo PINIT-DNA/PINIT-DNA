@@ -75,14 +75,16 @@ export function selectAuthoritativeMatch(
   }
 
   const topCandidate = input.candidates[0];
-  if (topCandidate && topCandidate.compositeScore >= 38) {
+  // Camera/scanner probes often land 30–37% composite; 38 was discarding real matches
+  // when 15-layer compare failed (e.g. Prisma transaction timeout on ephemeral DNA).
+  if (topCandidate && topCandidate.compositeScore >= 30) {
     return {
       match: vaultCandidateRankingService.toVaultMatch(topCandidate),
       source: 'vector_top',
     };
   }
 
-  if (input.localDnaHit && input.localDnaScore >= 38) {
+  if (input.localDnaHit && input.localDnaScore >= 30) {
     return {
       match: localHitToMatch(input.localDnaHit, input.localDnaScore),
       source: 'local_patch',

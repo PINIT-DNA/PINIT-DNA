@@ -174,6 +174,8 @@ export function shouldRetainRetrievalCandidateAsPossible(
   // (video frame compare can fail when FFmpeg isn't available on the host).
   const source = enterprise.authoritativeAsset?.selectionSource;
   if (source === 'identity_hit' || source === 'sha256_exact') return true;
+  // Vector / local-patch anchors when deep DNA write failed (Prisma txn timeout).
+  if (source === 'vector_top' || source === 'local_patch') return true;
 
   if (dnaScore >= MIN_DNA_FOR_POSSIBLE_REPORT) return true;
   if (/partial video/i.test(match.method) && retrievalConfidence >= 28) return true;
