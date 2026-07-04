@@ -114,24 +114,32 @@ export async function storeInVault(
       originalMimeType: req.file.mimetype,
     });
 
-    // Custody location from request (IP) — never written into DNA
+    // Custody location (optional GPS from client + IP) — never written into DNA
     try {
       const { forensicProvenanceService } = await import('../../services/forensics/forensic-provenance.service');
       const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
         || req.socket.remoteAddress
         || null;
       const country = (req.headers['cf-ipcountry'] as string) || null;
-      if (ip || country) {
+      const gpsLat = parseFloat(String((req.body as { gpsLat?: string })?.gpsLat ?? ''));
+      const gpsLng = parseFloat(String((req.body as { gpsLng?: string })?.gpsLng ?? ''));
+      const locationShared = String((req.body as { locationShared?: string })?.locationShared ?? '') === 'true';
+      const hasGps = locationShared && Number.isFinite(gpsLat) && Number.isFinite(gpsLng);
+      if (ip || country || hasGps) {
         forensicProvenanceService.appendAsync({
           eventType: 'VAULT_STORED',
-          summary: `Vault store location context — ${result.originalFileName}`,
+          summary: hasGps
+            ? `Stored in vault — ${result.originalFileName} (location shared)`
+            : `Vault store location context — ${result.originalFileName}`,
           dnaRecordId: result.dnaRecordId,
           vaultId: result.vaultId,
           actorUserId: ownerUserId,
           ipAddress: ip,
           country: country && country !== 'XX' ? country : null,
-          locationSource: country && country !== 'XX' ? 'ip' : 'none',
-          payload: { note: 'Server-side IP context at vault store' },
+          latitude: hasGps ? gpsLat : null,
+          longitude: hasGps ? gpsLng : null,
+          locationSource: hasGps ? 'gps' : (country && country !== 'XX' ? 'ip' : 'none'),
+          payload: { note: 'Custody location at vault store', locationShared: hasGps },
           dedupeKey: `vault_stored_geo:${result.vaultId}`,
         });
       }

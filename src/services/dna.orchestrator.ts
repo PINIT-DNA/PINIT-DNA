@@ -77,6 +77,9 @@ export class DnaOrchestrator {
       country?: string;
       city?: string;
       ownerUserId?: string;
+      gpsLatitude?: number;
+      gpsLongitude?: number;
+      locationShared?: boolean;
     }
   ): Promise<DnaGenerationResult> {
     const pipelineStart = Date.now();
@@ -266,16 +269,27 @@ export class DnaOrchestrator {
     if (universalCtx?.ownerUserId) {
       try {
         const { forensicProvenanceService } = await import('./forensics/forensic-provenance.service');
+        const hasGps = !!(
+          universalCtx.locationShared
+          && universalCtx.gpsLatitude != null
+          && universalCtx.gpsLongitude != null
+          && Number.isFinite(universalCtx.gpsLatitude)
+          && Number.isFinite(universalCtx.gpsLongitude)
+        );
         forensicProvenanceService.appendAsync({
           eventType: 'DNA_GENERATED',
-          summary: `DNA generated — ${image.originalName}`,
+          summary: hasGps
+            ? `DNA generated — ${image.originalName} (location shared)`
+            : `DNA generated — ${image.originalName}`,
           dnaRecordId,
           actorUserId: universalCtx.ownerUserId,
           userAgent: universalCtx?.userAgent ?? null,
           country: universalCtx?.country ?? null,
           city: universalCtx?.city ?? null,
           ipAddress: universalCtx?.ip ?? null,
-          locationSource: universalCtx?.country ? 'ip' : 'none',
+          latitude: hasGps ? universalCtx.gpsLatitude : null,
+          longitude: hasGps ? universalCtx.gpsLongitude : null,
+          locationSource: hasGps ? 'gps' : universalCtx?.country ? 'ip' : 'none',
           payload: {
             mimeType: image.mimeType,
             sizeBytes: image.sizeBytes,
@@ -283,6 +297,7 @@ export class DnaOrchestrator {
             status,
             schemaVersion: config.dna.schemaVersion,
             engineVersion: universalCtx?.engineVersion ?? null,
+            locationShared: hasGps,
           },
           dedupeKey: `dna_generated:${dnaRecordId}`,
         });

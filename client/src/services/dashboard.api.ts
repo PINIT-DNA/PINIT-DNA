@@ -286,6 +286,13 @@ export interface VaultTrackingDashboard {
     locationLabel?: string;
     tepCode?: string;
   }>;
+  location?: {
+    status: 'AVAILABLE' | 'UNAVAILABLE';
+    creationLabel?: string;
+    sharedLabel?: string;
+    presentLabel?: string;
+    lastKnownLabel?: string;
+  };
 }
 
 // ─── Certificate Management (Phase 2) ────────────────────────────────────────

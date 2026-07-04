@@ -18,6 +18,7 @@ import { monitoringService } from '../../services/crawler/monitoring.service';
 import { UniversalFileRouter } from '../../services/universal-file-router';
 import { duplicateCheckService } from '../../services/duplicate/duplicate-check.service';
 import { getAuthUserId, dnaOwnerWhere } from '../../lib/tenant-scope';
+import { resolveClientIp } from '../../lib/request-utils';
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../middleware/error.middleware';
 import { logger } from '../../lib/logger';
@@ -163,6 +164,12 @@ export async function generateDna(
   try {
     // UniversalFileRouter: detects file type → routes to correct engine
     const userId = (req as any).user?.sub;
+    const gpsLat = parseFloat(String((req.body as { gpsLat?: string })?.gpsLat ?? ''));
+    const gpsLng = parseFloat(String((req.body as { gpsLng?: string })?.gpsLng ?? ''));
+    const locationShared = String((req.body as { locationShared?: string })?.locationShared ?? '') === 'true';
+    const hasGps = locationShared && Number.isFinite(gpsLat) && Number.isFinite(gpsLng);
+    const clientIp = resolveClientIp(req);
+
     const result = await router.route({
       filePath:        req.file.path,
       originalName:    req.file.originalname,
@@ -172,7 +179,37 @@ export async function generateDna(
       ownerUserId:     userId,
       uploadStartMs:   Date.now(),
       userAgent:       req.headers['user-agent'] as string | undefined,
+      ip:              clientIp ?? undefined,
+      country:         (req.headers['cf-ipcountry'] as string | undefined) || undefined,
+      gpsLatitude:     hasGps ? gpsLat : undefined,
+      gpsLongitude:    hasGps ? gpsLng : undefined,
+      locationShared:  hasGps,
     });
+
+    // Non-image engines do not go through DnaOrchestrator provenance — record creation here.
+    if (userId && result.fileType !== 'IMAGE') {
+      try {
+        const { forensicProvenanceService } = await import('../../services/forensics/forensic-provenance.service');
+        forensicProvenanceService.appendAsync({
+          eventType: 'DNA_GENERATED',
+          summary: hasGps
+            ? `DNA generated — ${req.file.originalname} (location shared)`
+            : `DNA generated — ${req.file.originalname}`,
+          dnaRecordId: result.dnaRecordId,
+          actorUserId: userId,
+          userAgent: req.headers['user-agent'] as string | undefined,
+          ipAddress: clientIp ?? null,
+          country: (req.headers['cf-ipcountry'] as string | undefined) || null,
+          latitude: hasGps ? gpsLat : null,
+          longitude: hasGps ? gpsLng : null,
+          locationSource: hasGps ? 'gps' : (req.headers['cf-ipcountry'] ? 'ip' : 'none'),
+          payload: { fileType: result.fileType, locationShared: hasGps },
+          dedupeKey: `dna_generated:${result.dnaRecordId}`,
+        });
+      } catch {
+        /* non-fatal */
+      }
+    }
 
     const response: GenerateDnaResponse = {
       success:             true,

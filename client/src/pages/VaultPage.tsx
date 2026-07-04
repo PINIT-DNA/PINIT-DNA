@@ -85,26 +85,39 @@ function VaultDetailModal({ record, onClose }: { record: VaultRecord; onClose: (
             </span>
           </div>
           {record.location?.status === 'AVAILABLE' ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
               <div>
-                <p className="text-2xs text-gray-500">Creation location</p>
-                <p className="text-gray-200">{record.location.creationLabel ?? '—'}</p>
+                <p className="text-2xs text-gray-500">Created</p>
+                <p className="text-gray-200 break-all">{record.location.creationLabel ?? '—'}</p>
                 {record.location.creationSource && record.location.creationSource !== 'none' && (
-                  <p className="text-2xs text-gray-500">Source: {record.location.creationSource.toUpperCase()}</p>
+                  <p className="text-2xs text-gray-500">{record.location.creationSource.toUpperCase()}</p>
                 )}
               </div>
               <div>
-                <p className="text-2xs text-gray-500">Last known location</p>
-                <p className="text-gray-200">{record.location.lastKnownLabel ?? '—'}</p>
-                {record.location.lastKnownSource && record.location.lastKnownSource !== 'none' && (
-                  <p className="text-2xs text-gray-500">Source: {record.location.lastKnownSource.toUpperCase()}</p>
+                <p className="text-2xs text-gray-500">Shared / downloaded</p>
+                <p className="text-gray-200 break-all">{record.location.sharedLabel ?? '—'}</p>
+                {record.location.sharedSource && record.location.sharedSource !== 'none' && (
+                  <p className="text-2xs text-gray-500">{record.location.sharedSource.toUpperCase()}</p>
+                )}
+              </div>
+              <div>
+                <p className="text-2xs text-gray-500">Present (last known)</p>
+                <p className="text-gray-200 break-all">
+                  {record.location.presentLabel ?? record.location.lastKnownLabel ?? '—'}
+                </p>
+                {(record.location.presentSource || record.location.lastKnownSource)
+                  && (record.location.presentSource ?? record.location.lastKnownSource) !== 'none' && (
+                  <p className="text-2xs text-gray-500">
+                    {(record.location.presentSource ?? record.location.lastKnownSource)!.toUpperCase()}
+                  </p>
                 )}
               </div>
             </div>
           ) : (
             <p className="text-2xs text-gray-400">
-              No GPS or IP location was recorded for this asset. WhatsApp and many apps strip EXIF GPS.
-              Location appears here only from camera EXIF (if present) or custody events (download / share / investigation) — never invented, never stored inside DNA.
+              No location recorded yet. On Generate DNA, enable “Allow location for custody tracking”
+              and grant browser permission to store creation GPS. Protected downloads record IP/geo when
+              available. WhatsApp shares do not report location to PINIT.
             </p>
           )}
         </div>
@@ -418,6 +431,28 @@ function TrackingDashboardModal({ record, onClose }: { record: VaultRecord; onCl
                   <p className="text-sm font-semibold text-white">{value}</p>
                 </div>
               ))}
+            </div>
+
+            <div className="rounded-lg border border-dna-500/25 bg-dna-500/5 px-3 py-2">
+              <p className="text-xs font-semibold text-white mb-2 flex items-center gap-1.5">
+                <MapPin size={14} className="text-dna-400" /> Locations (custody)
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-2xs">
+                <div>
+                  <p className="text-gray-500">Created</p>
+                  <p className="text-gray-200 break-all">{data.location?.creationLabel ?? '—'}</p>
+                </div>
+                <div>
+                  <p className="text-gray-500">Shared / downloaded</p>
+                  <p className="text-gray-200 break-all">{data.location?.sharedLabel ?? '—'}</p>
+                </div>
+                <div>
+                  <p className="text-gray-500">Present (last known)</p>
+                  <p className="text-gray-200 break-all">
+                    {data.location?.presentLabel ?? data.location?.lastKnownLabel ?? '—'}
+                  </p>
+                </div>
+              </div>
             </div>
 
             <div>
@@ -1265,10 +1300,20 @@ export function VaultPage() {
                     </td>
                     <td>
                       {r.location?.status === 'AVAILABLE' ? (
-                        <div className="flex items-start gap-1 max-w-[140px]">
+                        <div className="flex items-start gap-1 max-w-[160px]">
                           <MapPin size={12} className="text-dna-400 shrink-0 mt-0.5" />
-                          <span className="text-2xs text-gray-300 truncate" title={r.location.lastKnownLabel ?? r.location.creationLabel}>
-                            {r.location.lastKnownLabel ?? r.location.creationLabel}
+                          <span
+                            className="text-2xs text-gray-300 truncate"
+                            title={[
+                              r.location.creationLabel && `Created: ${r.location.creationLabel}`,
+                              r.location.sharedLabel && `Shared: ${r.location.sharedLabel}`,
+                              (r.location.presentLabel ?? r.location.lastKnownLabel)
+                                && `Present: ${r.location.presentLabel ?? r.location.lastKnownLabel}`,
+                            ].filter(Boolean).join(' · ')}
+                          >
+                            {r.location.presentLabel
+                              ?? r.location.lastKnownLabel
+                              ?? r.location.creationLabel}
                           </span>
                         </div>
                       ) : (

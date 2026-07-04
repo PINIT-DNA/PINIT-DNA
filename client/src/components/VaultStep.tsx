@@ -6,13 +6,14 @@ import type { VaultStoreResponse } from '../types';
 interface Props {
   file: File;
   dnaRecordId: string;
+  custodyLocation?: { latitude: number; longitude: number } | null;
   onComplete: (result: VaultStoreResponse) => void;
   onError: (msg: string) => void;
 }
 
 type VaultStage = 'working' | 'complete' | 'error';
 
-export function VaultStep({ file, dnaRecordId, onComplete, onError }: Props) {
+export function VaultStep({ file, dnaRecordId, custodyLocation, onComplete, onError }: Props) {
   const [stage, setStage] = useState<VaultStage>('working');
   const [error, setError] = useState<string | null>(null);
 
@@ -24,7 +25,17 @@ export function VaultStep({ file, dnaRecordId, onComplete, onError }: Props) {
       if (cancelled) return;
 
       try {
-        const result = await storeInVault(file, dnaRecordId);
+        const result = await storeInVault(
+          file,
+          dnaRecordId,
+          custodyLocation
+            ? {
+                locationShared: true,
+                latitude: custodyLocation.latitude,
+                longitude: custodyLocation.longitude,
+              }
+            : undefined,
+        );
         if (cancelled) return;
         setStage('complete');
         await delay(600);
@@ -41,7 +52,7 @@ export function VaultStep({ file, dnaRecordId, onComplete, onError }: Props) {
 
     run();
     return () => { cancelled = true; };
-  }, [file, dnaRecordId, onComplete, onError]);
+  }, [file, dnaRecordId, custodyLocation, onComplete, onError]);
 
   return (
     <motion.div

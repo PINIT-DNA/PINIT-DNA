@@ -503,10 +503,18 @@ class ForensicProvenanceService {
 
 export interface AssetLocationStatus {
   status: 'AVAILABLE' | 'UNAVAILABLE';
-  /** Creation / registration location (EXIF GPS or first provenance event) */
+  /** Where DNA was generated / vaulted (user GPS or IP) */
   creationLabel?: string;
   creationSource?: 'gps' | 'ip' | 'none';
-  /** Most recent known location from custody events */
+  /** Where protected downloads / shares were recorded */
+  sharedLabel?: string;
+  sharedSource?: 'gps' | 'ip' | 'none';
+  sharedAt?: string;
+  /** Present = last known custody location */
+  presentLabel?: string;
+  presentSource?: 'gps' | 'ip' | 'none';
+  presentAt?: string;
+  /** @deprecated use presentLabel */
   lastKnownLabel?: string;
   lastKnownSource?: 'gps' | 'ip' | 'none';
   lastKnownAt?: string;
@@ -534,8 +542,9 @@ export async function getLocationStatusForAssets(
   });
   const metaByDna = new Map(metas.map((m) => [m.dnaRecordId, m]));
 
-  let events: Array<{
+  type LocEv = {
     dnaRecordId: string | null;
+    eventType: string;
     createdAt: Date;
     country: string | null;
     region: string | null;
@@ -543,7 +552,9 @@ export async function getLocationStatusForAssets(
     latitude: number | null;
     longitude: number | null;
     locationSource: string | null;
-  }> = [];
+  };
+
+  let events: LocEv[] = [];
   try {
     events = await prisma.forensicProvenanceEvent.findMany({
       where: {
@@ -557,6 +568,7 @@ export async function getLocationStatusForAssets(
       orderBy: { createdAt: 'desc' },
       select: {
         dnaRecordId: true,
+        eventType: true,
         createdAt: true,
         country: true,
         region: true,
@@ -570,53 +582,85 @@ export async function getLocationStatusForAssets(
     /* table may not exist yet */
   }
 
-  const latestByDna = new Map<string, (typeof events)[0]>();
-  const earliestByDna = new Map<string, (typeof events)[0]>();
-  // events ordered desc — first seen per dna = latest
-  for (const ev of events) {
-    if (!ev.dnaRecordId) continue;
-    if (!latestByDna.has(ev.dnaRecordId)) latestByDna.set(ev.dnaRecordId, ev);
-  }
-  for (const ev of [...events].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())) {
-    if (!ev.dnaRecordId || earliestByDna.has(ev.dnaRecordId)) continue;
-    earliestByDna.set(ev.dnaRecordId, ev);
-  }
+  const formatEv = (ev: LocEv) => {
+    if (ev.latitude != null && ev.longitude != null) {
+      return {
+        label: `${ev.latitude.toFixed(5)}, ${ev.longitude.toFixed(5)}`,
+        source: (ev.locationSource as 'gps' | 'ip' | 'none') || 'gps',
+        at: ev.createdAt.toISOString(),
+      };
+    }
+    const label = locationLabel(ev);
+    return {
+      label,
+      source: (ev.locationSource as 'gps' | 'ip' | 'none')
+        || (ev.country ? 'ip' : 'none'),
+      at: ev.createdAt.toISOString(),
+    };
+  };
+
+  const CREATION_TYPES = new Set(['DNA_GENERATED', 'ENCRYPTED', 'VAULT_STORED', 'CERTIFICATE_ISSUED']);
+  const SHARE_TYPES = new Set(['DOWNLOADED', 'PROTECTED_EXPORT', 'TEP_CREATED', 'SHARED', 'OPENED']);
 
   for (const dnaId of unique) {
     const meta = metaByDna.get(dnaId);
-    const latest = latestByDna.get(dnaId);
-    const earliest = earliestByDna.get(dnaId);
+    const dnaEvents = events.filter((e) => e.dnaRecordId === dnaId);
 
     let creationLabel: string | undefined;
     let creationSource: 'gps' | 'ip' | 'none' = 'none';
     if (meta?.gpsLatitude != null && meta?.gpsLongitude != null) {
       creationLabel = `${meta.gpsLatitude.toFixed(5)}, ${meta.gpsLongitude.toFixed(5)}`;
       creationSource = 'gps';
-    } else if (earliest) {
-      creationLabel = locationLabel(earliest);
-      creationSource = (earliest.locationSource as 'gps' | 'ip' | 'none') || (earliest.latitude != null ? 'gps' : earliest.country ? 'ip' : 'none');
+    } else {
+      const creationEv = [...dnaEvents]
+        .reverse()
+        .find((e) => CREATION_TYPES.has(e.eventType) && (e.latitude != null || e.country || e.city));
+      if (creationEv) {
+        const f = formatEv(creationEv);
+        creationLabel = f.label;
+        creationSource = f.source;
+      }
     }
 
-    let lastKnownLabel: string | undefined;
-    let lastKnownSource: 'gps' | 'ip' | 'none' = 'none';
-    let lastKnownAt: string | undefined;
-    if (latest) {
-      lastKnownLabel = locationLabel(latest);
-      lastKnownSource = (latest.locationSource as 'gps' | 'ip' | 'none') || (latest.latitude != null ? 'gps' : latest.country ? 'ip' : 'none');
-      lastKnownAt = latest.createdAt.toISOString();
+    const shareEv = dnaEvents.find((e) => SHARE_TYPES.has(e.eventType) && (e.latitude != null || e.country || e.city));
+    let sharedLabel: string | undefined;
+    let sharedSource: 'gps' | 'ip' | 'none' = 'none';
+    let sharedAt: string | undefined;
+    if (shareEv) {
+      const f = formatEv(shareEv);
+      sharedLabel = f.label;
+      sharedSource = f.source;
+      sharedAt = f.at;
+    }
+
+    const presentEv = dnaEvents[0];
+    let presentLabel: string | undefined;
+    let presentSource: 'gps' | 'ip' | 'none' = 'none';
+    let presentAt: string | undefined;
+    if (presentEv) {
+      const f = formatEv(presentEv);
+      presentLabel = f.label;
+      presentSource = f.source;
+      presentAt = f.at;
     } else if (creationLabel) {
-      lastKnownLabel = creationLabel;
-      lastKnownSource = creationSource;
+      presentLabel = creationLabel;
+      presentSource = creationSource;
     }
 
-    const available = !!(creationLabel || lastKnownLabel);
+    const available = !!(creationLabel || sharedLabel || presentLabel);
     map.set(dnaId, {
       status: available ? 'AVAILABLE' : 'UNAVAILABLE',
       creationLabel,
       creationSource,
-      lastKnownLabel,
-      lastKnownSource,
-      lastKnownAt,
+      sharedLabel,
+      sharedSource,
+      sharedAt,
+      presentLabel,
+      presentSource,
+      presentAt,
+      lastKnownLabel: presentLabel,
+      lastKnownSource: presentSource,
+      lastKnownAt: presentAt,
     });
   }
 

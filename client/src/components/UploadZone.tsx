@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion } from 'framer-motion';
-import { Upload, ScanLine, Video, Mic, FileUp } from 'lucide-react';
+import { Upload, ScanLine, Video, Mic, FileUp, MapPin } from 'lucide-react';
 import { DocumentScanner } from './DocumentScanner';
 import { MediaRecorderPanel } from './MediaRecorderPanel';
 import {
@@ -22,6 +22,9 @@ interface Props {
   onFileSelected: (file: File | null) => void;
   onGenerate: () => void;
   selectedFile: File | null;
+  /** Manual opt-in: share device location for custody (not stored in DNA identity) */
+  locationTrackingEnabled: boolean;
+  onLocationTrackingChange: (enabled: boolean) => void;
 }
 
 const CAPTURE_MODES: { id: CaptureMode; label: string; icon: typeof Upload; desc: string }[] = [
@@ -94,7 +97,13 @@ function FilePreview({ file }: { file: File }) {
   );
 }
 
-export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) {
+export function UploadZone({
+  onFileSelected,
+  onGenerate,
+  selectedFile,
+  locationTrackingEnabled,
+  onLocationTrackingChange,
+}: Props) {
   const [captureMode, setCaptureMode] = useState<CaptureMode>('upload');
 
   const handleFileReady = useCallback(
@@ -279,8 +288,27 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mt-6 flex justify-center"
+          className="mt-6 flex flex-col items-center gap-4"
         >
+          <label className="flex items-start gap-3 max-w-md cursor-pointer rounded-xl border border-bg-border bg-bg-card px-4 py-3 text-left">
+            <input
+              type="checkbox"
+              className="mt-1 accent-dna-500"
+              checked={locationTrackingEnabled}
+              onChange={(e) => onLocationTrackingChange(e.target.checked)}
+            />
+            <span>
+              <span className="flex items-center gap-1.5 text-sm font-semibold text-white">
+                <MapPin size={14} className="text-dna-400" />
+                Allow location for custody tracking
+              </span>
+              <span className="block text-2xs text-gray-400 mt-1">
+                Optional. If enabled, your browser will ask for permission. Location is stored only
+                in the chain of custody (created / shared / last known) — never inside DNA identity layers.
+                You can leave this off; tracking still records IP when available on the server.
+              </span>
+            </span>
+          </label>
           <button onClick={onGenerate} className="btn-primary text-base px-10 py-4">
             <span>Generate DNA Fingerprint</span>
             <span className="text-lg">→</span>

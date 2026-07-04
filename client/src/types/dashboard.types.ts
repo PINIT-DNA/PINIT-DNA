@@ -19,6 +19,12 @@ export interface VaultLocationStatus {
   status: 'AVAILABLE' | 'UNAVAILABLE';
   creationLabel?: string;
   creationSource?: 'gps' | 'ip' | 'none';
+  sharedLabel?: string;
+  sharedSource?: 'gps' | 'ip' | 'none';
+  sharedAt?: string;
+  presentLabel?: string;
+  presentSource?: 'gps' | 'ip' | 'none';
+  presentAt?: string;
   lastKnownLabel?: string;
   lastKnownSource?: 'gps' | 'ip' | 'none';
   lastKnownAt?: string;

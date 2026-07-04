@@ -2,6 +2,7 @@
  * Per-vault tracking dashboard data (Protected Download / TEP).
  */
 import { prisma } from '../../lib/prisma';
+import { getLocationStatusForAssets } from '../forensics/forensic-provenance.service';
 import { loadEvidenceTimeline, loadDownloadHistory } from './timeline.service';
 import { buildChainOfCustody } from './chain-of-custody.service';
 
@@ -30,7 +31,7 @@ export async function getVaultTrackingDashboard(params: {
   }
 
   const dnaRecordId = vault.dnaRecordId;
-  const [timeline, downloads, custody, teps] = await Promise.all([
+  const [timeline, downloads, custody, teps, locationMap] = await Promise.all([
     loadEvidenceTimeline({ dnaRecordId, vaultId: vault.id }),
     loadDownloadHistory({ dnaRecordId, vaultId: vault.id }),
     buildChainOfCustody({ dnaRecordId, vaultId: vault.id }),
@@ -38,7 +39,9 @@ export async function getVaultTrackingDashboard(params: {
       where: { vaultId: vault.id },
       orderBy: { createdAt: 'desc' },
     }),
+    getLocationStatusForAssets([dnaRecordId]),
   ]);
+  const location = locationMap.get(dnaRecordId) ?? { status: 'UNAVAILABLE' as const };
 
   const activeTeps = teps.filter((t) => t.status === 'ACTIVE');
   const revokedTeps = teps.filter((t) => t.status === 'REVOKED');
@@ -73,5 +76,6 @@ export async function getVaultTrackingDashboard(params: {
     summary: timeline.summary,
     chainOfCustody: custody,
     events: timeline.events,
+    location,
   };
 }

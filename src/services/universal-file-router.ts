@@ -56,6 +56,10 @@ export interface FileInput {
   ip?: string;
   country?: string;
   city?: string;
+  /** Optional user-granted GPS for custody only (never DNA identity) */
+  gpsLatitude?: number;
+  gpsLongitude?: number;
+  locationShared?: boolean;
 }
 
 // ─── Engine version ───────────────────────────────────────────────────────────
@@ -161,6 +165,9 @@ export class UniversalFileRouter {
       ip: file.ip,
       country: file.country,
       city: file.city,
+      gpsLatitude: file.gpsLatitude,
+      gpsLongitude: file.gpsLongitude,
+      locationShared: file.locationShared,
     });
 
     return {

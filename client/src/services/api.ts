@@ -33,9 +33,17 @@ client.interceptors.response.use((r: any) => r, async (error: any) => {
  * Upload an image and generate its 10-layer DNA fingerprint.
  * Calls: POST /api/v1/dna/generate
  */
-export async function generateDna(file: File): Promise<GenerateDnaResponse> {
+export async function generateDna(
+  file: File,
+  options?: { locationShared?: boolean; latitude?: number; longitude?: number },
+): Promise<GenerateDnaResponse> {
   const form = new FormData();
   form.append('image', file);
+  if (options?.locationShared && options.latitude != null && options.longitude != null) {
+    form.append('locationShared', 'true');
+    form.append('gpsLat', String(options.latitude));
+    form.append('gpsLng', String(options.longitude));
+  }
 
   try {
     const { data } = await client.post<GenerateDnaResponse>('dna/generate', form, {
@@ -81,10 +89,19 @@ export async function getDnaRecord(id: string) {
  * Encrypt image and store in vault.
  * Calls: POST /api/v1/vault/store
  */
-export async function storeInVault(file: File, dnaRecordId: string) {
+export async function storeInVault(
+  file: File,
+  dnaRecordId: string,
+  options?: { locationShared?: boolean; latitude?: number; longitude?: number },
+) {
   const form = new FormData();
   form.append('image', file);
   form.append('dnaRecordId', dnaRecordId);
+  if (options?.locationShared && options.latitude != null && options.longitude != null) {
+    form.append('locationShared', 'true');
+    form.append('gpsLat', String(options.latitude));
+    form.append('gpsLng', String(options.longitude));
+  }
 
   const { data } = await client.post('vault/store', form, {
     headers: { 'Content-Type': 'multipart/form-data' },

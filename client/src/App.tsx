@@ -11,6 +11,7 @@ import { VaultStep } from './components/VaultStep';
 import { SuccessPanel } from './components/SuccessPanel';
 
 import { generateDna } from './services/api';
+import { requestCustodyLocation } from './lib/location-consent';
 import type { AppStage, LayerState, DnaSession, EncryptionResult, VaultStoreResponse } from './types';
 
 // Per-layer animation delay in ms — simulates sequential progress visually
@@ -25,6 +26,8 @@ export default function App() {
   );
   const [session, setSession] = useState<DnaSession | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [locationTrackingEnabled, setLocationTrackingEnabled] = useState(false);
+  const custodyLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
   const [duplicateInfo, setDuplicateInfo] = useState<{
     existingRecordId?: string;
     existingFilename?: string;
@@ -56,6 +59,13 @@ export default function App() {
     clearTimers();
     setError(null);
     setStage('processing');
+    custodyLocationRef.current = null;
+
+    // Optional custody location — only if user enabled the toggle
+    if (locationTrackingEnabled) {
+      const loc = await requestCustodyLocation();
+      if (loc) custodyLocationRef.current = { latitude: loc.latitude, longitude: loc.longitude };
+    }
 
     // Reset all layers to pending
     setLayerStates(Array.from({ length: 15 }, () => ({ status: 'pending' as const })));
@@ -73,7 +83,10 @@ export default function App() {
 
     // Fire the real API call
     try {
-      const result = await generateDna(selectedFile);
+      const loc = custodyLocationRef.current;
+      const result = await generateDna(selectedFile, loc
+        ? { locationShared: true, latitude: loc.latitude, longitude: loc.longitude }
+        : undefined);
 
       // Mark all layers complete with timing from result
       const processingPerLayer = Math.round(result.summary.totalProcessingMs / 15);
@@ -120,7 +133,7 @@ export default function App() {
       }
       setStage('idle');
     }
-  }, [selectedFile]);
+  }, [selectedFile, locationTrackingEnabled]);
 
   // ── Encryption complete → move to vault stage ─────────────────────────────
 
@@ -246,6 +259,8 @@ export default function App() {
                 selectedFile={selectedFile}
                 onFileSelected={setSelectedFile}
                 onGenerate={handleGenerate}
+                locationTrackingEnabled={locationTrackingEnabled}
+                onLocationTrackingChange={setLocationTrackingEnabled}
               />
             </motion.div>
           )}
@@ -320,6 +335,7 @@ export default function App() {
                   <VaultStep
                     file={selectedFile}
                     dnaRecordId={session.dnaRecordId}
+                    custodyLocation={custodyLocationRef.current}
                     onComplete={handleVaultComplete}
                     onError={handleVaultError}
                   />
