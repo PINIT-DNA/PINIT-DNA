@@ -5,12 +5,31 @@
 import { logger } from '../../lib/logger';
 import { VaultService } from '../vault/vault.service';
 import { DnaComparisonService } from '../verification/dna-comparison.service';
-import type { DnaComparisonResult } from '../../types/comparison.types';
+import type { DnaClassification, DnaComparisonResult } from '../../types/comparison.types';
 import type { AuthoritativeAsset } from '../../types/authoritative-asset.types';
 import type { DeepCompareResult } from './deep-vault-compare.service';
+import { derivativeAwareScore } from './deep-vault-compare.service';
 import { assertDnaScope, assertVaultScope } from './authoritative-asset.service';
 import { resolveMediaProfile } from './adaptive-scoring.service';
 import { compareVideoInvestigation } from './video-forensic-compare.service';
+
+/** Align authoritative score with ranking deep-compare (content layers, not L1/L6 weight trap). */
+function applyVaultDerivativeScoring(result: DnaComparisonResult): DnaComparisonResult {
+  const aware = derivativeAwareScore(
+    result.layerComparisons.map((l) => ({
+      layer: l.layer,
+      similarityPercent: l.similarityPercent,
+      matched: l.matched,
+    })),
+    result.overallConfidenceScore,
+    result.classification,
+  );
+  return {
+    ...result,
+    overallConfidenceScore: aware.score,
+    classification: aware.classification as DnaClassification,
+  };
+}
 
 const vaultService = new VaultService();
 const comparisonService = new DnaComparisonService();
@@ -91,7 +110,7 @@ export async function compareProbeToAuthoritativeAsset(
     return result;
   }
 
-  const result = await comparisonService.compare(
+  const raw = await comparisonService.compare(
     {
       filePath: '',
       originalName: original.originalFileName,
@@ -109,12 +128,18 @@ export async function compareProbeToAuthoritativeAsset(
     { vaultDnaRecordId: authAsset.dnaRecordId },
   );
 
+  // Same content-aware score as ranking deep-compare — prevents accept-then-reject
+  // when weighted overall is ~17% but perceptual/content DNA is ≥40%.
+  const result = applyVaultDerivativeScoring(raw);
+
   logger.info('[AuthoritativeDnaCompare] Complete', {
     vaultId: authAsset.vaultId.slice(0, 8),
     score: result.overallConfidenceScore,
     classification: result.classification,
+    rawScore: raw.overallConfidenceScore,
+    rawClass: raw.classification,
     layers: result.layerComparisons.length,
-    matchedLayers: result.layerComparisons.filter((l) => l.matched).length,
+    matchedLayers: result.layerComparisons.filter((l) => l.matched && !l.skipped).length,
   });
 
   return result;
