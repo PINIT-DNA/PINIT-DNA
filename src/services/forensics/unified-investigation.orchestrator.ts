@@ -322,7 +322,9 @@ export class UnifiedInvestigationOrchestrator {
     if (!recoveryStage.success || !recoveryStage.data) {
       const timeoutError = recoveryStage.error ?? 'Enterprise recovery failed';
       const liveSnapshot = liveState.snapshot;
-      if (liveSnapshot?.vaultId) {
+      const liveConf = Math.max(liveSnapshot?.confidence ?? 0, liveSnapshot?.dnaMatchPercent ?? 0);
+      // Only retain timeout partials with a strong live lock — weak scores are false positives.
+      if (liveSnapshot?.vaultId && liveSnapshot.signatureFound && liveConf >= 45) {
         logger.warn('Enterprise recovery timed out — retaining live vault match', {
           vaultId: liveSnapshot.vaultId,
           error: timeoutError,

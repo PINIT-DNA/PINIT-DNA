@@ -174,14 +174,18 @@ export function shouldRetainRetrievalCandidateAsPossible(
   // (video frame compare can fail when FFmpeg isn't available on the host).
   const source = enterprise.authoritativeAsset?.selectionSource;
   if (source === 'identity_hit' || source === 'sha256_exact') return true;
-  // Vector / local-patch anchors when deep DNA write failed (Prisma txn timeout).
-  if (source === 'vector_top' || source === 'local_patch') return true;
+  // Strong local-patch only — weak vector_top caused false "signature found" on wrong vaults.
+  if (source === 'local_patch' && retrievalConfidence >= 45) return true;
+  if (source === 'vector_top') {
+    const vectorComposite = enterprise.authoritativeAsset?.vector?.scores.composite ?? 0;
+    return vectorComposite >= 50 && retrievalConfidence >= 45;
+  }
 
   if (dnaScore >= MIN_DNA_FOR_POSSIBLE_REPORT) return true;
   if (/partial video/i.test(match.method) && retrievalConfidence >= 28) return true;
   const vectorComposite = enterprise.authoritativeAsset?.vector?.scores.composite ?? 0;
-  if (vectorComposite >= 35 && retrievalConfidence >= 25) return true;
-  return retrievalConfidence >= 20 && dnaScore >= 10;
+  if (vectorComposite >= 50 && retrievalConfidence >= 40) return true;
+  return retrievalConfidence >= 35 && dnaScore >= 20;
 }
 
 export function downgradeToPossibleAfterWeakDna(

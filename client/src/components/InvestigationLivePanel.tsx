@@ -28,6 +28,8 @@ export function InvestigationLivePanel({ snapshot, file, previewUrl, fileName }:
   const phase = snapshot.phase;
   const phaseNum = typeof phase === 'number' ? phase : phase === 'final' ? 4 : 3;
   const confidence = snapshot.dnaMatchPercent ?? snapshot.confidence;
+  // Do not show green "Signature Found" for weak leads (false positives).
+  const strongMatch = !!snapshot.signatureFound && (confidence == null || confidence >= 45);
 
   return (
     <div className="card border border-dna-500/30 bg-dna-500/5 overflow-hidden">
@@ -48,18 +50,20 @@ export function InvestigationLivePanel({ snapshot, file, previewUrl, fileName }:
         <div className="flex-1 min-w-0 space-y-3">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-2">
-              {snapshot.signatureFound ? (
+              {strongMatch ? (
                 <CheckCircle size={18} className="text-green-400 shrink-0" />
               ) : (
                 <Loader2 size={18} className="text-dna-400 animate-spin shrink-0" />
               )}
               <div>
                 <p className="text-sm font-bold text-white">
-                  {snapshot.signatureFound
+                  {strongMatch
                     ? '✓ PINIT Signature Found'
                     : phaseNum >= 4
                       ? 'No PINIT Signature Found'
-                      : 'Scanning for PINIT signature…'}
+                      : snapshot.signatureFound
+                        ? 'Candidate found — verifying…'
+                        : 'Scanning for PINIT signature…'}
                 </p>
                 <p className="text-2xs text-dna-400">{phaseLabel(phase)}</p>
               </div>

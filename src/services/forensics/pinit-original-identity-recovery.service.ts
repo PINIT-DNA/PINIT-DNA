@@ -47,6 +47,7 @@ import {
   selectAuthoritativeMatch,
 } from './authoritative-asset.service';
 import { resolveMediaProfile } from './adaptive-scoring.service';
+import { isCameraScanFileName } from './vault-match-validator.service';
 
 function logCandidateStage(
   stage: string,
@@ -684,17 +685,22 @@ export class PinitOriginalIdentityRecoveryService {
       }
 
       const topFast = fastVectors[0];
+      const topComposite = topFast?.scores.composite ?? 0;
+      // Only claim signature found on a strong visual lead — weak scores cause false locks.
+      const strongLead = topComposite >= 50;
       if (topFast && !identityHit && !earlyVaultShown) {
         const ownerSnap = await loadVaultOwnerSnapshot(topFast.vaultId, topFast.dnaRecordId);
         emitPhase({
           phase: 1,
-          signatureFound: true,
-          vaultId: topFast.vaultId,
-          dnaRecordId: topFast.dnaRecordId,
-          confidence: topFast.scores.composite,
+          signatureFound: strongLead,
+          vaultId: strongLead ? topFast.vaultId : undefined,
+          dnaRecordId: strongLead ? topFast.dnaRecordId : undefined,
+          confidence: topComposite,
           similarityScore: topFast.scores.perceptualBlend,
-          statusMessage: 'Possible vault match — verifying…',
-          ...ownerSnap,
+          statusMessage: strongLead
+            ? 'Possible vault match — verifying…'
+            : `Scoring candidates (top ${topComposite}%) — verifying…`,
+          ...(strongLead ? ownerSnap : {}),
         });
       } else if (topFast && identityHit) {
         emitPhase({
@@ -753,6 +759,12 @@ export class PinitOriginalIdentityRecoveryService {
       timer.start('local_dna');
       emit({ type: 'timeline', stepId: 'orb_verification', label: 'ORB Verification', status: 'running' });
 
+      const isCameraProbe = isCameraScanFileName(originalName);
+      // Scanner / camera captures need more patch-search budget — this is the reliable ID path.
+      const localDnaBudgetMs = isCameraProbe
+        ? Math.max(investigationPerformanceConfig.localDnaTimeoutMs, 55_000)
+        : investigationPerformanceConfig.localDnaTimeoutMs;
+
       const retrieval = await (twoStage
         ? withTimeoutSoft(
           () => enterpriseRetrievalEngine.retrieve(
@@ -765,7 +777,7 @@ export class PinitOriginalIdentityRecoveryService {
               patchScales: [...investigationPerformanceConfig.investigationPatchScales],
             },
           ),
-          investigationPerformanceConfig.localDnaTimeoutMs,
+          localDnaBudgetMs,
           'local_dna_search',
         )
         : enterpriseRetrievalEngine.retrieve(
@@ -784,7 +796,12 @@ export class PinitOriginalIdentityRecoveryService {
           : 'No local patch matches — vault index may need backfill',
       });
 
-      if (localDnaHit && localDnaScore >= localDnaConfig.identifyCompositeThreshold && !identityHit) {
+      // Camera scans: lock identity from patch DNA at 55% (default identify threshold is 65).
+      const identifyThreshold = isCameraProbe
+        ? Math.min(localDnaConfig.identifyCompositeThreshold, 55)
+        : localDnaConfig.identifyCompositeThreshold;
+
+      if (localDnaHit && localDnaScore >= identifyThreshold && !identityHit) {
         identityHit = {
           tier: 3,
           method: `Local patch DNA (${localDnaHit.patchMatchCount} patches, ${Math.round(localDnaHit.matchRatio * 100)}% fragment)`,
@@ -882,7 +899,7 @@ export class PinitOriginalIdentityRecoveryService {
         );
       }
       const topVec = vectors[0];
-      if (topVec && !localDnaHit) {
+      if (topVec && !localDnaHit && topVec.scores.composite >= 50) {
         emitPhase({
           phase: 2,
           signatureFound: true,
@@ -1029,11 +1046,20 @@ export class PinitOriginalIdentityRecoveryService {
       detail: preliminarySelection?.source ?? 'none',
     });
 
-    if (isExactVaultMatch && preliminarySelection) {
+    const skipDeepForStrongLocal = !!(
+      preliminarySelection
+      && localDnaHit
+      && localDnaScore >= 55
+      && (preliminarySelection.source === 'identity_hit' || preliminarySelection.source === 'local_patch')
+    );
+
+    if ((isExactVaultMatch || skipDeepForStrongLocal) && preliminarySelection) {
       stages.push({
         stage: STAGE.DEEP_COMPARE,
         status: 'skipped',
-        detail: 'SHA-256 exact match — 15-layer compare skipped',
+        detail: isExactVaultMatch
+          ? 'SHA-256 exact match — 15-layer compare skipped'
+          : `Strong local patch DNA (${localDnaScore}%) — 15-layer compare skipped`,
       });
       authoritativeAsset = await buildAuthoritativeAsset({
         selection: preliminarySelection,
@@ -1043,7 +1069,21 @@ export class PinitOriginalIdentityRecoveryService {
         localDnaHit,
         ownerUserId,
       });
-      dna15Score = 100;
+      dna15Score = isExactVaultMatch ? 100 : localDnaScore;
+      emitPhase({
+        phase: 3,
+        deepVerificationRunning: false,
+        signatureFound: true,
+        vaultId: authoritativeAsset.vaultId,
+        dnaRecordId: authoritativeAsset.dnaRecordId,
+        originalFilename: authoritativeAsset.originalFilename,
+        ownerPinitId: authoritativeAsset.ownerPinitId ?? undefined,
+        confidence: dna15Score,
+        dnaMatchPercent: dna15Score,
+        statusMessage: isExactVaultMatch
+          ? 'Exact vault match verified'
+          : `Original identified via patch DNA (${localDnaScore}%)`,
+      });
     } else {
       timer.start('deep_dna_compare');
       emit({ type: 'timeline', stepId: 'deep_dna_compare', label: 'Deep DNA Compare', status: 'running' });
@@ -1212,14 +1252,17 @@ export class PinitOriginalIdentityRecoveryService {
       });
     }
 
-    // When deep DNA write fails (Prisma txn timeout), use vector composite as dna15 proxy
-    // so fusion still reflects the locked vault match.
-    if (dna15Score === 0 && authoritativeAsset && assetVector) {
-      dna15Score = Math.max(
-        assetVector.scores.composite,
-        assetVector.scores.perceptualBlend,
-        authoritativeAsset.rankedCandidate?.compositeScore ?? 0,
-      );
+    // When deep DNA write fails, only proxy dna15 from a *strong* vector or local-patch lock.
+    if (dna15Score === 0 && authoritativeAsset) {
+      const src = authoritativeAsset.selectionSource;
+      if (src === 'local_patch' && localDnaScore >= 45) {
+        dna15Score = localDnaScore;
+      } else if (src === 'vector_top' && assetVector && assetVector.scores.composite >= 50) {
+        dna15Score = Math.max(
+          assetVector.scores.composite,
+          assetVector.scores.perceptualBlend,
+        );
+      }
     }
 
     // ═══ Stage 6 — Confidence fusion (authoritative vault scores only) ════════

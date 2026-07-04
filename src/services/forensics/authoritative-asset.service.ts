@@ -6,6 +6,7 @@ import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { certificateService } from '../certificates/certificate.service';
 import { vaultCandidateRankingService } from './vault-candidate-ranking.service';
+import { candidateHasVisualSignal } from './vault-match-validator.service';
 import type { DeepCompareResult } from './deep-vault-compare.service';
 import type { VaultMatchResult } from './vault-auto-match.service';
 import type { VaultSimilarityVector } from './vault-similarity-vector.service';
@@ -60,8 +61,8 @@ export interface SelectAuthoritativeResult {
 
 /**
  * Select the single winning vault after ranking completes.
- * Priority: SHA exact / identity hit → vector top → local patch → deep compare.
- * No post-selection overrides.
+ * Priority: SHA exact / identity hit → strong local patch → deep compare → strong vector.
+ * Weak vector-only scores (30–40%) cause false positives on camera scans — do not lock.
  */
 export function selectAuthoritativeMatch(
   input: SelectAuthoritativeInput,
@@ -74,27 +75,42 @@ export function selectAuthoritativeMatch(
     return { match: input.identityHit, source: 'identity_hit' };
   }
 
-  const topCandidate = input.candidates[0];
-  // Camera/scanner probes often land 30–37% composite; 38 was discarding real matches
-  // when 15-layer compare failed (e.g. Prisma transaction timeout on ephemeral DNA).
-  if (topCandidate && topCandidate.compositeScore >= 30) {
-    return {
-      match: vaultCandidateRankingService.toVaultMatch(topCandidate),
-      source: 'vector_top',
-    };
-  }
-
-  if (input.localDnaHit && input.localDnaScore >= 30) {
+  // Local patch DNA is the reliable signal for camera / scanner probes.
+  if (input.localDnaHit && input.localDnaScore >= 55) {
     return {
       match: localHitToMatch(input.localDnaHit, input.localDnaScore),
       source: 'local_patch',
     };
   }
 
-  if (input.deepCompare && input.deepCompare.overallConfidenceScore >= 30) {
+  if (input.deepCompare && input.deepCompare.overallConfidenceScore >= 45) {
     return {
       match: deepCompareToMatch(input.deepCompare, input.ownerUserId),
       source: 'deep_compare',
+    };
+  }
+
+  const topCandidate = input.candidates[0];
+  const secondScore = input.candidates[1]?.compositeScore ?? 0;
+  const margin = (topCandidate?.compositeScore ?? 0) - secondScore;
+  // Require a clear visual winner — low composites match unrelated vault files.
+  if (
+    topCandidate
+    && topCandidate.compositeScore >= 50
+    && margin >= 4
+    && candidateHasVisualSignal(topCandidate)
+  ) {
+    return {
+      match: vaultCandidateRankingService.toVaultMatch(topCandidate),
+      source: 'vector_top',
+    };
+  }
+
+  // Weaker local patch still beats a weak vector lock.
+  if (input.localDnaHit && input.localDnaScore >= 45) {
+    return {
+      match: localHitToMatch(input.localDnaHit, input.localDnaScore),
+      source: 'local_patch',
     };
   }
 
