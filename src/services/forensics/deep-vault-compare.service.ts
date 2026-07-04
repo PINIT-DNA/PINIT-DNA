@@ -26,6 +26,39 @@ export interface DeepCompareResult {
   }>;
 }
 
+/**
+ * Vault investigation score for derivatives/crops.
+ * Full-frame overall weights L1 crypto (35%) + L6 signature (10%) — both always 0
+ * after any edit/WhatsApp re-encode, so true derivatives cap near ~14–25% and never
+ * pass the 40% acceptance gate. Re-score content layers only (L2–L5).
+ */
+export function derivativeAwareScore(
+  layers: Array<{ layer: number; similarityPercent: number; matched: boolean }>,
+  overall: number,
+  classification: string,
+): { score: number; classification: string } {
+  const l1 = layers.find((l) => l.layer === 1);
+  const l1Match = !!l1?.matched || (l1?.similarityPercent ?? 0) >= 100;
+  if (l1Match) {
+    return { score: overall, classification };
+  }
+
+  const pct = (n: number) => (layers.find((l) => l.layer === n)?.similarityPercent ?? 0) / 100;
+  const l2 = pct(2);
+  const l3 = pct(3);
+  const l4 = pct(4);
+  const l5 = pct(5);
+  // Emphasize perceptual (crops/compress) — crypto/signature excluded.
+  const weighted = Math.round((l2 * 0.20 + l3 * 0.65 + l4 * 0.10 + l5 * 0.05) * 100);
+  // Perceptual alone is the primary crop/WhatsApp signal (L2 structural often 0 on crops).
+  const content = Math.max(weighted, Math.round(l3 * 100));
+  const score = Math.max(overall, content);
+  if (score >= 40 && classification.toUpperCase() === 'DIFFERENT') {
+    return { score, classification: 'SIMILAR' };
+  }
+  return { score, classification };
+}
+
 export class DeepVaultCompareService {
   private readonly vault = new VaultService();
   private readonly comparison = new DnaComparisonService();
@@ -83,12 +116,17 @@ export class DeepVaultCompareService {
         similarityPercent: l.similarityPercent,
         matched: l.matched,
       }));
+      const aware = derivativeAwareScore(
+        layerComparisons,
+        cmp.overallConfidenceScore,
+        cmp.classification,
+      );
       const entry: DeepCompareResult = {
         vaultId: candidate.vaultId,
         dnaRecordId: candidate.dnaRecordId,
-        overallConfidenceScore: cmp.overallConfidenceScore,
-        classification: cmp.classification,
-        tamperingDetected: cmp.tamperingDetected,
+        overallConfidenceScore: aware.score,
+        classification: aware.classification,
+        tamperingDetected: cmp.tamperingDetected || !layerComparisons.find((l) => l.layer === 1)?.matched,
         matchedLayerCount,
         totalLayers: cmp.layerComparisons.length,
         layerComparisons,

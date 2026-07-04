@@ -44,11 +44,11 @@ export const investigationPerformanceConfig = {
   watermarkTimeoutMs: intEnv('PINIT_INVESTIGATION_WATERMARK_TIMEOUT_MS', 5_000),
   embeddingTimeoutMs: intEnv('PINIT_INVESTIGATION_EMBEDDING_TIMEOUT_MS', 5_000),
   /** Local patch search time budget (tampered / compressed probes) */
-  localDnaTimeoutMs: intEnv('PINIT_INVESTIGATION_LOCAL_DNA_TIMEOUT_MS', 20_000),
-  /** Per-candidate 15-layer DNA — hard cap so one hung decrypt cannot burn 3–10 minutes */
-  deepCompareTimeoutMs: intEnv('PINIT_INVESTIGATION_DEEP_COMPARE_TIMEOUT_MS', 18_000),
-  /** Image enterprise recovery budget — finish or retain live lead; do not sit for 10 minutes */
-  imageRecoveryTimeoutMs: intEnv('PINIT_INVESTIGATION_IMAGE_RECOVERY_MS', 75_000),
+  localDnaTimeoutMs: intEnv('PINIT_INVESTIGATION_LOCAL_DNA_TIMEOUT_MS', 40_000),
+  /** Per-candidate 15-layer DNA — must exceed ~21s real compare time on Render */
+  deepCompareTimeoutMs: intEnv('PINIT_INVESTIGATION_DEEP_COMPARE_TIMEOUT_MS', 35_000),
+  /** Image enterprise recovery — local DNA + deep DNA must both finish */
+  imageRecoveryTimeoutMs: intEnv('PINIT_INVESTIGATION_IMAGE_RECOVERY_MS', 120_000),
   /** Video partial recovery — enterprise stage budget */
   videoRecoveryTimeoutMs: intEnv('PINIT_INVESTIGATION_VIDEO_RECOVERY_MS', 180_000),
   /** Post-retrieval report enrichment (timeline, crawler) — hard cap */
@@ -59,8 +59,8 @@ export const investigationPerformanceConfig = {
   skipOrchestratorRecompare: flag('PINIT_INVESTIGATION_SKIP_RECOMPARE', true),
   orchestratorCompareTimeoutMs: intEnv('PINIT_INVESTIGATION_ORCHESTRATOR_COMPARE_MS', 20_000),
   vaultRetrieveTimeoutMs: intEnv('PINIT_INVESTIGATION_VAULT_RETRIEVE_MS', 12_000),
-  /** Fewer patch scales in investigation (32+64 vs 16+32+64+128) */
-  investigationPatchScales: scalesFromEnv('PINIT_INVESTIGATION_PATCH_SCALES', [32, 64]),
+  /** Single scale in investigation — multi-scale was too slow on Render (~2min) */
+  investigationPatchScales: scalesFromEnv('PINIT_INVESTIGATION_PATCH_SCALES', [64]),
   cacheTtlMs: intEnv('PINIT_INVESTIGATION_CACHE_TTL_MS', 900_000),
 } as const;
 
