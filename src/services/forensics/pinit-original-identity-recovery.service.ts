@@ -1142,28 +1142,21 @@ export class PinitOriginalIdentityRecoveryService {
         rankingPool = rankingPool.slice(0, RANKING_TOP_DEEP);
       }
 
-      const deepPool = rankingPool.slice(0, RANKING_TOP_DEEP);
-      const deepTopN = deepPool.length;
-
-      deepCompareResults = await withTimeoutSoft(
-        () => deepVaultCompareService.compareTopCandidates(
-          buffer, mimeType, originalName, sizeBytes, deepPool, ownerUserId, deepTopN,
-        ),
-        investigationPerformanceConfig.deepCompareTimeoutMs,
-        'deep_dna_compare',
-      ) ?? [];
-
-      const ranking = selectWinnerByRanking({
+      // Per-candidate deep DNA during walk — never discard completed scores via batch timeout.
+      const ranking = await selectWinnerByRanking({
         candidates: rankingPool.length ? rankingPool : candidates,
         vectors,
-        deepCompareResults,
         localDnaHit,
         localDnaScore,
         identityHit,
         isExactVaultMatch,
         mediaType: mediaKey,
+        compareCandidate: (c) => deepVaultCompareService.compareOneCandidate(
+          buffer, mimeType, originalName, sizeBytes, c, ownerUserId,
+        ),
       });
       candidateRankingLogs = ranking.logs;
+      deepCompareResults = ranking.allDeepResults;
 
       selectionSteps.push({
         stage: 'candidate_ranking',

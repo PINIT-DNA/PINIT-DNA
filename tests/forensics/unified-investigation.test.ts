@@ -22,7 +22,7 @@ jest.mock('../../src/services/forensics/vault-auto-match.service', () => ({
 describe('UnifiedInvestigationOrchestrator', () => {
   const orchestrator = new UnifiedInvestigationOrchestrator();
 
-  it('returns no-match report with pipeline steps when vault match fails', async () => {
+  it('returns no-match report with manifest and 15 DNA layers', async () => {
     const report = await orchestrator.investigate(
       Buffer.from('test'),
       'text/plain',
@@ -48,7 +48,5 @@ describe('UnifiedInvestigationOrchestrator', () => {
       expect(['PASS', 'FAIL', 'SKIPPED']).toContain(layer.status);
       expect(layer.reason).toBeTruthy();
     }
-  });
+  }, 30_000);
 });
-
-

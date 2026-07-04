@@ -81,7 +81,7 @@ describe('CandidateRankingEngine', () => {
     expect(RANKING_TOP_DEEP).toBe(10);
   });
 
-  it('rejects high-similarity low-DNA candidate and accepts later winner', () => {
+  it('rejects high-similarity low-DNA candidate and accepts later winner', async () => {
     const candidates = [
       candidate('wrong', 95, 1),
       candidate('right', 70, 2),
@@ -92,7 +92,7 @@ describe('CandidateRankingEngine', () => {
       deep('right', 72, 'SIMILAR'),
     ];
 
-    const result = selectWinnerByRanking({
+    const result = await selectWinnerByRanking({
       candidates,
       vectors,
       deepCompareResults: deepResults,
@@ -110,12 +110,12 @@ describe('CandidateRankingEngine', () => {
     expect(result.logs.some((l) => l.decision === 'ACCEPT' && l.vaultId === 'vault-right')).toBe(true);
   });
 
-  it('returns no winner when all candidates fail DNA', () => {
+  it('returns no winner when all candidates fail DNA', async () => {
     const candidates = [candidate('a', 90, 1), candidate('b', 85, 2)];
     const vectors = [vector('a', 90), vector('b', 85)];
     const deepResults = [deep('a', 10, 'DIFFERENT'), deep('b', 12, 'DIFFERENT')];
 
-    const result = selectWinnerByRanking({
+    const result = await selectWinnerByRanking({
       candidates,
       vectors,
       deepCompareResults: deepResults,
@@ -131,7 +131,7 @@ describe('CandidateRankingEngine', () => {
     expect(result.logs.every((l) => l.decision === 'REJECT')).toBe(true);
   });
 
-  it('accepts SHA-256 exact without walking others', () => {
+  it('accepts SHA-256 exact without walking others', async () => {
     const identityHit = {
       tier: 1 as const,
       method: 'SHA-256',
@@ -140,7 +140,7 @@ describe('CandidateRankingEngine', () => {
       ownerUserId: 'owner-1',
       confidence: '100',
     };
-    const result = selectWinnerByRanking({
+    const result = await selectWinnerByRanking({
       candidates: [candidate('other', 99, 1)],
       vectors: [vector('other', 99)],
       deepCompareResults: [],
@@ -153,4 +153,31 @@ describe('CandidateRankingEngine', () => {
     expect(result.winner?.vaultId).toBe('vault-exact');
     expect(result.source).toBe('sha256_exact');
   });
+
+  it('uses per-candidate compare and stops at first winner (no batch timeout loss)', async () => {
+    const candidates = [candidate('correct', 52, 1), candidate('other', 30, 2)];
+    const vectors = [vector('correct', 52, 0), vector('other', 30)];
+    let compareCalls = 0;
+    const result = await selectWinnerByRanking({
+      candidates,
+      vectors,
+      localDnaHit: null,
+      localDnaScore: 0,
+      identityHit: null,
+      isExactVaultMatch: false,
+      mediaType: 'image',
+      compareCandidate: async (c) => {
+        compareCalls++;
+        if (c.vaultId === 'vault-correct') {
+          return deep('correct', 55, 'SIMILAR');
+        }
+        return deep('other', 18, 'DIFFERENT');
+      },
+    });
+    expect(result.winner?.vaultId).toBe('vault-correct');
+    expect(result.logs[0]?.dnaScore).toBe(55);
+    expect(result.logs[0]?.dnaClassification).toBe('SIMILAR');
+    expect(compareCalls).toBe(1); // stopped after winner — no wasted compares
+  });
 });
+

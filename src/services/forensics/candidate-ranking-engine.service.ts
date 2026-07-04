@@ -56,6 +56,8 @@ export interface CandidateRankingResult {
   winner: VaultMatchResult | null;
   source: AuthoritativeSelectionSource | 'none';
   deepCompare: DeepCompareResult | null;
+  /** All deep DNA results produced during the walk */
+  allDeepResults: DeepCompareResult[];
   logs: CandidateRankingLog[];
   /** Ordered shortlist that should receive deep DNA compare */
   deepComparePool: RankedVaultCandidate[];
@@ -210,22 +212,28 @@ function evidenceForCandidate(params: {
 }
 
 /**
- * Walk staged candidates. First that wins Acceptance Engine is the winner.
- * Rejected candidates are permanently discarded (retrieval confidence not reused).
+ * Walk staged candidates one-by-one:
+ * deep DNA compare → Acceptance Engine → accept or reject permanently.
+ *
+ * Deep compare runs per candidate (not a batch timeout) so completed DNA
+ * scores are never discarded. Stops at first Acceptance winner.
  */
-export function selectWinnerByRanking(params: {
+export async function selectWinnerByRanking(params: {
   candidates: RankedVaultCandidate[];
   vectors: VaultSimilarityVector[];
-  deepCompareResults: DeepCompareResult[];
+  /** Precomputed deep results (optional). Prefer compareCandidate for walk. */
+  deepCompareResults?: DeepCompareResult[];
+  /** Per-candidate deep DNA — used when present so results are never lost to batch timeout */
+  compareCandidate?: (candidate: RankedVaultCandidate) => Promise<DeepCompareResult | null>;
   localDnaHit: LocalDnaSearchHit | null;
   localDnaScore: number;
   identityHit: VaultMatchResult | null;
   isExactVaultMatch: boolean;
   mediaType?: string;
-  /** Optional cert ids by vault */
   certificateByVaultId?: Map<string, string>;
-}): CandidateRankingResult {
+}): Promise<CandidateRankingResult> {
   const logs: CandidateRankingLog[] = [];
+  const deepResults: DeepCompareResult[] = [...(params.deepCompareResults ?? [])];
 
   if (params.isExactVaultMatch && params.identityHit) {
     logs.push({
@@ -247,7 +255,8 @@ export function selectWinnerByRanking(params: {
     return {
       winner: params.identityHit,
       source: 'sha256_exact',
-      deepCompare: deepFor(params.identityHit.vaultId, params.deepCompareResults) ?? null,
+      deepCompare: deepFor(params.identityHit.vaultId, deepResults) ?? null,
+      allDeepResults: deepResults,
       logs,
       deepComparePool: params.candidates.slice(0, 1),
       stages: {
@@ -276,17 +285,24 @@ export function selectWinnerByRanking(params: {
   for (let i = 0; i < deepPool.length; i++) {
     const candidate = deepPool[i]!;
     const vector = vectorFor(candidate.vaultId, params.vectors);
-    const deep = deepFor(candidate.vaultId, params.deepCompareResults);
     const isExact = params.isExactVaultMatch
       && params.identityHit?.vaultId === candidate.vaultId;
 
-    // Hard reject: DNA DIFFERENT / low DNA — never accept via similarity alone
+    // Deep-compare this candidate now (or use precomputed result).
+    let deep = deepFor(candidate.vaultId, deepResults);
+    if (!deep && !isExact && params.compareCandidate) {
+      deep = (await params.compareCandidate(candidate)) ?? undefined;
+      if (deep) deepResults.push(deep);
+    }
+
     const dnaScore = deep?.overallConfidenceScore ?? 0;
     const dnaClass = deep?.classification ?? 'MISSING';
+
+    // Hard reject: DNA DIFFERENT / low DNA / missing — never accept via similarity alone
     if (!isExact && (!deep || (dnaClass.toUpperCase() === 'DIFFERENT' && dnaScore < 42) || dnaScore < 40)) {
       evaluated++;
       const reasons = !deep
-        ? ['dna_missing']
+        ? ['dna_missing_or_decrypt_failed']
         : [`dna_${dnaScore}_${dnaClass}`];
       logs.push({
         rank: i + 1,
@@ -365,6 +381,7 @@ export function selectWinnerByRanking(params: {
         verdict: decision.verdict,
         confidence: decision.confidence,
         dnaScore: log.dnaScore,
+        dnaClass: log.dnaClassification,
         source,
       });
 
@@ -379,6 +396,7 @@ export function selectWinnerByRanking(params: {
         }),
         source,
         deepCompare: deep ?? null,
+        allDeepResults: deepResults,
         logs,
         deepComparePool: deepPool,
         stages: {
@@ -410,6 +428,7 @@ export function selectWinnerByRanking(params: {
     winner: null,
     source: 'none',
     deepCompare: null,
+    allDeepResults: deepResults,
     logs,
     deepComparePool: deepPool,
     stages: {
