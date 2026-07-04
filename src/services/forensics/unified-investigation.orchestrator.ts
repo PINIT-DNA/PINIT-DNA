@@ -984,6 +984,7 @@ export class UnifiedInvestigationOrchestrator {
       sizeBytes: number;
       sha256?: string;
     },
+    candidateLogs?: import('./candidate-ranking-engine.service').CandidateRankingLog[],
   ): UnifiedInvestigationReport {
     const manifest = buildInvestigationManifest({
       report,
@@ -992,6 +993,20 @@ export class UnifiedInvestigationOrchestrator {
       probeMimeType: probe.mimeType,
       probeSizeBytes: probe.sizeBytes,
       probeSha256: probe.sha256 ?? report.currentFileHash,
+      candidateLogs: candidateLogs?.map((l) => ({
+        rank: l.rank,
+        vaultId: l.vaultId,
+        filename: l.filename,
+        vectorSimilarity: l.vectorSimilarity,
+        clipSimilarity: l.clipSimilarity,
+        orbScore: l.orbScore,
+        pHashSimilarity: l.pHashSimilarity,
+        dnaScore: l.dnaScore,
+        dnaClassification: l.dnaClassification,
+        fusionScore: l.fusionScore,
+        decision: l.decision === 'FILTERED' ? 'REJECT' as const : l.decision,
+        rejectReasons: l.rejectReasons,
+      })),
     });
     return { ...report, manifest };
   }
@@ -1011,12 +1026,17 @@ export class UnifiedInvestigationOrchestrator {
     },
   ): Promise<UnifiedInvestigationReport> {
     const sealed = params.outcome
-      ? this.sealWithManifest(report, params.outcome, {
-          filename: params.probeFilename,
-          mimeType: params.probeMimeType,
-          sizeBytes: params.probeSizeBytes,
-          sha256: params.probeSha256,
-        })
+      ? this.sealWithManifest(
+          report,
+          params.outcome,
+          {
+            filename: params.probeFilename,
+            mimeType: params.probeMimeType,
+            sizeBytes: params.probeSizeBytes,
+            sha256: params.probeSha256,
+          },
+          params.enterprise.auditContext?.candidateRankingLogs,
+        )
       : report;
 
     const ctx = params.enterprise.auditContext;

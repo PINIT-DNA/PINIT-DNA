@@ -60,6 +60,8 @@ export interface PinitIdentificationResult {
     selectionSteps: RetrievalSelectionStep[];
     identityHit: VaultMatchResult | null;
     localDnaHit: LocalDnaSearchHit | null;
+    /** Phase 4 — candidate walk logs for manifest */
+    candidateRankingLogs?: import('./candidate-ranking-engine.service').CandidateRankingLog[];
   };
 }
 
