@@ -113,9 +113,11 @@ export function InvestigationScanner({
 
   const deliverFile = useCallback(
     (blob: Blob, name?: string) => {
+      // Same File shape as Upload — investigation page calls unifiedInvestigateStream.
+      // IMG_ prefix matches camera-upload naming (not a separate scanner API).
       const file = new File(
         [blob],
-        name ?? `evidence_${Date.now()}.jpg`,
+        name ?? `IMG_${Date.now()}.jpg`,
         { type: blob.type || 'image/jpeg' },
       );
       console.time('[Scanner] startInvestigation');
@@ -206,19 +208,13 @@ export function InvestigationScanner({
         }
       }
 
+      // Gallery / file pick — identical to Upload: pass the original File bytes through.
+      // No extra normalization (that would diverge from the upload investigation path).
       if (isImageFile(f)) {
-        setProgressLabel('Preparing investigation input…');
-        const normalized = await normalizeScannerBlob(f, {
-          jpegQuality: 0.97,
-          relaxedQualityGate: true,
-          investigationFast: true,
-          onProgress: (_step, label) => setProgressLabel(label),
-        });
-        if (normalized) {
-          deliverFile(normalized.blob, f.name);
-          resetCaptureState();
-          return;
-        }
+        setProgressLabel('Starting investigation…');
+        deliverFile(f, f.name);
+        resetCaptureState();
+        return;
       }
 
       deliverFile(f, f.name);

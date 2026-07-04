@@ -50,6 +50,23 @@ export function cropToGuideRegion(
   return ctx.getImageData(0, 0, sw, sh);
 }
 
+/**
+ * Full-frame capture — same pixels a phone camera would save on upload.
+ * Do NOT crop to the UI guide; that destroys vault visual DNA.
+ */
+export function grabFullFrame(
+  video: HTMLVideoElement,
+  canvas: HTMLCanvasElement,
+): ImageData | null {
+  if (video.videoWidth < 64 || video.videoHeight < 64) return null;
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(video, 0, 0);
+  return ctx.getImageData(0, 0, canvas.width, canvas.height);
+}
+
 export function frameSharpness(imageData: ImageData): number {
   const { metrics } = analyzeDocumentFrame(imageData, null);
   return metrics.sharpness;
@@ -102,16 +119,18 @@ export function imageDataToJpegBlob(imageData: ImageData, quality = 0.97): Promi
   return canvasToBlobWithTimeout(canvas, 'image/jpeg', quality);
 }
 
-/** Grab N frames from live video (multi-frame fusion burst). */
+/** Grab N full frames from live video (multi-frame fusion burst). */
 export async function grabFrameBurst(
   video: HTMLVideoElement,
   canvas: HTMLCanvasElement,
   count: number,
   gapMs: number,
+  options?: { fullFrame?: boolean },
 ): Promise<ImageData[]> {
   const frames: ImageData[] = [];
+  const grab = options?.fullFrame === false ? cropToGuideRegion : grabFullFrame;
   for (let i = 0; i < count; i++) {
-    const frame = cropToGuideRegion(video, canvas);
+    const frame = grab(video, canvas);
     if (frame) frames.push(frame);
     if (i < count - 1) {
       await delay(gapMs);
@@ -134,8 +153,9 @@ export interface InvestigationCaptureOptions {
 }
 
 /**
- * Unified Investigation scanner input — burst capture, fuse, normalize, JPEG.
- * Output feeds the SAME backend endpoint as file upload (no duplicate investigation logic).
+ * Unified Investigation scanner input — full-frame burst, light upload-like normalize, JPEG.
+ * Output is a File submitted to the SAME unifiedInvestigateStream endpoint as Upload.
+ * No separate investigation path — only the image source differs (camera vs file picker).
  */
 export async function captureInvestigationInput(
   video: HTMLVideoElement,
@@ -143,7 +163,7 @@ export async function captureInvestigationInput(
 ): Promise<ForensicCaptureResult | null> {
   const onProgress = options?.onProgress;
   const burstCount = options?.burstCount ?? 3;
-  const jpegQuality = options?.jpegQuality ?? 0.97;
+  const jpegQuality = options?.jpegQuality ?? 0.95;
   const CAPTURE_BUDGET_MS = 25_000;
 
   return runTimedStage('captureInvestigationInput', async () => {
@@ -152,16 +172,15 @@ export async function captureInvestigationInput(
     const canvas = document.createElement('canvas');
     const burst = await runTimedStage(
       'grabFrameBurst',
-      () => grabFrameBurst(video, canvas, burstCount, 35),
+      () => grabFrameBurst(video, canvas, burstCount, 35, { fullFrame: true }),
       8_000,
     );
     if (!burst.length) return null;
 
-    onProgress?.('fuse', 'Fusing frames…');
-    const fused = runTimedStageSync('fuseFrameBurst', () => {
-      const sharpest = [...burst].sort((a, b) => frameSharpness(b) - frameSharpness(a))[0]!;
-      return fuseFrameBurst(burst) ?? sharpest;
-    });
+    onProgress?.('fuse', 'Selecting sharpest frame…');
+    // Prefer single sharpest full frame — fusion can blur ORB/pHash features.
+    const fused = runTimedStageSync('pickSharpestFrame', () =>
+      [...burst].sort((a, b) => frameSharpness(b) - frameSharpness(a))[0]!);
 
     const gateFn = options?.relaxedQualityGate ? runQualityGateRelaxed : runQualityGate;
     const gate = gateFn(fused);

@@ -596,9 +596,38 @@ export function normalizeScannerImage(
   return { imageData: img, scanType: type, quality, pipelineSteps: steps };
 }
 
+/** Max edge length for investigation probes — matches typical phone upload resolution. */
+const INVESTIGATION_MAX_EDGE = 2048;
+
+function resizeToUploadResolution(imageData: ImageData, maxEdge = INVESTIGATION_MAX_EDGE): ImageData {
+  const longEdge = Math.max(imageData.width, imageData.height);
+  if (longEdge <= maxEdge) return cloneImageData(imageData);
+  const scale = maxEdge / longEdge;
+  const nw = Math.max(1, Math.round(imageData.width * scale));
+  const nh = Math.max(1, Math.round(imageData.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = nw;
+  canvas.height = nh;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return cloneImageData(imageData);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  const tmp = document.createElement('canvas');
+  tmp.width = imageData.width;
+  tmp.height = imageData.height;
+  tmp.getContext('2d')!.putImageData(imageData, 0, 0);
+  ctx.drawImage(tmp, 0, 0, nw, nh);
+  return ctx.getImageData(0, 0, nw, nh);
+}
+
 /**
- * Fast normalization for Unified Investigation scanner — skips deskew sweep,
- * super-resolution, and heavy screen pipelines that block the main thread.
+ * Upload-like normalization for Unified Investigation scanner.
+ * Goal: make a camera frame behave like a direct file upload for the SAME
+ * backend investigation endpoint — preserve visual DNA (pHash / ORB / patches).
+ *
+ * Includes: orientation, confident auto-crop, mild perspective, brightness /
+ * contrast, resize to upload resolution.
+ * Avoids: edge enhance, heavy denoise, deskew sweep (those destroy match signals).
  */
 export function normalizeScannerImageForInvestigation(
   imageData: ImageData,
@@ -608,21 +637,28 @@ export function normalizeScannerImageForInvestigation(
   const quality = runQualityGateRelaxed(imageData);
   const steps: string[] = [];
 
-  let img = preserveResolution(imageData);
+  let img = cloneImageData(imageData);
+
   emitStep(steps, onStep, 'orientation_fix');
   img = fixOrientation(img);
 
   emitStep(steps, onStep, 'document_boundary_detection');
   const bounds = detectDocumentBounds(img);
-  img = cropImageData(img, bounds);
+  const areaRatio = (bounds.w * bounds.h) / Math.max(1, img.width * img.height);
+  // Only auto-crop when content is clearly inset (not a full-bleed photo).
+  if (areaRatio >= 0.45 && areaRatio <= 0.92) {
+    img = cropImageData(img, bounds);
+  }
+
+  emitStep(steps, onStep, 'perspective_correction');
+  img = perspectiveCorrect(img, type);
 
   emitStep(steps, onStep, 'brightness_normalization');
   img = normalizeBrightnessContrast(img);
   emitStep(steps, onStep, 'contrast_normalization');
-  emitStep(steps, onStep, 'noise_reduction');
-  img = reduceNoise(img);
-  emitStep(steps, onStep, 'edge_enhancement');
-  img = edgeEnhance(img);
+
+  emitStep(steps, onStep, 'preserve_resolution');
+  img = resizeToUploadResolution(img);
 
   return { imageData: img, scanType: type, quality, pipelineSteps: steps };
 }

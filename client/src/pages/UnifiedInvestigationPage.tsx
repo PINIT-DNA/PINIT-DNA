@@ -277,13 +277,16 @@ export function UnifiedInvestigationPage() {
     }
   }, []);
 
+  /** Upload path: File Picker → same investigation as scanner. */
   const handleFileSelect = (f: File) => {
     setReport(null);
     setError(null);
     setFile(f);
+    setCaptureProcessing(false);
     runInvestigation(f);
   };
 
+  /** Scanner path: Camera → File → identical investigation (no separate API). */
   const handleScanComplete = (f: File) => {
     setReport(null);
     setError(null);
