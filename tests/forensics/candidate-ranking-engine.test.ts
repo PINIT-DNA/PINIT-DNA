@@ -78,7 +78,7 @@ describe('CandidateRankingEngine', () => {
     expect(staged.length).toBeLessThanOrEqual(20);
     expect(staged.length).toBeGreaterThan(0);
     expect(RANKING_TOP_VECTOR).toBe(100);
-    expect(RANKING_TOP_DEEP).toBe(10);
+    expect(RANKING_TOP_DEEP).toBe(5);
   });
 
   it('rejects high-similarity low-DNA candidate and accepts later winner', async () => {

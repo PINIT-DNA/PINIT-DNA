@@ -26,7 +26,10 @@ import { vaultCandidateRankingService } from './vault-candidate-ranking.service'
 export const RANKING_TOP_VECTOR = 100;
 export const RANKING_TOP_IDENTITY = 30;
 export const RANKING_TOP_MEDIA = 20;
-export const RANKING_TOP_DEEP = 10;
+/** Max deep DNA compares when lead is weak */
+export const RANKING_TOP_DEEP = 5;
+/** When identity hit or strong vector lead — only verify top few (avoids 180s timeouts) */
+export const RANKING_TOP_DEEP_STRONG_LEAD = 2;
 
 const WINNING_VERDICTS: AcceptanceVerdict[] = [
   'VERIFIED_ORIGINAL',
@@ -278,7 +281,10 @@ export async function selectWinnerByRanking(params: {
   const afterVector = Math.min(params.candidates.length, RANKING_TOP_VECTOR);
   const afterIdentity = Math.min(staged.length, RANKING_TOP_IDENTITY);
   const afterMedia = staged.length;
-  const deepPool = staged.slice(0, RANKING_TOP_DEEP);
+  const topScore = staged[0]?.compositeScore ?? 0;
+  const strongLead = !!params.identityHit || topScore >= 45;
+  const deepLimit = strongLead ? RANKING_TOP_DEEP_STRONG_LEAD : RANKING_TOP_DEEP;
+  const deepPool = staged.slice(0, deepLimit);
 
   let evaluated = 0;
 

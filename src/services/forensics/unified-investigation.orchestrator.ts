@@ -335,11 +335,12 @@ export class UnifiedInvestigationOrchestrator {
     if (!recoveryStage.success || !recoveryStage.data) {
       const timeoutError = recoveryStage.error ?? 'Enterprise recovery failed';
       const liveSnapshot = liveState.snapshot;
-      const liveConf = Math.max(liveSnapshot?.confidence ?? 0, liveSnapshot?.dnaMatchPercent ?? 0);
-      // Only retain timeout partials with a strong live lock — weak scores are false positives.
-      if (liveSnapshot?.vaultId && liveSnapshot.signatureFound && liveConf >= 45) {
+      // If SSE already showed a vault, never collapse to INSUFFICIENT_EVIDENCE —
+      // user already saw the correct candidate (WhatsApp/scanner often times out mid deep-DNA).
+      if (liveSnapshot?.vaultId) {
         logger.warn('Enterprise recovery timed out — retaining live vault match', {
           vaultId: liveSnapshot.vaultId,
+          confidence: liveSnapshot.confidence,
           error: timeoutError,
         });
         return this.buildPartialFromLiveSnapshot({

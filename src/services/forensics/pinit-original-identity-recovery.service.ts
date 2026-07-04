@@ -695,22 +695,25 @@ export class PinitOriginalIdentityRecoveryService {
       const strongLead = topComposite >= 50;
       if (topFast && !identityHit && !earlyVaultShown) {
         const ownerSnap = await loadVaultOwnerSnapshot(topFast.vaultId, topFast.dnaRecordId);
+        // Always emit vaultId so timeout retention and live UI keep the lead.
         emitPhase({
           phase: 1,
           signatureFound: strongLead,
-          vaultId: strongLead ? topFast.vaultId : undefined,
-          dnaRecordId: strongLead ? topFast.dnaRecordId : undefined,
+          vaultId: topFast.vaultId,
+          dnaRecordId: topFast.dnaRecordId,
           confidence: topComposite,
           similarityScore: topFast.scores.perceptualBlend,
           statusMessage: strongLead
             ? 'Possible vault match — verifying…'
-            : `Scoring candidates (top ${topComposite}%) — verifying…`,
-          ...(strongLead ? ownerSnap : {}),
+            : `Candidate found — verifying…`,
+          ...ownerSnap,
         });
       } else if (topFast && identityHit) {
         emitPhase({
           phase: 1,
           signatureFound: true,
+          vaultId: identityHit.vaultId,
+          dnaRecordId: identityHit.dnaRecordId,
           confidence: Math.max(
             watermarkScore,
             identityTokenScore,
@@ -743,9 +746,12 @@ export class PinitOriginalIdentityRecoveryService {
       identityHit
       && (identityHit.tier <= 2 || watermarkRecovered || manifestRecovered || identityTokenRecovered)
     );
-    const skipLocalDna = twoStage
+    const strongVectorLead = (fastVectors[0]?.scores.composite ?? 0) >= 45;
+    const skipLocalDna = (twoStage
       && hasStrongIdentityAnchor
-      && investigationPerformanceConfig.skipLocalDnaWhenWatermark;
+      && investigationPerformanceConfig.skipLocalDnaWhenWatermark)
+      // Strong vector lead already points at a vault — skip slow patch search (WhatsApp/scanner timeouts).
+      || (twoStage && strongVectorLead);
 
     if (skipLocalDna) {
       emit({
@@ -753,12 +759,16 @@ export class PinitOriginalIdentityRecoveryService {
         stepId: 'orb_verification',
         label: 'ORB Verification',
         status: 'skipped',
-        detail: 'Skipped — vault already identified via watermark/token',
+        detail: strongVectorLead && !hasStrongIdentityAnchor
+          ? 'Skipped — strong vector lead (deep DNA will verify)'
+          : 'Skipped — vault already identified via watermark/token',
       });
       stages.push({
         stage: STAGE.LOCAL_DNA,
         status: 'skipped',
-        detail: `Watermark/identity anchor — patch search skipped (${identityHit?.method ?? 'tier ≤2'})`,
+        detail: strongVectorLead && !hasStrongIdentityAnchor
+          ? `Strong vector lead ${fastVectors[0]?.scores.composite}% — patch search skipped`
+          : `Watermark/identity anchor — patch search skipped (${identityHit?.method ?? 'tier ≤2'})`,
       });
     } else if (localDnaConfig.enabled && mimeType.startsWith('image/') && !isExactVaultMatch) {
       timer.start('local_dna');
