@@ -12,6 +12,11 @@ export interface InvestigationStageResult<T = unknown> {
 
 export interface StageExecutorOptions {
   timeoutMs?: number;
+  /**
+   * Phase 4.5 — if work finishes within this grace window after timeoutMs,
+   * keep the result (never discard completed evidence).
+   */
+  retainGraceMs?: number;
   /** Emit SSE / log when stage completes */
   onComplete?: (result: InvestigationStageResult) => void;
 }

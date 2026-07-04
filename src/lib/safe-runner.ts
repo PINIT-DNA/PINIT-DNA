@@ -57,6 +57,49 @@ export async function withTimeoutSoft<T>(
 }
 
 /**
+ * Phase 4.5 — never discard completed evidence.
+ * If work finishes after the soft deadline but within graceMs, keep the result.
+ */
+export async function withTimeoutSoftRetain<T>(
+  fn: () => Promise<T>,
+  timeoutMs: number,
+  graceMs = 12_000,
+  _label = 'operation',
+): Promise<T | null> {
+  let settled: T | undefined;
+  let failed: unknown;
+  const work = fn().then(
+    (v) => {
+      settled = v;
+      return v;
+    },
+    (e) => {
+      failed = e;
+      throw e;
+    },
+  );
+
+  const raced = await Promise.race([
+    work.then((v) => ({ kind: 'ok' as const, v })),
+    new Promise<{ kind: 'timeout' }>((resolve) => {
+      setTimeout(() => resolve({ kind: 'timeout' }), timeoutMs);
+    }),
+  ]);
+
+  if (raced.kind === 'ok') return raced.v;
+
+  await Promise.race([
+    work.then(() => undefined).catch(() => undefined),
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, graceMs);
+    }),
+  ]);
+
+  if (failed) return null;
+  return settled !== undefined ? settled : null;
+}
+
+/**
  * Validate basic file safety before processing.
  * Rejects clearly invalid or dangerous inputs.
  */

@@ -86,8 +86,9 @@ export class ComparisonEngine {
 
     const layerComparisons = this.compareLayers(fpA.layers, fpB.layers, vaultCompare);
 
-    // ── Overall confidence score ──────────────────────────────────────────────
+    // ── Overall confidence score (registry SKIPPED layers contribute nothing) ─
     const rawScore = layerComparisons.reduce((sum, l) => {
+      if (l.skipped) return sum;
       const weight = LAYER_WEIGHTS[l.layer] ?? 0;
       return sum + l.similarityScore * weight;
     }, 0);
@@ -173,6 +174,12 @@ export class ComparisonEngine {
 
   // ─── Layer comparison ─────────────────────────────────────────────────────
 
+  /**
+   * Phase 4.5 — Evidence pairing.
+   * Content layers (L1–L6): compare equivalent constructions only.
+   * Registry layers (L7–L15): never FAIL when probe did not generate them;
+   * load from vault and mark SKIPPED or PASS-via-content-verification.
+   */
   private compareLayers(
     layersA: EphemeralLayer[],
     layersB: EphemeralLayer[],
@@ -181,89 +188,116 @@ export class ComparisonEngine {
     const results: LayerComparisonResult[] = [];
     const maxLayers = Math.max(layersA.length, layersB.length, 15);
 
+    const skipped = (
+      layerNum: number,
+      name: string,
+      implementation: string,
+      reason: string,
+      fingerprintA = '',
+      fingerprintB = '',
+    ): LayerComparisonResult => ({
+      layer: layerNum,
+      name,
+      implementation,
+      similarityScore: 0,
+      similarityPercent: 0,
+      matched: false,
+      skipped: true,
+      fingerprintA,
+      fingerprintB,
+      changed: false,
+      changeDescription: reason,
+    });
+
     for (let i = 0; i < maxLayers; i++) {
       const layerNum = i + 1;
       const lA = layersA.find((l) => l.layer === layerNum);
       const lB = layersB.find((l) => l.layer === layerNum);
       const reg = DNA_LAYER_REGISTRY[layerNum];
+      const name = reg?.name ?? lA?.name ?? lB?.name ?? `layer${layerNum}`;
+      const impl = reg?.implementation ?? lA?.implementation ?? lB?.implementation ?? 'not_generated';
+
+      // Registry layers on vault investigation — never content-compare session/lifecycle fields.
+      if (vaultCompare && layerNum >= 7 && layerNum <= 15) {
+        results.push(skipped(
+          layerNum,
+          name,
+          impl,
+          layerNum <= 10
+            ? 'Registry evidence (lifecycle/session) — loaded from vault, not regenerated from probe'
+            : 'Registry evidence (advanced protection) — not generated on investigation probe',
+          lA?.fingerprint ?? '',
+          '',
+        ));
+        continue;
+      }
 
       if (!lA?.success && !lB?.success) {
-        results.push({
-          layer: layerNum,
-          name: reg?.name ?? lA?.name ?? lB?.name ?? `layer${layerNum}`,
-          implementation: reg?.implementation ?? lA?.implementation ?? lB?.implementation ?? 'not_generated',
-          similarityScore: 0,
-          similarityPercent: 0,
-          matched: false,
-          fingerprintA: '',
-          fingerprintB: '',
-          changed: true,
-          changeDescription: 'Layer not generated for this file type',
-        });
+        results.push(skipped(
+          layerNum,
+          name,
+          impl,
+          'Layer not generated for this file type',
+        ));
         continue;
       }
 
       if (!lA?.success || !lB?.success) {
-        const present = lA?.success ? lA : lB!;
-        results.push({
-          layer: layerNum,
-          name: reg?.name ?? present.name,
-          implementation: reg?.implementation ?? present.implementation,
-          similarityScore: lA?.success && layerNum >= 11 ? 1 : 0,
-          similarityPercent: lA?.success && layerNum >= 11 ? 100 : 0,
-          matched: !!(lA?.success && layerNum >= 11),
-          fingerprintA: lA?.fingerprint ?? '',
-          fingerprintB: lB?.fingerprint ?? '',
-          changed: !lB?.success,
-          changeDescription: lA?.success && layerNum >= 11
-            ? 'Advanced protection layer verified in vault registry'
-            : 'Layer missing or failed in one or both files',
-        });
+        results.push(skipped(
+          layerNum,
+          name,
+          impl,
+          !lB?.success
+            ? 'Layer not generated on probe — not a content failure'
+            : 'Layer missing on vault registry — not a content failure',
+          lA?.fingerprint ?? '',
+          lB?.fingerprint ?? '',
+        ));
         continue;
       }
 
       const score = this.scoreLayer(layerNum, lA, lB);
       const threshold = LAYER_THRESHOLDS[layerNum] ?? 0.80;
-      let finalScore = score;
-      let changed = lA.fingerprint !== lB.fingerprint;
-      let changeDescription = this.describeChange(layerNum, lA, lB, score);
-
-      if (vaultCompare && layerNum >= 11 && layerNum <= 15 && lA.success) {
-        const probeHasIdentity = layerNum === 12
-          ? lB.fingerprint.length > 0
-          : score >= 0.5;
-        finalScore = probeHasIdentity ? Math.max(score, 0.85) : (lA.fingerprint ? 0.75 : score);
-        changeDescription = probeHasIdentity
-          ? `${reg?.name ?? lA.name} — vault registry matched to probe identity`
-          : `${reg?.name ?? lA.name} — vault registry layer (advanced protection)`;
-      }
+      const changeDescription = this.describeChange(layerNum, lA, lB, score);
 
       results.push({
         layer: layerNum,
         name: reg?.name ?? lA.name,
         implementation: reg?.implementation ?? lA.implementation,
-        similarityScore: finalScore,
-        similarityPercent: Math.round(finalScore * 100),
-        matched: finalScore >= threshold,
+        similarityScore: score,
+        similarityPercent: Math.round(score * 100),
+        matched: score >= threshold,
+        skipped: false,
         fingerprintA: lA.fingerprint,
         fingerprintB: lB.fingerprint,
-        changed,
+        changed: lA.fingerprint !== lB.fingerprint,
         changeDescription,
       });
     }
 
+    // After content layers are scored: credit registry L7–L15 when content identity is proven.
     if (vaultCompare) {
       const l1 = results.find((r) => r.layer === 1);
       const l3 = results.find((r) => r.layer === 3);
-      const contentVerified = (l1?.similarityScore === 1) || (l3 != null && l3.similarityScore >= 0.88);
+      const contentVerified = (l1?.similarityScore === 1)
+        || (l3 != null && !l3.skipped && l3.similarityScore >= 0.88);
       if (contentVerified) {
         for (const r of results) {
-          if (r.layer >= 7 && r.layer <= 10) {
+          if (r.layer >= 7 && r.layer <= 15 && r.skipped) {
+            const vaultLayer = layersA.find((l) => l.layer === r.layer);
+            if (!vaultLayer?.success && r.layer >= 11) {
+              // Vault never stored this advanced layer — remain SKIPPED
+              continue;
+            }
+            r.skipped = false;
             r.similarityScore = 1;
             r.similarityPercent = 100;
             r.matched = true;
             r.changed = false;
-            r.changeDescription = 'Lifecycle registry layer — vault original verified via content DNA (L1–L6)';
+            r.changeDescription = r.layer <= 10
+              ? 'Registry evidence confirmed — vault original verified via content DNA (L1–L6)'
+              : 'Registry evidence present on vault — content identity verified';
+            r.fingerprintA = vaultLayer?.fingerprint ?? r.fingerprintA;
           }
         }
       }

@@ -135,13 +135,18 @@ export function comparisonFromDeepCompareResult(
     layer: l.layer,
     name: l.name,
     implementation: 'vault-registry',
-    similarityScore: l.similarityPercent / 100,
-    similarityPercent: l.similarityPercent,
-    matched: l.matched,
+    similarityScore: l.skipped ? 0 : l.similarityPercent / 100,
+    similarityPercent: l.skipped ? 0 : l.similarityPercent,
+    matched: l.skipped ? false : l.matched,
+    skipped: l.skipped,
     fingerprintA: 'vault-stored',
     fingerprintB: 'probe-ephemeral',
-    changed: !l.matched,
-    changeDescription: l.matched ? 'Layer match' : `Layer similarity ${l.similarityPercent}%`,
+    changed: l.skipped ? false : !l.matched,
+    changeDescription: l.skipped
+      ? 'Registry evidence — not content-comparable'
+      : l.matched
+        ? 'Layer match'
+        : `Layer similarity ${l.similarityPercent}%`,
   }));
 
   const cls: DnaComparisonResult['classification'] =

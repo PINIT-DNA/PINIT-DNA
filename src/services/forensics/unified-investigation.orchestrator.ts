@@ -85,7 +85,8 @@ function step(
   return { id, label, status, detail };
 }
 
-function layerStatus(pct: number): 'verified' | 'warning' | 'failed' {
+function layerStatus(pct: number, skipped?: boolean): 'verified' | 'warning' | 'failed' | 'skipped' {
+  if (skipped) return 'skipped';
   if (pct >= 80) return 'verified';
   if (pct >= 50) return 'warning';
   return 'failed';
@@ -325,6 +326,8 @@ export class UnifiedInvestigationOrchestrator {
       },
       {
         timeoutMs: recoveryTimeoutMs,
+        // Keep DNA that finishes just after the deadline (Render latency).
+        retainGraceMs: 15_000,
         onComplete: stageOnComplete('enterprise_recovery', 'Identity Recovery'),
       },
     );
@@ -858,8 +861,8 @@ export class UnifiedInvestigationOrchestrator {
     const layerAnalysis = (comparison?.layerComparisons ?? []).map((l) => ({
       layer: l.layer,
       name: l.name,
-      matchPercent: l.similarityPercent,
-      status: layerStatus(l.similarityPercent),
+      matchPercent: l.skipped ? 0 : l.similarityPercent,
+      status: layerStatus(l.similarityPercent, l.skipped),
       explanation: l.changeDescription,
     }));
 

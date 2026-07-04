@@ -1,10 +1,15 @@
 /**
  * Load vault-stored DNA fingerprints for comparison (original file side).
  * Avoids re-fingerprinting the vault original — uses registry layers L1–L15.
+ *
+ * Phase 4.5 — L6 uses the same COMPARE: stabilisation as EphemeralFingerprinter
+ * so vault vs probe signature evidence is paired (never payloadHmac vs COMPARE:).
  */
 import crypto from 'crypto';
 import { prisma } from '../../lib/prisma';
+import { config } from '../../config';
 import { DNA_LAYER_REGISTRY } from '../../constants/dna-layer-registry';
+import { computeHmac } from '../engines/base/text-utils';
 import type { EphemeralFingerprint, EphemeralLayer } from './ephemeral-fingerprinter';
 
 function placeholderLayer(n: number): EphemeralLayer {
@@ -105,11 +110,25 @@ export class StoredDnaFingerprinter {
       });
     }
 
-    if (record.stegoLayer) {
+    if (record.stegoLayer || layerMap.has(1)) {
+      // Content-stable L6 — identical construction to EphemeralFingerprinter.stabiliseL6
+      const l1to5 = [1, 2, 3, 4, 5]
+        .map((n) => layerMap.get(n))
+        .filter((l): l is EphemeralLayer => !!l?.success)
+        .map((l) => l.fingerprint)
+        .join('|');
+      const fileType = record.fileType ?? 'IMAGE';
+      const compareHmac = computeHmac(`COMPARE:${fileType}:${l1to5}`, config.stego.signatureSecret);
       layerMap.set(6, {
-        layer: 6, name: 'signature', implementation: 'lsb_steganography_hmac',
-        fingerprint: record.stegoLayer.payloadHmac,
-        data: { payloadHmac: record.stegoLayer.payloadHmac },
+        layer: 6,
+        name: 'signature',
+        implementation: 'lsb_steganography_hmac_compare_stable',
+        fingerprint: compareHmac,
+        data: {
+          payloadHmac: record.stegoLayer?.payloadHmac,
+          comparisonHmac: compareHmac,
+          note: 'Stabilised for comparison (content-based, not record-ID-bound)',
+        },
         success: true,
       });
     }

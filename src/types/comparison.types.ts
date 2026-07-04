@@ -18,6 +18,11 @@ export interface LayerComparisonResult {
   similarityPercent: number;
   /** True when similarityScore >= layer threshold */
   matched: boolean;
+  /**
+   * True when the layer is not content-comparable (registry / not generated on probe).
+   * Must never be reported as FAIL — UI maps to SKIPPED.
+   */
+  skipped?: boolean;
 
   fingerprintA: string;
   fingerprintB: string;

@@ -23,6 +23,7 @@ export interface DeepCompareResult {
     name: string;
     similarityPercent: number;
     matched: boolean;
+    skipped?: boolean;
   }>;
 }
 
@@ -113,8 +114,9 @@ export class DeepVaultCompareService {
       const layerComparisons = cmp.layerComparisons.map((l) => ({
         layer: l.layer,
         name: l.name,
-        similarityPercent: l.similarityPercent,
-        matched: l.matched,
+        similarityPercent: l.skipped ? 0 : l.similarityPercent,
+        matched: l.skipped ? false : l.matched,
+        skipped: l.skipped,
       }));
       const aware = derivativeAwareScore(
         layerComparisons,

@@ -25,7 +25,7 @@ import { pinitIdentificationConfig } from '../../config/pinit-identification';
 import { investigationPerformanceConfig, clampCandidatePool } from '../../config/investigation-performance';
 import { runParallelForensicRecovery } from './parallel-forensic-recovery.service';
 import { createStageTimer, type StageTimer } from '../../lib/stage-timer';
-import { withTimeoutSoft } from '../../lib/safe-runner';
+import { withTimeoutSoft, withTimeoutSoftRetain } from '../../lib/safe-runner';
 import type { InvestigationProgressEvent, InvestigationLiveSnapshot } from '../../types/unified-investigation.types';
 import { mergeSnapshot } from './investigation-live-snapshot';
 import type { VaultMatchResult } from './vault-auto-match.service';
@@ -1161,7 +1161,7 @@ export class PinitOriginalIdentityRecoveryService {
         rankingPool = rankingPool.slice(0, RANKING_TOP_DEEP);
       }
 
-      // Per-candidate deep DNA with hard cap — hung decrypt must not burn minutes.
+      // Per-candidate deep DNA — retain results that finish within grace (never discard completed evidence).
       const deepMs = investigationPerformanceConfig.deepCompareTimeoutMs;
       const ranking = await selectWinnerByRanking({
         candidates: rankingPool.length ? rankingPool : candidates,
@@ -1172,11 +1172,12 @@ export class PinitOriginalIdentityRecoveryService {
         isExactVaultMatch,
         mediaType: mediaKey,
         compareCandidate: async (c) => {
-          const result = await withTimeoutSoft(
+          const result = await withTimeoutSoftRetain(
             () => deepVaultCompareService.compareOneCandidate(
               buffer, mimeType, originalName, sizeBytes, c, ownerUserId,
             ),
             deepMs,
+            12_000,
             `deep_compare_${c.vaultId.slice(0, 8)}`,
           );
           if (!result) {

@@ -3,7 +3,7 @@
  * No stage may throw an uncaught exception to the caller.
  */
 import { logger } from '../../lib/logger';
-import { withTimeoutSoft } from '../../lib/safe-runner';
+import { withTimeoutSoft, withTimeoutSoftRetain } from '../../lib/safe-runner';
 import type {
   InvestigationStageResult,
   StageExecutorOptions,
@@ -23,10 +23,13 @@ export async function executeStage<T>(
 ): Promise<InvestigationStageResult<T>> {
   const started = nowMs();
   const timeoutMs = options?.timeoutMs ?? 30_000;
+  const retainGraceMs = options?.retainGraceMs ?? 0;
 
   try {
     const data = timeoutMs > 0
-      ? await withTimeoutSoft(fn, timeoutMs, stage)
+      ? retainGraceMs > 0
+        ? await withTimeoutSoftRetain(fn, timeoutMs, retainGraceMs, stage)
+        : await withTimeoutSoft(fn, timeoutMs, stage)
       : await fn();
 
     if (data === null && timeoutMs > 0) {
