@@ -501,4 +501,126 @@ class ForensicProvenanceService {
   }
 }
 
+export interface AssetLocationStatus {
+  status: 'AVAILABLE' | 'UNAVAILABLE';
+  /** Creation / registration location (EXIF GPS or first provenance event) */
+  creationLabel?: string;
+  creationSource?: 'gps' | 'ip' | 'none';
+  /** Most recent known location from custody events */
+  lastKnownLabel?: string;
+  lastKnownSource?: 'gps' | 'ip' | 'none';
+  lastKnownAt?: string;
+}
+
+/**
+ * Batch location status for vault list/detail — never invents GPS.
+ * Reads EXIF metadata + provenance events only.
+ */
+export async function getLocationStatusForAssets(
+  dnaRecordIds: string[],
+): Promise<Map<string, AssetLocationStatus>> {
+  const map = new Map<string, AssetLocationStatus>();
+  if (!dnaRecordIds.length) return map;
+
+  const unique = [...new Set(dnaRecordIds)];
+
+  const metas = await prisma.metadataLayer.findMany({
+    where: { dnaRecordId: { in: unique } },
+    select: {
+      dnaRecordId: true,
+      gpsLatitude: true,
+      gpsLongitude: true,
+    },
+  });
+  const metaByDna = new Map(metas.map((m) => [m.dnaRecordId, m]));
+
+  let events: Array<{
+    dnaRecordId: string | null;
+    createdAt: Date;
+    country: string | null;
+    region: string | null;
+    city: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    locationSource: string | null;
+  }> = [];
+  try {
+    events = await prisma.forensicProvenanceEvent.findMany({
+      where: {
+        dnaRecordId: { in: unique },
+        OR: [
+          { country: { not: null } },
+          { city: { not: null } },
+          { latitude: { not: null } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        dnaRecordId: true,
+        createdAt: true,
+        country: true,
+        region: true,
+        city: true,
+        latitude: true,
+        longitude: true,
+        locationSource: true,
+      },
+    });
+  } catch {
+    /* table may not exist yet */
+  }
+
+  const latestByDna = new Map<string, (typeof events)[0]>();
+  const earliestByDna = new Map<string, (typeof events)[0]>();
+  // events ordered desc — first seen per dna = latest
+  for (const ev of events) {
+    if (!ev.dnaRecordId) continue;
+    if (!latestByDna.has(ev.dnaRecordId)) latestByDna.set(ev.dnaRecordId, ev);
+  }
+  for (const ev of [...events].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())) {
+    if (!ev.dnaRecordId || earliestByDna.has(ev.dnaRecordId)) continue;
+    earliestByDna.set(ev.dnaRecordId, ev);
+  }
+
+  for (const dnaId of unique) {
+    const meta = metaByDna.get(dnaId);
+    const latest = latestByDna.get(dnaId);
+    const earliest = earliestByDna.get(dnaId);
+
+    let creationLabel: string | undefined;
+    let creationSource: 'gps' | 'ip' | 'none' = 'none';
+    if (meta?.gpsLatitude != null && meta?.gpsLongitude != null) {
+      creationLabel = `${meta.gpsLatitude.toFixed(5)}, ${meta.gpsLongitude.toFixed(5)}`;
+      creationSource = 'gps';
+    } else if (earliest) {
+      creationLabel = locationLabel(earliest);
+      creationSource = (earliest.locationSource as 'gps' | 'ip' | 'none') || (earliest.latitude != null ? 'gps' : earliest.country ? 'ip' : 'none');
+    }
+
+    let lastKnownLabel: string | undefined;
+    let lastKnownSource: 'gps' | 'ip' | 'none' = 'none';
+    let lastKnownAt: string | undefined;
+    if (latest) {
+      lastKnownLabel = locationLabel(latest);
+      lastKnownSource = (latest.locationSource as 'gps' | 'ip' | 'none') || (latest.latitude != null ? 'gps' : latest.country ? 'ip' : 'none');
+      lastKnownAt = latest.createdAt.toISOString();
+    } else if (creationLabel) {
+      lastKnownLabel = creationLabel;
+      lastKnownSource = creationSource;
+    }
+
+    const available = !!(creationLabel || lastKnownLabel);
+    map.set(dnaId, {
+      status: available ? 'AVAILABLE' : 'UNAVAILABLE',
+      creationLabel,
+      creationSource,
+      lastKnownLabel,
+      lastKnownSource,
+      lastKnownAt,
+    });
+  }
+
+  return map;
+}
+
 export const forensicProvenanceService = new ForensicProvenanceService();

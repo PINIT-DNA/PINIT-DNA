@@ -14,6 +14,16 @@ export interface DnaRecord {
   vaultId: string | null;
 }
 
+/** Custody location — never part of DNA (immutable identity) */
+export interface VaultLocationStatus {
+  status: 'AVAILABLE' | 'UNAVAILABLE';
+  creationLabel?: string;
+  creationSource?: 'gps' | 'ip' | 'none';
+  lastKnownLabel?: string;
+  lastKnownSource?: 'gps' | 'ip' | 'none';
+  lastKnownAt?: string;
+}
+
 export interface VaultRecord {
   id: string;
   dnaRecordId: string;
@@ -29,6 +39,7 @@ export interface VaultRecord {
     status: string;
     filename: string;
   };
+  location?: VaultLocationStatus;
 }
 
 export interface SupportedFileType {

@@ -51,6 +51,9 @@ export async function listVaultRecords(
       },
     });
 
+    const { getLocationStatusForAssets } = await import('../../services/forensics/forensic-provenance.service');
+    const locationByDna = await getLocationStatusForAssets(records.map((r) => r.dnaRecordId));
+
     res.status(200).json({
       success: true,
       count: records.length,
@@ -69,6 +72,8 @@ export async function listVaultRecords(
           status:   r.dnaRecord.status,
           filename: r.dnaRecord.imageFilename,
         },
+        // Custody location — not part of DNA (immutable identity)
+        location: locationByDna.get(r.dnaRecordId) ?? { status: 'UNAVAILABLE' as const },
       })),
     });
   } catch (err) {
@@ -108,6 +113,31 @@ export async function storeInVault(
       originalFileName: req.file.originalname,
       originalMimeType: req.file.mimetype,
     });
+
+    // Custody location from request (IP) — never written into DNA
+    try {
+      const { forensicProvenanceService } = await import('../../services/forensics/forensic-provenance.service');
+      const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+        || req.socket.remoteAddress
+        || null;
+      const country = (req.headers['cf-ipcountry'] as string) || null;
+      if (ip || country) {
+        forensicProvenanceService.appendAsync({
+          eventType: 'VAULT_STORED',
+          summary: `Vault store location context — ${result.originalFileName}`,
+          dnaRecordId: result.dnaRecordId,
+          vaultId: result.vaultId,
+          actorUserId: ownerUserId,
+          ipAddress: ip,
+          country: country && country !== 'XX' ? country : null,
+          locationSource: country && country !== 'XX' ? 'ip' : 'none',
+          payload: { note: 'Server-side IP context at vault store' },
+          dedupeKey: `vault_stored_geo:${result.vaultId}`,
+        });
+      }
+    } catch {
+      /* non-fatal */
+    }
 
     // Fire-and-forget: OCR + auto-index in FAISS after vault store
     autoIndexer.indexAfterVaultStore({
@@ -156,6 +186,8 @@ export async function getVaultRecord(
 
   try {
     const record = await vaultService.getRecord(id);
+    const { getLocationStatusForAssets } = await import('../../services/forensics/forensic-provenance.service');
+    const locationByDna = await getLocationStatusForAssets([record.dnaRecordId]);
 
     res.status(200).json({
       success: true,
@@ -174,6 +206,7 @@ export async function getVaultRecord(
           status:        record.dnaRecord.status,
           schemaVersion: record.dnaRecord.schemaVersion,
         },
+        location: locationByDna.get(record.dnaRecordId) ?? { status: 'UNAVAILABLE' as const },
       },
     });
   } catch (err) {
@@ -282,6 +315,17 @@ export async function prepareProtectedDownload(
     if (err instanceof Error && err.message.includes('Certificate verification failed')) {
       return next(new AppError(422, err.message));
     }
+    if (err instanceof Error && (
+      err.message.includes('Unsupported state')
+      || err.message.includes('Vault decrypt failed')
+      || err.message.includes('auth tag')
+    )) {
+      return next(new AppError(
+        422,
+        'Vault file integrity check failed — cannot decrypt. '
+        + 'Ensure VAULT_MASTER_SECRET matches the key used when this file was vaulted.',
+      ));
+    }
     if (err instanceof Error && err.message.includes('disabled')) {
       return next(new AppError(503, err.message));
     }
@@ -370,8 +414,16 @@ export async function protectedDownloadFromVault(
     if (err instanceof Error && err.message.includes('Certificate verification failed')) {
       return next(new AppError(422, err.message));
     }
-    if (err instanceof Error && err.message.includes('Unsupported state')) {
-      return next(new AppError(422, 'Vault file integrity check failed'));
+    if (err instanceof Error && (
+      err.message.includes('Unsupported state')
+      || err.message.includes('Vault decrypt failed')
+      || err.message.includes('auth tag')
+    )) {
+      return next(new AppError(
+        422,
+        'Vault file integrity check failed — cannot decrypt. '
+        + 'Ensure VAULT_MASTER_SECRET matches the key used when this file was vaulted.',
+      ));
     }
     next(err);
   }

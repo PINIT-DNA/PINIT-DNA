@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Archive, Search, Lock, RefreshCw, Download, Eye, ExternalLink, Share2, Copy, Check, Clock, Ban, FileSearch, Cpu, GitBranch, ShieldCheck } from 'lucide-react';
+import { Archive, Search, Lock, RefreshCw, Download, Eye, ExternalLink, Share2, Copy, Check, Clock, Ban, FileSearch, Cpu, GitBranch, ShieldCheck, MapPin } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
@@ -57,6 +57,48 @@ function VaultDetailModal({ record, onClose }: { record: VaultRecord; onClose: (
               </p>
             </div>
           ))}
+        </div>
+
+        {/* Location status — custody evidence, not DNA */}
+        <div className={`rounded-xl border p-4 ${
+          record.location?.status === 'AVAILABLE'
+            ? 'bg-dna-500/5 border-dna-500/25'
+            : 'bg-bg-elevated border-bg-border'
+        }`}>
+          <div className="flex items-center gap-2 mb-2">
+            <MapPin size={14} className={record.location?.status === 'AVAILABLE' ? 'text-dna-400' : 'text-gray-500'} />
+            <p className="text-xs font-semibold text-white">Location Status</p>
+            <span className={`text-2xs px-1.5 py-0.5 rounded font-semibold ${
+              record.location?.status === 'AVAILABLE'
+                ? 'bg-success/15 text-success'
+                : 'bg-gray-500/20 text-gray-400'
+            }`}>
+              {record.location?.status === 'AVAILABLE' ? 'AVAILABLE' : 'UNAVAILABLE'}
+            </span>
+          </div>
+          {record.location?.status === 'AVAILABLE' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+              <div>
+                <p className="text-2xs text-gray-500">Creation location</p>
+                <p className="text-gray-200">{record.location.creationLabel ?? '—'}</p>
+                {record.location.creationSource && record.location.creationSource !== 'none' && (
+                  <p className="text-2xs text-gray-500">Source: {record.location.creationSource.toUpperCase()}</p>
+                )}
+              </div>
+              <div>
+                <p className="text-2xs text-gray-500">Last known location</p>
+                <p className="text-gray-200">{record.location.lastKnownLabel ?? '—'}</p>
+                {record.location.lastKnownSource && record.location.lastKnownSource !== 'none' && (
+                  <p className="text-2xs text-gray-500">Source: {record.location.lastKnownSource.toUpperCase()}</p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-2xs text-gray-400">
+              No GPS or IP location was recorded for this asset. WhatsApp and many apps strip EXIF GPS.
+              Location appears here only from camera EXIF (if present) or custody events (download / share / investigation) — never invented, never stored inside DNA.
+            </p>
+          )}
         </div>
 
         {/* Security info */}
@@ -142,8 +184,9 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
       );
     } catch (err) {
       setPhase('error');
-      setError(err instanceof Error ? err.message : 'Protected download failed');
-      toast.error('Protected download failed');
+      const msg = err instanceof Error ? err.message : 'Protected download failed';
+      setError(msg);
+      toast.error(msg.length > 80 ? 'Protected download failed' : msg);
     } finally {
       window.clearInterval(stepTimer);
     }
@@ -941,6 +984,7 @@ export function VaultPage() {
               <tr>
                 <th>File</th>
                 <th>Vault ID</th>
+                <th>Location</th>
                 <th>Original Size</th>
                 <th>Encryption</th>
                 <th>Stored At</th>
@@ -952,7 +996,7 @@ export function VaultPage() {
                 <SkeletonTable rows={5} />
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     <EmptyState
                       icon={Archive}
                       title="No vault records"
@@ -976,6 +1020,18 @@ export function VaultPage() {
                     </td>
                     <td>
                       <span className="mono text-2xs text-dna-400">{r.id.slice(0, 16)}…</span>
+                    </td>
+                    <td>
+                      {r.location?.status === 'AVAILABLE' ? (
+                        <div className="flex items-start gap-1 max-w-[140px]">
+                          <MapPin size={12} className="text-dna-400 shrink-0 mt-0.5" />
+                          <span className="text-2xs text-gray-300 truncate" title={r.location.lastKnownLabel ?? r.location.creationLabel}>
+                            {r.location.lastKnownLabel ?? r.location.creationLabel}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-2xs text-gray-500">Unavailable</span>
+                      )}
                     </td>
                     <td>
                       <span className="mono text-xs">{formatBytes(r.originalSizeBytes)}</span>
