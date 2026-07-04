@@ -182,16 +182,110 @@ export async function prepareProtectedDownload(vaultId: string): Promise<Protect
   return data;
 }
 
+async function readBlobApiError(err: unknown): Promise<string> {
+  const ax = err as {
+    response?: { status?: number; data?: unknown };
+    message?: string;
+  };
+  const data = ax.response?.data;
+  if (data instanceof Blob) {
+    try {
+      const text = await data.text();
+      const parsed = JSON.parse(text) as { error?: string; message?: string };
+      if (parsed.error) return parsed.error;
+      if (parsed.message) return parsed.message;
+      if (text.trim()) return text.trim();
+    } catch {
+      /* fall through */
+    }
+  }
+  return formatApiError(err);
+}
+
 export async function protectedDownloadFromVault(
   vaultId: string,
-): Promise<{ blob: Blob; tepCode?: string }> {
-  const response = await api.post<Blob>(
-    `${API_BASE_URL}/vault/${vaultId}/protected-download`,
-    {},
-    { responseType: 'blob' },
+  options?: { recipientLabel?: string; purpose?: string; expiryDays?: number },
+): Promise<{ blob: Blob; tepCode?: string; downloadEventId?: string; tracking?: string }> {
+  try {
+    const response = await api.post<Blob>(
+      `${API_BASE_URL}/vault/${vaultId}/protected-download`,
+      {
+        recipientLabel: options?.recipientLabel,
+        purpose: options?.purpose,
+        expiryDays: options?.expiryDays,
+      },
+      { responseType: 'blob' },
+    );
+    const headers = response.headers as Record<string, string | undefined>;
+    return {
+      blob: response.data,
+      tepCode: headers['x-tep-code'],
+      downloadEventId: headers['x-pinit-download-event-id'],
+      tracking: headers['x-pinit-tep-tracking'],
+    };
+  } catch (err) {
+    throw new Error(await readBlobApiError(err));
+  }
+}
+
+export async function getVaultTracking(vaultId: string) {
+  const { data } = await api.get<{ success: boolean; tracking: VaultTrackingDashboard }>(
+    `${API_BASE_URL}/vault/${vaultId}/tracking`,
   );
-  const tepCode = response.headers['x-tep-code'] as string | undefined;
-  return { blob: response.data, tepCode };
+  return data.tracking;
+}
+
+export async function revokeVaultTep(vaultId: string, tepCode: string, reason?: string) {
+  const { data } = await api.post<{ success: boolean; status: string; message: string }>(
+    `${API_BASE_URL}/vault/${vaultId}/tep/${encodeURIComponent(tepCode)}/revoke`,
+    { reason },
+  );
+  return data;
+}
+
+export interface VaultTrackingDashboard {
+  vaultId: string;
+  dnaRecordId: string;
+  filename: string;
+  status: string;
+  owner?: { shortId?: string; fullName?: string } | null;
+  tepPackages: Array<{
+    tepCode: string;
+    status: string;
+    createdAt: string;
+    expiresAt: string | null;
+    geoCountry?: string | null;
+    geoCity?: string | null;
+    recipientId?: string | null;
+  }>;
+  downloads: Array<{
+    id: string;
+    timestamp: string;
+    summary: string;
+    locationLabel?: string;
+    device?: string;
+    tepCode?: string;
+    actorLabel?: string;
+    country?: string;
+    city?: string;
+  }>;
+  summary: {
+    downloadCount: number;
+    lastDownload?: string;
+    lastProtectedExport?: string;
+    countriesSeen: string[];
+    devicesSeen: string[];
+    tamperCount: number;
+    investigationCount: number;
+  };
+  chainOfCustody: Array<{
+    step: string;
+    eventType: string;
+    timestamp: string;
+    summary: string;
+    locationLabel?: string;
+    tepCode?: string;
+  }>;
 }
 
 // ─── Certificate Management (Phase 2) ────────────────────────────────────────

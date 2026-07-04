@@ -8,7 +8,19 @@
 
 import { Router } from 'express';
 import { uploadSingle } from '../middleware/upload.middleware';
-import { listVaultRecords, storeInVault, getVaultRecord, retrieveFromVault, scanVaultFile, verifyFileIdentity, prepareProtectedDownload, protectedDownloadFromVault, backfillLocalDnaIndex } from '../controllers/vault.controller';
+import {
+  listVaultRecords,
+  storeInVault,
+  getVaultRecord,
+  retrieveFromVault,
+  scanVaultFile,
+  verifyFileIdentity,
+  prepareProtectedDownload,
+  protectedDownloadFromVault,
+  backfillLocalDnaIndex,
+  getVaultTracking,
+  revokeVaultTep,
+} from '../controllers/vault.controller';
 import { vaultIntegrityCheck } from '../controllers/integrity.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import { requireVaultOwnership } from '../middleware/ownership.middleware';
@@ -63,8 +75,15 @@ router.post('/:id/protected-download/prepare', requireAuth, requireVaultOwnershi
 /**
  * POST /vault/:id/protected-download
  * Protected owner download — decrypts without stripping forensic markers.
+ * Body (optional): { recipientLabel?, purpose?, expiryDays? }
  */
 router.post('/:id/protected-download', requireAuth, requireVaultOwnership, protectedDownloadFromVault);
+
+/** GET /vault/:id/tracking — TEP packages, download history, chain of custody */
+router.get('/:id/tracking', requireAuth, requireVaultOwnership, getVaultTracking);
+
+/** POST /vault/:id/tep/:tepCode/revoke — revoke a tracked export package */
+router.post('/:id/tep/:tepCode/revoke', requireAuth, requireVaultOwnership, revokeVaultTep);
 
 /**
  * POST /vault/:id/scan-sensitive

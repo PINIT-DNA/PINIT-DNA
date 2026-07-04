@@ -399,41 +399,39 @@ export async function protectedDownloadFromVault(
       }
     }
 
-    // Always append download custody evidence (even if TEP embed failed).
-    // This is the "download event" — not continuous tracking after the file leaves PINIT.
-    const downloadEventId = crypto.randomUUID();
+    // Phase B — provenance download event (never blocks download)
+    const purpose = typeof req.body?.purpose === 'string' ? req.body.purpose : null;
+    const expiryDays = Number.isFinite(Number(req.body?.expiryDays))
+      ? Number(req.body.expiryDays)
+      : null;
+    const recipientLabel = typeof req.body?.recipientLabel === 'string'
+      ? req.body.recipientLabel
+      : `owner:${userId}`;
+
+    let downloadEventId = crypto.randomUUID();
     try {
-      const { forensicProvenanceService } = await import('../../services/forensics/forensic-provenance.service');
-      await forensicProvenanceService.append({
-        eventType: 'DOWNLOADED',
-        summary: tepCode
-          ? `Protected download — TEP ${tepCode}`
-          : 'Protected download (TEP embed unavailable)',
+      const { recordProtectedDownload } = await import('../../services/provenance');
+      const recorded = await recordProtectedDownload({
         dnaRecordId: result.dnaRecordId,
         vaultId: result.vaultId,
-        tepCode: tepCode ?? null,
-        certificateId: result.certificateId ?? null,
         actorUserId: userId,
-        actorLabel: `owner:${userId}`,
+        certificateId: result.certificateId,
+        tepCode: tepCode ?? null,
+        shareLinkId: protectedDownloadTepChannelId(result.vaultId),
         ipAddress: realIp ?? null,
+        userAgent: userAgent ?? null,
+        recipientLabel,
+        purpose,
+        expiryDays,
+        forensicPreserved: result.forensicPreserved,
+        fileSha256: crypto.createHash('sha256').update(fileBuffer).digest('hex'),
+        tepTrackingFailed,
+        tepFailReason: tepFailReason ?? null,
         country: geo?.country ?? null,
         city: geo?.city ?? null,
         region: geo?.region ?? null,
-        locationSource: geo?.country ? 'ip' : 'none',
-        userAgent: userAgent ?? null,
-        device: userAgent ?? null,
-        payload: {
-          downloadEventId,
-          status: tepCode ? 'TEP_TRACKED' : 'DOWNLOAD_RECORDED',
-          tepTrackingFailed,
-          tepFailReason: tepFailReason ?? null,
-          certificateId: result.certificateId,
-          forensicPreserved: result.forensicPreserved,
-          fileSha256: crypto.createHash('sha256').update(fileBuffer).digest('hex'),
-          shareLinkId: protectedDownloadTepChannelId(result.vaultId),
-        },
-        dedupeKey: `protected_download:${downloadEventId}`,
       });
+      downloadEventId = recorded.downloadEventId;
     } catch (provErr) {
       logger.warn('[ProtectedDownload] Provenance append failed (non-fatal)', {
         error: String(provErr),
@@ -616,6 +614,54 @@ export async function backfillLocalDnaIndex(req: Request, res: Response, next: N
       message: `Local DNA index backfill complete — ${result.indexed} indexed, ${result.failed} failed`,
       ...result,
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** GET /vault/:id/tracking — Phase B tracking dashboard (TEP + downloads + custody) */
+export async function getVaultTracking(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const ownerUserId = getAuthUserId(req);
+    const { id } = req.params;
+    const { getVaultTrackingDashboard } = await import('../../services/provenance');
+    const dashboard = await getVaultTrackingDashboard({ vaultId: id, ownerUserId });
+    if (!dashboard) {
+      return next(new AppError(404, 'Vault record not found'));
+    }
+    res.status(200).json({ success: true, tracking: dashboard });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** POST /vault/:id/tep/:tepCode/revoke — revoke a TEP package (append-only custody) */
+export async function revokeVaultTep(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const ownerUserId = getAuthUserId(req);
+    const { tepCode } = req.params;
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
+    const { revokeTepPackage } = await import('../../services/provenance');
+    const result = await revokeTepPackage({
+      tepCode,
+      ownerUserId,
+      reason,
+    });
+    if (!result.success && result.status === 'NOT_FOUND') {
+      return next(new AppError(404, result.message));
+    }
+    if (!result.success && result.status === 'FORBIDDEN') {
+      return next(new AppError(403, result.message));
+    }
+    res.status(200).json({ success: result.success, ...result });
   } catch (err) {
     next(err);
   }

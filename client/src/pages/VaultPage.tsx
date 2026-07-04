@@ -4,7 +4,15 @@ import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { useApi, formatBytes } from '../hooks/useApi';
-import { listVaultRecords, retrieveFromVault, protectedDownloadFromVault, api } from '../services/dashboard.api';
+import {
+  listVaultRecords,
+  retrieveFromVault,
+  protectedDownloadFromVault,
+  getVaultTracking,
+  revokeVaultTep,
+  api,
+  type VaultTrackingDashboard,
+} from '../services/dashboard.api';
 import { SkeletonTable } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Badge } from '../components/ui/Badge';
@@ -153,6 +161,10 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
   const [activeStep, setActiveStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [forensicPreserved, setForensicPreserved] = useState(false);
+  const [recipientLabel, setRecipientLabel] = useState('');
+  const [purpose, setPurpose] = useState('Personal');
+  const [expiryDays, setExpiryDays] = useState(30);
+  const [lastTep, setLastTep] = useState<string | null>(null);
 
   const runProtectedDownload = async () => {
     setPhase('running');
@@ -164,8 +176,13 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
     }, 600);
 
     try {
-      const { blob, tepCode } = await protectedDownloadFromVault(record.id);
+      const { blob, tepCode, tracking } = await protectedDownloadFromVault(record.id, {
+        recipientLabel: recipientLabel.trim() || undefined,
+        purpose,
+        expiryDays,
+      });
       setForensicPreserved(true);
+      setLastTep(tepCode ?? null);
       setActiveStep(PROTECTED_STEPS.length - 2);
 
       const url = URL.createObjectURL(blob);
@@ -179,8 +196,8 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
       setPhase('done');
       toast.success(
         tepCode
-          ? `Protected download complete — TEP ${tepCode} embedded for leak tracking`
-          : 'Protected download complete — forensic identity preserved',
+          ? `Protected download complete — TEP ${tepCode} (${tracking ?? 'tracked'})`
+          : 'Protected download complete — download event recorded',
       );
     } catch (err) {
       setPhase('error');
@@ -200,11 +217,61 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
             <ShieldCheck size={16} className="text-dna-400" />
             <p className="text-sm font-semibold text-white">{record.originalFileName}</p>
           </div>
-          <p className="text-2xs text-gray-400">
-            Downloads your file with all embedded forensic markers intact — DNA fingerprints,
-            invisible identity, watermarks, and certificate linkage remain recoverable via DNA Compare.
+          <p className="text-2xs text-gray-400 mb-2">
+            Enterprise delivery: TEP tracking, download logging, and chain of custody.
+            Browsers cannot force the file to open only in PINIT — recovery happens when the file
+            is investigated or opened through a PINIT-controlled path.
           </p>
+          <ul className="text-2xs text-dna-300 space-y-0.5">
+            <li>✓ TEP Tracking</li>
+            <li>✓ Dynamic Watermark</li>
+            <li>✓ Download Logging (IP / device / time)</li>
+            <li>✓ Chain of Custody</li>
+            <li>✓ Future Identification via Investigation</li>
+          </ul>
         </div>
+
+        {phase === 'idle' && (
+          <div className="space-y-3">
+            <div>
+              <label className="text-2xs text-gray-500">Recipient (optional label)</label>
+              <input
+                className="input text-sm mt-1"
+                placeholder="e.g. HR team / self"
+                value={recipientLabel}
+                onChange={(e) => setRecipientLabel(e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-2xs text-gray-500">Purpose</label>
+                <select
+                  className="input text-sm mt-1"
+                  value={purpose}
+                  onChange={(e) => setPurpose(e.target.value)}
+                >
+                  <option>Personal</option>
+                  <option>Employment</option>
+                  <option>Legal</option>
+                  <option>Partner Share</option>
+                  <option>Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-2xs text-gray-500">Expiry (days)</label>
+                <select
+                  className="input text-sm mt-1"
+                  value={expiryDays}
+                  onChange={(e) => setExpiryDays(Number(e.target.value))}
+                >
+                  <option value={7}>7 Days</option>
+                  <option value={30}>30 Days</option>
+                  <option value={90}>90 Days</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
 
         <ul className="space-y-2">
           {PROTECTED_STEPS.map((step, i) => {
@@ -225,7 +292,10 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
         </ul>
 
         {phase === 'done' && forensicPreserved && (
-          <p className="text-2xs text-success text-center">Embedded PINIT-DNA identity verified in downloaded file.</p>
+          <div className="text-2xs text-success text-center space-y-1">
+            <p>Protected download recorded in chain of custody.</p>
+            {lastTep && <p className="mono text-dna-300">TEP {lastTep}</p>}
+          </div>
         )}
 
         {error && (
@@ -235,7 +305,7 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
         <div className="flex gap-3 pt-2">
           {phase === 'idle' || phase === 'error' ? (
             <button onClick={runProtectedDownload} className="btn btn-primary flex-1">
-              <ShieldCheck size={14} /> Start Protected Download
+              <ShieldCheck size={14} /> Generate Protected Download
             </button>
           ) : phase === 'running' ? (
             <button disabled className="btn btn-primary flex-1 opacity-70">
@@ -247,6 +317,160 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
           {phase !== 'running' && (
             <button onClick={onClose} className="btn btn-secondary">Close</button>
           )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── Tracking Dashboard Modal (Phase B) ──────────────────────────────────────
+
+function TrackingDashboardModal({ record, onClose }: { record: VaultRecord; onClose: () => void }) {
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<VaultTrackingDashboard | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const tracking = await getVaultTracking(record.id);
+      setData(tracking);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load tracking');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, [record.id]);
+
+  const handleRevoke = async (tepCode: string) => {
+    setRevoking(tepCode);
+    try {
+      const result = await revokeVaultTep(record.id, tepCode, 'Owner revoked access');
+      toast.success(result.message);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Revoke failed');
+    } finally {
+      setRevoking(null);
+    }
+  };
+
+  return (
+    <Modal open title="Tracking Dashboard" onClose={onClose} size="lg">
+      <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-white">{record.originalFileName}</p>
+            <p className="text-2xs text-gray-500 mono">{record.id}</p>
+          </div>
+          {data && (
+            <span className={`text-2xs px-2 py-1 rounded font-semibold ${
+              data.status === 'REVOKED' ? 'bg-danger/15 text-danger'
+                : data.status === 'PROTECTED' ? 'bg-success/15 text-success'
+                  : 'bg-gray-500/20 text-gray-300'
+            }`}>
+              {data.status}
+            </span>
+          )}
+        </div>
+
+        {loading && (
+          <p className="text-xs text-gray-500 flex items-center gap-2">
+            <RefreshCw size={14} className="animate-spin" /> Loading custody timeline…
+          </p>
+        )}
+        {error && <p className="text-xs text-danger">{error}</p>}
+
+        {data && (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {[
+                ['Downloads', String(data.summary.downloadCount)],
+                ['Investigations', String(data.summary.investigationCount)],
+                ['Tamper events', String(data.summary.tamperCount)],
+                ['TEP packages', String(data.tepPackages.length)],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-lg border border-bg-border bg-bg-elevated/40 px-2 py-1.5">
+                  <p className="text-2xs text-gray-500">{label}</p>
+                  <p className="text-sm font-semibold text-white">{value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold text-white mb-2">TEP Packages</p>
+              {data.tepPackages.length === 0 ? (
+                <p className="text-2xs text-gray-500">No TEP packages yet — use Protected Download.</p>
+              ) : (
+                <div className="space-y-2">
+                  {data.tepPackages.map((t) => (
+                    <div key={t.tepCode} className="flex items-center justify-between gap-2 rounded-lg border border-bg-border px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-xs mono text-dna-300">{t.tepCode}</p>
+                        <p className="text-2xs text-gray-500">
+                          {t.status} · {format(new Date(t.createdAt), 'PPp')}
+                          {t.geoCity || t.geoCountry ? ` · ${[t.geoCity, t.geoCountry].filter(Boolean).join(', ')}` : ''}
+                        </p>
+                      </div>
+                      {t.status === 'ACTIVE' && (
+                        <button
+                          className="btn btn-secondary btn-sm text-danger"
+                          disabled={revoking === t.tepCode}
+                          onClick={() => handleRevoke(t.tepCode)}
+                        >
+                          {revoking === t.tepCode ? '…' : 'Revoke'}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold text-white mb-2">Download History</p>
+              {data.downloads.length === 0 ? (
+                <p className="text-2xs text-gray-500">No downloads recorded.</p>
+              ) : (
+                <div className="space-y-2">
+                  {data.downloads.map((d) => (
+                    <div key={d.id} className="border-l-2 border-dna-500/30 pl-3 py-1">
+                      <p className="text-xs text-white">{d.summary}</p>
+                      <p className="text-2xs text-gray-500">
+                        {format(new Date(d.timestamp), 'PPp')}
+                        {d.locationLabel ? ` · ${d.locationLabel}` : ''}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold text-white mb-2">Chain of Custody</p>
+              <div className="space-y-1">
+                {data.chainOfCustody.map((c, i) => (
+                  <div key={`${c.eventType}-${c.timestamp}-${i}`} className="flex gap-2 text-2xs">
+                    <span className="text-dna-400 shrink-0">↓</span>
+                    <div>
+                      <p className="text-gray-200 font-semibold">{c.step}</p>
+                      <p className="text-gray-500">{c.summary} · {format(new Date(c.timestamp), 'PPp')}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className="flex justify-end pt-2">
+          <button onClick={onClose} className="btn btn-secondary">Close</button>
         </div>
       </div>
     </Modal>
@@ -859,6 +1083,7 @@ export function VaultPage() {
   const [selected, setSelected] = useState<VaultRecord | null>(null);
   const [sharing, setSharing]   = useState<VaultRecord | null>(null);
   const [protecting, setProtecting] = useState<VaultRecord | null>(null);
+  const [tracking, setTracking] = useState<VaultRecord | null>(null);
   const [aiMode, setAiMode]     = useState(false);
   const [aiResults, setAiResults] = useState<string[]>([]); // dnaRecordIds matching AI search
   const [aiSearching, setAiSearching] = useState(false);
@@ -1068,6 +1293,13 @@ export function VaultPage() {
                           <ShieldCheck size={14} />
                         </button>
                         <button
+                          onClick={() => setTracking(r)}
+                          className="btn-ghost btn-icon text-gray-500 hover:text-dna-400"
+                          title="Tracking Dashboard"
+                        >
+                          <MapPin size={14} />
+                        </button>
+                        <button
                           onClick={() => navigate(`/intelligence/${r.id}`)}
                           className="btn-ghost btn-icon text-gray-500 hover:text-purple-400"
                           title="Intelligence Report"
@@ -1101,6 +1333,9 @@ export function VaultPage() {
       )}
       {protecting && (
         <ProtectedDownloadModal record={protecting} onClose={() => setProtecting(null)} />
+      )}
+      {tracking && (
+        <TrackingDashboardModal record={tracking} onClose={() => setTracking(null)} />
       )}
     </div>
   );
