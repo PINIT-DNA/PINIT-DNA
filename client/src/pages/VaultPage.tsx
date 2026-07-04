@@ -380,6 +380,23 @@ function TrackingDashboardModal({ record, onClose }: { record: VaultRecord; onCl
           )}
         </div>
 
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-2xs text-amber-100/90 space-y-1">
+          <p className="font-semibold text-amber-200">What PINIT can track</p>
+          <p>
+            Events appear only when someone uses <span className="font-semibold">PINIT</span>
+            (Protected Download, share link, or Unified Investigation).
+          </p>
+          <p>
+            Sending the file on <span className="font-semibold">WhatsApp / Telegram / email</span> does
+            <span className="font-semibold"> not</span> notify PINIT — so you will not see Shared or Opened for those apps.
+          </p>
+          <p>
+            <span className="font-semibold">Location:</span> shown only from the download request IP.
+            Localhost / private network shows as “Local Network”, not a city. Real city/country appears when
+            Protected Download runs on a deployed server (or a public IP), not from WhatsApp.
+          </p>
+        </div>
+
         {loading && (
           <p className="text-xs text-gray-500 flex items-center gap-2">
             <RefreshCw size={14} className="animate-spin" /> Loading custody timeline…
