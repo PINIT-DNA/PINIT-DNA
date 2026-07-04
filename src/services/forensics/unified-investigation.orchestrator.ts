@@ -246,20 +246,22 @@ export class UnifiedInvestigationOrchestrator {
     const progressTimeline: InvestigationProgressEvent[] = [];
     const orchestratorTimer = createStageTimer();
 
-    let lastLiveSnapshot: InvestigationLiveSnapshot | null = null;
+    // Holder object so TS does not narrow away mutations from the emit closure.
+    const liveState: { snapshot: InvestigationLiveSnapshot | null } = { snapshot: null };
     const emit = (event: InvestigationProgressEvent) => {
-      if (event.snapshot?.vaultId) lastLiveSnapshot = event.snapshot;
+      if (event.snapshot?.vaultId) liveState.snapshot = event.snapshot;
       else if (event.partial?.vaultId) {
-        lastLiveSnapshot = {
-          phase: lastLiveSnapshot?.phase ?? 1,
+        const prev = liveState.snapshot;
+        liveState.snapshot = {
+          phase: prev?.phase ?? 1,
           signatureFound: true,
           vaultId: event.partial.vaultId,
-          ownerPinitId: event.partial.ownerPinitId ?? lastLiveSnapshot?.ownerPinitId,
-          ownerName: event.partial.ownerName ?? lastLiveSnapshot?.ownerName,
-          originalFilename: event.partial.originalFilename ?? lastLiveSnapshot?.originalFilename,
-          confidence: event.partial.ownershipConfidence ?? lastLiveSnapshot?.confidence,
-          patchVotes: event.partial.patchVotes ?? lastLiveSnapshot?.patchVotes,
-          orbScore: event.partial.orbScore ?? lastLiveSnapshot?.orbScore,
+          ownerPinitId: event.partial.ownerPinitId ?? prev?.ownerPinitId,
+          ownerName: event.partial.ownerName ?? prev?.ownerName,
+          originalFilename: event.partial.originalFilename ?? prev?.originalFilename,
+          confidence: event.partial.ownershipConfidence ?? prev?.confidence,
+          patchVotes: event.partial.patchVotes ?? prev?.patchVotes,
+          orbScore: event.partial.orbScore ?? prev?.orbScore,
         };
       }
       progressTimeline.push(event);
@@ -319,9 +321,10 @@ export class UnifiedInvestigationOrchestrator {
 
     if (!recoveryStage.success || !recoveryStage.data) {
       const timeoutError = recoveryStage.error ?? 'Enterprise recovery failed';
-      if (lastLiveSnapshot?.vaultId) {
+      const liveSnapshot = liveState.snapshot;
+      if (liveSnapshot?.vaultId) {
         logger.warn('Enterprise recovery timed out — retaining live vault match', {
-          vaultId: lastLiveSnapshot.vaultId,
+          vaultId: liveSnapshot.vaultId,
           error: timeoutError,
         });
         return this.buildPartialFromLiveSnapshot({
@@ -331,7 +334,7 @@ export class UnifiedInvestigationOrchestrator {
           currentFileHash,
           originalName,
           ownerUserId,
-          snapshot: lastLiveSnapshot,
+          snapshot: liveSnapshot,
           error: timeoutError,
         });
       }
