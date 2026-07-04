@@ -100,10 +100,17 @@ export interface ManifestLifecycleEvent {
 }
 
 export interface ManifestLayerSlot {
+  /** Layer id 1–15 (same as layer) */
+  id: number;
   layer: number;
   name: string;
+  status: ChannelState;
+  /** Alias of status for older manifest readers */
   state: ChannelState;
-  score?: number;
+  score: number;
+  reason: string;
+  evidence: Record<string, unknown>;
+  duration: number;
   explanation?: string;
 }
 

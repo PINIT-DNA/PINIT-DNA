@@ -42,6 +42,13 @@ describe('UnifiedInvestigationOrchestrator', () => {
     expect(report.manifest?.dnaAlgorithmVersion).toBe('15-layer-v1');
     expect(report.manifest?.investigationId).toBe(report.investigationId);
     expect(Object.isFrozen(report.manifest)).toBe(true);
+    // Phase 3 — exactly 15 standardized DNA layers
+    expect(report.manifest?.layers).toHaveLength(15);
+    for (const layer of report.manifest!.layers) {
+      expect(['PASS', 'FAIL', 'SKIPPED']).toContain(layer.status);
+      expect(layer.reason).toBeTruthy();
+    }
   });
 });
+
 

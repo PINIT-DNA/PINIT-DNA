@@ -18,6 +18,7 @@ import {
   INVESTIGATION_MANIFEST_VERSION,
 } from '../../types/investigation-manifest.types';
 import type { CandidateScoreLog } from './image-candidate-acceptance.service';
+import { standardizeDnaLayers } from './dna-layer-standardization.service';
 
 export interface ManifestBuildInput {
   report: UnifiedInvestigationReport;
@@ -184,25 +185,23 @@ function buildLifecycle(report: UnifiedInvestigationReport): ManifestLifecycleEv
   return events;
 }
 
-function layerSlots(report: UnifiedInvestigationReport): InvestigationManifest['layers'] {
-  const analysis = report.layerAnalysis ?? [];
-  if (!analysis.length) {
-    return Array.from({ length: 15 }, (_, i) => ({
-      layer: i + 1,
-      name: `Layer ${i + 1}`,
-      state: 'SKIPPED' as const,
-    }));
-  }
-  return analysis.map((l) => ({
-    layer: l.layer,
+function layerSlots(
+  report: UnifiedInvestigationReport,
+  outcome: InvestigationOutcome,
+  mediaType: ManifestMediaType,
+): InvestigationManifest['layers'] {
+  const bundle = standardizeDnaLayers({ report, outcome, mediaType });
+  return bundle.layers.map((l) => ({
+    id: l.id,
+    layer: l.id,
     name: l.name,
-    state: l.status === 'verified'
-      ? 'PASS' as const
-      : l.status === 'failed'
-        ? 'FAIL' as const
-        : 'SKIPPED' as const,
-    score: l.matchPercent,
-    explanation: l.explanation,
+    status: l.status,
+    state: l.status,
+    score: l.score,
+    reason: l.reason,
+    evidence: l.evidence,
+    duration: l.duration,
+    explanation: l.reason,
   }));
 }
 
@@ -286,7 +285,7 @@ export function buildInvestigationManifest(input: ManifestBuildInput): Investiga
       detail: t.detail,
     })),
     lifecycle: buildLifecycle(report),
-    layers: layerSlots(report),
+    layers: layerSlots(report, outcome, mediaType),
     evidence: {
       watermarkStatus: report.identityProof?.watermark?.status,
       identityVerification: report.identityProof?.identityVerification,
