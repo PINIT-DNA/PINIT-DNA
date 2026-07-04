@@ -6,7 +6,11 @@ import { logger } from '../../lib/logger';
 import type { EnterpriseRecoveryResult } from './enterprise-recovery-pipeline.service';
 import type { VaultMatchResult } from './vault-auto-match.service';
 import type { ForensicVerdict } from './confidence-fusion-engine.service';
-import type { AcceptanceDecision, AcceptanceVerdict } from '../../types/acceptance.types';
+import type {
+  AcceptanceDecision,
+  AcceptanceScorecard,
+  AcceptanceVerdict,
+} from '../../types/acceptance.types';
 import { runAcceptanceEngine } from './acceptance-engine.service';
 import { buildAcceptanceEvidenceFromEnterprise } from './acceptance-evidence.builder';
 
@@ -31,6 +35,8 @@ export interface InvestigationOutcome {
   acceptancePolicyVersion: string;
   dnaAlgorithmVersion: string;
   acceptanceConfidence: number;
+  /** Frozen scorecard from Acceptance Engine */
+  acceptanceScorecard: AcceptanceScorecard;
 }
 
 /**
@@ -101,6 +107,7 @@ function outcomeFromAcceptance(
     acceptancePolicyVersion: decision.acceptancePolicyVersion,
     dnaAlgorithmVersion: decision.dnaAlgorithmVersion,
     acceptanceConfidence: decision.confidence,
+    acceptanceScorecard: decision.scorecard,
   };
 }
 
@@ -260,6 +267,7 @@ export function downgradeToPossibleAfterWeakDna(
     acceptancePolicyVersion: decision.acceptancePolicyVersion,
     dnaAlgorithmVersion: decision.dnaAlgorithmVersion,
     acceptanceConfidence: decision.confidence,
+    acceptanceScorecard: decision.scorecard,
   };
 }
 

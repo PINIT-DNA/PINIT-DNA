@@ -23,6 +23,17 @@ import {
   shouldRetainRetrievalCandidateAsPossible,
   type InvestigationOutcome,
 } from './investigation-decision-resolver.service';
+import { buildInvestigationManifest } from './investigation-manifest.builder';
+import {
+  runAcceptanceEngine,
+  passChannel,
+  failChannel,
+  skippedChannel,
+} from './acceptance-engine.service';
+import {
+  mapAcceptanceToForensicVerdict,
+  mapAcceptanceToReportState,
+} from './investigation-decision-resolver.service';
 import { investigationPerformanceConfig } from '../../config/investigation-performance';
 import { createStageTimer } from '../../lib/stage-timer';
 import { withTimeoutSoft } from '../../lib/safe-runner';
@@ -442,6 +453,7 @@ export class UnifiedInvestigationOrchestrator {
         match: null,
         originalFilename: null,
         resolvedCert: null,
+        outcome: reportOutcome,
       });
     }
 
@@ -613,6 +625,7 @@ export class UnifiedInvestigationOrchestrator {
               match: null,
               originalFilename: null,
               resolvedCert: null,
+              outcome: rejectedOutcome,
             });
           }
         } else {
@@ -940,6 +953,7 @@ export class UnifiedInvestigationOrchestrator {
       match,
       originalFilename,
       resolvedCert,
+      outcome: reportOutcome,
     });
 
     } catch (fatalErr) {
@@ -960,6 +974,28 @@ export class UnifiedInvestigationOrchestrator {
     }
   }
 
+  /** Attach immutable Investigation Manifest (Phase 2 — single source of truth). */
+  private sealWithManifest(
+    report: UnifiedInvestigationReport,
+    outcome: InvestigationOutcome,
+    probe: {
+      filename: string;
+      mimeType: string;
+      sizeBytes: number;
+      sha256?: string;
+    },
+  ): UnifiedInvestigationReport {
+    const manifest = buildInvestigationManifest({
+      report,
+      outcome,
+      probeFilename: probe.filename,
+      probeMimeType: probe.mimeType,
+      probeSizeBytes: probe.sizeBytes,
+      probeSha256: probe.sha256 ?? report.currentFileHash,
+    });
+    return { ...report, manifest };
+  }
+
   private async attachPipelineAudit(
     report: UnifiedInvestigationReport,
     params: {
@@ -971,13 +1007,24 @@ export class UnifiedInvestigationOrchestrator {
       match: VaultMatchResult | null;
       originalFilename?: string | null;
       resolvedCert?: { certificateId: string; dnaRecordId?: string; vaultId?: string } | null;
+      outcome?: InvestigationOutcome;
     },
   ): Promise<UnifiedInvestigationReport> {
+    const sealed = params.outcome
+      ? this.sealWithManifest(report, params.outcome, {
+          filename: params.probeFilename,
+          mimeType: params.probeMimeType,
+          sizeBytes: params.probeSizeBytes,
+          sha256: params.probeSha256,
+        })
+      : report;
+
     const ctx = params.enterprise.auditContext;
     if (!ctx) {
       logger.warn('[PipelineAudit] No auditContext on enterprise result — trace omitted');
-      return report;
+      return sealed;
     }
+    report = sealed;
 
     const reportConsistency = auditReportConsistency({
       reportVaultId: report.owner?.vaultId,
@@ -1137,7 +1184,7 @@ export class UnifiedInvestigationOrchestrator {
     const investigatedAt = new Date().toISOString();
     const decisionReason = `Possible PINIT asset — vault located before timeout (${params.error})`;
 
-    return {
+    const report: UnifiedInvestigationReport = {
       success: true,
       investigationId: params.investigationId,
       investigatedAt,
@@ -1233,6 +1280,53 @@ export class UnifiedInvestigationOrchestrator {
       currentFileHash: params.currentFileHash,
       progressTimeline: params.progressTimeline,
     };
+
+    const decision = runAcceptanceEngine({
+      analysisComplete: true,
+      hasCandidate: true,
+      vaultId,
+      dnaRecordId,
+      ownerUserId: params.ownerUserId,
+      ownerPinitId: ownerPinitId ?? undefined,
+      dna: passChannel(Math.max(conf, 40), 'live_snapshot'),
+      certificate: certificateId ? passChannel(50, certificateId) : skippedChannel('No certificate'),
+      vault: passChannel(100, vaultId),
+      owner: passChannel(50),
+      timeline: passChannel(50),
+      visual: passChannel(Math.max(conf, 40)),
+      watermark: failChannel(0),
+      metadata: skippedChannel(),
+      tamperDetected: true,
+    });
+    const outcome: InvestigationOutcome = {
+      state: mapAcceptanceToReportState(decision.verdict),
+      candidate: decision.retainCandidate
+        ? {
+            tier: 2,
+            method: 'Live identity recovery (timeout partial)',
+            vaultId,
+            dnaRecordId: dnaRecordId ?? '',
+            ownerUserId: params.ownerUserId,
+            confidence: String(conf),
+          }
+        : null,
+      retrievalConfidence: decision.retrievalConfidence,
+      forensicVerdict: mapAcceptanceToForensicVerdict(decision.verdict),
+      displayLabel: decision.displayLabel,
+      decisionReason: decision.decisionReason,
+      acceptanceVerdict: decision.verdict,
+      acceptancePolicyVersion: decision.acceptancePolicyVersion,
+      dnaAlgorithmVersion: decision.dnaAlgorithmVersion,
+      acceptanceConfidence: decision.confidence,
+      acceptanceScorecard: decision.scorecard,
+    };
+
+    return this.sealWithManifest(report, outcome, {
+      filename: params.originalName,
+      mimeType: 'application/octet-stream',
+      sizeBytes: 0,
+      sha256: params.currentFileHash,
+    });
   }
 
   private buildFaultTolerantReport(params: {
@@ -1256,7 +1350,7 @@ export class UnifiedInvestigationOrchestrator {
       accessHistory: [],
     };
 
-    return {
+    const report: UnifiedInvestigationReport = {
       success: false,
       investigationId: params.investigationId,
       investigatedAt,
@@ -1280,7 +1374,6 @@ export class UnifiedInvestigationOrchestrator {
         acceptanceConfidence: acceptance.acceptanceConfidence,
       },
       message: acceptance.displayLabel,
-
       owner: {
         ownerName: null,
         ownerPinitId: null,
@@ -1312,11 +1405,18 @@ export class UnifiedInvestigationOrchestrator {
         signals: [],
         compositeScores: { ownershipConfidence: 0, trustScore: 0, identityConfidence: 0 },
         transformations: [],
-        message: REPORT_STATE_LABELS.NO_SIGNATURE,
+        message: acceptance.displayLabel,
       },
       currentFileHash: params.currentFileHash,
       progressTimeline: params.progressTimeline,
     };
+
+    return this.sealWithManifest(report, acceptance, {
+      filename: params.originalName,
+      mimeType: 'application/octet-stream',
+      sizeBytes: 0,
+      sha256: params.currentFileHash,
+    });
   }
 
   private async buildNoMatchReport(

@@ -109,6 +109,19 @@ interface InvestigationReport {
   message?: string;
   matchTier?: number;
   matchMethod?: string;
+  /** Phase 2 — immutable Investigation Manifest (single source of truth) */
+  manifest?: {
+    verdict: string;
+    displayLabel: string;
+    decisionReason: string;
+    confidence: number;
+    acceptancePolicyVersion: string;
+    dnaAlgorithmVersion: string;
+    owner: { ownerName?: string | null; ownerPinitId?: string | null };
+    vault: { vaultId?: string; originalFilename?: string };
+    dna: { dnaRecordId?: string; matchPercent?: number };
+    certificate: { certificateId?: string | null; status?: string };
+  };
   identityRecovery?: {
     enginesRun: number;
     enginesRecovered: number;
@@ -417,22 +430,30 @@ export function UnifiedInvestigationPage() {
       )}
 
       {report && (() => {
+        // Prefer immutable manifest when present (Phase 2 single source of truth).
+        const manifest = report.manifest;
         const reportState = report.summary.reportState;
-        const hasVaultMatch = reportState !== 'NO_SIGNATURE' && !!(report.owner.vaultId || report.identityProof.vaultId);
+        const hasVaultMatch = reportState !== 'NO_SIGNATURE' && !!(
+          manifest?.vault.vaultId
+          || report.owner.vaultId
+          || report.identityProof.vaultId
+        );
+        const verdictLabel = manifest?.displayLabel
+          ?? (report.summary.reportState
+            ? REPORT_STATE_LABELS[report.summary.reportState]
+            : FORENSIC_VERDICT_LABELS[report.summary.forensicVerdict!] ?? report.summary.forensicVerdict);
         return (
         <div ref={reportRef} className="space-y-6 scroll-mt-6">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
-              {(report.summary.reportState || report.summary.forensicVerdict) && (
+              {(manifest?.verdict || report.summary.reportState || report.summary.forensicVerdict) && (
                 <span className={cn(
                   'text-xs font-bold px-3 py-1 rounded-full border',
                   REPORT_STATE_STYLE[report.summary.reportState ?? ''] 
                     ?? FORENSIC_VERDICT_STYLE[report.summary.forensicVerdict ?? ''] 
                     ?? RISK_COLORS.UNKNOWN,
                 )}>
-                  {report.summary.reportState
-                    ? REPORT_STATE_LABELS[report.summary.reportState]
-                    : FORENSIC_VERDICT_LABELS[report.summary.forensicVerdict!] ?? report.summary.forensicVerdict}
+                  {verdictLabel}
                 </span>
               )}
               <span className={cn('text-xs font-bold px-3 py-1 rounded-full border', RISK_COLORS[report.summary.riskLevel] ?? RISK_COLORS.UNKNOWN)}>
@@ -460,7 +481,7 @@ export function UnifiedInvestigationPage() {
             </div>
           </div>
 
-          {report.message && (
+          {(manifest?.decisionReason || report.message) && (
             <div className={cn(
               'card border p-3 text-xs',
               reportState === 'NO_SIGNATURE'
@@ -469,9 +490,10 @@ export function UnifiedInvestigationPage() {
                   ? 'border-yellow-500/30 bg-yellow-500/5 text-yellow-400'
                   : 'border-green-500/30 bg-green-500/5 text-green-400',
             )}>
-              {report.message}
-              {report.summary.decisionReason && report.summary.decisionReason !== report.message && (
-                <p className="mt-1 opacity-80">{report.summary.decisionReason}</p>
+              {manifest?.displayLabel ?? report.message}
+              {(manifest?.decisionReason ?? report.summary.decisionReason)
+                && (manifest?.decisionReason ?? report.summary.decisionReason) !== (manifest?.displayLabel ?? report.message) && (
+                <p className="mt-1 opacity-80">{manifest?.decisionReason ?? report.summary.decisionReason}</p>
               )}
             </div>
           )}

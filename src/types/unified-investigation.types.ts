@@ -222,6 +222,11 @@ export interface UnifiedInvestigationReport {
   investigationId: string;
   investigatedAt: string;
   pipeline: InvestigationPipelineStep[];
+  /**
+   * Immutable Investigation Manifest — single source of truth for UI, API, PDF, audit.
+   * docs/architecture/10_INVESTIGATION_REPORT_SPEC.md
+   */
+  manifest?: import('./investigation-manifest.types').InvestigationManifest;
   summary: InvestigationSummary;
   owner: {
     ownerName?: string | null;

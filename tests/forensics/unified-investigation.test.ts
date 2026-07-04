@@ -35,5 +35,13 @@ describe('UnifiedInvestigationOrchestrator', () => {
     expect(report.pipeline.some((s) => s.id === 'identity')).toBe(true);
     expect(report.pipeline.some((s) => s.id === 'vault_search')).toBe(true);
     expect(report.leakIntelligence.message).toMatch(/No public leak/);
+    // Phase 2 — immutable manifest is single source of truth
+    expect(report.manifest).toBeDefined();
+    expect(report.manifest?.verdict).toBe('NOT_PINIT');
+    expect(report.manifest?.acceptancePolicyVersion).toBe('acceptance-policy-v1.0');
+    expect(report.manifest?.dnaAlgorithmVersion).toBe('15-layer-v1');
+    expect(report.manifest?.investigationId).toBe(report.investigationId);
+    expect(Object.isFrozen(report.manifest)).toBe(true);
   });
 });
+
