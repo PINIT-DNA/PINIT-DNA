@@ -132,6 +132,35 @@ describe('AcceptanceEngine', () => {
     expect(d.retrievalConfidence).toBe(0);
   });
 
+  it('does not verify derivative on 61% DNA with weak visual (unrelated logo vs photo)', () => {
+    const d = runAcceptanceEngine(baseEvidence({
+      dna: { state: 'PASS', score: 61, classification: 'SIMILAR' },
+      certificate: failChannel(0),
+      watermark: failChannel(0),
+      visual: passChannel(48),
+      owner: passChannel(50),
+      timeline: passChannel(50),
+      vault: passChannel(100),
+      tamperDetected: true,
+    }));
+    expect(d.verdict).toBe('NOT_PINIT');
+    expect(d.retrievalConfidence).toBe(0);
+  });
+
+  it('does not verify derivative on 70% DNA with different subjects (weak visual)', () => {
+    const d = runAcceptanceEngine(baseEvidence({
+      dna: { state: 'PASS', score: 70, classification: 'SIMILAR' },
+      certificate: failChannel(0),
+      watermark: failChannel(0),
+      visual: passChannel(52),
+      owner: passChannel(50),
+      timeline: passChannel(50),
+      vault: passChannel(100),
+      tamperDetected: true,
+    }));
+    expect(d.verdict).toBe('NOT_PINIT');
+  });
+
   it('POSSIBLE_MATCH when visual strong, DNA partial, no cert/watermark', () => {
     const d = runAcceptanceEngine(baseEvidence({
       dna: { state: 'PASS', score: 50, classification: 'SIMILAR' },

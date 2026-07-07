@@ -55,7 +55,7 @@ export function derivativeAwareScore(
   const content = Math.max(weighted, Math.round(l3 * 100));
   const score = Math.max(overall, content);
   // Only reclassify DIFFERENT→SIMILAR when perceptual content is strong enough for a real derivative
-  if (score >= 58 && classification.toUpperCase() === 'DIFFERENT' && l3 * 100 >= 45) {
+  if (score >= 62 && classification.toUpperCase() === 'DIFFERENT' && l3 * 100 >= 52) {
     return { score, classification: 'SIMILAR' };
   }
   return { score, classification };
@@ -124,12 +124,19 @@ export class DeepVaultCompareService {
         cmp.overallConfidenceScore,
         cmp.classification,
       );
+      const l1Match = !!layerComparisons.find((l) => l.layer === 1)?.matched;
+      const l3Score = layerComparisons.find((l) => l.layer === 3)?.similarityPercent ?? 0;
       const entry: DeepCompareResult = {
         vaultId: candidate.vaultId,
         dnaRecordId: candidate.dnaRecordId,
         overallConfidenceScore: aware.score,
         classification: aware.classification,
-        tamperingDetected: cmp.tamperingDetected || !layerComparisons.find((l) => l.layer === 1)?.matched,
+        tamperingDetected: (
+          cmp.tamperingDetected
+          && !l1Match
+          && aware.score >= 72
+          && l3Score >= 52
+        ) || (aware.score >= 88 && !l1Match),
         matchedLayerCount,
         totalLayers: cmp.layerComparisons.length,
         layerComparisons,

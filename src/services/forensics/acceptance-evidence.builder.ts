@@ -96,12 +96,25 @@ function metadataChannel(enterprise: EnterpriseRecoveryResult): EvidenceChannel 
 
 function tamperDetected(enterprise: EnterpriseRecoveryResult): boolean {
   const deep = enterprise.authoritativeAsset?.deepCompare ?? enterprise.bestDeepCompare;
-  if (deep?.tamperingDetected) return true;
-  // Do not treat weak ~50% DNA alone as tamper — that caused unrelated false "Original Found"
-  if (deep && deep.overallConfidenceScore >= 58 && deep.overallConfidenceScore < 95) {
+  if (!deep) return false;
+  if (enterprise.authoritativeAsset?.selectionSource === 'sha256_exact') return false;
+
+  const vector = enterprise.authoritativeAsset?.vector;
+  const visual = Math.max(
+    vector?.scores.orb ?? 0,
+    vector?.scores.perceptualBlend ?? vector?.scores.pHash ?? 0,
+    vector?.scores.composite ?? 0,
+  );
+  const dna = deep.overallConfidenceScore;
+  const crossModal = (dna + visual) / 2;
+
+  // Hash/L1 mismatch alone is not tamper — require strong DNA + visual linkage
+  if (deep.tamperingDetected && dna >= 72 && crossModal >= 62 && visual >= 55) {
     return true;
   }
-  if (enterprise.authoritativeAsset?.selectionSource === 'sha256_exact') return false;
+  if (dna >= 88 && dna < 100 && deep.tamperingDetected) {
+    return true;
+  }
   return false;
 }
 

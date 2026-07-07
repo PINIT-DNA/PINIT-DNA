@@ -13,6 +13,7 @@ export interface InvestigationSideBySideCompareProps {
   dnaMatchPercent?: number;
   dnaRecordId?: string | null;
   certificateId?: string | null;
+  reportState?: 'VERIFIED' | 'POSSIBLE' | 'NO_SIGNATURE';
 }
 
 function isImageMime(mime?: string | null): boolean {
@@ -139,6 +140,7 @@ export function InvestigationSideBySideCompare({
   dnaMatchPercent,
   dnaRecordId,
   certificateId,
+  reportState,
 }: InvestigationSideBySideCompareProps) {
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
   const [originalMime, setOriginalMime] = useState<string | null>(null);
@@ -179,6 +181,14 @@ export function InvestigationSideBySideCompare({
 
   if (!vaultId && !probePreviewUrl) return null;
 
+  const scoreHeadline = reportState === 'VERIFIED'
+    ? `${dnaMatchPercent}% DNA match`
+    : reportState === 'POSSIBLE'
+      ? `${dnaMatchPercent}% similarity — needs review`
+      : dnaMatchPercent != null
+        ? `${dnaMatchPercent}% similarity`
+        : null;
+
   return (
     <div className="card p-4 space-y-3">
       <div className="flex items-center gap-2">
@@ -191,8 +201,13 @@ export function InvestigationSideBySideCompare({
             Side-by-side vault original and uploaded probe — no need to open Vault Explorer
           </p>
         </div>
-        {dnaMatchPercent != null && (
-          <span className="ml-auto text-xs font-bold mono text-dna-400">{dnaMatchPercent}% DNA match</span>
+        {scoreHeadline && (
+          <span className={cn(
+            'ml-auto text-xs font-bold mono',
+            reportState === 'VERIFIED' ? 'text-dna-400' : 'text-yellow-400',
+          )}>
+            {scoreHeadline}
+          </span>
         )}
       </div>
 
@@ -241,7 +256,16 @@ export function InvestigationSideBySideCompare({
           footer={
             dnaMatchPercent != null ? (
               <p className="text-2xs text-gray-400">
-                15-layer DNA compare: <span className="text-white font-bold">{dnaMatchPercent}%</span>
+                15-layer DNA compare:{' '}
+                <span className={cn(
+                  'font-bold',
+                  reportState === 'VERIFIED' ? 'text-white' : 'text-yellow-400',
+                )}>
+                  {dnaMatchPercent}%
+                </span>
+                {reportState === 'POSSIBLE' && (
+                  <span className="text-yellow-500/80"> — not verified ownership</span>
+                )}
               </p>
             ) : undefined
           }

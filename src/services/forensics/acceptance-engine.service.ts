@@ -31,14 +31,15 @@ const WEIGHTS = {
 
 const DNA_FULL_PASS_MIN = 75;
 const DNA_PARTIAL_MIN = 40;
-/** Minimum DNA for VERIFIED_DERIVATIVE — blocks unrelated ~50% false positives */
-const DNA_DERIVATIVE_VERIFIED_MIN = 58;
+/** Minimum DNA for VERIFIED_DERIVATIVE — blocks unrelated ~60% false positives */
+const DNA_DERIVATIVE_VERIFIED_MIN = 72;
 /** DNA + visual must average at least this for derivative ownership claims */
-const CROSS_MODAL_DERIVATIVE_MIN = 52;
+const CROSS_MODAL_DERIVATIVE_MIN = 62;
 const VISUAL_PASS_MIN = 40;
+const VISUAL_DERIVATIVE_MIN = 55;
 const VISUAL_STRONG_MIN = 80;
 const VERIFIED_ORIGINAL_CONFIDENCE_MIN = 95;
-const VERIFIED_DERIVATIVE_CONFIDENCE_MIN = 45;
+const VERIFIED_DERIVATIVE_CONFIDENCE_MIN = 55;
 
 export const ACCEPTANCE_VERDICT_LABELS: Record<AcceptanceVerdict, string> = {
   VERIFIED_ORIGINAL: 'Verified PINIT Asset',
@@ -168,11 +169,12 @@ function decide(evidence: AcceptanceEvidence, scorecard: AcceptanceScorecard): A
     && evidence.dna.score >= DNA_DERIVATIVE_VERIFIED_MIN
     && passesDerivativeCrossModal(evidence)
     && scorecard.finalConfidence >= VERIFIED_DERIVATIVE_CONFIDENCE_MIN
-    && isPass(evidence.visual, VISUAL_PASS_MIN)
+    && isPass(evidence.visual, VISUAL_DERIVATIVE_MIN)
     && isPass(evidence.timeline, 50)
     && isPass(evidence.owner, 50)
     && isPass(evidence.vault, 100)
     && evidence.tamperDetected
+    && (evidence.dna.score >= 85 || evidence.visual.score >= 65)
   ) {
     return 'VERIFIED_DERIVATIVE';
   }
@@ -183,7 +185,7 @@ function decide(evidence: AcceptanceEvidence, scorecard: AcceptanceScorecard): A
     && dnaFullPass(evidence)
     && passesDerivativeCrossModal(evidence)
     && scorecard.finalConfidence >= VERIFIED_DERIVATIVE_CONFIDENCE_MIN
-    && isPass(evidence.visual, VISUAL_PASS_MIN)
+    && isPass(evidence.visual, VISUAL_DERIVATIVE_MIN)
     && isPass(evidence.owner, 50)
     && isPass(evidence.vault, 100)
     && evidence.tamperDetected
@@ -199,8 +201,19 @@ function decide(evidence: AcceptanceEvidence, scorecard: AcceptanceScorecard): A
   if (
     evidence.hasCandidate
     && !passesDerivativeCrossModal(evidence)
-    && evidence.dna.score < 70
+    && evidence.dna.score < 80
     && evidence.visual.score < 70
+  ) {
+    return 'NOT_PINIT';
+  }
+
+  // Mid-band similarity without strong visual — common false lead on unrelated photos
+  if (
+    evidence.hasCandidate
+    && evidence.tamperDetected
+    && evidence.dna.score >= 40
+    && evidence.dna.score < 85
+    && evidence.visual.score < 65
   ) {
     return 'NOT_PINIT';
   }

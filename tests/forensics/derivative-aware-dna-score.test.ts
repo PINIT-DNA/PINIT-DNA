@@ -30,7 +30,7 @@ describe('derivativeAwareScore', () => {
       14,
       'DIFFERENT',
     );
-    expect(result.score).toBeGreaterThanOrEqual(58);
+    expect(result.score).toBeGreaterThanOrEqual(62);
     expect(result.classification).toBe('SIMILAR');
   });
 

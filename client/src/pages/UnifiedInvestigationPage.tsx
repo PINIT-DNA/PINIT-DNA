@@ -539,6 +539,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               }
               ownerPinitId={report.owner.ownerPinitId ?? report.identityProof.ownerPinitId}
               dnaMatchPercent={report.summary.dnaMatchPercent}
+              reportState={report.summary.reportState}
               dnaRecordId={report.owner.dnaRecordId ?? report.identityProof.dnaRecordId}
               certificateId={report.owner.certificateId ?? report.identityProof.certificateId}
             />
@@ -550,7 +551,11 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                 { label: 'Retrieval Confidence', value: `${report.summary.retrievalConfidence ?? report.summary.dnaMatchPercent}%` },
                 { label: 'Identity Recovery', value: `${report.summary.identityConfidence ?? report.identityRecovery?.compositeScores.identityConfidence ?? '—'}${typeof report.summary.identityConfidence === 'number' ? '%' : ''}` },
                 { label: 'Ownership Verification', value: `${report.summary.ownershipVerificationConfidence ?? report.summary.ownershipConfidence}%` },
-                { label: 'DNA Match', value: `${report.summary.dnaMatchPercent}%` },
+                { label: 'DNA Match', value: report.summary.reportState === 'VERIFIED'
+                  ? `${report.summary.dnaMatchPercent}%`
+                  : report.summary.reportState === 'POSSIBLE'
+                    ? `${report.summary.dnaMatchPercent}% (review)`
+                    : '—' },
                 { label: 'Trust Score', value: `${report.summary.trustScore ?? report.identityRecovery?.compositeScores.trustScore ?? '—'}${typeof report.summary.trustScore === 'number' ? '%' : ''}` },
                 { label: 'Certificate', value: report.summary.certificateStatus },
                 { label: 'Identity', value: report.summary.identityStatus.replace(/_/g, ' ') },

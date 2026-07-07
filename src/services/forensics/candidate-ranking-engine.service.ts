@@ -209,7 +209,9 @@ function evidenceForCandidate(params: {
   const visualScore = Math.max(orb, pHash, composite, patch);
 
   const tamperDetected = !!(deep?.tamperingDetected)
-    || (dnaScore >= 58 && dnaScore < 95);
+    && dnaScore >= 72
+    && (dnaScore + visualScore) / 2 >= 62
+    && visualScore >= 55;
 
   return {
     analysisComplete: true,
@@ -390,8 +392,8 @@ export async function selectWinnerByRanking(params: {
     if (
       !isExact
       && !isLocalPatchHit
-      && dnaScore < 70
-      && (dnaScore + vectorVis) / 2 < 52
+      && dnaScore < 80
+      && (dnaScore + vectorVis) / 2 < 62
     ) {
       evaluated++;
       logs.push({
