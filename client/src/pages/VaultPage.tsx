@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Archive, Search, Lock, RefreshCw, Download, Eye, ExternalLink, Share2, Copy, Check, Clock, Ban, FileSearch, Cpu, GitBranch, ShieldCheck, MapPin } from 'lucide-react';
+import { Archive, Search, Lock, RefreshCw, Download, Eye, ExternalLink, Share2, Copy, Check, Clock, Ban, FileSearch, Cpu, GitBranch, ShieldCheck, MapPin, LayoutGrid, List } from 'lucide-react';
+import { VaultFileThumbnail } from '../components/VaultFileThumbnail';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
@@ -13,10 +14,11 @@ import {
   api,
   type VaultTrackingDashboard,
 } from '../services/dashboard.api';
-import { SkeletonTable } from '../components/ui/Skeleton';
+import { SkeletonTable, SkeletonCard } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
+import { cn } from '../components/ui/utils';
 import { API_BASE_URL } from '../config/api.config';
 import { useAuth } from '../context/AuthContext';
 import type { VaultRecord } from '../types/dashboard.types';
@@ -1129,6 +1131,110 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+function VaultRecordActions({
+  record,
+  onView,
+  onShare,
+  onProtect,
+  onTrack,
+  onIntelligence,
+  compact,
+}: {
+  record: VaultRecord;
+  onView: () => void;
+  onShare: () => void;
+  onProtect: () => void;
+  onTrack: () => void;
+  onIntelligence: () => void;
+  compact?: boolean;
+}) {
+  return (
+    <div className={cn('flex items-center', compact ? 'gap-1' : 'gap-1 flex-wrap')}>
+      <button onClick={onView} className="btn-ghost btn-icon text-gray-500 hover:text-white" title="View details">
+        <Eye size={14} />
+      </button>
+      <button onClick={onShare} className="btn-ghost btn-icon text-gray-500 hover:text-dna-400" title="Generate Smart Share Link">
+        <Share2 size={14} />
+      </button>
+      <button onClick={onProtect} className="btn-ghost btn-icon text-gray-500 hover:text-success" title="Protected Download">
+        <ShieldCheck size={14} />
+      </button>
+      <button onClick={onTrack} className="btn-ghost btn-icon text-gray-500 hover:text-dna-400" title="Tracking Dashboard">
+        <MapPin size={14} />
+      </button>
+      <button onClick={onIntelligence} className="btn-ghost btn-icon text-gray-500 hover:text-purple-400" title="Intelligence Report">
+        <FileSearch size={14} />
+      </button>
+      <a
+        href={`/api/v1/dna/${record.dnaRecordId}`}
+        target="_blank"
+        rel="noreferrer"
+        className="btn-ghost btn-icon text-gray-500 hover:text-dna-400"
+        title="Open DNA record"
+      >
+        <ExternalLink size={14} />
+      </a>
+    </div>
+  );
+}
+
+function VaultGalleryCard({
+  record,
+  onView,
+  onShare,
+  onProtect,
+  onTrack,
+  onIntelligence,
+}: {
+  record: VaultRecord;
+  onView: () => void;
+  onShare: () => void;
+  onProtect: () => void;
+  onTrack: () => void;
+  onIntelligence: () => void;
+}) {
+  return (
+    <div className="card overflow-hidden p-0 hover:border-dna-500/30 transition-colors group">
+      <button
+        type="button"
+        onClick={onView}
+        className="w-full aspect-[4/3] bg-bg-elevated relative overflow-hidden block"
+      >
+        <VaultFileThumbnail
+          vaultId={record.id}
+          fileName={record.originalFileName}
+          mimeType={record.originalMimeType}
+          variant="gallery"
+        />
+      </button>
+      <div className="p-3 space-y-2">
+        <button type="button" onClick={onView} className="text-left w-full">
+          <p className="text-sm font-medium text-white truncate">{record.originalFileName}</p>
+          <p className="text-2xs text-gray-500 mono truncate">{record.originalMimeType}</p>
+        </button>
+        <div className="flex items-center justify-between gap-2 text-2xs text-gray-500">
+          <span className="mono">{formatBytes(record.originalSizeBytes)}</span>
+          <Badge variant="success" className="text-[10px] px-1.5 py-0">{record.encryptionAlgorithm}</Badge>
+        </div>
+        <p className="text-2xs text-gray-500">
+          {format(new Date(record.createdAt), 'MMM d, yyyy · HH:mm')}
+        </p>
+        <p className="text-2xs text-dna-400 mono truncate" title={record.id}>
+          {record.id.slice(0, 20)}…
+        </p>
+        <VaultRecordActions
+          record={record}
+          onView={onView}
+          onShare={onShare}
+          onProtect={onProtect}
+          onTrack={onTrack}
+          onIntelligence={onIntelligence}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function VaultPage() {
   const { data: records, loading, error, refetch } = useApi(listVaultRecords);
   const [search, setSearch]     = useState('');
@@ -1139,6 +1245,7 @@ export function VaultPage() {
   const [aiMode, setAiMode]     = useState(false);
   const [aiResults, setAiResults] = useState<string[]>([]); // dnaRecordIds matching AI search
   const [aiSearching, setAiSearching] = useState(false);
+  const [viewMode, setViewMode] = useState<'gallery' | 'list'>('gallery');
   const navigate = useNavigate();
 
   const handleSearch = async (q: string) => {
@@ -1252,9 +1359,60 @@ export function VaultPage() {
             <Cpu size={13} />
             {aiMode ? 'AI Search ON' : 'AI Search'}
           </button>
+          <div className="flex items-center rounded-lg border border-bg-border overflow-hidden shrink-0">
+            <button
+              onClick={() => setViewMode('gallery')}
+              title="Gallery view"
+              className={cn(
+                'px-2.5 py-1.5 transition-colors',
+                viewMode === 'gallery' ? 'bg-dna-500/20 text-dna-400' : 'text-gray-500 hover:text-white',
+              )}
+            >
+              <LayoutGrid size={14} />
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              title="List view"
+              className={cn(
+                'px-2.5 py-1.5 border-l border-bg-border transition-colors',
+                viewMode === 'list' ? 'bg-dna-500/20 text-dna-400' : 'text-gray-500 hover:text-white',
+              )}
+            >
+              <List size={14} />
+            </button>
+          </div>
           <Archive size={16} className="text-gray-500 shrink-0" />
         </div>
 
+        {viewMode === 'gallery' ? (
+          <div className="p-4">
+            {loading ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                {Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)}
+              </div>
+            ) : filtered.length === 0 ? (
+              <EmptyState
+                icon={Archive}
+                title="No vault records"
+                description="Encrypt and store files using the Generate DNA flow"
+              />
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                {filtered.map(r => (
+                  <VaultGalleryCard
+                    key={r.id}
+                    record={r}
+                    onView={() => setSelected(r)}
+                    onShare={() => setSharing(r)}
+                    onProtect={() => setProtecting(r)}
+                    onTrack={() => setTracking(r)}
+                    onIntelligence={() => navigate(`/intelligence/${r.id}`)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
         <div className="overflow-x-auto">
           <table className="data-table">
             <thead>
@@ -1285,9 +1443,13 @@ export function VaultPage() {
                 filtered.map(r => (
                   <tr key={r.id}>
                     <td>
-                      <div className="flex items-center gap-2">
-                        <Lock size={12} className="text-success shrink-0" />
-                        <div>
+                      <div className="flex items-center gap-2.5">
+                        <VaultFileThumbnail
+                          vaultId={r.id}
+                          fileName={r.originalFileName}
+                          mimeType={r.originalMimeType}
+                        />
+                        <div className="min-w-0">
                           <p className="text-sm font-medium text-white truncate max-w-[200px]">
                             {r.originalFileName}
                           </p>
@@ -1332,52 +1494,15 @@ export function VaultPage() {
                       </span>
                     </td>
                     <td>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => setSelected(r)}
-                          className="btn-ghost btn-icon text-gray-500 hover:text-white"
-                          title="View details"
-                        >
-                          <Eye size={14} />
-                        </button>
-                        <button
-                          onClick={() => setSharing(r)}
-                          className="btn-ghost btn-icon text-gray-500 hover:text-dna-400"
-                          title="Generate Smart Share Link"
-                        >
-                          <Share2 size={14} />
-                        </button>
-                        <button
-                          onClick={() => setProtecting(r)}
-                          className="btn-ghost btn-icon text-gray-500 hover:text-success"
-                          title="Protected Download"
-                        >
-                          <ShieldCheck size={14} />
-                        </button>
-                        <button
-                          onClick={() => setTracking(r)}
-                          className="btn-ghost btn-icon text-gray-500 hover:text-dna-400"
-                          title="Tracking Dashboard"
-                        >
-                          <MapPin size={14} />
-                        </button>
-                        <button
-                          onClick={() => navigate(`/intelligence/${r.id}`)}
-                          className="btn-ghost btn-icon text-gray-500 hover:text-purple-400"
-                          title="Intelligence Report"
-                        >
-                          <FileSearch size={14} />
-                        </button>
-                        <a
-                          href={`/api/v1/dna/${r.dnaRecordId}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="btn-ghost btn-icon text-gray-500 hover:text-dna-400"
-                          title="Open DNA record"
-                        >
-                          <ExternalLink size={14} />
-                        </a>
-                      </div>
+                      <VaultRecordActions
+                        record={r}
+                        onView={() => setSelected(r)}
+                        onShare={() => setSharing(r)}
+                        onProtect={() => setProtecting(r)}
+                        onTrack={() => setTracking(r)}
+                        onIntelligence={() => navigate(`/intelligence/${r.id}`)}
+                        compact
+                      />
                     </td>
                   </tr>
                 ))
@@ -1385,6 +1510,7 @@ export function VaultPage() {
             </tbody>
           </table>
         </div>
+        )}
       </div>
 
       {selected && (

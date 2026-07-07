@@ -133,6 +133,7 @@ export class DuplicateCheckService {
         isHighRisk,
         pHashSimilarity: undefined,
         ownerShortId,
+        ownerUserId: rec.ownerUserId ?? undefined,
         req,
       });
 
@@ -306,6 +307,7 @@ export class DuplicateCheckService {
         isHighRisk,
         pHashSimilarity: undefined,
         ownerShortId,
+        ownerUserId: rec?.ownerUserId ?? hit.ownerUserId,
         req,
         extraDetail: {
           signatureMethod: hit.method,
@@ -379,6 +381,7 @@ export class DuplicateCheckService {
         isHighRisk,
         pHashSimilarity: undefined,
         ownerShortId,
+        ownerUserId: rec.ownerUserId ?? undefined,
         req,
       });
 
@@ -548,6 +551,7 @@ export class DuplicateCheckService {
       isHighRisk,
       pHashSimilarity,
       ownerShortId,
+      ownerUserId: rec.ownerUserId ?? undefined,
       req,
     });
 
@@ -607,19 +611,34 @@ export class DuplicateCheckService {
     isHighRisk: boolean;
     pHashSimilarity: number | undefined;
     ownerShortId?: string;
+    ownerUserId?: string;
     req: Request;
     extraDetail?: Record<string, unknown>;
   }): Promise<void> {
+    const uploaderUserId = (params.req as { user?: { sub?: string } }).user?.sub;
+    let uploaderShortId: string | undefined;
+    if (uploaderUserId) {
+      const uploader = await prisma.user.findUnique({
+        where: { id: uploaderUserId },
+        select: { shortId: true },
+      });
+      uploaderShortId = uploader?.shortId;
+    }
+
     await auditService.log({
       eventType:  'DUPLICATE_UPLOAD_ATTEMPT' as never,
       filename:   params.originalName,
       fileType:   params.mimeType,
+      dnaRecordId: params.existingRecordId,
       req:        params.req,
       detail: {
         sha256Hash:          params.sha256,
         existingDnaRecordId: params.existingRecordId,
         existingFilename:    params.existingFilename,
         ownerShortId:        params.ownerShortId,
+        ownerUserId:         params.ownerUserId,
+        uploaderUserId,
+        uploaderShortId,
         matchType:           params.matchType,
         riskLevel:           params.isHighRisk ? 'HIGH' : 'LOW',
         pHashSimilarity:     params.pHashSimilarity,

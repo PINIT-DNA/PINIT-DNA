@@ -1155,6 +1155,7 @@ model BlockedShareViewer {
 }
 
 enum UserRole {
+  SUPER_ADMIN
   ADMIN
   ANALYST
   AUDITOR

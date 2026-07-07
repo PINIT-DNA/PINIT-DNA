@@ -20,6 +20,17 @@ describe('derivativeAwareScore', () => {
       'DIFFERENT',
     );
     expect(result.score).toBeGreaterThanOrEqual(40);
+    // 47% perceptual stays DIFFERENT until ≥58 — acceptance uses patch/cross-modal gates
+    expect(result.classification).toBe('DIFFERENT');
+  });
+
+  it('promotes to SIMILAR when content score reaches derivative band', () => {
+    const result = derivativeAwareScore(
+      layers({ 3: 62, 5: 100 }),
+      14,
+      'DIFFERENT',
+    );
+    expect(result.score).toBeGreaterThanOrEqual(58);
     expect(result.classification).toBe('SIMILAR');
   });
 

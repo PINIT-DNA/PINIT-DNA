@@ -244,7 +244,7 @@ export function DashboardPage() {
           <div className="grid grid-cols-2 gap-2">
             {[
               { to: '/generate', label: 'Generate DNA', icon: <Zap size={13} className="text-dna-400" /> },
-              { to: '/compare', label: 'Compare Files', icon: <GitCompare size={13} className="text-cyan" /> },
+              { to: '/unified-investigation', label: 'Investigate', icon: <Shield size={13} className="text-cyan" /> },
               { to: '/vault', label: 'Vault', icon: <Archive size={13} className="text-purple" /> },
               { to: '/certificates', label: 'Certificates', icon: <Shield size={13} className="text-success" /> },
             ].map(item => (
@@ -402,7 +402,7 @@ export function DashboardPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { to: '/generate',    icon: <Database size={16} />,  label: 'Generate DNA',      color: 'hover:border-dna-500/50'    },
-          { to: '/compare',     icon: <GitCompare size={16} />, label: 'Compare Files',     color: 'hover:border-cyan/50'       },
+          { to: '/unified-investigation', icon: <Shield size={16} />, label: 'Investigate', color: 'hover:border-cyan/50' },
           { to: '/vault',       icon: <Archive size={16} />,    label: 'Browse Vault',      color: 'hover:border-purple/50'     },
           { to: '/certificates',icon: <CheckCircle2 size={16}/>,label: 'Certificates',      color: 'hover:border-success/50'    },
         ].map(a => (

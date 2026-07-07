@@ -122,7 +122,7 @@ function Row({ label, value, mono = false, accent }: { label: string; value: Rea
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-export function IntelligenceReportPage() {
+export function IntelligenceReportPage({ adminMode = false }: { adminMode?: boolean }) {
   const { vaultId } = useParams<{ vaultId: string }>();
   const navigate    = useNavigate();
   const [report, setReport] = useState<IntelReport | null>(null);
@@ -134,7 +134,10 @@ export function IntelligenceReportPage() {
     setLoading(true);
     setError(null);
     try {
-      const res  = await fetch(`${API_BASE_URL}/intelligence/report/${vaultId}`, {
+      const url = adminMode
+        ? `${API_BASE_URL}/super-admin/vault/${vaultId}/intelligence`
+        : `${API_BASE_URL}/intelligence/report/${vaultId}`;
+      const res  = await fetch(url, {
         headers: { Authorization: `Bearer ${getAccessToken()}` },
       });
       const data = await res.json();
@@ -147,7 +150,7 @@ export function IntelligenceReportPage() {
     }
   };
 
-  useEffect(() => { load(); }, [vaultId]);
+  useEffect(() => { load(); }, [vaultId, adminMode]);
 
   // ── Loading ────────────────────────────────────────────────────────────────
   if (loading) return (

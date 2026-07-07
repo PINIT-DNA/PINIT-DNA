@@ -54,7 +54,8 @@ export function derivativeAwareScore(
   // Perceptual alone is the primary crop/WhatsApp signal (L2 structural often 0 on crops).
   const content = Math.max(weighted, Math.round(l3 * 100));
   const score = Math.max(overall, content);
-  if (score >= 40 && classification.toUpperCase() === 'DIFFERENT') {
+  // Only reclassify DIFFERENT→SIMILAR when perceptual content is strong enough for a real derivative
+  if (score >= 58 && classification.toUpperCase() === 'DIFFERENT' && l3 * 100 >= 45) {
     return { score, classification: 'SIMILAR' };
   }
   return { score, classification };

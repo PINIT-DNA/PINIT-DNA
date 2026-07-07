@@ -31,9 +31,14 @@ const WEIGHTS = {
 
 const DNA_FULL_PASS_MIN = 75;
 const DNA_PARTIAL_MIN = 40;
+/** Minimum DNA for VERIFIED_DERIVATIVE — blocks unrelated ~50% false positives */
+const DNA_DERIVATIVE_VERIFIED_MIN = 58;
+/** DNA + visual must average at least this for derivative ownership claims */
+const CROSS_MODAL_DERIVATIVE_MIN = 52;
 const VISUAL_PASS_MIN = 40;
 const VISUAL_STRONG_MIN = 80;
 const VERIFIED_ORIGINAL_CONFIDENCE_MIN = 95;
+const VERIFIED_DERIVATIVE_CONFIDENCE_MIN = 45;
 
 export const ACCEPTANCE_VERDICT_LABELS: Record<AcceptanceVerdict, string> = {
   VERIFIED_ORIGINAL: 'Verified PINIT Asset',
@@ -121,6 +126,14 @@ function dnaPartialPass(evidence: AcceptanceEvidence): boolean {
   return evidence.dna.state === 'PASS' && evidence.dna.score >= DNA_PARTIAL_MIN;
 }
 
+function crossModalAverage(evidence: AcceptanceEvidence): number {
+  return (evidence.dna.score + evidence.visual.score) / 2;
+}
+
+function passesDerivativeCrossModal(evidence: AcceptanceEvidence): boolean {
+  return crossModalAverage(evidence) >= CROSS_MODAL_DERIVATIVE_MIN;
+}
+
 function decide(evidence: AcceptanceEvidence, scorecard: AcceptanceScorecard): AcceptanceVerdict {
   if (!evidence.analysisComplete) {
     return 'INSUFFICIENT_EVIDENCE';
@@ -152,6 +165,9 @@ function decide(evidence: AcceptanceEvidence, scorecard: AcceptanceScorecard): A
   if (
     !dnaBlocksVerified
     && dnaPartialPass(evidence)
+    && evidence.dna.score >= DNA_DERIVATIVE_VERIFIED_MIN
+    && passesDerivativeCrossModal(evidence)
+    && scorecard.finalConfidence >= VERIFIED_DERIVATIVE_CONFIDENCE_MIN
     && isPass(evidence.visual, VISUAL_PASS_MIN)
     && isPass(evidence.timeline, 50)
     && isPass(evidence.owner, 50)
@@ -165,6 +181,8 @@ function decide(evidence: AcceptanceEvidence, scorecard: AcceptanceScorecard): A
   if (
     !dnaBlocksVerified
     && dnaFullPass(evidence)
+    && passesDerivativeCrossModal(evidence)
+    && scorecard.finalConfidence >= VERIFIED_DERIVATIVE_CONFIDENCE_MIN
     && isPass(evidence.visual, VISUAL_PASS_MIN)
     && isPass(evidence.owner, 50)
     && isPass(evidence.vault, 100)
@@ -176,6 +194,17 @@ function decide(evidence: AcceptanceEvidence, scorecard: AcceptanceScorecard): A
   // POSSIBLE MATCH — visual strong, DNA partial, no cert/watermark
   const certMissing = evidence.certificate.state === 'FAIL' || evidence.certificate.state === 'SKIPPED';
   const watermarkMissing = evidence.watermark.state === 'FAIL' || evidence.watermark.state === 'SKIPPED';
+
+  // Unrelated lookalikes: weak DNA + weak visual cannot be PINIT (before POSSIBLE_MATCH)
+  if (
+    evidence.hasCandidate
+    && !passesDerivativeCrossModal(evidence)
+    && evidence.dna.score < 70
+    && evidence.visual.score < 70
+  ) {
+    return 'NOT_PINIT';
+  }
+
   if (
     !dnaBlocksVerified
     && isPass(evidence.visual, VISUAL_STRONG_MIN)

@@ -2,7 +2,6 @@ import { createBrowserRouter } from 'react-router-dom';
 import { DashboardLayout }        from './layouts/DashboardLayout';
 import { DashboardPage }          from './pages/DashboardPage';
 import { GeneratePage }           from './pages/GeneratePage';
-import { ComparePage }            from './pages/ComparePage';
 import { VaultPage }              from './pages/VaultPage';
 import { DnaRecordsPage }         from './pages/DNARecordsPage';
 import { ReportsPage }            from './pages/ReportsPage';
@@ -15,22 +14,20 @@ import { VerifyCertificatePage }  from './pages/VerifyCertificatePage';
 import { VaultIntegrityPage }       from './pages/VaultIntegrityPage';
 import { DuplicateAttemptsPage }   from './pages/DuplicateAttemptsPage';
 import { UnmaskRequestsPage }      from './pages/UnmaskRequestsPage';
-import { SecurityCenterPage }       from './pages/SecurityCenterPage';
 import { ForwardChainPage }         from './pages/ForwardChainPage';
 import { IntelligenceReportPage }   from './pages/IntelligenceReportPage';
 import { LinkTreePage }             from './pages/LinkTreePage';
-import { ForensicDashboardPage }   from './pages/ForensicDashboardPage';
 import { NotFoundPage }             from './pages/NotFoundPage';
 import { ProfilePage }              from './pages/ProfilePage';
 import { LinkIntelligencePage }     from './pages/LinkIntelligencePage';
 import { AccessIntelligencePage }  from './pages/AccessIntelligencePage';
-import { VerifyLeakedFilePage }    from './pages/VerifyLeakedFilePage';
 import { UnifiedInvestigationPage } from './pages/UnifiedInvestigationPage';
 import { ShareViewerPage }          from './pages/ShareViewerPage';
 import { PinitGateway, RegisterGateway } from './pages/auth/PinitGateway';
 import { FaceLoginPage } from './pages/auth/FaceLoginPage';
 import { AdminPortalPage } from './pages/AdminPortalPage';
 import { RequireAuth }              from './components/auth/RequireAuth';
+import { superAdminRoutes }         from './admin/routes';
 
 export const router = createBrowserRouter([
   // ── PINIT HOID auth (public) ──────────────────────────────────────────────
@@ -51,7 +48,6 @@ export const router = createBrowserRouter([
     children: [
       { index: true,                   element: <DashboardPage /> },
       { path: 'generate',              element: <GeneratePage />            },
-      { path: 'compare',               element: <ComparePage />             },
       { path: 'vault',                 element: <VaultPage />               },
       { path: 'vault-integrity',       element: <VaultIntegrityPage />      },
       { path: 'dna-records',           element: <DnaRecordsPage />          },
@@ -62,21 +58,21 @@ export const router = createBrowserRouter([
       { path: 'monitoring',            element: <MonitoringPage />          },
       { path: 'duplicate-attempts',   element: <DuplicateAttemptsPage />   },
       { path: 'unmask-requests',      element: <UnmaskRequestsPage />      },
-      { path: 'security-center',      element: <SecurityCenterPage />      },
       { path: 'chain/:dnaRecordId',   element: <ForwardChainPage />        },
       { path: 'intelligence/:vaultId', element: <IntelligenceReportPage /> },
       { path: 'link-tree/:parentToken', element: <LinkTreePage /> },
-      { path: 'forensic-dashboard',    element: <ForensicDashboardPage /> },
       { path: 'profile',               element: <ProfilePage /> },
       { path: 'access-intelligence/:token', element: <LinkIntelligencePage /> },
       { path: 'access-intelligence',     element: <AccessIntelligencePage /> },
-      { path: 'verify-leaked',           element: <VerifyLeakedFilePage /> },
       { path: 'unified-investigation',    element: <UnifiedInvestigationPage /> },
       { path: 'link/:token',            element: <LinkIntelligencePage /> },
       { path: 'certificates',          element: <CertificatesPage />        },
       { path: 'verify-certificate',    element: <VerifyCertificatePage />   },
-      { path: 'admin',                  element: <AdminPortalPage /> },
+      { path: 'admin-portal',           element: <AdminPortalPage /> },
       { path: '*',                     element: <NotFoundPage />            },
     ],
   },
+
+  // ── Super Admin Console (separate layout, SUPER_ADMIN only) ───────────────
+  superAdminRoutes,
 ]);

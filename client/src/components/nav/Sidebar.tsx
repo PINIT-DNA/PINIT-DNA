@@ -1,8 +1,8 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Dna, Shield, Archive, FileSearch,
-  GitCompare, Award, ChevronRight, Zap, Clock,
-  ShieldCheck, Activity, Microscope, Radio, Ban, LogOut, User, ShieldAlert, X,
+  Award, ChevronRight, Zap, Clock,
+  ShieldCheck, Activity, Microscope, Radio, Ban, LogOut, User, X,
   Sun, Moon,
 } from 'lucide-react';
 import { cn } from '../ui/utils';
@@ -15,7 +15,6 @@ const NAV_GROUPS = [
     items: [
       { to: '/',          icon: LayoutDashboard, label: 'Dashboard',     end: true },
       { to: '/generate',  icon: Dna,             label: 'Generate DNA'             },
-      { to: '/compare',   icon: GitCompare,      label: 'DNA Compare'              },
     ],
   },
   {
@@ -38,9 +37,6 @@ const NAV_GROUPS = [
     label: 'Forensics',
     items: [
       { to: '/unified-investigation', icon: ShieldCheck, label: 'Unified Investigation' },
-      { to: '/verify-leaked',         icon: FileSearch,  label: 'Verify Leaked File'  },
-      { to: '/forensic-dashboard',  icon: ShieldAlert, label: 'Forensic Dashboard'  },
-      { to: '/security-center',     icon: ShieldAlert, label: 'Security Center'     },
       { to: '/reports',             icon: Shield,      label: 'Forensic Reports'    },
       { to: '/unmask-requests',     icon: Shield,      label: 'Unmask Requests'     },
       { to: '/duplicate-attempts',  icon: Ban,         label: 'Duplicate Attempts'  },

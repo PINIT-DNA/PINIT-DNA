@@ -155,6 +155,29 @@ export async function retrieveFromVault(vaultId: string): Promise<Blob> {
   return data;
 }
 
+/** Clean decrypted bytes for vault gallery thumbnails (no forensic re-embedding). */
+export async function previewVaultFile(vaultId: string): Promise<Blob> {
+  const { data, headers } = await api.get<Blob>(`${API_BASE_URL}/vault/${vaultId}/preview`, {
+    responseType: 'blob',
+    timeout: 120_000,
+  });
+  const contentType = (headers['content-type'] ?? '').toLowerCase();
+  if (contentType.includes('application/json')) {
+    const raw = await (data as Blob).text();
+    try {
+      const parsed = JSON.parse(raw) as { error?: string; message?: string };
+      throw new Error(parsed.error ?? parsed.message ?? 'Preview failed');
+    } catch (e) {
+      if (e instanceof Error && e.message !== 'Preview failed') throw e;
+      throw new Error('Preview failed');
+    }
+  }
+  if (!(data instanceof Blob) || data.size === 0) {
+    throw new Error('Empty preview response');
+  }
+  return data;
+}
+
 export interface ProtectedDownloadStep {
   id: string;
   label: string;
@@ -402,15 +425,19 @@ export interface InvestigationProgressEvent {
 export async function unifiedInvestigateStream(
   file: File,
   onProgress: (event: InvestigationProgressEvent) => void,
+  options?: { admin?: boolean },
 ): Promise<{ success: boolean; report: Record<string, unknown> }> {
   const form = new FormData();
   form.append('image', file);
   const token = localStorage.getItem('pinit_access_token');
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), 600_000);
+  const endpoint = options?.admin
+    ? `${API_BASE_URL}/super-admin/unified-investigate?stream=true`
+    : `${API_BASE_URL}/forensics/unified-investigate?stream=true`;
   let res: Response;
   try {
-    res = await fetch(`${API_BASE_URL}/forensics/unified-investigate?stream=true`, {
+    res = await fetch(endpoint, {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: form,

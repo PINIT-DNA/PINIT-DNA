@@ -209,7 +209,7 @@ function evidenceForCandidate(params: {
   const visualScore = Math.max(orb, pHash, composite, patch);
 
   const tamperDetected = !!(deep?.tamperingDetected)
-    || (dnaScore > 0 && dnaScore < 95 && dnaScore >= 40);
+    || (dnaScore >= 58 && dnaScore < 95);
 
   return {
     analysisComplete: true,
@@ -342,13 +342,18 @@ export async function selectWinnerByRanking(params: {
 
     const dnaScore = deep?.overallConfidenceScore ?? 0;
     const dnaClass = deep?.classification ?? 'MISSING';
+    const vectorVis = Math.max(
+      vector?.scores.orb ?? 0,
+      vector?.scores.perceptualBlend ?? vector?.scores.pHash ?? 0,
+      vector?.scores.composite ?? 0,
+    );
 
     // Hard reject: DNA DIFFERENT / low DNA / missing — never accept via similarity alone.
     // Exception: strong local-patch hit on this vault (heavy crop/compress fragment).
     if (
       !isExact
       && !isLocalPatchHit
-      && (!deep || (dnaClass.toUpperCase() === 'DIFFERENT' && dnaScore < 42) || dnaScore < 40)
+      && (!deep || (dnaClass.toUpperCase() === 'DIFFERENT' && dnaScore < 58) || dnaScore < 40)
     ) {
       evaluated++;
       const reasons = !deep
@@ -377,6 +382,40 @@ export async function selectWinnerByRanking(params: {
         dnaScore,
         dnaClass,
         vectorSimilarity: vector?.scores.composite ?? candidate.compositeScore,
+      });
+      continue;
+    }
+
+    // Cross-modal gate: weak DNA + weak visual = unrelated lookalike (e.g. two different photos).
+    if (
+      !isExact
+      && !isLocalPatchHit
+      && dnaScore < 70
+      && (dnaScore + vectorVis) / 2 < 52
+    ) {
+      evaluated++;
+      logs.push({
+        rank: i + 1,
+        stage: 'acceptance',
+        vaultId: candidate.vaultId,
+        dnaRecordId: candidate.dnaRecordId,
+        filename: vector?.filename,
+        vectorSimilarity: vector?.scores.composite ?? candidate.compositeScore,
+        clipSimilarity: vector?.scores.clip ?? 0,
+        orbScore: vector?.scores.orb ?? 0,
+        pHashSimilarity: vector?.scores.perceptualBlend ?? 0,
+        dnaScore,
+        dnaClassification: dnaClass,
+        fusionScore: 0,
+        acceptanceVerdict: 'NOT_PINIT',
+        decision: 'REJECT',
+        rejectReasons: [`cross_modal_weak_dna_${dnaScore}_vis_${Math.round(vectorVis)}`],
+      });
+      logger.warn('[CandidateRanking] REJECTED — cross-modal weak', {
+        rank: i + 1,
+        vaultId: candidate.vaultId.slice(0, 8),
+        dnaScore,
+        vectorVis,
       });
       continue;
     }

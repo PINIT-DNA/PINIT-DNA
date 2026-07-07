@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search, Database, RefreshCw, Eye, GitCompare, ChevronDown, ChevronUp, Share2, Cpu } from 'lucide-react';
+import { Search, Database, RefreshCw, Eye, ChevronDown, ChevronUp, Share2, Cpu } from 'lucide-react';
 import { API_BASE_URL } from '../config/api.config';
 import { format } from 'date-fns';
 import { useApi, formatBytes } from '../hooks/useApi';
@@ -28,7 +28,7 @@ function DnaDetailModal({ record, onClose }: { record: DnaRecord; onClose: () =>
             { label: 'Engine Version',  value: record.engineVersion ?? '1.0.0', mono: true, accent: false },
             { label: 'Schema Version',  value: record.schemaVersion,    mono: true,  accent: false },
             { label: 'Created At',      value: format(new Date(record.createdAt), 'PPpp'), mono: false, accent: false },
-            { label: 'Owner User ID',   value: user?.shortId ?? '—', mono: true, accent: true },
+            { label: 'Owner User ID',   value: user?.shortId ?? 'ï¿½', mono: true, accent: true },
             { label: 'Vault ID',        value: record.vaultId ?? 'Not vaulted', mono: true, accent: !!record.vaultId },
           ].map(row => (
             <div key={row.label} className="bg-bg-elevated rounded-lg p-3">
@@ -191,7 +191,7 @@ export function DnaRecordsPage() {
               : <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />}
             <input
               type="text"
-              placeholder={aiMode ? 'Search by meaning, content, or filename…' : 'Search by filename or DNA Record ID…'}
+              placeholder={aiMode ? 'Search by meaning, content, or filenameï¿½' : 'Search by filename or DNA Record IDï¿½'}
               value={search}
               onChange={e => handleSearch(e.target.value)}
               className="input pl-9 text-sm"
@@ -259,7 +259,7 @@ export function DnaRecordsPage() {
                       <p className="text-2xs text-gray-500 mono">{formatBytes(r.imageSizeBytes)}</p>
                     </td>
                     <td><FileTypeBadge type={deriveFileType(r)} /></td>
-                    <td><span className="mono text-2xs text-dna-400">{r.id.slice(0, 12)}…</span></td>
+                    <td><span className="mono text-2xs text-dna-400">{r.id.slice(0, 12)}ï¿½</span></td>
                     <td><ClassificationBadge value={r.status} /></td>
                     <td>
                       {r.vaultId
@@ -277,13 +277,6 @@ export function DnaRecordsPage() {
                           title="View"
                         >
                           <Eye size={14} />
-                        </button>
-                        <button
-                          onClick={() => navigate('/compare')}
-                          className="btn-ghost btn-icon text-gray-500 hover:text-cyan"
-                          title="Compare"
-                        >
-                          <GitCompare size={14} />
                         </button>
                         <button
                           onClick={() => navigate(`/chain/${r.id}`)}

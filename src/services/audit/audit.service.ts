@@ -60,10 +60,12 @@ export class AuditService {
   async log(data: AuditEventData): Promise<void> {
     try {
       const deviceInfo = this.extractDeviceInfo(data.req);
+      const userId = (data.req as { user?: { sub?: string } } | undefined)?.user?.sub ?? null;
 
       await prisma.auditEvent.create({
         data: {
           eventType:   data.eventType,
+          userId,
           dnaRecordId: data.dnaRecordId ?? null,
           vaultId:     data.vaultId    ?? null,
           filename:    data.filename   ?? null,

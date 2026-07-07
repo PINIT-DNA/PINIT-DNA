@@ -191,10 +191,10 @@ export function ReportsPage() {
           <EmptyState
             icon={Shield}
             title="No forensic reports yet"
-            description="Run a DNA comparison to generate a forensic analysis report"
+            description="Run unified investigation to generate a forensic analysis report"
             action={
-              <Link to="/compare" className="btn btn-primary btn-sm">
-                <GitCompare size={14} /> Start Comparison
+              <Link to="/unified-investigation" className="btn btn-primary btn-sm">
+                <Shield size={14} /> Start Investigation
               </Link>
             }
           />

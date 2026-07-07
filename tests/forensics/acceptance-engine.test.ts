@@ -103,17 +103,33 @@ describe('AcceptanceEngine', () => {
 
   it('VERIFIED_DERIVATIVE when DNA partial, visual pass, tamper detected', () => {
     const d = runAcceptanceEngine(baseEvidence({
-      dna: { state: 'PASS', score: 60, classification: 'SIMILAR' },
+      dna: { state: 'PASS', score: 90, classification: 'SIMILAR' },
       certificate: failChannel(0),
       watermark: failChannel(0),
-      visual: passChannel(70),
-      owner: passChannel(80),
-      timeline: passChannel(80),
+      visual: passChannel(90),
+      owner: passChannel(100),
+      timeline: passChannel(100),
       vault: passChannel(100),
       tamperDetected: true,
     }));
     expect(d.verdict).toBe('VERIFIED_DERIVATIVE');
     expect(d.displayLabel).toMatch(/Derivative/i);
+    expect(d.confidence).toBeGreaterThanOrEqual(45);
+  });
+
+  it('does not verify derivative on weak 56% DNA with low confidence (unrelated photos)', () => {
+    const d = runAcceptanceEngine(baseEvidence({
+      dna: { state: 'PASS', score: 56, classification: 'SIMILAR' },
+      certificate: failChannel(0),
+      watermark: failChannel(0),
+      visual: passChannel(42),
+      owner: passChannel(50),
+      timeline: passChannel(50),
+      vault: passChannel(100),
+      tamperDetected: true,
+    }));
+    expect(d.verdict).toBe('NOT_PINIT');
+    expect(d.retrievalConfidence).toBe(0);
   });
 
   it('POSSIBLE_MATCH when visual strong, DNA partial, no cert/watermark', () => {

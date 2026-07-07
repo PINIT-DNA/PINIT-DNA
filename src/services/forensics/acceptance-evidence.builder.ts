@@ -97,7 +97,10 @@ function metadataChannel(enterprise: EnterpriseRecoveryResult): EvidenceChannel 
 function tamperDetected(enterprise: EnterpriseRecoveryResult): boolean {
   const deep = enterprise.authoritativeAsset?.deepCompare ?? enterprise.bestDeepCompare;
   if (deep?.tamperingDetected) return true;
-  if (deep && deep.overallConfidenceScore < 95 && deep.overallConfidenceScore >= 40) return true;
+  // Do not treat weak ~50% DNA alone as tamper — that caused unrelated false "Original Found"
+  if (deep && deep.overallConfidenceScore >= 58 && deep.overallConfidenceScore < 95) {
+    return true;
+  }
   if (enterprise.authoritativeAsset?.selectionSource === 'sha256_exact') return false;
   return false;
 }

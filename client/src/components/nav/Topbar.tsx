@@ -7,7 +7,6 @@ import { NotificationBell } from './NotificationBell';
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   '/':                    { title: 'Dashboard',             subtitle: 'System overview & analytics'              },
   '/generate':            { title: 'Generate DNA',           subtitle: ''        },
-  '/compare':             { title: 'Compare',                subtitle: ''        },
   '/vault':               { title: 'Vault',                  subtitle: 'Encrypted file storage'                 },
   '/vault-integrity':     { title: 'Vault Integrity',        subtitle: 'Verify encrypted files exist on disk'   },
   '/dna-records':         { title: 'DNA Records',             subtitle: 'All generated fingerprint records'      },

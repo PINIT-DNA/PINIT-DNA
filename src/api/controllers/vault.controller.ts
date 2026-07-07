@@ -225,6 +225,40 @@ export async function getVaultRecord(
   }
 }
 
+// ─── GET /vault/:id/preview ─────────────────────────────────────────────────
+// Clean decrypted bytes for in-app thumbnails — no download identity re-embedding.
+
+export async function previewVaultFile(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  const { id } = req.params;
+
+  try {
+    const userId = getAuthUserId(req);
+    const result = await vaultService.retrieve(id, userId);
+
+    res.set({
+      'Content-Type':        result.originalMimeType,
+      'Content-Length':      String(result.originalBuffer.length),
+      'Content-Disposition': `inline; filename="${result.originalFileName}"`,
+      'X-Vault-Id':          result.vaultId,
+      'Cache-Control':       'private, max-age=300',
+    });
+
+    res.status(200).send(result.originalBuffer);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('not found')) {
+      return next(new AppError(404, err.message));
+    }
+    if (err instanceof Error && err.message.includes('Unsupported state')) {
+      return next(new AppError(422, 'Vault file integrity check failed — auth tag mismatch.'));
+    }
+    next(err);
+  }
+}
+
 // ─── POST /vault/:id/retrieve ─────────────────────────────────────────────────
 
 export async function retrieveFromVault(

@@ -276,7 +276,7 @@ function Section({
   );
 }
 
-export function UnifiedInvestigationPage() {
+export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: boolean }) {
   const [file, setFile] = useState<File | null>(null);
   const [mode, setMode] = useState<'upload' | 'scan'>('upload');
   const [loading, setLoading] = useState(false);
@@ -307,7 +307,7 @@ export function UnifiedInvestigationPage() {
     try {
       const { report: r } = await unifiedInvestigateStream(f, (event) => {
         if (event.snapshot) setLiveSnapshot(event.snapshot);
-      });
+      }, { admin: adminMode });
       setReport(r as unknown as InvestigationReport);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Investigation failed';
@@ -316,7 +316,7 @@ export function UnifiedInvestigationPage() {
       setLoading(false);
       setLiveSnapshot(null);
     }
-  }, []);
+  }, [adminMode]);
 
   /** Upload path: File Picker → same investigation as scanner. */
   const handleFileSelect = (f: File) => {

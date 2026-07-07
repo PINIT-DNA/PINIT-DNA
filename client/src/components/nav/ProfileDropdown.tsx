@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Shield, Bell, Clock, LogOut, Settings, HelpCircle, Sun, Moon } from 'lucide-react';
+import { User, Shield, Bell, Clock, LogOut, Settings, HelpCircle, Sun, Moon, LayoutDashboard } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../hooks/useTheme';
 import { api } from '../../services/dashboard.api';
@@ -90,6 +90,9 @@ export function ProfileDropdown() {
             <MenuItem icon={<Shield size={14} />} label="Security Settings" onClick={() => go('/profile?tab=security')} />
             <MenuItem icon={<Bell size={14} />} label="Notifications" onClick={() => go('/profile?tab=notifications')} />
             <MenuItem icon={<Clock size={14} />} label="Activity History" onClick={() => go('/profile?tab=activity')} />
+            {profile?.role === 'SUPER_ADMIN' && (
+              <MenuItem icon={<LayoutDashboard size={14} />} label="Admin Console" onClick={() => go('/admin')} />
+            )}
             <MenuItem
               icon={theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
               label={theme === 'dark' ? 'Light Mode' : 'Dark Mode'}

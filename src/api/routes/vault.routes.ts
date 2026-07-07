@@ -13,6 +13,7 @@ import {
   storeInVault,
   getVaultRecord,
   retrieveFromVault,
+  previewVaultFile,
   scanVaultFile,
   verifyFileIdentity,
   prepareProtectedDownload,
@@ -55,6 +56,12 @@ router.post('/store', requireAuth, uploadSingle, storeInVault);
  * Response 200: vault record metadata (no file content)
  */
 router.get('/:id', requireAuth, requireVaultOwnership, getVaultRecord);
+
+/**
+ * GET /vault/:id/preview
+ * Inline decrypted bytes for vault thumbnails (no download identity embedding).
+ */
+router.get('/:id/preview', requireAuth, requireVaultOwnership, previewVaultFile);
 
 /**
  * POST /vault/:id/retrieve
