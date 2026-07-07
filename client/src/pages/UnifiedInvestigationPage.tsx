@@ -367,7 +367,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
   const totalSteps = report?.pipeline.length ?? 16;
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="page-shell w-full max-w-5xl space-y-6 min-w-0">
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-xl bg-dna-500/20 flex items-center justify-center">
           <Microscope size={20} className="text-dna-400" />
@@ -499,7 +499,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
               Investigation Pipeline — {completedSteps}/{totalSteps} complete
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2">
               {report.pipeline.map((s) => (
                 <div key={s.id} className="flex flex-col items-center text-center gap-1 p-2 rounded-lg bg-bg-elevated">
                   <span className={cn('w-2 h-2 rounded-full', STEP_STATUS[s.status])} title={s.detail} />
@@ -613,7 +613,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                 }).map(([k, v]) => (
                   <div key={k} className="flex justify-between gap-2 py-1 border-b border-bg-border/50">
                     <dt className="text-gray-500">{k}</dt>
-                    <dd className="text-white mono text-right truncate max-w-[60%]">{v ?? 'No evidence available'}</dd>
+                    <dd className="text-white mono text-right truncate min-w-0 max-w-full sm:max-w-[60%]">{v ?? 'No evidence available'}</dd>
                   </div>
                 ))}
               </dl>
@@ -659,7 +659,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               }).map(([k, v]) => (
                 <div key={k} className="flex justify-between gap-2 py-1 border-b border-bg-border/50">
                   <dt className="text-gray-500">{k}</dt>
-                  <dd className="text-white mono text-right truncate max-w-[60%]">{v ?? '—'}</dd>
+                  <dd className="text-white mono text-right truncate min-w-0 max-w-full sm:max-w-[60%]">{v ?? '—'}</dd>
                 </div>
               ))}
             </dl>
@@ -887,7 +887,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               ].map(([k, v]) => (
                 <div key={String(k)} className="flex justify-between gap-2 py-1 border-b border-bg-border/50">
                   <dt className="text-gray-500">{k}</dt>
-                  <dd className="text-white mono text-right truncate max-w-[60%]">{v ?? '—'}</dd>
+                  <dd className="text-white mono text-right truncate min-w-0 max-w-full sm:max-w-[60%]">{v ?? '—'}</dd>
                 </div>
               ))}
             </dl>

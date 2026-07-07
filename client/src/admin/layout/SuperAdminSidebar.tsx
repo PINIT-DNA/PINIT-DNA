@@ -43,12 +43,16 @@ const NAV = [
   { to: '/admin/system', label: 'System Configuration', icon: Sliders },
 ];
 
-export function SuperAdminSidebar() {
+export function SuperAdminSidebar({ open = false, onClose }: { open?: boolean; onClose?: () => void }) {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
 
   return (
-    <aside className="w-64 shrink-0 h-screen bg-[#0c0c0e] border-r border-zinc-800 flex flex-col">
+    <aside
+      className={`fixed left-0 top-0 z-50 h-[100dvh] w-64 bg-[#0c0c0e] border-r border-zinc-800 flex flex-col transform transition-transform duration-200 lg:translate-x-0 ${
+        open ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:shadow-none'
+      }`}
+    >
       <div className="p-4 border-b border-zinc-800">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded bg-zinc-100 flex items-center justify-center">
@@ -76,6 +80,7 @@ export function SuperAdminSidebar() {
               key={to}
               to={to}
               end={end}
+              onClick={() => onClose?.()}
               className={({ isActive }) =>
                 `flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors ${
                   isActive

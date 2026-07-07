@@ -315,7 +315,7 @@ export function LinkIntelligencePage() {
   const activeViewer = selectedViewer ? viewers.find(v => v.id === selectedViewer) : null;
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="page-shell-wide w-full">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <Link to="/access-intelligence" className="text-gray-400 hover:text-white transition-colors">

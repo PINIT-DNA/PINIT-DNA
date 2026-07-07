@@ -1,5 +1,5 @@
 import { useLocation, Link } from 'react-router-dom';
-import { Plus, ChevronRight } from 'lucide-react';
+import { Plus, ChevronRight, Menu } from 'lucide-react';
 import { Dna } from 'lucide-react';
 import { ProfileDropdown } from './ProfileDropdown';
 import { NotificationBell } from './NotificationBell';
@@ -23,19 +23,24 @@ interface TopbarProps {
   onMenu?: () => void;
 }
 
-export function Topbar({ onMenu: _onMenu }: TopbarProps) {
+export function Topbar({ onMenu }: TopbarProps) {
   const location = useLocation();
   const meta = PAGE_META[location.pathname] ?? { title: 'PINIT-DNA', subtitle: '' };
 
   return (
     <header
-      className="h-14 flex items-center justify-between px-4 sm:px-6 border-b border-bg-border bg-bg-card/95 backdrop-blur-md sticky top-0 z-30 shrink-0"
+      className="h-14 flex items-center justify-between px-3 sm:px-6 border-b border-bg-border bg-bg-card/95 backdrop-blur-md sticky top-0 z-30 shrink-0"
       style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
     >
-      <div className="flex items-center gap-2.5 min-w-0 flex-1">
-        <div className="lg:hidden w-8 h-8 rounded-xl bg-dna-500 flex items-center justify-center shrink-0 shadow-sm">
-          <Dna size={16} className="text-white" />
-        </div>
+      <div className="flex items-center gap-2 min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={onMenu}
+          className="lg:hidden btn-icon btn-ghost shrink-0 touch-manipulation"
+          aria-label="Open menu"
+        >
+          <Menu size={20} />
+        </button>
         <div className="hidden lg:flex items-center gap-1.5 text-xs text-gray-500 mono shrink-0">
           <Dna size={12} className="text-dna-500" />
           <span>PINIT-DNA</span>

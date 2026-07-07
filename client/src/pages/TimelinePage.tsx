@@ -522,7 +522,7 @@ export function TimelinePage() {
   const totalEvents = histories.reduce((s, h) => s + h.events.length, 0);
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="page-shell space-y-5 animate-fade-in">
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -586,7 +586,7 @@ export function TimelinePage() {
 
       {/* Stats row */}
       {!loading && histories.length > 0 && (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="stat-grid-4 gap-3">
           {[
             { icon: <Dna size={16} className="text-dna-400" />, label: 'Files Tracked', value: histories.length },
             { icon: <Lock size={16} className="text-success" />, label: 'Files Vaulted', value: histories.filter(h => h.vaultId).length },

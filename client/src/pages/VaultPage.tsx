@@ -732,7 +732,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
             {/* Expiry */}
             <div>
               <label className="text-xs font-semibold text-gray-300 block mb-2">Link Expires After</label>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {[
                   { label: '1 Hour',   value: '1'    },
                   { label: '24 Hours', value: '24'   },
@@ -1053,7 +1053,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
             </div>
 
             {/* Share via */}
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <a href={`https://wa.me/?text=${encodeURIComponent('Secure file: ' + created.shareUrl)}`}
                 target="_blank" rel="noreferrer"
                 className="btn btn-secondary btn-sm text-xs justify-center">
@@ -1292,7 +1292,7 @@ export function VaultPage() {
   );
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="page-shell space-y-5 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -1314,7 +1314,7 @@ export function VaultPage() {
 
       {/* Stats row */}
       {!loading && records && records.length > 0 && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="stat-grid-3 gap-3">
           <div className="card-sm text-center">
             <p className="text-2xl font-bold text-purple">{records.length}</p>
             <p className="text-2xs text-gray-500 mt-1">Encrypted Files</p>
@@ -1334,8 +1334,8 @@ export function VaultPage() {
 
       {/* Search + table */}
       <div className="card overflow-hidden p-0">
-        <div className="flex items-center gap-3 p-4 border-b border-bg-border">
-          <div className="relative flex-1">
+        <div className="toolbar-row p-4 border-b border-bg-border">
+          <div className="relative flex-1 min-w-0 w-full">
             {aiSearching
               ? <RefreshCw size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dna-400 animate-spin" />
               : <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />}
@@ -1347,41 +1347,43 @@ export function VaultPage() {
               className="input pl-9 text-sm"
             />
           </div>
-          <button
-            onClick={() => { setAiMode(m => !m); setSearch(''); setAiResults([]); }}
-            title={aiMode ? 'Switch to keyword search' : 'Switch to AI semantic search'}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all shrink-0 ${
-              aiMode
-                ? 'bg-dna-500/20 border-dna-500/40 text-dna-400'
-                : 'border-bg-border text-gray-500 hover:text-white hover:border-gray-600'
-            }`}
-          >
-            <Cpu size={13} />
-            {aiMode ? 'AI Search ON' : 'AI Search'}
-          </button>
-          <div className="flex items-center rounded-lg border border-bg-border overflow-hidden shrink-0">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto shrink-0">
             <button
-              onClick={() => setViewMode('gallery')}
-              title="Gallery view"
-              className={cn(
-                'px-2.5 py-1.5 transition-colors',
-                viewMode === 'gallery' ? 'bg-dna-500/20 text-dna-400' : 'text-gray-500 hover:text-white',
-              )}
+              onClick={() => { setAiMode(m => !m); setSearch(''); setAiResults([]); }}
+              title={aiMode ? 'Switch to keyword search' : 'Switch to AI semantic search'}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all shrink-0 min-h-[44px] sm:min-h-0 ${
+                aiMode
+                  ? 'bg-dna-500/20 border-dna-500/40 text-dna-400'
+                  : 'border-bg-border text-gray-500 hover:text-white hover:border-gray-600'
+              }`}
             >
-              <LayoutGrid size={14} />
+              <Cpu size={13} />
+              {aiMode ? 'AI Search ON' : 'AI Search'}
             </button>
-            <button
-              onClick={() => setViewMode('list')}
-              title="List view"
-              className={cn(
-                'px-2.5 py-1.5 border-l border-bg-border transition-colors',
-                viewMode === 'list' ? 'bg-dna-500/20 text-dna-400' : 'text-gray-500 hover:text-white',
-              )}
-            >
-              <List size={14} />
-            </button>
+            <div className="flex items-center rounded-lg border border-bg-border overflow-hidden shrink-0">
+              <button
+                onClick={() => setViewMode('gallery')}
+                title="Gallery view"
+                className={cn(
+                  'px-2.5 py-1.5 transition-colors min-h-[44px] sm:min-h-0',
+                  viewMode === 'gallery' ? 'bg-dna-500/20 text-dna-400' : 'text-gray-500 hover:text-white',
+                )}
+              >
+                <LayoutGrid size={14} />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                title="List view"
+                className={cn(
+                  'px-2.5 py-1.5 border-l border-bg-border transition-colors min-h-[44px] sm:min-h-0',
+                  viewMode === 'list' ? 'bg-dna-500/20 text-dna-400' : 'text-gray-500 hover:text-white',
+                )}
+              >
+                <List size={14} />
+              </button>
+            </div>
+            <Archive size={16} className="text-gray-500 shrink-0 hidden sm:block" />
           </div>
-          <Archive size={16} className="text-gray-500 shrink-0" />
         </div>
 
         {viewMode === 'gallery' ? (

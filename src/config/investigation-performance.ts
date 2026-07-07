@@ -44,11 +44,11 @@ export const investigationPerformanceConfig = {
   watermarkTimeoutMs: intEnv('PINIT_INVESTIGATION_WATERMARK_TIMEOUT_MS', 5_000),
   embeddingTimeoutMs: intEnv('PINIT_INVESTIGATION_EMBEDDING_TIMEOUT_MS', 5_000),
   /** Local patch search time budget (tampered / compressed probes) */
-  localDnaTimeoutMs: intEnv('PINIT_INVESTIGATION_LOCAL_DNA_TIMEOUT_MS', 40_000),
-  /** Per-candidate 15-layer DNA — must exceed ~21s real compare time on Render */
-  deepCompareTimeoutMs: intEnv('PINIT_INVESTIGATION_DEEP_COMPARE_TIMEOUT_MS', 35_000),
-  /** Image enterprise recovery — local DNA + deep DNA must both finish */
-  imageRecoveryTimeoutMs: intEnv('PINIT_INVESTIGATION_IMAGE_RECOVERY_MS', 120_000),
+  localDnaTimeoutMs: intEnv('PINIT_INVESTIGATION_LOCAL_DNA_TIMEOUT_MS', 90_000),
+  /** Per-candidate 15-layer DNA — must exceed real compare time on Render + AI cold start */
+  deepCompareTimeoutMs: intEnv('PINIT_INVESTIGATION_DEEP_COMPARE_TIMEOUT_MS', 60_000),
+  /** Image enterprise recovery — local DNA + deep DNA + ORB (Render needs headroom) */
+  imageRecoveryTimeoutMs: intEnv('PINIT_INVESTIGATION_IMAGE_RECOVERY_MS', 240_000),
   /** Video partial recovery — enterprise stage budget */
   videoRecoveryTimeoutMs: intEnv('PINIT_INVESTIGATION_VIDEO_RECOVERY_MS', 180_000),
   /** Post-retrieval report enrichment (timeline, crawler) — hard cap */

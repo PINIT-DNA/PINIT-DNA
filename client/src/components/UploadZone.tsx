@@ -231,7 +231,7 @@ export function UploadZone({
                   </div>
                   <p className="text-white font-semibold text-lg mb-1">Drag & drop any file</p>
                   <p className="text-gray-500 text-sm mb-5">or click to browse</p>
-                  <div className="grid grid-cols-5 gap-2 mb-4 max-w-md w-full">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 mb-4 max-w-md w-full">
                     {FILE_TYPES.map((ft) => (
                       <div
                         key={ft.label}

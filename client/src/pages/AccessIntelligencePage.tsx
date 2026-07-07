@@ -53,7 +53,7 @@ export function AccessIntelligencePage() {
   const uniqueCountries = new Set(links.flatMap(l => (l.accessLogs ?? []).map(a => a.country).filter(Boolean)));
 
   return (
-    <div className="max-w-5xl mx-auto">
+    <div className="page-shell w-full max-w-5xl">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg font-bold text-white flex items-center gap-2">

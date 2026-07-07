@@ -375,7 +375,7 @@ function ResultPanel({ result }: { result: ComparisonResult }) {
         </div>
 
         {/* Quick stats row */}
-        <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-white/10">
+        <div className="stat-grid-3 gap-3 mt-4 pt-4 border-t border-white/10">
           <div className="text-center">
             <p className="text-lg font-bold text-success">{result.matchedLayers.length}</p>
             <p className="text-2xs text-gray-500">Layers Matched</p>
@@ -534,7 +534,7 @@ export function ComparePage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
+    <div className="page-shell space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

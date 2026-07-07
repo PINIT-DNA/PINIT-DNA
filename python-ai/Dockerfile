@@ -23,4 +23,5 @@ RUN mkdir -p data models
 
 EXPOSE 7860
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
+# Render injects $PORT — default 7860 for local Docker / HF Spaces
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-7860}"]

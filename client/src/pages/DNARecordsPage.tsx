@@ -136,7 +136,7 @@ export function DnaRecordsPage() {
   );
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="page-shell space-y-5 animate-fade-in">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold text-white">DNA Records</h1>

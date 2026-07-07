@@ -887,7 +887,7 @@ export function SecurityCenterPage() {
   });
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-[1200px]">
+    <div className="page-shell space-y-6 animate-fade-in">
 
       {/* Header */}
       <div className="flex items-start justify-between">

@@ -173,7 +173,7 @@ export function IntelligenceReportPage({ adminMode = false }: { adminMode?: bool
   const TamperIcon = tamper.icon;
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
+    <div className="page-shell w-full max-w-4xl space-y-6">
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -213,7 +213,7 @@ export function IntelligenceReportPage({ adminMode = false }: { adminMode?: bool
       )}
 
       {/* ── 6-stat summary bar ────────────────────────────────────────────── */}
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
         {[
           { label: 'Risk Score',    value: `${r.risk.riskScore}`,          sub: '/100',    color: r.risk.riskScore > 50 ? 'text-red-400' : 'text-emerald-400' },
           { label: 'Views',         value: `${r.distribution.totalViews}`,   sub: 'total',   color: 'text-dna-400' },

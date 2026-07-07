@@ -423,7 +423,7 @@ export function MonitoringPage() {
   );
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="page-shell space-y-5 animate-fade-in">
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -541,7 +541,7 @@ export function MonitoringPage() {
               </div>
               <button onClick={() => setCheckResult(null)} className="btn-ghost btn-icon"><XCircle size={14} /></button>
             </div>
-            <div className="grid grid-cols-4 gap-2 text-center">
+            <div className="stat-grid-4 gap-2 text-center">
               {[
                 { label: 'URLs Checked',   value: checkResult['urlsChecked'] },
                 { label: 'Candidates',     value: checkResult['candidatesFound'] ?? checkResult['candidatesDownloaded'] ?? 0 },

@@ -448,7 +448,7 @@ export function CertificatesPage() {
   const revokedCount = items.filter(i => i.certificate?.status === 'REVOKED').length;
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="page-shell space-y-5 animate-fade-in">
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">

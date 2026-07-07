@@ -24,7 +24,7 @@ export function AdminMonitoringPage() {
     <div>
       <PageHeader title="Monitoring Center" description="Crawler status, leak monitoring, and threat intelligence" />
 
-      <div className="grid grid-cols-3 gap-3 mb-6">
+      <div className="stat-grid-3 gap-3 mb-6">
         <StatCard label="Active Monitors" value={activeMonitors} icon={Radar} />
         <StatCard label="Crawl Alerts" value={data?.alerts?.length ?? 0} icon={AlertTriangle} />
         <StatCard label="Recent Runs" value={data?.runs?.length ?? 0} icon={Play} />

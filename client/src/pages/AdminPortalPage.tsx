@@ -75,7 +75,7 @@ export function AdminPortalPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 animate-fade-in">
+    <div className="page-shell-wide space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
@@ -204,7 +204,7 @@ export function AdminPortalPage() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <div className="bg-bg-elevated rounded-lg p-2 text-center">
                         <p className="text-sm font-bold text-dna-400">{selectedUser.dnaRecords?.length ?? 0}</p>
                         <p className="text-2xs text-gray-500">DNA</p>
@@ -265,7 +265,7 @@ export function AdminPortalPage() {
           {/* ── VAULT FILES ── */}
           {tab === 'vault' && vaultFiles && (
             <div>
-              <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="stat-grid-3 gap-3 mb-4">
                 <div className="card-sm text-center">
                   <p className="text-xl font-black text-dna-400">{vaultFiles.total}</p>
                   <p className="text-2xs text-gray-500 font-bold uppercase">Total Files</p>

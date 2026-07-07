@@ -89,7 +89,7 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-[1400px]">
+    <div className="page-shell space-y-6 animate-fade-in">
 
       {/* -- Header ----------------------------------------------------------- */}
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -313,7 +313,7 @@ export function DashboardPage() {
               Open Vault ?
             </Link>
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="stat-grid-3">
             <div className="p-3 rounded-xl bg-bg-elevated border border-bg-border text-center">
               <p className="text-xl font-bold text-purple">{stats.totalVaultRecords}</p>
               <p className="text-2xs text-gray-500 mt-1">Encrypted Files</p>
@@ -380,7 +380,7 @@ export function DashboardPage() {
                 <Shield size={14} className="text-dna-400" />
                 <h3 className="text-xs font-semibold text-white">Risk Score Distribution</h3>
               </div>
-              <div className="grid grid-cols-4 gap-3">
+              <div className="stat-grid-4">
                 {([
                   { key: 'LOW',      color: 'text-green-400',  bg: 'bg-green-500/15 border-green-500/30'  },
                   { key: 'MEDIUM',   color: 'text-yellow-400', bg: 'bg-yellow-500/15 border-yellow-500/30' },

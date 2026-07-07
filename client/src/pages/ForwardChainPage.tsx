@@ -577,7 +577,7 @@ export function ForwardChainPage() {
   }
 
   return (
-    <div className="space-y-5 animate-fade-in max-w-[1400px]">
+    <div className="page-shell space-y-5 animate-fade-in">
 
       {/* Header */}
       <div className="flex items-center gap-3">

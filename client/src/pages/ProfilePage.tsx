@@ -46,7 +46,7 @@ export function ProfilePage() {
   );
 
   return (
-    <div className="max-w-5xl mx-auto">
+    <div className="page-shell w-full max-w-5xl">
       {/* Header with stats */}
       <div className="card mb-6">
         <div className="flex items-start gap-4 flex-wrap">
@@ -67,7 +67,7 @@ export function ProfilePage() {
 
         {/* Stats row */}
         {stats && (
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mt-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mt-4">
             <StatMini icon={<Dna size={12} />} label="DNA" value={stats.dnaGenerated} />
             <StatMini icon={<Archive size={12} />} label="Vault" value={stats.filesProtected} />
             <StatMini icon={<Share2 size={12} />} label="Shares" value={stats.activeShares} />
