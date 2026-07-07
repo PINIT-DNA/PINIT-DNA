@@ -41,7 +41,7 @@ services:
       - key: UPLOAD_TEMP_DIR
         value: ./tmp/uploads
       - key: MAX_FILE_SIZE
-        value: 20971520
+        value: 524288000
       - key: LOG_LEVEL
         value: info
 

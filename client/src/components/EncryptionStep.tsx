@@ -9,7 +9,7 @@ interface Props {
 
 const STAGES_MS = [900, 1200, 600];
 
-export function EncryptionStep({ dnaRecordId, onComplete }: Props) {
+export function EncryptionStep({ onComplete }: Props) {
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
@@ -34,19 +34,17 @@ export function EncryptionStep({ dnaRecordId, onComplete }: Props) {
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="card border-yellow-500/30 bg-yellow-500/5 py-8 px-6 text-center space-y-4"
+      className="card py-8 px-6"
     >
-      <div className="text-3xl">🔒</div>
-      <div>
-        <p className="text-white font-semibold">Securing your file</p>
-        <p className="text-xs text-gray-500 mt-1 mono truncate max-w-[240px] mx-auto">{dnaRecordId}</p>
-      </div>
-      <div className="w-full max-w-xs mx-auto h-2 bg-bg-border rounded-full overflow-hidden">
-        <motion.div
-          className="h-full bg-yellow-400 rounded-full"
-          animate={{ width: `${progress}%` }}
-          transition={{ duration: 0.3 }}
-        />
+      <div className="flex flex-col items-center gap-4">
+        <div className="w-10 h-10 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+        <div className="w-full max-w-xs h-2 bg-bg-border rounded-full overflow-hidden">
+          <motion.div
+            className="h-full bg-yellow-400 rounded-full"
+            animate={{ width: `${progress}%` }}
+            transition={{ duration: 0.3 }}
+          />
+        </div>
       </div>
     </motion.div>
   );

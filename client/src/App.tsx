@@ -189,72 +189,21 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
             >
-              {error && duplicateInfo ? (
-                /* ── Duplicate file blocked — rich UI ───────────────────── */
+              {error && (
                 <motion.div
-                  initial={{ opacity: 0, y: -10 }}
+                  initial={{ opacity: 0, y: -8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="mb-6 max-w-2xl mx-auto rounded-xl overflow-hidden border border-amber-500/40"
+                  className="mb-5 flex justify-center"
                 >
-                  <div className="bg-amber-500/10 px-5 py-3 flex items-center gap-2 border-b border-amber-500/20">
-                    <span className="text-lg">🚫</span>
-                    <p className="text-amber-400 font-semibold text-sm">Duplicate File Detected</p>
-                    {duplicateInfo.riskLevel === 'HIGH' && (
-                      <span className="ml-auto text-xs bg-red-500/20 text-red-400 border border-red-500/30 rounded px-2 py-0.5 font-semibold">HIGH RISK</span>
-                    )}
-                  </div>
-                  <div className="bg-bg-card px-5 py-4 space-y-2">
-                    <p className="text-gray-300 text-sm">{error}</p>
-                    <div className="grid grid-cols-2 gap-2 mt-3">
-                      <div className="bg-bg-elevated rounded-lg px-3 py-2">
-                        <p className="text-2xs text-gray-500 uppercase tracking-wide">Match Type</p>
-                        <p className="text-xs text-white font-mono mt-0.5">
-                          {duplicateInfo.matchType === 'EXACT_HASH' ? '🔴 Exact SHA-256 Match'
-                            : duplicateInfo.matchType === 'TEP_TRACKED_EXPORT' ? '🔴 TEP Tracked Export (Share Download)'
-                            : duplicateInfo.matchType === 'EMBEDDED_IDENTITY' ? '🔴 PINIT Identity Embedded'
-                            : duplicateInfo.matchType === 'PINIT_VAULT_SIGNATURE' ? '🔴 PINIT Vault / Share-Viewer Capture'
-                            : duplicateInfo.matchType === 'NORMALIZED_HASH' ? '🟠 Same Pixel Content'
-                            : '🟡 Near-Duplicate (pHash)'}
-                        </p>
-                      </div>
-                      <div className="bg-bg-elevated rounded-lg px-3 py-2">
-                        <p className="text-2xs text-gray-500 uppercase tracking-wide">Existing File</p>
-                        <p className="text-xs text-white font-mono mt-0.5 truncate">{duplicateInfo.existingFilename ?? '—'}</p>
-                      </div>
-                      {duplicateInfo.existingRecordId && (
-                        <div className="bg-bg-elevated rounded-lg px-3 py-2 col-span-2">
-                          <p className="text-2xs text-gray-500 uppercase tracking-wide">Existing DNA Record ID</p>
-                          <p className="text-xs text-dna-400 font-mono mt-0.5">{duplicateInfo.existingRecordId}</p>
-                        </div>
-                      )}
-                      {duplicateInfo.ownerShortId && (
-                        <div className="bg-bg-elevated rounded-lg px-3 py-2 col-span-2">
-                          <p className="text-2xs text-gray-500 uppercase tracking-wide">Registered Owner (PINIT ID)</p>
-                          <p className="text-xs text-amber-400 font-mono mt-0.5">{duplicateInfo.ownerShortId}</p>
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => { setError(null); setDuplicateInfo(null); }}
-                      className="btn btn-secondary btn-sm mt-2 text-xs"
-                    >
-                      Try Different File
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setError(null); setDuplicateInfo(null); }}
+                    className="btn btn-secondary"
+                  >
+                    {duplicateInfo ? 'Different File' : 'Retry'}
+                  </button>
                 </motion.div>
-              ) : error ? (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mb-6 max-w-2xl mx-auto bg-red-500/10 border border-red-500/30 rounded-xl px-5 py-4"
-                >
-                  <p className="text-red-400 text-sm font-medium">⚠ API Error</p>
-                  <p className="text-red-300 text-xs mt-1 mono">{error}</p>
-                  <p className="text-gray-500 text-xs mt-1">
-                    Make sure the backend is running on port 4000.
-                  </p>
-                </motion.div>
-              ) : null}
+              )}
               <UploadZone
                 selectedFile={selectedFile}
                 onFileSelected={setSelectedFile}
@@ -276,30 +225,8 @@ export default function App() {
             >
               {/* Left — layer pipeline */}
               <div className="space-y-6">
-                {/* File badge */}
-                <div className="flex items-center gap-3 bg-bg-card border border-bg-border rounded-xl px-4 py-3">
-                  <span className="text-xl">
-                    {selectedFile?.type.startsWith('image/')   ? '🖼️'
-                    : selectedFile?.type === 'application/pdf' ? '📄'
-                    : selectedFile?.type.includes('word')      ? '📝'
-                    : selectedFile?.type.includes('present')   ? '📊'
-                    : selectedFile?.type === 'text/plain'      ? '📃'
-                    : selectedFile?.type === 'text/csv'        ? '📋'
-                    : selectedFile?.type === 'application/json'? '🗃️'
-                    : selectedFile?.type === 'application/zip' ? '🗜️'
-                    : selectedFile?.type.startsWith('video/')  ? '🎬'
-                    : selectedFile?.type.startsWith('audio/')  ? '🎵'
-                    : '📁'}
-                  </span>
-                  <div>
-                    <p className="text-xs text-gray-500 mono">
-                      Processing · {session?.fileType ?? selectedFile?.type.split('/')[0]?.toUpperCase() ?? 'FILE'}
-                    </p>
-                    <p className="text-white font-medium text-sm truncate">
-                      {selectedFile?.name}
-                    </p>
-                  </div>
-                  <div className="ml-auto w-4 h-4 border-2 border-dna-500 border-t-transparent rounded-full animate-spin" />
+                <div className="card flex items-center justify-center py-6">
+                  <div className="w-8 h-8 border-2 border-dna-500 border-t-transparent rounded-full animate-spin" />
                 </div>
 
                 <LayerPipeline
@@ -342,9 +269,8 @@ export default function App() {
                 )}
 
                 {stage === 'processing' && !session && (
-                  <div className="card flex flex-col items-center justify-center py-16 text-center opacity-40">
-                    <div className="text-4xl mb-3 dna-float">🧬</div>
-                    <p className="text-gray-400 text-sm">DNA record will appear here</p>
+                  <div className="card flex items-center justify-center py-16">
+                    <div className="w-10 h-10 border-2 border-dna-500 border-t-transparent rounded-full animate-spin" />
                   </div>
                 )}
               </div>

@@ -535,6 +535,6 @@ export class DnaOrchestrator {
         where: { id: dnaRecordId },
         data: { status: layers.status },
       });
-    }, { timeout: 30_000, maxWait: 10_000 });
+    }, { timeout: 60_000, maxWait: 15_000 });
   }
 }

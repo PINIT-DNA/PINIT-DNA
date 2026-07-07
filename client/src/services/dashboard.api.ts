@@ -52,7 +52,11 @@ export function formatApiError(err: unknown): string {
       return 'Service unavailable — ensure the backend is running on port 4000';
     }
     if (!ax.response) {
-      return 'Cannot reach API — start the backend (npm run dev) and retry';
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const isProd = Boolean((import.meta as any).env?.PROD);
+      return isProd
+        ? 'Service unavailable — retry in a moment'
+        : 'Cannot reach API — start the backend (npm run dev) and retry';
     }
     return ax.message;
   }

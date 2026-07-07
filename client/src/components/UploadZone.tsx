@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion } from 'framer-motion';
-import { Upload, ScanLine, Video, Mic, FileUp, MapPin } from 'lucide-react';
+import { Upload, ScanLine, Video, Mic, FileUp, MapPin, RotateCcw, Fingerprint } from 'lucide-react';
 import { DocumentScanner } from './DocumentScanner';
 import { MediaRecorderPanel } from './MediaRecorderPanel';
 import {
   ACCEPT_MAP,
-  FILE_TYPES,
   formatBytes,
   getFileIcon,
   getFileTypeLabel,
@@ -22,17 +21,18 @@ interface Props {
   onFileSelected: (file: File | null) => void;
   onGenerate: () => void;
   selectedFile: File | null;
-  /** Manual opt-in: share device location for custody (not stored in DNA identity) */
   locationTrackingEnabled: boolean;
   onLocationTrackingChange: (enabled: boolean) => void;
 }
 
-const CAPTURE_MODES: { id: CaptureMode; label: string; icon: typeof Upload; desc: string }[] = [
-  { id: 'upload', label: 'Upload', icon: Upload, desc: 'Any file type' },
-  { id: 'scan', label: 'Scan', icon: ScanLine, desc: 'Camera → PDF' },
-  { id: 'video', label: 'Video', icon: Video, desc: 'Record clip' },
-  { id: 'audio', label: 'Audio', icon: Mic, desc: 'Record voice' },
+const CAPTURE_MODES: { id: CaptureMode; label: string; icon: typeof Upload }[] = [
+  { id: 'upload', label: 'Upload', icon: Upload },
+  { id: 'scan', label: 'Scan', icon: ScanLine },
+  { id: 'video', label: 'Video', icon: Video },
+  { id: 'audio', label: 'Audio', icon: Mic },
 ];
+
+const MAX_BYTES = 500 * 1024 * 1024;
 
 function FilePreview({ file }: { file: File }) {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
@@ -48,51 +48,30 @@ function FilePreview({ file }: { file: File }) {
   }, [file]);
 
   const icon = getFileIcon(file);
-  const label = getFileTypeLabel(file);
 
   if (objectUrl && isImageFile(file)) {
-    return (
-      <img
-        src={objectUrl}
-        alt="Preview"
-        className="w-full h-full object-cover rounded-xl"
-      />
-    );
+    return <img src={objectUrl} alt="" className="w-full h-full object-cover rounded-xl" />;
   }
-
   if (objectUrl && isVideoFile(file)) {
-    return (
-      <video
-        src={objectUrl}
-        className="w-full h-full object-cover rounded-xl"
-        controls
-        playsInline
-      />
-    );
+    return <video src={objectUrl} className="w-full h-full object-cover rounded-xl" controls playsInline />;
   }
-
   if (objectUrl && isAudioFile(file)) {
     return (
-      <div className="w-full h-full flex flex-col items-center justify-center gap-3 p-4 bg-bg-surface rounded-xl">
-        <span className="text-4xl">{icon}</span>
-        <audio src={objectUrl} controls className="w-full max-w-[200px]" />
+      <div className="w-full h-full flex items-center justify-center p-4 bg-bg-surface rounded-xl">
+        <audio src={objectUrl} controls className="w-full" />
       </div>
     );
   }
-
   if (isPdfFile(file)) {
     return (
-      <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-red-500/5 rounded-xl border border-red-500/20">
-        <span className="text-5xl">📄</span>
-        <span className="mono text-xs text-red-400 font-bold">PDF</span>
+      <div className="w-full h-full flex items-center justify-center bg-bg-surface rounded-xl text-5xl">
+        {icon}
       </div>
     );
   }
-
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-bg-surface rounded-xl">
-      <span className="text-5xl">{icon}</span>
-      <span className="mono text-xs text-dna-400 font-bold">{label}</span>
+    <div className="w-full h-full flex items-center justify-center bg-bg-surface rounded-xl text-5xl">
+      {icon}
     </div>
   );
 }
@@ -115,8 +94,8 @@ export function UploadZone({
   );
 
   const onDrop = useCallback(
-    (accepted: File[]) => {
-      const file = accepted[0];
+    (files: File[]) => {
+      const file = files[0];
       if (file) handleFileReady(file);
     },
     [handleFileReady],
@@ -126,83 +105,46 @@ export function UploadZone({
     onDrop,
     accept: ACCEPT_MAP,
     maxFiles: 1,
-    maxSize: 500 * 1024 * 1024,
+    maxSize: MAX_BYTES,
   });
 
   const fileLabel = selectedFile ? getFileTypeLabel(selectedFile) : '';
 
   return (
-    <div className="max-w-3xl mx-auto w-full">
-      <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="text-center mb-8"
-      >
-        <div className="text-6xl mb-4 dna-float">🧬</div>
-        <h2 className="text-3xl font-bold text-white mb-2">Generate File DNA</h2>
-        <p className="text-gray-400 text-sm max-w-lg mx-auto">
-          Upload, scan, or record a file to protect it with PINIT-DNA.
-        </p>
-      </motion.div>
-
+    <div className="max-w-3xl mx-auto w-full px-2 sm:px-0">
       {!selectedFile && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 0.06 }}
           className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-5"
         >
-          {CAPTURE_MODES.map(({ id, label, icon: Icon, desc }) => (
+          {CAPTURE_MODES.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               type="button"
               onClick={() => setCaptureMode(id)}
-              className={`rounded-xl border p-3 text-left transition-all ${
-                captureMode === id
-                  ? 'bg-dna-500/12 border-dna-500/40 shadow-sm'
-                  : 'bg-bg-card border-bg-border hover:border-dna-500/25'
+              aria-label={label}
+              className={`btn flex-col gap-2 min-h-[72px] py-3 ${
+                captureMode === id ? 'btn-primary' : 'btn-secondary'
               }`}
             >
-              <div className="flex items-center gap-2 mb-1">
-                <Icon size={15} className={captureMode === id ? 'text-dna-500' : 'text-gray-400'} />
-                <span className={`text-sm font-semibold ${captureMode === id ? 'text-dna-500' : 'text-white'}`}>
-                  {label}
-                </span>
-              </div>
-              <p className="text-2xs text-gray-500">{desc}</p>
+              <Icon size={20} />
+              <span className="text-xs font-semibold">{label}</span>
             </button>
           ))}
         </motion.div>
       )}
 
       {!selectedFile && captureMode === 'scan' && (
-        <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
-          <DocumentScanner
-            onScanComplete={handleFileReady}
-            onCancel={() => setCaptureMode('upload')}
-            subtitle="Auto-capture documents — multi-page builds a PDF"
-          />
-        </motion.div>
+        <DocumentScanner onScanComplete={handleFileReady} onCancel={() => setCaptureMode('upload')} />
       )}
 
       {!selectedFile && captureMode === 'video' && (
-        <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
-          <MediaRecorderPanel
-            mode="video"
-            onComplete={handleFileReady}
-            onCancel={() => setCaptureMode('upload')}
-          />
-        </motion.div>
+        <MediaRecorderPanel mode="video" onComplete={handleFileReady} onCancel={() => setCaptureMode('upload')} />
       )}
 
       {!selectedFile && captureMode === 'audio' && (
-        <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
-          <MediaRecorderPanel
-            mode="audio"
-            onComplete={handleFileReady}
-            onCancel={() => setCaptureMode('upload')}
-          />
-        </motion.div>
+        <MediaRecorderPanel mode="audio" onComplete={handleFileReady} onCancel={() => setCaptureMode('upload')} />
       )}
 
       {!selectedFile && captureMode === 'upload' && (
@@ -210,42 +152,22 @@ export function UploadZone({
           <div
             {...getRootProps()}
             className={`
-              relative rounded-2xl border-2 border-dashed cursor-pointer transition-all duration-300 overflow-hidden
+              relative rounded-2xl border-2 border-dashed cursor-pointer transition-all duration-300
+              flex items-center justify-center min-h-[200px] sm:min-h-[240px]
               ${isDragActive
                 ? 'border-dna-500 bg-dna-500/10 glow-purple'
-                : 'border-bg-border bg-bg-card hover:border-dna-500/50 hover:bg-bg-card/80'
+                : 'border-bg-border bg-bg-card hover:border-dna-500/50'
               }
             `}
           >
             <input {...getInputProps()} />
-            <div className="flex flex-col items-center justify-center py-14 px-6">
-              {isDragActive ? (
-                <>
-                  <FileUp size={48} className="text-dna-400 mb-3" />
-                  <p className="text-dna-400 font-semibold">Drop file here</p>
-                </>
-              ) : (
-                <>
-                  <div className="w-16 h-16 rounded-2xl bg-dna-500/10 flex items-center justify-center mb-4">
-                    <Upload size={28} className="text-dna-400" />
-                  </div>
-                  <p className="text-white font-semibold text-lg mb-1">Drag & drop any file</p>
-                  <p className="text-gray-500 text-sm mb-5">or click to browse</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 mb-4 max-w-md w-full">
-                    {FILE_TYPES.map((ft) => (
-                      <div
-                        key={ft.label}
-                        className="flex flex-col items-center gap-1 bg-bg-border/50 rounded-lg px-2 py-2"
-                      >
-                        <span className="text-lg">{ft.icon}</span>
-                        <span className={`mono text-[10px] font-bold ${ft.color}`}>{ft.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="text-gray-600 text-xs">Max 500 MB</p>
-                </>
-              )}
-            </div>
+            {isDragActive ? (
+              <FileUp size={48} className="text-dna-400" />
+            ) : (
+              <div className="w-16 h-16 rounded-2xl bg-dna-500/10 flex items-center justify-center">
+                <Upload size={28} className="text-dna-400" />
+              </div>
+            )}
           </div>
         </motion.div>
       )}
@@ -254,68 +176,41 @@ export function UploadZone({
         <motion.div
           initial={{ opacity: 0, scale: 0.98 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="rounded-2xl border-2 border-layer-complete bg-layer-complete/5 glow-green overflow-hidden"
+          className="rounded-2xl border border-layer-complete/40 bg-bg-card overflow-hidden"
         >
-          <div className="flex flex-col sm:flex-row items-stretch gap-0">
-            <div className="sm:w-48 h-48 sm:h-auto shrink-0 p-4">
-              <div className="w-full h-full min-h-[160px] rounded-xl border border-bg-border overflow-hidden shadow-lg">
-                <FilePreview file={selectedFile} />
-              </div>
+          <div className="flex flex-col sm:flex-row">
+            <div className="sm:w-44 h-44 shrink-0 p-3">
+              <FilePreview file={selectedFile} />
             </div>
-            <div className="flex-1 p-6 flex flex-col justify-center">
-              <div className="flex items-center gap-2 mb-1">
-                <p className="text-layer-complete font-semibold text-sm">Capture Ready</p>
-                <span className="mono text-xs bg-dna-500/20 text-dna-400 px-2 py-0.5 rounded">{fileLabel}</span>
+            <div className="flex-1 p-4 flex flex-col justify-center gap-3 min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="mono text-xs bg-dna-500/20 text-dna-400 px-2 py-1 rounded">{fileLabel}</span>
+                <span className="mono text-xs text-gray-500 truncate max-w-[200px]">{selectedFile.name}</span>
+                <span className="mono text-xs text-gray-600">{formatBytes(selectedFile.size)}</span>
               </div>
-              <p className="text-white font-medium text-lg truncate">{selectedFile.name}</p>
-              <div className="flex flex-wrap gap-4 mt-2">
-                <span className="mono text-xs text-gray-400">{formatBytes(selectedFile.size)}</span>
-                <span className="mono text-xs text-gray-400">{selectedFile.type || 'unknown'}</span>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => onFileSelected(null)} className="btn btn-secondary btn-sm">
+                  <RotateCcw size={14} />
+                  <span>Change</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onLocationTrackingChange(!locationTrackingEnabled)}
+                  aria-pressed={locationTrackingEnabled}
+                  className={`btn btn-sm ${locationTrackingEnabled ? 'btn-primary' : 'btn-secondary'}`}
+                >
+                  <MapPin size={14} />
+                  <span>Location</span>
+                </button>
+                <button type="button" onClick={onGenerate} className="btn btn-primary btn-sm">
+                  <Fingerprint size={14} />
+                  <span>Generate</span>
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => onFileSelected(null)}
-                className="mt-4 text-xs text-gray-500 hover:text-dna-400 transition-colors text-left w-fit"
-              >
-                ← Choose a different capture method
-              </button>
             </div>
           </div>
         </motion.div>
       )}
-
-      {selectedFile && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-6 flex flex-col items-center gap-4"
-        >
-          <label className="flex items-start gap-3 max-w-md cursor-pointer rounded-xl border border-bg-border bg-bg-card px-4 py-3 text-left">
-            <input
-              type="checkbox"
-              className="mt-1 accent-dna-500"
-              checked={locationTrackingEnabled}
-              onChange={(e) => onLocationTrackingChange(e.target.checked)}
-            />
-            <span>
-              <span className="flex items-center gap-1.5 text-sm font-semibold text-white">
-                <MapPin size={14} className="text-dna-400" />
-                Allow location for custody tracking
-              </span>
-              <span className="block text-2xs text-gray-400 mt-1">
-                Optional. If enabled, your browser will ask for permission. Location is stored only
-                in the chain of custody (created / shared / last known) — never inside DNA identity layers.
-                You can leave this off; tracking still records IP when available on the server.
-              </span>
-            </span>
-          </label>
-          <button onClick={onGenerate} className="btn-primary text-base px-10 py-4">
-            <span>Generate DNA Fingerprint</span>
-            <span className="text-lg">→</span>
-          </button>
-        </motion.div>
-      )}
-
     </div>
   );
 }

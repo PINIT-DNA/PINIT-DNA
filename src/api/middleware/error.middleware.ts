@@ -3,6 +3,8 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
+import { MulterError } from 'multer';
+import { config } from '../../config';
 import { logger } from '../../lib/logger';
 
 export class AppError extends Error {
@@ -27,6 +29,15 @@ export function errorMiddleware(
   }
 
   // Multer errors
+  if (err instanceof MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      const maxMb = Math.round(config.upload.maxFileSizeBytes / (1024 * 1024));
+      res.status(400).json({ success: false, error: `File too large. Maximum size is ${maxMb} MB.` });
+      return;
+    }
+    res.status(400).json({ success: false, error: err.message });
+    return;
+  }
   if (err.message.startsWith('Unsupported file type') || err.message.includes('File too large')) {
     res.status(400).json({ success: false, error: err.message });
     return;
