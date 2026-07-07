@@ -21,6 +21,7 @@ import {
   backfillLocalDnaIndex,
   getVaultTracking,
   revokeVaultTep,
+  deleteVaultRecord,
 } from '../controllers/vault.controller';
 import { vaultIntegrityCheck } from '../controllers/integrity.controller';
 import { requireAuth } from '../middleware/auth.middleware';
@@ -56,6 +57,9 @@ router.post('/store', requireAuth, uploadSingle, storeInVault);
  * Response 200: vault record metadata (no file content)
  */
 router.get('/:id', requireAuth, requireVaultOwnership, getVaultRecord);
+
+/** DELETE /vault/:id — remove encrypted file + vault record (owner only) */
+router.delete('/:id', requireAuth, requireVaultOwnership, deleteVaultRecord);
 
 /**
  * GET /vault/:id/preview

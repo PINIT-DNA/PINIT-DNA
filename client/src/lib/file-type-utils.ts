@@ -133,6 +133,15 @@ export function isDocxMime(mime?: string | null, fileName?: string | null): bool
     || fileExt(fileName ?? '') === '.docx';
 }
 
+export function getVaultFileTypeLabel(mime?: string | null, fileName?: string | null): string {
+  const ext = fileExt(fileName ?? '');
+  const mt = resolveVaultFileMime(undefined, mime, fileName).toLowerCase();
+  for (const ft of FILE_TYPES) {
+    if (ft.exts.includes(ext) || mt.startsWith(ft.mime.replace('*', ''))) return ft.label;
+  }
+  return 'FILE';
+}
+
 export function getVaultFileIcon(mime?: string | null, fileName?: string | null): string {
   const ext = fileExt(fileName ?? '');
   const mt = (mime ?? '').toLowerCase();

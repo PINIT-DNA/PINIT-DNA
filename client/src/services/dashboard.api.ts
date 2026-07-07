@@ -152,6 +152,13 @@ export async function getVaultRecord(id: string) {
   return data.vault ?? data;
 }
 
+export async function deleteVaultRecord(vaultId: string): Promise<{ success: boolean; vaultId: string; dnaRecordId: string }> {
+  const { data } = await api.delete<{ success: boolean; vaultId: string; dnaRecordId: string }>(
+    `${API_BASE_URL}/vault/${vaultId}`,
+  );
+  return data;
+}
+
 export async function retrieveFromVault(vaultId: string): Promise<Blob> {
   const { data } = await api.post<Blob>(`${API_BASE_URL}/vault/${vaultId}/retrieve`, {}, {
     responseType: 'blob',

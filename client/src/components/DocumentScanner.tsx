@@ -598,9 +598,9 @@ export function DocumentScanner({
           </div>
           <div>
             <p className="text-sm font-semibold text-white">Scan a Document</p>
-            <p className="text-2xs text-gray-500 mt-1">
-              {subtitle ?? 'Camera opens automatically — hold document in frame to capture'}
-            </p>
+            {subtitle ? (
+              <p className="text-2xs text-gray-500 mt-1">{subtitle}</p>
+            ) : null}
           </div>
           <div className="flex gap-2 max-w-xs mx-auto">
             <button type="button" onClick={startCamera} className="btn btn-primary flex-1">

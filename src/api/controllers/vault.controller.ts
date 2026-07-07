@@ -708,3 +708,30 @@ export async function revokeVaultTep(
     next(err);
   }
 }
+
+/** DELETE /vault/:id — delete vaulted file and metadata */
+export async function deleteVaultRecord(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const ownerUserId = getAuthUserId(req);
+    const vaultId = req.params.id;
+    const result = await vaultService.delete(vaultId, ownerUserId);
+
+    auditService.log({
+      eventType:   'VAULT_DELETED',
+      vaultId,
+      dnaRecordId: result.dnaRecordId,
+      req,
+    }).catch(() => {});
+
+    res.status(200).json({ success: true, ...result });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('not found')) return next(new AppError(404, msg));
+    if (msg.includes('Forbidden') || msg.includes('owner')) return next(new AppError(403, msg));
+    next(err);
+  }
+}

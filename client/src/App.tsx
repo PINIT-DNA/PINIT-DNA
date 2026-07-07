@@ -1,33 +1,20 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 
-// Header is suppressed when App is embedded in the dashboard layout
 const Header = () => null;
 import { UploadZone } from './components/UploadZone';
-import { LayerPipeline } from './components/LayerPipeline';
-import { DnaRecordCard } from './components/DnaRecordCard';
 import { EncryptionStep } from './components/EncryptionStep';
 import { VaultStep } from './components/VaultStep';
 import { SuccessPanel } from './components/SuccessPanel';
 
 import { generateDna } from './services/api';
-import { requestCustodyLocation } from './lib/location-consent';
-import type { AppStage, LayerState, DnaSession, EncryptionResult, VaultStoreResponse } from './types';
-
-// Per-layer animation delay in ms — simulates sequential progress visually
-// while the actual API runs all layers in parallel in the background.
-const LAYER_DELAYS = [200, 600, 1200, 2400, 3600, 4800, 5400, 6200, 7000, 7800, 8400, 9000, 9600, 10200, 10800];
+import type { AppStage, DnaSession, EncryptionResult, VaultStoreResponse } from './types';
 
 export default function App() {
   const [stage, setStage] = useState<AppStage | 'vaulting'>('idle');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [layerStates, setLayerStates] = useState<LayerState[]>(
-    Array.from({ length: 15 }, () => ({ status: 'pending' as const }))
-  );
   const [session, setSession] = useState<DnaSession | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [locationTrackingEnabled, setLocationTrackingEnabled] = useState(false);
-  const custodyLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
   const [duplicateInfo, setDuplicateInfo] = useState<{
     existingRecordId?: string;
     existingFilename?: string;
@@ -35,67 +22,14 @@ export default function App() {
     riskLevel?: string;
     ownerShortId?: string;
   } | null>(null);
-  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-
-  // ── Helpers ────────────────────────────────────────────────────────────────
-
-  const clearTimers = () => {
-    timersRef.current.forEach(clearTimeout);
-    timersRef.current = [];
-  };
-
-  const setLayerStatus = (idx: number, state: Partial<LayerState>) => {
-    setLayerStates((prev) => {
-      const next = [...prev];
-      next[idx] = { ...next[idx], ...state };
-      return next;
-    });
-  };
-
-  // ── Start DNA generation ───────────────────────────────────────────────────
 
   const handleGenerate = useCallback(async () => {
     if (!selectedFile) return;
-    clearTimers();
     setError(null);
     setStage('processing');
-    custodyLocationRef.current = null;
 
-    // Optional custody location — only if user enabled the toggle
-    if (locationTrackingEnabled) {
-      const loc = await requestCustodyLocation();
-      if (loc) custodyLocationRef.current = { latitude: loc.latitude, longitude: loc.longitude };
-    }
-
-    // Reset all layers to pending
-    setLayerStates(Array.from({ length: 15 }, () => ({ status: 'pending' as const })));
-
-    // Animate layers one by one with staggered delays (visual simulation)
-    LAYER_DELAYS.forEach((delay, idx) => {
-      const t1 = setTimeout(() => setLayerStatus(idx, { status: 'processing' }), delay);
-      // Each layer "completes" ~400ms after it starts visually
-      const t2 = setTimeout(
-        () => setLayerStatus(idx, { status: 'processing' }),
-        delay + 50
-      );
-      timersRef.current.push(t1, t2);
-    });
-
-    // Fire the real API call
     try {
-      const loc = custodyLocationRef.current;
-      const result = await generateDna(selectedFile, loc
-        ? { locationShared: true, latitude: loc.latitude, longitude: loc.longitude }
-        : undefined);
-
-      // Mark all layers complete with timing from result
-      const processingPerLayer = Math.round(result.summary.totalProcessingMs / 15);
-      setLayerStates(
-        Array.from({ length: 15 }, (_, i) => ({
-          status: result.summary.failedLayers > 0 && i === 14 ? 'failed' : 'complete',
-          processingMs: processingPerLayer + Math.round(Math.random() * 200),
-        }))
-      );
+      const result = await generateDna(selectedFile);
 
       setSession({
         dnaRecordId:      result.dnaRecordId,
@@ -111,10 +45,8 @@ export default function App() {
         generatedAt:      result.generatedAt,
       });
 
-      // Move to encryption step
-      setTimeout(() => setStage('encrypting'), 800);
+      setTimeout(() => setStage('encrypting'), 400);
     } catch (err: unknown) {
-      clearTimers();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const anyErr = err as any;
       if (anyErr?.isDuplicate) {
@@ -128,51 +60,33 @@ export default function App() {
         setError(anyErr.message);
       } else {
         setDuplicateInfo(null);
-        const msg = err instanceof Error ? err.message : 'Failed to connect to DNA API';
-        setError(msg);
+        setError(err instanceof Error ? err.message : 'Failed');
       }
       setStage('idle');
     }
-  }, [selectedFile, locationTrackingEnabled]);
-
-  // ── Encryption complete → move to vault stage ─────────────────────────────
+  }, [selectedFile]);
 
   const handleEncryptionComplete = useCallback((enc: EncryptionResult) => {
-    setSession((prev) =>
-      prev ? { ...prev, encryption: enc } : prev
-    );
+    setSession((prev) => (prev ? { ...prev, encryption: enc } : prev));
     setTimeout(() => setStage('vaulting'), 400);
   }, []);
 
-  // ── Vault complete → move to success ──────────────────────────────────────
-
   const handleVaultComplete = useCallback((vault: VaultStoreResponse) => {
-    setSession((prev) =>
-      prev ? { ...prev, vault } : prev
-    );
+    setSession((prev) => (prev ? { ...prev, vault } : prev));
     setTimeout(() => setStage('success'), 400);
   }, []);
 
-  const handleVaultError = useCallback((msg: string) => {
-    // Vault failure is non-fatal — show success with a warning
-    setError(`Vault storage failed: ${msg}`);
+  const handleVaultError = useCallback(() => {
     setTimeout(() => setStage('success'), 400);
   }, []);
-
-  // ── Reset ──────────────────────────────────────────────────────────────────
 
   const handleReset = () => {
-    clearTimers();
     setStage('idle');
     setSelectedFile(null);
     setSession(null);
     setError(null);
-    setLayerStates(Array.from({ length: 10 }, () => ({ status: 'pending' as const })));
+    setDuplicateInfo(null);
   };
-
-  // ── Render ─────────────────────────────────────────────────────────────────
-
-  const completedCount = layerStates.filter((l) => l.status === 'complete').length;
 
   return (
     <div className="min-h-screen flex flex-col bg-bg-base">
@@ -180,15 +94,8 @@ export default function App() {
 
       <main className="flex-1 max-w-5xl mx-auto w-full px-0 sm:px-4 py-4 sm:py-8">
         <AnimatePresence mode="wait">
-
-          {/* ── IDLE: Upload page ─────────────────────────────────────────── */}
           {stage === 'idle' && (
-            <motion.div
-              key="idle"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
+            <motion.div key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               {error && (
                 <motion.div
                   initial={{ opacity: 0, y: -8 }}
@@ -208,87 +115,42 @@ export default function App() {
                 selectedFile={selectedFile}
                 onFileSelected={setSelectedFile}
                 onGenerate={handleGenerate}
-                locationTrackingEnabled={locationTrackingEnabled}
-                onLocationTrackingChange={setLocationTrackingEnabled}
               />
             </motion.div>
           )}
 
-          {/* ── PROCESSING + ENCRYPTING: Pipeline page ───────────────────── */}
           {(stage === 'processing' || stage === 'encrypting' || stage === 'vaulting') && (
             <motion.div
               key="processing"
-              initial={{ opacity: 0, x: 30 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -30 }}
-              className="grid grid-cols-1 lg:grid-cols-2 gap-6"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex items-center justify-center min-h-[320px]"
             >
-              {/* Left — layer pipeline */}
-              <div className="space-y-6">
-                <div className="card flex items-center justify-center py-6">
-                  <div className="w-8 h-8 border-2 border-dna-500 border-t-transparent rounded-full animate-spin" />
+              <div className="w-12 h-12 border-2 border-dna-500 border-t-transparent rounded-full animate-spin" />
+              {stage === 'encrypting' && session && (
+                <div className="sr-only" aria-hidden>
+                  <EncryptionStep dnaRecordId={session.dnaRecordId} onComplete={handleEncryptionComplete} />
                 </div>
-
-                <LayerPipeline
-                  layerStates={layerStates}
-                  completedCount={completedCount}
-                />
-              </div>
-
-              {/* Right — DNA record + encryption */}
-              <div className="space-y-6">
-                {session && (
-                  <DnaRecordCard
-                    dnaRecordId={session.dnaRecordId}
-                    filename={session.filename}
-                    fileSizeBytes={session.fileSizeBytes}
-                    status={session.status}
-                    generatedAt={session.generatedAt}
-                    successfulLayers={session.successfulLayers}
-                    totalLayers={session.totalLayers}
-                    fileType={session.fileType}
-                    engineVersion={session.engineVersion}
-                  />
-                )}
-
-                {stage === 'encrypting' && session && (
-                  <EncryptionStep
-                    dnaRecordId={session.dnaRecordId}
-                    onComplete={handleEncryptionComplete}
-                  />
-                )}
-
-                {stage === 'vaulting' && session && selectedFile && (
+              )}
+              {stage === 'vaulting' && session && selectedFile && (
+                <div className="sr-only" aria-hidden>
                   <VaultStep
                     file={selectedFile}
                     dnaRecordId={session.dnaRecordId}
-                    custodyLocation={custodyLocationRef.current}
                     onComplete={handleVaultComplete}
                     onError={handleVaultError}
                   />
-                )}
-
-                {stage === 'processing' && !session && (
-                  <div className="card flex items-center justify-center py-16">
-                    <div className="w-10 h-10 border-2 border-dna-500 border-t-transparent rounded-full animate-spin" />
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
             </motion.div>
           )}
 
-          {/* ── SUCCESS ────────────────────────────────────────────────────── */}
           {stage === 'success' && session && (
-            <motion.div
-              key="success"
-              initial={{ opacity: 0, x: 30 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0 }}
-            >
+            <motion.div key="success" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <SuccessPanel session={session} onReset={handleReset} />
             </motion.div>
           )}
-
         </AnimatePresence>
       </main>
     </div>

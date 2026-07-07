@@ -123,8 +123,23 @@ export async function downloadVaultFile(
 }
 
 /** Delete vault file from Supabase Storage (on vault record deletion). */
-export async function deleteVaultFile(vaultId: string): Promise<void> {
-  const storagePath = `${vaultId}.enc`;
-  const { error } = await getClient().storage.from(BUCKET).remove([storagePath]);
-  if (error) logger.warn('[Storage] Delete failed (non-fatal)', { vaultId, error: error.message });
+export async function deleteVaultFile(
+  vaultId: string,
+  options?: { ownerUserId?: string; storedPath?: string },
+): Promise<void> {
+  const paths = [
+    options?.storedPath ? normalizeVaultStoragePath(options.storedPath, vaultId) : null,
+    options?.ownerUserId ? `${options.ownerUserId}/${vaultId}.enc` : null,
+    `${vaultId}.enc`,
+  ].filter((p, i, arr): p is string => Boolean(p) && arr.indexOf(p) === i);
+
+  for (const storagePath of paths) {
+    const { error } = await getClient().storage.from(BUCKET).remove([storagePath]);
+    if (!error) {
+      logger.debug('[Storage] Deleted vault file', { vaultId, storagePath });
+      return;
+    }
+  }
+
+  logger.warn('[Storage] Delete failed (non-fatal)', { vaultId });
 }

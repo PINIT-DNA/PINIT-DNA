@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Archive, Search, Lock, RefreshCw, Download, Eye, ExternalLink, Share2, Copy, Check, Clock, Ban, FileSearch, Cpu, GitBranch, ShieldCheck, MapPin, LayoutGrid, List } from 'lucide-react';
+import { Archive, Search, Lock, RefreshCw, Download, Eye, Share2, Copy, Check, Clock, Ban, FileSearch, Cpu, GitBranch, ShieldCheck, MapPin, LayoutGrid, List, Trash2 } from 'lucide-react';
 import { VaultFileThumbnail } from '../components/VaultFileThumbnail';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -9,16 +9,15 @@ import {
   listVaultRecords,
   retrieveFromVault,
   protectedDownloadFromVault,
-  getVaultTracking,
-  revokeVaultTep,
+  deleteVaultRecord,
   api,
-  type VaultTrackingDashboard,
 } from '../services/dashboard.api';
 import { SkeletonTable, SkeletonCard } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { cn } from '../components/ui/utils';
+import { FILE_TYPES, getVaultFileTypeLabel } from '../lib/file-type-utils';
 import { API_BASE_URL } from '../config/api.config';
 import { useAuth } from '../context/AuthContext';
 import type { VaultRecord } from '../types/dashboard.types';
@@ -332,199 +331,6 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
           {phase !== 'running' && (
             <button onClick={onClose} className="btn btn-secondary">Close</button>
           )}
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-// ─── Tracking Dashboard Modal (Phase B) ──────────────────────────────────────
-
-function TrackingDashboardModal({ record, onClose }: { record: VaultRecord; onClose: () => void }) {
-  const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<VaultTrackingDashboard | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [revoking, setRevoking] = useState<string | null>(null);
-
-  const load = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const tracking = await getVaultTracking(record.id);
-      setData(tracking);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load tracking');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void load();
-  }, [record.id]);
-
-  const handleRevoke = async (tepCode: string) => {
-    setRevoking(tepCode);
-    try {
-      const result = await revokeVaultTep(record.id, tepCode, 'Owner revoked access');
-      toast.success(result.message);
-      await load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Revoke failed');
-    } finally {
-      setRevoking(null);
-    }
-  };
-
-  return (
-    <Modal open title="Tracking Dashboard" onClose={onClose} size="lg">
-      <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-white">{record.originalFileName}</p>
-            <p className="text-2xs text-gray-500 mono">{record.id}</p>
-          </div>
-          {data && (
-            <span className={`text-2xs px-2 py-1 rounded font-semibold ${
-              data.status === 'REVOKED' ? 'bg-danger/15 text-danger'
-                : data.status === 'PROTECTED' ? 'bg-success/15 text-success'
-                  : 'bg-gray-500/20 text-gray-300'
-            }`}>
-              {data.status}
-            </span>
-          )}
-        </div>
-
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-2xs text-amber-100/90 space-y-1">
-          <p className="font-semibold text-amber-200">What PINIT can track</p>
-          <p>
-            Events appear only when someone uses <span className="font-semibold">PINIT</span>
-            (Protected Download, share link, or Unified Investigation).
-          </p>
-          <p>
-            Sending the file on <span className="font-semibold">WhatsApp / Telegram / email</span> does
-            <span className="font-semibold"> not</span> notify PINIT — so you will not see Shared or Opened for those apps.
-          </p>
-          <p>
-            <span className="font-semibold">Location:</span> shown only from the download request IP.
-            Localhost / private network shows as “Local Network”, not a city. Real city/country appears when
-            Protected Download runs on a deployed server (or a public IP), not from WhatsApp.
-          </p>
-        </div>
-
-        {loading && (
-          <p className="text-xs text-gray-500 flex items-center gap-2">
-            <RefreshCw size={14} className="animate-spin" /> Loading custody timeline…
-          </p>
-        )}
-        {error && <p className="text-xs text-danger">{error}</p>}
-
-        {data && (
-          <>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {[
-                ['Downloads', String(data.summary.downloadCount)],
-                ['Investigations', String(data.summary.investigationCount)],
-                ['Tamper events', String(data.summary.tamperCount)],
-                ['TEP packages', String(data.tepPackages.length)],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-lg border border-bg-border bg-bg-elevated/40 px-2 py-1.5">
-                  <p className="text-2xs text-gray-500">{label}</p>
-                  <p className="text-sm font-semibold text-white">{value}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="rounded-lg border border-dna-500/25 bg-dna-500/5 px-3 py-2">
-              <p className="text-xs font-semibold text-white mb-2 flex items-center gap-1.5">
-                <MapPin size={14} className="text-dna-400" /> Locations (custody)
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-2xs">
-                <div>
-                  <p className="text-gray-500">Created</p>
-                  <p className="text-gray-200 break-all">{data.location?.creationLabel ?? '—'}</p>
-                </div>
-                <div>
-                  <p className="text-gray-500">Shared / downloaded</p>
-                  <p className="text-gray-200 break-all">{data.location?.sharedLabel ?? '—'}</p>
-                </div>
-                <div>
-                  <p className="text-gray-500">Present (last known)</p>
-                  <p className="text-gray-200 break-all">
-                    {data.location?.presentLabel ?? data.location?.lastKnownLabel ?? '—'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <p className="text-xs font-semibold text-white mb-2">TEP Packages</p>
-              {data.tepPackages.length === 0 ? (
-                <p className="text-2xs text-gray-500">No TEP packages yet — use Protected Download.</p>
-              ) : (
-                <div className="space-y-2">
-                  {data.tepPackages.map((t) => (
-                    <div key={t.tepCode} className="flex items-center justify-between gap-2 rounded-lg border border-bg-border px-3 py-2">
-                      <div className="min-w-0">
-                        <p className="text-xs mono text-dna-300">{t.tepCode}</p>
-                        <p className="text-2xs text-gray-500">
-                          {t.status} · {format(new Date(t.createdAt), 'PPp')}
-                          {t.geoCity || t.geoCountry ? ` · ${[t.geoCity, t.geoCountry].filter(Boolean).join(', ')}` : ''}
-                        </p>
-                      </div>
-                      {t.status === 'ACTIVE' && (
-                        <button
-                          className="btn btn-secondary btn-sm text-danger"
-                          disabled={revoking === t.tepCode}
-                          onClick={() => handleRevoke(t.tepCode)}
-                        >
-                          {revoking === t.tepCode ? '…' : 'Revoke'}
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <p className="text-xs font-semibold text-white mb-2">Download History</p>
-              {data.downloads.length === 0 ? (
-                <p className="text-2xs text-gray-500">No downloads recorded.</p>
-              ) : (
-                <div className="space-y-2">
-                  {data.downloads.map((d) => (
-                    <div key={d.id} className="border-l-2 border-dna-500/30 pl-3 py-1">
-                      <p className="text-xs text-white">{d.summary}</p>
-                      <p className="text-2xs text-gray-500">
-                        {format(new Date(d.timestamp), 'PPp')}
-                        {d.locationLabel ? ` · ${d.locationLabel}` : ''}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <p className="text-xs font-semibold text-white mb-2">Chain of Custody</p>
-              <div className="space-y-1">
-                {data.chainOfCustody.map((c, i) => (
-                  <div key={`${c.eventType}-${c.timestamp}-${i}`} className="flex gap-2 text-2xs">
-                    <span className="text-dna-400 shrink-0">↓</span>
-                    <div>
-                      <p className="text-gray-200 font-semibold">{c.step}</p>
-                      <p className="text-gray-500">{c.summary} · {format(new Date(c.timestamp), 'PPp')}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-
-        <div className="flex justify-end pt-2">
-          <button onClick={onClose} className="btn btn-secondary">Close</button>
         </div>
       </div>
     </Modal>
@@ -1132,20 +938,18 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 function VaultRecordActions({
-  record,
   onView,
   onShare,
   onProtect,
-  onTrack,
   onIntelligence,
+  onDelete,
   compact,
 }: {
-  record: VaultRecord;
   onView: () => void;
   onShare: () => void;
   onProtect: () => void;
-  onTrack: () => void;
   onIntelligence: () => void;
+  onDelete: () => void;
   compact?: boolean;
 }) {
   return (
@@ -1159,21 +963,12 @@ function VaultRecordActions({
       <button onClick={onProtect} className="btn-ghost btn-icon text-gray-500 hover:text-success" title="Protected Download">
         <ShieldCheck size={14} />
       </button>
-      <button onClick={onTrack} className="btn-ghost btn-icon text-gray-500 hover:text-dna-400" title="Tracking Dashboard">
-        <MapPin size={14} />
-      </button>
       <button onClick={onIntelligence} className="btn-ghost btn-icon text-gray-500 hover:text-purple-400" title="Intelligence Report">
         <FileSearch size={14} />
       </button>
-      <a
-        href={`/api/v1/dna/${record.dnaRecordId}`}
-        target="_blank"
-        rel="noreferrer"
-        className="btn-ghost btn-icon text-gray-500 hover:text-dna-400"
-        title="Open DNA record"
-      >
-        <ExternalLink size={14} />
-      </a>
+      <button onClick={onDelete} className="btn-ghost btn-icon text-gray-500 hover:text-red-400" title="Delete">
+        <Trash2 size={14} />
+      </button>
     </div>
   );
 }
@@ -1183,15 +978,15 @@ function VaultGalleryCard({
   onView,
   onShare,
   onProtect,
-  onTrack,
   onIntelligence,
+  onDelete,
 }: {
   record: VaultRecord;
   onView: () => void;
   onShare: () => void;
   onProtect: () => void;
-  onTrack: () => void;
   onIntelligence: () => void;
+  onDelete: () => void;
 }) {
   return (
     <div className="card overflow-hidden p-0 hover:border-dna-500/30 transition-colors group">
@@ -1223,12 +1018,11 @@ function VaultGalleryCard({
           {record.id.slice(0, 20)}…
         </p>
         <VaultRecordActions
-          record={record}
           onView={onView}
           onShare={onShare}
           onProtect={onProtect}
-          onTrack={onTrack}
           onIntelligence={onIntelligence}
+          onDelete={onDelete}
         />
       </div>
     </div>
@@ -1241,12 +1035,26 @@ export function VaultPage() {
   const [selected, setSelected] = useState<VaultRecord | null>(null);
   const [sharing, setSharing]   = useState<VaultRecord | null>(null);
   const [protecting, setProtecting] = useState<VaultRecord | null>(null);
-  const [tracking, setTracking] = useState<VaultRecord | null>(null);
   const [aiMode, setAiMode]     = useState(false);
   const [aiResults, setAiResults] = useState<string[]>([]); // dnaRecordIds matching AI search
   const [aiSearching, setAiSearching] = useState(false);
   const [viewMode, setViewMode] = useState<'gallery' | 'list'>('gallery');
+  const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const navigate = useNavigate();
+
+  const handleDelete = async (record: VaultRecord) => {
+    if (!window.confirm(`Delete "${record.originalFileName}" from vault?`)) return;
+    try {
+      await deleteVaultRecord(record.id);
+      if (selected?.id === record.id) setSelected(null);
+      if (sharing?.id === record.id) setSharing(null);
+      if (protecting?.id === record.id) setProtecting(null);
+      toast.success('File removed from vault');
+      refetch();
+    } catch {
+      toast.error('Failed to delete file');
+    }
+  };
 
   const handleSearch = async (q: string) => {
     setSearch(q);
@@ -1267,6 +1075,9 @@ export function VaultPage() {
   };
 
   const filtered = (records ?? []).filter(r => {
+    const typeLabel = getVaultFileTypeLabel(r.originalMimeType, r.originalFileName);
+    if (typeFilter !== 'ALL' && typeLabel !== typeFilter) return false;
+
     if (!search) return true;
     const keyword = (
       r.originalFileName.toLowerCase().includes(search.toLowerCase()) ||
@@ -1274,11 +1085,16 @@ export function VaultPage() {
       r.dnaRecordId.toLowerCase().includes(search.toLowerCase())
     );
     if (aiMode && !aiSearching) {
-      // If AI returned results, use them; otherwise fall back to keyword
       return aiResults.length > 0 ? aiResults.includes(r.dnaRecordId) : keyword;
     }
     return keyword;
   });
+
+  const typeCounts = (records ?? []).reduce<Record<string, number>>((acc, r) => {
+    const label = getVaultFileTypeLabel(r.originalMimeType, r.originalFileName);
+    acc[label] = (acc[label] ?? 0) + 1;
+    return acc;
+  }, {});
 
   if (error) return (
     <div className="flex items-center justify-center h-64 text-center">
@@ -1329,6 +1145,42 @@ export function VaultPage() {
             <p className="text-2xl font-bold text-dna-400">100%</p>
             <p className="text-2xs text-gray-500 mt-1">Encryption Coverage</p>
           </div>
+        </div>
+      )}
+
+      {/* File type filter bar */}
+      {!loading && records && records.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+          <button
+            type="button"
+            onClick={() => setTypeFilter('ALL')}
+            className={`shrink-0 px-3 py-2 rounded-lg border text-xs font-semibold transition-all min-h-[40px] ${
+              typeFilter === 'ALL'
+                ? 'bg-dna-500/15 border-dna-500/40 text-dna-400'
+                : 'bg-bg-card border-bg-border text-gray-400 hover:text-white hover:border-dna-500/25'
+            }`}
+          >
+            All · {records.length}
+          </button>
+          {FILE_TYPES.map(({ label, icon, color }) => {
+            const count = typeCounts[label] ?? 0;
+            return (
+              <button
+                key={label}
+                type="button"
+                onClick={() => setTypeFilter(label)}
+                className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold transition-all min-h-[40px] ${
+                  typeFilter === label
+                    ? 'bg-dna-500/15 border-dna-500/40 text-dna-400'
+                    : 'bg-bg-card border-bg-border text-gray-400 hover:text-white hover:border-dna-500/25'
+                }`}
+              >
+                <span>{icon}</span>
+                <span className={typeFilter === label ? '' : color}>{label}</span>
+                <span className="mono text-2xs opacity-70">{count}</span>
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -1407,8 +1259,8 @@ export function VaultPage() {
                     onView={() => setSelected(r)}
                     onShare={() => setSharing(r)}
                     onProtect={() => setProtecting(r)}
-                    onTrack={() => setTracking(r)}
                     onIntelligence={() => navigate(`/intelligence/${r.id}`)}
+                    onDelete={() => handleDelete(r)}
                   />
                 ))}
               </div>
@@ -1497,12 +1349,11 @@ export function VaultPage() {
                     </td>
                     <td>
                       <VaultRecordActions
-                        record={r}
                         onView={() => setSelected(r)}
                         onShare={() => setSharing(r)}
                         onProtect={() => setProtecting(r)}
-                        onTrack={() => setTracking(r)}
                         onIntelligence={() => navigate(`/intelligence/${r.id}`)}
+                        onDelete={() => handleDelete(r)}
                         compact
                       />
                     </td>
@@ -1523,9 +1374,6 @@ export function VaultPage() {
       )}
       {protecting && (
         <ProtectedDownloadModal record={protecting} onClose={() => setProtecting(null)} />
-      )}
-      {tracking && (
-        <TrackingDashboardModal record={tracking} onClose={() => setTracking(null)} />
       )}
     </div>
   );
