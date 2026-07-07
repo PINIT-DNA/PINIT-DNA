@@ -161,7 +161,12 @@ export async function previewVaultFile(vaultId: string): Promise<Blob> {
     responseType: 'blob',
     timeout: 120_000,
   });
-  const contentType = (headers['content-type'] ?? '').toLowerCase();
+  const rawHeader = headers['content-type'];
+  const contentType = (
+    typeof rawHeader === 'string' ? rawHeader
+      : Array.isArray(rawHeader) ? rawHeader[0] ?? ''
+        : ''
+  ).toLowerCase();
   if (contentType.includes('application/json')) {
     const raw = await (data as Blob).text();
     try {
