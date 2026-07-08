@@ -29,6 +29,7 @@ import {
   reviewUnmaskRequest,
   debugReport,
   getGlobalShareStats,
+  getLiveTrackingMap,
   attributeLeakedFile,
   leakUploadMiddleware,
   getLinkTree,
@@ -44,6 +45,7 @@ shareRouter.get('/vault/:vaultId',             requireAuth, requireVaultOwnershi
 shareRouter.get('/timeline/:dnaId',            requireAuth, requireDnaOwnership, getShareTimeline);
 shareRouter.get('/analytics/geo',              requireAuth, getGeoAnalytics);
 shareRouter.get('/analytics/global',           requireAuth, getGlobalShareStats);
+shareRouter.get('/analytics/live-map',         requireAuth, getLiveTrackingMap);
 shareRouter.post('/forensics/attribute-leak', requireAuth, leakUploadMiddleware, attributeLeakedFile);
 shareRouter.get('/sessions/live',              requireAuth, getLiveSessions);
 shareRouter.get('/debug/report',               requireAuth, debugReport);              // ── Diagnostic: URL + IP test report

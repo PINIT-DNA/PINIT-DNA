@@ -19,6 +19,7 @@ import {
   downloadAdvancedExportJson,
   type InvestigationReportExport,
 } from '../services/investigation-report-export';
+import { saveInvestigationReport, type StoredInvestigationReport } from '../lib/forensic-reports-storage';
 
 interface PipelineStep {
   id: string;
@@ -308,7 +309,12 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
       const { report: r } = await unifiedInvestigateStream(f, (event) => {
         if (event.snapshot) setLiveSnapshot(event.snapshot);
       }, { admin: adminMode });
-      setReport(r as unknown as InvestigationReport);
+      const investigation = r as unknown as InvestigationReport;
+      setReport(investigation);
+      saveInvestigationReport(
+        investigation as unknown as StoredInvestigationReport,
+        f.name,
+      );
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Investigation failed';
       setError(msg);

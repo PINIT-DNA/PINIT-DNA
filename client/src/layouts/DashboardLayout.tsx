@@ -9,7 +9,7 @@ export function DashboardLayout() {
   const [navOpen, setNavOpen] = useState(false);
 
   return (
-    <div className="flex h-[100dvh] bg-bg-base overflow-hidden">
+    <div className="flex h-[100dvh] bg-transparent overflow-hidden">
       <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
 
       {navOpen && (
@@ -34,15 +34,16 @@ export function DashboardLayout() {
         containerClassName="!top-14 lg:!top-auto lg:!bottom-4"
         toastOptions={{
           style: {
-            background: '#0f1623',
-            color: '#f1f5f9',
-            border: '1px solid #1e293b',
+            background: '#ffffff',
+            color: '#0f172a',
+            border: '1px solid #e2e8f0',
             borderRadius: '12px',
             fontSize: '13px',
             maxWidth: 'min(100vw - 24px, 360px)',
+            boxShadow: '0 8px 24px -8px rgba(15,23,42,0.18)',
           },
-          success: { iconTheme: { primary: '#10b981', secondary: '#0f1623' } },
-          error:   { iconTheme: { primary: '#ef4444', secondary: '#0f1623' } },
+          success: { iconTheme: { primary: '#10b981', secondary: '#ffffff' } },
+          error:   { iconTheme: { primary: '#ef4444', secondary: '#ffffff' } },
         }}
       />
     </div>

@@ -29,7 +29,7 @@ export function Topbar({ onMenu }: TopbarProps) {
 
   return (
     <header
-      className="h-14 flex items-center justify-between px-3 sm:px-6 border-b border-bg-border bg-bg-card/95 backdrop-blur-md sticky top-0 z-30 shrink-0"
+      className="h-14 flex items-center justify-between px-3 sm:px-6 border-b border-bg-border bg-white/80 dark:bg-bg-card/95 backdrop-blur-xl sticky top-0 z-30 shrink-0"
       style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
     >
       <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -57,7 +57,7 @@ export function Topbar({ onMenu }: TopbarProps) {
       <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
         <Link
           to="/generate"
-          className="btn btn-primary btn-sm text-xs hidden lg:flex"
+          className="btn btn-primary btn-sm text-xs hidden lg:flex nav-cta"
         >
           <Plus size={14} />
           Generate DNA

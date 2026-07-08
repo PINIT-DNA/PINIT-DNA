@@ -6,6 +6,7 @@ import {
   Shield, RefreshCw, ChevronDown, ChevronUp, FileText,
   Fingerprint, Eye, Lock, Tag, Cpu, Brain, Network, Globe, GitBranch, ScanLine,
 } from 'lucide-react';
+import { saveComparisonReport } from '../lib/forensic-reports-storage';
 import toast from 'react-hot-toast';
 import { compareDna, autoCompareDna } from '../services/dashboard.api';
 import { Badge, ClassificationBadge } from '../components/ui/Badge';
@@ -503,15 +504,8 @@ export function ComparePage() {
         toast.success('Comparison complete');
       }
 
-      // Persist to sessionStorage for Reports page
       if (storedResult) {
-        try {
-          const existing = JSON.parse(sessionStorage.getItem('pinit_dna_reports') ?? '[]');
-          if (Array.isArray(existing)) {
-            existing.unshift(storedResult);
-            sessionStorage.setItem('pinit_dna_reports', JSON.stringify(existing.slice(0, 50)));
-          }
-        } catch { /* ignore storage errors */ }
+        saveComparisonReport(storedResult);
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Comparison failed');

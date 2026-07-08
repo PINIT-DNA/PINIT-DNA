@@ -515,6 +515,9 @@ export interface AssetLocationStatus {
   presentLabel?: string;
   presentSource?: 'gps' | 'ip' | 'none';
   presentAt?: string;
+  /** Best-known coordinates for map display */
+  latitude?: number;
+  longitude?: number;
   /** @deprecated use presentLabel */
   lastKnownLabel?: string;
   lastKnownSource?: 'gps' | 'ip' | 'none';
@@ -649,6 +652,23 @@ export async function getLocationStatusForAssets(
     }
 
     const available = !!(creationLabel || sharedLabel || presentLabel);
+
+    let latitude: number | undefined;
+    let longitude: number | undefined;
+    if (meta?.gpsLatitude != null && meta?.gpsLongitude != null) {
+      latitude = meta.gpsLatitude;
+      longitude = meta.gpsLongitude;
+    } else if (presentEv?.latitude != null && presentEv?.longitude != null) {
+      latitude = presentEv.latitude;
+      longitude = presentEv.longitude;
+    } else {
+      const withCoords = dnaEvents.find((e) => e.latitude != null && e.longitude != null);
+      if (withCoords?.latitude != null && withCoords.longitude != null) {
+        latitude = withCoords.latitude;
+        longitude = withCoords.longitude;
+      }
+    }
+
     map.set(dnaId, {
       status: available ? 'AVAILABLE' : 'UNAVAILABLE',
       creationLabel,
@@ -659,6 +679,8 @@ export async function getLocationStatusForAssets(
       presentLabel,
       presentSource,
       presentAt,
+      latitude,
+      longitude,
       lastKnownLabel: presentLabel,
       lastKnownSource: presentSource,
       lastKnownAt: presentAt,

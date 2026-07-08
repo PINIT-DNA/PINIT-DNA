@@ -893,6 +893,15 @@ export async function reviewUnmaskRequest(req: Request, res: Response, next: Nex
   } catch (err) { next(err); }
 }
 
+// GET /share/analytics/live-map — live file open/download locations for dashboard map
+export async function getLiveTrackingMap(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const ownerUserId = getAuthUserId(req);
+    const data = await shareLinkService.getLiveTrackingMap(ownerUserId);
+    res.json({ success: true, ...data });
+  } catch (err) { next(err); }
+}
+
 // ── Global Share Analytics — all metrics for dashboard ────────────────────────
 // GET /share/analytics/global
 export async function getGlobalShareStats(req: Request, res: Response, next: NextFunction): Promise<void> {

@@ -5,6 +5,7 @@
  */
 
 import axios from 'axios';
+import { formatDistanceToNow } from 'date-fns';
 import { API_BASE_URL } from '../config/api.config';
 import { refreshAccessToken, clearTokens } from '../lib/auth';
 import type {
@@ -264,6 +265,136 @@ export async function protectedDownloadFromVault(
     };
   } catch (err) {
     throw new Error(await readBlobApiError(err));
+  }
+}
+
+export async function getLiveTrackingMap(): Promise<{
+  points: Array<{
+    id: string;
+    vaultId: string | null;
+    filename: string;
+    lat: number;
+    lng: number;
+    action: string;
+    locationLabel: string;
+    source: 'gps' | 'ip';
+    timestamp: string;
+    device: string | null;
+  }>;
+  totalAccessPoints: number;
+  recentAccessCount: number;
+  updatedAt: string;
+}> {
+  const { data } = await api.get<{
+    success?: boolean;
+    points?: Array<{
+      id: string;
+      vaultId: string | null;
+      filename: string;
+      lat: number;
+      lng: number;
+      action: string;
+      locationLabel: string;
+      source: 'gps' | 'ip';
+      timestamp: string;
+      device: string | null;
+    }>;
+    totalAccessPoints?: number;
+    recentAccessCount?: number;
+    updatedAt?: string;
+  }>(`${API_BASE_URL}/share/analytics/live-map`);
+  return {
+    points: data.points ?? [],
+    totalAccessPoints: data.totalAccessPoints ?? 0,
+    recentAccessCount: data.recentAccessCount ?? 0,
+    updatedAt: data.updatedAt ?? new Date().toISOString(),
+  };
+}
+
+export interface DashboardSecurityInsights {
+  activeShares: { count: number; items: { filename: string; views: number; ago: string }[] };
+  revokedShares: { count: number; items: { filename: string; ago: string }[] };
+  crawlerAlerts: { count: number; items: { filename: string; url: string; matchType: string; similarity: number }[] };
+  duplicateAttempts: { count: number; items: { filename: string; matchType: string; riskLevel: string; ago: string }[] };
+}
+
+/** Active shares, revokes, crawler alerts, duplicate attempts — dashboard security row */
+export async function getDashboardSecurityInsights(): Promise<DashboardSecurityInsights> {
+  const empty: DashboardSecurityInsights = {
+    activeShares: { count: 0, items: [] },
+    revokedShares: { count: 0, items: [] },
+    crawlerAlerts: { count: 0, items: [] },
+    duplicateAttempts: { count: 0, items: [] },
+  };
+
+  try {
+    const [shareRes, dupRes, monitorStatsRes, alertsRes] = await Promise.all([
+      api.get(`${API_BASE_URL}/share`).catch(() => ({ data: null })),
+      api.get(`${API_BASE_URL}/dna/duplicate-attempts?limit=5`).catch(() => ({ data: null })),
+      api.get(`${API_BASE_URL}/monitor/stats`).catch(() => ({ data: null })),
+      api.get(`${API_BASE_URL}/monitor/alerts?status=PENDING`).catch(() => ({ data: null })),
+    ]);
+
+    interface ShareLinkRow { isActive?: boolean; filename?: string; viewCount?: number; createdAt?: string }
+    const links = ((shareRes.data as { links?: ShareLinkRow[] } | null)?.links ?? []) as ShareLinkRow[];
+    const active = links.filter(l => l.isActive);
+    const revoked = links.filter(l => !l.isActive);
+
+    interface DupEventRow { filename?: string; matchType?: string; riskLevel?: string; timestamp?: string }
+    const dupPayload = dupRes.data as { events?: DupEventRow[]; total?: number } | null;
+    const dupEvents = dupPayload?.events ?? [];
+    const dupTotal = dupPayload?.total ?? dupEvents.length;
+
+    const monitorStats = monitorStatsRes.data as { pendingAlerts?: number } | null;
+    interface CrawlAlertRow { url?: string; similarity?: number; matchType?: string; monitorRecord?: { filename?: string } }
+    const alertsPayload = alertsRes.data as { alerts?: CrawlAlertRow[] } | CrawlAlertRow[] | null;
+    const alerts: CrawlAlertRow[] = Array.isArray(alertsPayload)
+      ? alertsPayload
+      : alertsPayload?.alerts ?? [];
+
+    const fmtAgo = (d: string) => formatDistanceToNow(new Date(d), { addSuffix: true });
+
+    return {
+      activeShares: {
+        count: active.length,
+        items: active.slice(0, 3).map(l => ({
+          filename: l.filename ?? 'Shared file',
+          views: l.viewCount ?? 0,
+          ago: l.createdAt ? fmtAgo(l.createdAt) : '',
+        })),
+      },
+      revokedShares: {
+        count: revoked.length,
+        items: revoked.slice(0, 3).map(l => ({
+          filename: l.filename ?? 'Shared file',
+          ago: l.createdAt ? fmtAgo(l.createdAt) : '',
+        })),
+      },
+      crawlerAlerts: {
+        count: monitorStats?.pendingAlerts ?? alerts.length,
+        items: alerts
+          .slice(0, 3)
+          .map(a => ({
+            filename: a.monitorRecord?.filename ?? 'Monitored file',
+            url: a.url ?? '',
+            matchType: a.matchType ?? 'MATCH',
+            similarity: Math.round(a.similarity != null && a.similarity <= 1 ? a.similarity * 100 : (a.similarity ?? 0)),
+          })),
+      },
+      duplicateAttempts: {
+        count: dupTotal,
+        items: dupEvents
+          .slice(0, 3)
+          .map(e => ({
+            filename: e.filename ?? 'Unknown file',
+            matchType: (e.matchType ?? 'DUPLICATE').replace(/_/g, ' '),
+            riskLevel: e.riskLevel ?? 'LOW',
+            ago: e.timestamp ? fmtAgo(e.timestamp) : '',
+          })),
+      },
+    };
+  } catch {
+    return empty;
   }
 }
 
@@ -538,16 +669,7 @@ export async function signReportManifest(payload: {
 
 // ─── Dashboard Aggregation ────────────────────────────────────────────────────
 
-/** Read comparison count from sessionStorage (where ComparePage stores results) */
-function getStoredComparisonCount(): number {
-  try {
-    const raw = sessionStorage.getItem('pinit_dna_reports');
-    if (!raw) return 0;
-    return (JSON.parse(raw) as unknown[]).length;
-  } catch {
-    return 0;
-  }
-}
+import { getForensicReportCount } from '../lib/forensic-reports-storage';
 
 export async function getDashboardStats(): Promise<DashboardStats> {
   const [dnaRecords, vaultRecords] = await Promise.all([
@@ -575,7 +697,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   return {
     totalDnaRecords:    dnaRecords.length,
     totalVaultRecords:  vaultRecords.length,
-    totalVerifications: getStoredComparisonCount(), // ← reads from sessionStorage
+    totalVerifications: getForensicReportCount(),
     completedDna,
     partialDna,
     totalEncryptedBytes,

@@ -13,6 +13,7 @@ import { logger }  from '../../lib/logger';
 import { assertRecordOwner } from '../../lib/tenant-scope';
 import { riskEngineService } from './risk-engine.service';
 import { sanitizeCoordinatePair } from '../../lib/geo-coords';
+import { getIpIntelligence } from '../forensic/ip-intelligence.service';
 
 // ─── HMAC token signing (integrity layer — detects tampered/guessed tokens) ──
 const HMAC_SECRET = process.env['SHARE_HMAC_SECRET'] || 'pinit-dna-dev-secret-change-me';
@@ -729,6 +730,23 @@ export class ShareLinkService {
       isp     = isp    ?? geo.isp    ?? null;
     }
 
+    let ipLat = input.lat;
+    let ipLng = input.lng;
+    if (input.gpsLat == null && (ipLat == null || ipLng == null) && input.ipAddress) {
+      try {
+        const intel = await getIpIntelligence(input.ipAddress);
+        const c = sanitizeCoordinatePair(intel.lat, intel.lng);
+        if (c) {
+          ipLat = c.lat;
+          ipLng = c.lng;
+        }
+        if (!country && intel.country) country = intel.country;
+        if (!city && intel.city) city = intel.city;
+        if (!region && intel.region) region = intel.region;
+        if (!isp && intel.isp) isp = intel.isp;
+      } catch { /* best-effort */ }
+    }
+
     // Override IP-based city with GPS city when available (GPS is more accurate)
     if (input.gpsCity) {
       city = input.gpsCity;
@@ -771,7 +789,7 @@ export class ShareLinkService {
     });
 
     const gpsCoords = sanitizeCoordinatePair(input.gpsLat, input.gpsLng);
-    const ipCoords  = sanitizeCoordinatePair(input.lat, input.lng);
+    const ipCoords  = sanitizeCoordinatePair(ipLat, ipLng);
 
     await prisma.shareAccessLog.create({
       data: {
@@ -919,6 +937,85 @@ export class ShareLinkService {
         country, accessCount: v.count, cities: [...v.cities], highRiskEvents: v.highRisk,
       }))
       .sort((a, b) => b.accessCount - a.accessCount);
+  }
+
+  /** Live map pins — where shared files were opened (GPS or IP geolocation). */
+  async getLiveTrackingMap(ownerUserId: string) {
+    const TRACKED_ACTIONS = [
+      'VIEWED', 'DOWNLOADED', 'FORWARDING_DETECTED',
+      'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT',
+    ];
+
+    const logs = await prisma.shareAccessLog.findMany({
+      where: {
+        shareLink: { ownerUserId },
+        action: { in: TRACKED_ACTIONS },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 300,
+      select: {
+        id: true,
+        action: true,
+        createdAt: true,
+        country: true,
+        city: true,
+        device: true,
+        gpsLat: true,
+        gpsLng: true,
+        lat: true,
+        lng: true,
+        locationSource: true,
+        shareLink: {
+          select: { filename: true, vaultId: true, token: true },
+        },
+      },
+    });
+
+    const points: Array<{
+      id: string;
+      vaultId: string | null;
+      filename: string;
+      lat: number;
+      lng: number;
+      action: string;
+      locationLabel: string;
+      source: 'gps' | 'ip';
+      timestamp: string;
+      device: string | null;
+    }> = [];
+
+    for (const log of logs) {
+      const gps = sanitizeCoordinatePair(log.gpsLat, log.gpsLng);
+      const ip = sanitizeCoordinatePair(log.lat, log.lng);
+      const coords = gps ?? ip;
+      if (!coords) continue;
+
+      const locationLabel = [log.city, log.country].filter(Boolean).join(', ')
+        || `${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`;
+
+      points.push({
+        id: log.id,
+        vaultId: log.shareLink.vaultId,
+        filename: log.shareLink.filename ?? 'Shared file',
+        lat: coords.lat,
+        lng: coords.lng,
+        action: log.action,
+        locationLabel,
+        source: gps ? 'gps' : 'ip',
+        timestamp: log.createdAt.toISOString(),
+        device: log.device,
+      });
+    }
+
+    const oneHourAgo = Date.now() - 60 * 60 * 1000;
+    const recentCount = points.filter(p => new Date(p.timestamp).getTime() > oneHourAgo).length;
+
+    return {
+      points,
+      totalAccessPoints: points.length,
+      recentAccessCount: recentCount,
+      updatedAt: new Date().toISOString(),
+    };
   }
 
   // ── CSV export of a link's full access log (Audit Export) ─────────────────

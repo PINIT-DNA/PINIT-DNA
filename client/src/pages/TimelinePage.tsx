@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { listDnaRecords, listVaultRecords, deriveFileType, api } from '../services/dashboard.api';
+import { listForensicReports } from '../lib/forensic-reports-storage';
 import { FileTypeBadge, Badge } from '../components/ui/Badge';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -279,16 +280,9 @@ function buildHistory(
 }
 
 function getStoredComparisons(): ComparisonResult[] {
-  try {
-    const raw = sessionStorage.getItem('pinit_dna_reports');
-    const parsed = JSON.parse(raw ?? '[]');
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item): item is ComparisonResult => {
-      return item && typeof item === 'object' && typeof (item as any).comparisonId === 'string';
-    });
-  } catch {
-    return [];
-  }
+  return listForensicReports()
+    .filter((e): e is { kind: 'comparison'; id: string; savedAt: string; data: ComparisonResult } => e.kind === 'comparison')
+    .map(e => e.data);
 }
 
 // --- File history card --------------------------------------------------------

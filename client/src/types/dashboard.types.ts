@@ -28,6 +28,8 @@ export interface VaultLocationStatus {
   lastKnownLabel?: string;
   lastKnownSource?: 'gps' | 'ip' | 'none';
   lastKnownAt?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface VaultRecord {

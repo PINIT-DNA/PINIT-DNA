@@ -52,6 +52,14 @@ const NAV_GROUPS = [
   },
 ];
 
+const NAV_GROUP_COLORS: Record<string, string> = {
+  Core: 'text-indigo-500',
+  Explorer: 'text-violet-500',
+  Intelligence: 'text-cyan-600',
+  Forensics: 'text-rose-500',
+  Sharing: 'text-amber-600',
+};
+
 interface SidebarProps {
   /** Drawer open state (mobile/APK only). */
   open?: boolean;
@@ -72,7 +80,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'fixed left-0 top-0 h-screen w-60 bg-bg-surface border-r border-bg-border flex flex-col z-50 select-none',
+        'fixed left-0 top-0 h-screen w-60 bg-white/85 dark:bg-bg-surface/95 backdrop-blur-xl border-r border-bg-border flex flex-col z-50 select-none',
         // Off-canvas drawer on mobile; always docked from lg up (desktop web unchanged).
         'transform transition-transform duration-200 lg:translate-x-0',
         open ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:shadow-none'
@@ -80,9 +88,9 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     >
 
       {/* Logo */}
-      <div className="h-14 flex items-center gap-3 px-5 border-b border-bg-border shrink-0">
-        <div className="w-7 h-7 rounded-lg bg-dna-500 flex items-center justify-center shadow-glow-purple">
-          <Dna size={14} className="text-white" />
+      <div className="h-14 flex items-center gap-3 px-5 border-b border-bg-border shrink-0 bg-white/60 dark:bg-bg-elevated/40">
+        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-dna-500 to-purple flex items-center justify-center shadow-glow-purple">
+          <Dna size={15} className="text-white" />
         </div>
         <div className="leading-none">
           <p className="font-bold text-white text-sm tracking-tight">
@@ -104,7 +112,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
       <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-4">
         {NAV_GROUPS.map(group => (
           <div key={group.label}>
-            <p className="text-2xs font-semibold text-gray-600 uppercase tracking-widest px-2 mb-1">
+            <p className={cn('text-2xs font-bold uppercase tracking-widest px-2 mb-1', NAV_GROUP_COLORS[group.label] ?? 'text-gray-500')}>
               {group.label}
             </p>
             <ul className="space-y-0.5">
@@ -115,15 +123,15 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                     end={end}
                     onClick={onClose}
                     className={({ isActive }) => cn(
-                      'group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150',
+                      'group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150',
                       isActive
-                        ? 'bg-dna-500/15 text-dna-400'
-                        : 'text-gray-400 hover:text-white hover:bg-bg-elevated'
+                        ? 'bg-gradient-to-r from-dna-500/15 via-indigo-500/10 to-transparent text-dna-600 dark:text-dna-400 border border-dna-200/60 dark:border-dna-500/30 shadow-sm'
+                        : 'text-gray-500 dark:text-gray-400 hover:text-dna-700 dark:hover:text-white hover:bg-dna-50/70 dark:hover:bg-bg-elevated border border-transparent'
                     )}
                   >
                     {({ isActive }) => (
                       <>
-                        <Icon size={15} className={cn('shrink-0', isActive ? 'text-dna-400' : 'text-gray-500 group-hover:text-gray-300')} />
+                        <Icon size={15} className={cn('shrink-0', isActive ? 'text-dna-500' : 'text-gray-400 group-hover:text-dna-500')} />
                         <span className="flex-1 text-[13px]">{label}</span>
                         {isActive && <ChevronRight size={11} className="text-dna-500 shrink-0" />}
                       </>
