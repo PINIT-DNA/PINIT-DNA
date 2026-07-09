@@ -101,9 +101,12 @@ api.interceptors.response.use(
     const backendOffline = error.response?.data?.code === 'BACKEND_OFFLINE'
       || (status === 503 && !error.response?.data?.success)
       || !error.response;
+    const url = String(config.url ?? '');
+    const isHeavyUpload = url.includes('/dna/generate') || url.includes('/vault/store');
 
-    // Dev: retry while backend restarts (ts-node-dev) or proxy is waiting
-    if (import.meta.env.DEV && backendOffline && count < 12) {
+    // Dev: retry while backend restarts — cap heavy multipart uploads to avoid long hangs
+    const maxOfflineRetries = isHeavyUpload ? 3 : 12;
+    if (import.meta.env.DEV && backendOffline && count < maxOfflineRetries) {
       config._netRetryCount = count + 1;
       await new Promise((r) => setTimeout(r, 1200 + count * 400));
       return api.request(config);

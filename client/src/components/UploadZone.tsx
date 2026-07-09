@@ -208,7 +208,7 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
         <motion.div
           initial={{ opacity: 0, scale: 0.98 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="rounded-2xl border-2 border-layer-complete bg-layer-complete/5 glow-green overflow-hidden"
+          className="rounded-2xl border-2 border-dna-500/30 bg-dna-500/5 overflow-hidden"
         >
           <div className="flex flex-col sm:flex-row items-stretch gap-0">
             <div className="sm:w-48 h-48 sm:h-auto shrink-0 p-4">
@@ -218,7 +218,7 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
             </div>
             <div className="flex-1 p-6 flex flex-col justify-center">
               <div className="flex items-center gap-2 mb-1">
-                <p className="text-layer-complete font-semibold text-sm">Capture Ready</p>
+                <p className="text-dna-400 font-semibold text-sm">Ready to Generate</p>
                 <span className="mono text-xs bg-dna-500/20 text-dna-400 px-2 py-0.5 rounded">{fileLabel}</span>
               </div>
               <p className="text-white font-medium text-lg truncate">{selectedFile.name}</p>
@@ -226,6 +226,9 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
                 <span className="mono text-xs text-gray-400">{formatBytes(selectedFile.size)}</span>
                 <span className="mono text-xs text-gray-400">{selectedFile.type || 'unknown'}</span>
               </div>
+              <p className="text-gray-500 text-xs mt-3">
+                DNA not generated yet — click the button below to run all 15 layers.
+              </p>
               <button
                 type="button"
                 onClick={() => onFileSelected(null)}

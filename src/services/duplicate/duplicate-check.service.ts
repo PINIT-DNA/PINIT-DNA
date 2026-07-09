@@ -28,11 +28,15 @@ import { tepService } from '../tep/tep.service';
 import { pinitSignatureDetector } from './pinit-signature-detector.service';
 import { PerceptualLayer } from '../layers/layer3.perceptual';
 import { CryptographicLayer } from '../layers/layer1.cryptographic';
+import { withTimeoutSoft } from '../../lib/safe-runner';
 
 // ─── Configurable near-duplicate threshold ────────────────────────────────────
 // Hamming similarity ≥ this → considered a near-duplicate for images.
 // 1.0 = exact, 0.9 = very close, 0.8 = same image resized/filtered
 const PHASH_NEAR_DUPLICATE_THRESHOLD = 0.90;
+/** Max ms for duplicate checks before DNA generate — keeps upload path in seconds */
+const DUPLICATE_CHECK_BUDGET_MS = parseInt(process.env['DUPLICATE_CHECK_BUDGET_MS'] ?? '12000', 10);
+const PHASH_SCAN_LIMIT = parseInt(process.env['DUPLICATE_PHASH_SCAN_LIMIT'] ?? '400', 10);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -92,6 +96,8 @@ export class DuplicateCheckService {
     const sha256 = this.computeSha256(buffer);
     const uploaderIp = resolveClientIp(req);
     const uploaderUserId = (req as { user?: { sub?: string } }).user?.sub;
+    const deadline = Date.now() + DUPLICATE_CHECK_BUDGET_MS;
+    const hasBudget = () => Date.now() < deadline;
 
     const recordSelect = {
       id: true,
@@ -158,37 +164,52 @@ export class DuplicateCheckService {
     }
 
     // ── 2. TEP Tracked Export Package (share-link download re-upload) ─────────
-    const tepMatch = await this._checkTepExport(
-      buffer, mimeType, originalName, sha256, uploaderIp, req,
-    );
-    if (tepMatch) return tepMatch;
+    if (hasBudget()) {
+      const tepMatch = await withTimeoutSoft(
+        () => this._checkTepExport(buffer, mimeType, originalName, sha256, uploaderIp, req),
+        4_000,
+        'duplicate-tep',
+      );
+      if (tepMatch) return tepMatch;
+    }
 
     // ── 3. Embedded PINIT identity (vault / share-link downloads) ─────────────
-    // Vault embeds DNA ID + owner before encryption; survives share download.
-    const identityMatch = await this._checkEmbeddedIdentity(
-      buffer, mimeType, originalName, sha256, uploaderIp, req,
-    );
-    if (identityMatch) return identityMatch;
+    if (hasBudget()) {
+      const identityMatch = await withTimeoutSoft(
+        () => this._checkEmbeddedIdentity(buffer, mimeType, originalName, sha256, uploaderIp, req),
+        5_000,
+        'duplicate-embedded-identity',
+      );
+      if (identityMatch) return identityMatch;
+    }
 
     // ── 4. PINIT vault visible signature (share-viewer screenshots / OCR) ─────
-    if (mimeType.startsWith('image/')) {
-      const signatureMatch = await this._checkPinitVaultSignature(
-        buffer, mimeType, originalName, sha256, uploaderIp, req,
+    if (mimeType.startsWith('image/') && hasBudget()) {
+      const signatureMatch = await withTimeoutSoft(
+        () => this._checkPinitVaultSignature(buffer, mimeType, originalName, sha256, uploaderIp, req),
+        5_000,
+        'duplicate-pinit-signature',
       );
       if (signatureMatch) return signatureMatch;
     }
 
     // ── 5. Normalized pixel hash (images — survives metadata / re-save) ───────
-    if (mimeType.startsWith('image/')) {
-      const normalizedMatch = await this._checkNormalizedHash(
-        buffer, mimeType, originalName, sha256, uploaderIp, req,
+    if (mimeType.startsWith('image/') && hasBudget()) {
+      const normalizedMatch = await withTimeoutSoft(
+        () => this._checkNormalizedHash(buffer, mimeType, originalName, sha256, uploaderIp, req),
+        6_000,
+        'duplicate-normalized-hash',
       );
       if (normalizedMatch) return normalizedMatch;
     }
 
     // ── 6. pHash near-duplicate (images — share watermark / compression) ─────
-    if (mimeType.startsWith('image/')) {
-      const nearMatch = await this._checkPHashNearDuplicate(buffer, sha256, req, originalName, mimeType, uploaderIp);
+    if (mimeType.startsWith('image/') && hasBudget()) {
+      const nearMatch = await withTimeoutSoft(
+        () => this._checkPHashNearDuplicate(buffer, sha256, req, originalName, mimeType, uploaderIp),
+        5_000,
+        'duplicate-phash',
+      );
       if (nearMatch) return nearMatch;
     }
 
@@ -270,7 +291,7 @@ export class DuplicateCheckService {
     req: Request,
   ): Promise<DuplicateCheckResult | null> {
     try {
-      const hit = await pinitSignatureDetector.detect(buffer, mimeType, originalName);
+      const hit = await pinitSignatureDetector.detect(buffer, mimeType, originalName, { fast: true });
       if (!hit.detected) return null;
 
       let rec: {
@@ -472,7 +493,8 @@ export class DuplicateCheckService {
 
       const stored = await prisma.perceptualLayer.findMany({
         select: { pHash64: true, aHash64: true, dHash64: true, dnaRecordId: true },
-        take: 10000,
+        orderBy: { dnaRecord: { createdAt: 'desc' } },
+        take: PHASH_SCAN_LIMIT,
       });
 
       let bestMatch: { similarity: number; recordId: string } | null = null;

@@ -6,17 +6,20 @@ import { api, formatApiError } from './dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
 import type { GenerateDnaResponse } from '../types';
 
-const GENERATE_TIMEOUT_MS = 180_000;
-const VAULT_TIMEOUT_MS = 120_000;
-const COLD_START_RETRIES = 7;
-const COLD_START_GAP_MS = 8_000;
+/** DNA generate should finish in seconds; avoid 7×180s retry loops (~21 min spinner). */
+const GENERATE_TIMEOUT_MS = 90_000;
+const VAULT_TIMEOUT_MS = 90_000;
+const COLD_START_RETRIES = 2;
+const COLD_START_GAP_MS = 4_000;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function isRetryable(err: any): boolean {
   if (err?.response?.status === 409 || err?.response?.status === 401) return false;
+  // Timeout already waited full budget — do not retry (was causing ~20 min hangs)
+  if (err?.code === 'ECONNABORTED') return false;
   const status = err?.response?.status;
   if (status && status < 500) return false;
-  return !status || status >= 500 || err?.code === 'ECONNABORTED' || err?.code === 'ERR_NETWORK';
+  return !status || status >= 500 || err?.code === 'ERR_NETWORK';
 }
 
 async function postMultipart<T>(url: string, form: FormData, timeoutMs: number): Promise<T> {
@@ -59,6 +62,11 @@ export async function generateDna(
   } catch (err: unknown) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const axiosErr = err as any;
+    if (axiosErr?.code === 'ECONNABORTED') {
+      throw new Error(
+        'DNA generation timed out. Ensure the backend is running (`npm run dev:all`) and try again.',
+      );
+    }
     if (axiosErr?.response?.status === 409) {
       const body = axiosErr.response.data ?? {};
       const dupErr = new Error(body.error ?? 'Duplicate file') as Error & {

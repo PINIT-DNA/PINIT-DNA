@@ -7,6 +7,7 @@
 import sharp from 'sharp';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
+import { withTimeoutSoft } from '../../lib/safe-runner';
 import { extractWatermarkFromFile } from '../watermark/watermark.service';
 import { resolveShareTokenFromText } from '../share/share-token-resolver';
 
@@ -41,12 +42,22 @@ export interface PinitSignatureHit {
   ocrFullText?: string;
 }
 
+export interface PinitSignatureDetectOptions {
+  /** Upload path: single OCR pass + short timeout — keeps DNA generate fast */
+  fast?: boolean;
+}
+
 export class PinitSignatureDetectorService {
   /**
    * Detect PINIT vault / share-link signatures in uploaded bytes.
    * Used before DNA generation to block screenshots and watermarked captures.
    */
-  async detect(buffer: Buffer, mimeType: string, _originalName: string): Promise<PinitSignatureHit> {
+  async detect(
+    buffer: Buffer,
+    mimeType: string,
+    _originalName: string,
+    options?: PinitSignatureDetectOptions,
+  ): Promise<PinitSignatureHit> {
     const signals: string[] = [];
     let method = 'none';
     let shareToken: string | undefined;
@@ -67,7 +78,7 @@ export class PinitSignatureDetectorService {
     // ── 2. OCR on images (screenshots of share viewer) ───────────────────────
     let ocrFullText = '';
     if (mimeType.startsWith('image/')) {
-      const ocrHits = await this._detectViaOcr(buffer, mimeType);
+      const ocrHits = await this._detectViaOcr(buffer, mimeType, options?.fast === true);
       ocrFullText = ocrHits.fullText;
       for (const hit of ocrHits.signals) signals.push(hit);
       if (ocrHits.watermarkCode && !watermarkCode) watermarkCode = ocrHits.watermarkCode;
@@ -163,39 +174,47 @@ export class PinitSignatureDetectorService {
   private async _detectViaOcr(
     buffer: Buffer,
     _mimeType: string,
+    fast = false,
   ): Promise<{ signals: string[]; watermarkCode?: string; fullText: string }> {
-    const signals: string[] = [];
-    let watermarkCode: string | undefined;
-    let fullText = '';
+    const run = async (): Promise<{ signals: string[]; watermarkCode?: string; fullText: string }> => {
+      const signals: string[] = [];
+      let watermarkCode: string | undefined;
+      let fullText = '';
 
-    const variants = await this._ocrVariants(buffer);
-    let worker: import('tesseract.js').Worker | undefined;
+      const allVariants = await this._ocrVariants(buffer);
+      const variants = fast ? allVariants.slice(0, 1) : allVariants;
+      let worker: import('tesseract.js').Worker | undefined;
 
-    try {
-      const { createWorker } = await import('tesseract.js');
-      worker = await createWorker('eng', 1, { logger: () => {} });
+      try {
+        const { createWorker } = await import('tesseract.js');
+        worker = await createWorker('eng', 1, { logger: () => {} });
 
-      for (const variant of variants) {
-        const { data } = await worker.recognize(variant.buffer);
-        const text = data.text?.trim();
-        if (!text) continue;
+        for (const variant of variants) {
+          const { data } = await worker.recognize(variant.buffer);
+          const text = data.text?.trim();
+          if (!text) continue;
 
-        fullText += `\n${text}`;
+          fullText += `\n${text}`;
 
-        for (const re of VISIBLE_MARKERS) {
-          if (re.test(text)) signals.push(`ocr:${re.source.slice(0, 40)}`);
+          for (const re of VISIBLE_MARKERS) {
+            if (re.test(text)) signals.push(`ocr:${re.source.slice(0, 40)}`);
+          }
+
+          const wm = text.match(WATERMARK_CODE_RE);
+          if (wm?.[0] && !watermarkCode) watermarkCode = wm[0].toUpperCase();
         }
-
-        const wm = text.match(WATERMARK_CODE_RE);
-        if (wm?.[0] && !watermarkCode) watermarkCode = wm[0].toUpperCase();
+      } catch (err) {
+        logger.warn('[PinitSignature] OCR failed', { error: String(err) });
+      } finally {
+        if (worker) await worker.terminate();
       }
-    } catch (err) {
-      logger.warn('[PinitSignature] OCR failed', { error: String(err) });
-    } finally {
-      if (worker) await worker.terminate();
-    }
 
-    return { signals, watermarkCode, fullText };
+      return { signals, watermarkCode, fullText };
+    };
+
+    return (
+      await withTimeoutSoft(run, fast ? 4_000 : 12_000, 'pinit-signature-ocr')
+    ) ?? { signals: [], fullText: '' };
   }
 
   /** Preprocess image regions to surface faint diagonal share-viewer watermarks. */

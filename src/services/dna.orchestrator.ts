@@ -39,7 +39,7 @@ import {
   OriginLayerResult,
   EvolutionLayerResult,
 } from '../types/dna.types';
-import { withTimeout, validateFileInput } from '../lib/safe-runner';
+import { withTimeout, withTimeoutSoft, validateFileInput } from '../lib/safe-runner';
 import { Prisma } from '@prisma/client';
 import { buildEnhancementBundle, mergeUniversalFingerprints } from './forensics/dna-enhancement-bundle.service';
 
@@ -230,11 +230,15 @@ export class DnaOrchestrator {
 
     // ── v2.1 forensic enhancement bundle (optional, backward compatible) ─────
     try {
-      const enhancementBundle = await buildEnhancementBundle(image.buffer, {
-        mimeType: image.mimeType,
-        fileType: 'IMAGE',
-        tempPath: image.filePath,
-      });
+      const enhancementBundle = await withTimeoutSoft(
+        () => buildEnhancementBundle(image.buffer, {
+          mimeType: image.mimeType,
+          fileType: 'IMAGE',
+          tempPath: image.filePath,
+        }),
+        8_000,
+        'dna-enhancement-bundle',
+      );
       if (enhancementBundle) {
         const rec = await prisma.dnaRecord.findUnique({
           where: { id: dnaRecordId },
