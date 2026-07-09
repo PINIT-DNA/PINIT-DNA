@@ -106,6 +106,11 @@ const apiLimiter = rateLimit({
 app.use(apiLimiter);
 
 // ─── Health check (Phase 6 — detailed) ────────────────────────────────────────
+/** Instant liveness — used by Vite proxy / dev auto-retry (no DB). */
+app.get(`${config.apiPrefix}/ping`, (_req, res) => {
+  res.json({ ok: true, service: 'pinit-dna-api', ts: Date.now() });
+});
+
 app.get('/health', async (_req, res) => {
   const report = await getHealthReport();
   const httpStatus = report.status === 'healthy' ? 200 : report.status === 'degraded' ? 207 : 503;

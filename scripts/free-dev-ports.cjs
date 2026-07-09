@@ -1,13 +1,29 @@
 /**
- * Free dev ports 4000 (Node) and 8001 (Python AI) before npm run dev.
- * Fixes EADDRINUSE when a previous ts-node-dev instance did not exit cleanly.
+ * Free dev ports before npm run dev — but NEVER kill a healthy API on 4000.
+ * Fixes EADDRINUSE when stale processes linger, without killing a running backend.
  */
+const http = require('http');
 const { execSync } = require('child_process');
 
-const PORTS = [
-  parseInt(process.env.PORT || '4000', 10),
-  parseInt(process.env.AI_SERVICE_PORT || '8001', 10),
-];
+const NODE_PORT = parseInt(process.env.PORT || '4000', 10);
+const AI_PORT = parseInt(process.env.AI_SERVICE_PORT || '8001', 10);
+
+function probeHealth(port, path = '/health') {
+  return new Promise((resolve) => {
+    const req = http.get(
+      { hostname: '127.0.0.1', port, path, timeout: 1200 },
+      (res) => {
+        res.resume();
+        resolve(res.statusCode >= 200 && res.statusCode < 500);
+      },
+    );
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
 
 function freePortWindows(port) {
   try {
@@ -51,6 +67,24 @@ function freePortUnix(port) {
 
 const free = process.platform === 'win32' ? freePortWindows : freePortUnix;
 
-for (const port of PORTS) {
-  free(port);
+async function main() {
+  const nodeHealthy = await probeHealth(NODE_PORT, '/health');
+  if (nodeHealthy) {
+    console.log(`[free-dev-ports] API already healthy on port ${NODE_PORT} — keeping it running`);
+  } else {
+    free(NODE_PORT);
+  }
+
+  const aiHealthy = await probeHealth(AI_PORT, '/health');
+  if (aiHealthy) {
+    console.log(`[free-dev-ports] Python AI already healthy on port ${AI_PORT} — keeping it running`);
+  } else {
+    free(AI_PORT);
+  }
 }
+
+main().catch((err) => {
+  console.warn('[free-dev-ports] Warning:', err.message);
+  free(NODE_PORT);
+  free(AI_PORT);
+});

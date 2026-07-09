@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Archive, Search, Lock, RefreshCw, Download, Eye, Share2, Copy, Check, Clock, Ban, FileSearch, Cpu, GitBranch, ShieldCheck, MapPin, LayoutGrid, List, Trash2 } from 'lucide-react';
+import { Archive, Search, Lock, RefreshCw, Eye, Share2, Copy, Check, Clock, Ban, GitBranch, ShieldCheck, MapPin, LayoutGrid, List, Cpu } from 'lucide-react';
 import { VaultFileThumbnail } from '../components/VaultFileThumbnail';
+import { VaultDetailSidePanel } from '../components/VaultDetailSidePanel';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { useApi, formatBytes } from '../hooks/useApi';
 import {
   listVaultRecords,
-  retrieveFromVault,
   protectedDownloadFromVault,
   deleteVaultRecord,
   api,
@@ -17,148 +17,9 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { cn } from '../components/ui/utils';
-import { FILE_TYPES, getVaultFileTypeLabel } from '../lib/file-type-utils';
+import { FILE_TYPES, getVaultFileTypeLabel, getVaultFileTypeDisplay } from '../lib/file-type-utils';
 import { API_BASE_URL } from '../config/api.config';
-import { useAuth } from '../context/AuthContext';
 import type { VaultRecord } from '../types/dashboard.types';
-
-function VaultDetailModal({ record, onClose }: { record: VaultRecord; onClose: () => void }) {
-  const [retrieving, setRetrieving] = useState(false);
-  const { user } = useAuth();
-
-  const handleRetrieve = async () => {
-    setRetrieving(true);
-    try {
-      const blob = await retrieveFromVault(record.id);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = record.originalFileName;
-      a.click(); URL.revokeObjectURL(url);
-      toast.success('File downloaded with forensic identity embedded (lifetime tracking active)');
-    } catch {
-      toast.error('Failed to retrieve file from vault');
-    } finally {
-      setRetrieving(false);
-    }
-  };
-
-  return (
-    <Modal open title="Vault Record Details" onClose={onClose} size="lg">
-      <div className="p-6 space-y-4">
-        {/* File info */}
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { label: 'Vault ID',            value: record.id,                     mono: true,  accent: true  },
-            { label: 'DNA Record ID',        value: record.dnaRecordId,            mono: true,  accent: true  },
-            { label: 'Original File',        value: record.originalFileName,       mono: false, accent: false },
-            { label: 'MIME Type',            value: record.originalMimeType,       mono: true,  accent: false },
-            { label: 'Original Size',        value: formatBytes(record.originalSizeBytes), mono: true, accent: false },
-            { label: 'Encrypted Size',       value: formatBytes(record.encryptedSizeBytes), mono: true, accent: false },
-            { label: 'Encryption',           value: record.encryptionAlgorithm,    mono: true,  accent: false },
-            { label: 'Key Derivation',       value: record.keyDerivation,          mono: true,  accent: false },
-            { label: 'Stored At',            value: format(new Date(record.createdAt), 'PPpp'), mono: false, accent: false },
-            { label: 'Owner User ID',        value: user?.shortId ?? '—', mono: true, accent: true },
-          ].map(row => (
-            <div key={row.label} className="bg-bg-elevated rounded-lg p-3">
-              <p className="text-2xs text-gray-500 mono mb-1">{row.label}</p>
-              <p className={`text-xs break-all ${row.mono ? 'mono' : ''} ${row.accent ? 'text-dna-400' : 'text-gray-200'}`}>
-                {row.value}
-              </p>
-            </div>
-          ))}
-        </div>
-
-        {/* Location status — custody evidence, not DNA */}
-        <div className={`rounded-xl border p-4 ${
-          record.location?.status === 'AVAILABLE'
-            ? 'bg-dna-500/5 border-dna-500/25'
-            : 'bg-bg-elevated border-bg-border'
-        }`}>
-          <div className="flex items-center gap-2 mb-2">
-            <MapPin size={14} className={record.location?.status === 'AVAILABLE' ? 'text-dna-400' : 'text-gray-500'} />
-            <p className="text-xs font-semibold text-white">Location Status</p>
-            <span className={`text-2xs px-1.5 py-0.5 rounded font-semibold ${
-              record.location?.status === 'AVAILABLE'
-                ? 'bg-success/15 text-success'
-                : 'bg-gray-500/20 text-gray-400'
-            }`}>
-              {record.location?.status === 'AVAILABLE' ? 'AVAILABLE' : 'UNAVAILABLE'}
-            </span>
-          </div>
-          {record.location?.status === 'AVAILABLE' ? (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-              <div>
-                <p className="text-2xs text-gray-500">Created</p>
-                <p className="text-gray-200 break-all">{record.location.creationLabel ?? '—'}</p>
-                {record.location.creationSource && record.location.creationSource !== 'none' && (
-                  <p className="text-2xs text-gray-500">{record.location.creationSource.toUpperCase()}</p>
-                )}
-              </div>
-              <div>
-                <p className="text-2xs text-gray-500">Shared / downloaded</p>
-                <p className="text-gray-200 break-all">{record.location.sharedLabel ?? '—'}</p>
-                {record.location.sharedSource && record.location.sharedSource !== 'none' && (
-                  <p className="text-2xs text-gray-500">{record.location.sharedSource.toUpperCase()}</p>
-                )}
-              </div>
-              <div>
-                <p className="text-2xs text-gray-500">Present (last known)</p>
-                <p className="text-gray-200 break-all">
-                  {record.location.presentLabel ?? record.location.lastKnownLabel ?? '—'}
-                </p>
-                {(record.location.presentSource || record.location.lastKnownSource)
-                  && (record.location.presentSource ?? record.location.lastKnownSource) !== 'none' && (
-                  <p className="text-2xs text-gray-500">
-                    {(record.location.presentSource ?? record.location.lastKnownSource)!.toUpperCase()}
-                  </p>
-                )}
-              </div>
-            </div>
-          ) : (
-            <p className="text-2xs text-gray-400">
-              No location recorded yet. On Generate DNA, enable “Allow location for custody tracking”
-              and grant browser permission to store creation GPS. Protected downloads record IP/geo when
-              available. WhatsApp shares do not report location to PINIT.
-            </p>
-          )}
-        </div>
-
-        {/* Security info */}
-        <div className="rounded-xl bg-success/5 border border-success/20 p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Lock size={14} className="text-success" />
-            <p className="text-xs font-semibold text-success">Encryption Details</p>
-          </div>
-          <p className="text-2xs text-gray-400">
-            File is encrypted with AES-256-GCM. The encryption key is NEVER stored —
-            it is re-derived on demand from the Vault ID using HKDF-SHA256.
-            The authentication tag ensures tamper detection during decryption.
-          </p>
-        </div>
-
-        {/* Actions */}
-        <div className="flex flex-col gap-3 pt-2">
-          <div className="flex gap-3">
-            <button
-              onClick={handleRetrieve}
-              disabled={retrieving}
-              className="btn btn-secondary flex-1"
-            >
-              {retrieving ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
-              {retrieving ? 'Decrypting…' : 'Retrieve & Decrypt'}
-            </button>
-            <button onClick={onClose} className="btn btn-secondary">
-              Close
-            </button>
-          </div>
-          <p className="text-2xs text-gray-500 text-center">
-            Every download embeds a unique forensic identity (watermark + signature + recovery token) — like a QR code for lifetime tracking.
-          </p>
-        </div>
-      </div>
-    </Modal>
-  );
-}
 
 // ─── Protected Download Modal ─────────────────────────────────────────────────
 
@@ -905,95 +766,42 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-function VaultRecordActions({
-  onView,
-  onShare,
-  onProtect,
-  onIntelligence,
-  onDelete,
-  compact,
-}: {
-  onView: () => void;
-  onShare: () => void;
-  onProtect: () => void;
-  onIntelligence: () => void;
-  onDelete: () => void;
-  compact?: boolean;
-}) {
-  return (
-    <div className={cn('flex items-center', compact ? 'gap-1' : 'gap-1 flex-wrap')}>
-      <button onClick={onView} className="btn-ghost btn-icon text-gray-500 hover:text-white" title="View details">
-        <Eye size={14} />
-      </button>
-      <button onClick={onShare} className="btn-ghost btn-icon text-gray-500 hover:text-dna-400" title="Generate Smart Share Link">
-        <Share2 size={14} />
-      </button>
-      <button onClick={onProtect} className="btn-ghost btn-icon text-gray-500 hover:text-success" title="Protected Download">
-        <ShieldCheck size={14} />
-      </button>
-      <button onClick={onIntelligence} className="btn-ghost btn-icon text-gray-500 hover:text-purple-400" title="Intelligence Report">
-        <FileSearch size={14} />
-      </button>
-      <button onClick={onDelete} className="btn-ghost btn-icon text-gray-500 hover:text-red-400" title="Delete">
-        <Trash2 size={14} />
-      </button>
-    </div>
-  );
-}
-
 function VaultGalleryCard({
   record,
-  onView,
-  onShare,
-  onProtect,
-  onIntelligence,
-  onDelete,
+  selected,
+  onSelect,
 }: {
   record: VaultRecord;
-  onView: () => void;
-  onShare: () => void;
-  onProtect: () => void;
-  onIntelligence: () => void;
-  onDelete: () => void;
+  selected: boolean;
+  onSelect: () => void;
 }) {
   return (
-    <div className="card overflow-hidden p-0 hover:border-dna-500/30 transition-colors group">
-      <button
-        type="button"
-        onClick={onView}
-        className="w-full aspect-[4/3] bg-bg-elevated relative overflow-hidden block"
-      >
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        'card overflow-hidden p-0 text-left transition-all hover:border-dna-500/30',
+        selected && 'ring-2 ring-dna-500/60 border-dna-500/40',
+      )}
+    >
+      <div className="w-full aspect-[4/3] bg-bg-elevated relative overflow-hidden">
         <VaultFileThumbnail
           vaultId={record.id}
           fileName={record.originalFileName}
           mimeType={record.originalMimeType}
           variant="gallery"
         />
-      </button>
-      <div className="p-3 space-y-2">
-        <button type="button" onClick={onView} className="text-left w-full">
-          <p className="text-sm font-medium text-white truncate">{record.originalFileName}</p>
-          <p className="text-2xs text-gray-500 mono truncate">{record.originalMimeType}</p>
-        </button>
-        <div className="flex items-center justify-between gap-2 text-2xs text-gray-500">
-          <span className="mono">{formatBytes(record.originalSizeBytes)}</span>
-          <Badge variant="success" className="text-[10px] px-1.5 py-0">{record.encryptionAlgorithm}</Badge>
-        </div>
-        <p className="text-2xs text-gray-500">
-          {format(new Date(record.createdAt), 'MMM d, yyyy · HH:mm')}
-        </p>
-        <p className="text-2xs text-dna-400 mono truncate" title={record.id}>
-          {record.id.slice(0, 20)}…
-        </p>
-        <VaultRecordActions
-          onView={onView}
-          onShare={onShare}
-          onProtect={onProtect}
-          onIntelligence={onIntelligence}
-          onDelete={onDelete}
-        />
       </div>
-    </div>
+      <div className="p-3 space-y-1">
+        <p className="text-sm font-semibold text-white truncate">{record.originalFileName}</p>
+        <p className="text-xs text-gray-500">
+          {getVaultFileTypeDisplay(record.originalMimeType, record.originalFileName)}
+        </p>
+        <p className="text-xs text-gray-500">
+          {format(new Date(record.createdAt), 'MMM d, yyyy · h:mm a')}
+        </p>
+      </div>
+    </button>
   );
 }
 
@@ -1008,7 +816,6 @@ export function VaultPage() {
   const [aiSearching, setAiSearching] = useState(false);
   const [viewMode, setViewMode] = useState<'gallery' | 'list'>('gallery');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
-  const navigate = useNavigate();
 
   const handleDelete = async (record: VaultRecord) => {
     if (!window.confirm(`Delete "${record.originalFileName}" from vault?`)) return;
@@ -1076,7 +883,9 @@ export function VaultPage() {
   );
 
   return (
-    <div className="page-shell space-y-5 animate-fade-in">
+    <div className="page-shell animate-fade-in">
+      <div className={cn('flex flex-col lg:flex-row gap-5 min-h-0', selected && 'lg:items-start')}>
+        <div className="flex-1 min-w-0 space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -1219,16 +1028,18 @@ export function VaultPage() {
                 description="Encrypt and store files using the Generate DNA flow"
               />
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+              <div className={cn(
+                'grid gap-4',
+                selected
+                  ? 'grid-cols-2 sm:grid-cols-2 lg:grid-cols-3'
+                  : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5',
+              )}>
                 {filtered.map(r => (
                   <VaultGalleryCard
                     key={r.id}
                     record={r}
-                    onView={() => setSelected(r)}
-                    onShare={() => setSharing(r)}
-                    onProtect={() => setProtecting(r)}
-                    onIntelligence={() => navigate(`/intelligence/${r.id}`)}
-                    onDelete={() => handleDelete(r)}
+                    selected={selected?.id === r.id}
+                    onSelect={() => setSelected(prev => (prev?.id === r.id ? null : r))}
                   />
                 ))}
               </div>
@@ -1263,7 +1074,14 @@ export function VaultPage() {
                 </tr>
               ) : (
                 filtered.map(r => (
-                  <tr key={r.id}>
+                  <tr
+                    key={r.id}
+                    onClick={() => setSelected(prev => (prev?.id === r.id ? null : r))}
+                    className={cn(
+                      'cursor-pointer transition-colors',
+                      selected?.id === r.id && 'bg-dna-500/10',
+                    )}
+                  >
                     <td>
                       <div className="flex items-center gap-2.5">
                         <VaultFileThumbnail
@@ -1275,7 +1093,9 @@ export function VaultPage() {
                           <p className="text-sm font-medium text-white truncate max-w-[200px]">
                             {r.originalFileName}
                           </p>
-                          <p className="text-2xs text-gray-500 mono">{r.originalMimeType}</p>
+                          <p className="text-2xs text-gray-500">
+                            {getVaultFileTypeDisplay(r.originalMimeType, r.originalFileName)}
+                          </p>
                         </div>
                       </div>
                     </td>
@@ -1315,15 +1135,14 @@ export function VaultPage() {
                         {format(new Date(r.createdAt), 'MMM d, yyyy · HH:mm')}
                       </span>
                     </td>
-                    <td>
-                      <VaultRecordActions
-                        onView={() => setSelected(r)}
-                        onShare={() => setSharing(r)}
-                        onProtect={() => setProtecting(r)}
-                        onIntelligence={() => navigate(`/intelligence/${r.id}`)}
-                        onDelete={() => handleDelete(r)}
-                        compact
-                      />
+                    <td onClick={e => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => setSelected(r)}
+                        className="btn-ghost btn-sm text-xs text-dna-400"
+                      >
+                        <Eye size={12} /> Open
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -1333,10 +1152,19 @@ export function VaultPage() {
         </div>
         )}
       </div>
+        </div>
 
-      {selected && (
-        <VaultDetailModal record={selected} onClose={() => setSelected(null)} />
-      )}
+        {selected && (
+          <VaultDetailSidePanel
+            record={selected}
+            onClose={() => setSelected(null)}
+            onShare={() => setSharing(selected)}
+            onProtect={() => setProtecting(selected)}
+            onDelete={() => handleDelete(selected)}
+          />
+        )}
+      </div>
+
       {sharing && (
         <ShareModal record={sharing} onClose={() => setSharing(null)} />
       )}

@@ -1,4 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import {
   LayoutDashboard, Dna, Shield, Archive, FileSearch,
   Award, ChevronRight, Zap, Clock,
@@ -8,6 +9,58 @@ import {
 import { cn } from '../ui/utils';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../hooks/useTheme';
+import { API_BASE_URL } from '../../config/api.config';
+
+function BackendStatus() {
+  const [online, setOnline] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/ping`, { cache: 'no-store' });
+        if (!cancelled) setOnline(res.ok);
+      } catch {
+        if (!cancelled) setOnline(false);
+      }
+    };
+    check();
+    const id = window.setInterval(check, 8000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
+
+  const isOnline = online === true;
+  const isChecking = online === null;
+
+  return (
+    <>
+      <div className="flex items-center gap-2 mb-1">
+        <span className={cn(
+          'w-1.5 h-1.5 rounded-full',
+          isChecking && 'bg-yellow-400 animate-pulse',
+          isOnline && 'bg-success animate-pulse-slow',
+          online === false && 'bg-danger',
+        )} />
+        <span className="text-xs text-gray-400 font-medium">
+          {isChecking ? 'Checking API…' : isOnline ? 'System Online' : 'Backend Offline'}
+        </span>
+      </div>
+      <div className="flex items-center gap-1.5 text-2xs text-gray-600 mono">
+        <Zap size={10} className={isOnline ? 'text-dna-500' : 'text-danger'} />
+        <span>
+          {isChecking
+            ? 'Connecting to localhost:4000'
+            : isOnline
+              ? 'All systems operational'
+              : 'Run npm run dev:all'}
+        </span>
+      </div>
+    </>
+  );
+}
 
 const NAV_GROUPS = [
   {
@@ -178,14 +231,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         )}
 
         <div className="rounded-xl bg-bg-elevated border border-bg-border p-3">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse-slow" />
-            <span className="text-xs text-gray-400 font-medium">System Online</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-2xs text-gray-600 mono">
-            <Zap size={10} className="text-dna-500" />
-            <span>All systems operational</span>
-          </div>
+          <BackendStatus />
         </div>
       </div>
     </aside>

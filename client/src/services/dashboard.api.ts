@@ -46,7 +46,9 @@ export function formatApiError(err: unknown): string {
     const ax = err as unknown as { response?: { status?: number; data?: { error?: string; code?: string } }; message: string };
     const data = ax.response?.data;
     if (data?.code === 'BACKEND_OFFLINE' || (ax.response?.status === 503 && !data?.error)) {
-      return 'Backend offline — start the API from project root: npm run dev';
+      return import.meta.env.DEV
+        ? 'Backend starting — auto-retrying… (or run npm run dev:all from project root)'
+        : 'Backend offline — start the API from project root: npm run dev';
     }
     if (typeof data?.error === 'string' && data.error) return data.error;
     if (ax.response?.status === 503) {
@@ -97,10 +99,17 @@ api.interceptors.response.use(
     const count = config._netRetryCount ?? 0;
     const status = error.response?.status;
     const backendOffline = error.response?.data?.code === 'BACKEND_OFFLINE'
-      || status === 503 && !error.response?.data?.success;
+      || (status === 503 && !error.response?.data?.success)
+      || !error.response;
 
-    // Do not hammer the proxy when backend is down (prevents ECONNREFUSED log spam)
-    if (!error.response || backendOffline) {
+    // Dev: retry while backend restarts (ts-node-dev) or proxy is waiting
+    if (import.meta.env.DEV && backendOffline && count < 12) {
+      config._netRetryCount = count + 1;
+      await new Promise((r) => setTimeout(r, 1200 + count * 400));
+      return api.request(config);
+    }
+
+    if (!error.response || error.response?.data?.code === 'BACKEND_OFFLINE') {
       error.message = formatApiError(error);
       throw error;
     }

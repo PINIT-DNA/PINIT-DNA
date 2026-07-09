@@ -36,7 +36,7 @@ export default defineConfig({
               res.writeHead(503, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({
                 success: false,
-                error: 'Backend offline — start the API from project root: npm run dev',
+                error: 'Backend starting — waiting for API on port 4000 (npm run dev:all)',
                 code: 'BACKEND_OFFLINE',
               }));
             }

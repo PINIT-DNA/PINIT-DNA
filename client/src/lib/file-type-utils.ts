@@ -142,6 +142,25 @@ export function getVaultFileTypeLabel(mime?: string | null, fileName?: string | 
   return 'FILE';
 }
 
+/** Human-readable type for vault cards (Photo, Video, PDF, …). */
+export function getVaultFileTypeDisplay(mime?: string | null, fileName?: string | null): string {
+  const label = getVaultFileTypeLabel(mime, fileName);
+  const display: Record<string, string> = {
+    IMAGE: 'Photo',
+    VIDEO: 'Video',
+    PDF: 'PDF',
+    AUDIO: 'Audio',
+    DOCX: 'Document',
+    PPTX: 'Presentation',
+    TXT: 'Text',
+    CSV: 'Spreadsheet',
+    JSON: 'JSON',
+    ZIP: 'Archive',
+    FILE: 'File',
+  };
+  return display[label] ?? label;
+}
+
 export function getVaultFileIcon(mime?: string | null, fileName?: string | null): string {
   const ext = fileExt(fileName ?? '');
   const mt = (mime ?? '').toLowerCase();

@@ -1,6 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { formatApiError } from '../services/dashboard.api';
 
+const DEV_BACKEND_RETRY_MS = 2000;
+const DEV_BACKEND_MAX_RETRIES = 25;
+
+function isBackendOfflineError(err: unknown): boolean {
+  const msg = formatApiError(err);
+  return /backend offline|cannot reach api|service unavailable.*4000/i.test(msg);
+}
+
+function delay(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 export interface ApiState<T> {
   data: T | null;
   loading: boolean;
@@ -25,15 +37,31 @@ export function useApi<T>(
     abortRef.current = false;
     setLoading(true);
     setError(null);
-    try {
-      const result = await fn();
-      if (!abortRef.current) setData(result);
-    } catch (err) {
-      if (!abortRef.current) {
-        setError(formatApiError(err));
+
+    let lastErr: unknown;
+    const maxAttempts = import.meta.env.DEV ? DEV_BACKEND_MAX_RETRIES : 1;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (abortRef.current) return;
+      try {
+        const result = await fn();
+        if (!abortRef.current) {
+          setData(result);
+          setError(null);
+          setLoading(false);
+        }
+        return;
+      } catch (err) {
+        lastErr = err;
+        const offline = import.meta.env.DEV && isBackendOfflineError(err);
+        if (!offline || attempt >= maxAttempts - 1 || abortRef.current) break;
+        await delay(DEV_BACKEND_RETRY_MS);
       }
-    } finally {
-      if (!abortRef.current) setLoading(false);
+    }
+
+    if (!abortRef.current && lastErr) {
+      setError(formatApiError(lastErr));
+      setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
