@@ -19,6 +19,16 @@ import { webCrawler }  from './web-crawler.service';
 import { aiService }   from '../ai/ai-embeddings.service';
 import { imageMonitoringService } from './image-monitoring.service';
 import type { ImageMonitoringSummary } from './image-monitoring.service';
+import {
+  extractYouTubeVideoId,
+  filenameSearchQueries,
+  getYouTubeVideo,
+  isStrongAutoYouTubeMatch,
+  isYouTubeConfigured,
+  scoreYouTubeFilenameMatch,
+  searchYouTubeVideos,
+  YOUTUBE_AUTO_ALERT_MIN,
+} from './youtube-search.util';
 
 // ─── Match type constants ─────────────────────────────────────────────────────
 
@@ -86,6 +96,16 @@ export interface AlertItem {
 
 // ─── Monitoring Service ───────────────────────────────────────────────────────
 
+/** Map scan schedule to hours between automatic checks. MANUAL = no auto scans. */
+function scanTypeToCheckHrs(scanType: string): number {
+  switch (scanType) {
+    case 'WEEKLY':     return 168;
+    case 'CONTINUOUS': return 1;
+    case 'MANUAL':     return 0;
+    default:           return 24;
+  }
+}
+
 export class MonitoringService {
 
   // ─── Enroll a file for monitoring ──────────────────────────────────────────
@@ -108,11 +128,36 @@ export class MonitoringService {
     const existing = await prisma.monitorRecord.findFirst({
       where: { dnaRecordId, status: { not: 'STOPPED' } },
     });
-    if (existing) return existing.id;
 
-    const scanType    = opts.scanType ?? 'DAILY';
-    const checkHrs    = scanType === 'WEEKLY' ? 168 : scanType === 'CONTINUOUS' ? 1 : 24;
+    const scanType    = opts.scanType ?? 'CONTINUOUS';
+    const checkHrs    = scanTypeToCheckHrs(scanType);
     const ownerUserId = record.ownerUserId ?? opts.ownerUserId;
+    const watchUrls   = opts.watchUrls ?? [];
+
+    if (existing) {
+      const mergedUrls = watchUrls.length
+        ? [...new Set([...existing.watchUrls, ...watchUrls])]
+        : existing.watchUrls;
+
+      await prisma.monitorRecord.update({
+        where: { id: existing.id },
+        data: {
+          scanType,
+          checkEveryHrs: checkHrs,
+          watchUrls: mergedUrls,
+          status: 'ACTIVE',
+          nextCheckAt: scanType === 'MANUAL' ? null : new Date(Date.now() + 5_000),
+        },
+      });
+
+      logger.info('[Monitor] File re-configured', {
+        filename: record.imageFilename,
+        scanType,
+        id: existing.id,
+      });
+
+      return existing.id;
+    }
 
     const monitor = await prisma.monitorRecord.create({
       data: {
@@ -123,8 +168,8 @@ export class MonitoringService {
         status:       'ACTIVE',
         scanType,
         checkEveryHrs: checkHrs,
-        nextCheckAt:  new Date(Date.now() + 60_000),
-        watchUrls:    opts.watchUrls ?? [],
+        nextCheckAt:  scanType === 'MANUAL' ? null : new Date(Date.now() + 5_000),
+        watchUrls,
       },
     });
 
@@ -137,6 +182,14 @@ export class MonitoringService {
         action: 'started',
       });
     }).catch(() => {});
+
+    // Kick off first scan immediately — don't wait for the scheduler (skip for MANUAL)
+    if (scanType !== 'MANUAL') {
+      void this.runCheck(monitor.id, 'SCHEDULED').catch((err) =>
+        logger.warn('[Monitor] Initial scan failed', { id: monitor.id, error: String(err) }),
+      );
+    }
+
     return monitor.id;
   }
 
@@ -393,32 +446,164 @@ export class MonitoringService {
   // ─── Video monitoring pipeline ─────────────────────────────────────────────
 
   private async runVideoCheck(monitor: any, runId: string): Promise<MonitoringSummary> {
-    logger.info('[Monitor] Video keyframe check', { filename: monitor.filename });
+    logger.info('[Monitor] Video check — YouTube API + web search', { filename: monitor.filename });
+
+    const alerts: AlertItem[] = [];
+    let urlsChecked = 0;
+    let candidatesFound = 0;
+    let youtubeCandidates = 0;
+    const nameStem = monitor.filename.replace(/\.[^.]+$/, '').toLowerCase();
+
+    if (isYouTubeConfigured()) {
+      const queries = filenameSearchQueries(monitor.filename);
+      const watchedIds = new Set(
+        (monitor.watchUrls as string[]).map(extractYouTubeVideoId).filter(Boolean) as string[],
+      );
+
+      for (const url of monitor.watchUrls as string[]) {
+        const videoId = extractYouTubeVideoId(url);
+        if (!videoId) continue;
+        urlsChecked++;
+        const hit = await getYouTubeVideo(videoId);
+        if (!hit) continue;
+        candidatesFound++;
+        const similarity = Math.max(0.92, scoreYouTubeFilenameMatch(monitor.filename, hit));
+        await this.saveVideoAlert(monitor.id, hit.url, hit.title, hit.description, similarity, {
+          source: 'YOUTUBE_WATCH_URL',
+          videoId: hit.videoId,
+          channel: hit.channel,
+          manualWatch: true,
+        });
+        alerts.push({
+          url: hit.url,
+          pageTitle: hit.title,
+          similarity: Math.round(similarity * 100),
+          matchType: similarity >= 0.85 ? MATCH.HIGH : MATCH.POSSIBLE,
+          text: hit.description.slice(0, 200),
+        });
+      }
+
+      const searchHits = await searchYouTubeVideos(queries, 15);
+      urlsChecked += queries.length;
+      youtubeCandidates = searchHits.length;
+      for (const hit of searchHits) {
+        if (watchedIds.has(hit.videoId)) continue;
+        const similarity = scoreYouTubeFilenameMatch(monitor.filename, hit);
+        if (!isStrongAutoYouTubeMatch(monitor.filename, hit)) {
+          logger.debug('[Monitor] YouTube search rejected (weak match)', {
+            title: hit.title.slice(0, 80),
+            similarity,
+            min: YOUTUBE_AUTO_ALERT_MIN,
+          });
+          continue;
+        }
+        candidatesFound++;
+        await this.saveVideoAlert(monitor.id, hit.url, hit.title, hit.description, similarity, {
+          source: 'YOUTUBE_SEARCH',
+          videoId: hit.videoId,
+          channel: hit.channel,
+          query: queries[0],
+        });
+        alerts.push({
+          url: hit.url,
+          pageTitle: hit.title,
+          similarity: Math.round(similarity * 100),
+          matchType: similarity >= 0.85 ? MATCH.HIGH : MATCH.POSSIBLE,
+          text: hit.description.slice(0, 200),
+        });
+      }
+
+      logger.info('[Monitor] YouTube scan complete', {
+        filename: monitor.filename,
+        queries,
+        youtubeCandidates,
+        matchesFound: alerts.length,
+      });
+    } else {
+      logger.warn('[Monitor] YOUTUBE_API_KEY not set — skipping YouTube video search');
+    }
 
     const urls = [...monitor.watchUrls, ...webCrawler.generateSearchUrls(monitor.filename, [])];
     const crawlResults = await webCrawler.crawlUrls(urls);
-    const alerts: AlertItem[] = [];
+    urlsChecked += urls.length;
+    candidatesFound += crawlResults.length;
 
     for (const page of crawlResults) {
-      const nameBase = monitor.filename.replace(/\.[^.]+$/, '').toLowerCase();
-      if (page.text.toLowerCase().includes(nameBase)) {
+      if (page.text.toLowerCase().includes(nameStem)) {
         const similarity = 0.75;
-        await prisma.crawlResult.create({
-          data: {
-            monitorRecordId: monitor.id,
-            url: page.url, pageTitle: page.title.slice(0, 200),
-            foundText: page.text.slice(0, 500), textLength: page.wordCount,
-            similarity, matchType: MATCH.POSSIBLE, alertStatus: 'PENDING',
-            contentSnapshot: page.text.slice(0, 300),
-          },
+        await this.saveVideoAlert(monitor.id, page.url, page.title, page.text.slice(0, 500), similarity, {
+          source: 'WEB_SEARCH',
         });
-        alerts.push({ url: page.url, pageTitle: page.title, similarity: 75, matchType: MATCH.POSSIBLE, text: page.text.slice(0, 200) });
+        alerts.push({
+          url: page.url,
+          pageTitle: page.title,
+          similarity: 75,
+          matchType: MATCH.POSSIBLE,
+          text: page.text.slice(0, 200),
+        });
       }
     }
 
-    return { monitorRecordId: monitor.id, runId, filename: monitor.filename, fileCategory: 'VIDEO',
-      urlsChecked: urls.length, candidatesFound: crawlResults.length, matchesFound: alerts.length,
-      failuresCount: 0, highestSimilarity: alerts.length > 0 ? 75 : 0, durationMs: 0, alerts };
+    return {
+      monitorRecordId: monitor.id,
+      runId,
+      filename: monitor.filename,
+      fileCategory: 'VIDEO',
+      method: 'YOUTUBE_API',
+      urlsChecked,
+      candidatesFound,
+      youtubeCandidates,
+      matchesFound: alerts.length,
+      failuresCount: 0,
+      highestSimilarity: alerts.length > 0 ? Math.max(...alerts.map((a) => a.similarity)) : 0,
+      durationMs: 0,
+      alerts,
+    };
+  }
+
+  private async saveVideoAlert(
+    monitorRecordId: string,
+    url: string,
+    title: string,
+    text: string,
+    similarity: number,
+    meta: Record<string, unknown>,
+  ): Promise<void> {
+    const matchType = similarity >= 0.95 ? MATCH.EXACT
+      : similarity >= 0.85 ? MATCH.HIGH
+      : similarity >= 0.7 ? MATCH.POSSIBLE
+      : MATCH.NONE;
+    if (matchType === MATCH.NONE) return;
+
+    await prisma.crawlResult.create({
+      data: {
+        monitorRecordId,
+        url: url.slice(0, 1000),
+        pageTitle: title.slice(0, 200),
+        foundText: JSON.stringify({ ...meta, snippet: text.slice(0, 500) }),
+        textLength: text.length,
+        similarity,
+        matchType,
+        alertStatus: 'PENDING',
+        contentSnapshot: text.slice(0, 300),
+      },
+    });
+  }
+
+  /** Called on server startup — queue all non-manual monitors for the next scheduler tick. */
+  async kickstartAutoCrawler(): Promise<void> {
+    if (!isMonitoringCrawlerEnabled()) return;
+
+    const result = await prisma.monitorRecord.updateMany({
+      where: {
+        status: 'ACTIVE',
+        scanType: { not: 'MANUAL' },
+      },
+      data: { nextCheckAt: new Date() },
+    });
+
+    logger.info('[Monitor] Auto-crawler kickstart', { monitorsQueued: result.count });
+    await this.runDueChecks();
   }
 
   // ─── Run all due checks ────────────────────────────────────────────────────
@@ -427,12 +612,16 @@ export class MonitoringService {
     if (!isMonitoringCrawlerEnabled()) return;
 
     const due = await prisma.monitorRecord.findMany({
-      where: { status: 'ACTIVE', nextCheckAt: { lte: new Date() } },
-      take: 10,
+      where: {
+        status: 'ACTIVE',
+        scanType: { not: 'MANUAL' },
+        nextCheckAt: { lte: new Date() },
+      },
+      take: 25,
     });
     if (due.length === 0) return;
 
-    logger.info(`[Monitor] Running ${due.length} due checks`);
+    logger.info(`[Monitor] Auto-crawler running ${due.length} due checks`);
     for (const m of due) {
       const trigger = m.scanType === 'CONTINUOUS' ? 'CONTINUOUS' : 'SCHEDULED';
       await this.runCheck(m.id, trigger).catch(err =>
@@ -509,10 +698,14 @@ export class MonitoringService {
   }
 
   async updateScanType(monitorRecordId: string, scanType: string): Promise<void> {
-    const checkHrs = scanType === 'WEEKLY' ? 168 : scanType === 'CONTINUOUS' ? 1 : 24;
+    const checkHrs = scanTypeToCheckHrs(scanType);
     await prisma.monitorRecord.update({
       where: { id: monitorRecordId },
-      data: { scanType, checkEveryHrs: checkHrs },
+      data: {
+        scanType,
+        checkEveryHrs: checkHrs,
+        nextCheckAt: scanType === 'MANUAL' ? null : new Date(Date.now() + 5_000),
+      },
     });
   }
 

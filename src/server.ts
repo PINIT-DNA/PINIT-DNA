@@ -63,6 +63,16 @@ async function onServerReady(): Promise<void> {
     logger.info('Crawler Engine Phase 1 started');
   }
 
+  const { isMonitoringCrawlerEnabled, monitoringService } = await import('./services/crawler/monitoring.service');
+  if (isMonitoringCrawlerEnabled()) {
+    setTimeout(() => {
+      void monitoringService.kickstartAutoCrawler().catch((err) =>
+        logger.warn('[Monitor] Auto-crawler kickstart failed', { error: String(err) }),
+      );
+    }, 12_000);
+    logger.info('Auto-crawler enabled — CONTINUOUS scans every 2 min when due');
+  }
+
   const aiPort = parseInt(process.env['AI_SERVICE_PORT'] ?? '8001', 10);
 
   if (config.env !== 'production') {

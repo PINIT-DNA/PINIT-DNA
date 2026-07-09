@@ -35,7 +35,7 @@ export async function getEngineStats(req: Request, res: Response, next: NextFunc
 export async function enrollMonitor(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { dnaRecordId } = req.params;
-    const { watchUrls = [], scanType = 'DAILY' } = req.body;
+    const { watchUrls = [], scanType = 'CONTINUOUS' } = req.body;
     const ownerUserId = getAuthUserId(req);
     const monitorId = await monitoringService.enroll(dnaRecordId, { watchUrls, scanType, ownerUserId });
     res.status(201).json({ success: true, monitorId, message: 'File enrolled for monitoring' });
@@ -52,6 +52,7 @@ export async function listMonitors(req: Request, res: Response, next: NextFuncti
 
 export async function runCheckNow(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    logger.info('[Monitor] Check Now requested', { monitorId: req.params.id });
     const result = await monitoringService.runCheck(req.params.id, 'MANUAL');
     res.json({ success: true, result });
   } catch (err) { next(err); }
@@ -168,7 +169,7 @@ export async function enrollAll(req: Request, res: Response, next: NextFunction)
     let enrolled = 0;
     for (const record of unmonitored) {
       try {
-        await monitoringService.enroll(record.id, { scanType: 'DAILY', ownerUserId: userId });
+        await monitoringService.enroll(record.id, { scanType: 'CONTINUOUS', ownerUserId: userId });
         enrolled++;
       } catch (err) {
         logger.warn('[Monitor] Bulk enroll skip', { id: record.id, error: String(err) });

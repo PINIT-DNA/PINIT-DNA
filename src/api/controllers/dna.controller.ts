@@ -247,7 +247,7 @@ export async function generateDna(
     });
 
     // Fire-and-forget: auto-start web monitoring for every enrolled file
-    monitoringService.enroll(result.dnaRecordId, { scanType: 'DAILY', ownerUserId: userId })
+    monitoringService.enroll(result.dnaRecordId, { scanType: 'CONTINUOUS', ownerUserId: userId })
       .catch((err: unknown) => logger.warn('[Monitor] Auto-start failed', { error: String(err) }));
 
     // Fire-and-forget audit log

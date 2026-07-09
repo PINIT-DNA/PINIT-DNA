@@ -20,6 +20,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { Modal } from '../components/ui/Modal';
 import { cn } from '../components/ui/utils';
+import { resolveAlertUrl } from '../lib/crawler-url';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -110,6 +111,7 @@ function AlertCard({ alert, onDismiss, onConfirm }: {
 }) {
   const cfg = MATCH_CONFIG[alert.matchType] ?? MATCH_CONFIG['POSSIBLE_MATCH'];
   const pct = Math.round(alert.similarity * 100);
+  const linkUrl = resolveAlertUrl(alert);
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
       className={cn('card border transition-all', cfg.bg, cfg.border)}>
@@ -129,10 +131,16 @@ function AlertCard({ alert, onDismiss, onConfirm }: {
             <p className="text-xs font-semibold text-white mb-1">{alert.monitorRecord.filename}</p>
           )}
           <p className="text-xs text-gray-400 truncate mb-1">{alert.pageTitle || 'No title'}</p>
-          <a href={alert.url} target="_blank" rel="noreferrer"
-            className="text-2xs text-dna-400 hover:underline truncate block mono">
-            {alert.url.slice(0, 80)}{alert.url.length > 80 ? '…' : ''}
-          </a>
+          {linkUrl ? (
+            <a href={linkUrl} target="_blank" rel="noreferrer"
+              className="text-2xs text-dna-400 hover:underline truncate block mono">
+              {linkUrl.slice(0, 80)}{linkUrl.length > 80 ? '…' : ''}
+            </a>
+          ) : (
+            <p className="text-2xs text-gray-500 italic">
+              Source page unavailable (search tracker URL — dismiss or re-scan)
+            </p>
+          )}
           {alert.foundText && (
             <p className="text-2xs text-gray-500 mt-2 line-clamp-2">{alert.foundText.slice(0, 150)}</p>
           )}
@@ -365,7 +373,7 @@ export function MonitoringPage() {
   const [enrollOpen,  setEnrollOpen]  = useState(false);
   const [checking,    setChecking]    = useState<string | null>(null);
   const [checkResult, setCheckResult] = useState<Record<string, unknown> | null>(null);
-  const [enrollScanType, setEnrollScanType] = useState<string>('DAILY');
+  const [enrollScanType, setEnrollScanType] = useState<string>('CONTINUOUS');
   const [enrollUrls,  setEnrollUrls]  = useState('');
   const [enrollingId, setEnrollingId] = useState<string | null>(null);
   const [alertTab,    setAlertTab]    = useState<'PENDING'|'CONFIRMED'|'DISMISSED'>('PENDING');
@@ -395,10 +403,13 @@ export function MonitoringPage() {
     setEnrollingId(dnaRecordId);
     try {
       const watchUrls = enrollUrls.split('\n').map(u => u.trim()).filter(u => u.startsWith('http'));
-      await api.post(`${API_BASE_URL}/monitor/enroll/${dnaRecordId}`, { watchUrls, scanType: enrollScanType });
-      toast.success('File enrolled for monitoring');
+      const already = monitors.some(m => m.dnaRecordId === dnaRecordId && (m.status === 'ACTIVE' || m.status === 'PAUSED'));
+      const { data } = await api.post(`${API_BASE_URL}/monitor/enroll/${dnaRecordId}`, { watchUrls, scanType: enrollScanType });
+      toast.success(already ? 'Settings updated — auto-crawler will scan on schedule' : 'Enrolled — auto-crawler active');
       setEnrollOpen(false); setEnrollUrls('');
-      load();
+      await load();
+      // Only run immediate scan for MANUAL on-demand; CONTINUOUS uses scheduler automatically
+      if (data?.monitorId && enrollScanType === 'MANUAL') void handleCheck(data.monitorId);
     } catch { toast.error('Enrollment failed'); }
     finally { setEnrollingId(null); }
   };
@@ -410,7 +421,14 @@ export function MonitoringPage() {
       const d = data as any;
       const result = d.result ?? d;
       setCheckResult(result);
-      toast.success(`Check complete — ${result.matchesFound ?? 0} match(es) found`);
+      const yt = (result as { youtubeCandidates?: number }).youtubeCandidates ?? 0;
+      const matches = result.matchesFound ?? 0;
+      const candidates = result.candidatesFound ?? yt ?? 0;
+      toast.success(
+        matches > 0
+          ? `Found ${matches} match(es) — check Match Alerts`
+          : `Scan complete — ${candidates} candidate(s) checked on YouTube/web, no match yet`,
+      );
       load();
     } catch { toast.error('Check failed'); }
     finally { setChecking(null); }
@@ -459,7 +477,7 @@ export function MonitoringPage() {
               let enrolled = 0;
               for (const r of toEnroll) {
                 try {
-                  await api.post(`${API_BASE_URL}/monitor/enroll/${r.id}`, { scanType: 'DAILY' });
+                  await api.post(`${API_BASE_URL}/monitor/enroll/${r.id}`, { scanType: 'CONTINUOUS' });
                   enrolled++;
                 } catch { /* skip already enrolled */ }
               }
@@ -597,6 +615,9 @@ export function MonitoringPage() {
                 </p>
                 <p className="text-2xs text-gray-500 mono mt-0.5">
                   Category: {String(checkResult['fileCategory'] ?? checkResult['method'] ?? 'DOCUMENT')}
+                  {(checkResult['youtubeCandidates'] as number) > 0
+                    ? ` · YouTube: ${checkResult['youtubeCandidates']} videos scanned`
+                    : ''}
                   {checkResult['durationMs'] ? ` · ${((checkResult['durationMs'] as number)/1000).toFixed(1)}s` : ''}
                 </p>
               </div>
@@ -673,8 +694,8 @@ export function MonitoringPage() {
         <div className="p-5 space-y-4">
           <div>
             <p className="text-xs text-gray-400 mb-3">
-              Select a file and scan schedule. The system will crawl the web and compare using
-              content fingerprints, embeddings, and similarity algorithms.
+              Files are crawled automatically — no URLs needed. Pick a schedule, click a file, and the system
+              searches YouTube, GitHub, Reddit, and the web on its own every 1–24 hours.
             </p>
 
             {/* Scan type */}
@@ -703,7 +724,9 @@ export function MonitoringPage() {
               <textarea value={enrollUrls} onChange={e => setEnrollUrls(e.target.value)}
                 placeholder="https://example.com&#10;https://another-site.com"
                 className="input text-xs font-mono w-full" rows={3} />
-              <p className="text-2xs text-gray-600 mt-1">One URL per line. Leave empty to use auto-generated search URLs.</p>
+              <p className="text-2xs text-gray-600 mt-1">
+                Click any file below to enroll or re-scan. Optional URLs only — leave empty for automatic search.
+              </p>
             </div>
           </div>
 
@@ -712,11 +735,15 @@ export function MonitoringPage() {
           ) : (
             <div className="space-y-2 max-h-52 overflow-y-auto">
               {(dnaRecords ?? []).map(r => {
-                const alreadyMonitored = monitors.some(m => m.dnaRecordId === r.id && (m.status === 'ACTIVE' || m.status === 'PAUSED'));
+                const existingMonitor = monitors.find(m => m.dnaRecordId === r.id && (m.status === 'ACTIVE' || m.status === 'PAUSED'));
+                const alreadyMonitored = !!existingMonitor;
                 return (
-                <button key={r.id} onClick={() => !alreadyMonitored && handleEnroll(r.id)}
-                  disabled={enrollingId === r.id || alreadyMonitored}
-                  className={`w-full flex items-center gap-3 p-3 bg-bg-elevated rounded-xl border border-bg-border transition-all text-left ${alreadyMonitored ? 'opacity-50 cursor-not-allowed' : 'hover:bg-bg-muted'} disabled:opacity-60`}>
+                <button key={r.id} onClick={() => handleEnroll(r.id)}
+                  disabled={enrollingId === r.id}
+                  className={cn(
+                    'w-full flex items-center gap-3 p-3 bg-bg-elevated rounded-xl border border-bg-border transition-all text-left',
+                    enrollingId === r.id ? 'opacity-60' : 'hover:bg-bg-muted hover:border-dna-500/30',
+                  )}>
                   <FileTypeBadge type={deriveFileType(r)} />
                   <span className="text-xs text-gray-500 shrink-0">
                     {FILE_CATEGORY_ICON[fileCategory(deriveFileType(r))]}
@@ -725,11 +752,11 @@ export function MonitoringPage() {
                     <p className="text-sm font-medium text-white truncate">{r.imageFilename}</p>
                     <p className="text-2xs text-gray-500 mono">{r.id.slice(0,12)}…</p>
                   </div>
-                  {alreadyMonitored
-                    ? <span className="text-2xs text-success bg-success/10 border border-success/20 px-2 py-0.5 rounded shrink-0">Monitoring</span>
-                    : enrollingId === r.id
+                  {enrollingId === r.id
                     ? <RefreshCw size={14} className="text-dna-400 shrink-0 animate-spin" />
-                    : <Radio size={14} className="text-dna-400 shrink-0" />}
+                    : alreadyMonitored
+                    ? <span className="text-2xs text-dna-400 bg-dna-500/10 border border-dna-500/30 px-2 py-0.5 rounded shrink-0">Update & Scan</span>
+                    : <span className="text-2xs text-success bg-success/10 border border-success/20 px-2 py-0.5 rounded shrink-0">Enroll</span>}
                 </button>
                 );
               })}

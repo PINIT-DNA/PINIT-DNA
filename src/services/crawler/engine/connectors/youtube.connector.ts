@@ -2,9 +2,13 @@
  * YouTube connector — YouTube Data API v3 search.
  */
 
-import axios from 'axios';
-import { logger } from '../../../../lib/logger';
 import { crawlerEngineConfig } from '../config';
+import {
+  extractYouTubeVideoId,
+  filenameSearchQueries,
+  getYouTubeVideo,
+  searchYouTubeVideos,
+} from '../../youtube-search.util';
 import type {
   ConnectorSearchContext,
   ConnectorSearchResult,
@@ -26,46 +30,36 @@ export class YouTubeConnector implements ICrawlerConnector {
     }
 
     const assets: DiscoveredAsset[] = [];
-    const queries = [
-      ctx.filename.replace(/\.[^.]+$/, ''),
-      ...ctx.keywords.slice(0, 3),
-    ].filter(Boolean);
-
+    const seen = new Set<string>();
     let urlsChecked = 0;
-    for (const q of [...new Set(queries)]) {
-      urlsChecked++;
-      try {
-        const { data } = await axios.get<{
-          items?: Array<{
-            id: { videoId: string };
-            snippet: { title: string; description: string; channelTitle: string };
-          }>;
-        }>(`${crawlerEngineConfig.youtube.apiBase}/search`, {
-          params: {
-            key: crawlerEngineConfig.youtube.apiKey,
-            part: 'snippet',
-            q,
-            type: 'video',
-            maxResults: 5,
-          },
-          timeout: crawlerEngineConfig.downloadTimeoutMs,
-        });
 
-        for (const item of data.items ?? []) {
-          const videoId = item.id.videoId;
-          assets.push({
-            platform: 'YOUTUBE',
-            sourceUrl: `https://www.youtube.com/watch?v=${videoId}`,
-            assetUrl: `https://www.youtube.com/watch?v=${videoId}`,
-            assetType: 'video',
-            title: item.snippet.title,
-            description: item.snippet.description?.slice(0, 300),
-            metadata: { channel: item.snippet.channelTitle, videoId },
-          });
-        }
-      } catch (err) {
-        logger.debug('[YouTubeConnector] Search failed', { q, error: String(err) });
-      }
+    const addHit = (videoId: string, title: string, description: string, channel: string) => {
+      if (!videoId || seen.has(videoId)) return;
+      seen.add(videoId);
+      assets.push({
+        platform: 'YOUTUBE',
+        sourceUrl: `https://www.youtube.com/watch?v=${videoId}`,
+        assetUrl: `https://www.youtube.com/watch?v=${videoId}`,
+        assetType: 'video',
+        title,
+        description: description.slice(0, 300),
+        metadata: { channel, videoId },
+      });
+    };
+
+    for (const url of ctx.watchUrls) {
+      const videoId = extractYouTubeVideoId(url);
+      if (!videoId) continue;
+      urlsChecked++;
+      const hit = await getYouTubeVideo(videoId);
+      if (hit) addHit(hit.videoId, hit.title, hit.description, hit.channel);
+    }
+
+    const queries = filenameSearchQueries(ctx.filename).concat(ctx.keywords.slice(0, 3));
+
+    for (const hit of await searchYouTubeVideos(queries, 5)) {
+      urlsChecked++;
+      addHit(hit.videoId, hit.title, hit.description, hit.channel);
     }
 
     return { platform: 'YOUTUBE', assets, urlsChecked };

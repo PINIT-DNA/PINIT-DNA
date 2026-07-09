@@ -176,8 +176,6 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
   const [error, setError] = useState<string | null>(null);
   const [forensicPreserved, setForensicPreserved] = useState(false);
   const [recipientLabel, setRecipientLabel] = useState('');
-  const [purpose, setPurpose] = useState('Personal');
-  const [expiryDays, setExpiryDays] = useState(30);
   const [lastTep, setLastTep] = useState<string | null>(null);
 
   const runProtectedDownload = async () => {
@@ -192,8 +190,6 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
     try {
       const { blob, tepCode, tracking } = await protectedDownloadFromVault(record.id, {
         recipientLabel: recipientLabel.trim() || undefined,
-        purpose,
-        expiryDays,
       });
       setForensicPreserved(true);
       setLastTep(tepCode ?? null);
@@ -255,34 +251,6 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
                 value={recipientLabel}
                 onChange={(e) => setRecipientLabel(e.target.value)}
               />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-2xs text-gray-500">Purpose</label>
-                <select
-                  className="input text-sm mt-1"
-                  value={purpose}
-                  onChange={(e) => setPurpose(e.target.value)}
-                >
-                  <option>Personal</option>
-                  <option>Employment</option>
-                  <option>Legal</option>
-                  <option>Partner Share</option>
-                  <option>Other</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-2xs text-gray-500">Expiry (days)</label>
-                <select
-                  className="input text-sm mt-1"
-                  value={expiryDays}
-                  onChange={(e) => setExpiryDays(Number(e.target.value))}
-                >
-                  <option value={7}>7 Days</option>
-                  <option value={30}>30 Days</option>
-                  <option value={90}>90 Days</option>
-                </select>
-              </div>
             </div>
           </div>
         )}

@@ -67,10 +67,10 @@ export class VaultSchedulerService {
       }, { timezone: 'Asia/Kolkata' })
     );
 
-    // ── Crawler: run due monitoring checks every hour (opt-in) ───────────────
+    // ── Auto-crawler: run due monitoring checks every 2 minutes (opt-in) ─────
     if (isMonitoringCrawlerEnabled()) {
       this.tasks.push(
-        cron.schedule('0 * * * *', () => {
+        cron.schedule('*/2 * * * *', () => {
           import('../crawler/monitoring.service')
             .then(m => m.monitoringService.runDueChecks())
             .catch(err => logger.error('Monitoring check failed', { error: String(err) }));
