@@ -1350,6 +1350,130 @@ export class UnifiedInvestigationOrchestrator {
   }
 
   /**
+   * Load vault session timeline + chain-of-custody provenance for a matched asset.
+   */
+  private async enrichVaultTimeline(input: {
+    investigationId: string;
+    investigatedAt: string;
+    suspectFilename: string;
+    suspectFileHash: string;
+    dnaRecordId: string;
+    vaultId: string;
+    ownerUserId: string;
+    dnaMeta: { createdAt: Date; filename: string } | null;
+    dnaMatchPercent?: number;
+    forensicVerdict?: string;
+    investigationSummary?: string;
+  }): Promise<{
+    timelineEvents: UnifiedInvestigationReport['timeline'];
+    evidenceTimeline: UnifiedInvestigationReport['evidenceTimeline'];
+    provenanceSummary: UnifiedInvestigationReport['provenanceSummary'];
+    accessIntelligence: LeakedFileAccessEntry[];
+    leakIntel: LeakIntelligenceSection;
+  }> {
+    const enrichmentMs = Math.max(
+      investigationPerformanceConfig.orchestratorEnrichmentTimeoutMs,
+      12_000,
+    );
+
+    const leakVerifyStub = {
+      found: true,
+      valid: false,
+      tampered: false,
+      message: input.investigationSummary ?? 'Investigation match',
+      accessHistory: [] as LeakedFileAccessEntry[],
+    };
+
+    const timelineBundle = await withTimeoutSoft(
+      () => Promise.all([
+        shareLinkService.getTimelineEvents(input.dnaRecordId, input.ownerUserId),
+        auditService.getEventsForRecord(input.dnaRecordId),
+      ]),
+      enrichmentMs,
+      'investigation_timeline',
+    );
+
+    const [shareTimeline, auditEvents] = timelineBundle ?? [[], []];
+
+    const accessIntelligence = await withTimeoutSoft(
+      () => this.loadAccessIntelligence(input.dnaRecordId, input.ownerUserId, []),
+      enrichmentMs,
+      'access_intelligence',
+    ) ?? [];
+
+    const leakIntel = await withTimeoutSoft(
+      () => this.buildLeakIntelligence(input.dnaRecordId, input.ownerUserId),
+      enrichmentMs,
+      'leak_intel',
+    ) ?? { hasPublicLeak: false, entries: [], message: 'No public crawler detections' };
+
+    const timelineEvents = this.buildTimeline({
+      investigationId: input.investigationId,
+      investigatedAt: input.investigatedAt,
+      suspectFilename: input.suspectFilename,
+      suspectFileHash: input.suspectFileHash,
+      dnaRecordId: input.dnaRecordId,
+      vaultId: input.vaultId,
+      dnaMeta: input.dnaMeta,
+      shareLinks: shareTimeline,
+      leakVerify: leakVerifyStub,
+      accessHistory: accessIntelligence,
+      auditEvents,
+      leakIntel,
+      dnaMatchPercent: input.dnaMatchPercent,
+      forensicVerdict: input.forensicVerdict,
+    });
+
+    const { forensicProvenanceService } = await import('./forensic-provenance.service');
+    forensicProvenanceService.appendAsync({
+      eventType: 'INVESTIGATED',
+      summary: `Investigation — ${input.investigationSummary ?? 'vault match'}`,
+      dnaRecordId: input.dnaRecordId,
+      vaultId: input.vaultId,
+      investigationId: input.investigationId,
+      actorUserId: input.ownerUserId,
+      payload: {
+        probeFilename: input.suspectFilename,
+        probeSha256: input.suspectFileHash,
+        dnaMatchPercent: input.dnaMatchPercent ?? 0,
+      },
+      dedupeKey: `investigated:${input.investigationId}`,
+    });
+
+    const provenanceEvents = await withTimeoutSoft(
+      () => forensicProvenanceService.getTimeline({
+        dnaRecordId: input.dnaRecordId,
+        vaultId: input.vaultId,
+      }),
+      enrichmentMs,
+      'forensic_provenance',
+    ) ?? [];
+
+    const evidenceTimeline = provenanceEvents.map((e) => ({
+      id: e.id,
+      eventType: e.eventType,
+      summary: e.summary,
+      timestamp: e.timestamp,
+      locationLabel: e.locationLabel,
+      actorLabel: e.actorLabel,
+      device: e.device,
+      tepCode: e.tepCode,
+      certificateId: e.certificateId,
+      source: e.source,
+    }));
+
+    const provenanceSummary = forensicProvenanceService.buildSummary(provenanceEvents);
+
+    return {
+      timelineEvents,
+      evidenceTimeline,
+      provenanceSummary,
+      accessIntelligence,
+      leakIntel,
+    };
+  }
+
+  /**
    * When enterprise recovery times out after live SSE already located a vault,
    * return a POSSIBLE report so scanner/upload UI keeps owner + vault details.
    */
@@ -1383,6 +1507,7 @@ export class UnifiedInvestigationOrchestrator {
             id: true,
             imageFilename: true,
             createdAt: true,
+            sha256Hash: true,
             ownerUser: { select: { fullName: true, shortId: true } },
           },
         },
@@ -1465,12 +1590,74 @@ export class UnifiedInvestigationOrchestrator {
 
     const conf = displayConf;
 
-    const investigatedAt = new Date().toISOString();
     const reportState: 'VERIFIED' | 'POSSIBLE' | 'NO_SIGNATURE' = hasRealDna
       ? mapAcceptanceToReportState(decision.verdict)
       : retainOwnerLead
         ? 'POSSIBLE'
         : mapAcceptanceToReportState(decision.verdict);
+
+    const investigatedAt = new Date().toISOString();
+
+    let timelineEvents: UnifiedInvestigationReport['timeline'] = [];
+    let evidenceTimeline: UnifiedInvestigationReport['evidenceTimeline'] = [];
+    let provenanceSummary: UnifiedInvestigationReport['provenanceSummary'];
+    let accessIntelligence: LeakedFileAccessEntry[] = [];
+    let leakIntel: LeakIntelligenceSection = {
+      hasPublicLeak: false,
+      entries: [],
+      message: 'No public crawler detections for this asset',
+    };
+
+    if ((retainOwnerLead || hasRealDna) && dnaRecordId && vaultId) {
+      try {
+        const enriched = await this.enrichVaultTimeline({
+          investigationId: params.investigationId,
+          investigatedAt,
+          suspectFilename: params.originalName,
+          suspectFileHash: params.currentFileHash,
+          dnaRecordId,
+          vaultId,
+          ownerUserId: params.ownerUserId,
+          dnaMeta: vaultRow?.dnaRecord
+            ? { createdAt: vaultRow.dnaRecord.createdAt, filename: vaultRow.dnaRecord.imageFilename }
+            : null,
+          dnaMatchPercent: hasRealDna ? realDna! : liveConf,
+          forensicVerdict: reportState === 'POSSIBLE' ? 'POSSIBLE_ASSET' : undefined,
+          investigationSummary: decision.displayLabel,
+        });
+        timelineEvents = enriched.timelineEvents;
+        evidenceTimeline = enriched.evidenceTimeline;
+        provenanceSummary = enriched.provenanceSummary;
+        accessIntelligence = enriched.accessIntelligence;
+        leakIntel = enriched.leakIntel;
+        params.pipeline.push(step('timeline', 'Retrieve timeline', 'complete', `${timelineEvents.length} events`));
+        params.pipeline.push(step(
+          'provenance',
+          'Evidence timeline',
+          'complete',
+          `${evidenceTimeline?.length ?? 0} custody events`,
+        ));
+      } catch (err) {
+        logger.warn('[PartialReport] Timeline enrichment failed', { error: String(err) });
+        timelineEvents = this.buildTimeline({
+          investigationId: params.investigationId,
+          investigatedAt,
+          suspectFilename: params.originalName,
+          suspectFileHash: params.currentFileHash,
+          dnaRecordId,
+          vaultId,
+          dnaMeta: vaultRow?.dnaRecord
+            ? { createdAt: vaultRow.dnaRecord.createdAt, filename: vaultRow.dnaRecord.imageFilename }
+            : null,
+          shareLinks: [],
+          leakVerify: { found: false, valid: false, tampered: false, message: '', accessHistory: [] },
+          accessHistory: [],
+          auditEvents: [],
+          dnaMatchPercent: hasRealDna ? realDna! : liveConf,
+          forensicVerdict: 'POSSIBLE_ASSET',
+        });
+      }
+    }
 
     const ownerBlock = retainOwnerLead || hasRealDna
       ? {
@@ -1528,9 +1715,11 @@ export class UnifiedInvestigationOrchestrator {
       },
       layerAnalysis: [],
       tamperAnalysis: emptyTamperAnalysis(params.error),
-      timeline: [],
-      accessIntelligence: [],
-      leakIntelligence: { hasPublicLeak: false, entries: [], message: 'Unavailable (partial report)' },
+      timeline: timelineEvents,
+      evidenceTimeline,
+      provenanceSummary,
+      accessIntelligence,
+      leakIntelligence: leakIntel,
       identityProof: {
         vaultId: retainOwnerLead || hasRealDna ? vaultId : undefined,
         dnaRecordId: retainOwnerLead || hasRealDna ? dnaRecordId : undefined,
@@ -1589,6 +1778,9 @@ export class UnifiedInvestigationOrchestrator {
         dnaRecordId: retainOwnerLead || hasRealDna ? dnaRecordId : undefined,
         certificateId: retainOwnerLead || hasRealDna ? (certificateId ?? null) : null,
         originalFilename: retainOwnerLead || hasRealDna ? originalFilename : undefined,
+        createdAt: vaultRow?.dnaRecord?.createdAt?.toISOString(),
+        registrationTimestamp: vaultRow?.dnaRecord?.createdAt?.toISOString(),
+        originalHash: vaultRow?.dnaRecord?.sha256Hash ?? undefined,
         currentHash: params.currentFileHash,
         evidenceConfidence: conf,
         message: hasRealDna
