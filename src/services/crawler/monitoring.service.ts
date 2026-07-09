@@ -83,6 +83,9 @@ export interface MonitoringSummary {
   highestSimilarity: number;
   durationMs:        number;
   alerts:            AlertItem[];
+  /** Video scan path */
+  method?:           string;
+  youtubeCandidates?: number;
 }
 
 export interface AlertItem {

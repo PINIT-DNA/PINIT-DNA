@@ -122,7 +122,6 @@ export class FilenameSearchProvider implements ImageSearchProvider {
         timeout: 10_000,
         responseType: 'text',
         headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,image/*' },
-        maxContentLength: 2 * 1024 * 1024,
       });
 
       const html = String(data);
