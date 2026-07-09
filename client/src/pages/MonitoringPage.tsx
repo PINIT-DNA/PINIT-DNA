@@ -392,7 +392,9 @@ export function MonitoringPage() {
       setMonitors((mResp.data as any).monitors ?? []);
       setAlerts((aResp.data as any).alerts ?? []);
       setStats(sResp.data as any);
-      setEngineStats((eResp?.data as { engine?: EngineStats })?.engine ?? null);
+      setEngineStats(
+        (eResp?.data as unknown as { engine?: EngineStats } | null)?.engine ?? null,
+      );
     } catch { toast.error('Failed to load monitoring data'); }
     finally { setLoading(false); }
   };
@@ -404,7 +406,10 @@ export function MonitoringPage() {
     try {
       const watchUrls = enrollUrls.split('\n').map(u => u.trim()).filter(u => u.startsWith('http'));
       const already = monitors.some(m => m.dnaRecordId === dnaRecordId && (m.status === 'ACTIVE' || m.status === 'PAUSED'));
-      const { data } = await api.post(`${API_BASE_URL}/monitor/enroll/${dnaRecordId}`, { watchUrls, scanType: enrollScanType });
+      const { data } = await api.post<{ monitorId?: string }>(
+        `${API_BASE_URL}/monitor/enroll/${dnaRecordId}`,
+        { watchUrls, scanType: enrollScanType },
+      );
       toast.success(already ? 'Settings updated — auto-crawler will scan on schedule' : 'Enrolled — auto-crawler active');
       setEnrollOpen(false); setEnrollUrls('');
       await load();
