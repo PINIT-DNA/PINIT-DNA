@@ -6,7 +6,7 @@ const DEV_BACKEND_MAX_RETRIES = 25;
 
 function isBackendOfflineError(err: unknown): boolean {
   const msg = formatApiError(err);
-  return /backend offline|cannot reach api|service unavailable.*4000/i.test(msg);
+  return /backend offline|cannot reach api|service unavailable|backend waking up|4000/i.test(msg);
 }
 
 function delay(ms: number) {
@@ -39,7 +39,7 @@ export function useApi<T>(
     setError(null);
 
     let lastErr: unknown;
-    const maxAttempts = import.meta.env.DEV ? DEV_BACKEND_MAX_RETRIES : 1;
+    const maxAttempts = import.meta.env.DEV ? DEV_BACKEND_MAX_RETRIES : 4;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (abortRef.current) return;
@@ -53,9 +53,9 @@ export function useApi<T>(
         return;
       } catch (err) {
         lastErr = err;
-        const offline = import.meta.env.DEV && isBackendOfflineError(err);
+        const offline = isBackendOfflineError(err);
         if (!offline || attempt >= maxAttempts - 1 || abortRef.current) break;
-        await delay(DEV_BACKEND_RETRY_MS);
+        await delay(import.meta.env.PROD ? 6000 + attempt * 2000 : DEV_BACKEND_RETRY_MS);
       }
     }
 

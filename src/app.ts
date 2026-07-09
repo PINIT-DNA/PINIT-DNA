@@ -101,14 +101,22 @@ const apiLimiter = rateLimit({
   legacyHeaders:   false,
   skip: (req) =>
     process.env['NODE_ENV'] !== 'production' ||
+    req.path === '/health' ||
+    req.path === `${config.apiPrefix}/ping` ||
+    req.path === `${config.apiPrefix}/health` ||
     (req.path.startsWith('/api/v1/share/') && req.method === 'GET'),
 });
-app.use(apiLimiter);
 
-// ─── Health check (Phase 6 — detailed) ────────────────────────────────────────
+// ─── Health check (Phase 6 — detailed) — before rate limiter ─────────────────
 /** Instant liveness — used by Vite proxy / dev auto-retry (no DB). */
 app.get(`${config.apiPrefix}/ping`, (_req, res) => {
   res.json({ ok: true, service: 'pinit-dna-api', ts: Date.now() });
+});
+
+app.get(`${config.apiPrefix}/health`, async (_req, res) => {
+  const report = await getHealthReport();
+  const httpStatus = report.status === 'healthy' ? 200 : report.status === 'degraded' ? 207 : 503;
+  res.status(httpStatus).json(report);
 });
 
 app.get('/health', async (_req, res) => {
@@ -116,6 +124,8 @@ app.get('/health', async (_req, res) => {
   const httpStatus = report.status === 'healthy' ? 200 : report.status === 'degraded' ? 207 : 503;
   res.status(httpStatus).json(report);
 });
+
+app.use(apiLimiter);
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
 app.use(`${config.apiPrefix}/dna`,          dnaRouter);

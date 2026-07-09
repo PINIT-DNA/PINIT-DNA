@@ -13,22 +13,46 @@ import { API_BASE_URL } from '../../config/api.config';
 
 function BackendStatus() {
   const [online, setOnline] = useState<boolean | null>(null);
+  const isProd = import.meta.env.PROD;
 
   useEffect(() => {
     let cancelled = false;
-    const check = async () => {
-      try {
-        const res = await fetch(`${API_BASE_URL}/ping`, { cache: 'no-store' });
-        if (!cancelled) setOnline(res.ok);
-      } catch {
-        if (!cancelled) setOnline(false);
+
+    const probe = async (): Promise<boolean> => {
+      const root = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
+      const urls = [`${API_BASE_URL}/ping`, `${API_BASE_URL}/health`, `${root}/health`];
+      for (const url of urls) {
+        try {
+          const controller = new AbortController();
+          const timer = window.setTimeout(() => controller.abort(), 25_000);
+          const res = await fetch(url, { cache: 'no-store', signal: controller.signal });
+          window.clearTimeout(timer);
+          if (res.ok) return true;
+        } catch {
+          /* try next endpoint */
+        }
       }
+      return false;
     };
+
+    const check = async () => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (cancelled) return;
+        const ok = await probe();
+        if (ok) {
+          if (!cancelled) setOnline(true);
+          return;
+        }
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 4000 + attempt * 2000));
+      }
+      if (!cancelled) setOnline(false);
+    };
+
     check();
-    const id = window.setInterval(check, 8000);
+    const id = window.setInterval(check, 20_000);
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      window.clearTimeout(id);
     };
   }, []);
 
@@ -52,10 +76,10 @@ function BackendStatus() {
         <Zap size={10} className={isOnline ? 'text-dna-500' : 'text-danger'} />
         <span>
           {isChecking
-            ? 'Connecting to localhost:4000'
+            ? (isProd ? 'Connecting to Render API…' : 'Connecting to localhost:4000')
             : isOnline
               ? 'All systems operational'
-              : 'Run npm run dev:all'}
+              : (isProd ? 'API waking up — refresh in a moment' : 'Run npm run dev:all')}
         </span>
       </div>
     </>

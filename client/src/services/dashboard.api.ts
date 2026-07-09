@@ -58,7 +58,7 @@ export function formatApiError(err: unknown): string {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isProd = Boolean((import.meta as any).env?.PROD);
       return isProd
-        ? 'Service unavailable — retry in a moment'
+        ? 'Backend waking up — Render cold start can take up to 60s. Tap Retry.'
         : 'Cannot reach API — start the backend (npm run dev) and retry';
     }
     return ax.message;
@@ -117,11 +117,20 @@ api.interceptors.response.use(
       throw error;
     }
 
-    // Retry only for transient server errors (e.g. Render cold start) — not proxy offline
+    // Retry transient server errors (e.g. Render cold start) — not proxy offline
     const retryable = count < 4 && status >= 502 && status <= 504;
     if (retryable) {
       config._netRetryCount = count + 1;
       await new Promise((r) => setTimeout(r, 6000 + count * 2000));
+      return api.request(config);
+    }
+
+    // Production: retry network failures while Render wakes from sleep
+    const netFail = !error.response && error.code !== 'ECONNABORTED';
+    const maxNetRetries = import.meta.env.PROD ? 4 : 0;
+    if (netFail && count < maxNetRetries) {
+      config._netRetryCount = count + 1;
+      await new Promise((r) => setTimeout(r, 8000 + count * 3000));
       return api.request(config);
     }
 
