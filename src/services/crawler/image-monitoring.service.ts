@@ -285,6 +285,20 @@ export class ImageMonitoringService {
           pHashDistance:   pHashDist,
           matchType,
         });
+        if (monitor.ownerUserId) {
+          const ownerId = monitor.ownerUserId;
+          import('../platform-events/module-events').then(({ emitMonitoringMatch }) => {
+            emitMonitoringMatch({
+              ownerUserId: ownerId,
+              monitorRecordId: monitor.id,
+              dnaRecordId: monitor.dnaRecordId,
+              filename: monitor.filename,
+              url: candidate.pageUrl ?? candidate.imageUrl,
+              matchType,
+              similarity: Math.round(pHashSim * 100),
+            });
+          }).catch(() => {});
+        }
       }
     }
 

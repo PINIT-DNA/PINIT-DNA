@@ -304,6 +304,16 @@ export class DnaOrchestrator {
       } catch {
         /* non-fatal */
       }
+
+      import('./platform-events/module-events').then(({ emitDnaGenerated }) => {
+        emitDnaGenerated({
+          ownerUserId: universalCtx.ownerUserId!,
+          dnaRecordId,
+          filename: image.originalName,
+          country: universalCtx?.country ?? null,
+          ip: universalCtx?.ip ?? null,
+        });
+      }).catch(() => {});
     }
 
     const fileInfo = {

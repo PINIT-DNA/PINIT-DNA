@@ -47,6 +47,10 @@ export function registerGracefulShutdown(): void {
       }
 
       vaultScheduler.stop();
+      try {
+        const { crawlerEngineService } = await import('../services/crawler/engine');
+        crawlerEngineService.stop();
+      } catch { /* engine optional */ }
       stopPythonAI();
 
       await prisma.$disconnect();

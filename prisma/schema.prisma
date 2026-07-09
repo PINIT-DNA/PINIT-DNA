@@ -420,6 +420,13 @@ model User {
   notifyRiskAlerts   Boolean          @default(true)
   notifyShareAccess  Boolean          @default(true)
   notifyUpdates      Boolean          @default(false)
+  notifyVault        Boolean          @default(true)
+  notifyDna          Boolean          @default(true)
+  notifyInvestigation Boolean         @default(true)
+  notifyAutomation   Boolean          @default(true)
+  notifySecurity     Boolean          @default(true)
+  notifyReports      Boolean          @default(true)
+  notifySystem       Boolean          @default(true)
   organization       String?
   phone              String?
   theme              String           @default("light")
@@ -441,6 +448,7 @@ model User {
   loginHistory       LoginHistory[]
   monitorRecords     MonitorRecord[]
   notifications      Notification[]
+  platformEvents     PlatformEvent[]
   refreshTokens      RefreshToken[]
   shareLinks         ShareLink[]
   shareRecipients    ShareRecipient[]
@@ -593,25 +601,55 @@ model SecurityEvent {
 }
 
 model Notification {
-  id        String   @id @default(uuid())
-  createdAt DateTime @default(now())
-  userId    String
-  type      String
-  title     String
-  body      String
-  severity  String   @default("info")
-  read      Boolean  @default(false)
-  linkToken String?
-  fileName  String?
-  ip        String?
-  country   String?
-  device    String?
-  riskLevel String?
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id             String   @id @default(uuid())
+  createdAt      DateTime @default(now())
+  userId         String
+  type           String
+  title          String
+  body           String
+  severity       String   @default("info")
+  category       String   @default("system")
+  read           Boolean  @default(false)
+  archived       Boolean  @default(false)
+  linkToken      String?
+  fileName       String?
+  ip             String?
+  country        String?
+  device         String?
+  riskLevel      String?
+  deepLink       String?
+  dedupeKey      String?
+  aggregateCount Int      @default(1)
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, read])
   @@index([userId, createdAt])
+  @@index([userId, dedupeKey])
+  @@index([userId, archived])
   @@map("notifications")
+}
+
+model PlatformEvent {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  name        String
+  category    String
+  severity    String
+  ownerUserId String
+  actorUserId String?
+  entityType  String
+  entityId    String
+  title       String
+  body        String
+  deepLink    String?
+  dedupeKey   String?
+  payload     Json?
+  ownerUser   User     @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@index([ownerUserId, createdAt])
+  @@index([name, createdAt])
+  @@index([dedupeKey])
+  @@map("platform_events")
 }
 
 model RefreshToken {
@@ -721,6 +759,8 @@ model MonitorRecord {
   dnaRecord      DnaRecord       @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
   ownerUser      User?           @relation(fields: [ownerUserId], references: [id])
   monitoringRuns MonitoringRun[]
+  crawlerJobs    CrawlerJob[]
+  crawlerMatches CrawlerMatch[]
 
   @@index([status])
   @@index([nextCheckAt])
@@ -1152,6 +1192,60 @@ model BlockedShareViewer {
   @@index([deviceFingerprint])
   @@index([sessionId])
   @@map("blocked_share_viewers")
+}
+
+// ─── Monitoring & Crawler Engine (Phase 1) ───────────────────────────────────
+
+model CrawlerJob {
+  id              String        @id @default(uuid())
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  monitorRecordId String
+  ownerUserId     String?
+  platform        String
+  status          String        @default("PENDING")
+  priority        Int           @default(0)
+  attempts        Int           @default(0)
+  maxAttempts     Int           @default(3)
+  scheduledAt     DateTime      @default(now())
+  startedAt       DateTime?
+  completedAt     DateTime?
+  error           String?
+  payload         Json?
+  monitorRecord   MonitorRecord @relation(fields: [monitorRecordId], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduledAt])
+  @@index([monitorRecordId])
+  @@index([platform])
+  @@map("crawler_jobs")
+}
+
+model CrawlerMatch {
+  id              String        @id @default(uuid())
+  createdAt       DateTime      @default(now())
+  monitorRecordId String
+  dnaRecordId     String
+  ownerUserId     String?
+  platform        String
+  sourceUrl       String
+  assetUrl        String?
+  assetType       String        @default("unknown")
+  similarity      Float
+  matchType       String
+  riskScore       Int           @default(0)
+  confidence      Float         @default(0)
+  incidentId      String?
+  investigationId String?
+  evidenceId      String?
+  metadata        Json?
+  monitorRecord   MonitorRecord @relation(fields: [monitorRecordId], references: [id], onDelete: Cascade)
+
+  @@index([monitorRecordId])
+  @@index([dnaRecordId])
+  @@index([ownerUserId])
+  @@index([platform])
+  @@index([similarity])
+  @@map("crawler_matches")
 }
 
 enum UserRole {

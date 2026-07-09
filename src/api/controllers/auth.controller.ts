@@ -1,9 +1,13 @@
 import type { Request, Response } from 'express';
 import { authService } from '../../services/auth/auth.service';
+import { resolveClientIp } from '../../lib/request-utils';
+import { notifyLoginSuccess, notifyLoginFailed, notifyUserRegistered } from '../../services/platform-events/account-events';
+import { prisma } from '../../lib/prisma';
 
 export const authController = {
   async createAccount(_req: Request, res: Response) {
     const result = await authService.createAccount();
+    notifyUserRegistered(result.user.id, result.user.shortId);
     res.status(201).json({ success: true, data: result });
   },
 
@@ -13,10 +17,26 @@ export const authController = {
       res.status(400).json({ success: false, error: 'shortId is required' });
       return;
     }
+    const ip = resolveClientIp(req);
+    const userAgent = req.headers['user-agent'];
+    const deviceFingerprint = (req.body as { deviceFingerprint?: string }).deviceFingerprint;
     try {
       const result = await authService.loginWithId(shortId);
+      void notifyLoginSuccess({
+        userId: result.user.id,
+        ip,
+        userAgent,
+        deviceFingerprint,
+      });
       res.json({ success: true, data: result });
     } catch {
+      const user = await prisma.user.findUnique({
+        where: { shortId: shortId.toUpperCase().trim() },
+        select: { id: true },
+      }).catch(() => null);
+      if (user?.id) {
+        void notifyLoginFailed({ userId: user.id, shortId, ip, userAgent, reason: 'Invalid User ID' });
+      }
       res.status(401).json({ success: false, error: 'Invalid User ID. Please check and try again.' });
     }
   },

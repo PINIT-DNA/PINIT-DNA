@@ -307,6 +307,14 @@ export class UnifiedInvestigationOrchestrator {
       : investigationPerformanceConfig.imageRecoveryTimeoutMs;
 
     try {
+    import('../platform-events/extended-events').then(({ emitInvestigationStarted }) => {
+      emitInvestigationStarted({
+        ownerUserId,
+        investigationId,
+        filename: originalName,
+      });
+    }).catch(() => {});
+
     orchestratorTimer.start('enterprise_recovery');
     const recoveryStage = await executeStage(
       'enterprise_recovery',
@@ -850,6 +858,19 @@ export class UnifiedInvestigationOrchestrator {
         dedupeKey: `investigated:${investigationId}`,
       });
 
+      if (ownerUserId) {
+        import('../platform-events/module-events').then(({ emitInvestigationCompleted }) => {
+          emitInvestigationCompleted({
+            ownerUserId,
+            investigationId,
+            dnaRecordId: match.dnaRecordId,
+            vaultId: match.vaultId,
+            verdict: reportOutcome.displayLabel,
+            filename: originalName,
+          });
+        }).catch(() => {});
+      }
+
       if (tamperVectors.length > 0 || (comparison?.tamperingDetected && (comparison.overallConfidenceScore ?? 100) < 95)) {
         forensicProvenanceService.appendAsync({
           eventType: 'TAMPERED',
@@ -864,6 +885,17 @@ export class UnifiedInvestigationOrchestrator {
           },
           dedupeKey: `tampered:${investigationId}`,
         });
+        if (ownerUserId) {
+          import('../platform-events/extended-events').then(({ emitAiTamperingDetected }) => {
+            emitAiTamperingDetected({
+              ownerUserId,
+              dnaRecordId: match.dnaRecordId,
+              investigationId,
+              filename: originalName,
+              vector: tamperAnalysis.primaryVector ?? undefined,
+            });
+          }).catch(() => {});
+        }
       }
 
       const provenanceEvents = await withTimeoutSoft(
@@ -1076,6 +1108,16 @@ export class UnifiedInvestigationOrchestrator {
         error: String(fatalErr),
         investigationId,
       });
+      if (ownerUserId) {
+        import('../platform-events/extended-events').then(({ emitInvestigationFailed }) => {
+          emitInvestigationFailed({
+            ownerUserId,
+            investigationId,
+            filename: originalName,
+            reason: fatalErr instanceof Error ? fatalErr.message : String(fatalErr),
+          });
+        }).catch(() => {});
+      }
       emit({ type: 'timeline', stepId: 'final_report', label: 'Final Report', status: 'warning' });
       return this.buildFaultTolerantReport({
         investigationId,

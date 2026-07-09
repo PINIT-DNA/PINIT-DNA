@@ -316,6 +316,17 @@ export class ShareLinkService {
 
     logger.info('[SmartLink] Created', { token, filename: vault.originalFileName, expiresAt });
 
+    import('../platform-events/module-events').then(({ emitShareLinkCreated }) => {
+      emitShareLinkCreated({
+        ownerUserId: input.ownerUserId!,
+        shareLinkId: link.id,
+        token: link.token,
+        filename: vault.originalFileName,
+        dnaRecordId: vault.dnaRecordId,
+        vaultId: vault.id,
+      });
+    }).catch(() => {});
+
     // If recipients provided, auto-create child links
     let childLinks: ChildLinkResult[] = [];
     if (input.recipients && input.recipients.length > 0) {
@@ -845,19 +856,28 @@ export class ShareLinkService {
       },
     });
 
-    // ── Fire notifications ──────────────────────────────────────────────────
-    if (link.ownerUserId && (input.action === 'VIEWED' || input.action === 'DOWNLOADED')) {
-      import('../../services/notifications/notification.service').then(({ notificationService }) => {
-        const ipKey = input.ipAddress ?? 'Unknown';
-        const countryKey = country ?? 'Unknown';
-
-        // Always notify on link access
-        notificationService.linkViewed(link.ownerUserId!, link.filename ?? 'File', ipKey, countryKey, finalDevice, link.token);
-
-        // Risk alert for HIGH/CRITICAL
-        if (risk.level === 'HIGH' || risk.level === 'CRITICAL') {
-          notificationService.riskAlert(link.ownerUserId!, link.filename ?? 'File', risk.level, ipKey, countryKey, finalDevice, link.token);
-        }
+    // ── Platform events (notifications via Unified Event Engine) ───────────
+    const NOTIFY_ACTIONS = new Set([
+      'VIEWED', 'DOWNLOADED', 'FORWARDING_DETECTED',
+      'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT',
+    ]);
+    if (link.ownerUserId && NOTIFY_ACTIONS.has(input.action)) {
+      const hopNumber = link.linkType === 'GRANDCHILD' ? 2 : link.linkType === 'CHILD' ? 1 : undefined;
+      import('../platform-events/share-events').then(({ emitShareAccessEvent }) => {
+        emitShareAccessEvent({
+          ownerUserId: link.ownerUserId!,
+          shareLinkId: link.id,
+          token: link.token,
+          filename: link.filename ?? 'File',
+          dnaRecordId: link.dnaRecordId,
+          vaultId: link.vaultId,
+          action: input.action,
+          ip: input.ipAddress,
+          country,
+          device: finalDevice,
+          riskLevel: risk.level,
+          hopNumber,
+        });
       }).catch(() => {});
     }
 
@@ -890,14 +910,36 @@ export class ShareLinkService {
     // actions exist in the history (guards against single-event false positives,
     // e.g. a first-time traveller triggering "+new country" alone).
     const SUSPICIOUS_ACTIONS = new Set(['COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT']);
+    let autoRevoked = false;
     if (risk.level === 'CRITICAL' && risk.score >= 85) {
       const suspiciousCount = history.filter(h => SUSPICIOUS_ACTIONS.has(h.action)).length;
       if (suspiciousCount >= 2 || risk.score >= 90) {
         await prisma.shareLink.update({ where: { id: input.shareLinkId }, data: { isActive: false } });
+        autoRevoked = true;
         logger.warn('[SmartLink] 🚨 AUTO-REVOKE triggered — CRITICAL risk with confirmed suspicious behaviour', {
           token: link.token, score: risk.score, suspiciousCount, factors: risk.factors,
         });
       }
+    }
+
+    const oneTimeConsumed = input.action === 'VIEWED' && link.oneTimeUse;
+    if (link.ownerUserId && oneTimeConsumed) {
+      import('../platform-events/extended-events').then(({ emitLinkOneTimeConsumed }) => {
+        emitLinkOneTimeConsumed({
+          ownerUserId: link.ownerUserId!,
+          shareLinkId: link.id,
+          token: link.token,
+          filename: link.filename ?? 'File',
+        });
+      }).catch(() => {});
+    }
+    if (link.ownerUserId && autoRevoked) {
+      import('../platform-events/share-events').then(({ emitShareLinkRevoked }) => {
+        emitShareLinkRevoked(link.ownerUserId!, link.id, link.token, link.filename ?? 'File', {
+          dnaRecordId: link.dnaRecordId,
+          vaultId: link.vaultId,
+        });
+      }).catch(() => {});
     }
 
     logger.info('[SmartLink] Access logged', {
@@ -1169,6 +1211,13 @@ export class ShareLinkService {
       where: { token },
       data:  { isActive: false },
     });
+
+    import('../platform-events/share-events').then(({ emitShareLinkRevoked }) => {
+      emitShareLinkRevoked(ownerUserId, link.id, link.token, link.filename ?? 'File', {
+        dnaRecordId: link.dnaRecordId,
+        vaultId: link.vaultId,
+      });
+    }).catch(() => {});
 
     logger.info('[SmartLink] Revoked', { token, filename: link.filename });
     return link;

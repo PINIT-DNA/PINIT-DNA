@@ -229,6 +229,15 @@ export class VaultService {
       /* non-fatal */
     }
 
+    import('../platform-events/module-events').then(({ emitVaultStored }) => {
+      emitVaultStored({
+        ownerUserId,
+        vaultId,
+        dnaRecordId,
+        filename: originalFileName,
+      });
+    }).catch(() => {});
+
     return {
       vaultId:            record.id,
       dnaRecordId:        record.dnaRecordId,
@@ -374,6 +383,15 @@ export class VaultService {
     }
 
     logger.info('Vault — record deleted', { vaultId, dnaRecordId: record.dnaRecordId });
+
+    import('../platform-events/module-events').then(({ emitVaultDeleted }) => {
+      emitVaultDeleted({
+        ownerUserId,
+        vaultId,
+        dnaRecordId: record.dnaRecordId,
+        filename: record.originalFileName,
+      });
+    }).catch(() => {});
 
     return { vaultId, dnaRecordId: record.dnaRecordId };
   }

@@ -129,6 +129,14 @@ export class MonitoringService {
     });
 
     logger.info('[Monitor] File enrolled', { filename: record.imageFilename, scanType, id: monitor.id });
+    import('../platform-events/extended-events').then(({ emitMonitoringLifecycle }) => {
+      emitMonitoringLifecycle({
+        ownerUserId,
+        monitorRecordId: monitor.id,
+        filename: record.imageFilename,
+        action: 'started',
+      });
+    }).catch(() => {});
     return monitor.id;
   }
 
@@ -198,6 +206,19 @@ export class MonitoringService {
         },
       });
 
+      import('../platform-events/extended-events').then(({ emitCrawlerScanCompleted }) => {
+        if (!monitor.ownerUserId) return;
+        const img = result as ImageMonitoringSummary;
+        const doc = result as MonitoringSummary;
+        emitCrawlerScanCompleted({
+          ownerUserId: monitor.ownerUserId,
+          monitorRecordId,
+          filename: monitor.filename,
+          matchesFound: doc.matchesFound ?? img.matchesFound ?? 0,
+          urlsChecked: doc.urlsChecked ?? doc.candidatesFound ?? img.urlsChecked ?? 0,
+        });
+      }).catch(() => {});
+
       return result;
 
     } catch (err) {
@@ -211,6 +232,15 @@ export class MonitoringService {
         data: { totalFailures: { increment: 1 }, lastCheckedAt: new Date(),
                 nextCheckAt: new Date(Date.now() + monitor.checkEveryHrs * 3_600_000) },
       });
+      import('../platform-events/extended-events').then(({ emitCrawlerError }) => {
+        if (!monitor.ownerUserId) return;
+        emitCrawlerError({
+          ownerUserId: monitor.ownerUserId,
+          monitorRecordId,
+          filename: monitor.filename,
+          error: String(err),
+        });
+      }).catch(() => {});
       throw err;
     }
   }
@@ -291,6 +321,20 @@ export class MonitoringService {
       if (matchType !== MATCH.NONE) {
         alerts.push({ url: page.url, pageTitle: page.title, similarity: Math.round(similarity * 100), matchType, text: page.text.slice(0, 300), evidenceId });
         logger.info('[Monitor] Match accepted', { url: page.url, matchType, similarity: Math.round(similarity * 100) });
+        if (monitor.ownerUserId) {
+          const ownerId = monitor.ownerUserId;
+          import('../platform-events/module-events').then(({ emitMonitoringMatch }) => {
+            emitMonitoringMatch({
+              ownerUserId: ownerId,
+              monitorRecordId: monitor.id,
+              dnaRecordId: monitor.dnaRecordId,
+              filename: monitor.filename,
+              url: page.url,
+              matchType,
+              similarity: Math.round(similarity * 100),
+            });
+          }).catch(() => {});
+        }
       } else {
         logger.debug('[Monitor] Match rejected', { url: page.url, reason: 'below threshold', similarity });
       }

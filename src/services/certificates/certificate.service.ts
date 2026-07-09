@@ -127,6 +127,17 @@ export class CertificateService {
       /* non-fatal */
     }
 
+    if (ownerUserId) {
+      import('../platform-events/module-events').then(({ emitCertificateIssued }) => {
+        emitCertificateIssued({
+          ownerUserId,
+          certificateId,
+          dnaRecordId: params.dnaRecordId,
+          vaultId: params.vaultId,
+        });
+      }).catch(() => {});
+    }
+
     return this.toDto(cert);
   }
 
@@ -171,6 +182,15 @@ export class CertificateService {
     );
 
     if (!signatureValid) {
+      if (cert.ownerUserId) {
+        import('../platform-events/extended-events').then(({ emitCertificateVerified }) => {
+          emitCertificateVerified({
+            ownerUserId: cert.ownerUserId!,
+            certificateId,
+            valid: false,
+          });
+        }).catch(() => {});
+      }
       return {
         valid: false, status: 'ACTIVE', signatureValid: false,
         certificateId, detail: 'Certificate signature is INVALID — possible forgery detected',
@@ -271,6 +291,18 @@ export class CertificateService {
     });
 
     logger.info('Certificate revoked', { certificateId, reason, revokedByUserId });
+
+    if (updated.ownerUserId) {
+      import('../platform-events/module-events').then(({ emitCertificateRevoked }) => {
+        emitCertificateRevoked({
+          ownerUserId: updated.ownerUserId!,
+          certificateId,
+          dnaRecordId: updated.dnaRecordId,
+          reason,
+        });
+      }).catch(() => {});
+    }
+
     return this.toDto(updated);
   }
 

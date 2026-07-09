@@ -76,6 +76,16 @@ export async function revokeTepPackage(input: RevokeTepInput): Promise<RevokeTep
     reason: input.reason ?? 'Owner revoked access',
   });
 
+  import('../platform-events/module-events').then(({ emitTepRevoked }) => {
+    emitTepRevoked({
+      ownerUserId: input.ownerUserId,
+      tepCode: input.tepCode,
+      vaultId: pkg.vaultId,
+      dnaRecordId: pkg.dnaRecordId,
+      reason: input.reason,
+    });
+  }).catch(() => {});
+
   return {
     success: true,
     tepCode: input.tepCode,

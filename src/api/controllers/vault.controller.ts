@@ -431,6 +431,15 @@ export async function protectedDownloadFromVault(
           vaultId: result.vaultId,
           dnaRecordId: result.dnaRecordId,
         });
+        import('../../services/platform-events/module-events').then(({ emitProtectedDownloadReady }) => {
+          emitProtectedDownloadReady({
+            ownerUserId: userId,
+            vaultId: result.vaultId,
+            dnaRecordId: result.dnaRecordId,
+            filename: result.originalFileName,
+            tepCode: tep.tepCode,
+          });
+        }).catch(() => {});
       } catch (tepErr) {
         tepTrackingFailed = true;
         tepFailReason = (tepErr as Error).message;

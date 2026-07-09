@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   User, Shield, Bell, Clock, Activity, Save, RefreshCw,
   Dna, Archive, Share2, Award, Eye, Radio, Trash2,
@@ -9,6 +9,12 @@ import { api } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
 import { useTheme } from '../hooks/useTheme';
 import { formatDistanceToNow, format } from 'date-fns';
+import {
+  type NotificationItem,
+  notificationTypeConfig,
+  NOTIFICATION_SEVERITY_BORDER,
+  resolveNotificationDeepLink,
+} from '../lib/notification-config';
 
 type Tab = 'profile' | 'security' | 'notifications' | 'activity' | 'settings';
 
@@ -235,11 +241,27 @@ function SecurityTab({ profile }: { profile: any }) {
 // ── Notifications Tab ──────────────────────────────────────────────────────────
 
 function NotificationsTab({ profile, onUpdate }: { profile: any; onUpdate: (p: any) => void }) {
+  return (
+    <div className="space-y-4">
+      <NotificationPreferences profile={profile} onUpdate={onUpdate} />
+      <NotificationHistoryPanel />
+    </div>
+  );
+}
+
+function NotificationPreferences({ profile, onUpdate }: { profile: any; onUpdate: (p: any) => void }) {
   const [prefs, setPrefs] = useState({
     notifyShareAccess: profile?.notifyShareAccess ?? true,
     notifyRiskAlerts: profile?.notifyRiskAlerts ?? true,
     notifyCertificates: profile?.notifyCertificates ?? true,
     notifyMonitoring: profile?.notifyMonitoring ?? true,
+    notifyVault: profile?.notifyVault ?? true,
+    notifyDna: profile?.notifyDna ?? true,
+    notifyInvestigation: profile?.notifyInvestigation ?? true,
+    notifyAutomation: profile?.notifyAutomation ?? true,
+    notifySecurity: profile?.notifySecurity ?? true,
+    notifyReports: profile?.notifyReports ?? true,
+    notifySystem: profile?.notifySystem ?? true,
     notifyUpdates: profile?.notifyUpdates ?? false,
   });
 
@@ -251,10 +273,17 @@ function NotificationsTab({ profile, onUpdate }: { profile: any; onUpdate: (p: a
   };
 
   const items = [
-    { key: 'notifyShareAccess', label: 'Share Access Alerts', desc: 'When someone views or downloads your shared files' },
-    { key: 'notifyRiskAlerts', label: 'Risk Alerts', desc: 'When suspicious activity is detected on your files' },
-    { key: 'notifyCertificates', label: 'Certificate Alerts', desc: 'When new certificates are generated' },
-    { key: 'notifyMonitoring', label: 'Monitoring Alerts', desc: 'When monitoring crawlers find matches' },
+    { key: 'notifyVault', label: 'Vault', desc: 'Storage, encryption issues, protected downloads, TEP events' },
+    { key: 'notifyDna', label: 'DNA', desc: 'DNA generated, verification results, and mismatches' },
+    { key: 'notifyCertificates', label: 'Certificates', desc: 'Issued, revoked, expired, and validation failures' },
+    { key: 'notifyShareAccess', label: 'Secure Share', desc: 'Link views, downloads, forwards, revokes, and expiry' },
+    { key: 'notifyMonitoring', label: 'Monitoring & Crawler', desc: 'Matches, scan completion, and crawler errors' },
+    { key: 'notifyRiskAlerts', label: 'AI Detection & Risk', desc: 'Policy blocks, tampering, copy/screenshot attempts' },
+    { key: 'notifyInvestigation', label: 'Investigation', desc: 'Investigation started, completed, and failed' },
+    { key: 'notifyAutomation', label: 'Automation', desc: 'Scheduled scans and automated task completion' },
+    { key: 'notifySecurity', label: 'Security', desc: 'Login events, password changes, and session revokes' },
+    { key: 'notifyReports', label: 'Reports', desc: 'Report generated, downloaded, and shared' },
+    { key: 'notifySystem', label: 'System', desc: 'Registration, storage warnings, and maintenance notices' },
     { key: 'notifyUpdates', label: 'Product Updates', desc: 'News about PINIT-DNA features and improvements' },
   ];
 
@@ -277,6 +306,169 @@ function NotificationsTab({ profile, onUpdate }: { profile: any; onUpdate: (p: a
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function NotificationHistoryPanel() {
+  const [items, setItems] = useState<NotificationItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [filter, setFilter] = useState<'all' | 'unread'>('all');
+  const [category, setCategory] = useState('');
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<'createdAt' | 'severity'>('createdAt');
+  const [includeArchived, setIncludeArchived] = useState(false);
+  const navigate = useNavigate();
+
+  const load = async (offset = 0, append = false) => {
+    if (offset === 0) setLoading(true);
+    else setLoadingMore(true);
+    try {
+      const params = new URLSearchParams({ limit: '25', offset: String(offset), sort });
+      if (filter === 'unread') params.set('unread', 'true');
+      if (category) params.set('category', category);
+      if (search.trim()) params.set('q', search.trim());
+      if (includeArchived) params.set('includeArchived', 'true');
+      const { data } = await api.get(`${API_BASE_URL}/notifications?${params}`);
+      const payload = data as {
+        notifications?: NotificationItem[];
+        hasMore?: boolean;
+      };
+      const batch = payload.notifications ?? [];
+      setItems(prev => append ? [...prev, ...batch] : batch);
+      setHasMore(!!payload.hasMore);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  };
+
+  useEffect(() => { load(0, false); }, [filter, category, sort, includeArchived]);
+
+  const markAllRead = async () => {
+    await api.put(`${API_BASE_URL}/notifications/read-all`);
+    load(0, false);
+  };
+
+  const archiveItem = async (id: string) => {
+    await api.put(`${API_BASE_URL}/notifications/${id}/archive`);
+    setItems(prev => prev.filter(n => n.id !== id));
+  };
+
+  const categories = ['', 'sharing', 'security', 'vault', 'monitoring', 'certificates', 'investigation', 'account', 'automation'];
+
+  return (
+    <div className="card">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+          <Bell size={14} className="text-dna-400" /> Notification History
+        </h2>
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <input
+            type="search"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && load(0, false)}
+            placeholder="Search notifications…"
+            className="text-2xs bg-bg-elevated border border-bg-border rounded px-2 py-1 text-gray-300 min-w-[140px] flex-1"
+          />
+          <button onClick={() => load(0, false)} className="text-2xs text-dna-400 hover:text-white px-2 py-1 rounded border border-bg-border">
+            Search
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={sort}
+            onChange={e => setSort(e.target.value as 'createdAt' | 'severity')}
+            className="text-2xs bg-bg-elevated border border-bg-border rounded px-2 py-1 text-gray-300"
+          >
+            <option value="createdAt">Newest first</option>
+            <option value="severity">By severity</option>
+          </select>
+          <select
+            value={filter}
+            onChange={e => setFilter(e.target.value as 'all' | 'unread')}
+            className="text-2xs bg-bg-elevated border border-bg-border rounded px-2 py-1 text-gray-300"
+          >
+            <option value="all">All</option>
+            <option value="unread">Unread only</option>
+          </select>
+          <select
+            value={category}
+            onChange={e => setCategory(e.target.value)}
+            className="text-2xs bg-bg-elevated border border-bg-border rounded px-2 py-1 text-gray-300"
+          >
+            {categories.map(c => (
+              <option key={c || 'all'} value={c}>{c ? c.charAt(0).toUpperCase() + c.slice(1) : 'All categories'}</option>
+            ))}
+          </select>
+          <label className="text-2xs text-gray-500 flex items-center gap-1">
+            <input type="checkbox" checked={includeArchived} onChange={e => setIncludeArchived(e.target.checked)} />
+            Archived
+          </label>
+          <button onClick={markAllRead} className="text-2xs text-dna-400 hover:text-white px-2 py-1 rounded border border-bg-border">
+            Mark all read
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-8"><RefreshCw size={16} className="animate-spin text-dna-400 mx-auto" /></div>
+      ) : items.length === 0 ? (
+        <p className="text-xs text-gray-500 text-center py-8">No notifications match this filter</p>
+      ) : (
+        <div className="space-y-2">
+          {items.map(n => {
+            const cfg = notificationTypeConfig(n.type);
+            const border = NOTIFICATION_SEVERITY_BORDER[n.severity] ?? '';
+            return (
+              <div
+                key={n.id}
+                onClick={() => navigate(resolveNotificationDeepLink(n))}
+                className={`group flex items-start gap-3 bg-bg-elevated rounded-lg px-3 py-2.5 border border-bg-border border-l-2 ${border} cursor-pointer hover:bg-bg-base ${n.read ? 'opacity-70' : ''}`}
+              >
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${cfg.color}`}>{cfg.icon}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-xs font-medium text-white">{n.title}</p>
+                    {n.category && (
+                      <span className="text-2xs text-gray-600 capitalize px-1.5 py-0.5 rounded bg-bg-base">{n.category}</span>
+                    )}
+                    <span className={`text-2xs px-1 py-0.5 rounded capitalize ${
+                      n.severity === 'critical' ? 'bg-red-500/20 text-red-400' :
+                      n.severity === 'warning' ? 'bg-orange-500/20 text-orange-400' :
+                      'bg-gray-500/20 text-gray-400'
+                    }`}>{n.severity}</span>
+                  </div>
+                  <p className="text-2xs text-gray-500 line-clamp-2">{n.body}</p>
+                  <p className="text-2xs text-gray-600 mt-1">{formatDistanceToNow(new Date(n.createdAt))} ago · {n.type.replace(/_/g, ' ')}</p>
+                </div>
+                <div className="flex flex-col items-center gap-1 shrink-0">
+                  {!n.read && <span className="w-2 h-2 bg-dna-500 rounded-full" />}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); archiveItem(n.id); }}
+                    className="text-gray-600 hover:text-gray-300 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Archive"
+                  >
+                    <Archive size={10} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          {hasMore && (
+            <button
+              disabled={loadingMore}
+              onClick={() => load(items.length, true)}
+              className="w-full text-2xs text-dna-400 hover:text-white py-2 border border-bg-border rounded-lg"
+            >
+              {loadingMore ? 'Loading…' : 'Load more'}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

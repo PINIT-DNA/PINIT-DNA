@@ -311,6 +311,36 @@ export async function recordAccess(req: Request, res: Response, next: NextFuncti
         timezone, sessionId, screenResolution, deviceFingerprint,
         ...gpsFields,
       });
+      if (fullLink.ownerUserId) {
+        const blockedType = policyCheck.reason === 'BLOCKED_COUNTRY' ? 'GEO_BLOCKED' as const : 'POLICY_BLOCKED' as const;
+        if (blockedType === 'GEO_BLOCKED') {
+          import('../../services/platform-events/extended-events').then(({ emitShareAccessBlocked }) => {
+            emitShareAccessBlocked({
+              ownerUserId: fullLink.ownerUserId!,
+              shareLinkId: fullLink.id,
+              token: fullLink.token,
+              filename: fullLink.filename ?? 'File',
+              notificationType: 'GEO_BLOCKED',
+              reason: policyCheck.message ?? 'Geo-restricted access blocked',
+              country: geoCountry,
+              ip: realIp,
+            });
+          }).catch(() => {});
+        } else {
+          import('../../services/platform-events/module-events').then(({ emitSharePolicyBlocked }) => {
+            emitSharePolicyBlocked({
+              ownerUserId: fullLink.ownerUserId!,
+              shareLinkId: fullLink.id,
+              token: fullLink.token,
+              filename: fullLink.filename ?? 'File',
+              reason: policyCheck.reason ?? policyCheck.message ?? 'Policy violation',
+              country: geoCountry,
+              ip: realIp,
+              device: deviceGuess,
+            });
+          }).catch(() => {});
+        }
+      }
       res.status(403).json({ success: false, error: policyCheck.message, blocked: true, reason: policyCheck.reason });
       return;
     }
@@ -322,11 +352,37 @@ export async function recordAccess(req: Request, res: Response, next: NextFuncti
     if (!isSecurityEvent && ipIntel) {
       if ((fullLink as any).torBlock && ipIntel.isTor) {
         await shareLinkService.recordAccess({ shareLinkId: fullLink.id, action: 'BLOCKED_TOR', ipAddress: realIp, userAgent: req.headers['user-agent'], sessionId, isTor: true, isProxy: true });
+        if (fullLink.ownerUserId) {
+          import('../../services/platform-events/extended-events').then(({ emitShareAccessBlocked }) => {
+            emitShareAccessBlocked({
+              ownerUserId: fullLink.ownerUserId!,
+              shareLinkId: fullLink.id,
+              token: fullLink.token,
+              filename: fullLink.filename ?? 'File',
+              notificationType: 'TOR_BLOCKED',
+              reason: 'TOR access blocked',
+              ip: realIp,
+            });
+          }).catch(() => {});
+        }
         res.status(403).json({ success: false, error: 'TOR access is not permitted for this link', blocked: true });
         return;
       }
       if ((fullLink as any).vpnBlock && ipIntel.isVpn) {
         await shareLinkService.recordAccess({ shareLinkId: fullLink.id, action: 'BLOCKED_VPN', ipAddress: realIp, userAgent: req.headers['user-agent'], sessionId, isVpn: true });
+        if (fullLink.ownerUserId) {
+          import('../../services/platform-events/extended-events').then(({ emitShareAccessBlocked }) => {
+            emitShareAccessBlocked({
+              ownerUserId: fullLink.ownerUserId!,
+              shareLinkId: fullLink.id,
+              token: fullLink.token,
+              filename: fullLink.filename ?? 'File',
+              notificationType: 'VPN_BLOCKED',
+              reason: 'VPN access blocked',
+              ip: realIp,
+            });
+          }).catch(() => {});
+        }
         res.status(403).json({ success: false, error: 'VPN access is not permitted for this link', blocked: true });
         return;
       }
@@ -498,6 +554,16 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
 
     // ── maxDownloads enforcement ───────────────────────────────────────────────
     if (fullLink.maxDownloads != null && fullLink.downloadCount >= fullLink.maxDownloads) {
+      if (fullLink.ownerUserId) {
+        import('../../services/platform-events/extended-events').then(({ emitMaxDownloadsReached }) => {
+          emitMaxDownloadsReached({
+            ownerUserId: fullLink.ownerUserId!,
+            shareLinkId: fullLink.id,
+            token: fullLink.token,
+            filename: fullLink.filename ?? 'File',
+          });
+        }).catch(() => {});
+      }
       res.status(403).json({ success: false, error: 'Maximum downloads reached for this link', blocked: true });
       return;
     }

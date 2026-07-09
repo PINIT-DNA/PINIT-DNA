@@ -57,6 +57,12 @@ function listenWithRetry(expressApp: Express, port: number, maxAttempts = 10): P
 async function onServerReady(): Promise<void> {
   vaultScheduler.start();
 
+  const { isCrawlerEngineEnabled, crawlerEngineService } = await import('./services/crawler/engine');
+  if (isCrawlerEngineEnabled()) {
+    crawlerEngineService.start();
+    logger.info('Crawler Engine Phase 1 started');
+  }
+
   const aiPort = parseInt(process.env['AI_SERVICE_PORT'] ?? '8001', 10);
 
   if (config.env !== 'production') {

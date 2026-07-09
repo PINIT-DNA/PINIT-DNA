@@ -4,6 +4,34 @@ import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { getAuthUserId } from '../../lib/tenant-scope';
 
+async function emitMonitorLifecycle(
+  monitorId: string,
+  action: 'paused' | 'resumed' | 'stopped',
+): Promise<void> {
+  const monitor = await prisma.monitorRecord.findUnique({
+    where: { id: monitorId },
+    select: { id: true, ownerUserId: true, filename: true },
+  });
+  if (!monitor?.ownerUserId) return;
+  import('../../services/platform-events/extended-events').then(({ emitMonitoringLifecycle }) => {
+    emitMonitoringLifecycle({
+      ownerUserId: monitor.ownerUserId!,
+      monitorRecordId: monitor.id,
+      filename: monitor.filename,
+      action,
+    });
+  }).catch(() => {});
+}
+
+export async function getEngineStats(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const userId = getAuthUserId(req);
+    const { crawlerEngineService } = await import('../../services/crawler/engine');
+    const stats = await crawlerEngineService.getEngineStats(userId);
+    res.json({ success: true, engine: stats });
+  } catch (err) { next(err); }
+}
+
 export async function enrollMonitor(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { dnaRecordId } = req.params;
@@ -81,27 +109,27 @@ export async function getMonitoringStats(req: Request, res: Response, next: Next
 
 export async function pauseMonitor(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { prisma } = await import('../../lib/prisma');
     await prisma.monitorRecord.update({ where: { id: req.params.id }, data: { status: 'PAUSED' } });
+    await emitMonitorLifecycle(req.params.id, 'paused');
     res.json({ success: true });
   } catch (err) { next(err); }
 }
 
 export async function resumeMonitor(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { prisma } = await import('../../lib/prisma');
     await prisma.monitorRecord.update({
       where: { id: req.params.id },
       data: { status: 'ACTIVE', nextCheckAt: new Date(Date.now() + 60_000) },
     });
+    await emitMonitorLifecycle(req.params.id, 'resumed');
     res.json({ success: true });
   } catch (err) { next(err); }
 }
 
 export async function stopMonitor(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { prisma } = await import('../../lib/prisma');
     await prisma.monitorRecord.update({ where: { id: req.params.id }, data: { status: 'STOPPED' } });
+    await emitMonitorLifecycle(req.params.id, 'stopped');
     res.json({ success: true });
   } catch (err) { next(err); }
 }

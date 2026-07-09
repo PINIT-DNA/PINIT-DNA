@@ -3,7 +3,7 @@ import {
   enrollMonitor, listMonitors, runCheckNow,
   getAlerts, dismissAlert, confirmAlert,
   getMonitoringStats, pauseMonitor, resumeMonitor, stopMonitor,
-  getMonitorRuns, updateScanType, enrollAll, updateWatchUrls,
+  getMonitorRuns, updateScanType, enrollAll, updateWatchUrls, getEngineStats,
 } from '../controllers/monitoring.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import {
@@ -15,6 +15,7 @@ import {
 const router = Router();
 
 router.get('/stats',                  requireAuth, getMonitoringStats);
+router.get('/engine/stats',           requireAuth, getEngineStats);
 router.post('/enroll-all',            requireAuth, enrollAll);
 router.get('/',                       requireAuth, listMonitors);
 router.post('/enroll/:dnaRecordId',   requireAuth, requireDnaOwnership, enrollMonitor);

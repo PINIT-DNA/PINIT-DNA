@@ -647,6 +647,18 @@ export class DuplicateCheckService {
         ...params.extraDetail,
       },
     });
+
+    if (params.ownerUserId) {
+      import('../platform-events/module-events').then(({ emitDuplicateUploadBlocked }) => {
+        emitDuplicateUploadBlocked({
+          ownerUserId: params.ownerUserId!,
+          dnaRecordId: params.existingRecordId,
+          filename: params.existingFilename,
+          matchType: params.matchType,
+          uploaderLabel: uploaderShortId,
+        });
+      }).catch(() => {});
+    }
   }
 }
 

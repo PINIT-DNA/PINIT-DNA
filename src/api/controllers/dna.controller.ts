@@ -346,7 +346,8 @@ export async function verifyDna(
   try {
     // Look up the stored record's fileType to route to correct verifier
     const record = await prisma.dnaRecord.findUnique({
-      where: { id }, select: { fileType: true },
+      where: { id },
+      select: { fileType: true, ownerUserId: true, imageFilename: true },
     });
 
     if (!record) return next(new AppError(404, `DNA record not found: ${id}`));
@@ -378,6 +379,27 @@ export async function verifyDna(
       layerResults: result.layerResults as VerifyDnaResponse['layerResults'],
       verifiedAt: result.verifiedAt.toISOString(),
     };
+
+    if (record.ownerUserId) {
+      const filename = record.imageFilename ?? req.file.originalname;
+      import('../../services/platform-events/extended-events').then(({ emitDnaVerifyResult, emitDnaMismatch }) => {
+        emitDnaVerifyResult({
+          ownerUserId: record.ownerUserId!,
+          dnaRecordId: id,
+          filename,
+          passed: result.passed,
+          confidence: result.confidenceScore,
+        });
+        if (!result.passed) {
+          emitDnaMismatch({
+            ownerUserId: record.ownerUserId!,
+            dnaRecordId: id,
+            filename,
+            score: result.confidenceScore,
+          });
+        }
+      }).catch(() => {});
+    }
 
     res.status(200).json(response);
   } catch (err) {

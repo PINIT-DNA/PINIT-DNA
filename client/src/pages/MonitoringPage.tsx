@@ -3,7 +3,7 @@
  * Route: /monitoring
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Radio, Search, AlertTriangle, CheckCircle2, XCircle,
   RefreshCw, Play, Pause, Globe, Shield, Clock, Activity,
@@ -341,10 +341,26 @@ function MonitorCard({ m, onCheck, onPause, onResume, onScanTypeChange, checking
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+interface EngineStats {
+  crawlerStatus: string;
+  platformsConnected: Record<string, boolean>;
+  jobsPending: number;
+  jobsRunning: number;
+  jobsCompleted24h: number;
+  jobsFailed24h: number;
+  matchesFound: number;
+  incidentsOpen: number;
+  lastScanAt: string | null;
+  nextScanAt: string | null;
+  successRate: number;
+  coverage: { monitorsActive: number; monitorsTotal: number; platformsEnabled: number };
+}
+
 export function MonitoringPage() {
   const [monitors,    setMonitors]    = useState<MonitorRecord[]>([]);
   const [alerts,      setAlerts]      = useState<CrawlResult[]>([]);
   const [stats,       setStats]       = useState<Stats | null>(null);
+  const [engineStats, setEngineStats] = useState<EngineStats | null>(null);
   const [loading,     setLoading]     = useState(true);
   const [enrollOpen,  setEnrollOpen]  = useState(false);
   const [checking,    setChecking]    = useState<string | null>(null);
@@ -359,19 +375,21 @@ export function MonitoringPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [mResp, aResp, sResp] = await Promise.all([
+      const [mResp, aResp, sResp, eResp] = await Promise.all([
         api.get(`${API_BASE_URL}/monitor`),
         api.get(`${API_BASE_URL}/monitor/alerts?status=${alertTab}`),
         api.get(`${API_BASE_URL}/monitor/stats`),
+        api.get(`${API_BASE_URL}/monitor/engine/stats`).catch(() => ({ data: null })),
       ]);
       setMonitors((mResp.data as any).monitors ?? []);
       setAlerts((aResp.data as any).alerts ?? []);
       setStats(sResp.data as any);
+      setEngineStats((eResp?.data as { engine?: EngineStats })?.engine ?? null);
     } catch { toast.error('Failed to load monitoring data'); }
     finally { setLoading(false); }
   };
 
-  useState(() => { load(); });
+  useEffect(() => { load(); }, [alertTab]);
 
   const handleEnroll = async (dnaRecordId: string) => {
     setEnrollingId(dnaRecordId);
@@ -481,6 +499,49 @@ export function MonitoringPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Crawler Engine Phase 1 */}
+      {engineStats && (
+        <div className="card">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+              <Globe size={14} className="text-dna-400" /> Crawler Engine
+            </h2>
+            <Badge variant={engineStats.crawlerStatus === 'RUNNING' ? 'success' : engineStats.crawlerStatus === 'DISABLED' ? 'muted' : 'dna'}>
+              {engineStats.crawlerStatus}
+            </Badge>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
+            {[
+              { label: 'Jobs Pending', value: engineStats.jobsPending },
+              { label: 'Jobs Running', value: engineStats.jobsRunning },
+              { label: 'Matches Found', value: engineStats.matchesFound },
+              { label: 'Success Rate', value: `${engineStats.successRate}%` },
+              { label: 'Incidents Open', value: engineStats.incidentsOpen },
+            ].map(s => (
+              <div key={s.label} className="bg-bg-elevated rounded-lg p-2 border border-bg-border">
+                <p className="text-sm font-bold text-white">{s.value}</p>
+                <p className="text-2xs text-gray-500">{s.label}</p>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2 text-2xs">
+            {Object.entries(engineStats.platformsConnected).map(([platform, on]) => (
+              <span key={platform} className={cn('px-2 py-0.5 rounded-full border',
+                on ? 'border-success/40 text-success bg-success/10' : 'border-bg-border text-gray-600')}>
+                {platform}
+              </span>
+            ))}
+          </div>
+          <p className="text-2xs text-gray-600 mt-2">
+            Last scan: {engineStats.lastScanAt ? formatDistanceToNow(new Date(engineStats.lastScanAt), { addSuffix: true }) : '—'}
+            {' · '}
+            Next: {engineStats.nextScanAt ? formatDistanceToNow(new Date(engineStats.nextScanAt), { addSuffix: true }) : '—'}
+            {' · '}
+            Coverage: {engineStats.coverage.monitorsActive}/{engineStats.coverage.monitorsTotal} monitors · {engineStats.coverage.platformsEnabled} platforms
+          </p>
         </div>
       )}
 

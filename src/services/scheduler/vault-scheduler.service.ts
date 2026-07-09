@@ -5,6 +5,7 @@
  *   1. Daily vault integrity check (every 24 hours at 02:00)
  *   2. Temp file cleanup (every hour)
  *   3. Expired certificate detection (daily at 03:00)
+ *   4. Share link expiry warnings + auto-expire (daily at 04:00)
  *
  * Uses node-cron. Does NOT touch DNA or encryption logic.
  */
@@ -57,6 +58,15 @@ export class VaultSchedulerService {
       }, { timezone: 'Asia/Kolkata' })
     );
 
+    // ── Share link expiry at 04:00 ────────────────────────────────────────
+    this.tasks.push(
+      cron.schedule('0 4 * * *', () => {
+        this.checkShareLinkExpiry().catch(err =>
+          logger.error('Share link expiry check failed', { error: String(err) })
+        );
+      }, { timezone: 'Asia/Kolkata' })
+    );
+
     // ── Crawler: run due monitoring checks every hour (opt-in) ───────────────
     if (isMonitoringCrawlerEnabled()) {
       this.tasks.push(
@@ -66,9 +76,9 @@ export class VaultSchedulerService {
             .catch(err => logger.error('Monitoring check failed', { error: String(err) }));
         })
       );
-      logger.info('Vault scheduler started — 4 tasks active (+ monitoring crawler enabled)');
+      logger.info('Vault scheduler started — 5 tasks active (+ monitoring crawler enabled)');
     } else {
-      logger.info('Vault scheduler started — 3 tasks active (monitoring crawler disabled)');
+      logger.info('Vault scheduler started — 4 tasks active (monitoring crawler disabled)');
     }
   }
 
@@ -85,12 +95,19 @@ export class VaultSchedulerService {
     logger.info('Scheduled integrity check started');
 
     const records = await prisma.vaultRecord.findMany({
-      select: { id: true, encryptedFilePath: true, encryptedSizeBytes: true, originalFileName: true },
+      select: {
+        id: true,
+        encryptedFilePath: true,
+        encryptedSizeBytes: true,
+        originalFileName: true,
+        dnaRecord: { select: { ownerUserId: true } },
+      },
     });
 
     let healthy = 0; let missing = 0; let mismatch = 0;
 
     for (const r of records) {
+      const ownerUserId = r.dnaRecord?.ownerUserId;
       try {
         const stat = await fs.stat(r.encryptedFilePath);
         if (Math.abs(stat.size - r.encryptedSizeBytes) <= 32) {
@@ -98,10 +115,30 @@ export class VaultSchedulerService {
         } else {
           mismatch++;
           logger.warn('Vault file size mismatch detected', { vaultId: r.id, filename: r.originalFileName });
+          if (ownerUserId) {
+            import('../platform-events/extended-events').then(({ emitVaultIntegrityIssue }) => {
+              emitVaultIntegrityIssue({
+                ownerUserId,
+                vaultId: r.id,
+                filename: r.originalFileName,
+                issue: 'mismatch',
+              });
+            }).catch(() => {});
+          }
         }
       } catch {
         missing++;
         logger.error('Vault file MISSING from disk', { vaultId: r.id, filename: r.originalFileName });
+        if (ownerUserId) {
+          import('../platform-events/extended-events').then(({ emitVaultIntegrityIssue }) => {
+            emitVaultIntegrityIssue({
+              ownerUserId,
+              vaultId: r.id,
+              filename: r.originalFileName,
+              issue: 'missing',
+            });
+          }).catch(() => {});
+        }
       }
     }
 
@@ -160,10 +197,79 @@ export class VaultSchedulerService {
         data:  { status: 'EXPIRED' },
       });
       logger.info('Certificate marked as EXPIRED', { certificateId: cert.certificateId });
+      if (cert.ownerUserId) {
+        import('../platform-events/extended-events').then(({ emitCertificateExpired }) => {
+          emitCertificateExpired({
+            ownerUserId: cert.ownerUserId!,
+            certificateId: cert.certificateId,
+            dnaRecordId: cert.dnaRecordId,
+          });
+        }).catch(() => {});
+      }
     }
 
     if (expired.length > 0) {
       logger.info('Certificate expiry check complete', { expired: expired.length });
+    }
+  }
+
+  // ─── Share Link Expiry ────────────────────────────────────────────────────
+
+  async checkShareLinkExpiry(): Promise<void> {
+    const now = new Date();
+    const warnBefore = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+    const expiringSoon = await prisma.shareLink.findMany({
+      where: {
+        isActive: true,
+        expiresAt: { gt: now, lte: warnBefore },
+        ownerUserId: { not: null },
+      },
+      select: { id: true, token: true, filename: true, ownerUserId: true },
+    });
+
+    for (const link of expiringSoon) {
+      import('../platform-events/extended-events').then(({ emitLinkExpired }) => {
+        emitLinkExpired({
+          ownerUserId: link.ownerUserId!,
+          shareLinkId: link.id,
+          token: link.token,
+          filename: link.filename ?? 'File',
+          warning: true,
+        });
+      }).catch(() => {});
+    }
+
+    const expired = await prisma.shareLink.findMany({
+      where: {
+        isActive: true,
+        expiresAt: { lte: now },
+        ownerUserId: { not: null },
+      },
+      select: { id: true, token: true, filename: true, ownerUserId: true },
+    });
+
+    for (const link of expired) {
+      await prisma.shareLink.update({
+        where: { id: link.id },
+        data: { isActive: false },
+      });
+      import('../platform-events/extended-events').then(({ emitLinkExpired }) => {
+        emitLinkExpired({
+          ownerUserId: link.ownerUserId!,
+          shareLinkId: link.id,
+          token: link.token,
+          filename: link.filename ?? 'File',
+          warning: false,
+        });
+      }).catch(() => {});
+    }
+
+    if (expiringSoon.length > 0 || expired.length > 0) {
+      logger.info('Share link expiry check complete', {
+        expiringSoon: expiringSoon.length,
+        expired: expired.length,
+      });
     }
   }
 }

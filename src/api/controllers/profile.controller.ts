@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../../lib/prisma';
 import bcrypt from 'bcryptjs';
+import { notifyPasswordChanged, notifySessionRevoked, notifyPhoneChanged } from '../../services/platform-events/account-events';
 
 function userId(req: Request): string {
   return (req as any).user?.sub;
@@ -17,6 +18,8 @@ export async function getProfile(req: Request, res: Response, next: NextFunction
         avatarUrl: true, bio: true, theme: true,
         notifyShareAccess: true, notifyRiskAlerts: true, notifyCertificates: true,
         notifyMonitoring: true, notifyUpdates: true,
+        notifyVault: true, notifyDna: true, notifyInvestigation: true,
+        notifyAutomation: true, notifySecurity: true, notifyReports: true, notifySystem: true,
       },
     });
     if (!user) { res.status(404).json({ success: false, error: 'User not found' }); return; }
@@ -32,9 +35,13 @@ export async function getProfile(req: Request, res: Response, next: NextFunction
 
 export async function updateProfile(req: Request, res: Response, next: NextFunction) {
   try {
+    const uid = userId(req);
     const { fullName, phone, organization, jobTitle, country, bio, theme } = req.body;
+    const prev = phone !== undefined
+      ? await prisma.user.findUnique({ where: { id: uid }, select: { phone: true } })
+      : null;
     const user = await prisma.user.update({
-      where: { id: userId(req) },
+      where: { id: uid },
       data: {
         ...(fullName !== undefined && { fullName }),
         ...(phone !== undefined && { phone }),
@@ -50,13 +57,19 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
         avatarUrl: true, bio: true, theme: true,
       },
     });
+    if (phone !== undefined && prev && prev.phone !== phone) {
+      notifyPhoneChanged(uid);
+    }
     res.json({ success: true, profile: user });
   } catch (err) { next(err); }
 }
 
 export async function updateNotificationPrefs(req: Request, res: Response, next: NextFunction) {
   try {
-    const { notifyShareAccess, notifyRiskAlerts, notifyCertificates, notifyMonitoring, notifyUpdates } = req.body;
+    const {
+      notifyShareAccess, notifyRiskAlerts, notifyCertificates, notifyMonitoring, notifyUpdates,
+      notifyVault, notifyDna, notifyInvestigation, notifyAutomation, notifySecurity, notifyReports, notifySystem,
+    } = req.body;
     const user = await prisma.user.update({
       where: { id: userId(req) },
       data: {
@@ -65,6 +78,13 @@ export async function updateNotificationPrefs(req: Request, res: Response, next:
         ...(notifyCertificates !== undefined && { notifyCertificates }),
         ...(notifyMonitoring !== undefined && { notifyMonitoring }),
         ...(notifyUpdates !== undefined && { notifyUpdates }),
+        ...(notifyVault !== undefined && { notifyVault }),
+        ...(notifyDna !== undefined && { notifyDna }),
+        ...(notifyInvestigation !== undefined && { notifyInvestigation }),
+        ...(notifyAutomation !== undefined && { notifyAutomation }),
+        ...(notifySecurity !== undefined && { notifySecurity }),
+        ...(notifyReports !== undefined && { notifyReports }),
+        ...(notifySystem !== undefined && { notifySystem }),
       },
     });
     res.json({
@@ -75,6 +95,13 @@ export async function updateNotificationPrefs(req: Request, res: Response, next:
         notifyCertificates: user.notifyCertificates,
         notifyMonitoring: user.notifyMonitoring,
         notifyUpdates: user.notifyUpdates,
+        notifyVault: user.notifyVault,
+        notifyDna: user.notifyDna,
+        notifyInvestigation: user.notifyInvestigation,
+        notifyAutomation: user.notifyAutomation,
+        notifySecurity: user.notifySecurity,
+        notifyReports: user.notifyReports,
+        notifySystem: user.notifySystem,
       },
     });
   } catch (err) { next(err); }
@@ -97,6 +124,7 @@ export async function changePassword(req: Request, res: Response, next: NextFunc
 
     const hash = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({ where: { id: userId(req) }, data: { passwordHash: hash } });
+    notifyPasswordChanged(userId(req));
     res.json({ success: true, message: 'Password updated' });
   } catch (err) { next(err); }
 }
@@ -201,14 +229,18 @@ export async function getSessions(req: Request, res: Response, next: NextFunctio
 export async function revokeSession(req: Request, res: Response, next: NextFunction) {
   try {
     const { id } = req.params;
-    await prisma.refreshToken.deleteMany({ where: { id, userId: userId(req) } });
+    const uid = userId(req);
+    await prisma.refreshToken.deleteMany({ where: { id, userId: uid } });
+    notifySessionRevoked(uid);
     res.json({ success: true, message: 'Session revoked' });
   } catch (err) { next(err); }
 }
 
 export async function revokeAllSessions(req: Request, res: Response, next: NextFunction) {
   try {
-    await prisma.refreshToken.deleteMany({ where: { userId: userId(req) } });
+    const uid = userId(req);
+    const result = await prisma.refreshToken.deleteMany({ where: { userId: uid } });
+    if (result.count > 0) notifySessionRevoked(uid, true);
     res.json({ success: true, message: 'All sessions revoked' });
   } catch (err) { next(err); }
 }
