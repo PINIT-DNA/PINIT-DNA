@@ -15,22 +15,15 @@ import {
   type StoredForensicReport,
   type StoredInvestigationReport,
 } from '../lib/forensic-reports-storage';
+import {
+  investigationDisplayMessage,
+  investigationDisplayScore,
+  investigationScoreLabel,
+  investigationVerdictColor,
+  investigationVerdictLabel,
+} from '../lib/forensic-report-display';
 import { downloadInvestigationReportPdf, type InvestigationReportExport } from '../services/investigation-report-export';
 import toast from 'react-hot-toast';
-
-function investigationVerdictLabel(report: StoredInvestigationReport): string {
-  const state = report.summary?.reportState;
-  const verdict = report.summary?.forensicVerdict;
-  if (state === 'VERIFIED' || verdict === 'ORIGINAL_VERIFIED') return 'VERIFIED';
-  if (state === 'POSSIBLE' || verdict === 'POSSIBLE_ASSET' || verdict === 'ORIGINAL_FOUND_PARTIAL') return 'POSSIBLE';
-  return 'NO SIGNATURE';
-}
-
-function investigationVerdictColor(label: string): string {
-  if (label === 'VERIFIED') return 'text-success';
-  if (label === 'POSSIBLE') return 'text-warning';
-  return 'text-danger';
-}
 
 function matchesFilter(entry: StoredForensicReport, filter: string): boolean {
   if (filter === 'ALL') return true;
@@ -190,8 +183,14 @@ function InvestigationDetailModal({
   onClose: () => void;
 }) {
   const verdict = investigationVerdictLabel(report);
-  const score = report.summary?.dnaMatchPercent ?? report.summary?.ownershipConfidence ?? 0;
+  const score = investigationDisplayScore(report);
+  const scoreLabel = investigationScoreLabel(report);
+  const displayMessage = investigationDisplayMessage(report);
   const layers = (report as { layerAnalysis?: Array<{ layer: number; name: string; matchPercent: number; status: string; explanation: string }> }).layerAnalysis ?? [];
+  const timeline = report.timeline ?? [];
+  const evidenceTimeline = report.evidenceTimeline ?? [];
+  const recovery = report.identityRecoveryReport;
+  const dnaPct = report.summary?.dnaMatchPercent;
 
   return (
     <Modal open title="Unified Investigation Report" onClose={onClose} size="xl">
@@ -210,24 +209,90 @@ function InvestigationDetailModal({
             {report.summary?.riskLevel && (
               <Badge variant="muted">Risk: {report.summary.riskLevel}</Badge>
             )}
+            {report.summary?.identityStatus && (
+              <Badge variant="muted">Identity: {report.summary.identityStatus.replace(/_/g, ' ')}</Badge>
+            )}
           </div>
           <div className="flex items-center gap-4 mb-2">
             <span className={`text-3xl font-bold mono ${investigationVerdictColor(verdict)}`}>{score}%</span>
             <div>
-              <p className="text-sm font-semibold text-white">DNA Match</p>
+              <p className="text-sm font-semibold text-white">{scoreLabel}</p>
+              {typeof dnaPct === 'number' && dnaPct < 40 && score > 0 && (
+                <p className="text-2xs text-gray-500">DNA layer compare: {dnaPct}% (partial)</p>
+              )}
               <p className="text-2xs text-gray-500 mono">{report.investigationId}</p>
             </div>
           </div>
-          {report.message && <p className="text-sm text-gray-300">{report.message}</p>}
+          {displayMessage && <p className="text-sm text-gray-300">{displayMessage}</p>}
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {[
+            ['Retrieval', report.summary?.retrievalConfidence],
+            ['Ownership', report.summary?.ownershipConfidence],
+            ['DNA Match', dnaPct],
+            ['Trust', report.summary?.trustScore],
+          ].map(([label, value]) => (
+            typeof value === 'number' ? (
+              <div key={label as string} className="bg-bg-elevated rounded-lg p-2.5 text-center">
+                <p className="text-lg font-bold mono text-dna-400">{Math.round(value)}%</p>
+                <p className="text-2xs text-gray-500">{label}</p>
+              </div>
+            ) : null
+          ))}
         </div>
 
         <div className="bg-bg-elevated rounded-lg p-3">
           <p className="text-2xs text-gray-500 mb-1">Investigated File</p>
           <p className="text-sm font-medium text-white truncate">{filename}</p>
-          {report.owner?.ownerPinitId && (
-            <p className="text-xs text-gray-400 mt-1 mono">Owner: {report.owner.ownerPinitId}</p>
+          {(report.owner?.ownerPinitId || recovery?.ownerPinitId) && (
+            <p className="text-xs text-gray-400 mt-1 mono">
+              Owner: {report.owner?.ownerPinitId ?? recovery?.ownerPinitId}
+            </p>
+          )}
+          {(report.owner?.vaultId || recovery?.vaultId) && (
+            <p className="text-2xs text-gray-500 mt-1 mono truncate">
+              Vault: {report.owner?.vaultId ?? recovery?.vaultId}
+            </p>
+          )}
+          {(report.owner?.originalFilename || recovery?.originalFilename) && (
+            <p className="text-2xs text-gray-500 mt-0.5 truncate">
+              Original: {report.owner?.originalFilename ?? recovery?.originalFilename}
+            </p>
           )}
         </div>
+
+        {timeline.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+              Session Timeline ({timeline.length})
+            </p>
+            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+              {timeline.slice(0, 8).map((ev, i) => (
+                <div key={`${ev.stage}-${i}`} className="rounded-lg border border-bg-border bg-bg-elevated px-3 py-2">
+                  <p className="text-xs font-medium text-white">{ev.stage}</p>
+                  <p className="text-2xs text-gray-500 truncate">{ev.detail ?? ev.timestamp ?? '—'}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {evidenceTimeline.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+              Evidence Timeline ({evidenceTimeline.length})
+            </p>
+            <div className="space-y-1.5 max-h-32 overflow-y-auto">
+              {evidenceTimeline.slice(0, 5).map((ev) => (
+                <div key={ev.timestamp + ev.eventType} className="rounded-lg border border-bg-border bg-bg-elevated px-3 py-2">
+                  <p className="text-xs font-medium text-white">{ev.eventType}</p>
+                  <p className="text-2xs text-gray-500 truncate">{ev.summary}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {layers.length > 0 && (
           <div>
@@ -282,8 +347,13 @@ export function ReportsPage() {
   useEffect(() => {
     reload();
     const onUpdate = () => reload();
+    const onFocus = () => reload();
     window.addEventListener(FORENSIC_REPORTS_UPDATED_EVENT, onUpdate);
-    return () => window.removeEventListener(FORENSIC_REPORTS_UPDATED_EVENT, onUpdate);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.removeEventListener(FORENSIC_REPORTS_UPDATED_EVENT, onUpdate);
+      window.removeEventListener('focus', onFocus);
+    };
   }, [reload]);
 
   const filtered = reports.filter(r => matchesFilter(r, filter) && matchesSearch(r, search));
@@ -364,7 +434,9 @@ export function ReportsPage() {
               if (entry.kind === 'investigation') {
                 const r = entry.data;
                 const verdict = investigationVerdictLabel(r);
-                const score = r.summary?.dnaMatchPercent ?? r.summary?.ownershipConfidence ?? 0;
+                const score = investigationDisplayScore(r);
+                const subtitle = investigationDisplayMessage(r)
+                  ?? `Risk: ${r.summary?.riskLevel ?? '—'} · Tamper: ${r.summary?.tamperSeverity ?? '—'}`;
                 return (
                   <div
                     key={entry.id}
@@ -384,7 +456,7 @@ export function ReportsPage() {
                         </div>
                         <p className="text-sm text-gray-300 truncate">{entry.filename}</p>
                         <p className="text-xs text-gray-500 mt-1.5 line-clamp-1">
-                          {r.message ?? `Risk: ${r.summary?.riskLevel ?? '—'} · Tamper: ${r.summary?.tamperSeverity ?? '—'}`}
+                          {subtitle}
                         </p>
                       </div>
                       <div className="flex flex-col items-end gap-2 shrink-0">

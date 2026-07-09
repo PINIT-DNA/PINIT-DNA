@@ -20,6 +20,9 @@ import {
   type InvestigationReportExport,
 } from '../services/investigation-report-export';
 import { saveInvestigationReport, type StoredInvestigationReport } from '../lib/forensic-reports-storage';
+import {
+  investigationSummaryScore,
+} from '../lib/forensic-report-display';
 
 interface PipelineStep {
   id: string;
@@ -517,6 +520,10 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
           || report.owner.vaultId
           || report.identityProof.vaultId
         );
+        const displayMatchScore = investigationSummaryScore(
+          report.summary as StoredInvestigationReport['summary'],
+        );
+        const dnaLayerScore = report.summary.dnaMatchPercent;
         const verdictLabel = manifest?.displayLabel
           ?? (report.summary.reportState
             ? REPORT_STATE_LABELS[report.summary.reportState]
@@ -589,7 +596,8 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                 ?? report.dnaComparison?.fileA?.filename
               }
               ownerPinitId={report.owner.ownerPinitId ?? report.identityProof.ownerPinitId}
-              dnaMatchPercent={report.summary.dnaMatchPercent}
+              dnaMatchPercent={dnaLayerScore}
+              matchConfidence={displayMatchScore}
               reportState={report.summary.reportState}
               dnaRecordId={report.owner.dnaRecordId ?? report.identityProof.dnaRecordId}
               certificateId={report.owner.certificateId ?? report.identityProof.certificateId}
@@ -605,7 +613,9 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                 { label: 'DNA Match', value: report.summary.reportState === 'VERIFIED'
                   ? `${report.summary.dnaMatchPercent}%`
                   : report.summary.reportState === 'POSSIBLE'
-                    ? `${report.summary.dnaMatchPercent}% (review)`
+                    ? (typeof dnaLayerScore === 'number' && dnaLayerScore >= 40
+                        ? `${dnaLayerScore}% (review)`
+                        : `${displayMatchScore}% match · DNA layer ${dnaLayerScore ?? 0}%`)
                     : '—' },
                 { label: 'Trust Score', value: `${report.summary.trustScore ?? report.identityRecovery?.compositeScores.trustScore ?? '—'}${typeof report.summary.trustScore === 'number' ? '%' : ''}` },
                 { label: 'Certificate', value: report.summary.certificateStatus },

@@ -17,16 +17,34 @@ export type StoredInvestigationReport = Record<string, unknown> & {
   investigatedAt: string;
   summary: {
     ownershipConfidence?: number;
+    retrievalConfidence?: number;
+    ownershipVerificationConfidence?: number;
+    identityConfidence?: number;
+    trustScore?: number;
     dnaMatchPercent?: number;
     riskLevel?: string;
     forensicVerdict?: string;
     reportState?: string;
     tamperSeverity?: string;
+    identityStatus?: string;
+    decisionReason?: string;
   };
   owner?: {
     originalFilename?: string | null;
     ownerPinitId?: string | null;
+    ownerName?: string | null;
     vaultId?: string | null;
+    dnaRecordId?: string | null;
+    certificateId?: string | null;
+  };
+  timeline?: Array<{ stage: string; timestamp?: string; detail?: string }>;
+  evidenceTimeline?: Array<{ eventType: string; summary: string; timestamp: string }>;
+  identityRecoveryReport?: {
+    originalOwner?: string | null;
+    ownerPinitId?: string | null;
+    vaultId?: string;
+    originalFilename?: string;
+    message?: string;
   };
   message?: string;
 };
@@ -108,11 +126,16 @@ export function saveInvestigationReport(
   report: StoredInvestigationReport,
   filename: string,
 ): void {
-  const existing = readRaw().filter(r => r.id !== report.investigationId);
+  const normalized = filename.trim().toLowerCase();
+  const existing = readRaw().filter((r) => {
+    if (r.id === report.investigationId) return false;
+    if (r.kind === 'investigation' && r.filename.trim().toLowerCase() === normalized) return false;
+    return true;
+  });
   const entry: StoredForensicReport = {
     kind: 'investigation',
     id: report.investigationId,
-    savedAt: report.investigatedAt ?? new Date().toISOString(),
+    savedAt: new Date().toISOString(),
     filename,
     data: report,
   };

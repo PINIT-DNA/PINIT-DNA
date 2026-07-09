@@ -51,8 +51,8 @@ export const investigationPerformanceConfig = {
   imageRecoveryTimeoutMs: intEnv('PINIT_INVESTIGATION_IMAGE_RECOVERY_MS', 240_000),
   /** Video partial recovery — enterprise stage budget */
   videoRecoveryTimeoutMs: intEnv('PINIT_INVESTIGATION_VIDEO_RECOVERY_MS', 180_000),
-  /** Post-retrieval report enrichment (timeline, crawler) — hard cap */
-  orchestratorEnrichmentTimeoutMs: intEnv('PINIT_INVESTIGATION_ENRICHMENT_TIMEOUT_MS', 6_000),
+  /** Post-retrieval report enrichment (timeline, crawler) — Render/Supabase needs headroom */
+  orchestratorEnrichmentTimeoutMs: intEnv('PINIT_INVESTIGATION_ENRICHMENT_TIMEOUT_MS', 20_000),
   /** Skip crawler monitor scan during unified investigation (major latency win) */
   skipCrawlerOnInvestigation: flag('PINIT_INVESTIGATION_SKIP_CRAWLER', true),
   /** Never re-run 15-layer compare when enterprise pipeline already compared this vault */

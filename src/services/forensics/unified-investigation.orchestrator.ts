@@ -1373,7 +1373,7 @@ export class UnifiedInvestigationOrchestrator {
   }> {
     const enrichmentMs = Math.max(
       investigationPerformanceConfig.orchestratorEnrichmentTimeoutMs,
-      12_000,
+      20_000,
     );
 
     const leakVerifyStub = {
@@ -1384,28 +1384,30 @@ export class UnifiedInvestigationOrchestrator {
       accessHistory: [] as LeakedFileAccessEntry[],
     };
 
-    const timelineBundle = await withTimeoutSoft(
-      () => Promise.all([
-        shareLinkService.getTimelineEvents(input.dnaRecordId, input.ownerUserId),
-        auditService.getEventsForRecord(input.dnaRecordId),
-      ]),
-      enrichmentMs,
-      'investigation_timeline',
-    );
+    const [timelineBundle, accessIntelligence, leakIntel] = await Promise.all([
+      withTimeoutSoft(
+        () => Promise.all([
+          shareLinkService.getTimelineEvents(input.dnaRecordId, input.ownerUserId),
+          auditService.getEventsForRecord(input.dnaRecordId),
+        ]),
+        enrichmentMs,
+        'investigation_timeline',
+      ),
+      withTimeoutSoft(
+        () => this.loadAccessIntelligence(input.dnaRecordId, input.ownerUserId, []),
+        enrichmentMs,
+        'access_intelligence',
+      ),
+      withTimeoutSoft(
+        () => this.buildLeakIntelligence(input.dnaRecordId, input.ownerUserId),
+        enrichmentMs,
+        'leak_intel',
+      ),
+    ]);
 
     const [shareTimeline, auditEvents] = timelineBundle ?? [[], []];
-
-    const accessIntelligence = await withTimeoutSoft(
-      () => this.loadAccessIntelligence(input.dnaRecordId, input.ownerUserId, []),
-      enrichmentMs,
-      'access_intelligence',
-    ) ?? [];
-
-    const leakIntel = await withTimeoutSoft(
-      () => this.buildLeakIntelligence(input.dnaRecordId, input.ownerUserId),
-      enrichmentMs,
-      'leak_intel',
-    ) ?? { hasPublicLeak: false, entries: [], message: 'No public crawler detections' };
+    const accessRows = accessIntelligence ?? [];
+    const leakRows = leakIntel ?? { hasPublicLeak: false, entries: [], message: 'No public crawler detections' };
 
     const timelineEvents = this.buildTimeline({
       investigationId: input.investigationId,
@@ -1417,9 +1419,9 @@ export class UnifiedInvestigationOrchestrator {
       dnaMeta: input.dnaMeta,
       shareLinks: shareTimeline,
       leakVerify: leakVerifyStub,
-      accessHistory: accessIntelligence,
+      accessHistory: accessRows,
       auditEvents,
-      leakIntel,
+      leakIntel: leakRows,
       dnaMatchPercent: input.dnaMatchPercent,
       forensicVerdict: input.forensicVerdict,
     });
@@ -1468,8 +1470,8 @@ export class UnifiedInvestigationOrchestrator {
       timelineEvents,
       evidenceTimeline,
       provenanceSummary,
-      accessIntelligence,
-      leakIntel,
+      accessIntelligence: accessRows,
+      leakIntel: leakRows,
     };
   }
 
@@ -1659,6 +1661,37 @@ export class UnifiedInvestigationOrchestrator {
       }
     }
 
+    if (
+      timelineEvents.length === 0
+      && (retainOwnerLead || hasRealDna)
+      && dnaRecordId
+      && vaultId
+    ) {
+      timelineEvents = this.buildTimeline({
+        investigationId: params.investigationId,
+        investigatedAt,
+        suspectFilename: params.originalName,
+        suspectFileHash: params.currentFileHash,
+        dnaRecordId,
+        vaultId,
+        dnaMeta: vaultRow?.dnaRecord
+          ? { createdAt: vaultRow.dnaRecord.createdAt, filename: vaultRow.dnaRecord.imageFilename }
+          : null,
+        shareLinks: [],
+        leakVerify: {
+          found: true,
+          valid: false,
+          tampered: false,
+          message: 'Live vault match',
+          accessHistory: accessIntelligence,
+        },
+        accessHistory: accessIntelligence,
+        auditEvents: [],
+        dnaMatchPercent: hasRealDna ? realDna! : liveConf,
+        forensicVerdict: 'POSSIBLE_ASSET',
+      });
+    }
+
     const ownerBlock = retainOwnerLead || hasRealDna
       ? {
           ownerName,
@@ -1678,6 +1711,10 @@ export class UnifiedInvestigationOrchestrator {
           originalFilename: undefined,
         };
 
+    const partialReviewNote = retainOwnerLead && !hasRealDna
+      ? `deep DNA verification incomplete (${Math.round(liveConf)}% live retrieval confidence)`
+      : params.error;
+
     const report: UnifiedInvestigationReport = {
       success: reportState !== 'NO_SIGNATURE',
       investigationId: params.investigationId,
@@ -1690,7 +1727,7 @@ export class UnifiedInvestigationOrchestrator {
         forensicVerdict: reportState === 'POSSIBLE' ? 'POSSIBLE_ASSET' : mapAcceptanceToForensicVerdict(decision.verdict),
         reportState,
         decisionReason: retainOwnerLead && !hasRealDna
-          ? `Live vault match retained — owner identified at ${Math.round(liveConf)}% confidence; deep DNA verification incomplete (${params.error})`
+          ? `Live vault match retained — owner identified at ${Math.round(liveConf)}% confidence; ${partialReviewNote}`
           : decision.decisionReason,
         dnaMatchPercent: hasRealDna ? realDna! : 0,
         certificateStatus: certificateId ? 'ACTIVE' : (retainOwnerLead ? 'NOT_ISSUED' : 'UNKNOWN'),
@@ -1706,7 +1743,7 @@ export class UnifiedInvestigationOrchestrator {
       message: hasRealDna
         ? `Deep DNA completed before timeout (vault ${vaultId.slice(0, 8)}…) — ${decision.displayLabel}`
         : retainOwnerLead
-          ? `Possible PINIT asset — owner ${ownerName ?? ownerPinitId} identified from live recovery; confirm with manual review (${params.error})`
+          ? `Possible PINIT asset — owner ${ownerName ?? ownerPinitId} identified from live recovery at ${Math.round(liveConf)}% confidence; confirm with manual review`
           : `Investigation incomplete — live lead ${vaultId.slice(0, 8)}… was not DNA-verified (${params.error}). Not treated as an original match.`,
       owner: ownerBlock,
       recipientAttribution: {

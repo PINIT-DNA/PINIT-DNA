@@ -11,6 +11,8 @@ export interface InvestigationSideBySideCompareProps {
   originalFilename?: string | null;
   ownerPinitId?: string | null;
   dnaMatchPercent?: number;
+  /** Retrieval / ownership confidence when 15-layer DNA is incomplete */
+  matchConfidence?: number;
   dnaRecordId?: string | null;
   certificateId?: string | null;
   reportState?: 'VERIFIED' | 'POSSIBLE' | 'NO_SIGNATURE';
@@ -138,6 +140,7 @@ export function InvestigationSideBySideCompare({
   originalFilename,
   ownerPinitId,
   dnaMatchPercent,
+  matchConfidence,
   dnaRecordId,
   certificateId,
   reportState,
@@ -181,12 +184,13 @@ export function InvestigationSideBySideCompare({
 
   if (!vaultId && !probePreviewUrl) return null;
 
+  const headlineScore = matchConfidence ?? dnaMatchPercent;
   const scoreHeadline = reportState === 'VERIFIED'
-    ? `${dnaMatchPercent}% DNA match`
+    ? `${headlineScore}% DNA match`
     : reportState === 'POSSIBLE'
-      ? `${dnaMatchPercent}% similarity — needs review`
-      : dnaMatchPercent != null
-        ? `${dnaMatchPercent}% similarity`
+      ? `${headlineScore}% similarity — needs review`
+      : headlineScore != null
+        ? `${headlineScore}% similarity`
         : null;
 
   return (
@@ -254,15 +258,27 @@ export function InvestigationSideBySideCompare({
             { label: 'Type', value: probeMimeType ?? (probeIsImage ? 'image' : 'file') },
           ]}
           footer={
-            dnaMatchPercent != null ? (
+            (dnaMatchPercent != null || matchConfidence != null) ? (
               <p className="text-2xs text-gray-400">
-                15-layer DNA compare:{' '}
-                <span className={cn(
-                  'font-bold',
-                  reportState === 'VERIFIED' ? 'text-white' : 'text-yellow-400',
-                )}>
-                  {dnaMatchPercent}%
-                </span>
+                {typeof dnaMatchPercent === 'number' && dnaMatchPercent >= 40 ? (
+                  <>
+                    15-layer DNA compare:{' '}
+                    <span className={cn(
+                      'font-bold',
+                      reportState === 'VERIFIED' ? 'text-white' : 'text-yellow-400',
+                    )}>
+                      {dnaMatchPercent}%
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    Live retrieval match:{' '}
+                    <span className="font-bold text-yellow-400">{matchConfidence ?? dnaMatchPercent}%</span>
+                    {typeof dnaMatchPercent === 'number' && (
+                      <span> · 15-layer DNA {dnaMatchPercent}%</span>
+                    )}
+                  </>
+                )}
                 {reportState === 'POSSIBLE' && (
                   <span className="text-yellow-500/80"> — not verified ownership</span>
                 )}
