@@ -73,6 +73,17 @@ const multerInstance = multer({
 export const uploadSingle = multerInstance.single('image');
 
 /**
+ * uploadInvestigation — memory storage for unified investigation uploads.
+ * Avoids OneDrive/temp-disk races and guarantees file.buffer is always set.
+ */
+const investigationMulter = multer({
+  storage: multer.memoryStorage(),
+  fileFilter,
+  limits: { fileSize: config.upload.maxFileSizeBytes },
+});
+export const uploadInvestigation = investigationMulter.single('image');
+
+/**
  * uploadFile — field name "file"
  * Use this for new Universal DNA routes that are not image-specific.
  */

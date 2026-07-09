@@ -25,6 +25,17 @@ export const localDnaConfig = {
   patchSize: intEnv('PINIT_LOCAL_DNA_PATCH_SIZE', 32),
   /** Multi-scale patch sizes for enterprise retrieval */
   patchScales: scalesFromEnv(),
+  /** Enterprise overlapping tiles — robust to 70–80% crops */
+  useOverlappingTiles: flag('PINIT_LOCAL_DNA_OVERLAP_TILES', true),
+  overlapTileSize: intEnv('PINIT_LOCAL_DNA_TILE_SIZE', 256),
+  overlapRatio: parseFloat(process.env['PINIT_LOCAL_DNA_TILE_OVERLAP'] ?? '0.5'),
+  /** Pyramid tile levels for crop recovery (64 → 512) */
+  pyramidTileSizes: (process.env['PINIT_LOCAL_DNA_PYRAMID'] ?? '64,128,256,512')
+    .split(',')
+    .map((s) => parseInt(s.trim(), 10))
+    .filter((n) => n >= 32 && n <= 512),
+  /** Max overlapping tiles per image (caps very large images) */
+  maxOverlapTiles: intEnv('PINIT_LOCAL_DNA_MAX_OVERLAP_TILES', 120),
   /** Max patches per image per scale (caps very large images) */
   maxPatchesPerImage: intEnv('PINIT_LOCAL_DNA_MAX_PATCHES', 2500),
   /** Hamming distance threshold on 64-bit patch pHash */
@@ -40,5 +51,5 @@ export const localDnaConfig = {
   /** Top vault candidates to ORB-refine after patch voting */
   orbRefineTopK: intEnv('PINIT_LOCAL_DNA_ORB_TOP_K', 5),
   /** Weight per scale in multi-scale voting */
-  scaleWeights: { 16: 0.15, 32: 0.30, 64: 0.30, 128: 0.25 } as Record<number, number>,
+  scaleWeights: { 16: 0.12, 32: 0.25, 64: 0.25, 128: 0.20, 256: 0.18 } as Record<number, number>,
 } as const;

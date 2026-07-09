@@ -63,6 +63,23 @@ interface InvestigationReport {
     overallTamperScore: number;
     vectors: Array<{ label: string; detected: boolean }>;
     description?: string;
+    overlayPngBase64?: string;
+    modifiedPercent?: number;
+    insertedRegions?: number;
+  };
+  forensicEvidence?: {
+    recoveredWatermark?: boolean;
+    recoveredOwner?: string | null;
+    vaultId?: string;
+    certificateId?: string | null;
+    screenshotDetected?: boolean;
+    screenshotPlatform?: string;
+    screenshotConfidence?: number;
+    aiEdited?: boolean;
+    aiEditConfidence?: number;
+    aiEditReason?: string;
+    matchReasons?: Array<{ signal: string; label: string; percent: number; matched: boolean }>;
+    overallConfidence?: number;
   };
   timeline: Array<{ stage: string; timestamp?: string; detail?: string }>;
   evidenceTimeline?: Array<{
@@ -299,7 +316,30 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
     }
   }, [report]);
 
+  const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+
+  const validateInvestigationFile = (f: File): string | null => {
+    if (!f.size) return 'Selected file is empty.';
+    if (f.size > MAX_UPLOAD_BYTES) return 'File is too large (max 100 MB).';
+    const okPrefix = f.type.startsWith('image/')
+      || f.type.startsWith('video/')
+      || f.type.startsWith('audio/')
+      || f.type === 'application/pdf'
+      || f.type.startsWith('application/');
+    const ext = f.name.split('.').pop()?.toLowerCase() ?? '';
+    const okExt = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'heic', 'heif', 'pdf', 'mp4', 'mov', 'webm'].includes(ext);
+    if (!okPrefix && !okExt && f.type === 'application/octet-stream' && !okExt) {
+      return 'Unsupported file type. Upload an image, PDF, or video.';
+    }
+    return null;
+  };
+
   const runInvestigation = useCallback(async (f: File) => {
+    const validationError = validateInvestigationFile(f);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setLoading(true);
     setError(null);
     setReport(null);
@@ -433,8 +473,13 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
           <input
             ref={inputRef}
             type="file"
+            accept="image/*,application/pdf,video/*,audio/*"
             className="hidden"
-            onChange={(e) => { if (e.target.files?.[0]) handleFileSelect(e.target.files[0]); }}
+            onChange={(e) => {
+              const picked = e.target.files?.[0];
+              if (picked) handleFileSelect(picked);
+              e.target.value = '';
+            }}
           />
           <Upload size={32} className="text-gray-500 mx-auto mb-3" />
           <p className="text-sm text-gray-400">Drop a suspected file here or click to upload</p>
@@ -727,6 +772,24 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               Overall Tamper Score: {report.tamperAnalysis.overallTamperScore}%
               <span className="text-gray-500 font-normal ml-2">({report.tamperAnalysis.primaryVector})</span>
             </p>
+            {report.tamperAnalysis.modifiedPercent != null && (
+              <p className="text-xs text-amber-400 mb-2">
+                Modified region: {report.tamperAnalysis.modifiedPercent}%
+                {report.tamperAnalysis.insertedRegions != null && (
+                  <span className="text-gray-500"> · {report.tamperAnalysis.insertedRegions} region(s)</span>
+                )}
+              </p>
+            )}
+            {report.tamperAnalysis.overlayPngBase64 && (
+              <div className="mb-3 rounded-lg overflow-hidden border border-red-500/30">
+                <img
+                  src={`data:image/png;base64,${report.tamperAnalysis.overlayPngBase64}`}
+                  alt="Tamper localization overlay"
+                  className="w-full max-h-64 object-contain bg-black"
+                />
+                <p className="text-2xs text-gray-500 p-2">Red overlay = modified vs vault original</p>
+              </div>
+            )}
             {report.tamperAnalysis.description && (
               <p className="text-xs text-gray-400 mb-3">{report.tamperAnalysis.description}</p>
             )}
@@ -738,6 +801,36 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               ))}
             </div>
           </Section>
+
+          {report.forensicEvidence?.matchReasons && report.forensicEvidence.matchReasons.length > 0 && (
+            <Section title="5b. Why It Matched" icon={Fingerprint} defaultOpen>
+              <p className="text-xs text-gray-400 mb-3">Matched because:</p>
+              <div className="space-y-2">
+                {report.forensicEvidence.matchReasons.map((r) => (
+                  <div key={r.signal} className="flex items-center gap-3 p-2 rounded-lg bg-bg-elevated">
+                    <span className={cn('text-lg', r.matched ? 'text-green-400' : 'text-gray-600')}>
+                      {r.matched ? '✓' : '○'}
+                    </span>
+                    <span className="flex-1 text-xs text-white">{r.label}</span>
+                    <span className="text-xs font-bold mono text-dna-400">{r.percent}%</span>
+                  </div>
+                ))}
+              </div>
+              {report.forensicEvidence.screenshotDetected && (
+                <p className="text-xs text-amber-400 mt-3">
+                  Screenshot detected — Platform: {report.forensicEvidence.screenshotPlatform ?? 'unknown'}
+                  {report.forensicEvidence.screenshotConfidence != null && (
+                    <span> ({report.forensicEvidence.screenshotConfidence}%)</span>
+                  )}
+                </p>
+              )}
+              {report.forensicEvidence.aiEdited && (
+                <p className="text-xs text-red-400 mt-2">
+                  AI edit suspected ({report.forensicEvidence.aiEditConfidence}%): {report.forensicEvidence.aiEditReason}
+                </p>
+              )}
+            </Section>
+          )}
 
           <Section title="6. Evidence Timeline (Chain of Custody)" icon={Clock} defaultOpen>
             <p className="text-2xs text-gray-500 mb-3">

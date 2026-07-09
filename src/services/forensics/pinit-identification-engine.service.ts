@@ -62,6 +62,8 @@ export interface PinitIdentificationResult {
     localDnaHit: LocalDnaSearchHit | null;
     /** Phase 4 — candidate walk logs for manifest */
     candidateRankingLogs?: import('./candidate-ranking-engine.service').CandidateRankingLog[];
+    /** Phase 2 — enterprise forensic scanner output */
+    forensicScan?: import('./forensic-scanner.service').ForensicScanResult | null;
   };
 }
 

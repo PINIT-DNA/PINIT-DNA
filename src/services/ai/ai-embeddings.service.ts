@@ -274,6 +274,93 @@ export class AIEmbeddingsService {
     }
   }
 
+  /** Enterprise forensic scan — features, tile FAISS, crop detection. */
+  async forensicScan(
+    probe: Buffer,
+    mimeType: string,
+    reference?: Buffer,
+  ): Promise<{
+    overallConfidence: number;
+    candidates: Array<{
+      vaultId: string;
+      dnaRecordId?: string;
+      filename?: string;
+      tileMatches?: number;
+      bestSimilarity?: number;
+      confidence?: number;
+      clipPercent?: number;
+      visiblePercent?: number;
+      cropPercent?: number;
+      missingPercent?: number;
+    }>;
+    features?: Record<string, unknown>;
+    cropDetection?: Record<string, unknown>;
+    tamperLocalization?: Record<string, unknown>;
+    screenshotDetection?: Record<string, unknown>;
+    aiManipulation?: Record<string, unknown>;
+    matchReasons?: Array<{ signal: string; label: string; percent: number; matched: boolean }>;
+    processingMs?: number;
+  } | null> {
+    try {
+      const FormData = require('form-data');
+      const form = new FormData();
+      form.append('probe', probe, { filename: 'probe.jpg', contentType: mimeType || 'image/jpeg' });
+      if (reference) {
+        form.append('reference', reference, { filename: 'ref.jpg', contentType: 'image/jpeg' });
+      }
+
+      const { data } = await client.post('/cv/forensic-scan', form, {
+        headers: form.getHeaders(),
+        timeout: 90_000,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = data as any;
+      if (!d.success) return null;
+      const tileSearch = d.tileSearch ?? {};
+      return {
+        overallConfidence: d.overallConfidence ?? 0,
+        candidates: d.candidates ?? tileSearch.candidates ?? [],
+        features: d.features,
+        cropDetection: d.cropDetection ?? undefined,
+        tamperLocalization: d.tamperLocalization ?? undefined,
+        screenshotDetection: d.screenshotDetection ?? undefined,
+        aiManipulation: d.aiManipulation ?? undefined,
+        matchReasons: d.matchReasons ?? undefined,
+        processingMs: d.processingMs,
+      };
+    } catch (err) {
+      this.logError('cv/forensic-scan', err);
+      return null;
+    }
+  }
+
+  /** Index vault image tiles into Python FAISS for crop-resistant search. */
+  async forensicIndexTiles(
+    buffer: Buffer,
+    mimeType: string,
+    vaultId: string,
+    dnaRecordId: string,
+  ): Promise<{ tilesIndexed: number } | null> {
+    try {
+      const FormData = require('form-data');
+      const form = new FormData();
+      form.append('image', buffer, { filename: 'vault.jpg', contentType: mimeType || 'image/jpeg' });
+
+      const { data } = await client.post(
+        `/cv/forensic-index-tiles?vault_id=${encodeURIComponent(vaultId)}&dna_record_id=${encodeURIComponent(dnaRecordId)}`,
+        form,
+        { headers: form.getHeaders(), timeout: 120_000 },
+      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = data as any;
+      if (!d.success) return null;
+      return { tilesIndexed: d.tilesIndexed ?? 0 };
+    } catch (err) {
+      this.logError('cv/forensic-index-tiles', err);
+      return null;
+    }
+  }
+
   /** Extract ORB/AKAZE global descriptors for PINIT Local DNA vault index. */
   async extractLocalDnaIndex(
     buffer: Buffer,

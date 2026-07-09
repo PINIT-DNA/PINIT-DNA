@@ -99,7 +99,7 @@ export class EnterpriseRetrievalEngine {
     }));
 
     if (options?.investigationFast) {
-      const keep = new Set(['original', 'normalized', 'denoised']);
+      const keep = new Set(['original', 'normalized', 'denoised', 'scale_256', 'scale_512']);
       probes = probes.filter((p) => keep.has(p.label));
     }
     if (options?.maxProbes && probes.length > options.maxProbes) {

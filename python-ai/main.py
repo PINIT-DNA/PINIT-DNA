@@ -435,6 +435,68 @@ async def cv_match_descriptors(
         "processingMs": round((time.time() - start) * 1000, 1),
     }
 
+# ── Enterprise Forensic Scanner ───────────────────────────────────────────────
+
+@app.post("/cv/forensic-scan")
+async def cv_forensic_scan(
+    probe: UploadFile = File(...),
+    reference: UploadFile | None = File(None),
+):
+    """Multi-stage forensic scan: normalize, features, tile FAISS, crop detection."""
+    from services.forensic_scanner import forensic_scanner_service
+
+    start = time.time()
+    probe_bytes = await probe.read()
+    ref_bytes = await reference.read() if reference else None
+    result = forensic_scanner_service.forensic_scan(probe_bytes, ref_bytes)
+    if not result.success:
+        raise HTTPException(503, result.message or "Forensic scan failed")
+    return {
+        "success": True,
+        **result.data,
+        "processingMs": round((time.time() - start) * 1000, 1),
+    }
+
+@app.post("/cv/forensic-index-tiles")
+async def cv_forensic_index_tiles(
+    image: UploadFile = File(...),
+    vault_id: str = "",
+    dna_record_id: str = "",
+):
+    """Index overlapping vault tiles into FAISS for fast crop-resistant search."""
+    from services.forensic_scanner import forensic_scanner_service
+
+    if not vault_id or not dna_record_id:
+        raise HTTPException(400, "vault_id and dna_record_id required")
+    start = time.time()
+    image_bytes = await image.read()
+    result = forensic_scanner_service.index_vault_tiles(
+        image_bytes, vault_id, dna_record_id, image.filename or "",
+    )
+    if not result.success:
+        raise HTTPException(503, result.message or "Tile index failed")
+    return {
+        "success": True,
+        **result.data,
+        "processingMs": round((time.time() - start) * 1000, 1),
+    }
+
+@app.post("/cv/forensic-features")
+async def cv_forensic_features(image: UploadFile = File(...)):
+    """Extract enterprise fingerprint features from an image."""
+    from services.forensic_scanner import forensic_scanner_service
+
+    start = time.time()
+    image_bytes = await image.read()
+    result = forensic_scanner_service.extract_features(image_bytes)
+    if not result.success:
+        raise HTTPException(503, result.message or "Feature extract failed")
+    return {
+        "success": True,
+        **result.data,
+        "processingMs": round((time.time() - start) * 1000, 1),
+    }
+
 # ── Phase 6: Duplicate detection ─────────────────────────────────────────────
 
 @app.post("/duplicates")

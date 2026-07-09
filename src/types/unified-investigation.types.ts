@@ -186,6 +186,36 @@ export interface TamperAnalysisSection {
   overallTamperScore: number;
   vectors: Array<{ label: string; detected: boolean; confidence?: number }>;
   description?: string;
+  /** Visual tamper overlay from forensic scanner (base64 PNG) */
+  overlayPngBase64?: string;
+  modifiedPercent?: number;
+  insertedRegions?: number;
+}
+
+export interface MatchReason {
+  signal: string;
+  label: string;
+  percent: number;
+  matched: boolean;
+}
+
+export interface ForensicEvidenceSection {
+  recoveredWatermark?: boolean;
+  recoveredOwner?: string | null;
+  vaultId?: string;
+  dnaRecordId?: string;
+  certificateId?: string | null;
+  timelineEvents?: number;
+  uploadDate?: string;
+  distributionPlatforms?: string[];
+  screenshotDetected?: boolean;
+  screenshotPlatform?: string;
+  screenshotConfidence?: number;
+  aiEdited?: boolean;
+  aiEditConfidence?: number;
+  aiEditReason?: string;
+  matchReasons?: MatchReason[];
+  overallConfidence?: number;
 }
 
 export interface LeakIntelligenceSection {
@@ -309,4 +339,6 @@ export interface UnifiedInvestigationReport {
   progressTimeline?: InvestigationProgressEvent[];
   /** Full retrieval→report audit trace (diagnostic; no threshold changes) */
   pipelineAudit?: import('./investigation-pipeline-audit.types').InvestigationPipelineAudit;
+  /** Phase 2 — explainable matching + recovered forensic evidence */
+  forensicEvidence?: ForensicEvidenceSection;
 }

@@ -38,6 +38,11 @@ import { investigationPerformanceConfig } from '../../config/investigation-perfo
 import { createStageTimer } from '../../lib/stage-timer';
 import { withTimeoutSoft } from '../../lib/safe-runner';
 import { isAcceptedAfterDnaCompare, isCameraScanFileName, explainMatchBasis } from './vault-match-validator.service';
+import { buildExplainableMatchReasons, buildForensicEvidenceSection } from './explainable-matching.service';
+import { forensicScannerService } from './forensic-scanner.service';
+import { VaultService } from '../vault/vault.service';
+
+const vaultService = new VaultService();
 import { evidenceConfidenceService } from './evidence-confidence.service';
 import { auditService } from '../audit/audit.service';
 import crypto from 'crypto';
@@ -700,6 +705,28 @@ export class UnifiedInvestigationOrchestrator {
       logInvestigationDecision('verified_downgraded_to_possible', reportOutcome, { dnaScore: resolvedDnaScore });
     }
 
+    // Tamper localization — compare probe vs vault original for visual overlay
+    let forensicScanWithRef = enterprise.auditContext?.forensicScan ?? null;
+    if (mimeType.startsWith('image/') && match?.vaultId) {
+      try {
+        const vaultFile = await withTimeoutSoft(
+          () => vaultService.retrieve(match.vaultId, ownerUserId),
+          investigationPerformanceConfig.vaultRetrieveTimeoutMs,
+          'vault_retrieve_tamper',
+        );
+        if (vaultFile?.originalBuffer) {
+          const rescan = await withTimeoutSoft(
+            () => forensicScannerService.scanProbe(buffer, mimeType, vaultFile.originalBuffer),
+            30_000,
+            'forensic_tamper_localize',
+          );
+          if (rescan?.available) forensicScanWithRef = rescan;
+        }
+      } catch {
+        /* non-fatal */
+      }
+    }
+
     // 7. Tamper analysis — fault-isolated; never throws
     const tamperStage = executeStageSync(
       'tamper_analysis',
@@ -1014,6 +1041,35 @@ export class UnifiedInvestigationOrchestrator {
       if (sel) sel.dnaMatchPercent = dnaPct;
     }
 
+    const forensicScan = forensicScanWithRef;
+    const matchReasons = buildExplainableMatchReasons({
+      forensicScan,
+      dnaComparison: comparison,
+      watermarkDetected: !!leakVerify.watermark?.code,
+    });
+    const mergedReasons = [
+      ...(forensicScan?.matchReasons ?? []),
+      ...matchReasons.filter((r) => !forensicScan?.matchReasons?.some((m) => m.signal === r.signal)),
+    ].sort((a, b) => b.percent - a.percent);
+
+    if (forensicScan?.tamperLocalization?.overlayPngBase64) {
+      tamperAnalysis.overlayPngBase64 = forensicScan.tamperLocalization.overlayPngBase64;
+      tamperAnalysis.modifiedPercent = forensicScan.tamperLocalization.modifiedPercent;
+      tamperAnalysis.insertedRegions = forensicScan.tamperLocalization.insertedRegions;
+    }
+
+    const forensicEvidence = buildForensicEvidenceSection({
+      forensicScan,
+      matchReasons: mergedReasons,
+      ownerName: owner?.fullName ?? null,
+      vaultId: match.vaultId,
+      dnaRecordId: match.dnaRecordId,
+      certificateId: cert?.certificateId ?? authAsset?.certificateId ?? null,
+      uploadDate: dnaRec?.createdAt?.toISOString(),
+      watermarkDetected: !!leakVerify.watermark?.code,
+      distributionPlatforms: leakIntel.entries.map((e) => e.platform),
+    });
+
     logger.info('Unified investigation complete', {
       investigationId,
       dnaRecordId: match.dnaRecordId,
@@ -1086,6 +1142,7 @@ export class UnifiedInvestigationOrchestrator {
       identityRecovery,
       candidateRanking: rankedCandidates.length ? rankedCandidates : undefined,
       identityRecoveryReport,
+      forensicEvidence,
       currentFileHash,
       stageTimings,
       progressTimeline,

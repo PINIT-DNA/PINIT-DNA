@@ -599,8 +599,9 @@ export async function unifiedInvestigateStream(
   }
   window.clearTimeout(timeoutId);
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error((err as { message?: string }).message ?? 'Investigation failed');
+    const err = await res.json().catch(() => ({ error: res.statusText, message: res.statusText }));
+    const body = err as { message?: string; error?: string };
+    throw new Error(body.message ?? body.error ?? 'Investigation failed');
   }
   const reader = res.body?.getReader();
   if (!reader) throw new Error('Streaming not supported');

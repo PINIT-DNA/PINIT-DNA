@@ -6,6 +6,7 @@ import { logger } from '../../lib/logger';
 import { localDnaConfig } from '../../config/local-dna';
 import { localDnaPatchGenerator } from './local-dna-patch-generator.service';
 import { aiService } from '../ai/ai-embeddings.service';
+import { forensicScannerService } from './forensic-scanner.service';
 
 const BATCH_SIZE = 400;
 
@@ -31,6 +32,14 @@ export class LocalDnaIndexService {
         orbKeypoints = cvIndex.orbKeypoints ?? 0;
         orbDescriptors = cvIndex.orbDescriptors ?? null;
       }
+
+      // Enterprise tile FAISS index (Python) — crop-resistant fast search
+      void forensicScannerService.indexVaultTiles(
+        params.buffer,
+        params.mimeType,
+        params.vaultId,
+        params.dnaRecordId,
+      ).catch(() => { /* non-fatal */ });
 
       const existing = await prisma.localFeatureIndex.findUnique({
         where: { dnaRecordId: params.dnaRecordId },

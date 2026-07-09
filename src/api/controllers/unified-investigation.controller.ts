@@ -8,6 +8,29 @@ import { AppError } from '../middleware/error.middleware';
 import { getAuthUserId } from '../../lib/tenant-scope';
 import { logger } from '../../lib/logger';
 import { unifiedInvestigationOrchestrator } from '../../services/forensics/unified-investigation.orchestrator';
+import { FileTypeDetector } from '../../services/file-type-detector';
+
+const fileTypeDetector = new FileTypeDetector();
+
+async function resolveUploadBuffer(file: Express.Multer.File): Promise<Buffer> {
+  if (file.buffer?.length) return file.buffer;
+  if (file.path) return fs.readFile(file.path);
+  throw new AppError(400, 'Uploaded file is empty or unreadable.');
+}
+
+async function resolveMimeType(
+  buffer: Buffer,
+  originalName: string,
+  declaredMime: string,
+): Promise<string> {
+  try {
+    const detected = await fileTypeDetector.detect(buffer, originalName, declaredMime);
+    return detected.mimeType;
+  } catch {
+    if (declaredMime && declaredMime !== 'application/octet-stream') return declaredMime;
+    throw new AppError(400, 'Unsupported file type for investigation. Upload an image, PDF, video, or document.');
+  }
+}
 
 function writeSse(res: Response, payload: unknown): void {
   if (res.writableEnded) return;
@@ -39,9 +62,15 @@ export async function unifiedInvestigate(
   }
 
   let buffer: Buffer;
+  let mimeType: string;
   try {
-    buffer = file.buffer ?? await fs.readFile(file.path);
-  } catch {
+    buffer = await resolveUploadBuffer(file);
+    if (!buffer.length) {
+      return next(new AppError(400, 'Uploaded file is empty.'));
+    }
+    mimeType = await resolveMimeType(buffer, file.originalname, file.mimetype);
+  } catch (err) {
+    if (err instanceof AppError) return next(err);
     return next(new AppError(500, 'Failed to read uploaded file.'));
   }
 
@@ -64,7 +93,7 @@ export async function unifiedInvestigate(
       try {
         const report = await unifiedInvestigationOrchestrator.investigate(
           buffer,
-          file.mimetype,
+          mimeType,
           file.originalname,
           userId,
           {
@@ -91,7 +120,7 @@ export async function unifiedInvestigate(
 
     const report = await unifiedInvestigationOrchestrator.investigate(
       buffer,
-      file.mimetype,
+      mimeType,
       file.originalname,
       userId,
     );

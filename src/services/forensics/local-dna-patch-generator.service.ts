@@ -96,6 +96,26 @@ export class LocalDnaPatchGenerator {
       }
     }
 
+    if (localDnaConfig.useOverlappingTiles) {
+      const pyramidSizes = localDnaConfig.pyramidTileSizes.length
+        ? localDnaConfig.pyramidTileSizes
+        : [localDnaConfig.overlapTileSize];
+      for (const tileSize of pyramidSizes) {
+        const overlapGrid = await this.generateOverlappingTileGrid(
+          buffer,
+          tileSize,
+          localDnaConfig.overlapRatio,
+          patchIndex,
+        );
+        imageWidth = overlapGrid.imageWidth || imageWidth;
+        imageHeight = overlapGrid.imageHeight || imageHeight;
+        if (!globalPHash && overlapGrid.globalPHash) globalPHash = overlapGrid.globalPHash;
+        for (const p of overlapGrid.patches) {
+          allPatches.push({ ...p, patchIndex: patchIndex++ });
+        }
+      }
+    }
+
     const primary = scales.includes(32) ? 32 : scales[0] ?? 32;
     const gridCols = imageWidth > 0 ? Math.ceil(imageWidth / primary) : 1;
     const gridRows = imageHeight > 0 ? Math.ceil(imageHeight / primary) : 1;
@@ -109,6 +129,80 @@ export class LocalDnaPatchGenerator {
       patches: allPatches,
       globalPHash: globalPHash || (allPatches[0]?.pHash16 ?? ''),
       scales,
+    };
+  }
+
+  /**
+   * Overlapping tile grid (256×256, 50% stride) — enterprise crop recovery.
+   * When only 20–30% of the original image remains, overlapping tiles still match.
+   */
+  async generateOverlappingTileGrid(
+    buffer: Buffer,
+    tileSize = localDnaConfig.overlapTileSize,
+    overlapRatio = localDnaConfig.overlapRatio,
+    startIndex = 0,
+  ): Promise<PatchGridResult> {
+    const meta = await sharp(buffer).metadata();
+    const imageWidth = meta.width ?? 0;
+    const imageHeight = meta.height ?? 0;
+
+    if (imageWidth < 8 || imageHeight < 8) {
+      const single = await this.fingerprintPatch(buffer, startIndex, 0, 0, tileSize);
+      return {
+        imageWidth,
+        imageHeight,
+        patchSize: tileSize,
+        gridCols: 1,
+        gridRows: 1,
+        patches: [single],
+        globalPHash: single.pHash16,
+        scales: [tileSize],
+      };
+    }
+
+    const stride = Math.max(8, Math.round(tileSize * (1 - overlapRatio)));
+    const patches: PatchFingerprint[] = [];
+    let patchIndex = startIndex;
+
+    for (let top = 0; top < imageHeight; top += stride) {
+      for (let left = 0; left < imageWidth; left += stride) {
+        if (patches.length >= localDnaConfig.maxOverlapTiles) break;
+
+        const width = Math.min(tileSize, imageWidth - left);
+        const height = Math.min(tileSize, imageHeight - top);
+        if (width < 32 || height < 32) continue;
+
+        try {
+          const patchBuf = await sharp(buffer)
+            .extract({ left, top, width, height })
+            .toBuffer();
+          const gx = Math.round(left / stride);
+          const gy = Math.round(top / stride);
+          patches.push(await this.fingerprintPatch(patchBuf, patchIndex, gx, gy, tileSize));
+          patchIndex++;
+        } catch (err) {
+          logger.debug('[LocalDnaPatch] Skip overlap tile', { left, top, error: String(err) });
+        }
+      }
+      if (patches.length >= localDnaConfig.maxOverlapTiles) break;
+    }
+
+    const globalPHash = patches.length
+      ? patches[Math.floor(patches.length / 2)]!.pHash16
+      : await this.computePHash16(await sharp(buffer).resize(32, 32, { fit: 'inside' }).toBuffer());
+
+    const gridCols = Math.ceil(imageWidth / stride);
+    const gridRows = Math.ceil(imageHeight / stride);
+
+    return {
+      imageWidth,
+      imageHeight,
+      patchSize: tileSize,
+      gridCols,
+      gridRows,
+      patches,
+      globalPHash,
+      scales: [tileSize],
     };
   }
 

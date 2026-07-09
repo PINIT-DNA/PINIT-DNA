@@ -21,19 +21,19 @@ function scalesFromEnv(key: string, fallback: number[]): number[] {
 
 export const investigationPerformanceConfig = {
   /** Stage-1 fast filter: max vault candidates passed to heavy retrieval */
-  candidatePoolSize: intEnv('PINIT_INVESTIGATION_CANDIDATE_POOL', 15),
+  candidatePoolSize: intEnv('PINIT_INVESTIGATION_CANDIDATE_POOL', 25),
   /** When watermark/token already found vault — cap stage-2 pool */
-  candidatePoolWithIdentity: intEnv('PINIT_INVESTIGATION_IDENTITY_POOL', 5),
+  candidatePoolWithIdentity: intEnv('PINIT_INVESTIGATION_IDENTITY_POOL', 8),
   candidatePoolMin: 10,
   candidatePoolMax: 50,
   /** ORB refine on top-K of filtered pool only */
-  orbRefineTopK: intEnv('PINIT_INVESTIGATION_ORB_TOP_K', 3),
+  orbRefineTopK: intEnv('PINIT_INVESTIGATION_ORB_TOP_K', 5),
   /** 15-layer deep compare cap */
-  deepCompareTopN: intEnv('PINIT_INVESTIGATION_DEEP_COMPARE_TOP_N', 1),
+  deepCompareTopN: intEnv('PINIT_INVESTIGATION_DEEP_COMPARE_TOP_N', 3),
   /** Max forensic variants for investigation local-DNA probes */
-  maxInvestigationProbes: intEnv('PINIT_INVESTIGATION_MAX_PROBES', 1),
-  /** Skip slow ORB vault downloads in investigation (patch + vector scores suffice) */
-  skipOrbInInvestigation: flag('PINIT_INVESTIGATION_SKIP_ORB', true),
+  maxInvestigationProbes: intEnv('PINIT_INVESTIGATION_MAX_PROBES', 3),
+  /** ORB refinement improves crop/screenshot matching accuracy */
+  skipOrbInInvestigation: flag('PINIT_INVESTIGATION_SKIP_ORB', false),
   /** Skip local patch search when watermark/manifest already identified vault */
   skipLocalDnaWhenWatermark: flag('PINIT_INVESTIGATION_SKIP_LOCAL_DNA_WATERMARK', true),
   /** Skip second-pass vector ORB when identity anchor present */
@@ -59,8 +59,8 @@ export const investigationPerformanceConfig = {
   skipOrchestratorRecompare: flag('PINIT_INVESTIGATION_SKIP_RECOMPARE', true),
   orchestratorCompareTimeoutMs: intEnv('PINIT_INVESTIGATION_ORCHESTRATOR_COMPARE_MS', 20_000),
   vaultRetrieveTimeoutMs: intEnv('PINIT_INVESTIGATION_VAULT_RETRIEVE_MS', 12_000),
-  /** Single scale in investigation — multi-scale was too slow on Render (~2min) */
-  investigationPatchScales: scalesFromEnv('PINIT_INVESTIGATION_PATCH_SCALES', [64]),
+  /** Multi-scale patch retrieval for crop/screenshot recovery */
+  investigationPatchScales: scalesFromEnv('PINIT_INVESTIGATION_PATCH_SCALES', [32, 64, 128]),
   cacheTtlMs: intEnv('PINIT_INVESTIGATION_CACHE_TTL_MS', 900_000),
 } as const;
 

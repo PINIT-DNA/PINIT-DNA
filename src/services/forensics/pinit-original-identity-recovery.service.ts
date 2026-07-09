@@ -14,6 +14,7 @@ import { phase3WatermarkRecovery } from '../watermark/phase3-watermark-recovery.
 import { certificateService } from '../certificates/certificate.service';
 import { EphemeralFingerprinter } from '../verification/ephemeral-fingerprinter';
 import { forensicImagePreprocessor } from './forensic-image-preprocessor.service';
+import { forensicScannerService } from './forensic-scanner.service';
 import { vaultSimilarityVectorService } from './vault-similarity-vector.service';
 import { enterpriseRetrievalEngine } from './enterprise-retrieval-engine.service';
 import type { LocalDnaSearchHit } from './vault-local-dna-search.service';
@@ -143,6 +144,7 @@ export interface RecoveryOptions {
 const STAGE = {
   FORENSIC: 'stage1_forensic_recovery',
   PROBE_DNA: 'stage2_probe_dna',
+  FORENSIC_SCAN: 'stage2b_forensic_scanner',
   VAULT_SEARCH: 'stage3_vault_search',
   LOCAL_DNA: 'stage3b_local_dna_index',
   SIMILARITY_VECTOR: 'stage4_similarity_vector',
@@ -407,6 +409,53 @@ export class PinitOriginalIdentityRecoveryService {
     let isExactVaultMatch = identityHit?.tier === 1 && sha256Score === 100;
     let fastVectors: Awaited<ReturnType<typeof vaultSimilarityVectorService.scoreEntireVault>> = [];
 
+    // Enterprise forensic scanner — tile FAISS + multi-feature extraction
+    let forensicScanResult: Awaited<ReturnType<typeof forensicScannerService.scanProbe>> | null = null;
+    if (!isExactVaultMatch && mimeType.startsWith('image/') && !isVideoProbeEarly) {
+      timer.start('forensic_scan');
+      emit({ type: 'timeline', stepId: 'feature_extraction', label: 'Feature Extraction', status: 'running' });
+      forensicScanResult = await withTimeoutSoft(
+        () => forensicScannerService.scanProbe(buffer, mimeType),
+        45_000,
+        'forensic_scan',
+      );
+      timer.end('forensic_scan');
+      if (forensicScanResult?.available) {
+        const top = forensicScanResult.candidates[0];
+        stages.push({
+          stage: STAGE.FORENSIC_SCAN,
+          status: top ? 'complete' : 'partial',
+          detail: top
+            ? `Tile FAISS: ${top.tileMatches} matches · ${forensicScanResult.overallConfidence}% confidence`
+            : 'Forensic features extracted — no tile index hits yet',
+        });
+        emit({
+          type: 'timeline',
+          stepId: 'feature_extraction',
+          label: 'Feature Extraction',
+          status: top ? 'complete' : 'warning',
+          detail: top
+            ? `Top candidate ${top.vaultId.slice(0, 8)}… (${top.tileMatches} tile votes)`
+            : 'Re-index vault images to populate tile FAISS',
+        });
+        if (top && top.confidence >= 55 && top.dnaRecordId && !identityHit) {
+          identityHit = {
+            tier: 3,
+            method: `Forensic tile scanner (${top.tileMatches} tiles, ${top.visiblePercent ?? '?'}% visible)`,
+            dnaRecordId: top.dnaRecordId,
+            vaultId: top.vaultId,
+            ownerUserId,
+            confidence: String(top.confidence),
+            visualSimilarity: top.confidence / 100,
+          };
+          push(STAGE.FORENSIC_SCAN, top.confidence, true, `Tile FAISS match — ${top.tileMatches} overlapping tiles`);
+        }
+      } else {
+        stages.push({ stage: STAGE.FORENSIC_SCAN, status: 'skipped', detail: 'Python forensic scanner offline' });
+        emit({ type: 'timeline', stepId: 'feature_extraction', label: 'Feature Extraction', status: 'skipped' });
+      }
+    }
+
     // ═══ Stage 1 — Forensic recovery (parallel in investigation two-stage mode) ═══
     timer.start('identity_recovery');
     emit({ type: 'timeline', stepId: 'identity_recovery', label: 'Identity Recovery', status: 'running' });
@@ -667,6 +716,17 @@ export class PinitOriginalIdentityRecoveryService {
 
     if (twoStage && !isExactVaultMatch) {
       candidateVaultIds = fastVectors.map((v) => v.vaultId);
+      if (forensicScanResult?.candidates?.length) {
+        for (const c of forensicScanResult.candidates.slice(0, 10)) {
+          if (!candidateVaultIds.includes(c.vaultId)) {
+            candidateVaultIds.unshift(c.vaultId);
+          }
+        }
+        selectionSteps.push({
+          stage: 'forensic_tile_faiss',
+          detail: `${forensicScanResult.candidates.length} tile-FAISS candidates merged`,
+        });
+      }
       if (candidateVaultIds.length) {
         logVaultRecordsLoaded(ownerUserId, candidateVaultIds);
         selectionSteps.push({
@@ -1520,6 +1580,7 @@ export class PinitOriginalIdentityRecoveryService {
         identityHit,
         localDnaHit,
         candidateRankingLogs,
+        forensicScan: forensicScanResult,
       },
     };
   }

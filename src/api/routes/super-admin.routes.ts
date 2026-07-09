@@ -27,7 +27,7 @@ import {
   getAdminVaultShares,
   getAdminVaultTimeline,
 } from '../controllers/super-admin.controller';
-import { uploadSingle } from '../middleware/upload.middleware';
+import { uploadInvestigation } from '../middleware/upload.middleware';
 import { unifiedInvestigate } from '../controllers/unified-investigation.controller';
 
 const router = Router();
@@ -54,6 +54,6 @@ router.get('/monitoring', listMonitoring);
 router.get('/analytics', getAnalytics);
 router.get('/activity', getRecentActivity);
 router.get('/audit', getAuditLogs);
-router.post('/unified-investigate', uploadSingle, unifiedInvestigate);
+router.post('/unified-investigate', uploadInvestigation, unifiedInvestigate);
 
 export { router as superAdminRouter };

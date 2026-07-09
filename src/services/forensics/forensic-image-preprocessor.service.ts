@@ -53,6 +53,18 @@ export class ForensicImagePreprocessor {
         return variants;
       }
 
+      // Multi-scale normalization (256 / 512 / 1024) for enterprise tile matching
+      for (const dim of [256, 512, 1024]) {
+        if (w > 0 && h > 0) {
+          const scaled = await sharp(buffer)
+            .rotate()
+            .resize({ width: Math.min(w, dim), height: Math.min(h, dim), fit: 'inside' })
+            .jpeg({ quality: 90 })
+            .toBuffer();
+          variants.push({ label: `scale_${dim}`, buffer: scaled, mimeType: 'image/jpeg' });
+        }
+      }
+
       const denoised = await sharp(buffer)
         .rotate()
         .median(3)
