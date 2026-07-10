@@ -534,9 +534,14 @@ export class UnifiedInvestigationOrchestrator {
     }
     const cert = resolvedCert ? { certificateId: resolvedCert.certificateId } : null;
 
-    // 6. Authoritative 15-layer DNA comparison — always runs against authoritativeAsset
+    // 6. Authoritative 15-layer DNA comparison — reuse enterprise result when available (no duplicate compare)
     let comparison: DnaComparisonResult | null = null;
     const probeInput = { buffer, mimeType, originalName, sizeBytes };
+    const cachedDeep = authAsset?.deepCompare?.layerComparisons?.length
+      ? authAsset.deepCompare
+      : enterprise.bestDeepCompare?.layerComparisons?.length
+        ? enterprise.bestDeepCompare
+        : null;
 
     try {
       if (!authAsset) {
@@ -546,42 +551,44 @@ export class UnifiedInvestigationOrchestrator {
       assertVaultScope(authAsset.vaultId, match.vaultId, 'orchestrator:authoritative_dna_compare');
       assertDnaScope(authAsset.dnaRecordId, match.dnaRecordId, 'orchestrator:authoritative_dna_compare');
 
-      comparison = await withTimeoutSoft(
-        () => compareProbeToAuthoritativeAsset(authAsset, probeInput, ownerUserId),
-        investigationPerformanceConfig.orchestratorCompareTimeoutMs,
-        'authoritative_dna_compare',
-      ) ?? null;
-
-      if (!comparison && authAsset.deepCompare?.layerComparisons?.length) {
-        comparison = comparisonFromDeepCompareResult(authAsset.deepCompare, authAsset, probeInput);
-        pipeline.push(step(
-          'dna_compare',
-          '15-layer DNA comparison',
-          'warning',
-          `${comparison.overallConfidenceScore}% — cached enterprise layers (live compare timed out)`,
-        ));
-      } else if (!comparison && enterprise.bestDeepCompare?.layerComparisons?.length) {
-        comparison = comparisonFromDeepCompareResult(enterprise.bestDeepCompare, authAsset, probeInput);
-        pipeline.push(step(
-          'dna_compare',
-          '15-layer DNA comparison',
-          'warning',
-          `${comparison.overallConfidenceScore}% — cached enterprise layers (live compare timed out)`,
-        ));
-      } else if (comparison) {
+      if (investigationPerformanceConfig.skipOrchestratorRecompare && cachedDeep) {
+        comparison = comparisonFromDeepCompareResult(cachedDeep, authAsset, probeInput);
         pipeline.push(step(
           'dna_compare',
           '15-layer DNA comparison',
           'complete',
-          `${comparison.overallConfidenceScore}% — ${comparison.classification} · ${comparison.layerComparisons.length} layers compared`,
+          `${comparison.overallConfidenceScore}% — ${comparison.classification} · enterprise pipeline (no duplicate compare)`,
         ));
       } else {
-        pipeline.push(step(
-          'dna_compare',
-          '15-layer DNA comparison',
-          'failed',
-          '15-layer compare could not complete for authoritative vault',
-        ));
+        comparison = await withTimeoutSoft(
+          () => compareProbeToAuthoritativeAsset(authAsset, probeInput, ownerUserId),
+          investigationPerformanceConfig.orchestratorCompareTimeoutMs,
+          'authoritative_dna_compare',
+        ) ?? null;
+
+        if (!comparison && cachedDeep) {
+          comparison = comparisonFromDeepCompareResult(cachedDeep, authAsset, probeInput);
+          pipeline.push(step(
+            'dna_compare',
+            '15-layer DNA comparison',
+            'warning',
+            `${comparison.overallConfidenceScore}% — cached enterprise layers (live compare timed out)`,
+          ));
+        } else if (comparison) {
+          pipeline.push(step(
+            'dna_compare',
+            '15-layer DNA comparison',
+            'complete',
+            `${comparison.overallConfidenceScore}% — ${comparison.classification} · ${comparison.layerComparisons.length} layers compared`,
+          ));
+        } else {
+          pipeline.push(step(
+            'dna_compare',
+            '15-layer DNA comparison',
+            'failed',
+            '15-layer compare could not complete for authoritative vault',
+          ));
+        }
       }
 
       if (comparison) {
@@ -656,6 +663,28 @@ export class UnifiedInvestigationOrchestrator {
                 enterprise,
               });
             }
+            if (match && retrievalConf >= 35) {
+              return this.buildPartialFromLiveSnapshot({
+                investigationId,
+                pipeline,
+                progressTimeline,
+                currentFileHash,
+                originalName,
+                ownerUserId,
+                snapshot: {
+                  phase: 2,
+                  signatureFound: true,
+                  vaultId: match.vaultId,
+                  dnaRecordId: match.dnaRecordId,
+                  ownerPinitId: authAsset?.ownerPinitId ?? undefined,
+                  originalFilename: authAsset?.originalFilename ?? undefined,
+                  confidence: retrievalConf,
+                  dnaMatchPercent: cmpScore,
+                },
+                error: `Vault candidate weak after 15-layer compare (${cmpScore}% — ${cmpClass})`,
+                enterprise,
+              });
+            }
             const rejected = await this.buildNoMatchReport(
               investigationId,
               pipeline,
@@ -705,9 +734,12 @@ export class UnifiedInvestigationOrchestrator {
       logInvestigationDecision('verified_downgraded_to_possible', reportOutcome, { dnaScore: resolvedDnaScore });
     }
 
-    // Tamper localization — compare probe vs vault original for visual overlay
-    let forensicScanWithRef = enterprise.auditContext?.forensicScan ?? null;
-    if (mimeType.startsWith('image/') && match?.vaultId) {
+    // Tamper localization + enrichment in parallel (same steps, lower wall-clock)
+    const enrichmentMs = investigationPerformanceConfig.orchestratorEnrichmentTimeoutMs;
+
+    const tamperLocalizationPromise = (async () => {
+      let scanRef = enterprise.auditContext?.forensicScan ?? null;
+      if (!mimeType.startsWith('image/') || !match?.vaultId) return scanRef;
       try {
         const vaultFile = await withTimeoutSoft(
           () => vaultService.retrieve(match.vaultId, ownerUserId),
@@ -720,29 +752,17 @@ export class UnifiedInvestigationOrchestrator {
             30_000,
             'forensic_tamper_localize',
           );
-          if (rescan?.available) forensicScanWithRef = rescan;
+          if (rescan?.available) scanRef = rescan;
         }
       } catch {
         /* non-fatal */
       }
-    }
+      return scanRef;
+    })();
 
-    // 7. Tamper analysis — fault-isolated; never throws
-    const tamperStage = executeStageSync(
-      'tamper_analysis',
-      () => buildTamperAnalysis({ comparison, leakVerify }),
-      { onComplete: stageOnComplete('tamper_analysis', 'Tamper Analysis') },
-    );
-    const tamperAnalysis = tamperStage.data ?? emptyTamperAnalysis(tamperStage.error ?? 'Tamper analysis failed');
-    pipeline.push(step(
-      'tamper',
-      'Tamper analysis',
-      tamperStage.success ? 'complete' : 'warning',
-      tamperAnalysis.primaryVector,
-    ));
-
-    const enrichmentMs = investigationPerformanceConfig.orchestratorEnrichmentTimeoutMs;
-    const enrichment = await executeStagesParallel(
+    const [forensicScanWithRef, enrichment] = await Promise.all([
+      tamperLocalizationPromise,
+      executeStagesParallel(
       [
         {
           name: 'access_intelligence',
@@ -772,7 +792,22 @@ export class UnifiedInvestigationOrchestrator {
         },
       ],
       { onEachComplete: (r) => stageOnComplete(r.stage, formatStageLabel(r.stage))(r) },
+      ),
+    ]);
+
+    // 7. Tamper analysis — fault-isolated; never throws
+    const tamperStage = executeStageSync(
+      'tamper_analysis',
+      () => buildTamperAnalysis({ comparison, leakVerify }),
+      { onComplete: stageOnComplete('tamper_analysis', 'Tamper Analysis') },
     );
+    const tamperAnalysis = tamperStage.data ?? emptyTamperAnalysis(tamperStage.error ?? 'Tamper analysis failed');
+    pipeline.push(step(
+      'tamper',
+      'Tamper analysis',
+      tamperStage.success ? 'complete' : 'warning',
+      tamperAnalysis.primaryVector,
+    ));
 
     const accessIntelligence = (enrichment.results.access_intelligence?.data as LeakedFileAccessEntry[] | null)
       ?? leakVerify.accessHistory
@@ -1526,20 +1561,26 @@ export class UnifiedInvestigationOrchestrator {
       },
     });
 
-    const dnaRecordId = vaultRow?.dnaRecordId ?? snapshot.dnaRecordId ?? undefined;
+    const dnaRecordId = vaultRow?.dnaRecordId
+      ?? snapshot.dnaRecordId
+      ?? params.enterprise?.authoritativeAsset?.dnaRecordId
+      ?? undefined;
     const ownerName = vaultRow?.dnaRecord?.ownerUser?.fullName
       ?? snapshot.ownerName
       ?? null;
     const ownerPinitId = vaultRow?.dnaRecord?.ownerUser?.shortId
       ?? snapshot.ownerPinitId
+      ?? params.enterprise?.authoritativeAsset?.ownerPinitId
       ?? null;
     const originalFilename = vaultRow?.originalFileName
       ?? snapshot.originalFilename
+      ?? params.enterprise?.authoritativeAsset?.originalFilename
       ?? undefined;
 
+    const hasResolvableVault = !!vaultRow;
     const hasOwnerLead = !!(ownerName || ownerPinitId);
     /** Live UI already showed vault + owner — keep in final report even if deep DNA incomplete */
-    const retainOwnerLead = !!vaultId && hasOwnerLead && (hasRealDna || liveConf >= 20);
+    const retainOwnerLead = !!vaultId && (hasOwnerLead || hasResolvableVault) && (hasRealDna || liveConf >= 15);
     const displayConf = hasRealDna
       ? Math.max(liveConf, realDna!, fusionOwnership, fusionIdentity)
       : retainOwnerLead

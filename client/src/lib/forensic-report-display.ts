@@ -68,15 +68,17 @@ export function resolveInvestigationOwner(report: StoredInvestigationReport): {
   const proof = (report as {
     identityProof?: { ownerPinitId?: string; vaultId?: string; dnaRecordId?: string };
     manifest?: { owner?: { ownerName?: string | null; ownerPinitId?: string | null }; vault?: { vaultId?: string | null; originalFilename?: string | null } };
+    forensicEvidence?: { recoveredOwner?: string | null; vaultId?: string; dnaRecordId?: string };
   }).identityProof;
   const manifest = (report as { manifest?: { owner?: { ownerName?: string | null; ownerPinitId?: string | null }; vault?: { vaultId?: string | null; originalFilename?: string | null } } }).manifest;
+  const forensic = (report as { forensicEvidence?: { recoveredOwner?: string | null; vaultId?: string; dnaRecordId?: string } }).forensicEvidence;
 
   return {
-    ownerName: report.owner?.ownerName ?? recovery?.originalOwner ?? manifest?.owner?.ownerName ?? null,
+    ownerName: report.owner?.ownerName ?? recovery?.originalOwner ?? manifest?.owner?.ownerName ?? forensic?.recoveredOwner ?? null,
     ownerPinitId: report.owner?.ownerPinitId ?? recovery?.ownerPinitId ?? proof?.ownerPinitId ?? manifest?.owner?.ownerPinitId ?? null,
-    vaultId: report.owner?.vaultId ?? recovery?.vaultId ?? proof?.vaultId ?? manifest?.vault?.vaultId ?? null,
+    vaultId: report.owner?.vaultId ?? recovery?.vaultId ?? proof?.vaultId ?? manifest?.vault?.vaultId ?? forensic?.vaultId ?? null,
     originalFilename: report.owner?.originalFilename ?? recovery?.originalFilename ?? manifest?.vault?.originalFilename ?? null,
-    dnaRecordId: report.owner?.dnaRecordId ?? recovery?.dnaRecordId ?? proof?.dnaRecordId ?? null,
+    dnaRecordId: report.owner?.dnaRecordId ?? recovery?.dnaRecordId ?? proof?.dnaRecordId ?? forensic?.dnaRecordId ?? null,
   };
 }
 

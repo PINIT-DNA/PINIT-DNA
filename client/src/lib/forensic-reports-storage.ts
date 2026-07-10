@@ -167,6 +167,33 @@ export function mergeLiveSnapshotIntoReport(
     };
   }
 
+  const hasVault = !!(merged.owner?.vaultId || snapshot.vaultId);
+  if (hasVault) {
+    const summary = merged.summary ?? {};
+    if (!summary.identityStatus || summary.identityStatus === 'NOT_FOUND') {
+      summary.identityStatus = snapshot.ownerPinitId || merged.owner?.ownerPinitId
+        ? 'PARTIALLY_RECOVERED'
+        : 'FOUND';
+    }
+    if (!summary.riskLevel || summary.riskLevel === 'UNKNOWN') {
+      summary.riskLevel = 'MEDIUM';
+    }
+    if (!summary.forensicVerdict || summary.forensicVerdict === 'NO_SIGNATURE') {
+      const conf = liveConf ?? 0;
+      summary.forensicVerdict = conf >= 70 ? 'ORIGINAL_FOUND_PARTIAL' : 'POSSIBLE_ASSET';
+      summary.reportState = conf >= 70 ? 'POSSIBLE' : 'POSSIBLE';
+    }
+    merged.summary = summary;
+
+    const proof = (merged as { identityProof?: Record<string, unknown> }).identityProof ?? {};
+    (merged as { identityProof?: Record<string, unknown> }).identityProof = {
+      ...proof,
+      vaultId: proof.vaultId ?? snapshot.vaultId ?? merged.owner?.vaultId,
+      dnaRecordId: proof.dnaRecordId ?? snapshot.dnaRecordId ?? merged.owner?.dnaRecordId,
+      ownerPinitId: proof.ownerPinitId ?? snapshot.ownerPinitId ?? merged.owner?.ownerPinitId,
+    };
+  }
+
   return merged;
 }
 

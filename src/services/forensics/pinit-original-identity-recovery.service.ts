@@ -77,44 +77,25 @@ function logCandidateStage(
 
 async function loadVaultOwnerSnapshot(
   vaultId: string,
-  dnaRecordId?: string,
+  _dnaRecordId?: string,
 ): Promise<Pick<InvestigationLiveSnapshot, 'ownerName' | 'ownerPinitId' | 'originalFilename'>> {
-  const [vaultRow, dnaRow] = await Promise.all([
-    prisma.vaultRecord.findUnique({
-      where: { id: vaultId },
-      select: { originalFileName: true, dnaRecordId: true },
-    }),
-    dnaRecordId
-      ? prisma.dnaRecord.findUnique({
-        where: { id: dnaRecordId },
-        select: { imageFilename: true, ownerUserId: true },
-      })
-      : Promise.resolve(null),
-  ]);
-  const ownerUserId = dnaRow?.ownerUserId
-    ?? (vaultRow?.dnaRecordId
-      ? (await prisma.dnaRecord.findUnique({
-        where: { id: vaultRow.dnaRecordId },
-        select: { ownerUserId: true, imageFilename: true },
-      }))?.ownerUserId
-      : undefined);
-  const filename = dnaRow?.imageFilename
-    ?? (vaultRow?.dnaRecordId
-      ? (await prisma.dnaRecord.findUnique({
-        where: { id: vaultRow.dnaRecordId },
-        select: { imageFilename: true },
-      }))?.imageFilename
-      : undefined);
-  const ownerRow = ownerUserId
-    ? await prisma.user.findUnique({
-      where: { id: ownerUserId },
-      select: { fullName: true, shortId: true },
-    })
-    : null;
+  const vaultRow = await prisma.vaultRecord.findUnique({
+    where: { id: vaultId },
+    select: {
+      originalFileName: true,
+      dnaRecord: {
+        select: {
+          imageFilename: true,
+          ownerUser: { select: { fullName: true, shortId: true } },
+        },
+      },
+    },
+  });
+  const dna = vaultRow?.dnaRecord;
   return {
-    ownerName: ownerRow?.fullName ?? undefined,
-    ownerPinitId: ownerRow?.shortId ?? undefined,
-    originalFilename: filename ?? vaultRow?.originalFileName ?? undefined,
+    ownerName: dna?.ownerUser?.fullName ?? undefined,
+    ownerPinitId: dna?.ownerUser?.shortId ?? undefined,
+    originalFilename: dna?.imageFilename ?? vaultRow?.originalFileName ?? undefined,
   };
 }
 
@@ -449,6 +430,17 @@ export class PinitOriginalIdentityRecoveryService {
             visualSimilarity: top.confidence / 100,
           };
           push(STAGE.FORENSIC_SCAN, top.confidence, true, `Tile FAISS match — ${top.tileMatches} overlapping tiles`);
+          const ownerSnap = await loadVaultOwnerSnapshot(top.vaultId, top.dnaRecordId);
+          emitPhase({
+            phase: 1,
+            signatureFound: true,
+            vaultId: top.vaultId,
+            dnaRecordId: top.dnaRecordId,
+            confidence: top.confidence,
+            similarityScore: top.confidence / 100,
+            statusMessage: 'Forensic tile match — verifying DNA…',
+            ...ownerSnap,
+          });
         }
       } else {
         stages.push({ stage: STAGE.FORENSIC_SCAN, status: 'skipped', detail: 'Python forensic scanner offline' });

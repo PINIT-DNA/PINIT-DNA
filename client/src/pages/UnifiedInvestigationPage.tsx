@@ -352,9 +352,33 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
 
     try {
       const { report: r } = await unifiedInvestigateStream(f, (event) => {
-        if (event.snapshot) {
+        if (event.snapshot?.vaultId) {
           setLiveSnapshot(event.snapshot);
           liveSnapshotRef.current = event.snapshot;
+        } else if (event.partial?.vaultId) {
+          const prev = liveSnapshotRef.current;
+          const partial = event.partial as {
+            vaultId?: string;
+            dnaRecordId?: string;
+            ownerPinitId?: string;
+            ownerName?: string;
+            originalFilename?: string;
+            ownershipConfidence?: number;
+            dnaMatchPercent?: number;
+          };
+          const merged = {
+            phase: prev?.phase ?? 1,
+            signatureFound: true,
+            vaultId: partial.vaultId,
+            dnaRecordId: partial.dnaRecordId ?? prev?.dnaRecordId,
+            ownerPinitId: partial.ownerPinitId ?? prev?.ownerPinitId,
+            ownerName: partial.ownerName ?? prev?.ownerName,
+            originalFilename: partial.originalFilename ?? prev?.originalFilename,
+            confidence: partial.ownershipConfidence ?? prev?.confidence,
+            dnaMatchPercent: partial.dnaMatchPercent ?? prev?.dnaMatchPercent,
+          };
+          setLiveSnapshot(merged);
+          liveSnapshotRef.current = merged;
         }
       }, { admin: adminMode });
       const investigation = r as unknown as InvestigationReport;

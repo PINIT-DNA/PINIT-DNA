@@ -324,6 +324,24 @@ export async function selectWinnerByRanking(params: {
 
   let evaluated = 0;
 
+  // Pre-run deep DNA compares in parallel — same candidates, lower wall-clock vs sequential.
+  if (params.compareCandidate) {
+    const needsDeep = deepPool.filter((candidate) => {
+      if (deepFor(candidate.vaultId, deepResults)) return false;
+      const isExact = params.isExactVaultMatch
+        && params.identityHit?.vaultId === candidate.vaultId;
+      return !isExact;
+    });
+    if (needsDeep.length > 0) {
+      const parallelDeep = await Promise.all(
+        needsDeep.map(async (candidate) => params.compareCandidate!(candidate)),
+      );
+      for (const deep of parallelDeep) {
+        if (deep) deepResults.push(deep);
+      }
+    }
+  }
+
   for (let i = 0; i < deepPool.length; i++) {
     const candidate = deepPool[i]!;
     const vector = vectorFor(candidate.vaultId, params.vectors);
