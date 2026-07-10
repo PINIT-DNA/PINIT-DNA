@@ -43,6 +43,7 @@ export type StoredInvestigationReport = Record<string, unknown> & {
     originalOwner?: string | null;
     ownerPinitId?: string | null;
     vaultId?: string;
+    dnaRecordId?: string | null;
     originalFilename?: string;
     message?: string;
   };

@@ -56,7 +56,6 @@ interface VaultDetailSidePanelProps {
   record: VaultRecord;
   onClose: () => void;
   onShare: () => void;
-  onProtect: () => void;
   onDelete: () => void;
 }
 
@@ -99,7 +98,6 @@ export function VaultDetailSidePanel({
   record,
   onClose,
   onShare,
-  onProtect,
   onDelete,
 }: VaultDetailSidePanelProps) {
   const navigate = useNavigate();

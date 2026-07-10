@@ -1159,7 +1159,6 @@ export function VaultPage() {
             record={selected}
             onClose={() => setSelected(null)}
             onShare={() => setSharing(selected)}
-            onProtect={() => setProtecting(selected)}
             onDelete={() => handleDelete(selected)}
           />
         )}
