@@ -95,4 +95,9 @@ export interface DnaSession {
   generatedAt: string;
   encryption?: EncryptionResult;
   vault?: VaultStoreResponse;
+  /** Protected tracked copy prepared after vault store */
+  downloadReady?: boolean;
+  tepCode?: string;
+  /** In-memory protected file ready for one-click download */
+  protectedBlobUrl?: string;
 }

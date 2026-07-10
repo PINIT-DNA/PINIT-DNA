@@ -55,3 +55,45 @@ export function investigationDisplayMessage(report: StoredInvestigationReport): 
   if (typeof reason === 'string' && reason.trim()) return reason;
   return report.message;
 }
+
+/** Owner/vault fields may live on owner, identityRecoveryReport, or identityProof — unify for Reports UI */
+export function resolveInvestigationOwner(report: StoredInvestigationReport): {
+  ownerName: string | null;
+  ownerPinitId: string | null;
+  vaultId: string | null;
+  originalFilename: string | null;
+  dnaRecordId: string | null;
+} {
+  const recovery = report.identityRecoveryReport;
+  const proof = (report as {
+    identityProof?: { ownerPinitId?: string; vaultId?: string; dnaRecordId?: string };
+    manifest?: { owner?: { ownerName?: string | null; ownerPinitId?: string | null }; vault?: { vaultId?: string | null; originalFilename?: string | null } };
+  }).identityProof;
+  const manifest = (report as { manifest?: { owner?: { ownerName?: string | null; ownerPinitId?: string | null }; vault?: { vaultId?: string | null; originalFilename?: string | null } } }).manifest;
+
+  return {
+    ownerName: report.owner?.ownerName ?? recovery?.originalOwner ?? manifest?.owner?.ownerName ?? null,
+    ownerPinitId: report.owner?.ownerPinitId ?? recovery?.ownerPinitId ?? proof?.ownerPinitId ?? manifest?.owner?.ownerPinitId ?? null,
+    vaultId: report.owner?.vaultId ?? recovery?.vaultId ?? proof?.vaultId ?? manifest?.vault?.vaultId ?? null,
+    originalFilename: report.owner?.originalFilename ?? recovery?.originalFilename ?? manifest?.vault?.originalFilename ?? null,
+    dnaRecordId: report.owner?.dnaRecordId ?? recovery?.dnaRecordId ?? proof?.dnaRecordId ?? null,
+  };
+}
+
+export function investigationListSubtitle(report: StoredInvestigationReport, filename: string): string {
+  const msg = investigationDisplayMessage(report);
+  if (msg) return msg;
+  const o = resolveInvestigationOwner(report);
+  if (o.ownerPinitId || o.vaultId) {
+    const parts = [
+      o.ownerPinitId ? `Owner ${o.ownerPinitId}` : null,
+      o.vaultId ? `Vault ${o.vaultId.slice(0, 8)}…` : null,
+      o.originalFilename ? `Original: ${o.originalFilename}` : null,
+    ].filter(Boolean);
+    return parts.join(' · ');
+  }
+  const risk = report.summary?.riskLevel;
+  const tamper = report.summary?.tamperSeverity;
+  if (risk && risk !== 'UNKNOWN') return `Risk: ${risk} · Tamper: ${tamper ?? '—'}`;
+  return `Investigated: ${filename}`;
+}

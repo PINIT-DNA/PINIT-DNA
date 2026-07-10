@@ -111,6 +111,64 @@ export function getForensicReportCount(): number {
   return readRaw().length;
 }
 
+/** Preserve live SSE owner/vault fields when final API report omits them (enrichment timeout). */
+export function mergeLiveSnapshotIntoReport(
+  report: StoredInvestigationReport,
+  snapshot: {
+    ownerName?: string;
+    ownerPinitId?: string;
+    vaultId?: string;
+    dnaRecordId?: string;
+    originalFilename?: string;
+    confidence?: number;
+    dnaMatchPercent?: number;
+  } | null,
+): StoredInvestigationReport {
+  if (!snapshot) return report;
+  const merged: StoredInvestigationReport = {
+    ...report,
+    owner: { ...(report.owner ?? {}) },
+    summary: { ...(report.summary ?? {}) },
+    identityRecoveryReport: report.identityRecoveryReport
+      ? { ...report.identityRecoveryReport }
+      : undefined,
+  };
+
+  const owner = merged.owner ?? {};
+  if (!owner.ownerName && snapshot.ownerName) owner.ownerName = snapshot.ownerName;
+  if (!owner.ownerPinitId && snapshot.ownerPinitId) owner.ownerPinitId = snapshot.ownerPinitId;
+  if (!owner.vaultId && snapshot.vaultId) owner.vaultId = snapshot.vaultId;
+  if (!owner.dnaRecordId && snapshot.dnaRecordId) owner.dnaRecordId = snapshot.dnaRecordId;
+  if (!owner.originalFilename && snapshot.originalFilename) owner.originalFilename = snapshot.originalFilename;
+  merged.owner = owner;
+
+  const liveConf = snapshot.dnaMatchPercent ?? snapshot.confidence;
+  if (liveConf != null) {
+    const summary = merged.summary ?? {};
+    if (!summary.retrievalConfidence || summary.retrievalConfidence < liveConf) {
+      summary.retrievalConfidence = Math.round(liveConf);
+    }
+    if (!summary.ownershipConfidence || summary.ownershipConfidence < liveConf) {
+      summary.ownershipConfidence = Math.round(liveConf);
+    }
+    merged.summary = summary;
+  }
+
+  if (snapshot.ownerPinitId || snapshot.vaultId) {
+    const recovery = merged.identityRecoveryReport ?? {};
+    merged.identityRecoveryReport = {
+      ...recovery,
+      originalOwner: recovery.originalOwner ?? snapshot.ownerName ?? null,
+      ownerPinitId: recovery.ownerPinitId ?? snapshot.ownerPinitId ?? null,
+      vaultId: recovery.vaultId ?? snapshot.vaultId,
+      dnaRecordId: recovery.dnaRecordId ?? snapshot.dnaRecordId,
+      originalFilename: recovery.originalFilename ?? snapshot.originalFilename,
+    };
+  }
+
+  return merged;
+}
+
 export function saveComparisonReport(result: ComparisonResult): void {
   const existing = readRaw().filter(r => r.id !== result.comparisonId);
   const entry: StoredForensicReport = {

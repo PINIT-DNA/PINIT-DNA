@@ -1,17 +1,21 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 
 const Header = () => null;
 import { UploadZone } from './components/UploadZone';
 import { EncryptionStep } from './components/EncryptionStep';
 import { VaultStep } from './components/VaultStep';
+import { ProtectReadyStep, type ProtectReadyResult } from './components/ProtectReadyStep';
 import { SuccessPanel } from './components/SuccessPanel';
+import { GenerationProgress } from './components/GenerationProgress';
 
 import { generateDna } from './services/api';
 import type { AppStage, DnaSession, EncryptionResult, VaultStoreResponse } from './types';
 
+type FlowStage = AppStage | 'vaulting' | 'readying';
+
 export default function App() {
-  const [stage, setStage] = useState<AppStage | 'vaulting'>('idle');
+  const [stage, setStage] = useState<FlowStage>('idle');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [session, setSession] = useState<DnaSession | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -22,6 +26,13 @@ export default function App() {
     riskLevel?: string;
     ownerShortId?: string;
   } | null>(null);
+
+  // Revoke blob URL on reset / unmount
+  useEffect(() => {
+    return () => {
+      if (session?.protectedBlobUrl) URL.revokeObjectURL(session.protectedBlobUrl);
+    };
+  }, [session?.protectedBlobUrl]);
 
   const handleGenerate = useCallback(async () => {
     if (!selectedFile) return;
@@ -73,20 +84,50 @@ export default function App() {
 
   const handleVaultComplete = useCallback((vault: VaultStoreResponse) => {
     setSession((prev) => (prev ? { ...prev, vault } : prev));
-    setTimeout(() => setStage('success'), 400);
+    setTimeout(() => setStage('readying'), 400);
   }, []);
 
   const handleVaultError = useCallback(() => {
     setTimeout(() => setStage('success'), 400);
   }, []);
 
+  const handleProtectReady = useCallback((result: ProtectReadyResult) => {
+    const url = URL.createObjectURL(result.blob);
+    setSession((prev) => {
+      if (prev?.protectedBlobUrl) URL.revokeObjectURL(prev.protectedBlobUrl);
+      return prev
+        ? {
+            ...prev,
+            downloadReady: true,
+            tepCode: result.tepCode,
+            protectedBlobUrl: url,
+          }
+        : prev;
+    });
+    setTimeout(() => setStage('success'), 350);
+  }, []);
+
+  const handleProtectReadyError = useCallback(() => {
+    setSession((prev) => (prev ? { ...prev, downloadReady: !!prev.vault?.vaultId } : prev));
+    setTimeout(() => setStage('success'), 350);
+  }, []);
+
   const handleReset = () => {
+    setSession((prev) => {
+      if (prev?.protectedBlobUrl) URL.revokeObjectURL(prev.protectedBlobUrl);
+      return null;
+    });
     setStage('idle');
     setSelectedFile(null);
-    setSession(null);
     setError(null);
     setDuplicateInfo(null);
   };
+
+  const isWorking =
+    stage === 'processing'
+    || stage === 'encrypting'
+    || stage === 'vaulting'
+    || stage === 'readying';
 
   return (
     <div className="min-h-screen flex flex-col bg-bg-base">
@@ -100,15 +141,18 @@ export default function App() {
                 <motion.div
                   initial={{ opacity: 0, y: -8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="mb-5 flex justify-center"
+                  className="mb-5 max-w-lg mx-auto px-4"
                 >
-                  <button
-                    type="button"
-                    onClick={() => { setError(null); setDuplicateInfo(null); }}
-                    className="btn btn-secondary"
-                  >
-                    {duplicateInfo ? 'Different File' : 'Retry'}
-                  </button>
+                  <div className="rounded-xl border border-danger/30 bg-danger/5 p-4 text-center">
+                    <p className="text-sm text-danger font-medium mb-3">{error}</p>
+                    <button
+                      type="button"
+                      onClick={() => { setError(null); setDuplicateInfo(null); }}
+                      className="btn btn-secondary"
+                    >
+                      {duplicateInfo ? 'Different File' : 'Retry'}
+                    </button>
+                  </div>
                 </motion.div>
               )}
               <UploadZone
@@ -119,15 +163,20 @@ export default function App() {
             </motion.div>
           )}
 
-          {(stage === 'processing' || stage === 'encrypting' || stage === 'vaulting') && (
+          {isWorking && (
             <motion.div
               key="processing"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="flex items-center justify-center min-h-[320px]"
             >
-              <div className="w-12 h-12 border-2 border-dna-500 border-t-transparent rounded-full animate-spin" />
+              <GenerationProgress
+                phase={stage as 'processing' | 'encrypting' | 'vaulting' | 'readying'}
+                fileName={selectedFile?.name ?? session?.filename}
+                fileSizeBytes={selectedFile?.size ?? session?.fileSizeBytes}
+                mimeType={selectedFile?.type ?? session?.mimeType}
+                dnaRecordId={session?.dnaRecordId}
+              />
               {stage === 'encrypting' && session && (
                 <div className="sr-only" aria-hidden>
                   <EncryptionStep dnaRecordId={session.dnaRecordId} onComplete={handleEncryptionComplete} />
@@ -140,6 +189,15 @@ export default function App() {
                     dnaRecordId={session.dnaRecordId}
                     onComplete={handleVaultComplete}
                     onError={handleVaultError}
+                  />
+                </div>
+              )}
+              {stage === 'readying' && session?.vault?.vaultId && (
+                <div className="sr-only" aria-hidden>
+                  <ProtectReadyStep
+                    vaultId={session.vault.vaultId}
+                    onComplete={handleProtectReady}
+                    onError={handleProtectReadyError}
                   />
                 </div>
               )}

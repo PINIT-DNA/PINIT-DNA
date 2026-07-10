@@ -227,7 +227,7 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
                 <span className="mono text-xs text-gray-400">{selectedFile.type || 'unknown'}</span>
               </div>
               <p className="text-gray-500 text-xs mt-3">
-                DNA not generated yet — click the button below to run all 15 layers.
+                Not protected yet — click below to create identity and store this file.
               </p>
               <button
                 type="button"
@@ -248,7 +248,7 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
           className="mt-6 flex justify-center"
         >
           <button type="button" onClick={onGenerate} className="btn-primary text-base px-10 py-4">
-            <span>Generate DNA Fingerprint</span>
+            <span>Protect This File</span>
             <span className="text-lg">→</span>
           </button>
         </motion.div>

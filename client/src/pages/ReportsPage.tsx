@@ -18,9 +18,11 @@ import {
 import {
   investigationDisplayMessage,
   investigationDisplayScore,
+  investigationListSubtitle,
   investigationScoreLabel,
   investigationVerdictColor,
   investigationVerdictLabel,
+  resolveInvestigationOwner,
 } from '../lib/forensic-report-display';
 import { downloadInvestigationReportPdf, type InvestigationReportExport } from '../services/investigation-report-export';
 import toast from 'react-hot-toast';
@@ -189,7 +191,7 @@ function InvestigationDetailModal({
   const layers = (report as { layerAnalysis?: Array<{ layer: number; name: string; matchPercent: number; status: string; explanation: string }> }).layerAnalysis ?? [];
   const timeline = report.timeline ?? [];
   const evidenceTimeline = report.evidenceTimeline ?? [];
-  const recovery = report.identityRecoveryReport;
+  const ownerFields = resolveInvestigationOwner(report);
   const dnaPct = report.summary?.dnaMatchPercent;
 
   return (
@@ -245,19 +247,20 @@ function InvestigationDetailModal({
         <div className="bg-bg-elevated rounded-lg p-3">
           <p className="text-2xs text-gray-500 mb-1">Investigated File</p>
           <p className="text-sm font-medium text-white truncate">{filename}</p>
-          {(report.owner?.ownerPinitId || recovery?.ownerPinitId) && (
+          {(ownerFields.ownerPinitId || ownerFields.ownerName) && (
             <p className="text-xs text-gray-400 mt-1 mono">
-              Owner: {report.owner?.ownerPinitId ?? recovery?.ownerPinitId}
+              Owner: {ownerFields.ownerName ?? ownerFields.ownerPinitId}
+              {ownerFields.ownerName && ownerFields.ownerPinitId ? ` (${ownerFields.ownerPinitId})` : ''}
             </p>
           )}
-          {(report.owner?.vaultId || recovery?.vaultId) && (
+          {ownerFields.vaultId && (
             <p className="text-2xs text-gray-500 mt-1 mono truncate">
-              Vault: {report.owner?.vaultId ?? recovery?.vaultId}
+              Vault: {ownerFields.vaultId}
             </p>
           )}
-          {(report.owner?.originalFilename || recovery?.originalFilename) && (
+          {ownerFields.originalFilename && (
             <p className="text-2xs text-gray-500 mt-0.5 truncate">
-              Original: {report.owner?.originalFilename ?? recovery?.originalFilename}
+              Original: {ownerFields.originalFilename}
             </p>
           )}
         </div>
@@ -435,8 +438,8 @@ export function ReportsPage() {
                 const r = entry.data;
                 const verdict = investigationVerdictLabel(r);
                 const score = investigationDisplayScore(r);
-                const subtitle = investigationDisplayMessage(r)
-                  ?? `Risk: ${r.summary?.riskLevel ?? '—'} · Tamper: ${r.summary?.tamperSeverity ?? '—'}`;
+                const subtitle = investigationListSubtitle(r, entry.filename);
+                const o = resolveInvestigationOwner(r);
                 return (
                   <div
                     key={entry.id}
@@ -455,7 +458,12 @@ export function ReportsPage() {
                           </span>
                         </div>
                         <p className="text-sm text-gray-300 truncate">{entry.filename}</p>
-                        <p className="text-xs text-gray-500 mt-1.5 line-clamp-1">
+                        {(o.ownerPinitId || o.vaultId) && (
+                          <p className="text-2xs text-dna-400 mono mt-0.5 truncate">
+                            {[o.ownerPinitId, o.vaultId ? `Vault ${o.vaultId.slice(0, 8)}…` : null].filter(Boolean).join(' · ')}
+                          </p>
+                        )}
+                        <p className="text-xs text-gray-500 mt-1.5 line-clamp-2">
                           {subtitle}
                         </p>
                       </div>

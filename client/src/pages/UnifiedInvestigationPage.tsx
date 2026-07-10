@@ -19,7 +19,7 @@ import {
   downloadAdvancedExportJson,
   type InvestigationReportExport,
 } from '../services/investigation-report-export';
-import { saveInvestigationReport, type StoredInvestigationReport } from '../lib/forensic-reports-storage';
+import { saveInvestigationReport, mergeLiveSnapshotIntoReport, type StoredInvestigationReport } from '../lib/forensic-reports-storage';
 import {
   investigationSummaryScore,
 } from '../lib/forensic-report-display';
@@ -306,6 +306,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
   const [error, setError] = useState<string | null>(null);
   const [captureProcessing, setCaptureProcessing] = useState(false);
   const [liveSnapshot, setLiveSnapshot] = useState<InvestigationLiveSnapshot | null>(null);
+  const liveSnapshotRef = useRef<InvestigationLiveSnapshot | null>(null);
   const [scannerKey, setScannerKey] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const reportRef = useRef<HTMLDivElement>(null);
@@ -347,23 +348,29 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
     setError(null);
     setReport(null);
     setLiveSnapshot(null);
+    liveSnapshotRef.current = null;
 
     try {
       const { report: r } = await unifiedInvestigateStream(f, (event) => {
-        if (event.snapshot) setLiveSnapshot(event.snapshot);
+        if (event.snapshot) {
+          setLiveSnapshot(event.snapshot);
+          liveSnapshotRef.current = event.snapshot;
+        }
       }, { admin: adminMode });
       const investigation = r as unknown as InvestigationReport;
       setReport(investigation);
-      saveInvestigationReport(
+      const toStore = mergeLiveSnapshotIntoReport(
         investigation as unknown as StoredInvestigationReport,
-        f.name,
+        liveSnapshotRef.current,
       );
+      saveInvestigationReport(toStore, f.name);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Investigation failed';
       setError(msg);
     } finally {
       setLoading(false);
       setLiveSnapshot(null);
+      liveSnapshotRef.current = null;
     }
   }, [adminMode]);
 

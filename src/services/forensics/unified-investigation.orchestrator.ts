@@ -778,7 +778,17 @@ export class UnifiedInvestigationOrchestrator {
       ?? leakVerify.accessHistory
       ?? [];
     const vaultRow = enrichment.results.vault_row?.data as { originalFileName: string } | null;
-    const owner = enrichment.results.owner?.data as { fullName: string; shortId: string; email: string | null } | null;
+    let owner = enrichment.results.owner?.data as { fullName: string; shortId: string; email: string | null } | null;
+    if (!owner && match.ownerUserId) {
+      try {
+        owner = await prisma.user.findUnique({
+          where: { id: match.ownerUserId },
+          select: { fullName: true, shortId: true, email: true },
+        });
+      } catch {
+        /* non-fatal */
+      }
+    }
     const leakIntel = enrichment.results.leak_intelligence?.data as LeakIntelligenceSection | null
       ?? { hasPublicLeak: false, entries: [], message: 'Leak intelligence unavailable.' };
     const dnaRec = dnaPrefetch;
@@ -1092,7 +1102,7 @@ export class UnifiedInvestigationOrchestrator {
       summary,
       message: reportMessage,
       owner: {
-        ownerName: owner?.fullName ?? null,
+        ownerName: owner?.fullName ?? owner?.shortId ?? authAsset?.ownerPinitId ?? null,
         ownerPinitId: authAsset?.ownerPinitId ?? owner?.shortId ?? null,
         vaultId: match.vaultId,
         dnaRecordId: match.dnaRecordId,
@@ -1330,7 +1340,7 @@ export class UnifiedInvestigationOrchestrator {
 
     return {
       recovered: ownershipConf >= 50,
-      originalOwner: owner?.fullName ?? null,
+      originalOwner: owner?.fullName ?? owner?.shortId ?? null,
       ownerPinitId: owner?.shortId ?? null,
       vaultId: match.vaultId,
       dnaRecordId: match.dnaRecordId,

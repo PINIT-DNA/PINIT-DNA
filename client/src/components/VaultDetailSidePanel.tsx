@@ -13,7 +13,6 @@ import {
   Eye,
   Trash2,
   RefreshCw,
-  Clock,
   Users,
   ChevronRight,
 } from 'lucide-react';
@@ -27,7 +26,7 @@ import {
   resolveVaultFileMime,
 } from '../lib/file-type-utils';
 import { API_BASE_URL } from '../config/api.config';
-import { api, retrieveFromVault } from '../services/dashboard.api';
+import { api, retrieveFromVault, getVaultTracking, protectedDownloadFromVault, type VaultTrackingDashboard } from '../services/dashboard.api';
 import { useAuth } from '../context/AuthContext';
 import type { VaultRecord } from '../types/dashboard.types';
 
@@ -108,14 +107,31 @@ export function VaultDetailSidePanel({
   const [tab, setTab] = useState<PanelTab>('overview');
   const [links, setLinks] = useState<VaultShareLink[]>([]);
   const [loadingLinks, setLoadingLinks] = useState(true);
+  const [tracking, setTracking] = useState<VaultTrackingDashboard | null>(null);
+  const [loadingTracking, setLoadingTracking] = useState(true);
   const [retrieving, setRetrieving] = useState(false);
+  const [protectDownloading, setProtectDownloading] = useState(false);
+  const [copiedTep, setCopiedTep] = useState<string | null>(null);
+
+  const refreshTracking = async () => {
+    try {
+      const t = await getVaultTracking(record.id);
+      setTracking(t);
+    } catch {
+      /* keep previous */
+    }
+  };
 
   const fileType = getVaultFileTypeDisplay(record.originalMimeType, record.originalFileName);
   const resolvedMime = resolveVaultFileMime(undefined, record.originalMimeType, record.originalFileName);
+  const tepPackages = tracking?.tepPackages ?? [];
+  const latestTep = tepPackages[0] ?? null;
 
   useEffect(() => {
     setTab('overview');
     setLoadingLinks(true);
+    setLoadingTracking(true);
+    setTracking(null);
     void (async () => {
       try {
         const r = await api.get(`${API_BASE_URL}/share/vault/${record.id}`);
@@ -127,13 +143,59 @@ export function VaultDetailSidePanel({
         setLoadingLinks(false);
       }
     })();
+    void (async () => {
+      try {
+        const t = await getVaultTracking(record.id);
+        setTracking(t);
+      } catch {
+        setTracking(null);
+      } finally {
+        setLoadingTracking(false);
+      }
+    })();
   }, [record.id]);
+
+  const copyTep = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopiedTep(code);
+      setTimeout(() => setCopiedTep(null), 1600);
+      toast.success('Tracking code copied');
+    } catch {
+      toast.error('Could not copy');
+    }
+  };
 
   const activeLinks = links.filter((l) => l.isActive);
   const totalViews = links.reduce((s, l) => s + (l.viewCount ?? 0), 0);
   const accessEvents = links.flatMap((l) => l.accessLogs ?? []);
 
-  const handleDownload = async () => {
+  /** Protected tracked download — embeds identity for later investigation */
+  const handleProtectedDownload = async () => {
+    setProtectDownloading(true);
+    try {
+      const { blob, tepCode } = await protectedDownloadFromVault(record.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = record.originalFileName;
+      a.click();
+      URL.revokeObjectURL(url);
+      await refreshTracking();
+      toast.success(
+        tepCode
+          ? `Protected file downloaded — tracking code ${tepCode}`
+          : 'Protected file downloaded',
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Protected download failed');
+    } finally {
+      setProtectDownloading(false);
+    }
+  };
+
+  /** Plain vault retrieve — only for owner backup (no tracking embed) */
+  const handleDownloadOriginal = async () => {
     setRetrieving(true);
     try {
       const blob = await retrieveFromVault(record.id);
@@ -143,7 +205,7 @@ export function VaultDetailSidePanel({
       a.download = record.originalFileName;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success('File downloaded');
+      toast.success('Original retrieved (not tracked for sharing)');
     } catch {
       toast.error('Failed to retrieve file');
     } finally {
@@ -256,6 +318,86 @@ export function VaultDetailSidePanel({
               </section>
               <section>
                 <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                  Protected Downloads
+                </h3>
+                {loadingTracking ? (
+                  <div className="flex justify-center py-4">
+                    <RefreshCw size={16} className="animate-spin text-gray-500" />
+                  </div>
+                ) : tepPackages.length === 0 ? (
+                  <div className="rounded-lg border border-bg-border bg-bg-elevated p-3 space-y-2">
+                    <p className="text-xs text-gray-400">
+                      No tracked download yet. Use Download Protected to create a tracking code for sharing.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleProtectedDownload}
+                      disabled={protectDownloading}
+                      className="text-2xs text-dna-400 hover:text-white font-semibold disabled:opacity-50"
+                    >
+                      {protectDownloading ? 'Preparing…' : 'Download Protected →'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {latestTep && (
+                      <div className="rounded-lg border border-dna-500/25 bg-dna-500/5 p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-2xs text-gray-500">Latest tracking code</p>
+                          <Badge variant={latestTep.status === 'ACTIVE' || latestTep.status === 'active' ? 'success' : 'muted'}>
+                            {latestTep.status}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-bold text-dna-400 mono flex-1 truncate">{latestTep.tepCode}</p>
+                          <button
+                            type="button"
+                            onClick={() => copyTep(latestTep.tepCode)}
+                            className="text-2xs text-gray-400 hover:text-white shrink-0"
+                          >
+                            {copiedTep === latestTep.tepCode ? 'Copied' : 'Copy'}
+                          </button>
+                        </div>
+                        <p className="text-2xs text-gray-500">
+                          {format(new Date(latestTep.createdAt), 'MMM d, yyyy · h:mm a')}
+                          {latestTep.geoCity || latestTep.geoCountry
+                            ? ` · ${[latestTep.geoCity, latestTep.geoCountry].filter(Boolean).join(', ')}`
+                            : ''}
+                        </p>
+                      </div>
+                    )}
+                    {tepPackages.length > 1 && (
+                      <p className="text-2xs text-gray-500">
+                        {tepPackages.length} tracked downloads total
+                      </p>
+                    )}
+                    <div className="max-h-36 overflow-y-auto space-y-1.5">
+                      {tepPackages.slice(0, 8).map((t) => (
+                        <div
+                          key={t.tepCode}
+                          className="flex items-center justify-between gap-2 rounded-lg bg-bg-elevated px-2.5 py-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-2xs mono text-white truncate">{t.tepCode}</p>
+                            <p className="text-2xs text-gray-500">
+                              {format(new Date(t.createdAt), 'MMM d · HH:mm')} · {t.status}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => copyTep(t.tepCode)}
+                            className="text-2xs text-dna-400 shrink-0"
+                          >
+                            {copiedTep === t.tepCode ? '✓' : 'Copy'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
+              <section>
+                <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                   Chain of Custody
                 </h3>
                 <dl className="space-y-2 text-xs">
@@ -349,7 +491,7 @@ export function VaultDetailSidePanel({
                 {[
                   { icon: <Users size={12} />, label: 'Views', value: totalViews },
                   { icon: <Share2 size={12} />, label: 'Links', value: activeLinks.length },
-                  { icon: <Clock size={12} />, label: 'Events', value: accessEvents.length },
+                  { icon: <ShieldCheck size={12} />, label: 'TEP', value: tepPackages.length },
                 ].map((s) => (
                   <div key={s.label} className="rounded-lg bg-bg-elevated p-2">
                     <p className="text-lg font-bold text-white">{s.value}</p>
@@ -357,6 +499,20 @@ export function VaultDetailSidePanel({
                   </div>
                 ))}
               </div>
+              {tepPackages.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">Tracking codes</p>
+                  {tepPackages.slice(0, 5).map((t) => (
+                    <div key={t.tepCode} className="rounded-lg bg-bg-elevated p-2 flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-2xs mono text-dna-400 truncate">{t.tepCode}</p>
+                        <p className="text-2xs text-gray-500">{format(new Date(t.createdAt), 'MMM d · HH:mm')}</p>
+                      </div>
+                      <Badge variant="muted">{t.status}</Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
               {loadingLinks ? (
                 <div className="flex justify-center py-6">
                   <RefreshCw size={18} className="animate-spin text-gray-500" />
@@ -392,14 +548,18 @@ export function VaultDetailSidePanel({
         <div className="p-4 border-t border-bg-border space-y-3">
           <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">Quick Actions</h3>
           <div className="grid grid-cols-2 gap-2">
+            <QuickAction
+              icon={protectDownloading ? <RefreshCw size={18} className="animate-spin" /> : <Download size={18} />}
+              label="Download Protected"
+              onClick={handleProtectedDownload}
+            />
+            <QuickAction icon={<Share2 size={18} />} label="Share Secure Link" onClick={onShare} />
             <QuickAction icon={<Activity size={18} />} label="Access Intelligence" onClick={handleAccessIntelligence} />
             <QuickAction icon={<FileSearch size={18} />} label="Intelligence Report" onClick={() => navigate(`/intelligence/${record.id}`)} />
-            <QuickAction icon={<ShieldCheck size={18} />} label="Protect Download" onClick={onProtect} />
-            <QuickAction icon={<Share2 size={18} />} label="Share Secure Link" onClick={onShare} />
             <QuickAction
-              icon={retrieving ? <RefreshCw size={18} className="animate-spin" /> : <Download size={18} />}
-              label="Download Original"
-              onClick={handleDownload}
+              icon={retrieving ? <RefreshCw size={18} className="animate-spin" /> : <ShieldCheck size={18} />}
+              label="Owner Backup"
+              onClick={handleDownloadOriginal}
             />
             <QuickAction icon={<Eye size={18} />} label="View in Timeline" onClick={() => navigate('/timeline')} />
           </div>
