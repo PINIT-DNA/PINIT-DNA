@@ -20,6 +20,7 @@ import { aiService }   from '../ai/ai-embeddings.service';
 import { imageMonitoringService } from './image-monitoring.service';
 import type { ImageMonitoringSummary } from './image-monitoring.service';
 import {
+  buildYouTubeWatchUrl,
   extractYouTubeVideoId,
   filenameSearchQueries,
   getYouTubeVideo,
@@ -578,12 +579,23 @@ export class MonitoringService {
       : MATCH.NONE;
     if (matchType === MATCH.NONE) return;
 
+    const videoId = typeof meta.videoId === 'string'
+      ? meta.videoId
+      : extractYouTubeVideoId(url);
+    const canonicalUrl = videoId ? buildYouTubeWatchUrl(videoId) : url;
+    const enrichedMeta = {
+      ...meta,
+      videoId: videoId ?? meta.videoId,
+      pageUrl: canonicalUrl,
+      platform: meta.source ?? 'YOUTUBE',
+    };
+
     await prisma.crawlResult.create({
       data: {
         monitorRecordId,
-        url: url.slice(0, 1000),
+        url: canonicalUrl.slice(0, 1000),
         pageTitle: title.slice(0, 200),
-        foundText: JSON.stringify({ ...meta, snippet: text.slice(0, 500) }),
+        foundText: JSON.stringify({ ...enrichedMeta, snippet: text.slice(0, 500) }),
         textLength: text.length,
         similarity,
         matchType,

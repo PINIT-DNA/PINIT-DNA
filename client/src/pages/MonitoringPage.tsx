@@ -20,7 +20,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { Modal } from '../components/ui/Modal';
 import { cn } from '../components/ui/utils';
-import { resolveAlertUrl } from '../lib/crawler-url';
+import { resolveAlertUrl, resolveAlertSubtitle } from '../lib/crawler-url';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -112,6 +112,7 @@ function AlertCard({ alert, onDismiss, onConfirm }: {
   const cfg = MATCH_CONFIG[alert.matchType] ?? MATCH_CONFIG['POSSIBLE_MATCH'];
   const pct = Math.round(alert.similarity * 100);
   const linkUrl = resolveAlertUrl(alert);
+  const subtitle = resolveAlertSubtitle(alert);
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
       className={cn('card border transition-all', cfg.bg, cfg.border)}>
@@ -130,19 +131,16 @@ function AlertCard({ alert, onDismiss, onConfirm }: {
           {alert.monitorRecord && (
             <p className="text-xs font-semibold text-white mb-1">{alert.monitorRecord.filename}</p>
           )}
-          <p className="text-xs text-gray-400 truncate mb-1">{alert.pageTitle || 'No title'}</p>
+          <p className="text-xs text-gray-400 truncate mb-1">{subtitle || 'No title'}</p>
           {linkUrl ? (
             <a href={linkUrl} target="_blank" rel="noreferrer"
-              className="text-2xs text-dna-400 hover:underline truncate block mono">
-              {linkUrl.slice(0, 80)}{linkUrl.length > 80 ? '…' : ''}
+              className="text-2xs text-dna-400 hover:underline truncate block mono font-semibold">
+              {linkUrl}
             </a>
           ) : (
             <p className="text-2xs text-gray-500 italic">
               Source page unavailable (search tracker URL — dismiss or re-scan)
             </p>
-          )}
-          {alert.foundText && (
-            <p className="text-2xs text-gray-500 mt-2 line-clamp-2">{alert.foundText.slice(0, 150)}</p>
           )}
           <p className="text-2xs text-gray-600 mt-1">
             Found {format(new Date(alert.checkedAt), 'MMM d, HH:mm')}
@@ -249,12 +247,26 @@ function MonitorCard({ m, onCheck, onPause, onResume, onScanTypeChange, checking
           {/* Recent matches */}
           {m.crawlResults.length > 0 && (
             <div className="mt-2 space-y-1">
-              {m.crawlResults.slice(0, 2).map(r => {
+              <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wide">Discovered URLs</p>
+              {m.crawlResults.slice(0, 3).map(r => {
                 const mc = MATCH_CONFIG[r.matchType] ?? MATCH_CONFIG['POSSIBLE_MATCH'];
+                const linkUrl = resolveAlertUrl(r);
                 return (
-                  <div key={r.id} className="flex items-center gap-2 bg-bg-elevated rounded p-1.5">
+                  <div key={r.id} className="flex items-center gap-2 bg-bg-elevated rounded p-1.5 min-w-0">
                     <Globe size={10} className="text-gray-500 shrink-0" />
-                    <span className="text-2xs text-gray-400 truncate flex-1">{r.url.slice(0, 60)}…</span>
+                    {linkUrl ? (
+                      <a
+                        href={linkUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-2xs text-dna-400 hover:underline truncate flex-1 mono"
+                        title={linkUrl}
+                      >
+                        {linkUrl}
+                      </a>
+                    ) : (
+                      <span className="text-2xs text-gray-400 truncate flex-1">{r.url.slice(0, 60)}…</span>
+                    )}
                     <span className={cn('text-2xs font-bold shrink-0', mc.color)}>
                       {Math.round(r.similarity * 100)}%
                     </span>

@@ -23,15 +23,23 @@ export function extractYouTubeVideoId(raw: string): string | null {
     const url = new URL(raw.startsWith('http') ? raw : `https://${raw}`);
     const host = url.hostname.replace(/^www\./, '');
     if (host === 'youtu.be') {
-      return url.pathname.split('/').filter(Boolean)[0] ?? null;
+      const id = url.pathname.split('/').filter(Boolean)[0] ?? null;
+      return id ? decodeURIComponent(id) : null;
     }
     if (url.pathname.includes('/shorts/')) {
-      return url.pathname.split('/shorts/')[1]?.split(/[/?#]/)[0] ?? null;
+      const id = url.pathname.split('/shorts/')[1]?.split(/[/?#]/)[0] ?? null;
+      return id ? decodeURIComponent(id) : null;
     }
-    return url.searchParams.get('v');
+    const v = url.searchParams.get('v');
+    return v ? decodeURIComponent(v) : null;
   } catch {
     return null;
   }
+}
+
+/** Canonical watch URL — preserves leading `-` and other special chars in video IDs. */
+export function buildYouTubeWatchUrl(videoId: string): string {
+  return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
 }
 
 export function isYouTubeConfigured(): boolean {
@@ -61,7 +69,7 @@ export async function getYouTubeVideo(videoId: string): Promise<YouTubeVideoHit 
       title: item.snippet.title,
       description: item.snippet.description ?? '',
       channel: item.snippet.channelTitle,
-      url: `https://www.youtube.com/watch?v=${item.id}`,
+      url: buildYouTubeWatchUrl(item.id),
     };
   } catch {
     return null;
@@ -132,7 +140,7 @@ export async function searchYouTubeVideos(
           title: item.snippet.title,
           description: item.snippet.description ?? '',
           channel: item.snippet.channelTitle,
-          url: `https://www.youtube.com/watch?v=${videoId}`,
+          url: buildYouTubeWatchUrl(videoId),
         });
       }
     } catch {

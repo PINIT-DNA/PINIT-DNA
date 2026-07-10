@@ -4,6 +4,7 @@
 
 import { crawlerEngineConfig } from '../config';
 import {
+  buildYouTubeWatchUrl,
   extractYouTubeVideoId,
   filenameSearchQueries,
   getYouTubeVideo,
@@ -38,8 +39,8 @@ export class YouTubeConnector implements ICrawlerConnector {
       seen.add(videoId);
       assets.push({
         platform: 'YOUTUBE',
-        sourceUrl: `https://www.youtube.com/watch?v=${videoId}`,
-        assetUrl: `https://www.youtube.com/watch?v=${videoId}`,
+        sourceUrl: buildYouTubeWatchUrl(videoId),
+        assetUrl: buildYouTubeWatchUrl(videoId),
         assetType: 'video',
         title,
         description: description.slice(0, 300),
