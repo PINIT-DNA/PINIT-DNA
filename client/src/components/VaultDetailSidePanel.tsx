@@ -220,8 +220,36 @@ export function VaultDetailSidePanel({
     navigate('/access-intelligence');
   };
 
+  useEffect(() => {
+    const main = document.querySelector('main.mobile-main') as HTMLElement | null;
+    const isMobile = () => window.matchMedia('(max-width: 1023px)').matches;
+    if (!main || !isMobile()) return;
+    const prev = main.style.overflow;
+    main.style.overflow = 'hidden';
+    return () => {
+      main.style.overflow = prev;
+    };
+  }, []);
+
   return (
-    <aside className="w-full lg:w-[400px] xl:w-[420px] shrink-0 border-l border-bg-border bg-bg-card flex flex-col max-h-[calc(100vh-5rem)] sticky top-4">
+    <>
+      <button
+        type="button"
+        className="lg:hidden fixed inset-0 bg-black/50 z-40 animate-fade-in"
+        onClick={onClose}
+        aria-label="Close file details"
+      />
+      <aside
+        className={cn(
+          'flex flex-col bg-bg-card z-50',
+          'fixed inset-x-0 bottom-0 w-full max-h-[min(92dvh,900px)] rounded-t-2xl border-t border-bg-border shadow-2xl',
+          'lg:static lg:inset-auto lg:max-h-[calc(100vh-5rem)] lg:w-[400px] xl:w-[420px] lg:shrink-0',
+          'lg:border-l lg:border-t-0 lg:rounded-none lg:shadow-none lg:sticky lg:top-4',
+        )}
+      >
+        <div className="lg:hidden flex justify-center pt-2 pb-1 shrink-0" aria-hidden>
+          <div className="w-10 h-1 rounded-full bg-gray-600" />
+        </div>
       <div className="flex items-center justify-between px-4 py-3 border-b border-bg-border shrink-0">
         <p className="text-sm font-semibold text-white truncate pr-2">File Details</p>
         <button type="button" onClick={onClose} className="btn-ghost btn-icon text-gray-500 hover:text-white">
@@ -571,5 +599,6 @@ export function VaultDetailSidePanel({
         </div>
       </div>
     </aside>
+    </>
   );
 }
