@@ -44,6 +44,14 @@ services:
         value: 524288000
       - key: LOG_LEVEL
         value: info
+      - key: MONITORING_CRAWLER_ENABLED
+        value: "true"
+      - key: CRAWLER_ENGINE_ENABLED
+        value: "true"
+      - key: YOUTUBE_API_KEY
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
 
   - type: web
     name: pinit-dna-ai

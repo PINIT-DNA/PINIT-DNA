@@ -40,10 +40,12 @@ export const MATCH = {
   NONE:     'NO_MATCH',
 } as const;
 
-/** Off by default — enable when Bing/crawler is configured (MONITORING_CRAWLER_ENABLED=true). */
+/** On in production by default; set MONITORING_CRAWLER_ENABLED=false to disable. */
 export function isMonitoringCrawlerEnabled(): boolean {
   const v = (process.env['MONITORING_CRAWLER_ENABLED'] ?? '').trim().toLowerCase();
-  return v === '1' || v === 'true' || v === 'yes';
+  if (v === '0' || v === 'false' || v === 'no') return false;
+  if (v === '1' || v === 'true' || v === 'yes') return true;
+  return process.env['NODE_ENV'] === 'production';
 }
 
 export type MatchType = typeof MATCH[keyof typeof MATCH];

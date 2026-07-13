@@ -26,8 +26,12 @@ function optionalBool(key: string, fallback: boolean): boolean {
   return v === '1' || v === 'true' || v === 'yes';
 }
 
+function productionDefaultEnabled(): boolean {
+  return process.env['NODE_ENV'] === 'production';
+}
+
 export const crawlerEngineConfig = {
-  enabled: optionalBool('CRAWLER_ENGINE_ENABLED', false),
+  enabled: optionalBool('CRAWLER_ENGINE_ENABLED', productionDefaultEnabled()),
 
   /** Cron expression — default every hour */
   scheduleCron: optional('CRAWLER_SCHEDULE_CRON', '0 * * * *'),
