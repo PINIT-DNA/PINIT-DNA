@@ -14,7 +14,9 @@ import axios from 'axios';
 import { format } from 'date-fns';
 import { API_BASE_URL } from '../config/api.config';
 import { isValidMapCoordinate } from '../lib/geo-coords';
-import { captureBestGps, type GpsCapture } from '../lib/precise-gps';
+import {
+  captureBestGps, captureQuickGps, isGeolocationPermissionDenied, type GpsCapture,
+} from '../lib/precise-gps';
 import * as docxPreview from 'docx-preview';
 import { formatTextAsDocument, DOCUMENT_STYLES } from '../utils/document-formatter';
 
@@ -94,7 +96,11 @@ function getScreenResolution(): string {
   try { return `${screen.width}x${screen.height}`; } catch { return ''; }
 }
 
-function buildGpsPayload(gps: GpsCapture | null, requestLocation?: boolean) {
+function buildGpsPayload(
+  gps: GpsCapture | null,
+  requestLocation?: boolean,
+  locationAccepted?: boolean,
+) {
   if (gps && isValidMapCoordinate(gps.lat, gps.lng)) {
     return {
       gpsLat: gps.lat,
@@ -111,6 +117,10 @@ function buildGpsPayload(gps: GpsCapture | null, requestLocation?: boolean) {
       locationShared: true,
       locationSource: gps.locationSource === 'network' ? 'network' : 'gps',
     };
+  }
+  // User tapped Allow — proceed with IP-based geo on server; refine GPS in background
+  if (requestLocation && locationAccepted) {
+    return { locationShared: true, locationSource: 'ip' as const };
   }
   if (requestLocation) return { locationShared: false, locationSource: 'denied' as const };
   return {};
@@ -234,8 +244,9 @@ export function ShareViewerPage() {
       .then(() => setLoading(false), () => setLoading(false));
   }, [token]);
 
-  // ── High-accuracy GPS: watch until precise (or timeout), improve over Wi‑Fi guesses
+  // Background GPS refine — only when location not required OR after user passed the gate
   useEffect(() => {
+    if (info?.requestLocation && !locationDone) return;
     let cancelled = false;
     void (async () => {
       const best = await captureBestGps({ targetAccuracyM: 45, maxWaitMs: 28_000, minSamples: 1 });
@@ -246,7 +257,7 @@ export function ShareViewerPage() {
       });
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [info?.requestLocation, locationDone]);
 
   // Keep refining: if a better fix arrives after VIEWED, send LOCATION_UPDATE
   const viewedSentRef = useRef(false);
@@ -261,9 +272,9 @@ export function ShareViewerPage() {
       sessionId: getSessionId(),
       screenResolution: getScreenResolution(),
       deviceFingerprint: computeDeviceFingerprint(),
-      ...buildGpsPayload(gpsData, info?.requestLocation),
+      ...buildGpsPayload(gpsData, info?.requestLocation, locationDone),
     }).catch(() => {});
-  }, [gpsData?.lat, gpsData?.lng, gpsData?.accuracy, token, info?.requestLocation]);
+  }, [gpsData?.lat, gpsData?.lng, gpsData?.accuracy, token, info?.requestLocation, locationDone]);
 
   // ── Decide once that tracking can start (info loaded, name gate passed,
   //    link active at the moment of arrival). This flag is a one-way switch:
@@ -298,7 +309,7 @@ export function ShareViewerPage() {
         action, recipientName: nameRef.current || undefined,
         timezone: tz, sessionId: sid,
         screenResolution: screenRes, deviceFingerprint: fingerprint,
-        ...buildGpsPayload(gps, info?.requestLocation),
+        ...buildGpsPayload(gps, info?.requestLocation, locationDone || !info?.requestLocation),
         ...extra,
       }).then((res) => {
         const data = res.data as { redirectToken?: string; grandchildToken?: string };
@@ -342,9 +353,8 @@ export function ShareViewerPage() {
       }
     } catch { /* ignore */ }
     const wantsPreciseGps = Boolean(info?.requestLocation);
-    const GPS_WAIT_MS = isHopLanding
-      ? (wantsPreciseGps ? 8_000 : 3_000)
-      : (wantsPreciseGps ? 22_000 : 8_000);
+    // Show file quickly after Allow — GPS refines via LOCATION_UPDATE in background
+    const GPS_WAIT_MS = isHopLanding ? 2_000 : wantsPreciseGps ? 3_000 : 5_000;
     const GOOD_ACCURACY_M = 60;
     if (gpsDataRef.current && gpsDataRef.current.accuracy <= GOOD_ACCURACY_M) {
       sendViewed();
@@ -534,7 +544,7 @@ export function ShareViewerPage() {
         sessionId: getSessionId(),
         screenResolution: getScreenResolution(),
         deviceFingerprint: computeDeviceFingerprint(),
-        ...buildGpsPayload(gpsDataRef.current, info?.requestLocation),
+        ...buildGpsPayload(gpsDataRef.current, info?.requestLocation, locationDone || !info?.requestLocation),
       }).catch(() => {});
     } catch {
       alert('Download failed. The file may have been removed.');
@@ -838,19 +848,37 @@ export function ShareViewerPage() {
   if (info.requestLocation && !locationDone) {
     const handleAllow = () => {
       if (!navigator.geolocation) {
-        setLocationDone(true); // browser doesn't support it — skip
+        setLocationDone(true);
         return;
       }
       setLocationAsked(true);
-      void (async () => {
-        const best = await captureBestGps({ targetAccuracyM: 40, maxWaitMs: 30_000, minSamples: 1 });
-        if (!best) {
-          setLocationDenied(true);
-          return;
-        }
-        setGpsData(best);
-        setLocationDone(true);
-      })();
+
+      // Try quick fix first (~3s). Only hard-block if user explicitly denies in browser.
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+          setGpsData({
+            lat,
+            lng,
+            accuracy,
+            timestamp: new Date(pos.timestamp).toISOString(),
+            locationSource: accuracy <= 75 ? 'gps' : 'network',
+          });
+          setLocationDone(true);
+          void captureQuickGps(8_000).then((quick) => {
+            if (quick) setGpsData(quick);
+          });
+        },
+        (err) => {
+          if (isGeolocationPermissionDenied(err)) {
+            setLocationDenied(true);
+            return;
+          }
+          // Timeout / unavailable (common on laptop Wi‑Fi) — still open file; IP geo on server
+          setLocationDone(true);
+        },
+        { enableHighAccuracy: true, maximumAge: 120_000, timeout: 3_500 },
+      );
     };
 
     return (
@@ -865,7 +893,7 @@ export function ShareViewerPage() {
               The owner of this document has requested your location for audit purposes.
             </p>
             <p className="text-gray-500 text-xs mt-1">
-              Location sharing is <strong className="text-white">required</strong> to view this document.
+              Tap Allow — your file opens right away. GPS refines in the background.
             </p>
           </div>
           <div className="card space-y-3">
@@ -882,18 +910,18 @@ export function ShareViewerPage() {
               className="btn btn-primary w-full"
             >
               {locationAsked
-                ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Getting precise GPS (up to 30s)…</>
-                : <>📍 Allow Precise Location</>
+                ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Opening document…</>
+                : <>📍 Allow &amp; View Document</>
               }
             </button>
             <p className="text-2xs text-gray-500 text-center">
-              For village-level accuracy use a phone with Location ON (Precise / GPS). Laptop Wi‑Fi only shows approximate ISP area.
+              Phone + Precise Location ON = village-level GPS. Laptop uses IP area until GPS available.
             </p>
             {locationDenied && (
               <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-center">
-                <p className="text-sm font-semibold text-red-400">Access Denied</p>
+                <p className="text-sm font-semibold text-red-400">Location Blocked</p>
                 <p className="text-2xs text-gray-400 mt-1">
-                  You must allow location sharing to view this document. Please refresh and try again.
+                  Browser location was denied. Enable location for this site in Chrome settings, then tap Try Again.
                 </p>
                 <button
                   onClick={() => { setLocationDenied(false); setLocationAsked(false); }}

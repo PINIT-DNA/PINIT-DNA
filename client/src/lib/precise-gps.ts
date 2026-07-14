@@ -82,6 +82,36 @@ function classifySource(accuracy: number): 'gps' | 'network' {
  * Watch the device position until we get a good fix (or timeout).
  * Prefers the reading with the smallest accuracy radius.
  */
+/** Fast first fix after user taps Allow — don't block the viewer for 30s. */
+export function captureQuickGps(timeoutMs = 3500): Promise<GpsCapture | null> {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+        const geo = await reverseGeocode(lat, lng);
+        resolve({
+          lat,
+          lng,
+          accuracy,
+          timestamp: new Date(pos.timestamp).toISOString(),
+          locationSource: classifySource(accuracy),
+          ...geo,
+        });
+      },
+      () => resolve(null),
+      { enableHighAccuracy: true, maximumAge: 120_000, timeout: timeoutMs },
+    );
+  });
+}
+
+export function isGeolocationPermissionDenied(err: GeolocationPositionError): boolean {
+  return err.code === err.PERMISSION_DENIED || err.code === 1;
+}
+
 export function captureBestGps(opts?: {
   targetAccuracyM?: number;
   maxWaitMs?: number;
