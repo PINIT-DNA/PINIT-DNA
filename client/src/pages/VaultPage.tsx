@@ -497,6 +497,9 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
                     </label>
                     <input type="text" value={allowedCountries} onChange={e => setAllowedCountries(e.target.value)}
                       placeholder="India, US, UK" className="input text-sm w-full" />
+                    <p className="text-2xs text-gray-500 mt-1">
+                      Enforced on real internet IPs. Localhost / LAN opens are not geo-tagged as India — they are allowed for testing.
+                    </p>
                   </div>
 
                   <div>

@@ -9,6 +9,7 @@ import { API_BASE_URL } from '../config/api.config';
 import { formatDistanceToNow, format } from 'date-fns';
 import { FileTrackingMap } from '../components/maps/FileTrackingMap';
 import { isValidMapCoordinate, sanitizeCoordinatePair, isPrivateIp } from '../lib/geo-coords';
+import { locationLabel } from '../lib/precise-gps';
 
 interface AccessLog {
   id: string;
@@ -107,22 +108,31 @@ function mergeLocationFromLog(v: Viewer, log: AccessLog) {
   const ip = sanitizeCoordinatePair(log.lat, log.lng);
 
   if (gps) {
-    v.lat = gps.lat;
-    v.lng = gps.lng;
-    v.locationSource = log.locationSource ?? 'gps';
-    v.gpsAccuracy = log.gpsAccuracy ?? v.gpsAccuracy;
+    const incomingAcc = log.gpsAccuracy ?? Number.POSITIVE_INFINITY;
+    const currentAcc = v.gpsAccuracy ?? Number.POSITIVE_INFINITY;
+    const shouldReplace =
+      !isValidMapCoordinate(v.lat, v.lng) ||
+      incomingAcc < currentAcc ||
+      (v.locationSource === 'ip' && (log.locationSource === 'gps' || log.locationSource === 'network'));
+
+    if (shouldReplace) {
+      v.lat = gps.lat;
+      v.lng = gps.lng;
+      v.locationSource = log.locationSource ?? 'gps';
+      v.gpsAccuracy = log.gpsAccuracy ?? v.gpsAccuracy;
+      if (log.gpsVillage) v.gpsVillage = log.gpsVillage;
+      if (log.gpsMandal) v.gpsMandal = log.gpsMandal;
+      if (log.gpsDistrict) v.gpsDistrict = log.gpsDistrict;
+      if (log.gpsState) v.gpsState = log.gpsState;
+      if (log.gpsPincode) v.gpsPincode = log.gpsPincode;
+      if (log.gpsFullAddress) v.gpsFullAddress = log.gpsFullAddress;
+      if (log.gpsCity) v.gpsCity = log.gpsCity;
+    }
   } else if (!isValidMapCoordinate(v.lat, v.lng) && ip) {
     v.lat = ip.lat;
     v.lng = ip.lng;
     v.locationSource = 'ip';
   }
-  if (log.gpsVillage) v.gpsVillage = log.gpsVillage;
-  if (log.gpsMandal) v.gpsMandal = log.gpsMandal;
-  if (log.gpsDistrict) v.gpsDistrict = log.gpsDistrict;
-  if (log.gpsState) v.gpsState = log.gpsState;
-  if (log.gpsPincode) v.gpsPincode = log.gpsPincode;
-  if (log.gpsFullAddress) v.gpsFullAddress = log.gpsFullAddress;
-  if (log.gpsCity) v.gpsCity = log.gpsCity;
 }
 
 function viewerIsBlocked(
@@ -130,11 +140,18 @@ function viewerIsBlocked(
   blocks: BlockedViewer[] = [],
 ): { isBlocked: boolean; blockId: string | null } {
   for (const b of blocks) {
-    if (b.deviceFingerprint && v.deviceFingerprint && b.deviceFingerprint === v.deviceFingerprint) {
-      return { isBlocked: true, blockId: b.id };
+    // Device-scoped block → do not match siblings on the same Wi‑Fi IP
+    if (b.deviceFingerprint) {
+      if (v.deviceFingerprint && b.deviceFingerprint === v.deviceFingerprint) {
+        return { isBlocked: true, blockId: b.id };
+      }
+      continue;
     }
-    if (b.sessionId && v.sessionId && b.sessionId === v.sessionId) {
-      return { isBlocked: true, blockId: b.id };
+    if (b.sessionId) {
+      if (v.sessionId && b.sessionId === v.sessionId) {
+        return { isBlocked: true, blockId: b.id };
+      }
+      continue;
     }
     if (b.ipAddress && v.ip !== 'Unknown' && b.ipAddress === v.ip) {
       return { isBlocked: true, blockId: b.id };
@@ -159,7 +176,7 @@ function viewerGroupKey(log: AccessLog): string {
 
 const VIEWER_ACTIONS = new Set([
   'VIEWED', 'DOWNLOADED', 'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT',
-  'TAB_SWITCH', 'SCROLL', 'IDLE', 'ACTIVE', 'FORWARDING_DETECTED',
+  'TAB_SWITCH', 'SCROLL', 'IDLE', 'ACTIVE', 'FORWARDING_DETECTED', 'LOCATION_UPDATE',
 ]);
 
 const RISK_COLOR: Record<string, string> = {
@@ -180,6 +197,7 @@ const ACTION_CONFIG: Record<string, { icon: React.ReactNode; label: string; colo
   ACTIVE:             { icon: <Eye size={11} />,       label: 'Active',        color: 'text-dna-400' },
   IDLE:               { icon: <Clock size={11} />,     label: 'Idle',          color: 'text-gray-400' },
   SCROLL:             { icon: <Eye size={11} />,       label: 'Scrolled',      color: 'text-gray-400' },
+  LOCATION_UPDATE:   { icon: <MapPin size={11} />,    label: 'GPS Refined',   color: 'text-green-400' },
 };
 
 export function LinkIntelligencePage() {
@@ -506,9 +524,12 @@ export function LinkIntelligencePage() {
                       setBlockingViewer(v.id);
                       try {
                         await api.post(`${API_BASE_URL}/share/${token}/block-viewer`, {
-                          deviceFingerprint: v.deviceFingerprint,
-                          sessionId: v.sessionId,
-                          ipAddress: v.ip !== 'Unknown' ? v.ip : undefined,
+                          // Prefer device-only scope — laptop + phone often share one public IP
+                          deviceFingerprint: v.deviceFingerprint || undefined,
+                          sessionId: v.deviceFingerprint ? undefined : (v.sessionId || undefined),
+                          ipAddress: (v.deviceFingerprint || v.sessionId)
+                            ? undefined
+                            : (v.ip !== 'Unknown' ? v.ip : undefined),
                           label: v.hopNumber === 1 ? 'Direct Recipient' : `Viewer ${v.hopNumber}`,
                         });
                         load();
@@ -555,15 +576,15 @@ export function LinkIntelligencePage() {
                 {/* Location — GPS or IP fallback */}
                 <div className="border-t border-bg-border pt-2">
                   <div className="flex items-center gap-2 mb-2">
-                    <MapPin size={12} className={activeViewer.locationSource === 'gps' ? 'text-green-400' : 'text-yellow-400'} />
+                    <MapPin size={12} className={
+                      activeViewer.locationSource === 'gps' && (activeViewer.gpsAccuracy == null || activeViewer.gpsAccuracy <= 75)
+                        ? 'text-green-400'
+                        : 'text-yellow-400'
+                    } />
                     <span className="text-2xs font-semibold text-white">
-                      {activeViewer.gpsAccuracy && activeViewer.gpsAccuracy < 500
-                        ? '📍 GPS (Precise)'
-                        : activeViewer.locationSource === 'gps'
-                          ? '📡 WiFi/Cell Tower (Approximate)'
-                          : '🌐 IP Lookup (City-level)'}
+                      {locationLabel(activeViewer.gpsAccuracy, activeViewer.locationSource)}
                     </span>
-                    {activeViewer.gpsAccuracy && (
+                    {activeViewer.gpsAccuracy != null && (
                       <span className={`text-2xs ${activeViewer.gpsAccuracy < 100 ? 'text-green-400' : activeViewer.gpsAccuracy < 1000 ? 'text-yellow-400' : 'text-orange-400'}`}>
                         ±{activeViewer.gpsAccuracy < 1000 ? `${Math.round(activeViewer.gpsAccuracy)}m` : `${Math.round(activeViewer.gpsAccuracy / 1000)}km`}
                       </span>
@@ -613,7 +634,9 @@ export function LinkIntelligencePage() {
                   const ip = sanitizeCoordinatePair(log.lat, log.lng);
                   const logLat = gps?.lat ?? ip?.lat ?? null;
                   const logLng = gps?.lng ?? ip?.lng ?? null;
-                  const logPlace = log.gpsVillage ?? log.gpsCity ?? log.city;
+                  const logPlace = [log.gpsVillage, log.gpsMandal, log.gpsDistrict].filter(Boolean).join(', ')
+                    || log.gpsCity
+                    || log.city;
                   return (
                     <div key={log.id} className="flex items-center gap-3 bg-bg-elevated rounded-lg px-3 py-2 border border-bg-border">
                       <span className={`${cfg.color}`}>{cfg.icon}</span>

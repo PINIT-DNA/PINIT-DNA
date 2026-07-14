@@ -852,34 +852,52 @@ export class ShareLinkService {
     ctx: { country?: string | null; device?: string | null; ipAddress?: string | null }
   ): PolicyCheckResult {
     if (link.allowedCountries?.length && ctx.country) {
-      // Normalise: convert geo-IP full name ("India") to ISO code ("IN") so it matches
-      // stored values (VaultPage saves ISO codes). Also accept direct full-name match.
-      const countryIsoMap: Record<string, string> = {
-        'india': 'IN', 'united states': 'US', 'united states of america': 'US',
-        'united kingdom': 'GB', 'australia': 'AU', 'canada': 'CA',
-        'germany': 'DE', 'france': 'FR', 'japan': 'JP', 'china': 'CN',
-        'singapore': 'SG', 'united arab emirates': 'AE', 'russia': 'RU',
-        'brazil': 'BR', 'south africa': 'ZA', 'italy': 'IT', 'spain': 'ES',
-        'netherlands': 'NL', 'new zealand': 'NZ', 'pakistan': 'PK',
-        'bangladesh': 'BD', 'sri lanka': 'LK', 'indonesia': 'ID',
-        'malaysia': 'MY', 'thailand': 'TH', 'philippines': 'PH',
-        'south korea': 'KR', 'taiwan': 'TW', 'hong kong': 'HK',
-        'mexico': 'MX', 'argentina': 'AR', 'chile': 'CL', 'colombia': 'CO',
-        'sweden': 'SE', 'norway': 'NO', 'denmark': 'DK', 'finland': 'FI',
-        'poland': 'PL', 'ukraine': 'UA', 'turkey': 'TR', 'egypt': 'EG',
-        'nigeria': 'NG', 'kenya': 'KE', 'ghana': 'GH',
-      };
-      const geoKey    = ctx.country.toLowerCase();
-      const geoIso    = countryIsoMap[geoKey] ?? ctx.country.toUpperCase().slice(0, 2);
-      const geoName   = ctx.country;
-      const allowed   = link.allowedCountries;
-      const match = allowed.some(a =>
-        a.toUpperCase() === geoIso ||
-        a.toLowerCase() === geoKey ||
-        a.toLowerCase() === geoName.toLowerCase()
-      );
-      if (!match) {
-        return { allowed: false, reason: 'BLOCKED_COUNTRY', message: `Access from ${ctx.country} is not permitted. Allowed: ${allowed.join(', ')}` };
+      // Private / loopback IPs cannot be geolocated (localhost, LAN). They are
+      // labeled "Local Network" — blocking them as "not India" is a false positive
+      // during local testing. Real public IPs still go through country allow-list.
+      const countryLower = ctx.country.toLowerCase();
+      const ip = (ctx.ipAddress ?? '').replace('::ffff:', '');
+      const isPrivateIp =
+        !ip ||
+        ip === '::1' ||
+        ip.startsWith('127.') ||
+        ip.startsWith('192.168.') ||
+        ip.startsWith('10.') ||
+        /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip) ||
+        countryLower === 'local network' ||
+        countryLower === 'localhost' ||
+        countryLower === 'private';
+
+      if (!isPrivateIp) {
+        // Normalise: convert geo-IP full name ("India") to ISO code ("IN") so it matches
+        // stored values (VaultPage saves ISO codes). Also accept direct full-name match.
+        const countryIsoMap: Record<string, string> = {
+          'india': 'IN', 'united states': 'US', 'united states of america': 'US',
+          'united kingdom': 'GB', 'australia': 'AU', 'canada': 'CA',
+          'germany': 'DE', 'france': 'FR', 'japan': 'JP', 'china': 'CN',
+          'singapore': 'SG', 'united arab emirates': 'AE', 'russia': 'RU',
+          'brazil': 'BR', 'south africa': 'ZA', 'italy': 'IT', 'spain': 'ES',
+          'netherlands': 'NL', 'new zealand': 'NZ', 'pakistan': 'PK',
+          'bangladesh': 'BD', 'sri lanka': 'LK', 'indonesia': 'ID',
+          'malaysia': 'MY', 'thailand': 'TH', 'philippines': 'PH',
+          'south korea': 'KR', 'taiwan': 'TW', 'hong kong': 'HK',
+          'mexico': 'MX', 'argentina': 'AR', 'chile': 'CL', 'colombia': 'CO',
+          'sweden': 'SE', 'norway': 'NO', 'denmark': 'DK', 'finland': 'FI',
+          'poland': 'PL', 'ukraine': 'UA', 'turkey': 'TR', 'egypt': 'EG',
+          'nigeria': 'NG', 'kenya': 'KE', 'ghana': 'GH',
+        };
+        const geoKey    = countryLower;
+        const geoIso    = countryIsoMap[geoKey] ?? ctx.country.toUpperCase().slice(0, 2);
+        const geoName   = ctx.country;
+        const allowed   = link.allowedCountries;
+        const match = allowed.some(a =>
+          a.toUpperCase() === geoIso ||
+          a.toLowerCase() === geoKey ||
+          a.toLowerCase() === geoName.toLowerCase()
+        );
+        if (!match) {
+          return { allowed: false, reason: 'BLOCKED_COUNTRY', message: `Access from ${ctx.country} is not permitted. Allowed: ${allowed.join(', ')}` };
+        }
       }
     }
     if (link.allowedDeviceTypes?.length && ctx.device) {
@@ -1338,17 +1356,30 @@ export class ShareLinkService {
 
   // ── Per-viewer block / revoke ─────────────────────────────────────────────
 
+  /**
+   * Match blocks precisely:
+   * - If a block has a deviceFingerprint → ONLY that device (same Wi‑Fi IP must not revoke others)
+   * - Else if sessionId → that session only
+   * - Else IP-only blocks (last resort when fingerprint was missing)
+   */
   async isViewerBlocked(
     shareLinkId: string,
     viewer: { deviceFingerprint?: string | null; sessionId?: string | null; ipAddress?: string | null },
   ): Promise<boolean> {
     const blocks = await prisma.blockedShareViewer.findMany({ where: { shareLinkId } });
     if (!blocks.length) return false;
-    return blocks.some((b) =>
-      (b.deviceFingerprint && viewer.deviceFingerprint && b.deviceFingerprint === viewer.deviceFingerprint)
-      || (b.sessionId && viewer.sessionId && b.sessionId === viewer.sessionId)
-      || (b.ipAddress && viewer.ipAddress && b.ipAddress === viewer.ipAddress),
-    );
+    return blocks.some((b) => {
+      if (b.deviceFingerprint) {
+        return Boolean(viewer.deviceFingerprint && b.deviceFingerprint === viewer.deviceFingerprint);
+      }
+      if (b.sessionId) {
+        return Boolean(viewer.sessionId && b.sessionId === viewer.sessionId);
+      }
+      if (b.ipAddress) {
+        return Boolean(viewer.ipAddress && b.ipAddress === viewer.ipAddress);
+      }
+      return false;
+    });
   }
 
   async blockViewer(
@@ -1362,12 +1393,15 @@ export class ShareLinkService {
       throw new Error('Unauthorized — you do not own this share link');
     }
 
+    // Prefer device fingerprint so home Wi‑Fi (shared public IP) does not
+    // revoke every phone/laptop on the same network.
+    const hasFp = Boolean(input.deviceFingerprint?.trim());
     const block = await prisma.blockedShareViewer.create({
       data: {
         shareLinkId: link.id,
-        deviceFingerprint: input.deviceFingerprint ?? null,
-        sessionId: input.sessionId ?? null,
-        ipAddress: input.ipAddress ?? null,
+        deviceFingerprint: hasFp ? input.deviceFingerprint!.trim() : null,
+        sessionId: hasFp ? null : (input.sessionId ?? null),
+        ipAddress: hasFp ? null : (input.ipAddress ?? null),
         label: input.label ?? null,
         reason: input.reason ?? 'Revoked by owner',
         blockedByUserId: ownerUserId,
@@ -1376,9 +1410,10 @@ export class ShareLinkService {
 
     logger.info('[SmartLink] Viewer blocked', {
       token,
+      scope: hasFp ? 'device' : input.sessionId ? 'session' : 'ip',
       deviceFingerprint: input.deviceFingerprint?.slice(0, 12),
       sessionId: input.sessionId?.slice(0, 12),
-      ipAddress: input.ipAddress,
+      ipAddress: hasFp ? undefined : input.ipAddress,
     });
 
     return block;

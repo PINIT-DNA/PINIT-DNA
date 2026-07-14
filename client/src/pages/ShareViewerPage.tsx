@@ -14,6 +14,7 @@ import axios from 'axios';
 import { format } from 'date-fns';
 import { API_BASE_URL } from '../config/api.config';
 import { isValidMapCoordinate } from '../lib/geo-coords';
+import { captureBestGps, type GpsCapture } from '../lib/precise-gps';
 import * as docxPreview from 'docx-preview';
 import { formatTextAsDocument, DOCUMENT_STYLES } from '../utils/document-formatter';
 
@@ -91,12 +92,6 @@ function getScreenResolution(): string {
   try { return `${screen.width}x${screen.height}`; } catch { return ''; }
 }
 
-type GpsCapture = {
-  lat: number; lng: number; accuracy: number; timestamp: string;
-  city?: string; village?: string; mandal?: string; district?: string;
-  state?: string; pincode?: string; fullAddress?: string;
-};
-
 function buildGpsPayload(gps: GpsCapture | null, requestLocation?: boolean) {
   if (gps && isValidMapCoordinate(gps.lat, gps.lng)) {
     return {
@@ -112,7 +107,7 @@ function buildGpsPayload(gps: GpsCapture | null, requestLocation?: boolean) {
       gpsPincode: gps.pincode,
       gpsFullAddress: gps.fullAddress,
       locationShared: true,
-      locationSource: 'gps' as const,
+      locationSource: gps.locationSource === 'network' ? 'network' : 'gps',
     };
   }
   if (requestLocation) return { locationShared: false, locationSource: 'denied' as const };
@@ -166,12 +161,8 @@ export function ShareViewerPage() {
   const [locationAsked,  setLocationAsked]  = useState(false);  // screen shown
   const [locationDone,   setLocationDone]   = useState(false);  // screen dismissed
   const [locationDenied, setLocationDenied] = useState(false);  // user denied GPS
-  const [gpsData, setGpsData] = useState<{
-    lat: number; lng: number; accuracy: number; timestamp: string;
-    city?: string; village?: string; mandal?: string; district?: string;
-    state?: string; pincode?: string; fullAddress?: string;
-  } | null>(null);
-  const gpsDataRef = useRef<typeof gpsData>(null);
+  const [gpsData, setGpsData] = useState<GpsCapture | null>(null);
+  const gpsDataRef = useRef<GpsCapture | null>(null);
 
   // ── Privacy Masking state ──────────────────────────────────────────────────
   const [maskedText, setMaskedText]           = useState<string | null>(null);
@@ -234,37 +225,36 @@ export function ShareViewerPage() {
       .then(() => setLoading(false), () => setLoading(false));
   }, [token]);
 
-  // ── Silent passive GPS capture — runs once on mount regardless of requestLocation.
-  //    The browser prompt appears only if the site already has permission; if not,
-  //    it silently fails (no error shown). This means GPS is captured even for
-  //    links where the owner forgot to toggle requestLocation, as long as the
-  //    browser allows geolocation without a fresh prompt.
+  // ── High-accuracy GPS: watch until precise (or timeout), improve over Wi‑Fi guesses
   useEffect(() => {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude: lat, longitude: lng, accuracy } = pos.coords;
-        let geo: { city?: string; village?: string; mandal?: string; district?: string; state?: string; pincode?: string; fullAddress?: string } = {};
-        try {
-          const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`);
-          const j = await r.json() as { display_name?: string; address?: Record<string, string> };
-          const a = j.address ?? {};
-          geo = {
-            village:     a.village ?? a.hamlet ?? a.neighbourhood ?? a.suburb,
-            city:        a.city ?? a.town ?? a.village ?? a.county,
-            mandal:      a.county ?? a.state_district,
-            district:    a.state_district ?? a.county,
-            state:       a.state,
-            pincode:     a.postcode,
-            fullAddress: j.display_name,
-          };
-        } catch { /* non-fatal */ }
-        setGpsData({ lat, lng, accuracy, timestamp: new Date().toISOString(), ...geo });
-      },
-      () => { /* denied or unavailable — silent */ },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
+    let cancelled = false;
+    void (async () => {
+      const best = await captureBestGps({ targetAccuracyM: 45, maxWaitMs: 28_000, minSamples: 1 });
+      if (cancelled || !best) return;
+      setGpsData((prev) => {
+        if (prev && prev.accuracy <= best.accuracy) return prev;
+        return best;
+      });
+    })();
+    return () => { cancelled = true; };
   }, []);
+
+  // Keep refining: if a better fix arrives after VIEWED, send LOCATION_UPDATE
+  const viewedSentRef = useRef(false);
+
+  useEffect(() => {
+    if (!viewedSentRef.current || !token || !gpsData) return;
+    if (gpsData.accuracy > 75) return;
+    void axios.post(`${API_BASE_URL}/share/${token}/access`, {
+      action: 'LOCATION_UPDATE',
+      recipientName: nameRef.current || undefined,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      sessionId: getSessionId(),
+      screenResolution: getScreenResolution(),
+      deviceFingerprint: computeDeviceFingerprint(),
+      ...buildGpsPayload(gpsData, info?.requestLocation),
+    }).catch(() => {});
+  }, [gpsData?.lat, gpsData?.lng, gpsData?.accuracy, token, info?.requestLocation]);
 
   // ── Decide once that tracking can start (info loaded, name gate passed,
   //    link active at the moment of arrival). This flag is a one-way switch:
@@ -327,24 +317,27 @@ export function ShareViewerPage() {
       });
     };
 
-    // Initial view — wait up to 4 seconds for passive GPS to resolve before
-    // sending VIEWED, so GPS is included in the first event record.
-    const sendViewed = () => track('VIEWED');
-    if (gpsDataRef.current) {
+    // Wait for the best GPS we can get (up to ~22s) before VIEWED so Access
+    // Intelligence shows village-level fix instead of first Wi‑Fi guess.
+    const sendViewed = () => {
+      viewedSentRef.current = true;
+      void track('VIEWED');
+    };
+    const GPS_WAIT_MS = 22_000;
+    const GOOD_ACCURACY_M = 60;
+    if (gpsDataRef.current && gpsDataRef.current.accuracy <= GOOD_ACCURACY_M) {
       sendViewed();
     } else {
-      const gpsWait = setTimeout(sendViewed, 4000);
-      // If GPS arrives early (ref updated by passive capture), cancel the timer
-      // and send immediately via a one-shot polling check
+      const gpsWait = setTimeout(sendViewed, GPS_WAIT_MS);
       const gpsCheck = setInterval(() => {
-        if (gpsDataRef.current) {
+        const g = gpsDataRef.current;
+        if (g && g.accuracy <= GOOD_ACCURACY_M) {
           clearInterval(gpsCheck);
           clearTimeout(gpsWait);
           sendViewed();
         }
-      }, 200);
-      // Clean up if GPS never arrives
-      setTimeout(() => clearInterval(gpsCheck), 4200);
+      }, 400);
+      setTimeout(() => clearInterval(gpsCheck), GPS_WAIT_MS + 300);
     }
 
     // ── Mouse activity / idle detection ───────────────────────────────────
@@ -798,24 +791,15 @@ export function ShareViewerPage() {
         return;
       }
       setLocationAsked(true);
-      navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-          const { latitude: lat, longitude: lng, accuracy } = pos.coords;
-          // Reverse-geocode using free nominatim API
-          let city: string | undefined;
-          try {
-            const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
-            const j = await r.json() as { address?: { city?: string; town?: string; village?: string; county?: string } };
-            city = j.address?.city ?? j.address?.town ?? j.address?.village ?? j.address?.county;
-          } catch { /* non-fatal */ }
-          setGpsData({ lat, lng, accuracy, city, timestamp: new Date().toISOString() });
-          setLocationDone(true);
-        },
-        () => {
+      void (async () => {
+        const best = await captureBestGps({ targetAccuracyM: 40, maxWaitMs: 30_000, minSamples: 1 });
+        if (!best) {
           setLocationDenied(true);
-        },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-      );
+          return;
+        }
+        setGpsData(best);
+        setLocationDone(true);
+      })();
     };
 
     return (
@@ -847,10 +831,13 @@ export function ShareViewerPage() {
               className="btn btn-primary w-full"
             >
               {locationAsked
-                ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Getting location…</>
-                : <>📍 Allow Location Sharing (Recommended)</>
+                ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Getting precise GPS (up to 30s)…</>
+                : <>📍 Allow Precise Location</>
               }
             </button>
+            <p className="text-2xs text-gray-500 text-center">
+              For village-level accuracy use a phone with Location ON (Precise / GPS). Laptop Wi‑Fi only shows approximate ISP area.
+            </p>
             {locationDenied && (
               <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-center">
                 <p className="text-sm font-semibold text-red-400">Access Denied</p>
