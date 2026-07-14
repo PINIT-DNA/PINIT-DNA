@@ -220,7 +220,17 @@ export function ShareViewerPage() {
     axios.get(`${API_BASE_URL}/share/${token}`)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .then(({ data }) => setInfo((data as any).link))
-      .catch(() => setError('Link not found or has been removed.'))
+      .catch((err) => {
+        const status = (err as { response?: { status?: number; data?: { error?: string; code?: string } } })?.response?.status;
+        const apiErr = (err as { response?: { data?: { error?: string; code?: string } } })?.response?.data;
+        if (status === 503 || apiErr?.code === 'BACKEND_OFFLINE') {
+          setError('Backend is starting. Wait a few seconds and refresh.');
+        } else if (status === 404) {
+          setError('Link not found or has been removed. Check the full URL (token letters are case-sensitive).');
+        } else {
+          setError(apiErr?.error || 'Could not open this link. Is the backend running on port 4000?');
+        }
+      })
       .then(() => setLoading(false), () => setLoading(false));
   }, [token]);
 

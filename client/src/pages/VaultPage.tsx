@@ -685,6 +685,15 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
                   {copied ? <><Check size={12} /> Copied!</> : <><Copy size={12} /> Copy</>}
                 </button>
               </div>
+              {/localhost|127\.0\.0\.1/i.test(created.shareUrl) && (
+                <p className="text-2xs text-amber-300 mt-2 leading-relaxed">
+                  This is a <strong>localhost</strong> link — it only works on this PC.
+                  Phone / other laptop will show “site can’t be reached”.
+                  For WhatsApp testing use production (
+                  <span className="mono">pinit-dna.vercel.app</span>
+                  ) or set <span className="mono">PUBLIC_APP_URL</span> to your ngrok / LAN URL, then create the link again.
+                </p>
+              )}
             </div>
 
             {/* Share via */}

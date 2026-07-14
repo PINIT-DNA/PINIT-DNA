@@ -221,6 +221,18 @@ function parseUserAgent(ua: string): { browser: string; os: string; device: stri
   return { browser, os, device };
 }
 
+/** Case-sensitive first, then unique case-insensitive fallback (screenshots / OCR typos). */
+async function findShareLinkByToken(token: string) {
+  const exact = await prisma.shareLink.findUnique({ where: { token } });
+  if (exact) return exact;
+  const rows = await prisma.$queryRawUnsafe<Array<{ token: string }>>(
+    `SELECT token FROM share_links WHERE LOWER(token) = LOWER($1) LIMIT 2`,
+    token,
+  );
+  if (rows.length !== 1 || !rows[0]?.token) return null;
+  return prisma.shareLink.findUnique({ where: { token: rows[0].token } });
+}
+
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 export class ShareLinkService {
@@ -769,7 +781,7 @@ export class ShareLinkService {
   // ── Get link public info (no auth required) ───────────────────────────────
 
   async getPublicInfo(token: string): Promise<ShareLinkPublicInfo | null> {
-    const link = await prisma.shareLink.findUnique({ where: { token } });
+    const link = await findShareLinkByToken(token);
     if (!link) return null;
 
     const isExpired   = !!link.expiresAt && new Date(link.expiresAt) < new Date();
@@ -779,12 +791,13 @@ export class ShareLinkService {
     //    server secret was either forged, guessed, or predates signing
     //    (legacy links created before this feature shipped get `null`
     //    signatures and are treated as "unsigned, but not flagged tampered").
+    // Use DB token (canonical casing), not the typed URL token.
     const signatureValid = link.tokenSignature
-      ? verifyTokenSignature(token, link.tokenSignature)
+      ? verifyTokenSignature(link.token, link.tokenSignature)
       : true; // unsigned legacy link — don't false-flag it as tampered
 
     if (link.tokenSignature && !signatureValid) {
-      logger.warn('[SmartLink] HMAC signature mismatch — possible tampered/forged token', { token });
+      logger.warn('[SmartLink] HMAC signature mismatch — possible tampered/forged token', { token: link.token });
     }
 
     return {
@@ -815,7 +828,7 @@ export class ShareLinkService {
   // ── Verify recipient-entered OTP ──────────────────────────────────────────
 
   async verifyOtp(token: string, otp: string): Promise<{ ok: boolean; message: string }> {
-    const link = await prisma.shareLink.findUnique({ where: { token } });
+    const link = await findShareLinkByToken(token);
     if (!link) return { ok: false, message: 'Link not found' };
     if (!link.requireOtp) return { ok: true, message: 'OTP not required' };
     if (!link.otpCodeHash) return { ok: false, message: 'No OTP was generated for this link' };
@@ -825,8 +838,8 @@ export class ShareLinkService {
     if (hashOtp(otp) !== link.otpCodeHash) {
       return { ok: false, message: 'Incorrect code — please try again' };
     }
-    await prisma.shareLink.update({ where: { token }, data: { otpVerified: true } });
-    logger.info('[SmartLink] OTP verified', { token });
+    await prisma.shareLink.update({ where: { id: link.id }, data: { otpVerified: true } });
+    logger.info('[SmartLink] OTP verified', { token: link.token });
     return { ok: true, message: 'Verified' };
   }
 
@@ -1296,6 +1309,10 @@ export class ShareLinkService {
   // ── Get a specific link with full logs ────────────────────────────────────
 
   async getWithLogs(token: string) {
+    const resolved = await findShareLinkByToken(token);
+    if (!resolved) return null;
+    const canonical = resolved.token;
+
     const baseInclude = {
       accessLogs: { orderBy: { createdAt: 'desc' as const } },
       _count: { select: { accessLogs: true } },
@@ -1303,7 +1320,7 @@ export class ShareLinkService {
 
     try {
       return await prisma.shareLink.findUnique({
-        where: { token },
+        where: { token: canonical },
         include: {
           ...baseInclude,
           blockedViewers: { orderBy: { createdAt: 'desc' as const } },
@@ -1311,9 +1328,9 @@ export class ShareLinkService {
       });
     } catch (err) {
       // Graceful fallback if blocked_share_viewers table not yet migrated
-      logger.warn('[SmartLink] getWithLogs fallback (no blockedViewers)', { token, error: String(err) });
+      logger.warn('[SmartLink] getWithLogs fallback (no blockedViewers)', { token: canonical, error: String(err) });
       return prisma.shareLink.findUnique({
-        where: { token },
+        where: { token: canonical },
         include: baseInclude,
       });
     }
