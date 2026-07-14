@@ -60,7 +60,7 @@ export function AccessIntelligencePage() {
             <Shield size={20} className="text-dna-400" />
             Access Intelligence
           </h1>
-          <p className="text-xs text-gray-500 mt-0.5">Click any link to view its separate activity log, viewer tracking, and map</p>
+          <p className="text-xs text-gray-500 mt-0.5">Your main share links — forwarded recipients are tracked inside each link</p>
         </div>
       </div>
 

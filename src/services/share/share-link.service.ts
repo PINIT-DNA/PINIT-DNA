@@ -1392,23 +1392,57 @@ export class ShareLinkService {
     assertRecordOwner(vault.dnaRecord?.ownerUserId, ownerUserId, 'Vault');
 
     return prisma.shareLink.findMany({
-      where:   { vaultId, ownerUserId },
+      where:   { vaultId, ownerUserId, linkType: 'PARENT' },
       orderBy: { createdAt: 'desc' },
       include: { accessLogs: { orderBy: { createdAt: 'desc' }, take: 10 } },
     });
   }
 
   // ── List all share links (admin view) ─────────────────────────────────────
+  // Only PARENT links belong here — hop CHILD/GRANDCHILD tokens are internal
+  // forward tracking rows; listing them made every forward look "Revoked".
 
   async listAll(userId: string) {
-    return prisma.shareLink.findMany({
-      where: { ownerUserId: userId },
+    const links = await prisma.shareLink.findMany({
+      where: {
+        ownerUserId: userId,
+        linkType: 'PARENT',
+      },
       orderBy: { createdAt: 'desc' },
       include: {
-        _count: { select: { accessLogs: true } },
+        _count: { select: { accessLogs: true, childLinks: true } },
         accessLogs: { orderBy: { createdAt: 'desc' } },
       },
     });
+
+    const healed: typeof links = [];
+    for (const link of links) {
+      const isExpired = !!link.expiresAt && new Date(link.expiresAt) < new Date();
+      const isExhausted = !!link.maxViews && link.viewCount >= link.maxViews;
+      const hopCount = link._count.childLinks;
+
+      if (
+        !link.isActive &&
+        !isExpired &&
+        !isExhausted &&
+        (link.oneTimeUse || hopCount > 0)
+      ) {
+        const updated = await prisma.shareLink.update({
+          where: { id: link.id },
+          data: { isActive: true },
+        });
+        logger.info('[SmartLink] Reactivated parent link (legacy auto-revoke)', {
+          token: link.token,
+          oneTimeUse: link.oneTimeUse,
+          hopCount,
+        });
+        healed.push({ ...link, ...updated, isActive: true });
+      } else {
+        healed.push(link);
+      }
+    }
+
+    return healed;
   }
 
   // ── Get a specific link with full logs ────────────────────────────────────
