@@ -137,6 +137,8 @@ export interface ShareLinkPublicInfo {
   signatureValid:   boolean;
   privacyMaskingEnabled: boolean;
   requestLocation:  boolean;
+  inactiveReason?:  'expired' | 'exhausted' | 'revoked' | 'one_time' | 'tampered' | null;
+  viewerRevoked?:   boolean;
 }
 
 export interface AccessLogInput {
@@ -477,7 +479,7 @@ export class ShareLinkService {
         filename: parent.filename,
         mimeType: parent.mimeType,
         expiresAt: parent.expiresAt,
-        maxViews: parent.maxViews,
+        maxViews: null, // each hop recipient gets their own quota — don't inherit parent cap
         allowDownload: parent.allowDownload,
         requireName: parent.requireName,
         note: parent.note,
@@ -780,12 +782,71 @@ export class ShareLinkService {
 
   // ── Get link public info (no auth required) ───────────────────────────────
 
-  async getPublicInfo(token: string): Promise<ShareLinkPublicInfo | null> {
-    const link = await findShareLinkByToken(token);
+  /** Walk parentLinkId chain — used for per-viewer blocks on hop trees. */
+  private async getShareLinkAncestryIds(shareLinkId: string): Promise<string[]> {
+    const ids: string[] = [shareLinkId];
+    let currentId = shareLinkId;
+    for (let depth = 0; depth < 32; depth++) {
+      const parentRow = await prisma.shareLink.findUnique({
+        where: { id: currentId },
+        select: { parentLinkId: true },
+      });
+      const parentId = parentRow?.parentLinkId;
+      if (!parentId) break;
+      ids.push(parentId);
+      currentId = parentId;
+    }
+    return ids;
+  }
+
+  /** All descendant hop link ids under a root share link (BFS, max depth 32). */
+  private async getShareLinkDescendantIds(rootId: string): Promise<string[]> {
+    const ids: string[] = [];
+    let frontier = [rootId];
+    for (let depth = 0; depth < 32 && frontier.length > 0; depth++) {
+      const children = await prisma.shareLink.findMany({
+        where: { parentLinkId: { in: frontier } },
+        select: { id: true },
+      });
+      const childIds = children.map(c => c.id);
+      if (!childIds.length) break;
+      ids.push(...childIds);
+      frontier = childIds;
+    }
+    return ids;
+  }
+
+  async getPublicInfo(
+    token: string,
+    viewer?: { deviceFingerprint?: string | null; sessionId?: string | null; ipAddress?: string | null },
+  ): Promise<ShareLinkPublicInfo | null> {
+    let link = await findShareLinkByToken(token);
     if (!link) return null;
+
+    const isHop = link.linkType === 'CHILD' || link.linkType === 'GRANDCHILD';
+
+    // Legacy hops may have inherited oneTimeUse=true and been auto-deactivated after
+    // the first VIEWED — heal so other recipients on their own hop URLs keep access.
+    if (isHop && link.oneTimeUse && !link.isActive) {
+      link = await prisma.shareLink.update({
+        where: { id: link.id },
+        data: { isActive: true, oneTimeUse: false },
+      });
+      logger.info('[SmartLink] Healed legacy hop oneTimeUse deactivation', { token: link.token });
+    }
+
+    // Legacy hops inherited parent maxViews — clear so one recipient doesn't exhaust the hop for everyone.
+    if (isHop && link.maxViews != null) {
+      link = await prisma.shareLink.update({
+        where: { id: link.id },
+        data: { maxViews: null },
+      });
+      logger.info('[SmartLink] Cleared inherited maxViews on hop link', { token: link.token });
+    }
 
     const isExpired   = !!link.expiresAt && new Date(link.expiresAt) < new Date();
     const isExhausted = !!link.maxViews  && link.viewCount >= link.maxViews;
+    const isParent    = link.linkType === 'PARENT';
 
     // ── HMAC integrity check — a token whose signature doesn't match the
     //    server secret was either forged, guessed, or predates signing
@@ -800,6 +861,29 @@ export class ShareLinkService {
       logger.warn('[SmartLink] HMAC signature mismatch — possible tampered/forged token', { token: link.token });
     }
 
+    let inactiveReason: ShareLinkPublicInfo['inactiveReason'] = null;
+    if (!signatureValid) inactiveReason = 'tampered';
+    else if (isExpired) inactiveReason = 'expired';
+    else if (isExhausted) inactiveReason = 'exhausted';
+    else if (!link.isActive && !isParent) {
+      inactiveReason = link.oneTimeUse ? 'one_time' : 'revoked';
+    } else if (!link.isActive && isParent && link.oneTimeUse) {
+      inactiveReason = 'one_time';
+    }
+
+    // PARENT links stay open for new devices to mint hop URLs even after oneTimeUse consumed the row.
+    const parentAcceptsForwards = isParent && !isExpired && !isExhausted && signatureValid;
+    const linkAccessible =
+      !isExpired &&
+      !isExhausted &&
+      signatureValid &&
+      (link.isActive || parentAcceptsForwards);
+
+    let viewerRevoked = false;
+    if (viewer && (viewer.deviceFingerprint || viewer.sessionId || viewer.ipAddress)) {
+      viewerRevoked = await this.isViewerBlocked(link.id, viewer);
+    }
+
     return {
       token:         link.token,
       filename:      link.filename,
@@ -812,7 +896,7 @@ export class ShareLinkService {
       viewCount:     link.viewCount,
       isExpired,
       isExhausted,
-      isActive:      link.isActive && !isExpired && !isExhausted && signatureValid,
+      isActive:      linkAccessible,
 
       oneTimeUse:    link.oneTimeUse,
       maxDownloads:  link.maxDownloads,
@@ -822,6 +906,8 @@ export class ShareLinkService {
       signatureValid,
       privacyMaskingEnabled: link.privacyMaskingEnabled,
       requestLocation:       link.requestLocation,
+      inactiveReason,
+      viewerRevoked,
     };
   }
 
@@ -1097,8 +1183,9 @@ export class ShareLinkService {
     const updateData: Record<string, unknown> = {};
     if (input.action === 'VIEWED') {
       updateData['viewCount'] = { increment: 1 };
-      if (link.oneTimeUse) {
-        // Self-revoke after the first real view — true "one-time access link"
+      // PARENT links stay open so WhatsApp forwards can mint hop URLs for new devices.
+      // One-time-use only consumes leaf (CHILD / GRANDCHILD) links.
+      if (link.oneTimeUse && link.linkType !== 'PARENT') {
         updateData['isActive'] = false;
         logger.info('[SmartLink] One-time-use link consumed — auto-revoking', { token: link.token });
       }
@@ -1134,7 +1221,7 @@ export class ShareLinkService {
       }
     }
 
-    const oneTimeConsumed = input.action === 'VIEWED' && link.oneTimeUse;
+    const oneTimeConsumed = input.action === 'VIEWED' && link.oneTimeUse && link.linkType !== 'PARENT';
     if (link.ownerUserId && oneTimeConsumed) {
       import('../platform-events/extended-events').then(({ emitLinkOneTimeConsumed }) => {
         emitLinkOneTimeConsumed({
@@ -1275,7 +1362,7 @@ export class ShareLinkService {
   // ── CSV export of a link's full access log (Audit Export) ─────────────────
 
   async exportAccessLogsCsv(token: string): Promise<string | null> {
-    const link = await this.getWithLogs(token);
+    const link = await this.getWithAggregatedLogs(token);
     if (!link) return null;
 
     const headers = [
@@ -1354,6 +1441,78 @@ export class ShareLinkService {
     }
   }
 
+  /**
+   * Parent + entire hop tree — Access Intelligence must show every forwarded recipient,
+   * not only people who hit the original URL (their VIEWED logs live on hop tokens).
+   */
+  async getWithAggregatedLogs(token: string) {
+    const resolved = await findShareLinkByToken(token);
+    if (!resolved) return null;
+
+    let root = resolved;
+    while (root.parentLinkId) {
+      const parent = await prisma.shareLink.findUnique({ where: { id: root.parentLinkId } });
+      if (!parent) break;
+      root = parent;
+    }
+
+    const descendantIds = await this.getShareLinkDescendantIds(root.id);
+    const allIds = [root.id, ...descendantIds];
+
+    const accessLogs = await prisma.shareAccessLog.findMany({
+      where: { shareLinkId: { in: allIds } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const baseInclude = {
+      _count: { select: { accessLogs: true } },
+    };
+
+    let rootLink;
+    try {
+      rootLink = await prisma.shareLink.findUnique({
+        where: { id: root.id },
+        include: {
+          ...baseInclude,
+          blockedViewers: { orderBy: { createdAt: 'desc' as const } },
+        },
+      });
+    } catch (err) {
+      logger.warn('[SmartLink] getWithAggregatedLogs fallback (no blockedViewers)', {
+        token: root.token,
+        error: String(err),
+      });
+      rootLink = await prisma.shareLink.findUnique({
+        where: { id: root.id },
+        include: baseInclude,
+      });
+    }
+
+    if (!rootLink) return null;
+
+    const viewCount = accessLogs.filter(l => l.action === 'VIEWED').length;
+    const downloadCount = accessLogs.filter(l => l.action === 'DOWNLOADED').length;
+
+    logger.debug('[SmartLink] Aggregated access logs', {
+      rootToken: root.token,
+      hopLinks: descendantIds.length,
+      logRows: accessLogs.length,
+      uniqueViewersApprox: new Set(
+        accessLogs
+          .filter(l => l.action === 'VIEWED' || l.action === 'FORWARDING_DETECTED')
+          .map(l => l.deviceFingerprint ?? `${l.ipAddress}|${l.sessionId}`),
+      ).size,
+    });
+
+    return {
+      ...rootLink,
+      accessLogs,
+      viewCount,
+      downloadCount,
+      hopLinkCount: descendantIds.length,
+    };
+  }
+
   // ── Per-viewer block / revoke ─────────────────────────────────────────────
 
   /**
@@ -1366,7 +1525,10 @@ export class ShareLinkService {
     shareLinkId: string,
     viewer: { deviceFingerprint?: string | null; sessionId?: string | null; ipAddress?: string | null },
   ): Promise<boolean> {
-    const blocks = await prisma.blockedShareViewer.findMany({ where: { shareLinkId } });
+    const ancestryIds = await this.getShareLinkAncestryIds(shareLinkId);
+    const blocks = await prisma.blockedShareViewer.findMany({
+      where: { shareLinkId: { in: ancestryIds } },
+    });
     if (!blocks.length) return false;
     return blocks.some((b) => {
       if (b.deviceFingerprint) {
@@ -1396,9 +1558,11 @@ export class ShareLinkService {
     // Prefer device fingerprint so home Wi‑Fi (shared public IP) does not
     // revoke every phone/laptop on the same network.
     const hasFp = Boolean(input.deviceFingerprint?.trim());
+    const ancestryIds = await this.getShareLinkAncestryIds(link.id);
+    const rootShareLinkId = ancestryIds[ancestryIds.length - 1] ?? link.id;
     const block = await prisma.blockedShareViewer.create({
       data: {
-        shareLinkId: link.id,
+        shareLinkId: rootShareLinkId,
         deviceFingerprint: hasFp ? input.deviceFingerprint!.trim() : null,
         sessionId: hasFp ? null : (input.sessionId ?? null),
         ipAddress: hasFp ? null : (input.ipAddress ?? null),

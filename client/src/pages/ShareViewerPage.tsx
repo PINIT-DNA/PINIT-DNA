@@ -38,6 +38,8 @@ interface LinkInfo {
   requireOtp?:     boolean;
   otpVerified?:    boolean;
   signatureValid?: boolean;
+  inactiveReason?: 'expired' | 'exhausted' | 'revoked' | 'one_time' | 'tampered' | null;
+  viewerRevoked?: boolean;
   // ── Privacy & Location ──────────────────────────────────────────────────
   privacyMaskingEnabled?: boolean;
   requestLocation?:       boolean;
@@ -208,7 +210,14 @@ export function ShareViewerPage() {
   // ── Load link info ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!token) return;
-    axios.get(`${API_BASE_URL}/share/${token}`)
+    const sid = getSessionId();
+    const fingerprint = computeDeviceFingerprint();
+    axios.get(`${API_BASE_URL}/share/${token}`, {
+      headers: {
+        'x-pinit-session': sid,
+        'x-pinit-fingerprint': fingerprint,
+      },
+    })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .then(({ data }) => setInfo((data as any).link))
       .catch((err) => {
@@ -317,13 +326,25 @@ export function ShareViewerPage() {
       });
     };
 
-    // Wait for the best GPS we can get (up to ~22s) before VIEWED so Access
-    // Intelligence shows village-level fix instead of first Wi‑Fi guess.
+    // Wait for the best GPS we can get before VIEWED so Access Intelligence shows
+    // village-level fix — shorter wait after hop redirect so forwards still register.
     const sendViewed = () => {
       viewedSentRef.current = true;
       void track('VIEWED');
     };
-    const GPS_WAIT_MS = 22_000;
+    let isHopLanding = false;
+    try {
+      const hopTo = sessionStorage.getItem('pinit_hop_to');
+      if (hopTo && token && hopTo === token) {
+        isHopLanding = true;
+        sessionStorage.removeItem('pinit_hop_to');
+        sessionStorage.removeItem('pinit_hop_from');
+      }
+    } catch { /* ignore */ }
+    const wantsPreciseGps = Boolean(info?.requestLocation);
+    const GPS_WAIT_MS = isHopLanding
+      ? (wantsPreciseGps ? 8_000 : 3_000)
+      : (wantsPreciseGps ? 22_000 : 8_000);
     const GOOD_ACCURACY_M = 60;
     if (gpsDataRef.current && gpsDataRef.current.accuracy <= GOOD_ACCURACY_M) {
       sendViewed();
@@ -695,20 +716,16 @@ export function ShareViewerPage() {
     </div>
   );
 
-  // ── Expired / exhausted ────────────────────────────────────────────────────
-  if (!info.isActive) return (
+  // ── Per-viewer revoke (owner blocked this device only) ─────────────────────
+  if (info.viewerRevoked) return (
     <div className="min-h-screen bg-bg-base flex items-center justify-center">
       <div className="text-center max-w-sm mx-auto p-6">
-        <div className="w-16 h-16 bg-warning/10 rounded-full flex items-center justify-center mx-auto mb-4">
-          <Ban size={28} className="text-warning" />
+        <div className="w-16 h-16 bg-danger/10 rounded-full flex items-center justify-center mx-auto mb-4">
+          <Ban size={28} className="text-danger" />
         </div>
-        <h1 className="text-white font-bold text-lg mb-2">
-          {info.isExpired ? 'Link Expired' : 'View Limit Reached'}
-        </h1>
+        <h1 className="text-white font-bold text-lg mb-2">Access Revoked</h1>
         <p className="text-gray-400 text-sm">
-          {info.isExpired
-            ? 'This share link has expired and is no longer accessible.'
-            : `This link was limited to ${info.maxViews} views and has been exhausted.`}
+          The owner has revoked your access to this file. Other recipients are not affected.
         </p>
         <div className="mt-4 px-4 py-2 bg-bg-elevated rounded-lg border border-bg-border inline-block">
           <p className="text-2xs text-gray-500 mono">{token}</p>
@@ -716,6 +733,40 @@ export function ShareViewerPage() {
       </div>
     </div>
   );
+
+  // ── Expired / exhausted / revoked ────────────────────────────────────────────
+  if (!info.isActive) {
+    const reason = info.inactiveReason
+      ?? (info.isExpired ? 'expired' : info.isExhausted ? 'exhausted' : 'revoked');
+    const title = reason === 'expired' ? 'Link Expired'
+      : reason === 'exhausted' ? 'View Limit Reached'
+      : reason === 'one_time' ? 'Link Already Used'
+      : reason === 'tampered' ? 'Link Invalid'
+      : 'Link Unavailable';
+    const message = reason === 'expired'
+      ? 'This share link has expired and is no longer accessible.'
+      : reason === 'exhausted'
+      ? `This link was limited to ${info.maxViews ?? '?'} views and has been exhausted.`
+      : reason === 'one_time'
+      ? 'This was a one-time link and has already been used.'
+      : reason === 'tampered'
+      ? 'This link could not be verified and may have been tampered with.'
+      : 'This share link has been revoked or is no longer active.';
+    return (
+    <div className="min-h-screen bg-bg-base flex items-center justify-center">
+      <div className="text-center max-w-sm mx-auto p-6">
+        <div className="w-16 h-16 bg-warning/10 rounded-full flex items-center justify-center mx-auto mb-4">
+          <Ban size={28} className="text-warning" />
+        </div>
+        <h1 className="text-white font-bold text-lg mb-2">{title}</h1>
+        <p className="text-gray-400 text-sm">{message}</p>
+        <div className="mt-4 px-4 py-2 bg-bg-elevated rounded-lg border border-bg-border inline-block">
+          <p className="text-2xs text-gray-500 mono">{token}</p>
+        </div>
+      </div>
+    </div>
+    );
+  }
 
   // ── Name gate ──────────────────────────────────────────────────────────────
   if (info.requireName && !nameSubmitted) return (

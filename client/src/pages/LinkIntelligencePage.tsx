@@ -57,6 +57,7 @@ interface LinkInfo {
   downloadCount: number;
   isActive: boolean;
   allowDownload: boolean;
+  hopLinkCount?: number;
   accessLogs: AccessLog[];
   blockedViewers?: BlockedViewer[];
 }
@@ -249,6 +250,8 @@ export function LinkIntelligencePage() {
     for (const log of sorted) {
       const key = viewerGroupKey(log);
       if (!map.has(key)) {
+        // Only anchor a new viewer on a real open / forward — not scroll/idle alone
+        if (log.action !== 'VIEWED' && log.action !== 'FORWARDING_DETECTED') continue;
         hop++;
         const base: Viewer = {
           id: key,
@@ -346,6 +349,9 @@ export function LinkIntelligencePage() {
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">
             {link.filename} · Token: {link.token.slice(0, 12)}... · Created {formatDistanceToNow(new Date(link.createdAt))} ago
+            {(link.hopLinkCount ?? 0) > 0 && (
+              <span className="text-dna-400"> · {link.hopLinkCount} forward hop link(s) tracked</span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">

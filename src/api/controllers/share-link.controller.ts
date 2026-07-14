@@ -174,7 +174,13 @@ export async function listShareLinks(req: Request, res: Response, next: NextFunc
 
 export async function getShareLinkInfo(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const info = await shareLinkService.getPublicInfo(req.params['token']!);
+    const deviceFingerprint = (req.headers['x-pinit-fingerprint'] as string | undefined) ?? undefined;
+    const sessionId = (req.headers['x-pinit-session'] as string | undefined) ?? undefined;
+    const info = await shareLinkService.getPublicInfo(req.params['token']!, {
+      deviceFingerprint,
+      sessionId,
+      ipAddress: resolveClientIp(req),
+    });
     if (!info) { res.status(404).json({ success: false, error: 'Link not found' }); return; }
     res.json({ success: true, link: info });
   } catch (err) { next(err); }
@@ -187,7 +193,7 @@ export async function getShareLinkLogs(req: Request, res: Response, next: NextFu
     const token = req.params['token']!;
     const ownerUserId = (req as { user?: { sub?: string } }).user?.sub;
 
-    const link = await shareLinkService.getWithLogs(token);
+    const link = await shareLinkService.getWithAggregatedLogs(token);
     if (!link) {
       res.status(404).json({ success: false, error: 'Link not found' });
       return;
