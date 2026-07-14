@@ -9,7 +9,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { Shield, Lock, Download, Eye, AlertTriangle, CheckCircle2, Clock, Ban } from 'lucide-react';
+import { Shield, Lock, Download, Eye, AlertTriangle, CheckCircle2, Clock, Ban, Share2, Copy } from 'lucide-react';
 import axios from 'axios';
 import { format } from 'date-fns';
 import { API_BASE_URL } from '../config/api.config';
@@ -157,6 +157,10 @@ export function ShareViewerPage() {
   const [fileUrl, setFileUrl]     = useState('');
   const [downloading, setDownloading] = useState(false);
   const [fileLoadError, setFileLoadError] = useState<string | null>(null);
+  const [shareFurtherUrl, setShareFurtherUrl] = useState<string | null>(null);
+  const [shareFurtherBusy, setShareFurtherBusy] = useState(false);
+  const [shareFurtherMsg, setShareFurtherMsg] = useState('');
+  const hopRedirecting = useRef(false);
 
   // ── GPS Location state ────────────────────────────────────────────────────
   const [locationAsked,  setLocationAsked]  = useState(false);  // screen shown
@@ -287,6 +291,26 @@ export function ShareViewerPage() {
         screenResolution: screenRes, deviceFingerprint: fingerprint,
         ...buildGpsPayload(gps, info?.requestLocation),
         ...extra,
+      }).then((res) => {
+        const data = res.data as { redirectToken?: string; grandchildToken?: string };
+        const next = data.redirectToken || data.grandchildToken;
+        // New person opened this URL → server minted a hop link; move them onto it
+        // so their timeline stays separate from the previous recipient.
+        if (
+          action === 'VIEWED' &&
+          next &&
+          token &&
+          next !== token &&
+          !hopRedirecting.current
+        ) {
+          hopRedirecting.current = true;
+          try {
+            sessionStorage.setItem('pinit_hop_from', token);
+            sessionStorage.setItem('pinit_hop_to', next);
+          } catch { /* ignore */ }
+          window.location.replace(`/s/${next}`);
+        }
+        return res;
       }).catch((err) => {
         // eslint-disable-next-line no-console
         console.warn('[SmartLink] track failed', action, err?.message);
@@ -491,6 +515,32 @@ export function ShareViewerPage() {
     } catch {
       alert('Download failed. The file may have been removed.');
     } finally { setDownloading(false); }
+  };
+
+  /** Mint a NEW tracked hop URL for the next person (WhatsApp / email). */
+  const handleShareFurther = async () => {
+    if (!token || shareFurtherBusy) return;
+    setShareFurtherBusy(true);
+    setShareFurtherMsg('');
+    try {
+      const { data } = await axios.post(`${API_BASE_URL}/share/${token}/share-further`, {
+        recipientLabel: name.trim() ? `Shared by ${name.trim()}` : undefined,
+        forwardedByLabel: name.trim() || undefined,
+      });
+      const url = (data as { url?: string }).url;
+      if (!url) throw new Error('No hop URL returned');
+      setShareFurtherUrl(url);
+      try {
+        await navigator.clipboard.writeText(url);
+        setShareFurtherMsg('New tracked link copied — send this to the next person (not the old link).');
+      } catch {
+        setShareFurtherMsg('New tracked link ready — copy it below and send it.');
+      }
+    } catch {
+      setShareFurtherMsg('Could not create a new hop link. Try again.');
+    } finally {
+      setShareFurtherBusy(false);
+    }
   };
 
   // ── Text/CSV/JSON content state — must be declared before any conditional returns ──
@@ -879,6 +929,17 @@ export function ShareViewerPage() {
             <CheckCircle2 size={10} />
             Verified
           </div>
+          {/* Share further — mint a NEW hop URL for the next recipient */}
+          <button
+            type="button"
+            onClick={handleShareFurther}
+            disabled={shareFurtherBusy}
+            className="btn btn-secondary btn-sm text-xs"
+            title="Create a new tracked link to send to someone else"
+          >
+            <Share2 size={12} />
+            {shareFurtherBusy ? 'Creating…' : 'Share further'}
+          </button>
           {/* Download button */}
           {info.allowDownload && (
             <button onClick={handleDownload} disabled={downloading}
@@ -894,6 +955,31 @@ export function ShareViewerPage() {
       {info.note && (
         <div className="bg-dna-500/5 border-b border-dna-500/20 px-4 py-2">
           <p className="text-xs text-dna-300">📝 {info.note}</p>
+        </div>
+      )}
+
+      {(shareFurtherUrl || shareFurtherMsg) && (
+        <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-3 space-y-2">
+          {shareFurtherMsg && (
+            <p className="text-xs text-amber-200">{shareFurtherMsg}</p>
+          )}
+          {shareFurtherUrl && (
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-2xs text-white/90 bg-black/30 rounded px-2 py-1.5 truncate">
+                {shareFurtherUrl}
+              </code>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm text-xs shrink-0"
+                onClick={() => {
+                  void navigator.clipboard.writeText(shareFurtherUrl);
+                  setShareFurtherMsg('Copied again — send this NEW link only.');
+                }}
+              >
+                <Copy size={12} /> Copy
+              </button>
+            </div>
+          )}
         </div>
       )}
 

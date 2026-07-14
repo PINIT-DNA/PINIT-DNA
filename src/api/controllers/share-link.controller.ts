@@ -388,26 +388,54 @@ export async function recordAccess(req: Request, res: Response, next: NextFuncti
       }
     }
 
-    // ── Forwarding detection for CHILD / GRANDCHILD links ────────────────
+    // ── Forward hop graph: new device on ANY link → mint child + redirect ──
+    // Applies to PARENT as well (common WhatsApp: A copies one URL, B opens it).
     let forwardingDetected = false;
-    let grandchildToken: string | undefined;
-    if (fullLink.linkType !== 'PARENT' && (action === 'VIEWED' || !action) && realIp) {
+    let redirectToken: string | undefined;
+    let hopCreated = false;
+    if ((action === 'VIEWED' || !action) && realIp) {
       const fwdVerdict = await detectForwardingForLink(fullLink.id, realIp, deviceFingerprint, ipIntel ?? { ip: realIp, country: '', countryCode: '', city: '', region: '', isp: '', org: '', asn: '', timezone: '', lat: 0, lng: 0, isVpn: false, isTor: false, isProxy: false, isDatacenter: false, abuseScore: 0 });
-      forwardingDetected = fwdVerdict.status !== 'CLEAN';
-      if (forwardingDetected) {
-        logger.warn('[SmartLink] Forwarding detected', { token, score: fwdVerdict.score, status: fwdVerdict.status, reasons: fwdVerdict.reasons });
-      }
-      // Also run old detectForwarding for grandchild link creation
       const geo = await geoFromIp(realIp);
-      const fwdResult = await shareLinkService.detectForwarding(fullLink as any, realIp, deviceFingerprint ?? null, { country: geo.country, city: geo.city, browser: parseUaBrowser(req.headers['user-agent'] ?? ''), os: parseUaOs(req.headers['user-agent'] ?? '') });
-      grandchildToken = fwdResult.grandchildToken;
+      const hopResult = await shareLinkService.resolveAccessHop(
+        fullLink as any,
+        realIp,
+        deviceFingerprint ?? null,
+        {
+          country: geo.country,
+          city: geo.city,
+          browser: parseUaBrowser(req.headers['user-agent'] ?? ''),
+          os: parseUaOs(req.headers['user-agent'] ?? ''),
+          userAgent: req.headers['user-agent'] as string | undefined,
+          recipientName: recipientName ?? undefined,
+        },
+      );
+      redirectToken = hopResult.redirectToken;
+      hopCreated = hopResult.hopCreated ?? false;
+      forwardingDetected = hopResult.forwarded || fwdVerdict.status !== 'CLEAN';
+      if (forwardingDetected) {
+        logger.warn('[SmartLink] Forward hop signal', {
+          token,
+          score: fwdVerdict.score,
+          status: fwdVerdict.status,
+          redirectToken,
+          hopCreated,
+        });
+      }
     }
 
     const ipCoords = ipIntel ? sanitizeCoordinatePair(ipIntel.lat, ipIntel.lng) : null;
 
+    // If we minted/redirect to a hop, log FORWARD on the source link then stop —
+    // the VIEWED event must land on the new token after client redirect.
+    const accessAction = redirectToken
+      ? 'FORWARDING_DETECTED'
+      : forwardingDetected
+        ? 'FORWARDING_DETECTED'
+        : (action ?? 'VIEWED');
+
     await shareLinkService.recordAccess({
       shareLinkId:  fullLink.id,
-      action:       forwardingDetected ? 'FORWARDING_DETECTED' : (action ?? 'VIEWED'),
+      action:       accessAction,
       recipientName,
       ipAddress:    realIp,
       userAgent:    req.headers['user-agent'],
@@ -424,8 +452,14 @@ export async function recordAccess(req: Request, res: Response, next: NextFuncti
       lng:          ipCoords?.lng,
     });
 
-    logger.info('[SmartLink] Access recorded', { token, action, ip: realIp });
-    res.json({ success: true, link, forwardingDetected, ...(grandchildToken ? { grandchildToken } : {}) });
+    logger.info('[SmartLink] Access recorded', { token, action: accessAction, ip: realIp, redirectToken });
+    res.json({
+      success: true,
+      link,
+      forwardingDetected,
+      hopCreated,
+      ...(redirectToken ? { redirectToken, grandchildToken: redirectToken } : {}),
+    });
   } catch (err) { next(err); }
 }
 
@@ -1074,6 +1108,37 @@ export async function attributeLeakedFile(req: Request, res: Response, next: Nex
       } : null,
     });
   } catch (err) { next(err); }
+}
+
+
+// ── Mint a fresh hop URL for intentional "share further" (WhatsApp → next person)
+
+export async function shareFurther(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const token = req.params['token']!;
+    const body = req.body as { recipientLabel?: string; forwardedByLabel?: string };
+    const hop = await shareLinkService.mintShareFurther(token, {
+      recipientLabel: body.recipientLabel,
+      forwardedByLabel: body.forwardedByLabel,
+    });
+    const url = buildShareUrl(req, hop.token);
+    res.json({
+      success: true,
+      token: hop.token,
+      url,
+      parentToken: hop.parentToken,
+      depth: hop.depth,
+      linkType: hop.linkType,
+      message: 'New tracked hop link created — send this URL to the next person (do not reuse the old URL).',
+    });
+  } catch (err) {
+    const e = err as { statusCode?: number; message?: string };
+    if (e.statusCode === 404) {
+      res.status(404).json({ success: false, error: e.message ?? 'Link not found' });
+      return;
+    }
+    next(err);
+  }
 }
 
 

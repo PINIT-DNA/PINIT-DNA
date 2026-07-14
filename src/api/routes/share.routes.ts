@@ -33,6 +33,7 @@ import {
   attributeLeakedFile,
   leakUploadMiddleware,
   getLinkTree,
+  shareFurther,
   previewImage,
 } from '../controllers/share-link.controller';
 
@@ -56,6 +57,7 @@ shareRouter.post('/unmask-requests/:id/review', requireAuth, reviewUnmaskRequest
 // Public routes (no auth — accessed by recipients without accounts)
 shareRouter.get('/:token',                     getShareLinkInfo);
 shareRouter.post('/:token/access',             recordAccess);
+shareRouter.post('/:token/share-further',      shareFurther);
 shareRouter.post('/:token/verify-otp',         verifyShareOtp);
 shareRouter.get('/:token/file',                serveSharedFile);
 shareRouter.get('/:token/preview.png',         previewImage);              // ── Trackable OG preview image
