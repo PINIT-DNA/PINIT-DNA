@@ -24,9 +24,10 @@ export const FORENSIC_VERDICT_LABELS: Record<ForensicVerdict, string> = {
 };
 
 export function classifyForensicVerdict(retrievalConfidence: number): ForensicVerdict {
+  // Aligned with investigation-match-policy: 90 / 75 / 55 / <50→NO_SIGNATURE
   if (retrievalConfidence >= 90) return 'ORIGINAL_VERIFIED';
   if (retrievalConfidence >= 75) return 'ORIGINAL_FOUND_PARTIAL';
-  if (retrievalConfidence >= 50) return 'POSSIBLE_ASSET';
+  if (retrievalConfidence >= 55) return 'POSSIBLE_ASSET';
   return 'NO_SIGNATURE';
 }
 
@@ -178,7 +179,22 @@ function computeIdentityRecoveryConfidence(
   if (watermark > 0) {
     base = clamp(identityToken * 0.35 + watermark * 0.30 + manifest * 0.15 + ocr * 0.10 + dna15 * 0.10);
   } else {
-    base = clamp(identityToken * 0.30 + manifest * 0.15 + ocr * 0.15 + dna15 * 0.20 + orb * 0.20);
+    // No watermark in derivative — vault DNA + ORB ARE identity recovery signals
+    base = clamp(
+      identityToken * 0.20
+      + manifest * 0.10
+      + ocr * 0.10
+      + dna15 * 0.35
+      + orb * 0.25,
+    );
+  }
+
+  // Consistent with ownership recovery: strong DNA/ORB means identity was recovered via content DNA
+  if (dna15 >= 55 || orb >= 70) {
+    base = Math.max(base, clamp(dna15 * 0.50 + orb * 0.40 + Math.max(manifest, identityToken) * 0.10));
+  }
+  if (dna15 >= 60 && orb >= 80) {
+    base = Math.max(base, clamp(Math.min(92, (dna15 + orb) / 2 + 5)));
   }
 
   if (partialVideo && partialVideo.frameCount >= 2 && partialVideo.frameRatio >= 0.25) {
@@ -203,14 +219,22 @@ function computeOwnershipVerificationConfidence(
   identityToken: number,
   manifest: number,
   hasMatch: boolean,
+  /** Retrieval / DNA support when vault owner is known but cert not issued */
+  vaultProofScore = 0,
 ): number {
-  return clamp(
-    certificateScore * 0.45
-    + (hasMatch ? 25 : 0)
-    + watermark * 0.12
-    + identityToken * 0.10
-    + manifest * 0.08,
+  const base = clamp(
+    certificateScore * 0.40
+    + (hasMatch ? 30 : 0)
+    + watermark * 0.10
+    + identityToken * 0.08
+    + manifest * 0.07
+    + vaultProofScore * 0.15,
   );
+  // Owner locked in vault without certificate is partial ownership proof — not 0%
+  if (hasMatch && certificateScore < 40) {
+    return clamp(Math.max(base, 45 + vaultProofScore * 0.25));
+  }
+  return base;
 }
 
 export class ConfidenceFusionEngine {
@@ -260,7 +284,14 @@ export class ConfidenceFusionEngine {
     );
 
     const ownershipVerificationConfidence = computeOwnershipVerificationConfidence(
-      certificateScore, watermark, identityToken, manifest, !!input.match,
+      certificateScore,
+      watermark,
+      identityToken,
+      manifest,
+      !!input.match,
+      Math.max(retrievalConfidence, dna15, orb, perceptual) / 100 * 100 > 0
+        ? Math.max(retrievalConfidence, Math.round((dna15 + orb) / 2))
+        : 0,
     );
 
     const rows: FusionResult['breakdown'] = [

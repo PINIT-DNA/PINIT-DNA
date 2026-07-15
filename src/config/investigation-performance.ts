@@ -29,12 +29,15 @@ export const investigationPerformanceConfig = {
   /** ORB refine on top-K of filtered pool only */
   orbRefineTopK: intEnv('PINIT_INVESTIGATION_ORB_TOP_K', 5),
   /** 15-layer deep compare cap */
-  deepCompareTopN: intEnv('PINIT_INVESTIGATION_DEEP_COMPARE_TOP_N', 3),
+  deepCompareTopN: intEnv('PINIT_INVESTIGATION_DEEP_COMPARE_TOP_N', 6),
   /** Max forensic variants for investigation local-DNA probes */
   maxInvestigationProbes: intEnv('PINIT_INVESTIGATION_MAX_PROBES', 3),
   /** ORB refinement improves crop/screenshot matching accuracy */
   skipOrbInInvestigation: flag('PINIT_INVESTIGATION_SKIP_ORB', false),
-  /** Skip local patch search when watermark/manifest already identified vault */
+  /**
+   * Skip local patch search only for hard identity anchors (watermark/token/SHA/manifest).
+   * Never skip for vector-only leads — crops need patch DNA to avoid lookalike vaults.
+   */
   skipLocalDnaWhenWatermark: flag('PINIT_INVESTIGATION_SKIP_LOCAL_DNA_WATERMARK', true),
   /** Skip second-pass vector ORB when identity anchor present */
   skipVectorOrbWhenWatermark: flag('PINIT_INVESTIGATION_SKIP_VECTOR_ORB_WATERMARK', true),
@@ -48,7 +51,7 @@ export const investigationPerformanceConfig = {
   /** Per-candidate 15-layer DNA — must exceed real compare time on Render + AI cold start */
   deepCompareTimeoutMs: intEnv('PINIT_INVESTIGATION_DEEP_COMPARE_TIMEOUT_MS', 45_000),
   /** Image enterprise recovery — local DNA + deep DNA + ORB (Render needs headroom) */
-  imageRecoveryTimeoutMs: intEnv('PINIT_INVESTIGATION_IMAGE_RECOVERY_MS', 120_000),
+  imageRecoveryTimeoutMs: intEnv('PINIT_INVESTIGATION_IMAGE_RECOVERY_MS', 150_000),
   /** Video partial recovery — enterprise stage budget */
   videoRecoveryTimeoutMs: intEnv('PINIT_INVESTIGATION_VIDEO_RECOVERY_MS', 180_000),
   /** Post-retrieval report enrichment (timeline, crawler) — Render/Supabase needs headroom */

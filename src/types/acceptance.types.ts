@@ -3,7 +3,7 @@
  * Modules produce evidence only; only the Acceptance Engine emits verdicts.
  */
 
-export const ACCEPTANCE_POLICY_VERSION = 'acceptance-policy-v1.0' as const;
+export const ACCEPTANCE_POLICY_VERSION = 'acceptance-policy-v1.2' as const;
 export const DNA_ALGORITHM_VERSION = '15-layer-v1' as const;
 
 /** Frozen five verdicts — no additional codes. */

@@ -50,12 +50,15 @@ import { resolveMediaProfile } from './adaptive-scoring.service';
 import { isCameraScanFileName } from './vault-match-validator.service';
 import {
   LOCAL_PATCH_RESCUE_MIN,
+  NOT_FOUND_MAX_WITHOUT_PATCH,
+  POSSIBLE_MIN,
   RANKING_TOP_DEEP,
   RANKING_TRUSTED_LEAD_MIN,
   selectWinnerByRanking,
   stageCandidates,
   type CandidateRankingLog,
 } from './candidate-ranking-engine.service';
+import { vaultCandidateRankingService } from './vault-candidate-ranking.service';
 
 function logCandidateStage(
   stage: string,
@@ -745,21 +748,24 @@ export class PinitOriginalIdentityRecoveryService {
 
       const topFast = fastVectors[0];
       const topComposite = topFast?.scores.composite ?? 0;
-      // Only claim signature found on a strong visual lead — weak scores cause false locks.
-      const strongLead = topComposite >= 50;
+      // Only claim a candidate lead at trusted-vector bar (≥75). Mid-band (~50–70%) lookalikes
+      // cause false "Strong PINIT lead" before local-patch / Acceptance run.
+      const strongLead = topComposite >= RANKING_TRUSTED_LEAD_MIN;
       if (topFast && !identityHit && !earlyVaultShown) {
-        const ownerSnap = await loadVaultOwnerSnapshot(topFast.vaultId, topFast.dnaRecordId);
-        // Always emit vaultId so timeout retention and live UI keep the lead.
+        const ownerSnap = strongLead
+          ? await loadVaultOwnerSnapshot(topFast.vaultId, topFast.dnaRecordId)
+          : {};
         emitPhase({
           phase: 1,
           signatureFound: strongLead,
+          // Keep vaultId for pipeline; withhold owner/filename until confidence is trustworthy
           vaultId: topFast.vaultId,
-          dnaRecordId: topFast.dnaRecordId,
+          dnaRecordId: strongLead ? topFast.dnaRecordId : undefined,
           confidence: topComposite,
           similarityScore: topFast.scores.perceptualBlend,
           statusMessage: strongLead
-            ? 'Possible vault match — verifying…'
-            : `Candidate found — verifying…`,
+            ? 'Strong candidate vault — verifying with patch DNA…'
+            : `Weak candidate (${Math.round(topComposite)}%) — refining…`,
           ...ownerSnap,
         });
       } else if (topFast && identityHit) {
@@ -800,13 +806,13 @@ export class PinitOriginalIdentityRecoveryService {
       identityHit
       && (identityHit.tier <= 2 || watermarkRecovered || manifestRecovered || identityTokenRecovered)
     );
-    // Only skip patch search on a trusted lead (≥50%). Modest leads (~30%) are often
-    // wrong vaults on heavy crop/compress — local DNA is the fragment recovery path.
-    const trustedVectorLead = (fastVectors[0]?.scores.composite ?? 0) >= RANKING_TRUSTED_LEAD_MIN;
-    const skipLocalDna = (twoStage
+    // Never skip local-patch for image probes based on vector score alone — trusted
+    // vector leads (~75%+) still false-lock lookalikes on heavy crops. Skip only for
+    // hard identity anchors (watermark / recovery token / SHA / manifest).
+    const skipLocalDna = twoStage
       && hasStrongIdentityAnchor
-      && investigationPerformanceConfig.skipLocalDnaWhenWatermark)
-      || (twoStage && trustedVectorLead);
+      && investigationPerformanceConfig.skipLocalDnaWhenWatermark
+      && (isExactVaultMatch || watermarkRecovered || manifestRecovered || identityTokenRecovered);
 
     if (skipLocalDna) {
       emit({
@@ -814,16 +820,12 @@ export class PinitOriginalIdentityRecoveryService {
         stepId: 'orb_verification',
         label: 'ORB Verification',
         status: 'skipped',
-        detail: trustedVectorLead && !hasStrongIdentityAnchor
-          ? 'Skipped — trusted vector lead (deep DNA will verify)'
-          : 'Skipped — vault already identified via watermark/token',
+        detail: 'Skipped — vault already identified via watermark/token/SHA',
       });
       stages.push({
         stage: STAGE.LOCAL_DNA,
         status: 'skipped',
-        detail: trustedVectorLead && !hasStrongIdentityAnchor
-          ? `Trusted vector lead ${fastVectors[0]?.scores.composite}% — patch search skipped`
-          : `Watermark/identity anchor — patch search skipped (${identityHit?.method ?? 'tier ≤2'})`,
+        detail: `Hard identity anchor — patch search skipped (${identityHit?.method ?? 'tier ≤2'})`,
       });
     } else if (localDnaConfig.enabled && mimeType.startsWith('image/') && !isExactVaultMatch) {
       timer.start('local_dna');
@@ -1250,17 +1252,47 @@ export class PinitOriginalIdentityRecoveryService {
       });
 
       if (ranking.winner && ranking.source !== 'none') {
+        let selectionMatch = ranking.winner;
+        let selectionSource = ranking.source;
+        // Final safety: forensic/watermark identity vault wins over a displaced lookalike.
+        if (
+          identityHit
+          && ranking.winner.vaultId !== identityHit.vaultId
+          && ranking.source !== 'sha256_exact'
+          && ranking.source !== 'local_patch'
+        ) {
+          const winnerDeep = deepCompareResults.find((d) => d.vaultId === ranking.winner!.vaultId);
+          const winnerClass = (winnerDeep?.classification ?? '').toUpperCase();
+          const winnerScore = winnerDeep?.overallConfidenceScore ?? 0;
+          const lookalikeSteal = winnerClass === 'DIFFERENT'
+            || winnerScore < 75
+            || ranking.source === 'vector_top'
+            || ranking.source === 'deep_compare';
+          if (lookalikeSteal) {
+            logger.warn('[PinitOIR] Restoring forensic identity vault over lookalike ranking winner', {
+              identityVault: identityHit.vaultId.slice(0, 8),
+              rankingVault: ranking.winner.vaultId.slice(0, 8),
+              rankingSource: ranking.source,
+              winnerDna: winnerScore,
+              winnerClass: winnerClass || 'n/a',
+            });
+            selectionMatch = identityHit;
+            selectionSource = 'identity_hit';
+          }
+        }
         authoritativeAsset = await buildAuthoritativeAsset({
-          selection: { match: ranking.winner, source: ranking.source },
+          selection: { match: selectionMatch, source: selectionSource },
           candidates,
           vectors,
           deepCompareResults,
           localDnaHit,
           ownerUserId,
         });
-        dna15Score = ranking.deepCompare?.overallConfidenceScore
+        dna15Score = (selectionMatch.vaultId === ranking.winner.vaultId
+          ? ranking.deepCompare?.overallConfidenceScore
+          : deepCompareResults.find((d) => d.vaultId === selectionMatch.vaultId)?.overallConfidenceScore)
           ?? authoritativeAsset.deepCompare?.overallConfidenceScore
-          ?? 0;
+          ?? (Number(selectionMatch.confidence) || 0);
         selectionSteps.push({
           stage: 'authoritative_asset_locked',
           vaultId: authoritativeAsset.vaultId,
@@ -1269,13 +1301,51 @@ export class PinitOriginalIdentityRecoveryService {
           detail: `source=${authoritativeAsset.selectionSource} file=${authoritativeAsset.originalFilename} · ranking walk accepted`,
         });
       } else {
-        // All candidates rejected — do not lock a weak vault or keep retrieval confidence.
-        authoritativeAsset = null;
-        dna15Score = 0;
-        selectionSteps.push({
-          stage: 'authoritative_asset_locked',
-          detail: `all ${ranking.logs.length} candidates rejected by ranking + acceptance`,
-        });
+        // All candidates rejected — still lock a local-patch crop hit when fragment votes are strong.
+        if (localDnaHit && localDnaScore >= LOCAL_PATCH_RESCUE_MIN) {
+          const patchCandidate = rankingPool.find((c) => c.vaultId === localDnaHit.vaultId)
+            ?? candidates.find((c) => c.vaultId === localDnaHit.vaultId);
+          if (patchCandidate) {
+            const patchMatch = vaultCandidateRankingService.toVaultMatch({
+              ...patchCandidate,
+              compositeScore: Math.max(patchCandidate.compositeScore, localDnaScore),
+              method: `Local patch DNA (${localDnaHit.patchMatchCount} patches)`,
+            });
+            authoritativeAsset = await buildAuthoritativeAsset({
+              selection: { match: patchMatch, source: 'local_patch' },
+              candidates,
+              vectors,
+              deepCompareResults,
+              localDnaHit,
+              ownerUserId,
+            });
+            dna15Score = Math.max(
+              localDnaScore,
+              deepCompareResults.find((d) => d.vaultId === localDnaHit.vaultId)?.overallConfidenceScore ?? 0,
+            );
+            selectionSteps.push({
+              stage: 'authoritative_asset_locked',
+              vaultId: authoritativeAsset.vaultId,
+              dnaRecordId: authoritativeAsset.dnaRecordId,
+              certificateId: authoritativeAsset.certificateId,
+              detail: `source=local_patch file=${authoritativeAsset.originalFilename} · crop rescue after ranking reject`,
+            });
+          } else {
+            authoritativeAsset = null;
+            dna15Score = 0;
+            selectionSteps.push({
+              stage: 'authoritative_asset_locked',
+              detail: `all ${ranking.logs.length} candidates rejected by ranking + acceptance`,
+            });
+          }
+        } else {
+          authoritativeAsset = null;
+          dna15Score = 0;
+          selectionSteps.push({
+            stage: 'authoritative_asset_locked',
+            detail: `all ${ranking.logs.length} candidates rejected by ranking + acceptance`,
+          });
+        }
       }
 
       if (authoritativeAsset?.deepCompare) {
@@ -1501,20 +1571,20 @@ export class PinitOriginalIdentityRecoveryService {
         dnaRecordId: verifiedCandidate.dnaRecordId,
         confidence: retrievalConf,
         similarityScore: assetVector?.scores.perceptualBlend,
+        orbScore: assetVector?.scores.orb,
+        // OIR "VERIFIED" = retrieval lock only — Acceptance still decides ownership.
+        // Never emit "Ownership Verified" here (REPORT_STATE_LABELS.VERIFIED).
         statusMessage: reportState === 'VERIFIED'
-          ? REPORT_STATE_LABELS.VERIFIED
-          : REPORT_STATE_LABELS.POSSIBLE,
+          ? 'Identity recovered — Acceptance verifying ownership…'
+          : 'Possible PINIT candidate — manual review recommended',
         ...ownerSnap,
       });
     } else {
+      // Keep prior vault lead in the merged snapshot — do not wipe vaultId.
+      // Clearing it made orchestrator lose crop matches and report "No PINIT Asset Found".
       emitPhase({
         phase: 'final',
         signatureFound: false,
-        vaultId: undefined,
-        dnaRecordId: undefined,
-        ownerName: undefined,
-        ownerPinitId: undefined,
-        originalFilename: undefined,
         confidence: retrievalConf,
         statusMessage: REPORT_STATE_LABELS.NO_SIGNATURE,
       });

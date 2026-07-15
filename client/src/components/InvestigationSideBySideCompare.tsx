@@ -208,7 +208,7 @@ export function InvestigationSideBySideCompare({
         {scoreHeadline && (
           <span className={cn(
             'ml-auto text-xs font-bold mono',
-            reportState === 'VERIFIED' ? 'text-dna-400' : 'text-yellow-400',
+            reportState === 'VERIFIED' ? 'text-dna-400' : 'text-gray-300',
           )}>
             {scoreHeadline}
           </span>
@@ -218,14 +218,16 @@ export function InvestigationSideBySideCompare({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <ComparePanel
           title="Original (Vault)"
-          badge="AUTHORITATIVE"
-          badgeClass="border-dna-500/40 text-dna-400 bg-dna-500/10"
+          badge={reportState === 'VERIFIED' ? 'AUTHORITATIVE' : 'TOP CANDIDATE'}
+          badgeClass={reportState === 'VERIFIED'
+            ? 'border-dna-500/40 text-dna-400 bg-dna-500/10'
+            : 'border-yellow-500/40 text-yellow-400 bg-yellow-500/10'}
           mediaUrl={originalIsImage || originalIsVideo ? originalUrl : null}
           mediaKind={originalIsVideo ? 'video' : 'image'}
           filename={originalFilename ?? undefined}
           variant="original"
           meta={[
-            { label: 'Owner', value: ownerPinitId },
+            { label: 'Owner', value: ownerPinitId ?? null },
             { label: 'Vault ID', value: vaultId ? `${vaultId.slice(0, 8)}…` : null },
             { label: 'DNA ID', value: dnaRecordId ? `${dnaRecordId.slice(0, 8)}…` : null },
             { label: 'Certificate', value: certificateId ? `${certificateId.slice(0, 12)}…` : null },
@@ -239,7 +241,8 @@ export function InvestigationSideBySideCompare({
               <p className="text-2xs text-yellow-400">Could not load preview — open Vault Explorer to view file</p>
             ) : (
               <div className="flex items-center gap-1 text-2xs text-green-400">
-                <ShieldCheck size={12} /> Stored in your vault
+                <ShieldCheck size={12} />
+                {reportState === 'VERIFIED' ? 'Stored in your vault' : 'Top candidate vault — review recommended'}
               </div>
             )
           }
@@ -262,25 +265,25 @@ export function InvestigationSideBySideCompare({
               <p className="text-2xs text-gray-400">
                 {typeof dnaMatchPercent === 'number' && dnaMatchPercent >= 40 ? (
                   <>
-                    15-layer DNA compare:{' '}
+                    Match score:{' '}
                     <span className={cn(
                       'font-bold',
-                      reportState === 'VERIFIED' ? 'text-white' : 'text-yellow-400',
+                      reportState === 'VERIFIED' ? 'text-white' : 'text-dna-400',
                     )}>
                       {dnaMatchPercent}%
                     </span>
+                    {reportState === 'POSSIBLE' && (
+                      <span className="text-gray-500"> — crop/compress possible; review recommended</span>
+                    )}
                   </>
                 ) : (
                   <>
-                    Live retrieval match:{' '}
-                    <span className="font-bold text-yellow-400">{matchConfidence ?? dnaMatchPercent}%</span>
-                    {typeof dnaMatchPercent === 'number' && (
-                      <span> · 15-layer DNA {dnaMatchPercent}%</span>
+                    Live retrieval:{' '}
+                    <span className="font-bold text-dna-400">{matchConfidence ?? dnaMatchPercent}%</span>
+                    {reportState === 'POSSIBLE' && (
+                      <span className="text-gray-500"> — ownership not fully verified yet</span>
                     )}
                   </>
-                )}
-                {reportState === 'POSSIBLE' && (
-                  <span className="text-yellow-500/80"> — not verified ownership</span>
                 )}
               </p>
             ) : undefined

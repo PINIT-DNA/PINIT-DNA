@@ -218,14 +218,20 @@ export class ComparisonEngine {
       const impl = reg?.implementation ?? lA?.implementation ?? lB?.implementation ?? 'not_generated';
 
       // Registry layers on vault investigation — never content-compare session/lifecycle fields.
+      // Credit (PASS) only after content identity is proven (L1 exact or L3 ≥ 88%).
       if (vaultCompare && layerNum >= 7 && layerNum <= 15) {
+        const onVault = !!(lA?.success && lA.fingerprint);
         results.push(skipped(
           layerNum,
           name,
           impl,
           layerNum <= 10
-            ? 'Registry evidence (lifecycle/session) — loaded from vault, not regenerated from probe'
-            : 'Registry evidence (advanced protection) — not generated on investigation probe',
+            ? (onVault
+              ? 'Vault registry has this lifecycle layer — PASS credit requires L1 exact or L3 ≥ 88% (crop/derivative stays SKIPPED)'
+              : 'No lifecycle fingerprint on vault registry for this layer')
+            : (onVault
+              ? 'Vault registry has this protection layer — PASS credit requires L1 exact or L3 ≥ 88%'
+              : 'Advanced protection layer not stored on vault / not generated on probe'),
           lA?.fingerprint ?? '',
           '',
         ));
@@ -375,15 +381,31 @@ export class ComparisonEngine {
   }
 
   /**
-   * Hex string similarity — gives partial credit based on matching hex nibbles.
-   * Used for structural/semantic layers where partial similarity is meaningful.
+   * Hex string similarity — partial credit via Hamming / nibble overlap.
+   * Never hard-zero short hashes: image structural/semantic fingerprints are often
+   * ≤16 hex chars; crops would otherwise show L2/L4 = 0% despite shared content.
    */
   private hexSimilarity(a: string, b: string): number {
     if (a === b) return 1.0;
-    // For short hashes (≤64 chars), no partial credit — binary match
-    if (a.length <= 16) return 0.0;
-    // For longer hashes, give partial credit via Hamming
-    return this.hammingSimilarity(a, b);
+    if (!a || !b) return 0.0;
+
+    const ha = a.replace(/^0x/i, '');
+    const hb = b.replace(/^0x/i, '');
+    if (/^[0-9a-fA-F]+$/.test(ha) && /^[0-9a-fA-F]+$/.test(hb)) {
+      if (ha.length === hb.length) return this.hammingSimilarity(ha, hb);
+      const minLen = Math.min(ha.length, hb.length);
+      if (minLen >= 4) {
+        return this.hammingSimilarity(ha.slice(0, minLen), hb.slice(0, minLen)) * (minLen / Math.max(ha.length, hb.length));
+      }
+    }
+
+    const minLen = Math.min(a.length, b.length);
+    if (minLen === 0) return 0;
+    let same = 0;
+    for (let i = 0; i < minLen; i++) {
+      if (a[i] === b[i]) same++;
+    }
+    return same / Math.max(a.length, b.length);
   }
 
   // ─── Change description ───────────────────────────────────────────────────
@@ -401,11 +423,11 @@ export class ComparisonEngine {
     const pct = Math.round(score * 100);
 
     switch (layerNum) {
-      case 1: return `Raw bytes differ — files are not byte-identical`;
-      case 2: return `Structural organisation differs (similarity: ${pct}%)`;
-      case 3: return `Content perceptually differs (similarity: ${pct}%)`;
-      case 4: return `Semantic distribution differs (similarity: ${pct}%)`;
-      case 5: return `Metadata provenance differs — may indicate re-save or edit`;
+      case 1: return `Raw bytes differ — files are not byte-identical (edit, compress, or re-save)`;
+      case 2: return `Structural organisation differs (similarity: ${pct}%) — layout, pages, or edges changed`;
+      case 3: return `Content / text perceptually differs (similarity: ${pct}%) — crop, compress, or letter/text edits`;
+      case 4: return `Semantic / keyword distribution differs (similarity: ${pct}%) — wording or topic drift`;
+      case 5: return `Metadata provenance differs — may indicate re-save, strip, or edit`;
       case 6:  return `Integrity signature differs — seal broken`;
       case 7:  return `Behavioral DNA differs — uploaded from different session/device`;
       case 8:  return `Relationship DNA differs — file has different duplicate graph`;

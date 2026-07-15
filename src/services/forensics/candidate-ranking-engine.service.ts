@@ -2,9 +2,7 @@
  * Candidate Ranking Engine — Phase 4
  * docs/architecture/05_EVIDENCE_GRAPH.md
  *
- * Stages candidates (Top 100 → 30 → 20 → 10), walks in order, runs Acceptance
- * Engine on each. Never stops at #1. Never keeps retrieval confidence on reject.
- * Does not change DNA/ORB algorithms — only selection order and acceptance gates.
+ * Staging thresholds from investigation-match-policy.ts (v1.2).
  */
 import { logger } from '../../lib/logger';
 import type { RankedVaultCandidate } from '../../types/unified-investigation.types';
@@ -21,22 +19,40 @@ import {
   skippedChannel,
 } from './acceptance-engine.service';
 import { vaultCandidateRankingService } from './vault-candidate-ranking.service';
+import {
+  LOCAL_PATCH_RESCUE_MIN,
+  NOT_FOUND_MAX_WITHOUT_PATCH,
+  POSSIBLE_L3_MIN_WITHOUT_PATCH,
+  POSSIBLE_MIN,
+  RANKING_L3_PERCEPTUAL_MIN,
+  RANKING_LIVE_LEAD_MIN,
+  RANKING_TOP_DEEP,
+  RANKING_TOP_DEEP_STRONG_LEAD,
+  RANKING_TOP_IDENTITY,
+  RANKING_TOP_MEDIA,
+  RANKING_TOP_VECTOR,
+  RANKING_TRUSTED_LEAD_MIN,
+} from '../../config/investigation-match-policy';
 
-/** Staging caps — scalable funnel without full-vault deep compare */
-export const RANKING_TOP_VECTOR = 100;
-export const RANKING_TOP_IDENTITY = 30;
-export const RANKING_TOP_MEDIA = 20;
-/** Max deep DNA compares when lead is weak / heavily tampered */
-export const RANKING_TOP_DEEP = 4;
-/** Trusted lead (≥50%) or identity — verify top only; one fallback if DNA rejects */
-export const RANKING_TOP_DEEP_STRONG_LEAD = 2;
-/** Live SSE may show a vault at this score — not trusted alone (crops often false-lead) */
-export const RANKING_LIVE_LEAD_MIN = 25;
-/** Only skip patch DNA / shrink deep pool when vector lead is this strong */
-export const RANKING_TRUSTED_LEAD_MIN = 50;
-/** Local patch DNA can rescue a heavy crop when full-frame DNA is weak */
-export const LOCAL_PATCH_RESCUE_MIN = 45;
+/** Re-export policy constants for tests / callers */
+export {
+  RANKING_TOP_VECTOR,
+  RANKING_TOP_IDENTITY,
+  RANKING_TOP_MEDIA,
+  RANKING_TOP_DEEP,
+  RANKING_TOP_DEEP_STRONG_LEAD,
+  RANKING_L3_PERCEPTUAL_MIN,
+  RANKING_LIVE_LEAD_MIN,
+  RANKING_TRUSTED_LEAD_MIN,
+  LOCAL_PATCH_RESCUE_MIN,
+};
+/** Alias used in ranking POSSIBLE L3 gate */
+export const RANKING_POSSIBLE_L3_MIN = POSSIBLE_L3_MIN_WITHOUT_PATCH;
 
+/**
+ * Comparison lock may stop on POSSIBLE_MATCH (Top Candidates / DNA vs vault).
+ * Ownership revelation is gated later by Acceptance retainCandidate (VERIFIED only).
+ */
 const WINNING_VERDICTS: AcceptanceVerdict[] = [
   'VERIFIED_ORIGINAL',
   'VERIFIED_DERIVATIVE',
@@ -127,7 +143,9 @@ export function stageCandidates(params: {
   }
 
   // Media filter — prefer candidates with media-aligned signals when available
+  // Always keep identity hit at index 0 when present (forensic tile must not be reordered away).
   const media = (params.mediaType ?? '').toLowerCase();
+  const identityId = params.identityHit?.vaultId;
   if (media === 'video' || media === 'image' || media === 'pdf') {
     const preferred = pool.filter((c) =>
       c.signals.some((s) =>
@@ -147,6 +165,13 @@ export function stageCandidates(params: {
     }
   } else {
     pool = pool.slice(0, RANKING_TOP_MEDIA);
+  }
+
+  if (identityId) {
+    const hit = pool.find((c) => c.vaultId === identityId);
+    if (hit) {
+      pool = [hit, ...pool.filter((c) => c.vaultId !== identityId)];
+    }
   }
 
   return pool.map((c, i) => ({ ...c, rank: i + 1 }));
@@ -208,10 +233,14 @@ function evidenceForCandidate(params: {
   const patch = localDnaHit?.vaultId === candidate.vaultId ? localDnaScore : 0;
   const visualScore = Math.max(orb, pHash, composite, patch);
 
-  const tamperDetected = !!(deep?.tamperingDetected)
-    && dnaScore >= 72
-    && (dnaScore + visualScore) / 2 >= 62
-    && visualScore >= 55;
+  // Fragment/crop lock is always a derivative vs vault original.
+  const tamperDetected = isExactMatch
+    ? false
+    : patchRescue
+      || (!!(deep?.tamperingDetected)
+        && dnaScore >= 72
+        && (dnaScore + visualScore) / 2 >= 62
+        && visualScore >= 55);
 
   return {
     analysisComplete: true,
@@ -224,9 +253,10 @@ function evidenceForCandidate(params: {
       ? passChannel(100, certificateId)
       : skippedChannel('No certificate on file'),
     vault: passChannel(100, candidate.vaultId),
-    owner: candidate.ownerUserId
-      ? passChannel(80, candidate.ownerUserId)
-      : failChannel(0, 'Owner not bound'),
+    // Retrieval + vault row ownerUserId is NOT ownership proof
+    owner: certificateId
+      ? passChannel(100, certificateId)
+      : failChannel(0, 'Owner not cryptographically bound'),
     timeline: candidate.dnaRecordId
       ? passChannel(100, 'DNA registration present')
       : failChannel(0, 'No timeline custody link'),
@@ -240,11 +270,10 @@ function evidenceForCandidate(params: {
 }
 
 /**
- * Walk staged candidates one-by-one:
- * deep DNA compare → Acceptance Engine → accept or reject permanently.
- *
- * Deep compare runs per candidate (not a batch timeout) so completed DNA
- * scores are never discarded. Stops at first Acceptance winner.
+ * Walk staged candidates:
+ * deep DNA (live vault bytes) → L3 perceptual / metadata gates → Acceptance.
+ * Evaluates the full deep pool and picks the best DNA winner — does NOT stop at
+ * the first POSSIBLE_MATCH (that caused DigiMark → wrong SEO-phone vault).
  */
 export async function selectWinnerByRanking(params: {
   candidates: RankedVaultCandidate[];
@@ -307,12 +336,10 @@ export async function selectWinnerByRanking(params: {
   const afterIdentity = Math.min(staged.length, RANKING_TOP_IDENTITY);
   const afterMedia = staged.length;
   const topScore = staged[0]?.compositeScore ?? 0;
-  // Only shrink deep pool on trusted lead — modest scores often false-lead on heavy crops.
   const trustedLead = !!params.identityHit || topScore >= RANKING_TRUSTED_LEAD_MIN;
   const deepLimit = trustedLead ? RANKING_TOP_DEEP_STRONG_LEAD : RANKING_TOP_DEEP;
   let deepPool = staged.slice(0, deepLimit);
 
-  // Always evaluate local-patch hit first (fragment / >60% crop path).
   if (params.localDnaHit && params.localDnaScore >= LOCAL_PATCH_RESCUE_MIN) {
     const lid = params.localDnaHit.vaultId;
     const patchRow = staged.find((c) => c.vaultId === lid)
@@ -322,9 +349,28 @@ export async function selectWinnerByRanking(params: {
     }
   }
 
-  let evaluated = 0;
+  // Ensure forensic identity vault is always in the DNA compare pool
+  if (params.identityHit) {
+    const id = params.identityHit.vaultId;
+    if (!deepPool.some((c) => c.vaultId === id)) {
+      const row = staged.find((c) => c.vaultId === id)
+        ?? params.candidates.find((c) => c.vaultId === id);
+      if (row) deepPool = [row, ...deepPool].slice(0, deepLimit + 1);
+    }
+  }
 
-  // Pre-run deep DNA compares in parallel — same candidates, lower wall-clock vs sequential.
+  let evaluated = 0;
+  type RankAccept = {
+    candidate: RankedVaultCandidate;
+    deep: DeepCompareResult | null;
+    decision: ReturnType<typeof runAcceptanceEngine>;
+    log: CandidateRankingLog;
+    l3: number;
+    isIdentity: boolean;
+    isLocalPatch: boolean;
+  };
+  const accepted: RankAccept[] = [];
+
   if (params.compareCandidate) {
     const needsDeep = deepPool.filter((candidate) => {
       if (deepFor(candidate.vaultId, deepResults)) return false;
@@ -353,7 +399,6 @@ export async function selectWinnerByRanking(params: {
       && params.localDnaScore >= LOCAL_PATCH_RESCUE_MIN
     );
 
-    // Deep-compare this candidate now (or use precomputed result).
     let deep = deepFor(candidate.vaultId, deepResults);
     if (!deep && !isExact && params.compareCandidate) {
       deep = (await params.compareCandidate(candidate)) ?? undefined;
@@ -362,23 +407,20 @@ export async function selectWinnerByRanking(params: {
 
     const dnaScore = deep?.overallConfidenceScore ?? 0;
     const dnaClass = deep?.classification ?? 'MISSING';
+    const l3 = deep?.layerComparisons?.find((l) => l.layer === 3)?.similarityPercent ?? 0;
+    const l5 = deep?.layerComparisons?.find((l) => l.layer === 5)?.similarityPercent ?? 0;
     const vectorVis = Math.max(
       vector?.scores.orb ?? 0,
       vector?.scores.perceptualBlend ?? vector?.scores.pHash ?? 0,
       vector?.scores.composite ?? 0,
     );
+    const isIdentityCandidate = !!(
+      params.identityHit
+      && params.identityHit.vaultId === candidate.vaultId
+    );
 
-    // Hard reject: DNA DIFFERENT / low DNA / missing — never accept via similarity alone.
-    // Exception: strong local-patch hit on this vault (heavy crop/compress fragment).
-    if (
-      !isExact
-      && !isLocalPatchHit
-      && (!deep || (dnaClass.toUpperCase() === 'DIFFERENT' && dnaScore < 58) || dnaScore < 40)
-    ) {
+    const pushReject = (reasons: string[], verdict: AcceptanceVerdict = 'NOT_PINIT') => {
       evaluated++;
-      const reasons = !deep
-        ? ['dna_missing_or_decrypt_failed']
-        : [`dna_${dnaScore}_${dnaClass}`];
       logs.push({
         rank: i + 1,
         stage: 'acceptance',
@@ -388,55 +430,63 @@ export async function selectWinnerByRanking(params: {
         vectorSimilarity: vector?.scores.composite ?? candidate.compositeScore,
         clipSimilarity: vector?.scores.clip ?? 0,
         orbScore: vector?.scores.orb ?? 0,
-        pHashSimilarity: vector?.scores.perceptualBlend ?? 0,
+        pHashSimilarity: vector?.scores.perceptualBlend ?? l3 ?? 0,
         dnaScore,
         dnaClassification: dnaClass,
         fusionScore: 0,
-        acceptanceVerdict: 'NOT_PINIT',
+        acceptanceVerdict: verdict,
         decision: 'REJECT',
         rejectReasons: reasons,
       });
-      logger.warn('[CandidateRanking] REJECTED — DNA gate', {
-        rank: i + 1,
+    };
+
+    // Hard refuse: DNA says DIFFERENT subjects.
+    // Local-patch hits skip this gate — full-frame L3 collapses on true crops while
+    // fragment votes are the real identity signal (evidenceForCandidate rewrites class).
+    if (
+      !isExact
+      && !isLocalPatchHit
+      && dnaClass.toUpperCase() === 'DIFFERENT'
+      && !(isIdentityCandidate && l3 >= 70)
+    ) {
+      pushReject([`dna_different_l3_${Math.round(l3)}`]);
+      logger.warn('[CandidateRanking] REJECTED — DNA DIFFERENT (layer compare)', {
         vaultId: candidate.vaultId.slice(0, 8),
         dnaScore,
-        dnaClass,
-        vectorSimilarity: vector?.scores.composite ?? candidate.compositeScore,
+        l3,
       });
       continue;
     }
 
-    // Cross-modal gate: weak DNA + weak visual = unrelated lookalike (e.g. two different photos).
+    // Hard refuse: weak perceptual hash for non-identity lookalikes.
+    // Only enforce when L3 was actually measured — missing layers must not
+    // auto-reject SIMILAR/DNA_MATCH scores (common in unit tests + timed-out compares).
+    const hasMeasuredL3 = !!deep?.layerComparisons?.some((l) => l.layer === 3);
+    if (
+      !isExact
+      && !isIdentityCandidate
+      && !isLocalPatchHit
+      && deep
+      && hasMeasuredL3
+      && l3 < RANKING_L3_PERCEPTUAL_MIN
+    ) {
+      pushReject([`l3_perceptual_${Math.round(l3)}_below_${RANKING_L3_PERCEPTUAL_MIN}`]);
+      logger.warn('[CandidateRanking] REJECTED — weak L3 perceptual', {
+        vaultId: candidate.vaultId.slice(0, 8),
+        l3,
+        dnaScore,
+      });
+      continue;
+    }
+
     if (
       !isExact
       && !isLocalPatchHit
-      && dnaScore < 80
-      && (dnaScore + vectorVis) / 2 < 62
+      && !isIdentityCandidate
+      && (!deep || dnaScore < 40)
+      && vectorVis < 75
     ) {
-      evaluated++;
-      logs.push({
-        rank: i + 1,
-        stage: 'acceptance',
-        vaultId: candidate.vaultId,
-        dnaRecordId: candidate.dnaRecordId,
-        filename: vector?.filename,
-        vectorSimilarity: vector?.scores.composite ?? candidate.compositeScore,
-        clipSimilarity: vector?.scores.clip ?? 0,
-        orbScore: vector?.scores.orb ?? 0,
-        pHashSimilarity: vector?.scores.perceptualBlend ?? 0,
-        dnaScore,
-        dnaClassification: dnaClass,
-        fusionScore: 0,
-        acceptanceVerdict: 'NOT_PINIT',
-        decision: 'REJECT',
-        rejectReasons: [`cross_modal_weak_dna_${dnaScore}_vis_${Math.round(vectorVis)}`],
-      });
-      logger.warn('[CandidateRanking] REJECTED — cross-modal weak', {
-        rank: i + 1,
-        vaultId: candidate.vaultId.slice(0, 8),
-        dnaScore,
-        vectorVis,
-      });
+      pushReject(!deep ? ['dna_missing_or_decrypt_failed'] : [`dna_${dnaScore}_${dnaClass}`]);
       continue;
     }
 
@@ -449,6 +499,13 @@ export async function selectWinnerByRanking(params: {
       certificateId: params.certificateByVaultId?.get(candidate.vaultId),
       isExactMatch: !!isExact,
     });
+    // Prefer live L3 / L5 from deep DNA over vector-only visual
+    if (l3 > 0) {
+      evidence.visual = passChannel(Math.max(l3, evidence.visual.score), `L3_perceptual_${Math.round(l3)}`);
+    }
+    if (l5 > 0) {
+      evidence.metadata = passChannel(l5, `L5_metadata_${Math.round(l5)}`);
+    }
 
     const decision = runAcceptanceEngine(evidence);
     evaluated++;
@@ -462,7 +519,7 @@ export async function selectWinnerByRanking(params: {
       vectorSimilarity: vector?.scores.composite ?? candidate.compositeScore,
       clipSimilarity: vector?.scores.clip ?? 0,
       orbScore: vector?.scores.orb ?? 0,
-      pHashSimilarity: vector?.scores.perceptualBlend ?? 0,
+      pHashSimilarity: Math.max(vector?.scores.perceptualBlend ?? 0, l3),
       dnaScore: evidence.dna.score,
       dnaClassification: evidence.dna.classification ?? 'MISSING',
       fusionScore: decision.confidence,
@@ -472,60 +529,244 @@ export async function selectWinnerByRanking(params: {
         ? []
         : [decision.verdict, decision.decisionReason],
     };
+
+    if (
+      log.decision === 'ACCEPT'
+      && decision.verdict === 'POSSIBLE_MATCH'
+      && params.identityHit
+      && !isIdentityCandidate
+      && !isLocalPatchHit
+      && !isExact
+    ) {
+      log.decision = 'REJECT';
+      log.rejectReasons = [
+        'identity_hit_priority',
+        `forensic_vault_${params.identityHit.vaultId.slice(0, 8)}_blocks_possible_lookalike`,
+      ];
+      logs.push(log);
+      continue;
+    }
+
+    if (
+      log.decision === 'ACCEPT'
+      && decision.verdict === 'POSSIBLE_MATCH'
+      && !isLocalPatchHit
+      && !isExact
+      && (
+        dnaClass.toUpperCase() === 'DIFFERENT'
+        || (hasMeasuredL3 && l3 < RANKING_POSSIBLE_L3_MIN)
+        || dnaScore < NOT_FOUND_MAX_WITHOUT_PATCH
+        || dnaScore < POSSIBLE_MIN
+      )
+    ) {
+      log.decision = 'REJECT';
+      log.rejectReasons = [`possible_needs_dna_l3_got_dna${dnaScore}_l3${Math.round(l3)}`];
+      logs.push(log);
+      continue;
+    }
+
     logs.push(log);
 
     if (log.decision === 'ACCEPT') {
-      const source: AuthoritativeSelectionSource =
-        params.identityHit?.vaultId === candidate.vaultId
-          ? (params.isExactVaultMatch ? 'sha256_exact' : 'identity_hit')
-          : params.localDnaHit?.vaultId === candidate.vaultId
-            ? 'local_patch'
-            : deep && deep.overallConfidenceScore >= 45
-              ? 'deep_compare'
-              : 'vector_top';
-
-      logger.info('[CandidateRanking] WINNER', {
+      accepted.push({
+        candidate,
+        deep: deep ?? null,
+        decision,
+        log,
+        l3,
+        isIdentity: isIdentityCandidate,
+        isLocalPatch: isLocalPatchHit,
+      });
+    } else {
+      logger.warn('[CandidateRanking] REJECTED — trying next', {
         rank: i + 1,
         vaultId: candidate.vaultId.slice(0, 8),
         verdict: decision.verdict,
-        confidence: decision.confidence,
+        reasons: log.rejectReasons,
         dnaScore: log.dnaScore,
-        dnaClass: log.dnaClassification,
-        source,
+        l3,
       });
+    }
+  }
 
+  const stages = {
+    afterVector,
+    afterIdentity,
+    afterMedia,
+    afterDeepPool: deepPool.length,
+    evaluated,
+  };
+
+  if (accepted.length > 0) {
+    // Prefer VERIFIED_* then local-patch crop hits, then highest DNA / L3
+    const rankVerdict = (v: AcceptanceVerdict) => (
+      v === 'VERIFIED_ORIGINAL' ? 3 : v === 'VERIFIED_DERIVATIVE' ? 2 : 1
+    );
+    accepted.sort((a, b) => {
+      const vd = rankVerdict(b.decision.verdict) - rankVerdict(a.decision.verdict);
+      if (vd !== 0) return vd;
+      // True crop fragment beats a higher full-frame lookalike DNA score
+      if (a.isLocalPatch !== b.isLocalPatch) return a.isLocalPatch ? -1 : 1;
+      if (a.isIdentity !== b.isIdentity) return a.isIdentity ? -1 : 1;
+      const dna = b.log.dnaScore - a.log.dnaScore;
+      if (dna !== 0) return dna;
+      return b.l3 - a.l3;
+    });
+
+    // If a lookalike won POSSIBLE but a local-patch candidate was also accepted, force patch.
+    // If patch was rejected solely for DIFFERENT DNA, revive it below after empty accepted —
+    // here we only re-rank accepted.
+    const best = accepted[0]!;
+    // Guard: non-patch POSSIBLE with mid L3 should not have been accepted — double-check.
+    if (
+      !best.isLocalPatch
+      && !best.isIdentity
+      && best.decision.verdict === 'POSSIBLE_MATCH'
+      && best.l3 > 0
+      && best.l3 < RANKING_POSSIBLE_L3_MIN
+      && params.localDnaHit
+      && params.localDnaScore >= LOCAL_PATCH_RESCUE_MIN
+    ) {
+      const patchAccepted = accepted.find((a) => a.isLocalPatch);
+      if (patchAccepted) {
+        accepted[0] = patchAccepted;
+      }
+    }
+    const winner = accepted[0]!;
+
+    // Prefer local-patch true-crop vault over a higher full-frame lookalike POSSIBLE.
+    if (
+      params.localDnaHit
+      && params.localDnaScore >= LOCAL_PATCH_RESCUE_MIN
+      && winner.candidate.vaultId !== params.localDnaHit.vaultId
+      && (winner.decision.verdict === 'POSSIBLE_MATCH' || winner.log.dnaScore < 80)
+    ) {
+      const patchAccepted = accepted.find((a) => a.candidate.vaultId === params.localDnaHit!.vaultId);
+      const patchRow = patchAccepted?.candidate
+        ?? deepPool.find((c) => c.vaultId === params.localDnaHit!.vaultId)
+        ?? params.candidates.find((c) => c.vaultId === params.localDnaHit!.vaultId);
+      const patchDeep = deepFor(params.localDnaHit.vaultId, deepResults);
+      if (patchRow) {
+        logger.warn('[CandidateRanking] Preferring local-patch crop over lookalike DNA lead', {
+          lookalikeVault: winner.candidate.vaultId.slice(0, 8),
+          lookalikeDna: winner.log.dnaScore,
+          patchVault: params.localDnaHit.vaultId.slice(0, 8),
+          localDnaScore: params.localDnaScore,
+        });
+        const baseMatch = vaultCandidateRankingService.toVaultMatch(patchRow);
+        return {
+          winner: {
+            ...baseMatch,
+            method: `${patchRow.method} (local_patch preferred over lookalike ${winner.log.dnaScore}%)`,
+            confidence: String(Math.max(
+              params.localDnaScore,
+              patchDeep?.overallConfidenceScore ?? 0,
+              patchAccepted?.log.dnaScore ?? 0,
+              patchRow.compositeScore,
+            )),
+          },
+          source: 'local_patch',
+          deepCompare: patchAccepted?.deep ?? patchDeep ?? null,
+          allDeepResults: deepResults,
+          logs,
+          deepComparePool: deepPool,
+          stages,
+        };
+      }
+    }
+
+    const source: AuthoritativeSelectionSource =
+      params.identityHit?.vaultId === winner.candidate.vaultId
+        ? (params.isExactVaultMatch ? 'sha256_exact' : 'identity_hit')
+        : params.localDnaHit?.vaultId === winner.candidate.vaultId
+          ? 'local_patch'
+          : winner.deep && winner.deep.overallConfidenceScore >= 45
+            ? 'deep_compare'
+            : 'vector_top';
+
+    logger.info('[CandidateRanking] WINNER (best DNA across pool)', {
+      vaultId: winner.candidate.vaultId.slice(0, 8),
+      verdict: winner.decision.verdict,
+      dnaScore: winner.log.dnaScore,
+      l3: winner.l3,
+      compared: accepted.length,
+      source,
+      localPatchPreferred: winner.isLocalPatch,
+    });
+
+    const dnaPart = winner.log.dnaScore > 0 ? `, DNA ${winner.log.dnaScore}%` : '';
+    const l3Part = winner.l3 > 0 ? `, L3 ${Math.round(winner.l3)}%` : '';
+    const baseMatch = vaultCandidateRankingService.toVaultMatch(winner.candidate);
+    return {
+      winner: {
+        ...baseMatch,
+        method: `${winner.candidate.method} (rank #${winner.candidate.rank}, vector ${winner.candidate.compositeScore}%${dnaPart}${l3Part})`,
+        confidence: String(Math.max(winner.candidate.compositeScore, winner.log.dnaScore || 0, winner.l3)),
+      },
+      source,
+      deepCompare: winner.deep,
+      allDeepResults: deepResults,
+      logs,
+      deepComparePool: deepPool,
+      stages,
+    };
+  }
+
+  if (params.identityHit) {
+    const identityDeep = deepFor(params.identityHit.vaultId, deepResults);
+    const identityDna = identityDeep?.overallConfidenceScore ?? 0;
+    const identityClass = (identityDeep?.classification ?? '').toUpperCase();
+    const identityL3 = identityDeep?.layerComparisons?.find((l) => l.layer === 3)?.similarityPercent ?? 0;
+    const identityHardFail = identityClass === 'DIFFERENT' && identityL3 < 40 && identityDna < 40;
+    if (!identityHardFail) {
+      logger.info('[CandidateRanking] Retaining identity hit after DNA walk', {
+        vaultId: params.identityHit.vaultId.slice(0, 8),
+        dnaScore: identityDna,
+        l3: identityL3,
+      });
       return {
-        winner: vaultCandidateRankingService.toVaultMatch({
-          ...candidate,
-          compositeScore: Math.max(
-            candidate.compositeScore,
-            log.dnaScore,
-            decision.confidence,
-          ),
-        }),
-        source,
-        deepCompare: deep ?? null,
+        winner: params.identityHit,
+        source: params.isExactVaultMatch ? 'sha256_exact' : 'identity_hit',
+        deepCompare: identityDeep ?? null,
         allDeepResults: deepResults,
         logs,
         deepComparePool: deepPool,
-        stages: {
-          afterVector,
-          afterIdentity,
-          afterMedia,
-          afterDeepPool: deepPool.length,
-          evaluated,
-        },
+        stages,
       };
     }
+  }
 
-    logger.warn('[CandidateRanking] REJECTED — trying next', {
-      rank: i + 1,
-      vaultId: candidate.vaultId.slice(0, 8),
-      verdict: decision.verdict,
-      reasons: log.rejectReasons,
-      dnaScore: log.dnaScore,
-      vectorSimilarity: log.vectorSimilarity,
-    });
+  // Heavy crop fallback: keep local-patch vault even when acceptance stayed NOT_PINIT
+  // (full-frame DNA DIFFERENT is expected for small WhatsApp/crops).
+  if (params.localDnaHit && params.localDnaScore >= LOCAL_PATCH_RESCUE_MIN) {
+    const patchDeep = deepFor(params.localDnaHit.vaultId, deepResults);
+    const patchRow = deepPool.find((c) => c.vaultId === params.localDnaHit!.vaultId)
+      ?? params.candidates.find((c) => c.vaultId === params.localDnaHit!.vaultId);
+    if (patchRow) {
+      logger.info('[CandidateRanking] Retaining local-patch crop hit after DNA walk', {
+        vaultId: params.localDnaHit.vaultId.slice(0, 8),
+        localDnaScore: params.localDnaScore,
+        dnaScore: patchDeep?.overallConfidenceScore ?? 0,
+      });
+      const baseMatch = vaultCandidateRankingService.toVaultMatch(patchRow);
+      return {
+        winner: {
+          ...baseMatch,
+          method: `${patchRow.method} (local_patch rescue ${params.localDnaScore}%)`,
+          confidence: String(Math.max(
+            params.localDnaScore,
+            patchDeep?.overallConfidenceScore ?? 0,
+            patchRow.compositeScore,
+          )),
+        },
+        source: 'local_patch',
+        deepCompare: patchDeep ?? null,
+        allDeepResults: deepResults,
+        logs,
+        deepComparePool: deepPool,
+        stages,
+      };
+    }
   }
 
   logger.info('[CandidateRanking] All candidates rejected', {
@@ -540,13 +781,7 @@ export async function selectWinnerByRanking(params: {
     allDeepResults: deepResults,
     logs,
     deepComparePool: deepPool,
-    stages: {
-      afterVector,
-      afterIdentity,
-      afterMedia,
-      afterDeepPool: deepPool.length,
-      evaluated,
-    },
+    stages,
   };
 }
 

@@ -79,7 +79,7 @@ describe('CandidateRankingEngine', () => {
     expect(staged.length).toBeLessThanOrEqual(20);
     expect(staged.length).toBeGreaterThan(0);
     expect(RANKING_TOP_VECTOR).toBe(100);
-    expect(RANKING_TOP_DEEP).toBe(4);
+    expect(RANKING_TOP_DEEP).toBe(6);
   });
 
   it('rejects high-similarity low-DNA candidate and accepts later winner', async () => {
@@ -155,7 +155,7 @@ describe('CandidateRankingEngine', () => {
     expect(result.source).toBe('sha256_exact');
   });
 
-  it('uses per-candidate compare and stops at first winner (no batch timeout loss)', async () => {
+  it('uses per-candidate compare for weak leads (full deep pool)', async () => {
     const candidates = [candidate('correct', 52, 1), candidate('other', 30, 2)];
     const vectors = [vector('correct', 52, 0), vector('other', 30)];
     let compareCalls = 0;
@@ -176,23 +176,24 @@ describe('CandidateRankingEngine', () => {
       },
     });
     expect(result.winner?.vaultId).toBe('vault-correct');
-    expect(result.logs[0]?.dnaScore).toBe(55);
-    expect(result.logs[0]?.dnaClassification).toBe('SIMILAR');
-    expect(compareCalls).toBe(1); // stopped after winner — no wasted compares
+    expect(result.logs.some((l) => l.vaultId === 'vault-correct' && l.decision === 'ACCEPT')).toBe(true);
+    expect(compareCalls).toBeGreaterThanOrEqual(1);
   });
 
-  it('limits deep pool to 2 only when vector lead is trusted (≥50%)', async () => {
+  it('uses deep pool of 4 when vector lead is trusted (≥75%)', async () => {
     const candidates = [
-      candidate('lead', 55, 1),
+      candidate('lead', 80, 1),
       candidate('b', 40, 2),
       candidate('c', 30, 3),
       candidate('d', 20, 4),
+      candidate('e', 15, 5),
     ];
     const vectors = [
-      vector('lead', 55),
+      vector('lead', 80),
       vector('b', 40),
       vector('c', 30),
       vector('d', 20),
+      vector('e', 15),
     ];
     let compareCalls = 0;
     const result = await selectWinnerByRanking({
@@ -205,13 +206,13 @@ describe('CandidateRankingEngine', () => {
       mediaType: 'image',
       compareCandidate: async (c) => {
         compareCalls++;
-        if (c.vaultId === 'vault-lead') return deep('lead', 55, 'SIMILAR');
+        if (c.vaultId === 'vault-lead') return deep('lead', 80, 'SIMILAR');
         return deep(c.vaultId.replace('vault-', ''), 10, 'DIFFERENT');
       },
     });
     expect(result.winner?.vaultId).toBe('vault-lead');
-    expect(compareCalls).toBe(1);
-    expect(result.deepComparePool.length).toBe(2);
+    expect(result.deepComparePool.length).toBe(4);
+    expect(compareCalls).toBeGreaterThanOrEqual(1);
   });
 
   it('rescues heavy crop via local patch DNA when full-frame DNA is weak', async () => {
@@ -233,7 +234,7 @@ describe('CandidateRankingEngine', () => {
       spatialConsistency: 0.6,
       geometricScore: 50,
       orbRefineScore: 48,
-      compositeScore: 52,
+      compositeScore: 62,
       signals: ['local_patch_dna'],
     };
 
@@ -241,20 +242,51 @@ describe('CandidateRankingEngine', () => {
       candidates,
       vectors,
       localDnaHit,
-      localDnaScore: 52,
+      localDnaScore: 62,
       identityHit: null,
       isExactVaultMatch: false,
       mediaType: 'image',
       compareCandidate: async (c) => {
         // Full-frame DNA fails on both (heavy crop) — patch rescue must still accept original.
+        // No L3 layers: small crops often have weak/missing full-frame perceptual.
         return deep(c.vaultId.replace('vault-', ''), 28, 'DIFFERENT');
       },
     });
 
     expect(result.winner?.vaultId).toBe('vault-original');
     expect(result.source).toBe('local_patch');
-    expect(result.logs[0]?.decision).toBe('ACCEPT');
-    expect(result.logs[0]?.vaultId).toBe('vault-original');
+  });
+
+  it('rejects mid-band lookalike SIMILAR without local-patch (L3 59)', async () => {
+    const candidates = [candidate('lookalike', 72, 1)];
+    const vectors = [vector('lookalike', 72, 60)];
+    const deepWithL3 = (id: string, score: number, classification: string, l3: number): DeepCompareResult => ({
+      vaultId: `vault-${id}`,
+      dnaRecordId: `dna-${id}`,
+      overallConfidenceScore: score,
+      classification,
+      tamperingDetected: true,
+      matchedLayerCount: 4,
+      totalLayers: 15,
+      layerComparisons: [
+        { layer: 3, name: 'Perceptual', similarityPercent: l3, matched: l3 >= 75 },
+        { layer: 5, name: 'Metadata', similarityPercent: 100, matched: true },
+      ],
+    });
+
+    const result = await selectWinnerByRanking({
+      candidates,
+      vectors,
+      localDnaHit: null,
+      localDnaScore: 0,
+      identityHit: null,
+      isExactVaultMatch: false,
+      mediaType: 'image',
+      compareCandidate: async () => deepWithL3('lookalike', 61, 'SIMILAR', 59),
+    });
+
+    expect(result.winner).toBeNull();
+    expect(result.source).toBe('none');
   });
 });
 

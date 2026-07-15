@@ -11,7 +11,7 @@ import axios    from 'axios';
 import { prisma } from '../../lib/prisma';
 import { logger }  from '../../lib/logger';
 import { assertRecordOwner } from '../../lib/tenant-scope';
-import { riskEngineService } from './risk-engine.service';
+import { riskEngineService, serializeRiskEvidence } from './risk-engine.service';
 import { sanitizeCoordinatePair } from '../../lib/geo-coords';
 import { getIpIntelligence } from '../forensic/ip-intelligence.service';
 
@@ -1041,7 +1041,8 @@ export class ShareLinkService {
 
     let ipLat = input.lat;
     let ipLng = input.lng;
-    if (input.gpsLat == null && (ipLat == null || ipLng == null) && input.ipAddress) {
+    // Always resolve IP geo when missing — needed for Fake GPS (GPS vs IP) comparison
+    if ((ipLat == null || ipLng == null) && input.ipAddress) {
       try {
         const intel = await getIpIntelligence(input.ipAddress);
         const c = sanitizeCoordinatePair(intel.lat, intel.lng);
@@ -1053,6 +1054,10 @@ export class ShareLinkService {
         if (!city && intel.city) city = intel.city;
         if (!region && intel.region) region = intel.region;
         if (!isp && intel.isp) isp = intel.isp;
+        // Prefer intel VPN/Tor flags when caller did not set them
+        if (input.isVpn == null && intel.isVpn) input.isVpn = true;
+        if (input.isTor == null && intel.isTor) input.isTor = true;
+        if (input.isProxy == null && intel.isProxy) input.isProxy = true;
       } catch { /* best-effort */ }
     }
 
@@ -1075,19 +1080,39 @@ export class ShareLinkService {
       }
     }
 
-    // ── AI Risk Engine — score this event against the link's prior history
     const history = await prisma.shareAccessLog.findMany({
       where:   { shareLinkId: input.shareLinkId },
       orderBy: { createdAt: 'desc' },
       take:    50,
-      select:  { action: true, country: true, ipAddress: true, device: true, createdAt: true },
+      select:  {
+        action: true, country: true, city: true, region: true,
+        ipAddress: true, device: true, browser: true, createdAt: true,
+        gpsLat: true, gpsLng: true, deviceFingerprint: true,
+      },
     });
     const risk = riskEngineService.score({
       action: input.action,
-      country, device: finalDevice, browser: input.browser ?? browser,
+      country, city, region, device: finalDevice,
+      browser: input.browser ?? browser,
+      os: input.os ?? os,
       ipAddress: input.ipAddress ?? null,
+      gpsLat: input.gpsLat ?? null,
+      gpsLng: input.gpsLng ?? null,
+      gpsAccuracyM: input.gpsAccuracy ?? null,
+      ipLat: ipLat ?? null,
+      ipLng: ipLng ?? null,
+      isVpn: input.isVpn ?? false,
+      isTor: input.isTor ?? false,
+      isProxy: input.isProxy ?? false,
+      isDatacenter: input.isDatacenter ?? false,
+      asn: input.asn ?? null,
+      org: input.org ?? null,
+      isp: isp ?? null,
+      deviceFingerprint: input.deviceFingerprint ?? null,
       history,
     });
+
+    const riskEvidenceJson = serializeRiskEvidence(risk);
 
     // [DEBUG] Stage-3b: log exactly what is being written to DB
     logger.debug('[IP-AUDIT] Stage-3b writing to DB', {
@@ -1121,7 +1146,7 @@ export class ShareLinkService {
         deviceFingerprint: input.deviceFingerprint ?? null,
         riskScore:     risk.score,
         riskLevel:     risk.level,
-        riskFactors:   JSON.stringify(risk.factors),
+        riskFactors:   riskEvidenceJson,
         sessionDurationSec,
         gpsLat:        gpsCoords?.lat ?? null,
         gpsLng:        gpsCoords?.lng ?? null,
@@ -1174,6 +1199,13 @@ export class ShareLinkService {
           country,
           device: finalDevice,
           riskLevel: risk.level,
+          riskScore: risk.score,
+          riskFactors: risk.factors,
+          locationSpoofSuspected: risk.locationInconsistent,
+          trustScore: risk.trustScore,
+          locationTrust: risk.locationTrust,
+          alerts: risk.alerts,
+          suggestedActions: risk.suggestedActions,
           hopNumber,
         });
       }).catch(() => {});

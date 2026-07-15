@@ -1,5 +1,10 @@
 /**
  * Maps pipeline outputs → AcceptanceEvidence (evidence only, no verdicts).
+ *
+ * Rules:
+ * - Never invent DNA from perceptual/ORB alone (proxy removed).
+ * - Owner channel PASS only with certificate/watermark/signed binding — not vault lock.
+ * - Metadata is informational only (never sufficient for ownership).
  */
 import type { EnterpriseRecoveryResult } from './enterprise-recovery-pipeline.service';
 import type { AcceptanceEvidence, EvidenceChannel } from '../../types/acceptance.types';
@@ -12,15 +17,32 @@ import { resolveAuthoritativeCandidate } from './investigation-decision-resolver
 
 function dnaChannel(enterprise: EnterpriseRecoveryResult): EvidenceChannel & { classification?: string } {
   const deep = enterprise.authoritativeAsset?.deepCompare ?? enterprise.bestDeepCompare;
-  const score = deep?.overallConfidenceScore
+  const local = enterprise.authoritativeAsset?.localDnaHit;
+  const localScore = local?.compositeScore ?? 0;
+  const isLocalPatch = enterprise.authoritativeAsset?.selectionSource === 'local_patch'
+    || localScore >= 55;
+  let score = deep?.overallConfidenceScore
     ?? (enterprise.authoritativeAsset?.selectionSource === 'sha256_exact' ? 100 : 0);
-  const classification = deep?.classification ?? (score === 100 ? 'DNA_MATCH' : undefined);
+  // Heavy crop: full-frame DNA often <40% — local patch votes are the fragment identity signal.
+  if (isLocalPatch && localScore >= 55) {
+    score = Math.max(score, localScore);
+  }
+  const classification = deep?.classification
+    ?? (score === 100 ? 'DNA_MATCH' : undefined)
+    ?? (isLocalPatch && localScore >= 55 ? 'SIMILAR' : undefined);
 
-  if (score <= 0 && !deep) {
+  // No finished 15-layer DNA — do NOT proxy visual into DNA (perceptual alone cannot verify)
+  if (score <= 0 && !deep && !(isLocalPatch && localScore >= 55)) {
     return { ...failChannel(0, 'No DNA compare result'), classification: 'MISSING' };
   }
   if ((classification ?? '').toUpperCase() === 'DIFFERENT' && score < 55) {
     return { ...failChannel(score, classification), classification };
+  }
+  if (isLocalPatch && localScore >= 55 && score >= 55) {
+    return {
+      ...passChannel(score, `local_patch_${local?.patchMatchCount ?? 0}`),
+      classification: classification ?? 'SIMILAR',
+    };
   }
   if (score >= 40) {
     return { ...passChannel(score, classification), classification };
@@ -33,17 +55,22 @@ function visualChannel(enterprise: EnterpriseRecoveryResult): EvidenceChannel {
   const orb = vector?.scores.orb ?? 0;
   const perceptual = vector?.scores.perceptualBlend ?? vector?.scores.pHash ?? 0;
   const composite = vector?.scores.composite ?? 0;
+  const clip = vector?.scores.clip ?? 0;
   const local = enterprise.authoritativeAsset?.localDnaHit;
   const localScore = local?.compositeScore ?? local?.orbRefineScore ?? 0;
-  const score = Math.max(orb, perceptual, composite, localScore);
+  const ranked = enterprise.authoritativeAsset?.rankedCandidate?.compositeScore ?? 0;
+  const probableVis = enterprise.probableMatch?.visualSimilarity != null
+    ? enterprise.probableMatch.visualSimilarity * 100
+    : 0;
+  const fusionRetrieval = enterprise.fusion?.retrievalConfidence ?? 0;
+  const score = Math.max(orb, perceptual, composite, clip, localScore, ranked, probableVis, fusionRetrieval);
   if (score <= 0) return failChannel(0, 'No visual evidence');
-  return passChannel(score);
+  return passChannel(score, `orb=${Math.round(orb)} pHash=${Math.round(perceptual)} clip=${Math.round(clip)}`);
 }
 
 function certificateChannel(enterprise: EnterpriseRecoveryResult): EvidenceChannel {
   const certId = enterprise.authoritativeAsset?.certificateId ?? enterprise.certificateId;
   if (!certId) return skippedChannel('No certificate on file');
-  // Pipeline sets certificateScore on fusion path; treat high ownership cert as valid when present
   const certScore = enterprise.fusion?.ownershipVerificationConfidence ?? 0;
   if (certScore >= 90) return passChannel(100, certId);
   if (certScore >= 40) return passChannel(certScore, certId);
@@ -56,22 +83,35 @@ function vaultChannel(enterprise: EnterpriseRecoveryResult, hasCandidate: boolea
     ?? enterprise.verifiedCandidate?.vaultId
     ?? enterprise.probableMatch?.vaultId;
   if (!vaultId) return failChannel(0, 'Vault not locked');
+  // Vault lock = candidate retrieved — NOT ownership
   return passChannel(100, vaultId);
 }
 
+/**
+ * Owner channel requires cryptographic binding (cert / identity fusion), not retrieval.
+ * Vault lock alone must never PASS owner.
+ */
 function ownerChannel(enterprise: EnterpriseRecoveryResult, hasCandidate: boolean): EvidenceChannel {
   if (!hasCandidate) return failChannel(0);
-  const ownerId = enterprise.authoritativeAsset?.ownerUserId
-    ?? enterprise.verifiedCandidate?.ownerUserId;
-  const ownerPinit = enterprise.authoritativeAsset?.ownerPinitId ?? enterprise.ownerShortId;
-  if (!ownerId && !ownerPinit) return failChannel(0, 'Owner not bound');
-  const score = enterprise.fusion?.ownershipVerificationConfidence ?? 50;
-  return passChannel(Math.max(50, score));
+  const ownership = enterprise.fusion?.ownershipVerificationConfidence ?? 0;
+  const certId = enterprise.authoritativeAsset?.certificateId ?? enterprise.certificateId;
+  const signals = enterprise.recoveredSignals ?? [];
+  const wm = signals.find((s) => /watermark|identity_token|manifest/i.test(s.stage) && s.recovered);
+
+  if (certId && ownership >= 90) {
+    return passChannel(100, certId);
+  }
+  if (wm && wm.score >= 90) {
+    return passChannel(Math.max(90, wm.score), wm.stage);
+  }
+  if (certId && ownership >= 75) {
+    return passChannel(ownership, certId);
+  }
+  return failChannel(ownership, 'Owner not cryptographically bound — retrieval is not ownership');
 }
 
 function timelineChannel(enterprise: EnterpriseRecoveryResult, hasCandidate: boolean): EvidenceChannel {
   if (!hasCandidate) return failChannel(0);
-  // Registration exists when we have authoritative asset / DNA record
   if (enterprise.authoritativeAsset?.dnaRecordId || enterprise.verifiedCandidate?.dnaRecordId) {
     return passChannel(100, 'Custody record present');
   }
@@ -81,34 +121,44 @@ function timelineChannel(enterprise: EnterpriseRecoveryResult, hasCandidate: boo
 function watermarkChannel(enterprise: EnterpriseRecoveryResult): EvidenceChannel {
   const signals = enterprise.recoveredSignals ?? [];
   const wm = signals.find((s) => /watermark|identity_token|manifest/i.test(s.stage) && s.recovered);
-  if (wm) return passChannel(Math.max(50, wm.score), wm.stage);
+  if (wm && wm.score >= 90) return passChannel(Math.max(90, wm.score), wm.stage);
+  if (wm && wm.score >= 50) return passChannel(wm.score, wm.stage);
   return failChannel(0, 'Watermark not recovered');
 }
 
 function metadataChannel(enterprise: EnterpriseRecoveryResult): EvidenceChannel {
   const vector = enterprise.authoritativeAsset?.vector;
   if (!vector) return skippedChannel('No metadata channel');
-  // Structural as weak metadata proxy when present
   const structural = vector.scores.structural ?? 0;
-  if (structural >= 40) return passChannel(structural);
+  if (structural >= 40) return passChannel(structural, 'structural_proxy');
   return skippedChannel('Metadata not evaluated');
 }
 
 function tamperDetected(enterprise: EnterpriseRecoveryResult): boolean {
   const deep = enterprise.authoritativeAsset?.deepCompare ?? enterprise.bestDeepCompare;
-  if (!deep) return false;
   if (enterprise.authoritativeAsset?.selectionSource === 'sha256_exact') return false;
+
+  const localScore = enterprise.authoritativeAsset?.localDnaHit?.compositeScore ?? 0;
+  // Local-patch lock means probe is a fragment/crop of the vault original → derivative.
+  if (
+    enterprise.authoritativeAsset?.selectionSource === 'local_patch'
+    && localScore >= 55
+  ) {
+    return true;
+  }
+
+  if (!deep) return false;
 
   const vector = enterprise.authoritativeAsset?.vector;
   const visual = Math.max(
     vector?.scores.orb ?? 0,
     vector?.scores.perceptualBlend ?? vector?.scores.pHash ?? 0,
     vector?.scores.composite ?? 0,
+    localScore,
   );
-  const dna = deep.overallConfidenceScore;
+  const dna = Math.max(deep.overallConfidenceScore, localScore >= 55 ? localScore : 0);
   const crossModal = (dna + visual) / 2;
 
-  // Hash/L1 mismatch alone is not tamper — require strong DNA + visual linkage
   if (deep.tamperingDetected && dna >= 72 && crossModal >= 62 && visual >= 55) {
     return true;
   }

@@ -22,6 +22,8 @@ import {
 import { saveInvestigationReport, mergeLiveSnapshotIntoReport, type StoredInvestigationReport } from '../lib/forensic-reports-storage';
 import {
   investigationSummaryScore,
+  resolveInvestigationOwner,
+  formatEvidenceValue,
 } from '../lib/forensic-report-display';
 
 interface PipelineStep {
@@ -64,11 +66,25 @@ interface InvestigationReport {
   tamperAnalysis: {
     primaryVector: string;
     overallTamperScore: number;
-    vectors: Array<{ label: string; detected: boolean }>;
+    vectors: Array<{ label: string; detected: boolean; confidence?: number; evidence?: string[] }>;
     description?: string;
+    changesVsOriginal?: Array<{
+      type: string;
+      detected: boolean;
+      confidence: number;
+      detail: string;
+      where?: string;
+    }>;
     overlayPngBase64?: string;
     modifiedPercent?: number;
     insertedRegions?: number;
+    cropDetection?: {
+      sharedRegionPercent?: number;
+      visiblePercent?: number;
+      cropPercent?: number;
+      missingPercent?: number;
+      homographyFound?: boolean;
+    };
   };
   forensicEvidence?: {
     recoveredWatermark?: boolean;
@@ -215,13 +231,14 @@ const WATERMARK_STATUS_STYLE: Record<string, string> = {
 
 function watermarkDisplayLabel(status: string): string {
   if (status === 'NOT_EMBEDDED') return 'NOT EMBEDDED';
+  if (status === 'DAMAGED') return 'DAMAGED (expected on crop / compress)';
   return status;
 }
 
 const REPORT_STATE_LABELS: Record<string, string> = {
-  VERIFIED: 'Verified Original PINIT Asset',
-  POSSIBLE: 'Possible PINIT Asset',
-  NO_SIGNATURE: 'No PINIT Signature Found',
+  VERIFIED: 'Ownership Verified',
+  POSSIBLE: 'Possible Similarity – Top Candidates Only',
+  NO_SIGNATURE: 'Unknown Asset',
 };
 
 const REPORT_STATE_STYLE: Record<string, string> = {
@@ -231,10 +248,10 @@ const REPORT_STATE_STYLE: Record<string, string> = {
 };
 
 const FORENSIC_VERDICT_LABELS: Record<string, string> = {
-  ORIGINAL_VERIFIED: 'Original PINIT Asset Verified',
-  ORIGINAL_FOUND_PARTIAL: 'Original PINIT Asset Found (Partial Identity)',
-  POSSIBLE_ASSET: 'Possible PINIT Asset',
-  NO_SIGNATURE: 'No PINIT Signature Found',
+  ORIGINAL_VERIFIED: 'Ownership Verified',
+  ORIGINAL_FOUND_PARTIAL: 'Original Identified (Derivative / Partial)',
+  POSSIBLE_ASSET: 'Possible Similarity – Top Candidates Only',
+  NO_SIGNATURE: 'Unknown Asset',
 };
 
 const FORENSIC_VERDICT_STYLE: Record<string, string> = {
@@ -322,6 +339,15 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
 
   const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
+  const INVESTIGATION_EXTS = [
+    'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'heic', 'heif',
+    'pdf', 'docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls',
+    'txt', 'csv', 'json',
+    'mp4', 'mov', 'webm', 'avi', 'mkv',
+    'mp3', 'wav', 'm4a', 'aac',
+    'zip',
+  ];
+
   const validateInvestigationFile = (f: File): string | null => {
     if (!f.size) return 'Selected file is empty.';
     if (f.size > MAX_UPLOAD_BYTES) return 'File is too large (max 100 MB).';
@@ -329,11 +355,19 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
       || f.type.startsWith('video/')
       || f.type.startsWith('audio/')
       || f.type === 'application/pdf'
+      || f.type === 'text/plain'
+      || f.type === 'text/csv'
+      || f.type === 'application/json'
+      || f.type === 'application/zip'
+      || f.type.includes('word')
+      || f.type.includes('presentation')
+      || f.type.includes('sheet')
+      || f.type.includes('opendocument')
       || f.type.startsWith('application/');
     const ext = f.name.split('.').pop()?.toLowerCase() ?? '';
-    const okExt = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'heic', 'heif', 'pdf', 'mp4', 'mov', 'webm'].includes(ext);
-    if (!okPrefix && !okExt && f.type === 'application/octet-stream' && !okExt) {
-      return 'Unsupported file type. Upload an image, PDF, or video.';
+    const okExt = INVESTIGATION_EXTS.includes(ext);
+    if (!okPrefix && !okExt) {
+      return 'Unsupported file type. Upload image, PDF, DOCX, PPTX, XLSX, TXT, CSV, video, audio, or ZIP.';
     }
     return null;
   };
@@ -507,7 +541,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
           <input
             ref={inputRef}
             type="file"
-            accept="image/*,application/pdf,video/*,audio/*"
+            accept="image/*,application/pdf,.pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.txt,.csv,.json,video/*,audio/*,.zip,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             className="hidden"
             onChange={(e) => {
               const picked = e.target.files?.[0];
@@ -517,7 +551,9 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
           />
           <Upload size={32} className="text-gray-500 mx-auto mb-3" />
           <p className="text-sm text-gray-400">Drop a suspected file here or click to upload</p>
-          <p className="text-2xs text-gray-600 mt-1">Investigation runs automatically after upload</p>
+          <p className="text-2xs text-gray-600 mt-1">
+            Image · PDF · DOCX · PPTX · XLSX · TXT/CSV · Video · Audio · ZIP — runs automatically
+          </p>
         </div>
       )}
 
@@ -546,8 +582,10 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
         // Prefer immutable manifest when present (Phase 2 single source of truth).
         const manifest = report.manifest;
         const reportState = report.summary.reportState;
+        const resolvedOwner = resolveInvestigationOwner(report as unknown as StoredInvestigationReport);
         const hasVaultMatch = reportState !== 'NO_SIGNATURE' && !!(
-          manifest?.vault.vaultId
+          resolvedOwner.vaultId
+          || manifest?.vault.vaultId
           || report.owner.vaultId
           || report.identityProof.vaultId
         );
@@ -555,10 +593,14 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
           report.summary as StoredInvestigationReport['summary'],
         );
         const dnaLayerScore = report.summary.dnaMatchPercent;
-        const verdictLabel = manifest?.displayLabel
-          ?? (report.summary.reportState
-            ? REPORT_STATE_LABELS[report.summary.reportState]
-            : FORENSIC_VERDICT_LABELS[report.summary.forensicVerdict!] ?? report.summary.forensicVerdict);
+        const verdictLabel = reportState === 'VERIFIED'
+          ? REPORT_STATE_LABELS.VERIFIED
+          : reportState === 'POSSIBLE'
+            ? REPORT_STATE_LABELS.POSSIBLE
+            : (manifest?.displayLabel
+              ?? (report.summary.reportState
+                ? REPORT_STATE_LABELS[report.summary.reportState]
+                : FORENSIC_VERDICT_LABELS[report.summary.forensicVerdict!] ?? report.summary.forensicVerdict));
         return (
         <div ref={reportRef} className="space-y-6 scroll-mt-6">
           <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -576,6 +618,16 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               <span className={cn('text-xs font-bold px-3 py-1 rounded-full border', RISK_COLORS[report.summary.riskLevel] ?? RISK_COLORS.UNKNOWN)}>
                 Risk: {report.summary.riskLevel}
               </span>
+              {resolvedOwner.vaultId && (
+                <span className="text-xs font-semibold px-3 py-1 rounded-full border border-sky-500/40 bg-sky-500/10 text-sky-300 mono" title={resolvedOwner.vaultId}>
+                  Vault {resolvedOwner.vaultId.slice(0, 8)}…
+                </span>
+              )}
+              {resolvedOwner.originalFilename && (
+                <span className="text-2xs text-gray-400 truncate max-w-[220px]" title={resolvedOwner.originalFilename}>
+                  Original: {resolvedOwner.originalFilename}
+                </span>
+              )}
               <span className="text-2xs text-gray-500 mono">{report.investigationId.slice(0, 8)}…</span>
             </div>
             <button type="button" onClick={handleReset} className="btn btn-secondary text-xs">
@@ -617,21 +669,20 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
 
           {hasVaultMatch && (
             <InvestigationSideBySideCompare
-              vaultId={report.owner.vaultId ?? report.identityProof.vaultId}
+              vaultId={resolvedOwner.vaultId}
               probePreviewUrl={previewUrl}
               probeFileName={file?.name ?? report.dnaComparison?.fileB?.filename}
               probeMimeType={file?.type ?? report.dnaComparison?.fileB?.mimeType}
               originalFilename={
-                report.owner.originalFilename
-                ?? report.identityRecoveryReport?.originalFilename
+                resolvedOwner.originalFilename
                 ?? report.dnaComparison?.fileA?.filename
               }
-              ownerPinitId={report.owner.ownerPinitId ?? report.identityProof.ownerPinitId}
+              ownerPinitId={resolvedOwner.ownerPinitId}
               dnaMatchPercent={dnaLayerScore}
               matchConfidence={displayMatchScore}
               reportState={report.summary.reportState}
-              dnaRecordId={report.owner.dnaRecordId ?? report.identityProof.dnaRecordId}
-              certificateId={report.owner.certificateId ?? report.identityProof.certificateId}
+              dnaRecordId={resolvedOwner.dnaRecordId}
+              certificateId={resolvedOwner.certificateId}
             />
           )}
 
@@ -683,29 +734,43 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
             </Section>
           )}
 
-          {hasVaultMatch && report.identityRecoveryReport && (
+          {hasVaultMatch && (
             <Section title="1c. Identity Recovery Report" icon={Lock}>
-              <p className={cn('text-xs mb-3', report.identityRecoveryReport.recovered ? 'text-green-400' : 'text-yellow-400')}>
-                {report.identityRecoveryReport.message}
+              <p className={cn(
+                'text-xs mb-3',
+                resolvedOwner.ownershipVerified ? 'text-green-400' : 'text-yellow-400',
+              )}>
+                {resolvedOwner.ownershipVerified
+                  ? (report.identityRecoveryReport?.message
+                    ?? 'Original identity recovered from multi-layer forensic signals')
+                  : (report.identityRecoveryReport?.message
+                    ?? report.summary.decisionReason
+                    ?? 'Candidate vault found — ownership not verified. Manual review recommended.')}
               </p>
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                 {Object.entries({
-                  'Original Owner': report.identityRecoveryReport.originalOwner,
-                  'Owner PINIT ID': report.identityRecoveryReport.ownerPinitId,
-                  'Vault ID': report.identityRecoveryReport.vaultId,
-                  'DNA ID': report.identityRecoveryReport.dnaRecordId,
-                  'Certificate ID': report.identityRecoveryReport.certificateId,
-                  'Original Filename': report.identityRecoveryReport.originalFilename,
-                  'Original Hash': report.identityRecoveryReport.originalHash,
-                  'Current Hash': report.identityRecoveryReport.currentHash ?? report.currentFileHash,
-                  'Evidence Confidence': report.identityRecoveryReport.evidenceConfidence != null
-                    ? `${report.identityRecoveryReport.evidenceConfidence}%` : undefined,
-                  'Protected Download': report.identityRecoveryReport.protectedDownloadDate,
-                  'Registered': report.identityRecoveryReport.registrationTimestamp,
+                  'Original Owner': resolvedOwner.ownerName,
+                  'Owner PINIT ID': resolvedOwner.ownerPinitId,
+                  'Vault ID': resolvedOwner.vaultId,
+                  'DNA ID': resolvedOwner.dnaRecordId,
+                  'Certificate ID': resolvedOwner.certificateId,
+                  'Original Filename': resolvedOwner.originalFilename,
+                  'Original Hash': report.identityRecoveryReport?.originalHash,
+                  'Current Hash': report.identityRecoveryReport?.currentHash ?? report.currentFileHash,
+                  'Evidence Confidence': report.identityRecoveryReport?.evidenceConfidence != null
+                    ? `${report.identityRecoveryReport.evidenceConfidence}%`
+                    : `${displayMatchScore}%`,
+                  'Protected Download': resolvedOwner.ownershipVerified
+                    ? report.identityRecoveryReport?.protectedDownloadDate
+                    : null,
+                  'Registered': report.identityRecoveryReport?.registrationTimestamp
+                    ?? (resolvedOwner.ownershipVerified ? report.owner.createdAt : null),
                 }).map(([k, v]) => (
                   <div key={k} className="flex justify-between gap-2 py-1 border-b border-bg-border/50">
                     <dt className="text-gray-500">{k}</dt>
-                    <dd className="text-white mono text-right truncate min-w-0 max-w-full sm:max-w-[60%]">{v ?? 'No evidence available'}</dd>
+                    <dd className="text-white mono text-right truncate min-w-0 max-w-full sm:max-w-[60%]">
+                      {formatEvidenceValue(v as string | number | null | undefined)}
+                    </dd>
                   </div>
                 ))}
               </dl>
@@ -732,26 +797,31 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
           )}
 
           {hasVaultMatch ? (
-          <Section title="2. Original Owner" icon={User}>
+          <Section title={resolvedOwner.ownershipVerified ? '2. Original Owner' : '2. Top Candidate Vault'} icon={User}>
             {report.matchMethod && (
               <p className="text-xs text-dna-400 mb-3">
                 Vault match: {report.matchMethod}
                 {report.matchTier != null ? ` (tier ${report.matchTier})` : ''}
+                {!resolvedOwner.ownershipVerified
+                  ? ' — candidate details below; ownership claim pending verification'
+                  : ''}
               </p>
             )}
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
               {Object.entries({
-                'Owner Name': report.owner.ownerName,
-                'PINIT ID': report.owner.ownerPinitId,
-                'Vault ID': report.owner.vaultId,
-                'DNA Record ID': report.owner.dnaRecordId,
-                'Certificate ID': report.owner.certificateId,
-                'Original Filename': report.owner.originalFilename,
-                'Created': report.owner.createdAt,
+                'Owner Name': resolvedOwner.ownerName,
+                'PINIT ID': resolvedOwner.ownerPinitId,
+                'Vault ID': resolvedOwner.vaultId,
+                'DNA Record ID': resolvedOwner.dnaRecordId,
+                'Certificate ID': resolvedOwner.certificateId,
+                'Original Filename': resolvedOwner.originalFilename,
+                'Created': report.owner.createdAt
+                  ?? report.identityRecoveryReport?.registrationTimestamp
+                  ?? null,
               }).map(([k, v]) => (
                 <div key={k} className="flex justify-between gap-2 py-1 border-b border-bg-border/50">
                   <dt className="text-gray-500">{k}</dt>
-                  <dd className="text-white mono text-right truncate min-w-0 max-w-full sm:max-w-[60%]">{v ?? '—'}</dd>
+                  <dd className="text-white mono text-right truncate min-w-0 max-w-full sm:max-w-[60%]">{formatEvidenceValue(v as string | null | undefined)}</dd>
                 </div>
               ))}
             </dl>
@@ -795,24 +865,98 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
             ) : (
               <div className="space-y-2">
                 {report.layerAnalysis.map((l) => (
-                  <div key={l.layer} className="flex items-center gap-3 p-2 rounded-lg bg-bg-elevated">
-                    <span className="text-2xs text-gray-500 w-6 mono">L{l.layer}</span>
-                    <span className="flex-1 text-xs text-white truncate">{l.name}</span>
-                    <span className="text-xs font-bold text-white mono">{l.matchPercent}%</span>
-                    <span className={cn('text-2xs px-2 py-0.5 rounded-full uppercase', LAYER_STATUS[l.status] ?? LAYER_STATUS.skipped)}>
-                      {l.status}
-                    </span>
+                  <div key={l.layer} className="p-2 rounded-lg bg-bg-elevated">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xs text-gray-500 w-6 mono">L{l.layer}</span>
+                      <span className="flex-1 text-xs text-white truncate">{l.name}</span>
+                      <span className="text-xs font-bold text-white mono">{l.matchPercent}%</span>
+                      <span className={cn('text-2xs px-2 py-0.5 rounded-full uppercase', LAYER_STATUS[l.status] ?? LAYER_STATUS.skipped)}>
+                        {l.status}
+                      </span>
+                    </div>
+                    {l.explanation && (l.status === 'warning' || l.status === 'failed') && (
+                      <p className="text-2xs text-amber-400/90 mt-1.5 pl-9">{l.explanation}</p>
+                    )}
                   </div>
                 ))}
               </div>
             )}
           </Section>
 
-          <Section title="5. Tamper Analysis" icon={AlertTriangle} defaultOpen={false}>
+          <Section
+            title="5. Tamper Analysis — What Changed vs Original"
+            icon={AlertTriangle}
+            defaultOpen={
+              report.tamperAnalysis.overallTamperScore >= 25
+              || (report.tamperAnalysis.changesVsOriginal?.length ?? 0) > 0
+              || report.tamperAnalysis.vectors.some((v) => v.detected)
+            }
+          >
             <p className="text-sm font-bold text-white mb-2">
               Overall Tamper Score: {report.tamperAnalysis.overallTamperScore}%
-              <span className="text-gray-500 font-normal ml-2">({report.tamperAnalysis.primaryVector})</span>
+              <span className="text-gray-500 font-normal ml-2">
+                ({String(report.tamperAnalysis.primaryVector).replace(/_/g, ' ')})
+              </span>
             </p>
+            {report.tamperAnalysis.description && (
+              <p className="text-xs text-gray-400 mb-3">{report.tamperAnalysis.description}</p>
+            )}
+
+            {/* Primary: explicit inventry of changes done to the original */}
+            {(report.tamperAnalysis.changesVsOriginal?.filter((c) => c.detected).length ?? 0) > 0 ? (
+              <div className="mb-4 space-y-2">
+                <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
+                  Detected changes vs vault original
+                </p>
+                {report.tamperAnalysis.changesVsOriginal!.filter((c) => c.detected).map((c) => (
+                  <div
+                    key={`${c.type}-${c.detail.slice(0, 24)}`}
+                    className="p-3 rounded-lg border border-orange-500/35 bg-orange-500/10"
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="text-sm font-semibold text-orange-300">{c.type}</span>
+                      <span className="text-2xs mono text-orange-400/80">{c.confidence}% conf.</span>
+                    </div>
+                    <p className="text-xs text-white/90">{c.detail}</p>
+                    {c.where && (
+                      <p className="text-2xs text-gray-400 mt-1">Where: {c.where}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : report.tamperAnalysis.overallTamperScore < 25 ? (
+              <p className="text-xs text-green-400/90 mb-3">
+                No significant crop, compress, or text changes detected vs the matched original.
+              </p>
+            ) : null}
+
+            {report.tamperAnalysis.cropDetection && (
+              <div className="mb-3 p-2.5 rounded-lg bg-bg-elevated border border-bg-border text-xs space-y-1">
+                <p className="font-semibold text-white">Crop / region geometry</p>
+                {report.tamperAnalysis.cropDetection.sharedRegionPercent != null && (
+                  <p className="text-gray-300">
+                    Shared with original: ~{Math.round(report.tamperAnalysis.cropDetection.sharedRegionPercent)}%
+                  </p>
+                )}
+                {(report.tamperAnalysis.cropDetection.cropPercent != null
+                  || report.tamperAnalysis.cropDetection.missingPercent != null) && (
+                  <p className="text-amber-400">
+                    Cropped / missing: ~
+                    {Math.round(
+                      report.tamperAnalysis.cropDetection.cropPercent
+                      ?? report.tamperAnalysis.cropDetection.missingPercent
+                      ?? 0,
+                    )}%
+                  </p>
+                )}
+                {report.tamperAnalysis.cropDetection.visiblePercent != null && (
+                  <p className="text-gray-400">
+                    Visible portion: ~{Math.round(report.tamperAnalysis.cropDetection.visiblePercent)}%
+                  </p>
+                )}
+              </div>
+            )}
+
             {report.tamperAnalysis.modifiedPercent != null && (
               <p className="text-xs text-amber-400 mb-2">
                 Modified region: {report.tamperAnalysis.modifiedPercent}%
@@ -828,16 +972,42 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                   alt="Tamper localization overlay"
                   className="w-full max-h-64 object-contain bg-black"
                 />
-                <p className="text-2xs text-gray-500 p-2">Red overlay = modified vs vault original</p>
+                <p className="text-2xs text-gray-500 p-2">Red overlay = modified / inserted vs vault original</p>
               </div>
             )}
-            {report.tamperAnalysis.description && (
-              <p className="text-xs text-gray-400 mb-3">{report.tamperAnalysis.description}</p>
+
+            {report.identityRecovery?.transformations?.some((t) => t.detected) && (
+              <div className="mb-3 space-y-1">
+                <p className="text-2xs font-semibold text-gray-400 uppercase">Leak-path transforms</p>
+                {report.identityRecovery.transformations.filter((t) => t.detected).map((t) => (
+                  <p key={t.type} className="text-xs text-orange-300">
+                    {t.type}{t.detail ? ` — ${t.detail}` : ''}
+                  </p>
+                ))}
+              </div>
             )}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+
+            <p className="text-2xs text-gray-500 mb-2">All detectors</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {report.tamperAnalysis.vectors.map((v) => (
-                <div key={v.label} className={cn('text-xs px-2 py-1.5 rounded-lg border', v.detected ? 'border-orange-500/40 text-orange-400 bg-orange-500/10' : 'border-bg-border text-gray-500')}>
-                  {v.label}{v.detected ? ' ✓' : ''}
+                <div
+                  key={v.label}
+                  className={cn(
+                    'text-xs px-2 py-1.5 rounded-lg border',
+                    v.detected
+                      ? 'border-orange-500/40 text-orange-400 bg-orange-500/10'
+                      : 'border-bg-border text-gray-500',
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span>{v.label}{v.detected ? ' ✓' : ''}</span>
+                    {v.detected && v.confidence != null && v.confidence > 0 && (
+                      <span className="text-2xs mono opacity-70">{v.confidence}%</span>
+                    )}
+                  </div>
+                  {v.detected && v.evidence && v.evidence.length > 0 && (
+                    <p className="text-2xs text-orange-300/70 mt-0.5 leading-snug">{v.evidence[0]}</p>
+                  )}
                 </div>
               ))}
             </div>
@@ -1018,16 +1188,16 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
             {hasVaultMatch && (
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs mb-4">
               {[
-                ['Vault ID', report.identityProof.vaultId],
-                ['DNA Record ID', report.identityProof.dnaRecordId],
-                ['Certificate ID', report.identityProof.certificateId ?? report.owner.certificateId],
-                ['Owner PINIT ID', report.identityProof.ownerPinitId],
+                ['Vault ID', resolvedOwner.vaultId],
+                ['DNA Record ID', resolvedOwner.dnaRecordId],
+                ['Certificate ID', resolvedOwner.certificateId ?? report.identityProof.certificateId],
+                ['Owner PINIT ID', resolvedOwner.ownerPinitId ?? report.identityProof.ownerPinitId],
                 ['Digital Signature', report.identityProof.digitalSignatureValid ? 'VALID' : 'INVALID'],
                 ['Identity Verification', report.identityProof.identityVerification],
               ].map(([k, v]) => (
                 <div key={String(k)} className="flex justify-between gap-2 py-1 border-b border-bg-border/50">
                   <dt className="text-gray-500">{k}</dt>
-                  <dd className="text-white mono text-right truncate min-w-0 max-w-full sm:max-w-[60%]">{v ?? '—'}</dd>
+                  <dd className="text-white mono text-right truncate min-w-0 max-w-full sm:max-w-[60%]">{formatEvidenceValue(v as string | null | undefined)}</dd>
                 </div>
               ))}
             </dl>

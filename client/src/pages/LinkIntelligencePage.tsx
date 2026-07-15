@@ -23,6 +23,7 @@ interface AccessLog {
   os: string | null;
   riskLevel: string | null;
   riskScore: number | null;
+  riskFactors?: string | null;
   sessionId: string | null;
   screenResolution: string | null;
   isp: string | null;
@@ -44,6 +45,12 @@ interface AccessLog {
   sessionDurationSec: number | null;
   recipientName: string | null;
   deviceFingerprint: string | null;
+  isVpn?: boolean;
+  isTor?: boolean;
+  isProxy?: boolean;
+  isDatacenter?: boolean;
+  asn?: string | null;
+  org?: string | null;
 }
 
 interface LinkInfo {
@@ -102,6 +109,80 @@ interface Viewer {
   sessionId: string | null;
   isBlocked: boolean;
   blockId: string | null;
+  riskScore: number;
+  trustScore: number;
+  locationTrust: 'HIGH' | 'MEDIUM' | 'LOW';
+  locationInconsistent: boolean;
+  riskFactors: string[];
+  alerts: string[];
+  suggestedActions: string[];
+  isVpn: boolean;
+  isTor: boolean;
+  isProxy: boolean;
+  isDatacenter: boolean;
+  recipientName: string | null;
+  /** Best GPS/IP before latest (for maps compare) */
+  priorLat: number | null;
+  priorLng: number | null;
+}
+
+function parseRiskEvidence(raw: string | null | undefined): {
+  reasons: string[];
+  alerts: string[];
+  trustScore: number | null;
+  locationTrust: 'HIGH' | 'MEDIUM' | 'LOW' | null;
+  suggestedActions: string[];
+  locationInconsistent: boolean;
+} {
+  const empty = {
+    reasons: [] as string[],
+    alerts: [] as string[],
+    trustScore: null as number | null,
+    locationTrust: null as 'HIGH' | 'MEDIUM' | 'LOW' | null,
+    suggestedActions: [] as string[],
+    locationInconsistent: false,
+  };
+  if (!raw) return empty;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      const reasons = parsed.filter((x): x is string => typeof x === 'string');
+      return {
+        ...empty,
+        reasons,
+        locationInconsistent: reasons.some(r => /fake gps|gps.*ip|impossible travel|location/i.test(r)),
+      };
+    }
+    if (parsed && typeof parsed === 'object') {
+      const o = parsed as Record<string, unknown>;
+      const reasons = Array.isArray(o.reasons)
+        ? o.reasons.filter((x): x is string => typeof x === 'string')
+        : [];
+      const alerts = Array.isArray(o.alerts) ? o.alerts.filter((x): x is string => typeof x === 'string') : [];
+      const lt = o.locationTrust;
+      return {
+        reasons,
+        alerts,
+        trustScore: typeof o.trustScore === 'number' ? o.trustScore : null,
+        locationTrust: lt === 'HIGH' || lt === 'MEDIUM' || lt === 'LOW' ? lt : null,
+        suggestedActions: Array.isArray(o.suggestedActions)
+          ? o.suggestedActions.filter((x): x is string => typeof x === 'string')
+          : [],
+        locationInconsistent: Boolean(o.locationInconsistent),
+      };
+    }
+  } catch { /* ignore */ }
+  return empty;
+}
+
+function googleMapsUrl(lat: number, lng: number): string {
+  return `https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}`;
+}
+
+function trustFromRiskScore(score: number): { trustScore: number; locationTrust: 'HIGH' | 'MEDIUM' | 'LOW' } {
+  const trustScore = Math.max(0, Math.min(100, 100 - score));
+  const locationTrust = score >= 61 ? 'LOW' : score >= 31 ? 'MEDIUM' : 'HIGH';
+  return { trustScore, locationTrust };
 }
 
 function mergeLocationFromLog(v: Viewer, log: AccessLog) {
@@ -288,6 +369,20 @@ export function LinkIntelligencePage() {
           sessionId: log.sessionId ?? null,
           isBlocked: false,
           blockId: null,
+          riskScore: 0,
+          trustScore: 100,
+          locationTrust: 'HIGH',
+          locationInconsistent: false,
+          riskFactors: [],
+          alerts: [],
+          suggestedActions: [],
+          isVpn: false,
+          isTor: false,
+          isProxy: false,
+          isDatacenter: false,
+          recipientName: log.recipientName ?? null,
+          priorLat: null,
+          priorLng: null,
         };
         const blockStatus = viewerIsBlocked(
           { deviceFingerprint: base.deviceFingerprint, sessionId: base.sessionId, ip: base.ip },
@@ -299,11 +394,51 @@ export function LinkIntelligencePage() {
       }
       const v = map.get(key)!;
       v.totalActions++;
+      // Keep prior coordinates before merging newer GPS
+      if (isValidMapCoordinate(v.lat, v.lng) && !v.priorLat) {
+        /* first point becomes prior only after second unique point */
+      }
+      const beforeLat = v.lat;
+      const beforeLng = v.lng;
       v.actions.push(log);
       mergeLocationFromLog(v, log);
+      if (
+        isValidMapCoordinate(beforeLat, beforeLng) &&
+        isValidMapCoordinate(v.lat, v.lng) &&
+        (beforeLat !== v.lat || beforeLng !== v.lng)
+      ) {
+        v.priorLat = beforeLat;
+        v.priorLng = beforeLng;
+      }
+      if (log.recipientName) v.recipientName = log.recipientName;
+      if (log.isVpn) v.isVpn = true;
+      if (log.isTor) v.isTor = true;
+      if (log.isProxy) v.isProxy = true;
+      if (log.isDatacenter) v.isDatacenter = true;
+
+      const evidence = parseRiskEvidence(log.riskFactors);
+      for (const f of evidence.reasons) {
+        if (!v.riskFactors.includes(f)) v.riskFactors.push(f);
+      }
+      for (const a of evidence.alerts) {
+        if (!v.alerts.includes(a)) v.alerts.push(a);
+      }
+      for (const s of evidence.suggestedActions) {
+        if (!v.suggestedActions.includes(s)) v.suggestedActions.push(s);
+      }
+      if (evidence.locationInconsistent) v.locationInconsistent = true;
+      if (log.riskScore != null && log.riskScore >= v.riskScore) {
+        v.riskScore = log.riskScore;
+        const t = evidence.trustScore != null
+          ? { trustScore: evidence.trustScore, locationTrust: evidence.locationTrust ?? trustFromRiskScore(log.riskScore).locationTrust }
+          : trustFromRiskScore(log.riskScore);
+        v.trustScore = t.trustScore;
+        v.locationTrust = t.locationTrust;
+      }
       if (log.riskLevel === 'CRITICAL' || (log.riskLevel === 'HIGH' && v.riskLevel !== 'CRITICAL')) {
         v.riskLevel = log.riskLevel!;
       }
+      if (log.riskLevel === 'MEDIUM' && v.riskLevel === 'LOW') v.riskLevel = 'MEDIUM';
     }
     return Array.from(map.values());
   })();
@@ -478,9 +613,15 @@ export function LinkIntelligencePage() {
                     {v.hopNumber}
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-white flex items-center gap-1.5">
+                    <p className="text-xs font-medium text-white flex items-center gap-1.5 flex-wrap">
                       {v.hopNumber === 1 ? 'Direct Recipient' : `Viewer ${v.hopNumber}`}
+                      {v.recipientName && <span className="text-gray-400 font-normal">· {v.recipientName}</span>}
                       {v.isBlocked && <span className="text-2xs text-red-400">Revoked</span>}
+                      {(v.riskLevel === 'HIGH' || v.riskLevel === 'CRITICAL' || v.locationTrust === 'LOW') && (
+                        <span className="text-2xs px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-500/30">
+                          {v.riskLevel === 'CRITICAL' ? 'Critical risk' : v.riskLevel === 'HIGH' ? 'High risk' : 'Low trust'}
+                        </span>
+                      )}
                     </p>
                     <p className="text-2xs text-gray-500">
                       {v.gpsVillage ?? v.gpsCity ?? v.city ?? v.country}{v.gpsDistrict ? `, ${v.gpsDistrict}` : v.region ? `, ${v.region}` : ''} · {v.ip}
@@ -575,7 +716,26 @@ export function LinkIntelligencePage() {
                   <div><span className="text-gray-500">IP:</span> <span className="text-white font-mono">{activeViewer.ip}</span></div>
                   <div><span className="text-gray-500">Device:</span> <span className="text-white">{activeViewer.device}</span></div>
                   <div><span className="text-gray-500">Browser:</span> <span className="text-white">{activeViewer.browser} · {activeViewer.os}</span></div>
-                  <div><span className="text-gray-500">Risk:</span> <span className={RISK_COLOR[activeViewer.riskLevel]?.split(' ')[0] ?? 'text-green-400'}>{activeViewer.riskLevel}</span></div>
+                  <div><span className="text-gray-500">Risk:</span> <span className={RISK_COLOR[activeViewer.riskLevel]?.split(' ')[0] ?? 'text-green-400'}>{activeViewer.riskLevel} ({activeViewer.riskScore})</span></div>
+                  <div><span className="text-gray-500">Location Trust:</span> <span className={
+                    activeViewer.locationTrust === 'HIGH' ? 'text-green-400'
+                      : activeViewer.locationTrust === 'MEDIUM' ? 'text-yellow-400' : 'text-orange-400'
+                  }>{activeViewer.locationTrust} ({activeViewer.trustScore})</span></div>
+                  {(activeViewer.isVpn || activeViewer.isTor || activeViewer.isProxy || activeViewer.isDatacenter) && (
+                    <div className="col-span-full flex flex-wrap gap-1.5">
+                      {activeViewer.isVpn && <span className="text-2xs px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-300">VPN</span>}
+                      {activeViewer.isTor && <span className="text-2xs px-1.5 py-0.5 rounded bg-red-500/15 text-red-300">TOR</span>}
+                      {activeViewer.isProxy && <span className="text-2xs px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-300">Proxy</span>}
+                      {activeViewer.isDatacenter && <span className="text-2xs px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-300">Hosting</span>}
+                    </div>
+                  )}
+                  {(activeViewer.riskLevel === 'HIGH' || activeViewer.riskLevel === 'CRITICAL' || activeViewer.locationTrust === 'LOW') && (
+                    <div className="col-span-full">
+                      <span className="inline-flex items-center gap-1 text-2xs px-2 py-1 rounded bg-orange-500/15 text-orange-300 border border-orange-500/30">
+                        <AlertTriangle size={10} /> Suspicious access — review reasons below (not auto-blocked)
+                      </span>
+                    </div>
+                  )}
                   <div><span className="text-gray-500">First Seen:</span> <span className="text-white">{format(new Date(activeViewer.firstSeen), 'MMM d, yyyy · h:mm:ss a')}</span></div>
                   {activeViewer.isp && <div><span className="text-gray-500">ISP:</span> <span className="text-white">{activeViewer.isp}</span></div>}
                 </div>
@@ -611,11 +771,31 @@ export function LinkIntelligencePage() {
                         <div><span className="text-gray-500">Country:</span> <span className="text-white">{activeViewer.country}</span></div>
                       </div>
                       {formatCoords(activeViewer.lat, activeViewer.lng) && (
-                        <div className="pt-1 border-t border-bg-border mt-1">
+                        <div className="pt-1 border-t border-bg-border mt-1 flex flex-wrap items-center gap-2">
                           <span className="text-gray-500">Coordinates:</span>{' '}
                           <span className="text-dna-400 font-mono">{formatCoords(activeViewer.lat, activeViewer.lng)}</span>
                           {activeViewer.locationSource === 'ip' && (
-                            <span className="text-yellow-500 ml-2">(IP approximate)</span>
+                            <span className="text-yellow-500">(IP approximate)</span>
+                          )}
+                          <a
+                            href={googleMapsUrl(activeViewer.lat!, activeViewer.lng!)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-2xs text-dna-400 hover:text-dna-300"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <ExternalLink size={10} /> Google Maps
+                          </a>
+                          {isValidMapCoordinate(activeViewer.priorLat, activeViewer.priorLng) && (
+                            <a
+                              href={googleMapsUrl(activeViewer.priorLat!, activeViewer.priorLng!)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-2xs text-gray-400 hover:text-white"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              Prior location
+                            </a>
                           )}
                         </div>
                       )}
@@ -631,6 +811,37 @@ export function LinkIntelligencePage() {
                   {activeViewer.timezone && <div className="mt-1"><span className="text-gray-500">Timezone:</span> <span className="text-white">{activeViewer.timezone}</span></div>}
                 </div>
               </div>
+
+              {activeViewer.riskFactors.filter(f => !/^No anomalies/i.test(f) && !/^GPS and IP consistent/i.test(f)).length > 0 && (
+                <div className="mb-4 rounded-lg border border-orange-500/30 bg-orange-500/5 p-3">
+                  <p className="text-2xs font-semibold text-orange-300 mb-2 flex items-center gap-1">
+                    <AlertTriangle size={11} /> Location Trust &amp; Risk
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 mb-2 text-2xs">
+                    <div>Risk Score: <span className="text-white font-semibold">{activeViewer.riskScore}</span> · {activeViewer.riskLevel}</div>
+                    <div>Location Trust: <span className="text-white font-semibold">{activeViewer.locationTrust}</span> ({activeViewer.trustScore})</div>
+                  </div>
+                  <p className="text-2xs text-gray-500 mb-1">Reasons</p>
+                  <ul className="space-y-1 mb-3">
+                    {activeViewer.riskFactors
+                      .filter(f => !/^No anomalies/i.test(f) && !/^GPS and IP consistent/i.test(f))
+                      .slice(0, 8)
+                      .map((f, i) => (
+                        <li key={i} className="text-2xs text-orange-200/90">✓ {f}</li>
+                      ))}
+                  </ul>
+                  {activeViewer.suggestedActions.length > 0 && (
+                    <>
+                      <p className="text-2xs text-gray-500 mb-1">Suggested action</p>
+                      <ul className="space-y-0.5">
+                        {activeViewer.suggestedActions.map((s, i) => (
+                          <li key={i} className="text-2xs text-gray-300">• {s}</li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </div>
+              )}
 
               {/* Action timeline */}
               <div className="space-y-1">

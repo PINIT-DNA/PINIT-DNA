@@ -56,6 +56,12 @@ export function investigationDisplayMessage(report: StoredInvestigationReport): 
   return report.message;
 }
 
+/** Display blank cells — reserve "No evidence available" for section-level empty states only */
+export function formatEvidenceValue(v: string | number | null | undefined): string {
+  if (v == null || v === '') return '—';
+  return String(v);
+}
+
 /** Owner/vault fields may live on owner, identityRecoveryReport, or identityProof — unify for Reports UI */
 export function resolveInvestigationOwner(report: StoredInvestigationReport): {
   ownerName: string | null;
@@ -63,22 +69,54 @@ export function resolveInvestigationOwner(report: StoredInvestigationReport): {
   vaultId: string | null;
   originalFilename: string | null;
   dnaRecordId: string | null;
+  certificateId: string | null;
+  ownershipVerified: boolean;
 } {
   const recovery = report.identityRecoveryReport;
   const proof = (report as {
-    identityProof?: { ownerPinitId?: string; vaultId?: string; dnaRecordId?: string };
-    manifest?: { owner?: { ownerName?: string | null; ownerPinitId?: string | null }; vault?: { vaultId?: string | null; originalFilename?: string | null } };
+    identityProof?: { ownerPinitId?: string; vaultId?: string; dnaRecordId?: string; certificateId?: string };
+    manifest?: { owner?: { ownerName?: string | null; ownerPinitId?: string | null }; vault?: { vaultId?: string | null; originalFilename?: string | null; dnaRecordId?: string | null } };
     forensicEvidence?: { recoveredOwner?: string | null; vaultId?: string; dnaRecordId?: string };
   }).identityProof;
-  const manifest = (report as { manifest?: { owner?: { ownerName?: string | null; ownerPinitId?: string | null }; vault?: { vaultId?: string | null; originalFilename?: string | null } } }).manifest;
+  const manifest = (report as { manifest?: { owner?: { ownerName?: string | null; ownerPinitId?: string | null }; vault?: { vaultId?: string | null; originalFilename?: string | null; dnaRecordId?: string | null } } }).manifest;
   const forensic = (report as { forensicEvidence?: { recoveredOwner?: string | null; vaultId?: string; dnaRecordId?: string } }).forensicEvidence;
+  const ownershipVerified = report.summary?.reportState === 'VERIFIED';
+  const candidateVaultLocked = report.summary?.reportState === 'POSSIBLE'
+    || !!(report.owner?.vaultId || recovery?.vaultId);
+
+  const vaultId = report.owner?.vaultId ?? recovery?.vaultId ?? proof?.vaultId ?? manifest?.vault?.vaultId ?? forensic?.vaultId ?? null;
+  const dnaRecordId = report.owner?.dnaRecordId ?? recovery?.dnaRecordId ?? proof?.dnaRecordId ?? manifest?.vault?.dnaRecordId ?? forensic?.dnaRecordId ?? null;
+  const originalFilename = report.owner?.originalFilename ?? recovery?.originalFilename ?? manifest?.vault?.originalFilename ?? null;
+  const certificateId = report.owner?.certificateId
+    ?? recovery?.certificateId
+    ?? proof?.certificateId
+    ?? null;
+
+  // Verified: full ownership claim. Possible: still surface vault registrant + cert for review.
+  if (!ownershipVerified) {
+    return {
+      ownerName: candidateVaultLocked
+        ? (report.owner?.ownerName ?? recovery?.originalOwner ?? null)
+        : null,
+      ownerPinitId: candidateVaultLocked
+        ? (report.owner?.ownerPinitId ?? recovery?.ownerPinitId ?? proof?.ownerPinitId ?? null)
+        : null,
+      vaultId,
+      originalFilename,
+      dnaRecordId,
+      certificateId: candidateVaultLocked && typeof certificateId === 'string' ? certificateId : null,
+      ownershipVerified: false,
+    };
+  }
 
   return {
     ownerName: report.owner?.ownerName ?? recovery?.originalOwner ?? manifest?.owner?.ownerName ?? forensic?.recoveredOwner ?? null,
     ownerPinitId: report.owner?.ownerPinitId ?? recovery?.ownerPinitId ?? proof?.ownerPinitId ?? manifest?.owner?.ownerPinitId ?? null,
-    vaultId: report.owner?.vaultId ?? recovery?.vaultId ?? proof?.vaultId ?? manifest?.vault?.vaultId ?? forensic?.vaultId ?? null,
-    originalFilename: report.owner?.originalFilename ?? recovery?.originalFilename ?? manifest?.vault?.originalFilename ?? null,
-    dnaRecordId: report.owner?.dnaRecordId ?? recovery?.dnaRecordId ?? proof?.dnaRecordId ?? forensic?.dnaRecordId ?? null,
+    vaultId,
+    originalFilename,
+    dnaRecordId,
+    certificateId: typeof certificateId === 'string' ? certificateId : null,
+    ownershipVerified: true,
   };
 }
 

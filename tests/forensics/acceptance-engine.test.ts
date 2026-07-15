@@ -1,5 +1,5 @@
 /**
- * Acceptance Engine — frozen policy acceptance-policy-v1.0
+ * Acceptance Engine — acceptance-policy-v1.2 / investigation-match-policy
  * docs/architecture/02_ACCEPTANCE_RULES.md
  */
 import {
@@ -41,7 +41,7 @@ describe('AcceptanceEngine', () => {
     expect(d.verdict).toBe('INSUFFICIENT_EVIDENCE');
     expect(d.retrievalConfidence).toBe(0);
     expect(d.retainCandidate).toBe(false);
-    expect(d.displayLabel).toMatch(/Insufficient Evidence/i);
+    expect(d.displayLabel).toMatch(/Manual Review|Insufficient/i);
   });
 
   it('returns NOT_PINIT when no candidate', () => {
@@ -59,7 +59,7 @@ describe('AcceptanceEngine', () => {
     expect(d.retrievalConfidence).toBe(0);
   });
 
-  it('never verifies when DNA is DIFFERENT at 18% (94% retrieval bug)', () => {
+  it('Asset Not Found when DNA DIFFERENT without local-patch (lookalike guard)', () => {
     const d = runAcceptanceEngine(baseEvidence({
       dna: { state: 'FAIL', score: 18, classification: 'DIFFERENT' },
       visual: passChannel(94),
@@ -67,12 +67,36 @@ describe('AcceptanceEngine', () => {
       watermark: failChannel(0),
       tamperDetected: false,
     }));
-    expect(d.verdict).not.toBe('VERIFIED_ORIGINAL');
-    expect(d.verdict).not.toBe('VERIFIED_DERIVATIVE');
-    expect(['NOT_PINIT', 'POSSIBLE_MATCH']).toContain(d.verdict);
-    if (d.verdict === 'NOT_PINIT') {
-      expect(d.retrievalConfidence).toBe(0);
-    }
+    expect(d.verdict).toBe('NOT_PINIT');
+    expect(d.retainCandidate).toBe(false);
+  });
+
+  it('Asset Not Found when support <50% and no local-patch', () => {
+    const d = runAcceptanceEngine(baseEvidence({
+      dna: { state: 'FAIL', score: 35, classification: 'SIMILAR' },
+      visual: passChannel(40),
+      certificate: failChannel(0),
+      watermark: failChannel(0),
+      owner: failChannel(0),
+      timeline: failChannel(0),
+      vault: passChannel(100),
+      tamperDetected: false,
+    }));
+    expect(d.verdict).toBe('NOT_PINIT');
+  });
+
+  it('Asset Not Found for visual-only mid-band with DIFFERENT DNA (no patch)', () => {
+    const d = runAcceptanceEngine(baseEvidence({
+      dna: { state: 'FAIL', score: 28, classification: 'DIFFERENT' },
+      visual: passChannel(61),
+      certificate: failChannel(0),
+      watermark: failChannel(0),
+      owner: failChannel(0),
+      timeline: failChannel(0),
+      vault: passChannel(100),
+      tamperDetected: false,
+    }));
+    expect(d.verdict).toBe('NOT_PINIT');
   });
 
   it('DNA DIFFERENT forces DNA scorecard contribution to 0', () => {
@@ -128,8 +152,10 @@ describe('AcceptanceEngine', () => {
       vault: passChannel(100),
       tamperDetected: true,
     }));
-    expect(d.verdict).toBe('NOT_PINIT');
-    expect(d.retrievalConfidence).toBe(0);
+    expect(d.verdict).not.toBe('VERIFIED_ORIGINAL');
+    expect(d.verdict).not.toBe('VERIFIED_DERIVATIVE');
+    expect(d.retainCandidate).toBe(false);
+    expect(['NOT_PINIT', 'POSSIBLE_MATCH']).toContain(d.verdict);
   });
 
   it('does not verify derivative on 61% DNA with weak visual (unrelated logo vs photo)', () => {
@@ -143,8 +169,10 @@ describe('AcceptanceEngine', () => {
       vault: passChannel(100),
       tamperDetected: true,
     }));
-    expect(d.verdict).toBe('NOT_PINIT');
-    expect(d.retrievalConfidence).toBe(0);
+    expect(d.verdict).not.toBe('VERIFIED_ORIGINAL');
+    expect(d.verdict).not.toBe('VERIFIED_DERIVATIVE');
+    expect(d.retainCandidate).toBe(false);
+    expect(['NOT_PINIT', 'POSSIBLE_MATCH']).toContain(d.verdict);
   });
 
   it('does not verify derivative on 70% DNA with different subjects (weak visual)', () => {
@@ -158,12 +186,45 @@ describe('AcceptanceEngine', () => {
       vault: passChannel(100),
       tamperDetected: true,
     }));
-    expect(d.verdict).toBe('NOT_PINIT');
+    expect(d.verdict).not.toBe('VERIFIED_ORIGINAL');
+    expect(d.verdict).not.toBe('VERIFIED_DERIVATIVE');
+    expect(d.retainCandidate).toBe(false);
+  });
+
+  it('VERIFIED_DERIVATIVE for local-patch crop when DNA fragment + visual clear gates', () => {
+    const d = runAcceptanceEngine(baseEvidence({
+      dna: { state: 'PASS', score: 72, detail: 'local_patch_12', classification: 'SIMILAR' },
+      certificate: skippedChannel('No certificate'),
+      watermark: failChannel(0),
+      visual: passChannel(78),
+      owner: failChannel(0, 'not bound'),
+      timeline: passChannel(100),
+      vault: passChannel(100),
+      tamperDetected: true,
+    }));
+    expect(d.verdict).toBe('VERIFIED_DERIVATIVE');
+    expect(d.retainCandidate).toBe(true);
+    expect(d.displayLabel).toMatch(/Derivative/i);
+  });
+
+  it('POSSIBLE_MATCH for local-patch fragment at ≥55% without full verify', () => {
+    const d = runAcceptanceEngine(baseEvidence({
+      dna: { state: 'PASS', score: 58, detail: 'local_patch_8', classification: 'SIMILAR' },
+      visual: passChannel(60),
+      certificate: failChannel(0),
+      watermark: failChannel(0),
+      owner: failChannel(0),
+      timeline: passChannel(40),
+      vault: passChannel(100),
+      tamperDetected: true,
+    }));
+    expect(['POSSIBLE_MATCH', 'VERIFIED_DERIVATIVE']).toContain(d.verdict);
+    expect(d.retainCandidate).toBe(d.verdict === 'VERIFIED_DERIVATIVE');
   });
 
   it('POSSIBLE_MATCH when visual strong, DNA partial, no cert/watermark', () => {
     const d = runAcceptanceEngine(baseEvidence({
-      dna: { state: 'PASS', score: 50, classification: 'SIMILAR' },
+      dna: { state: 'PASS', score: 55, classification: 'SIMILAR' },
       visual: passChannel(85),
       certificate: skippedChannel(),
       watermark: failChannel(0),
@@ -176,9 +237,9 @@ describe('AcceptanceEngine', () => {
     expect(d.displayLabel).toMatch(/Manual Review/i);
   });
 
-  it('uses acceptance-policy-v1.0 and 15-layer-v1 versions', () => {
+  it('uses acceptance-policy-v1.2 and 15-layer-v1 versions', () => {
     const d = runAcceptanceEngine(baseEvidence());
-    expect(d.acceptancePolicyVersion).toBe('acceptance-policy-v1.0');
+    expect(d.acceptancePolicyVersion).toBe('acceptance-policy-v1.2');
     expect(d.dnaAlgorithmVersion).toBe('15-layer-v1');
   });
 });

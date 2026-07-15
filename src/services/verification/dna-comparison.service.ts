@@ -24,6 +24,11 @@ import type { DnaComparisonResult } from '../../types/comparison.types';
 export interface DnaCompareOptions {
   /** Use vault registry DNA for file A (original) — correct for investigation & auto-compare */
   vaultDnaRecordId?: string;
+  /**
+   * Investigation truth path: fingerprint decrypted vault bytes instead of (or in addition to)
+   * registry DNA, so L1–L6 perceptual/metadata match the actual file on disk.
+   */
+  preferLiveVaultFingerprint?: boolean;
 }
 
 export class DnaComparisonService {
@@ -37,6 +42,7 @@ export class DnaComparisonService {
    * @param fileA  First file (treated as the "original" in the report)
    * @param fileB  Second file (treated as the "comparison" in the report)
    * @param options  When vaultDnaRecordId is set, file A layers come from vault registry (L1–L15)
+   *                 unless preferLiveVaultFingerprint fingerprints decrypted vault bytes.
    */
   async compare(
     fileA: FileInput,
@@ -44,28 +50,38 @@ export class DnaComparisonService {
     options?: DnaCompareOptions,
   ): Promise<DnaComparisonResult> {
     const start = Date.now();
-    const vaultCompare = !!options?.vaultDnaRecordId;
+    const liveVault = !!options?.preferLiveVaultFingerprint && !!fileA.buffer?.length;
+    const vaultCompare = !!options?.vaultDnaRecordId && !liveVault;
 
     logger.info('DNA comparison started', {
       fileA: fileA.originalName,
       fileB: fileB.originalName,
       vaultCompare,
+      liveVaultFingerprint: liveVault,
     });
 
     const [fpA, fpB] = await Promise.all([
-      options?.vaultDnaRecordId
-        ? this.storedFp.fromDnaRecord(options.vaultDnaRecordId)
-        : this.fingerprinter.fingerprint(fileA),
+      liveVault
+        ? this.fingerprinter.fingerprint(fileA)
+        : options?.vaultDnaRecordId
+          ? this.storedFp.fromDnaRecord(options.vaultDnaRecordId)
+          : this.fingerprinter.fingerprint(fileA),
       this.fingerprinter.fingerprint(fileB),
     ]);
 
     logger.info('Fingerprints ready', {
-      fileA: { name: fpA.filename, type: fpA.fileType, layers: fpA.layers.length, source: vaultCompare ? 'vault-registry' : 'ephemeral' },
+      fileA: {
+        name: fpA.filename,
+        type: fpA.fileType,
+        layers: fpA.layers.length,
+        source: liveVault ? 'vault-bytes' : vaultCompare ? 'vault-registry' : 'ephemeral',
+      },
       fileB: { name: fpB.filename, type: fpB.fileType, layers: fpB.layers.length },
     });
 
     const processingMs = Date.now() - start;
-    const result = this.engine.compare(fpA, fpB, processingMs, { vaultCompare });
+    // Live vault bytes → full content-layer compare (not registry lifecycle skip mode)
+    const result = this.engine.compare(fpA, fpB, processingMs, { vaultCompare: vaultCompare && !liveVault });
 
     logger.info('DNA comparison complete', {
       comparisonId:    result.comparisonId,

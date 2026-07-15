@@ -44,8 +44,10 @@ export type StoredInvestigationReport = Record<string, unknown> & {
     ownerPinitId?: string | null;
     vaultId?: string;
     dnaRecordId?: string | null;
+    certificateId?: string | null;
     originalFilename?: string;
     message?: string;
+    recovered?: boolean;
   };
   message?: string;
 };
@@ -112,7 +114,8 @@ export function getForensicReportCount(): number {
   return readRaw().length;
 }
 
-/** Preserve live SSE owner/vault fields when final API report omits them (enrichment timeout). */
+/** Preserve live SSE vault candidate fields when final API report omits them (enrichment timeout).
+ * Never upgrade NO_SIGNATURE into ownership-verified, and never reinject owner when Acceptance withheld. */
 export function mergeLiveSnapshotIntoReport(
   report: StoredInvestigationReport,
   snapshot: {
@@ -126,6 +129,9 @@ export function mergeLiveSnapshotIntoReport(
   } | null,
 ): StoredInvestigationReport {
   if (!snapshot) return report;
+  const reportState = report.summary?.reportState;
+  const ownershipVerified = reportState === 'VERIFIED';
+
   const merged: StoredInvestigationReport = {
     ...report,
     owner: { ...(report.owner ?? {}) },
@@ -136,11 +142,41 @@ export function mergeLiveSnapshotIntoReport(
   };
 
   const owner = merged.owner ?? {};
-  if (!owner.ownerName && snapshot.ownerName) owner.ownerName = snapshot.ownerName;
-  if (!owner.ownerPinitId && snapshot.ownerPinitId) owner.ownerPinitId = snapshot.ownerPinitId;
+  // Candidate vault/DNA for visual compare; also surface registrant + cert on POSSIBLE
   if (!owner.vaultId && snapshot.vaultId) owner.vaultId = snapshot.vaultId;
   if (!owner.dnaRecordId && snapshot.dnaRecordId) owner.dnaRecordId = snapshot.dnaRecordId;
   if (!owner.originalFilename && snapshot.originalFilename) owner.originalFilename = snapshot.originalFilename;
+
+  // Prefer live SSE vault when final report locked a different lookalike (common crop FP).
+  // Never overrides VERIFIED ownership.
+  const liveConfEarly = snapshot.dnaMatchPercent ?? snapshot.confidence;
+  if (
+    !ownershipVerified
+    && snapshot.vaultId
+    && owner.vaultId
+    && snapshot.vaultId !== owner.vaultId
+    && (liveConfEarly ?? 0) >= 40
+  ) {
+    const liveName = (snapshot.originalFilename ?? '').toLowerCase();
+    const reportName = (owner.originalFilename ?? '').toLowerCase();
+    const liveLooksLikeProbeFamily = /whatsapp|crop|screenshot/i.test(liveName);
+    const reportLooksUnrelated = reportName.length > 0
+      && liveName.length > 0
+      && !reportName.includes(liveName.slice(0, 12))
+      && !liveName.includes(reportName.slice(0, 12));
+    const liveDnaStronger = (liveConfEarly ?? 0) >= (merged.summary?.dnaMatchPercent ?? 0);
+    if ((liveLooksLikeProbeFamily && reportLooksUnrelated) || liveDnaStronger) {
+      owner.vaultId = snapshot.vaultId;
+      if (snapshot.dnaRecordId) owner.dnaRecordId = snapshot.dnaRecordId;
+      if (snapshot.originalFilename) owner.originalFilename = snapshot.originalFilename;
+    }
+  }
+
+  const showCandidateIds = ownershipVerified || reportState === 'POSSIBLE';
+  if (showCandidateIds) {
+    if (!owner.ownerName && snapshot.ownerName) owner.ownerName = snapshot.ownerName;
+    if (!owner.ownerPinitId && snapshot.ownerPinitId) owner.ownerPinitId = snapshot.ownerPinitId;
+  }
   merged.owner = owner;
 
   const liveConf = snapshot.dnaMatchPercent ?? snapshot.confidence;
@@ -149,13 +185,14 @@ export function mergeLiveSnapshotIntoReport(
     if (!summary.retrievalConfidence || summary.retrievalConfidence < liveConf) {
       summary.retrievalConfidence = Math.round(liveConf);
     }
-    if (!summary.ownershipConfidence || summary.ownershipConfidence < liveConf) {
+    // Do not inflate ownership confidence from live lookalike scores
+    if (ownershipVerified && (!summary.ownershipConfidence || summary.ownershipConfidence < liveConf)) {
       summary.ownershipConfidence = Math.round(liveConf);
     }
     merged.summary = summary;
   }
 
-  if (snapshot.ownerPinitId || snapshot.vaultId) {
+  if (showCandidateIds && (snapshot.ownerPinitId || snapshot.vaultId)) {
     const recovery = merged.identityRecoveryReport ?? {};
     merged.identityRecoveryReport = {
       ...recovery,
@@ -164,33 +201,51 @@ export function mergeLiveSnapshotIntoReport(
       vaultId: recovery.vaultId ?? snapshot.vaultId,
       dnaRecordId: recovery.dnaRecordId ?? snapshot.dnaRecordId,
       originalFilename: recovery.originalFilename ?? snapshot.originalFilename,
+      recovered: ownershipVerified ? true : (recovery.recovered ?? false),
+    };
+  } else if (snapshot.vaultId && !merged.identityRecoveryReport?.vaultId) {
+    const recovery = merged.identityRecoveryReport ?? {};
+    merged.identityRecoveryReport = {
+      ...recovery,
+      vaultId: recovery.vaultId ?? snapshot.vaultId,
+      dnaRecordId: recovery.dnaRecordId ?? snapshot.dnaRecordId,
+      originalFilename: recovery.originalFilename ?? snapshot.originalFilename,
+      recovered: false,
     };
   }
 
   const hasVault = !!(merged.owner?.vaultId || snapshot.vaultId);
-  if (hasVault) {
+  const summaryConf = Math.max(
+    typeof liveConf === 'number' ? liveConf : 0,
+    typeof merged.summary?.retrievalConfidence === 'number' ? merged.summary.retrievalConfidence : 0,
+    typeof merged.summary?.dnaMatchPercent === 'number' ? merged.summary.dnaMatchPercent : 0,
+  );
+  // Only upgrade NO_SIGNATURE → POSSIBLE when there is real scored evidence (not vault filename alone).
+  if (hasVault && summaryConf >= 55 && reportState !== 'VERIFIED' && reportState !== 'POSSIBLE') {
     const summary = merged.summary ?? {};
+    // Mid-band live rescue stays POSSIBLE similarity — never ORIGINAL_FOUND_PARTIAL ownership label
+    if (!summary.forensicVerdict || summary.forensicVerdict === 'NO_SIGNATURE') {
+      summary.forensicVerdict = 'POSSIBLE_ASSET';
+      summary.reportState = 'POSSIBLE';
+    }
     if (!summary.identityStatus || summary.identityStatus === 'NOT_FOUND') {
-      summary.identityStatus = snapshot.ownerPinitId || merged.owner?.ownerPinitId
-        ? 'PARTIALLY_RECOVERED'
-        : 'FOUND';
+      summary.identityStatus = 'FOUND';
     }
     if (!summary.riskLevel || summary.riskLevel === 'UNKNOWN') {
       summary.riskLevel = 'MEDIUM';
     }
-    if (!summary.forensicVerdict || summary.forensicVerdict === 'NO_SIGNATURE') {
-      const conf = liveConf ?? 0;
-      summary.forensicVerdict = conf >= 70 ? 'ORIGINAL_FOUND_PARTIAL' : 'POSSIBLE_ASSET';
-      summary.reportState = conf >= 70 ? 'POSSIBLE' : 'POSSIBLE';
-    }
     merged.summary = summary;
+  }
 
+  if (hasVault) {
     const proof = (merged as { identityProof?: Record<string, unknown> }).identityProof ?? {};
     (merged as { identityProof?: Record<string, unknown> }).identityProof = {
       ...proof,
       vaultId: proof.vaultId ?? snapshot.vaultId ?? merged.owner?.vaultId,
       dnaRecordId: proof.dnaRecordId ?? snapshot.dnaRecordId ?? merged.owner?.dnaRecordId,
-      ownerPinitId: proof.ownerPinitId ?? snapshot.ownerPinitId ?? merged.owner?.ownerPinitId,
+      ownerPinitId: showCandidateIds
+        ? (proof.ownerPinitId ?? snapshot.ownerPinitId ?? merged.owner?.ownerPinitId)
+        : undefined,
     };
   }
 

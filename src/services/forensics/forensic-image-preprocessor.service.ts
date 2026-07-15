@@ -50,6 +50,34 @@ export class ForensicImagePreprocessor {
       variants.push({ label: 'normalized', buffer: normalized, mimeType: 'image/jpeg' });
 
       if (options?.minimal) {
+        // Browser / Postimages screenshots: strip outer chrome so content matches vault originals
+        if (w > 200 && h > 200) {
+          const marginX = Math.round(w * 0.10);
+          const marginY = Math.round(h * 0.14);
+          const cropW = Math.max(64, w - marginX * 2);
+          const cropH = Math.max(64, h - marginY * 2);
+          const chromeCrop = await sharp(buffer)
+            .extract({ left: marginX, top: marginY, width: cropW, height: cropH })
+            .normalize()
+            .jpeg({ quality: 92 })
+            .toBuffer();
+          variants.push({ label: 'browser_chrome_crop', buffer: chromeCrop, mimeType: 'image/jpeg' });
+
+          // Tighter center crop for large UI chrome (tabs, buttons, sidebars)
+          const tightW = Math.round(w * 0.72);
+          const tightH = Math.round(h * 0.68);
+          const tightCrop = await sharp(buffer)
+            .extract({
+              left: Math.round((w - tightW) / 2),
+              top: Math.round((h - tightH) / 2),
+              width: tightW,
+              height: tightH,
+            })
+            .normalize()
+            .jpeg({ quality: 92 })
+            .toBuffer();
+          variants.push({ label: 'content_focus_crop', buffer: tightCrop, mimeType: 'image/jpeg' });
+        }
         return variants;
       }
 

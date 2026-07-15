@@ -181,15 +181,41 @@ export interface LeakIntelligenceEntry {
   source?: 'crawler' | 'simulated' | 'recorded';
 }
 
+/** Human-readable inventory of how the probe differs from the vault original */
+export interface TamperChangeItem {
+  type: string;
+  detected: boolean;
+  confidence: number;
+  /** Plain-language explanation of what changed */
+  detail: string;
+  /** Where the change shows up (region, text layer, metadata, etc.) */
+  where?: string;
+}
+
 export interface TamperAnalysisSection {
   primaryVector: string;
   overallTamperScore: number;
-  vectors: Array<{ label: string; detected: boolean; confidence?: number }>;
+  vectors: Array<{
+    label: string;
+    detected: boolean;
+    confidence?: number;
+    evidence?: string[];
+  }>;
   description?: string;
+  /** Ordered list of detected changes vs original — primary UX for tamper status */
+  changesVsOriginal?: TamperChangeItem[];
   /** Visual tamper overlay from forensic scanner (base64 PNG) */
   overlayPngBase64?: string;
   modifiedPercent?: number;
   insertedRegions?: number;
+  /** Homography / crop geometry when available (images) */
+  cropDetection?: {
+    sharedRegionPercent?: number;
+    visiblePercent?: number;
+    cropPercent?: number;
+    missingPercent?: number;
+    homographyFound?: boolean;
+  };
 }
 
 export interface MatchReason {

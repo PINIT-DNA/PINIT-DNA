@@ -83,21 +83,29 @@ export function selectAuthoritativeMatch(
     };
   }
 
-  if (input.deepCompare && input.deepCompare.overallConfidenceScore >= 45) {
+  // Never lock mid-band deep DNA lookalikes (e.g. DigiMark vs SEO phone ~70%).
+  // Identity hit and local-patch already returned above.
+  const deep = input.deepCompare;
+  if (
+    deep
+    && deep.overallConfidenceScore >= 75
+    && deep.classification?.toUpperCase() !== 'DIFFERENT'
+  ) {
     return {
-      match: deepCompareToMatch(input.deepCompare, input.ownerUserId),
+      match: deepCompareToMatch(deep, input.ownerUserId),
       source: 'deep_compare',
     };
   }
 
+  // Never assign an authoritative vault from mid-band retrieval alone (~58% lookalikes).
+  // Vector-top may only lock for deep compare when clearly dominant (≥75) with margin.
   const topCandidate = input.candidates[0];
   const secondScore = input.candidates[1]?.compositeScore ?? 0;
   const margin = (topCandidate?.compositeScore ?? 0) - secondScore;
-  // Require a clear visual winner — low composites match unrelated vault files.
   if (
     topCandidate
-    && topCandidate.compositeScore >= 50
-    && margin >= 4
+    && topCandidate.compositeScore >= 75
+    && margin >= 8
     && candidateHasVisualSignal(topCandidate)
   ) {
     return {
@@ -106,8 +114,8 @@ export function selectAuthoritativeMatch(
     };
   }
 
-  // Weaker local patch still beats a weak vector lock.
-  if (input.localDnaHit && input.localDnaScore >= 45) {
+  // Strong local patch only — weak patch must not invent ownership/retrieval lock
+  if (input.localDnaHit && input.localDnaScore >= 75) {
     return {
       match: localHitToMatch(input.localDnaHit, input.localDnaScore),
       source: 'local_patch',

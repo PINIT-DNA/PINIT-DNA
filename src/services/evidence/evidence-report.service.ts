@@ -298,13 +298,15 @@ async function drawAccessLogsTable(ctx: DrawCtx, shareLinkId: string): Promise<D
     const ts = log.createdAt.toISOString().replace('T', ' ').slice(0, 19);
     const risk = log.riskLevel ?? 'LOW';
     const rColor = risk === 'CRITICAL' ? C.critical : risk === 'HIGH' ? C.high : risk === 'MEDIUM' ? C.medium : C.midGray;
+    const riskLabel = log.riskScore != null ? `${risk} (${log.riskScore})` : risk;
+    const vpnTag = log.isVpn ? ' VPN' : log.isTor ? ' TOR' : '';
 
     c = tableRow(c, [
       { text: ts,                   width: 130, mono: true },
       { text: log.action,           width: 110, color: log.action.includes('BLOCKED') || log.action.includes('ATTEMPT') ? C.red : C.black },
       { text: log.ipAddress ?? '—', width: 100, mono: true },
       { text: log.country   ?? '—', width: 70  },
-      { text: risk,                 width: 85,  color: rColor },
+      { text: `${riskLabel}${vpnTag}`, width: 85,  color: rColor },
     ], rowBg);
   });
 

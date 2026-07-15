@@ -85,6 +85,14 @@ const TYPE_PREF: Record<string, PrefKey> = {
 
   // Policy / risk
   RISK_ALERT: 'notifyRiskAlerts',
+  LOCATION_SPOOF_SUSPECTED: 'notifyRiskAlerts',
+  VPN_DETECTED: 'notifyRiskAlerts',
+  PROXY_DETECTED: 'notifyRiskAlerts',
+  TOR_DETECTED: 'notifyRiskAlerts',
+  IMPOSSIBLE_TRAVEL: 'notifyRiskAlerts',
+  GPS_IP_MISMATCH: 'notifyRiskAlerts',
+  NEW_DEVICE: 'notifyRiskAlerts',
+  COUNTRY_CHANGED: 'notifyRiskAlerts',
   POLICY_BLOCKED: 'notifyRiskAlerts',
   VPN_BLOCKED: 'notifyRiskAlerts',
   TOR_BLOCKED: 'notifyRiskAlerts',

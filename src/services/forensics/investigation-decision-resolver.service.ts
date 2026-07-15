@@ -1,6 +1,9 @@
 /**
  * Investigation decision resolver — maps Acceptance Engine output to report fields.
  * Final verdict authority: acceptance-engine.service.ts only.
+ *
+ * Ownership (candidate retained) ONLY when Acceptance returns VERIFIED_*.
+ * POSSIBLE_MATCH keeps confidence for Top Candidates — never retains owner.
  */
 import { logger } from '../../lib/logger';
 import type { EnterpriseRecoveryResult } from './enterprise-recovery-pipeline.service';
@@ -11,16 +14,19 @@ import type {
   AcceptanceScorecard,
   AcceptanceVerdict,
 } from '../../types/acceptance.types';
-import { runAcceptanceEngine } from './acceptance-engine.service';
+import { runAcceptanceEngine, ACCEPTANCE_VERDICT_LABELS } from './acceptance-engine.service';
 import { buildAcceptanceEvidenceFromEnterprise } from './acceptance-evidence.builder';
+import { logInvestigationScores } from './investigation-score-logger';
+import type { DnaComparisonResult } from '../../types/comparison.types';
+import { sanitizeInvestigationError } from '../../lib/sanitize-investigation-error';
 
-/** Legacy three-state UI mapping (UI unchanged). */
+/** Legacy three-state UI mapping (aligned with ownership verdicts). */
 export type InvestigationReportState = 'VERIFIED' | 'POSSIBLE' | 'NO_SIGNATURE';
 
 export const REPORT_STATE_LABELS: Record<InvestigationReportState, string> = {
-  VERIFIED: 'Verified Original PINIT Asset',
-  POSSIBLE: 'Possible PINIT Asset',
-  NO_SIGNATURE: 'No PINIT Signature Found',
+  VERIFIED: 'Ownership Verified',
+  POSSIBLE: 'Possible Similarity – Top Candidates Only',
+  NO_SIGNATURE: 'Unknown Asset',
 };
 
 export interface InvestigationOutcome {
@@ -41,6 +47,7 @@ export interface InvestigationOutcome {
 
 /**
  * Authoritative candidate — ONLY from enterprise authoritativeAsset.
+ * Presence here = retrieval/DNA comparison target — NOT ownership until Acceptance verifies.
  */
 export function resolveAuthoritativeCandidate(
   enterprise: EnterpriseRecoveryResult,
@@ -95,6 +102,7 @@ function outcomeFromAcceptance(
   decision: AcceptanceDecision,
   candidate: VaultMatchResult | null,
 ): InvestigationOutcome {
+  // Owner-bearing candidate retained ONLY when Acceptance explicitly verified ownership
   const retain = decision.retainCandidate ? candidate : null;
   return {
     state: mapAcceptanceToReportState(decision.verdict),
@@ -190,15 +198,11 @@ export function labelForOutcome(outcome: InvestigationOutcome): string {
   return outcome.displayLabel;
 }
 
-/** Minimum 15-layer DNA score to show vault in report when retrieval anchored this vault */
-export const MIN_DNA_FOR_POSSIBLE_REPORT = 40;
+/** Minimum 15-layer DNA score for Possible Similarity retention (candidates only) */
+export const MIN_DNA_FOR_POSSIBLE_REPORT = 55;
 
 /**
- * When retrieval found a vault candidate but 15-layer DNA is weak (edited/cropped capture),
- * retain as Possible instead of NO_SIGNATURE.
- *
- * Images: NEVER retain when DNA is DIFFERENT or below threshold.
- * Video: identity_hit / sha256 / partial-video anchors may retain.
+ * Whether similarity is strong enough to surface Top Candidates (never ownership).
  */
 export function shouldRetainRetrievalCandidateAsPossible(
   enterprise: EnterpriseRecoveryResult,
@@ -218,23 +222,48 @@ export function shouldRetainRetrievalCandidateAsPossible(
 
   if (isVideo) {
     if (source === 'identity_hit' || source === 'sha256_exact') return true;
-    if (/partial video/i.test(match.method) && retrievalConfidence >= 28) return true;
+    if (/partial video/i.test(match.method) && retrievalConfidence >= 55) return true;
   }
 
-  if (dnaScore < MIN_DNA_FOR_POSSIBLE_REPORT) return false;
-  return dnaScore >= MIN_DNA_FOR_POSSIBLE_REPORT;
+  // Require multi-signal strength — visual alone at ~58% is NOT enough
+  const vector = enterprise.authoritativeAsset?.vector;
+  const orb = vector?.scores.orb ?? 0;
+  const visual = Math.max(
+    orb,
+    vector?.scores.perceptualBlend ?? 0,
+    vector?.scores.composite ?? 0,
+    match.visualSimilarity != null ? match.visualSimilarity * 100 : 0,
+  );
+  const fused = Math.max(dnaScore, visual, retrievalConfidence);
+  if (fused < MIN_DNA_FOR_POSSIBLE_REPORT) return false;
+
+  // Need DNA ≥55 OR (visual ≥75 AND dna ≥40) — not perceptual-only mid-band
+  if (dnaScore >= MIN_DNA_FOR_POSSIBLE_REPORT) return true;
+  if (visual >= 75 && dnaScore >= 40) return true;
+  return false;
 }
 
 /**
- * Re-run Acceptance Engine after DNA compare updates evidence.
- * Does not invent verdicts outside the engine.
+ * Re-run Acceptance after weak DNA. NEVER force-retain owner.
+ * At most Possible Similarity with candidate cleared for ownership.
  */
 export function downgradeToPossibleAfterWeakDna(
   match: VaultMatchResult,
   _current: InvestigationOutcome,
   dnaScore: number,
   classification: string,
+  options?: { visualScore?: number; enterprise?: EnterpriseRecoveryResult },
 ): InvestigationOutcome {
+  const vector = options?.enterprise?.authoritativeAsset?.vector;
+  const visualScore = Math.max(
+    options?.visualScore ?? 0,
+    vector?.scores.orb ?? 0,
+    vector?.scores.perceptualBlend ?? 0,
+    vector?.scores.composite ?? 0,
+    match.visualSimilarity != null ? match.visualSimilarity * 100 : 0,
+    options?.enterprise?.fusion?.retrievalConfidence ?? 0,
+  );
+
   const decision = runAcceptanceEngine({
     analysisComplete: true,
     hasCandidate: true,
@@ -246,36 +275,108 @@ export function downgradeToPossibleAfterWeakDna(
       score: dnaScore,
       classification,
     },
-    certificate: { state: 'FAIL', score: 0, detail: 'Re-evaluated after DNA' },
+    certificate: { state: 'SKIPPED', score: 0, detail: 'Re-evaluated after DNA' },
     vault: { state: 'PASS', score: 100 },
-    owner: { state: 'PASS', score: 50 },
+    owner: { state: 'FAIL', score: 0, detail: 'Ownership not cryptographically bound' },
     timeline: { state: 'PASS', score: 50 },
-    visual: { state: 'PASS', score: 50 },
-    watermark: { state: 'FAIL', score: 0 },
+    visual: { state: visualScore > 0 ? 'PASS' : 'FAIL', score: visualScore },
+    watermark: { state: 'SKIPPED', score: 0 },
     metadata: { state: 'SKIPPED', score: 0 },
     tamperDetected: true,
   });
 
-  return {
-    state: mapAcceptanceToReportState(decision.verdict),
-    candidate: decision.retainCandidate ? match : null,
-    retrievalConfidence: decision.retrievalConfidence,
-    forensicVerdict: mapAcceptanceToForensicVerdict(decision.verdict),
-    displayLabel: decision.displayLabel,
-    decisionReason: decision.decisionReason,
-    acceptanceVerdict: decision.verdict,
-    acceptancePolicyVersion: decision.acceptancePolicyVersion,
-    dnaAlgorithmVersion: decision.dnaAlgorithmVersion,
-    acceptanceConfidence: decision.confidence,
-    acceptanceScorecard: decision.scorecard,
-  };
+  // Never invent POSSIBLE with retained owner — respect Acceptance retainCandidate
+  return outcomeFromAcceptance(decision, match);
+}
+
+/**
+ * Re-run acceptance after authoritative DNA finishes.
+ */
+export function reAcceptWithDnaCompare(
+  enterprise: EnterpriseRecoveryResult,
+  match: VaultMatchResult,
+  comparison: Pick<DnaComparisonResult, 'overallConfidenceScore' | 'classification' | 'layerComparisons'>,
+): InvestigationOutcome {
+  const dnaScore = comparison.overallConfidenceScore;
+  const classification = comparison.classification ?? 'SIMILAR';
+  const vector = enterprise.authoritativeAsset?.vector;
+  const visual = Math.max(
+    vector?.scores.orb ?? 0,
+    vector?.scores.perceptualBlend ?? vector?.scores.pHash ?? 0,
+    vector?.scores.composite ?? 0,
+    match.visualSimilarity != null ? match.visualSimilarity * 100 : 0,
+    enterprise.fusion?.retrievalConfidence ?? 0,
+  );
+
+  const base = buildAcceptanceEvidenceFromEnterprise(enterprise, { analysisComplete: true });
+  const decision = runAcceptanceEngine({
+    ...base,
+    hasCandidate: true,
+    vaultId: match.vaultId,
+    dnaRecordId: match.dnaRecordId,
+    ownerUserId: match.ownerUserId,
+    dna: {
+      state: dnaScore >= 40 ? 'PASS' : 'FAIL',
+      score: dnaScore,
+      classification,
+    },
+    visual: {
+      state: visual > 0 ? 'PASS' : 'FAIL',
+      score: Math.max(base.visual.score, visual),
+      detail: base.visual.detail,
+    },
+    // Never invent owner PASS from retrieval
+    owner: base.owner.state === 'PASS' && base.owner.score >= 80
+      ? base.owner
+      : { state: 'FAIL', score: 0, detail: 'Ownership not cryptographically bound' },
+    tamperDetected: base.tamperDetected || dnaScore < 95,
+    analysisComplete: true,
+  });
+
+  logInvestigationScores({
+    stage: 'post_dna_accept',
+    vaultId: match.vaultId,
+    dnaRecordId: match.dnaRecordId,
+    fingerprint: {
+      overall: dnaScore,
+      classification,
+      layers: (comparison.layerComparisons ?? []).slice(0, 6).map((l) => ({
+        layer: l.layer,
+        percent: l.similarityPercent,
+        matched: l.matched,
+      })),
+    },
+    visual: {
+      orb: vector?.scores.orb,
+      perceptual: vector?.scores.perceptualBlend,
+      composite: vector?.scores.composite,
+      clip: vector?.scores.clip,
+    },
+    fusion: {
+      retrieval: enterprise.fusion?.retrievalConfidence,
+      identity: enterprise.fusion?.identityConfidence,
+      ownershipVerification: enterprise.fusion?.ownershipVerificationConfidence,
+      forensicVerdict: enterprise.fusion?.forensicVerdict,
+    },
+    acceptance: {
+      verdict: decision.verdict,
+      confidence: decision.confidence,
+      dna: dnaScore,
+      visual: Math.max(base.visual.score, visual),
+      reason: decision.decisionReason,
+    },
+  });
+
+  // No forced Possible with owner — let Acceptance decide
+  return outcomeFromAcceptance(decision, match);
 }
 
 /** Build outcome for incomplete analysis (timeout, corrupt, missing tools). */
 export function insufficientEvidenceOutcome(failureReason: string): InvestigationOutcome {
+  const safeReason = sanitizeInvestigationError(failureReason);
   const decision = runAcceptanceEngine({
     analysisComplete: false,
-    failureReason,
+    failureReason: safeReason,
     hasCandidate: false,
     dna: { state: 'SKIPPED', score: 0 },
     certificate: { state: 'SKIPPED', score: 0 },
@@ -308,3 +409,6 @@ export function notPinitOutcome(reason: string): InvestigationOutcome {
   });
   return outcomeFromAcceptance(decision, null);
 }
+
+/** @deprecated — labels live in ACCEPTANCE_VERDICT_LABELS; kept for import stability */
+export { ACCEPTANCE_VERDICT_LABELS };

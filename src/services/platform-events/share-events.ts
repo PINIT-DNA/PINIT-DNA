@@ -1,5 +1,6 @@
 /**
  * Share module → platform event mappings (Phase 1).
+ * Location Trust & Risk alerts reuse the existing notification system.
  */
 
 import { platformEvents } from './platform-event.engine';
@@ -17,6 +18,13 @@ export interface ShareAccessEventContext {
   country?: string | null;
   device?: string | null;
   riskLevel?: string;
+  riskScore?: number;
+  riskFactors?: string[];
+  locationSpoofSuspected?: boolean;
+  trustScore?: number;
+  locationTrust?: string;
+  alerts?: string[];
+  suggestedActions?: string[];
   hopNumber?: number;
 }
 
@@ -29,6 +37,7 @@ export function emitShareAccessEvent(ctx: ShareAccessEventContext): void {
   const country = ctx.country ?? 'Unknown';
   const device = ctx.device ?? 'Unknown';
   const ip = ctx.ip ?? 'Unknown';
+  const deepLink = `/access-intelligence/${encodeURIComponent(ctx.token)}`;
   const base = {
     ownerUserId: ctx.ownerUserId,
     entityType: 'share_link',
@@ -41,11 +50,16 @@ export function emitShareAccessEvent(ctx: ShareAccessEventContext): void {
     ip,
     country,
     device,
-    deepLink: '/access-intelligence',
+    deepLink,
     category: 'sharing' as const,
   };
 
   const events: PlatformEventInput[] = [];
+  const alerts = new Set(ctx.alerts ?? []);
+  const topReasons = (ctx.riskFactors ?? [])
+    .filter(f => !/^No anomalies/i.test(f) && !/^GPS and IP consistent/i.test(f))
+    .slice(0, 3)
+    .join(' · ');
 
   switch (ctx.action) {
     case 'VIEWED':
@@ -117,25 +131,85 @@ export function emitShareAccessEvent(ctx: ShareAccessEventContext): void {
       });
       break;
     default:
-      return;
+      break;
   }
 
-  if (ctx.riskLevel === 'HIGH' || ctx.riskLevel === 'CRITICAL') {
+  // ── Location Trust / Risk alerts (existing notification rails) ─────────
+  const pushRisk = (
+    notificationType: string,
+    title: string,
+    body: string,
+    severity: PlatformEventInput['severity'] = 'warning',
+    dedupeSuffix?: string,
+  ) => {
     events.push({
       ...base,
-      name: 'share.risk.elevated',
-      severity: ctx.riskLevel === 'CRITICAL' ? 'critical' : 'medium',
-      notificationType: 'RISK_ALERT',
+      name: `share.risk.${notificationType.toLowerCase()}`,
+      severity,
+      notificationType,
       category: 'security',
-      title: `${ctx.riskLevel} risk detected`,
-      body: `Suspicious access to ${fileName} from ${ip} · ${country}`,
+      title,
+      body,
+      deepLink,
       riskLevel: ctx.riskLevel,
       aggregate: false,
       skipAudit: true,
+      dedupeKey: dedupeSuffix
+        ? `share.trust:${ctx.token}:${dedupeSuffix}:${todayBucket()}`
+        : undefined,
     });
+  };
+
+  if (alerts.has('VPN_DETECTED')) {
+    pushRisk('VPN_DETECTED', 'VPN detected', `${fileName}: viewer used a VPN (${ip} · ${country})`, 'warning', 'vpn');
+  }
+  if (alerts.has('PROXY_DETECTED')) {
+    pushRisk('PROXY_DETECTED', 'Proxy detected', `${fileName}: proxy IP detected (${ip})`, 'warning', 'proxy');
+  }
+  if (alerts.has('TOR_DETECTED')) {
+    pushRisk('TOR_DETECTED', 'TOR detected', `${fileName}: TOR exit node — critical anonymity signal`, 'critical', 'tor');
+  }
+  if (alerts.has('IMPOSSIBLE_TRAVEL')) {
+    pushRisk('IMPOSSIBLE_TRAVEL', 'Impossible travel', `${fileName}: ${topReasons || 'GPS jumped too far too fast'}`, 'critical', 'travel');
+  }
+  if (alerts.has('GPS_IP_MISMATCH')) {
+    pushRisk('GPS_IP_MISMATCH', 'GPS / IP mismatch', `${fileName}: ${topReasons || 'Browser GPS disagrees with network location'}`, 'warning', 'mismatch');
+  }
+  if (alerts.has('NEW_DEVICE') || alerts.has('DEVICE_CHANGED')) {
+    pushRisk('NEW_DEVICE', 'Suspicious / new device', `${fileName}: new or changed device fingerprint (${country})`, 'warning', 'device');
+  }
+  if (alerts.has('COUNTRY_CHANGED')) {
+    pushRisk('COUNTRY_CHANGED', 'New country', `${fileName}: access from a new country — ${country}`, 'warning', 'country');
   }
 
+  if (ctx.riskLevel === 'HIGH' || ctx.riskLevel === 'CRITICAL') {
+    pushRisk(
+      'RISK_ALERT',
+      `${ctx.riskLevel} risk access`,
+      `${fileName}: Risk ${ctx.riskScore ?? ctx.riskLevel}` +
+        (ctx.trustScore != null ? ` · Trust ${ctx.trustScore}` : '') +
+        (topReasons ? ` — ${topReasons}` : ` (${ip} · ${country})`),
+      ctx.riskLevel === 'CRITICAL' ? 'critical' : 'medium',
+      `risk-${ctx.riskLevel}`,
+    );
+  } else if (ctx.locationSpoofSuspected) {
+    pushRisk(
+      'LOCATION_SPOOF_SUSPECTED',
+      'Location trust low',
+      `${fileName}: ${topReasons || 'Location signals inconsistent'}`,
+      'warning',
+      'loc-trust',
+    );
+  }
+
+  // Deduplicate by notificationType within this emit batch
+  const seen = new Set<string>();
   for (const e of events) {
+    const key = e.notificationType ?? e.name;
+    if (seen.has(key) && e.notificationType !== 'LINK_VIEWED' && e.notificationType !== 'LINK_DOWNLOADED') {
+      continue;
+    }
+    seen.add(key);
     platformEvents.emit(e);
   }
 }
