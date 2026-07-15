@@ -50,8 +50,6 @@ import { resolveMediaProfile } from './adaptive-scoring.service';
 import { isCameraScanFileName } from './vault-match-validator.service';
 import {
   LOCAL_PATCH_RESCUE_MIN,
-  NOT_FOUND_MAX_WITHOUT_PATCH,
-  POSSIBLE_MIN,
   RANKING_TOP_DEEP,
   RANKING_TRUSTED_LEAD_MIN,
   selectWinnerByRanking,
