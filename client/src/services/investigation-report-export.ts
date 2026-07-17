@@ -104,6 +104,7 @@ export interface InvestigationReportExport {
     signals: Array<{ label: string; score: number; status: string; detail?: string }>;
   };
   identityRecoveryReport?: {
+    vaultId?: string;
     originalHash?: string;
     currentHash?: string;
   };
