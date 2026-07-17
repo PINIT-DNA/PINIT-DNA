@@ -56,11 +56,18 @@ app.set('trust proxy', 1);
 app.use(helmet({ contentSecurityPolicy: false }));
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
-// Allows: localhost (any port) + ALL ngrok domains + optional custom domain
+// Allows: localhost + ngrok + Vercel + PinIT Hub custom domains + ALLOWED_ORIGIN(S)
 app.use(cors({
   origin: (origin, callback) => {
     // No origin = server-to-server, Postman, curl → always allow
     if (!origin) return callback(null, true);
+
+    const extraOrigins = [
+      process.env['ALLOWED_ORIGIN'] ?? '',
+      ...(process.env['ALLOWED_ORIGINS'] ?? '').split(','),
+    ]
+      .map((value) => value.trim())
+      .filter(Boolean);
 
     const allowed =
       origin.includes('localhost')       ||
@@ -69,8 +76,9 @@ app.use(cors({
       origin.includes('ngrok-free.app')  ||
       origin.includes('ngrok-free.dev')  ||
       origin.includes('ngrok.app')       ||
-      origin.includes('vercel.app')      ||   // ← Vercel preview + production deployments
-      (!!process.env['ALLOWED_ORIGIN'] && origin === process.env['ALLOWED_ORIGIN']);
+      origin.includes('vercel.app')      ||   // Vercel preview + production
+      origin.includes('pinithub.com')    ||   // custom domain (apex + www)
+      extraOrigins.includes(origin);
 
     if (allowed) return callback(null, true);
 
