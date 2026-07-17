@@ -57,6 +57,11 @@ import {
   type CandidateRankingLog,
 } from './candidate-ranking-engine.service';
 import { vaultCandidateRankingService } from './vault-candidate-ranking.service';
+import {
+  ENTERPRISE_FEATURE_FLAG,
+  isEnterpriseFeatureEnabled,
+} from '../../config/enterprise-feature-flags';
+import { enterpriseCandidateRetrievalService } from './enterprise-candidate-retrieval.service';
 
 function logCandidateStage(
   stage: string,
@@ -998,6 +1003,48 @@ export class PinitOriginalIdentityRecoveryService {
     }
     let candidates = vaultSimilarityVectorService.toRankedCandidates(vectors);
 
+    // Milestone D — independent providers union before any final candidate limit.
+    // Legacy retrieval above remains available as rollback/fallback.
+    if (
+      !isExactVaultMatch
+      && isEnterpriseFeatureEnabled(ENTERPRISE_FEATURE_FLAG.RECALL_ENGINE_V2)
+    ) {
+      try {
+        const recall = await enterpriseCandidateRetrievalService.retrieve({
+          buffer,
+          mimeType,
+          originalName,
+          sizeBytes,
+          ownerUserId,
+          variants,
+          finalLimit: 100,
+        });
+        candidates = recall.candidates;
+
+        if (recall.visualVectors.length) {
+          const byVault = new Map(vectors.map((vector) => [vector.vaultId, vector]));
+          for (const vector of recall.visualVectors) byVault.set(vector.vaultId, vector);
+          vectors = [...byVault.values()].sort(
+            (a, b) => b.scores.composite - a.scores.composite,
+          );
+        }
+
+        if (recall.localDnaHits.length) {
+          localDnaHit = recall.localDnaHits[0] ?? localDnaHit;
+          localDnaScore = localDnaHit?.compositeScore ?? localDnaScore;
+        }
+
+        selectionSteps.push({
+          stage: 'enterprise_recall_union',
+          detail: `${recall.providerResults.length} providers → ${recall.mergedCandidateCount} merged → ${recall.finalCandidateCount} final`,
+        });
+      } catch (error) {
+        logger.warn('[EnterpriseRecall] orchestration failed; legacy retrieval retained', {
+          error: String(error),
+        });
+      }
+    }
+
     let partialVideoScore = 0;
     let partialVideoFrameRatio = 0;
     let partialVideoMatchedFrames = 0;
@@ -1573,8 +1620,8 @@ export class PinitOriginalIdentityRecoveryService {
         // OIR "VERIFIED" = retrieval lock only — Acceptance still decides ownership.
         // Never emit "Ownership Verified" here (REPORT_STATE_LABELS.VERIFIED).
         statusMessage: reportState === 'VERIFIED'
-          ? 'Identity recovered — Acceptance verifying ownership…'
-          : 'Possible PINIT candidate — manual review recommended',
+          ? 'Verification complete — generating investigation report…'
+          : 'Possible PINIT candidate — generating investigation report…',
         ...ownerSnap,
       });
     } else {

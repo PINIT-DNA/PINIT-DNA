@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { DashboardLayout }        from './layouts/DashboardLayout';
 import { DashboardPage }          from './pages/DashboardPage';
 import { GeneratePage }           from './pages/GeneratePage';
@@ -22,6 +22,7 @@ import { ProfilePage }              from './pages/ProfilePage';
 import { LinkIntelligencePage }     from './pages/LinkIntelligencePage';
 import { AccessIntelligencePage }  from './pages/AccessIntelligencePage';
 import { UnifiedInvestigationPage } from './pages/UnifiedInvestigationPage';
+import { BRAND } from './config/brand.config';
 import { ShareViewerPage }          from './pages/ShareViewerPage';
 import { PinitGateway, RegisterGateway } from './pages/auth/PinitGateway';
 import { FaceLoginPage } from './pages/auth/FaceLoginPage';
@@ -64,7 +65,8 @@ export const router = createBrowserRouter([
       { path: 'profile',               element: <ProfilePage /> },
       { path: 'access-intelligence/:token', element: <LinkIntelligencePage /> },
       { path: 'access-intelligence',     element: <AccessIntelligencePage /> },
-      { path: 'unified-investigation',    element: <UnifiedInvestigationPage /> },
+      { path: 'pinit-hub/investigation', element: <UnifiedInvestigationPage /> },
+      { path: 'unified-investigation', element: <Navigate to={BRAND.investigationPath} replace /> },
       { path: 'link/:token',            element: <LinkIntelligencePage /> },
       { path: 'certificates',          element: <CertificatesPage />        },
       { path: 'verify-certificate',    element: <VerifyCertificatePage />   },

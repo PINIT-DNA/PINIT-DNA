@@ -11,6 +11,7 @@ import { shareLinkService } from '../share/share-link.service';
 import { isPhase2Active } from '../../config/dna-phase2';
 import { resolveWatermarkProof } from './watermark-status.service';
 import { enterpriseRecoveryPipeline, type EnterpriseRecoveryResult } from './enterprise-recovery-pipeline.service';
+import { promoteLeakVerifyToAuthoritative } from './leak-verify-authoritative-bridge.service';
 import { FORENSIC_VERDICT_LABELS, type ForensicVerdict } from './confidence-fusion-engine.service';
 import {
   deriveInvestigationOutcome,
@@ -90,6 +91,8 @@ import {
   buildLiveLeadTamperAnalysis,
   emptyTamperAnalysis,
 } from './tamper-analysis.service';
+import { DNA_LAYER_REGISTRY } from '../../constants/dna-layer-registry';
+import { tepService } from '../tep/tep.service';
 
 function step(
   id: string,
@@ -105,6 +108,60 @@ function layerStatus(pct: number, skipped?: boolean): 'verified' | 'warning' | '
   if (pct >= 80) return 'verified';
   if (pct >= 50) return 'warning';
   return 'failed';
+}
+
+/** Estimate 15-layer rows from live retrieval when deep compare did not finish. */
+function buildLiveLeadLayerAnalysis(input: {
+  dnaPct: number;
+  orbScore?: number;
+  simScore?: number;
+  originalHash?: string;
+  currentHash?: string;
+}): UnifiedInvestigationReport['layerAnalysis'] {
+  const hashMatch = !!input.originalHash && !!input.currentHash
+    && input.originalHash.toLowerCase() === input.currentHash.toLowerCase();
+  const perceptual = Math.round(input.simScore ?? input.dnaPct ?? 0);
+  const structural = Math.round(input.orbScore ?? Math.max(0, perceptual - 5));
+
+  return Object.entries(DNA_LAYER_REGISTRY).map(([n, reg]) => {
+    const layer = Number(n);
+    let matchPercent = 0;
+    let explanation = 'Estimated from live identity recovery — deep 15-layer compare incomplete';
+
+    if (layer === 1) {
+      matchPercent = hashMatch ? 100 : 0;
+      explanation = hashMatch
+        ? 'Exact SHA-256 match with vault original'
+        : 'SHA-256 differs from vault original (re-encode or export likely)';
+    } else if (layer === 2) {
+      matchPercent = structural;
+      explanation = 'Structural / edge layout from live ORB retrieval';
+    } else if (layer === 3) {
+      matchPercent = perceptual;
+      explanation = 'Perceptual similarity from live retrieval confidence';
+    } else if (layer === 7) {
+      matchPercent = Math.round(input.orbScore ?? perceptual * 0.9);
+      explanation = 'Local patch / ORB feature match from live vault search';
+    } else if (layer <= 10) {
+      matchPercent = Math.round(perceptual * (layer === 5 ? 0.88 : 0.92));
+    } else if (layer === 12) {
+      matchPercent = Math.round(perceptual * 0.75);
+      explanation = 'Ownership mark layer — estimated from live match strength';
+    } else {
+      matchPercent = layer === 11 ? Math.max(0, 100 - Math.round(perceptual * 0.15)) : 0;
+      explanation = layer === 11
+        ? 'Manipulation risk inverse to match strength'
+        : 'Not measured on live-only recovery path';
+    }
+
+    return {
+      layer,
+      name: reg.name,
+      matchPercent,
+      status: layerStatus(matchPercent, matchPercent === 0 && layer > 10),
+      explanation,
+    };
+  });
 }
 
 function riskFromScores(dnaPct: number, tamper: number, found: boolean): UnifiedInvestigationReport['summary']['riskLevel'] {
@@ -392,6 +449,20 @@ export class UnifiedInvestigationOrchestrator {
           confidence: liveSnapshot.confidence,
           error: timeoutError,
         });
+        // Keep SSE alive so the UI leaves "verifying" and shows report generation status.
+        emit({
+          type: 'phase',
+          stepId: 'final_report',
+          label: 'Investigation Report',
+          status: 'running',
+          detail: 'Verification complete — generating investigation report…',
+          snapshot: {
+            ...liveSnapshot,
+            phase: 'final',
+            signatureFound: true,
+            statusMessage: 'Verification complete — generating investigation report…',
+          },
+        });
         return this.buildPartialFromLiveSnapshot({
           investigationId,
           pipeline,
@@ -415,7 +486,12 @@ export class UnifiedInvestigationOrchestrator {
       });
     }
 
-    const { enterprise, leakVerify } = recoveryStage.data;
+    const { enterprise: enterpriseRaw, leakVerify } = recoveryStage.data;
+    const enterprise = await promoteLeakVerifyToAuthoritative(
+      enterpriseRaw,
+      leakVerify,
+      ownerUserId,
+    );
 
     pipeline.push(step(
       'identity',
@@ -423,6 +499,18 @@ export class UnifiedInvestigationOrchestrator {
       leakVerify.found ? 'complete' : 'warning',
       leakVerify.detectionMethod ?? leakVerify.message,
     ));
+    if (
+      enterprise.authoritativeAsset?.selectionSource === 'identity_hit'
+      && leakVerify.found
+      && enterprise.authoritativeAsset.vaultId === leakVerify.identity?.vaultId
+    ) {
+      pipeline.push(step(
+        'leak_identity_bridge',
+        'Promote protected-download / TEP identity',
+        'complete',
+        `Locked vault ${enterprise.authoritativeAsset.vaultId.slice(0, 8)}… via ${leakVerify.detectionMethod}`,
+      ));
+    }
 
     const forensicStage = enterprise.stages.find((s) => s.stage === 'stage1_forensic_recovery');
     pipeline.push(step(
@@ -1807,12 +1895,14 @@ export class UnifiedInvestigationOrchestrator {
       accessIntelligence, evidenceConf, originalFilename, alignedEvidenceConfidence, certStatus,
     } = params;
     const protectedDl = accessIntelligence.find((a) =>
-      a.action?.includes('PROTECTED') || a.action?.includes('TEP_EXPORT'),
+      a.tepCode || a.action?.includes('PROTECTED') || a.action?.includes('TEP_EXPORT'),
     );
     const device = accessIntelligence.find((a) => a.device)?.device;
     const evidencePct = alignedEvidenceConfidence
       ?? evidenceConf?.trustScore
       ?? ownershipConf;
+    const tepFromLeak = (leakVerify as { tep?: { code?: string } }).tep?.code
+      ?? (leakVerify as { tepCode?: string }).tepCode;
 
     return {
       recovered: ownershipConf >= 50,
@@ -1826,6 +1916,7 @@ export class UnifiedInvestigationOrchestrator {
           : null),
       originalFilename: originalFilename ?? dnaRec?.imageFilename ?? undefined,
       createdAt: dnaRec?.createdAt?.toISOString(),
+      tepCode: protectedDl?.tepCode ?? tepFromLeak ?? null,
       protectedDownloadDate: protectedDl?.timestamp,
       originalDevice: device,
       registrationTimestamp: leakVerify.identity?.dnaCreatedAt ?? dnaRec?.createdAt?.toISOString(),
@@ -1995,7 +2086,16 @@ export class UnifiedInvestigationOrchestrator {
 
     // Post-timeout rescue: finish 15-layer DNA against the live vault (crops often
     // already have ORB/similarity — recovery just ran out of wall-clock time).
-    if ((!comparison || (realDna ?? 0) < 40) && params.probe && (snapshot.dnaRecordId || params.enterprise?.authoritativeAsset?.dnaRecordId)) {
+    // Strong live leads (≥90%) already verified identity — skip heavy DNA regeneration
+    // so the investigation report can render immediately (tamper paths for mid-band
+    // crops still run the rescue below).
+    const strongLiveIdentity = liveConf >= 90 && !!snapshot.signatureFound;
+    if (
+      !strongLiveIdentity
+      && (!comparison || (realDna ?? 0) < 40)
+      && params.probe
+      && (snapshot.dnaRecordId || params.enterprise?.authoritativeAsset?.dnaRecordId)
+    ) {
       const dnaRecordIdHint = snapshot.dnaRecordId
         ?? params.enterprise!.authoritativeAsset!.dnaRecordId;
       try {
@@ -2041,6 +2141,18 @@ export class UnifiedInvestigationOrchestrator {
         }
       } catch (err) {
         logger.warn('[PartialReport] Post-timeout DNA compare failed', { error: String(err) });
+      }
+    } else if (strongLiveIdentity && !comparison) {
+      params.pipeline.push(step(
+        'dna_compare',
+        '15-layer DNA comparison',
+        'warning',
+        `Strong live identity ${Math.round(liveConf)}% — report sealed without post-timeout DNA regen`,
+      ));
+      if (typeof snapshot.dnaMatchPercent === 'number') {
+        realDna = snapshot.dnaMatchPercent;
+      } else {
+        realDna = liveConf;
       }
     }
 
@@ -2192,6 +2304,8 @@ export class UnifiedInvestigationOrchestrator {
         confidence: liveConf,
         patchVotes: snapshot.patchVotes,
         timedOut: /timed out/i.test(params.error),
+        originalHash: vaultRow?.dnaRecord?.sha256Hash,
+        currentHash: params.currentFileHash,
       });
     if (cropLikeLead && !tamperAnalysis.vectors.some((v) => v.label === 'Crop' && v.detected)) {
       const liveCrop = buildLiveLeadTamperAnalysis({
@@ -2200,6 +2314,8 @@ export class UnifiedInvestigationOrchestrator {
         confidence: liveConf,
         patchVotes: snapshot.patchVotes,
         timedOut: /timed out/i.test(params.error),
+        originalHash: vaultRow?.dnaRecord?.sha256Hash,
+        currentHash: params.currentFileHash,
       });
       tamperAnalysis = {
         ...liveCrop,
@@ -2357,13 +2473,91 @@ export class UnifiedInvestigationOrchestrator {
       ? realDna!
       : (showCandidateLead ? Math.round(Math.max(similarityScore, liveConf, conf, POSSIBLE_MIN)) : 0);
 
-    const layerAnalysis = (comparison?.layerComparisons ?? []).map((l) => ({
+    if (
+      (!comparison || !comparison.layerComparisons?.length)
+      && params.enterprise
+      && params.probe
+      && dnaRecordId
+    ) {
+      const cachedDeep = params.enterprise.authoritativeAsset?.deepCompare?.layerComparisons?.length
+        ? params.enterprise.authoritativeAsset.deepCompare
+        : params.enterprise.bestDeepCompare?.layerComparisons?.length
+          ? params.enterprise.bestDeepCompare
+          : null;
+      if (cachedDeep) {
+        try {
+          comparison = comparisonFromDeepCompareResult(
+            cachedDeep,
+            {
+              vaultId,
+              dnaRecordId,
+              ownerUserId: params.ownerUserId,
+              ownerPinitId: ownerPinitId ?? null,
+              certificateId: certificateId ?? null,
+              originalFilename: originalFilename ?? params.originalName,
+              storagePath: params.enterprise.authoritativeAsset?.storagePath ?? null,
+              selectionSource: 'local_patch',
+              match: {
+                tier: 2,
+                method: 'enterprise_cached_deep',
+                dnaRecordId,
+                vaultId,
+                ownerUserId: params.ownerUserId,
+                confidence: String(liveConf),
+                visualSimilarity: (snapshot.similarityScore ?? liveConf) / 100,
+              },
+              rankedCandidate: null,
+              vector: null,
+              deepCompare: cachedDeep,
+              localDnaHit: null,
+            },
+            params.probe,
+          );
+          realDna = comparison.overallConfidenceScore;
+          params.pipeline.push(step(
+            'dna_compare',
+            '15-layer DNA comparison',
+            'warning',
+            `${comparison.overallConfidenceScore}% — enterprise cached layers (timeout path)`,
+          ));
+        } catch (err) {
+          logger.warn('[PartialReport] Cached deep compare mapping failed', { error: String(err) });
+        }
+      }
+    }
+
+    let layerAnalysis = (comparison?.layerComparisons ?? []).map((l) => ({
       layer: l.layer,
       name: l.name,
       matchPercent: l.skipped ? 0 : l.similarityPercent,
       status: layerStatus(l.similarityPercent, l.skipped),
       explanation: l.changeDescription,
     }));
+
+    if (layerAnalysis.length === 0 && (hasRealDna || showCandidateLead)) {
+      layerAnalysis = buildLiveLeadLayerAnalysis({
+        dnaPct: dnaDisplay || liveConf,
+        orbScore: snapshot.orbScore,
+        simScore: snapshot.similarityScore ?? liveConf,
+        originalHash: vaultRow?.dnaRecord?.sha256Hash ?? undefined,
+        currentHash: params.currentFileHash,
+      });
+      params.pipeline.push(step(
+        'dna_compare',
+        '15-layer DNA analysis',
+        'warning',
+        `${layerAnalysis.length} layers estimated from live recovery (${Math.round(liveConf)}% confidence)`,
+      ));
+    }
+
+    const tepResolved = await this.resolveTepForInvestigation({
+      vaultId,
+      dnaRecordId,
+      ownerUserId: params.ownerUserId,
+      probe: params.probe,
+      accessIntelligence,
+      evidenceTimeline,
+    });
 
     const report: UnifiedInvestigationReport = {
       success: reportState !== 'NO_SIGNATURE',
@@ -2497,6 +2691,8 @@ export class UnifiedInvestigationOrchestrator {
         originalHash: vaultRow?.dnaRecord?.sha256Hash ?? undefined,
         currentHash: params.currentFileHash,
         evidenceConfidence: conf,
+        tepCode: tepResolved.tepCode ?? null,
+        protectedDownloadDate: tepResolved.protectedDownloadDate,
         message: hasRealDna
           ? 'Identity DNA-verified from live investigation snapshot before timeout'
           : reportState === 'POSSIBLE'
@@ -2860,6 +3056,77 @@ export class UnifiedInvestigationOrchestrator {
     return events.map(({ stage, timestamp, detail }) => ({ stage, timestamp, detail }));
   }
 
+  private async resolveTepForInvestigation(input: {
+    vaultId?: string;
+    dnaRecordId?: string;
+    ownerUserId: string;
+    probe?: { buffer: Buffer; mimeType: string; originalName: string; sizeBytes: number };
+    accessIntelligence?: LeakedFileAccessEntry[];
+    evidenceTimeline?: UnifiedInvestigationReport['evidenceTimeline'];
+  }): Promise<{ tepCode?: string; protectedDownloadDate?: string }> {
+    if (input.probe?.buffer?.length) {
+      try {
+        const extracted = await tepService.extractFromFile(
+          input.probe.buffer,
+          input.probe.mimeType,
+          input.probe.originalName,
+        );
+        if (extracted.tepCode) {
+          const manifest = await prisma.trackedExportPackage.findUnique({
+            where: { tepCode: extracted.tepCode },
+            select: { createdAt: true },
+          });
+          return {
+            tepCode: extracted.tepCode,
+            protectedDownloadDate: manifest?.createdAt.toISOString(),
+          };
+        }
+      } catch (err) {
+        logger.debug('[PartialReport] TEP extract from probe failed', { error: String(err) });
+      }
+    }
+
+    const fromTimeline = input.evidenceTimeline?.find((e) => e.tepCode)?.tepCode;
+    if (fromTimeline) {
+      const manifest = await prisma.trackedExportPackage.findUnique({
+        where: { tepCode: fromTimeline },
+        select: { createdAt: true },
+      });
+      return {
+        tepCode: fromTimeline,
+        protectedDownloadDate: manifest?.createdAt.toISOString(),
+      };
+    }
+
+    const fromAccess = input.accessIntelligence?.find((a) => a.tepCode);
+    if (fromAccess?.tepCode) {
+      return {
+        tepCode: fromAccess.tepCode,
+        protectedDownloadDate: fromAccess.timestamp,
+      };
+    }
+
+    if (input.vaultId || input.dnaRecordId) {
+      const latest = await prisma.trackedExportPackage.findFirst({
+        where: {
+          ownerUserId: input.ownerUserId,
+          ...(input.vaultId ? { vaultId: input.vaultId } : {}),
+          ...(input.dnaRecordId ? { dnaRecordId: input.dnaRecordId } : {}),
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { tepCode: true, createdAt: true },
+      });
+      if (latest?.tepCode) {
+        return {
+          tepCode: latest.tepCode,
+          protectedDownloadDate: latest.createdAt.toISOString(),
+        };
+      }
+    }
+
+    return {};
+  }
+
   private async loadAccessIntelligence(
     dnaRecordId: string,
     ownerUserId: string,
@@ -2910,6 +3177,7 @@ export class UnifiedInvestigationOrchestrator {
       add({
         timestamp: tep.createdAt.toISOString(),
         action: 'TEP_EXPORT',
+        tepCode: tep.tepCode,
         ipAddress: tep.ipAddress ?? undefined,
         country: tep.geoCountry ?? undefined,
         city: tep.geoCity ?? undefined,

@@ -6,6 +6,7 @@ import type { DnaComparisonResult } from './comparison.types';
 export interface LeakedFileAccessEntry {
   timestamp: string;
   action: string;
+  tepCode?: string;
   ipAddress?: string;
   country?: string;
   city?: string;
@@ -162,6 +163,7 @@ export interface IdentityRecoveryReportSection {
   certificateId?: string | null;
   originalFilename?: string;
   createdAt?: string;
+  tepCode?: string | null;
   protectedDownloadDate?: string;
   originalDevice?: string;
   registrationTimestamp?: string;

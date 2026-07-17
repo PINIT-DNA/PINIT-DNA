@@ -5,6 +5,7 @@
 import { prisma } from '../../lib/prisma';
 import { DNA_LAYER_REGISTRY } from '../../constants/dna-layer-registry';
 import { TOTAL_DNA_LAYERS } from '../../constants/dna-layers';
+import { parseEnterpriseDnaPackage } from '../dna/enterprise-dna-package.service';
 import type {
   AuthoritativeRecordAudit,
   DnaLayerStorageAudit,
@@ -168,6 +169,21 @@ export class DnaStorageAuditService {
       }
       if (!r.sha256Hash) {
         issues.push('Missing sha256Hash on DNA record');
+      }
+      // Milestone B Step 2 — enterprise package SSoT checks (additive)
+      const enterprisePkg = parseEnterpriseDnaPackage(r.universalFingerprints);
+      if (!enterprisePkg) {
+        issues.push('Missing enterpriseDnaPackage (SSoT dual-write)');
+      } else {
+        if (enterprisePkg.layers.length !== TOTAL_DNA_LAYERS) {
+          issues.push(`enterpriseDnaPackage has ${enterprisePkg.layers.length}/${TOTAL_DNA_LAYERS} layers`);
+        }
+        if (!enterprisePkg.overallIntegrityHash || enterprisePkg.overallIntegrityHash.length !== 64) {
+          issues.push('enterpriseDnaPackage missing overallIntegrityHash');
+        }
+        if (enterprisePkg.storageStatus !== 'SEALED' && enterprisePkg.generationStatus === 'COMPLETE') {
+          issues.push('COMPLETE package is not SEALED');
+        }
       }
       if (cert && cert.dnaRecordId !== r.id) {
         issues.push(`Certificate ${cert.certificateId} points to different DNA record`);

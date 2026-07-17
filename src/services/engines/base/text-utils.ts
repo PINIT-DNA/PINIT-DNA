@@ -11,6 +11,10 @@
  */
 
 import crypto from 'crypto';
+import {
+  computeUniversalContentSeal,
+  isDnaDeterministicModeEnabled,
+} from '../../dna/deterministic-identity';
 
 // ─── SimHash ──────────────────────────────────────────────────────────────────
 
@@ -167,6 +171,23 @@ export function detectLineEnding(content: string): LineEnding {
  */
 export function computeHmac(payload: string, secret: string): string {
   return crypto.createHmac('sha256', secret).update(payload).digest('hex');
+}
+
+/**
+ * Milestone B Step 1 — universal L6 identity seal.
+ * Deterministic mode: SEAL:v1 without dnaRecordId (EDS content seal).
+ * Legacy mode: TYPE:dnaRecordId:fps (previous behaviour).
+ */
+export function computeLayer6IdentitySeal(
+  mediaType: string,
+  fingerprintsJoined: string,
+  dnaRecordId: string,
+  secret: string,
+): string {
+  if (isDnaDeterministicModeEnabled()) {
+    return computeUniversalContentSeal(mediaType, fingerprintsJoined, secret);
+  }
+  return computeHmac(`${mediaType}:${dnaRecordId}:${fingerprintsJoined}`, secret);
 }
 
 // ─── Generic hash ─────────────────────────────────────────────────────────────

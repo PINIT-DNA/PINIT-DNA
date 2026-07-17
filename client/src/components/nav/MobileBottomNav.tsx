@@ -1,6 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Dna, ShieldCheck, Archive, Menu } from 'lucide-react';
 import { cn } from '../ui/utils';
+import { BRAND } from '../../config/brand.config';
 
 const TABS: Array<{
   to: string;
@@ -10,7 +11,7 @@ const TABS: Array<{
 }> = [
   { to: '/',         icon: LayoutDashboard, label: 'Home',    end: true },
   { to: '/generate', icon: Dna,             label: 'DNA'                 },
-  { to: '/unified-investigation', icon: ShieldCheck, label: 'Investigate' },
+  { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Investigate' },
   { to: '/vault',    icon: Archive,         label: 'Vault'               },
 ];
 

@@ -30,6 +30,9 @@ export default defineConfig({
       '/api': {
         target: BACKEND_URL,
         changeOrigin: true,
+        // Investigation SSE can run several minutes (recovery + report).
+        timeout: 600_000,
+        proxyTimeout: 600_000,
         configure: (proxy) => {
           proxy.on('error', (_err, _req, res) => {
             if (res && 'writeHead' in res && !res.headersSent) {

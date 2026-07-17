@@ -42,6 +42,14 @@ import {
 import { withTimeout, withTimeoutSoft, validateFileInput } from '../lib/safe-runner';
 import { Prisma } from '@prisma/client';
 import { buildEnhancementBundle, mergeUniversalFingerprints } from './forensics/dna-enhancement-bundle.service';
+import {
+  buildIdentityDeterministicPackage,
+  CLAIMS_DIGEST_ALGORITHM_ID,
+  CONTENT_SEAL_ALGORITHM_ID,
+  isDnaDeterministicModeEnabled,
+  mergeIdentityDeterministicPackage,
+} from './dna/deterministic-identity';
+import { persistEnterpriseDnaPackage } from './dna/enterprise-dna-package.service';
 
 export class DnaOrchestrator {
   private readonly layer1  = new CryptographicLayer();
@@ -134,14 +142,22 @@ export class DnaOrchestrator {
       'layer5'
     );
 
-    // ── Layer 6 runs after — needs the dnaRecordId to embed ──────────────────
+    // ── Layer 6 — EDS content seal uses L1–L5 digests; LSB trace stays ownership-only
+    const digestsL1toL5 = [
+      (cryptoResult as CryptoLayerResult).data?.sha256Hash ?? sha256Hash,
+      (structuralResult as StructuralLayerResult).data?.edgeSignature64 ?? '',
+      (perceptualResult as PerceptualLayerResult).data?.pHash64 ?? '',
+      (semanticResult as SemanticLayerResult).data?.colorFingerprint ?? '',
+      (metadataResult as MetadataLayerResult).data?.metadataHash ?? '',
+    ];
     const stegoResult = await this.runLayer(
-      () => this.layer6.generate(image, dnaRecordId),
+      () => this.layer6.generate(image, dnaRecordId, digestsL1toL5),
       'layer6'
     );
 
-    // ── Layers 7–10 run in parallel after layer 1 (need sha256Hash) ──────────
+    // ── Layers 7–10 — identity fingerprints content-only when deterministic ──
     const layer1Hash = (cryptoResult as CryptoLayerResult).data?.sha256Hash ?? sha256Hash;
+    const perceptualPrimary = (perceptualResult as PerceptualLayerResult).data?.pHash64 ?? '';
     const [behavioralResult, relationshipResult, originResult, evolutionResult] =
       await Promise.all([
         this.runLayer(
@@ -149,11 +165,12 @@ export class DnaOrchestrator {
             image, dnaRecordId,
             universalCtx?.uploadStartMs ?? Date.now(),
             universalCtx?.userAgent,
-            universalCtx?.sessionToken
+            universalCtx?.sessionToken,
+            { contentId: layer1Hash, perceptualPrimary },
           ), 'layer7'
         ),
         this.runLayer(
-          () => this.layer8.generate(image, dnaRecordId, layer1Hash),
+          () => this.layer8.generate(image, dnaRecordId, layer1Hash, perceptualPrimary),
           'layer8'
         ),
         this.runLayer(
@@ -162,7 +179,7 @@ export class DnaOrchestrator {
             userAgent: universalCtx?.userAgent,
             country:   universalCtx?.country,
             city:      universalCtx?.city,
-          }), 'layer9'
+          }, { contentId: layer1Hash }), 'layer9'
         ),
         this.runLayer(
           () => this.layer10.generate(image, dnaRecordId, layer1Hash),
@@ -239,23 +256,64 @@ export class DnaOrchestrator {
         8_000,
         'dna-enhancement-bundle',
       );
-      if (enhancementBundle) {
-        const rec = await prisma.dnaRecord.findUnique({
-          where: { id: dnaRecordId },
-          select: { universalFingerprints: true },
-        });
-        await prisma.dnaRecord.update({
-          where: { id: dnaRecordId },
-          data: {
-            universalFingerprints: mergeUniversalFingerprints(
-              rec?.universalFingerprints,
-              enhancementBundle,
-            ) as Prisma.InputJsonValue,
-          },
-        });
-      }
+
+      // Milestone B: dual-write identityDeterministic package (no schema migration)
+      const metaData = (metadataResult as MetadataLayerResult).data;
+      const stegoData = (stegoResult as StegoLayerResult).data;
+      const identityPackage = buildIdentityDeterministicPackage({
+        mediaType: 'IMAGE',
+        contentId: layer1Hash,
+        claimsDigest: metaData.claimsDigest ?? metaData.metadataHash,
+        contentSealHmac: stegoData.contentSealHmac ?? stegoData.payloadHmac,
+        stegoTraceHmac: stegoData.stegoTraceHmac,
+        modules: [
+          { moduleId: 1, fingerprint: layer1Hash, algorithmId: 'L1-sha256-v1', status: cryptoResult.success ? 'COMPLETE' : 'FAILED' },
+          { moduleId: 2, fingerprint: (structuralResult as StructuralLayerResult).data?.edgeSignature64 ?? '', algorithmId: 'L2-sobel-8x8-v1', status: structuralResult.success ? 'COMPLETE' : 'FAILED' },
+          { moduleId: 3, fingerprint: perceptualPrimary, algorithmId: 'L3-phash-dct-64-v1', status: perceptualResult.success ? 'COMPLETE' : 'FAILED' },
+          { moduleId: 4, fingerprint: (semanticResult as SemanticLayerResult).data?.colorFingerprint ?? '', algorithmId: 'L4-hist-v1', status: semanticResult.success ? 'COMPLETE' : 'FAILED' },
+          { moduleId: 5, fingerprint: metaData.claimsDigest ?? metaData.metadataHash, algorithmId: CLAIMS_DIGEST_ALGORITHM_ID, status: metadataResult.success ? 'COMPLETE' : 'FAILED' },
+          { moduleId: 6, fingerprint: stegoData.contentSealHmac ?? stegoData.payloadHmac, algorithmId: CONTENT_SEAL_ALGORITHM_ID, status: stegoResult.success ? 'COMPLETE' : 'FAILED' },
+          { moduleId: 7, fingerprint: (behavioralResult as BehavioralLayerResult).data?.behaviorHash ?? '', algorithmId: 'L7-content-v1', status: behavioralResult.success ? 'COMPLETE' : 'FAILED' },
+          { moduleId: 8, fingerprint: (relationshipResult as RelationshipLayerResult).data?.graphHash ?? '', algorithmId: 'L8-family-v1', status: relationshipResult.success ? 'COMPLETE' : 'FAILED' },
+          { moduleId: 9, fingerprint: (originResult as OriginLayerResult).data?.bundleHash ?? '', algorithmId: 'L9-xmod-v1', status: originResult.success ? 'COMPLETE' : 'FAILED' },
+          { moduleId: 10, fingerprint: (evolutionResult as EvolutionLayerResult).data?.merkleRoot ?? '', algorithmId: 'L10-lineage-v1', status: evolutionResult.success ? 'COMPLETE' : 'FAILED' },
+        ],
+      });
+
+      const rec = await prisma.dnaRecord.findUnique({
+        where: { id: dnaRecordId },
+        select: { universalFingerprints: true },
+      });
+      let fp = mergeUniversalFingerprints(
+        rec?.universalFingerprints,
+        enhancementBundle ?? undefined,
+      );
+      fp = mergeIdentityDeterministicPackage(fp, identityPackage);
+      await prisma.dnaRecord.update({
+        where: { id: dnaRecordId },
+        data: {
+          universalFingerprints: fp as Prisma.InputJsonValue,
+        },
+      });
+      logger.info('DNA identity package stored', {
+        dnaRecordId,
+        deterministic: isDnaDeterministicModeEnabled(),
+        generationStatus: identityPackage.generationStatus,
+        moduleCount: identityPackage.modules.length,
+        contentSealLen: identityPackage.contentSealHmac.length,
+      });
     } catch (err) {
-      logger.warn('DNA enhancement bundle skipped (non-fatal)', { dnaRecordId, error: String(err) });
+      logger.warn('DNA enhancement/identity package skipped (non-fatal)', { dnaRecordId, error: String(err) });
+    }
+
+    // Milestone B Step 2 — enterprise DNA package (immutable SSoT dual-write)
+    try {
+      await persistEnterpriseDnaPackage(dnaRecordId);
+    } catch (err) {
+      logger.warn('Enterprise DNA package persistence skipped (non-fatal)', {
+        dnaRecordId,
+        error: String(err),
+      });
     }
 
     const totalMs = Date.now() - pipelineStart;

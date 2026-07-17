@@ -18,6 +18,7 @@ import {
 import { useApi } from '../hooks/useApi';
 import { listDnaRecords, listVaultRecords, deriveFileType, api } from '../services/dashboard.api';
 import { listForensicReports } from '../lib/forensic-reports-storage';
+import { SYSTEM_VERSION } from '../config/dna-versions';
 import { FileTypeBadge, Badge } from '../components/ui/Badge';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -71,7 +72,7 @@ function buildHistory(
       title: '10-Layer DNA Fingerprint Generated',
       detail: `${r.status} · ${deriveFileType(r)} · ${Math.round(r.imageSizeBytes / 1024)} KB`,
       icon: <Dna size={14} />, color: 'bg-dna-500/20 border-dna-500/40 text-dna-400',
-      meta: { 'DNA Record ID': r.id, Status: r.status, 'Engine': r.engineVersion ?? '1.0.0' },
+      meta: { 'DNA Record ID': r.id, Status: r.status, 'Engine': r.engineVersion ?? SYSTEM_VERSION },
     });
 
     // Vault stored

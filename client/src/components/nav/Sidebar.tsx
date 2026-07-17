@@ -10,6 +10,7 @@ import { cn } from '../ui/utils';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../hooks/useTheme';
 import { API_BASE_URL } from '../../config/api.config';
+import { BRAND } from '../../config/brand.config';
 
 function BackendStatus() {
   const [online, setOnline] = useState<boolean | null>(null);
@@ -113,7 +114,7 @@ const NAV_GROUPS = [
   {
     label: 'Forensics',
     items: [
-      { to: '/unified-investigation', icon: ShieldCheck, label: 'Unified Investigation' },
+      { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Unified Investigation' },
       { to: '/reports',             icon: Shield,      label: 'Forensic Reports'    },
       { to: '/unmask-requests',     icon: Shield,      label: 'Unmask Requests'     },
       { to: '/duplicate-attempts',  icon: Ban,         label: 'Duplicate Attempts'  },
@@ -166,14 +167,16 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
 
       {/* Logo */}
       <div className="h-14 flex items-center gap-3 px-5 border-b border-bg-border shrink-0 bg-white/60 dark:bg-bg-elevated/40">
-        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-dna-500 to-purple flex items-center justify-center shadow-glow-purple">
-          <Dna size={15} className="text-white" />
-        </div>
-        <div className="leading-none">
-          <p className="font-bold text-white text-sm tracking-tight">
-            PINIT<span className="text-dna-400">-DNA</span>
+        <img
+          src={BRAND.logoSrc}
+          alt={BRAND.name}
+          className="w-8 h-8 rounded-xl object-contain shrink-0"
+        />
+        <div className="leading-none min-w-0">
+          <p className="font-bold text-white text-sm tracking-tight truncate">
+            {BRAND.name}
           </p>
-          <p className="text-2xs text-gray-500 mono mt-0.5">v2.0 · Universal</p>
+          <p className="text-2xs text-gray-500 mono mt-0.5 truncate">{BRAND.version}</p>
         </div>
         {/* Close button — mobile drawer only */}
         <button

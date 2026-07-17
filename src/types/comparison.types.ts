@@ -5,6 +5,8 @@
  * Completely separate from existing generation/verification types.
  */
 
+import type { EnterpriseComparisonReport } from './enterprise-comparison.types';
+
 // ─── Per-layer comparison ─────────────────────────────────────────────────────
 
 export interface LayerComparisonResult {
@@ -118,4 +120,6 @@ export interface DnaComparisonResult {
     tamperDescription: string;
     tamperConfidence: number;
   };
+
+  enterpriseComparison?: EnterpriseComparisonReport;
 }

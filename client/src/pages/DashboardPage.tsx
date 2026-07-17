@@ -13,6 +13,7 @@ import {
 } from '../services/dashboard.api';
 import { FORENSIC_REPORTS_UPDATED_EVENT } from '../lib/forensic-reports-storage';
 import { SkeletonCard } from '../components/ui/Skeleton';
+import { BRAND } from '../config/brand.config';
 import { Badge, FileTypeBadge, ClassificationBadge } from '../components/ui/Badge';
 import { VaultFileThumbnail } from '../components/VaultFileThumbnail';
 import { DashboardFilesMap, type DashboardFileMapPoint } from '../components/maps/DashboardFilesMap';
@@ -359,7 +360,7 @@ export function DashboardPage() {
           <div className="grid grid-cols-2 gap-2 mb-4 shrink-0">
             {[
               { to: '/generate', label: 'Generate DNA', icon: <Zap size={15} className="text-white" />, tile: 'action-tile-dna' },
-              { to: '/unified-investigation', label: 'Investigate', icon: <Shield size={15} className="text-white" />, tile: 'action-tile-cyan' },
+              { to: BRAND.investigationPath, label: 'Investigate', icon: <Shield size={15} className="text-white" />, tile: 'action-tile-cyan' },
               { to: '/vault', label: 'Vault', icon: <Archive size={15} className="text-white" />, tile: 'action-tile-purple' },
               { to: '/certificates', label: 'Certificates', icon: <Shield size={15} className="text-white" />, tile: 'action-tile-success' },
             ].map(item => (
@@ -547,7 +548,7 @@ export function DashboardPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { to: '/generate',    icon: <Database size={16} />,  label: 'Generate DNA',      color: 'hover:border-dna-500/50'    },
-          { to: '/unified-investigation', icon: <Shield size={16} />, label: 'Investigate', color: 'hover:border-cyan/50' },
+          { to: BRAND.investigationPath, icon: <Shield size={16} />, label: 'Investigate', color: 'hover:border-cyan/50' },
           { to: '/vault',       icon: <Archive size={16} />,    label: 'Browse Vault',      color: 'hover:border-purple/50'     },
           { to: '/certificates',icon: <CheckCircle2 size={16}/>,label: 'Certificates',      color: 'hover:border-success/50'    },
         ].map(a => (

@@ -27,7 +27,7 @@ function phaseLabel(phase: InvestigationLiveSnapshot['phase'], strongMatch: bool
   if (phase === 1) return strongMatch ? 'Strong candidate — verifying' : 'Weak lead — refining';
   if (phase === 2) return 'Patch DNA verified';
   if (phase === 3) return 'Deep forensic verification';
-  if (phase === 'final') return 'Final decision';
+  if (phase === 'final') return 'Generating investigation report…';
   return 'Investigation complete';
 }
 
@@ -43,19 +43,27 @@ export function InvestigationLivePanel({ snapshot, file, previewUrl }: Props) {
   const showOwnerLead = (strongMatch || midBandCandidate)
     && !!(snapshot.ownerName || snapshot.ownerPinitId || snapshot.originalFilename || snapshot.vaultId);
 
-  const headline = strongMatch
-    ? '✓ Strong candidate lead — verifying'
-    : phaseNum >= 4
-      ? (midBandCandidate
-        ? '⚠ Possible PINIT candidate — manual review'
-        : confidence != null && confidence < STRONG_CANDIDATE_MIN
-          ? '⚠ Needs Manual Review — low confidence'
-          : 'No PINIT Signature Found')
-      : snapshot.signatureFound || midBandCandidate
-        ? 'Candidate found — verifying…'
-        : (confidence != null && confidence < STRONG_CANDIDATE_MIN
-          ? 'Weak lookalike — refining (do not treat as match)…'
-          : 'Scanning for PINIT signature…');
+  const buildingReport = phase === 'final'
+    || /generating investigation report|Acceptance verifying/i.test(snapshot.statusMessage ?? '');
+
+  // After a strong match, do not look "stuck verifying" — report is the next step.
+  const headline = buildingReport && strongMatch
+    ? '✓ Verification complete — generating investigation report…'
+    : strongMatch && phaseNum >= 2
+      ? '✓ Match found — finishing verification & report…'
+      : strongMatch
+        ? '✓ Strong candidate lead — verifying'
+        : phaseNum >= 4
+          ? (midBandCandidate
+            ? '⚠ Possible PINIT candidate — manual review'
+            : confidence != null && confidence < STRONG_CANDIDATE_MIN
+              ? '⚠ Needs Manual Review — low confidence'
+              : 'No PINIT Signature Found')
+          : snapshot.signatureFound || midBandCandidate
+            ? 'Candidate found — verifying…'
+            : (confidence != null && confidence < STRONG_CANDIDATE_MIN
+              ? 'Weak lookalike — refining (do not treat as match)…'
+              : 'Scanning for PINIT signature…');
 
 
   return (

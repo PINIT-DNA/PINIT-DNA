@@ -525,11 +525,15 @@ export function buildLiveLeadTamperAnalysis(input: {
   confidence?: number | null;
   patchVotes?: number | null;
   timedOut?: boolean;
+  originalHash?: string | null;
+  currentHash?: string | null;
 }): TamperAnalysisSection {
   const registry = createRegistry();
   const orb = input.orbScore ?? 0;
   const sim = input.similarityScore ?? input.confidence ?? 0;
   const patches = input.patchVotes ?? 0;
+  const hashDiff = !!input.originalHash && !!input.currentHash
+    && input.originalHash.toLowerCase() !== input.currentHash.toLowerCase();
 
   // High feature match + incomplete frame → crop / partial clip
   if (orb >= 70 || patches >= 3 || (sim >= 45 && sim < 92)) {
@@ -567,25 +571,54 @@ export function buildLiveLeadTamperAnalysis(input: {
     });
   }
 
+  // High visual match but byte hash differs — honest minimal-derivative signal (not UNKNOWN).
+  if (sim >= 92 && hashDiff) {
+    setDetected(registry, 'Format Conversion', {
+      confidence: Math.min(88, Math.max(45, Math.round(100 - sim + 12))),
+      evidence: [
+        `Visual match ${Math.round(sim)}% with SHA-256 mismatch vs vault original`,
+        'Typical of re-encode, export, or metadata shift while content stays near-identical',
+      ],
+      where: 'File bytes / container vs vault SHA-256',
+    });
+  }
+
   const detected = [...registry.values()].filter((d) => d.detected);
-  const primaryVector = detected.some((d) => d.detector === 'Crop')
+  let primaryVector = detected.some((d) => d.detector === 'Crop')
     ? 'CROP'
     : detected.some((d) => d.detector === 'Compression')
       ? 'COMPRESSION'
-      : detected.length
-        ? 'PARTIAL_CLIP'
-        : 'UNKNOWN';
+      : detected.some((d) => d.detector === 'Format Conversion')
+        ? 'MINIMAL_DERIVATIVE'
+        : detected.length
+          ? 'PARTIAL_CLIP'
+          : 'NONE';
+
+  if (sim >= 98 && !hashDiff && detected.length === 0) {
+    primaryVector = 'NONE';
+  } else if (sim >= 92 && hashDiff && primaryVector === 'NONE') {
+    primaryVector = 'MINIMAL_DERIVATIVE';
+  } else if (!detected.length && primaryVector === 'NONE' && input.timedOut && sim >= 85) {
+    primaryVector = hashDiff ? 'MINIMAL_DERIVATIVE' : 'NONE';
+  }
 
   const overallTamperScore = detected.length
-    ? Math.min(85, Math.max(45, Math.round(100 - (sim || 50) + 15)))
-    : 0;
+    ? Math.min(85, Math.max(
+      primaryVector === 'MINIMAL_DERIVATIVE' ? 8 : 45,
+      Math.round(100 - (sim || 50) + 15),
+    ))
+    : (primaryVector === 'MINIMAL_DERIVATIVE' ? Math.max(5, Math.round(100 - sim)) : 0);
 
   const description = detected.length
-    ? `Cropped / recompressed derivative of vault original`
+    ? (primaryVector === 'MINIMAL_DERIVATIVE'
+      ? `Near-identical derivative of vault original (${Math.round(sim)}% visual match, bytes differ).`
+      : `Cropped / recompressed derivative of vault original`)
       + (input.timedOut ? ' (deep DNA still settling — based on live ORB/similarity).' : '.')
-    : (input.timedOut
-      ? 'Deep DNA did not finish — no crop/compress inventory yet.'
-      : 'No significant tampering signals from live retrieval.');
+    : (primaryVector === 'MINIMAL_DERIVATIVE'
+      ? `Minimal byte-level derivative — ${Math.round(sim)}% visual match, hash differs from vault original.`
+      : input.timedOut && sim >= 85
+        ? `High-confidence match (${Math.round(sim)}%) — no significant crop/compress detected; deep DNA inventory incomplete.`
+        : 'No significant tampering signals from live retrieval.');
 
   return registryToSection(registry, primaryVector, overallTamperScore, description);
 }

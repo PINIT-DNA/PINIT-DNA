@@ -8,6 +8,7 @@
 import dotenv from 'dotenv';
 import path from 'path';
 import { ALL_ACCEPTED_MIME_TYPES, GLOBAL_MAX_FILE_SIZE_BYTES } from './supported-file-types';
+import { DNA_GENERATOR_VERSION, DNA_SCHEMA_VERSION } from './dna-versions';
 
 dotenv.config();
 
@@ -56,9 +57,10 @@ export const config = {
   },
 
   dna: {
-    schemaVersion: optional('DNA_SCHEMA_VERSION', '1.0.0'),
+    // WHY defaults from dna-versions (Task A1): same strings as before; env override unchanged.
+    schemaVersion: optional('DNA_SCHEMA_VERSION', DNA_SCHEMA_VERSION),
     /** Universal engine version — bumped each phase */
-    engineVersion: optional('DNA_ENGINE_VERSION', '2.0.0-universal'),
+    engineVersion: optional('DNA_ENGINE_VERSION', DNA_GENERATOR_VERSION),
   },
 
   stego: {

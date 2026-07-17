@@ -33,6 +33,10 @@ import {
   RANKING_TOP_VECTOR,
   RANKING_TRUSTED_LEAD_MIN,
 } from '../../config/investigation-match-policy';
+import {
+  ENTERPRISE_FEATURE_FLAG,
+  isEnterpriseFeatureEnabled,
+} from '../../config/enterprise-feature-flags';
 
 /** Re-export policy constants for tests / callers */
 export {
@@ -119,6 +123,33 @@ export function stageCandidates(params: {
 }): RankedVaultCandidate[] {
   const sorted = [...params.candidates].sort((a, b) => b.compositeScore - a.compositeScore);
 
+  // Milestone D: provider union has already completed. Rank once by retrieval
+  // confidence and apply a single post-merge limit; do not sequentially filter.
+  if (isEnterpriseFeatureEnabled(ENTERPRISE_FEATURE_FLAG.RECALL_ENGINE_V2)) {
+    let recallPool = sorted;
+    if (params.identityHit) {
+      const hit = params.identityHit;
+      const identityRow = recallPool.find((candidate) => candidate.vaultId === hit.vaultId) ?? {
+        rank: 0,
+        dnaRecordId: hit.dnaRecordId,
+        vaultId: hit.vaultId,
+        ownerUserId: hit.ownerUserId,
+        preliminaryScore: 100,
+        compositeScore: 100,
+        tier: hit.tier,
+        method: hit.method,
+        signals: ['identity_signature'],
+      };
+      recallPool = [
+        identityRow,
+        ...recallPool.filter((candidate) => candidate.vaultId !== hit.vaultId),
+      ];
+    }
+    return recallPool
+      .slice(0, RANKING_TOP_MEDIA)
+      .map((candidate, index) => ({ ...candidate, rank: index + 1 }));
+  }
+
   // Top 100 vector pool
   let pool = sorted.slice(0, RANKING_TOP_VECTOR);
 
@@ -175,6 +206,40 @@ export function stageCandidates(params: {
   }
 
   return pool.map((c, i) => ({ ...c, rank: i + 1 }));
+}
+
+/**
+ * Recall V2 keeps the highest-confidence representative from every provider in
+ * the deep pool. Legacy mode retains the fixed top-K behavior.
+ */
+export function buildDeepComparePool(
+  staged: RankedVaultCandidate[],
+  legacyLimit: number,
+): RankedVaultCandidate[] {
+  if (!isEnterpriseFeatureEnabled(ENTERPRISE_FEATURE_FLAG.RECALL_ENGINE_V2)) {
+    return staged.slice(0, legacyLimit);
+  }
+
+  const representativeByProvider = new Map<string, RankedVaultCandidate>();
+  for (const candidate of staged) {
+    for (const signal of candidate.signals) {
+      if (!signal.startsWith('provider:')) continue;
+      const provider = signal.slice('provider:'.length);
+      if (!representativeByProvider.has(provider)) {
+        representativeByProvider.set(provider, candidate);
+      }
+    }
+  }
+
+  const unique = new Map<string, RankedVaultCandidate>();
+  for (const candidate of representativeByProvider.values()) {
+    unique.set(candidate.vaultId, candidate);
+  }
+  for (const candidate of staged) {
+    if (unique.size >= Math.max(legacyLimit, representativeByProvider.size)) break;
+    if (!unique.has(candidate.vaultId)) unique.set(candidate.vaultId, candidate);
+  }
+  return [...unique.values()];
 }
 
 function evidenceForCandidate(params: {
@@ -266,6 +331,10 @@ function evidenceForCandidate(params: {
     watermark: failChannel(0, 'Watermark not evaluated per-candidate'),
     metadata: skippedChannel('Metadata not evaluated per-candidate'),
     tamperDetected,
+    enterpriseComparison: deep?.enterpriseComparison,
+    ownershipHints: {
+      certificateBound: !!certificateId,
+    },
   };
 }
 
@@ -338,7 +407,7 @@ export async function selectWinnerByRanking(params: {
   const topScore = staged[0]?.compositeScore ?? 0;
   const trustedLead = !!params.identityHit || topScore >= RANKING_TRUSTED_LEAD_MIN;
   const deepLimit = trustedLead ? RANKING_TOP_DEEP_STRONG_LEAD : RANKING_TOP_DEEP;
-  let deepPool = staged.slice(0, deepLimit);
+  let deepPool = buildDeepComparePool(staged, deepLimit);
 
   if (params.localDnaHit && params.localDnaScore >= LOCAL_PATCH_RESCUE_MIN) {
     const lid = params.localDnaHit.vaultId;
@@ -555,6 +624,8 @@ export async function selectWinnerByRanking(params: {
       && (
         dnaClass.toUpperCase() === 'DIFFERENT'
         || (hasMeasuredL3 && l3 < RANKING_POSSIBLE_L3_MIN)
+        // Fail closed: mid-band POSSIBLE without measured L3 is often a lookalike (~58%)
+        || !hasMeasuredL3
         || dnaScore < NOT_FOUND_MAX_WITHOUT_PATCH
         || dnaScore < POSSIBLE_MIN
       )

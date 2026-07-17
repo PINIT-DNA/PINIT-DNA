@@ -28,6 +28,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { dnaEnhancements } from '../../config/dna-enhancements';
+import { DNA_COMPARISON_VERSION } from '../../config/dna-versions';
 import { tamperClassifierService } from '../forensics/tamper-classifier.service';
 import type { LayerScoreInput } from '../../types/dna-enhancements.types';
 import type { EphemeralFingerprint, EphemeralLayer } from './ephemeral-fingerprinter';
@@ -67,7 +68,11 @@ const LAYER_THRESHOLDS: Record<number, number> = {
   10: 1.00, // L10 merkle root matches exactly when file is identical
 };
 
-const ENGINE_VERSION = '2.0.0-universal';
+/**
+ * WHY DNA_COMPARISON_VERSION (Task A1): same literal '2.0.0-universal' as before;
+ * centralized so comparison suite id cannot drift from the version contract.
+ */
+const ENGINE_VERSION = DNA_COMPARISON_VERSION;
 
 // ─── Comparison Engine ────────────────────────────────────────────────────────
 

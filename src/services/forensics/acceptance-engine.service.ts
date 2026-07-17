@@ -21,6 +21,11 @@ import {
 } from '../../types/acceptance.types';
 import { logInvestigationScores } from './investigation-score-logger';
 import {
+  decideEnterpriseAcceptance,
+  isAcceptanceV2Enabled,
+  toLegacyAcceptanceDecision,
+} from './enterprise-acceptance-engine.service';
+import {
   CROSS_MODAL_DERIVATIVE_MIN,
   DNA_DERIVATIVE_VERIFIED_MIN,
   DNA_FULL_PASS_MIN,
@@ -403,6 +408,63 @@ function reasonFor(
  */
 export function runAcceptanceEngine(evidence: AcceptanceEvidence): AcceptanceDecision {
   const scorecard = computeAcceptanceScorecard(evidence);
+
+  // Milestone F — evaluate EnterpriseComparisonReport when flagged (no re-compare).
+  if (
+    isAcceptanceV2Enabled()
+    && (evidence.enterpriseComparison || evidence.packageMissing || evidence.packageCorrupted)
+  ) {
+    const report = evidence.enterpriseComparison ?? emptyComparisonReport();
+    const enterprise = decideEnterpriseAcceptance({
+      report,
+      packageMissing: evidence.packageMissing,
+      packageCorrupted: evidence.packageCorrupted,
+      analysisComplete: evidence.analysisComplete,
+      ownershipHints: evidence.ownershipHints ?? {
+        certificateBound: evidence.certificate.state === 'PASS' && evidence.certificate.score >= 90,
+        watermarkBound: evidence.watermark.state === 'PASS' && evidence.watermark.score >= 70,
+      },
+    });
+    const decision = toLegacyAcceptanceDecision(enterprise, evidence, scorecard);
+
+    logInvestigationScores({
+      stage: 'acceptance',
+      vaultId: evidence.vaultId,
+      dnaRecordId: evidence.dnaRecordId,
+      acceptance: {
+        verdict: decision.verdict,
+        confidence: decision.confidence,
+        dna: evidence.dna.score,
+        visual: evidence.visual.score,
+        certificate: evidence.certificate.score,
+        watermark: evidence.watermark.score,
+        vault: evidence.vault.score,
+        owner: evidence.owner.score,
+        reason: decision.decisionReason,
+      },
+      extra: {
+        acceptanceV2: true,
+        enterpriseVerdict: enterprise.verdict,
+        ruleId: enterprise.ruleId,
+        identityScore: enterprise.domains.identityScore,
+        ownershipScore: enterprise.domains.ownershipScore,
+        evidenceScore: enterprise.domains.evidenceScore,
+        trustScore: enterprise.domains.trustScore,
+        retainOwner: decision.retainCandidate,
+      },
+    });
+
+    logger.info('[AcceptanceEngine] Decision (V2)', {
+      verdict: decision.verdict,
+      enterpriseVerdict: enterprise.verdict,
+      ruleId: enterprise.ruleId,
+      confidence: decision.confidence,
+      retainCandidate: decision.retainCandidate,
+    });
+
+    return decision;
+  }
+
   const verdict = decide(evidence, scorecard);
   const isVerified = verdict === 'VERIFIED_ORIGINAL' || verdict === 'VERIFIED_DERIVATIVE';
   const support = peakSupportScore(evidence);
@@ -463,6 +525,20 @@ export function runAcceptanceEngine(evidence: AcceptanceEvidence): AcceptanceDec
   });
 
   return decision;
+}
+
+function emptyComparisonReport(): import('../../types/enterprise-comparison.types').EnterpriseComparisonReport {
+  return {
+    schema: 'enterprise-comparison-report-v1',
+    comparisonId: 'missing-package',
+    engineVersion: DNA_ALGORITHM_VERSION,
+    comparedAt: new Date().toISOString(),
+    processingMs: 0,
+    versionValidation: { ok: false, reasons: ['package_missing'] },
+    layers: [],
+    domains: { identityScore: 0, evidenceScore: 0, ownershipScore: 0, trustScore: 0 },
+    summary: 'No enterprise comparison report',
+  };
 }
 
 export function passChannel(score: number, detail?: string): EvidenceChannel {

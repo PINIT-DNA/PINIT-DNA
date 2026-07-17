@@ -15,6 +15,7 @@ import {
   INVESTIGATION_PREFER_LIVE_VAULT_FP,
   POSSIBLE_L3_MIN_WITHOUT_PATCH,
 } from '../../config/investigation-match-policy';
+import { resolveInvestigationVaultDnaSource } from './investigation-stored-dna-source.service';
 
 export interface DeepCompareResult {
   vaultId: string;
@@ -40,6 +41,8 @@ export interface DeepCompareResult {
     matched: boolean;
     skipped?: boolean;
   }>;
+  /** Milestone E/F — forwarded from DnaComparisonResult when COMPARISON_V2 ran */
+  enterpriseComparison?: import('../../types/enterprise-comparison.types').EnterpriseComparisonReport;
 }
 
 /**
@@ -215,6 +218,41 @@ export class DeepVaultCompareService {
         return entry;
       }
 
+      // Milestone C — prefer sealed enterpriseDnaPackage (SSoT); legacy live+registry only as fallback
+      const vaultDnaSource = await resolveInvestigationVaultDnaSource(candidate.dnaRecordId);
+      if (vaultDnaSource.mode === 'enterprise_package' && vaultDnaSource.fingerprint) {
+        const storedCmp = await this.comparison.compare(fileA, fileB, {
+          vaultDnaRecordId: candidate.dnaRecordId,
+          preferLiveVaultFingerprint: false,
+          vaultFingerprintOverride: vaultDnaSource.fingerprint,
+        });
+        const layerComparisons = mapLayers(storedCmp.layerComparisons);
+        const aware = derivativeAwareScore(
+          layerComparisons,
+          storedCmp.overallConfidenceScore,
+          storedCmp.classification,
+        );
+        const l1Match = !!layerComparisons.find((l) => l.layer === 1)?.matched;
+        const entry: DeepCompareResult = {
+          vaultId: candidate.vaultId,
+          dnaRecordId: candidate.dnaRecordId,
+          overallConfidenceScore: aware.score,
+          classification: aware.classification,
+          tamperingDetected: (
+            storedCmp.tamperingDetected
+            && !l1Match
+            && aware.score >= 72
+            && (layerComparisons.find((l) => l.layer === 3)?.similarityPercent ?? 0) >= 52
+          ) || (aware.score >= 88 && !l1Match),
+          matchedLayerCount: storedCmp.layerComparisons.filter((l) => l.matched).length,
+          totalLayers: storedCmp.layerComparisons.length,
+          layerComparisons,
+          enterpriseComparison: storedCmp.enterpriseComparison,
+        };
+        logDeepCompareCandidate(candidate.vaultId, candidate.dnaRecordId, entry);
+        return entry;
+      }
+
       const [liveCmp, registryOnly] = await Promise.all([
         this.comparison.compare(fileA, fileB, {
           vaultDnaRecordId: candidate.dnaRecordId,
@@ -229,7 +267,7 @@ export class DeepVaultCompareService {
             buffer: Buffer.alloc(0),
           },
           fileB,
-          { vaultDnaRecordId: candidate.dnaRecordId },
+          { vaultDnaRecordId: candidate.dnaRecordId, preferLiveVaultFingerprint: false },
         ).catch((err) => {
           logger.warn('Registry DNA cross-check failed', {
             vaultId: candidate.vaultId.slice(0, 8),
@@ -284,6 +322,7 @@ export class DeepVaultCompareService {
         totalLayers: liveCmp.layerComparisons.length,
         layerComparisons,
         registryLayerComparisons,
+        enterpriseComparison: liveCmp.enterpriseComparison ?? registryOnly?.enterpriseComparison,
       };
       logDeepCompareCandidate(candidate.vaultId, candidate.dnaRecordId, entry);
       return entry;

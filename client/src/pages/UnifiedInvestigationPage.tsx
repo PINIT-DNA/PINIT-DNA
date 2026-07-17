@@ -18,6 +18,7 @@ import {
   downloadEvidencePackageZip,
   downloadAdvancedExportJson,
   type InvestigationReportExport,
+  type InvestigationReportPdfOptions,
 } from '../services/investigation-report-export';
 import { saveInvestigationReport, mergeLiveSnapshotIntoReport, type StoredInvestigationReport } from '../lib/forensic-reports-storage';
 import {
@@ -218,6 +219,7 @@ interface InvestigationReport {
     currentHash?: string;
     evidenceConfidence?: number;
     protectedDownloadDate?: string;
+    tepCode?: string | null;
     registrationTimestamp?: string;
   };
   currentFileHash?: string;
@@ -274,6 +276,19 @@ const LAYER_STATUS: Record<string, string> = {
   warning: 'text-yellow-400 bg-yellow-500/15',
   failed: 'text-orange-400 bg-orange-500/15',
   skipped: 'text-gray-400 bg-gray-500/15',
+};
+
+const TAMPER_VECTOR_LABELS: Record<string, string> = {
+  NONE: 'No significant tampering',
+  MINIMAL_DERIVATIVE: 'Minimal derivative (high visual match)',
+  EXACT_COPY: 'Exact copy',
+  CROP: 'Crop / partial clip',
+  COMPRESSION: 'Compression / re-encode',
+  PARTIAL_CLIP: 'Partial clip',
+  RE_ENCODE: 'Re-encode / format shift',
+  COPY_PASTE: 'Modified from protected original',
+  TEXT_LETTER_MISMATCH: 'Text / letter changes',
+  UNKNOWN: 'Inconclusive — live recovery only',
 };
 
 const STEP_STATUS: Record<string, string> = {
@@ -593,6 +608,10 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
           report.summary as StoredInvestigationReport['summary'],
         );
         const dnaLayerScore = report.summary.dnaMatchPercent;
+        const pdfExportOptions: InvestigationReportPdfOptions = {
+          probeFile: file,
+          vaultId: resolvedOwner.vaultId,
+        };
         const verdictLabel = reportState === 'VERIFIED'
           ? REPORT_STATE_LABELS.VERIFIED
           : reportState === 'POSSIBLE'
@@ -760,9 +779,12 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                   'Evidence Confidence': report.identityRecoveryReport?.evidenceConfidence != null
                     ? `${report.identityRecoveryReport.evidenceConfidence}%`
                     : `${displayMatchScore}%`,
-                  'Protected Download': resolvedOwner.ownershipVerified
-                    ? report.identityRecoveryReport?.protectedDownloadDate
-                    : null,
+                  'TEP Code': report.identityRecoveryReport?.tepCode ?? 'Not embedded on this file',
+                  'Protected Download': report.identityRecoveryReport?.protectedDownloadDate
+                    ? new Date(report.identityRecoveryReport.protectedDownloadDate).toLocaleString()
+                    : report.identityRecoveryReport?.tepCode
+                      ? 'Tracked export — see Evidence Timeline'
+                      : 'No protected download recorded',
                   'Registered': report.identityRecoveryReport?.registrationTimestamp
                     ?? (resolvedOwner.ownershipVerified ? report.owner.createdAt : null),
                 }).map(([k, v]) => (
@@ -814,6 +836,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                 'Vault ID': resolvedOwner.vaultId,
                 'DNA Record ID': resolvedOwner.dnaRecordId,
                 'Certificate ID': resolvedOwner.certificateId,
+                'TEP Code': report.identityRecoveryReport?.tepCode ?? 'Not embedded on this file',
                 'Original Filename': resolvedOwner.originalFilename,
                 'Created': report.owner.createdAt
                   ?? report.identityRecoveryReport?.registrationTimestamp
@@ -864,6 +887,12 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               <p className="text-xs text-gray-500">No layer comparison — vault match required.</p>
             ) : (
               <div className="space-y-2">
+                {report.pipeline.some((s) => s.id === 'dna_compare' && s.detail?.includes('estimated')) && (
+                  <p className="text-xs text-amber-400/90 mb-2">
+                    Deep 15-layer compare did not finish — scores below are estimated from live identity recovery (
+                    {report.summary.retrievalConfidence ?? report.summary.dnaMatchPercent}% confidence).
+                  </p>
+                )}
                 {report.layerAnalysis.map((l) => (
                   <div key={l.layer} className="p-2 rounded-lg bg-bg-elevated">
                     <div className="flex items-center gap-3">
@@ -874,8 +903,15 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                         {l.status}
                       </span>
                     </div>
-                    {l.explanation && (l.status === 'warning' || l.status === 'failed') && (
-                      <p className="text-2xs text-amber-400/90 mt-1.5 pl-9">{l.explanation}</p>
+                    {l.explanation && (
+                      <p className={cn(
+                        'text-2xs mt-1.5 pl-9',
+                        l.status === 'warning' || l.status === 'failed'
+                          ? 'text-amber-400/90'
+                          : 'text-gray-500',
+                      )}>
+                        {l.explanation}
+                      </p>
                     )}
                   </div>
                 ))}
@@ -895,7 +931,8 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
             <p className="text-sm font-bold text-white mb-2">
               Overall Tamper Score: {report.tamperAnalysis.overallTamperScore}%
               <span className="text-gray-500 font-normal ml-2">
-                ({String(report.tamperAnalysis.primaryVector).replace(/_/g, ' ')})
+                ({TAMPER_VECTOR_LABELS[report.tamperAnalysis.primaryVector]
+                  ?? String(report.tamperAnalysis.primaryVector).replace(/_/g, ' ')})
               </span>
             </p>
             {report.tamperAnalysis.description && (
@@ -1000,7 +1037,10 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                   )}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span>{v.label}{v.detected ? ' ✓' : ''}</span>
+                    <span>
+                      {v.label}
+                      {v.detected ? ' ✓' : ' — Clear'}
+                    </span>
                     {v.detected && v.confidence != null && v.confidence > 0 && (
                       <span className="text-2xs mono opacity-70">{v.confidence}%</span>
                     )}
@@ -1236,7 +1276,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               <button
                 type="button"
                 className="btn btn-secondary text-xs"
-                onClick={() => { void downloadInvestigationReportPdf(asExportReport(report)); }}
+                onClick={() => { void downloadInvestigationReportPdf(asExportReport(report), pdfExportOptions); }}
               >
                 <Download size={12} /> Investigation Report (PDF)
               </button>
@@ -1261,7 +1301,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                 onClick={async () => {
                   setExporting(true);
                   try {
-                    await downloadEvidencePackageZip(asExportReport(report));
+                    await downloadEvidencePackageZip(asExportReport(report), pdfExportOptions);
                   } finally {
                     setExporting(false);
                   }

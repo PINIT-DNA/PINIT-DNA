@@ -3,6 +3,7 @@
  * Loads stored vault DNA (L1–L15) and compares every layer against the probe.
  */
 import { logger } from '../../lib/logger';
+import { SYSTEM_VERSION } from '../../config/dna-versions';
 import { VaultService } from '../vault/vault.service';
 import { DnaComparisonService } from '../verification/dna-comparison.service';
 import type { DnaClassification, DnaComparisonResult } from '../../types/comparison.types';
@@ -215,7 +216,8 @@ export function comparisonFromDeepCompareResult(
       changedLayers: layerComparisons.filter((l) => l.changed).map((l) => l.name),
       unchangedLayers: layerComparisons.filter((l) => !l.changed).map((l) => l.name),
       recommendation: '',
-      engineVersion: '1.0.0',
+      // WHY SYSTEM_VERSION (Task A1): same literal '1.0.0' as before; centralized.
+      engineVersion: SYSTEM_VERSION,
       timestamp: new Date().toISOString(),
     },
   };

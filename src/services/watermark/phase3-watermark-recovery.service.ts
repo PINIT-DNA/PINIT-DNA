@@ -62,6 +62,52 @@ export class Phase3WatermarkRecoveryService {
             fallbackToDna: false,
           };
         }
+
+        // Protected Download uses synthetic shareLinkId `protected-download:{vaultId}`
+        // — no ShareLink row. Resolve via profile.dnaRecordId or channel vault id.
+        if (profile.dnaRecordId) {
+          const dna = await prisma.dnaRecord.findUnique({
+            where: { id: profile.dnaRecordId },
+            select: {
+              id: true,
+              ownerUserId: true,
+              vaultRecord: { select: { id: true } },
+            },
+          });
+          if (dna && (!ownerUserId || dna.ownerUserId === ownerUserId)) {
+            return {
+              recovered: true,
+              method: `${legacy.method}+profile_dna`,
+              dnaRecordId: dna.id,
+              vaultId: dna.vaultRecord?.id,
+              ownerUserId: dna.ownerUserId ?? undefined,
+              detail: 'Watermark profile DNA resolved (Protected Download / no share row)',
+              fallbackToDna: false,
+            };
+          }
+        }
+
+        if (profile.shareLinkId?.startsWith('protected-download:')) {
+          const vaultId = profile.shareLinkId.slice('protected-download:'.length);
+          const vault = await prisma.vaultRecord.findFirst({
+            where: {
+              id: vaultId,
+              ...(ownerUserId ? { dnaRecord: { ownerUserId } } : {}),
+            },
+            select: { id: true, dnaRecordId: true, dnaRecord: { select: { ownerUserId: true } } },
+          });
+          if (vault) {
+            return {
+              recovered: true,
+              method: `${legacy.method}+protected_download_channel`,
+              vaultId: vault.id,
+              dnaRecordId: vault.dnaRecordId,
+              ownerUserId: vault.dnaRecord?.ownerUserId ?? undefined,
+              detail: 'Protected Download watermark channel resolved to vault',
+              fallbackToDna: false,
+            };
+          }
+        }
       }
     }
 

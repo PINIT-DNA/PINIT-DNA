@@ -6,6 +6,7 @@ import { prisma } from '../../lib/prisma';
 import { isPhase2Active, dnaPhase2 } from '../../config/dna-phase2';
 import type { TransformationHistoryEntry, TamperVector, TransformationStage } from '../../types/dna-enhancements.types';
 import { logger } from '../../lib/logger';
+import { mergeUniversalFingerprintsImmutable } from '../dna/enterprise-dna-package.service';
 
 const MAX_HISTORY = 50;
 
@@ -56,11 +57,14 @@ export class TransformationHistoryService {
         notes,
       };
 
-      fp.transformationHistory = [entry, ...history].slice(0, MAX_HISTORY);
+      // WHY immutable merge: never overwrite sealed enterpriseDnaPackage fingerprints
+      const merged = mergeUniversalFingerprintsImmutable(rec.universalFingerprints, {
+        transformationHistory: [entry, ...history].slice(0, MAX_HISTORY),
+      });
 
       await prisma.dnaRecord.update({
         where: { id: dnaRecordId },
-        data: { universalFingerprints: fp as object },
+        data: { universalFingerprints: merged as object },
       });
     } catch (err) {
       logger.warn('Transformation history append skipped (non-fatal)', { dnaRecordId, error: String(err) });

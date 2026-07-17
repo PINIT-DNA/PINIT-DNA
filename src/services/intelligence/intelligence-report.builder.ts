@@ -2,6 +2,7 @@
  * Build intelligence report payload for a vault (shared by user + super-admin APIs).
  */
 import { prisma } from '../../lib/prisma';
+import { SYSTEM_VERSION } from '../../config/dna-versions';
 
 export async function buildIntelligenceReportPayload(vaultId: string) {
   const vault = await prisma.vaultRecord.findUnique({
@@ -56,7 +57,8 @@ export async function buildIntelligenceReportPayload(vaultId: string) {
     fileSize: vault.originalSizeBytes,
     encryptedSize: vault.encryptedSizeBytes,
     fileType: dna.fileType ?? 'IMAGE',
-    engineVersion: dna.engineVersion ?? '1.0.0',
+    // WHY SYSTEM_VERSION (Task A1): same legacy fallback '1.0.0' when engineVersion is null.
+    engineVersion: dna.engineVersion ?? SYSTEM_VERSION,
   };
 
   const meta = dna.metadataLayer;

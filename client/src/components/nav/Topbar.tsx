@@ -1,8 +1,8 @@
 import { useLocation, Link } from 'react-router-dom';
 import { Plus, ChevronRight, Menu } from 'lucide-react';
-import { Dna } from 'lucide-react';
 import { ProfileDropdown } from './ProfileDropdown';
 import { NotificationBell } from './NotificationBell';
+import { BRAND } from '../../config/brand.config';
 
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   '/':                    { title: 'Dashboard',             subtitle: 'System overview & analytics'              },
@@ -17,6 +17,7 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   '/search':              { title: 'AI Search',              subtitle: 'Find documents by meaning using FAISS'        },
   '/forensic-diff':       { title: 'Difference Engine',      subtitle: 'What changed, where, and how severely'     },
   '/monitoring':          { title: 'Monitoring',             subtitle: 'Watch internet for unauthorized file copies' },
+  [BRAND.investigationPath]: { title: 'Unified Investigation', subtitle: 'Forensic probe vs vault DNA match' },
 };
 
 interface TopbarProps {
@@ -25,7 +26,7 @@ interface TopbarProps {
 
 export function Topbar({ onMenu }: TopbarProps) {
   const location = useLocation();
-  const meta = PAGE_META[location.pathname] ?? { title: 'PINIT-DNA', subtitle: '' };
+  const meta = PAGE_META[location.pathname] ?? { title: BRAND.name, subtitle: '' };
 
   return (
     <header
@@ -42,8 +43,8 @@ export function Topbar({ onMenu }: TopbarProps) {
           <Menu size={20} />
         </button>
         <div className="hidden lg:flex items-center gap-1.5 text-xs text-gray-500 mono shrink-0">
-          <Dna size={12} className="text-dna-500" />
-          <span>PINIT-DNA</span>
+          <img src={BRAND.logoSrc} alt="" className="w-3.5 h-3.5 rounded object-contain" aria-hidden />
+          <span>{BRAND.name}</span>
           <ChevronRight size={10} />
         </div>
         <div className="min-w-0">

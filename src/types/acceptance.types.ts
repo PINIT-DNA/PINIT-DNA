@@ -1,10 +1,22 @@
 /**
  * Acceptance Engine types — docs/architecture/02_ACCEPTANCE_RULES.md
  * Modules produce evidence only; only the Acceptance Engine emits verdicts.
+ *
+ * WHY re-export from dna-versions (Task A1): keep public import paths stable
+ * (`ACCEPTANCE_POLICY_VERSION`, `DNA_ALGORITHM_VERSION`) while centralizing
+ * the literal values in src/config/dna-versions.ts — no behaviour change.
  */
+import {
+  DNA_ACCEPTANCE_VERSION,
+  DNA_ALGORITHM_VERSION,
+} from '../config/dna-versions';
+import type { EnterpriseComparisonReport } from './enterprise-comparison.types';
+import type { EnterpriseAcceptanceDecision } from './enterprise-acceptance.types';
 
-export const ACCEPTANCE_POLICY_VERSION = 'acceptance-policy-v1.2' as const;
-export const DNA_ALGORITHM_VERSION = '15-layer-v1' as const;
+export { DNA_ALGORITHM_VERSION };
+
+/** Alias of DNA_ACCEPTANCE_VERSION — preserved for existing call sites. */
+export const ACCEPTANCE_POLICY_VERSION = DNA_ACCEPTANCE_VERSION;
 
 /** Frozen five verdicts — no additional codes. */
 export type AcceptanceVerdict =
@@ -46,6 +58,18 @@ export interface AcceptanceEvidence {
 
   /** Tamper never creates identity — only modifies verdict tier. */
   tamperDetected: boolean;
+
+  /**
+   * Milestone F — when ACCEPTANCE_V2 is on and COMPARISON_V2 produced a report,
+   * Acceptance evaluates this report instead of fused overallConfidenceScore.
+   */
+  enterpriseComparison?: EnterpriseComparisonReport;
+  packageMissing?: boolean;
+  packageCorrupted?: boolean;
+  ownershipHints?: {
+    certificateBound?: boolean;
+    watermarkBound?: boolean;
+  };
 }
 
 export interface ScorecardChannelResult {
@@ -79,4 +103,6 @@ export interface AcceptanceDecision {
   retainCandidate: boolean;
   /** Retrieval confidence exposed to report — 0 when rejected */
   retrievalConfidence: number;
+  /** Milestone F — present when ACCEPTANCE_V2 produced the decision */
+  enterpriseAcceptance?: EnterpriseAcceptanceDecision;
 }

@@ -23,7 +23,7 @@ import {
   shannonEntropy,
   detectEncoding,
   detectLineEnding,
-  computeHmac,
+  computeLayer6IdentitySeal,
   sha256,
 } from '../base/text-utils';
 
@@ -219,8 +219,8 @@ export class TxtDnaEngine {
   private layer6(fingerprints: string, dnaRecordId: string): UniversalLayerResult {
     const t = Date.now();
     const secret  = config.stego.signatureSecret;
-    const payload = `TXT:${dnaRecordId}:${fingerprints}`;
-    const hmac    = computeHmac(payload, secret);
+    // WHY computeLayer6IdentitySeal: remove dnaRecordId from identity HMAC (Milestone B)
+    const hmac    = computeLayer6IdentitySeal('TXT', fingerprints, dnaRecordId, secret);
 
     return {
       layer: 6, name: 'signature',

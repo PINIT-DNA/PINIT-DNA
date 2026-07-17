@@ -62,13 +62,18 @@ describe('SteganographyLayer', () => {
     expect(result.data.payloadHmac).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it('produces different HMAC on each call (unique token per image)', async () => {
+  it('stores stable contentSealHmac; payloadHmac (LSB trace) remains unique per embed', async () => {
     const image = await makeLargeEnoughImage();
-    const r1 = await layer.generate(image, DNA_ID);
-    const r2 = await layer.generate(image, DNA_ID);
+    const digests = ['a', 'b', 'c', 'd', 'e'];
+    const r1 = await layer.generate(image, DNA_ID, digests);
+    const r2 = await layer.generate(image, DNA_ID, digests);
 
-    // Each call generates a new random token → different HMAC
+    // EDS identity seal is stable
+    expect(r1.data.contentSealHmac).toBe(r2.data.contentSealHmac);
+    expect(r1.data.contentSealHmac).toMatch(/^[a-f0-9]{64}$/);
+    // LSB ownership trace HMAC still unique (and stored as payloadHmac for legacy verify)
     expect(r1.data.payloadHmac).not.toBe(r2.data.payloadHmac);
+    expect(r1.data.stegoTraceHmac).toBe(r1.data.payloadHmac);
   });
 
   it('carrier image is visually identical (pixel values differ by at most 1)', async () => {

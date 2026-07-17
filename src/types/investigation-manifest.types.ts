@@ -1,6 +1,9 @@
 /**
  * Investigation Manifest — frozen schema (docs/architecture/10_INVESTIGATION_REPORT_SPEC.md)
  * Single source of truth for UI, API, PDF, evidence package, audit, timeline.
+ *
+ * WHY REPORT_VERSION alias (Task A1): literal lives in dna-versions.ts;
+ * INVESTIGATION_MANIFEST_VERSION kept so existing imports stay stable.
  */
 import type {
   AcceptanceScorecard,
@@ -11,8 +14,10 @@ import {
   ACCEPTANCE_POLICY_VERSION,
   DNA_ALGORITHM_VERSION,
 } from './acceptance.types';
+import { REPORT_VERSION } from '../config/dna-versions';
 
-export const INVESTIGATION_MANIFEST_VERSION = 'investigation-manifest-v1.0' as const;
+/** Alias of REPORT_VERSION — preserved for existing call sites. */
+export const INVESTIGATION_MANIFEST_VERSION = REPORT_VERSION;
 
 export type ManifestMediaType =
   | 'image'

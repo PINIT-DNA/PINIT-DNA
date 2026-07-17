@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Shield, Search, Eye, Download, FileText, Table2, AlertTriangle, CheckCircle2, GitCompare, Microscope } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
+import { BRAND } from '../config/brand.config';
 import { Badge, ClassificationBadge } from '../components/ui/Badge';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Modal } from '../components/ui/Modal';
@@ -409,7 +410,7 @@ export function ReportsPage() {
             description="Run a unified investigation or DNA comparison to generate a forensic report"
             action={
               <div className="flex gap-2">
-                <Link to="/unified-investigation" className="btn btn-primary btn-sm">
+                <Link to={BRAND.investigationPath} className="btn btn-primary btn-sm">
                   <Shield size={14} /> Start Investigation
                 </Link>
                 <Link to="/compare" className="btn btn-secondary btn-sm">

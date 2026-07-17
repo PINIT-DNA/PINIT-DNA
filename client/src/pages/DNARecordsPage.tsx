@@ -11,6 +11,7 @@ import { Modal } from '../components/ui/Modal';
 import type { DnaRecord } from '../types/dashboard.types';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { SYSTEM_VERSION } from '../config/dna-versions';
 
 function DnaDetailModal({ record, onClose }: { record: DnaRecord; onClose: () => void }) {
   const { user } = useAuth();
@@ -25,7 +26,7 @@ function DnaDetailModal({ record, onClose }: { record: DnaRecord; onClose: () =>
             { label: 'MIME Type',       value: record.imageMimeType,     mono: true,  accent: false },
             { label: 'File Size',       value: formatBytes(record.imageSizeBytes), mono: true, accent: false },
             { label: 'File Type',       value: deriveFileType(record), mono: false, accent: false, typeBadge: true },
-            { label: 'Engine Version',  value: record.engineVersion ?? '1.0.0', mono: true, accent: false },
+            { label: 'Engine Version',  value: record.engineVersion ?? SYSTEM_VERSION, mono: true, accent: false },
             { label: 'Schema Version',  value: record.schemaVersion,    mono: true,  accent: false },
             { label: 'Created At',      value: format(new Date(record.createdAt), 'PPpp'), mono: false, accent: false },
             { label: 'Owner User ID',   value: user?.shortId ?? '�', mono: true, accent: true },

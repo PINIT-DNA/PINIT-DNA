@@ -6,6 +6,7 @@ import { prisma } from '../../lib/prisma';
 import { isPhase2Active, dnaPhase2 } from '../../config/dna-phase2';
 import type { SelfLearningProfile, TamperVector, LayerScoreInput } from '../../types/dna-enhancements.types';
 import { logger } from '../../lib/logger';
+import { mergeUniversalFingerprintsImmutable } from '../dna/enterprise-dna-package.service';
 
 const MAX_PROFILES = 200;
 
@@ -38,11 +39,14 @@ export class SelfLearningDnaService {
       };
 
       const updated = [profile, ...existing].slice(0, MAX_PROFILES);
-      fp.selfLearning = updated;
+      // WHY immutable merge: never overwrite sealed enterpriseDnaPackage fingerprints
+      const merged = mergeUniversalFingerprintsImmutable(rec.universalFingerprints, {
+        selfLearning: updated,
+      });
 
       await prisma.dnaRecord.update({
         where: { id: dnaRecordId },
-        data: { universalFingerprints: fp as object },
+        data: { universalFingerprints: merged as object },
       });
     } catch (err) {
       logger.warn('Self-learning DNA record skipped (non-fatal)', { dnaRecordId, error: String(err) });

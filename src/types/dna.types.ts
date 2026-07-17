@@ -149,6 +149,10 @@ export interface MetadataLayerResult extends LayerResult {
     iptcData: Record<string, unknown> | null;
     xmpData: Record<string, unknown> | null;
     metadataHash: string;
+    /** Milestone B dual-write — EDS claims_digest */
+    claimsDigest?: string;
+    claimsDigestAlgorithmId?: string;
+    deterministic?: boolean;
   };
 }
 
@@ -164,6 +168,12 @@ export interface StegoLayerResult extends LayerResult {
     payloadHmac: string;
     channel: 'R' | 'G' | 'B' | 'alpha';
     carrierPath: string | null;
+    /** EDS content seal (identity) */
+    contentSealHmac?: string;
+    /** Random LSB trace HMAC (ownership) — may differ from payloadHmac when deterministic */
+    stegoTraceHmac?: string;
+    contentSealAlgorithmId?: string;
+    deterministic?: boolean;
   };
 }
 
@@ -326,7 +336,7 @@ export interface GenerateDnaResponse {
   schemaVersion: string;
   /** Detected file type — e.g. "IMAGE", "PDF" */
   fileType: string;
-  /** Engine version that processed this file — e.g. "2.0.0-universal" */
+  /** Engine version that processed this file — e.g. DNA_GENERATOR_VERSION ("2.0.0-universal") */
   engineVersion: string;
   /** How the file type was detected */
   detectedBy: string;

@@ -65,6 +65,8 @@ export interface PinitIdentificationResult {
     /** Phase 2 — enterprise forensic scanner output */
     forensicScan?: import('./forensic-scanner.service').ForensicScanResult | null;
   };
+  /** Milestone G — unified enterprise investigation report when ENTERPRISE_PIPELINE_V2 ran */
+  enterpriseInvestigationReport?: import('../../types/enterprise-investigation-pipeline.types').EnterpriseInvestigationReport;
 }
 
 export class PinitIdentificationEngine {

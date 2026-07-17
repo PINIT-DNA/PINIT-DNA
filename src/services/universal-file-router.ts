@@ -17,6 +17,7 @@ import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { config } from '../config';
+import { DNA_GENERATOR_VERSION } from '../config/dna-versions';
 
 import { FileTypeDetector, DetectionResult } from './file-type-detector';
 import { DnaOrchestrator } from './dna.orchestrator';
@@ -39,6 +40,7 @@ import { processAdvancedLayers } from './layers/layers-11-15.service';
 import { TOTAL_DNA_LAYERS } from '../constants/dna-layers';
 import { buildEnhancementBundle, mergeUniversalFingerprints } from './forensics/dna-enhancement-bundle.service';
 import { dnaEnhancements } from '../config/dna-enhancements';
+import { persistEnterpriseDnaPackage, mergeUniversalFingerprintsImmutable } from './dna/enterprise-dna-package.service';
 
 // ─── Universal input type ────────────────────────────────────────────────────
 
@@ -64,7 +66,11 @@ export interface FileInput {
 
 // ─── Engine version ───────────────────────────────────────────────────────────
 
-export const UNIVERSAL_ENGINE_VERSION = '2.0.0-universal';
+/**
+ * WHY alias DNA_GENERATOR_VERSION (Task A1): preserve UNIVERSAL_ENGINE_VERSION
+ * export for existing imports; literal centralized in dna-versions.ts.
+ */
+export const UNIVERSAL_ENGINE_VERSION = DNA_GENERATOR_VERSION;
 
 // ─── Router ───────────────────────────────────────────────────────────────────
 
@@ -231,11 +237,14 @@ export class UniversalFileRouter {
       buffer:       file.buffer,
     };
 
-    // Run L7–L10 in parallel — these are file-type-agnostic
+    // Run L7–L10 in parallel — identity fingerprints content-only when deterministic
     const [l7, l8, l9, l10] = await Promise.allSettled([
-      this.layer7Behavioral.generate(fileAsImage, dnaRecordId, uploadStartMs, undefined, undefined),
-      this.layer8Relationship.generate(fileAsImage, dnaRecordId, sha256Hash),
-      this.layer9Origin.generate(fileAsImage, dnaRecordId, {}),
+      this.layer7Behavioral.generate(
+        fileAsImage, dnaRecordId, uploadStartMs, undefined, undefined,
+        { contentId: sha256Hash, perceptualPrimary: '' },
+      ),
+      this.layer8Relationship.generate(fileAsImage, dnaRecordId, sha256Hash, ''),
+      this.layer9Origin.generate(fileAsImage, dnaRecordId, {}, { contentId: sha256Hash }),
       this.layer10Evolution.generate(fileAsImage, dnaRecordId, sha256Hash),
     ]);
 
@@ -297,16 +306,31 @@ export class UniversalFileRouter {
             where: { id: dnaRecordId },
             select: { universalFingerprints: true },
           });
+          const merged = mergeUniversalFingerprints(rec?.universalFingerprints, bundle);
           await prisma.dnaRecord.update({
             where: { id: dnaRecordId },
             data: {
-              universalFingerprints: mergeUniversalFingerprints(rec?.universalFingerprints, bundle) as object,
+              // Safe merge preserves sealed enterpriseDnaPackage if already present
+              universalFingerprints: mergeUniversalFingerprintsImmutable(
+                rec?.universalFingerprints,
+                merged,
+              ) as object,
             },
           });
         }
       } catch (err) {
         logger.warn('Phase 2 enhancement bundle skipped (non-fatal)', { dnaRecordId, error: String(err) });
       }
+    }
+
+    // Milestone B Step 2 — enterprise DNA package (immutable SSoT dual-write)
+    try {
+      await persistEnterpriseDnaPackage(dnaRecordId);
+    } catch (err) {
+      logger.warn('Enterprise DNA package persistence skipped (non-fatal)', {
+        dnaRecordId,
+        error: String(err),
+      });
     }
 
     return {

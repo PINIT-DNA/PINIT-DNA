@@ -23,6 +23,7 @@ import { prisma } from '../../lib/prisma';
 import { AppError } from '../middleware/error.middleware';
 import { logger } from '../../lib/logger';
 import { SUPPORTED_FILE_TYPES } from '../../config/supported-file-types';
+import { DNA_GENERATOR_VERSION } from '../../config/dna-versions';
 import {
   GenerateDnaResponse,
   VerifyDnaResponse,
@@ -307,7 +308,7 @@ export async function getSupportedTypes(
 
     res.status(200).json({
       success:        true,
-      engineVersion:  '2.0.0-universal',
+      engineVersion:  DNA_GENERATOR_VERSION,
       totalSupported: types.length,
       live:           live.length,
       planned:        planned.length,

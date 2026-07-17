@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 
 const Header = () => null;
@@ -11,6 +11,7 @@ import { GenerationProgress } from './components/GenerationProgress';
 
 import { generateDna } from './services/api';
 import type { AppStage, DnaSession, EncryptionResult, VaultStoreResponse } from './types';
+import { DNA_GENERATOR_VERSION } from './config/dna-versions';
 
 type FlowStage = AppStage | 'vaulting' | 'readying';
 
@@ -26,6 +27,18 @@ export default function App() {
     riskLevel?: string;
     ownerShortId?: string;
   } | null>(null);
+
+  // Preview URL for progress workspace thumbnail
+  const previewUrl = useMemo(() => {
+    if (!selectedFile || !selectedFile.type.startsWith('image/')) return null;
+    return URL.createObjectURL(selectedFile);
+  }, [selectedFile]);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
   // Revoke blob URL on reset / unmount
   useEffect(() => {
@@ -48,7 +61,7 @@ export default function App() {
         fileSizeBytes:    selectedFile.size,
         mimeType:         selectedFile.type,
         fileType:         result.fileType  ?? 'FILE',
-        engineVersion:    result.engineVersion ?? '2.0.0-universal',
+        engineVersion:    result.engineVersion ?? DNA_GENERATOR_VERSION,
         status:           result.status,
         successfulLayers: result.summary.successfulLayers,
         totalLayers:      result.summary.totalLayers,
@@ -133,7 +146,7 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-bg-base">
       <Header />
 
-      <main className="flex-1 max-w-5xl mx-auto w-full px-0 sm:px-4 py-4 sm:py-8">
+      <main className={`flex-1 mx-auto w-full px-0 sm:px-4 py-4 sm:py-8 ${isWorking ? 'max-w-6xl' : 'max-w-5xl'}`}>
         <AnimatePresence mode="wait">
           {stage === 'idle' && (
             <motion.div key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -176,6 +189,7 @@ export default function App() {
                 fileSizeBytes={selectedFile?.size ?? session?.fileSizeBytes}
                 mimeType={selectedFile?.type ?? session?.mimeType}
                 dnaRecordId={session?.dnaRecordId}
+                previewUrl={previewUrl}
               />
               {stage === 'encrypting' && session && (
                 <div className="sr-only" aria-hidden>

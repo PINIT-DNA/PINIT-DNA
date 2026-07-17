@@ -35,7 +35,7 @@ const router = Router();
  *   success: true,
  *   dnaRecordId: "uuid",
  *   status: "COMPLETE",
- *   schemaVersion: "1.0.0",
+ *   schemaVersion: DNA_SCHEMA_VERSION ("1.0.0"),
  *   summary: { totalLayers, successfulLayers, failedLayers, totalProcessingMs },
  *   generatedAt: "ISO8601"
  * }
