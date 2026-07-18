@@ -598,23 +598,32 @@ export function LinkIntelligencePage() {
             <div key={v.id} className="space-y-1">
             <button
               onClick={() => setSelectedViewer(v.id === selectedViewer ? null : v.id)}
-              className={`w-full text-left bg-bg-card border rounded-lg p-3 transition-all ${
-                v.id === selectedViewer
-                  ? 'border-dna-500/50 ring-1 ring-dna-500/20'
-                  : 'border-bg-border hover:border-dna-500/30'
+              className={`w-full text-left border rounded-lg p-3 transition-all ${
+                v.hopNumber === 1 && !v.isBlocked
+                  ? v.id === selectedViewer
+                    ? 'bg-emerald-500/15 border-emerald-400 ring-2 ring-emerald-400/40 shadow-[0_0_0_1px_rgba(52,211,153,0.35)]'
+                    : 'bg-emerald-500/10 border-emerald-500/70 ring-1 ring-emerald-400/30 hover:border-emerald-400 hover:ring-emerald-400/50'
+                  : v.id === selectedViewer
+                    ? 'bg-bg-card border-dna-500/50 ring-1 ring-dna-500/20'
+                    : 'bg-bg-card border-bg-border hover:border-dna-500/30'
               } ${v.isBlocked ? 'opacity-60' : ''}`}
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 ${
                     v.isBlocked ? 'bg-red-900 border-red-500 text-red-300'
-                      : v.hopNumber === 1 ? 'bg-dna-600 border-dna-400 text-white' : 'bg-orange-900 border-orange-500 text-orange-300'
+                      : v.hopNumber === 1 ? 'bg-emerald-600 border-emerald-300 text-white shadow-sm shadow-emerald-500/40' : 'bg-orange-900 border-orange-500 text-orange-300'
                   }`}>
                     {v.hopNumber}
                   </div>
                   <div>
                     <p className="text-xs font-medium text-white flex items-center gap-1.5 flex-wrap">
                       {v.hopNumber === 1 ? 'Direct Recipient' : `Viewer ${v.hopNumber}`}
+                      {v.hopNumber === 1 && !v.isBlocked && (
+                        <span className="text-2xs px-1.5 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 border border-emerald-400/40 font-semibold tracking-wide">
+                          PRIMARY
+                        </span>
+                      )}
                       {v.recipientName && <span className="text-gray-400 font-normal">· {v.recipientName}</span>}
                       {v.isBlocked && <span className="text-2xs text-red-400">Revoked</span>}
                       {(v.riskLevel === 'HIGH' || v.riskLevel === 'CRITICAL' || v.locationTrust === 'LOW') && (
