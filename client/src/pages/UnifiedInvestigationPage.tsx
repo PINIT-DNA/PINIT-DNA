@@ -17,6 +17,7 @@ import {
   downloadTimelineReportPdf,
   downloadEvidencePackageZip,
   downloadAdvancedExportJson,
+  archiveInvestigationForensicExports,
   type InvestigationReportExport,
   type InvestigationReportPdfOptions,
 } from '../services/investigation-report-export';
@@ -334,6 +335,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
   const [mode, setMode] = useState<'upload' | 'scan'>('upload');
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState<'investigation' | 'dna' | 'timeline' | null>(null);
   const [report, setReport] = useState<InvestigationReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [captureProcessing, setCaptureProcessing] = useState(false);
@@ -437,6 +439,12 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
         liveSnapshotRef.current,
       );
       saveInvestigationReport(toStore, f.name);
+      // Auto-archive all PDFs into Forensic Reports (no download required).
+      const archiveOwner = resolveInvestigationOwner(toStore);
+      void archiveInvestigationForensicExports(
+        asExportReport(toStore as unknown as InvestigationReport),
+        { probeFile: f, vaultId: archiveOwner.vaultId },
+      ).catch(() => { /* archive is best-effort; investigation result is already saved */ });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Investigation failed';
       setError(msg);
@@ -1276,32 +1284,73 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               <button
                 type="button"
                 className="btn btn-secondary text-xs"
-                onClick={() => { void downloadInvestigationReportPdf(asExportReport(report), pdfExportOptions); }}
+                disabled={!!pdfBusy || exporting}
+                onClick={async () => {
+                  setPdfBusy('investigation');
+                  try {
+                    await downloadInvestigationReportPdf(asExportReport(report), pdfExportOptions);
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Failed to build Investigation Report PDF');
+                  } finally {
+                    setPdfBusy(null);
+                  }
+                }}
               >
-                <Download size={12} /> Investigation Report (PDF)
+                {pdfBusy === 'investigation'
+                  ? <RefreshCw size={12} className="animate-spin" />
+                  : <Download size={12} />}
+                {pdfBusy === 'investigation' ? ' Building PDF…' : ' Investigation Report (PDF)'}
               </button>
               <button
                 type="button"
                 className="btn btn-secondary text-xs"
-                onClick={() => { void downloadDnaReportPdf(asExportReport(report)); }}
+                disabled={!!pdfBusy || exporting}
+                onClick={async () => {
+                  setPdfBusy('dna');
+                  try {
+                    await downloadDnaReportPdf(asExportReport(report));
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Failed to build DNA Report PDF');
+                  } finally {
+                    setPdfBusy(null);
+                  }
+                }}
               >
-                <Dna size={12} /> DNA Report (PDF)
+                {pdfBusy === 'dna'
+                  ? <RefreshCw size={12} className="animate-spin" />
+                  : <Dna size={12} />}
+                {pdfBusy === 'dna' ? ' Building PDF…' : ' DNA Report (PDF)'}
               </button>
               <button
                 type="button"
                 className="btn btn-secondary text-xs"
-                onClick={() => { void downloadTimelineReportPdf(asExportReport(report)); }}
+                disabled={!!pdfBusy || exporting}
+                onClick={async () => {
+                  setPdfBusy('timeline');
+                  try {
+                    await downloadTimelineReportPdf(asExportReport(report));
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Failed to build Timeline Report PDF');
+                  } finally {
+                    setPdfBusy(null);
+                  }
+                }}
               >
-                <Clock size={12} /> Timeline Report (PDF)
+                {pdfBusy === 'timeline'
+                  ? <RefreshCw size={12} className="animate-spin" />
+                  : <Clock size={12} />}
+                {pdfBusy === 'timeline' ? ' Building PDF…' : ' Timeline Report (PDF)'}
               </button>
               <button
                 type="button"
                 className="btn btn-primary text-xs"
-                disabled={exporting}
+                disabled={exporting || !!pdfBusy}
                 onClick={async () => {
                   setExporting(true);
                   try {
                     await downloadEvidencePackageZip(asExportReport(report), pdfExportOptions);
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Failed to build Evidence Package ZIP');
                   } finally {
                     setExporting(false);
                   }
@@ -1313,12 +1362,21 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               <button
                 type="button"
                 className="btn btn-ghost text-xs border border-bg-border"
-                onClick={() => downloadAdvancedExportJson(asExportReport(report))}
+                disabled={!!pdfBusy || exporting}
+                onClick={() => { void downloadAdvancedExportJson(asExportReport(report)); }}
               >
                 <FileDown size={12} /> Advanced Export (JSON)
               </button>
             </div>
+            {(pdfBusy || exporting) && (
+              <p className="text-2xs text-cyan-600 mt-2">
+                {pdfBusy
+                  ? 'Generating PDF (embedding comparison images + signing)… your download will start when ready.'
+                  : 'Building evidence ZIP…'}
+              </p>
+            )}
             <p className="text-2xs text-gray-600 mt-3">
+              PDFs are archived to Forensic Reports automatically when an investigation finishes — you do not need to download first.
               Evidence ZIP includes PDF reports, JSON artifacts, pipeline logs, and screenshot folder placeholder.
               Legal Evidence Bundle — coming soon.
             </p>

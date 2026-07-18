@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Shield, Search, Eye, Download, FileText, Table2, AlertTriangle, CheckCircle2, GitCompare, Microscope } from 'lucide-react';
+import { Shield, Search, Eye, Download, FileText, Table2, AlertTriangle, CheckCircle2, GitCompare, Microscope, RefreshCw, FileArchive } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { BRAND } from '../config/brand.config';
@@ -13,9 +13,17 @@ import { exportComparisonJSON, exportComparisonCSV, exportComparisonPDF } from '
 import {
   listForensicReports,
   FORENSIC_REPORTS_UPDATED_EVENT,
+  getInvestigationArtifactMeta,
   type StoredForensicReport,
   type StoredInvestigationReport,
 } from '../lib/forensic-reports-storage';
+import {
+  downloadStoredForensicPdf,
+  FORENSIC_PDF_KIND_LABEL,
+  listForensicPdfArtifacts,
+  type ForensicPdfArtifactMeta,
+  type ForensicPdfKind,
+} from '../lib/forensic-pdf-artifacts';
 import {
   investigationDisplayMessage,
   investigationDisplayScore,
@@ -25,7 +33,7 @@ import {
   investigationVerdictLabel,
   resolveInvestigationOwner,
 } from '../lib/forensic-report-display';
-import { downloadInvestigationReportPdf, type InvestigationReportExport } from '../services/investigation-report-export';
+import { downloadInvestigationReportPdf, archiveInvestigationForensicExports, type InvestigationReportExport } from '../services/investigation-report-export';
 import toast from 'react-hot-toast';
 
 function matchesFilter(entry: StoredForensicReport, filter: string): boolean {
@@ -194,6 +202,63 @@ function InvestigationDetailModal({
   const evidenceTimeline = report.evidenceTimeline ?? [];
   const ownerFields = resolveInvestigationOwner(report);
   const dnaPct = report.summary?.dnaMatchPercent;
+  const [artifacts, setArtifacts] = useState<ForensicPdfArtifactMeta[]>(() =>
+    getInvestigationArtifactMeta(report.investigationId),
+  );
+  const [fetchingKind, setFetchingKind] = useState<ForensicPdfKind | null>(null);
+  const [archiving, setArchiving] = useState(false);
+
+  const reloadArtifacts = useCallback(async () => {
+    try {
+      const fromDb = await listForensicPdfArtifacts(report.investigationId);
+      setArtifacts(fromDb.length ? fromDb : getInvestigationArtifactMeta(report.investigationId));
+    } catch {
+      setArtifacts(getInvestigationArtifactMeta(report.investigationId));
+    }
+  }, [report.investigationId]);
+
+  useEffect(() => {
+    void reloadArtifacts();
+    const onUpdate = () => { void reloadArtifacts(); };
+    window.addEventListener(FORENSIC_REPORTS_UPDATED_EVENT, onUpdate);
+    return () => window.removeEventListener(FORENSIC_REPORTS_UPDATED_EVENT, onUpdate);
+  }, [reloadArtifacts]);
+
+  // Backfill PDFs for older investigations that were saved before auto-archive.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const existing = await listForensicPdfArtifacts(report.investigationId).catch(() => []);
+      if (cancelled || existing.length > 0) return;
+      setArchiving(true);
+      try {
+        await archiveInvestigationForensicExports(report as unknown as InvestigationReportExport, {
+          vaultId: ownerFields.vaultId,
+        });
+        if (!cancelled) await reloadArtifacts();
+      } catch {
+        /* best-effort */
+      } finally {
+        if (!cancelled) setArchiving(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // ownerFields.vaultId is stable enough for this investigation id
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [report.investigationId]);
+
+  const openStored = async (kind: ForensicPdfKind) => {
+    setFetchingKind(kind);
+    try {
+      const ok = await downloadStoredForensicPdf(report.investigationId, kind);
+      if (!ok) toast.error('Stored file not found — generate it again from Investigation');
+      else toast.success('Downloaded from Forensic archive');
+    } catch {
+      toast.error('Failed to open stored file');
+    } finally {
+      setFetchingKind(null);
+    }
+  };
 
   return (
     <Modal open title="Unified Investigation Report" onClose={onClose} size="xl">
@@ -266,6 +331,51 @@ function InvestigationDetailModal({
           )}
         </div>
 
+        <div className="rounded-xl border border-bg-border bg-bg-elevated/60 p-3">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <p className="text-xs font-semibold text-gray-300">Stored forensic exports</p>
+            <span className="text-2xs text-gray-500">{artifacts.length} file{artifacts.length === 1 ? '' : 's'}</span>
+          </div>
+          {artifacts.length === 0 ? (
+            <p className="text-2xs text-gray-500">
+              {archiving
+                ? 'Archiving Investigation, DNA, and Timeline PDFs for future reference…'
+                : 'No PDFs archived yet. Generate from Unified Investigation → Evidence Package — copies are saved here automatically.'}
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {artifacts.map((a) => (
+                <div
+                  key={a.kind}
+                  className="flex items-center justify-between gap-2 rounded-lg border border-bg-border bg-bg px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-white truncate">
+                      {FORENSIC_PDF_KIND_LABEL[a.kind]}
+                    </p>
+                    <p className="text-2xs text-gray-500 truncate">
+                      {a.filename} · {(a.sizeBytes / 1024).toFixed(0)} KB · {format(new Date(a.savedAt), 'MMM d, HH:mm')}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm shrink-0"
+                    disabled={fetchingKind === a.kind}
+                    onClick={() => { void openStored(a.kind); }}
+                  >
+                    {fetchingKind === a.kind
+                      ? <RefreshCw size={12} className="animate-spin" />
+                      : a.kind === 'evidence_zip'
+                        ? <FileArchive size={12} />
+                        : <Download size={12} />}
+                    Open
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {timeline.length > 0 && (
           <div>
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
@@ -322,7 +432,8 @@ function InvestigationDetailModal({
               try {
                 await downloadInvestigationReportPdf(report as unknown as InvestigationReportExport);
                 toast.dismiss();
-                toast.success('PDF downloaded');
+                toast.success('PDF downloaded & saved to Forensic Reports');
+                void reloadArtifacts();
               } catch {
                 toast.dismiss();
                 toast.error('PDF failed');
@@ -370,7 +481,7 @@ export function ReportsPage() {
         <div>
           <h1 className="text-xl font-bold text-white">Forensic Reports</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            Unified investigations and DNA comparison analysis
+            Unified investigations, DNA comparisons, and archived PDF/ZIP exports
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -454,6 +565,9 @@ export function ReportsPage() {
                           <Badge variant={verdict === 'VERIFIED' ? 'success' : verdict === 'POSSIBLE' ? 'warning' : 'danger'}>
                             {verdict}
                           </Badge>
+                          {(entry.artifacts?.length ?? 0) > 0 && (
+                            <Badge variant="muted">{entry.artifacts!.length} PDF/ZIP saved</Badge>
+                          )}
                           <span className="text-2xs text-gray-500 mono">
                             {format(new Date(entry.savedAt), 'MMM d, yyyy · HH:mm')}
                           </span>

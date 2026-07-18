@@ -1,9 +1,15 @@
 /**
  * Client-side forensic report store — DNA comparisons + unified investigations.
  * Persisted in localStorage; legacy sessionStorage comparisons are migrated on read.
+ * Generated PDF/ZIP blobs live in IndexedDB (see forensic-pdf-artifacts.ts).
  */
 
 import type { ComparisonResult } from '../types/dashboard.types';
+import {
+  clearAllForensicPdfArtifacts,
+  deleteForensicPdfArtifactsForInvestigation,
+  type ForensicPdfArtifactMeta,
+} from './forensic-pdf-artifacts';
 
 const STORAGE_KEY = 'pinit_forensic_reports';
 const LEGACY_COMPARISON_KEY = 'pinit_dna_reports';
@@ -54,7 +60,15 @@ export type StoredInvestigationReport = Record<string, unknown> & {
 
 export type StoredForensicReport =
   | { kind: 'comparison'; id: string; savedAt: string; data: ComparisonResult }
-  | { kind: 'investigation'; id: string; savedAt: string; filename: string; data: StoredInvestigationReport };
+  | {
+      kind: 'investigation';
+      id: string;
+      savedAt: string;
+      filename: string;
+      data: StoredInvestigationReport;
+      /** Lightweight index of PDFs/ZIPs stored in IndexedDB for this investigation. */
+      artifacts?: ForensicPdfArtifactMeta[];
+    };
 
 function notifyUpdated(): void {
   try {
@@ -268,9 +282,18 @@ export function saveInvestigationReport(
   filename: string,
 ): void {
   const normalized = filename.trim().toLowerCase();
-  const existing = readRaw().filter((r) => {
+  const previous = readRaw();
+  const prior = previous.find(
+    (r): r is Extract<StoredForensicReport, { kind: 'investigation' }> =>
+      r.kind === 'investigation' && r.id === report.investigationId,
+  );
+  const existing = previous.filter((r) => {
     if (r.id === report.investigationId) return false;
-    if (r.kind === 'investigation' && r.filename.trim().toLowerCase() === normalized) return false;
+    if (r.kind === 'investigation' && r.filename.trim().toLowerCase() === normalized) {
+      // Dropping a different investigation with the same probe filename — clean its PDFs.
+      void deleteForensicPdfArtifactsForInvestigation(r.id);
+      return false;
+    }
     return true;
   });
   const entry: StoredForensicReport = {
@@ -279,14 +302,45 @@ export function saveInvestigationReport(
     savedAt: new Date().toISOString(),
     filename,
     data: report,
+    artifacts: prior?.artifacts,
   };
   writeRaw([entry, ...existing]);
+}
+
+/** Attach / refresh PDF artifact metadata on an existing investigation entry. */
+export function attachForensicPdfArtifactMeta(
+  investigationId: string,
+  meta: ForensicPdfArtifactMeta,
+): void {
+  const reports = readRaw();
+  const idx = reports.findIndex(
+    (r) => r.kind === 'investigation' && r.id === investigationId,
+  );
+  if (idx < 0) return;
+  const entry = reports[idx] as Extract<StoredForensicReport, { kind: 'investigation' }>;
+  const others = (entry.artifacts ?? []).filter((a) => a.kind !== meta.kind);
+  reports[idx] = {
+    ...entry,
+    artifacts: [meta, ...others],
+  };
+  writeRaw(reports);
+}
+
+export function getInvestigationArtifactMeta(
+  investigationId: string,
+): ForensicPdfArtifactMeta[] {
+  const entry = readRaw().find(
+    (r) => r.kind === 'investigation' && r.id === investigationId,
+  );
+  if (!entry || entry.kind !== 'investigation') return [];
+  return entry.artifacts ?? [];
 }
 
 export function clearForensicReports(): void {
   try {
     localStorage.removeItem(STORAGE_KEY);
     sessionStorage.removeItem(LEGACY_COMPARISON_KEY);
+    void clearAllForensicPdfArtifacts();
     notifyUpdated();
   } catch { /* ignore */ }
 }

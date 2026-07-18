@@ -38,6 +38,9 @@ export interface EnterpriseInvestigationViewModel {
     vaultId: EvidenceField;
     dnaId: EvidenceField;
     certificateId: EvidenceField;
+    /** Human status: ISSUED / VALID / NOT ISSUED / … — never stuffed into certificateId */
+    certificateStatus: string;
+    certificateIssued: boolean;
     ownerName: EvidenceField;
     ownerPinitId: EvidenceField;
     originalFilename: EvidenceField;
@@ -342,14 +345,69 @@ function verdictLabel(report: LooseReport): string {
 }
 
 function reportStatus(report: LooseReport, stages: EnterpriseReportStage[]): string {
-  const failed = stages.some((s) => s.status === 'failed');
-  const warned = stages.some((s) => s.status === 'warning');
   const summary = (report.summary ?? {}) as LooseReport;
+  const reportState = str(summary.reportState);
+  const acceptance = str(summary.acceptanceVerdict) ?? '';
+  const isVerified = reportState === 'VERIFIED' || acceptance.startsWith('VERIFIED');
+
+  // Certificate-not-issued is informational — do not brand a finished VERIFIED case as failed.
+  const criticalFailed = stages.some((s) => {
+    if (s.status !== 'failed') return false;
+    const key = `${s.id} ${s.label}`.toLowerCase();
+    return !key.includes('certificate');
+  });
+  const softWarned = stages.some((s) => {
+    if (s.status !== 'warning' && s.status !== 'failed') return false;
+    const key = `${s.id} ${s.label}`.toLowerCase();
+    return key.includes('certificate') || s.status === 'warning';
+  });
+
   if (summary.acceptanceVerdict === 'INSUFFICIENT_EVIDENCE') return 'Incomplete';
-  if (failed) return 'Completed with failures';
-  if (warned) return 'Completed with warnings';
+  if (isVerified && !criticalFailed) {
+    return softWarned ? 'Investigation complete' : 'Investigation complete';
+  }
+  if (criticalFailed) return 'Completed with failures';
+  if (softWarned) return 'Completed with warnings';
   if (report.success === false) return 'Incomplete';
-  return 'Complete';
+  return 'Investigation complete';
+}
+
+/** Prefer a real certificate id; never treat status prose as an id. */
+function resolveCertificateFields(
+  owner: LooseReport,
+  recovery: LooseReport,
+  proof: LooseReport,
+  summary: LooseReport,
+  vaultId: string | null,
+  dnaId: string | null,
+): { certificateId: string | null; certificateStatus: string; certificateIssued: boolean } {
+  const raw = str(owner.certificateId) ?? str(recovery.certificateId) ?? str(proof.certificateId);
+  const looksLikeStatus = !!raw && /NOT[_\s-]?ISSUED|UNKNOWN|PENDING|no certificate|not issued/i.test(raw);
+  const issuedId = raw && !looksLikeStatus ? raw : null;
+
+  const rawStatus = str(summary.certificateStatus) ?? '';
+  let certificateStatus = 'NOT ISSUED';
+  if (issuedId) {
+    if (/valid|active|issued/i.test(rawStatus)) certificateStatus = rawStatus.toUpperCase().split(/[—–-]/)[0].trim() || 'ISSUED';
+    else certificateStatus = 'ISSUED';
+  } else if (/not[_\s-]?issued/i.test(rawStatus) || looksLikeStatus) {
+    certificateStatus = 'NOT ISSUED';
+  } else if (rawStatus) {
+    certificateStatus = rawStatus.split(/[—–]/)[0].trim().toUpperCase() || 'NOT ISSUED';
+  }
+
+  // Same derived reference pattern as CertificatesPage when issuance is pending.
+  const derived = vaultId
+    ? `CERT-DNA-${vaultId.replace(/-/g, '').slice(0, 8).toUpperCase()}`
+    : dnaId
+      ? `CERT-DNA-${dnaId.replace(/-/g, '').slice(0, 8).toUpperCase()}`
+      : null;
+
+  return {
+    certificateId: issuedId ?? derived,
+    certificateStatus,
+    certificateIssued: !!issuedId,
+  };
 }
 
 function pickVisualMetrics(report: LooseReport): EnterpriseInvestigationViewModel['visualAi'] {
@@ -503,7 +561,7 @@ export function buildEnterpriseInvestigationViewModel(
   const ownershipVerified = summary.reportState === 'VERIFIED';
   const vaultId = str(owner.vaultId) ?? str(recovery.vaultId) ?? str(proof.vaultId);
   const dnaId = str(owner.dnaRecordId) ?? str(recovery.dnaRecordId) ?? str(proof.dnaRecordId);
-  const certId = str(owner.certificateId) ?? str(recovery.certificateId) ?? str(proof.certificateId);
+  const certFields = resolveCertificateFields(owner, recovery, proof, summary, vaultId, dnaId);
 
   const candidates = Array.isArray(r.candidateRanking)
     ? (r.candidateRanking as Array<LooseReport>).map((c, i) => ({
@@ -619,7 +677,10 @@ export function buildEnterpriseInvestigationViewModel(
   const reportStateStr = str(summary.reportState);
   const submissionReady = reportStateStr === 'VERIFIED'
     && evidenceStrength !== 'Insufficient'
-    && stages.every((s) => s.status !== 'failed');
+    && !stages.some((s) => {
+      if (s.status !== 'failed') return false;
+      return !`${s.id} ${s.label}`.toLowerCase().includes('certificate');
+    });
 
   return {
     summary: {
@@ -639,7 +700,13 @@ export function buildEnterpriseInvestigationViewModel(
     originalAsset: {
       vaultId: field(vaultId, '—'),
       dnaId: field(dnaId, '—'),
-      certificateId: field(certId, '—'),
+      certificateId: field(
+        certFields.certificateId,
+        'Pending issuance',
+        'No certificate issued yet — derived DNA reference shown for tracking',
+      ),
+      certificateStatus: certFields.certificateStatus,
+      certificateIssued: certFields.certificateIssued,
       ownerName: field(
         ownershipVerified || summary.reportState === 'POSSIBLE'
           ? (str(owner.ownerName) ?? str(recovery.originalOwner))

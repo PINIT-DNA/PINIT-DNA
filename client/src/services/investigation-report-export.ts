@@ -8,6 +8,11 @@ import QRCode from 'qrcode';
 import { previewVaultFile, signReportManifest, type SignedReportManifest } from './dashboard.api';
 import { buildEnterpriseInvestigationViewModel } from '../lib/enterprise-investigation-report-model';
 import { BRAND } from '../config/brand.config';
+import {
+  saveForensicPdfArtifact,
+  type ForensicPdfKind,
+} from '../lib/forensic-pdf-artifacts';
+import { attachForensicPdfArtifactMeta } from '../lib/forensic-reports-storage';
 
 // ─── Report shape (matches API) ───────────────────────────────────────────────
 
@@ -107,6 +112,8 @@ export interface InvestigationReportExport {
     vaultId?: string;
     originalHash?: string;
     currentHash?: string;
+    originalFilename?: string;
+    tepCode?: string | null;
   };
   pipelineAudit?: {
     vaultRecordsLoaded?: number;
@@ -223,8 +230,28 @@ function downloadBlob(blob: Blob, filename: string) {
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
+  a.rel = 'noopener';
+  // Must be in the DOM for Safari/Chromium to reliably start the download.
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  // Revoking immediately can cancel the download for larger PDFs (embedded images).
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/** Persist a generated export into Forensic Reports (IndexedDB + metadata). */
+async function persistForensicExport(
+  investigationId: string,
+  kind: ForensicPdfKind,
+  blob: Blob,
+  filename: string,
+): Promise<void> {
+  try {
+    const meta = await saveForensicPdfArtifact(investigationId, kind, blob, filename);
+    attachForensicPdfArtifactMeta(investigationId, meta);
+  } catch {
+    // Storage failures must not block the user download.
+  }
 }
 
 async function sha256HexBuffer(buf: ArrayBuffer): Promise<string> {
@@ -282,48 +309,49 @@ type PdfImageAsset = {
 
 let cachedPinithubLogo: PdfImageAsset | null = null;
 
-async function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error('Failed to read image blob'));
-    reader.readAsDataURL(blob);
-  });
+const PDF_IMAGE_MAX_EDGE = 1024;
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
+/** Decode + downscale so PDF embed stays fast (full vault originals can be multi‑MB). */
 async function blobToPdfImage(blob: Blob): Promise<PdfImageAsset> {
-  const mime = (blob.type || '').toLowerCase();
-  if (mime.includes('png')) {
-    const dataUrl = await blobToDataUrl(blob);
-    const size = await readImageSize(dataUrl);
-    return { dataUrl, format: 'PNG', ...size };
-  }
-  if (mime.includes('jpeg') || mime.includes('jpg')) {
-    const dataUrl = await blobToDataUrl(blob);
-    const size = await readImageSize(dataUrl);
-    return { dataUrl, format: 'JPEG', ...size };
-  }
-
   const bitmap = await createImageBitmap(blob);
+  const scale = Math.min(1, PDF_IMAGE_MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
   const canvas = document.createElement('canvas');
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
+  canvas.width = width;
+  canvas.height = height;
   const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Canvas unavailable');
-  ctx.drawImage(bitmap, 0, 0);
+  if (!ctx) {
+    bitmap.close();
+    throw new Error('Canvas unavailable');
+  }
+  ctx.drawImage(bitmap, 0, 0, width, height);
   bitmap.close();
-  const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-  const size = await readImageSize(dataUrl);
-  return { dataUrl, format: 'JPEG', ...size };
-}
-
-function readImageSize(dataUrl: string): Promise<{ width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-    img.onerror = () => reject(new Error('Image decode failed'));
-    img.src = dataUrl;
-  });
+  const mime = (blob.type || '').toLowerCase();
+  const preferPng = mime.includes('png') && scale === 1;
+  const dataUrl = preferPng
+    ? canvas.toDataURL('image/png')
+    : canvas.toDataURL('image/jpeg', 0.82);
+  return {
+    dataUrl,
+    format: preferPng ? 'PNG' : 'JPEG',
+    width,
+    height,
+  };
 }
 
 async function loadPinithubLogo(): Promise<PdfImageAsset | null> {
@@ -342,6 +370,102 @@ function isImageMime(mime?: string | null): boolean {
   return !!mime && mime.startsWith('image/');
 }
 
+function isVideoMime(mime?: string | null, filename?: string | null): boolean {
+  if (mime && mime.startsWith('video/')) return true;
+  const name = (filename ?? '').toLowerCase();
+  return /\.(mp4|webm|mov|m4v|avi|mkv)$/i.test(name);
+}
+
+async function blobToVideoPoster(blob: Blob): Promise<PdfImageAsset> {
+  const url = URL.createObjectURL(blob);
+  try {
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    video.crossOrigin = 'anonymous';
+    video.src = url;
+
+    await withTimeout(
+      new Promise<void>((resolve, reject) => {
+        video.onloadeddata = () => resolve();
+        video.onerror = () => reject(new Error('Video decode failed'));
+      }),
+      10_000,
+      'Video load',
+    );
+
+    const seekTo = Number.isFinite(video.duration) && video.duration > 0
+      ? Math.min(1, video.duration * 0.08)
+      : 0.1;
+    if (seekTo > 0) {
+      try {
+        video.currentTime = seekTo;
+        await withTimeout(
+          new Promise<void>((resolve) => {
+            video.onseeked = () => resolve();
+          }),
+          4_000,
+          'Video seek',
+        );
+      } catch {
+        /* use first decoded frame */
+      }
+    }
+
+    const scale = Math.min(1, PDF_IMAGE_MAX_EDGE / Math.max(video.videoWidth || 640, video.videoHeight || 360));
+    const width = Math.max(1, Math.round((video.videoWidth || 640) * scale));
+    const height = Math.max(1, Math.round((video.videoHeight || 360) * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas unavailable');
+    ctx.fillStyle = '#0c141e';
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(video, 0, 0, width, height);
+    // Subtle film badge so video posters read clearly in print.
+    ctx.fillStyle = 'rgba(4,16,27,0.72)';
+    ctx.fillRect(8, height - 28, 86, 20);
+    ctx.fillStyle = '#31d6c4';
+    ctx.font = 'bold 12px Helvetica, Arial, sans-serif';
+    ctx.fillText('VIDEO FRAME', 14, height - 14);
+
+    return {
+      dataUrl: canvas.toDataURL('image/jpeg', 0.84),
+      format: 'JPEG',
+      width,
+      height,
+    };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function mediaBlobToPdfImage(
+  blob: Blob,
+  hint?: { mimeType?: string | null; filename?: string | null },
+): Promise<PdfImageAsset> {
+  const mime = (hint?.mimeType || blob.type || '').toLowerCase();
+  if (isVideoMime(mime, hint?.filename)) {
+    return blobToVideoPoster(blob);
+  }
+  if (isImageMime(mime) || mime === '' || mime === 'application/octet-stream') {
+    try {
+      return await blobToPdfImage(blob);
+    } catch {
+      if (isVideoMime(mime, hint?.filename) || /\.mp4$/i.test(hint?.filename ?? '')) {
+        return blobToVideoPoster(blob);
+      }
+      throw new Error('Preview decode failed');
+    }
+  }
+  if (isVideoMime(mime, hint?.filename)) {
+    return blobToVideoPoster(blob);
+  }
+  throw new Error(`Unsupported preview type: ${mime || 'unknown'}`);
+}
+
 async function loadReportComparisonImages(
   report: InvestigationReportExport,
   options?: InvestigationReportPdfOptions,
@@ -355,9 +479,22 @@ async function loadReportComparisonImages(
   let original: PdfImageAsset | undefined;
   let probe: PdfImageAsset | undefined;
 
+  const originalName = report.owner.originalFilename
+    ?? report.identityRecoveryReport?.originalFilename
+    ?? null;
+  const probeFileName = options?.probeFile instanceof File ? options.probeFile.name : null;
+  const probeName = report.dnaComparison?.fileB?.filename ?? probeFileName;
+  const probeMime = report.dnaComparison?.fileB?.mimeType
+    ?? (options?.probeFile instanceof File ? options.probeFile.type : null)
+    ?? null;
+
   if (vaultId) {
     try {
-      original = await blobToPdfImage(await previewVaultFile(vaultId));
+      const preview = await withTimeout(previewVaultFile(vaultId), 12_000, 'Vault preview');
+      original = await mediaBlobToPdfImage(preview, {
+        mimeType: preview.type,
+        filename: originalName,
+      });
     } catch {
       original = undefined;
     }
@@ -365,7 +502,10 @@ async function loadReportComparisonImages(
 
   if (options?.probeFile) {
     try {
-      probe = await blobToPdfImage(options.probeFile);
+      probe = await mediaBlobToPdfImage(options.probeFile, {
+        mimeType: options.probeFile instanceof File ? options.probeFile.type : probeMime,
+        filename: options.probeFile instanceof File ? options.probeFile.name : probeName,
+      });
     } catch {
       probe = undefined;
     }
@@ -547,10 +687,11 @@ export async function buildInvestigationReportPdf(
   ]);
   const pageW = 210;
   const pageH = 297;
-  const m = 4;
+  const m = 8;
   const contentW = pageW - m * 2;
+  const gutter = 3;
   const recovery = report.identityRecoveryReport as
-    | { tepCode?: string | null; protectedDownloadDate?: string }
+    | { tepCode?: string | null; protectedDownloadDate?: string; originalFilename?: string }
     | undefined;
   const value = (candidate: unknown, fallback = 'Not available') =>
     candidate == null || candidate === '' || candidate === '—' ? fallback : String(candidate);
@@ -558,331 +699,432 @@ export async function buildInvestigationReportPdf(
     const text = value(candidate);
     return text.length > length ? `${text.slice(0, length)}…` : text;
   };
-  const statusColor = (good: boolean) => good ? SENTINEL.green : SENTINEL.amber;
+  const statusColor = (good: boolean) => (good ? SENTINEL.green : SENTINEL.amber);
   const riskColor = vm.summary.riskLevel === 'HIGH' || vm.summary.riskLevel === 'CRITICAL'
     ? SENTINEL.red
     : vm.summary.riskLevel === 'MEDIUM'
       ? SENTINEL.amber
       : SENTINEL.green;
+  const verified = vm.originalAsset.ownershipVerified
+    || /VERIFIED/i.test(vm.summary.finalVerdict)
+    || vm.summary.reportState === 'VERIFIED';
+  const probeBadge = verified ? 'ANALYZED' : 'UNDER REVIEW';
+  const probeBadgeColor = verified ? SENTINEL.cyan : SENTINEL.amber;
+  const matchTone = vm.summary.confidence >= 85 ? SENTINEL.green : SENTINEL.amber;
+  const certIssued = vm.originalAsset.certificateIssued;
+  const certStatusLabel = vm.originalAsset.certificateStatus;
+  const probeMime = String(vm.suspectAsset.mimeType.value ?? '');
+  const probeName = String(vm.suspectAsset.filename.value ?? '');
+  const probeIsMedia = isImageMime(probeMime) || isVideoMime(probeMime, probeName);
 
+  // ── Page canvas ──────────────────────────────────────────────────────────
   doc.setFillColor(...SENTINEL.bg);
   doc.rect(0, 0, pageW, pageH, 'F');
 
-  // Header — PinIT Hub logo + Sentinel report title.
-  drawBrandLogo(doc, pinithubLogo, 5, 3, 24, 18);
+  // Official classification strip
+  doc.setFillColor(...SENTINEL.panel2);
+  doc.rect(0, 0, pageW, 6, 'F');
+  doc.setFillColor(...SENTINEL.cyan);
+  doc.rect(0, 0, 2.2, 6, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(4.2);
+  doc.setTextColor(...SENTINEL.cyan);
+  doc.text('OFFICIAL FORENSIC RECORD', m, 4);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...SENTINEL.muted);
+  doc.text('PinIT Sentinel  ·  Chain-of-custody evidence instrument', pageW - m, 4, { align: 'right' });
+
+  // Header
+  drawBrandLogo(doc, pinithubLogo, m, 9, 18, 14);
   doc.setDrawColor(...SENTINEL.line);
-  doc.line(31, 4, 31, 20);
+  doc.setLineWidth(0.35);
+  doc.line(m + 21, 10, m + 21, 22);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(12.5);
+  doc.setFontSize(11);
   doc.setTextColor(...SENTINEL.white);
-  doc.text('FORENSIC INVESTIGATION REPORT', 35, 9.5);
-  doc.setFontSize(5);
-  doc.text('& PROVENANCE VERIFICATION', 35, 14);
+  doc.text('FORENSIC INVESTIGATION REPORT', m + 25, 14.5);
   doc.setFont('helvetica', 'normal');
+  doc.setFontSize(4.4);
   doc.setTextColor(...SENTINEL.muted);
-  doc.setFontSize(4);
-  doc.text('Comprehensive evidence report for identity, ownership, integrity and chain-of-custody verification.', 35, 19);
+  doc.text('Provenance · Ownership · Integrity · Custody', m + 25, 19.5);
+  doc.setFontSize(3.6);
+  doc.text('Issued under PinIT Global digital evidence standards', m + 25, 23);
 
-  doc.setFillColor(...(vm.submissionReady ? SENTINEL.green : SENTINEL.amber));
-  doc.roundedRect(151, 4, 54, 8, 1.5, 1.5, 'F');
+  // Status seal
+  doc.setFillColor(...(verified ? SENTINEL.green : SENTINEL.amber));
+  doc.roundedRect(pageW - m - 48, 10, 48, 7, 0.8, 0.8, 'F');
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(4.6);
+  doc.setFontSize(4.4);
   doc.setTextColor(...SENTINEL.bg);
-  doc.text(vm.submissionReady ? 'READY FOR SUBMISSION' : 'REVIEW REQUIRED', 178, 9, { align: 'center' });
+  doc.text(verified ? 'AUTHORITATIVE FINDING' : 'REVIEW REQUIRED', pageW - m - 24, 14.5, { align: 'center' });
   doc.setFont('helvetica', 'normal');
+  doc.setFontSize(3.5);
   doc.setTextColor(...SENTINEL.muted);
-  doc.setFontSize(3.8);
-  doc.text(`Report ID  ${short(report.investigationId, 26)}`, 151, 17);
-  doc.text(`Generated  ${new Date(report.investigatedAt || Date.now()).toLocaleString()}`, 151, 22);
+  doc.text(`Report  ${short(report.investigationId, 22)}`, pageW - m, 21, { align: 'right' });
+  doc.text(`Issued   ${new Date(report.investigatedAt || Date.now()).toLocaleString()}`, pageW - m, 24.5, { align: 'right' });
 
-  // Four KPI cards.
-  const kpis = [
-    ['REPORT STATUS', vm.summary.status, vm.submissionReady ? SENTINEL.green : SENTINEL.amber],
+  // KPI row — aligned 4-column grid
+  const kpiY = 28;
+  const kpiH = 13;
+  const kpiW = (contentW - gutter * 3) / 4;
+  const kpis: Array<[string, string, [number, number, number]]> = [
+    ['REPORT STATUS', vm.summary.status, verified ? SENTINEL.green : SENTINEL.amber],
     ['RISK LEVEL', vm.summary.riskLevel, riskColor],
-    ['OVERALL TRUST SCORE', `${vm.trustScore}%`, SENTINEL.green],
-    ['EVIDENCE STRENGTH', vm.evidenceStrength, statusColor(vm.evidenceStrength === 'Strong')],
-  ] as const;
-  const kpiY = 27;
-  const kpiW = (contentW - 3) / 4;
+    ['TRUST SCORE', `${vm.trustScore}%`, SENTINEL.green],
+    ['EVIDENCE', vm.evidenceStrength, statusColor(vm.evidenceStrength === 'Strong')],
+  ];
   kpis.forEach(([label, text, color], index) => {
-    const x = m + index * (kpiW + 1);
-    darkPanel(doc, x, kpiY, kpiW, 14);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(3.7);
-    doc.setTextColor(...SENTINEL.muted);
-    doc.text(label, x + 3, kpiY + 5);
+    const x = m + index * (kpiW + gutter);
+    darkPanel(doc, x, kpiY, kpiW, kpiH);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6.5);
+    doc.setFontSize(3.4);
+    doc.setTextColor(...SENTINEL.muted);
+    doc.text(label, x + 2.5, kpiY + 4.2);
+    doc.setFontSize(6.2);
     doc.setTextColor(...color);
-    doc.text(doc.splitTextToSize(text, kpiW - 6)[0] ?? text, x + 3, kpiY + 10.5);
+    doc.text(doc.splitTextToSize(text, kpiW - 5)[0] ?? text, x + 2.5, kpiY + 9.8);
   });
 
-  // Verdict strip.
-  darkPanel(doc, m, 43, contentW, 14, SENTINEL.panel2);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(3.8);
-  doc.setTextColor(...SENTINEL.cyan);
-  doc.text('FINAL VERDICT', 7, 48);
+  // Verdict banner
+  const verdictY = 43.5;
+  darkPanel(doc, m, verdictY, contentW, 12, SENTINEL.panel2);
+  doc.setFillColor(...(verified ? SENTINEL.green : SENTINEL.amber));
+  doc.rect(m, verdictY, 1.6, 12, 'F');
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.setTextColor(...SENTINEL.white);
-  doc.text(vm.summary.finalVerdict, 7, 54);
-  doc.setFontSize(3.8);
-  doc.setTextColor(...SENTINEL.muted);
-  doc.text(vm.summary.confidenceLabel, 201, 48, { align: 'right' });
-  doc.setFontSize(9);
+  doc.setFontSize(3.6);
   doc.setTextColor(...SENTINEL.cyan);
-  doc.text(`${vm.summary.confidence}%`, 201, 54.5, { align: 'right' });
-
-  // Original and detected asset panels.
-  const assetY = 59;
-  const assetW = (contentW - 2) / 2;
-  [m, m + assetW + 2].forEach((x) => darkPanel(doc, x, assetY, assetW, 47));
-  darkSectionTitle(doc, m, assetY, assetW, '1', 'Original Asset (Rights Holder)');
-  darkSectionTitle(doc, m + assetW + 2, assetY, assetW, '2', 'Detected Asset (Probe)');
-  doc.setFillColor(...SENTINEL.green);
-  doc.roundedRect(8, 68, 23, 5, 1, 1, 'F');
+  doc.text('FINAL VERDICT', m + 5, verdictY + 4.2);
+  doc.setFontSize(8.2);
+  doc.setTextColor(...SENTINEL.white);
+  doc.text(vm.summary.finalVerdict, m + 5, verdictY + 9.5);
+  doc.setFont('helvetica', 'normal');
   doc.setFontSize(3.5);
+  doc.setTextColor(...SENTINEL.muted);
+  doc.text(vm.summary.confidenceLabel.toUpperCase(), pageW - m - 4, verdictY + 4.2, { align: 'right' });
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(...matchTone);
+  doc.text(`${vm.summary.confidence}%`, pageW - m - 4, verdictY + 9.8, { align: 'right' });
+
+  // Asset panels — equal columns
+  const assetY = 58;
+  const assetH = 44;
+  const assetW = (contentW - gutter) / 2;
+  const leftX = m;
+  const rightX = m + assetW + gutter;
+
+  darkPanel(doc, leftX, assetY, assetW, assetH);
+  darkPanel(doc, rightX, assetY, assetW, assetH);
+  darkSectionTitle(doc, leftX, assetY, assetW, '01', 'Original Asset (Rights Holder)');
+  darkSectionTitle(doc, rightX, assetY, assetW, '02', 'Detected Asset (Probe)');
+
+  // Badges
+  doc.setFillColor(...SENTINEL.green);
+  doc.roundedRect(leftX + 3, assetY + 8, 22, 4.6, 0.6, 0.6, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(3.3);
   doc.setTextColor(...SENTINEL.bg);
-  doc.text(vm.originalAsset.ownershipVerified ? 'VERIFIED' : 'CANDIDATE', 19.5, 71.5, { align: 'center' });
-  doc.setFillColor(...SENTINEL.red);
-  doc.roundedRect(111, 68, 28, 5, 1, 1, 'F');
-  doc.text('UNDER INVESTIGATION', 125, 71.5, { align: 'center' });
+  doc.text(vm.originalAsset.ownershipVerified ? 'VERIFIED' : 'CANDIDATE', leftX + 14, assetY + 11.1, { align: 'center' });
 
-  darkKeyValue(doc, 8, 78, 'Asset Title', value(vm.originalAsset.originalFilename.value), 42);
-  darkKeyValue(doc, 53, 78, 'Owner', value(vm.originalAsset.ownerName.value), 43);
-  darkKeyValue(doc, 8, 86, 'Vault ID', short(vm.originalAsset.vaultId.value), 42);
-  darkKeyValue(doc, 53, 86, 'PinIT DNA ID', short(vm.originalAsset.dnaId.value), 43);
-  darkKeyValue(doc, 8, 94, 'Certificate ID', short(vm.originalAsset.certificateId.value), 42);
-  darkKeyValue(doc, 53, 94, 'TEP Code', value(recovery?.tepCode, 'Not embedded'), 43);
-  darkKeyValue(doc, 8, 102, 'Original SHA-256', short(report.identityRecoveryReport?.originalHash, 38), 88);
+  doc.setFillColor(...probeBadgeColor);
+  doc.roundedRect(rightX + 3, assetY + 8, 26, 4.6, 0.6, 0.6, 'F');
+  doc.text(probeBadge, rightX + 16, assetY + 11.1, { align: 'center' });
 
-  darkKeyValue(doc, 111, 78, 'Uploaded File', value(vm.suspectAsset.filename.value), 42);
-  darkKeyValue(doc, 156, 78, 'MIME Type', value(vm.suspectAsset.mimeType.value), 43);
-  darkKeyValue(doc, 111, 86, 'Current SHA-256', short(vm.suspectAsset.sha256.value, 38), 88);
-  darkKeyValue(doc, 111, 94, 'Similarity Score', `${vm.summary.confidence}%`, 42, SENTINEL.red);
-  darkKeyValue(doc, 156, 94, 'Confidence', vm.summary.confidenceLabel, 43, SENTINEL.red);
-  darkKeyValue(doc, 111, 102, 'Tamper Status', vm.tamper.primaryVector.replace(/_/g, ' '), 88, riskColor);
+  const colA1 = leftX + 3;
+  const colA2 = leftX + assetW / 2 + 1;
+  const colB1 = rightX + 3;
+  const colB2 = rightX + assetW / 2 + 1;
+  const rowW = assetW / 2 - 5;
 
-  // Evidence analysis five-card row.
-  const evidenceY = 108;
-  darkPanel(doc, m, evidenceY, contentW, 38);
-  darkSectionTitle(doc, m, evidenceY, contentW, '3', 'Evidence Analysis');
-  const evW = (contentW - 8) / 5;
+  darkKeyValue(doc, colA1, assetY + 16.5, 'Asset Title', value(vm.originalAsset.originalFilename.value), rowW);
+  darkKeyValue(doc, colA2, assetY + 16.5, 'Owner', value(vm.originalAsset.ownerName.value), rowW);
+  darkKeyValue(doc, colA1, assetY + 24, 'Vault ID', short(vm.originalAsset.vaultId.value, 28), rowW);
+  darkKeyValue(doc, colA2, assetY + 24, 'PinIT DNA ID', short(vm.originalAsset.dnaId.value, 28), rowW);
+  darkKeyValue(
+    doc,
+    colA1,
+    assetY + 31.5,
+    'Certificate ID',
+    short(vm.originalAsset.certificateId.value, 28),
+    rowW,
+    certIssued ? SENTINEL.green : SENTINEL.cyan,
+  );
+  darkKeyValue(
+    doc,
+    colA2,
+    assetY + 31.5,
+    'Certificate Status',
+    certStatusLabel,
+    rowW,
+    certIssued ? SENTINEL.green : SENTINEL.amber,
+  );
+  darkKeyValue(doc, colA1, assetY + 39, 'TEP Code', value(recovery?.tepCode, 'Not embedded'), rowW);
+  darkKeyValue(doc, colA2, assetY + 39, 'Original SHA-256', short(report.identityRecoveryReport?.originalHash, 26), rowW);
+
+  darkKeyValue(doc, colB1, assetY + 16.5, 'Uploaded File', value(vm.suspectAsset.filename.value), rowW);
+  darkKeyValue(doc, colB2, assetY + 16.5, 'MIME Type', value(vm.suspectAsset.mimeType.value), rowW);
+  darkKeyValue(doc, colB1, assetY + 24, 'Current SHA-256', short(vm.suspectAsset.sha256.value, 36), assetW - 8);
+  darkKeyValue(doc, colB1, assetY + 31.5, 'Similarity Score', `${vm.summary.confidence}%`, rowW, matchTone);
+  darkKeyValue(doc, colB2, assetY + 31.5, 'Confidence Basis', vm.summary.confidenceLabel, rowW, matchTone);
+  darkKeyValue(
+    doc,
+    colB1,
+    assetY + 39,
+    'Tamper Status',
+    vm.tamper.primaryVector.replace(/_/g, ' '),
+    assetW - 8,
+    riskColor,
+  );
+
+  // Evidence analysis
+  const evidenceY = assetY + assetH + 2.5;
+  const evidenceH = 34;
+  darkPanel(doc, m, evidenceY, contentW, evidenceH);
+  darkSectionTitle(doc, m, evidenceY, contentW, '03', 'Evidence Analysis');
+  const evW = (contentW - gutter * 4 - 4) / 5;
   vm.evidenceCards.slice(0, 5).forEach((card, index) => {
-    const x = 6 + index * (evW + 2);
-    darkPanel(doc, x, 116, evW, 27, SENTINEL.panel2);
+    const x = m + 2 + index * (evW + gutter);
+    const y = evidenceY + 8;
+    darkPanel(doc, x, y, evW, 23, SENTINEL.panel2);
     const good = card.matched && card.availability === 'available';
+    doc.setFillColor(...(good ? SENTINEL.green : SENTINEL.amber));
+    doc.rect(x, y, 1.2, 23, 'F');
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(4.3);
+    doc.setFontSize(3.8);
     doc.setTextColor(...(good ? SENTINEL.green : SENTINEL.amber));
-    doc.text(card.title.toUpperCase(), x + 2, 121, { maxWidth: evW - 4 });
-    darkKeyValue(doc, x + 2, 127, 'Method', card.subtitle, evW - 4);
+    doc.text(card.title.toUpperCase(), x + 3, y + 4.5, { maxWidth: evW - 5 });
+    darkKeyValue(doc, x + 3, y + 8.5, 'Method', card.subtitle, evW - 5);
     darkKeyValue(
       doc,
-      x + 2,
-      135,
+      x + 3,
+      y + 15,
       'Status',
       card.availability === 'unavailable' ? 'Not measured' : card.statusLabel,
-      evW - 4,
+      evW - 5,
       good ? SENTINEL.green : SENTINEL.amber,
     );
     if (card.confidence != null) {
-      doc.setFontSize(3.8);
-      doc.text(`${Math.round(card.confidence)}%`, x + evW - 2, 140, { align: 'right' });
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(4.2);
+      doc.setTextColor(...SENTINEL.white);
+      doc.text(`${Math.round(card.confidence)}%`, x + evW - 2.5, y + 21, { align: 'right' });
     }
   });
 
-  // Side-by-side comparison — full-width image preview like Sentinel mockup.
-  const compareY = 148;
-  const compareH = 52;
+  // Side-by-side comparison
+  const compareY = evidenceY + evidenceH + 2.5;
+  const compareH = 48;
   darkPanel(doc, m, compareY, contentW, compareH);
-  darkSectionTitle(doc, m, compareY, contentW, '4', 'Side-by-Side Comparison');
-  const frameGap = 2;
-  const frameW = (contentW - frameGap - 4) / 2;
-  const frameH = 38;
+  darkSectionTitle(doc, m, compareY, contentW, '04', 'Side-by-Side Comparison');
+  const frameW = (contentW - gutter - 4) / 2;
+  const frameH = 34;
   const frameY = compareY + 8;
-  const probeMime = String(vm.suspectAsset.mimeType.value);
-  const probeIsImage = isImageMime(probeMime);
 
   drawComparisonFrame(doc, {
-    x: 6,
+    x: m + 2,
     y: frameY,
     width: frameW,
     height: frameH,
     header: 'ORIGINAL ASSET',
     headerColor: SENTINEL.green,
-    caption: short(vm.originalAsset.originalFilename.value, 34),
+    caption: short(vm.originalAsset.originalFilename.value, 40),
     image: comparisonImages.original,
-    placeholder: 'Vault preview unavailable',
+    placeholder: comparisonImages.original ? '' : 'Media preview unavailable',
   });
   drawComparisonFrame(doc, {
-    x: 6 + frameW + frameGap,
+    x: m + 2 + frameW + gutter,
     y: frameY,
     width: frameW,
     height: frameH,
-    header: vm.tamper.overallScore > 0 ? 'TAMPERED / PROBE FILE' : 'PROBE FILE',
-    headerColor: SENTINEL.red,
-    caption: short(vm.suspectAsset.filename.value, 34),
-    image: probeIsImage ? comparisonImages.probe : undefined,
-    placeholder: probeIsImage ? 'Probe preview unavailable' : 'Non-image probe file',
+    header: vm.tamper.overallScore > 0 ? 'PROBE / VARIANT' : 'PROBE FILE',
+    headerColor: verified ? SENTINEL.cyan : SENTINEL.amber,
+    caption: short(vm.suspectAsset.filename.value, 40),
+    image: probeIsMedia ? comparisonImages.probe : comparisonImages.probe,
+    placeholder: comparisonImages.probe
+      ? ''
+      : (probeIsMedia ? 'Probe preview unavailable' : 'Preview not applicable'),
   });
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(5.5);
-  doc.setTextColor(...SENTINEL.green);
+  doc.setFontSize(5.2);
+  doc.setTextColor(...matchTone);
   doc.text(
     `${vm.summary.confidence}% IDENTITY MATCH`,
     m + contentW / 2,
-    compareY + compareH - 2.5,
+    compareY + compareH - 2.2,
     { align: 'center' },
   );
 
-  const provenanceY = compareY + compareH + 2;
-  const provenanceH = 24;
-  const provenanceX = m;
-  const provenanceW = contentW;
-  darkPanel(doc, provenanceX, provenanceY, provenanceW, provenanceH);
-  darkSectionTitle(doc, provenanceX, provenanceY, provenanceW, '5', 'DNA & Provenance Verification');
-  const provenanceRows = [
-    ['15-Layer DNA', vm.layersAvailability === 'available' ? `${vm.layers.length} layers present` : 'Live recovery evidence'],
-    ['Vault Identity', value(vm.originalAsset.vaultId.value, 'Not resolved')],
-    ['Certificate', value(vm.originalAsset.certificateId.value, 'Not issued')],
-    ['TEP / Protected Export', value(recovery?.tepCode, 'Not embedded')],
-    ['Watermark', watermarkLabel(report.identityProof.watermark)],
-    ['Tamper Analysis', `${vm.tamper.overallScore}% · ${vm.tamper.primaryVector.replace(/_/g, ' ')}`],
+  // Provenance
+  const provenanceY = compareY + compareH + 2.5;
+  const provenanceH = 26;
+  darkPanel(doc, m, provenanceY, contentW, provenanceH);
+  darkSectionTitle(doc, m, provenanceY, contentW, '05', 'DNA & Provenance Verification');
+  const provenanceRows: Array<[string, string, [number, number, number]]> = [
+    ['15-Layer DNA', vm.layersAvailability === 'available' ? `${vm.layers.length} layers analysed` : 'Live recovery evidence', SENTINEL.white],
+    ['Vault Identity', value(vm.originalAsset.vaultId.value, 'Not resolved'), SENTINEL.white],
+    [
+      'Certificate ID',
+      `${value(vm.originalAsset.certificateId.value)}${certIssued ? '' : '  (derived reference)'}`,
+      certIssued ? SENTINEL.green : SENTINEL.cyan,
+    ],
+    ['Certificate Status', certStatusLabel, certIssued ? SENTINEL.green : SENTINEL.amber],
+    ['TEP / Protected Export', value(recovery?.tepCode, 'Not embedded'), SENTINEL.white],
+    ['Watermark', watermarkLabel(report.identityProof.watermark), SENTINEL.white],
   ];
-  provenanceRows.forEach(([label, text], index) => {
-    const yy = provenanceY + 9 + index * 3.8;
+  const leftRows = provenanceRows.slice(0, 3);
+  const rightRows = provenanceRows.slice(3);
+  leftRows.forEach(([label, text, color], index) => {
+    const yy = provenanceY + 9.5 + index * 4.6;
     doc.setFillColor(...SENTINEL.green);
-    doc.circle(8, yy - 1, 0.7, 'F');
-    doc.setFontSize(3.8);
+    doc.circle(m + 4, yy - 0.9, 0.75, 'F');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(3.7);
     doc.setTextColor(...SENTINEL.muted);
-    doc.text(label, 11, yy);
-    doc.setTextColor(...SENTINEL.white);
-    doc.text(short(text, 52), 52, yy);
+    doc.text(label, m + 7, yy);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...color);
+    doc.text(short(text, 42), m + 42, yy);
+  });
+  rightRows.forEach(([label, text, color], index) => {
+    const yy = provenanceY + 9.5 + index * 4.6;
+    doc.setFillColor(...SENTINEL.green);
+    doc.circle(m + contentW / 2 + 2, yy - 0.9, 0.75, 'F');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(3.7);
+    doc.setTextColor(...SENTINEL.muted);
+    doc.text(label, m + contentW / 2 + 5, yy);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...color);
+    doc.text(short(text, 36), m + contentW / 2 + 40, yy);
   });
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.5);
+  doc.setFontSize(6);
   doc.setTextColor(...SENTINEL.green);
-  doc.text(`TRUST SCORE  ${vm.trustScore}%`, provenanceX + provenanceW - 4, provenanceY + provenanceH - 3, { align: 'right' });
+  doc.text(`TRUST  ${vm.trustScore}%`, pageW - m - 3, provenanceY + provenanceH - 2.5, { align: 'right' });
 
-  // Chain of custody.
-  const custodyY = provenanceY + provenanceH + 2;
-  const custodyH = 20;
+  // Chain of custody
+  const custodyY = provenanceY + provenanceH + 2.5;
+  const custodyH = 18;
   darkPanel(doc, m, custodyY, contentW, custodyH);
-  darkSectionTitle(doc, m, custodyY, contentW, '6', 'Chain of Custody Timeline');
+  darkSectionTitle(doc, m, custodyY, contentW, '06', 'Chain of Custody Timeline');
   const custody = (vm.custodySteps.length
     ? vm.custodySteps
     : vm.evidenceTimeline.map((event) => ({
       label: event.label,
       date: event.timestamp,
       detail: event.detail,
-    }))).slice(0, 6);
-  const timelineW = contentW / Math.max(custody.length, 1);
-  custody.forEach((event, index) => {
-    const x = 7 + index * timelineW;
+    }))).slice(0, 5);
+  const steps = custody.length > 0 ? custody : [
+    { label: 'Asset registered', date: report.investigatedAt, detail: undefined },
+    { label: 'Probe submitted', date: report.investigatedAt, detail: undefined },
+    { label: 'DNA matched', date: report.investigatedAt, detail: undefined },
+    { label: 'Report issued', date: report.investigatedAt, detail: undefined },
+  ];
+  const timelineW = (contentW - 6) / Math.max(steps.length, 1);
+  steps.forEach((event, index) => {
+    const x = m + 4 + index * timelineW;
     doc.setDrawColor(...SENTINEL.line);
-    if (index < custody.length - 1) doc.line(x + 4, custodyY + 12, x + timelineW, custodyY + 12);
-    doc.setFillColor(...(index === custody.length - 1 ? SENTINEL.red : SENTINEL.green));
-    doc.circle(x + 3, custodyY + 12, 1.2, 'F');
+    doc.setLineWidth(0.4);
+    if (index < steps.length - 1) doc.line(x + 3, custodyY + 10, x + timelineW - 1, custodyY + 10);
+    doc.setFillColor(...(index === steps.length - 1 ? SENTINEL.cyan : SENTINEL.green));
+    doc.circle(x + 2.5, custodyY + 10, 1.3, 'F');
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(3.6);
+    doc.setFontSize(3.4);
     doc.setTextColor(...SENTINEL.white);
-    doc.text(short(event.label, 18), x, custodyY + 17, { maxWidth: timelineW - 2 });
+    doc.text(short(event.label, 16), x, custodyY + 14.5, { maxWidth: timelineW - 3 });
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(3.1);
+    doc.setFontSize(2.9);
     doc.setTextColor(...SENTINEL.muted);
-    if (event.date) doc.text(new Date(event.date).toLocaleDateString(), x, custodyY + 20);
+    if (event.date) doc.text(new Date(event.date).toLocaleDateString(), x, custodyY + 17.2);
   });
 
-  // Bottom declaration, actions, package and QR verification.
-  const bottomY = custodyY + custodyH + 2;
-  const bottomH = 28;
-  const col1 = 77;
-  const col2 = 46;
-  const col3 = 45;
-  const col4 = contentW - col1 - col2 - col3 - 3;
+  // Bottom row — declaration / actions / package / QR (tight, no overflow)
+  const bottomY = custodyY + custodyH + 2.5;
+  const bottomH = 32;
+  const col1 = 72;
+  const col2 = 42;
+  const col3 = 40;
+  const col4 = contentW - col1 - col2 - col3 - gutter * 3;
   const x1 = m;
-  const x2 = x1 + col1 + 1;
-  const x3 = x2 + col2 + 1;
-  const x4 = x3 + col3 + 1;
+  const x2 = x1 + col1 + gutter;
+  const x3 = x2 + col2 + gutter;
+  const x4 = x3 + col3 + gutter;
   darkPanel(doc, x1, bottomY, col1, bottomH);
   darkPanel(doc, x2, bottomY, col2, bottomH);
   darkPanel(doc, x3, bottomY, col3, bottomH);
   darkPanel(doc, x4, bottomY, col4, bottomH);
-  darkSectionTitle(doc, x1, bottomY, col1, '7', 'Legal Declaration');
-  darkSectionTitle(doc, x2, bottomY, col2, '8', 'Recommended Actions');
-  darkSectionTitle(doc, x3, bottomY, col3, '9', 'Output Package');
-  darkSectionTitle(doc, x4, bottomY, col4, '', 'Scan to Verify');
+  darkSectionTitle(doc, x1, bottomY, col1, '07', 'Legal Declaration');
+  darkSectionTitle(doc, x2, bottomY, col2, '08', 'Recommended Actions');
+  darkSectionTitle(doc, x3, bottomY, col3, '09', 'Output Package');
+  darkSectionTitle(doc, x4, bottomY, col4, '10', 'Verify');
 
-  const declaration = `I declare that this report faithfully records the forensic evidence available to PinIT Sentinel. Verdict: ${vm.summary.finalVerdict}. Policy: ${value(vm.acceptance.policyVersion.value)}.`;
+  const declaration = `This instrument records forensic evidence produced by PinIT Sentinel for the referenced investigation. Verdict: ${vm.summary.finalVerdict}. Policy: ${value(vm.acceptance.policyVersion.value)}.`;
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(4.1);
+  doc.setFontSize(3.6);
   doc.setTextColor(...SENTINEL.white);
-  doc.text(doc.splitTextToSize(declaration, col1 - 6), x1 + 3, bottomY + 12);
+  doc.text(doc.splitTextToSize(declaration, col1 - 5), x1 + 2.5, bottomY + 9);
   doc.setTextColor(...SENTINEL.muted);
-  doc.text(`Report owner: ${value(vm.originalAsset.ownerName.value)}`, x1 + 3, bottomY + 30);
-  doc.text(`PINIT ID: ${value(vm.originalAsset.ownerPinitId.value)}`, x1 + 3, bottomY + 35);
-  doc.setDrawColor(...SENTINEL.muted);
-  doc.line(x1 + 3, bottomY + 43, x1 + 34, bottomY + 43);
-  doc.text('Authorized signature', x1 + 3, bottomY + 46);
+  doc.setFontSize(3.2);
+  doc.text(`Rights holder: ${short(vm.originalAsset.ownerName.value, 28)}`, x1 + 2.5, bottomY + 22);
+  doc.text(`PINIT ID: ${short(vm.originalAsset.ownerPinitId.value, 28)}`, x1 + 2.5, bottomY + 25.5);
+  doc.setDrawColor(...SENTINEL.line);
+  doc.line(x1 + 2.5, bottomY + 28.5, x1 + 34, bottomY + 28.5);
+  doc.text('Authorized forensic signature', x1 + 2.5, bottomY + 30.8);
 
-  vm.recommendedActions.slice(0, 7).forEach((action, index) => {
-    compactBullet(doc, x2 + 2, bottomY + 12 + index * 5, action, col2 - 4);
+  vm.recommendedActions.slice(0, 4).forEach((action, index) => {
+    compactBullet(doc, x2 + 2, bottomY + 10 + index * 5, action, col2 - 4);
   });
   [
     'Investigation Report PDF',
     '15-Layer DNA Report',
     'Evidence Package ZIP',
     'Signed Manifest',
-    'Hash & Metadata Report',
-    'Chain-of-Custody PDF',
   ].forEach((item, index) => {
-    compactBullet(doc, x3 + 2, bottomY + 12 + index * 5, item, col3 - 4);
+    compactBullet(doc, x3 + 2, bottomY + 10 + index * 5, item, col3 - 4);
   });
 
-  // Sign the completed evidence content, then place its verification QR in the reserved block.
   const preliminaryBlob = pdfBlobOut(doc);
   const manifest = await signPdfBlob(preliminaryBlob, report, 'INVESTIGATION');
   if (manifest) {
     const qr = await QRCode.toDataURL(manifest.verifyUrl, {
       margin: 1,
-      width: 240,
+      width: 220,
       color: { dark: '#04101b', light: '#ffffff' },
     });
     doc.setFillColor(255, 255, 255);
-    doc.roundedRect(x4 + 7, bottomY + 9, col4 - 14, 26, 1, 1, 'F');
-    doc.addImage(qr, 'PNG', x4 + 9, bottomY + 11, col4 - 18, 22);
+    doc.roundedRect(x4 + 4, bottomY + 8, col4 - 8, 18, 0.8, 0.8, 'F');
+    doc.addImage(qr, 'PNG', x4 + 6, bottomY + 9, col4 - 12, 16);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(3.8);
+    doc.setFontSize(3.3);
     doc.setTextColor(...SENTINEL.white);
-    doc.text('VERIFY AUTHENTICITY', x4 + col4 / 2, bottomY + 39, { align: 'center' });
+    doc.text('SCAN TO AUTHENTICATE', x4 + col4 / 2, bottomY + 28, { align: 'center' });
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(3.1);
+    doc.setFontSize(2.8);
     doc.setTextColor(...SENTINEL.muted);
-    doc.text(short(manifest.reportId, 18), x4 + col4 / 2, bottomY + 44, { align: 'center' });
+    doc.text(short(manifest.reportId, 16), x4 + col4 / 2, bottomY + 30.5, { align: 'center' });
   } else {
-    doc.setFontSize(4);
+    doc.setFontSize(3.5);
     doc.setTextColor(...SENTINEL.muted);
-    doc.text('Verification QR unavailable', x4 + col4 / 2, bottomY + 27, { align: 'center' });
+    doc.text('Verification QR\nunavailable', x4 + col4 / 2, bottomY + 18, { align: 'center' });
   }
 
-  // Branded footer.
+  // Official footer band
   doc.setFillColor(...SENTINEL.panel2);
-  doc.rect(0, 280, pageW, 17, 'F');
-  drawBrandLogo(doc, pinithubLogo, 6, 282, 14, 12);
+  doc.rect(0, 284, pageW, 13, 'F');
+  doc.setFillColor(...SENTINEL.cyan);
+  doc.rect(0, 284, pageW, 0.6, 'F');
+  drawBrandLogo(doc, pinithubLogo, m, 286, 11, 9);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(5.5);
+  doc.setFontSize(5);
   doc.setTextColor(...SENTINEL.cyan);
-  doc.text('PinIT Sentinel', 22, 287);
+  doc.text('PinIT Sentinel', m + 14, 290);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(4);
+  doc.setFontSize(3.4);
   doc.setTextColor(...SENTINEL.muted);
-  doc.text('Protecting Digital Rights. Preserving Trust.', 22, 291);
-  doc.text(`© ${new Date().getFullYear()} PinIT Global. All rights reserved.`, 205, 289, { align: 'right' });
+  doc.text('Authoritative digital provenance record  ·  Protecting rights. Preserving trust.', m + 14, 293.5);
+  doc.text(`© ${new Date().getFullYear()} PinIT Global`, pageW - m, 291.5, { align: 'right' });
 
-  // Explicitly guarantee the requested single-page document.
   while (doc.getNumberOfPages() > 1) doc.deletePage(doc.getNumberOfPages());
   return pdfBlobOut(doc);
 }
@@ -892,7 +1134,9 @@ export async function downloadInvestigationReportPdf(
   options?: InvestigationReportPdfOptions,
 ): Promise<void> {
   const blob = await buildInvestigationReportPdf(report, options);
-  downloadBlob(blob, `InvestigationReport-${report.investigationId.slice(0, 8)}.pdf`);
+  const filename = `InvestigationReport-${report.investigationId.slice(0, 8)}.pdf`;
+  await persistForensicExport(report.investigationId, 'investigation', blob, filename);
+  downloadBlob(blob, filename);
 }
 
 // ─── DNA Report PDF ───────────────────────────────────────────────────────────
@@ -947,7 +1191,9 @@ export async function buildDnaReportPdf(report: InvestigationReportExport): Prom
 
 export async function downloadDnaReportPdf(report: InvestigationReportExport): Promise<void> {
   const blob = await buildDnaReportPdf(report);
-  downloadBlob(blob, `DNAReport-${report.investigationId.slice(0, 8)}.pdf`);
+  const filename = `DNAReport-${report.investigationId.slice(0, 8)}.pdf`;
+  await persistForensicExport(report.investigationId, 'dna', blob, filename);
+  downloadBlob(blob, filename);
 }
 
 // ─── Timeline Report PDF ──────────────────────────────────────────────────────
@@ -1020,7 +1266,9 @@ function truncate(s: string, max = 12): string {
 
 export async function downloadTimelineReportPdf(report: InvestigationReportExport): Promise<void> {
   const blob = await buildTimelineReportPdf(report);
-  downloadBlob(blob, `TimelineReport-${report.investigationId.slice(0, 8)}.pdf`);
+  const filename = `TimelineReport-${report.investigationId.slice(0, 8)}.pdf`;
+  await persistForensicExport(report.investigationId, 'timeline', blob, filename);
+  downloadBlob(blob, filename);
 }
 
 // ─── Evidence ZIP package ─────────────────────────────────────────────────────
@@ -1108,12 +1356,45 @@ export async function downloadEvidencePackageZip(
   );
 
   const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
-  downloadBlob(blob, `EvidencePackage-${id}.zip`);
+  const zipName = `EvidencePackage-${id}.zip`;
+
+  // Store individual PDFs + ZIP so Forensic Reports can re-open any of them later.
+  await Promise.all([
+    persistForensicExport(report.investigationId, 'investigation', invPdf, `InvestigationReport-${id}.pdf`),
+    persistForensicExport(report.investigationId, 'dna', dnaPdf, `DNAReport-${id}.pdf`),
+    persistForensicExport(report.investigationId, 'timeline', timelinePdf, `TimelineReport-${id}.pdf`),
+    persistForensicExport(report.investigationId, 'evidence_zip', blob, zipName),
+  ]);
+
+  downloadBlob(blob, zipName);
 }
 
-export function downloadAdvancedExportJson(report: InvestigationReportExport): void {
-  downloadBlob(
-    new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }),
-    `investigation-advanced-${report.investigationId.slice(0, 8)}.json`,
-  );
+export async function downloadAdvancedExportJson(report: InvestigationReportExport): Promise<void> {
+  const filename = `investigation-advanced-${report.investigationId.slice(0, 8)}.json`;
+  const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+  await persistForensicExport(report.investigationId, 'json', blob, filename);
+  downloadBlob(blob, filename);
+}
+
+/**
+ * Build and archive Investigation / DNA / Timeline PDFs (+ JSON) into Forensic Reports
+ * without triggering a browser download. Called automatically when an investigation finishes.
+ */
+export async function archiveInvestigationForensicExports(
+  report: InvestigationReportExport,
+  options?: InvestigationReportPdfOptions,
+): Promise<void> {
+  const id = report.investigationId.slice(0, 8);
+  const [invPdf, dnaPdf, timelinePdf] = await Promise.all([
+    buildInvestigationReportPdf(report, options),
+    buildDnaReportPdf(report),
+    buildTimelineReportPdf(report),
+  ]);
+  const jsonBlob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+  await Promise.all([
+    persistForensicExport(report.investigationId, 'investigation', invPdf, `InvestigationReport-${id}.pdf`),
+    persistForensicExport(report.investigationId, 'dna', dnaPdf, `DNAReport-${id}.pdf`),
+    persistForensicExport(report.investigationId, 'timeline', timelinePdf, `TimelineReport-${id}.pdf`),
+    persistForensicExport(report.investigationId, 'json', jsonBlob, `investigation-advanced-${id}.json`),
+  ]);
 }

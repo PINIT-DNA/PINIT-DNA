@@ -121,6 +121,7 @@ export function EnterpriseInvestigationReport({
 }: Props) {
   const vm = useMemo(() => buildEnterpriseInvestigationViewModel(report), [report]);
   const [exporting, setExporting] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState<'investigation' | 'dna' | 'timeline' | null>(null);
   const exportPayload = report as unknown as InvestigationReportExport;
 
   const vaultId = vm.originalAsset.vaultId.availability === 'available'
@@ -219,7 +220,8 @@ export function EnterpriseInvestigationReport({
                   ['Asset Title', String(vm.originalAsset.originalFilename.value)],
                   ['Vault ID', shortId(String(vm.originalAsset.vaultId.value), 16)],
                   ['PinIT DNA ID', shortId(String(vm.originalAsset.dnaId.value), 16)],
-                  ['Certificate', shortId(String(vm.originalAsset.certificateId.value), 20)],
+                  ['Certificate ID', shortId(String(vm.originalAsset.certificateId.value), 20)],
+                  ['Certificate Status', vm.originalAsset.certificateStatus],
                   ['Owner', String(vm.originalAsset.ownerName.value)],
                   ['PINIT ID', String(vm.originalAsset.ownerPinitId.value)],
                 ].map(([k, v]) => (
@@ -305,9 +307,11 @@ export function EnterpriseInvestigationReport({
                     : undefined
                 }
                 certificateId={
-                  vm.originalAsset.certificateId.availability === 'available'
+                  vm.originalAsset.certificateIssued
                     ? String(vm.originalAsset.certificateId.value)
-                    : null
+                    : (vm.originalAsset.certificateId.availability === 'available'
+                      ? String(vm.originalAsset.certificateId.value)
+                      : null)
                 }
               />
             </DocSection>
@@ -397,22 +401,67 @@ export function EnterpriseInvestigationReport({
             </ul>
           </DocSection>
 
-          {/* 9 Package + exports */}
+  {/* 9 Package + exports */}
           <DocSection num="09" title="Output Package">
             <div className="flex flex-wrap gap-2 mb-4">
-              <button type="button" className="btn btn-secondary text-xs" onClick={() => { void downloadInvestigationReportPdf(exportPayload); }}>
-                <Download size={12} /> Investigation Report (PDF)
+              <button
+                type="button"
+                className="btn btn-secondary text-xs"
+                disabled={!!pdfBusy || exporting}
+                onClick={async () => {
+                  setPdfBusy('investigation');
+                  try {
+                    await downloadInvestigationReportPdf(exportPayload);
+                  } finally {
+                    setPdfBusy(null);
+                  }
+                }}
+              >
+                {pdfBusy === 'investigation'
+                  ? <RefreshCw size={12} className="animate-spin" />
+                  : <Download size={12} />}
+                {pdfBusy === 'investigation' ? ' Building PDF…' : ' Investigation Report (PDF)'}
               </button>
-              <button type="button" className="btn btn-secondary text-xs" onClick={() => { void downloadDnaReportPdf(exportPayload); }}>
-                <Dna size={12} /> DNA Report (PDF)
+              <button
+                type="button"
+                className="btn btn-secondary text-xs"
+                disabled={!!pdfBusy || exporting}
+                onClick={async () => {
+                  setPdfBusy('dna');
+                  try {
+                    await downloadDnaReportPdf(exportPayload);
+                  } finally {
+                    setPdfBusy(null);
+                  }
+                }}
+              >
+                {pdfBusy === 'dna'
+                  ? <RefreshCw size={12} className="animate-spin" />
+                  : <Dna size={12} />}
+                {pdfBusy === 'dna' ? ' Building PDF…' : ' DNA Report (PDF)'}
               </button>
-              <button type="button" className="btn btn-secondary text-xs" onClick={() => { void downloadTimelineReportPdf(exportPayload); }}>
-                <Clock size={12} /> Timeline Report (PDF)
+              <button
+                type="button"
+                className="btn btn-secondary text-xs"
+                disabled={!!pdfBusy || exporting}
+                onClick={async () => {
+                  setPdfBusy('timeline');
+                  try {
+                    await downloadTimelineReportPdf(exportPayload);
+                  } finally {
+                    setPdfBusy(null);
+                  }
+                }}
+              >
+                {pdfBusy === 'timeline'
+                  ? <RefreshCw size={12} className="animate-spin" />
+                  : <Clock size={12} />}
+                {pdfBusy === 'timeline' ? ' Building PDF…' : ' Timeline Report (PDF)'}
               </button>
               <button
                 type="button"
                 className="btn btn-primary text-xs"
-                disabled={exporting}
+                disabled={exporting || !!pdfBusy}
                 onClick={async () => {
                   setExporting(true);
                   try {
@@ -425,10 +474,17 @@ export function EnterpriseInvestigationReport({
                 {exporting ? <RefreshCw size={12} className="animate-spin" /> : <Package size={12} />}
                 {exporting ? ' Building ZIP…' : ' Evidence Package (ZIP)'}
               </button>
-              <button type="button" className="btn btn-ghost text-xs border border-slate-600" onClick={() => downloadAdvancedExportJson(exportPayload)}>
+              <button type="button" className="btn btn-ghost text-xs border border-slate-600" disabled={!!pdfBusy || exporting} onClick={() => { void downloadAdvancedExportJson(exportPayload); }}>
                 <FileDown size={12} /> JSON Export
               </button>
             </div>
+            {(pdfBusy || exporting) && (
+              <p className="text-2xs text-sky-400 mb-3">
+                {pdfBusy
+                  ? 'Generating PDF… download starts when ready.'
+                  : 'Building evidence ZIP…'}
+              </p>
+            )}
             <ul className="text-2xs text-slate-500 space-y-1">
               <li>• Investigation Report PDF (Sentinel layout)</li>
               <li>• 15-Layer DNA Forensic Report PDF</li>

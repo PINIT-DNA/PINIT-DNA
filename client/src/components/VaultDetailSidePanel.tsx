@@ -15,6 +15,8 @@ import {
   RefreshCw,
   Users,
   ChevronRight,
+  Microscope,
+  Shield,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { VaultFileThumbnail } from './VaultFileThumbnail';
@@ -26,6 +28,7 @@ import {
   resolveVaultFileMime,
 } from '../lib/file-type-utils';
 import { API_BASE_URL } from '../config/api.config';
+import { BRAND } from '../config/brand.config';
 import { api, retrieveFromVault, getVaultTracking, protectedDownloadFromVault, type VaultTrackingDashboard } from '../services/dashboard.api';
 import { useAuth } from '../context/AuthContext';
 import type { VaultRecord } from '../types/dashboard.types';
@@ -580,8 +583,10 @@ export function VaultDetailSidePanel({
               onClick={handleProtectedDownload}
             />
             <QuickAction icon={<Share2 size={18} />} label="Share Secure Link" onClick={onShare} />
-            <QuickAction icon={<Activity size={18} />} label="Access Intelligence" onClick={handleAccessIntelligence} />
             <QuickAction icon={<FileSearch size={18} />} label="Intelligence Report" onClick={() => navigate(`/intelligence/${record.id}`)} />
+            <QuickAction icon={<Microscope size={18} />} label="Difference Engine" onClick={() => navigate('/forensic-diff')} />
+            <QuickAction icon={<Activity size={18} />} label="Access Intelligence" onClick={handleAccessIntelligence} />
+            <QuickAction icon={<Shield size={18} />} label="Unified Investigation" onClick={() => navigate(BRAND.investigationPath)} />
             <QuickAction
               icon={retrieving ? <RefreshCw size={18} className="animate-spin" /> : <ShieldCheck size={18} />}
               label="Owner Backup"
