@@ -38,7 +38,10 @@ export function deriveFileType(record: DnaRecord): string {
   return 'IMAGE'; // safe fallback
 }
 
-export const api = axios.create({});
+export const api = axios.create({
+  /** Per-request ceiling — busy backend (monitor/crawler) may need up to ~30s locally. */
+  timeout: 30_000,
+});
 
 /** Human-readable message for failed API calls (proxy offline, 5xx, etc.) */
 export function formatApiError(err: unknown): string {
@@ -104,8 +107,8 @@ api.interceptors.response.use(
     const url = String(config.url ?? '');
     const isHeavyUpload = url.includes('/dna/generate') || url.includes('/vault/store');
 
-    // Dev: retry while backend restarts — cap heavy multipart uploads to avoid long hangs
-    const maxOfflineRetries = isHeavyUpload ? 3 : 12;
+    // Dev: retry while backend restarts — keep low to avoid multi-minute page loads
+    const maxOfflineRetries = isHeavyUpload ? 3 : 4;
     if (import.meta.env.DEV && backendOffline && count < maxOfflineRetries) {
       config._netRetryCount = count + 1;
       await new Promise((r) => setTimeout(r, 1200 + count * 400));

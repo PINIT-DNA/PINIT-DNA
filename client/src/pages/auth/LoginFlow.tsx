@@ -14,7 +14,8 @@ import {
   saveRegistration, getStoredWebAuthnCredential, generateHoid,
 } from '../../lib/hoid';
 import { touchLastLogin } from '../../lib/identity-store';
-import { warmBackend } from '../../lib/auth';
+import { warmBackend, parseJwt, getAccessToken } from '../../lib/auth';
+import { resolveDefaultHomePath } from '../../lib/subscription/post-upgrade-redirect';
 import { loginWithFace } from '../../lib/face-api-client';
 import { collectFingerprint } from '../../lib/device-fingerprint';
 import { preloadFaceModels } from '../../lib/face-capture';
@@ -48,7 +49,7 @@ export function LoginFlow() {
 
   function goToRegister() {
     clearRegistration();
-    navigate('/register', { replace: true });
+    navigate('/register/account-type', { replace: true });
   }
 
   function handleNotRegistered(msg: string) {
@@ -56,7 +57,7 @@ export function LoginFlow() {
   }
 
   return (
-    <AuthShell steps={ORDER.length} current={idx} tagline="Verify Your Presence">
+    <AuthShell steps={ORDER.length} current={idx} tagline="Biometric Access">
       <AnimatePresence mode="wait">
         <motion.div key={step} {...fade}>
           {step === 'welcome' && (
@@ -128,7 +129,13 @@ export function LoginFlow() {
             />
           )}
           {step === 'success' && (
-            <LoginSuccess onEnter={() => navigate('/', { replace: true })} />
+            <LoginSuccess
+              onEnter={() => {
+                const token = getAccessToken();
+                const parsed = token ? parseJwt(token) : null;
+                navigate(resolveDefaultHomePath(parsed?.accountType ?? 'INDIVIDUAL'), { replace: true });
+              }}
+            />
           )}
         </motion.div>
       </AnimatePresence>
@@ -139,15 +146,39 @@ export function LoginFlow() {
 function WelcomeBack({ onNext, onRegister }: { onNext: () => void; onRegister: () => void }) {
   return (
     <div className="pa-card" style={{ textAlign: 'center' }}>
-      <div style={{ width: 76, height: 76, margin: '4px auto 16px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at 50% 30%, rgba(129,140,248,0.35), rgba(99,102,241,0.06))', border: '1px solid rgba(129,140,248,0.4)' }}>
-        <UserCheck size={38} color="#6366f1" />
+      <div style={{
+        width: 72, height: 72, margin: '4px auto 16px', borderRadius: 20,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'radial-gradient(circle at 50% 30%, rgba(59,158,255,0.35), rgba(29,111,216,0.08))',
+        border: '1px solid rgba(59,158,255,0.35)',
+      }}>
+        <UserCheck size={34} color="#3b9eff" />
       </div>
-      <h1 style={{ fontSize: 23, fontWeight: 800 }}>Welcome Back</h1>
-      <p className="pa-muted" style={{ fontSize: 14, marginTop: 8, marginBottom: 22 }}>
-        Face scan → fingerprint scan → voice — then we match our database.
+      <h1 style={{ fontSize: 22, fontWeight: 800 }}>Welcome Back</h1>
+      <p className="pa-muted" style={{ fontSize: 14, marginTop: 8 }}>
+        Biometric login only — no email or password.
       </p>
+      <div className="pa-bio-steps">
+        <div className="pa-bio-step">
+          <ScanFace size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
+          <span>Face</span>
+          <em>Scan</em>
+        </div>
+        <div className="pa-bio-step">
+          <ShieldCheck size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
+          <span>Fingerprint</span>
+          <em>Verify</em>
+        </div>
+        <div className="pa-bio-step">
+          <CheckCircle2 size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
+          <span>Voice</span>
+          <em>Match</em>
+        </div>
+      </div>
       <button className="pa-btn" onClick={onNext}><ScanFace size={17} /> Verify Identity</button>
-      <button className="pa-btn pa-btn-ghost" style={{ marginTop: 10 }} onClick={onRegister}>New here? Register</button>
+      <button className="pa-btn pa-btn-ghost" style={{ marginTop: 10 }} onClick={onRegister}>
+        New here? Create biometric account
+      </button>
     </div>
   );
 }
@@ -189,7 +220,7 @@ function Presence({
 
   return (
     <div className="pa-card">
-      <StepHead icon={<ShieldCheck size={26} color="#6366f1" />} title="Checking Database" subtitle="Matching your biometrics…" />
+      <StepHead icon={<ShieldCheck size={26} color="#3b9eff" />} title="Checking Database" subtitle="Matching your biometrics…" />
       <Checklist items={items} />
       <SystemTrace lines={['Compare Face', 'Verify Voice', 'Lookup Identity']} />
       {error && (
@@ -225,9 +256,9 @@ function LoginSuccess({ onEnter }: { onEnter: () => void }) {
       <div style={{ margin: '18px 0' }}><TrustBadge score={getTrustScore()} /></div>
       <div className="pa-check" style={{ justifyContent: 'center', marginBottom: 18 }}>
         <span className="pa-faint" style={{ fontSize: 13 }}>Last login</span>
-        <span style={{ fontSize: 13, color: '#0f172a', fontWeight: 600 }}>{lastStr}</span>
+        <span style={{ fontSize: 13, color: '#e8eef8', fontWeight: 600 }}>{lastStr}</span>
       </div>
-      <button className="pa-btn" onClick={onEnter}>Enter PINIT <ArrowRight size={17} /></button>
+      <button className="pa-btn" onClick={onEnter}>Enter PinIT Hub <ArrowRight size={17} /></button>
     </div>
   );
 }

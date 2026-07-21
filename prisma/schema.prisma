@@ -428,8 +428,13 @@ model User {
   notifyReports      Boolean          @default(true)
   notifySystem       Boolean          @default(true)
   organization       String?
+  organizationIndustry OrganizationIndustry?
+  organizationSize   OrganizationSize?
+  workspaceName      String?
+  businessSetupCompletedAt DateTime?
   phone              String?
   theme              String           @default("light")
+  accountType        AccountType      @default(INDIVIDUAL)
 
   // Face Recognition Auth
   faceEmbedding      Float[]          @default([])
@@ -459,7 +464,46 @@ model User {
   userDevices        UserDevice[]
   securityEvents     SecurityEvent[]
 
+  // Freemium subscription (additive — does not affect DNA/Vault/auth)
+  subscription       Subscription?
+
+  // Business organization (owner on Free tier — extensible for Enterprise teams)
+  ownedOrganization  Organization?
+
   @@map("users")
+}
+
+model Organization {
+  id                 String                @id @default(uuid())
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  shortId            String                @unique
+  name               String?
+  industry           OrganizationIndustry?
+  country            String?
+  logoUrl            String?
+  ownerUserId        String                @unique
+  ownerUser          User                  @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  setupCompletedAt   DateTime?
+  setupSkippedAt     DateTime?
+  welcomeDismissedAt DateTime?
+  workspaces         Workspace[]
+
+  @@index([ownerUserId])
+  @@map("organizations")
+}
+
+model Workspace {
+  id             String       @id @default(uuid())
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  name           String       @default("Main Workspace")
+  isDefault      Boolean      @default(true)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("workspaces")
 }
 
 model LoginHistory {
@@ -1248,12 +1292,158 @@ model CrawlerMatch {
   @@map("crawler_matches")
 }
 
+enum AccountType {
+  INDIVIDUAL
+  BUSINESS
+}
+
+enum OrganizationIndustry {
+  MEDIA
+  LEGAL
+  EDUCATION
+  TECHNOLOGY
+  HEALTHCARE
+  AGENCY
+  OTHER
+}
+
+enum OrganizationSize {
+  SOLO
+  SMALL
+  MEDIUM
+  LARGE
+  XLARGE
+}
+
 enum UserRole {
   SUPER_ADMIN
   ADMIN
   ANALYST
   AUDITOR
   USER
+}
+
+// ─── Subscription & Feature Entitlement (Freemium SaaS) ───────────────────────
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+enum BillingProvider {
+  NONE
+  MANUAL
+  STRIPE
+  RAZORPAY
+  PAYPAL
+}
+
+enum BillingHistoryStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+enum UsageMetric {
+  STORAGE_BYTES
+  INVESTIGATION_RUNS
+  MONITOR_ENROLLMENTS
+  API_CALLS
+}
+
+/// Catalog of plans (FREE / PRO / ENTERPRISE). Limits live here + constants.
+model Plan {
+  id                 String         @id @default(uuid())
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  code               String         @unique
+  name               String
+  description        String?
+  /// null = unlimited
+  storageLimitBytes  BigInt?
+  /// Feature keys enabled for this plan (string[])
+  features           Json           @default("[]")
+  isActive           Boolean        @default(true)
+  sortOrder          Int            @default(0)
+  subscriptions      Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id                   String             @id @default(uuid())
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  userId               String             @unique
+  planId               String
+  status               SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart   DateTime           @default(now())
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+  /// Future gateway customer id (Stripe/Razorpay/PayPal)
+  externalCustomerId   String?
+  externalSubscriptionId String?
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                 Plan               @relation(fields: [planId], references: [id])
+  billingHistory       BillingHistory[]
+  usageRecords         UsageRecord[]
+
+  @@index([planId])
+  @@index([status])
+  @@map("subscriptions")
+}
+
+/// Per-user or org feature overrides (enterprise custom deals)
+model FeatureEntitlement {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  userId      String
+  featureKey  String
+  enabled     Boolean  @default(true)
+  note        String?
+
+  @@unique([userId, featureKey])
+  @@index([userId])
+  @@map("feature_entitlements")
+}
+
+model BillingHistory {
+  id             String               @id @default(uuid())
+  createdAt      DateTime             @default(now())
+  subscriptionId String
+  amountCents    Int                  @default(0)
+  currency       String               @default("USD")
+  provider       BillingProvider      @default(NONE)
+  externalId     String?
+  status         BillingHistoryStatus @default(PENDING)
+  rawPayload     Json                 @default("{}")
+  subscription   Subscription         @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@index([provider])
+  @@map("billing_history")
+}
+
+model UsageRecord {
+  id             String       @id @default(uuid())
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  subscriptionId String
+  userId         String
+  metric         UsageMetric
+  value          BigInt       @default(0)
+  /// e.g. 2026-07 for monthly rollups
+  periodKey      String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriptionId, metric, periodKey])
+  @@index([userId, metric])
+  @@map("usage_records")
 }
 
 enum CertStatus {

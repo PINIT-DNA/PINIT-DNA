@@ -20,6 +20,13 @@ import { DashboardFilesMap, type DashboardFileMapPoint } from '../components/map
 import type { VaultRecord } from '../types/dashboard.types';
 import { formatDistanceToNow } from 'date-fns';
 import { API_BASE_URL } from '../config/api.config';
+import { useAuth } from '../context/AuthContext';
+import { UpgradeWelcomeModal } from '../components/subscription/UpgradeWelcomeModal';
+import {
+  consumePendingUpgradeWelcome,
+  markUpgradeWelcomeSeen,
+} from '../lib/subscription/upgrade-welcome';
+import type { PlanCode } from '../hooks/useSubscription';
 
 interface ShareStats {
   totalViews: number; uniqueRecipients: number; countriesReached: number;
@@ -110,6 +117,7 @@ function InsightEmpty({ text }: { text: string }) {
 // --- Page ---------------------------------------------------------------------
 
 export function DashboardPage() {
+  const { user } = useAuth();
   const { data: stats, loading, error, refetch } = useApi(getDashboardStats);
   const [shareStats, setShareStats] = useState<ShareStats | null>(null);
   const [vaultRecords, setVaultRecords] = useState<VaultRecord[]>([]);
@@ -117,6 +125,15 @@ export function DashboardPage() {
   const [trackingMeta, setTrackingMeta] = useState({ recent: 0, total: 0 });
   const [securityInsights, setSecurityInsights] = useState<DashboardSecurityInsights | null>(null);
   const [securityLoading, setSecurityLoading] = useState(true);
+  const [welcomePlan, setWelcomePlan] = useState<PlanCode | null>(null);
+
+  useEffect(() => {
+    if (!user?.sub) return;
+    const pending = consumePendingUpgradeWelcome(user.sub);
+    if (pending && pending !== 'FREE') {
+      setWelcomePlan(pending);
+    }
+  }, [user?.sub]);
 
   const vaultByDnaId = useMemo(
     () => new Map(vaultRecords.map(v => [v.dnaRecordId, v])),
@@ -562,6 +579,17 @@ export function DashboardPage() {
           </Link>
         ))}
       </div>
+
+      {welcomePlan && user?.sub && (
+        <UpgradeWelcomeModal
+          open={Boolean(welcomePlan)}
+          planCode={welcomePlan}
+          onDismiss={() => {
+            markUpgradeWelcomeSeen(user.sub, welcomePlan);
+            setWelcomePlan(null);
+          }}
+        />
+      )}
     </div>
   );
 }

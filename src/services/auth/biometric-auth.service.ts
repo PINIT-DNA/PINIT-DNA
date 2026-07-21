@@ -35,6 +35,8 @@ export interface BiometricRegisterInput {
   voiceFingerprint?: number[];
   webauthnCredentialId?: string;
   deviceFingerprint?: string;
+  accountType?: 'INDIVIDUAL' | 'BUSINESS';
+  organizationName?: string;
   ip?: string;
   userAgent?: string;
 }
@@ -69,9 +71,21 @@ function generateShortId(): string {
   return `PINIT-${id}`;
 }
 
-function createTokens(user: { id: string; shortId: string; fullName: string; role: string }): AuthTokens {
+function createTokens(user: {
+  id: string;
+  shortId: string;
+  fullName: string;
+  role: string;
+  accountType?: string;
+}): AuthTokens {
   const accessToken = jwt.sign(
-    { sub: user.id, shortId: user.shortId, name: user.fullName, role: user.role },
+    {
+      sub: user.id,
+      shortId: user.shortId,
+      name: user.fullName,
+      role: user.role,
+      accountType: user.accountType ?? 'INDIVIDUAL',
+    },
     JWT_SECRET,
     { expiresIn: '7d' },
   );
@@ -280,7 +294,18 @@ export const biometricAuthService = {
     | { ok: true; user: AuthUser; tokens: AuthTokens }
     | { ok: false; status: 409; message: string; shortId?: string }
   > {
-    const { faceEmbedding, voiceFingerprint, webauthnCredentialId, deviceFingerprint, ip, userAgent } = input;
+    const {
+      faceEmbedding,
+      voiceFingerprint,
+      webauthnCredentialId,
+      deviceFingerprint,
+      accountType,
+      organizationName,
+      ip,
+      userAgent,
+    } = input;
+
+    const resolvedAccountType = accountType === 'BUSINESS' ? 'BUSINESS' : 'INDIVIDUAL';
 
     if (!isValidTemplate(faceEmbedding)) {
       throw new Error('Invalid face embedding. Must be 128-dimensional float array.');
@@ -331,6 +356,10 @@ export const biometricAuthService = {
           data: {
             shortId,
             fullName: 'PINIT User',
+            accountType: resolvedAccountType,
+            organization: resolvedAccountType === 'BUSINESS' && organizationName?.trim()
+              ? organizationName.trim()
+              : null,
             faceEmbedding: faceNorm,
             faceRegistered: true,
             faceRegisteredAt: new Date(),
@@ -383,6 +412,10 @@ export const biometricAuthService = {
         data: {
           shortId,
           fullName: 'PINIT User',
+          accountType: resolvedAccountType,
+          organization: resolvedAccountType === 'BUSINESS' && organizationName?.trim()
+            ? organizationName.trim()
+            : null,
           faceEmbedding: faceNorm,
           faceRegistered: true,
           faceRegisteredAt: new Date(),
@@ -397,6 +430,13 @@ export const biometricAuthService = {
     }
 
     logger.info('[Auth:Register] ✓ User created', { userId: user.id, shortId: user.shortId, pinitId: user.shortId });
+
+    try {
+      const { subscriptionService } = await import('../subscription');
+      await subscriptionService.ensureDefaultSubscription(user.id);
+    } catch (subErr) {
+      logger.warn('[Auth:Register] Subscription backfill skipped (non-fatal)', { error: String(subErr) });
+    }
 
     const persisted = await prisma.user.findUnique({
       where: { id: user.id },
@@ -437,7 +477,13 @@ export const biometricAuthService = {
     });
 
     const deviceId = await upsertDevice(user.id, deviceFingerprint, webauthnCredentialId);
-    const tokens = createTokens({ id: user.id, shortId: user.shortId, fullName: user.fullName, role: user.role });
+    const tokens = createTokens({
+      id: user.id,
+      shortId: user.shortId,
+      fullName: user.fullName,
+      role: user.role,
+      accountType: resolvedAccountType,
+    });
     await createSession(user.id, tokens.refreshToken, ip, userAgent, deviceId);
 
     await logSecurityEvent('REGISTRATION', { userId: user.id, ip, userAgent, deviceId, detail: { shortId } });
@@ -573,7 +619,7 @@ export const biometricAuthService = {
 
     const user = await prisma.user.findUnique({
       where: { id: bestUserId, isActive: true },
-      select: { id: true, shortId: true, fullName: true, email: true, role: true },
+      select: { id: true, shortId: true, fullName: true, email: true, role: true, accountType: true },
     });
 
     if (!user) {
@@ -587,7 +633,13 @@ export const biometricAuthService = {
       data: { lastVerifiedAt: new Date() },
     });
 
-    const tokens = createTokens(user);
+    const tokens = createTokens({
+      id: user.id,
+      shortId: user.shortId,
+      fullName: user.fullName,
+      role: user.role,
+      accountType: user.accountType ?? 'INDIVIDUAL',
+    });
     await createSession(user.id, tokens.refreshToken, ip, userAgent, deviceId);
 
     await logSecurityEvent('BIOMETRIC_MATCH', {
@@ -614,6 +666,59 @@ export const biometricAuthService = {
       tokens,
       confidence: fusion.overallConfidence,
       fusion,
+    };
+  },
+
+  async updateAccountType(
+    userId: string,
+    accountType: 'INDIVIDUAL' | 'BUSINESS',
+    organizationName?: string,
+  ): Promise<{ accessToken: string; refreshToken: string; accountType: 'INDIVIDUAL' | 'BUSINESS' }> {
+    const resolved = accountType === 'BUSINESS' ? 'BUSINESS' : 'INDIVIDUAL';
+
+    const sub = await prisma.subscription.findUnique({
+      where: { userId },
+      include: { plan: true },
+    });
+    const currentPlanCode = (sub?.plan.code ?? 'FREE') as import('../subscription/constants/plans').PlanCode;
+    const { assertAccountTypeChangeAllowed } = await import('../account/account-subscription-rules');
+    assertAccountTypeChangeAllowed(resolved, currentPlanCode);
+
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        accountType: resolved,
+        ...(resolved === 'INDIVIDUAL'
+          ? {
+              organization: null,
+              organizationIndustry: null,
+              organizationSize: null,
+              workspaceName: null,
+              businessSetupCompletedAt: null,
+            }
+          : {
+              organization: organizationName?.trim() || null,
+              organizationIndustry: null,
+              organizationSize: null,
+              workspaceName: null,
+              businessSetupCompletedAt: null,
+            }),
+      },
+      select: { id: true, shortId: true, fullName: true, role: true, accountType: true },
+    });
+
+    const tokens = createTokens({
+      id: user.id,
+      shortId: user.shortId,
+      fullName: user.fullName,
+      role: user.role,
+      accountType: user.accountType ?? resolved,
+    });
+
+    return {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      accountType: resolved,
     };
   },
 };

@@ -7,7 +7,11 @@ import {
 import { api } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
 import { formatDistanceToNow, format } from 'date-fns';
-import { FileTrackingMap } from '../components/maps/FileTrackingMap';
+import {
+  FileTrackingMap,
+  type AccessKind,
+  ACCESS_KIND_LABELS,
+} from '../components/maps/FileTrackingMap';
 import { isValidMapCoordinate, sanitizeCoordinatePair, isPrivateIp } from '../lib/geo-coords';
 import { locationLabel } from '../lib/precise-gps';
 
@@ -51,6 +55,12 @@ interface AccessLog {
   isDatacenter?: boolean;
   asn?: string | null;
   org?: string | null;
+  /** From aggregated hop tree */
+  shareLinkId?: string;
+  linkType?: string | null;
+  linkDepth?: number | null;
+  isReshareLink?: boolean;
+  hopToken?: string | null;
 }
 
 interface LinkInfo {
@@ -124,7 +134,51 @@ interface Viewer {
   /** Best GPS/IP before latest (for maps compare) */
   priorLat: number | null;
   priorLng: number | null;
+  /** Green = direct recipient, blue = direct share, red = reshared */
+  accessKind: AccessKind;
 }
+
+function classifyAccessKind(
+  log: AccessLog,
+  seenDirectOnParent: boolean,
+): AccessKind {
+  const isReshare =
+    log.isReshareLink === true
+    || (log.linkType != null && log.linkType !== 'PARENT')
+    || (typeof log.linkDepth === 'number' && log.linkDepth > 0)
+    || log.action === 'FORWARDING_DETECTED';
+
+  if (isReshare) return 'reshared';
+  if (!seenDirectOnParent) return 'direct_recipient';
+  return 'direct_share';
+}
+
+const ACCESS_KIND_BADGE: Record<AccessKind, string> = {
+  direct_recipient: 'bg-emerald-500/25 text-emerald-300 border-emerald-400/40',
+  direct_share: 'bg-blue-500/25 text-blue-300 border-blue-400/40',
+  reshared: 'bg-red-500/25 text-red-300 border-red-400/40',
+};
+
+const ACCESS_KIND_ICON: Record<AccessKind, string> = {
+  direct_recipient: 'bg-emerald-600 border-emerald-300 text-white shadow-sm shadow-emerald-500/40',
+  direct_share: 'bg-blue-600 border-blue-300 text-white shadow-sm shadow-blue-500/40',
+  reshared: 'bg-red-600 border-red-300 text-white shadow-sm shadow-red-500/40',
+};
+
+const ACCESS_KIND_CARD: Record<AccessKind, { selected: string; idle: string }> = {
+  direct_recipient: {
+    selected: 'bg-emerald-500/15 border-emerald-400 ring-2 ring-emerald-400/40 shadow-[0_0_0_1px_rgba(52,211,153,0.35)]',
+    idle: 'bg-emerald-500/10 border-emerald-500/70 ring-1 ring-emerald-400/30 hover:border-emerald-400 hover:ring-emerald-400/50',
+  },
+  direct_share: {
+    selected: 'bg-blue-500/15 border-blue-400 ring-2 ring-blue-400/40',
+    idle: 'bg-blue-500/10 border-blue-500/50 ring-1 ring-blue-400/25 hover:border-blue-400',
+  },
+  reshared: {
+    selected: 'bg-red-500/15 border-red-400 ring-2 ring-red-400/40',
+    idle: 'bg-red-500/10 border-red-500/50 ring-1 ring-red-400/25 hover:border-red-400',
+  },
+};
 
 function parseRiskEvidence(raw: string | null | undefined): {
   reasons: string[];
@@ -322,6 +376,7 @@ export function LinkIntelligencePage() {
     if (!link?.accessLogs?.length) return [];
     const map = new Map<string, Viewer>();
     let hop = 0;
+    let seenDirectOnParent = false;
     const blocks = link.blockedViewers ?? [];
 
     const sorted = [...link.accessLogs]
@@ -334,6 +389,10 @@ export function LinkIntelligencePage() {
         // Only anchor a new viewer on a real open / forward — not scroll/idle alone
         if (log.action !== 'VIEWED' && log.action !== 'FORWARDING_DETECTED') continue;
         hop++;
+        const accessKind = classifyAccessKind(log, seenDirectOnParent);
+        if (accessKind === 'direct_recipient' || accessKind === 'direct_share') {
+          seenDirectOnParent = true;
+        }
         const base: Viewer = {
           id: key,
           ip: log.ipAddress ?? 'Unknown',
@@ -383,6 +442,7 @@ export function LinkIntelligencePage() {
           recipientName: log.recipientName ?? null,
           priorLat: null,
           priorLng: null,
+          accessKind,
         };
         const blockStatus = viewerIsBlocked(
           { deviceFingerprint: base.deviceFingerprint, sessionId: base.sessionId, ip: base.ip },
@@ -415,6 +475,11 @@ export function LinkIntelligencePage() {
       if (log.isTor) v.isTor = true;
       if (log.isProxy) v.isProxy = true;
       if (log.isDatacenter) v.isDatacenter = true;
+      // Escalate to reshared if any later hop-link activity is seen
+      if (v.accessKind !== 'reshared') {
+        const laterKind = classifyAccessKind(log, true);
+        if (laterKind === 'reshared') v.accessKind = 'reshared';
+      }
 
       const evidence = parseRiskEvidence(log.riskFactors);
       for (const f of evidence.reasons) {
@@ -557,6 +622,7 @@ export function LinkIntelligencePage() {
             gpsAccuracy: v.gpsAccuracy,
             gpsFullAddress: v.gpsFullAddress,
             locationSource: v.locationSource,
+            accessKind: v.accessKind,
           }))}
           height="420px"
         />
@@ -599,10 +665,10 @@ export function LinkIntelligencePage() {
             <button
               onClick={() => setSelectedViewer(v.id === selectedViewer ? null : v.id)}
               className={`w-full text-left border rounded-lg p-3 transition-all ${
-                v.hopNumber === 1 && !v.isBlocked
-                  ? v.id === selectedViewer
-                    ? 'bg-emerald-500/15 border-emerald-400 ring-2 ring-emerald-400/40 shadow-[0_0_0_1px_rgba(52,211,153,0.35)]'
-                    : 'bg-emerald-500/10 border-emerald-500/70 ring-1 ring-emerald-400/30 hover:border-emerald-400 hover:ring-emerald-400/50'
+                !v.isBlocked
+                  ? (v.id === selectedViewer
+                    ? ACCESS_KIND_CARD[v.accessKind].selected
+                    : ACCESS_KIND_CARD[v.accessKind].idle)
                   : v.id === selectedViewer
                     ? 'bg-bg-card border-dna-500/50 ring-1 ring-dna-500/20'
                     : 'bg-bg-card border-bg-border hover:border-dna-500/30'
@@ -612,18 +678,20 @@ export function LinkIntelligencePage() {
                 <div className="flex items-center gap-2">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 ${
                     v.isBlocked ? 'bg-red-900 border-red-500 text-red-300'
-                      : v.hopNumber === 1 ? 'bg-emerald-600 border-emerald-300 text-white shadow-sm shadow-emerald-500/40' : 'bg-orange-900 border-orange-500 text-orange-300'
+                      : ACCESS_KIND_ICON[v.accessKind]
                   }`}>
                     {v.hopNumber}
                   </div>
                   <div>
                     <p className="text-xs font-medium text-white flex items-center gap-1.5 flex-wrap">
-                      {v.hopNumber === 1 ? 'Direct Recipient' : `Viewer ${v.hopNumber}`}
-                      {v.hopNumber === 1 && !v.isBlocked && (
-                        <span className="text-2xs px-1.5 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 border border-emerald-400/40 font-semibold tracking-wide">
-                          PRIMARY
-                        </span>
-                      )}
+                      {v.accessKind === 'direct_recipient'
+                        ? 'Direct Recipient'
+                        : v.accessKind === 'direct_share'
+                          ? 'Direct Share'
+                          : `Viewer ${v.hopNumber}`}
+                      <span className={`text-2xs px-1.5 py-0.5 rounded-full border font-semibold tracking-wide ${ACCESS_KIND_BADGE[v.accessKind]}`}>
+                        {v.accessKind === 'reshared' ? 'RESHARED' : ACCESS_KIND_LABELS[v.accessKind].toUpperCase()}
+                      </span>
                       {v.recipientName && <span className="text-gray-400 font-normal">· {v.recipientName}</span>}
                       {v.isBlocked && <span className="text-2xs text-red-400">Revoked</span>}
                       {(v.riskLevel === 'HIGH' || v.riskLevel === 'CRITICAL' || v.locationTrust === 'LOW') && (
@@ -686,7 +754,7 @@ export function LinkIntelligencePage() {
                           ipAddress: (v.deviceFingerprint || v.sessionId)
                             ? undefined
                             : (v.ip !== 'Unknown' ? v.ip : undefined),
-                          label: v.hopNumber === 1 ? 'Direct Recipient' : `Viewer ${v.hopNumber}`,
+                          label: ACCESS_KIND_LABELS[v.accessKind],
                         });
                         load();
                       } catch { /* */ }
@@ -712,7 +780,12 @@ export function LinkIntelligencePage() {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-sm font-semibold text-white flex items-center gap-2">
                   <Eye size={14} className="text-dna-400" />
-                  Viewer {activeViewer.hopNumber} — Activity Log
+                  {ACCESS_KIND_LABELS[activeViewer.accessKind]} — Activity Log
+                  {activeViewer.accessKind === 'reshared' && (
+                    <span className={`text-2xs px-1.5 py-0.5 rounded-full border font-semibold ${ACCESS_KIND_BADGE.reshared}`}>
+                      RESHARED
+                    </span>
+                  )}
                 </h2>
                 <span className="text-2xs text-gray-500">
                   First seen {formatDistanceToNow(new Date(activeViewer.firstSeen))} ago

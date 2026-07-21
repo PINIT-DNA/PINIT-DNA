@@ -1,6 +1,7 @@
-import type { Request, Response } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { authService } from '../../services/auth/auth.service';
 import { resolveClientIp } from '../../lib/request-utils';
+import { getAuthUserId } from '../../lib/tenant-scope';
 import { notifyLoginSuccess, notifyLoginFailed, notifyUserRegistered } from '../../services/platform-events/account-events';
 import { prisma } from '../../lib/prisma';
 
@@ -60,5 +61,64 @@ export const authController = {
 
   async me(req: Request, res: Response) {
     res.json({ success: true, data: (req as any).user });
+  },
+
+  async setAccountType(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = getAuthUserId(req);
+      const { accountType, organizationName } = req.body as {
+        accountType?: 'INDIVIDUAL' | 'BUSINESS';
+        organizationName?: string;
+      };
+      if (accountType !== 'INDIVIDUAL' && accountType !== 'BUSINESS') {
+        res.status(400).json({ success: false, error: 'accountType must be INDIVIDUAL or BUSINESS' });
+        return;
+      }
+      const { biometricAuthService } = await import('../../services/auth/biometric-auth.service');
+      const result = await biometricAuthService.updateAccountType(userId, accountType, organizationName);
+      res.json({ success: true, ...result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async setupBusinessWorkspace(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = getAuthUserId(req);
+      const { organizationName, industry, organizationSize, workspaceName } = req.body as {
+        organizationName?: string;
+        industry?: string;
+        organizationSize?: string;
+        workspaceName?: string;
+      };
+      if (!organizationName?.trim() || !industry || !organizationSize || !workspaceName?.trim()) {
+        res.status(400).json({
+          success: false,
+          error: 'organizationName, industry, organizationSize, and workspaceName are required',
+        });
+        return;
+      }
+      const { businessSetupService } = await import('../../services/organization/business-setup.service');
+      const result = await businessSetupService.completeSetup(userId, {
+        organizationName,
+        industry: industry as import('../../services/organization/constants/organization-profile').OrganizationIndustry,
+        organizationSize: organizationSize as import('../../services/organization/constants/organization-profile').OrganizationSize,
+        workspaceName,
+      });
+      res.json({ success: true, ...result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async businessSetupStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = getAuthUserId(req);
+      const { businessSetupService } = await import('../../services/organization/business-setup.service');
+      const status = await businessSetupService.getSetupStatus(userId);
+      res.json({ success: true, ...status });
+    } catch (err) {
+      next(err);
+    }
   },
 };

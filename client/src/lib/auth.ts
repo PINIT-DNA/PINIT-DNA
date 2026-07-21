@@ -47,6 +47,7 @@ export interface AuthUser {
   shortId: string;
   name: string;
   role: string;
+  accountType?: 'INDIVIDUAL' | 'BUSINESS';
 }
 
 export function getAccessToken(): string | null {
@@ -70,6 +71,7 @@ export function clearTokens() {
 /** Clear all user-specific client caches on logout — prevents cross-tenant data bleed. */
 export function clearUserSessionCaches() {
   try {
+    sessionStorage.removeItem('pinit_pre_register_account_type');
     sessionStorage.removeItem('pinit_dna_reports');
     sessionStorage.removeItem('pinit_session');
     localStorage.removeItem('pinit_forensic_reports');
@@ -78,7 +80,11 @@ export function clearUserSessionCaches() {
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k?.startsWith('pinit_') && k !== 'pinit_theme') keysToRemove.push(k);
+      if (
+        k?.startsWith('pinit_')
+        && k !== 'pinit_theme'
+        && !k.startsWith('pinit_plan_choice_')
+      ) keysToRemove.push(k);
     }
     for (const k of keysToRemove) localStorage.removeItem(k);
   } catch { /* ignore */ }
@@ -87,7 +93,13 @@ export function clearUserSessionCaches() {
 export function parseJwt(token: string): AuthUser | null {
   try {
     const p = JSON.parse(atob(token.split('.')[1]));
-    return { sub: p.sub, shortId: p.shortId, name: p.name, role: p.role };
+    return {
+      sub: p.sub,
+      shortId: p.shortId,
+      name: p.name,
+      role: p.role,
+      accountType: p.accountType === 'BUSINESS' ? 'BUSINESS' : 'INDIVIDUAL',
+    };
   } catch {
     return null;
   }

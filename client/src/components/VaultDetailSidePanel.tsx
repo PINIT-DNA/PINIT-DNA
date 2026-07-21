@@ -214,13 +214,16 @@ export function VaultDetailSidePanel({
     }
   };
 
+  const gatePremium = (path: string) => {
+    navigate(path);
+  };
+
   const handleAccessIntelligence = () => {
     const active = links.find((l) => l.isActive);
-    if (active) {
-      navigate(`/access-intelligence/${encodeURIComponent(active.token)}`);
-      return;
-    }
-    navigate('/access-intelligence');
+    const path = active
+      ? `/access-intelligence/${encodeURIComponent(active.token)}`
+      : '/access-intelligence';
+    gatePremium(path);
   };
 
   useEffect(() => {
@@ -565,7 +568,7 @@ export function VaultDetailSidePanel({
               )}
               <button
                 type="button"
-                onClick={() => navigate('/timeline')}
+                onClick={() => gatePremium('/timeline')}
                 className="w-full flex items-center justify-center gap-1 text-xs text-dna-400 hover:text-white py-2"
               >
                 Open File Timeline <ChevronRight size={12} />
@@ -583,16 +586,32 @@ export function VaultDetailSidePanel({
               onClick={handleProtectedDownload}
             />
             <QuickAction icon={<Share2 size={18} />} label="Share Secure Link" onClick={onShare} />
-            <QuickAction icon={<FileSearch size={18} />} label="Intelligence Report" onClick={() => navigate(`/intelligence/${record.id}`)} />
-            <QuickAction icon={<Microscope size={18} />} label="Difference Engine" onClick={() => navigate('/forensic-diff')} />
+            <QuickAction
+              icon={<FileSearch size={18} />}
+              label="Intelligence Report"
+              onClick={() => gatePremium(`/intelligence/${record.id}`)}
+            />
+            <QuickAction
+              icon={<Microscope size={18} />}
+              label="Difference Engine"
+              onClick={() => gatePremium('/forensic-diff')}
+            />
             <QuickAction icon={<Activity size={18} />} label="Access Intelligence" onClick={handleAccessIntelligence} />
-            <QuickAction icon={<Shield size={18} />} label="Unified Investigation" onClick={() => navigate(BRAND.investigationPath)} />
+            <QuickAction
+              icon={<Shield size={18} />}
+              label="Unified Investigation"
+              onClick={() => gatePremium(BRAND.investigationPath)}
+            />
             <QuickAction
               icon={retrieving ? <RefreshCw size={18} className="animate-spin" /> : <ShieldCheck size={18} />}
               label="Owner Backup"
               onClick={handleDownloadOriginal}
             />
-            <QuickAction icon={<Eye size={18} />} label="View in Timeline" onClick={() => navigate('/timeline')} />
+            <QuickAction
+              icon={<Eye size={18} />}
+              label="View in Timeline"
+              onClick={() => gatePremium('/timeline')}
+            />
           </div>
           <button
             type="button"

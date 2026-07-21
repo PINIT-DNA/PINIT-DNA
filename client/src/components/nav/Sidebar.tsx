@@ -1,14 +1,15 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   LayoutDashboard, Dna, Shield, Archive, FileSearch,
   Award, ChevronRight, Zap, Clock,
-  ShieldCheck, Activity, Microscope, Radio, Ban, LogOut, User, X,
-  Sun, Moon,
+  ShieldCheck, Activity, Microscope, Radio,   Ban, LogOut, User, X,
+  Sun, Moon, CreditCard,   Building2, Settings,
 } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../hooks/useTheme';
+import { useSubscription, FeatureKey } from '../../hooks/useSubscription';
 import { API_BASE_URL } from '../../config/api.config';
 import { BRAND } from '../../config/brand.config';
 
@@ -87,7 +88,16 @@ function BackendStatus() {
   );
 }
 
-const NAV_GROUPS = [
+const NAV_GROUPS: Array<{
+  label: string;
+  items: Array<{
+    to: string;
+    icon: typeof LayoutDashboard;
+    label: string;
+    end?: boolean;
+    feature?: string;
+  }>;
+}> = [
   {
     label: 'Core',
     items: [
@@ -100,22 +110,22 @@ const NAV_GROUPS = [
     items: [
       { to: '/vault',       icon: Archive,    label: 'Vault Explorer' },
       { to: '/dna-records', icon: FileSearch, label: 'DNA Records'    },
-      { to: '/timeline',    icon: Clock,      label: 'File Timeline'  },
+      { to: '/timeline',    icon: Clock,      label: 'File Timeline', feature: FeatureKey.FEATURE_TRACKING },
     ],
   },
   {
     label: 'Intelligence',
     items: [
-      { to: '/access-intelligence', icon: Activity, label: 'Access Intelligence' },
-      { to: '/forensic-diff',       icon: Microscope, label: 'Difference Engine'    },
-      { to: '/monitoring',          icon: Radio,      label: 'Monitoring & Crawler' },
+      { to: '/access-intelligence', icon: Activity, label: 'Access Intelligence', feature: FeatureKey.FEATURE_TRACKING },
+      { to: '/forensic-diff',       icon: Microscope, label: 'Difference Engine', feature: FeatureKey.FEATURE_INVESTIGATION },
+      { to: '/monitoring',          icon: Radio,      label: 'Monitoring & Crawler', feature: FeatureKey.FEATURE_TRACKING },
     ],
   },
   {
     label: 'Forensics',
     items: [
-      { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Unified Investigation' },
-      { to: '/reports',             icon: Shield,      label: 'Forensic Reports'    },
+      { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Unified Investigation', feature: FeatureKey.FEATURE_INVESTIGATION },
+      { to: '/reports',             icon: Shield,      label: 'Forensic Reports', feature: FeatureKey.FEATURE_INVESTIGATION },
       { to: '/unmask-requests',     icon: Shield,      label: 'Unmask Requests'     },
       { to: '/duplicate-attempts',  icon: Ban,         label: 'Duplicate Attempts'  },
       { to: '/vault-integrity',     icon: Activity,    label: 'Vault Integrity'     },
@@ -126,17 +136,39 @@ const NAV_GROUPS = [
     items: [
       { to: '/certificates',        icon: Award,       label: 'Certificates'        },
       { to: '/verify-certificate',  icon: ShieldCheck, label: 'Verify Certificate'  },
+      { to: '/upgrade',             icon: Award,       label: 'Plans & Upgrade'     },
+      { to: '/subscription',        icon: CreditCard,  label: 'Subscription'      },
     ],
   },
 ];
 
 const NAV_GROUP_COLORS: Record<string, string> = {
   Core: 'text-indigo-500',
+  Organization: 'text-indigo-500',
   Explorer: 'text-violet-500',
   Intelligence: 'text-cyan-600',
   Forensics: 'text-rose-500',
   Sharing: 'text-amber-600',
 };
+
+/** Business accounts — single flat nav (no duplicate Intelligence / Forensics / Sharing groups). */
+const BUSINESS_NAV_ITEMS: Array<{
+  to: string;
+  icon: typeof LayoutDashboard;
+  label: string;
+  end?: boolean;
+  feature?: string;
+}> = [
+  { to: '/business', icon: Building2, label: 'Dashboard', end: true },
+  { to: '/generate', icon: Dna, label: 'Generate DNA' },
+  { to: '/vault', icon: Archive, label: 'Vault Explorer' },
+  { to: '/access-intelligence', icon: Activity, label: 'Access Intelligence', feature: FeatureKey.FEATURE_TRACKING },
+  { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Unified Investigation', feature: FeatureKey.FEATURE_INVESTIGATION },
+  { to: '/reports', icon: Shield, label: 'Forensics', feature: FeatureKey.FEATURE_INVESTIGATION },
+  { to: '/monitoring', icon: Radio, label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },
+  { to: '/certificates', icon: Award, label: 'Certificates' },
+  { to: '/business/settings', icon: Settings, label: 'Organization Settings' },
+];
 
 interface SidebarProps {
   /** Drawer open state (mobile/APK only). */
@@ -149,6 +181,27 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { theme, toggle: toggleTheme } = useTheme();
+  const { subscription, accountType } = useSubscription();
+
+  const navGroups = useMemo(() => {
+    const isBusiness = accountType === 'BUSINESS' || user?.accountType === 'BUSINESS';
+
+    if (isBusiness) {
+      return [{ label: 'Organization', items: BUSINESS_NAV_ITEMS }];
+    }
+
+    return NAV_GROUPS.map((group) => {
+      if (group.label !== 'Core') return group;
+      return {
+        ...group,
+        items: group.items.map((item) =>
+          item.to === '/'
+            ? { ...item, label: 'Personal Dashboard', end: true }
+            : item,
+        ),
+      };
+    });
+  }, [accountType, user?.accountType]);
 
   async function handleLogout() {
     await logout();
@@ -190,7 +243,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-4">
-        {NAV_GROUPS.map(group => (
+        {navGroups.map(group => (
           <div key={group.label}>
             <p className={cn('text-2xs font-bold uppercase tracking-widest px-2 mb-1', NAV_GROUP_COLORS[group.label] ?? 'text-gray-500')}>
               {group.label}
@@ -237,6 +290,9 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                 <div className="min-w-0">
                   <p className="text-2xs text-gray-500 font-medium leading-none mb-0.5">Logged in as</p>
                   <p className="text-xs text-dna-400 font-bold truncate mono">{(user as any).shortId ?? user.sub?.slice(0,8)}</p>
+                  {subscription && (
+                    <p className="text-2xs text-gray-500 mt-0.5">{subscription.planName} plan</p>
+                  )}
                 </div>
               </div>
               <button

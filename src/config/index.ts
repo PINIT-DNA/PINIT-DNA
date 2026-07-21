@@ -101,6 +101,24 @@ export const config = {
     max: optionalInt('RATE_LIMIT_MAX', 2000),
   },
 
+  /**
+   * Freemium subscription enforcement.
+   * When false, all features are allowed (emergency bypass). Default: true.
+   * Quota limits below are configurable via env — not hardcoded in business logic.
+   */
+  subscription: {
+    enforcementEnabled: optional('SUBSCRIPTION_ENFORCEMENT', 'true').toLowerCase() !== 'false',
+    freeAssetLimit: optionalInt('SUBSCRIPTION_FREE_ASSET_LIMIT', 5),
+    businessFreeTeamLimit: optionalInt('SUBSCRIPTION_BUSINESS_FREE_TEAM_LIMIT', 1),
+    businessFreeWorkspaceLimit: optionalInt('SUBSCRIPTION_BUSINESS_FREE_WORKSPACE_LIMIT', 1),
+  },
+
+  razorpay: {
+    keyId: optional('RAZORPAY_KEY_ID', ''),
+    keySecret: optional('RAZORPAY_KEY_SECRET', ''),
+    webhookSecret: optional('RAZORPAY_WEBHOOK_SECRET', ''),
+  },
+
   log: {
     level: optional('LOG_LEVEL', 'debug'),
   },

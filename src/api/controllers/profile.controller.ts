@@ -15,6 +15,8 @@ export async function getProfile(req: Request, res: Response, next: NextFunction
         id: true, shortId: true, email: true, fullName: true, role: true,
         createdAt: true, lastLoginAt: true,
         phone: true, organization: true, jobTitle: true, country: true,
+        organizationIndustry: true, organizationSize: true, workspaceName: true,
+        businessSetupCompletedAt: true, accountType: true,
         avatarUrl: true, bio: true, theme: true,
         notifyShareAccess: true, notifyRiskAlerts: true, notifyCertificates: true,
         notifyMonitoring: true, notifyUpdates: true,
@@ -132,13 +134,17 @@ export async function changePassword(req: Request, res: Response, next: NextFunc
 export async function getProfileStats(req: Request, res: Response, next: NextFunction) {
   try {
     const uid = userId(req);
-    const [dnaCount, vaultCount, shareCount, certCount, accessCount, monitorCount] = await Promise.all([
+    const [dnaCount, vaultCount, shareCount, certCount, monitorCount, accessCount] = await Promise.all([
       prisma.dnaRecord.count({ where: { ownerUserId: uid } }),
       prisma.vaultRecord.count({ where: { dnaRecord: { ownerUserId: uid } } }),
       prisma.shareLink.count({ where: { ownerUserId: uid } }),
       prisma.certificate.count({ where: { ownerUserId: uid } }),
-      prisma.shareAccessLog.count({ where: { shareLink: { ownerUserId: uid } } }),
       prisma.monitorRecord.count({ where: { ownerUserId: uid } }),
+      // Access log count can be slow on large tenants — cap wait so profile stats never hang the UI
+      Promise.race([
+        prisma.shareAccessLog.count({ where: { shareLink: { ownerUserId: uid } } }),
+        new Promise<number>((resolve) => setTimeout(() => resolve(0), 4_000)),
+      ]),
     ]);
 
     // Security score (0-100)

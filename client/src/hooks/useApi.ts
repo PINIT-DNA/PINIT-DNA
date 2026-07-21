@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { formatApiError } from '../services/dashboard.api';
 
-const DEV_BACKEND_RETRY_MS = 2000;
-const DEV_BACKEND_MAX_RETRIES = 25;
+const DEV_BACKEND_RETRY_MS = 1500;
+const DEV_BACKEND_MAX_RETRIES = 4;
 
 function isBackendOfflineError(err: unknown): boolean {
   const msg = formatApiError(err);

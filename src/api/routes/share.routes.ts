@@ -5,6 +5,7 @@ import {
   requireVaultOwnership,
   requireDnaOwnership,
 } from '../middleware/ownership.middleware';
+import { requireFeature, FeatureKey } from '../../services/subscription';
 import {
   createShareLink,
   listShareLinks,
@@ -40,14 +41,14 @@ import {
 export const shareRouter = Router();
 
 // ── Fixed-path routes FIRST (must precede the /:token wildcard below) ────────
-shareRouter.post('/',                          requireAuth, createShareLink);
+shareRouter.post('/',                          requireAuth, requireFeature(FeatureKey.FEATURE_SMART_SHARE), createShareLink);
 shareRouter.get('/',                           requireAuth, listShareLinks);
 shareRouter.get('/vault/:vaultId',             requireAuth, requireVaultOwnership, getVaultShareLinks);
 shareRouter.get('/timeline/:dnaId',            requireAuth, requireDnaOwnership, getShareTimeline);
-shareRouter.get('/analytics/geo',              requireAuth, getGeoAnalytics);
-shareRouter.get('/analytics/global',           requireAuth, getGlobalShareStats);
-shareRouter.get('/analytics/live-map',         requireAuth, getLiveTrackingMap);
-shareRouter.post('/forensics/attribute-leak', requireAuth, leakUploadMiddleware, attributeLeakedFile);
+shareRouter.get('/analytics/geo',              requireAuth, requireFeature(FeatureKey.FEATURE_TRACKING), getGeoAnalytics);
+shareRouter.get('/analytics/global',           requireAuth, requireFeature(FeatureKey.FEATURE_TRACKING), getGlobalShareStats);
+shareRouter.get('/analytics/live-map',         requireAuth, requireFeature(FeatureKey.FEATURE_TRACKING), getLiveTrackingMap);
+shareRouter.post('/forensics/attribute-leak', requireAuth, requireFeature(FeatureKey.FEATURE_INVESTIGATION), leakUploadMiddleware, attributeLeakedFile);
 shareRouter.get('/sessions/live',              requireAuth, getLiveSessions);
 shareRouter.get('/debug/report',               requireAuth, debugReport);              // ── Diagnostic: URL + IP test report
 shareRouter.get('/unmask-requests',            requireAuth, listUnmaskRequests);       // ── Privacy Masking — owner dashboard
@@ -66,7 +67,7 @@ shareRouter.post('/:token/unmask-request',     requestUnmask);            // ─
 shareRouter.get('/:token/unmask-status',       getUnmaskStatus);          // ── Privacy Masking — check approval
 
 // Owner-only routes (require auth)
-shareRouter.get('/:token/logs',                requireAuth, requireShareLinkOwnership, getShareLinkLogs);
+shareRouter.get('/:token/logs',                requireAuth, requireFeature(FeatureKey.FEATURE_TRACKING), requireShareLinkOwnership, getShareLinkLogs);
 shareRouter.get('/:token/export',              requireAuth, requireShareLinkOwnership, exportShareLogsCsv);
 shareRouter.delete('/:token',                  requireAuth, requireShareLinkOwnership, revokeShareLink);
 shareRouter.post('/:token/block-viewer',       requireAuth, requireShareLinkOwnership, blockShareViewer);

@@ -1,19 +1,8 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Dna, ShieldCheck, Archive, Menu } from 'lucide-react';
+import { LayoutDashboard, Dna, ShieldCheck, Archive, Menu, Building2 } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { BRAND } from '../../config/brand.config';
-
-const TABS: Array<{
-  to: string;
-  icon: typeof LayoutDashboard;
-  label: string;
-  end?: boolean;
-}> = [
-  { to: '/',         icon: LayoutDashboard, label: 'Home',    end: true },
-  { to: '/generate', icon: Dna,             label: 'DNA'                 },
-  { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Investigate' },
-  { to: '/vault',    icon: Archive,         label: 'Vault'               },
-];
+import { useSubscription } from '../../hooks/useSubscription';
 
 interface Props {
   onOpenMenu: () => void;
@@ -21,6 +10,18 @@ interface Props {
 
 export function MobileBottomNav({ onOpenMenu }: Props) {
   const location = useLocation();
+  const { accountType } = useSubscription();
+  const isBusiness = accountType === 'BUSINESS';
+
+  const homeTo = isBusiness ? '/business' : '/';
+  const HomeIcon = isBusiness ? Building2 : LayoutDashboard;
+
+  const tabs = [
+    { to: homeTo, icon: HomeIcon, label: isBusiness ? 'Org' : 'Home', end: true as const },
+    { to: '/generate', icon: Dna, label: 'DNA' },
+    { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Investigate' },
+    { to: '/vault', icon: Archive, label: 'Vault' },
+  ];
 
   return (
     <nav
@@ -29,9 +30,9 @@ export function MobileBottomNav({ onOpenMenu }: Props) {
       aria-label="Primary navigation"
     >
       <div className="grid grid-cols-5 h-14">
-        {TABS.map(({ to, icon: Icon, label, end }) => {
+        {tabs.map(({ to, icon: Icon, label, end }) => {
           const active = end
-            ? location.pathname === '/'
+            ? location.pathname === to
             : location.pathname === to || location.pathname.startsWith(`${to}/`);
 
           return (
@@ -40,7 +41,7 @@ export function MobileBottomNav({ onOpenMenu }: Props) {
               to={to}
               end={end}
               className={cn(
-                'flex flex-col items-center justify-center gap-0.5 min-h-[56px] touch-manipulation',
+                'flex flex-col items-center justify-center gap-0.5 min-h-[56px] touch-manipulation relative',
                 active ? 'text-dna-500' : 'text-gray-500',
               )}
             >

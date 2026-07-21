@@ -11,23 +11,25 @@ import {
   requireDnaOwnership,
   requireAlertOwnership,
 } from '../middleware/ownership.middleware';
+import { requireFeature, FeatureKey } from '../../services/subscription';
 
 const router = Router();
+const requireTracking = requireFeature(FeatureKey.FEATURE_TRACKING);
 
-router.get('/stats',                  requireAuth, getMonitoringStats);
-router.get('/engine/stats',           requireAuth, getEngineStats);
-router.post('/enroll-all',            requireAuth, enrollAll);
-router.get('/',                       requireAuth, listMonitors);
-router.post('/enroll/:dnaRecordId',   requireAuth, requireDnaOwnership, enrollMonitor);
-router.get('/alerts',                 requireAuth, getAlerts);
-router.post('/alerts/:id/dismiss',    requireAuth, requireAlertOwnership, dismissAlert);
-router.post('/alerts/:id/confirm',    requireAuth, requireAlertOwnership, confirmAlert);
-router.post('/:id/check',             requireAuth, requireMonitorOwnership, runCheckNow);
-router.get('/:id/runs',               requireAuth, requireMonitorOwnership, getMonitorRuns);
-router.patch('/:id/scan-type',        requireAuth, requireMonitorOwnership, updateScanType);
-router.patch('/:id/watch-urls',       requireAuth, requireMonitorOwnership, updateWatchUrls);
-router.post('/:id/pause',             requireAuth, requireMonitorOwnership, pauseMonitor);
-router.post('/:id/resume',            requireAuth, requireMonitorOwnership, resumeMonitor);
-router.delete('/:id',                 requireAuth, requireMonitorOwnership, stopMonitor);
+router.get('/stats',                  requireAuth, requireTracking, getMonitoringStats);
+router.get('/engine/stats',           requireAuth, requireTracking, getEngineStats);
+router.post('/enroll-all',            requireAuth, requireTracking, enrollAll);
+router.get('/',                       requireAuth, requireTracking, listMonitors);
+router.post('/enroll/:dnaRecordId',   requireAuth, requireTracking, requireDnaOwnership, enrollMonitor);
+router.get('/alerts',                 requireAuth, requireTracking, getAlerts);
+router.post('/alerts/:id/dismiss',    requireAuth, requireTracking, requireAlertOwnership, dismissAlert);
+router.post('/alerts/:id/confirm',    requireAuth, requireTracking, requireAlertOwnership, confirmAlert);
+router.post('/:id/check',             requireAuth, requireTracking, requireMonitorOwnership, runCheckNow);
+router.get('/:id/runs',               requireAuth, requireTracking, requireMonitorOwnership, getMonitorRuns);
+router.patch('/:id/scan-type',        requireAuth, requireTracking, requireMonitorOwnership, updateScanType);
+router.patch('/:id/watch-urls',       requireAuth, requireTracking, requireMonitorOwnership, updateWatchUrls);
+router.post('/:id/pause',             requireAuth, requireTracking, requireMonitorOwnership, pauseMonitor);
+router.post('/:id/resume',            requireAuth, requireTracking, requireMonitorOwnership, resumeMonitor);
+router.delete('/:id',                 requireAuth, requireTracking, requireMonitorOwnership, stopMonitor);
 
 export { router as monitoringRouter };

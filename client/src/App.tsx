@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 
 const Header = () => null;
@@ -16,6 +17,7 @@ import { DNA_GENERATOR_VERSION } from './config/dna-versions';
 type FlowStage = AppStage | 'vaulting' | 'readying';
 
 export default function App() {
+  const navigate = useNavigate();
   const [stage, setStage] = useState<FlowStage>('idle');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [session, setSession] = useState<DnaSession | null>(null);
@@ -100,9 +102,14 @@ export default function App() {
     setTimeout(() => setStage('readying'), 400);
   }, []);
 
-  const handleVaultError = useCallback(() => {
-    setTimeout(() => setStage('success'), 400);
-  }, []);
+  const handleVaultError = useCallback((msg: string) => {
+    if (msg.toLowerCase().includes('asset limit') || msg.toLowerCase().includes('protected asset')) {
+      navigate('/upgrade?from=quota&return=/generate', { replace: true });
+      return;
+    }
+    setError(msg);
+    setStage('idle');
+  }, [navigate]);
 
   const handleProtectReady = useCallback((result: ProtectReadyResult) => {
     const url = URL.createObjectURL(result.blob);

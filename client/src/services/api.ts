@@ -108,7 +108,25 @@ export async function storeInVault(
     form.append('gpsLng', String(options.longitude));
   }
 
-  return postMultipart(`${API_BASE_URL}/vault/store`, form, VAULT_TIMEOUT_MS);
+  try {
+    return await postMultipart(`${API_BASE_URL}/vault/store`, form, VAULT_TIMEOUT_MS);
+  } catch (err: unknown) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const axiosErr = err as any;
+    if (axiosErr?.response?.status === 403) {
+      const body = axiosErr.response.data ?? {};
+      if (body.code === 'ASSET_QUOTA_EXCEEDED') {
+        const quotaErr = new Error(body.error ?? 'Protected asset limit reached') as Error & {
+          isAssetQuotaExceeded: boolean;
+          requiredPlan?: string;
+        };
+        quotaErr.isAssetQuotaExceeded = true;
+        quotaErr.requiredPlan = body.requiredPlan;
+        throw quotaErr;
+      }
+    }
+    throw err;
+  }
 }
 
 export async function getVaultRecord(vaultId: string) {

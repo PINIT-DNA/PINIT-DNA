@@ -1525,9 +1525,31 @@ export class ShareLinkService {
     const descendantIds = await this.getShareLinkDescendantIds(root.id);
     const allIds = [root.id, ...descendantIds];
 
-    const accessLogs = await prisma.shareAccessLog.findMany({
+    const accessLogsRaw = await prisma.shareAccessLog.findMany({
       where: { shareLinkId: { in: allIds } },
       orderBy: { createdAt: 'desc' },
+      include: {
+        shareLink: {
+          select: { id: true, token: true, linkType: true, depth: true, parentLinkId: true },
+        },
+      },
+    });
+
+    // Flatten hop metadata onto each log so Access Intelligence can color
+    // Direct Recipient (green) / Direct Share (blue) / Reshared (red).
+    const accessLogs = accessLogsRaw.map((log) => {
+      const { shareLink: hopLink, ...rest } = log;
+      const linkType = hopLink?.linkType ?? 'PARENT';
+      const linkDepth = hopLink?.depth ?? 0;
+      const isReshareLink = linkType !== 'PARENT' || linkDepth > 0 || hopLink?.id !== root.id;
+      return {
+        ...rest,
+        shareLinkId: hopLink?.id ?? rest.shareLinkId,
+        linkType,
+        linkDepth,
+        isReshareLink,
+        hopToken: hopLink?.token ?? null,
+      };
     });
 
     const baseInclude = {

@@ -106,6 +106,10 @@ export async function storeInVault(
 
   try {
     const ownerUserId = getAuthUserId(req);
+    // Subscription storage quota (edge check only — does not change encrypt/store pipeline)
+    const { entitlementService } = await import('../../services/subscription');
+    await entitlementService.assertCanUpload(ownerUserId, buffer.length);
+
     const result = await vaultService.store({
       dnaRecordId:      dnaRecordId.trim(),
       ownerUserId,

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ShieldCheck, Camera, Mic, Sparkles,
-  ArrowRight, CheckCircle2,
+  ArrowRight, CheckCircle2, Building2, User,
 } from 'lucide-react';
 
 import { AuthShell } from '../../components/auth/AuthShell';
@@ -16,9 +16,19 @@ import { collectFingerprint } from '../../lib/device-fingerprint';
 import { generateHoid, saveRegistration } from '../../lib/hoid';
 import { type BiometricResult } from '../../lib/webauthn';
 import { storeIdentity } from '../../lib/identity-store';
-import { warmBackend } from '../../lib/auth';
+import { warmBackend, parseJwt } from '../../lib/auth';
 import { registerFaceIdentity } from '../../lib/face-api-client';
 import { preloadFaceModels } from '../../lib/face-capture';
+import {
+  clearBusinessSetup,
+  markAccountTypeOnboardingComplete,
+  setChosenAccountType,
+} from '../../lib/account-onboarding';
+import { resolvePostAccountTypePath } from '../../lib/onboarding-routes';
+import {
+  clearPreRegisterAccountType,
+  getPreRegisterAccountType,
+} from '../../lib/pre-register';
 
 type Step = 'welcome' | 'permissions' | 'face' | 'biometric' | 'voice' | 'creating' | 'success';
 const ORDER: Step[] = ['welcome', 'permissions', 'face', 'biometric', 'voice', 'creating', 'success'];
@@ -32,7 +42,7 @@ const fade = {
 
 export function RegistrationFlow() {
   const navigate = useNavigate();
-  const { loginWithFaceResponse } = useAuth();
+  const { loginWithFaceResponse, user } = useAuth();
 
   const [step, setStep] = useState<Step>('welcome');
   const [error, setError] = useState('');
@@ -42,9 +52,21 @@ export function RegistrationFlow() {
   const faceEmbeddingRef = useRef<number[] | null>(null);
   const voiceFingerprintRef = useRef<number[] | null>(null);
   const bioRef = useRef<BiometricResult | null>(null);
+  const accountTypeRef = useRef<'INDIVIDUAL' | 'BUSINESS'>(
+    getPreRegisterAccountType() ?? 'INDIVIDUAL',
+  );
 
   const go = (s: Step) => { setError(''); setStep(s); };
   const idx = ORDER.indexOf(step);
+
+  useEffect(() => {
+    const chosen = getPreRegisterAccountType();
+    if (!chosen) {
+      navigate('/register/account-type', { replace: true });
+      return;
+    }
+    accountTypeRef.current = chosen;
+  }, [navigate]);
 
   function afterFace() {
     go('biometric');
@@ -62,10 +84,15 @@ export function RegistrationFlow() {
   }
 
   return (
-    <AuthShell steps={ORDER.length} current={idx} tagline="Create Your Identity">
+    <AuthShell steps={ORDER.length} current={idx} tagline="Create Biometric Identity">
       <AnimatePresence mode="wait">
         <motion.div key={step} {...fade}>
-          {step === 'welcome'     && <Welcome onNext={() => go('permissions')} />}
+          {step === 'welcome'     && (
+            <Welcome
+              accountType={accountTypeRef.current}
+              onNext={() => go('permissions')}
+            />
+          )}
           {step === 'permissions' && <Permissions deviceFpRef={deviceFpRef} onNext={() => go('face')} />}
           {step === 'face'        && (
             <>
@@ -98,9 +125,20 @@ export function RegistrationFlow() {
                   voiceFingerprint: voiceFingerprintRef.current ?? undefined,
                   webauthnCredentialId: bioRef.current?.credentialId,
                   deviceFingerprint: deviceFpRef.current || undefined,
+                  accountType: accountTypeRef.current,
                 });
 
                 loginWithFaceResponse(result);
+                if (result.accessToken) {
+                  const authUser = parseJwt(result.accessToken);
+                  if (authUser?.sub) {
+                    markAccountTypeOnboardingComplete(authUser.sub);
+                    setChosenAccountType(authUser.sub, accountTypeRef.current);
+                    if (accountTypeRef.current === 'BUSINESS') {
+                      clearBusinessSetup(authUser.sub);
+                    }
+                  }
+                }
                 const shortId = result.user?.shortId ?? '';
                 const hoid = hoidRef.current || generateHoid(deviceFpRef.current);
                 saveRegistration({
@@ -128,18 +166,72 @@ export function RegistrationFlow() {
               onDuplicate={() => navigate('/login', { replace: true })}
             />
           )}
-          {step === 'success'     && <Success onEnter={() => navigate('/', { replace: true })} />}
+          {step === 'success'     && (
+            <Success
+              onEnter={() => {
+                const uid = user?.sub;
+                if (uid) {
+                  markAccountTypeOnboardingComplete(uid);
+                  setChosenAccountType(uid, accountTypeRef.current);
+                  if (accountTypeRef.current === 'BUSINESS') {
+                    clearBusinessSetup(uid);
+                  }
+                }
+                navigate(resolvePostAccountTypePath(accountTypeRef.current), { replace: true });
+                clearPreRegisterAccountType();
+              }}
+            />
+          )}
         </motion.div>
       </AnimatePresence>
     </AuthShell>
   );
 }
 
-function Welcome({ onNext }: { onNext: () => void }) {
+function Welcome({
+  accountType,
+  onNext,
+}: {
+  accountType: 'INDIVIDUAL' | 'BUSINESS';
+  onNext: () => void;
+}) {
+  const isBusiness = accountType === 'BUSINESS';
   return (
-    <div className="pa-card">
-      <StepHead icon={<Sparkles size={26} color="#6366f1" />} title="Welcome to PINIT" subtitle={<>Face is your lock — fingerprint UI + voice complete your identity.</>} />
-      <button className="pa-btn" onClick={onNext}>Get Started <ArrowRight size={17} /></button>
+    <div className="pa-card" style={{ textAlign: 'center' }}>
+      <StepHead
+        icon={isBusiness ? <Building2 size={26} color="#a855f7" /> : <User size={26} color="#3b9eff" />}
+        title="Create your PinIT Hub identity"
+        subtitle={
+          isBusiness
+            ? 'Business account · Free plan. Biometric enrollment — face, fingerprint, and voice.'
+            : 'Individual account · Free plan. Biometric enrollment — face, fingerprint, and voice.'
+        }
+      />
+      <div className="pa-bio-steps">
+        <div className="pa-bio-step">
+          <Camera size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
+          <span>Face</span>
+          <em>Enroll</em>
+        </div>
+        <div className="pa-bio-step">
+          <ShieldCheck size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
+          <span>Fingerprint</span>
+          <em>Bind</em>
+        </div>
+        <div className="pa-bio-step">
+          <Mic size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
+          <span>Voice</span>
+          <em>Seal</em>
+        </div>
+      </div>
+      <button className="pa-btn" onClick={onNext}>Start biometric setup <ArrowRight size={17} /></button>
+      <Link
+        to="/register/account-type"
+        className="pa-btn pa-btn-ghost"
+        style={{ marginTop: 10, display: 'inline-flex' }}
+      >
+        Change account type
+      </Link>
     </div>
   );
 }
@@ -168,7 +260,7 @@ function Permissions({ deviceFpRef, onNext }: { deviceFpRef: React.MutableRefObj
 
   return (
     <div className="pa-card">
-      <StepHead icon={<ShieldCheck size={26} color="#6366f1" />} title="Permissions" subtitle="Camera, mic, and device biometrics — one-time setup." />
+      <StepHead icon={<ShieldCheck size={26} color="#3b9eff" />} title="Permissions" subtitle="Camera, mic, and device biometrics — one-time setup." />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginBottom: 20 }}>
         {[
           { icon: <Camera size={18} />, label: 'Camera', sub: 'Round face scan' },
@@ -176,9 +268,9 @@ function Permissions({ deviceFpRef, onNext }: { deviceFpRef: React.MutableRefObj
           { icon: <ShieldCheck size={18} />, label: 'Fingerprint UI', sub: 'Visual scan step (auto-continues on web)' },
         ].map((p) => (
           <div key={p.label} className="pa-check">
-            <span style={{ color: '#6366f1', display: 'flex' }}>{p.icon}</span>
+            <span style={{ color: '#3b9eff', display: 'flex' }}>{p.icon}</span>
             <div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>{p.label}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#f4f8ff' }}>{p.label}</div>
               <div className="pa-faint" style={{ fontSize: 12 }}>{p.sub}</div>
             </div>
           </div>
@@ -233,7 +325,7 @@ function Creating({
 
   return (
     <div className="pa-card">
-      <StepHead icon={<Sparkles size={26} color="#6366f1" />} title="Saving to Database" subtitle="Checking you are not already registered…" />
+      <StepHead icon={<Sparkles size={26} color="#3b9eff" />} title="Saving to Database" subtitle="Checking you are not already registered…" />
       <Checklist items={items} />
       <SystemTrace lines={['Check duplicates', 'Store biometrics', 'Issue certificate']} />
       {error && (
@@ -264,9 +356,9 @@ function Success({ onEnter }: { onEnter: () => void }) {
       <div className="pa-pop" style={{ width: 76, height: 76, margin: '4px auto 16px', borderRadius: '50%', background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 34px rgba(16,185,129,0.65)' }}>
         <CheckCircle2 size={42} color="#fff" />
       </div>
-      <h1 style={{ fontSize: 23, fontWeight: 800 }}>Welcome to PINIT</h1>
+      <h1 style={{ fontSize: 23, fontWeight: 800 }}>Welcome to PinIT Hub</h1>
       <div style={{ marginBottom: 18 }}><TrustBadge score={99.8} /></div>
-      <button className="pa-btn" onClick={onEnter}>Enter PINIT <ArrowRight size={17} /></button>
+      <button className="pa-btn" onClick={onEnter}>Enter PinIT Hub <ArrowRight size={17} /></button>
     </div>
   );
 }

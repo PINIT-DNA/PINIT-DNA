@@ -43,6 +43,12 @@ export function VaultStep({ file, dnaRecordId, custodyLocation, onComplete, onEr
         if (!cancelled) onComplete(result as any);
       } catch (err: unknown) {
         if (cancelled) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const anyErr = err as any;
+        if (anyErr?.isAssetQuotaExceeded) {
+          onError(anyErr.message ?? 'Protected asset limit reached');
+          return;
+        }
         const msg = formatApiError(err);
         setStage('error');
         onError(msg);

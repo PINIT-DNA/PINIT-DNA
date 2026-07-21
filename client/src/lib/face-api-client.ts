@@ -39,6 +39,8 @@ export async function registerFaceIdentity(payload: {
   voiceFingerprint?: number[];
   webauthnCredentialId?: string;
   deviceFingerprint?: string;
+  accountType?: 'INDIVIDUAL' | 'BUSINESS';
+  organizationName?: string;
 }): Promise<FaceAuthResponse> {
   const { status, data } = await postFace('/register', payload);
   if (status === 409 || data.success === false) {

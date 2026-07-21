@@ -20,6 +20,9 @@ authRouter.post('/login',   authController.login);
 authRouter.post('/refresh', authController.refresh);
 authRouter.post('/logout',  authController.logout);
 authRouter.get('/me',       requireAuth, authController.me);
+authRouter.post('/account-type', requireAuth, authController.setAccountType);
+authRouter.post('/business-setup', requireAuth, authController.setupBusinessWorkspace);
+authRouter.get('/business-setup/status', requireAuth, authController.businessSetupStatus);
 
 // Enterprise Biometric Auth (UI contract unchanged)
 authRouter.post('/face/register', biometricLimiter, faceRegister);

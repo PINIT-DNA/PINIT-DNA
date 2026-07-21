@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { DashboardGate } from '../components/subscription/DashboardGate';
 import { Toaster } from 'react-hot-toast';
 import { Sidebar } from '../components/nav/Sidebar';
 import { Topbar } from '../components/nav/Topbar';
@@ -23,7 +23,7 @@ export function DashboardLayout() {
       <div className="flex-1 flex flex-col overflow-hidden min-w-0 lg:ml-60">
         <Topbar onMenu={() => setNavOpen(true)} />
         <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 pb-24 lg:pb-6 mobile-main">
-          <Outlet />
+          <DashboardGate />
         </main>
       </div>
 

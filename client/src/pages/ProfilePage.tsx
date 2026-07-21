@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import {
   User, Shield, Bell, Clock, Activity, Save, RefreshCw,
   Dna, Archive, Share2, Award, Eye, Radio, Trash2,
-  Sun, Moon, Monitor,
+  Sun, Moon, Monitor, Building2,
 } from 'lucide-react';
 import { api } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
 import { useTheme } from '../hooks/useTheme';
+import { useSubscription } from '../hooks/useSubscription';
+import { useOrganization } from '../hooks/useOrganization';
+import { OrganizationProfileTab } from './business/OrganizationProfileTab';
 import { formatDistanceToNow, format } from 'date-fns';
 import {
   type NotificationItem,
@@ -18,12 +21,12 @@ import {
 
 type Tab = 'profile' | 'security' | 'notifications' | 'activity' | 'settings';
 
-const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-  { id: 'profile',       label: 'Profile',       icon: <User size={14} /> },
-  { id: 'security',      label: 'Security',      icon: <Shield size={14} /> },
+const BASE_TABS: { id: Tab; label: string; icon: React.ReactNode; businessLabel?: string }[] = [
+  { id: 'profile', label: 'Profile', businessLabel: 'Organization', icon: <User size={14} /> },
+  { id: 'security', label: 'Security', icon: <Shield size={14} /> },
   { id: 'notifications', label: 'Notifications', icon: <Bell size={14} /> },
-  { id: 'activity',      label: 'Activity',      icon: <Clock size={14} /> },
-  { id: 'settings',      label: 'Settings',      icon: <Activity size={14} /> },
+  { id: 'activity', label: 'Activity', icon: <Clock size={14} /> },
+  { id: 'settings', label: 'Settings', icon: <Activity size={14} /> },
 ];
 
 export function ProfilePage() {
@@ -32,47 +35,124 @@ export function ProfilePage() {
   const [profile, setProfile] = useState<any>(null);
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const { accountType } = useSubscription();
+  const { organization } = useOrganization(accountType === 'BUSINESS');
+
+  const isBusiness = accountType === 'BUSINESS' || profile?.accountType === 'BUSINESS';
+
+  const tabs = BASE_TABS.map((t) => ({
+    ...t,
+    label: isBusiness && t.businessLabel ? t.businessLabel : t.label,
+    icon: isBusiness && t.id === 'profile' ? <Building2 size={14} /> : t.icon,
+  }));
+
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadProfile = () => {
+    setLoading(true);
+    setLoadError(null);
+
+    void (async () => {
+      try {
+        const { data } = await api.get(`${API_BASE_URL}/profile`);
+        const p = (data as { profile?: unknown }).profile;
+        if (p) setProfile(p);
+        else setLoadError('Profile data was empty. Try again.');
+      } catch {
+        setLoadError('Profile could not be loaded. The backend may be busy — try again.');
+      } finally {
+        setLoading(false);
+      }
+    })();
+
+    void api
+      .get(`${API_BASE_URL}/profile/stats`)
+      .then((r) => setStats((r.data as { stats?: unknown }).stats))
+      .catch(() => {});
+  };
 
   useEffect(() => {
-    Promise.all([
-      api.get(`${API_BASE_URL}/profile`).then(r => setProfile((r.data as any).profile)),
-      api.get(`${API_BASE_URL}/profile/stats`).then(r => setStats((r.data as any).stats)),
-    ]).finally(() => setLoading(false));
+    loadProfile();
   }, []);
 
   useEffect(() => {
     const t = params.get('tab') as Tab;
-    if (t && TABS.some(x => x.id === t)) setTab(t);
-  }, [params]);
+    if (t && tabs.some(x => x.id === t)) setTab(t);
+  }, [params, isBusiness]);
 
   if (loading) return (
-    <div className="flex items-center justify-center min-h-[60vh]">
+    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
       <RefreshCw size={24} className="animate-spin text-dna-400" />
+      <p className="text-xs text-gray-500">Loading profile…</p>
     </div>
   );
+
+  if (!profile && loadError) {
+    return (
+      <div className="page-shell max-w-lg mx-auto text-center py-16">
+        <p className="text-sm text-amber-200 mb-4">{loadError}</p>
+        <button
+          type="button"
+          onClick={loadProfile}
+          className="text-xs px-4 py-2 rounded-lg bg-dna-500 text-white"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="page-shell w-full max-w-5xl">
       {/* Header with stats */}
       <div className="card mb-6">
         <div className="flex items-start gap-4 flex-wrap">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-dna-500 to-purple flex items-center justify-center text-xl font-bold text-white shrink-0">
-            {profile?.fullName?.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2) || 'P'}
-          </div>
-          <div className="flex-1 min-w-0">
-            <h1 className="text-lg font-bold text-white">{profile?.fullName}</h1>
-            <p className="text-sm text-dna-400 font-mono">{profile?.shortId}</p>
-            {profile?.email && <p className="text-xs text-gray-500">{profile.email}</p>}
-            {profile?.organization && <p className="text-xs text-gray-500">{profile.organization}{profile.jobTitle ? ` · ${profile.jobTitle}` : ''}</p>}
-          </div>
+          {isBusiness ? (
+            <>
+              <div className="w-16 h-16 rounded-2xl border border-purple-500/30 bg-purple-500/10 flex items-center justify-center shrink-0 overflow-hidden">
+                {organization?.logoUrl ? (
+                  <img src={organization.logoUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <Building2 size={28} className="text-purple-400" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-2xs text-purple-400 font-medium uppercase tracking-wider mb-0.5">Organization Profile</p>
+                <h1 className="text-lg font-bold text-white">
+                  {organization?.name?.trim() || profile?.organization?.trim() || 'Your Organization'}
+                </h1>
+                <p className="text-sm text-dna-400 font-mono">{organization?.shortId ?? '—'}</p>
+                {organization?.defaultWorkspace?.name && (
+                  <p className="text-xs text-gray-500 mt-0.5">Workspace · {organization.defaultWorkspace.name}</p>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-dna-500 to-purple flex items-center justify-center text-xl font-bold text-white shrink-0">
+                {profile?.fullName?.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2) || 'P'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h1 className="text-lg font-bold text-white">{profile?.fullName}</h1>
+                <p className="text-sm text-dna-400 font-mono">{profile?.shortId}</p>
+                {profile?.email && <p className="text-xs text-gray-500">{profile.email}</p>}
+                {profile?.organization && <p className="text-xs text-gray-500">{profile.organization}{profile.jobTitle ? ` · ${profile.jobTitle}` : ''}</p>}
+              </div>
+            </>
+          )}
           <div className="text-right">
-            <p className="text-2xs text-gray-500">Member since</p>
+            <p className="text-2xs text-gray-500">{isBusiness ? 'Organization since' : 'Member since'}</p>
             <p className="text-xs text-gray-400">{profile?.createdAt ? format(new Date(profile.createdAt), 'MMM d, yyyy') : ''}</p>
+            {isBusiness && (
+              <Link to="/business/settings" className="text-2xs text-purple-400 hover:text-purple-300 mt-1 inline-block">
+                Organization Settings →
+              </Link>
+            )}
           </div>
         </div>
 
-        {/* Stats row */}
-        {stats && (
+        {/* Stats row — individual only in header; business stats live in org profile tab */}
+        {stats && !isBusiness && (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mt-4">
             <StatMini icon={<Dna size={12} />} label="DNA" value={stats.dnaGenerated} />
             <StatMini icon={<Archive size={12} />} label="Vault" value={stats.filesProtected} />
@@ -86,7 +166,7 @@ export function ProfilePage() {
 
       {/* Tab bar */}
       <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
-        {TABS.map(t => (
+        {tabs.map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
@@ -100,7 +180,10 @@ export function ProfilePage() {
       </div>
 
       {/* Tab content */}
-      {tab === 'profile'       && <ProfileTab profile={profile} onUpdate={setProfile} />}
+      {tab === 'profile' && isBusiness && (
+        <OrganizationProfileTab profile={profile} stats={stats} onUpdate={setProfile} />
+      )}
+      {tab === 'profile' && !isBusiness && <ProfileTab profile={profile} onUpdate={setProfile} />}
       {tab === 'security'      && <SecurityTab profile={profile} />}
       {tab === 'notifications' && <NotificationsTab profile={profile} onUpdate={setProfile} />}
       {tab === 'activity'      && <ActivityTab />}

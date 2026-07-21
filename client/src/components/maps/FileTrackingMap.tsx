@@ -3,6 +3,8 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { isValidMapCoordinate } from '../../lib/geo-coords';
 
+export type AccessKind = 'direct_recipient' | 'direct_share' | 'reshared';
+
 interface MapPoint {
   lat: number;
   lng: number;
@@ -22,6 +24,8 @@ interface MapPoint {
   gpsAccuracy?: number | null;
   gpsFullAddress?: string | null;
   locationSource?: string | null;
+  /** Green / blue / red pin role */
+  accessKind?: AccessKind;
 }
 
 interface FileTrackingMapProps {
@@ -29,23 +33,32 @@ interface FileTrackingMapProps {
   height?: string;
 }
 
-const HOP_COLORS = [
-  '#6366f1', // Hop 1 — purple (direct recipient)
-  '#f97316', // Hop 2 — orange
-  '#ef4444', // Hop 3 — red
-  '#eab308', // Hop 4 — yellow
-  '#10b981', // Hop 5 — green
-  '#3b82f6', // Hop 6 — blue
-  '#8b5cf6', // Hop 7
-  '#ec4899', // Hop 8
-];
+/** Pin colors: Direct Recipient = green, Direct Share = blue, Reshared = red */
+export const ACCESS_KIND_COLORS: Record<AccessKind, string> = {
+  direct_recipient: '#10b981',
+  direct_share: '#3b82f6',
+  reshared: '#ef4444',
+};
 
-function getColor(hop: number): string {
-  return HOP_COLORS[(hop - 1) % HOP_COLORS.length];
+export const ACCESS_KIND_LABELS: Record<AccessKind, string> = {
+  direct_recipient: 'Direct Recipient',
+  direct_share: 'Direct Share',
+  reshared: 'Reshared',
+};
+
+function resolveAccessKind(hop: number, kind?: AccessKind): AccessKind {
+  if (kind) return kind;
+  // Fallback when hop metadata missing: hop 1 = recipient, rest = reshared
+  return hop === 1 ? 'direct_recipient' : 'reshared';
 }
 
-function createPinIcon(hop: number, riskLevel: string): L.DivIcon {
-  const color = riskLevel === 'CRITICAL' ? '#ef4444' : riskLevel === 'HIGH' ? '#f97316' : getColor(hop);
+function getColor(hop: number, kind?: AccessKind): string {
+  return ACCESS_KIND_COLORS[resolveAccessKind(hop, kind)];
+}
+
+function createPinIcon(hop: number, riskLevel: string, accessKind?: AccessKind): L.DivIcon {
+  // Risk override only for CRITICAL; HIGH keeps role color so reshared stays red
+  const color = riskLevel === 'CRITICAL' ? '#ef4444' : getColor(hop, accessKind);
   const pulse = riskLevel === 'CRITICAL' || riskLevel === 'HIGH' ? 'animation: pulse 1.5s infinite;' : '';
 
   return L.divIcon({
@@ -99,11 +112,15 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
       const latlng = L.latLng(p.lat, p.lng);
       markers.push(latlng);
 
-      const marker = L.marker(latlng, { icon: createPinIcon(p.hopNumber, p.riskLevel) });
+      const kind = resolveAccessKind(p.hopNumber, p.accessKind);
+      const marker = L.marker(latlng, { icon: createPinIcon(p.hopNumber, p.riskLevel, kind) });
 
       const riskBadge = p.riskLevel === 'CRITICAL' || p.riskLevel === 'HIGH'
         ? `<span style="background:${p.riskLevel === 'CRITICAL' ? '#ef4444' : '#f97316'};color:#fff;padding:1px 6px;border-radius:4px;font-size:10px;margin-left:4px">${p.riskLevel}</span>`
         : '';
+
+      const kindColor = ACCESS_KIND_COLORS[kind];
+      const kindLabel = ACCESS_KIND_LABELS[kind];
 
       const locationLines = p.gpsFullAddress
         ? p.gpsFullAddress.replace(/,/g, '<br/>')
@@ -125,8 +142,11 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
       marker.bindPopup(`
         <div style="font-family:Inter,system-ui,sans-serif;min-width:220px">
           <div style="font-size:13px;font-weight:700;color:#333;margin-bottom:6px">
-            Hop ${p.hopNumber} — ${p.hopNumber === 1 ? 'Direct Recipient' : 'Forwarded'}
+            Hop ${p.hopNumber} — ${kindLabel}
             ${riskBadge}
+          </div>
+          <div style="font-size:10px;font-weight:600;color:${kindColor};margin-bottom:6px;text-transform:uppercase;letter-spacing:0.04em">
+            ${kindLabel}
           </div>
           <div style="font-size:11px;color:#666;line-height:1.5">
             <div style="margin-bottom:4px">📍 <strong>${locationLines}</strong></div>
@@ -150,13 +170,13 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
       const lineCoords = sortedPoints.map(p => L.latLng(p.lat, p.lng));
 
       L.polyline(lineCoords, {
-        color: '#6366f1',
+        color: '#64748b',
         weight: 2,
         opacity: 0.7,
         dashArray: '8, 8',
       }).addTo(map);
 
-      // Animated arrow markers along the path
+      // Arrow markers along the path
       for (let i = 0; i < lineCoords.length - 1; i++) {
         const mid = L.latLng(
           (lineCoords[i].lat + lineCoords[i + 1].lat) / 2,
@@ -166,7 +186,7 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
           icon: L.divIcon({
             className: '',
             iconSize: [20, 20],
-            html: `<div style="color:#6366f1;font-size:14px;text-align:center">→</div>`,
+            html: `<div style="color:#94a3b8;font-size:14px;text-align:center">→</div>`,
           }),
         }).addTo(map);
       }
@@ -201,10 +221,23 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
   }
 
   return (
-    <div
-      ref={mapRef}
-      style={{ height, width: '100%', borderRadius: '12px', overflow: 'hidden' }}
-      className="border border-bg-border"
-    />
+    <div className="relative">
+      <div
+        ref={mapRef}
+        style={{ height, width: '100%', borderRadius: '12px', overflow: 'hidden' }}
+        className="border border-bg-border"
+      />
+      <div className="absolute bottom-3 left-3 z-[1000] flex flex-wrap gap-2 rounded-lg bg-black/70 backdrop-blur-sm px-2.5 py-2 border border-white/10">
+        {(Object.keys(ACCESS_KIND_COLORS) as AccessKind[]).map((kind) => (
+          <span key={kind} className="flex items-center gap-1.5 text-2xs text-white/90">
+            <span
+              className="inline-block w-2.5 h-2.5 rounded-full border border-white/40"
+              style={{ backgroundColor: ACCESS_KIND_COLORS[kind] }}
+            />
+            {ACCESS_KIND_LABELS[kind]}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }

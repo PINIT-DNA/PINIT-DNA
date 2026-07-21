@@ -22,11 +22,13 @@ function clientMeta(req: Request) {
 
 export async function faceRegister(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { embedding, voiceFingerprint, webauthnCredentialId, deviceFingerprint } = req.body as {
+    const { embedding, voiceFingerprint, webauthnCredentialId, deviceFingerprint, accountType, organizationName } = req.body as {
       embedding?: number[];
       voiceFingerprint?: number[];
       webauthnCredentialId?: string;
       deviceFingerprint?: string;
+      accountType?: 'INDIVIDUAL' | 'BUSINESS';
+      organizationName?: string;
     };
 
     const meta = clientMeta(req);
@@ -35,6 +37,8 @@ export async function faceRegister(req: Request, res: Response, next: NextFuncti
       voiceFingerprint,
       webauthnCredentialId,
       deviceFingerprint,
+      accountType,
+      organizationName,
       ...meta,
     });
 

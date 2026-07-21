@@ -10,7 +10,8 @@ import { logger } from '../../lib/logger';
 export class AppError extends Error {
   constructor(
     public readonly statusCode: number,
-    message: string
+    message: string,
+    public readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'AppError';
@@ -23,8 +24,67 @@ export function errorMiddleware(
   res: Response,
   _next: NextFunction
 ): void {
+  if (err.name === 'SubscriptionRequiredError') {
+    const e = err as AppError & { requiredPlan?: string; feature?: string };
+    res.status(403).json({
+      success: false,
+      error: 'Subscription Required',
+      requiredPlan: e.requiredPlan ?? 'PRO',
+      feature: e.feature,
+    });
+    return;
+  }
+
+  if (err.name === 'StorageLimitError') {
+    const e = err as AppError & {
+      usedBytes?: number;
+      limitBytes?: number;
+      requiredPlan?: string;
+    };
+    res.status(403).json({
+      success: false,
+      error: err.message,
+      requiredPlan: e.requiredPlan ?? 'PRO',
+      usedBytes: e.usedBytes,
+      limitBytes: e.limitBytes,
+    });
+    return;
+  }
+
+  if (err.name === 'AssetQuotaExceededError') {
+    const e = err as AppError & {
+      usedAssets?: number;
+      assetLimit?: number;
+      planCode?: string;
+      requiredPlan?: string;
+    };
+    res.status(403).json({
+      success: false,
+      error: err.message,
+      code: 'ASSET_QUOTA_EXCEEDED',
+      usedAssets: e.usedAssets,
+      assetLimit: e.assetLimit,
+      planCode: e.planCode,
+      requiredPlan: e.requiredPlan ?? 'PRO',
+    });
+    return;
+  }
+
+  if (err.name === 'InvalidAccountPlanCombinationError') {
+    res.status(409).json({
+      success: false,
+      error: err.message,
+      code: 'INVALID_ACCOUNT_PLAN_COMBINATION',
+    });
+    return;
+  }
+
   if (err instanceof AppError) {
-    res.status(err.statusCode).json({ success: false, error: err.message });
+    res.status(err.statusCode).json({
+      success: false,
+      error: err.message,
+      ...(err.details ?? {}),
+    });
     return;
   }
 
