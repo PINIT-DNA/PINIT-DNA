@@ -673,7 +673,13 @@ export const biometricAuthService = {
     userId: string,
     accountType: 'INDIVIDUAL' | 'BUSINESS',
     organizationName?: string,
-  ): Promise<{ accessToken: string; refreshToken: string; accountType: 'INDIVIDUAL' | 'BUSINESS' }> {
+  ): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    accountType: 'INDIVIDUAL' | 'BUSINESS';
+    planAdjusted?: boolean;
+    planCode?: import('../subscription/constants/plans').PlanCode;
+  }> {
     const resolved = accountType === 'BUSINESS' ? 'BUSINESS' : 'INDIVIDUAL';
 
     const sub = await prisma.subscription.findUnique({
@@ -681,8 +687,9 @@ export const biometricAuthService = {
       include: { plan: true },
     });
     const currentPlanCode = (sub?.plan.code ?? 'FREE') as import('../subscription/constants/plans').PlanCode;
-    const { assertAccountTypeChangeAllowed } = await import('../account/account-subscription-rules');
-    assertAccountTypeChangeAllowed(resolved, currentPlanCode);
+    const { planAfterAccountTypeChange } = await import('../account/account-subscription-rules');
+    const nextPlanCode = planAfterAccountTypeChange(resolved, currentPlanCode);
+    const planAdjusted = nextPlanCode !== currentPlanCode;
 
     const user = await prisma.user.update({
       where: { id: userId },
@@ -707,6 +714,11 @@ export const biometricAuthService = {
       select: { id: true, shortId: true, fullName: true, role: true, accountType: true },
     });
 
+    if (planAdjusted) {
+      const { subscriptionService } = await import('../subscription/subscription.service');
+      await subscriptionService.assignPlan(userId, nextPlanCode);
+    }
+
     const tokens = createTokens({
       id: user.id,
       shortId: user.shortId,
@@ -719,6 +731,8 @@ export const biometricAuthService = {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       accountType: resolved,
+      planAdjusted,
+      planCode: nextPlanCode,
     };
   },
 };

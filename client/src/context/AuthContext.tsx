@@ -3,6 +3,7 @@ import {
   AuthUser, getAccessToken, parseJwt, clearTokens,
   apiLogout, refreshAccessToken, applyFaceAuthTokens,
 } from '../lib/auth';
+import { syncServerAccountTypeOnboarding } from '../lib/account-onboarding';
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -27,12 +28,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const payload = JSON.parse(atob(token.split('.')[1]));
     if (payload.exp && payload.exp * 1000 < Date.now()) {
       refreshAccessToken().then(t => {
-        if (t) setUser(parseJwt(t));
-        else { clearTokens(); setUser(null); }
+        if (t) {
+          const parsed = parseJwt(t);
+          if (parsed) syncServerAccountTypeOnboarding(parsed);
+          setUser(parsed);
+        } else { clearTokens(); setUser(null); }
         setLoading(false);
       });
     } else {
       setUser(parsed);
+      syncServerAccountTypeOnboarding(parsed);
       setLoading(false);
     }
   }, []);
@@ -40,10 +45,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   function loginWithFaceResponse(data: { accessToken?: string; refreshToken?: string }) {
     const u = applyFaceAuthTokens(data);
     if (u) {
+      syncServerAccountTypeOnboarding(u);
       setUser(u);
     } else if (data.accessToken) {
       const parsed = parseJwt(data.accessToken);
-      if (parsed) setUser(parsed);
+      if (parsed) {
+        syncServerAccountTypeOnboarding(parsed);
+        setUser(parsed);
+      }
     }
   }
 

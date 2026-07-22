@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, User, ArrowRight, AlertTriangle } from 'lucide-react';
+import { Building2, User, ArrowRight, Info } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '../../services/dashboard.api';
 import { API_BASE_URL } from '../../config/api.config';
@@ -15,13 +15,12 @@ import { invalidateSubscriptionCache, useSubscription } from '../../hooks/useSub
 import { saveTokens } from '../../lib/auth';
 import type { AccountType } from '../../lib/account-type';
 import {
-  ENTERPRISE_REQUIRES_BUSINESS_MSG,
+  INDIVIDUAL_PLAN_ADJUST_MSG,
   isValidAccountPlanCombination,
 } from '../../lib/account-plan-rules';
 
-function cardClass(selected: boolean, variant: 'individual' | 'business', disabled = false): string {
+function cardClass(selected: boolean, variant: 'individual' | 'business'): string {
   const base = 'ob-type-card text-left rounded-2xl border p-6 transition-all w-full';
-  if (disabled) return `${base} ob-disabled`;
   if (!selected) return base;
   return `${base} ${variant === 'business' ? 'ob-selected-business' : 'ob-selected-individual'}`;
 }
@@ -35,17 +34,9 @@ export function AccountTypeOnboardingPage() {
   const [blockingError, setBlockingError] = useState<string | null>(null);
 
   const currentPlan = planCode ?? subscription?.planCode ?? 'FREE';
-  const individualBlocked = !isValidAccountPlanCombination('INDIVIDUAL', currentPlan);
-
-  useEffect(() => {
-    if (individualBlocked) {
-      setType('BUSINESS');
-      if (user?.sub) setChosenAccountType(user.sub, 'BUSINESS');
-    }
-  }, [individualBlocked, user?.sub]);
+  const individualNeedsPlanAdjust = !isValidAccountPlanCombination('INDIVIDUAL', currentPlan);
 
   function selectAccountType(next: AccountType) {
-    if (next === 'INDIVIDUAL' && individualBlocked) return;
     setType(next);
     setBlockingError(null);
     if (user?.sub) setChosenAccountType(user.sub, next);
@@ -54,16 +45,6 @@ export function AccountTypeOnboardingPage() {
   async function handleContinue() {
     if (!user?.sub) return;
     setBlockingError(null);
-
-    if (!isValidAccountPlanCombination(type, currentPlan)) {
-      setBlockingError(
-        type === 'INDIVIDUAL' && currentPlan === 'ENTERPRISE'
-          ? ENTERPRISE_REQUIRES_BUSINESS_MSG
-          : `Plan ${currentPlan} is not available for ${type} accounts.`,
-      );
-      return;
-    }
-
     setBusy(true);
     try {
       const { data } = await api.post<{
@@ -72,6 +53,8 @@ export function AccountTypeOnboardingPage() {
         accessToken?: string;
         refreshToken?: string;
         accountType?: AccountType;
+        planAdjusted?: boolean;
+        planCode?: string;
       }>(`${API_BASE_URL}/auth/account-type`, { accountType: type });
 
       const resolvedType = data.accountType ?? type;
@@ -88,11 +71,15 @@ export function AccountTypeOnboardingPage() {
       }
 
       invalidateSubscriptionCache();
-      toast.success(
-        resolvedType === 'BUSINESS'
-          ? 'Business account selected — your organization dashboard is ready'
-          : 'Individual account configured',
-      );
+      if (data.planAdjusted) {
+        toast.success('Individual account configured — subscription set to Free');
+      } else {
+        toast.success(
+          resolvedType === 'BUSINESS'
+            ? 'Business account selected — your organization dashboard is ready'
+            : 'Individual account configured',
+        );
+      }
       navigate(resolvePostAccountTypePath(resolvedType), { replace: true });
     } catch (err: unknown) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -110,14 +97,17 @@ export function AccountTypeOnboardingPage() {
       <div className="text-center space-y-2 max-w-3xl mx-auto">
         <h1 className="ob-heading text-2xl sm:text-3xl font-bold">Choose your account type</h1>
         <p className="ob-subtext text-sm max-w-lg mx-auto">
-          Account type defines who you are. Your subscription ({subscription?.planName ?? 'Free'}) stays unchanged.
+          Account type defines who you are. Your subscription ({subscription?.planName ?? 'Free'})
+          {individualNeedsPlanAdjust && type === 'INDIVIDUAL'
+            ? ' will switch to Free if you choose Individual.'
+            : ' stays unchanged.'}
         </p>
       </div>
 
-      {individualBlocked && (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200/90 flex gap-3">
-          <AlertTriangle size={18} className="shrink-0 mt-0.5" />
-          <span>{ENTERPRISE_REQUIRES_BUSINESS_MSG}</span>
+      {individualNeedsPlanAdjust && type === 'INDIVIDUAL' && (
+        <div className="rounded-xl border border-sky-500/40 bg-sky-500/10 px-4 py-3 text-sm text-sky-100/90 flex gap-3">
+          <Info size={18} className="shrink-0 mt-0.5" />
+          <span>{INDIVIDUAL_PLAN_ADJUST_MSG}</span>
         </div>
       )}
 
@@ -131,8 +121,7 @@ export function AccountTypeOnboardingPage() {
         <button
           type="button"
           onClick={() => selectAccountType('INDIVIDUAL')}
-          disabled={individualBlocked}
-          className={cardClass(type === 'INDIVIDUAL', 'individual', individualBlocked)}
+          className={cardClass(type === 'INDIVIDUAL', 'individual')}
           aria-pressed={type === 'INDIVIDUAL'}
         >
           <User size={28} className="text-dna-400 mb-3" />
@@ -165,7 +154,7 @@ export function AccountTypeOnboardingPage() {
       <div className="flex flex-col items-center gap-2">
         <button
           type="button"
-          disabled={busy || (type === 'INDIVIDUAL' && individualBlocked)}
+          disabled={busy}
           onClick={() => void handleContinue()}
           className={`inline-flex items-center gap-2 px-6 py-3 rounded-xl disabled:opacity-60 text-white text-sm font-semibold ${
             type === 'BUSINESS'

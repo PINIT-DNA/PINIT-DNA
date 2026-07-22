@@ -62,3 +62,17 @@ export function assertAccountTypeChangeAllowed(
     throw new InvalidAccountPlanCombinationError(targetAccountType, currentPlanCode);
   }
 }
+
+/** Plan to apply after an account-type change (downgrades when the pair would be invalid). */
+export function planAfterAccountTypeChange(
+  targetAccountType: 'INDIVIDUAL' | 'BUSINESS',
+  currentPlanCode: PlanCode,
+): PlanCode {
+  if (isValidAccountPlanCombination(targetAccountType, currentPlanCode)) {
+    return currentPlanCode;
+  }
+  if (targetAccountType === 'INDIVIDUAL') {
+    return PlanCode.FREE;
+  }
+  return currentPlanCode;
+}

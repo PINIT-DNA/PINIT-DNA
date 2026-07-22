@@ -19,3 +19,6 @@ export function isValidAccountPlanCombination(
 
 export const ENTERPRISE_REQUIRES_BUSINESS_MSG =
   'Enterprise subscription requires a Business account. Please convert this account to Business or contact support.';
+
+export const INDIVIDUAL_PLAN_ADJUST_MSG =
+  'Enterprise is only available on Business accounts. Choosing Individual will switch your subscription to the Free plan.';

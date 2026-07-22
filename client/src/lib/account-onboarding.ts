@@ -78,6 +78,23 @@ export function clearBusinessSetup(userId: string): void {
   } catch { /* privacy mode */ }
 }
 
+/** Trust server account type for returning biometric users (one face → one account). */
+export function syncServerAccountTypeOnboarding(user: { sub: string; accountType?: AccountType }): void {
+  if (!user.sub || !user.accountType) return;
+  markAccountTypeOnboardingComplete(user.sub);
+  setChosenAccountType(user.sub, user.accountType);
+}
+
+/** Skip onboarding when the server already knows this user's account type. */
+export function needsAccountTypeOnboarding(user: { sub: string; accountType?: AccountType }): boolean {
+  if (hasCompletedAccountTypeOnboarding(user.sub)) return false;
+  if (user.accountType === 'BUSINESS' || user.accountType === 'INDIVIDUAL') {
+    syncServerAccountTypeOnboarding(user);
+    return false;
+  }
+  return true;
+}
+
 export function clearAllOnboardingFlags(userId: string): void {
   clearAccountTypeOnboarding(userId);
   clearBusinessSetup(userId);

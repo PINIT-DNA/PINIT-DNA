@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { hasCompletedAccountTypeOnboarding } from '../../lib/account-onboarding';
+import { needsAccountTypeOnboarding } from '../../lib/account-onboarding';
 import { ACCOUNT_TYPE_ONBOARDING_PATH } from '../../lib/onboarding-routes';
 
 /**
@@ -20,7 +20,7 @@ export function RequireAccountTypeOnboarding({ children }: { children: ReactNode
     );
   }
 
-  if (user && !hasCompletedAccountTypeOnboarding(user.sub)) {
+  if (user && needsAccountTypeOnboarding(user)) {
     return (
       <Navigate
         to={ACCOUNT_TYPE_ONBOARDING_PATH}

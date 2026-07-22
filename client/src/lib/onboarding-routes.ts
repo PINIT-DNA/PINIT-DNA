@@ -1,5 +1,7 @@
 import type { AccountType } from './account-type';
-import { hasCompletedAccountTypeOnboarding } from './account-onboarding';
+import {
+  needsAccountTypeOnboarding,
+} from './account-onboarding';
 import { resolveDefaultHomePath } from './subscription/post-upgrade-redirect';
 
 export const ACCOUNT_TYPE_ONBOARDING_PATH = '/onboarding/account-type';
@@ -10,8 +12,8 @@ export function resolvePostAccountTypePath(accountType: AccountType): string {
 }
 
 /** Whether the user can enter the main app (dashboard shell). */
-export function isAppOnboardingComplete(userId: string): boolean {
-  return hasCompletedAccountTypeOnboarding(userId);
+export function isAppOnboardingComplete(user: { sub: string; accountType?: AccountType }): boolean {
+  return !needsAccountTypeOnboarding(user);
 }
 
 /** Default home once fully onboarded. */
