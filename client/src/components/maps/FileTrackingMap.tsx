@@ -52,6 +52,38 @@ function resolveAccessKind(hop: number, kind?: AccessKind): AccessKind {
   return hop === 1 ? 'direct_recipient' : 'reshared';
 }
 
+/**
+ * When two viewers share the same IP/GPS coordinates, stack them in a small
+ * circle so each pin is clickable (otherwise Leaflet draws one on top of the other).
+ */
+function spreadOverlappingPoints(points: MapPoint[]): MapPoint[] {
+  const counts = new Map<string, number>();
+  const indexes = new Map<string, number>();
+
+  for (const p of points) {
+    const key = `${p.lat.toFixed(5)}:${p.lng.toFixed(5)}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  return points.map((p) => {
+    const key = `${p.lat.toFixed(5)}:${p.lng.toFixed(5)}`;
+    const total = counts.get(key) ?? 1;
+    if (total < 2) return p;
+
+    const idx = indexes.get(key) ?? 0;
+    indexes.set(key, idx + 1);
+
+    // ~120–220m ring so pins separate at street zoom
+    const angle = (2 * Math.PI * idx) / total - Math.PI / 2;
+    const meters = 120 + (total > 2 ? idx * 35 : 0);
+    const dLat = (meters / 111_320) * Math.cos(angle);
+    const cosLat = Math.cos((p.lat * Math.PI) / 180) || 0.01;
+    const dLng = (meters / (111_320 * cosLat)) * Math.sin(angle);
+
+    return { ...p, lat: p.lat + dLat, lng: p.lng + dLng };
+  });
+}
+
 function getColor(hop: number, kind?: AccessKind): string {
   return ACCESS_KIND_COLORS[resolveAccessKind(hop, kind)];
 }
@@ -84,7 +116,9 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
   const mapInstance = useRef<L.Map | null>(null);
 
   useEffect(() => {
-    const validPoints = points.filter(p => isValidMapCoordinate(p.lat, p.lng));
+    const validPoints = spreadOverlappingPoints(
+      points.filter((p) => isValidMapCoordinate(p.lat, p.lng)),
+    );
     if (!mapRef.current || validPoints.length === 0) return;
 
     // Clean up previous map
@@ -194,9 +228,9 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
 
     // Fit bounds
     if (markers.length === 1) {
-      map.setView(markers[0], 8);
+      map.setView(markers[0], 12);
     } else if (markers.length > 1) {
-      map.fitBounds(L.latLngBounds(markers), { padding: [40, 40], maxZoom: 10 });
+      map.fitBounds(L.latLngBounds(markers), { padding: [48, 48], maxZoom: 14 });
     }
 
     return () => {

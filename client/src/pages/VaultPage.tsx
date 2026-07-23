@@ -210,8 +210,8 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
   const [scanMsg,        setScanMsg]       = useState('');
   const [detected, setDetected] = useState({ email: false, phone: false, aadhaar: false, pan: false, address: false });
 
-  // ── Location: tracked via IP on server (no browser permission prompt)
-  const requestLocation = false;
+  // ── GPS Location — optional (owner chooses at share time)
+  const [requestLocation, setRequestLocation] = useState(true);
 
   // ── Enterprise Security Controls ──────────────────────────────────────────
   const [vpnBlock,       setVpnBlock]       = useState(false);
@@ -641,16 +641,37 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
               )}
             </div>
 
-            {/* ── GPS Location — Always Mandatory ──────────────────── */}
-            <div className="flex items-center justify-between px-3 py-2.5 rounded-xl border border-green-500/30 bg-green-500/5">
+            {/* ── GPS Location — optional toggle ──────────────────── */}
+            <button
+              type="button"
+              onClick={() => setRequestLocation((v) => !v)}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-left transition-colors ${
+                requestLocation
+                  ? 'border-green-500/40 bg-green-500/10'
+                  : 'border-bg-border bg-bg-elevated hover:border-green-500/25'
+              }`}
+            >
               <div>
-                <p className="text-xs font-semibold text-green-400 flex items-center gap-2">
+                <p className={`text-xs font-semibold flex items-center gap-2 ${requestLocation ? 'text-green-400' : 'text-gray-300'}`}>
                   📍 GPS Location Tracking
-                  <span className="text-2xs bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded font-bold">MANDATORY</span>
+                  <span className={`text-2xs px-1.5 py-0.5 rounded font-bold ${
+                    requestLocation
+                      ? 'bg-green-500/20 text-green-400'
+                      : 'bg-bg-border text-gray-500'
+                  }`}>
+                    {requestLocation ? 'ON' : 'OFF'}
+                  </span>
                 </p>
-                <p className="text-2xs text-gray-500 mt-0.5">Viewer must allow GPS location to access the file. No location = no access.</p>
+                <p className="text-2xs text-gray-500 mt-0.5">
+                  {requestLocation
+                    ? 'Viewer must allow GPS location to access the file. No location = no access.'
+                    : 'Off — open without GPS prompt; still track via IP (approximate).'}
+                </p>
               </div>
-            </div>
+              <div className={`w-8 h-4 rounded-full transition-colors relative shrink-0 ml-3 ${requestLocation ? 'bg-green-500' : 'bg-bg-border'}`}>
+                <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${requestLocation ? 'left-4' : 'left-0.5'}`} />
+              </div>
+            </button>
 
             <button onClick={handleCreate} disabled={creating} className="btn btn-primary w-full">
               {creating

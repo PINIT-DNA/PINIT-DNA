@@ -630,8 +630,13 @@ export function LinkIntelligencePage() {
         {viewers.length > 0 && viewers.every(v => !isValidMapCoordinate(v.lat, v.lng)) && (
           <p className="text-2xs text-yellow-500/90 mt-3 italic">
             {viewers.some(v => isPrivateIp(v.ip))
-              ? 'Testing on localhost — IP geolocation is unavailable for local/private networks, so the map pin may be empty until the link is opened from a public network.'
-              : 'Map pins use IP geolocation (city/region approximate). No browser location permission is requested from viewers.'}
+              ? 'Testing on localhost — IP geolocation is unavailable for local/private networks.'
+              : 'No map coordinates yet. Turn ON GPS Location Tracking when sharing, then open the link and Allow location for street / village / mandal detail.'}
+          </p>
+        )}
+        {viewers.some(v => isValidMapCoordinate(v.lat, v.lng) && v.locationSource === 'ip') && (
+          <p className="text-2xs text-yellow-500/90 mt-3 italic">
+            Some pins are IP-approximate (city/ISP). For exact street, latitude/longitude, district &amp; mandal: create the share with <strong className="text-yellow-300">GPS Location Tracking ON</strong> and Allow location in the browser when opening the link.
           </p>
         )}
 
@@ -848,7 +853,12 @@ export function LinkIntelligencePage() {
                         {activeViewer.gpsVillage && <div><span className="text-gray-500">Village:</span> <span className="text-dna-400 font-semibold">{activeViewer.gpsVillage}</span></div>}
                         {activeViewer.gpsMandal && <div><span className="text-gray-500">Mandal:</span> <span className="text-white">{activeViewer.gpsMandal}</span></div>}
                         {activeViewer.gpsDistrict && <div><span className="text-gray-500">District:</span> <span className="text-white">{activeViewer.gpsDistrict}</span></div>}
-                        {activeViewer.gpsState && <div><span className="text-gray-500">State:</span> <span className="text-white">{activeViewer.gpsState}</span></div>}
+                        {(activeViewer.gpsCity || activeViewer.city) && (
+                          <div><span className="text-gray-500">City:</span> <span className="text-white">{activeViewer.gpsCity ?? activeViewer.city}</span></div>
+                        )}
+                        {(activeViewer.gpsState || activeViewer.region) && (
+                          <div><span className="text-gray-500">State:</span> <span className="text-white">{activeViewer.gpsState ?? activeViewer.region}</span></div>
+                        )}
                         {activeViewer.gpsPincode && <div><span className="text-gray-500">Pincode:</span> <span className="text-white">{activeViewer.gpsPincode}</span></div>}
                         <div><span className="text-gray-500">Country:</span> <span className="text-white">{activeViewer.country}</span></div>
                       </div>
