@@ -11,7 +11,7 @@ import crypto from 'crypto';
 import fs from 'fs/promises';
 import { VaultService } from '../../services/vault/vault.service';
 import { AppError } from '../middleware/error.middleware';
-import { getAuthUserId, vaultOwnerWhere } from '../../lib/tenant-scope';
+import { getAuthUserId } from '../../lib/tenant-scope';
 import { logger } from '../../lib/logger';
 import { auditService } from '../../services/audit/audit.service';
 import { autoIndexer }  from '../../services/ai/auto-indexer.service';
@@ -43,8 +43,9 @@ export async function listVaultRecords(
   try {
     const userId = getAuthUserId(req);
     const { prisma } = await import('../../lib/prisma');
+    const { vaultAccessWhere } = await import('../../services/organization/org-asset.service');
     const records = await prisma.vaultRecord.findMany({
-      where: vaultOwnerWhere(userId),
+      where: await vaultAccessWhere(userId),
       orderBy: { createdAt: 'desc' },
       include: {
         dnaRecord: { select: { id: true, status: true, imageFilename: true } },

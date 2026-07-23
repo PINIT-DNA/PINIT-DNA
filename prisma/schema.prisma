@@ -24,9 +24,15 @@ model DnaRecord {
   schemaVersion         String             @default("1.0.0")
   status                DnaStatus          @default(PENDING)
   ownerUserId           String?
+  organizationId        String?
+  workspaceId           String?
+  departmentId          String?
   behavioralLayer       BehavioralLayer?
   cryptoLayer           CryptoLayer?
   ownerUser             User?              @relation(fields: [ownerUserId], references: [id])
+  organization          Organization?      @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  workspace             Workspace?         @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  department            Department?        @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   lineageFrom           DocumentLineage[]  @relation("LineageFrom")
   lineageTo             DocumentLineage[]  @relation("LineageTo")
   evolutionLayer        EvolutionLayer?
@@ -52,6 +58,8 @@ model DnaRecord {
   localFeatureIndex     LocalFeatureIndex?
   provenanceEvents      ForensicProvenanceEvent[]
 
+  @@index([organizationId])
+  @@index([ownerUserId])
   @@map("dna_records")
 }
 
@@ -468,7 +476,8 @@ model User {
   subscription       Subscription?
 
   // Business organization (owner on Free tier — extensible for Enterprise teams)
-  ownedOrganization  Organization?
+  ownedOrganization     Organization?
+  organizationMemberships OrganizationMember[]
 
   @@map("users")
 }
@@ -480,7 +489,24 @@ model Organization {
   shortId            String                @unique
   name               String?
   industry           OrganizationIndustry?
+  organizationSize   OrganizationSize?
+  businessType       String?
   country            String?
+  website            String?
+  registrationNumber String?
+  gst                String?
+  addressLine1       String?
+  addressLine2       String?
+  city               String?
+  state              String?
+  postalCode         String?
+  supportEmail       String?
+  supportPhone       String?
+  foundedYear        Int?
+  linkedIn           String?
+  aboutDescription   String?               @db.Text
+  services           String?               @db.Text
+  notes              String?               @db.Text
   logoUrl            String?
   ownerUserId        String                @unique
   ownerUser          User                  @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
@@ -488,6 +514,14 @@ model Organization {
   setupSkippedAt     DateTime?
   welcomeDismissedAt DateTime?
   workspaces         Workspace[]
+  departments        Department[]
+  members            OrganizationMember[]
+  invites            OrganizationInvite[]
+  auditLogs          OrganizationAuditLog[]
+  apiKeys            OrganizationApiKey[]
+  webhooks           OrganizationWebhook[]
+  integrations       OrganizationIntegration[]
+  dnaRecords         DnaRecord[]
 
   @@index([ownerUserId])
   @@map("organizations")
@@ -497,13 +531,147 @@ model Workspace {
   id             String       @id @default(uuid())
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
+  shortId        String?      @unique
   name           String       @default("Main Workspace")
   isDefault      Boolean      @default(true)
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  dnaRecords     DnaRecord[]
 
   @@index([organizationId])
   @@map("workspaces")
+}
+
+model Department {
+  id             String       @id @default(uuid())
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  name           String
+  description    String?
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members        OrganizationMember[]
+  dnaRecords     DnaRecord[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("departments")
+}
+
+model OrganizationMember {
+  id             String                 @id @default(uuid())
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  organizationId String
+  userId         String
+  role           OrganizationMemberRole @default(MEMBER)
+  departmentId   String?
+  invitedByUserId String?
+  joinedAt       DateTime               @default(now())
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department     Department?            @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@index([organizationId])
+  @@map("organization_members")
+}
+
+model OrganizationInvite {
+  id              String                   @id @default(uuid())
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+  organizationId  String
+  email           String?
+  inviteeShortId  String?
+  role            OrganizationMemberRole   @default(MEMBER)
+  token           String                   @unique
+  status          OrganizationInviteStatus @default(PENDING)
+  invitedByUserId String
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  acceptedUserId  String?
+  organization    Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+  @@index([email])
+  @@map("organization_invites")
+}
+
+model OrganizationAuditLog {
+  id             String       @id @default(uuid())
+  createdAt      DateTime     @default(now())
+  organizationId String
+  actorUserId    String?
+  action         String
+  entityType     String?
+  entityId       String?
+  title          String
+  detail         Json?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@map("organization_audit_logs")
+}
+
+model OrganizationApiKey {
+  id              String       @id @default(uuid())
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organizationId  String
+  name            String
+  keyPrefix       String
+  keyHash         String       @unique
+  createdByUserId String
+  lastUsedAt      DateTime?
+  revokedAt       DateTime?
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("organization_api_keys")
+}
+
+/// Outbound webhooks — PinIT pushes events to customer/Exchange URLs
+model OrganizationWebhook {
+  id              String       @id @default(uuid())
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organizationId  String
+  name            String
+  targetUrl       String
+  secret          String
+  events          String[]     @default([])
+  isActive        Boolean      @default(true)
+  createdByUserId String
+  lastDeliveryAt  DateTime?
+  lastStatusCode  Int?
+  lastError       String?
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("organization_webhooks")
+}
+
+/// Connected third-party tools (Slack, Drive, …) — Phase 1: Slack Incoming Webhook
+model OrganizationIntegration {
+  id              String       @id @default(uuid())
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organizationId  String
+  provider        String
+  displayName     String?
+  status          String       @default("CONNECTED")
+  /// Encrypted-at-rest preferred later; store Incoming Webhook URL / tokens for MVP
+  configJson      Json         @default("{}")
+  createdByUserId String
+  lastUsedAt      DateTime?
+  disconnectedAt  DateTime?
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, provider])
+  @@index([organizationId])
+  @@map("organization_integrations")
 }
 
 model LoginHistory {
@@ -1313,6 +1481,21 @@ enum OrganizationSize {
   MEDIUM
   LARGE
   XLARGE
+}
+
+enum OrganizationMemberRole {
+  OWNER
+  MANAGER
+  INVESTIGATOR
+  MEMBER
+  VIEWER
+}
+
+enum OrganizationInviteStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
 }
 
 enum UserRole {

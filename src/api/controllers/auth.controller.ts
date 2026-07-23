@@ -91,21 +91,18 @@ export const authController = {
         organizationSize?: string;
         workspaceName?: string;
       };
-      if (!organizationName?.trim() || !industry || !organizationSize || !workspaceName?.trim()) {
-        res.status(400).json({
-          success: false,
-          error: 'organizationName, industry, organizationSize, and workspaceName are required',
-        });
+      if (!organizationName?.trim()) {
+        res.status(400).json({ success: false, error: 'organizationName is required' });
         return;
       }
-      const { businessSetupService } = await import('../../services/organization/business-setup.service');
-      const result = await businessSetupService.completeSetup(userId, {
+      const { organizationService } = await import('../../services/organization/organization.service');
+      const organization = await organizationService.completeSetup(userId, {
         organizationName,
-        industry: industry as import('../../services/organization/constants/organization-profile').OrganizationIndustry,
-        organizationSize: organizationSize as import('../../services/organization/constants/organization-profile').OrganizationSize,
+        industry: industry as import('../../services/organization/constants/organization-profile').OrganizationIndustry | undefined,
+        organizationSize: organizationSize as import('../../services/organization/constants/organization-profile').OrganizationSize | undefined,
         workspaceName,
       });
-      res.json({ success: true, ...result });
+      res.json({ success: true, organization, completed: true });
     } catch (err) {
       next(err);
     }
@@ -114,9 +111,13 @@ export const authController = {
   async businessSetupStatus(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = getAuthUserId(req);
-      const { businessSetupService } = await import('../../services/organization/business-setup.service');
-      const status = await businessSetupService.getSetupStatus(userId);
-      res.json({ success: true, ...status });
+      const { organizationService } = await import('../../services/organization/organization.service');
+      const organization = await organizationService.getForOwner(userId);
+      res.json({
+        success: true,
+        completed: Boolean(organization?.setupCompletedAt),
+        organization,
+      });
     } catch (err) {
       next(err);
     }

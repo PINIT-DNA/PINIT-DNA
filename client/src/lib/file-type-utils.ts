@@ -4,6 +4,7 @@ export const FILE_TYPES = [
   { label: 'DOCX', exts: ['.docx'], icon: '📝', color: 'text-blue-400', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
   { label: 'PPTX', exts: ['.pptx'], icon: '📊', color: 'text-orange-400', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' },
   { label: 'TXT', exts: ['.txt', '.md', '.log'], icon: '📃', color: 'text-gray-300', mime: 'text/plain' },
+  { label: 'HTML', exts: ['.html', '.htm', '.xhtml'], icon: '🌐', color: 'text-teal-400', mime: 'text/html' },
   { label: 'CSV', exts: ['.csv'], icon: '📋', color: 'text-green-400', mime: 'text/csv' },
   { label: 'JSON', exts: ['.json'], icon: '🗃️', color: 'text-yellow-400', mime: 'application/json' },
   { label: 'ZIP', exts: ['.zip'], icon: '🗜️', color: 'text-purple-400', mime: 'application/zip' },
@@ -83,6 +84,7 @@ export function resolveVaultFileMime(
     '.pdf': 'application/pdf',
     '.txt': 'text/plain', '.md': 'text/markdown', '.log': 'text/plain', '.csv': 'text/csv',
     '.json': 'application/json',
+    '.html': 'text/html', '.htm': 'text/html', '.xhtml': 'application/xhtml+xml',
     '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   };
@@ -122,9 +124,9 @@ export function isPdfMime(mime?: string | null, fileName?: string | null): boole
 
 export function isTextMime(mime?: string | null, fileName?: string | null): boolean {
   const resolved = resolveVaultFileMime(undefined, mime, fileName);
-  if (resolved.startsWith('text/') || resolved === 'application/json') return true;
+  if (resolved.startsWith('text/') || resolved === 'application/json' || resolved === 'application/xhtml+xml') return true;
   const ext = fileExt(fileName ?? '');
-  return ['.txt', '.md', '.log', '.csv', '.json'].includes(ext);
+  return ['.txt', '.md', '.log', '.csv', '.json', '.html', '.htm', '.xhtml'].includes(ext);
 }
 
 export function isDocxMime(mime?: string | null, fileName?: string | null): boolean {

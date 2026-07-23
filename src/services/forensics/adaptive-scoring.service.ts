@@ -54,7 +54,7 @@ export function detectMediaProfile(
 ): MediaProfile {
   if (fileType === 'VIDEO' || mimeType.startsWith('video/')) return 'video';
   if (fileType === 'AUDIO' || mimeType.startsWith('audio/')) return 'audio';
-  if (['PDF', 'DOCX', 'PPTX', 'TXT', 'CSV'].includes(fileType ?? '')) return 'document';
+  if (['PDF', 'DOCX', 'PPTX', 'TXT', 'HTML', 'CSV'].includes(fileType ?? '')) return 'document';
   if (mimeType.startsWith('image/') || fileType === 'IMAGE') return 'image';
   return 'unknown';
 }

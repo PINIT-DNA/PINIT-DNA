@@ -13,10 +13,7 @@ import { Shield, Lock, Download, Eye, AlertTriangle, CheckCircle2, Clock, Ban, S
 import axios from 'axios';
 import { format } from 'date-fns';
 import { API_BASE_URL } from '../config/api.config';
-import { isValidMapCoordinate } from '../lib/geo-coords';
-import {
-  captureBestGps, captureQuickGps, isGeolocationPermissionDenied, type GpsCapture,
-} from '../lib/precise-gps';
+import { stripPinitProtectionTailsForDisplay } from '../lib/strip-pinit-tails';
 import * as docxPreview from 'docx-preview';
 import { formatTextAsDocument, DOCUMENT_STYLES } from '../utils/document-formatter';
 
@@ -96,34 +93,9 @@ function getScreenResolution(): string {
   try { return `${screen.width}x${screen.height}`; } catch { return ''; }
 }
 
-function buildGpsPayload(
-  gps: GpsCapture | null,
-  requestLocation?: boolean,
-  locationAccepted?: boolean,
-) {
-  if (gps && isValidMapCoordinate(gps.lat, gps.lng)) {
-    return {
-      gpsLat: gps.lat,
-      gpsLng: gps.lng,
-      gpsAccuracy: gps.accuracy,
-      gpsCity: gps.city ?? gps.village,
-      gpsTimestamp: gps.timestamp,
-      gpsVillage: gps.village,
-      gpsMandal: gps.mandal,
-      gpsDistrict: gps.district,
-      gpsState: gps.state,
-      gpsPincode: gps.pincode,
-      gpsFullAddress: gps.fullAddress,
-      locationShared: true,
-      locationSource: gps.locationSource === 'network' ? 'network' : 'gps',
-    };
-  }
-  // User tapped Allow — proceed with IP-based geo on server; refine GPS in background
-  if (requestLocation && locationAccepted) {
-    return { locationShared: true, locationSource: 'ip' as const };
-  }
-  if (requestLocation) return { locationShared: false, locationSource: 'denied' as const };
-  return {};
+function buildGpsPayload() {
+  // No browser GPS prompt — track via server IP geolocation only
+  return { locationShared: true, locationSource: 'ip' as const };
 }
 
 function shareTrackingHeaders() {
@@ -169,12 +141,7 @@ export function ShareViewerPage() {
   const [shareFurtherMsg, setShareFurtherMsg] = useState('');
   const hopRedirecting = useRef(false);
 
-  // ── GPS Location state ────────────────────────────────────────────────────
-  const [locationAsked,  setLocationAsked]  = useState(false);  // screen shown
-  const [locationDone,   setLocationDone]   = useState(false);  // screen dismissed
-  const [locationDenied, setLocationDenied] = useState(false);  // user denied GPS
-  const [gpsData, setGpsData] = useState<GpsCapture | null>(null);
-  const gpsDataRef = useRef<GpsCapture | null>(null);
+  // Location tracked via IP on server — no browser GPS / permission prompt
 
   // ── Privacy Masking state ──────────────────────────────────────────────────
   const [maskedText, setMaskedText]           = useState<string | null>(null);
@@ -183,14 +150,12 @@ export function ShareViewerPage() {
   const [unmaskRequesting, setUnmaskRequesting] = useState(false);
   const [_unmaskRequestId, setUnmaskRequestId] = useState<string | null>(null);
 
-  // Keep ref in sync so the tracking closure always has the latest GPS
-  useEffect(() => { gpsDataRef.current = gpsData; }, [gpsData]);
-
   const hasTracked = useRef(false);
   const [trackingReady, setTrackingReady] = useState(false);
   const [isIdleBlur, setIsIdleBlur] = useState(false);   // blur overlay on inactivity
   const nameRef = useRef('');
   useEffect(() => { nameRef.current = name; }, [name]);
+  const viewedSentRef = useRef(false);
 
   // ── OTP / email-verification gate state ───────────────────────────────────
   const [otp, setOtp]               = useState('');
@@ -244,37 +209,7 @@ export function ShareViewerPage() {
       .then(() => setLoading(false), () => setLoading(false));
   }, [token]);
 
-  // Background GPS refine — only when location not required OR after user passed the gate
-  useEffect(() => {
-    if (info?.requestLocation && !locationDone) return;
-    let cancelled = false;
-    void (async () => {
-      const best = await captureBestGps({ targetAccuracyM: 45, maxWaitMs: 28_000, minSamples: 1 });
-      if (cancelled || !best) return;
-      setGpsData((prev) => {
-        if (prev && prev.accuracy <= best.accuracy) return prev;
-        return best;
-      });
-    })();
-    return () => { cancelled = true; };
-  }, [info?.requestLocation, locationDone]);
-
-  // Keep refining: if a better fix arrives after VIEWED, send LOCATION_UPDATE
-  const viewedSentRef = useRef(false);
-
-  useEffect(() => {
-    if (!viewedSentRef.current || !token || !gpsData) return;
-    if (gpsData.accuracy > 75) return;
-    void axios.post(`${API_BASE_URL}/share/${token}/access`, {
-      action: 'LOCATION_UPDATE',
-      recipientName: nameRef.current || undefined,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      sessionId: getSessionId(),
-      screenResolution: getScreenResolution(),
-      deviceFingerprint: computeDeviceFingerprint(),
-      ...buildGpsPayload(gpsData, info?.requestLocation, locationDone),
-    }).catch(() => {});
-  }, [gpsData?.lat, gpsData?.lng, gpsData?.accuracy, token, info?.requestLocation, locationDone]);
+  // No browser GPS capture — avoids location permission prompts. Server uses IP geo.
 
   // ── Decide once that tracking can start (info loaded, name gate passed,
   //    link active at the moment of arrival). This flag is a one-way switch:
@@ -288,10 +223,8 @@ export function ShareViewerPage() {
     if (info.requireName && !nameSubmitted) return;
     if (info.requireOtp && !info.otpVerified && !otpVerifiedLocal) return;
     if (!info.isActive) return;
-    // Wait for location decision if requested (allow or deny — just must be decided)
-    if (info.requestLocation && !locationDone) return;
     setTrackingReady(true);
-  }, [info, nameSubmitted, otpVerifiedLocal, trackingReady, locationDone]);
+  }, [info, nameSubmitted, otpVerifiedLocal, trackingReady]);
 
   // ── Attach all behavioral tracking listeners (runs exactly once) ──────────
   useEffect(() => {
@@ -304,12 +237,11 @@ export function ShareViewerPage() {
     const fingerprint = computeDeviceFingerprint();
 
     const track = (action: string, extra?: Record<string, string>) => {
-      const gps = gpsDataRef.current;
       return axios.post(`${API_BASE_URL}/share/${token}/access`, {
         action, recipientName: nameRef.current || undefined,
         timezone: tz, sessionId: sid,
         screenResolution: screenRes, deviceFingerprint: fingerprint,
-        ...buildGpsPayload(gps, info?.requestLocation, locationDone || !info?.requestLocation),
+        ...buildGpsPayload(),
         ...extra,
       }).then((res) => {
         const data = res.data as { redirectToken?: string; grandchildToken?: string };
@@ -343,33 +275,15 @@ export function ShareViewerPage() {
       viewedSentRef.current = true;
       void track('VIEWED');
     };
-    let isHopLanding = false;
     try {
       const hopTo = sessionStorage.getItem('pinit_hop_to');
       if (hopTo && token && hopTo === token) {
-        isHopLanding = true;
         sessionStorage.removeItem('pinit_hop_to');
         sessionStorage.removeItem('pinit_hop_from');
       }
     } catch { /* ignore */ }
-    const wantsPreciseGps = Boolean(info?.requestLocation);
-    // Show file quickly after Allow — GPS refines via LOCATION_UPDATE in background
-    const GPS_WAIT_MS = isHopLanding ? 2_000 : wantsPreciseGps ? 3_000 : 5_000;
-    const GOOD_ACCURACY_M = 60;
-    if (gpsDataRef.current && gpsDataRef.current.accuracy <= GOOD_ACCURACY_M) {
-      sendViewed();
-    } else {
-      const gpsWait = setTimeout(sendViewed, GPS_WAIT_MS);
-      const gpsCheck = setInterval(() => {
-        const g = gpsDataRef.current;
-        if (g && g.accuracy <= GOOD_ACCURACY_M) {
-          clearInterval(gpsCheck);
-          clearTimeout(gpsWait);
-          sendViewed();
-        }
-      }, 400);
-      setTimeout(() => clearInterval(gpsCheck), GPS_WAIT_MS + 300);
-    }
+    // Open immediately — location comes from IP on the server (no browser GPS wait)
+    sendViewed();
 
     // ── Mouse activity / idle detection ───────────────────────────────────
     // Fires IDLE once after 60s of no mouse/keyboard/scroll activity, and
@@ -544,7 +458,7 @@ export function ShareViewerPage() {
         sessionId: getSessionId(),
         screenResolution: getScreenResolution(),
         deviceFingerprint: computeDeviceFingerprint(),
-        ...buildGpsPayload(gpsDataRef.current, info?.requestLocation, locationDone || !info?.requestLocation),
+        ...buildGpsPayload(),
       }).catch(() => {});
     } catch {
       alert('Download failed. The file may have been removed.');
@@ -614,15 +528,52 @@ export function ShareViewerPage() {
       });
   }, [info, nameSubmitted, token]);
 
-  // ── Load text content when it's a text/csv/json file ─────────────────────
+  // ── Load text content when it's a text/csv/json file (not HTML — rendered in iframe) ─
   useEffect(() => {
     const mt = info?.mimeType ?? '';
     const fn = info?.filename?.toLowerCase() ?? '';
-    const isTextFile = mt === 'text/plain' || mt === 'text/csv' || mt === 'application/json'
-      || ['.txt','.csv','.json','.md','.log'].some(e => fn.endsWith(e));
+    const isHtmlFile = mt === 'text/html' || mt === 'application/xhtml+xml'
+      || ['.html', '.htm', '.xhtml'].some((e) => fn.endsWith(e));
+    const isTextFile = !isHtmlFile && (
+      mt === 'text/plain' || mt === 'text/csv' || mt === 'application/json'
+      || ['.txt', '.csv', '.json', '.md', '.log'].some((e) => fn.endsWith(e))
+    );
     if (!fileUrl || !isTextFile || !fileBlobRef.current) return;
-    fileBlobRef.current.text().then(t => setTextContent(t)).catch(() => {});
+    fileBlobRef.current.text().then((t) => setTextContent(t)).catch(() => {});
   }, [fileUrl, info]);
+
+  // ── HTML preview URL (force text/html so browser renders the page) ─────────
+  const [htmlPreviewUrl, setHtmlPreviewUrl] = useState('');
+  useEffect(() => {
+    const mt = info?.mimeType ?? '';
+    const fn = info?.filename?.toLowerCase() ?? '';
+    const isHtmlFile = mt === 'text/html' || mt === 'application/xhtml+xml'
+      || ['.html', '.htm', '.xhtml'].some((e) => fn.endsWith(e));
+    if (!fileUrl || !isHtmlFile || !fileBlobRef.current) {
+      setHtmlPreviewUrl('');
+      return;
+    }
+    let cancelled = false;
+    void fileBlobRef.current.text().then((raw) => {
+      if (cancelled) return;
+      const cleaned = stripPinitProtectionTailsForDisplay(raw);
+      const blob = new Blob([cleaned], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      setHtmlPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return url;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fileUrl, info]);
+
+  useEffect(() => {
+    return () => {
+      if (htmlPreviewUrl) URL.revokeObjectURL(htmlPreviewUrl);
+    };
+  }, [htmlPreviewUrl]);
 
   // ── Privacy Masking: load masked text when masking is enabled ─────────────
   useEffect(() => {
@@ -844,99 +795,6 @@ export function ShareViewerPage() {
     </div>
   );
 
-  // ── GPS Location Permission Gate ──────────────────────────────────────────
-  if (info.requestLocation && !locationDone) {
-    const handleAllow = () => {
-      if (!navigator.geolocation) {
-        setLocationDone(true);
-        return;
-      }
-      setLocationAsked(true);
-
-      // Try quick fix first (~3s). Only hard-block if user explicitly denies in browser.
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const { latitude: lat, longitude: lng, accuracy } = pos.coords;
-          setGpsData({
-            lat,
-            lng,
-            accuracy,
-            timestamp: new Date(pos.timestamp).toISOString(),
-            locationSource: accuracy <= 75 ? 'gps' : 'network',
-          });
-          setLocationDone(true);
-          void captureQuickGps(8_000).then((quick) => {
-            if (quick) setGpsData(quick);
-          });
-        },
-        (err) => {
-          if (isGeolocationPermissionDenied(err)) {
-            setLocationDenied(true);
-            return;
-          }
-          // Timeout / unavailable (common on laptop Wi‑Fi) — still open file; IP geo on server
-          setLocationDone(true);
-        },
-        { enableHighAccuracy: true, maximumAge: 120_000, timeout: 3_500 },
-      );
-    };
-
-    return (
-      <div className="min-h-screen bg-bg-base flex items-center justify-center">
-        <div className="max-w-sm w-full mx-auto p-6">
-          <div className="text-center mb-6">
-            <div className="w-16 h-16 bg-green-500/15 rounded-full flex items-center justify-center mx-auto mb-4">
-              <span className="text-3xl">📍</span>
-            </div>
-            <h1 className="text-white font-bold text-lg">Location Sharing</h1>
-            <p className="text-gray-400 text-sm mt-2">
-              The owner of this document has requested your location for audit purposes.
-            </p>
-            <p className="text-gray-500 text-xs mt-1">
-              Tap Allow — your file opens right away. GPS refines in the background.
-            </p>
-          </div>
-          <div className="card space-y-3">
-            <div className="bg-bg-elevated rounded-xl p-3 text-2xs text-gray-400 space-y-1">
-              <p>✅ Your approximate GPS location</p>
-              <p>✅ Accuracy radius in metres</p>
-              <p>✅ Timestamp of capture</p>
-              <p className="text-gray-600 mt-2">❌ Your exact address is never stored</p>
-              <p className="text-gray-600">❌ Location is not shared with anyone else</p>
-            </div>
-            <button
-              onClick={handleAllow}
-              disabled={locationAsked}
-              className="btn btn-primary w-full"
-            >
-              {locationAsked
-                ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Opening document…</>
-                : <>📍 Allow &amp; View Document</>
-              }
-            </button>
-            <p className="text-2xs text-gray-500 text-center">
-              Phone + Precise Location ON = village-level GPS. Laptop uses IP area until GPS available.
-            </p>
-            {locationDenied && (
-              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-center">
-                <p className="text-sm font-semibold text-red-400">Location Blocked</p>
-                <p className="text-2xs text-gray-400 mt-1">
-                  Browser location was denied. Enable location for this site in Chrome settings, then tap Try Again.
-                </p>
-                <button
-                  onClick={() => { setLocationDenied(false); setLocationAsked(false); }}
-                  className="btn btn-primary btn-sm text-xs mt-3"
-                >
-                  Try Again
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   // ── Secure Viewer — file-type classification ───────────────────────────────
   const mime     = info?.mimeType ?? '';
   const filename = info?.filename?.toLowerCase() ?? '';
@@ -946,8 +804,12 @@ export function ShareViewerPage() {
                    || filename.endsWith('.docx');
   const isVideo  = mime.startsWith('video/') || ['.mp4','.webm','.mov','.avi','.mkv'].some(e => filename.endsWith(e));
   const isAudio  = mime.startsWith('audio/') || ['.mp3','.wav','.ogg','.flac','.aac','.m4a'].some(e => filename.endsWith(e));
-  const isText   = mime === 'text/plain' || mime === 'text/csv' || mime === 'application/json'
-                   || ['.txt','.csv','.json','.md','.log'].some(e => filename.endsWith(e));
+  const isHtml   = mime === 'text/html' || mime === 'application/xhtml+xml'
+                   || ['.html', '.htm', '.xhtml'].some((e) => filename.endsWith(e));
+  const isText   = !isHtml && (
+                   mime === 'text/plain' || mime === 'text/csv' || mime === 'application/json'
+                   || ['.txt','.csv','.json','.md','.log'].some(e => filename.endsWith(e))
+                 );
 
   return (
     <div className="min-h-screen bg-bg-base flex flex-col"
@@ -1190,6 +1052,27 @@ export function ShareViewerPage() {
               </audio>
               <p className="text-2xs text-gray-500">🔒 Protected · Access tracked and logged</p>
             </div>
+          </div>
+        ) : isHtml ? (
+          /* ── HTML: render as a real webpage (browser-like) ── */
+          <div className="w-full flex-1 flex flex-col print-hide" style={{ minHeight: 'calc(100vh - 120px)' }}>
+            {htmlPreviewUrl ? (
+              <iframe
+                src={htmlPreviewUrl}
+                title={info.filename}
+                className="w-full flex-1 rounded-xl border border-bg-border bg-white shadow-xl"
+                style={{ minHeight: 'calc(100vh - 140px)' }}
+                sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="flex items-center justify-center py-20 text-gray-400 text-sm">
+                Loading page…
+              </div>
+            )}
+            <p className="text-2xs text-gray-500 text-center mt-2">
+              🔒 Protected · Access tracked and logged
+            </p>
           </div>
         ) : isText ? (
           /* ── TEXT / CSV / JSON ── */

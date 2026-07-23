@@ -26,6 +26,17 @@ function signingSecret(): string {
   return process.env.PHASE3_SIGNING_SECRET ?? config.vault.masterSecret ?? 'pinit-manifest-dev';
 }
 
+function isHtmlFile(mimeType?: string, fileName?: string): boolean {
+  const mime = (mimeType ?? '').toLowerCase().split(';')[0]?.trim() ?? '';
+  const name = (fileName ?? '').toLowerCase();
+  return (
+    mime === 'text/html' ||
+    mime === 'application/xhtml+xml' ||
+    /\.html?$/.test(name) ||
+    name.endsWith('.xhtml')
+  );
+}
+
 export function buildIntegrityManifest(params: {
   vaultId: string;
   dnaRecordId: string;
@@ -63,24 +74,29 @@ export function signManifest(manifest: IntegrityManifest): string {
   return `${body}.${sig}`;
 }
 
-export function embedManifestTail(buffer: Buffer, signedManifest: string): Buffer {
+/**
+ * Embed signed manifest. For HTML, wrap in an HTML comment so it stays invisible
+ * when the page is opened in a browser.
+ */
+export function embedManifestTail(
+  buffer: Buffer,
+  signedManifest: string,
+  opts?: { mimeType?: string; fileName?: string },
+): Buffer {
+  if (isHtmlFile(opts?.mimeType, opts?.fileName)) {
+    const comment = Buffer.from(
+      `\n<!--${MANIFEST_MARKER}:${signedManifest}:END-MANIFEST-->\n`,
+      'utf8',
+    );
+    return Buffer.concat([buffer, comment]);
+  }
   const marker = Buffer.from(`\x00${MANIFEST_MARKER}:`, 'latin1');
   const payload = Buffer.from(signedManifest, 'utf8');
   const end = Buffer.from(':END-MANIFEST\x00', 'latin1');
   return Buffer.concat([buffer, marker, payload, end]);
 }
 
-export function extractManifest(buffer: Buffer): IntegrityManifest | null {
-  const text = buffer.toString('latin1');
-  const startTag = `\x00${MANIFEST_MARKER}:`;
-  const endTag = ':END-MANIFEST\x00';
-  const start = text.lastIndexOf(startTag);
-  if (start < 0) return null;
-
-  const end = text.indexOf(endTag, start);
-  if (end < 0) return null;
-
-  const signed = text.slice(start + startTag.length, end);
+function parseSignedManifest(signed: string): IntegrityManifest | null {
   const dot = signed.lastIndexOf('.');
   if (dot < 0) return null;
 
@@ -100,6 +116,35 @@ export function extractManifest(buffer: Buffer): IntegrityManifest | null {
   } catch {
     return null;
   }
+}
+
+export function extractManifest(buffer: Buffer): IntegrityManifest | null {
+  const text = buffer.toString('latin1');
+
+  // 1) Binary tail (images / docs)
+  const startTag = `\x00${MANIFEST_MARKER}:`;
+  const endTag = ':END-MANIFEST\x00';
+  const start = text.lastIndexOf(startTag);
+  if (start >= 0) {
+    const end = text.indexOf(endTag, start);
+    if (end >= 0) {
+      const parsed = parseSignedManifest(text.slice(start + startTag.length, end));
+      if (parsed) return parsed;
+    }
+  }
+
+  // 2) HTML comment form (hidden in browser)
+  const htmlStart = `<!--${MANIFEST_MARKER}:`;
+  const htmlEnd = ':END-MANIFEST-->';
+  const hs = text.lastIndexOf(htmlStart);
+  if (hs >= 0) {
+    const he = text.indexOf(htmlEnd, hs);
+    if (he >= 0) {
+      return parseSignedManifest(text.slice(hs + htmlStart.length, he));
+    }
+  }
+
+  return null;
 }
 
 export function manifestHash(manifest: IntegrityManifest): string {

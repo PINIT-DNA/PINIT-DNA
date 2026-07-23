@@ -21,6 +21,7 @@ import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { FileInput } from './universal-file-router';
 import { TxtDnaEngine }  from './engines/txt/txt-dna-engine';
+import { HtmlDnaEngine } from './engines/html/html-dna-engine';
 import { CsvDnaEngine }  from './engines/csv/csv-dna-engine';
 import { JsonDnaEngine } from './engines/json/json-dna-engine';
 import { PdfDnaEngine }   from './engines/pdf/pdf-dna-engine';
@@ -228,6 +229,11 @@ export class UniversalVerifier {
     switch (fileType) {
       case 'TXT': {
         const engine = new TxtDnaEngine();
+        const result = await engine.generate(file, tempId);
+        return result.layers;
+      }
+      case 'HTML': {
+        const engine = new HtmlDnaEngine();
         const result = await engine.generate(file, tempId);
         return result.layers;
       }

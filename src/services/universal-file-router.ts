@@ -22,6 +22,7 @@ import { DNA_GENERATOR_VERSION } from '../config/dna-versions';
 import { FileTypeDetector, DetectionResult } from './file-type-detector';
 import { DnaOrchestrator } from './dna.orchestrator';
 import { TxtDnaEngine }  from './engines/txt/txt-dna-engine';
+import { HtmlDnaEngine } from './engines/html/html-dna-engine';
 import { CsvDnaEngine }  from './engines/csv/csv-dna-engine';
 import { JsonDnaEngine } from './engines/json/json-dna-engine';
 import { PdfDnaEngine }   from './engines/pdf/pdf-dna-engine';
@@ -82,6 +83,7 @@ export class UniversalFileRouter {
   private readonly layer9Origin       = new OriginLayer();
   private readonly layer10Evolution   = new EvolutionLayer();
   private readonly txtEngine   = new TxtDnaEngine();
+  private readonly htmlEngine  = new HtmlDnaEngine();
   private readonly csvEngine   = new CsvDnaEngine();
   private readonly jsonEngine  = new JsonDnaEngine();
   private readonly pdfEngine   = new PdfDnaEngine();
@@ -108,7 +110,7 @@ export class UniversalFileRouter {
       throw new Error(
         `DNA engine for "${detection.config.displayName}" is not yet available. ` +
         `Planned for Phase ${detection.config.plannedPhase}. ` +
-        `Currently supported: IMAGE, TXT, CSV, JSON, PDF, DOCX, PPTX, ZIP, VIDEO, AUDIO.`
+        `Currently supported: IMAGE, TXT, HTML, CSV, JSON, PDF, DOCX, PPTX, ZIP, VIDEO, AUDIO.`
       );
     }
 
@@ -120,6 +122,10 @@ export class UniversalFileRouter {
       case 'TXT':
         return this.routeText('TXT', file, detection,
           (id) => this.txtEngine.generate(file, id));
+
+      case 'HTML':
+        return this.routeText('HTML', file, detection,
+          (id) => this.htmlEngine.generate(file, id));
 
       case 'CSV':
         return this.routeText('CSV', file, detection,

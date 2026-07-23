@@ -6,7 +6,6 @@ import { DocumentScanner } from './DocumentScanner';
 import { MediaRecorderPanel } from './MediaRecorderPanel';
 import {
   ACCEPT_MAP,
-  FILE_TYPES,
   formatBytes,
   getFileIcon,
   getFileTypeLabel,
@@ -112,7 +111,7 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
         className="text-center mb-8"
       >
         <div className="text-6xl mb-4 dna-float">🧬</div>
-        <h2 className="text-3xl font-bold text-white">Generate File DNA</h2>
+        <h2 className="text-3xl font-bold text-white">Protect file</h2>
       </motion.div>
 
       {!selectedFile && (
@@ -184,18 +183,7 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
                     <Upload size={28} className="text-dna-400" />
                   </div>
                   <p className="text-white font-semibold text-lg mb-1">Drag & drop any file</p>
-                  <p className="text-gray-500 text-sm mb-5">or click to browse</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 mb-4 max-w-md w-full">
-                    {FILE_TYPES.map((ft) => (
-                      <div
-                        key={ft.label}
-                        className="flex flex-col items-center gap-1 bg-bg-border/50 rounded-lg px-2 py-2"
-                      >
-                        <span className="text-lg">{ft.icon}</span>
-                        <span className={`mono text-[10px] font-bold ${ft.color}`}>{ft.label}</span>
-                      </div>
-                    ))}
-                  </div>
+                  <p className="text-gray-500 text-sm mb-4">or click here to browse</p>
                   <p className="text-gray-600 text-xs">Max 500 MB</p>
                 </>
               )}

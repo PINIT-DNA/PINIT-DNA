@@ -210,8 +210,8 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
   const [scanMsg,        setScanMsg]       = useState('');
   const [detected, setDetected] = useState({ email: false, phone: false, aadhaar: false, pan: false, address: false });
 
-  // ── GPS Location — always mandatory, no toggle
-  const requestLocation = true;
+  // ── Location: tracked via IP on server (no browser permission prompt)
+  const requestLocation = false;
 
   // ── Enterprise Security Controls ──────────────────────────────────────────
   const [vpnBlock,       setVpnBlock]       = useState(false);

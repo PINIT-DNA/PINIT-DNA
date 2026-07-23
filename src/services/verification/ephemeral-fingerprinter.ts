@@ -27,6 +27,7 @@ import { DnaOrchestrator }   from '../dna.orchestrator';
 import { UNIVERSAL_ENGINE_VERSION } from '../universal-file-router';
 
 import { TxtDnaEngine }   from '../engines/txt/txt-dna-engine';
+import { HtmlDnaEngine }  from '../engines/html/html-dna-engine';
 import { CsvDnaEngine }   from '../engines/csv/csv-dna-engine';
 import { JsonDnaEngine }  from '../engines/json/json-dna-engine';
 import { PdfDnaEngine }   from '../engines/pdf/pdf-dna-engine';
@@ -176,6 +177,7 @@ export class EphemeralFingerprinter {
   ): Promise<void> {
     switch (fileType) {
       case 'TXT':   await new TxtDnaEngine().generate(file, tempId);   break;
+      case 'HTML':  await new HtmlDnaEngine().generate(file, tempId);  break;
       case 'CSV':   await new CsvDnaEngine().generate(file, tempId);   break;
       case 'JSON':  await new JsonDnaEngine().generate(file, tempId);  break;
       case 'PDF':   await new PdfDnaEngine().generate(file, tempId);   break;

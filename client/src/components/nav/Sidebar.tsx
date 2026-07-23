@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Dna, Shield, Archive, FileSearch,
   Award, ChevronRight, Zap, Clock,
   ShieldCheck, Activity, Microscope, Radio,   Ban, LogOut, User, X,
-  Sun, Moon, CreditCard,   Building2, Settings,
+  Sun, Moon, CreditCard,   Building2, Settings, Users, Key,
 } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { useAuth } from '../../context/AuthContext';
@@ -102,13 +102,13 @@ const NAV_GROUPS: Array<{
     label: 'Core',
     items: [
       { to: '/',          icon: LayoutDashboard, label: 'Dashboard',     end: true },
-      { to: '/generate',  icon: Dna,             label: 'Generate DNA'             },
+      { to: '/generate',  icon: Dna,             label: 'Protect file'             },
     ],
   },
   {
     label: 'Explorer',
     items: [
-      { to: '/vault',       icon: Archive,    label: 'Vault Explorer' },
+      { to: '/vault',       icon: Archive,    label: 'Files' },
       { to: '/dna-records', icon: FileSearch, label: 'DNA Records'    },
       { to: '/timeline',    icon: Clock,      label: 'File Timeline', feature: FeatureKey.FEATURE_TRACKING },
     ],
@@ -116,15 +116,15 @@ const NAV_GROUPS: Array<{
   {
     label: 'Intelligence',
     items: [
-      { to: '/access-intelligence', icon: Activity, label: 'Access Intelligence', feature: FeatureKey.FEATURE_TRACKING },
+      { to: '/access-intelligence', icon: Activity, label: 'Tracking', feature: FeatureKey.FEATURE_TRACKING },
       { to: '/forensic-diff',       icon: Microscope, label: 'Difference Engine', feature: FeatureKey.FEATURE_INVESTIGATION },
-      { to: '/monitoring',          icon: Radio,      label: 'Monitoring & Crawler', feature: FeatureKey.FEATURE_TRACKING },
+      { to: '/monitoring',          icon: Radio,      label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },
     ],
   },
   {
     label: 'Forensics',
     items: [
-      { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Unified Investigation', feature: FeatureKey.FEATURE_INVESTIGATION },
+      { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Verify file', feature: FeatureKey.FEATURE_INVESTIGATION },
       { to: '/reports',             icon: Shield,      label: 'Forensic Reports', feature: FeatureKey.FEATURE_INVESTIGATION },
       { to: '/unmask-requests',     icon: Shield,      label: 'Unmask Requests'     },
       { to: '/duplicate-attempts',  icon: Ban,         label: 'Duplicate Attempts'  },
@@ -160,14 +160,17 @@ const BUSINESS_NAV_ITEMS: Array<{
   feature?: string;
 }> = [
   { to: '/business', icon: Building2, label: 'Dashboard', end: true },
-  { to: '/generate', icon: Dna, label: 'Generate DNA' },
-  { to: '/vault', icon: Archive, label: 'Vault Explorer' },
-  { to: '/access-intelligence', icon: Activity, label: 'Access Intelligence', feature: FeatureKey.FEATURE_TRACKING },
-  { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Unified Investigation', feature: FeatureKey.FEATURE_INVESTIGATION },
+  { to: '/generate', icon: Dna, label: 'Protect file' },
+  { to: '/vault', icon: Archive, label: 'Files' },
+  { to: '/access-intelligence', icon: Activity, label: 'Tracking', feature: FeatureKey.FEATURE_TRACKING },
+  { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Verify file', feature: FeatureKey.FEATURE_INVESTIGATION },
   { to: '/reports', icon: Shield, label: 'Forensics', feature: FeatureKey.FEATURE_INVESTIGATION },
   { to: '/monitoring', icon: Radio, label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },
   { to: '/certificates', icon: Award, label: 'Certificates' },
-  { to: '/business/settings', icon: Settings, label: 'Organization Settings' },
+  { to: '/profile?tab=team', icon: Users, label: 'Team' },
+  { to: '/profile?tab=audit', icon: FileSearch, label: 'Audit Logs' },
+  { to: '/profile?tab=api', icon: Key, label: 'API Access', feature: 'FEATURE_API_ACCESS' },
+  { to: '/profile', icon: Settings, label: 'Organization Profile' },
 ];
 
 interface SidebarProps {

@@ -44,6 +44,7 @@ export type FileType =
   | 'DOCX'
   | 'PPTX'
   | 'TXT'
+  | 'HTML'
   | 'CSV'
   | 'JSON'
   | 'ZIP'

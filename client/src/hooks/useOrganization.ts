@@ -1,24 +1,69 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
-import { withTimeout } from '../lib/promise-timeout';
-import type { OrganizationIndustry } from '../lib/organization-profile';
+import type { OrganizationIndustry, OrganizationSize } from '../lib/organization-profile';
 
 export interface OrganizationView {
   id: string;
   shortId: string;
   name: string | null;
   industry: OrganizationIndustry | null;
+  organizationSize: OrganizationSize | null;
+  businessType: string | null;
   country: string | null;
+  website: string | null;
+  registrationNumber: string | null;
+  gst: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  supportEmail: string | null;
+  supportPhone: string | null;
+  foundedYear: number | null;
+  linkedIn: string | null;
+  aboutDescription: string | null;
+  services: string | null;
+  notes: string | null;
   logoUrl: string | null;
   setupCompletedAt: string | null;
   setupSkippedAt: string | null;
   welcomeDismissedAt: string | null;
   showWelcome: boolean;
-  defaultWorkspace: { id: string; name: string } | null;
+  defaultWorkspace: { id: string; shortId: string | null; name: string } | null;
 }
 
+export type OrganizationProfilePayload = Partial<{
+  organizationName: string;
+  industry: OrganizationIndustry;
+  organizationSize: OrganizationSize;
+  businessType: string;
+  country: string;
+  website: string;
+  registrationNumber: string;
+  gst: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  supportEmail: string;
+  supportPhone: string;
+  foundedYear: number | string;
+  linkedIn: string;
+  aboutDescription: string;
+  services: string;
+  notes: string;
+  workspaceName: string;
+  logoUrl: string | null;
+}>;
+
 let cache: OrganizationView | null = null;
+
+function setCache(org: OrganizationView | null) {
+  cache = org;
+}
 
 export function useOrganization(enabled = true) {
   const [organization, setOrganization] = useState<OrganizationView | null>(cache);
@@ -30,16 +75,25 @@ export function useOrganization(enabled = true) {
     setLoading(true);
     setError(null);
     try {
-      const org = await withTimeout(
-        (async () => {
+      let org: OrganizationView | null = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
           const { data } = await api.get<{ organization?: OrganizationView }>(
             `${API_BASE_URL}/organization/me`,
           );
-          return data.organization ?? null;
-        })(),
-        10_000,
-        null,
-      );      cache = org;
+          org = data.organization ?? null;
+          if (org?.shortId) break;
+        } catch (err: unknown) {
+          if (attempt === 1) throw err;
+        }
+        if (!org?.shortId) {
+          const { data } = await api.post<{ organization?: OrganizationView }>(
+            `${API_BASE_URL}/organization/welcome/skip`,
+          );
+          org = data.organization ?? null;
+        }
+      }
+      setCache(org);
       setOrganization(org);
       return org;
     } catch (err: unknown) {
@@ -62,27 +116,50 @@ export function useOrganization(enabled = true) {
       `${API_BASE_URL}/organization/welcome/skip`,
     );
     const org = data.organization ?? null;
-    cache = org;
+    setCache(org);
     setOrganization(org);
     return org;
   }
 
-  async function completeSetup(payload: {
-    organizationName: string;
-    industry?: OrganizationIndustry;
-    country?: string;
-    workspaceName?: string;
-    logoUrl?: string | null;
-  }) {
+  async function completeSetup(payload: OrganizationProfilePayload & { organizationName: string }) {
     const { data } = await api.post<{ organization?: OrganizationView }>(
       `${API_BASE_URL}/organization/setup`,
       payload,
     );
     const org = data.organization ?? null;
-    cache = org;
+    setCache(org);
     setOrganization(org);
     return org;
   }
 
-  return { organization, loading, error, refresh, skipWelcome, completeSetup };
+  async function updateProfile(payload: OrganizationProfilePayload) {
+    const { data } = await api.patch<{ organization?: OrganizationView }>(
+      `${API_BASE_URL}/organization/profile`,
+      payload,
+    );
+    const org = data.organization ?? null;
+    setCache(org);
+    setOrganization(org);
+    return org;
+  }
+
+  async function uploadLogo(file: File) {
+    const form = new FormData();
+    form.append('logo', file);
+    const { data } = await api.post<{ organization?: OrganizationView }>(
+      `${API_BASE_URL}/organization/logo`,
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    );
+    const org = data.organization ?? null;
+    setCache(org);
+    setOrganization(org);
+    return org;
+  }
+
+  return { organization, loading, error, refresh, skipWelcome, completeSetup, updateProfile, uploadLogo };
+}
+
+export function invalidateOrganizationCache() {
+  cache = null;
 }

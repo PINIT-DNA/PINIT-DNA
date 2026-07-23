@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { useSubscription } from '../../hooks/useSubscription';
+import { UpgradeRequiredPanel } from './UpgradeRequiredPanel';
 
 interface RequireFeatureProps {
   feature: string;
@@ -7,18 +8,34 @@ interface RequireFeatureProps {
   children: ReactNode;
 }
 
+const ENTERPRISE_ONLY = new Set([
+  'FEATURE_ENTERPRISE_TEAMS',
+  'FEATURE_API_ACCESS',
+  'FEATURE_BULK_UPLOAD',
+  'FEATURE_AI_MONITORING',
+]);
+
 /**
- * Free tier has full feature access — routes are no longer feature-gated.
- * Quota is enforced on protect/upload actions instead.
+ * Gates Enterprise-only modules. Core forensic modules stay open on Free (quota enforced elsewhere).
  */
-export function RequireFeature({ children }: RequireFeatureProps) {
-  const { loading, subscription } = useSubscription();
+export function RequireFeature({ feature, featureLabel, children }: RequireFeatureProps) {
+  const { loading, subscription, hasFeature } = useSubscription();
 
   if (loading && !subscription) {
     return (
       <div className="min-h-[40vh] flex items-center justify-center">
         <div className="w-6 h-6 border-2 border-dna-500 border-t-transparent rounded-full animate-spin" />
       </div>
+    );
+  }
+
+  if (ENTERPRISE_ONLY.has(feature) && !hasFeature(feature)) {
+    return (
+      <UpgradeRequiredPanel
+        title="Upgrade to Enterprise"
+        featureLabel={featureLabel}
+        requiredPlan="ENTERPRISE"
+      />
     );
   }
 

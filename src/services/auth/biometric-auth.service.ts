@@ -719,6 +719,11 @@ export const biometricAuthService = {
       await subscriptionService.assignPlan(userId, nextPlanCode);
     }
 
+    if (resolved === 'BUSINESS') {
+      const { organizationService } = await import('../organization/organization.service');
+      await organizationService.ensureForOwner(userId);
+    }
+
     const tokens = createTokens({
       id: user.id,
       shortId: user.shortId,

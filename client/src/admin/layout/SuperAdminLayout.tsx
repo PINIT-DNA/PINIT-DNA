@@ -40,8 +40,10 @@ export function SuperAdminLayout() {
 
       <Toaster
         position="top-center"
-        containerClassName="!top-14 lg:!top-auto lg:!top-4 lg:!right-4"
+        containerClassName="!top-16 !bottom-auto z-[9999]"
+        containerStyle={{ top: 64, bottom: 'auto' }}
         toastOptions={{
+          duration: 4000,
           style: {
             background: '#18181b',
             color: '#fafafa',

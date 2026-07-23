@@ -31,6 +31,9 @@ import { SubscriptionPage } from './pages/subscription/SubscriptionPage';
 import { AccountTypeOnboardingPage } from './pages/onboarding/AccountTypeOnboardingPage';
 import { BusinessDashboardPage } from './pages/business/BusinessDashboardPage';
 import { OrganizationSettingsPage } from './pages/business/OrganizationSettingsPage';
+import { BusinessTeamPage } from './pages/business/BusinessTeamPage';
+import { BusinessAuditLogsPage } from './pages/business/BusinessAuditLogsPage';
+import { BusinessApiKeysPage } from './pages/business/BusinessApiKeysPage';
 import { HomeRedirect } from './components/subscription/HomeRedirect';
 import { RequireAccountTypeOnboarding } from './components/onboarding/RequireAccountTypeOnboarding';
 import { BRAND } from './config/brand.config';
@@ -86,6 +89,9 @@ export const router = createBrowserRouter([
       { index: true, element: <HomeRedirect /> },
       { path: 'business', element: <BusinessDashboardPage /> },
       { path: 'business/settings', element: <OrganizationSettingsPage /> },
+      { path: 'business/team', element: <BusinessTeamPage /> },
+      { path: 'business/audit-logs', element: <BusinessAuditLogsPage /> },
+      { path: 'business/api-keys', element: <BusinessApiKeysPage /> },
       { path: 'enterprise', element: <Navigate to="/business" replace /> },
       { path: 'generate', element: <GeneratePage /> },
       { path: 'vault', element: <VaultPage /> },

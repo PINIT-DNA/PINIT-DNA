@@ -59,6 +59,10 @@
   html:not(.dark) .bg-dna-500 *,
   html:not(.dark) .bg-dna-600,
   html:not(.dark) .bg-dna-600 *,
+  html:not(.dark) .bg-violet-700,
+  html:not(.dark) .bg-violet-700 *,
+  html:not(.dark) .bg-red-600,
+  html:not(.dark) .bg-red-600 *,
   html:not(.dark) .nav-cta,
   html:not(.dark) .nav-cta * {
     color: #ffffff !important;

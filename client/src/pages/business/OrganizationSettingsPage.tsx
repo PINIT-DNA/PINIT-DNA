@@ -1,13 +1,28 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Building2, Settings, Layers, Globe, Image } from 'lucide-react';
+import { Building2, Settings, Layers, Globe, Image, Upload } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { useOrganization } from '../../hooks/useOrganization';
 import { BusinessSetupWizard } from '../../components/business/BusinessSetupWizard';
 import { ORGANIZATION_INDUSTRY_LABELS } from '../../lib/organization-profile';
 
 export function OrganizationSettingsPage() {
-  const { organization, loading, completeSetup, refresh } = useOrganization(true);
+  const { organization, loading, completeSetup, refresh, uploadLogo } = useOrganization(true);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function handleLogoChange(file: File) {
+    setUploading(true);
+    try {
+      await uploadLogo(file);
+      toast.success('Logo uploaded');
+    } catch {
+      toast.error('Logo upload failed');
+    } finally {
+      setUploading(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -39,28 +54,45 @@ export function OrganizationSettingsPage() {
         </button>
       </div>
 
+      <div className="rounded-xl border border-bg-border bg-bg-card p-4 flex flex-col sm:flex-row gap-4 items-center">
+        <div className="w-20 h-20 rounded-2xl border border-bg-border bg-bg-elevated overflow-hidden flex items-center justify-center">
+          {organization?.logoUrl ? (
+            <img src={organization.logoUrl} alt="Logo" className="w-full h-full object-cover" />
+          ) : (
+            <Image size={28} className="text-gray-500" />
+          )}
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-medium text-white">Organization logo</p>
+          <p className="text-2xs text-gray-500 mb-2">PNG, JPG or WebP · max 2 MB</p>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void handleLogoChange(f);
+            }}
+          />
+          <button
+            type="button"
+            disabled={uploading}
+            onClick={() => fileRef.current?.click()}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-bg-border text-xs text-white hover:bg-bg-elevated disabled:opacity-60"
+          >
+            <Upload size={14} />
+            {uploading ? 'Uploading…' : 'Upload logo'}
+          </button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {[
-          {
-            icon: Building2,
-            label: 'Organization name',
-            value: organization?.name?.trim() || 'Not set',
-          },
-          {
-            icon: Globe,
-            label: 'Country',
-            value: organization?.country?.trim() || 'Not set',
-          },
-          {
-            icon: Layers,
-            label: 'Default workspace',
-            value: organization?.defaultWorkspace?.name ?? 'Main Workspace',
-          },
-          {
-            icon: Image,
-            label: 'Logo',
-            value: organization?.logoUrl ? 'Uploaded' : 'Not set',
-          },
+          { icon: Building2, label: 'Organization name', value: organization?.name?.trim() || 'Not set' },
+          { icon: Globe, label: 'Country', value: organization?.country?.trim() || 'Not set' },
+          { icon: Layers, label: 'Default workspace', value: organization?.defaultWorkspace?.name ?? 'Main Workspace' },
+          { icon: Globe, label: 'Website', value: organization?.website?.trim() || 'Not set' },
         ].map(({ icon: Icon, label, value }) => (
           <div key={label} className="rounded-xl border border-bg-border bg-bg-card p-4">
             <Icon size={16} className="text-purple-400 mb-2" />
@@ -76,7 +108,13 @@ export function OrganizationSettingsPage() {
         </div>
       )}
 
-      <Link to="/business" className="text-sm text-dna-400 hover:underline">
+      <div className="flex flex-wrap gap-3 text-sm">
+        <Link to="/business/team" className="text-dna-400 hover:underline">Team management →</Link>
+        <Link to="/business/audit-logs" className="text-dna-400 hover:underline">Audit logs →</Link>
+        <Link to="/business/api-keys" className="text-dna-400 hover:underline">API keys →</Link>
+      </div>
+
+      <Link to="/business" className="text-sm text-dna-400 hover:underline block">
         ← Back to Organization Dashboard
       </Link>
 

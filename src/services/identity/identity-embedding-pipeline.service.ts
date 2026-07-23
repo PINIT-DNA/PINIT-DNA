@@ -151,7 +151,10 @@ export class IdentityEmbeddingPipeline {
       ...manifest,
       recoveryTokenHash: recoveryTokenHash(recoveryToken),
     });
-    working = embedManifestTail(working, signedManifest);
+    working = embedManifestTail(working, signedManifest, {
+      mimeType,
+      fileName,
+    });
     methods.push('integrity-manifest');
     const manifestEmbedded = true;
 

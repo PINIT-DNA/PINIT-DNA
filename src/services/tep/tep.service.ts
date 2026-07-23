@@ -30,6 +30,19 @@ export const TEP_MARKER_PREFIX = 'TEP:v1:';
 export const PROTECTED_DOWNLOAD_TEP_PREFIX = 'protected-download:';
 const TEP_TAIL_START = '\x00TEP-MANIFEST:';
 const TEP_TAIL_END   = ':END-TEP-MANIFEST\x00';
+const TEP_HTML_START = '<!--TEP-MANIFEST:';
+const TEP_HTML_END   = ':END-TEP-MANIFEST-->';
+
+function isHtmlFile(mimeType?: string, fileName?: string): boolean {
+  const mime = (mimeType ?? '').toLowerCase().split(';')[0].trim();
+  const name = (fileName ?? '').toLowerCase();
+  return (
+    mime === 'text/html' ||
+    mime === 'application/xhtml+xml' ||
+    /\.html?$/.test(name) ||
+    name.endsWith('.xhtml')
+  );
+}
 
 export function isProtectedDownloadTepChannel(shareLinkId: string | undefined): boolean {
   return !!shareLinkId?.startsWith(PROTECTED_DOWNLOAD_TEP_PREFIX);
@@ -110,23 +123,41 @@ function verifyTepSignature(sig: string): {
   };
 }
 
-/** Append TEP manifest tail — survives share watermark re-encode when tail is preserved. */
-export function appendTepTail(buffer: Buffer, signature: string): Buffer {
+/** Append TEP manifest tail — HTML uses a hidden comment; others use binary tail. */
+export function appendTepTail(
+  buffer: Buffer,
+  signature: string,
+  opts?: { mimeType?: string; fileName?: string },
+): Buffer {
+  if (isHtmlFile(opts?.mimeType, opts?.fileName)) {
+    const comment = Buffer.from(`\n${TEP_HTML_START}${signature}${TEP_HTML_END}\n`, 'utf8');
+    return Buffer.concat([buffer, comment]);
+  }
   const marker = Buffer.from(TEP_TAIL_START, 'latin1');
   const sigBuf = Buffer.from(signature, 'utf8');
   const end    = Buffer.from(TEP_TAIL_END, 'latin1');
   return Buffer.concat([buffer, marker, sigBuf, end]);
 }
 
-/** Extract TEP signature from binary tail. */
+/** Extract TEP signature from binary tail or HTML comment. */
 export function extractTepTail(buffer: Buffer): string | null {
   const latin = buffer.toString('latin1');
+
   const start = latin.lastIndexOf(TEP_TAIL_START);
-  if (start === -1) return null;
-  const sigStart = start + TEP_TAIL_START.length;
-  const end = latin.indexOf(TEP_TAIL_END, sigStart);
-  if (end === -1) return null;
-  return latin.slice(sigStart, end);
+  if (start !== -1) {
+    const sigStart = start + TEP_TAIL_START.length;
+    const end = latin.indexOf(TEP_TAIL_END, sigStart);
+    if (end !== -1) return latin.slice(sigStart, end);
+  }
+
+  const hs = latin.lastIndexOf(TEP_HTML_START);
+  if (hs !== -1) {
+    const sigStart = hs + TEP_HTML_START.length;
+    const he = latin.indexOf(TEP_HTML_END, sigStart);
+    if (he !== -1) return latin.slice(sigStart, he);
+  }
+
+  return null;
 }
 
 export interface CreateTepInput {
@@ -218,8 +249,11 @@ export class TepService {
       }),
     );
 
-    // Layer (d): structural — TEP manifest binary tail
-    buffer = appendTepTail(buffer, signature);
+    // Layer (d): structural — TEP manifest (HTML comment or binary tail)
+    buffer = appendTepTail(buffer, signature, {
+      mimeType: input.mimeType,
+      fileName: input.filename,
+    });
 
     const exportSha256 = crypto.createHash('sha256').update(buffer).digest('hex');
 

@@ -144,6 +144,11 @@ export class EntitlementService {
     return t === 'BUSINESS' ? 'BUSINESS' : 'INDIVIDUAL';
   }
 
+  /** Alias used by organization services. */
+  async getEntitlements(userId: string): Promise<UserSubscriptionView> {
+    return this.getSubscriptionView(userId);
+  }
+
   async getSubscriptionView(userId: string): Promise<UserSubscriptionView> {
     const planCode = await this.getEffectivePlanCode(userId);
     const def = PLAN_DEFINITIONS[planCode];
@@ -160,8 +165,21 @@ export class EntitlementService {
     const workspaceLimit = accountType === AccountType.BUSINESS
       ? (def.workspaceLimit ?? null)
       : null;
-    // Pilot: single admin until team management ships
-    const teamMemberCount = accountType === AccountType.BUSINESS ? 1 : 0;
+    // Real team count from organization_members
+    let teamMemberCount = 0;
+    if (accountType === AccountType.BUSINESS) {
+      const org = await prisma.organization.findUnique({
+        where: { ownerUserId: userId },
+        select: { id: true },
+      });
+      if (org) {
+        teamMemberCount = await prisma.organizationMember.count({
+          where: { organizationId: org.id },
+        });
+      } else {
+        teamMemberCount = 1;
+      }
+    }
 
     const sub = await prisma.subscription.findUnique({
       where: { userId },

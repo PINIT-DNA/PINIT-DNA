@@ -88,6 +88,13 @@ export function errorMiddleware(
     return;
   }
 
+  // Service-layer errors: Object.assign(new Error(msg), { status: 4xx })
+  const status = (err as Error & { status?: number }).status;
+  if (typeof status === 'number' && status >= 400 && status < 600) {
+    res.status(status).json({ success: false, error: err.message });
+    return;
+  }
+
   // Multer errors
   if (err instanceof MulterError) {
     if (err.code === 'LIMIT_FILE_SIZE') {

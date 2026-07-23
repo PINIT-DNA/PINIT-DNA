@@ -6,8 +6,8 @@ import { BRAND } from '../../config/brand.config';
 
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   '/':                    { title: 'Dashboard',             subtitle: 'System overview & analytics'              },
-  '/generate':            { title: 'Generate DNA',           subtitle: ''        },
-  '/vault':               { title: 'Vault',                  subtitle: 'Encrypted file storage'                 },
+  '/generate':            { title: 'Protect file',           subtitle: 'Create a fingerprint to prove ownership' },
+  '/vault':               { title: 'Files',                  subtitle: 'Your protected & encrypted files'         },
   '/vault-integrity':     { title: 'Vault Integrity',        subtitle: 'Verify encrypted files exist on disk'   },
   '/dna-records':         { title: 'DNA Records',             subtitle: 'All generated fingerprint records'      },
   '/timeline':            { title: 'File Timeline',           subtitle: 'Complete lifecycle audit trail'         },
@@ -17,7 +17,8 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   '/search':              { title: 'AI Search',              subtitle: 'Find documents by meaning using FAISS'        },
   '/forensic-diff':       { title: 'Difference Engine',      subtitle: 'What changed, where, and how severely'     },
   '/monitoring':          { title: 'Monitoring',             subtitle: 'Watch internet for unauthorized file copies' },
-  [BRAND.investigationPath]: { title: 'Unified Investigation', subtitle: 'Forensic probe vs vault DNA match' },
+  '/access-intelligence': { title: 'Tracking',               subtitle: 'See who opened your shared links' },
+  [BRAND.investigationPath]: { title: 'Verify file', subtitle: 'Upload a file to check matches and authenticity' },
 };
 
 interface TopbarProps {
@@ -61,7 +62,7 @@ export function Topbar({ onMenu }: TopbarProps) {
           className="btn btn-primary btn-sm text-xs hidden lg:flex nav-cta"
         >
           <Plus size={14} />
-          Generate DNA
+          Protect file
         </Link>
         <NotificationBell />
         <ProfileDropdown />

@@ -630,8 +630,8 @@ export function LinkIntelligencePage() {
         {viewers.length > 0 && viewers.every(v => !isValidMapCoordinate(v.lat, v.lng)) && (
           <p className="text-2xs text-yellow-500/90 mt-3 italic">
             {viewers.some(v => isPrivateIp(v.ip))
-              ? 'Testing on localhost — allow browser location when opening the share link to see your exact GPS pin. IP geolocation is unavailable for local/private networks.'
-              : 'No precise coordinates yet — viewers must allow location access when opening the share link for an accurate map pin.'}
+              ? 'Testing on localhost — IP geolocation is unavailable for local/private networks, so the map pin may be empty until the link is opened from a public network.'
+              : 'Map pins use IP geolocation (city/region approximate). No browser location permission is requested from viewers.'}
           </p>
         )}
 

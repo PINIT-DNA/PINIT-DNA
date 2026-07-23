@@ -35,7 +35,10 @@ export function OnboardingLayout({ publicMode = false }: { publicMode?: boolean 
 
       <Toaster
         position="top-center"
+        containerClassName="!top-4 !bottom-auto z-[9999]"
+        containerStyle={{ top: 16, bottom: 'auto' }}
         toastOptions={{
+          duration: 4000,
           style: {
             background: '#ffffff',
             color: '#0f172a',

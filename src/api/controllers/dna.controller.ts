@@ -236,6 +236,31 @@ export async function generateDna(
         where: { id: result.dnaRecordId },
         data: { ownerUserId: userId },
       });
+      try {
+        const { tagDnaWithOrgContext } = await import('../../services/organization/org-asset.service');
+        const tagged = await tagDnaWithOrgContext(result.dnaRecordId, userId);
+        if (tagged?.organizationId) {
+          const { orgWebhookService } = await import('../../services/organization/webhook.service');
+          const { orgIntegrationService } = await import('../../services/organization/integration.service');
+          void orgWebhookService.dispatch(tagged.organizationId, 'dna.generated', {
+            dnaRecordId: result.dnaRecordId,
+            filename: req.file?.originalname ?? null,
+            fileType: result.fileType,
+          });
+          void orgIntegrationService.notifyAlertChannels(
+            tagged.organizationId,
+            `🧬 PinIT — DNA generated for ${req.file?.originalname ?? result.dnaRecordId}`,
+            {
+              event: 'dna.generated',
+              dnaRecordId: result.dnaRecordId,
+              filename: req.file?.originalname ?? null,
+              fileType: result.fileType,
+            },
+          );
+        }
+      } catch {
+        /* non-fatal */
+      }
     }
 
     // Fire-and-forget: auto-index in FAISS for semantic search

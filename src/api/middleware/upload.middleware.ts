@@ -51,7 +51,7 @@ const fileFilter = (
     cb(
       new Error(
         `Unsupported file type: "${file.mimetype}". ` +
-        `Supported: IMAGE, PDF, DOCX, PPTX, TXT, CSV, JSON, ZIP, VIDEO, AUDIO. ` +
+        `Supported: IMAGE, PDF, DOCX, PPTX, TXT, HTML, CSV, JSON, ZIP, VIDEO, AUDIO. ` +
         `Check GET /api/v1/dna/supported-types for the full MIME list.`
       )
     );

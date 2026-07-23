@@ -1,16 +1,15 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams, useNavigate, Link } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   User, Shield, Bell, Clock, Activity, Save, RefreshCw,
   Dna, Archive, Share2, Award, Eye, Radio, Trash2,
-  Sun, Moon, Monitor, Building2,
+  Sun, Moon, Monitor,
 } from 'lucide-react';
 import { api } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
 import { useTheme } from '../hooks/useTheme';
 import { useSubscription } from '../hooks/useSubscription';
-import { useOrganization } from '../hooks/useOrganization';
-import { OrganizationProfileTab } from './business/OrganizationProfileTab';
+import { BusinessProfileHub } from './business/BusinessProfileHub';
 import { formatDistanceToNow, format } from 'date-fns';
 import {
   type NotificationItem,
@@ -21,8 +20,8 @@ import {
 
 type Tab = 'profile' | 'security' | 'notifications' | 'activity' | 'settings';
 
-const BASE_TABS: { id: Tab; label: string; icon: React.ReactNode; businessLabel?: string }[] = [
-  { id: 'profile', label: 'Profile', businessLabel: 'Organization', icon: <User size={14} /> },
+const BASE_TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+  { id: 'profile', label: 'Profile', icon: <User size={14} /> },
   { id: 'security', label: 'Security', icon: <Shield size={14} /> },
   { id: 'notifications', label: 'Notifications', icon: <Bell size={14} /> },
   { id: 'activity', label: 'Activity', icon: <Clock size={14} /> },
@@ -36,15 +35,10 @@ export function ProfilePage() {
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const { accountType } = useSubscription();
-  const { organization } = useOrganization(accountType === 'BUSINESS');
 
   const isBusiness = accountType === 'BUSINESS' || profile?.accountType === 'BUSINESS';
 
-  const tabs = BASE_TABS.map((t) => ({
-    ...t,
-    label: isBusiness && t.businessLabel ? t.businessLabel : t.label,
-    icon: isBusiness && t.id === 'profile' ? <Building2 size={14} /> : t.icon,
-  }));
+  const tabs = BASE_TABS;
 
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -102,57 +96,31 @@ export function ProfilePage() {
     );
   }
 
+  if (isBusiness && profile) {
+    return <BusinessProfileHub profile={profile} stats={stats} />;
+  }
+
   return (
     <div className="page-shell w-full max-w-5xl">
       {/* Header with stats */}
       <div className="card mb-6">
         <div className="flex items-start gap-4 flex-wrap">
-          {isBusiness ? (
-            <>
-              <div className="w-16 h-16 rounded-2xl border border-purple-500/30 bg-purple-500/10 flex items-center justify-center shrink-0 overflow-hidden">
-                {organization?.logoUrl ? (
-                  <img src={organization.logoUrl} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <Building2 size={28} className="text-purple-400" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-2xs text-purple-400 font-medium uppercase tracking-wider mb-0.5">Organization Profile</p>
-                <h1 className="text-lg font-bold text-white">
-                  {organization?.name?.trim() || profile?.organization?.trim() || 'Your Organization'}
-                </h1>
-                <p className="text-sm text-dna-400 font-mono">{organization?.shortId ?? '—'}</p>
-                {organization?.defaultWorkspace?.name && (
-                  <p className="text-xs text-gray-500 mt-0.5">Workspace · {organization.defaultWorkspace.name}</p>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-dna-500 to-purple flex items-center justify-center text-xl font-bold text-white shrink-0">
-                {profile?.fullName?.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2) || 'P'}
-              </div>
-              <div className="flex-1 min-w-0">
-                <h1 className="text-lg font-bold text-white">{profile?.fullName}</h1>
-                <p className="text-sm text-dna-400 font-mono">{profile?.shortId}</p>
-                {profile?.email && <p className="text-xs text-gray-500">{profile.email}</p>}
-                {profile?.organization && <p className="text-xs text-gray-500">{profile.organization}{profile.jobTitle ? ` · ${profile.jobTitle}` : ''}</p>}
-              </div>
-            </>
-          )}
+          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-dna-500 to-purple flex items-center justify-center text-xl font-bold text-white shrink-0">
+            {profile?.fullName?.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2) || 'P'}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-lg font-bold text-white">{profile?.fullName}</h1>
+            <p className="text-sm text-dna-400 font-mono">{profile?.shortId}</p>
+            {profile?.email && <p className="text-xs text-gray-500">{profile.email}</p>}
+            {profile?.organization && <p className="text-xs text-gray-500">{profile.organization}{profile.jobTitle ? ` · ${profile.jobTitle}` : ''}</p>}
+          </div>
           <div className="text-right">
-            <p className="text-2xs text-gray-500">{isBusiness ? 'Organization since' : 'Member since'}</p>
+            <p className="text-2xs text-gray-500">Member since</p>
             <p className="text-xs text-gray-400">{profile?.createdAt ? format(new Date(profile.createdAt), 'MMM d, yyyy') : ''}</p>
-            {isBusiness && (
-              <Link to="/business/settings" className="text-2xs text-purple-400 hover:text-purple-300 mt-1 inline-block">
-                Organization Settings →
-              </Link>
-            )}
           </div>
         </div>
 
-        {/* Stats row — individual only in header; business stats live in org profile tab */}
-        {stats && !isBusiness && (
+        {stats && (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mt-4">
             <StatMini icon={<Dna size={12} />} label="DNA" value={stats.dnaGenerated} />
             <StatMini icon={<Archive size={12} />} label="Vault" value={stats.filesProtected} />
@@ -180,10 +148,7 @@ export function ProfilePage() {
       </div>
 
       {/* Tab content */}
-      {tab === 'profile' && isBusiness && (
-        <OrganizationProfileTab profile={profile} stats={stats} onUpdate={setProfile} />
-      )}
-      {tab === 'profile' && !isBusiness && <ProfileTab profile={profile} onUpdate={setProfile} />}
+      {tab === 'profile' && <ProfileTab profile={profile} onUpdate={setProfile} />}
       {tab === 'security'      && <SecurityTab profile={profile} />}
       {tab === 'notifications' && <NotificationsTab profile={profile} onUpdate={setProfile} />}
       {tab === 'activity'      && <ActivityTab />}

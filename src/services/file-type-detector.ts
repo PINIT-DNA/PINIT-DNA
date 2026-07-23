@@ -101,7 +101,7 @@ export class FileTypeDetector {
     throw new Error(
       `Unsupported file type. ` +
       `File: "${originalName}", declared MIME: "${declaredMime}". ` +
-      `Supported types: IMAGE, PDF, DOCX, PPTX, TXT, CSV, JSON, ZIP, VIDEO, AUDIO.`
+      `Supported types: IMAGE, PDF, DOCX, PPTX, TXT, HTML, CSV, JSON, ZIP, VIDEO, AUDIO.`
     );
   }
 

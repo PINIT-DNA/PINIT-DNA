@@ -31,8 +31,10 @@ export function DashboardLayout() {
 
       <Toaster
         position="top-center"
-        containerClassName="!top-14 lg:!top-auto lg:!bottom-4"
+        containerClassName="!top-16 !bottom-auto z-[9999]"
+        containerStyle={{ top: 64, bottom: 'auto' }}
         toastOptions={{
+          duration: 4000,
           style: {
             background: '#ffffff',
             color: '#0f172a',

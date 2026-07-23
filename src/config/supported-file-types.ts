@@ -92,6 +92,21 @@ export const SUPPORTED_FILE_TYPES: SupportedFileTypeConfig[] = [
     maxFileSizeBytes: 10 * 1024 * 1024, // 10 MB
   },
   {
+    fileType:        'HTML',
+    displayName:     'HTML Document',
+    category:        'DOCUMENT',
+    mimeTypes:       ['text/html', 'application/xhtml+xml'],
+    extensions:      ['.html', '.htm', '.xhtml'],
+    engineStatus:    'LIVE',
+    plannedPhase:    1,
+    l2Implementation: 'dom_tag_tree_structure_hash',
+    l3Implementation: 'visible_text_simhash',
+    l4Implementation: 'tag_and_text_frequency',
+    l5Implementation: 'doctype_charset_title_meta',
+    l6Implementation: 'html_identity_hmac',
+    maxFileSizeBytes: 15 * 1024 * 1024, // 15 MB
+  },
+  {
     fileType:        'CSV',
     displayName:     'CSV Spreadsheet',
     category:        'SPREADSHEET',
