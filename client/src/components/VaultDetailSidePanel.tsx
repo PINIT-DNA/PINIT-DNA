@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -7,6 +7,7 @@ import {
   MapPin,
   ShieldCheck,
   Share2,
+  Send,
   FileSearch,
   Activity,
   Download,
@@ -112,6 +113,14 @@ export function VaultDetailSidePanel({
   const [loadingTracking, setLoadingTracking] = useState(true);
   const [retrieving, setRetrieving] = useState(false);
   const [protectDownloading, setProtectDownloading] = useState(false);
+  const [sharingFile, setSharingFile] = useState(false);
+  /** File prepared for native share — must call navigator.share on a fresh click (user gesture). */
+  const [shareReady, setShareReady] = useState(false);
+  const preparedShareRef = useRef<{
+    recordId: string;
+    file: File;
+    tepCode?: string;
+  } | null>(null);
   const [copiedTep, setCopiedTep] = useState<string | null>(null);
 
   const refreshTracking = async () => {
@@ -133,6 +142,9 @@ export function VaultDetailSidePanel({
     setLoadingLinks(true);
     setLoadingTracking(true);
     setTracking(null);
+    preparedShareRef.current = null;
+    setShareReady(false);
+    setSharingFile(false);
     void (async () => {
       try {
         const r = await api.get(`${API_BASE_URL}/share/vault/${record.id}`);
@@ -211,6 +223,111 @@ export function VaultDetailSidePanel({
       toast.error('Failed to retrieve file');
     } finally {
       setRetrieving(false);
+    }
+  };
+
+  const downloadBlobAsFile = (blob: Blob, fileName: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  /**
+   * Open OS share sheet. Must run from a user click with no await before navigator.share().
+   */
+  const openNativeShareSheet = async (file: File, tepCode?: string) => {
+    const payload: ShareData = {
+      title: file.name,
+      text: tepCode
+        ? `Shared via PinIT Hub · tracking ${tepCode}`
+        : 'Shared via PinIT Hub',
+      files: [file],
+    };
+
+    const canShareFiles =
+      typeof navigator !== 'undefined'
+      && typeof navigator.share === 'function'
+      && typeof navigator.canShare === 'function'
+      && navigator.canShare({ files: [file] });
+
+    if (canShareFiles) {
+      await navigator.share(payload);
+      toast.success(
+        tepCode
+          ? `Opened share sheet · tracking ${tepCode}`
+          : 'Opened share sheet — pick WhatsApp, Email, or another app',
+      );
+      return;
+    }
+
+    downloadBlobAsFile(file, file.name);
+    toast.success(
+      'File downloaded — attach it in WhatsApp, Email, or Instagram. (Native share works best on phone.)',
+      { duration: 5000 },
+    );
+  };
+
+  /**
+   * Native share needs a user gesture. Download breaks that gesture, so:
+   * 1st click → prepare file · 2nd click → open share sheet immediately.
+   */
+  const handleShareFile = async () => {
+    const prepared = preparedShareRef.current;
+    if (prepared && prepared.recordId === record.id) {
+      try {
+        await openNativeShareSheet(prepared.file, prepared.tepCode);
+        preparedShareRef.current = null;
+        setShareReady(false);
+        await refreshTracking();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/AbortError|canceled|cancelled/i.test(msg) || (err as { name?: string })?.name === 'AbortError') {
+          return;
+        }
+        toast.error(msg || 'Could not share file');
+      }
+      return;
+    }
+
+    setSharingFile(true);
+    try {
+      const { blob, tepCode } = await protectedDownloadFromVault(record.id);
+      const mime = resolveVaultFileMime(undefined, record.originalMimeType, record.originalFileName)
+        || blob.type
+        || 'application/octet-stream';
+      const file = new File([blob], record.originalFileName, { type: mime });
+
+      const canShareFiles =
+        typeof navigator !== 'undefined'
+        && typeof navigator.share === 'function'
+        && typeof navigator.canShare === 'function'
+        && navigator.canShare({ files: [file] });
+
+      if (!canShareFiles) {
+        downloadBlobAsFile(blob, record.originalFileName);
+        await refreshTracking();
+        toast.success(
+          'File downloaded — attach it in WhatsApp, Email, or Instagram. (Native share works best on phone.)',
+          { duration: 5000 },
+        );
+        return;
+      }
+
+      preparedShareRef.current = {
+        recordId: record.id,
+        file,
+        tepCode: tepCode || undefined,
+      };
+      setShareReady(true);
+      toast.success('File ready — click Share now to open WhatsApp, Email, etc.', { duration: 4000 });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(msg || 'Could not prepare file for sharing');
+    } finally {
+      setSharingFile(false);
     }
   };
 
@@ -586,6 +703,11 @@ export function VaultDetailSidePanel({
               onClick={handleProtectedDownload}
             />
             <QuickAction icon={<Share2 size={18} />} label="Share Secure Link" onClick={onShare} />
+            <QuickAction
+              icon={sharingFile ? <RefreshCw size={18} className="animate-spin" /> : <Send size={18} />}
+              label={sharingFile ? 'Preparing…' : shareReady ? 'Share now' : 'Share File'}
+              onClick={() => { if (!sharingFile) void handleShareFile(); }}
+            />
             <QuickAction
               icon={<FileSearch size={18} />}
               label="Intelligence Report"
