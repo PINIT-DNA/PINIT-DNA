@@ -11,7 +11,8 @@ import { shareLinkService } from '../share/share-link.service';
 import { isPhase2Active } from '../../config/dna-phase2';
 import { resolveWatermarkProof } from './watermark-status.service';
 import { enterpriseRecoveryPipeline, type EnterpriseRecoveryResult } from './enterprise-recovery-pipeline.service';
-import { promoteLeakVerifyToAuthoritative } from './leak-verify-authoritative-bridge.service';
+import { promoteLeakVerifyToAuthoritative, isStrongLeakIdentity, emptyEnterpriseForLeakPromote, ensureLeakVaultId } from './leak-verify-authoritative-bridge.service';
+import { beginInvestigationWork, endInvestigationWork } from './investigation-busy.guard';
 import { FORENSIC_VERDICT_LABELS, type ForensicVerdict } from './confidence-fusion-engine.service';
 import {
   deriveInvestigationOutcome,
@@ -401,6 +402,7 @@ export class UnifiedInvestigationOrchestrator {
       ? investigationPerformanceConfig.videoRecoveryTimeoutMs
       : investigationPerformanceConfig.imageRecoveryTimeoutMs;
 
+    beginInvestigationWork();
     try {
     import('../platform-events/extended-events').then(({ emitInvestigationStarted }) => {
       emitInvestigationStarted({
@@ -414,17 +416,51 @@ export class UnifiedInvestigationOrchestrator {
     const recoveryStage = await executeStage(
       'enterprise_recovery',
       async () => {
-        const [ent, leak] = await Promise.all([
-          enterpriseRecoveryPipeline.run(
-            buffer, mimeType, originalName, sizeBytes, ownerUserId,
-            {
-              ...INVESTIGATION_RECOVERY_OPTS,
-              onProgress: emit,
-              stageTimer: orchestratorTimer,
+        // Protected Download / TEP: resolve identity FIRST, then skip heavy DNA entirely.
+        const leakRaw = await leakedFileVerifyService.verify(
+          buffer, mimeType, originalName, { lightweight: true, ownerUserId },
+        );
+        const leak = await ensureLeakVaultId(leakRaw);
+        if (isStrongLeakIdentity(leak) && leak.identity?.vaultId) {
+          logger.info('[Investigation] Strong leak identity — skipping heavy recovery', {
+            method: leak.detectionMethod,
+            vaultId: leak.identity.vaultId.slice(0, 8),
+            confidence: leak.confidence,
+          });
+          emit({
+            type: 'phase',
+            stepId: 'identity_recovery',
+            label: 'Identity Recovery',
+            status: 'complete',
+            detail: leak.message,
+            snapshot: {
+              phase: 1,
+              signatureFound: true,
+              vaultId: leak.identity.vaultId,
+              dnaRecordId: leak.identity.dnaId!,
+              ownerName: leak.identity.ownerName,
+              ownerPinitId: leak.identity.ownerShortId,
+              originalFilename: leak.identity.originalFilename,
+              confidence: leak.confidence ?? 97,
+              statusMessage: 'Protected download / TEP identity found — generating report…',
             },
-          ),
-          leakedFileVerifyService.verify(buffer, mimeType, originalName, { lightweight: true }),
-        ]);
+          });
+          const enterprise = await promoteLeakVerifyToAuthoritative(
+            emptyEnterpriseForLeakPromote(),
+            leak,
+            ownerUserId,
+          );
+          return { enterprise, leakVerify: leak };
+        }
+
+        const ent = await enterpriseRecoveryPipeline.run(
+          buffer, mimeType, originalName, sizeBytes, ownerUserId,
+          {
+            ...INVESTIGATION_RECOVERY_OPTS,
+            onProgress: emit,
+            stageTimer: orchestratorTimer,
+          },
+        );
         return { enterprise: ent, leakVerify: leak };
       },
       {
@@ -905,8 +941,12 @@ export class UnifiedInvestigationOrchestrator {
         const cmpClass = comparison.classification;
         const isCameraScan = isCameraScanFileName(originalName);
         const videoProbe = isVideoProbe;
+        const identityLocked = authAsset?.selectionSource === 'identity_hit'
+          || authAsset?.selectionSource === 'sha256_exact'
+          || /leak verify|tep|embedded|watermark/i.test(match.method);
 
-        if (!isAcceptedAfterDnaCompare(
+        // TEP / Protected Download already proved vault pairing — DNA is tamper evidence only.
+        if (identityLocked || isAcceptedAfterDnaCompare(
           match,
           cmpScore,
           cmpClass,
@@ -914,6 +954,21 @@ export class UnifiedInvestigationOrchestrator {
           retrievalConf,
           { isVideoProbe: videoProbe },
         )) {
+          pipeline.push(step(
+            'match_validation',
+            'Validate vault match',
+            'complete',
+            identityLocked
+              ? `${explainMatchBasis(match)} — DNA ${cmpScore}% (${cmpClass}) used for tamper only`
+              : explainMatchBasis(match),
+          ));
+          reportOutcome = reAcceptWithDnaCompare(enterprise, match, comparison);
+          logInvestigationDecision('post_dna_reaccept', reportOutcome, {
+            dnaScore: cmpScore,
+            classification: cmpClass,
+            identityLocked,
+          });
+        } else {
           if (shouldRetainRetrievalCandidateAsPossible(
             enterprise, match, cmpScore, retrievalConf,
             { isVideoProbe: videoProbe },
@@ -1023,14 +1078,6 @@ export class UnifiedInvestigationOrchestrator {
               outcome: rejectedOutcome,
             });
           }
-        } else {
-          pipeline.push(step('match_validation', 'Validate vault match', 'complete', explainMatchBasis(match)));
-          // Refresh acceptance with finished DNA so mid-DNA crops stay Likely Match
-          reportOutcome = reAcceptWithDnaCompare(enterprise, match, comparison);
-          logInvestigationDecision('post_dna_reaccept', reportOutcome, {
-            dnaScore: cmpScore,
-            classification: cmpClass,
-          });
         }
       }
     } catch (e) {
@@ -1039,9 +1086,14 @@ export class UnifiedInvestigationOrchestrator {
     }
 
     const resolvedDnaScore = comparison?.overallConfidenceScore;
+    const identityStillLocked = enterprise.authoritativeAsset?.selectionSource === 'identity_hit'
+      || enterprise.authoritativeAsset?.selectionSource === 'sha256_exact'
+      || /leak verify|tep|embedded|watermark/i.test(match.method);
+    // Never strip TEP / Protected Download ownership because full-frame DNA is mid-band.
     if (resolvedDnaScore != null
       && resolvedDnaScore < 50
       && reportOutcome.state === 'VERIFIED'
+      && !identityStillLocked
       && shouldRetainRetrievalCandidateAsPossible(
         enterprise, match, resolvedDnaScore, retrievalConf, { isVideoProbe },
       )) {
@@ -1751,6 +1803,8 @@ export class UnifiedInvestigationOrchestrator {
         leakVerify: null,
         error: fatalErr instanceof Error ? fatalErr.message : String(fatalErr),
       });
+    } finally {
+      endInvestigationWork();
     }
   }
 
@@ -2250,35 +2304,59 @@ export class UnifiedInvestigationOrchestrator {
     // Acceptance only verifies when phase-3 DNA actually completed.
     // Weak vector leads (~30%) must not become VERIFIED_DERIVATIVE.
     // Live vault leads (≥40%) feed visual + candidate so verdict can be POSSIBLE_MATCH.
+    // Exception: TEP / Protected Download watermark already proved ownership on the live path.
+    const liveIdentityLocked = params.enterprise?.authoritativeAsset?.selectionSource === 'identity_hit'
+      || params.enterprise?.authoritativeAsset?.selectionSource === 'sha256_exact'
+      || params.enterprise?.watermarkRecovered === true;
+    const liveWmScore = Math.max(
+      0,
+      ...(params.enterprise?.recoveredSignals ?? [])
+        .filter((s) => /watermark|identity_token|manifest|tep/i.test(s.stage) && s.recovered)
+        .map((s) => s.score),
+      params.enterprise?.fusion?.ownershipVerificationConfidence ?? 0,
+      liveConf,
+    );
     const decision = runAcceptanceEngine({
-      analysisComplete: hasRealDna || showCandidateLead,
-      hasCandidate: hasRealDna || showCandidateLead,
-      vaultId: hasRealDna || showCandidateLead ? vaultId : undefined,
-      dnaRecordId: hasRealDna || showCandidateLead ? dnaRecordId : undefined,
+      analysisComplete: hasRealDna || showCandidateLead || liveIdentityLocked,
+      hasCandidate: hasRealDna || showCandidateLead || liveIdentityLocked,
+      vaultId: hasRealDna || showCandidateLead || liveIdentityLocked ? vaultId : undefined,
+      dnaRecordId: hasRealDna || showCandidateLead || liveIdentityLocked ? dnaRecordId : undefined,
       ownerUserId: params.ownerUserId,
-      ownerPinitId: undefined,
-      dna: hasRealDna
-        ? passChannel(realDna!, 'completed_deep_dna')
-        : showCandidateLead && liveLeadScore >= LOCAL_PATCH_RESCUE_MIN
-          ? passChannel(Math.round(liveLeadScore), 'live_vault_lead')
-          : failChannel(liveConf, 'deep_dna_not_completed'),
+      ownerPinitId: liveIdentityLocked ? (ownerPinitId ?? undefined) : undefined,
+      dna: liveIdentityLocked
+        ? passChannel(Math.max(realDna ?? 0, liveWmScore, 90), 'identity_hit_tep')
+        : hasRealDna
+          ? passChannel(realDna!, 'completed_deep_dna')
+          : showCandidateLead && liveLeadScore >= LOCAL_PATCH_RESCUE_MIN
+            ? passChannel(Math.round(liveLeadScore), 'live_vault_lead')
+            : failChannel(liveConf, 'deep_dna_not_completed'),
       certificate: certificateId && hasRealDna && (realDna ?? 0) >= 90
         ? passChannel(100, certificateId)
         : certificateId
           ? passChannel(50, certificateId)
           : skippedChannel('No certificate'),
-      vault: hasRealDna || showCandidateLead ? passChannel(100, vaultId) : failChannel(0, 'unconfirmed_live_lead'),
-      owner: failChannel(0, 'Ownership not cryptographically bound on live/timeout path'),
-      timeline: hasRealDna ? passChannel(40) : showCandidateLead ? passChannel(40, 'live_vault_present') : failChannel(0, 'incomplete'),
+      vault: hasRealDna || showCandidateLead || liveIdentityLocked
+        ? passChannel(100, vaultId)
+        : failChannel(0, 'unconfirmed_live_lead'),
+      owner: liveIdentityLocked && liveWmScore >= 85
+        ? passChannel(Math.max(90, liveWmScore), 'identity_hit_tep')
+        : failChannel(0, 'Ownership not cryptographically bound on live/timeout path'),
+      timeline: hasRealDna || liveIdentityLocked
+        ? passChannel(40)
+        : showCandidateLead
+          ? passChannel(40, 'live_vault_present')
+          : failChannel(0, 'incomplete'),
       visual: hasRealDna && liveConf >= 40
         ? passChannel(liveConf)
-        : showCandidateLead
+        : showCandidateLead || liveIdentityLocked
           ? passChannel(Math.max(liveConf, similarityScore, 40), 'live_retrieval_lead')
           : failChannel(liveConf, 'visual_unconfirmed'),
-      watermark: failChannel(0),
+      watermark: liveIdentityLocked && liveWmScore >= 85
+        ? passChannel(Math.max(90, liveWmScore), 'watermark_tep_leak_verify')
+        : failChannel(0),
       metadata: skippedChannel(),
       tamperDetected: hasRealDna || cropLikeLead,
-      failureReason: hasRealDna || showCandidateLead ? undefined : params.error,
+      failureReason: hasRealDna || showCandidateLead || liveIdentityLocked ? undefined : params.error,
     });
 
     const conf = Math.max(displayConf, liveLeadScore);

@@ -299,6 +299,7 @@ function OrganizationTab({
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [logoBroken, setLogoBroken] = useState(false);
 
   useEffect(() => {
     setForm({
@@ -315,6 +316,10 @@ function OrganizationTab({
       linkedIn: organization?.linkedIn ?? '',
     });
   }, [organization, identity]);
+
+  useEffect(() => {
+    setLogoBroken(false);
+  }, [organization?.logoUrl]);
 
   async function handleSave() {
     setSaving(true);
@@ -360,8 +365,13 @@ function OrganizationTab({
         <div className="flex flex-col sm:flex-row gap-6">
           <div className="shrink-0 flex flex-col items-center gap-2">
             <div className="w-24 h-24 rounded-2xl border border-purple-500/20 bg-bg-elevated flex items-center justify-center overflow-hidden">
-              {organization?.logoUrl ? (
-                <img src={organization.logoUrl} alt="Logo" className="w-full h-full object-cover" />
+              {organization?.logoUrl && !logoBroken ? (
+                <img
+                  src={organization.logoUrl}
+                  alt="Logo"
+                  className="w-full h-full object-cover"
+                  onError={() => setLogoBroken(true)}
+                />
               ) : (
                 <Image size={32} className="text-gray-500" />
               )}

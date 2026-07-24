@@ -220,8 +220,11 @@ export function shouldRetainRetrievalCandidateAsPossible(
   const isVideo = options?.isVideoProbe === true
     || /partial video/i.test(match.method);
 
+  // Cryptographic / TEP identity already locked the vault — never drop to Unknown.
+  if (source === 'identity_hit' || source === 'sha256_exact') return true;
+  if (/leak verify|tep|embedded|watermark|export|pinit_vault/i.test(match.method)) return true;
+
   if (isVideo) {
-    if (source === 'identity_hit' || source === 'sha256_exact') return true;
     if (/partial video/i.test(match.method) && retrievalConfidence >= 55) return true;
   }
 
@@ -254,15 +257,25 @@ export function downgradeToPossibleAfterWeakDna(
   classification: string,
   options?: { visualScore?: number; enterprise?: EnterpriseRecoveryResult },
 ): InvestigationOutcome {
-  const vector = options?.enterprise?.authoritativeAsset?.vector;
+  const enterprise = options?.enterprise;
+  const vector = enterprise?.authoritativeAsset?.vector;
   const visualScore = Math.max(
     options?.visualScore ?? 0,
     vector?.scores.orb ?? 0,
     vector?.scores.perceptualBlend ?? 0,
     vector?.scores.composite ?? 0,
     match.visualSimilarity != null ? match.visualSimilarity * 100 : 0,
-    options?.enterprise?.fusion?.retrievalConfidence ?? 0,
+    enterprise?.fusion?.retrievalConfidence ?? 0,
   );
+
+  // Preserve TEP / watermark / cert binding — stripping them falsely yields Unknown Asset
+  // after Protected Download identity was already proven.
+  const base = enterprise
+    ? buildAcceptanceEvidenceFromEnterprise(enterprise, { analysisComplete: true })
+    : null;
+  const identityLocked = enterprise?.authoritativeAsset?.selectionSource === 'identity_hit'
+    || enterprise?.authoritativeAsset?.selectionSource === 'sha256_exact'
+    || /leak verify|tep|embedded|watermark/i.test(match.method);
 
   const decision = runAcceptanceEngine({
     analysisComplete: true,
@@ -271,18 +284,21 @@ export function downgradeToPossibleAfterWeakDna(
     dnaRecordId: match.dnaRecordId,
     ownerUserId: match.ownerUserId,
     dna: {
-      state: dnaScore >= MIN_DNA_FOR_POSSIBLE_REPORT ? 'PASS' : 'FAIL',
-      score: dnaScore,
-      classification,
+      state: dnaScore >= MIN_DNA_FOR_POSSIBLE_REPORT || identityLocked ? 'PASS' : 'FAIL',
+      score: identityLocked ? Math.max(dnaScore, 90) : dnaScore,
+      classification: identityLocked && classification === 'DIFFERENT' ? 'IDENTITY_HIT' : classification,
+      detail: identityLocked ? 'identity_hit_tep' : undefined,
     },
-    certificate: { state: 'SKIPPED', score: 0, detail: 'Re-evaluated after DNA' },
+    certificate: base?.certificate ?? { state: 'SKIPPED', score: 0, detail: 'Re-evaluated after DNA' },
     vault: { state: 'PASS', score: 100 },
-    owner: { state: 'FAIL', score: 0, detail: 'Ownership not cryptographically bound' },
-    timeline: { state: 'PASS', score: 50 },
+    owner: base?.owner.state === 'PASS'
+      ? base.owner
+      : { state: 'FAIL', score: 0, detail: 'Ownership not cryptographically bound' },
+    timeline: base?.timeline ?? { state: 'PASS', score: 50 },
     visual: { state: visualScore > 0 ? 'PASS' : 'FAIL', score: visualScore },
-    watermark: { state: 'SKIPPED', score: 0 },
+    watermark: base?.watermark ?? { state: 'SKIPPED', score: 0 },
     metadata: { state: 'SKIPPED', score: 0 },
-    tamperDetected: true,
+    tamperDetected: !identityLocked || dnaScore < 95 || classification === 'DIFFERENT',
   });
 
   // Never invent POSSIBLE with retained owner — respect Acceptance retainCandidate
@@ -309,6 +325,14 @@ export function reAcceptWithDnaCompare(
   );
 
   const base = buildAcceptanceEvidenceFromEnterprise(enterprise, { analysisComplete: true });
+  const identityLocked = enterprise.authoritativeAsset?.selectionSource === 'identity_hit'
+    || enterprise.authoritativeAsset?.selectionSource === 'sha256_exact'
+    || /leak verify|tep|embedded|watermark/i.test(match.method);
+  // Protected Download bytes differ from vault originals — do not let DIFFERENT DNA
+  // erase TEP watermark / identity proof during re-accept.
+  const dnaClassification = identityLocked && classification === 'DIFFERENT'
+    ? 'IDENTITY_HIT'
+    : classification;
   const decision = runAcceptanceEngine({
     ...base,
     hasCandidate: true,
@@ -316,20 +340,26 @@ export function reAcceptWithDnaCompare(
     dnaRecordId: match.dnaRecordId,
     ownerUserId: match.ownerUserId,
     dna: {
-      state: dnaScore >= 40 ? 'PASS' : 'FAIL',
-      score: dnaScore,
-      classification,
+      state: dnaScore >= 40 || identityLocked ? 'PASS' : 'FAIL',
+      score: identityLocked ? Math.max(dnaScore, 90) : dnaScore,
+      classification: dnaClassification,
+      detail: identityLocked ? 'identity_hit_tep' : base.dna.detail,
     },
     visual: {
       state: visual > 0 ? 'PASS' : 'FAIL',
       score: Math.max(base.visual.score, visual),
       detail: base.visual.detail,
     },
-    // Never invent owner PASS from retrieval
+    // Keep cryptographic owner/watermark binding from enterprise (TEP / cert)
     owner: base.owner.state === 'PASS' && base.owner.score >= 80
       ? base.owner
-      : { state: 'FAIL', score: 0, detail: 'Ownership not cryptographically bound' },
-    tamperDetected: base.tamperDetected || dnaScore < 95,
+      : identityLocked && base.watermark.state === 'PASS'
+        ? { state: 'PASS' as const, score: Math.max(90, base.watermark.score), detail: 'identity_hit_tep' }
+        : { state: 'FAIL', score: 0, detail: 'Ownership not cryptographically bound' },
+    watermark: base.watermark,
+    tamperDetected: identityLocked
+      ? (base.tamperDetected || classification === 'DIFFERENT' || dnaScore < 95)
+      : (base.tamperDetected || dnaScore < 95),
     analysisComplete: true,
   });
 

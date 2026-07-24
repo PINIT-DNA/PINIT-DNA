@@ -123,7 +123,7 @@ const NAV_GROUPS: Array<{
   {
     label: 'Forensics',
     items: [
-      // Verify / Unified Investigation → Files → Quick Actions
+      { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Unified Investigation', feature: FeatureKey.FEATURE_INVESTIGATION },
       { to: '/reports',             icon: Shield,      label: 'Forensic Reports', feature: FeatureKey.FEATURE_INVESTIGATION },
       { to: '/unmask-requests',     icon: Shield,      label: 'Unmask Requests'     },
       { to: '/duplicate-attempts',  icon: Ban,         label: 'Duplicate Attempts'  },
@@ -161,7 +161,7 @@ const BUSINESS_NAV_ITEMS: Array<{
   { to: '/business', icon: Building2, label: 'Dashboard', end: true },
   { to: '/generate', icon: Dna, label: 'Protect file' },
   { to: '/vault', icon: Archive, label: 'Files' },
-  // Tracking / Verify → Files → Quick Actions
+  { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Unified Investigation', feature: FeatureKey.FEATURE_INVESTIGATION },
   { to: '/reports', icon: Shield, label: 'Forensics', feature: FeatureKey.FEATURE_INVESTIGATION },
   { to: '/monitoring', icon: Radio, label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },
   { to: '/certificates', icon: Award, label: 'Certificates' },

@@ -227,6 +227,15 @@ function decide(evidence: AcceptanceEvidence, scorecard: AcceptanceScorecard): A
     return 'NOT_PINIT';
   }
 
+  // TEP / Protected Download / certificate bind ownership BEFORE DNA lookalike rejects.
+  // Protected downloads intentionally differ from vault bytes (embedded TEP), so 15-layer
+  // DNA may classify DIFFERENT even when identity is cryptographically proven.
+  if (hasInstantOwnershipProof(evidence) && vaultLocked(evidence)) {
+    return evidence.tamperDetected || dnaIsDifferent(evidence)
+      ? 'VERIFIED_DERIVATIVE'
+      : 'VERIFIED_ORIGINAL';
+  }
+
   // Lookalike: DNA DIFFERENT without local-patch fragment → Asset Not Found
   if (dnaIsDifferent(evidence) && !localPatchFragment) {
     return 'NOT_PINIT';
@@ -240,11 +249,6 @@ function decide(evidence: AcceptanceEvidence, scorecard: AcceptanceScorecard): A
     && evidence.dna.score < NOT_FOUND_MAX_WITHOUT_PATCH
   ) {
     return 'NOT_PINIT';
-  }
-
-  // Watermark or digital signature / certificate may immediately verify ownership
-  if (hasInstantOwnershipProof(evidence) && vaultLocked(evidence)) {
-    return evidence.tamperDetected ? 'VERIFIED_DERIVATIVE' : 'VERIFIED_ORIGINAL';
   }
 
   const layers = strongLayerCount(evidence);

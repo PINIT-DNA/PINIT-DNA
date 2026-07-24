@@ -106,6 +106,14 @@ export function isAcceptedAfterDnaCompare(
 
   const vaultSearchScore = matchScore(match);
   if (match.tier === 1) return true;
+  // TEP / Protected Download / leak-verify already proved vault identity.
+  // Protected bytes intentionally differ from vault originals — DNA is for tamper only.
+  if (
+    match.tier === 2
+    && /leak verify|tep|embedded|watermark|export|pinit_vault|identity/i.test(match.method)
+  ) {
+    return true;
+  }
   if (match.tier === 2) {
     // Embedded identity still needs DNA confirmation for images.
     if (!isVideo && (classification === 'DIFFERENT' || overallConfidenceScore < 42)) return false;

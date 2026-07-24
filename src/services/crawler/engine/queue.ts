@@ -64,6 +64,10 @@ export class CrawlerQueue {
     if (this.workerTimer) return;
     const tick = async () => {
       if (this.processing) return;
+      try {
+        const { isInvestigationBusy } = await import('../../forensics/investigation-busy.guard');
+        if (isInvestigationBusy()) return;
+      } catch { /* optional */ }
       this.processing = true;
       try {
         const jobs = await prisma.crawlerJob.findMany({

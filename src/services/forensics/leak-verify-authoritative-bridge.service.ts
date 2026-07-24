@@ -13,6 +13,7 @@ import type { EnterpriseRecoveryResult } from './enterprise-recovery-pipeline.se
 import type { LeakedFileVerifyResult } from './leaked-file-verify.service';
 import type { VaultMatchResult } from './vault-auto-match.service';
 import type { LeakDetectionMethod } from './leaked-file-verify.service';
+import type { FusionResult } from './confidence-fusion-engine.service';
 
 const STRONG_METHODS = new Set<LeakDetectionMethod>([
   'TEP_EXPORT',
@@ -23,9 +24,78 @@ const STRONG_METHODS = new Set<LeakDetectionMethod>([
 ]);
 
 export function isStrongLeakIdentity(leak: LeakedFileVerifyResult): boolean {
-  if (!leak.found || !leak.identity?.vaultId || !leak.identity?.dnaId) return false;
+  if (!leak.found || !leak.identity?.dnaId) return false;
   if (!leak.detectionMethod || !STRONG_METHODS.has(leak.detectionMethod)) return false;
   return (leak.confidence ?? 0) >= 85;
+}
+
+/**
+ * Ensure vaultId is present (Protected Download watermark path may only carry dnaId).
+ */
+export async function ensureLeakVaultId(
+  leak: LeakedFileVerifyResult,
+): Promise<LeakedFileVerifyResult> {
+  if (!leak.found || !leak.identity?.dnaId) return leak;
+  if (leak.identity.vaultId) return leak;
+  const vault = await prisma.vaultRecord.findFirst({
+    where: { dnaRecordId: leak.identity.dnaId },
+    select: { id: true },
+  });
+  if (!vault) return leak;
+  return {
+    ...leak,
+    identity: { ...leak.identity, vaultId: vault.id },
+  };
+}
+
+/** Minimal enterprise shell so TEP / Protected Download can promote without waiting on slow DNA. */
+export function emptyEnterpriseForLeakPromote(): EnterpriseRecoveryResult {
+  const fusion: FusionResult = {
+    ownershipConfidence: 0,
+    retrievalConfidence: 0,
+    identityConfidence: 0,
+    ownershipVerificationConfidence: 0,
+    trustScore: 0,
+    highConfidence: false,
+    forensicVerdict: 'NO_SIGNATURE',
+    fusionMode: 'enterprise',
+    breakdown: [],
+  };
+  return {
+    match: null,
+    probableMatch: null,
+    verifiedCandidate: null,
+    bestCandidate: null,
+    authoritativeAsset: null,
+    reportState: 'NO_SIGNATURE',
+    reportStateReason: 'Awaiting leak-verify promotion',
+    candidates: [],
+    fusion,
+    stages: [{
+      stage: 'leak_verify_fast_path',
+      status: 'skipped',
+      detail: 'Heavy recovery deferred — strong TEP/identity found',
+    }],
+    variantCount: 1,
+    manifestRecovered: false,
+    identityTokenRecovered: false,
+    watermarkRecovered: false,
+    identified: false,
+    highConfidence: false,
+    recoveredSignals: [],
+    deepCompareResults: [],
+    certificateId: null,
+    ownerShortId: null,
+    tamperingSummary: '',
+    bestDeepCompare: null,
+    auditContext: {
+      vectors: [],
+      vaultRecordIds: [],
+      selectionSteps: [],
+      identityHit: null,
+      localDnaHit: null,
+    },
+  };
 }
 
 /**
@@ -35,10 +105,11 @@ export function isStrongLeakIdentity(leak: LeakedFileVerifyResult): boolean {
  */
 export async function promoteLeakVerifyToAuthoritative(
   enterprise: EnterpriseRecoveryResult,
-  leakVerify: LeakedFileVerifyResult,
+  leakVerifyIn: LeakedFileVerifyResult,
   ownerUserId: string,
 ): Promise<EnterpriseRecoveryResult> {
-  if (!isStrongLeakIdentity(leakVerify)) return enterprise;
+  const leakVerify = await ensureLeakVaultId(leakVerifyIn);
+  if (!isStrongLeakIdentity(leakVerify) || !leakVerify.identity?.vaultId) return enterprise;
 
   const vaultId = leakVerify.identity!.vaultId!;
   const dnaRecordId = leakVerify.identity!.dnaId!;

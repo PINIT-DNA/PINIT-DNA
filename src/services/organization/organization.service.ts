@@ -8,7 +8,7 @@ import {
 } from './constants/organization-profile';
 import { teamService } from './team.service';
 import { logOrgAudit } from './audit-log.service';
-import { uploadOrgLogo } from '../../lib/org-logo-storage';
+import { uploadOrgLogo, resolveOrgLogoUrl } from '../../lib/org-logo-storage';
 
 function generateOrgShortId(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -121,6 +121,12 @@ function toView(org: OrgRow): OrganizationView {
       ? { id: defaultWorkspace.id, shortId: defaultWorkspace.shortId, name: defaultWorkspace.name }
       : null,
   };
+}
+
+async function toClientView(org: OrgRow): Promise<OrganizationView> {
+  const view = toView(org);
+  view.logoUrl = await resolveOrgLogoUrl(org.logoUrl);
+  return view;
 }
 
 const orgInclude = {
@@ -289,7 +295,7 @@ export const organizationService = {
           })
         : await prisma.organization.findUniqueOrThrow({ where: { id: existing.id }, include: orgInclude });
       await teamService.ensureOwnerMember(refreshed.id, userId);
-      return toView(refreshed);
+      return toClientView(refreshed);
     }
 
     let shortId = generateOrgShortId();
@@ -330,7 +336,7 @@ export const organizationService = {
     });
 
     await teamService.ensureOwnerMember(org.id, userId);
-    return toView(org);
+    return toClientView(org);
   },
 
   async getForOwner(userId: string): Promise<OrganizationView | null> {
@@ -339,7 +345,7 @@ export const organizationService = {
       where: { ownerUserId: userId },
       include: orgInclude,
     });
-    return org ? toView(org) : null;
+    return org ? toClientView(org) : null;
   },
 
   async skipWelcome(userId: string): Promise<OrganizationView> {
@@ -349,7 +355,7 @@ export const organizationService = {
       data: { setupSkippedAt: new Date(), welcomeDismissedAt: new Date() },
       include: orgInclude,
     });
-    return toView(updated);
+    return toClientView(updated);
   },
 
   async updateProfile(userId: string, input: OrganizationProfileInput): Promise<OrganizationView> {
@@ -411,7 +417,7 @@ export const organizationService = {
       title: 'Organization profile updated',
     });
 
-    return toView(updated);
+    return toClientView(updated);
   },
 
   async completeSetup(userId: string, input: OrganizationProfileInput & { organizationName: string }): Promise<OrganizationView> {
@@ -441,7 +447,7 @@ export const organizationService = {
       entityId: view.id,
       title: 'Organization setup completed',
     });
-    return toView(updated);
+    return toClientView(updated);
   },
 
   async uploadLogo(userId: string, buffer: Buffer, mimeType: string): Promise<OrganizationView> {

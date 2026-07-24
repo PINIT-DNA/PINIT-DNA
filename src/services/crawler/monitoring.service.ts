@@ -627,6 +627,16 @@ export class MonitoringService {
 
   async runDueChecks(): Promise<void> {
     if (!isMonitoringCrawlerEnabled()) return;
+    // Don't starve Unified Investigation with FilenameSearch floods while a probe is running.
+    try {
+      const { isInvestigationBusy } = await import('../forensics/investigation-busy.guard');
+      if (isInvestigationBusy()) {
+        logger.debug('[Monitor] Skipping due checks — investigation in progress');
+        return;
+      }
+    } catch {
+      /* guard optional */
+    }
 
     const due = await prisma.monitorRecord.findMany({
       where: {

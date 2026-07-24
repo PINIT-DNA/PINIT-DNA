@@ -19,13 +19,27 @@ function dnaChannel(enterprise: EnterpriseRecoveryResult): EvidenceChannel & { c
   const deep = enterprise.authoritativeAsset?.deepCompare ?? enterprise.bestDeepCompare;
   const local = enterprise.authoritativeAsset?.localDnaHit;
   const localScore = local?.compositeScore ?? 0;
-  const isLocalPatch = enterprise.authoritativeAsset?.selectionSource === 'local_patch'
+  const selectionSource = enterprise.authoritativeAsset?.selectionSource;
+  const isIdentityLock = selectionSource === 'identity_hit' || selectionSource === 'sha256_exact';
+  const isLocalPatch = selectionSource === 'local_patch'
     || localScore >= 55;
   let score = deep?.overallConfidenceScore
-    ?? (enterprise.authoritativeAsset?.selectionSource === 'sha256_exact' ? 100 : 0);
+    ?? (selectionSource === 'sha256_exact' ? 100 : 0);
   // Heavy crop: full-frame DNA often <40% — local patch votes are the fragment identity signal.
   if (isLocalPatch && localScore >= 55) {
     score = Math.max(score, localScore);
+  }
+  // TEP / Protected Download: identity is proven without waiting on 15-layer DNA.
+  if (isIdentityLock && score <= 0 && !deep) {
+    const identityScore = Math.max(
+      90,
+      Math.round(enterprise.fusion?.identityConfidence ?? 0),
+      Math.round(enterprise.fusion?.ownershipVerificationConfidence ?? 0),
+    );
+    return {
+      ...passChannel(identityScore, 'identity_hit_tep'),
+      classification: 'IDENTITY_HIT',
+    };
   }
   const classification = deep?.classification
     ?? (score === 100 ? 'DNA_MATCH' : undefined)
