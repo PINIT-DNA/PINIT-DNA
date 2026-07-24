@@ -104,6 +104,16 @@ export class EnterpriseRecoveryPipeline {
     }
 
     if (isEnterprisePipelineV2Enabled()) {
+      // Unified Investigation depends on live vault leads (onProgress). V2 does not
+      // emit them and often burns the full 150s stage budget on WhatsApp/tampered
+      // recompress probes → Incomplete/Unknown with vaultId=null. Keep TEP/SHA
+      // fast paths above; use legacy recovery for live investigation progress.
+      if (options?.onProgress) {
+        logger.info('[EnterpriseRecovery] Legacy recovery for live investigation (V2 skips onProgress)');
+        return pinitOriginalIdentityRecoveryService.recover(
+          buffer, mimeType, originalName, sizeBytes, ownerUserId, options,
+        );
+      }
       logger.info('[EnterpriseRecovery] ENTERPRISE_PIPELINE_V2 path');
       const input = {
         buffer,

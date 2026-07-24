@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { leakedFileVerifyService } from './leaked-file-verify.service';
-import { type VaultMatchResult } from './vault-auto-match.service';
+import { type VaultMatchResult, vaultAutoMatchService } from './vault-auto-match.service';
 import { certificateService } from '../certificates/certificate.service';
 import { shareLinkService } from '../share/share-link.service';
 import { isPhase2Active } from '../../config/dna-phase2';
@@ -42,6 +42,7 @@ import { investigationPerformanceConfig } from '../../config/investigation-perfo
 import {
   LOCAL_PATCH_RESCUE_MIN,
   NOT_FOUND_MAX_WITHOUT_PATCH,
+  POSSIBLE_L3_MIN_WITHOUT_PATCH,
   POSSIBLE_MIN,
 } from '../../config/investigation-match-policy';
 import { createStageTimer } from '../../lib/stage-timer';
@@ -511,6 +512,61 @@ export class UnifiedInvestigationOrchestrator {
           probe: { buffer, mimeType, originalName, sizeBytes },
         });
       }
+
+      // Timeout with no live lead: only rescue strong pHash (≥0.88). Relaxed 0.72
+      // falsely pairs unrelated people photos as "Top Candidate" (~65% lookalikes).
+      const rescued = await withTimeoutSoft(
+        () => vaultAutoMatchService.findMatch(
+          buffer, mimeType, originalName, sizeBytes, ownerUserId,
+          { relaxedVisual: false, phashThreshold: 0.88 },
+        ),
+        20_000,
+        'timeout_vault_rescue',
+      );
+      const rescueSim = rescued?.visualSimilarity ?? 0;
+      const rescueConfRaw = Number.parseInt(rescued?.confidence ?? '', 10);
+      const rescueConf = Number.isFinite(rescueConfRaw)
+        ? rescueConfRaw
+        : Math.round(rescueSim * 100);
+      const rescueIsIdentity = rescued?.tier === 1 || rescued?.tier === 2;
+      const rescueIsStrongVisual = rescueSim >= 0.88 || rescueConf >= POSSIBLE_L3_MIN_WITHOUT_PATCH;
+      if (rescued?.vaultId && (rescueIsIdentity || rescueIsStrongVisual)) {
+        logger.warn('Enterprise recovery timed out — rescued vault via strong match only', {
+          vaultId: rescued.vaultId.slice(0, 8),
+          method: rescued.method,
+          confidence: rescueConf,
+          visualSimilarity: rescueSim,
+        });
+        const rescueSnapshot = {
+          phase: 2 as const,
+          signatureFound: true,
+          vaultId: rescued.vaultId,
+          dnaRecordId: rescued.dnaRecordId,
+          confidence: Math.max(rescueConf, POSSIBLE_L3_MIN_WITHOUT_PATCH),
+          similarityScore: Math.round(Math.max(rescueSim * 100, rescueConf)),
+          statusMessage: 'Timeout rescue — strong vault lead retained for report',
+        };
+        emit({
+          type: 'phase',
+          stepId: 'final_report',
+          label: 'Investigation Report',
+          status: 'running',
+          detail: 'Timeout rescue — generating report from strong vault lead…',
+          snapshot: rescueSnapshot,
+        });
+        return this.buildPartialFromLiveSnapshot({
+          investigationId,
+          pipeline,
+          progressTimeline,
+          currentFileHash,
+          originalName,
+          ownerUserId,
+          snapshot: rescueSnapshot,
+          error: timeoutError,
+          probe: { buffer, mimeType, originalName, sizeBytes },
+        });
+      }
+
       return this.buildFaultTolerantReport({
         investigationId,
         pipeline,
@@ -731,11 +787,19 @@ export class UnifiedInvestigationOrchestrator {
           Number(fallbackMatch?.confidence) || 0,
         ));
         // Weak noise / Asset Not Found: closest <50% without patch lock.
-        // Mid-band (≥POSSIBLE_MIN) crop/live leads keep vault as POSSIBLE.
-        if (reportOutcome.state === 'NO_SIGNATURE' && closest < NOT_FOUND_MAX_WITHOUT_PATCH) {
-          logger.info('NO_SIGNATURE — refusing rescue for weak similarity (Asset Not Found)', {
+        // Mid-band L3 55–70 without patch → also Asset Not Found (anti-lookalike).
+        const hasPatchLock = enterprise.authoritativeAsset?.selectionSource === 'local_patch'
+          || (enterprise.authoritativeAsset?.localDnaHit?.compositeScore ?? 0) >= LOCAL_PATCH_RESCUE_MIN;
+        const identityLockedRescue = enterprise.authoritativeAsset?.selectionSource === 'identity_hit'
+          || enterprise.authoritativeAsset?.selectionSource === 'sha256_exact';
+        const lookalikeMidBand = !hasPatchLock
+          && !identityLockedRescue
+          && closest < POSSIBLE_L3_MIN_WITHOUT_PATCH;
+        if (reportOutcome.state === 'NO_SIGNATURE' && (closest < NOT_FOUND_MAX_WITHOUT_PATCH || lookalikeMidBand)) {
+          logger.info('NO_SIGNATURE — refusing rescue for weak/lookalike similarity (Asset Not Found)', {
             vaultId: snapshotForPartial.vaultId.slice(0, 8),
             closest,
+            lookalikeMidBand,
           });
           const closestOutcome = {
             ...reportOutcome,
@@ -2216,9 +2280,10 @@ export class UnifiedInvestigationOrchestrator {
     const fusionTrust = params.enterprise?.fusion.trustScore ?? 0;
     const orbScore = snapshot.orbScore ?? 0;
     const similarityScore = snapshot.similarityScore ?? liveConf;
-    const cropLikeLead = orbScore >= 70
-      || (similarityScore >= 50 && similarityScore < 95)
-      || (snapshot.patchVotes ?? 0) >= 3;
+    const patchVotes = snapshot.patchVotes ?? 0;
+    // Do NOT treat mid-band similarity alone (50–70%) as crop — that surfaces unrelated lookalikes.
+    const cropLikeLead = patchVotes >= 3
+      || (orbScore >= 70 && similarityScore >= POSSIBLE_L3_MIN_WITHOUT_PATCH);
 
     const vaultRow = await prisma.vaultRecord.findFirst({
       where: { id: vaultId, dnaRecord: { ownerUserId: params.ownerUserId } },
@@ -2255,18 +2320,29 @@ export class UnifiedInvestigationOrchestrator {
     const hasOwnerLead = !!(ownerName || ownerPinitId);
     /**
      * Live path must NEVER invent ownership from a mid-band lookalike.
-     * Still keep vault + scores for POSSIBLE candidate display when live/SSE already
-     * locked a vault (≥40%) — otherwise the final report flips to Unknown after a
-     * correct live verification screen.
+     * Policy: L3 55–70 without patch → Asset Not Found (not Top Candidate).
+     * Only surface POSSIBLE when DNA/patch/identity or strong L3 (≥70) confirms.
      */
     const retainOwnerLead = false;
-    const liveLeadScore = Math.max(liveConf, similarityScore, orbScore, snapshot.patchVotes ? LOCAL_PATCH_RESCUE_MIN : 0);
+    const liveLeadScore = Math.max(
+      liveConf,
+      similarityScore,
+      orbScore,
+      patchVotes >= 3 ? LOCAL_PATCH_RESCUE_MIN : 0,
+    );
+    const liveIdentityLocked = params.enterprise?.authoritativeAsset?.selectionSource === 'identity_hit'
+      || params.enterprise?.authoritativeAsset?.selectionSource === 'sha256_exact'
+      || params.enterprise?.watermarkRecovered === true;
+    const strongVisualLead = liveLeadScore >= POSSIBLE_L3_MIN_WITHOUT_PATCH
+      && (orbScore >= 55 || similarityScore >= POSSIBLE_L3_MIN_WITHOUT_PATCH || patchVotes >= 3);
     const showCandidateLead = !!vaultId
       && (hasOwnerLead || hasResolvableVault)
       && (
-        (hasRealDna && (realDna ?? 0) >= POSSIBLE_MIN)
-        || liveLeadScore >= POSSIBLE_MIN
+        liveIdentityLocked
+        || (hasRealDna && (realDna ?? 0) >= POSSIBLE_MIN)
+        || patchVotes >= 3
         || cropLikeLead
+        || strongVisualLead
       );
     const displayConf = showCandidateLead
       ? Math.max(liveConf, similarityScore, realDna ?? 0, fusionOwnership, fusionIdentity, fusionTrust)
@@ -2305,9 +2381,6 @@ export class UnifiedInvestigationOrchestrator {
     // Weak vector leads (~30%) must not become VERIFIED_DERIVATIVE.
     // Live vault leads (≥40%) feed visual + candidate so verdict can be POSSIBLE_MATCH.
     // Exception: TEP / Protected Download watermark already proved ownership on the live path.
-    const liveIdentityLocked = params.enterprise?.authoritativeAsset?.selectionSource === 'identity_hit'
-      || params.enterprise?.authoritativeAsset?.selectionSource === 'sha256_exact'
-      || params.enterprise?.watermarkRecovered === true;
     const liveWmScore = Math.max(
       0,
       ...(params.enterprise?.recoveredSignals ?? [])
@@ -2413,10 +2486,13 @@ export class UnifiedInvestigationOrchestrator {
       tamperAnalysis.primaryVector,
     ));
 
-    // Live vault lead that Acceptance left as NOT_PINIT still surfaces as POSSIBLE
-    // (owner withheld) so the final report matches the verification screen.
+    // Do not promote lookalikes (mid-band ~55–69%) to POSSIBLE Top Candidate.
     let reportState: 'VERIFIED' | 'POSSIBLE' | 'NO_SIGNATURE' = mapAcceptanceToReportState(decision.verdict);
-    if (reportState === 'NO_SIGNATURE' && showCandidateLead && conf >= POSSIBLE_MIN) {
+    if (
+      reportState === 'NO_SIGNATURE'
+      && showCandidateLead
+      && conf >= POSSIBLE_L3_MIN_WITHOUT_PATCH
+    ) {
       reportState = 'POSSIBLE';
     }
 
