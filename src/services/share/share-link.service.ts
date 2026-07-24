@@ -106,6 +106,9 @@ export interface CreateShareLinkInput {
 
   // ── Multi-recipient child links ───────────────────────────────────────
   recipients?: Array<{ label: string; email?: string }>;
+
+  /** PARENT (default), FILE (Share File open-on-PinIT page), CHILD/GRANDCHILD (hops) */
+  linkType?: string;
 }
 
 export interface ChildLinkResult {
@@ -325,6 +328,9 @@ export class ShareLinkService {
 
         // Tenant isolation
         ownerUserId: input.ownerUserId,
+
+        // PARENT (Share Secure Link) vs FILE (Share File → open on PinIT page)
+        linkType: input.linkType ?? 'PARENT',
       },
     });
 
@@ -348,6 +354,48 @@ export class ShareLinkService {
     }
 
     return { ...link, devOtp: plainOtp, childLinks };
+  }
+
+  /**
+   * Share File channel: open on PinIT `/s/:token` page so views are tracked.
+   * Reuses the latest active FILE link for the vault when available.
+   */
+  async createOrGetFileShare(input: {
+    vaultId: string;
+    ownerUserId: string;
+    requestLocation?: boolean;
+  }) {
+    if (!input.ownerUserId) throw new Error('Authentication required to create file shares');
+
+    const existing = await prisma.shareLink.findFirst({
+      where: {
+        vaultId: input.vaultId,
+        ownerUserId: input.ownerUserId,
+        linkType: 'FILE',
+        isActive: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (existing) {
+      const expired = existing.expiresAt != null && existing.expiresAt.getTime() <= Date.now();
+      const exhausted =
+        existing.maxViews != null && existing.viewCount >= existing.maxViews;
+      if (!expired && !exhausted) {
+        return { ...existing, reused: true as const };
+      }
+    }
+
+    const created = await this.create({
+      vaultId: input.vaultId,
+      ownerUserId: input.ownerUserId,
+      linkType: 'FILE',
+      allowDownload: true,
+      requestLocation: input.requestLocation ?? true,
+      note: 'Share File — opens on PinIT Hub for tracking',
+    });
+
+    return { ...created, reused: false as const };
   }
 
   // ── Create child links for each recipient ─────────────────────────────────

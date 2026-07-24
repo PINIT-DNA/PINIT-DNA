@@ -122,11 +122,19 @@ export function isPdfMime(mime?: string | null, fileName?: string | null): boole
   return resolved === 'application/pdf' || fileExt(fileName ?? '') === '.pdf';
 }
 
-export function isTextMime(mime?: string | null, fileName?: string | null): boolean {
+export function isHtmlMime(mime?: string | null, fileName?: string | null): boolean {
   const resolved = resolveVaultFileMime(undefined, mime, fileName);
-  if (resolved.startsWith('text/') || resolved === 'application/json' || resolved === 'application/xhtml+xml') return true;
+  if (resolved === 'text/html' || resolved === 'application/xhtml+xml') return true;
   const ext = fileExt(fileName ?? '');
-  return ['.txt', '.md', '.log', '.csv', '.json', '.html', '.htm', '.xhtml'].includes(ext);
+  return ['.html', '.htm', '.xhtml'].includes(ext);
+}
+
+export function isTextMime(mime?: string | null, fileName?: string | null): boolean {
+  if (isHtmlMime(mime, fileName)) return false;
+  const resolved = resolveVaultFileMime(undefined, mime, fileName);
+  if (resolved.startsWith('text/') || resolved === 'application/json') return true;
+  const ext = fileExt(fileName ?? '');
+  return ['.txt', '.md', '.log', '.csv', '.json'].includes(ext);
 }
 
 export function isDocxMime(mime?: string | null, fileName?: string | null): boolean {
@@ -177,6 +185,7 @@ export function vaultFileShouldLoadPreview(mime?: string | null, fileName?: stri
   return isImageMime(mime, fileName)
     || isVideoMime(mime, fileName)
     || isPdfMime(mime, fileName)
+    || isHtmlMime(mime, fileName)
     || isTextMime(mime, fileName)
     || isAudioMime(mime, fileName)
     || isDocxMime(mime, fileName);

@@ -2,7 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Dna, ShieldCheck, Archive, Menu, Building2 } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { BRAND } from '../../config/brand.config';
-import { useSubscription } from '../../hooks/useSubscription';
+import { useAccountViewMode } from '../../hooks/useAccountViewMode';
 
 interface Props {
   onOpenMenu: () => void;
@@ -10,14 +10,13 @@ interface Props {
 
 export function MobileBottomNav({ onOpenMenu }: Props) {
   const location = useLocation();
-  const { accountType } = useSubscription();
-  const isBusiness = accountType === 'BUSINESS';
+  const { isBusinessShell } = useAccountViewMode();
 
-  const homeTo = isBusiness ? '/business' : '/';
-  const HomeIcon = isBusiness ? Building2 : LayoutDashboard;
+  const homeTo = isBusinessShell ? '/business' : '/';
+  const HomeIcon = isBusinessShell ? Building2 : LayoutDashboard;
 
   const tabs = [
-    { to: homeTo, icon: HomeIcon, label: isBusiness ? 'Org' : 'Home', end: true as const },
+    { to: homeTo, icon: HomeIcon, label: isBusinessShell ? 'Org' : 'Home', end: true as const },
     { to: '/generate', icon: Dna, label: 'DNA' },
     { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Investigate' },
     { to: '/vault', icon: Archive, label: 'Vault' },
@@ -37,7 +36,7 @@ export function MobileBottomNav({ onOpenMenu }: Props) {
 
           return (
             <NavLink
-              key={to}
+              key={`${label}-${to}`}
               to={to}
               end={end}
               className={cn(

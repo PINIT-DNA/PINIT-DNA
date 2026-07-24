@@ -675,6 +675,26 @@ export async function backfillLocalDnaIndex(req: Request, res: Response, next: N
   }
 }
 
+/** GET /vault/protected-shares — owner list of Share File / protected-download TEPs */
+export async function listProtectedFileShares(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const ownerUserId = getAuthUserId(req);
+    const { listOwnerProtectedFileShares } = await import('../../services/provenance');
+    const shares = await listOwnerProtectedFileShares(ownerUserId);
+    res.status(200).json({
+      success: true,
+      count: shares.length,
+      shares,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 /** GET /vault/:id/tracking — Phase B tracking dashboard (TEP + downloads + custody) */
 export async function getVaultTracking(
   req: Request,

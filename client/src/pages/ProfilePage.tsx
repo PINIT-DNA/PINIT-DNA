@@ -8,7 +8,7 @@ import {
 import { api } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
 import { useTheme } from '../hooks/useTheme';
-import { useSubscription } from '../hooks/useSubscription';
+import { useAccountViewMode } from '../hooks/useAccountViewMode';
 import { BusinessProfileHub } from './business/BusinessProfileHub';
 import { formatDistanceToNow, format } from 'date-fns';
 import {
@@ -34,9 +34,10 @@ export function ProfilePage() {
   const [profile, setProfile] = useState<any>(null);
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const { accountType } = useSubscription();
+  const { isBusinessShell } = useAccountViewMode();
 
-  const isBusiness = accountType === 'BUSINESS' || profile?.accountType === 'BUSINESS';
+  // Business org profile only while Business shell is active
+  const showBusinessProfile = isBusinessShell;
 
   const tabs = BASE_TABS;
 
@@ -72,7 +73,7 @@ export function ProfilePage() {
   useEffect(() => {
     const t = params.get('tab') as Tab;
     if (t && tabs.some(x => x.id === t)) setTab(t);
-  }, [params, isBusiness]);
+  }, [params]);
 
   if (loading) return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
@@ -96,7 +97,7 @@ export function ProfilePage() {
     );
   }
 
-  if (isBusiness && profile) {
+  if (showBusinessProfile && profile) {
     return <BusinessProfileHub profile={profile} stats={stats} />;
   }
 

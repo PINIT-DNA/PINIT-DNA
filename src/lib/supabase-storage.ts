@@ -143,3 +143,46 @@ export async function deleteVaultFile(
 
   logger.warn('[Storage] Delete failed (non-fatal)', { vaultId });
 }
+
+/**
+ * Check whether an encrypted vault blob exists in Supabase (or return null paths tried).
+ * Uses Storage list metadata — does not download file bytes.
+ */
+export async function findVaultFileInSupabase(
+  vaultId: string,
+  options?: { ownerUserId?: string; storedPath?: string },
+): Promise<{ exists: boolean; size: number | null; storagePath: string | null }> {
+  const paths = [
+    options?.storedPath ? normalizeVaultStoragePath(options.storedPath, vaultId) : null,
+    options?.ownerUserId ? `${options.ownerUserId}/${vaultId}.enc` : null,
+    `${vaultId}.enc`,
+  ].filter((p, i, arr): p is string => Boolean(p) && arr.indexOf(p) === i);
+
+  for (const storagePath of paths) {
+    const segments = storagePath.split('/').filter(Boolean);
+    const fileName = segments.pop();
+    if (!fileName) continue;
+    const folder = segments.join('/');
+
+    const { data, error } = await getClient().storage.from(BUCKET).list(folder || '', {
+      search: fileName,
+      limit: 20,
+    });
+
+    if (error) {
+      logger.debug('[Storage] list failed', { storagePath, error: error.message });
+      continue;
+    }
+
+    const match = data?.find((f) => f.name === fileName);
+    if (match) {
+      const sizeRaw = (match as { metadata?: { size?: number }; meta?: { size?: number } }).metadata?.size
+        ?? (match as { meta?: { size?: number } }).meta?.size
+        ?? null;
+      const size = typeof sizeRaw === 'number' ? sizeRaw : null;
+      return { exists: true, size, storagePath };
+    }
+  }
+
+  return { exists: false, size: null, storagePath: null };
+}

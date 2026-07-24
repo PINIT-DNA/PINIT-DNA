@@ -105,16 +105,50 @@ export class VaultSchedulerService {
     });
 
     let healthy = 0; let missing = 0; let mismatch = 0;
+    const { checkVaultEncryptedBlob } = await import('../vault/vault-blob-integrity');
 
     for (const r of records) {
       const ownerUserId = r.dnaRecord?.ownerUserId;
       try {
-        const stat = await fs.stat(r.encryptedFilePath);
-        if (Math.abs(stat.size - r.encryptedSizeBytes) <= 32) {
+        const check = await checkVaultEncryptedBlob({
+          vaultId: r.id,
+          encryptedFilePath: r.encryptedFilePath,
+          ownerUserId,
+        });
+
+        if (!check.exists) {
+          missing++;
+          logger.error('Vault file MISSING from storage', {
+            vaultId: r.id,
+            filename: r.originalFileName,
+            source: check.source,
+          });
+          if (ownerUserId) {
+            import('../platform-events/extended-events').then(({ emitVaultIntegrityIssue }) => {
+              emitVaultIntegrityIssue({
+                ownerUserId,
+                vaultId: r.id,
+                filename: r.originalFileName,
+                issue: 'missing',
+              });
+            }).catch(() => {});
+          }
+          continue;
+        }
+
+        const sizeOk =
+          check.actualSize == null
+            || Math.abs(check.actualSize - r.encryptedSizeBytes) <= 32;
+
+        if (sizeOk) {
           healthy++;
         } else {
           mismatch++;
-          logger.warn('Vault file size mismatch detected', { vaultId: r.id, filename: r.originalFileName });
+          logger.warn('Vault file size mismatch detected', {
+            vaultId: r.id,
+            filename: r.originalFileName,
+            source: check.source,
+          });
           if (ownerUserId) {
             import('../platform-events/extended-events').then(({ emitVaultIntegrityIssue }) => {
               emitVaultIntegrityIssue({
@@ -128,7 +162,10 @@ export class VaultSchedulerService {
         }
       } catch {
         missing++;
-        logger.error('Vault file MISSING from disk', { vaultId: r.id, filename: r.originalFileName });
+        logger.error('Vault integrity check failed for record', {
+          vaultId: r.id,
+          filename: r.originalFileName,
+        });
         if (ownerUserId) {
           import('../platform-events/extended-events').then(({ emitVaultIntegrityIssue }) => {
             emitVaultIntegrityIssue({

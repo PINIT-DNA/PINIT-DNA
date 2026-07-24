@@ -22,7 +22,7 @@ const NAV = [
   { section: 'Forensics' },
   { to: '/admin/investigations', label: 'Unified Investigation', icon: Search },
   { to: '/admin/evidence', label: 'Evidence Center', icon: FileStack },
-  { to: '/admin/tracking', label: 'Tracking', icon: MapPin },
+  { to: '/admin/tracking', label: 'Access Intelligence', icon: MapPin },
   { to: '/admin/timeline', label: 'Timeline', icon: Clock },
   { section: 'Operations' },
   { to: '/admin/monitoring', label: 'Monitoring Center', icon: Radar },
@@ -99,11 +99,15 @@ export function SuperAdminSidebar({ open = false, onClose }: { open?: boolean; o
       <div className="p-3 border-t border-zinc-800 space-y-1">
         <button
           type="button"
-          onClick={() => navigate('/')}
-          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 rounded-md"
+          onClick={() => {
+            onClose?.();
+            navigate('/');
+          }}
+          className="w-full flex items-center gap-2 px-3 py-2.5 text-sm font-medium text-zinc-100 bg-zinc-800 hover:bg-zinc-700 rounded-md border border-zinc-700"
+          title="Leave Admin Console and return to your PinIT Hub dashboard"
         >
           <ChevronLeft size={16} />
-          User Dashboard
+          Back to User Dashboard
         </button>
         <div className="px-3 py-2 text-xs text-zinc-500 truncate">{user?.shortId}</div>
         <button

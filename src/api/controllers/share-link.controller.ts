@@ -160,6 +160,47 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
   } catch (err) { next(err); }
 }
 
+// ── Create / reuse Share File open link (tracked via PinIT page, not PARENT list) ─
+
+export async function createFileShare(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { vaultId, requestLocation } = req.body as {
+      vaultId?: string;
+      requestLocation?: boolean;
+    };
+    if (!vaultId) {
+      res.status(400).json({ success: false, error: 'vaultId is required' });
+      return;
+    }
+
+    const ownerUserId = getAuthUserId(req);
+    const link = await shareLinkService.createOrGetFileShare({
+      vaultId,
+      ownerUserId,
+      requestLocation,
+    });
+
+    const shareUrl = buildShareUrl(req, link.token);
+    logger.info('[ShareFile] Open URL ready', {
+      shareUrl,
+      token: link.token,
+      reused: 'reused' in link ? link.reused : false,
+    });
+
+    res.status(201).json({
+      success: true,
+      shareUrl,
+      token: link.token,
+      linkType: 'FILE',
+      reused: 'reused' in link ? link.reused : false,
+      filename: link.filename,
+      requestLocation: link.requestLocation,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ── List all links ────────────────────────────────────────────────────────────
 
 export async function listShareLinks(req: Request, res: Response, next: NextFunction): Promise<void> {

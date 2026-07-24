@@ -2,14 +2,15 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import {
   LayoutDashboard, Dna, Shield, Archive, FileSearch,
-  Award, ChevronRight, Zap, Clock,
-  ShieldCheck, Activity, Microscope, Radio,   Ban, LogOut, User, X,
-  Sun, Moon, CreditCard,   Building2, Settings, Users, Key,
+  Award, ChevronRight, Zap,
+  Activity, Radio, Ban, LogOut, User, X,
+  Sun, Moon, CreditCard, Building2, Settings, Users, Key, ShieldCheck,
 } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../hooks/useTheme';
 import { useSubscription, FeatureKey } from '../../hooks/useSubscription';
+import { useAccountViewMode } from '../../hooks/useAccountViewMode';
 import { API_BASE_URL } from '../../config/api.config';
 import { BRAND } from '../../config/brand.config';
 
@@ -109,22 +110,20 @@ const NAV_GROUPS: Array<{
     label: 'Explorer',
     items: [
       { to: '/vault',       icon: Archive,    label: 'Files' },
-      { to: '/dna-records', icon: FileSearch, label: 'DNA Records'    },
-      { to: '/timeline',    icon: Clock,      label: 'File Timeline', feature: FeatureKey.FEATURE_TRACKING },
+      { to: '/dna-records', icon: FileSearch, label: 'DNA Records' },
     ],
   },
   {
     label: 'Intelligence',
     items: [
-      { to: '/access-intelligence', icon: Activity, label: 'Tracking', feature: FeatureKey.FEATURE_TRACKING },
-      { to: '/forensic-diff',       icon: Microscope, label: 'Difference Engine', feature: FeatureKey.FEATURE_INVESTIGATION },
-      { to: '/monitoring',          icon: Radio,      label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },
+      // Tracking / Diff / Timeline live on Files → Quick Actions (per-file)
+      { to: '/monitoring', icon: Radio, label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },
     ],
   },
   {
     label: 'Forensics',
     items: [
-      { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Verify file', feature: FeatureKey.FEATURE_INVESTIGATION },
+      // Verify / Unified Investigation → Files → Quick Actions
       { to: '/reports',             icon: Shield,      label: 'Forensic Reports', feature: FeatureKey.FEATURE_INVESTIGATION },
       { to: '/unmask-requests',     icon: Shield,      label: 'Unmask Requests'     },
       { to: '/duplicate-attempts',  icon: Ban,         label: 'Duplicate Attempts'  },
@@ -162,8 +161,7 @@ const BUSINESS_NAV_ITEMS: Array<{
   { to: '/business', icon: Building2, label: 'Dashboard', end: true },
   { to: '/generate', icon: Dna, label: 'Protect file' },
   { to: '/vault', icon: Archive, label: 'Files' },
-  { to: '/access-intelligence', icon: Activity, label: 'Tracking', feature: FeatureKey.FEATURE_TRACKING },
-  { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Verify file', feature: FeatureKey.FEATURE_INVESTIGATION },
+  // Tracking / Verify → Files → Quick Actions
   { to: '/reports', icon: Shield, label: 'Forensics', feature: FeatureKey.FEATURE_INVESTIGATION },
   { to: '/monitoring', icon: Radio, label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },
   { to: '/certificates', icon: Award, label: 'Certificates' },
@@ -184,12 +182,11 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { theme, toggle: toggleTheme } = useTheme();
-  const { subscription, accountType } = useSubscription();
+  const { subscription } = useSubscription();
+  const { isBusinessShell } = useAccountViewMode();
 
   const navGroups = useMemo(() => {
-    const isBusiness = accountType === 'BUSINESS' || user?.accountType === 'BUSINESS';
-
-    if (isBusiness) {
+    if (isBusinessShell) {
       return [{ label: 'Organization', items: BUSINESS_NAV_ITEMS }];
     }
 
@@ -204,7 +201,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         ),
       };
     });
-  }, [accountType, user?.accountType]);
+  }, [isBusinessShell]);
 
   async function handleLogout() {
     await logout();

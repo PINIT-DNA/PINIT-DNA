@@ -3,16 +3,15 @@ import { useAuth } from '../../context/AuthContext';
 import { useSubscription } from '../../hooks/useSubscription';
 import { DashboardPage } from '../../pages/DashboardPage';
 import { BUSINESS_DASHBOARD_PATH } from '../../lib/subscription/post-upgrade-redirect';
+import { useAccountViewMode } from '../../context/AccountViewModeContext';
 
 /**
- * Home route — routes by account type ONLY.
- * Subscription plan (Free/Pro/Enterprise) never changes which dashboard shell opens.
+ * Home `/` — personal forensic dashboard unless Business shell is active.
  */
 export function HomeRedirect() {
   const { user } = useAuth();
-  const { accountType, loading } = useSubscription();
-
-  const resolved = user?.accountType ?? accountType ?? 'INDIVIDUAL';
+  const { loading } = useSubscription();
+  const { isBusinessShell } = useAccountViewMode();
 
   if (loading && !user?.accountType) {
     return (
@@ -22,7 +21,7 @@ export function HomeRedirect() {
     );
   }
 
-  if (resolved === 'BUSINESS') {
+  if (isBusinessShell) {
     return <Navigate to={BUSINESS_DASHBOARD_PATH} replace />;
   }
 

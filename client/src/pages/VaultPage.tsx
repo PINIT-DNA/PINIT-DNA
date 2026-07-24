@@ -19,6 +19,7 @@ import { Modal } from '../components/ui/Modal';
 import { cn } from '../components/ui/utils';
 import { FILE_TYPES, getVaultFileTypeLabel, getVaultFileTypeDisplay } from '../lib/file-type-utils';
 import { API_BASE_URL } from '../config/api.config';
+import { ShareQrBlock } from '../components/ShareQrBlock';
 import type { VaultRecord } from '../types/dashboard.types';
 
 // ─── Protected Download Modal ─────────────────────────────────────────────────
@@ -312,6 +313,51 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
     api.post(`${API_BASE_URL}/share/${created.token}/access`, { action: 'COPIED' }).catch(() => {});
     setTimeout(() => setCopied(false), 2000);
     toast.success('Link copied to clipboard!');
+  };
+
+  /** Open OS share sheet (WhatsApp, Email, etc.) — close app modal first so they don't overlap. */
+  const handleNativeShareLink = async () => {
+    if (!created) return;
+    const { shareUrl, token } = created;
+    const shareData: ShareData = {
+      title: record.originalFileName,
+      text: `Secure file via PinIT Hub\n${shareUrl}`,
+      url: shareUrl,
+    };
+
+    const canShare =
+      typeof navigator !== 'undefined'
+      && typeof navigator.share === 'function'
+      && (typeof navigator.canShare !== 'function' || navigator.canShare(shareData));
+
+    if (canShare) {
+      // Close PinIT modal first — only the OS share card should show
+      onClose();
+      try {
+        await navigator.share(shareData);
+        toast.success('Smart link shared');
+        return;
+      } catch (err) {
+        const name = (err as { name?: string })?.name ?? '';
+        const msg = err instanceof Error ? err.message : String(err);
+        if (name === 'AbortError' || /canceled|cancelled/i.test(msg)) return;
+        // Share sheet failed — copy so user can still paste
+      }
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        api.post(`${API_BASE_URL}/share/${token}/access`, { action: 'COPIED' }).catch(() => {});
+        toast.success('Link copied — paste it in WhatsApp, Email, or any app', { duration: 4500 });
+      } catch {
+        toast.error('Could not share or copy the link');
+      }
+      return;
+    }
+
+    await navigator.clipboard.writeText(shareUrl);
+    setCopied(true);
+    api.post(`${API_BASE_URL}/share/${token}/access`, { action: 'COPIED' }).catch(() => {});
+    setTimeout(() => setCopied(false), 2000);
+    toast.success('Link copied — paste it in WhatsApp, Email, or any app', { duration: 4500 });
   };
 
   return (
@@ -686,7 +732,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
               <Check size={18} className="text-success shrink-0" />
               <div>
                 <p className="text-sm font-semibold text-success">Smart Link Generated!</p>
-                <p className="text-2xs text-gray-400 mt-0.5">Access is tracked — every view is logged in File Timeline</p>
+                <p className="text-2xs text-gray-400 mt-0.5">Access is tracked — every view is logged in View in Timeline</p>
               </div>
             </div>
 
@@ -711,7 +757,20 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
               </div>
             </div>
 
-            {/* Share via */}
+            <ShareQrBlock url={created.shareUrl} />
+
+            {/* Native share — opens WhatsApp / Email / etc. like Share File */}
+            <button
+              type="button"
+              onClick={() => void handleNativeShareLink()}
+              className="btn btn-primary w-full"
+            >
+              <Share2 size={14} /> Share Link
+            </button>
+            <p className="text-2xs text-gray-500 text-center -mt-2">
+              Opens your device share menu — pick WhatsApp, Email, or any app
+            </p>
+
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <a href={`https://wa.me/?text=${encodeURIComponent('Secure file: ' + created.shareUrl)}`}
                 target="_blank" rel="noreferrer"
@@ -722,7 +781,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
                 className="btn btn-secondary btn-sm text-xs justify-center">
                 Email
               </a>
-              <button onClick={handleCopy} className="btn btn-secondary btn-sm text-xs">
+              <button type="button" onClick={() => void handleCopy()} className="btn btn-secondary btn-sm text-xs">
                 <Copy size={11} /> Copy Link
               </button>
             </div>
@@ -779,7 +838,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
             )}
 
             <p className="text-2xs text-gray-600 text-center">
-              All access events appear in File Timeline with IP, browser, and location
+              All access events appear in View in Timeline with IP, browser, and location
             </p>
           </div>
         )}

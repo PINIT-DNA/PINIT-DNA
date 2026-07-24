@@ -3,10 +3,11 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/dashboard.api';
 import { API_BASE_URL } from '../../config/api.config';
+import { isPlatformOwnerShortId } from '../../lib/platform-owner';
 
 /**
- * Only SUPER_ADMIN may access /admin/*.
- * Role is verified from the server (not stale JWT) so promotions work without re-login.
+ * Only the platform-owner PinIT ID may access /admin/*.
+ * Role SUPER_ADMIN alone is not enough — shortId must be allowlisted.
  */
 export function RequireSuperAdmin({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -21,19 +22,20 @@ export function RequireSuperAdmin({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Fast path: JWT already has SUPER_ADMIN
-    if (user.role === 'SUPER_ADMIN') {
+    const jwtShortId = (user as { shortId?: string }).shortId;
+    if (isPlatformOwnerShortId(jwtShortId) && user.role === 'SUPER_ADMIN') {
       setAllowed(true);
       setChecking(false);
       return;
     }
 
-    // Verify live role from database (handles role changes without re-login)
     void (async () => {
       try {
         const res = await api.get(`${API_BASE_URL}/profile`);
-        const role = (res.data as { profile?: { role?: string } }).profile?.role;
-        setAllowed(role === 'SUPER_ADMIN');
+        const profile = (res.data as { profile?: { role?: string; shortId?: string } }).profile;
+        setAllowed(
+          profile?.role === 'SUPER_ADMIN' && isPlatformOwnerShortId(profile?.shortId ?? jwtShortId),
+        );
       } catch {
         setAllowed(false);
       } finally {

@@ -28,10 +28,12 @@ import {
   getVaultFileTypeDisplay,
   resolveVaultFileMime,
 } from '../lib/file-type-utils';
+import { buildShareFileAttachment } from '../lib/share-file-open';
 import { API_BASE_URL } from '../config/api.config';
 import { BRAND } from '../config/brand.config';
-import { api, retrieveFromVault, getVaultTracking, protectedDownloadFromVault, type VaultTrackingDashboard } from '../services/dashboard.api';
+import { api, retrieveFromVault, getVaultTracking, protectedDownloadFromVault, createFileShare, type VaultTrackingDashboard } from '../services/dashboard.api';
 import { useAuth } from '../context/AuthContext';
+import { ShareQrBlock } from './ShareQrBlock';
 import type { VaultRecord } from '../types/dashboard.types';
 
 type PanelTab = 'overview' | 'details' | 'permissions' | 'activity';
@@ -114,12 +116,13 @@ export function VaultDetailSidePanel({
   const [retrieving, setRetrieving] = useState(false);
   const [protectDownloading, setProtectDownloading] = useState(false);
   const [sharingFile, setSharingFile] = useState(false);
-  /** File prepared for native share — must call navigator.share on a fresh click (user gesture). */
+  /** Prepared Share File attachment — share() must run on a fresh click (user gesture). */
   const [shareReady, setShareReady] = useState(false);
+  const [readyShareUrl, setReadyShareUrl] = useState<string | null>(null);
   const preparedShareRef = useRef<{
     recordId: string;
     file: File;
-    tepCode?: string;
+    shareUrl: string;
   } | null>(null);
   const [copiedTep, setCopiedTep] = useState<string | null>(null);
 
@@ -144,6 +147,7 @@ export function VaultDetailSidePanel({
     setTracking(null);
     preparedShareRef.current = null;
     setShareReady(false);
+    setReadyShareUrl(null);
     setSharingFile(false);
     void (async () => {
       try {
@@ -226,24 +230,28 @@ export function VaultDetailSidePanel({
     }
   };
 
-  const downloadBlobAsFile = (blob: Blob, fileName: string) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   /**
-   * Open OS share sheet. Must run from a user click with no await before navigator.share().
+   * Open OS share sheet. On desktop, share the PinIT open URL (so Windows QR
+   * encodes a real link). On mobile, prefer the file attachment when supported.
    */
-  const openNativeShareSheet = async (file: File, tepCode?: string) => {
-    const payload: ShareData = {
+  const openNativeShareSheet = async (file: File, shareUrl: string) => {
+    const saveFileLocally = () => {
+      const url = URL.createObjectURL(file);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.name;
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const urlPayload: ShareData = {
       title: file.name,
-      text: tepCode
-        ? `Shared via PinIT Hub · tracking ${tepCode}`
-        : 'Shared via PinIT Hub',
+      text: `Protected file via PinIT Hub\n${shareUrl}`,
+      url: shareUrl,
+    };
+    const filePayload: ShareData = {
+      ...urlPayload,
       files: [file],
     };
 
@@ -253,34 +261,91 @@ export function VaultDetailSidePanel({
       && typeof navigator.canShare === 'function'
       && navigator.canShare({ files: [file] });
 
-    if (canShareFiles) {
-      await navigator.share(payload);
-      toast.success(
-        tepCode
-          ? `Opened share sheet · tracking ${tepCode}`
-          : 'Opened share sheet — pick WhatsApp, Email, or another app',
-      );
-      return;
+    const canShareUrl =
+      typeof navigator !== 'undefined'
+      && typeof navigator.share === 'function'
+      && (typeof navigator.canShare !== 'function' || navigator.canShare(urlPayload));
+
+    // Desktop: URL first — Windows "Scan QR" then works with phone cameras
+    if (!isMobile && canShareUrl) {
+      try {
+        await navigator.share(urlPayload);
+        toast.success('Shared — recipient opens PinIT Hub (tracked)');
+        return;
+      } catch (err) {
+        const name = (err as { name?: string })?.name ?? '';
+        const msg = err instanceof Error ? err.message : String(err);
+        if (name === 'AbortError' || /canceled|cancelled/i.test(msg)) return;
+      }
     }
 
-    downloadBlobAsFile(file, file.name);
+    if (canShareFiles) {
+      try {
+        await navigator.share(filePayload);
+        toast.success('Share the file — when opened it goes to PinIT Hub (tracked)');
+        return;
+      } catch (err) {
+        const name = (err as { name?: string })?.name ?? '';
+        const msg = err instanceof Error ? err.message : String(err);
+        if (name === 'AbortError' || /canceled|cancelled/i.test(msg)) {
+          return;
+        }
+        if (
+          name === 'NotAllowedError'
+          || /permission denied|not allowed|secure context/i.test(msg)
+        ) {
+          if (canShareUrl) {
+            try {
+              await navigator.share(urlPayload);
+              toast.success('Shared link — opens PinIT Hub (tracked)');
+              return;
+            } catch (e2) {
+              const n2 = (e2 as { name?: string })?.name ?? '';
+              if (n2 === 'AbortError') return;
+            }
+          }
+          saveFileLocally();
+          toast.success(
+            'File saved — attach it in WhatsApp/Email. Opening it loads PinIT Hub.',
+            { duration: 5500 },
+          );
+          return;
+        }
+        throw err;
+      }
+    }
+
+    if (canShareUrl) {
+      try {
+        await navigator.share(urlPayload);
+        toast.success('Shared link — opens PinIT Hub (tracked)');
+        return;
+      } catch (err) {
+        const name = (err as { name?: string })?.name ?? '';
+        if (name === 'AbortError' || /canceled|cancelled/i.test(String(err))) return;
+      }
+    }
+
+    saveFileLocally();
     toast.success(
-      'File downloaded — attach it in WhatsApp, Email, or Instagram. (Native share works best on phone.)',
+      'File saved — send that file in WhatsApp/Email. Opening it loads PinIT Hub.',
       { duration: 5000 },
     );
   };
 
   /**
-   * Native share needs a user gesture. Download breaks that gesture, so:
-   * 1st click → prepare file · 2nd click → open share sheet immediately.
+   * Share File = file attachment (not a chat link).
+   * File opens → PinIT page → tracked under Share Files.
+   * 1st click prepare · 2nd click share (browser user-gesture rule).
    */
   const handleShareFile = async () => {
     const prepared = preparedShareRef.current;
     if (prepared && prepared.recordId === record.id) {
       try {
-        await openNativeShareSheet(prepared.file, prepared.tepCode);
+        await openNativeShareSheet(prepared.file, prepared.shareUrl);
         preparedShareRef.current = null;
         setShareReady(false);
+        setReadyShareUrl(null);
         await refreshTracking();
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -294,38 +359,26 @@ export function VaultDetailSidePanel({
 
     setSharingFile(true);
     try {
-      const { blob, tepCode } = await protectedDownloadFromVault(record.id);
-      const mime = resolveVaultFileMime(undefined, record.originalMimeType, record.originalFileName)
-        || blob.type
-        || 'application/octet-stream';
-      const file = new File([blob], record.originalFileName, { type: mime });
-
-      const canShareFiles =
-        typeof navigator !== 'undefined'
-        && typeof navigator.share === 'function'
-        && typeof navigator.canShare === 'function'
-        && navigator.canShare({ files: [file] });
-
-      if (!canShareFiles) {
-        downloadBlobAsFile(blob, record.originalFileName);
-        await refreshTracking();
-        toast.success(
-          'File downloaded — attach it in WhatsApp, Email, or Instagram. (Native share works best on phone.)',
-          { duration: 5000 },
-        );
-        return;
-      }
+      const created = await createFileShare(record.id, { requestLocation: true });
+      const { blob } = await protectedDownloadFromVault(record.id);
+      const file = await buildShareFileAttachment({
+        source: blob,
+        originalFileName: record.originalFileName,
+        originalMimeType: record.originalMimeType,
+        openUrl: created.shareUrl,
+      });
 
       preparedShareRef.current = {
         recordId: record.id,
         file,
-        tepCode: tepCode || undefined,
+        shareUrl: created.shareUrl,
       };
+      setReadyShareUrl(created.shareUrl);
       setShareReady(true);
-      toast.success('File ready — click Share now to open WhatsApp, Email, etc.', { duration: 4000 });
+      toast.success('File ready — scan QR or click Share now', { duration: 4000 });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      toast.error(msg || 'Could not prepare file for sharing');
+      toast.error(msg || 'Could not prepare file share');
     } finally {
       setSharingFile(false);
     }
@@ -688,7 +741,7 @@ export function VaultDetailSidePanel({
                 onClick={() => gatePremium('/timeline')}
                 className="w-full flex items-center justify-center gap-1 text-xs text-dna-400 hover:text-white py-2"
               >
-                Open File Timeline <ChevronRight size={12} />
+                View in Timeline <ChevronRight size={12} />
               </button>
             </div>
           )}
@@ -696,6 +749,9 @@ export function VaultDetailSidePanel({
 
         <div className="p-4 border-t border-bg-border space-y-3">
           <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">Quick Actions</h3>
+          {shareReady && readyShareUrl && (
+            <ShareQrBlock url={readyShareUrl} />
+          )}
           <div className="grid grid-cols-2 gap-2">
             <QuickAction
               icon={protectDownloading ? <RefreshCw size={18} className="animate-spin" /> : <Download size={18} />}
@@ -718,7 +774,7 @@ export function VaultDetailSidePanel({
               label="Difference Engine"
               onClick={() => gatePremium('/forensic-diff')}
             />
-            <QuickAction icon={<Activity size={18} />} label="Access Intelligence" onClick={handleAccessIntelligence} />
+            <QuickAction icon={<Activity size={18} />} label="Tracking" onClick={handleAccessIntelligence} />
             <QuickAction
               icon={<Shield size={18} />}
               label="Unified Investigation"

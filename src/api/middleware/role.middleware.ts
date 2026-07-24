@@ -6,6 +6,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../../lib/prisma';
 import { AppError } from './error.middleware';
+import { isPlatformOwnerShortId } from '../../lib/platform-owner';
 import type { UserRole } from '@prisma/client';
 
 export type AppRole = UserRole;
@@ -23,16 +24,27 @@ async function loadRole(userId: string): Promise<AppRole | null> {
   return user.role;
 }
 
-/** Only SUPER_ADMIN — for /api/v1/super-admin/* */
+async function loadRoleAndShortId(
+  userId: string,
+): Promise<{ role: AppRole; shortId: string } | null> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true, isActive: true, shortId: true },
+  });
+  if (!user?.isActive) return null;
+  return { role: user.role, shortId: user.shortId };
+}
+
+/** Platform owner only — SUPER_ADMIN + allowlisted PinIT shortId */
 export function requireSuperAdmin(req: Request, _res: Response, next: NextFunction): void {
   const userId = getUserId(req);
   if (!userId) {
     next(new AppError(401, 'Not authenticated'));
     return;
   }
-  loadRole(userId)
-    .then((role) => {
-      if (role !== 'SUPER_ADMIN') {
+  loadRoleAndShortId(userId)
+    .then((row) => {
+      if (!row || row.role !== 'SUPER_ADMIN' || !isPlatformOwnerShortId(row.shortId)) {
         next(new AppError(403, 'Super Admin access required'));
         return;
       }

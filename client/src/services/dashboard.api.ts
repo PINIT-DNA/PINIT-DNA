@@ -429,6 +429,52 @@ export async function getVaultTracking(vaultId: string) {
   return data.tracking;
 }
 
+export interface ProtectedFileShare {
+  kind: 'file_open' | 'protected_download';
+  id: string;
+  tepCode: string | null;
+  token: string | null;
+  vaultId: string;
+  dnaRecordId: string;
+  filename: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  status: string;
+  viewCount: number;
+  downloadCount: number;
+  geoCountry: string | null;
+  geoCity: string | null;
+  ipAddress: string | null;
+  deviceContext: string | null;
+  recipientEmail: string | null;
+  createdAt: string;
+  expiresAt: string | null;
+  rediscoveredAt: string | null;
+  lastViewedAt: string | null;
+}
+
+export async function listProtectedFileShares() {
+  const { data } = await api.get<{ success: boolean; count: number; shares: ProtectedFileShare[] }>(
+    `${API_BASE_URL}/vault/protected-shares`,
+  );
+  return data.shares ?? [];
+}
+
+export async function createFileShare(vaultId: string, opts?: { requestLocation?: boolean }) {
+  const { data } = await api.post<{
+    success: boolean;
+    shareUrl: string;
+    token: string;
+    linkType: string;
+    reused: boolean;
+    filename: string;
+  }>(`${API_BASE_URL}/share/file`, {
+    vaultId,
+    requestLocation: opts?.requestLocation ?? true,
+  });
+  return data;
+}
+
 export async function revokeVaultTep(vaultId: string, tepCode: string, reason?: string) {
   const { data } = await api.post<{ success: boolean; status: string; message: string }>(
     `${API_BASE_URL}/vault/${vaultId}/tep/${encodeURIComponent(tepCode)}/revoke`,

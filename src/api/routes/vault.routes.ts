@@ -20,6 +20,7 @@ import {
   protectedDownloadFromVault,
   backfillLocalDnaIndex,
   getVaultTracking,
+  listProtectedFileShares,
   revokeVaultTep,
   deleteVaultRecord,
 } from '../controllers/vault.controller';
@@ -49,6 +50,8 @@ const router = Router();
 router.get('/', requireAuth, listVaultRecords);
 /** GET /vault/integrity-check — Phase 4.6: check all vault files exist on disk */
 router.get('/integrity-check', requireAuth, vaultIntegrityCheck);
+/** GET /vault/protected-shares — Share File / protected-download tracking (not share links) */
+router.get('/protected-shares', requireAuth, listProtectedFileShares);
 router.post('/local-dna/backfill', requireAuth, backfillLocalDnaIndex);
 router.post('/store', requireAuth, uploadSingle, storeInVault);
 

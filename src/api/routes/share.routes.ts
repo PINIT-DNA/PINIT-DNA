@@ -8,6 +8,7 @@ import {
 import { requireFeature, FeatureKey } from '../../services/subscription';
 import {
   createShareLink,
+  createFileShare,
   listShareLinks,
   getShareLinkInfo,
   getShareLinkLogs,
@@ -42,6 +43,7 @@ export const shareRouter = Router();
 
 // ── Fixed-path routes FIRST (must precede the /:token wildcard below) ────────
 shareRouter.post('/',                          requireAuth, requireFeature(FeatureKey.FEATURE_SMART_SHARE), createShareLink);
+shareRouter.post('/file',                      requireAuth, requireFeature(FeatureKey.FEATURE_SMART_SHARE), createFileShare);
 shareRouter.get('/',                           requireAuth, listShareLinks);
 shareRouter.get('/vault/:vaultId',             requireAuth, requireVaultOwnership, getVaultShareLinks);
 shareRouter.get('/timeline/:dnaId',            requireAuth, requireDnaOwnership, getShareTimeline);

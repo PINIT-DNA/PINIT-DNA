@@ -526,7 +526,7 @@ export function LinkIntelligencePage() {
       {token && <p className="text-2xs text-gray-600 font-mono mb-4">Token: {token}</p>}
       <div className="flex items-center justify-center gap-3">
         <Link to="/access-intelligence" className="text-dna-400 text-sm hover:underline flex items-center gap-1">
-          <ArrowLeft size={14} /> Back to Access Intelligence
+          <ArrowLeft size={14} /> Back to Tracking
         </Link>
         <button onClick={load} className="text-sm text-gray-400 hover:text-white">Retry</button>
       </div>
@@ -545,7 +545,7 @@ export function LinkIntelligencePage() {
         <div className="flex-1">
           <h1 className="text-lg font-bold text-white flex items-center gap-2">
             <Shield size={18} className="text-dna-400" />
-            Access Intelligence
+            Tracking
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">
             {link.filename} · Token: {link.token.slice(0, 12)}... · Created {formatDistanceToNow(new Date(link.createdAt))} ago

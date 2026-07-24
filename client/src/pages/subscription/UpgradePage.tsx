@@ -30,7 +30,7 @@ export function UpgradePage() {
   const fromLogin = searchParams.get('from') === 'login';
   const fromFeature = searchParams.get('from') === 'feature';
   const fromQuota = searchParams.get('from') === 'quota';
-  const featureLabel = searchParams.get('label') ?? 'Investigation & Tracking';
+  const featureLabel = searchParams.get('label') ?? 'Investigation & Access Intelligence';
   const feature = searchParams.get('feature') ?? undefined;
   const returnTo = searchParams.get('return') || '/';
 

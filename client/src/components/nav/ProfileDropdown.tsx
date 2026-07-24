@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../hooks/useTheme';
 import { api } from '../../services/dashboard.api';
 import { API_BASE_URL } from '../../config/api.config';
+import { isPlatformOwnerShortId } from '../../lib/platform-owner';
 
 interface ProfileData {
   fullName: string;
@@ -90,7 +91,7 @@ export function ProfileDropdown() {
             <MenuItem icon={<Shield size={14} />} label="Security Settings" onClick={() => go('/profile?tab=security')} />
             <MenuItem icon={<Bell size={14} />} label="Notifications" onClick={() => go('/profile?tab=notifications')} />
             <MenuItem icon={<Clock size={14} />} label="Activity History" onClick={() => go('/profile?tab=activity')} />
-            {profile?.role === 'SUPER_ADMIN' && (
+            {isPlatformOwnerShortId(profile?.shortId ?? (user as { shortId?: string } | null)?.shortId) && (
               <MenuItem icon={<LayoutDashboard size={14} />} label="Admin Console" onClick={() => go('/admin')} />
             )}
             <MenuItem

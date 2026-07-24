@@ -98,7 +98,7 @@ export function CheckoutPage() {
                 <p className="font-medium text-emerald-400">Included</p>
               </div>
               <div className="rounded-lg bg-bg-elevated p-3">
-                <p className="text-2xs text-gray-500">Tracking & Monitoring</p>
+                <p className="text-2xs text-gray-500">Access Intelligence & Monitoring</p>
                 <p className="font-medium text-emerald-400">Included</p>
               </div>
             </div>

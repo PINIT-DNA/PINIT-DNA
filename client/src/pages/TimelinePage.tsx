@@ -1,5 +1,5 @@
 /**
- * PINIT-DNA · File Timeline & History (Phase 4.3)
+ * PINIT-DNA · View in Timeline & History (Phase 4.3)
  * Route: /timeline
  *
  * Reads DNA records + vault records + session comparison reports.
@@ -522,7 +522,7 @@ export function TimelinePage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold text-white">File Timeline & Audit Trail</h1>
+          <h1 className="text-xl font-bold text-white">View in Timeline</h1>
           <p className="text-sm text-gray-500 mt-0.5">Complete lifecycle history for every registered file</p>
         </div>
         <div className="flex items-center gap-2">

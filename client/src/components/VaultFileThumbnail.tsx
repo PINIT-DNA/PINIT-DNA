@@ -7,6 +7,7 @@ import {
   getVaultFileIcon,
   isAudioMime,
   isDocxMime,
+  isHtmlMime,
   isImageMime,
   isPdfMime,
   isTextMime,
@@ -41,7 +42,7 @@ async function loadVaultPreview(vaultId: string, declaredMime: string, fileName:
       const url = URL.createObjectURL(typedBlob);
 
       let textSnippet: string | undefined;
-      if (isTextMime(effectiveMime, fileName)) {
+      if (isTextMime(effectiveMime, fileName) && !isHtmlMime(effectiveMime, fileName)) {
         try {
           const raw = await typedBlob.text();
           textSnippet = raw.slice(0, 600).replace(/\s+/g, ' ').trim();
@@ -234,6 +235,29 @@ export function VaultFileThumbnail({
         />
         <div className="absolute top-0 left-0 right-0 bg-red-500/90 text-white text-2xs font-bold px-2 py-0.5 z-[1]">
           PDF
+        </div>
+        {lockBadge}
+      </div>
+    );
+  }
+
+  if (isHtmlMime(effectiveMime, fileName)) {
+    return (
+      <div ref={rootRef} className={`relative ${frameClass} overflow-hidden border border-bg-border bg-white`} title={fileName}>
+        <iframe
+          src={url}
+          title={fileName}
+          sandbox=""
+          referrerPolicy="no-referrer"
+          className="absolute inset-0 border-0 pointer-events-none bg-white origin-top-left"
+          style={
+            variant === 'gallery'
+              ? { width: '250%', height: '250%', transform: 'scale(0.4)' }
+              : { width: '400%', height: '400%', transform: 'scale(0.25)' }
+          }
+        />
+        <div className="absolute top-0 left-0 right-0 bg-teal-600/90 text-white text-2xs font-bold px-2 py-0.5 z-[1]">
+          HTML
         </div>
         {lockBadge}
       </div>

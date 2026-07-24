@@ -24,7 +24,7 @@ export function TrackingPage() {
 
   return (
     <div>
-      <PageHeader title="Tracking Center" description="Protected downloads, viewer logs, and tracking events" />
+      <PageHeader title="Access Intelligence" description="Protected downloads, viewer logs, and access events" />
 
       <div className="flex gap-1 border-b border-zinc-800 mb-6">
         {tabs.map((t) => (
