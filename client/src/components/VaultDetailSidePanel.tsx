@@ -31,7 +31,7 @@ import {
 import { buildShareFileAttachment } from '../lib/share-file-open';
 import { API_BASE_URL } from '../config/api.config';
 import { BRAND } from '../config/brand.config';
-import { api, retrieveFromVault, getVaultTracking, protectedDownloadFromVault, createFileShare, type VaultTrackingDashboard } from '../services/dashboard.api';
+import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, type VaultTrackingDashboard } from '../services/dashboard.api';
 import { useAuth } from '../context/AuthContext';
 import { ShareQrBlock } from './ShareQrBlock';
 import type { VaultRecord } from '../types/dashboard.types';
@@ -113,7 +113,6 @@ export function VaultDetailSidePanel({
   const [loadingLinks, setLoadingLinks] = useState(true);
   const [tracking, setTracking] = useState<VaultTrackingDashboard | null>(null);
   const [loadingTracking, setLoadingTracking] = useState(true);
-  const [retrieving, setRetrieving] = useState(false);
   const [protectDownloading, setProtectDownloading] = useState(false);
   const [sharingFile, setSharingFile] = useState(false);
   /** Prepared Share File attachment — share() must run on a fresh click (user gesture). */
@@ -208,25 +207,6 @@ export function VaultDetailSidePanel({
       toast.error(err instanceof Error ? err.message : 'Protected download failed');
     } finally {
       setProtectDownloading(false);
-    }
-  };
-
-  /** Plain vault retrieve — only for owner backup (no tracking embed) */
-  const handleDownloadOriginal = async () => {
-    setRetrieving(true);
-    try {
-      const blob = await retrieveFromVault(record.id);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = record.originalFileName;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success('Original retrieved (not tracked for sharing)');
-    } catch {
-      toast.error('Failed to retrieve file');
-    } finally {
-      setRetrieving(false);
     }
   };
 
@@ -411,16 +391,16 @@ export function VaultDetailSidePanel({
     <>
       <button
         type="button"
-        className="lg:hidden fixed inset-0 bg-black/50 z-40 animate-fade-in"
+        className="fixed inset-0 bg-black/40 z-[90] animate-fade-in"
         onClick={onClose}
         aria-label="Close file details"
       />
       <aside
         className={cn(
-          'flex flex-col bg-bg-card z-50',
-          'fixed inset-x-0 bottom-0 w-full max-h-[min(92dvh,900px)] rounded-t-2xl border-t border-bg-border shadow-2xl',
-          'lg:static lg:inset-auto lg:max-h-[calc(100vh-5rem)] lg:w-[400px] xl:w-[420px] lg:shrink-0',
-          'lg:border-l lg:border-t-0 lg:rounded-none lg:shadow-none lg:sticky lg:top-4',
+          'flex flex-col bg-bg-card z-[95] shadow-2xl border-bg-border',
+          'fixed inset-x-0 bottom-0 w-full max-h-[min(92dvh,900px)] rounded-t-2xl border-t',
+          'lg:inset-y-0 lg:top-14 lg:right-0 lg:left-auto lg:bottom-0 lg:w-[400px] xl:w-[420px]',
+          'lg:max-h-none lg:rounded-none lg:border-t-0 lg:border-l',
         )}
       >
         <div className="lg:hidden flex justify-center pt-2 pb-1 shrink-0" aria-hidden>
@@ -779,11 +759,6 @@ export function VaultDetailSidePanel({
               icon={<Shield size={18} />}
               label="Unified Investigation"
               onClick={() => gatePremium(BRAND.investigationPath)}
-            />
-            <QuickAction
-              icon={retrieving ? <RefreshCw size={18} className="animate-spin" /> : <ShieldCheck size={18} />}
-              label="Owner Backup"
-              onClick={handleDownloadOriginal}
             />
             <QuickAction
               icon={<Eye size={18} />}

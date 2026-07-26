@@ -815,6 +815,7 @@ export function OpsDashboardHeader({
   orgShortId,
   planName,
   userName,
+  displayName,
   refreshing,
   onRefresh,
 }: {
@@ -823,11 +824,15 @@ export function OpsDashboardHeader({
   orgShortId?: string;
   planName: string;
   userName: string;
+  /** Full profile name for the meta line (falls back to userName). */
+  displayName?: string;
   refreshing: boolean;
   onRefresh: () => void;
 }) {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const welcomeName = (userName || displayName || 'there').trim().split(/\s+/)[0] || 'there';
+  const profileLabel = (displayName || userName || '').trim();
 
   return (
     <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
@@ -837,10 +842,16 @@ export function OpsDashboardHeader({
           Organization Command Center
         </div>
         <h1 className="text-2xl sm:text-3xl font-bold text-white">
-          {greeting}, {userName.split(' ')[0]}
+          {greeting}, {welcomeName}
         </h1>
         <p className="text-sm text-gray-400 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="text-white font-medium">{orgName}</span>
+          {profileLabel && profileLabel.toLowerCase() !== 'there' && (
+            <>
+              <span className="text-white font-medium">{profileLabel}</span>
+              <span className="text-gray-600">·</span>
+            </>
+          )}
+          <span className="text-white/90 font-medium">{orgName}</span>
           <span className="text-gray-600">·</span>
           <span>{workspaceLabel}</span>
           {orgShortId && (

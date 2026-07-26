@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useSubscription } from '../../hooks/useSubscription';
 import { useOrganization } from '../../hooks/useOrganization';
 import { useBusinessDashboard, fmtAgo } from '../../hooks/useBusinessDashboard';
+import { useUserProfile } from '../../hooks/useUserProfile';
 import { getForensicReportCount } from '../../lib/forensic-reports-storage';
 import { UpgradeWelcomeModal } from '../../components/subscription/UpgradeWelcomeModal';
 import {
@@ -32,6 +33,7 @@ import type { PlanCode } from '../../hooks/useSubscription';
 
 export function BusinessDashboardPage() {
   const { user } = useAuth();
+  const { displayName, firstName } = useUserProfile();
   const { subscription, planCode, loading: subLoading } = useSubscription();
   const { organization, loading: orgLoading, skipWelcome, completeSetup } = useOrganization(true);
   const dashboard = useBusinessDashboard();
@@ -119,7 +121,8 @@ export function BusinessDashboardPage() {
         workspaceLabel={workspaceLabel}
         orgShortId={organization?.shortId}
         planName={subscription?.planName ?? 'Free'}
-        userName={user?.name ?? 'Admin'}
+        userName={firstName}
+        displayName={displayName}
         refreshing={dashboard.refreshing || dashboard.loading}
         onRefresh={dashboard.refetch}
       />

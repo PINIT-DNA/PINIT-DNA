@@ -44,7 +44,12 @@ export async function registerFaceIdentity(payload: {
 }): Promise<FaceAuthResponse> {
   const { status, data } = await postFace('/register', payload);
   if (status === 409 || data.success === false) {
-    throw new Error(data.message ?? 'This biometric identity already exists. Please sign in using your existing identity.');
+    const msg = data.shortId
+      ? (data.message?.includes(data.shortId)
+          ? data.message
+          : `This face is already registered to ${data.shortId}. One face = one PINIT ID — please login with your face instead.`)
+      : (data.message ?? 'This face is already registered. One face = one PINIT ID — please login instead.');
+    throw new Error(msg);
   }
   if (!data.accessToken) throw new Error('Registration failed. Please try again.');
   return data;

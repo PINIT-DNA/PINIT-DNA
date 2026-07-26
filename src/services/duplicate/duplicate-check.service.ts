@@ -666,19 +666,52 @@ export class DuplicateCheckService {
         pHashSimilarity:     params.pHashSimilarity,
         blocked:             true,
         scope:               'GLOBAL_VAULT_REGISTRY',
+        crossUser:           this._isCrossUserUpload(params.ownerUserId, uploaderUserId),
         ...params.extraDetail,
       },
     });
 
-    if (params.ownerUserId) {
-      import('../platform-events/module-events').then(({ emitDuplicateUploadBlocked }) => {
+    const crossUser = this._isCrossUserUpload(params.ownerUserId, uploaderUserId);
+
+    // Same-account re-upload: keep block + audit only (no owner spam).
+    // Cross-account: alert the file owner that another PINIT ID tried to upload their file.
+    if (crossUser && params.ownerUserId) {
+      import('../platform-events/module-events').then(({ emitDuplicateUploadBlocked, emitDuplicateUploadAdminAlert }) => {
         emitDuplicateUploadBlocked({
           ownerUserId: params.ownerUserId!,
           dnaRecordId: params.existingRecordId,
-          filename: params.existingFilename,
+          filename: params.existingFilename || params.originalName,
           matchType: params.matchType,
           uploaderLabel: uploaderShortId,
+          crossUser: true,
         });
+
+        // Admin Console / platform-owner inbox
+        void (async () => {
+          try {
+            const { getPlatformOwnerShortIds } = await import('../../lib/platform-owner');
+            const ownerIds = getPlatformOwnerShortIds();
+            if (!ownerIds.length) return;
+            const admins = await prisma.user.findMany({
+              where: { shortId: { in: ownerIds } },
+              select: { id: true, shortId: true },
+            });
+            for (const admin of admins) {
+              // Don't double-notify if the platform owner is also the file owner
+              if (admin.id === params.ownerUserId) continue;
+              emitDuplicateUploadAdminAlert({
+                adminUserId: admin.id,
+                ownerShortId: params.ownerShortId,
+                uploaderShortId,
+                filename: params.existingFilename || params.originalName,
+                dnaRecordId: params.existingRecordId,
+                matchType: params.matchType,
+              });
+            }
+          } catch {
+            /* non-fatal */
+          }
+        })();
       }).catch(() => {});
     }
   }

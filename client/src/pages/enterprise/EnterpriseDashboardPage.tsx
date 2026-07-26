@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useSubscription } from '../../hooks/useSubscription';
+import { useUserProfile } from '../../hooks/useUserProfile';
 import { formatBytes } from '../../hooks/useApi';
 import { BRAND } from '../../config/brand.config';
 import { UpgradeWelcomeModal } from '../../components/subscription/UpgradeWelcomeModal';
@@ -17,6 +18,7 @@ import type { PlanCode } from '../../hooks/useSubscription';
 
 export function EnterpriseDashboardPage() {
   const { user } = useAuth();
+  const { firstName, displayName } = useUserProfile();
   const { subscription, planCode, loading } = useSubscription();
   const [welcomePlan, setWelcomePlan] = useState<PlanCode | null>(null);
 
@@ -45,7 +47,9 @@ export function EnterpriseDashboardPage() {
     );
   }
 
-  const orgName = user?.name ? `${user.name.split(' ')[0]}'s Organization` : 'Your Organization';
+  const orgName = displayName !== 'there'
+    ? `${firstName}'s Organization`
+    : 'Your Organization';
 
   return (
     <div className="max-w-6xl mx-auto p-4 sm:p-6 space-y-6 pb-12">
@@ -55,7 +59,7 @@ export function EnterpriseDashboardPage() {
             <Sparkles size={14} />
             Enterprise
           </div>
-          <h1 className="text-2xl font-bold text-white">Good morning, {user?.name?.split(' ')[0] ?? 'there'}</h1>
+          <h1 className="text-2xl font-bold text-white">Good morning, {firstName}</h1>
           <p className="text-sm text-gray-400 mt-1">{orgName} · Unlimited storage · This week</p>
         </div>
         <div className="flex gap-2">

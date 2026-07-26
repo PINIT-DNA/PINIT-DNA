@@ -971,8 +971,7 @@ export function VaultPage() {
 
   return (
     <div className="page-shell animate-fade-in">
-      <div className={cn('flex flex-col lg:flex-row gap-5 min-h-0', selected && 'lg:items-start')}>
-        <div className="flex-1 min-w-0 space-y-5">
+      <div className="space-y-5 min-w-0">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -1239,7 +1238,7 @@ export function VaultPage() {
         </div>
         )}
       </div>
-        </div>
+      </div>
 
         {selected && (
           <VaultDetailSidePanel
@@ -1249,7 +1248,6 @@ export function VaultPage() {
             onDelete={() => handleDelete(selected)}
           />
         )}
-      </div>
 
       {sharing && (
         <ShareModal record={sharing} onClose={() => setSharing(null)} />

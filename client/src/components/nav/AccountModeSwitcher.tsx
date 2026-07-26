@@ -24,8 +24,8 @@ export function AccountModeSwitcher({ className }: { className?: string }) {
         className={cn(
           'flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-2xs sm:text-xs font-semibold transition-colors disabled:opacity-60',
           mode === 'INDIVIDUAL'
-            ? 'bg-dna-500/20 text-white border border-dna-500/40 shadow-sm'
-            : 'text-gray-500 hover:text-white border border-transparent',
+            ? 'bg-dna-500 text-white border border-dna-600 shadow-sm'
+            : 'text-slate-600 hover:text-slate-900 border border-transparent dark:text-gray-300 dark:hover:text-white',
         )}
       >
         <User size={13} />
@@ -38,8 +38,8 @@ export function AccountModeSwitcher({ className }: { className?: string }) {
         className={cn(
           'flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-2xs sm:text-xs font-semibold transition-colors disabled:opacity-60',
           mode === 'BUSINESS'
-            ? 'bg-dna-500/20 text-white border border-dna-500/40 shadow-sm'
-            : 'text-gray-500 hover:text-white border border-transparent',
+            ? 'bg-dna-500 text-white border border-dna-600 shadow-sm'
+            : 'text-slate-600 hover:text-slate-900 border border-transparent dark:text-gray-300 dark:hover:text-white',
         )}
       >
         <Building2 size={13} />

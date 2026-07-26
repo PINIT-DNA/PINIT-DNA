@@ -6,15 +6,16 @@ import {
   Building2, Mail, MapPin, Layers, User, CreditCard, BarChart3, Shield,
   Clock, Settings, Users, ScrollText, Key, Plug, Receipt, Upload, Image,
   Globe, ArrowUpRight, RefreshCw, Monitor, Trash2,
-  Sun, Moon, Bell,
+  Sun, Moon, Bell, ShieldCheck, Download,
 } from 'lucide-react';
-import { api } from '../../services/dashboard.api';
+import { api, listVaultRecords, retrieveFromVault } from '../../services/dashboard.api';
 import { API_BASE_URL } from '../../config/api.config';
 import { useOrganization, invalidateOrganizationCache } from '../../hooks/useOrganization';
 import { useSubscription } from '../../hooks/useSubscription';
 import { useOrganizationWorkspaces } from '../../hooks/useOrganizationWorkspaces';
 import { useTheme } from '../../hooks/useTheme';
 import { formatBytes } from '../../hooks/useApi';
+import type { VaultRecord } from '../../types/dashboard.types';
 import {
   ORGANIZATION_INDUSTRIES,
   ORGANIZATION_INDUSTRY_LABELS,
@@ -146,23 +147,23 @@ export function BusinessProfileHub({
   return (
     <div className="page-shell w-full max-w-6xl">
       {/* Enterprise header */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 mb-6 shadow-sm dark:border-purple-500/20 dark:bg-gradient-to-br dark:from-bg-card dark:via-bg-card dark:to-purple-950/30 dark:shadow-xl dark:shadow-black/20">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 mb-6 shadow-sm dark:border-white/10 dark:bg-[#181a1f] dark:shadow-xl dark:shadow-black/20">
         <div className="flex items-start gap-5 flex-wrap">
-          <div className="w-20 h-20 rounded-2xl border-2 border-violet-200 bg-violet-50 dark:border-purple-500/30 dark:bg-purple-500/10 flex items-center justify-center shrink-0 overflow-hidden">
+          <div className="w-20 h-20 rounded-2xl border-2 border-violet-200 bg-violet-50 dark:border-blue-500/30 dark:bg-blue-500/10 flex items-center justify-center shrink-0 overflow-hidden">
             {organization?.logoUrl ? (
               <img src={organization.logoUrl} alt="" className="w-full h-full object-cover" />
             ) : (
-              <Building2 size={32} className="text-violet-700 dark:text-purple-400" />
+              <Building2 size={32} className="text-violet-700 dark:text-blue-400" />
             )}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap mb-1">
-              <p className="text-xs text-violet-800 dark:text-purple-300 font-bold uppercase tracking-widest">Business Profile</p>
+              <p className="text-xs text-violet-800 dark:text-blue-300 font-bold uppercase tracking-widest">Business Profile</p>
               <SubscriptionBadge />
               {isEnterprise && <EnterpriseBadge tone="purple">Enterprise</EnterpriseBadge>}
             </div>
             <h1 className="text-2xl font-bold text-slate-900 dark:text-white">{identity.orgName}</h1>
-            <p className="text-sm text-violet-800 dark:text-purple-300 font-mono mt-0.5 font-semibold">{identity.orgShortId}</p>
+            <p className="text-sm text-violet-800 dark:text-blue-300 font-mono mt-0.5 font-semibold">{identity.orgShortId}</p>
             {identity.workspaceName && (
               <p className="text-sm text-slate-600 dark:text-gray-400 mt-1">
                 Default workspace · {identity.workspaceName}
@@ -184,7 +185,7 @@ export function BusinessProfileHub({
         </div>
 
         {stats && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mt-5 pt-5 border-t border-slate-200 dark:border-purple-500/10">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mt-5 pt-5 border-t border-slate-200 dark:border-white/10">
             <EnterpriseStat label="Vault assets" value={stats.filesProtected ?? 0} accent="dna" />
             <EnterpriseStat label="DNA generated" value={stats.dnaGenerated ?? 0} accent="purple" />
             <EnterpriseStat label="Certificates" value={stats.certificates ?? 0} accent="amber" />
@@ -209,8 +210,8 @@ export function BusinessProfileHub({
             onClick={() => setTab(t.id)}
             className={`flex items-center gap-1.5 px-3.5 py-2.5 text-sm font-semibold rounded-xl transition-all whitespace-nowrap border ${
               tab === t.id
-                ? 'bg-violet-700 text-white border-violet-800 shadow-md'
-                : 'text-slate-700 bg-white border-slate-300 hover:bg-slate-100 hover:border-slate-400 dark:text-gray-300 dark:bg-bg-elevated dark:border-bg-border dark:hover:text-white'
+                ? 'bg-blue-600 text-white border-blue-700 shadow-md'
+                : 'text-slate-800 bg-white border-slate-300 hover:bg-slate-100 hover:border-slate-400 dark:text-gray-100 dark:bg-[#1e2128] dark:border-white/15 dark:hover:text-white dark:hover:bg-[#252830]'
             }`}
             style={tab === t.id ? { color: '#ffffff' } : undefined}
           >
@@ -853,6 +854,17 @@ function BusinessSettingsTab({ profile }: { profile: ProfileData }) {
     notifyShareAccess: profile?.notifyShareAccess ?? true,
     notifyRiskAlerts: profile?.notifyRiskAlerts ?? true,
   });
+  const [vaultFiles, setVaultFiles] = useState<VaultRecord[]>([]);
+  const [vaultLoading, setVaultLoading] = useState(true);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setVaultLoading(true);
+    listVaultRecords()
+      .then(setVaultFiles)
+      .catch(() => setVaultFiles([]))
+      .finally(() => setVaultLoading(false));
+  }, []);
 
   async function toggle(key: keyof typeof prefs) {
     const updated = { ...prefs, [key]: !prefs[key] };
@@ -861,18 +873,37 @@ function BusinessSettingsTab({ profile }: { profile: ProfileData }) {
     toast.success('Preference saved');
   }
 
+  const downloadOwnerBackup = async (record: VaultRecord) => {
+    setDownloadingId(record.id);
+    try {
+      const blob = await retrieveFromVault(record.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = record.originalFileName;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Owner backup downloaded (not tracked)');
+    } catch {
+      toast.error('Failed to download owner backup');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <EnterpriseCard title="Appearance" icon={theme === 'dark' ? <Moon size={16} /> : <Sun size={16} />}>
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm text-white">Theme</p>
-            <p className="text-2xs text-gray-500">Switch between light and dark mode</p>
+            <p className="text-sm font-medium text-slate-900 dark:text-white">Theme</p>
+            <p className="text-2xs text-slate-600 dark:text-gray-400">Switch between light and dark mode</p>
           </div>
           <button
             type="button"
             onClick={toggleTheme}
-            className={`w-10 h-6 rounded-full transition-colors relative ${theme === 'dark' ? 'bg-purple-600' : 'bg-gray-400'}`}
+            className={`w-10 h-6 rounded-full transition-colors relative ${theme === 'dark' ? 'bg-blue-600' : 'bg-gray-400'}`}
+            aria-label="Toggle theme"
           >
             <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${theme === 'dark' ? 'left-[18px]' : 'left-0.5'}`} />
           </button>
@@ -884,20 +915,63 @@ function BusinessSettingsTab({ profile }: { profile: ProfileData }) {
           { key: 'notifyShareAccess' as const, label: 'Secure share activity', desc: 'Link views, downloads, and revokes' },
           { key: 'notifyRiskAlerts' as const, label: 'Risk & security alerts', desc: 'Policy blocks and tampering attempts' },
         ].map((item) => (
-          <div key={item.key} className="flex items-center justify-between py-3 border-b border-bg-border last:border-0">
+          <div key={item.key} className="flex items-center justify-between py-3 border-b border-slate-200 dark:border-white/10 last:border-0">
             <div>
-              <p className="text-sm text-white">{item.label}</p>
-              <p className="text-2xs text-gray-500">{item.desc}</p>
+              <p className="text-sm font-medium text-slate-900 dark:text-white">{item.label}</p>
+              <p className="text-2xs text-slate-600 dark:text-gray-400">{item.desc}</p>
             </div>
             <button
               type="button"
               onClick={() => void toggle(item.key)}
-              className={`w-9 h-5 rounded-full transition-colors relative ${prefs[item.key] ? 'bg-purple-600' : 'bg-gray-600'}`}
+              className={`w-9 h-5 rounded-full transition-colors relative ${prefs[item.key] ? 'bg-blue-600' : 'bg-gray-600'}`}
+              aria-label={item.label}
             >
               <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${prefs[item.key] ? 'left-[18px]' : 'left-0.5'}`} />
             </button>
           </div>
         ))}
+      </EnterpriseCard>
+
+      <EnterpriseCard title="Owner Backup" icon={<ShieldCheck size={16} />}>
+        <p className="text-2xs text-slate-600 dark:text-gray-400 mb-3">
+          Download the original (untracked) copy of a vault file. Personal backup only — not for sharing.
+        </p>
+        {vaultLoading ? (
+          <div className="flex justify-center py-6">
+            <RefreshCw size={16} className="animate-spin text-slate-500 dark:text-gray-400" />
+          </div>
+        ) : vaultFiles.length === 0 ? (
+          <p className="text-xs text-slate-500 dark:text-gray-400 text-center py-4">No vault files yet.</p>
+        ) : (
+          <ul className="space-y-2 max-h-[320px] overflow-y-auto">
+            {vaultFiles.map((file) => (
+              <li
+                key={file.id}
+                className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-white/10 dark:bg-[#1e2128]"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-slate-900 dark:text-white truncate">{file.originalFileName}</p>
+                  <p className="text-2xs text-slate-500 dark:text-gray-400 mono">
+                    {formatBytes(file.originalSizeBytes)} · {format(new Date(file.createdAt), 'MMM d, yyyy')}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void downloadOwnerBackup(file)}
+                  disabled={downloadingId === file.id}
+                  className="btn-secondary btn-sm shrink-0 gap-1.5"
+                >
+                  {downloadingId === file.id ? (
+                    <RefreshCw size={13} className="animate-spin" />
+                  ) : (
+                    <Download size={13} />
+                  )}
+                  Backup
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </EnterpriseCard>
     </div>
   );

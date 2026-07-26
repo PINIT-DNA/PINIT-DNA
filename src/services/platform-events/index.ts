@@ -7,6 +7,7 @@ export {
   emitCertificateIssued,
   emitMonitoringMatch,
   emitDuplicateUploadBlocked,
+  emitDuplicateUploadAdminAlert,
   emitInvestigationCompleted,
   emitShareLinkCreated,
   emitSharePolicyBlocked,

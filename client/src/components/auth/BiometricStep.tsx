@@ -72,5 +72,5 @@ export function isNotRegisteredError(msg: string): boolean {
 }
 
 export function isDuplicateIdentityError(msg: string): boolean {
-  return /already exists|already registered|duplicate|sign in using|login instead/i.test(msg);
+  return /already exists|already registered|duplicate|sign in using|login instead|one face|one pinit/i.test(msg);
 }

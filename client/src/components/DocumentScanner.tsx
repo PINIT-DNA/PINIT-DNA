@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Upload, ScanLine, X, Plus, FileText, Trash2, Zap, RefreshCw } from 'lucide-react';
+import { Camera, ScanLine, X, Plus, FileText, Trash2, Zap, RefreshCw } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { useAutoDocumentCapture } from '../hooks/useAutoDocumentCapture';
 import {
@@ -16,6 +16,7 @@ import {
 } from '../lib/document-capture-pipeline';
 import { runTimedStage } from '../lib/scanner-async-utils';
 import { extractVideoFrameBlob, isImageFile, isVideoFile } from '../lib/scanner-media-utils';
+import { preferContinuousFocus, releaseMediaStream, openCameraStream, cameraErrorMessage } from '../lib/camera-stream';
 
 function useIsMobileViewport() {
   const [mobile, setMobile] = useState(() =>
@@ -66,7 +67,8 @@ export function DocumentScanner({
   const [buildingPdf, setBuildingPdf] = useState(false);
   const [flashCapture, setFlashCapture] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const mountedRef = useRef(true);
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [normalizing, setNormalizing] = useState(false);
   const [normalizeStep, setNormalizeStep] = useState<string | null>(null);
@@ -91,10 +93,8 @@ export function DocumentScanner({
   }, []);
 
   const stopCamera = useCallback(() => {
-    if (videoRef.current?.srcObject) {
-      (videoRef.current.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
-      videoRef.current.srcObject = null;
-    }
+    releaseMediaStream(streamRef.current, videoRef.current);
+    streamRef.current = null;
     setCameraActive(false);
     setCameraReady(false);
   }, []);
@@ -102,44 +102,59 @@ export function DocumentScanner({
   const startCamera = useCallback(async () => {
     setCameraActive(true);
     setCameraReady(false);
+    setCaptureError(null);
+    // Release any prior stream before opening a new one
+    releaseMediaStream(streamRef.current, videoRef.current);
+    streamRef.current = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 3840, min: 1920 },
-          height: { ideal: 2160, min: 1080 },
-        },
-        audio: false,
-      });
-      // Best-effort continuous autofocus when supported (Android Chrome)
-      const track = stream.getVideoTracks()[0];
-      if (track) {
-        try {
-          await track.applyConstraints({
-            advanced: [{ focusMode: 'continuous' }] as unknown as MediaTrackConstraintSet[],
-          });
-        } catch { /* unsupported */ }
+      const stream = await openCameraStream();
+      // User left scanner while permission prompt / getUserMedia was pending
+      if (!mountedRef.current) {
+        releaseMediaStream(stream);
+        return;
       }
+      streamRef.current = stream;
+      const track = stream.getVideoTracks()[0];
+      await preferContinuousFocus(track);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.setAttribute('playsinline', 'true');
         videoRef.current.setAttribute('webkit-playsinline', 'true');
         await videoRef.current.play();
+        if (!mountedRef.current) {
+          stopCamera();
+          return;
+        }
         setCameraReady(true);
+      } else {
+        releaseMediaStream(stream);
+        streamRef.current = null;
+        setCameraActive(false);
       }
-    } catch {
+    } catch (err) {
+      if (!mountedRef.current) return;
       setCameraActive(false);
       setCameraReady(false);
-      cameraInputRef.current?.click();
+      setCaptureError(
+        cameraErrorMessage(err, 'Use Upload above to protect a file from your device.'),
+      );
     }
-  }, []);
+  }, [stopCamera]);
 
   useEffect(() => {
+    mountedRef.current = true;
     if (autoStart && !autoStartedRef.current) {
       autoStartedRef.current = true;
-      startCamera();
+      void startCamera();
     }
-  }, [autoStart, startCamera]);
+    // pagehide covers mobile app background / navigation away
+    window.addEventListener('pagehide', stopCamera);
+    return () => {
+      mountedRef.current = false;
+      window.removeEventListener('pagehide', stopCamera);
+      stopCamera();
+    };
+  }, [autoStart, startCamera, stopCamera]);
 
   const grabFrameDataUrl = useCallback((): string | null => {
     if (!videoRef.current) return null;
@@ -422,15 +437,6 @@ export function DocumentScanner({
 
   return (
     <div className="space-y-3">
-      <input
-        ref={cameraInputRef}
-        type="file"
-        accept="image/*,application/pdf,video/*"
-        capture="environment"
-        className="hidden"
-        onChange={(e) => { if (e.target.files?.[0]) handleGallery(e.target.files[0]); }}
-      />
-
       {cameraActive ? (
         <div className="space-y-3">
           <div className="relative w-full mx-auto max-w-lg aspect-[4/3] max-h-[min(42vh,280px)] sm:max-h-[340px] rounded-2xl overflow-hidden border-2 border-dna-500/30 bg-black">
@@ -603,13 +609,13 @@ export function DocumentScanner({
             ) : null}
           </div>
           <div className="flex gap-2 max-w-xs mx-auto">
-            <button type="button" onClick={startCamera} className="btn btn-primary flex-1">
+            <button type="button" onClick={() => { setCaptureError(null); void startCamera(); }} className="btn btn-primary flex-1">
               <Camera size={14} /> Open Camera
             </button>
-            <button type="button" onClick={() => cameraInputRef.current?.click()} className="btn btn-secondary flex-1">
-              <Upload size={14} /> Gallery
-            </button>
           </div>
+          {captureError && (
+            <p className="text-2xs text-orange-300 max-w-sm mx-auto px-2">{captureError}</p>
+          )}
           <div className="flex flex-wrap justify-center gap-2 pt-2">
             {unifiedInvestigation ? (
               <>

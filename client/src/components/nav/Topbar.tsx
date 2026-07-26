@@ -33,7 +33,7 @@ export function Topbar({ onMenu }: TopbarProps) {
 
   return (
     <header
-      className="h-14 flex items-center justify-between px-3 sm:px-6 border-b border-bg-border bg-white/80 dark:bg-bg-card/95 backdrop-blur-xl sticky top-0 z-30 shrink-0"
+      className="h-14 flex items-center justify-between px-3 sm:px-6 border-b border-bg-border bg-white/80 dark:bg-bg-card/95 backdrop-blur-xl sticky top-0 z-[100] shrink-0"
       style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
     >
       <div className="flex items-center gap-2 min-w-0 flex-1">

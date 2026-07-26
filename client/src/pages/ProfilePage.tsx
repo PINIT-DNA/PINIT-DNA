@@ -3,14 +3,17 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   User, Shield, Bell, Clock, Activity, Save, RefreshCw,
   Dna, Archive, Share2, Award, Eye, Radio, Trash2,
-  Sun, Moon, Monitor,
+  Sun, Moon, Monitor, ShieldCheck, Download,
 } from 'lucide-react';
-import { api } from '../services/dashboard.api';
+import { api, listVaultRecords, retrieveFromVault } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
 import { useTheme } from '../hooks/useTheme';
 import { useAccountViewMode } from '../hooks/useAccountViewMode';
 import { BusinessProfileHub } from './business/BusinessProfileHub';
 import { formatDistanceToNow, format } from 'date-fns';
+import toast from 'react-hot-toast';
+import { formatBytes } from '../hooks/useApi';
+import type { VaultRecord } from '../types/dashboard.types';
 import {
   type NotificationItem,
   notificationTypeConfig,
@@ -579,38 +582,115 @@ function ActivityTab() {
 
 function SettingsTab() {
   const { theme, toggle: toggleTheme } = useTheme();
+  const [vaultFiles, setVaultFiles] = useState<VaultRecord[]>([]);
+  const [vaultLoading, setVaultLoading] = useState(true);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setVaultLoading(true);
+    listVaultRecords()
+      .then(setVaultFiles)
+      .catch(() => setVaultFiles([]))
+      .finally(() => setVaultLoading(false));
+  }, []);
+
+  const downloadOwnerBackup = async (record: VaultRecord) => {
+    setDownloadingId(record.id);
+    try {
+      const blob = await retrieveFromVault(record.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = record.originalFileName;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Owner backup downloaded (not tracked)');
+    } catch {
+      toast.error('Failed to download owner backup');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   return (
-    <div className="card">
-      <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-4"><Activity size={14} className="text-dna-400" /> App Settings</h2>
+    <div className="space-y-4">
+      <div className="card">
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2 mb-4"><Activity size={14} className="text-dna-400" /> App Settings</h2>
 
-      <div className="space-y-3">
-        {/* Theme toggle */}
-        <div className="flex items-center justify-between bg-bg-elevated rounded-lg px-4 py-3 border border-bg-border">
-          <div className="flex items-center gap-3">
-            {theme === 'dark' ? <Moon size={14} className="text-dna-400" /> : <Sun size={14} className="text-dna-400" />}
-            <div>
-              <p className="text-xs font-medium text-white">Theme</p>
-              <p className="text-2xs text-gray-500">Switch between light and dark mode</p>
+        <div className="space-y-3">
+          {/* Theme toggle */}
+          <div className="flex items-center justify-between bg-slate-50 dark:bg-bg-elevated rounded-lg px-4 py-3 border border-slate-200 dark:border-bg-border">
+            <div className="flex items-center gap-3">
+              {theme === 'dark' ? <Moon size={14} className="text-dna-400" /> : <Sun size={14} className="text-dna-400" />}
+              <div>
+                <p className="text-xs font-medium text-slate-900 dark:text-white">Theme</p>
+                <p className="text-2xs text-slate-600 dark:text-gray-400">Switch between light and dark mode</p>
+              </div>
+            </div>
+            <button
+              onClick={toggleTheme}
+              className={`w-9 h-5 rounded-full transition-colors relative ${theme === 'dark' ? 'bg-dna-500' : 'bg-gray-400'}`}
+            >
+              <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${theme === 'dark' ? 'left-[18px]' : 'left-0.5'}`} />
+            </button>
+          </div>
+
+          {/* Account Info */}
+          <div className="bg-bg-elevated rounded-lg px-4 py-3 border border-bg-border">
+            <p className="text-xs font-medium text-white mb-2">Account</p>
+            <div className="space-y-1 text-2xs text-gray-500">
+              <p>Account Type: <span className="text-gray-400">Free</span></p>
+              <p>API Keys: <span className="text-gray-400">Coming Soon</span></p>
+              <p>Billing: <span className="text-gray-400">Coming Soon</span></p>
             </div>
           </div>
-          <button
-            onClick={toggleTheme}
-            className={`w-9 h-5 rounded-full transition-colors relative ${theme === 'dark' ? 'bg-dna-500' : 'bg-gray-400'}`}
-          >
-            <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${theme === 'dark' ? 'left-[18px]' : 'left-0.5'}`} />
-          </button>
         </div>
+      </div>
 
-        {/* Account Info */}
-        <div className="bg-bg-elevated rounded-lg px-4 py-3 border border-bg-border">
-          <p className="text-xs font-medium text-white mb-2">Account</p>
-          <div className="space-y-1 text-2xs text-gray-500">
-            <p>Account Type: <span className="text-gray-400">Free</span></p>
-            <p>API Keys: <span className="text-gray-400">Coming Soon</span></p>
-            <p>Billing: <span className="text-gray-400">Coming Soon</span></p>
+      <div className="card">
+        <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-1">
+          <ShieldCheck size={14} className="text-dna-400" /> Owner Backup
+        </h2>
+        <p className="text-2xs text-gray-500 mb-4">
+          Download the original (untracked) copy of a vault file. Use this for personal backup — not for sharing.
+        </p>
+
+        {vaultLoading ? (
+          <div className="flex justify-center py-8">
+            <RefreshCw size={18} className="animate-spin text-gray-500" />
           </div>
-        </div>
+        ) : vaultFiles.length === 0 ? (
+          <p className="text-xs text-gray-500 text-center py-6">No vault files yet.</p>
+        ) : (
+          <ul className="space-y-2 max-h-[360px] overflow-y-auto">
+            {vaultFiles.map((file) => (
+              <li
+                key={file.id}
+                className="flex items-center gap-3 rounded-lg border border-bg-border bg-bg-elevated px-3 py-2.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-white truncate">{file.originalFileName}</p>
+                  <p className="text-2xs text-gray-500 mono">
+                    {formatBytes(file.originalSizeBytes)} · {format(new Date(file.createdAt), 'MMM d, yyyy')}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void downloadOwnerBackup(file)}
+                  disabled={downloadingId === file.id}
+                  className="btn-secondary btn-sm shrink-0 gap-1.5"
+                >
+                  {downloadingId === file.id ? (
+                    <RefreshCw size={13} className="animate-spin" />
+                  ) : (
+                    <Download size={13} />
+                  )}
+                  Backup
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, ImageIcon, RefreshCw, X } from 'lucide-react';
+import { Camera, RefreshCw, X } from 'lucide-react';
 import { useAutoDocumentCapture, type AutoScanPhase } from '../hooks/useAutoDocumentCapture';
 import {
   captureInvestigationInput,
-  normalizeScannerBlob,
   ScannerQualityGateError,
   ScannerStageTimeoutError,
 } from '../lib/document-capture-pipeline';
 import { runTimedStage } from '../lib/scanner-async-utils';
-import { extractVideoFrameBlob, isImageFile, isVideoFile } from '../lib/scanner-media-utils';
+import { preferContinuousFocus, releaseMediaStream, openCameraStream, cameraErrorMessage } from '../lib/camera-stream';
 
 function friendlyHint(phase: AutoScanPhase): string {
   switch (phase) {
@@ -42,7 +41,8 @@ export function InvestigationScanner({
   onCaptureError,
 }: InvestigationScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const galleryRef = useRef<HTMLInputElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const mountedRef = useRef(true);
   const autoStartedRef = useRef(false);
   const capturingRef = useRef(false);
   const [cameraReady, setCameraReady] = useState(false);
@@ -52,10 +52,9 @@ export function InvestigationScanner({
   const [captureError, setCaptureError] = useState<string | null>(null);
 
   const stopCamera = useCallback(() => {
-    if (videoRef.current?.srcObject) {
-      (videoRef.current.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
-      videoRef.current.srcObject = null;
-    }
+    releaseMediaStream(streamRef.current, videoRef.current);
+    streamRef.current = null;
+    setCameraReady(false);
   }, []);
 
   const resetCaptureState = useCallback(() => {
@@ -73,42 +72,52 @@ export function InvestigationScanner({
   const startCamera = useCallback(async () => {
     setCameraReady(false);
     setCaptureError(null);
+    releaseMediaStream(streamRef.current, videoRef.current);
+    streamRef.current = null;
     try {
       await runTimedStage('getUserMedia', async () => {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 1920, min: 1280 },
-            height: { ideal: 1080, min: 720 },
-          },
-          audio: false,
-        });
-        const track = stream.getVideoTracks()[0];
-        if (track) {
-          try {
-            await track.applyConstraints({
-              advanced: [{ focusMode: 'continuous' }] as unknown as MediaTrackConstraintSet[],
-            });
-          } catch { /* unsupported */ }
+        const stream = await openCameraStream();
+        if (!mountedRef.current) {
+          releaseMediaStream(stream);
+          return;
         }
+        streamRef.current = stream;
+        await preferContinuousFocus(stream.getVideoTracks()[0]);
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           videoRef.current.setAttribute('playsinline', 'true');
           await videoRef.current.play();
+          if (!mountedRef.current) {
+            stopCamera();
+            return;
+          }
           setCameraReady(true);
+        } else {
+          releaseMediaStream(stream);
+          streamRef.current = null;
         }
       }, 15_000);
-    } catch {
-      galleryRef.current?.click();
+    } catch (err) {
+      if (mountedRef.current) {
+        setCaptureError(
+          cameraErrorMessage(err, 'Use Upload to investigate a file from your device.'),
+        );
+      }
     }
-  }, []);
+  }, [stopCamera]);
 
   useEffect(() => {
+    mountedRef.current = true;
     if (!autoStartedRef.current) {
       autoStartedRef.current = true;
       void startCamera();
     }
-    return () => stopCamera();
+    window.addEventListener('pagehide', stopCamera);
+    return () => {
+      mountedRef.current = false;
+      window.removeEventListener('pagehide', stopCamera);
+      stopCamera();
+    };
   }, [startCamera, stopCamera]);
 
   const deliverFile = useCallback(
@@ -179,57 +188,6 @@ export function InvestigationScanner({
     profile: 'forensic',
   });
 
-  const handleGallery = async (f: File) => {
-    if (capturingRef.current) return;
-    capturingRef.current = true;
-    setProcessing(true);
-    setCaptureError(null);
-    setProgressLabel('Loading file…');
-    stopCamera();
-
-    try {
-      if (isVideoFile(f)) {
-        setProgressLabel('Extracting video frame…');
-        const frame = await extractVideoFrameBlob(f);
-        if (!frame) {
-          failCapture('Could not read that video — try another file');
-          return;
-        }
-        const normalized = await normalizeScannerBlob(frame, {
-          jpegQuality: 0.97,
-          relaxedQualityGate: true,
-          investigationFast: true,
-          onProgress: (_step, label) => setProgressLabel(label),
-        });
-        if (normalized) {
-          deliverFile(normalized.blob);
-          resetCaptureState();
-          return;
-        }
-      }
-
-      // Gallery / file pick — identical to Upload: pass the original File bytes through.
-      // No extra normalization (that would diverge from the upload investigation path).
-      if (isImageFile(f)) {
-        setProgressLabel('Starting investigation…');
-        deliverFile(f, f.name);
-        resetCaptureState();
-        return;
-      }
-
-      deliverFile(f, f.name);
-      resetCaptureState();
-    } catch (err) {
-      const msg = err instanceof ScannerQualityGateError
-        ? (err.message || 'Image quality too low — try again')
-        : err instanceof ScannerStageTimeoutError
-          ? 'Processing took too long — try a smaller image'
-          : 'Could not process that file';
-      console.error('[Scanner] handleGallery failed', err);
-      failCapture(msg);
-    }
-  };
-
   const hint = processing && progressLabel
     ? progressLabel
     : friendlyHint(phase);
@@ -237,18 +195,6 @@ export function InvestigationScanner({
 
   return (
     <div className="space-y-4">
-      <input
-        ref={galleryRef}
-        type="file"
-        accept="image/*,application/pdf,video/*"
-        className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) void handleGallery(f);
-          e.target.value = '';
-        }}
-      />
-
       {captureError && (
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 flex items-start gap-2">
           <p className="text-xs text-red-300 flex-1">{captureError}</p>
@@ -309,7 +255,10 @@ export function InvestigationScanner({
 
         <button
           type="button"
-          onClick={onCancel}
+          onClick={() => {
+            stopCamera();
+            onCancel();
+          }}
           className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/50 backdrop-blur flex items-center justify-center text-white/80 hover:text-white"
           aria-label="Close camera"
         >
@@ -320,17 +269,9 @@ export function InvestigationScanner({
       <div className="flex gap-3">
         <button
           type="button"
-          onClick={() => galleryRef.current?.click()}
-          disabled={processing}
-          className="flex-1 py-3 rounded-xl border border-bg-border bg-bg-elevated text-sm font-semibold text-gray-300 hover:text-white flex items-center justify-center gap-2 disabled:opacity-50"
-        >
-          <ImageIcon size={16} /> Gallery
-        </button>
-        <button
-          type="button"
           onClick={() => void processCapture()}
           disabled={!cameraReady || processing}
-          className="flex-[2] btn btn-primary py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
+          className="flex-1 btn btn-primary py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
         >
           <Camera size={16} /> Capture
         </button>

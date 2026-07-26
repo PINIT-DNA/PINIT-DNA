@@ -557,6 +557,9 @@ export async function getDuplicateAttempts(
           existingDnaRecordId: detail['existingDnaRecordId'] ?? null,
           existingFilename:    detail['existingFilename']    ?? null,
           pHashSimilarity:     detail['pHashSimilarity']     ?? null,
+          ownerShortId:        detail['ownerShortId']        ?? null,
+          uploaderShortId:     detail['uploaderShortId']     ?? null,
+          crossUser:           detail['crossUser'] === true,
         };
       }),
     });

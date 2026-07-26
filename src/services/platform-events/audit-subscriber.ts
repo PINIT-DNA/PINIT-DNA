@@ -25,6 +25,7 @@ const NAME_TO_AUDIT: Record<string, AuditMapping> = {
   'vault.stored':         { eventType: 'VAULT_STORED' },
   'certificate.issued':   { eventType: 'CERTIFICATE_ISSUED' },
   'duplicate.upload.blocked': { eventType: 'DUPLICATE_UPLOAD_ATTEMPT' },
+  'duplicate.upload.admin_alert': { eventType: 'DUPLICATE_UPLOAD_ATTEMPT' },
   'investigation.completed':  { eventType: 'DNA_COMPARED' },
 };
 

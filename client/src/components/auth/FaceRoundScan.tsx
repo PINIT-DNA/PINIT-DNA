@@ -78,7 +78,7 @@ export function FaceRoundScan({
   return (
     <div className="pa-card">
       <StepHead
-        icon={<ScanFace size={26} color="#6366f1" />}
+        icon={<ScanFace size={26} color="#2f7cf6" />}
         title={title}
         subtitle={
           scanning ? hint

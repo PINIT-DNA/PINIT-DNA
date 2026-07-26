@@ -123,7 +123,14 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="dropdown-panel w-full sm:w-96">
+        <>
+          <button
+            type="button"
+            className="dropdown-backdrop"
+            aria-label="Close notifications"
+            onClick={() => setOpen(false)}
+          />
+          <div className="dropdown-panel w-full sm:w-96">
           <div className="flex items-center justify-between px-4 py-3 border-b border-bg-border">
             <div className="flex items-center gap-2">
               <Bell size={14} className="text-dna-400" />
@@ -215,7 +222,8 @@ export function NotificationBell() {
               </button>
             </div>
           )}
-        </div>
+          </div>
+        </>
       )}
     </div>
   );

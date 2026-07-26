@@ -195,13 +195,31 @@ async function findDuplicateModality(
   face: number[],
   voice?: number[],
   fingerprint?: number[],
-): Promise<{ modality: string; shortId: string } | null> {
+): Promise<{ modality: string; shortId: string; distance?: number } | null> {
   const faceNorm = normalizeEmbedding(face);
+  // One face → one PINIT ID: reject if this face would match an existing login
+  const faceDupThreshold = Math.max(THRESHOLDS.faceDuplicate, THRESHOLDS.faceLogin);
   const faces = await loadAllFaceTemplates();
+  let bestFace: { shortId: string; distance: number } | null = null;
   for (const f of faces) {
-    if (euclideanDistance(faceNorm, f.embedding) < THRESHOLDS.faceDuplicate) {
-      return { modality: 'face', shortId: f.shortId };
+    const d = euclideanDistance(faceNorm, f.embedding);
+    if (!bestFace || d < bestFace.distance) bestFace = { shortId: f.shortId, distance: d };
+    if (d < faceDupThreshold) {
+      logger.info('[Auth:Register] Duplicate face blocked', {
+        existingShortId: f.shortId,
+        distance: Number(d.toFixed(4)),
+        threshold: faceDupThreshold,
+      });
+      return { modality: 'face', shortId: f.shortId, distance: d };
     }
+  }
+  if (bestFace) {
+    logger.info('[Auth:Register] Face uniqueness check passed', {
+      nearestShortId: bestFace.shortId,
+      nearestDistance: Number(bestFace.distance.toFixed(4)),
+      threshold: faceDupThreshold,
+      compared: faces.length,
+    });
   }
 
   if (voice && isValidTemplate(voice)) {
@@ -321,12 +339,21 @@ export const biometricAuthService = {
     if (duplicate) {
       await logSecurityEvent('DUPLICATE_REGISTRATION', {
         ip, userAgent, success: false,
-        detail: { modality: duplicate.modality, existingShortId: duplicate.shortId },
+        detail: {
+          modality: duplicate.modality,
+          existingShortId: duplicate.shortId,
+          distance: duplicate.distance ?? null,
+        },
       });
+      const faceMsg = duplicate.shortId
+        ? `This face is already registered to ${duplicate.shortId}. One face = one PINIT ID — please login with your face instead.`
+        : 'This face is already registered. One face = one PINIT ID — please login instead.';
       return {
         ok: false,
         status: 409,
-        message: 'This biometric identity already exists. Please sign in using your existing identity.',
+        message: duplicate.modality === 'face'
+          ? faceMsg
+          : `This biometric identity already exists (${duplicate.modality}). Please sign in using your existing identity${duplicate.shortId ? ` (${duplicate.shortId})` : ''}.`,
         shortId: duplicate.shortId,
       };
     }

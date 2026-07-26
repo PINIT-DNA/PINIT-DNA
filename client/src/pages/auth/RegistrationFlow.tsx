@@ -318,7 +318,8 @@ function Creating({
       .catch((e) => {
         const msg = e instanceof Error ? e.message : 'Registration failed.';
         onError(msg);
-        if (isDuplicateIdentityError(msg)) onDuplicate();
+        // Show existing PINIT ID briefly, then send them to face login
+        if (isDuplicateIdentityError(msg)) setTimeout(onDuplicate, 3200);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tries]);

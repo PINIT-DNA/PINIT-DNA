@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion } from 'framer-motion';
-import { Upload, ScanLine, Video, Mic, FileUp } from 'lucide-react';
+import { Upload, ScanLine, Video, Mic, FileUp, Pencil, Check, X } from 'lucide-react';
 import { DocumentScanner } from './DocumentScanner';
 import { MediaRecorderPanel } from './MediaRecorderPanel';
 import {
@@ -31,6 +31,29 @@ const CAPTURE_MODES: { id: CaptureMode; label: string; icon: typeof Upload }[] =
 ];
 
 const MAX_BYTES = 500 * 1024 * 1024;
+
+function splitName(filename: string): { base: string; ext: string } {
+  const i = filename.lastIndexOf('.');
+  if (i <= 0) return { base: filename, ext: '' };
+  return { base: filename.slice(0, i), ext: filename.slice(i) };
+}
+
+function sanitizeBaseName(raw: string): string {
+  return raw
+    .trim()
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 120);
+}
+
+function renameFile(file: File, nextBase: string): File | null {
+  const { ext } = splitName(file.name);
+  const base = sanitizeBaseName(nextBase);
+  if (!base) return null;
+  const name = `${base}${ext}`;
+  if (name === file.name) return file;
+  return new File([file], name, { type: file.type, lastModified: file.lastModified });
+}
 
 function FilePreview({ file }: { file: File }) {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
@@ -77,14 +100,43 @@ function FilePreview({ file }: { file: File }) {
 
 export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) {
   const [captureMode, setCaptureMode] = useState<CaptureMode>('upload');
+  const [renaming, setRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   const handleFileReady = useCallback(
     (file: File) => {
       onFileSelected(file);
       setCaptureMode('upload');
+      setRenaming(false);
+      setRenameError(null);
     },
     [onFileSelected],
   );
+
+  const startRename = useCallback(() => {
+    if (!selectedFile) return;
+    setRenameDraft(splitName(selectedFile.name).base);
+    setRenameError(null);
+    setRenaming(true);
+  }, [selectedFile]);
+
+  const cancelRename = useCallback(() => {
+    setRenaming(false);
+    setRenameError(null);
+  }, []);
+
+  const applyRename = useCallback(() => {
+    if (!selectedFile) return;
+    const next = renameFile(selectedFile, renameDraft);
+    if (!next) {
+      setRenameError('Enter a valid file name');
+      return;
+    }
+    onFileSelected(next);
+    setRenaming(false);
+    setRenameError(null);
+  }, [selectedFile, renameDraft, onFileSelected]);
 
   const onDrop = useCallback(
     (files: File[]) => {
@@ -102,6 +154,7 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
   });
 
   const fileLabel = selectedFile ? getFileTypeLabel(selectedFile) : '';
+  const selectedExt = selectedFile ? splitName(selectedFile.name).ext : '';
 
   return (
     <div className="max-w-3xl mx-auto w-full">
@@ -209,17 +262,79 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
                 <p className="text-dna-400 font-semibold text-sm">Ready to Generate</p>
                 <span className="mono text-xs bg-dna-500/20 text-dna-400 px-2 py-0.5 rounded">{fileLabel}</span>
               </div>
-              <p className="text-white font-medium text-lg truncate">{selectedFile.name}</p>
+
+              {renaming ? (
+                <div className="mt-1 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={renameDraft}
+                      onChange={(e) => {
+                        setRenameDraft(e.target.value);
+                        setRenameError(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          applyRename();
+                        }
+                        if (e.key === 'Escape') cancelRename();
+                      }}
+                      autoFocus
+                      className="input flex-1 min-w-0 text-sm font-medium"
+                      placeholder="File name"
+                      aria-label="Rename file"
+                    />
+                    {selectedExt && (
+                      <span className="mono text-xs text-gray-500 shrink-0">{selectedExt}</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={applyRename}
+                      className="btn-primary btn-sm px-2.5"
+                      title="Save name"
+                    >
+                      <Check size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelRename}
+                      className="btn-secondary btn-sm px-2.5"
+                      title="Cancel"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                  {renameError && <p className="text-xs text-danger">{renameError}</p>}
+                  <p className="text-2xs text-gray-500">Extension stays the same ({selectedExt || 'none'}).</p>
+                </div>
+              ) : (
+                <div className="flex items-start gap-2 mt-0.5">
+                  <p className="text-white font-medium text-lg truncate min-w-0 flex-1">{selectedFile.name}</p>
+                  <button
+                    type="button"
+                    onClick={startRename}
+                    className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold text-dna-500 hover:text-dna-600 mt-1"
+                  >
+                    <Pencil size={12} />
+                    Rename
+                  </button>
+                </div>
+              )}
+
               <div className="flex flex-wrap gap-4 mt-2">
                 <span className="mono text-xs text-gray-400">{formatBytes(selectedFile.size)}</span>
                 <span className="mono text-xs text-gray-400">{selectedFile.type || 'unknown'}</span>
               </div>
               <p className="text-gray-500 text-xs mt-3">
-                Not protected yet — click below to create identity and store this file.
+                Not protected yet — rename if needed, then click below to create identity and store this file.
               </p>
               <button
                 type="button"
-                onClick={() => onFileSelected(null)}
+                onClick={() => {
+                  setRenaming(false);
+                  onFileSelected(null);
+                }}
                 className="mt-4 text-xs text-gray-500 hover:text-dna-400 transition-colors text-left w-fit"
               >
                 ← Change file

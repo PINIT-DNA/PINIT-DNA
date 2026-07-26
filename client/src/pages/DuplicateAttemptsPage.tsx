@@ -27,12 +27,15 @@ interface DuplicateAttempt {
   browser:             string | null;
   os:                  string | null;
   device:              string | null;
-  matchType:           'EXACT_HASH' | 'NEAR_DUPLICATE_PHASH' | null;
+  matchType:           'EXACT_HASH' | 'NEAR_DUPLICATE_PHASH' | string | null;
   riskLevel:           'HIGH' | 'LOW';
   sha256Hash:          string | null;
   existingDnaRecordId: string | null;
   existingFilename:    string | null;
   pHashSimilarity:     number | null;
+  ownerShortId:        string | null;
+  uploaderShortId:     string | null;
+  crossUser:           boolean;
 }
 
 // ─── Fetch function ───────────────────────────────────────────────────────────
@@ -156,8 +159,23 @@ export function DuplicateAttemptsPage() {
                   </div>
                 </div>
 
-                {/* Row 2: tags */}
+                {/* Row 2: who tried / who owns */}
                 <div className="flex flex-wrap gap-1.5 mt-3">
+                  {a.uploaderShortId && (
+                    <span className="tag text-amber-300 border-amber-500/30">
+                      Attempted by: {a.uploaderShortId}
+                    </span>
+                  )}
+                  {a.ownerShortId && (
+                    <span className="tag text-dna-300 border-dna-500/30">
+                      Owner: {a.ownerShortId}
+                    </span>
+                  )}
+                  {a.crossUser && (
+                    <span className="tag bg-red-500/15 text-red-300 border-red-500/30">
+                      Cross-account attempt
+                    </span>
+                  )}
                   {a.ipAddress && (
                     <span className="tag">IP: {a.ipAddress}</span>
                   )}

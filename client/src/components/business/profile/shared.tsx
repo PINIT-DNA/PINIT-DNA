@@ -13,10 +13,10 @@ export function EnterpriseCard({
 }) {
   return (
     <div
-      className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-purple-500/20 dark:bg-gradient-to-br dark:from-bg-card dark:via-bg-card dark:to-purple-950/20 dark:shadow-lg dark:shadow-black/20 ${className}`}
+      className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#181a1f] dark:shadow-lg dark:shadow-black/20 ${className}`}
     >
       <h2 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2 mb-4">
-        <span className="text-violet-700 dark:text-purple-400">{icon}</span>
+        <span className="text-violet-700 dark:text-blue-400">{icon}</span>
         {title}
       </h2>
       {children}
@@ -107,16 +107,16 @@ export function EnterpriseStat({
   accent?: 'purple' | 'dna' | 'amber' | 'green';
 }) {
   const tones = {
-    purple: 'border-violet-200 bg-violet-50 dark:border-purple-500/20 dark:bg-purple-500/5',
-    dna: 'border-cyan-200 bg-cyan-50 dark:border-dna-500/20 dark:bg-dna-500/5',
-    amber: 'border-amber-200 bg-amber-50 dark:border-amber-500/20 dark:bg-amber-500/5',
-    green: 'border-emerald-200 bg-emerald-50 dark:border-green-500/20 dark:bg-green-500/5',
+    purple: 'border-violet-200 bg-violet-50 dark:border-blue-500/25 dark:bg-blue-500/10',
+    dna: 'border-cyan-200 bg-cyan-50 dark:border-cyan-500/25 dark:bg-cyan-500/10',
+    amber: 'border-amber-200 bg-amber-50 dark:border-amber-500/25 dark:bg-amber-500/10',
+    green: 'border-emerald-200 bg-emerald-50 dark:border-emerald-500/25 dark:bg-emerald-500/10',
   };
   return (
-    <div className={`rounded-xl border p-4 text-center ${tones[accent]}`}>
+    <div className={`rounded-xl border p-3.5 text-center ${tones[accent]}`}>
       <p className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">{value}</p>
-      <p className="text-xs text-slate-600 dark:text-gray-400 mt-1 font-medium">{label}</p>
-      {sub && <p className="text-xs text-slate-500 dark:text-gray-500 mt-0.5">{sub}</p>}
+      <p className="text-xs text-slate-700 dark:text-gray-300 mt-1 font-semibold">{label}</p>
+      {sub && <p className="text-xs text-slate-500 dark:text-gray-400 mt-0.5">{sub}</p>}
     </div>
   );
 }

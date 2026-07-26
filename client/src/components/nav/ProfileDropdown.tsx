@@ -59,7 +59,14 @@ export function ProfileDropdown() {
       </button>
 
       {open && (
-        <div className="dropdown-panel w-full sm:w-72">
+        <>
+          <button
+            type="button"
+            className="dropdown-backdrop"
+            aria-label="Close profile menu"
+            onClick={() => setOpen(false)}
+          />
+          <div className="dropdown-panel w-full sm:w-72">
           {/* Header */}
           <div className="p-4 border-b border-bg-border">
             <div className="flex items-center gap-3">
@@ -113,7 +120,8 @@ export function ProfileDropdown() {
               Sign Out
             </button>
           </div>
-        </div>
+          </div>
+        </>
       )}
     </div>
   );

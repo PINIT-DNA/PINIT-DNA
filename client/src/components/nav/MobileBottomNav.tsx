@@ -24,7 +24,7 @@ export function MobileBottomNav({ onOpenMenu }: Props) {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-40 lg:hidden border-t border-bg-border bg-bg-card/95 backdrop-blur-md"
+      className="fixed bottom-0 left-0 right-0 z-[85] lg:hidden border-t border-bg-border bg-bg-card/95 backdrop-blur-md"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
       aria-label="Primary navigation"
     >

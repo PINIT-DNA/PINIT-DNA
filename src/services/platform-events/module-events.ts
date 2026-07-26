@@ -118,23 +118,64 @@ export function emitDuplicateUploadBlocked(params: {
   filename: string;
   matchType: string;
   uploaderLabel?: string;
+  /** When true, another PINIT account tried to re-protect this owner's file */
+  crossUser?: boolean;
 }): void {
+  const uploader = params.uploaderLabel?.trim() || 'Another PINIT user';
+  const cross = params.crossUser === true;
   platformEvents.emit({
     name: 'duplicate.upload.blocked',
     category: 'security',
-    severity: 'warning',
+    severity: cross ? 'critical' : 'warning',
     ownerUserId: params.ownerUserId,
     entityType: 'dna_record',
     entityId: params.dnaRecordId,
-    title: 'Duplicate upload blocked',
-    body: `${params.uploaderLabel ?? 'Someone'} tried to upload a duplicate of ${params.filename}`,
+    title: cross ? 'Someone tried to upload your file' : 'Duplicate upload blocked',
+    body: cross
+      ? `${uploader} tried to upload your protected file “${params.filename}”. The upload was blocked.`
+      : `${uploader} tried to upload a duplicate of ${params.filename}`,
     deepLink: '/duplicate-attempts',
     notificationType: 'DUPLICATE_UPLOAD_ATTEMPT',
     fileName: params.filename,
     dnaRecordId: params.dnaRecordId,
     skipAudit: true,
-    dedupeKey: `dup_upload:${params.dnaRecordId}:${Date.now().toString(36)}`,
-    payload: { matchType: params.matchType },
+    dedupeKey: `dup_upload:${params.dnaRecordId}:${uploader}:${Date.now().toString(36)}`,
+    payload: { matchType: params.matchType, uploaderShortId: params.uploaderLabel, crossUser: cross },
+  });
+}
+
+/** Alert platform owners (Admin Console) when a cross-account duplicate upload is blocked. */
+export function emitDuplicateUploadAdminAlert(params: {
+  adminUserId: string;
+  ownerShortId?: string;
+  uploaderShortId?: string;
+  filename: string;
+  dnaRecordId: string;
+  matchType: string;
+}): void {
+  const owner = params.ownerShortId ?? 'unknown owner';
+  const uploader = params.uploaderShortId ?? 'unknown uploader';
+  platformEvents.emit({
+    name: 'duplicate.upload.admin_alert',
+    category: 'security',
+    severity: 'critical',
+    ownerUserId: params.adminUserId,
+    entityType: 'dna_record',
+    entityId: params.dnaRecordId,
+    title: 'Cross-account duplicate upload blocked',
+    body: `${uploader} tried to upload a file owned by ${owner} (“${params.filename}”). Upload blocked.`,
+    deepLink: '/admin/security',
+    notificationType: 'DUPLICATE_UPLOAD_ATTEMPT',
+    fileName: params.filename,
+    dnaRecordId: params.dnaRecordId,
+    skipAudit: true,
+    dedupeKey: `dup_admin:${params.dnaRecordId}:${uploader}:${Date.now().toString(36)}`,
+    payload: {
+      matchType: params.matchType,
+      ownerShortId: params.ownerShortId,
+      uploaderShortId: params.uploaderShortId,
+      crossUser: true,
+    },
   });
 }
 

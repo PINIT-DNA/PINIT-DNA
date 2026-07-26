@@ -142,12 +142,12 @@ const NAV_GROUPS: Array<{
 ];
 
 const NAV_GROUP_COLORS: Record<string, string> = {
-  Core: 'text-indigo-500',
-  Organization: 'text-indigo-500',
-  Explorer: 'text-violet-500',
-  Intelligence: 'text-cyan-600',
-  Forensics: 'text-rose-500',
-  Sharing: 'text-amber-600',
+  Core: 'text-gray-500',
+  Organization: 'text-gray-500',
+  Explorer: 'text-gray-500',
+  Intelligence: 'text-gray-500',
+  Forensics: 'text-gray-500',
+  Sharing: 'text-gray-500',
 };
 
 /** Business accounts — single flat nav (no duplicate Intelligence / Forensics / Sharing groups). */
@@ -211,7 +211,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'fixed left-0 top-0 h-screen w-60 bg-white/85 dark:bg-bg-surface/95 backdrop-blur-xl border-r border-bg-border flex flex-col z-50 select-none',
+        'fixed left-0 top-0 h-screen w-60 bg-white/85 dark:bg-bg-surface/95 backdrop-blur-xl border-r border-bg-border flex flex-col z-[90] select-none',
         // Off-canvas drawer on mobile; always docked from lg up (desktop web unchanged).
         'transform transition-transform duration-200 lg:translate-x-0',
         open ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:shadow-none'
@@ -258,7 +258,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                     className={({ isActive }) => cn(
                       'group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150',
                       isActive
-                        ? 'bg-gradient-to-r from-dna-500/15 via-indigo-500/10 to-transparent text-dna-600 dark:text-dna-400 border border-dna-200/60 dark:border-dna-500/30 shadow-sm'
+                        ? 'bg-gradient-to-r from-dna-500/15 via-teal-500/10 to-transparent text-dna-600 dark:text-dna-400 border border-dna-200/60 dark:border-dna-500/30 shadow-sm'
                         : 'text-gray-500 dark:text-gray-400 hover:text-dna-700 dark:hover:text-white hover:bg-dna-50/70 dark:hover:bg-bg-elevated border border-transparent'
                     )}
                   >

@@ -42,10 +42,10 @@ interface ShareStats {
 type StatVariant = 'blue' | 'purple' | 'green' | 'orange';
 
 const STAT_VARIANTS: Record<StatVariant, { card: string; icon: string; value: string }> = {
-  blue:   { card: 'stat-card stat-card-blue',   icon: 'stat-icon stat-icon-blue',   value: 'text-blue-600' },
-  purple: { card: 'stat-card stat-card-purple', icon: 'stat-icon stat-icon-purple', value: 'text-violet-600' },
-  green:  { card: 'stat-card stat-card-green',  icon: 'stat-icon stat-icon-green',  value: 'text-emerald-600' },
-  orange: { card: 'stat-card stat-card-orange', icon: 'stat-icon stat-icon-orange', value: 'text-orange-600' },
+  blue:   { card: 'stat-card stat-card-blue',   icon: 'stat-icon stat-icon-blue',   value: 'text-gray-900' },
+  purple: { card: 'stat-card stat-card-purple', icon: 'stat-icon stat-icon-purple', value: 'text-gray-900' },
+  green:  { card: 'stat-card stat-card-green',  icon: 'stat-icon stat-icon-green',  value: 'text-gray-900' },
+  orange: { card: 'stat-card stat-card-orange', icon: 'stat-icon stat-icon-orange', value: 'text-gray-900' },
 };
 
 interface StatCardProps {
@@ -108,8 +108,8 @@ function InsightPanel({ title, count, icon, variant, to, hint, children }: Insig
 
 function InsightEmpty({ text }: { text: string }) {
   return (
-    <div className="h-full flex items-center justify-center rounded-lg border border-dashed border-slate-200 bg-white/50 px-3 py-4">
-      <p className="text-2xs text-slate-400 text-center leading-relaxed">{text}</p>
+    <div className="h-full flex items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white/70 px-3 py-4">
+      <p className="text-2xs text-slate-600 text-center leading-relaxed font-medium">{text}</p>
     </div>
   );
 }
@@ -384,7 +384,7 @@ export function DashboardPage() {
               <Link
                 key={item.to}
                 to={item.to}
-                className={item.tile}
+                className={`action-tile ${item.tile}`}
               >
                 <span className={`action-icon action-icon-${item.tile.replace('action-tile-', '')}`}>
                   {item.icon}
@@ -414,7 +414,7 @@ export function DashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-white">Recent DNA Records</h2>
             <Link to="/dna-records" className="text-xs text-dna-400 hover:text-dna-300 transition-colors">
-              View all ?
+              View all
             </Link>
           </div>
           {loading ? (
