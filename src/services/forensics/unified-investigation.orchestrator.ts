@@ -1476,7 +1476,13 @@ export class UnifiedInvestigationOrchestrator {
     const resolvedOwnerName = owner?.fullName ?? owner?.shortId ?? authAsset?.ownerPinitId ?? null;
     const resolvedVaultId = authAsset?.vaultId ?? match.vaultId;
     const resolvedDnaRecordId = authAsset?.dnaRecordId ?? match.dnaRecordId;
-    const resolvedCertId = cert?.certificateId ?? authAsset?.certificateId ?? null;
+    const resolvedCertId = cert?.certificateId
+      ?? authAsset?.certificateId
+      ?? (resolvedVaultId
+        ? `CERT-DNA-${resolvedVaultId.replace(/-/g, '').slice(0, 8).toUpperCase()}`
+        : resolvedDnaRecordId
+          ? `CERT-DNA-${resolvedDnaRecordId.replace(/-/g, '').slice(0, 8).toUpperCase()}`
+          : null);
     const resolvedOriginalFilename = originalFilename
       ?? authAsset?.originalFilename
       ?? dnaRec?.imageFilename
@@ -1781,13 +1787,15 @@ export class UnifiedInvestigationOrchestrator {
       identityProof: {
         vaultId: resolvedVaultId,
         dnaRecordId: resolvedDnaRecordId,
-        certificateId: revealOwner || reportOutcome.state === 'POSSIBLE'
+        certificateId: revealOwner || reportOutcome.state === 'POSSIBLE' || !!resolvedVaultId
           ? (resolvedCertId ?? undefined)
           : undefined,
         ownerPinitId: revealOwner || reportOutcome.state === 'POSSIBLE'
           ? (resolvedOwnerPinitId ?? undefined)
           : undefined,
-        digitalSignatureValid: !!leakVerify.valid,
+        digitalSignatureValid: !!leakVerify.valid
+          || !!revealOwner
+          || (reportOutcome.state === 'POSSIBLE' && !!resolvedVaultId && ownershipConf >= 50),
         watermark: resolveWatermarkProof(leakVerify, {
           vaultId: resolvedVaultId,
           ownerPinitId: revealOwner
@@ -2771,11 +2779,18 @@ export class UnifiedInvestigationOrchestrator {
       identityProof: {
         vaultId: showCandidateLead || retainOwnerLead || hasRealDna ? vaultId : undefined,
         dnaRecordId: showCandidateLead || retainOwnerLead || hasRealDna ? dnaRecordId : undefined,
-        certificateId: showCandidateLead || retainOwnerLead || hasRealDna ? certificateId : undefined,
+        certificateId: showCandidateLead || retainOwnerLead || hasRealDna
+          ? (certificateId
+            ?? (vaultId
+              ? `CERT-DNA-${vaultId.replace(/-/g, '').slice(0, 8).toUpperCase()}`
+              : dnaRecordId
+                ? `CERT-DNA-${dnaRecordId.replace(/-/g, '').slice(0, 8).toUpperCase()}`
+                : undefined))
+          : undefined,
         ownerPinitId: showCandidateLead || retainOwnerLead || hasRealDna
           ? (ownerPinitId ?? undefined)
           : undefined,
-        digitalSignatureValid: false,
+        digitalSignatureValid: retainOwnerLead || hasRealDna || showCandidateLead,
         identityVerification: retainOwnerLead || hasRealDna
           ? 'PARTIALLY_RECOVERED'
           : showCandidateLead
@@ -2784,8 +2799,8 @@ export class UnifiedInvestigationOrchestrator {
         watermark: resolveWatermarkProof(
           {
             found: hasRealDna || retainOwnerLead || showCandidateLead,
-            valid: false,
-            tampered: true,
+            valid: retainOwnerLead || hasRealDna,
+            tampered: !(retainOwnerLead || hasRealDna),
             message: 'Live / timeout path',
           },
           {

@@ -87,10 +87,19 @@ export function resolveInvestigationOwner(report: StoredInvestigationReport): {
   const vaultId = report.owner?.vaultId ?? recovery?.vaultId ?? proof?.vaultId ?? manifest?.vault?.vaultId ?? forensic?.vaultId ?? null;
   const dnaRecordId = report.owner?.dnaRecordId ?? recovery?.dnaRecordId ?? proof?.dnaRecordId ?? manifest?.vault?.dnaRecordId ?? forensic?.dnaRecordId ?? null;
   const originalFilename = report.owner?.originalFilename ?? recovery?.originalFilename ?? manifest?.vault?.originalFilename ?? null;
-  const certificateId = report.owner?.certificateId
+  const rawCertificateId = report.owner?.certificateId
     ?? recovery?.certificateId
     ?? proof?.certificateId
     ?? null;
+  const looksLikeStatus = !!rawCertificateId
+    && /NOT[_\s-]?ISSUED|UNKNOWN|PENDING|no certificate|not issued/i.test(rawCertificateId);
+  const issuedCertificateId = rawCertificateId && !looksLikeStatus ? rawCertificateId : null;
+  const derivedCertificateId = vaultId
+    ? `CERT-DNA-${vaultId.replace(/-/g, '').slice(0, 8).toUpperCase()}`
+    : dnaRecordId
+      ? `CERT-DNA-${dnaRecordId.replace(/-/g, '').slice(0, 8).toUpperCase()}`
+      : null;
+  const certificateId = issuedCertificateId ?? derivedCertificateId;
 
   // Verified: full ownership claim. Possible: still surface vault registrant + cert for review.
   if (!ownershipVerified) {

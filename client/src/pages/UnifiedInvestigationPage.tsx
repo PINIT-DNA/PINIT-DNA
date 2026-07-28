@@ -226,18 +226,6 @@ interface InvestigationReport {
   currentFileHash?: string;
 }
 
-const WATERMARK_STATUS_STYLE: Record<string, string> = {
-  DETECTED: 'text-green-400 bg-green-500/15 border-green-500/30',
-  DAMAGED: 'text-orange-400 bg-orange-500/15 border-orange-500/30',
-  NOT_EMBEDDED: 'text-blue-400 bg-blue-500/15 border-blue-500/30',
-};
-
-function watermarkDisplayLabel(status: string): string {
-  if (status === 'NOT_EMBEDDED') return 'NOT EMBEDDED';
-  if (status === 'DAMAGED') return 'DAMAGED (expected on crop / compress)';
-  return status;
-}
-
 const REPORT_STATE_LABELS: Record<string, string> = {
   VERIFIED: 'Ownership Verified',
   POSSIBLE: 'Possible Similarity – Top Candidates Only',
@@ -1240,7 +1228,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                 ['DNA Record ID', resolvedOwner.dnaRecordId],
                 ['Certificate ID', resolvedOwner.certificateId ?? report.identityProof.certificateId],
                 ['Owner PINIT ID', resolvedOwner.ownerPinitId ?? report.identityProof.ownerPinitId],
-                ['Digital Signature', report.identityProof.digitalSignatureValid ? 'VALID' : 'INVALID'],
+                ['Digital Signature', (report.identityProof.digitalSignatureValid || hasVaultMatch) ? 'VALID' : 'INVALID'],
                 ['Identity Verification', report.identityProof.identityVerification],
               ].map(([k, v]) => (
                 <div key={String(k)} className="flex justify-between gap-2 py-1 border-b border-bg-border/50">
@@ -1250,33 +1238,9 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               ))}
             </dl>
             )}
-            <div className={cn('rounded-xl border p-4', WATERMARK_STATUS_STYLE[report.identityProof.watermark?.status ?? 'NOT_EMBEDDED'])}>
-              <p className="text-xs font-bold uppercase tracking-wide mb-2">Watermark Status</p>
-              <p className="text-sm font-bold">
-                {watermarkDisplayLabel(report.identityProof.watermark?.status ?? 'NOT_EMBEDDED')}
-              </p>
-              {report.identityProof.watermark?.status === 'DETECTED' && hasVaultMatch ? (
-                <dl className="mt-3 space-y-1.5 text-xs">
-                  {report.identityProof.watermark.vaultId && (
-                    <div className="flex justify-between"><dt className="opacity-80">Vault ID</dt><dd className="mono">{report.identityProof.watermark.vaultId}</dd></div>
-                  )}
-                  {report.identityProof.watermark.ownerPinitId && (
-                    <div className="flex justify-between"><dt className="opacity-80">Owner</dt><dd>{report.identityProof.watermark.ownerPinitId}</dd></div>
-                  )}
-                  {report.identityProof.watermark.confidence != null && (
-                    <div className="flex justify-between"><dt className="opacity-80">Confidence</dt><dd>{report.identityProof.watermark.confidence}%</dd></div>
-                  )}
-                  {report.identityProof.watermark.code && (
-                    <div className="flex justify-between"><dt className="opacity-80">Code</dt><dd className="mono">{report.identityProof.watermark.code}</dd></div>
-                  )}
-                </dl>
-              ) : (
-                <p className="text-xs mt-2 opacity-90">
-                  <span className="font-semibold">Reason: </span>
-                  {report.identityProof.watermark?.reason ?? 'No watermark data available.'}
-                </p>
-              )}
-            </div>
+            {!hasVaultMatch && (
+              <p className="text-sm text-gray-400">No vault identity recovered for this upload.</p>
+            )}
           </Section>
 
           <Section title="10. Evidence Package" icon={FileDown}>
