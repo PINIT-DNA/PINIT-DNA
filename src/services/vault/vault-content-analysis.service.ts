@@ -5,6 +5,7 @@
 
 import crypto from 'crypto';
 import sharp from 'sharp';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { forensicScannerService } from '../forensics/forensic-scanner.service';
@@ -516,14 +517,14 @@ export const vaultContentAnalysisService = {
         where: { id: params.vaultId },
         data: {
           contentLabel: null,
-          contentAnalysis: null,
+          contentAnalysis: Prisma.DbNull,
         },
       });
       await prisma.dnaRecord.update({
         where: { id: params.dnaRecordId },
         data: {
           fileAnalysisLabel: null,
-          fileAnalysis: null,
+          fileAnalysis: Prisma.DbNull,
         },
       }).catch(() => {});
       return null;
@@ -534,14 +535,14 @@ export const vaultContentAnalysisService = {
         where: { id: params.vaultId },
         data: {
           contentLabel: analysis.verdict,
-          contentAnalysis: analysis as object,
+          contentAnalysis: analysis as unknown as Prisma.InputJsonValue,
         },
       });
       await prisma.dnaRecord.update({
         where: { id: params.dnaRecordId },
         data: {
           fileAnalysisLabel: analysis.verdict,
-          fileAnalysis: analysis as object,
+          fileAnalysis: analysis as unknown as Prisma.InputJsonValue,
         },
       }).catch(() => {});
       logger.info('[Authenticity] stored on vault', {
@@ -567,7 +568,7 @@ export const vaultContentAnalysisService = {
         where: { id: params.dnaRecordId },
         data: {
           fileAnalysisLabel: null,
-          fileAnalysis: null,
+          fileAnalysis: Prisma.DbNull,
         },
       }).catch(() => {});
       return null;
@@ -578,7 +579,7 @@ export const vaultContentAnalysisService = {
         where: { id: params.dnaRecordId },
         data: {
           fileAnalysisLabel: analysis.verdict,
-          fileAnalysis: analysis as object,
+          fileAnalysis: analysis as unknown as Prisma.InputJsonValue,
         },
       });
       logger.info('[Authenticity] stored on DNA', {
@@ -604,7 +605,7 @@ export const vaultContentAnalysisService = {
         where: { id: vaultId },
         data: {
           contentLabel: dna.fileAnalysisLabel ?? null,
-          contentAnalysis: dna.fileAnalysis as object,
+          contentAnalysis: dna.fileAnalysis as unknown as Prisma.InputJsonValue,
         },
       });
       return true;

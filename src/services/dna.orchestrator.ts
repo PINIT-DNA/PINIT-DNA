@@ -559,7 +559,7 @@ export class DnaOrchestrator {
             payloadHmac: layers.stego.data.payloadHmac,
             channel: layers.stego.data.channel,
             carrierPath: layers.stego.data.carrierPath,
-            ownershipSignature: layers.stego.data.ownershipSignature ?? undefined,
+            ownershipSignature: (layers.stego.data.ownershipSignature ?? undefined) as any,
             ownershipAlgorithm: layers.stego.data.ownershipAlgorithm ?? null,
             ownershipTileCount: layers.stego.data.ownershipTileCount ?? null,
             ownershipDnaFp: ownership?.dnaFingerprint ?? null,
