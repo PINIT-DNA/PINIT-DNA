@@ -61,15 +61,19 @@ export function AccessIntelligencePage() {
 
   const loadLinks = () => {
     setLoading(true);
-    api.get(`${API_BASE_URL}/share`)
-      .then((r) => {
+    void (async () => {
+      try {
+        const r = await api.get(`${API_BASE_URL}/share`);
         const data = (r.data as { links?: ShareLink[]; shareLinks?: ShareLink[] }).links
           ?? (r.data as { shareLinks?: ShareLink[] }).shareLinks
           ?? [];
         setLinks(data);
-      })
-      .catch(() => setLinks([]))
-      .finally(() => setLoading(false));
+      } catch {
+        setLinks([]);
+      } finally {
+        setLoading(false);
+      }
+    })();
   };
 
   const loadFileShares = () => {

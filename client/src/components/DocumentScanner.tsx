@@ -7,7 +7,6 @@ import {
   captureInvestigationInput,
   validateCaptureQuality,
   cropToGuideRegion,
-  normalizeScannerBlob,
   imageDataToJpegBlob,
   ScannerQualityGateError,
   ScannerStageTimeoutError,
@@ -15,7 +14,6 @@ import {
   type ScanType,
 } from '../lib/document-capture-pipeline';
 import { runTimedStage } from '../lib/scanner-async-utils';
-import { extractVideoFrameBlob, isImageFile, isVideoFile } from '../lib/scanner-media-utils';
 import { preferContinuousFocus, releaseMediaStream, openCameraStream, cameraErrorMessage } from '../lib/camera-stream';
 
 function useIsMobileViewport() {
@@ -335,91 +333,6 @@ export function DocumentScanner({
   const removePage = (index: number) => {
     setScannedPages((prev) => prev.filter((_, i) => i !== index));
     resetCapture();
-  };
-
-  const handleGallery = async (f: File) => {
-    if (captureMode === 'single' && quickCapture && !unifiedInvestigation) {
-      stopCamera();
-      setScannedPages([]);
-      onScanComplete(f);
-      return;
-    }
-
-    if (captureMode === 'single' && unifiedInvestigation) {
-      try {
-        setNormalizing(true);
-        setNormalizeStep('Loading source…');
-        setCaptureError(null);
-
-        let sourceBlob: Blob = f;
-        if (isVideoFile(f)) {
-          setNormalizeStep('Extracting video frame…');
-          const frame = await extractVideoFrameBlob(f);
-          if (!frame) {
-            setCaptureError('Could not extract a video frame — try another clip');
-            setNormalizing(false);
-            setNormalizeStep(null);
-            return;
-          }
-          sourceBlob = frame;
-        }
-
-        if (isImageFile(f) || isVideoFile(f)) {
-          const normalized = await runTimedStage('normalizeScannerBlob', () =>
-            normalizeScannerBlob(sourceBlob, {
-              jpegQuality: 0.97,
-              relaxedQualityGate: true,
-              investigationFast: unifiedInvestigation,
-              onProgress: onNormalizeProgress,
-            }), 25_000);
-          stopCamera();
-          setScannedPages([]);
-          if (normalized) {
-            finishWithBlob(normalized.blob, normalized.scanType);
-            return;
-          }
-        }
-
-        // PDF / other types — pass through to same investigation API as upload
-        stopCamera();
-        setScannedPages([]);
-        onScanComplete(f);
-        return;
-      } catch (err) {
-        if (err instanceof ScannerQualityGateError) {
-          setCaptureError(err.message);
-        } else if (err instanceof ScannerStageTimeoutError) {
-          setCaptureError('Processing timed out — try again');
-        }
-      } finally {
-        setNormalizing(false);
-        setNormalizeStep(null);
-      }
-    }
-
-    if (captureMode === 'single' && f.type.startsWith('image/')) {
-      try {
-        setNormalizing(true);
-        setCaptureError(null);
-        const normalized = await normalizeScannerBlob(f, { jpegQuality: 0.97 });
-        stopCamera();
-        setScannedPages([]);
-        if (normalized) {
-          finishWithBlob(normalized.blob, normalized.scanType);
-          return;
-        }
-      } catch (err) {
-        setNormalizing(false);
-        if (err instanceof ScannerQualityGateError) {
-          setCaptureError(err.message);
-          return;
-        }
-      }
-      setNormalizing(false);
-    }
-    stopCamera();
-    setScannedPages([]);
-    onScanComplete(f);
   };
 
   const handleCancel = () => {

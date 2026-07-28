@@ -58,18 +58,18 @@ export function useUserProfile() {
     }
     let cancelled = false;
     setLoading(true);
-    api.get(`${API_BASE_URL}/profile`)
-      .then((r) => {
+    void (async () => {
+      try {
+        const r = await api.get(`${API_BASE_URL}/profile`);
         if (cancelled) return;
         const p = (r.data as { profile?: UserProfileSummary })?.profile;
         setProfile(p ?? null);
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) setProfile(null);
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
     return () => { cancelled = true; };
   }, [user?.sub]);
 
