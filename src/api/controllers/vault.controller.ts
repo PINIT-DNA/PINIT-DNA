@@ -30,6 +30,7 @@ import {
   extractTextFromDocx,
   extractTextFromPlain,
 } from '../../services/privacy/privacy-masking.service';
+import { vaultContentAnalysisService } from '../../services/vault/vault-content-analysis.service';
 
 const vaultService = new VaultService();
 
@@ -67,6 +68,8 @@ export async function listVaultRecords(
         originalSizeBytes:   r.originalSizeBytes,
         encryptionAlgorithm: r.encryptionAlgorithm,
         keyDerivation:       r.keyDerivation,
+        contentLabel:        r.contentLabel ?? null,
+        contentAnalysis:     (r.contentAnalysis as Record<string, unknown> | null) ?? null,
         createdAt:           r.createdAt.toISOString(),
         dnaRecord: {
           id:       r.dnaRecord.id,
@@ -161,6 +164,33 @@ export async function storeInVault(
       buffer,
     });
 
+    // Auto image analysis → Vault Details (copy from DNA generate, else analyze now)
+    let contentAnalysis = null as Awaited<ReturnType<typeof vaultContentAnalysisService.analyzeAndStore>>;
+    try {
+      const copied = await vaultContentAnalysisService.copyDnaAnalysisToVault(
+        result.vaultId,
+        result.dnaRecordId,
+      );
+      if (!copied) {
+        contentAnalysis = await vaultContentAnalysisService.analyzeAndStore({
+          vaultId: result.vaultId,
+          dnaRecordId: result.dnaRecordId,
+          buffer,
+          mimeType: result.originalMimeType,
+          filename: result.originalFileName,
+        });
+      } else {
+        const { prisma } = await import('../../lib/prisma');
+        const row = await prisma.vaultRecord.findUnique({
+          where: { id: result.vaultId },
+          select: { contentAnalysis: true },
+        });
+        contentAnalysis = (row?.contentAnalysis as typeof contentAnalysis) ?? null;
+      }
+    } catch (err) {
+      logger.warn('[ContentAnalysis] vault store analysis failed', { error: String(err) });
+    }
+
     res.status(201).json({
       success: true,
       vaultId:             result.vaultId,
@@ -171,6 +201,8 @@ export async function storeInVault(
       originalSizeBytes:   result.originalSizeBytes,
       encryptionAlgorithm: result.encryptionAlgorithm,
       storedAt:            result.createdAt.toISOString(),
+      contentLabel:        contentAnalysis?.verdict ?? contentAnalysis?.label ?? null,
+      contentAnalysis:     contentAnalysis,
     });
   } catch (err) {
     if (err instanceof Error && err.message.includes('not found')) {
@@ -213,6 +245,8 @@ export async function getVaultRecord(
         originalSizeBytes:   record.originalSizeBytes,
         encryptionAlgorithm: record.encryptionAlgorithm,
         keyDerivation:       record.keyDerivation,
+        contentLabel:        record.contentLabel ?? null,
+        contentAnalysis:     (record.contentAnalysis as Record<string, unknown> | null) ?? null,
         createdAt:           record.createdAt.toISOString(),
         dnaRecord: {
           id:            record.dnaRecord.id,
@@ -226,6 +260,106 @@ export async function getVaultRecord(
     if (err instanceof Error && err.message.includes('not found')) {
       return next(new AppError(404, err.message));
     }
+    next(err);
+  }
+}
+
+/**
+ * POST /vault/:id/analyze-content
+ * Run (or re-run) image analysis and store on the vault record.
+ */
+export async function analyzeVaultContent(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  const { id } = req.params;
+  try {
+    const userId = getAuthUserId(req);
+    const retrieved = await vaultService.retrieve(id, userId);
+    const analysis = await vaultContentAnalysisService.analyzeAndStore({
+      vaultId: id,
+      dnaRecordId: retrieved.dnaRecordId,
+      buffer: retrieved.originalBuffer,
+      mimeType: retrieved.originalMimeType,
+      filename: retrieved.originalFileName,
+    });
+    if (!analysis) {
+      return next(new AppError(500, 'Content analysis failed'));
+    }
+    res.status(200).json({ success: true, contentLabel: analysis.label, contentAnalysis: analysis });
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('not found')) {
+      return next(new AppError(404, err.message));
+    }
+    next(err);
+  }
+}
+
+/**
+ * POST /vault/reanalyze-all
+ * Re-run image analysis for every vault image the user can access.
+ */
+export async function reanalyzeAllVaultContent(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const userId = getAuthUserId(req);
+    const { prisma } = await import('../../lib/prisma');
+    const { vaultAccessWhere } = await import('../../services/organization/org-asset.service');
+    const records = await prisma.vaultRecord.findMany({
+      where: await vaultAccessWhere(userId),
+      select: { id: true, originalFileName: true, originalMimeType: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    let updated = 0;
+    let failed = 0;
+    const samples: Array<{ vaultId: string; label: string; manualPercent: number; aiPercent: number }> = [];
+
+    for (const row of records) {
+      if (!(row.originalMimeType ?? '').startsWith('image/')) continue;
+      try {
+        const retrieved = await vaultService.retrieve(row.id, userId);
+        const analysis = await vaultContentAnalysisService.analyzeAndStore({
+          vaultId: row.id,
+          dnaRecordId: retrieved.dnaRecordId,
+          buffer: retrieved.originalBuffer,
+          mimeType: retrieved.originalMimeType,
+          filename: retrieved.originalFileName,
+        });
+        if (analysis) {
+          updated += 1;
+          if (samples.length < 5) {
+            samples.push({
+              vaultId: row.id,
+              label: analysis.label,
+              manualPercent: analysis.composition.manualPercent,
+              aiPercent: analysis.composition.aiGeneratedPercent,
+            });
+          }
+        } else {
+          failed += 1;
+        }
+      } catch (err) {
+        failed += 1;
+        logger.warn('[ContentAnalysis] reanalyze-all item failed', {
+          vaultId: row.id,
+          error: String(err),
+        });
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      total: records.filter((r) => (r.originalMimeType ?? '').startsWith('image/')).length,
+      updated,
+      failed,
+      samples,
+    });
+  } catch (err) {
     next(err);
   }
 }

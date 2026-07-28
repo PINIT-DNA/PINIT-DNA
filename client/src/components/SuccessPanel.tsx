@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { DnaSession } from '../types';
 import { formatBytes } from '../lib/file-type-utils';
 import { protectedDownloadFromVault } from '../services/dashboard.api';
+import { AuthenticityReportCard } from './AuthenticityReportCard';
 
 interface Props {
   session: DnaSession;
@@ -19,6 +20,8 @@ export function SuccessPanel({ session, onReset }: Props) {
   const ms = session.totalProcessingMs;
   const vaultId = session.vault?.vaultId;
   const canDownload = !!vaultId || !!session.protectedBlobUrl;
+  const analysis = (session.vault?.contentAnalysis ?? session.fileAnalysis ?? null);
+  const imageAnalysis = analysis?.signals?.fileCategory === 'IMAGE' ? analysis : null;
 
   const copyId = async () => {
     try {
@@ -89,6 +92,14 @@ export function SuccessPanel({ session, onReset }: Props) {
               )}
             </div>
           </div>
+
+          {imageAnalysis && (
+            <AuthenticityReportCard
+              analysis={imageAnalysis}
+              compact
+              title="Image analysis"
+            />
+          )}
 
           <div className="rounded-xl bg-bg-elevated border border-bg-border p-3.5">
             <div className="flex items-center justify-between gap-2 mb-1">
@@ -189,7 +200,11 @@ export function SuccessPanel({ session, onReset }: Props) {
             </li>
             <li className="flex items-start gap-2">
               <CheckCircle2 size={13} className="text-layer-complete mt-0.5 shrink-0" />
-              <span>Tracked download ready — recoverable in investigation</span>
+              <span>
+                {imageAnalysis
+                  ? 'End-to-end image analysis saved to Vault Explorer → Details'
+                  : 'Tracked download ready — recoverable in investigation'}
+              </span>
             </li>
           </ul>
 

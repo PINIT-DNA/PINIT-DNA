@@ -115,9 +115,8 @@ export async function generateDna(
     return next(new AppError(500, 'Failed to read uploaded file from disk.'));
   }
 
-  // ── DUPLICATE CHECK — global PINIT vault registry (Layer 1 SHA-256) ─────────
-  // Blocks identical files anywhere in the system — not per-user isolated.
-  // Catches: re-upload, share-link download → re-upload, cross-account copies.
+  // ── DUPLICATE CHECK — cross-account only (same account may re-protect same file) ─
+  // Blocks when another PINIT user uploads bytes that already have DNA under a different account.
   const dupResult = await duplicateCheckService.check(
     buffer,
     req.file.mimetype,
@@ -135,10 +134,10 @@ export async function generateDna(
         : '';
 
     const duplicateReason = dupResult.matchType === 'PINIT_VAULT_SIGNATURE'
-      ? `Protected PINIT content detected.${ownerLabel} DNA cannot be generated from watermarked or share-viewer captures.`
-      : `This file already exists in the PINIT-DNA global registry.${ownerLabel} Duplicate DNA cannot be generated.`;
+      ? `Protected PINIT content detected.${ownerLabel} DNA cannot be generated from watermarked or share-viewer captures owned by another account.`
+      : `This file already exists under another PINIT account.${ownerLabel} Duplicate DNA cannot be generated across accounts.`;
 
-    logger.warn('[DNA] Duplicate upload blocked (global registry)', {
+    logger.warn('[DNA] Duplicate upload blocked (cross-account)', {
       matchType:        dupResult.matchType,
       existingRecordId: dupResult.existingRecordId,
       ownerShortId:     dupResult.ownerShortId,
@@ -261,6 +260,23 @@ export async function generateDna(
       } catch {
         /* non-fatal */
       }
+    }
+
+    // Auto image authenticity analysis → DNA response + Vault Details
+    try {
+      const { vaultContentAnalysisService } = await import('../../services/vault/vault-content-analysis.service');
+      const fileAnalysis = await vaultContentAnalysisService.analyzeAndStoreOnDna({
+        dnaRecordId: result.dnaRecordId,
+        buffer,
+        mimeType: req.file?.mimetype ?? 'application/octet-stream',
+        filename: req.file?.originalname ?? 'file',
+      });
+      if (fileAnalysis) {
+        response.fileAnalysisLabel = fileAnalysis.verdict;
+        response.fileAnalysis = fileAnalysis;
+      }
+    } catch (err) {
+      logger.warn('[ContentAnalysis] skipped during DNA generate', { error: String(err) });
     }
 
     // Fire-and-forget: auto-index in FAISS for semantic search
@@ -458,7 +474,16 @@ export async function getDnaRecord(
         perceptualLayer: { select: { id: true } },
         semanticLayer: { select: { id: true } },
         metadataLayer: { select: { id: true } },
-        stegoLayer: { select: { id: true } },
+        stegoLayer: {
+          select: {
+            id: true,
+            ownershipSignature: true,
+            ownershipAlgorithm: true,
+            ownershipTileCount: true,
+            payloadHmac: true,
+            embedded: true,
+          },
+        },
       },
     });
 
@@ -487,6 +512,9 @@ export async function getDnaRecord(
           metadata: !!record.metadataLayer,
           steganography: !!record.stegoLayer,
         },
+        ownershipSignature: (record.stegoLayer?.ownershipSignature as Record<string, unknown> | null) ?? null,
+        ownershipAlgorithm: record.stegoLayer?.ownershipAlgorithm ?? null,
+        ownershipTileCount: record.stegoLayer?.ownershipTileCount ?? null,
         createdAt: record.createdAt.toISOString(),
         updatedAt: record.updatedAt.toISOString(),
       },
@@ -580,6 +608,99 @@ export async function getDnaStorageAudit(
     res.json({ success: true, audit: report });
   } catch (err) {
     next(err);
+  }
+}
+
+/**
+ * POST /dna/recover-ownership
+ * Upload a full image OR a cropped fragment (~20%+) and recover PinIT ownership
+ * from the redundant watermark tiles embedded at generation time.
+ */
+export async function recoverOwnershipFromImage(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  if (!req.file) {
+    return next(new AppError(400, 'No image file uploaded'));
+  }
+
+  try {
+    const buffer = await fs.readFile(req.file.path);
+    const { SteganographyLayer } = await import('../../services/layers/layer6.steganography');
+    const layer = new SteganographyLayer();
+    const extracted = await layer.recoverOwnership({
+      filePath: req.file.path,
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      sizeBytes: req.file.size,
+      buffer,
+    });
+
+    if (!extracted.found || !extracted.dnaFingerprint) {
+      res.status(200).json({
+        success: true,
+        isPinitFile: false,
+        message: 'No PinIT ownership watermark found in this image/fragment',
+        extraction: extracted,
+      });
+      return;
+    }
+
+    const stego = await prisma.stegoLayer.findFirst({
+      where: { ownershipDnaFp: extracted.dnaFingerprint },
+      include: {
+        dnaRecord: {
+          select: {
+            id: true,
+            ownerUserId: true,
+            imageFilename: true,
+            imageMimeType: true,
+            status: true,
+            createdAt: true,
+            sha256Hash: true,
+          },
+        },
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      isPinitFile: true,
+      sealValid: extracted.sealValid === true,
+      confidence: extracted.confidence,
+      extraction: {
+        dnaFingerprint: extracted.dnaFingerprint,
+        ownerFingerprint: extracted.ownerFingerprint,
+        uploadedAt: extracted.uploadedAt
+          ? new Date(extracted.uploadedAt * 1000).toISOString()
+          : null,
+        metaHash: extracted.metaHash,
+      },
+      storedSignature: stego?.ownershipSignature ?? null,
+      matchedRecord: stego?.dnaRecord
+        ? {
+            dnaRecordId: stego.dnaRecord.id,
+            ownerUserId: stego.dnaRecord.ownerUserId,
+            filename: stego.dnaRecord.imageFilename,
+            mimeType: stego.dnaRecord.imageMimeType,
+            status: stego.dnaRecord.status,
+            createdAt: stego.dnaRecord.createdAt.toISOString(),
+            sha256Hash: stego.dnaRecord.sha256Hash,
+            ownershipAlgorithm: stego.ownershipAlgorithm,
+            ownershipTileCount: stego.ownershipTileCount,
+          }
+        : null,
+      message: stego
+        ? 'PinIT ownership watermark recovered and matched to stored file signature'
+        : 'PinIT watermark found in pixels, but no matching stored signature in vault',
+    });
+  } catch (err) {
+    next(err);
+  } finally {
+    fs.unlink(req.file.path).catch((e) =>
+      logger.warn('Failed to delete temp file', { path: req.file?.path, error: e }),
+    );
   }
 }
 

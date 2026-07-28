@@ -109,7 +109,7 @@ const NAV_GROUPS: Array<{
   {
     label: 'Explorer',
     items: [
-      { to: '/vault',       icon: Archive,    label: 'Files' },
+      { to: '/vault',       icon: Archive,    label: 'Digital Assets' },
       { to: '/dna-records', icon: FileSearch, label: 'DNA Records' },
     ],
   },
@@ -160,7 +160,7 @@ const BUSINESS_NAV_ITEMS: Array<{
 }> = [
   { to: '/business', icon: Building2, label: 'Dashboard', end: true },
   { to: '/generate', icon: Dna, label: 'Protect file' },
-  { to: '/vault', icon: Archive, label: 'Files' },
+  { to: '/vault', icon: Archive, label: 'Digital Assets' },
   { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Unified Investigation', feature: FeatureKey.FEATURE_INVESTIGATION },
   { to: '/reports', icon: Shield, label: 'Forensics', feature: FeatureKey.FEATURE_INVESTIGATION },
   { to: '/monitoring', icon: Radio, label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },

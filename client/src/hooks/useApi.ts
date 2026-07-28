@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, type Dispatch, type SetStateAction } from 'react';
 import { formatApiError } from '../services/dashboard.api';
 
 const DEV_BACKEND_RETRY_MS = 1500;
@@ -18,6 +18,7 @@ export interface ApiState<T> {
   loading: boolean;
   error: string | null;
   refetch: () => void;
+  setData: Dispatch<SetStateAction<T | null>>;
 }
 
 /**
@@ -32,10 +33,16 @@ export function useApi<T>(
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
   const abortRef = useRef(false);
+  const hasDataRef = useRef(false);
+
+  useEffect(() => {
+    hasDataRef.current = data != null;
+  }, [data]);
 
   const execute = useCallback(async () => {
     abortRef.current = false;
-    setLoading(true);
+    // Keep current list visible while refreshing — avoids "delete didn't remove" flicker
+    if (!hasDataRef.current) setLoading(true);
     setError(null);
 
     let lastErr: unknown;
@@ -71,7 +78,7 @@ export function useApi<T>(
     return () => { abortRef.current = true; };
   }, [execute]);
 
-  return { data, loading, error, refetch: execute };
+  return { data, loading, error, refetch: execute, setData };
 }
 
 /** Format bytes to human-readable string */

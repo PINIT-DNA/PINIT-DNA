@@ -13,6 +13,7 @@ import {
   Download,
   Eye,
   Trash2,
+  Loader2,
   RefreshCw,
   Users,
   ChevronRight,
@@ -31,10 +32,11 @@ import {
 import { buildShareFileAttachment } from '../lib/share-file-open';
 import { API_BASE_URL } from '../config/api.config';
 import { BRAND } from '../config/brand.config';
-import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, type VaultTrackingDashboard } from '../services/dashboard.api';
+import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, type VaultTrackingDashboard } from '../services/dashboard.api';
 import { useAuth } from '../context/AuthContext';
 import { ShareQrBlock } from './ShareQrBlock';
-import type { VaultRecord } from '../types/dashboard.types';
+import { AuthenticityReportCard } from './AuthenticityReportCard';
+import type { VaultContentAnalysis, VaultRecord } from '../types/dashboard.types';
 
 type PanelTab = 'overview' | 'details' | 'permissions' | 'activity';
 
@@ -63,6 +65,7 @@ interface VaultDetailSidePanelProps {
   onClose: () => void;
   onShare: () => void;
   onDelete: () => void;
+  deleting?: boolean;
 }
 
 const TABS: { id: PanelTab; label: string }[] = [
@@ -105,6 +108,7 @@ export function VaultDetailSidePanel({
   onClose,
   onShare,
   onDelete,
+  deleting = false,
 }: VaultDetailSidePanelProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -118,6 +122,10 @@ export function VaultDetailSidePanel({
   /** Prepared Share File attachment — share() must run on a fresh click (user gesture). */
   const [shareReady, setShareReady] = useState(false);
   const [readyShareUrl, setReadyShareUrl] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<VaultContentAnalysis | null>(
+    record.contentAnalysis ?? null,
+  );
+  const [analyzing, setAnalyzing] = useState(false);
   const preparedShareRef = useRef<{
     recordId: string;
     file: File;
@@ -136,6 +144,7 @@ export function VaultDetailSidePanel({
 
   const fileType = getVaultFileTypeDisplay(record.originalMimeType, record.originalFileName);
   const resolvedMime = resolveVaultFileMime(undefined, record.originalMimeType, record.originalFileName);
+  const isImageRecord = resolvedMime.startsWith('image/');
   const tepPackages = tracking?.tepPackages ?? [];
   const latestTep = tepPackages[0] ?? null;
 
@@ -144,6 +153,8 @@ export function VaultDetailSidePanel({
     setLoadingLinks(true);
     setLoadingTracking(true);
     setTracking(null);
+    setAnalysis(record.contentAnalysis ?? null);
+    setAnalyzing(false);
     preparedShareRef.current = null;
     setShareReady(false);
     setReadyShareUrl(null);
@@ -169,7 +180,33 @@ export function VaultDetailSidePanel({
         setLoadingTracking(false);
       }
     })();
-  }, [record.id]);
+
+    // Image-only: refresh when missing latest authenticity analysis or old false-100% AI mix
+    const mix = record.contentAnalysis?.composition;
+    const score = record.contentAnalysis?.signals?.deepfakeScore;
+    const looksBroken =
+      isImageRecord && (
+        !record.contentAnalysis
+        || record.contentAnalysis.version !== 'authenticity-v7'
+        || !record.contentAnalysis.scores
+        || !mix
+        || (mix.aiGeneratedPercent >= 90 && mix.manualPercent === 0)
+        || (record.contentLabel === 'AI_GENERATED' && typeof score === 'number' && score < 70)
+      );
+    if (looksBroken) {
+      void (async () => {
+        setAnalyzing(true);
+        try {
+          const data = await analyzeVaultContent(record.id);
+          setAnalysis(data.contentAnalysis ?? null);
+        } catch {
+          /* keep empty — new protects always store analysis automatically */
+        } finally {
+          setAnalyzing(false);
+        }
+      })();
+    }
+  }, [record.id, record.contentAnalysis, isImageRecord]);
 
   const copyTep = async (code: string) => {
     try {
@@ -607,33 +644,60 @@ export function VaultDetailSidePanel({
           )}
 
           {tab === 'details' && (
-            <dl className="space-y-3 text-xs">
-              {[
-                ['Vault ID', record.id],
-                ['DNA Record ID', record.dnaRecordId],
-                ['MIME Type', resolvedMime],
-                ['Original Size', formatBytes(record.originalSizeBytes)],
-                ['Encrypted Size', formatBytes(record.encryptedSizeBytes)],
-                ['Key Derivation', record.keyDerivation],
-                ['Stored At', format(new Date(record.createdAt), 'PPpp')],
-              ].map(([label, value]) => (
-                <div key={label} className="bg-bg-elevated rounded-lg p-3">
-                  <dt className="text-2xs text-gray-500 mb-1">{label}</dt>
-                  <dd className={cn('break-all', label.toString().includes('ID') ? 'mono text-dna-400' : 'text-gray-200')}>
-                    {value}
-                  </dd>
+            <div className="space-y-3">
+              {isImageRecord && analyzing && !analysis ? (
+                <div className="rounded-xl border border-bg-border bg-bg-elevated p-3">
+                  <div className="flex items-center gap-2">
+                    <Microscope size={14} className="text-dna-400" />
+                    <p className="text-xs font-semibold text-white">Image analysis</p>
+                    <RefreshCw size={11} className="animate-spin text-gray-500 ml-auto" />
+                  </div>
+                  <p className="text-2xs text-gray-500 mt-2">Analyzing image automatically…</p>
                 </div>
-              ))}
-              <div className="rounded-xl bg-success/5 border border-success/20 p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <Lock size={12} className="text-success" />
-                  <p className="text-xs font-semibold text-success">AES-256-GCM</p>
+              ) : isImageRecord && analysis ? (
+                <AuthenticityReportCard analysis={analysis} title="Image authenticity analysis" />
+              ) : (
+                <div className="rounded-xl border border-bg-border bg-bg-elevated p-3">
+                  <div className="flex items-center gap-2">
+                    <Microscope size={14} className="text-dna-400" />
+                    <p className="text-xs font-semibold text-white">Image analysis</p>
+                  </div>
+                  <p className="text-2xs text-gray-500 mt-2">
+                    {isImageRecord
+                      ? 'Image analysis runs automatically when the image goes through DNA.'
+                      : 'Detailed image analysis graph is only shown for image files that go through DNA.'}
+                  </p>
                 </div>
-                <p className="text-2xs text-gray-400">
-                  Key re-derived on demand via HKDF-SHA256. Authentication tag ensures tamper detection.
-                </p>
-              </div>
-            </dl>
+              )}
+
+              <dl className="space-y-3 text-xs">
+                {[
+                  ['Vault ID', record.id],
+                  ['DNA Record ID', record.dnaRecordId],
+                  ['MIME Type', resolvedMime],
+                  ['Original Size', formatBytes(record.originalSizeBytes)],
+                  ['Encrypted Size', formatBytes(record.encryptedSizeBytes)],
+                  ['Key Derivation', record.keyDerivation],
+                  ['Stored At', format(new Date(record.createdAt), 'PPpp')],
+                ].map(([label, value]) => (
+                  <div key={label} className="bg-bg-elevated rounded-lg p-3">
+                    <dt className="text-2xs text-gray-500 mb-1">{label}</dt>
+                    <dd className={cn('break-all', label.toString().includes('ID') ? 'mono text-dna-400' : 'text-gray-200')}>
+                      {value}
+                    </dd>
+                  </div>
+                ))}
+                <div className="rounded-xl bg-success/5 border border-success/20 p-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Lock size={12} className="text-success" />
+                    <p className="text-xs font-semibold text-success">AES-256-GCM</p>
+                  </div>
+                  <p className="text-2xs text-gray-400">
+                    Key re-derived on demand via HKDF-SHA256. Authentication tag ensures tamper detection.
+                  </p>
+                </div>
+              </dl>
+            </div>
           )}
 
           {tab === 'permissions' && (
@@ -769,9 +833,11 @@ export function VaultDetailSidePanel({
           <button
             type="button"
             onClick={onDelete}
-            className="w-full flex items-center justify-center gap-2 text-xs text-red-400 hover:text-red-300 py-2"
+            disabled={deleting}
+            className="w-full flex items-center justify-center gap-2 text-xs text-red-400 hover:text-red-300 py-2 disabled:opacity-60"
           >
-            <Trash2 size={14} /> Remove from Vault
+            {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+            {deleting ? 'Removing…' : 'Remove from Vault'}
           </button>
         </div>
       </div>

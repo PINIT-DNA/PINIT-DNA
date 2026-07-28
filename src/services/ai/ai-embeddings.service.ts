@@ -298,6 +298,7 @@ export class AIEmbeddingsService {
     tamperLocalization?: Record<string, unknown>;
     screenshotDetection?: Record<string, unknown>;
     aiManipulation?: Record<string, unknown>;
+    authenticityEnsemble?: Record<string, unknown>;
     matchReasons?: Array<{ signal: string; label: string; percent: number; matched: boolean }>;
     processingMs?: number;
   } | null> {
@@ -311,7 +312,7 @@ export class AIEmbeddingsService {
 
       const { data } = await client.post('/cv/forensic-scan', form, {
         headers: form.getHeaders(),
-        timeout: 90_000,
+        timeout: 120_000,
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const d = data as any;
@@ -325,6 +326,7 @@ export class AIEmbeddingsService {
         tamperLocalization: d.tamperLocalization ?? undefined,
         screenshotDetection: d.screenshotDetection ?? undefined,
         aiManipulation: d.aiManipulation ?? undefined,
+        authenticityEnsemble: d.authenticityEnsemble ?? undefined,
         matchReasons: d.matchReasons ?? undefined,
         processingMs: d.processingMs,
       };

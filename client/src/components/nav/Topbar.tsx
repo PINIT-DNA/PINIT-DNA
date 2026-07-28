@@ -9,7 +9,7 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   '/':                    { title: 'Dashboard',             subtitle: 'System overview & analytics'              },
   '/business':            { title: 'Business Dashboard',    subtitle: 'Organization overview & operations'       },
   '/generate':            { title: 'Protect file',           subtitle: 'Create a fingerprint to prove ownership' },
-  '/vault':               { title: 'Files',                  subtitle: 'Your protected & encrypted files'         },
+  '/vault':               { title: 'Digital Assets',         subtitle: 'Your protected & encrypted files'         },
   '/vault-integrity':     { title: 'Vault Integrity',        subtitle: 'Verify encrypted files exist on disk'   },
   '/dna-records':         { title: 'DNA Records',             subtitle: 'All generated fingerprint records'      },
   '/timeline':            { title: 'View in Timeline',        subtitle: 'Complete lifecycle audit trail'         },

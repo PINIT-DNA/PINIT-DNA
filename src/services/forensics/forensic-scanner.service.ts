@@ -47,9 +47,46 @@ export interface ForensicScanResult {
   };
   aiManipulation?: {
     aiEdited?: boolean;
+    aiGenerated?: boolean;
+    aiGeneratedConfidence?: number;
+    generatedConfidencePercent?: number;
     confidencePercent?: number;
     reason?: string;
     reasons?: string[];
+    clip?: Record<string, unknown>;
+    ensembleVerdict?: string;
+    ensembleAuthenticityScore?: number;
+    ensembleTamperScore?: number;
+  };
+  authenticityEnsemble?: {
+    version?: string;
+    verdict?: string;
+    aiProbability?: number;
+    tamperScore?: number;
+    authenticityScore?: number;
+    confidence?: number;
+    confidenceLevel?: string;
+    aiGenerated?: boolean;
+    generatedConfidencePercent?: number;
+    engines?: Array<{
+      id: string;
+      name: string;
+      status: string;
+      score?: number;
+      summary?: string;
+      findings?: string[];
+    }>;
+    evidence?: Array<{
+      id: string;
+      engine: string;
+      severity: string;
+      title: string;
+      detail: string;
+      scoreImpact?: number;
+    }>;
+    reasons?: string[];
+    heatmapPngBase64?: string | null;
+    signals?: Record<string, unknown>;
   };
   matchReasons?: MatchReason[];
   processingMs?: number;
@@ -65,12 +102,14 @@ export class ForensicScannerService {
       return { available: false, overallConfidence: 0, candidates: [] };
     }
 
-    const online = await aiService.isOnline();
-    if (!online) {
-      return { available: false, overallConfidence: 0, candidates: [] };
+    // Attempt scan even if health cache says offline — ensemble may still respond
+    let result = await aiService.forensicScan(buffer, mimeType, referenceBuffer);
+    if (!result) {
+      const online = await aiService.isOnline();
+      if (online) {
+        result = await aiService.forensicScan(buffer, mimeType, referenceBuffer);
+      }
     }
-
-    const result = await aiService.forensicScan(buffer, mimeType, referenceBuffer);
     if (!result) {
       return { available: false, overallConfidence: 0, candidates: [] };
     }
@@ -104,6 +143,7 @@ export class ForensicScannerService {
       tamperLocalization: result.tamperLocalization,
       screenshotDetection: result.screenshotDetection,
       aiManipulation: result.aiManipulation,
+      authenticityEnsemble: result.authenticityEnsemble,
       matchReasons: result.matchReasons,
       processingMs: result.processingMs,
     };

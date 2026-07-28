@@ -23,6 +23,8 @@ import {
   listProtectedFileShares,
   revokeVaultTep,
   deleteVaultRecord,
+  analyzeVaultContent,
+  reanalyzeAllVaultContent,
 } from '../controllers/vault.controller';
 import { vaultIntegrityCheck } from '../controllers/integrity.controller';
 import { requireAuth } from '../middleware/auth.middleware';
@@ -54,6 +56,8 @@ router.get('/integrity-check', requireAuth, vaultIntegrityCheck);
 router.get('/protected-shares', requireAuth, listProtectedFileShares);
 router.post('/local-dna/backfill', requireAuth, backfillLocalDnaIndex);
 router.post('/store', requireAuth, uploadSingle, storeInVault);
+/** POST /vault/reanalyze-all — refresh content analysis for all accessible vault files */
+router.post('/reanalyze-all', requireAuth, reanalyzeAllVaultContent);
 
 /**
  * GET /vault/:id
@@ -79,6 +83,9 @@ router.get('/:id/preview', requireAuth, requireVaultOwnership, previewVaultFile)
  *   X-Vault-Id: uuid
  */
 router.post('/:id/retrieve', requireAuth, requireVaultOwnership, retrieveFromVault);
+
+/** POST /vault/:id/analyze-content — whole-file analysis for Details tab */
+router.post('/:id/analyze-content', requireAuth, requireVaultOwnership, analyzeVaultContent);
 
 /**
  * POST /vault/:id/protected-download/prepare

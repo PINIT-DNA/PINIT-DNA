@@ -10,7 +10,7 @@
 
 import { Router } from 'express';
 import { uploadSingle, uploadComparison } from '../middleware/upload.middleware';
-import { listDnaRecords, generateDna, verifyDna, getDnaRecord, getSupportedTypes, getDuplicateAttempts, getDnaStorageAudit } from '../controllers/dna.controller';
+import { listDnaRecords, generateDna, verifyDna, getDnaRecord, getSupportedTypes, getDuplicateAttempts, getDnaStorageAudit, recoverOwnershipFromImage } from '../controllers/dna.controller';
 import { compareDna } from '../controllers/comparison.controller';
 import { autoCompareDna } from '../controllers/auto-compare.controller';
 import {
@@ -56,6 +56,12 @@ router.get('/duplicate-attempts', requireAuth, getDuplicateAttempts);
 router.get('/storage-audit', requireAuth, getDnaStorageAudit);
 
 router.post('/generate', requireAuth, uploadSingle, generateDna);
+
+/**
+ * POST /dna/recover-ownership
+ * Upload full image or crop/fragment → recover vault/user ownership watermark.
+ */
+router.post('/recover-ownership', requireAuth, uploadSingle, recoverOwnershipFromImage);
 
 /**
  * POST /dna/compare

@@ -334,6 +334,7 @@ export class VaultService {
   /**
    * Remove encrypted file from storage and delete the vault record.
    * DNA record is retained for audit; share links for this vault are deactivated.
+   * DB row is deleted first so the UI can update immediately; storage cleanup is best-effort after.
    */
   async delete(vaultId: string, ownerUserId: string): Promise<{ vaultId: string; dnaRecordId: string }> {
     const record = await prisma.vaultRecord.findUnique({
@@ -344,26 +345,37 @@ export class VaultService {
     assertRecordOwner(record.dnaRecord?.ownerUserId, ownerUserId, 'Vault');
 
     const storageOwner = record.dnaRecord?.ownerUserId ?? ownerUserId;
-
-    if (USE_LOCAL) {
-      await fs.unlink(path.join(LOCAL_DIR, `${vaultId}.enc`)).catch(() => {});
-    } else if (isSupabaseStorageConfigured()) {
-      await deleteVaultFile(vaultId, {
-        ownerUserId: storageOwner,
-        storedPath: record.encryptedFilePath,
-      });
-    }
+    const encryptedFilePath = record.encryptedFilePath;
+    const dnaRecordId = record.dnaRecordId;
+    const originalFileName = record.originalFileName;
 
     await prisma.shareLink.updateMany({
       where: { vaultId },
       data: { isActive: false },
     });
 
+    // Remove DB row first — client list updates as soon as this returns
     await prisma.vaultRecord.delete({ where: { id: vaultId } });
+
+    // Storage cleanup after DB delete (do not block the API response on slow Supabase I/O)
+    void (async () => {
+      try {
+        if (USE_LOCAL) {
+          await fs.unlink(path.join(LOCAL_DIR, `${vaultId}.enc`)).catch(() => {});
+        } else if (isSupabaseStorageConfigured()) {
+          await deleteVaultFile(vaultId, {
+            ownerUserId: storageOwner,
+            storedPath: encryptedFilePath,
+          });
+        }
+      } catch (err) {
+        logger.warn('Vault — storage cleanup failed after DB delete', { vaultId, error: String(err) });
+      }
+    })();
 
     try {
       const { aiService } = await import('../ai/ai-embeddings.service');
-      void aiService.removeFromIndex(record.dnaRecordId).catch(() => {});
+      void aiService.removeFromIndex(dnaRecordId).catch(() => {});
     } catch {
       /* non-fatal */
     }
@@ -372,8 +384,8 @@ export class VaultService {
       const { forensicProvenanceService } = await import('../forensics/forensic-provenance.service');
       forensicProvenanceService.appendAsync({
         eventType: 'VAULT_DELETED',
-        summary: `Removed from vault — ${record.originalFileName}`,
-        dnaRecordId: record.dnaRecordId,
+        summary: `Removed from vault — ${originalFileName}`,
+        dnaRecordId,
         vaultId,
         actorUserId: ownerUserId,
         dedupeKey: `vault_deleted:${vaultId}`,
@@ -382,17 +394,17 @@ export class VaultService {
       /* non-fatal */
     }
 
-    logger.info('Vault — record deleted', { vaultId, dnaRecordId: record.dnaRecordId });
+    logger.info('Vault — record deleted', { vaultId, dnaRecordId });
 
     import('../platform-events/module-events').then(({ emitVaultDeleted }) => {
       emitVaultDeleted({
         ownerUserId,
         vaultId,
-        dnaRecordId: record.dnaRecordId,
-        filename: record.originalFileName,
+        dnaRecordId,
+        filename: originalFileName,
       });
     }).catch(() => {});
 
-    return { vaultId, dnaRecordId: record.dnaRecordId };
+    return { vaultId, dnaRecordId };
   }
 }

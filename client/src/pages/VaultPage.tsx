@@ -889,7 +889,7 @@ function VaultGalleryCard({
 }
 
 export function VaultPage() {
-  const { data: records, loading, error, refetch } = useApi(listVaultRecords);
+  const { data: records, loading, error, refetch, setData: setRecords } = useApi(listVaultRecords);
   const [search, setSearch]     = useState('');
   const [selected, setSelected] = useState<VaultRecord | null>(null);
   const [sharing, setSharing]   = useState<VaultRecord | null>(null);
@@ -899,22 +899,29 @@ export function VaultPage() {
   const [aiSearching, setAiSearching] = useState(false);
   const [viewMode, setViewMode] = useState<'gallery' | 'list'>('gallery');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
-
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const handleShare = (record: VaultRecord) => {
     setSharing(record);
   };
 
   const handleDelete = async (record: VaultRecord) => {
     if (!window.confirm(`Delete "${record.originalFileName}" from vault?`)) return;
+    const previous = records;
+    setDeletingId(record.id);
+    // Optimistic UI — remove card + close panel immediately
+    setRecords((prev) => (prev ?? []).filter((r) => r.id !== record.id));
+    if (selected?.id === record.id) setSelected(null);
+    if (sharing?.id === record.id) setSharing(null);
+    if (protecting?.id === record.id) setProtecting(null);
     try {
       await deleteVaultRecord(record.id);
-      if (selected?.id === record.id) setSelected(null);
-      if (sharing?.id === record.id) setSharing(null);
-      if (protecting?.id === record.id) setProtecting(null);
       toast.success('File removed from vault');
-      refetch();
     } catch {
+      setRecords(previous);
       toast.error('Failed to delete file');
+      refetch();
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -975,7 +982,7 @@ export function VaultPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold text-white">Vault Explorer</h1>
+          <h1 className="text-xl font-bold text-white">Digital Assets</h1>
           <p className="text-sm text-gray-500 mt-0.5">AES-256-GCM encrypted file storage</p>
         </div>
         <div className="flex items-center gap-3">
@@ -1246,6 +1253,7 @@ export function VaultPage() {
             onClose={() => setSelected(null)}
             onShare={() => handleShare(selected)}
             onDelete={() => handleDelete(selected)}
+            deleting={deletingId === selected.id}
           />
         )}
 

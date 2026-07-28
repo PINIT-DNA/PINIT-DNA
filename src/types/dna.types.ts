@@ -171,10 +171,14 @@ export interface StegoLayerResult extends LayerResult {
     carrierPath: string | null;
     /** EDS content seal (identity) */
     contentSealHmac?: string;
-    /** Random LSB trace HMAC (ownership) — may differ from payloadHmac when deterministic */
+    /** Ownership watermark HMAC (stable for same ownership tile) */
     stegoTraceHmac?: string;
     contentSealAlgorithmId?: string;
     deterministic?: boolean;
+    /** Full ownership signature details persisted with the file */
+    ownershipSignature?: Record<string, unknown>;
+    ownershipAlgorithm?: string;
+    ownershipTileCount?: number;
   };
 }
 
@@ -350,6 +354,9 @@ export interface GenerateDnaResponse {
     totalProcessingMs: number;
   };
   generatedAt: string;
+  /** Whole-file authenticity report (also persisted on DnaRecord.fileAnalysis) */
+  fileAnalysisLabel?: string | null;
+  fileAnalysis?: import('../services/vault/authenticity.types').VaultContentAnalysis | null;
 }
 
 export interface VerifyDnaRequest {
@@ -388,6 +395,10 @@ export interface GetDnaRecordResponse {
       metadata: boolean;
       steganography: boolean;
     };
+    /** Stored ownership watermark details for this file (if embedded) */
+    ownershipSignature?: Record<string, unknown> | null;
+    ownershipAlgorithm?: string | null;
+    ownershipTileCount?: number | null;
     createdAt: string;
     updatedAt: string;
   };

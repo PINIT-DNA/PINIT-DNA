@@ -33,6 +33,11 @@ try:
 except ImportError:
     deepfake_service = None
 
+try:
+    from ..authenticity_ensemble import authenticity_ensemble_service
+except ImportError:
+    authenticity_ensemble_service = None
+
 BASE_DIR = Path(__file__).resolve().parents[2]
 TILE_INDEX_FILE = BASE_DIR / "data" / "tile_faiss_index.bin"
 TILE_META_FILE = BASE_DIR / "data" / "tile_metadata.json"
@@ -640,6 +645,23 @@ class ForensicScannerService(EnterpriseAIService):
             if ai.success:
                 ai_edit_data = ai.data
 
+        authenticity_ensemble: dict[str, Any] | None = None
+        if authenticity_ensemble_service and authenticity_ensemble_service.is_available():
+            ens = authenticity_ensemble_service.analyze(image_bytes, "image/jpeg")
+            if ens.success and not ens.data.get("skipped"):
+                authenticity_ensemble = ens.data
+                # Prefer ensemble AI signal for downstream consumers
+                if ai_edit_data is not None:
+                    ai_edit_data = {
+                        **ai_edit_data,
+                        "aiGenerated": ens.data.get("aiGenerated", ai_edit_data.get("aiGenerated")),
+                        "aiGeneratedConfidence": ens.data.get("aiGeneratedConfidence"),
+                        "generatedConfidencePercent": ens.data.get("generatedConfidencePercent"),
+                        "ensembleVerdict": ens.data.get("verdict"),
+                        "ensembleAuthenticityScore": ens.data.get("authenticityScore"),
+                        "ensembleTamperScore": ens.data.get("tamperScore"),
+                    }
+
         crop_data: dict[str, Any] = {}
         tamper_localization: dict[str, Any] = {}
         if reference_bytes:
@@ -713,6 +735,7 @@ class ForensicScannerService(EnterpriseAIService):
             "clipSearch": {"candidates": clip_candidates},
             "screenshotDetection": screenshot_data or None,
             "aiManipulation": ai_edit_data or None,
+            "authenticityEnsemble": authenticity_ensemble,
             "cropDetection": crop_data or None,
             "tamperLocalization": tamper_localization or None,
             "candidates": candidates,

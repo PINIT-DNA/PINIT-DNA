@@ -8,6 +8,10 @@ import numpy as np
 from PIL import Image
 
 from ..base import EnterpriseAIService, ServiceResult
+try:
+    from ..semantic_embeddings import semantic_embeddings_service
+except ImportError:
+    semantic_embeddings_service = None
 
 
 class DeepfakeService(EnterpriseAIService):
@@ -27,6 +31,7 @@ class DeepfakeService(EnterpriseAIService):
             "available": self.is_available(),
             "capabilities": [
                 "ai_edit_heuristics",
+                "clip_zero_shot_ai_generation",
                 "ela_analysis",
                 "noise_inconsistency",
                 "background_replacement_hint",
@@ -82,31 +87,71 @@ class DeepfakeService(EnterpriseAIService):
 
             reasons: list[str] = []
             score = 0.0
+            hard_hits = 0
+            ai_generated = False
+            generated_confidence = 0.0
+            clip_result: dict[str, Any] | None = None
 
-            if ela > 0.08:
+            # Elevated ELA = possible edit / re-export (not missing EXIF)
+            if ela > 0.12:
                 reasons.append("JPEG recompression artifacts (possible edit/export)")
-                score += min(0.35, ela * 2)
+                score += min(0.35, ela * 1.6)
+                hard_hits += 1
+            elif ela > 0.08:
+                reasons.append("Mild JPEG recompression residual")
+                score += min(0.15, ela)
 
-            if noise_inc > 0.45:
+            if noise_inc > 0.55:
                 reasons.append("Inconsistent noise patterns across regions")
-                score += min(0.30, noise_inc * 0.4)
+                score += min(0.30, noise_inc * 0.35)
+                hard_hits += 1
 
-            # Smooth background vs sharp foreground (inpaint / replace hint)
+            # Smooth background vs sharp foreground (inpaint / replace hint) — strict gate
             blur = cv2.GaussianBlur(gray, (15, 15), 0)
             edge = cv2.Canny(gray, 60, 140)
             fg = edge > 0
-            if fg.sum() > 100:
-                bg_noise = blur[~fg].std() if (~fg).sum() > 0 else 0
-                fg_noise = gray[fg].std() if fg.sum() > 0 else 0
-                if bg_noise < fg_noise * 0.45:
-                    reasons.append("Background smoother than foreground (possible replacement)")
-                    score += 0.22
+            if fg.sum() > 500:
+                bg_noise = float(blur[~fg].std()) if (~fg).sum() > 0 else 0.0
+                fg_noise = float(gray[fg].std()) if fg.sum() > 0 else 0.0
+                if fg_noise > 8 and bg_noise < fg_noise * 0.30:
+                    reasons.append("Background much smoother than foreground (possible replacement)")
+                    score += 0.18
+                    hard_hits += 1
 
-            ai_edited = score >= 0.35
-            confidence = round(min(0.95, score + 0.1 if len(reasons) >= 2 else score), 4)
+            edge_density = float(fg.sum()) / float(gray.size)
+
+            # CLIP is the primary AI-generation signal — heuristics alone must not dominate
+            if semantic_embeddings_service and semantic_embeddings_service.is_available():
+                clip = semantic_embeddings_service.classify_ai_generation(media_bytes)
+                if clip.success:
+                    clip_result = clip.data
+                    generated_confidence = float(clip.data.get("aiGeneratedConfidence", 0.0) or 0.0)
+                    ai_generated = bool(clip.data.get("aiGenerated", False))
+                    top_prompt = clip.data.get("topPrompt")
+                    if generated_confidence >= 0.58:
+                        reasons.append(
+                            f'CLIP zero-shot matched "{top_prompt}" ({round(generated_confidence * 100, 1)}%)'
+                        )
+                        hard_hits += 1
+                    score += min(0.40, generated_confidence * 0.40)
+
+            # Confusion-matrix style gate: need CLIP agreement OR ≥2 hard forensic hits
+            # Clean photos without elevated ELA must NOT be labeled edited
+            ai_edited = False
+            if ela > 0.12 and hard_hits >= 2 and score >= 0.50:
+                ai_edited = True
+            elif generated_confidence >= 0.58 and ela > 0.10 and score >= 0.45:
+                ai_edited = True
+            elif hard_hits >= 3 and score >= 0.70:
+                ai_edited = True
+
+            confidence = round(min(0.95, score if ai_edited else min(score, 0.22)), 4)
 
             return ServiceResult(True, {
                 "aiEdited": ai_edited,
+                "aiGenerated": ai_generated or generated_confidence >= 0.62,
+                "aiGeneratedConfidence": round(generated_confidence, 4),
+                "generatedConfidencePercent": round(generated_confidence * 100, 1),
                 "confidence": confidence,
                 "confidencePercent": round(confidence * 100, 1),
                 "reason": reasons[0] if reasons else "No strong AI-edit indicators",
@@ -114,7 +159,9 @@ class DeepfakeService(EnterpriseAIService):
                 "signals": {
                     "elaScore": round(ela, 4),
                     "noiseInconsistency": round(noise_inc, 4),
+                    "edgeDensity": round(edge_density, 4),
                 },
+                "clip": clip_result,
             }, "OK", self.name)
         except Exception as exc:
             return ServiceResult(False, {}, str(exc), self.name)

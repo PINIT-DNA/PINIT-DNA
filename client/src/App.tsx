@@ -69,6 +69,7 @@ export default function App() {
         totalLayers:      result.summary.totalLayers,
         totalProcessingMs: result.summary.totalProcessingMs,
         generatedAt:      result.generatedAt,
+        fileAnalysis:     result.fileAnalysis ?? null,
       });
 
       setTimeout(() => setStage('encrypting'), 400);
@@ -98,7 +99,11 @@ export default function App() {
   }, []);
 
   const handleVaultComplete = useCallback((vault: VaultStoreResponse) => {
-    setSession((prev) => (prev ? { ...prev, vault } : prev));
+    setSession((prev) => (prev ? {
+      ...prev,
+      vault,
+      fileAnalysis: vault.contentAnalysis ?? prev.fileAnalysis ?? null,
+    } : prev));
     setTimeout(() => setStage('readying'), 400);
   }, []);
 

@@ -19,6 +19,18 @@ CLIP_INDEX_FILE = BASE_DIR / "data" / "clip_faiss_index.bin"
 CLIP_META_FILE = BASE_DIR / "data" / "clip_metadata.json"
 CLIP_DIM = 512
 CLIP_MODEL_ID = "openai/clip-vit-base-patch32"
+AI_PROMPTS = [
+    "an AI-generated image",
+    "a synthetic image",
+    "a rendered digital artwork",
+    "a diffusion-generated image",
+]
+REAL_PROMPTS = [
+    "a real camera photo",
+    "a natural photograph",
+    "an unedited real-world photo",
+    "a smartphone camera image",
+]
 
 
 class SemanticEmbeddingsService(EnterpriseAIService):
@@ -46,7 +58,7 @@ class SemanticEmbeddingsService(EnterpriseAIService):
             "model": CLIP_MODEL_ID,
             "dimension": CLIP_DIM,
             "indexed": self._clip_index.ntotal if self._clip_index else 0,
-            "capabilities": ["clip_image_embedding", "clip_faiss_search"],
+            "capabilities": ["clip_image_embedding", "clip_faiss_search", "clip_zero_shot_ai_generation"],
         }
 
     def _load_clip_index(self) -> None:
@@ -105,6 +117,54 @@ class SemanticEmbeddingsService(EnterpriseAIService):
             return ServiceResult(True, {
                 "embedding": vec.tolist(),
                 "dimension": len(vec),
+                "model": CLIP_MODEL_ID,
+            }, "OK", self.name)
+        except Exception as exc:
+            return ServiceResult(False, {}, str(exc), self.name)
+
+    def classify_ai_generation(self, image_bytes: bytes) -> ServiceResult:
+        if not self._ensure_model():
+            return ServiceResult(False, {}, "CLIP model unavailable", self.name)
+
+        import torch
+
+        try:
+            img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+            prompts = AI_PROMPTS + REAL_PROMPTS
+            inputs = self._processor(
+                text=prompts,
+                images=img,
+                return_tensors="pt",
+                padding=True,
+            )
+            if torch.cuda.is_available():
+                inputs = {k: v.cuda() for k, v in inputs.items()}
+
+            with torch.no_grad():
+                outputs = self._model(**inputs)
+                logits = outputs.logits_per_image[0]
+                probs = torch.softmax(logits, dim=-1).detach().cpu().numpy()
+
+            pairs = list(zip(prompts, probs.tolist()))
+            ai_scores = probs[: len(AI_PROMPTS)]
+            real_scores = probs[len(AI_PROMPTS) :]
+            ai_prob = float(ai_scores.mean())
+            real_prob = float(real_scores.mean())
+            margin = ai_prob - real_prob
+            scaled_ai = max(0.0, min(1.0, 0.5 + margin * 1.6))
+            top_prompt, top_prob = max(pairs, key=lambda x: x[1])
+
+            return ServiceResult(True, {
+                "aiGenerated": scaled_ai >= 0.58,
+                "aiGeneratedConfidence": round(scaled_ai, 4),
+                "generatedConfidencePercent": round(scaled_ai * 100, 1),
+                "realConfidencePercent": round(real_prob * 100, 1),
+                "topPrompt": top_prompt,
+                "topPromptPercent": round(float(top_prob) * 100, 1),
+                "promptScores": [
+                    {"prompt": prompt, "percent": round(float(prob) * 100, 1)}
+                    for prompt, prob in pairs
+                ],
                 "model": CLIP_MODEL_ID,
             }, "OK", self.name)
         except Exception as exc:

@@ -151,7 +151,19 @@ export class DnaOrchestrator {
       (metadataResult as MetadataLayerResult).data?.metadataHash ?? '',
     ];
     const stegoResult = await this.runLayer(
-      () => this.layer6.generate(image, dnaRecordId, digestsL1toL5),
+      () => this.layer6.generate(image, dnaRecordId, digestsL1toL5, {
+        dnaRecordId,
+        ownerUserId: universalCtx?.ownerUserId ?? null,
+        vaultId: dnaRecordId,
+        filename: image.originalName,
+        mimeType: image.mimeType,
+        uploadedAt: new Date(),
+        ip: universalCtx?.ip ?? null,
+        country: universalCtx?.country ?? null,
+        city: universalCtx?.city ?? null,
+        userAgent: universalCtx?.userAgent ?? null,
+        sessionToken: universalCtx?.sessionToken ?? null,
+      }),
       'layer6'
     );
 
@@ -535,6 +547,9 @@ export class DnaOrchestrator {
 
       // ── Layer 6 ────────────────────────────────────────────────────────────
       if (layers.stego.success) {
+        const ownership = layers.stego.data.ownershipSignature as
+          | { dnaFingerprint?: string }
+          | undefined;
         await tx.stegoLayer.create({
           data: {
             dnaRecordId,
@@ -544,6 +559,10 @@ export class DnaOrchestrator {
             payloadHmac: layers.stego.data.payloadHmac,
             channel: layers.stego.data.channel,
             carrierPath: layers.stego.data.carrierPath,
+            ownershipSignature: layers.stego.data.ownershipSignature ?? undefined,
+            ownershipAlgorithm: layers.stego.data.ownershipAlgorithm ?? null,
+            ownershipTileCount: layers.stego.data.ownershipTileCount ?? null,
+            ownershipDnaFp: ownership?.dnaFingerprint ?? null,
           },
         });
       }

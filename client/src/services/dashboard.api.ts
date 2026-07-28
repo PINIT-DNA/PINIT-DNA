@@ -177,6 +177,27 @@ export async function getVaultRecord(id: string) {
   return data.vault ?? data;
 }
 
+/** Run / re-run image analysis for Vault Explorer Details. */
+export async function analyzeVaultContent(vaultId: string) {
+  const { data } = await api.post<{
+    success: boolean;
+    contentLabel: string;
+    contentAnalysis: VaultRecord['contentAnalysis'];
+  }>(`${API_BASE_URL}/vault/${vaultId}/analyze-content`);
+  return data;
+}
+
+/** Re-analyze every vault image. */
+export async function reanalyzeAllVaultContent() {
+  const { data } = await api.post<{
+    success: boolean;
+    total: number;
+    updated: number;
+    failed: number;
+  }>(`${API_BASE_URL}/vault/reanalyze-all`, {}, { timeout: 600_000 });
+  return data;
+}
+
 export async function deleteVaultRecord(vaultId: string): Promise<{ success: boolean; vaultId: string; dnaRecordId: string }> {
   const { data } = await api.delete<{ success: boolean; vaultId: string; dnaRecordId: string }>(
     `${API_BASE_URL}/vault/${vaultId}`,

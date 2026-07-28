@@ -1,0 +1,239 @@
+/**
+ * Whole-file authenticity report — one score panel + WHY evidence.
+ * Used after DNA protect (SuccessPanel) and Digital Assets Details.
+ */
+import { Microscope, ChevronRight, Shield, AlertTriangle, Sparkles } from 'lucide-react';
+import { Badge } from './ui/Badge';
+import type { VaultContentAnalysis } from '../types/dashboard.types';
+
+interface Props {
+  analysis: VaultContentAnalysis;
+  compact?: boolean;
+  title?: string;
+}
+
+function Meter({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: number;
+  color: string;
+}) {
+  const v = Math.max(0, Math.min(100, value ?? 0));
+  return (
+    <div>
+      <div className="flex items-center justify-between text-2xs mb-0.5">
+        <span className="text-gray-400">{label}</span>
+        <span className="font-semibold tabular-nums text-white">{v}%</span>
+      </div>
+      <div className="h-1.5 rounded-full bg-bg-base overflow-hidden">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${v}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function verdictBadgeVariant(
+  verdict: string,
+): 'success' | 'warning' | 'danger' | 'info' | 'muted' {
+  const v = verdict.toUpperCase();
+  if (v === 'ORIGINAL' || v === 'DOCUMENT' || v === 'COURSE_MATERIAL') return 'success';
+  if (v === 'SUSPICIOUS' || v === 'LIKELY_EDITED' || v === 'LIKELY_AI' || v === 'RECOMPRESSED' || v === 'METADATA_MODIFIED' || v === 'SCREENSHOT') {
+    return 'warning';
+  }
+  if (v === 'AI_GENERATED' || v === 'DEEPFAKE' || v === 'TAMPERED' || v === 'EDITED') return 'danger';
+  return 'info';
+}
+
+export function AuthenticityReportCard({
+  analysis,
+  compact = false,
+  title = 'Image analysis',
+}: Props) {
+  if (analysis.signals?.isImage === false || analysis.signals?.fileCategory && analysis.signals.fileCategory !== 'IMAGE') {
+    return null;
+  }
+  const verdict = analysis.verdictDisplay ?? analysis.labelDisplay ?? analysis.verdict ?? analysis.label;
+  const scores = analysis.scores;
+  const mix = analysis.composition ?? {
+    manualPercent: 100,
+    aiGeneratedPercent: 0,
+    editedPercent: 0,
+    screenshotPercent: 0,
+    courseMaterialPercent: 0,
+    tamperedPercent: 0,
+    recompressedPercent: 0,
+  };
+  const confidenceRaw = scores?.confidence ?? analysis.confidence ?? 0;
+  const confidencePct = confidenceRaw <= 1
+    ? Math.round(confidenceRaw * 100)
+    : Math.round(confidenceRaw);
+
+  const mixSegments = [
+    { key: 'manualPercent' as const, label: 'Original', color: 'bg-emerald-500', text: 'text-emerald-300' },
+    { key: 'aiGeneratedPercent' as const, label: 'AI', color: 'bg-rose-500', text: 'text-rose-300' },
+    { key: 'editedPercent' as const, label: 'Edited', color: 'bg-amber-500', text: 'text-amber-300' },
+    { key: 'screenshotPercent' as const, label: 'Screenshot', color: 'bg-sky-500', text: 'text-sky-300' },
+    { key: 'tamperedPercent' as const, label: 'Tampered', color: 'bg-orange-500', text: 'text-orange-300' },
+  ].filter((row) => (mix[row.key] ?? 0) > 0 || row.key === 'manualPercent');
+
+  // Prefer model/forensic evidence; skip redundant hash/category clutter in compact view
+  const evidenceItems = (analysis.evidence ?? []).filter((e) => {
+    if (compact && (e.id === 'hash-sha256' || e.engine === 'cryptographic')) return false;
+    return true;
+  });
+
+  return (
+    <div className="rounded-xl border border-bg-border bg-bg-elevated p-3.5 space-y-3">
+      <div className="flex items-center gap-2">
+        <Microscope size={14} className="text-dna-400 shrink-0" />
+        <p className="text-xs font-semibold text-white">{title}</p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant={verdictBadgeVariant(String(analysis.verdict ?? analysis.label))}>
+          {verdict}
+        </Badge>
+        <span className="text-2xs text-gray-400">
+          {confidencePct}% confidence
+          {scores?.confidenceLevel ? ` · ${scores.confidenceLevel}` : ''}
+        </span>
+      </div>
+
+      {analysis.summary && (
+        <p className="text-2xs text-gray-400 leading-relaxed">{analysis.summary}</p>
+      )}
+
+      {/* Single analysis panel — scores + one stacked mix bar (no duplicate graphs) */}
+      <div className="rounded-lg bg-bg-base/70 border border-bg-border p-2.5 space-y-2.5">
+        <div className="flex items-center gap-1.5">
+          <Shield size={11} className="text-dna-400" />
+          <p className="text-2xs font-semibold text-gray-400 uppercase tracking-wider">Analysis</p>
+        </div>
+        {scores && (
+          <>
+            <Meter label="Authenticity" value={scores.authenticityScore} color="bg-emerald-500" />
+            <Meter label="Tamper" value={scores.tamperScore} color="bg-amber-500" />
+            <Meter label="AI probability" value={scores.aiProbability} color="bg-rose-500" />
+          </>
+        )}
+        <div className="pt-1">
+          <p className="text-2xs text-gray-500 mb-1">Content mix</p>
+          <div className="h-2.5 rounded-full bg-bg-elevated overflow-hidden flex">
+            {mixSegments.map((row) => {
+              const pct = Math.max(0, Math.min(100, mix[row.key] ?? 0));
+              if (pct <= 0) return null;
+              return (
+                <div
+                  key={row.key}
+                  className={`h-full ${row.color}`}
+                  style={{ width: `${pct}%` }}
+                  title={`${row.label}: ${pct}%`}
+                />
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
+            {mixSegments.map((row) => {
+              const pct = mix[row.key] ?? 0;
+              if (pct <= 0 && row.key !== 'manualPercent') return null;
+              return (
+                <span key={row.key} className={`text-2xs tabular-nums ${row.text}`}>
+                  {row.label} {pct}%
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {!!evidenceItems.length && (
+        <div>
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <AlertTriangle size={11} className="text-amber-400" />
+            <p className="text-2xs font-semibold text-gray-400 uppercase tracking-wider">
+              Evidence (why)
+            </p>
+          </div>
+          <ul className="space-y-1.5 max-h-48 overflow-y-auto">
+            {evidenceItems.slice(0, compact ? 5 : 10).map((e) => (
+              <li key={e.id} className="text-2xs rounded-lg bg-bg-base/50 border border-bg-border/60 p-2">
+                <p className="text-gray-200 font-medium flex gap-1.5">
+                  <ChevronRight size={10} className="mt-0.5 shrink-0 text-dna-500" />
+                  <span>{e.title}</span>
+                </p>
+                <p className="text-gray-500 mt-0.5 pl-4 leading-snug">{e.detail}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {!evidenceItems.length && !!analysis.reasons?.length && (
+        <div>
+          <p className="text-2xs text-gray-500 mb-1">Findings</p>
+          <ul className="space-y-1">
+            {analysis.reasons.slice(0, 8).map((r) => (
+              <li key={r} className="text-2xs text-gray-300 flex gap-1.5">
+                <ChevronRight size={10} className="mt-0.5 shrink-0 text-dna-500" />
+                <span>{r}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {!compact && !!analysis.engines?.length && (
+        <div>
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <Sparkles size={11} className="text-dna-400" />
+            <p className="text-2xs font-semibold text-gray-400 uppercase tracking-wider">Engines</p>
+          </div>
+          <ul className="space-y-1">
+            {analysis.engines
+              .filter((eng) => eng.status !== 'SKIPPED' && eng.status !== 'UNAVAILABLE')
+              .map((eng) => (
+              <li
+                key={eng.id}
+                className="flex items-start justify-between gap-2 text-2xs rounded-lg bg-bg-base/40 px-2 py-1.5"
+              >
+                <span className="text-gray-300 min-w-0">
+                  <span className="font-medium text-gray-200">{eng.name}</span>
+                  <span className="block text-gray-500 truncate">{eng.summary}</span>
+                </span>
+                <Badge
+                  variant={
+                    eng.status === 'COMPLETE'
+                      ? 'success'
+                      : eng.status === 'FAILED'
+                        ? 'danger'
+                        : eng.status === 'PARTIAL'
+                          ? 'warning'
+                          : 'muted'
+                  }
+                >
+                  {eng.status}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {!compact && analysis.heatmapPngBase64 && (
+        <div>
+          <p className="text-2xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+            Suspicion heatmap
+          </p>
+          <img
+            src={`data:image/png;base64,${analysis.heatmapPngBase64}`}
+            alt="Forensic suspicion heatmap"
+            className="w-full rounded-lg border border-bg-border"
+          />
+        </div>
+      )}
+    </div>
+  );
+}

@@ -48,6 +48,10 @@ model DnaRecord {
   vaultRecord           VaultRecord?
   verifications         VerificationLog[]
 
+  /// Whole-file analysis snapshot (auto-run on DNA generate)
+  fileAnalysis          Json?
+  fileAnalysisLabel     String?
+
   // Layers 11-15
   deepfakeLayer         DeepfakeLayer?
   dctWatermarkLayer     DctWatermarkLayer?
@@ -309,17 +313,23 @@ model MetadataLayer {
 }
 
 model StegoLayer {
-  id           String    @id @default(uuid())
-  createdAt    DateTime  @default(now())
-  dnaRecordId  String    @unique
-  embedded     Boolean   @default(false)
-  capacityBits Int?
-  usedBits     Int?
-  payloadHmac  String    @db.Char(64)
-  channel      String    @default("B")
-  carrierPath  String?
-  dnaRecord    DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+  id                   String    @id @default(uuid())
+  createdAt            DateTime  @default(now())
+  dnaRecordId          String    @unique
+  embedded             Boolean   @default(false)
+  capacityBits         Int?
+  usedBits             Int?
+  payloadHmac          String    @db.Char(64)
+  channel              String    @default("B")
+  carrierPath          String?
+  /// Full ownership watermark details (vault/user/upload meta + tile fingerprints)
+  ownershipSignature   Json?
+  ownershipAlgorithm   String?
+  ownershipTileCount   Int?
+  ownershipDnaFp       String?   @db.Char(32)
+  dnaRecord            DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
 
+  @@index([ownershipDnaFp])
   @@map("stego_layers")
 }
 
@@ -403,8 +413,13 @@ model VaultRecord {
   keyDerivation       String    @default("HKDF-SHA256")
   ivHex               String    @db.Char(24)
   authTagHex          String    @db.Char(32)
+  /// Whole-file content class: ORIGINAL | AI_GENERATED | AI_EDITED | SCREENSHOT | DOCUMENT | COURSE_MATERIAL | UNKNOWN
+  contentLabel        String?
+  /// Full file-analysis snapshot shown in Vault Explorer Details
+  contentAnalysis     Json?
   dnaRecord           DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
 
+  @@index([contentLabel])
   @@map("vault_records")
 }
 

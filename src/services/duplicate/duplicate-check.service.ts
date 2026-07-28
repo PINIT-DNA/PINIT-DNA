@@ -1,7 +1,7 @@
 /**
  * PINIT-DNA — Duplicate File Prevention Service
  *
- * Runs BEFORE DNA generation. Checks the entire registry for:
+ * Runs BEFORE DNA generation. Checks the registry for:
  *   1. SHA-256 exact match  — catches any identical file (all types)
  *   2. TEP tracked export   — share-link download bytes
  *   3. Embedded PINIT identity — vault / LSB / binary tail
@@ -9,12 +9,11 @@
  *   5. Normalized pixel hash  — survives metadata / re-save
  *   6. pHash near-duplicate   — visually identical images (configurable threshold)
  *
- * If a duplicate is found:
- *   - Returns the existing DNA record ID + match details
- *   - Logs a DUPLICATE_UPLOAD_ATTEMPT audit event
- *   - Marks as HIGH_RISK when the uploader is different from the original
+ * Policy:
+ *   • Same PINIT account (ownerUserId) → ALLOW — user may protect the same file again
+ *   • Different PINIT account → BLOCK — file already has DNA under another user
  *
- * The caller (dna.controller.ts) must abort processing and return 409 Conflict.
+ * The caller (dna.controller.ts) must abort processing and return 409 Conflict when blocked.
  */
 
 import crypto from 'crypto';
@@ -108,8 +107,8 @@ export class DuplicateCheckService {
       ownerUser: { select: { shortId: true } },
     } as const;
 
-    // ── 1. SHA-256 exact match (all file types) — GLOBAL vault registry ───────
-    // Any user, any vault: identical bytes = same DNA identity (L1 Cryptographic Hash)
+    // ── 1. SHA-256 exact match (all file types) ───────────────────────────────
+    // Cross-account: block. Same account: allow re-upload (new DNA allowed).
     let exactMatchRecord = await prisma.dnaRecord.findFirst({
       where: { sha256Hash: sha256, status: { in: ['COMPLETE', 'PARTIAL', 'PROCESSING'] } },
       select: recordSelect,
@@ -125,9 +124,17 @@ export class DuplicateCheckService {
 
     if (exactMatchRecord) {
       const rec = exactMatchRecord;
+      if (this._isSameAccount(rec.ownerUserId, uploaderUserId)) {
+        logger.info('[DuplicateCheck] Same-account re-upload allowed (EXACT_HASH)', {
+          sha256: sha256.slice(0, 16) + '…',
+          existingRecordId: rec.id,
+          uploaderUserId,
+        });
+        return { isDuplicate: false, isHighRisk: false };
+      }
+
       const ownerShortId = rec.ownerUser?.shortId ?? undefined;
-      const isHighRisk = this._isCrossUserUpload(rec.ownerUserId, uploaderUserId)
-        || await this._isHighRisk(rec.id, uploaderIp);
+      const isHighRisk = true;
 
       await this._logAttempt({
         sha256,
@@ -143,7 +150,7 @@ export class DuplicateCheckService {
         req,
       });
 
-      logger.warn('[DuplicateCheck] EXACT duplicate blocked (global registry)', {
+      logger.warn('[DuplicateCheck] EXACT duplicate blocked (cross-account)', {
         sha256: sha256.slice(0, 16) + '…',
         existingRecordId: rec.id,
         ownerShortId,
@@ -240,6 +247,11 @@ export class DuplicateCheckService {
       });
       if (!rec) return null;
 
+      if (this._isSameAccount(rec.ownerUserId, (req as { user?: { sub?: string } }).user?.sub)) {
+        logger.info('[DuplicateCheck] Same-account TEP re-upload allowed', { dnaRecordId: rec.id });
+        return null;
+      }
+
       if (tep.tepCode) {
         await tepService.markRediscovered(tep.tepCode);
         await auditService.log({
@@ -313,9 +325,17 @@ export class DuplicateCheckService {
       }
 
       const uploaderUserId = (req as { user?: { sub?: string } }).user?.sub;
+
+      if (rec && this._isSameAccount(rec.ownerUserId, uploaderUserId)) {
+        logger.info('[DuplicateCheck] Same-account PINIT signature re-upload allowed', {
+          dnaRecordId: rec.id,
+        });
+        return null;
+      }
+
       const ownerShortId = rec?.ownerUser?.shortId ?? hit.ownerShortId;
       const isHighRisk = rec
-        ? this._isCrossUserUpload(rec.ownerUserId, uploaderUserId) || await this._isHighRisk(rec.id, uploaderIp)
+        ? await this._isHighRisk(rec.id, uploaderIp)
         : true;
 
       await this._logAttempt({
@@ -386,11 +406,16 @@ export class DuplicateCheckService {
       });
       if (!rec) return null;
 
-      const ownerShortId = rec.ownerUser?.shortId ?? undefined;
       const uploaderUserId = (req as { user?: { sub?: string } }).user?.sub;
-      const isHighRisk = this._isCrossUserUpload(rec.ownerUserId, uploaderUserId)
-        || !identity.valid
-        || await this._isHighRisk(rec.id, uploaderIp);
+      if (this._isSameAccount(rec.ownerUserId, uploaderUserId)) {
+        logger.info('[DuplicateCheck] Same-account embedded identity re-upload allowed', {
+          dnaId: identity.dnaId,
+        });
+        return null;
+      }
+
+      const ownerShortId = rec.ownerUser?.shortId ?? undefined;
+      const isHighRisk = !identity.valid || await this._isHighRisk(rec.id, uploaderIp);
 
       await this._logAttempt({
         sha256,
@@ -558,8 +583,17 @@ export class DuplicateCheckService {
     pHashSimilarity?: number;
   }): Promise<DuplicateCheckResult> {
     const { rec, sha256, originalName, mimeType, uploaderIp, req, matchType, pHashSimilarity } = params;
-    const ownerShortId = rec.ownerUser?.shortId ?? undefined;
     const uploaderUserId = (req as { user?: { sub?: string } }).user?.sub;
+
+    if (this._isSameAccount(rec.ownerUserId, uploaderUserId)) {
+      logger.info(`[DuplicateCheck] Same-account re-upload allowed (${matchType})`, {
+        existingRecordId: rec.id,
+        uploaderUserId,
+      });
+      return { isDuplicate: false, isHighRisk: false };
+    }
+
+    const ownerShortId = rec.ownerUser?.shortId ?? undefined;
     const isHighRisk = this._isCrossUserUpload(rec.ownerUserId, uploaderUserId)
       || await this._isHighRisk(rec.id, uploaderIp);
 
@@ -577,7 +611,7 @@ export class DuplicateCheckService {
       req,
     });
 
-    logger.warn(`[DuplicateCheck] ${matchType} blocked (global registry)`, {
+    logger.warn(`[DuplicateCheck] ${matchType} blocked (cross-account)`, {
       existingRecordId: rec.id,
       ownerShortId,
       pHashSimilarity,
@@ -595,6 +629,13 @@ export class DuplicateCheckService {
       pHashSimilarity,
       isHighRisk,
     };
+  }
+
+  // ── Same PINIT account → allow duplicate uploads ───────────────────────────
+
+  private _isSameAccount(originalOwnerId: string | null | undefined, uploaderUserId?: string): boolean {
+    if (!originalOwnerId || !uploaderUserId) return false;
+    return originalOwnerId === uploaderUserId;
   }
 
   // ── Cross-user: different PINIT account re-uploading an existing file ────────
@@ -665,7 +706,7 @@ export class DuplicateCheckService {
         riskLevel:           params.isHighRisk ? 'HIGH' : 'LOW',
         pHashSimilarity:     params.pHashSimilarity,
         blocked:             true,
-        scope:               'GLOBAL_VAULT_REGISTRY',
+        scope:               'CROSS_ACCOUNT_REGISTRY',
         crossUser:           this._isCrossUserUpload(params.ownerUserId, uploaderUserId),
         ...params.extraDetail,
       },
@@ -673,7 +714,7 @@ export class DuplicateCheckService {
 
     const crossUser = this._isCrossUserUpload(params.ownerUserId, uploaderUserId);
 
-    // Same-account re-upload: keep block + audit only (no owner spam).
+    // Same-account re-upload: allowed — no block, no owner alert.
     // Cross-account: alert the file owner that another PINIT ID tried to upload their file.
     if (crossUser && params.ownerUserId) {
       import('../platform-events/module-events').then(({ emitDuplicateUploadBlocked, emitDuplicateUploadAdminAlert }) => {

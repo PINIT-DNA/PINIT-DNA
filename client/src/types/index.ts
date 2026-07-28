@@ -43,6 +43,8 @@ export interface GenerateDnaResponse {
     totalProcessingMs: number;
   };
   generatedAt: string;
+  fileAnalysisLabel?: string | null;
+  fileAnalysis?: import('./dashboard.types').VaultContentAnalysis | null;
 }
 
 // ─── Supported File Types ─────────────────────────────────────────────────────
@@ -77,6 +79,8 @@ export interface VaultStoreResponse {
   originalSizeBytes: number;
   encryptionAlgorithm: string;
   storedAt: string;
+  contentLabel?: string | null;
+  contentAnalysis?: import('./dashboard.types').VaultContentAnalysis | null;
 }
 
 // ─── Final DNA Session ────────────────────────────────────────────────────────
@@ -95,6 +99,8 @@ export interface DnaSession {
   generatedAt: string;
   encryption?: EncryptionResult;
   vault?: VaultStoreResponse;
+  /** Whole-file authenticity from DNA generate (also copied to Vault Details) */
+  fileAnalysis?: import('./dashboard.types').VaultContentAnalysis | null;
   /** Protected tracked copy prepared after vault store */
   downloadReady?: boolean;
   tepCode?: string;

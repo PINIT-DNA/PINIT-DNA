@@ -1,14 +1,12 @@
 /**
- * PINIT-DNA — Layer 6: Hidden AI Signature (LSB) + EDS Content Integrity Seal
+ * PINIT-DNA — Layer 6: Ownership watermark (redundant LSB) + EDS content seal
  *
- * Milestone B Step 1:
- * - Random LSB token embed remains an OWNERSHIP TRACE (may vary per upload).
- * - Identity fingerprint is content_seal_hmac (HMAC over L1–L5 digests) when
- *   DNA_DETERMINISTIC_MODE is ON — stored as payloadHmac for compare SSoT.
- * - stegoTraceHmac (random) dual-written into identity package for LSB verify.
+ * - Tiles a compact ownership signature (DNA/vault id, user id, upload meta)
+ *   across EVERY blue-channel LSB so ~20% crops can still recover identity.
+ * - Full signature details are returned for DB persistence on the file record.
+ * - contentSealHmac remains the EDS identity seal over L1–L5 digests.
  */
 
-import crypto from 'crypto';
 import path from 'path';
 import sharp from 'sharp';
 import { ImageInput, StegoLayerResult } from '../../types/dna.types';
@@ -23,13 +21,17 @@ import {
   logIdentityLayerCompleted,
   logIdentityLayerStarted,
 } from '../dna/identity-generation-logger';
+import {
+  embedOwnershipWatermark,
+  extractOwnershipWatermark,
+  ownershipPayloadHmac,
+  OWNERSHIP_TILE_BITS,
+  OWNERSHIP_WM_ALGORITHM,
+  type OwnershipSignatureDetails,
+  type OwnershipWatermarkMeta,
+} from './ownership-watermark';
 
-const STEGO_MAGIC = 0x504e;
-const MAGIC_BITS = 16;
-const TOKEN_BYTES = 32;
-const TOKEN_BITS = TOKEN_BYTES * 8;
-const HMAC_BITS = 256;
-const TOTAL_PAYLOAD_BITS = MAGIC_BITS + TOKEN_BITS + HMAC_BITS;
+export type { OwnershipSignatureDetails, OwnershipWatermarkMeta };
 
 export class SteganographyLayer {
   readonly layerNumber = 6 as const;
@@ -38,11 +40,13 @@ export class SteganographyLayer {
 
   /**
    * @param digestsL1toL5 — ordered L1–L5 fingerprints for EDS content seal
+   * @param ownership — vault/user/upload metadata embedded redundantly in pixels
    */
   async generate(
     image: ImageInput,
     dnaRecordId: string,
     digestsL1toL5?: string[],
+    ownership?: OwnershipWatermarkMeta,
   ): Promise<StegoLayerResult> {
     const start = Date.now();
     const deterministic = isDnaDeterministicModeEnabled();
@@ -56,40 +60,43 @@ export class SteganographyLayer {
 
       const { width, height } = info;
       const totalPixels = width * height;
-      const capacityBits = totalPixels;
 
-      if (capacityBits < TOTAL_PAYLOAD_BITS) {
+      if (totalPixels < OWNERSHIP_TILE_BITS || width < 32 || height < 16) {
         throw new Error(
-          `Image too small to embed signature: needs ${TOTAL_PAYLOAD_BITS} pixels, has ${totalPixels}`,
+          `Image too small to embed ownership watermark: needs at least 32×16 (${OWNERSHIP_TILE_BITS} px), has ${width}×${height}`,
         );
       }
 
-      // Ownership trace token — intentionally random; NOT used as identity when deterministic
-      const token = crypto.randomBytes(TOKEN_BYTES);
-      const stegoTraceHmacBuf = crypto
-        .createHmac('sha256', config.stego.signatureSecret)
-        .update(token)
-        .digest();
-      const stegoTraceHmac = stegoTraceHmacBuf.toString('hex');
+      const ownershipMeta: OwnershipWatermarkMeta = {
+        dnaRecordId,
+        ownerUserId: ownership?.ownerUserId ?? null,
+        vaultId: ownership?.vaultId ?? dnaRecordId,
+        filename: ownership?.filename ?? image.originalName,
+        mimeType: ownership?.mimeType ?? image.mimeType,
+        uploadedAt: ownership?.uploadedAt ?? new Date(),
+        ip: ownership?.ip ?? null,
+        country: ownership?.country ?? null,
+        city: ownership?.city ?? null,
+        userAgent: ownership?.userAgent ?? null,
+        sessionToken: ownership?.sessionToken ?? null,
+      };
+
+      const { rgb: carrier, signature } = embedOwnershipWatermark(
+        rawRgb,
+        width,
+        height,
+        ownershipMeta,
+      );
 
       const digests = digestsL1toL5?.filter(Boolean) ?? [];
       const contentSealHmac =
         digests.length >= 1
           ? computeContentSealHmac('IMAGE', digests, config.stego.signatureSecret)
-          : stegoTraceHmac;
+          : ownershipPayloadHmac(signature.tileHex);
 
-      // Identity fingerprint for EDS is contentSealHmac (dual-written to identity package).
-      // payloadHmac stays stegoTraceHmac so existing LSB verify against DB continues to work
-      // until Milestone D reads identityDeterministic.contentSealHmac for compare.
-      const payloadHmac = stegoTraceHmac;
-
-      const bitStream = this.buildBitStream(token, stegoTraceHmacBuf);
-
-      const carrier = Buffer.from(rawRgb);
-      for (let i = 0; i < bitStream.length; i++) {
-        const blueByteIdx = i * 3 + 2;
-        carrier[blueByteIdx] = (carrier[blueByteIdx] & 0xfe) | bitStream[i];
-      }
+      // Stable ownership fingerprint (same ownership tile → same HMAC)
+      const payloadHmac = ownershipPayloadHmac(signature.tileHex);
+      const stegoTraceHmac = payloadHmac;
 
       const carrierPath = path.resolve(
         config.upload.tempDir,
@@ -107,8 +114,8 @@ export class SteganographyLayer {
         processingMs: Date.now() - start,
         data: {
           embedded: true,
-          capacityBits,
-          usedBits: TOTAL_PAYLOAD_BITS,
+          capacityBits: signature.capacityBits,
+          usedBits: signature.usedBits,
           payloadHmac,
           channel: this.channel,
           carrierPath,
@@ -116,6 +123,9 @@ export class SteganographyLayer {
           stegoTraceHmac,
           contentSealAlgorithmId: CONTENT_SEAL_ALGORITHM_ID,
           deterministic,
+          ownershipSignature: signature as unknown as Record<string, unknown>,
+          ownershipAlgorithm: OWNERSHIP_WM_ALGORITHM,
+          ownershipTileCount: signature.tileCount,
         },
       };
 
@@ -128,12 +138,14 @@ export class SteganographyLayer {
         deterministic,
       });
 
-      logger.debug('Layer 6 — complete', {
-        capacityBits,
-        usedBits: TOTAL_PAYLOAD_BITS,
+      logger.debug('Layer 6 — ownership watermark complete', {
+        capacityBits: signature.capacityBits,
+        usedBits: signature.usedBits,
+        tileCount: signature.tileCount,
+        dnaFingerprint: signature.dnaFingerprint,
+        ownerUserId: signature.ownerUserId?.slice(0, 8),
         payloadHmac: payloadHmac.substring(0, 16) + '...',
         contentSealHmac: contentSealHmac.substring(0, 16) + '...',
-        deterministic,
         processingMs: result.processingMs,
       });
 
@@ -181,71 +193,31 @@ export class SteganographyLayer {
     if (!stored.embedded || !stored.payloadHmac) return 0;
 
     try {
-      const { data: rawRgb } = await sharp(image.buffer)
+      const { data: rawRgb, info } = await sharp(image.buffer)
         .removeAlpha()
         .raw()
         .toBuffer({ resolveWithObject: true });
 
-      const totalPixels = rawRgb.length / 3;
-      if (totalPixels < TOTAL_PAYLOAD_BITS) return 0;
+      const extracted = extractOwnershipWatermark(rawRgb, info.width, info.height);
+      if (!extracted.found) return 0;
+      if (!extracted.sealValid || !extracted.tileHex) return 0.5;
 
-      const bits: number[] = [];
-      for (let i = 0; i < TOTAL_PAYLOAD_BITS; i++) {
-        bits.push(rawRgb[i * 3 + 2] & 1);
-      }
-
-      const magic = this.bitsToInt(bits.slice(0, MAGIC_BITS));
-      if (magic !== STEGO_MAGIC) return 0.0;
-
-      const tokenBits = bits.slice(MAGIC_BITS, MAGIC_BITS + TOKEN_BITS);
-      const token = this.bitsToBuffer(tokenBits);
-      const hmacBits = bits.slice(MAGIC_BITS + TOKEN_BITS, TOTAL_PAYLOAD_BITS);
-      const extractedHmac = this.bitsToBuffer(hmacBits).toString('hex');
-
-      const recomputedHmac = crypto
-        .createHmac('sha256', config.stego.signatureSecret)
-        .update(token)
-        .digest('hex');
-
-      if (recomputedHmac !== extractedHmac) return 0.5;
-
-      // Prefer stegoTraceHmac when dual-written; else legacy payloadHmac
-      const expectedTrace = stored.stegoTraceHmac || stored.payloadHmac;
-      if (extractedHmac === expectedTrace) return 1.0;
-      return 0.0;
+      const recomputed = ownershipPayloadHmac(extracted.tileHex);
+      const expected = stored.stegoTraceHmac || stored.payloadHmac;
+      if (recomputed === expected) return 1.0;
+      return 0.25;
     } catch (err) {
       logger.error('Layer 6 — verify error', { error: err });
       return 0;
     }
   }
 
-  private buildBitStream(token: Buffer, hmac: Buffer): number[] {
-    const bits: number[] = [];
-    for (let i = MAGIC_BITS - 1; i >= 0; i--) {
-      bits.push((STEGO_MAGIC >> i) & 1);
-    }
-    for (const byte of token) {
-      for (let i = 7; i >= 0; i--) bits.push((byte >> i) & 1);
-    }
-    for (const byte of hmac) {
-      for (let i = 7; i >= 0; i--) bits.push((byte >> i) & 1);
-    }
-    return bits;
-  }
-
-  private bitsToInt(bits: number[]): number {
-    return bits.reduce((acc, bit) => (acc << 1) | bit, 0);
-  }
-
-  private bitsToBuffer(bits: number[]): Buffer {
-    const bytes = new Uint8Array(bits.length / 8);
-    for (let i = 0; i < bytes.length; i++) {
-      let byte = 0;
-      for (let j = 0; j < 8; j++) {
-        byte = (byte << 1) | (bits[i * 8 + j] ?? 0);
-      }
-      bytes[i] = byte;
-    }
-    return Buffer.from(bytes);
+  /** Recover ownership tile from a full image or cropped fragment. */
+  async recoverOwnership(image: ImageInput) {
+    const { data: rawRgb, info } = await sharp(image.buffer)
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    return extractOwnershipWatermark(rawRgb, info.width, info.height);
   }
 }
