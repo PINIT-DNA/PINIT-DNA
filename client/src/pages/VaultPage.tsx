@@ -904,6 +904,13 @@ export function VaultPage() {
     setSharing(record);
   };
 
+  const handleRenamed = (vaultId: string, originalFileName: string) => {
+    setRecords((prev) =>
+      (prev ?? []).map((r) => (r.id === vaultId ? { ...r, originalFileName } : r)),
+    );
+    setSelected((prev) => (prev?.id === vaultId ? { ...prev, originalFileName } : prev));
+  };
+
   const handleDelete = async (record: VaultRecord) => {
     if (!window.confirm(`Delete "${record.originalFileName}" from vault?`)) return;
     const previous = records;
@@ -1253,6 +1260,7 @@ export function VaultPage() {
             onClose={() => setSelected(null)}
             onShare={() => handleShare(selected)}
             onDelete={() => handleDelete(selected)}
+            onRenamed={handleRenamed}
             deleting={deletingId === selected.id}
           />
         )}

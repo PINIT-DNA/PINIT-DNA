@@ -407,4 +407,45 @@ export class VaultService {
 
     return { vaultId, dnaRecordId };
   }
+
+  /** Update display name only — encrypted bytes and DNA hashes are unchanged. */
+  async rename(
+    vaultId: string,
+    ownerUserId: string,
+    newFileName: string,
+  ): Promise<{ vaultId: string; originalFileName: string }> {
+    const trimmed = newFileName.trim();
+    if (!trimmed || trimmed.length > 255) {
+      throw new Error('Invalid file name');
+    }
+    if (/[<>:"/\\|?*\u0000-\u001f]/.test(trimmed)) {
+      throw new Error('File name contains invalid characters');
+    }
+
+    const record = await prisma.vaultRecord.findUnique({
+      where: { id: vaultId },
+      include: { dnaRecord: { select: { ownerUserId: true, id: true } } },
+    });
+    if (!record) throw new Error(`Vault record not found: ${vaultId}`);
+    assertRecordOwner(record.dnaRecord?.ownerUserId, ownerUserId, 'Vault');
+
+    if (trimmed === record.originalFileName) {
+      return { vaultId, originalFileName: trimmed };
+    }
+
+    await prisma.$transaction([
+      prisma.vaultRecord.update({
+        where: { id: vaultId },
+        data: { originalFileName: trimmed },
+      }),
+      prisma.dnaRecord.update({
+        where: { id: record.dnaRecordId },
+        data: { imageFilename: trimmed },
+      }),
+    ]);
+
+    logger.info('Vault — file renamed', { vaultId, originalFileName: trimmed });
+
+    return { vaultId, originalFileName: trimmed };
+  }
 }

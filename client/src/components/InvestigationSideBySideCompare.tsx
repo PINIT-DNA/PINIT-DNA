@@ -16,6 +16,12 @@ export interface InvestigationSideBySideCompareProps {
   dnaRecordId?: string | null;
   certificateId?: string | null;
   reportState?: 'VERIFIED' | 'POSSIBLE' | 'NO_SIGNATURE';
+  differenceHeatmapBase64?: string | null;
+  modifiedPercent?: number | null;
+  insertedRegions?: number | null;
+  cropSharedPercent?: number | null;
+  cropMissingPercent?: number | null;
+  cropVisiblePercent?: number | null;
 }
 
 function isImageMime(mime?: string | null): boolean {
@@ -144,6 +150,12 @@ export function InvestigationSideBySideCompare({
   dnaRecordId,
   certificateId,
   reportState,
+  differenceHeatmapBase64,
+  modifiedPercent,
+  insertedRegions,
+  cropSharedPercent,
+  cropMissingPercent,
+  cropVisiblePercent,
 }: InvestigationSideBySideCompareProps) {
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
   const [originalMime, setOriginalMime] = useState<string | null>(null);
@@ -290,6 +302,76 @@ export function InvestigationSideBySideCompare({
           }
         />
       </div>
+
+      {(differenceHeatmapBase64 || modifiedPercent != null || insertedRegions != null
+        || cropSharedPercent != null || cropMissingPercent != null || cropVisiblePercent != null) && (
+        <div className="rounded-xl border border-red-500/25 bg-red-500/5 overflow-hidden">
+          <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-bg-border/50">
+            <span className="text-xs font-bold text-white">
+              {differenceHeatmapBase64 ? 'Difference Heatmap — Original vs Suspect' : 'Difference Analysis — Original vs Suspect'}
+            </span>
+            {(modifiedPercent != null || insertedRegions != null || cropMissingPercent != null) && (
+              <span className="text-2xs text-red-300 font-semibold">
+                {modifiedPercent != null
+                  ? `Modified ${modifiedPercent}%`
+                  : cropMissingPercent != null
+                    ? `Changed ${Math.round(cropMissingPercent)}%`
+                    : 'Changed regions'}
+                {insertedRegions != null ? ` · ${insertedRegions} region(s)` : ''}
+              </span>
+            )}
+          </div>
+          <div className="p-3 space-y-2">
+            {differenceHeatmapBase64 ? (
+              <>
+                <div className="rounded-lg overflow-hidden border border-red-500/30 bg-black">
+                  <img
+                    src={`data:image/png;base64,${differenceHeatmapBase64}`}
+                    alt="Difference heatmap between original and suspect"
+                    className="w-full max-h-72 object-contain"
+                  />
+                </div>
+                <p className="text-2xs text-gray-400">
+                  Red/orange areas show regions that differ from the vault original after alignment. Dark areas are unchanged.
+                </p>
+              </>
+            ) : (
+              <div className="rounded-lg border border-orange-500/25 bg-orange-500/8 p-3">
+                <p className="text-xs font-semibold text-orange-300 mb-1">Heatmap unavailable for this comparison</p>
+                <p className="text-2xs text-gray-400">
+                  The forensic engine still measured how much of the image changed, but it did not return a pixel overlay for this run.
+                </p>
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-2xs">
+              {modifiedPercent != null && (
+                <div className="rounded-lg border border-bg-border bg-bg-base/40 p-2">
+                  <p className="text-gray-500">Modified region</p>
+                  <p className="text-white font-semibold">{modifiedPercent}%</p>
+                </div>
+              )}
+              {cropSharedPercent != null && (
+                <div className="rounded-lg border border-bg-border bg-bg-base/40 p-2">
+                  <p className="text-gray-500">Shared with original</p>
+                  <p className="text-white font-semibold">{Math.round(cropSharedPercent)}%</p>
+                </div>
+              )}
+              {cropMissingPercent != null && (
+                <div className="rounded-lg border border-bg-border bg-bg-base/40 p-2">
+                  <p className="text-gray-500">Missing / cropped</p>
+                  <p className="text-white font-semibold">{Math.round(cropMissingPercent)}%</p>
+                </div>
+              )}
+              {cropVisiblePercent != null && (
+                <div className="rounded-lg border border-bg-border bg-bg-base/40 p-2">
+                  <p className="text-gray-500">Visible portion</p>
+                  <p className="text-white font-semibold">{Math.round(cropVisiblePercent)}%</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -276,6 +276,23 @@ export async function analyzeVaultContent(
   const { id } = req.params;
   try {
     const userId = getAuthUserId(req);
+    const { isInvestigationBusy } = await import('../../services/forensics/investigation-busy.guard');
+    if (isInvestigationBusy()) {
+      const { prisma } = await import('../../lib/prisma');
+      const cached = await prisma.vaultRecord.findFirst({
+        where: { id, dnaRecord: { ownerUserId: userId } },
+        select: { contentAnalysis: true, contentLabel: true },
+      });
+      if (cached?.contentAnalysis) {
+        res.status(200).json({
+          success: true,
+          contentLabel: cached.contentLabel ?? 'UNKNOWN',
+          contentAnalysis: cached.contentAnalysis,
+          deferred: true,
+        });
+        return;
+      }
+    }
     const retrieved = await vaultService.retrieve(id, userId);
     const analysis = await vaultContentAnalysisService.analyzeAndStore({
       vaultId: id,
@@ -873,6 +890,30 @@ export async function revokeVaultTep(
     }
     res.status(200).json(result);
   } catch (err) {
+    next(err);
+  }
+}
+
+/** PATCH /vault/:id/rename — update display file name (owner only) */
+export async function renameVaultRecord(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const ownerUserId = getAuthUserId(req);
+    const vaultId = req.params.id;
+    const { originalFileName } = req.body as { originalFileName?: string };
+    if (!originalFileName || typeof originalFileName !== 'string') {
+      return next(new AppError(400, 'originalFileName is required'));
+    }
+    const result = await vaultService.rename(vaultId, ownerUserId, originalFileName);
+    res.status(200).json({ success: true, ...result });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('not found')) return next(new AppError(404, msg));
+    if (msg.includes('Forbidden') || msg.includes('owner')) return next(new AppError(403, msg));
+    if (msg.includes('Invalid') || msg.includes('invalid')) return next(new AppError(400, msg));
     next(err);
   }
 }

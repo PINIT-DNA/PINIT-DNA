@@ -23,6 +23,7 @@ import {
   listProtectedFileShares,
   revokeVaultTep,
   deleteVaultRecord,
+  renameVaultRecord,
   analyzeVaultContent,
   reanalyzeAllVaultContent,
 } from '../controllers/vault.controller';
@@ -64,6 +65,9 @@ router.post('/reanalyze-all', requireAuth, reanalyzeAllVaultContent);
  * Response 200: vault record metadata (no file content)
  */
 router.get('/:id', requireAuth, requireVaultOwnership, getVaultRecord);
+
+/** PATCH /vault/:id/rename — update display file name (owner only) */
+router.patch('/:id/rename', requireAuth, requireVaultOwnership, renameVaultRecord);
 
 /** DELETE /vault/:id — remove encrypted file + vault record (owner only) */
 router.delete('/:id', requireAuth, requireVaultOwnership, deleteVaultRecord);

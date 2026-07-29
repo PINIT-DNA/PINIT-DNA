@@ -980,6 +980,7 @@ function BusinessSettingsTab({ profile }: { profile: ProfileData }) {
 // ── Billing Tab ────────────────────────────────────────────────────────────────
 
 function BillingTab() {
+  const { subscription } = useSubscription();
   const [billing, setBilling] = useState<{
     planName?: string;
     planCode?: string;
@@ -1008,13 +1009,17 @@ function BillingTab() {
     );
   }
 
+  // Prefer effective subscription (same as header/sidebar) so admin bypass and billing stay aligned
+  const planName = subscription?.planName ?? billing?.planName ?? 'Free';
+  const status = billing?.status ?? subscription?.status ?? 'ACTIVE';
+
   return (
     <div className="space-y-4">
       <EnterpriseCard title="Billing summary" icon={<Receipt size={16} />}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <EnterpriseField label="Organization" value={billing?.organizationName ?? '—'} disabled />
-          <EnterpriseField label="Plan" value={billing?.planName ?? 'Free'} disabled />
-          <EnterpriseField label="Status" value={billing?.status ?? 'ACTIVE'} disabled />
+          <EnterpriseField label="Plan" value={planName} disabled />
+          <EnterpriseField label="Status" value={status} disabled />
           <EnterpriseField
             label="Current period start"
             value={billing?.currentPeriodStart ? format(new Date(billing.currentPeriodStart), 'MMM d, yyyy') : '—'}

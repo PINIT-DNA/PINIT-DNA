@@ -413,6 +413,54 @@ export class UnifiedInvestigationOrchestrator {
       });
     }).catch(() => {});
 
+    emit({ type: 'timeline', stepId: 'preprocessing', label: 'Preprocessing', status: 'complete' });
+
+    // Quick vault lead before heavy recovery — sets live snapshot so timeouts still produce a report.
+    orchestratorTimer.start('fast_vault_lead');
+    const fastLeadStage = await executeStage(
+      'fast_vault_lead',
+      async () => vaultAutoMatchService.findMatch(
+        buffer,
+        mimeType,
+        originalName,
+        sizeBytes,
+        ownerUserId,
+        {
+          relaxedVisual: isCameraScanFileName(originalName)
+            || /whatsapp|screenshot|screen|photo|scan|cam|compressed/i.test(originalName),
+        },
+      ),
+      {
+        timeoutMs: 25_000,
+        onComplete: stageOnComplete('vault_search', 'Vault Search'),
+      },
+    );
+    orchestratorTimer.end('fast_vault_lead');
+
+    if (fastLeadStage.success && fastLeadStage.data?.vaultId) {
+      const lead = fastLeadStage.data;
+      const leadConf = lead.tier <= 2
+        ? 95
+        : Math.round((lead.visualSimilarity ?? 0.75) * 100);
+      emit({
+        type: 'phase',
+        stepId: 'identity_recovery',
+        label: 'Identity Recovery',
+        status: lead.tier <= 2 ? 'complete' : 'running',
+        snapshot: {
+          phase: 1,
+          signatureFound: true,
+          vaultId: lead.vaultId,
+          dnaRecordId: lead.dnaRecordId,
+          confidence: leadConf,
+          similarityScore: lead.visualSimilarity != null
+            ? Math.round(lead.visualSimilarity * 100)
+            : undefined,
+          statusMessage: `Early vault lead — ${lead.method}`,
+        },
+      });
+    }
+
     orchestratorTimer.start('enterprise_recovery');
     const recoveryStage = await executeStage(
       'enterprise_recovery',
@@ -515,14 +563,25 @@ export class UnifiedInvestigationOrchestrator {
 
       // Timeout with no live lead: only rescue strong pHash (≥0.88). Relaxed 0.72
       // falsely pairs unrelated people photos as "Top Candidate" (~65% lookalikes).
-      const rescued = await withTimeoutSoft(
-        () => vaultAutoMatchService.findMatch(
-          buffer, mimeType, originalName, sizeBytes, ownerUserId,
-          { relaxedVisual: false, phashThreshold: 0.88 },
-        ),
-        20_000,
-        'timeout_vault_rescue',
-      );
+      const earlyLead = fastLeadStage.success ? fastLeadStage.data : null;
+      const earlySim = earlyLead?.visualSimilarity ?? 0;
+      const earlyConf = earlyLead?.confidence === 'EXACT'
+        ? 100
+        : earlyLead?.tier === 2
+          ? 90
+          : Math.round(earlySim * 100);
+      const earlyIsIdentity = !!earlyLead && (earlyLead.tier === 1 || earlyLead.tier === 2);
+      const earlyIsStrongVisual = earlySim >= 0.88 || earlyConf >= POSSIBLE_L3_MIN_WITHOUT_PATCH;
+      const rescued = (earlyLead?.vaultId && (earlyIsIdentity || earlyIsStrongVisual))
+        ? earlyLead
+        : await withTimeoutSoft(
+          () => vaultAutoMatchService.findMatch(
+            buffer, mimeType, originalName, sizeBytes, ownerUserId,
+            { relaxedVisual: false, phashThreshold: 0.88 },
+          ),
+          20_000,
+          'timeout_vault_rescue',
+        );
       const rescueSim = rescued?.visualSimilarity ?? 0;
       const rescueConfRaw = Number.parseInt(rescued?.confidence ?? '', 10);
       const rescueConf = Number.isFinite(rescueConfRaw)

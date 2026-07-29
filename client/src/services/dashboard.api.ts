@@ -205,6 +205,17 @@ export async function deleteVaultRecord(vaultId: string): Promise<{ success: boo
   return data;
 }
 
+export async function renameVaultRecord(
+  vaultId: string,
+  originalFileName: string,
+): Promise<{ success: boolean; vaultId: string; originalFileName: string }> {
+  const { data } = await api.patch<{ success: boolean; vaultId: string; originalFileName: string }>(
+    `${API_BASE_URL}/vault/${vaultId}/rename`,
+    { originalFileName },
+  );
+  return data;
+}
+
 export async function retrieveFromVault(vaultId: string): Promise<Blob> {
   const { data } = await api.post<Blob>(`${API_BASE_URL}/vault/${vaultId}/retrieve`, {}, {
     responseType: 'blob',

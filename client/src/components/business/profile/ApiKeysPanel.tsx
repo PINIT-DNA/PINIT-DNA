@@ -76,19 +76,6 @@ export function ApiKeysPanel() {
 
   return (
     <div className="space-y-4">
-      <EnterpriseCard title="What are API keys?" icon={<Key size={16} />}>
-        <p className="text-sm text-slate-700 dark:text-gray-300 leading-relaxed">
-          An <strong className="text-slate-900 dark:text-white">API key</strong> lets your own apps or scripts
-          call PinIT Hub without logging in with a face each time — for example automation, bulk DNA,
-          or integrating vault checks into another system.
-        </p>
-        <ul className="mt-3 space-y-1.5 text-sm text-slate-700 dark:text-gray-300 list-disc pl-5">
-          <li>Enterprise-only organization access</li>
-          <li>Secret is shown <strong>once</strong> when created — store it safely</li>
-          <li>Revoke a key anytime to cut off access immediately</li>
-        </ul>
-      </EnterpriseCard>
-
       {newSecret && (
         <div className="rounded-xl border-2 border-amber-400 bg-amber-50 dark:bg-amber-500/10 p-4">
           <p className="text-sm text-amber-950 dark:text-amber-100 font-semibold mb-2">

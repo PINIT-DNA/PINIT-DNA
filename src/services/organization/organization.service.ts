@@ -9,6 +9,8 @@ import {
 import { teamService } from './team.service';
 import { logOrgAudit } from './audit-log.service';
 import { uploadOrgLogo, resolveOrgLogoUrl } from '../../lib/org-logo-storage';
+import { entitlementService } from '../subscription/entitlements/entitlement.service';
+import { PLAN_DEFINITIONS } from '../subscription/constants/plans';
 
 function generateOrgShortId(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -462,11 +464,14 @@ export const organizationService = {
       where: { userId },
       include: { plan: true },
     });
+    // Same effective plan as /subscription/me (includes admin Enterprise bypass)
+    const planCode = await entitlementService.getEffectivePlanCode(userId);
+    const planName = PLAN_DEFINITIONS[planCode]?.name ?? sub?.plan?.name ?? 'Free';
     return {
       organizationId: org.id,
       organizationName: org.name,
-      planCode: sub?.plan?.code ?? 'FREE',
-      planName: sub?.plan?.name ?? 'Free',
+      planCode,
+      planName,
       status: sub?.status ?? 'ACTIVE',
       currentPeriodStart: sub?.currentPeriodStart?.toISOString() ?? null,
     };

@@ -313,6 +313,12 @@ export function EnterpriseInvestigationReport({
                       ? String(vm.originalAsset.certificateId.value)
                       : null)
                 }
+                differenceHeatmapBase64={(report.tamperAnalysis as { overlayPngBase64?: string | null } | undefined)?.overlayPngBase64}
+                modifiedPercent={(report.tamperAnalysis as { modifiedPercent?: number } | undefined)?.modifiedPercent}
+                insertedRegions={(report.tamperAnalysis as { insertedRegions?: number } | undefined)?.insertedRegions}
+                cropSharedPercent={(report.tamperAnalysis as { cropDetection?: { sharedRegionPercent?: number } } | undefined)?.cropDetection?.sharedRegionPercent ?? null}
+                cropMissingPercent={(report.tamperAnalysis as { cropDetection?: { cropPercent?: number; missingPercent?: number } } | undefined)?.cropDetection?.cropPercent ?? (report.tamperAnalysis as { cropDetection?: { missingPercent?: number } } | undefined)?.cropDetection?.missingPercent ?? null}
+                cropVisiblePercent={(report.tamperAnalysis as { cropDetection?: { visiblePercent?: number } } | undefined)?.cropDetection?.visiblePercent ?? null}
               />
             </DocSection>
           )}

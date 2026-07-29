@@ -19,6 +19,7 @@ import {
   ChevronRight,
   Microscope,
   Shield,
+  Pencil,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { VaultFileThumbnail } from './VaultFileThumbnail';
@@ -32,7 +33,7 @@ import {
 import { buildShareFileAttachment } from '../lib/share-file-open';
 import { API_BASE_URL } from '../config/api.config';
 import { BRAND } from '../config/brand.config';
-import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, type VaultTrackingDashboard } from '../services/dashboard.api';
+import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, renameVaultRecord, type VaultTrackingDashboard } from '../services/dashboard.api';
 import { useAuth } from '../context/AuthContext';
 import { ShareQrBlock } from './ShareQrBlock';
 import { AuthenticityReportCard } from './AuthenticityReportCard';
@@ -65,6 +66,7 @@ interface VaultDetailSidePanelProps {
   onClose: () => void;
   onShare: () => void;
   onDelete: () => void;
+  onRenamed?: (vaultId: string, originalFileName: string) => void;
   deleting?: boolean;
 }
 
@@ -108,6 +110,7 @@ export function VaultDetailSidePanel({
   onClose,
   onShare,
   onDelete,
+  onRenamed,
   deleting = false,
 }: VaultDetailSidePanelProps) {
   const navigate = useNavigate();
@@ -132,6 +135,10 @@ export function VaultDetailSidePanel({
     shareUrl: string;
   } | null>(null);
   const [copiedTep, setCopiedTep] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
+  const [displayName, setDisplayName] = useState(record.originalFileName);
 
   const refreshTracking = async () => {
     try {
@@ -150,6 +157,10 @@ export function VaultDetailSidePanel({
 
   useEffect(() => {
     setTab('overview');
+    setDisplayName(record.originalFileName);
+    setRenaming(false);
+    setRenameDraft('');
+    setRenameSaving(false);
     setLoadingLinks(true);
     setLoadingTracking(true);
     setTracking(null);
@@ -219,6 +230,48 @@ export function VaultDetailSidePanel({
     }
   };
 
+  const splitDisplayName = (name: string) => {
+    const dot = name.lastIndexOf('.');
+    if (dot <= 0) return { base: name, ext: '' };
+    return { base: name.slice(0, dot), ext: name.slice(dot) };
+  };
+
+  const startRename = () => {
+    setRenameDraft(splitDisplayName(displayName).base);
+    setRenaming(true);
+  };
+
+  const cancelRename = () => {
+    setRenaming(false);
+    setRenameDraft('');
+  };
+
+  const applyRename = async () => {
+    const { ext } = splitDisplayName(displayName);
+    const base = renameDraft.trim().replace(/[<>:"/\\|?*]/g, '').slice(0, 120);
+    if (!base) {
+      toast.error('Enter a valid file name');
+      return;
+    }
+    const nextName = `${base}${ext}`;
+    if (nextName === displayName) {
+      setRenaming(false);
+      return;
+    }
+    setRenameSaving(true);
+    try {
+      const result = await renameVaultRecord(record.id, nextName);
+      setDisplayName(result.originalFileName);
+      onRenamed?.(record.id, result.originalFileName);
+      setRenaming(false);
+      toast.success('File renamed');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Rename failed');
+    } finally {
+      setRenameSaving(false);
+    }
+  };
+
   const activeLinks = links.filter((l) => l.isActive);
   const totalViews = links.reduce((s, l) => s + (l.viewCount ?? 0), 0);
   const accessEvents = links.flatMap((l) => l.accessLogs ?? []);
@@ -231,7 +284,7 @@ export function VaultDetailSidePanel({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = record.originalFileName;
+      a.download = displayName;
       a.click();
       URL.revokeObjectURL(url);
       await refreshTracking();
@@ -380,7 +433,7 @@ export function VaultDetailSidePanel({
       const { blob } = await protectedDownloadFromVault(record.id);
       const file = await buildShareFileAttachment({
         source: blob,
-        originalFileName: record.originalFileName,
+        originalFileName: displayName,
         originalMimeType: record.originalMimeType,
         openUrl: created.shareUrl,
       });
@@ -454,7 +507,7 @@ export function VaultDetailSidePanel({
         <div className="relative aspect-video bg-bg-elevated border-b border-bg-border">
           <VaultFileThumbnail
             vaultId={record.id}
-            fileName={record.originalFileName}
+            fileName={displayName}
             mimeType={record.originalMimeType}
             variant="gallery"
             className="w-full h-full min-h-[180px]"
@@ -463,7 +516,56 @@ export function VaultDetailSidePanel({
 
         <div className="p-4 space-y-3 border-b border-bg-border">
           <div>
-            <h2 className="text-base font-bold text-white break-words">{record.originalFileName}</h2>
+            {renaming ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={renameDraft}
+                    onChange={(e) => setRenameDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void applyRename();
+                      if (e.key === 'Escape') cancelRename();
+                    }}
+                    className="input text-sm flex-1"
+                    autoFocus
+                    disabled={renameSaving}
+                  />
+                  <span className="text-xs text-gray-500 shrink-0">{splitDisplayName(displayName).ext}</span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void applyRename()}
+                    disabled={renameSaving}
+                    className="btn-primary text-xs px-3 py-1.5"
+                  >
+                    {renameSaving ? 'Saving…' : 'Save'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelRename}
+                    disabled={renameSaving}
+                    className="btn-ghost text-xs px-3 py-1.5"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2">
+                <h2 className="text-base font-bold text-white break-words flex-1">{displayName}</h2>
+                <button
+                  type="button"
+                  onClick={startRename}
+                  className="btn-ghost btn-icon text-gray-500 hover:text-dna-400 shrink-0"
+                  title="Rename file"
+                  aria-label="Rename file"
+                >
+                  <Pencil size={14} />
+                </button>
+              </div>
+            )}
             <p className="text-xs text-gray-500 mt-1">
               {fileType}
               {' · '}

@@ -698,6 +698,12 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               reportState={report.summary.reportState}
               dnaRecordId={resolvedOwner.dnaRecordId}
               certificateId={resolvedOwner.certificateId}
+              differenceHeatmapBase64={report.tamperAnalysis.overlayPngBase64}
+              modifiedPercent={report.tamperAnalysis.modifiedPercent}
+              insertedRegions={report.tamperAnalysis.insertedRegions}
+              cropSharedPercent={report.tamperAnalysis.cropDetection?.sharedRegionPercent ?? null}
+              cropMissingPercent={report.tamperAnalysis.cropDetection?.cropPercent ?? report.tamperAnalysis.cropDetection?.missingPercent ?? null}
+              cropVisiblePercent={report.tamperAnalysis.cropDetection?.visiblePercent ?? null}
             />
           )}
 
