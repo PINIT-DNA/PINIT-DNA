@@ -1,0 +1,241 @@
+{
+  "manifest_version": 3,
+  "name": "PinIT Publish Guardian",
+  "version": "1.2.0",
+  "description": "Asset-first digital protection — protect images, video, and documents wherever you create, publish, or export.",
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "PinIT Publish Guardian",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "options_page": "options/options.html",
+  "permissions": [
+    "storage",
+    "contextMenus",
+    "activeTab",
+    "scripting",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://pinit-dna-uf5y.onrender.com/*",
+    "https://pinit-dna-backend.onrender.com/*",
+    "https://dna-pinit-web.vercel.app/*",
+    "http://localhost:4000/*",
+    "http://localhost:3000/*",
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.instagram.com/*", "https://instagram.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/instagram.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.facebook.com/*", "https://facebook.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/facebook.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://x.com/*", "https://twitter.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/x.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.pinterest.com/*", "https://pinterest.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/pinterest.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.linkedin.com/*", "https://linkedin.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/linkedin.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://github.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/github.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://web.telegram.org/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/telegram.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://youtube.com/*",
+        "https://studio.youtube.com/*"
+      ],
+      "js": ["shared/adapter-interface.js", "content/adapters/youtube.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.tiktok.com/*", "https://tiktok.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/tiktok.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.threads.net/*", "https://threads.net/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/threads.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.reddit.com/*", "https://reddit.com/*", "https://old.reddit.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/reddit.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.tumblr.com/*", "https://tumblr.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/tumblr.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.behance.net/*", "https://behance.net/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/behance.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://dribbble.com/*", "https://www.dribbble.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/dribbble.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.deviantart.com/*", "https://deviantart.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/deviantart.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.artstation.com/*", "https://artstation.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/artstation.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://vimeo.com/*", "https://www.vimeo.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/vimeo.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://medium.com/*", "https://*.medium.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/medium.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://substack.com/*", "https://*.substack.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/substack.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.patreon.com/*", "https://patreon.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/patreon.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.canva.com/*", "https://canva.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/canva.js", "content/export-protect.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.figma.com/*", "https://figma.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/figma.js", "content/export-protect.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://express.adobe.com/*", "https://new.express.adobe.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/adobe_express.js", "content/export-protect.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://photoshop.adobe.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/adobe_photoshop.js", "content/export-protect.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://illustrator.adobe.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/adobe_illustrator.js", "content/export-protect.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.flickr.com/*", "https://flickr.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/flickr.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://500px.com/*", "https://www.500px.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/500px.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://*.smugmug.com/*", "https://www.smugmug.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/smugmug.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://*.pixieset.com/*", "https://pixieset.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/pixieset.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://*.zenfolio.com/*", "https://www.zenfolio.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/zenfolio.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://*.myportfolio.com/*", "https://www.myportfolio.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/adobe_portfolio.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://*.squarespace.com/*", "https://*.sqsp.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/squarespace.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://*.wix.com/*", "https://*.wixsite.com/*", "https://editor.wix.com/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/wix.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://admin.shopify.com/*",
+        "https://*.myshopify.com/*"
+      ],
+      "js": ["shared/adapter-interface.js", "content/adapters/shopify.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "include_globs": ["*://*/wp-admin/*", "*://*/wp-admin"],
+      "js": ["shared/adapter-interface.js", "content/adapters/wordpress.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.twitch.tv/*", "https://twitch.tv/*", "https://dashboard.twitch.tv/*"],
+      "js": ["shared/adapter-interface.js", "content/adapters/twitch.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/content-bridge.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

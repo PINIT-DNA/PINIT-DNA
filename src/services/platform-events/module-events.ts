@@ -373,3 +373,76 @@ export function emitSharePolicyBlocked(params: {
   };
   platformEvents.emit(event);
 }
+
+/** Publish Guardian — post protected via extension */
+export function emitPublishGuardianProtected(params: {
+  ownerUserId: string;
+  protectedPostId: string;
+  vaultId: string;
+  dnaRecordId: string;
+  certificateId: string | null;
+  platform: string;
+  filename: string;
+  postUrl?: string | null;
+}): void {
+  platformEvents.emit({
+    name: 'publish_guardian.protected',
+    category: 'vault',
+    severity: 'success',
+    ownerUserId: params.ownerUserId,
+    entityType: 'protected_post',
+    entityId: params.protectedPostId,
+    title: 'Post protected by Publish Guardian',
+    body: `${params.filename} on ${params.platform} — Vault + DNA ready`,
+    deepLink: `/protected-posts/${params.protectedPostId}`,
+    notificationType: 'PUBLISH_GUARDIAN_PROTECTED',
+    fileName: params.filename,
+    dnaRecordId: params.dnaRecordId,
+    vaultId: params.vaultId,
+    payload: {
+      platform: params.platform,
+      certificateId: params.certificateId,
+      postUrl: params.postUrl ?? null,
+    },
+    dedupeKey: `pg_protected:${params.protectedPostId}`,
+  });
+}
+
+/** Publish Guardian — public copy / tamper discovery */
+export function emitPublishGuardianDiscovery(params: {
+  ownerUserId: string;
+  protectedPostId: string;
+  discoveryId: string;
+  platform: string;
+  discoveryUrl: string;
+  dnaMatchPercent: number;
+  tampered: boolean;
+  riskScore: number;
+  matchType: string;
+}): void {
+  platformEvents.emit({
+    name: 'publish_guardian.discovery',
+    category: 'monitoring',
+    severity: params.tampered || params.riskScore >= 80 ? 'critical' : 'warning',
+    ownerUserId: params.ownerUserId,
+    entityType: 'protected_post',
+    entityId: params.protectedPostId,
+    title: params.tampered
+      ? 'Protected post — tampered copy found'
+      : 'Protected post was discovered',
+    body: `${params.platform}: ${Math.round(params.dnaMatchPercent)}% DNA · ${params.matchType}`,
+    deepLink: `/protected-posts/${params.protectedPostId}`,
+    notificationType: 'PUBLISH_GUARDIAN_DISCOVERY',
+    payload: {
+      discoveryId: params.discoveryId,
+      discoveryUrl: params.discoveryUrl,
+      dnaMatchPercent: params.dnaMatchPercent,
+      tampered: params.tampered,
+      riskScore: params.riskScore,
+      matchType: params.matchType,
+      platform: params.platform,
+    },
+    dedupeKey: `pg_discovery:${params.discoveryId}`,
+  });
+}
+

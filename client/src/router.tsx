@@ -10,6 +10,11 @@ import { TimelinePage } from './pages/TimelinePage';
 import { ForensicDiffPage } from './pages/ForensicDiffPage';
 import { SearchPage } from './pages/SearchPage';
 import { MonitoringPage } from './pages/MonitoringPage';
+import { ProtectedPostsPage } from './pages/publish-guardian/ProtectedPostsPage';
+import { ProtectedPostDetailPage } from './pages/publish-guardian/ProtectedPostDetailPage';
+import { ExtensionAuthPage } from './pages/publish-guardian/ExtensionAuthPage';
+import { AssetsPage } from './pages/assets/AssetsPage';
+import { AssetDetailPage } from './pages/assets/AssetDetailPage';
 import { VerifyCertificatePage } from './pages/VerifyCertificatePage';
 import { VaultIntegrityPage } from './pages/VaultIntegrityPage';
 import { DuplicateAttemptsPage } from './pages/DuplicateAttemptsPage';
@@ -56,6 +61,14 @@ export const router = createBrowserRouter([
   },
   { path: '/register', element: <RegisterGateway /> },
   { path: '/face-auth', element: <FaceLoginPage /> },
+  {
+    path: '/extension/auth',
+    element: (
+      <RequireAuth>
+        <ExtensionAuthPage />
+      </RequireAuth>
+    ),
+  },
 
   // ── Public share viewer ───────────────────────────────────────────────────
   { path: '/s/:token', element: <ShareViewerPage /> },
@@ -102,6 +115,10 @@ export const router = createBrowserRouter([
       { path: 'forensic-diff', element: <ForensicDiffPage /> },
       { path: 'search', element: <SearchPage /> },
       { path: 'monitoring', element: <MonitoringPage /> },
+      { path: 'protected-posts', element: <ProtectedPostsPage /> },
+      { path: 'protected-posts/:id', element: <ProtectedPostDetailPage /> },
+      { path: 'assets', element: <AssetsPage /> },
+      { path: 'assets/:id', element: <AssetDetailPage /> },
       { path: 'duplicate-attempts', element: <DuplicateAttemptsPage /> },
       { path: 'unmask-requests', element: <UnmaskRequestsPage /> },
       { path: 'chain/:dnaRecordId', element: <ForwardChainPage /> },

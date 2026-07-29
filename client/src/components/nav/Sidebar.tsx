@@ -118,6 +118,8 @@ const NAV_GROUPS: Array<{
     items: [
       // Tracking / Diff / Timeline live on Files → Quick Actions (per-file)
       { to: '/monitoring', icon: Radio, label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },
+      { to: '/assets', icon: Archive, label: 'Assets', feature: FeatureKey.FEATURE_TRACKING },
+      { to: '/protected-posts', icon: Shield, label: 'Protected Posts', feature: FeatureKey.FEATURE_TRACKING },
     ],
   },
   {
@@ -164,6 +166,8 @@ const BUSINESS_NAV_ITEMS: Array<{
   { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Unified Investigation', feature: FeatureKey.FEATURE_INVESTIGATION },
   { to: '/reports', icon: Shield, label: 'Forensics', feature: FeatureKey.FEATURE_INVESTIGATION },
   { to: '/monitoring', icon: Radio, label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },
+  { to: '/assets', icon: Archive, label: 'Assets', feature: FeatureKey.FEATURE_TRACKING },
+  { to: '/protected-posts', icon: Shield, label: 'Protected Posts', feature: FeatureKey.FEATURE_TRACKING },
   { to: '/certificates', icon: Award, label: 'Certificates' },
   { to: '/profile?tab=team', icon: Users, label: 'Team' },
   { to: '/profile?tab=audit', icon: FileSearch, label: 'Audit Logs' },

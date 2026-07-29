@@ -61,6 +61,10 @@ model DnaRecord {
   trackedExports        TrackedExportPackage[]
   localFeatureIndex     LocalFeatureIndex?
   provenanceEvents      ForensicProvenanceEvent[]
+  /// Publish Guardian — posts protected via Chrome extension (additive)
+  protectedPosts        ProtectedPost[]
+  /// Universal assets linked to this DNA (additive)
+  assets                Asset[]
 
   @@index([organizationId])
   @@index([ownerUserId])
@@ -493,6 +497,12 @@ model User {
   // Business organization (owner on Free tier — extensible for Enterprise teams)
   ownedOrganization     Organization?
   organizationMemberships OrganizationMember[]
+
+  /// Publish Guardian (additive — does not affect existing modules)
+  protectedPosts        ProtectedPost[]
+  extensionAuthCodes    ExtensionAuthCode[]
+  /// Universal Asset Protection (additive — Asset-first layer)
+  assets                Asset[]
 
   @@map("users")
 }
@@ -1657,3 +1667,330 @@ enum DnaStatus {
   PARTIAL
   FAILED
 }
+
+// ── Publish Guardian (additive — does not alter existing DNA/Vault/Monitor logic) ─
+
+enum ProtectedPostStatus {
+  DRAFT
+  PUBLISHING
+  REGISTERED
+  PROTECTED
+  MONITORING
+  DISCOVERY
+  TAMPERING
+  INVESTIGATION
+  EVIDENCE
+  RESOLVED
+  FAILED
+  ARCHIVED
+}
+
+enum ProtectedPostTimelineType {
+  ORIGINAL_PUBLISHED
+  PROTECTED
+  MONITORING_STARTED
+  MONITORING_SCAN
+  DISCOVERY
+  TAMPERING
+  INVESTIGATION
+  EVIDENCE
+  ALERT
+  RESOLVED
+  STATUS_CHANGE
+  NOTE
+}
+
+model ProtectedPost {
+  id               String              @id @default(uuid())
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  tenantId         String?
+  ownerUserId      String
+  /// Optional link to universal Asset aggregate (additive)
+  assetId          String?
+  vaultId          String?
+  dnaRecordId      String?
+  certificateId    String?
+  monitorRecordId  String?
+  /// Monitoring profile state: PENDING | RUNNING | PAUSED | FAILED | DISABLED
+  monitorStatus    String              @default("PENDING")
+  /// External / internal job id for scheduler correlation
+  monitorJobId     String?
+  lastMonitorError String?
+  nextScanAt       DateTime?
+  avgScanMs        Int?
+  platform         String
+  platformPostId   String?
+  postUrl          String?
+  /// Latest known public URL (may differ from original postUrl)
+  currentUrl       String?
+  ownerAccount     String?
+  mediaUrl         String?
+  mediaHash        String?
+  mediaType        String              @default("IMAGE")
+  thumbnail        String?
+  caption          String?
+  publishedAt      DateTime?
+  registeredAt     DateTime            @default(now())
+  watchUrls        String[]            @default([])
+  lastScanAt       DateTime?
+  lastDiscoveryAt  DateTime?
+  discoveriesCount Int                 @default(0)
+  tamperedCount    Int                 @default(0)
+  riskScore        Int                 @default(0)
+  /// LOW | MEDIUM | HIGH | CRITICAL
+  riskSeverity     String              @default("LOW")
+  status           ProtectedPostStatus @default(REGISTERED)
+  extensionVersion String?
+  capturedVia      String              @default("extension_publish_guardian")
+  pageTitle        String?
+  /// Client idempotency key for offline queue recovery
+  clientRequestId  String?
+  metadata         Json?
+
+  ownerUser  User                        @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  dnaRecord  DnaRecord?                  @relation(fields: [dnaRecordId], references: [id], onDelete: SetNull)
+  asset      Asset?                      @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  timeline   ProtectedPostTimelineEvent[]
+  discoveries ProtectedPostDiscovery[]
+
+  @@unique([ownerUserId, clientRequestId])
+  @@index([ownerUserId, createdAt])
+  @@index([platform])
+  @@index([status])
+  @@index([monitorStatus])
+  @@index([assetId])
+  @@index([dnaRecordId])
+  @@index([vaultId])
+  @@index([mediaHash])
+  @@index([postUrl])
+  @@index([riskSeverity])
+  @@map("protected_posts")
+}
+
+model ProtectedPostTimelineEvent {
+  id              String                    @id @default(uuid())
+  createdAt       DateTime                  @default(now())
+  protectedPostId String
+  eventType       ProtectedPostTimelineType
+  title           String
+  detail          String?
+  platform        String?
+  url             String?
+  dnaMatchPercent Float?
+  tampered        Boolean?
+  riskScore       Int?
+  confidence      Float?
+  investigationId String?
+  evidenceId      String?
+  crawlResultId   String?
+  payload         Json?
+
+  protectedPost ProtectedPost @relation(fields: [protectedPostId], references: [id], onDelete: Cascade)
+
+  @@index([protectedPostId, createdAt])
+  @@index([eventType])
+  @@map("protected_post_timeline_events")
+}
+
+model ProtectedPostDiscovery {
+  id                String   @id @default(uuid())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  protectedPostId   String
+  platform          String?
+  sourcePlatform    String?
+  discoveryUrl      String
+  pageTitle         String?
+  matchType         String   @default("POSSIBLE")
+  dnaMatchPercent   Float    @default(0)
+  similarity        Float    @default(0)
+  similarityScore   Float    @default(0)
+  tampered          Boolean  @default(false)
+  tamperingStatus   String   @default("UNKNOWN")
+  tamperSummary     String?
+  confidence        Float    @default(0)
+  riskScore         Int      @default(0)
+  severity          String   @default("LOW")
+  matchedVaultId    String?
+  matchedDnaRecordId String?
+  investigationId   String?
+  evidenceId        String?
+  crawlResultId     String?
+  alertStatus       String   @default("PENDING")
+  evidenceReady     Boolean  @default(false)
+  thumbnailUrl      String?
+  firstSeenAt       DateTime @default(now())
+  lastSeenAt        DateTime @default(now())
+  payload           Json?
+
+  protectedPost ProtectedPost @relation(fields: [protectedPostId], references: [id], onDelete: Cascade)
+
+  @@index([protectedPostId, createdAt])
+  @@index([alertStatus])
+  @@index([discoveryUrl])
+  @@index([severity])
+  @@map("protected_post_discoveries")
+}
+
+/// Short-lived codes for Chrome extension OAuth (Hub → extension)
+model ExtensionAuthCode {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  code        String   @unique
+  ownerUserId String
+  extensionId String
+  expiresAt   DateTime
+  usedAt      DateTime?
+  ownerUser   User     @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@index([code])
+  @@index([expiresAt])
+  @@map("extension_auth_codes")
+}
+
+// ─── Universal Asset Protection (additive — does not replace ProtectedPost) ───
+
+enum AssetType {
+  IMAGE
+  VIDEO
+  DOCUMENT
+  AUDIO
+  OTHER
+}
+
+enum AssetStatus {
+  DRAFT
+  PROTECTED
+  MONITORING
+  DISCOVERY
+  INVESTIGATING
+  RESOLVED
+  ARCHIVED
+  FAILED
+}
+
+enum AssetTimelineType {
+  CREATED
+  PROTECTED
+  CERTIFICATE
+  MONITORING_STARTED
+  MONITORING_SCAN
+  DISCOVERY
+  TAMPERING
+  INVESTIGATION
+  EVIDENCE
+  ALERT
+  RESOLVED
+  STATUS_CHANGE
+  NOTE
+  EXPORT_CAPTURE
+}
+
+/// Central aggregate for digital asset protection (image/video/document/audio).
+model Asset {
+  id                String      @id @default(uuid())
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  ownerUserId       String
+  assetType         AssetType   @default(IMAGE)
+  status            AssetStatus @default(DRAFT)
+  originalFilename  String
+  mimeType          String
+  sizeBytes         Int         @default(0)
+  contentHash       String?
+  vaultId           String?
+  dnaId             String?
+  certificateId     String?
+  monitorRecordId   String?
+  /// Monitoring profile: PENDING | RUNNING | PAUSED | FAILED | DISABLED
+  monitorStatus     String      @default("PENDING")
+  monitorJobId      String?
+  sourcePlatform    String?
+  sourceUrl         String?
+  capturedVia       String      @default("extension_publish_guardian")
+  clientRequestId   String?
+  riskScore         Int         @default(0)
+  riskSeverity      String      @default("LOW")
+  discoveriesCount  Int         @default(0)
+  lastScanAt        DateTime?
+  lastDiscoveryAt   DateTime?
+  /// Video/document DNA fingerprints and adapter metadata (additive JSON)
+  fingerprints      Json?
+  metadata          Json?
+
+  ownerUser     User                 @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  dnaRecord     DnaRecord?           @relation(fields: [dnaId], references: [id], onDelete: SetNull)
+  protectedPosts ProtectedPost[]
+  timeline      AssetTimelineEvent[]
+  discoveries   AssetDiscovery[]
+
+  @@unique([ownerUserId, clientRequestId])
+  @@index([ownerUserId, createdAt])
+  @@index([assetType])
+  @@index([status])
+  @@index([monitorStatus])
+  @@index([dnaId])
+  @@index([vaultId])
+  @@map("assets")
+}
+
+model AssetTimelineEvent {
+  id              String            @id @default(uuid())
+  createdAt       DateTime          @default(now())
+  assetId         String
+  eventType       AssetTimelineType
+  title           String
+  detail          String?
+  platform        String?
+  url             String?
+  similarity      Float?
+  tampered        Boolean?
+  riskScore       Int?
+  confidence      Float?
+  investigationId String?
+  evidenceId      String?
+  payload         Json?
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId, createdAt])
+  @@index([eventType])
+  @@map("asset_timeline_events")
+}
+
+model AssetDiscovery {
+  id              String   @id @default(uuid())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  assetId         String
+  platform        String?
+  sourcePlatform  String?
+  url             String
+  pageTitle       String?
+  similarity      Float    @default(0)
+  similarityScore Float    @default(0)
+  tampering       String   @default("UNKNOWN")
+  tampered        Boolean  @default(false)
+  confidence      Float    @default(0)
+  severity        String   @default("LOW")
+  riskScore       Int      @default(0)
+  matchedAssetId  String?
+  matchedVaultId  String?
+  matchedDnaId    String?
+  investigationId String?
+  evidenceId      String?
+  firstSeen       DateTime @default(now())
+  lastSeen        DateTime @default(now())
+  alertStatus     String   @default("PENDING")
+  payload         Json?
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId, createdAt])
+  @@index([url])
+  @@index([severity])
+  @@index([alertStatus])
+  @@map("asset_discoveries")
+}
+

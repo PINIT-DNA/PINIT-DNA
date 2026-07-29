@@ -35,6 +35,13 @@ import { superAdminRouter }       from './api/routes/super-admin.routes';
 import { tepRouter }              from './api/routes/tep.routes';
 import { subscriptionRouter }     from './api/routes/subscription.routes';
 import { organizationRouter }     from './api/routes/organization.routes';
+import { publishGuardianRouter }  from './api/routes/publish-guardian.routes';
+import { assetRouter }            from './api/routes/asset.routes';
+import {
+  issueExtensionAuthCode,
+  exchangeExtensionAuthToken,
+} from './api/controllers/publish-guardian.controller';
+import { requireAuth } from './api/middleware/auth.middleware';
 import { getHealthReport }         from './lib/health';
 import { errorMiddleware } from './api/middleware/error.middleware';
 
@@ -80,6 +87,7 @@ app.use(cors({
       origin.includes('ngrok.app')       ||
       origin.includes('vercel.app')      ||   // Vercel preview + production
       origin.includes('pinithub.com')    ||   // custom domain (apex + www)
+      origin.startsWith('chrome-extension://') || // Publish Guardian extension
       extraOrigins.includes(origin);
 
     if (allowed) return callback(null, true);
@@ -157,6 +165,13 @@ app.use(`${config.apiPrefix}/super-admin`,   superAdminRouter);
 app.use(`${config.apiPrefix}/tep`,           tepRouter);
 app.use(`${config.apiPrefix}/subscription`,  subscriptionRouter);
 app.use(`${config.apiPrefix}/organization`,   organizationRouter);
+/** Publish Guardian — /api/v1/extension/* and /api/v1/posts* (additive) */
+app.use(`${config.apiPrefix}`, publishGuardianRouter);
+app.use(`${config.apiPrefix}`, assetRouter);
+
+/** Extension OAuth (additive — does not change password/biometric login) */
+app.post(`${config.apiPrefix}/auth/extension/issue-code`, requireAuth, issueExtensionAuthCode);
+app.post(`${config.apiPrefix}/auth/extension/token`, exchangeExtensionAuthToken);
 
 // ─── Share viewer with dynamic OG meta tags (trackable preview) ──────────────
 // When WhatsApp/Telegram crawl /s/:token, they get OG tags with our trackable

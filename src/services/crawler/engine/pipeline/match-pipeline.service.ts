@@ -117,6 +117,15 @@ export class MatchPipelineService {
       },
     });
 
+    const { notifyPublishGuardianOfMatch } = await import('../../../publish-guardian/monitoring-bridge');
+    void notifyPublishGuardianOfMatch({
+      monitorRecordId,
+      discoveryUrl: asset.assetUrl ?? asset.sourceUrl,
+      pageTitle: asset.filename,
+      matchType: comparison.matchType,
+      similarity: comparison.similarity,
+    });
+
     emitMonitoringMatch({
       ownerUserId,
       monitorRecordId,

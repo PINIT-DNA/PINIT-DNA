@@ -107,6 +107,8 @@ const TYPE_PREF: Record<string, PrefKey> = {
   MONITORING_RESUMED: 'notifyMonitoring',
   MONITORING_STOPPED: 'notifyMonitoring',
   CRAWLER_SCAN_COMPLETED: 'notifyMonitoring',
+  PUBLISH_GUARDIAN_PROTECTED: 'notifyVault',
+  PUBLISH_GUARDIAN_DISCOVERY: 'notifyMonitoring',
   CRAWLER_ERROR: 'notifyMonitoring',
   DUPLICATE_INTERNET_COPY: 'notifyMonitoring',
   RISK_INCREASED: 'notifyMonitoring',

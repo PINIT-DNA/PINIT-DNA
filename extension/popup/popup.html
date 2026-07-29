@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PinIT Publish Guardian</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <img src="../icons/icon48.png" alt="" width="28" height="28" />
+      <div>
+        <h1>PinIT Guardian</h1>
+        <p id="subtitle">Publish protection</p>
+      </div>
+    </div>
+    <span id="status-pill" class="pill muted">…</span>
+  </header>
+
+  <section id="signed-out" class="hidden">
+    <p class="copy">Sign in with your PinIT Hub account to protect posts and verify media.</p>
+    <button id="btn-signin" class="primary">Sign in to PinIT</button>
+    <div class="code-row">
+      <input id="auth-code" type="text" placeholder="Paste auth code" />
+      <button id="btn-exchange" class="secondary">Connect</button>
+    </div>
+  </section>
+
+  <section id="signed-in" class="hidden">
+    <p class="copy">Signed in as <strong id="user-id">—</strong></p>
+    <div class="actions">
+      <button id="btn-hub" class="secondary">Open Protected Posts</button>
+      <button id="btn-investigate" class="secondary">Investigation</button>
+      <button id="btn-signout" class="ghost">Sign out</button>
+    </div>
+    <div id="last-protect" class="card hidden"></div>
+    <div id="last-verify" class="card hidden"></div>
+    <div id="queue-status" class="card hidden"></div>
+    <p class="hint">Right-click any image → <em>Verify with PinIT</em>. Offline publishes are queued and retried automatically.</p>
+    <div class="actions" style="margin-top:8px">
+      <button id="btn-flush" class="ghost">Retry queued protects</button>
+      <button id="btn-sync" class="ghost">Sync from Hub</button>
+    </div>
+  </section>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

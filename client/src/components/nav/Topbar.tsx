@@ -19,6 +19,8 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   '/search':              { title: 'AI Search',              subtitle: 'Find documents by meaning using FAISS'        },
   '/forensic-diff':       { title: 'Difference Engine',      subtitle: 'What changed, where, and how severely'     },
   '/monitoring':          { title: 'Monitoring',             subtitle: 'Watch internet for unauthorized file copies' },
+  '/protected-posts':     { title: 'Protected Posts',        subtitle: 'Publish Guardian — tracked social & web posts' },
+  '/assets':              { title: 'Assets',                 subtitle: 'Universal asset protection — Vault, DNA, Monitoring' },
   '/access-intelligence': { title: 'Tracking',               subtitle: 'Shared links and Share File tracking' },
   [BRAND.investigationPath]: { title: 'Unified Investigation', subtitle: 'Upload a file to check matches and authenticity' },
 };
@@ -29,7 +31,12 @@ interface TopbarProps {
 
 export function Topbar({ onMenu }: TopbarProps) {
   const location = useLocation();
-  const meta = PAGE_META[location.pathname] ?? { title: BRAND.name, subtitle: '' };
+  const meta = PAGE_META[location.pathname]
+    ?? (location.pathname.startsWith('/protected-posts/')
+      ? { title: 'Protected Post', subtitle: 'Timeline, discoveries & evidence' }
+      : location.pathname.startsWith('/assets/')
+        ? { title: 'Asset', subtitle: 'Timeline, discoveries & monitoring' }
+        : { title: BRAND.name, subtitle: '' });
 
   return (
     <header

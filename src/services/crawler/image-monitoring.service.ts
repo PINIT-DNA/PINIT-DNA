@@ -266,7 +266,7 @@ export class ImageMonitoringService {
       const navigableUrl = pickNavigableUrl(candidate.imageUrl, candidate.pageUrl)
         ?? candidate.imageUrl;
 
-      await prisma.crawlResult.create({
+      const crawlRow = await prisma.crawlResult.create({
         data: {
           monitorRecordId,
           url:       navigableUrl.slice(0, 1000),
@@ -297,6 +297,18 @@ export class ImageMonitoringService {
           alertStatus: isMatch ? 'PENDING' : 'DISMISSED',
         },
       });
+
+      if (isMatch) {
+        const { notifyPublishGuardianOfMatch } = await import('../publish-guardian/monitoring-bridge');
+        void notifyPublishGuardianOfMatch({
+          monitorRecordId,
+          discoveryUrl: navigableUrl,
+          pageTitle: candidate.pageUrl,
+          matchType,
+          similarity: pHashSim,
+          crawlResultId: crawlRow.id,
+        });
+      }
 
       if (isMatch && matchType !== 'NO_MATCH') {
         matches.push({
