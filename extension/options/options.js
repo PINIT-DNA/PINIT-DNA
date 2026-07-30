@@ -29,6 +29,13 @@ async function load() {
     ...(config || {}),
     platforms: { ...DEFAULTS.platforms, ...(config?.platforms || {}) },
   };
+  // Auto-fix legacy personal-backend URL left in older installs
+  if (String(c.apiBaseUrl || '').includes('pinit-dna-backend.onrender.com')) {
+    c.apiBaseUrl = DEFAULTS.apiBaseUrl;
+    await chrome.storage.local.set({
+      config: { ...(config || {}), apiBaseUrl: c.apiBaseUrl, hubBaseUrl: c.hubBaseUrl || DEFAULTS.hubBaseUrl },
+    });
+  }
   document.getElementById('apiBaseUrl').value = c.apiBaseUrl;
   document.getElementById('hubBaseUrl').value = c.hubBaseUrl;
   document.getElementById('publishGuardianEnabled').checked = !!c.publishGuardianEnabled;

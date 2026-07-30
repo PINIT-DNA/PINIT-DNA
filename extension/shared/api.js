@@ -116,13 +116,21 @@ export async function verifyIdentity(file) {
 export async function exchangeAuthCode(code) {
   const { config } = await getConfig();
   const extensionId = chrome.runtime.id;
-  const res = await fetch(`${config.apiBaseUrl.replace(/\/$/, '')}/auth/extension/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code, extensionId }),
-  });
+  const url = `${config.apiBaseUrl.replace(/\/$/, '')}/auth/extension/token`;
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, extensionId }),
+    });
+  } catch (err) {
+    throw new Error(`Cannot reach API (${url}): ${err.message || err}`);
+  }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || data.message || 'Auth exchange failed');
+  if (!res.ok) {
+    throw new Error(data.error || data.message || `Auth exchange failed (${res.status})`);
+  }
   await setTokens({
     accessToken: data.accessToken,
     refreshToken: data.refreshToken,
