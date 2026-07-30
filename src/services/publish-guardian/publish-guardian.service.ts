@@ -22,7 +22,7 @@ import {
   emitPublishGuardianProtected,
   emitPublishGuardianDiscovery,
 } from '../platform-events/module-events';
-import { assertTransition, MONITOR_PROFILE } from './lifecycle';
+import { assertTransition, MONITOR_PROFILE, type MonitorProfileStatus } from './lifecycle';
 import { evaluateRisk, maxSeverity, type RiskSeverity } from './risk-engine';
 import { publishGuardianEvents } from './domain-events';
 import type {
@@ -211,7 +211,7 @@ export class PublishGuardianService {
 
     const watchUrls = uniqueUrls([input.postUrl, input.profileUrl, input.mediaUrl]);
     let monitorId: string | null = null;
-    let monitorStatus = MONITOR_PROFILE.PENDING;
+    let monitorStatus: MonitorProfileStatus = MONITOR_PROFILE.PENDING;
     let lastMonitorError: string | null = null;
     let nextScanAt: Date | null = null;
 

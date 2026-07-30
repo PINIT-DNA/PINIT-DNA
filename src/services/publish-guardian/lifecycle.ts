@@ -22,7 +22,7 @@ export type LifecycleStatus = (typeof LIFECYCLE)[keyof typeof LIFECYCLE];
 /** Allowed transitions: from → to[] */
 export const LIFECYCLE_TRANSITIONS: Record<string, readonly string[]> = {
   DRAFT: ['PUBLISHING', 'FAILED', 'ARCHIVED'],
-  PUBLISHING: ['REGISTERED', 'PROTECTED', 'FAILED'],
+  PUBLISHING: ['REGISTERED', 'PROTECTED', 'MONITORING', 'FAILED'],
   REGISTERED: ['PROTECTED', 'MONITORING', 'FAILED', 'ARCHIVED'],
   PROTECTED: ['MONITORING', 'DISCOVERY', 'FAILED', 'ARCHIVED'],
   MONITORING: ['DISCOVERY', 'TAMPERING', 'RESOLVED', 'FAILED', 'ARCHIVED'],
