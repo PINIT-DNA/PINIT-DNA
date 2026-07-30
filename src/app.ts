@@ -87,7 +87,8 @@ app.use(cors({
       origin.includes('ngrok.app')       ||
       origin.includes('vercel.app')      ||   // Vercel preview + production
       origin.includes('pinithub.com')    ||   // custom domain (apex + www)
-      origin.startsWith('chrome-extension://') || // Publish Guardian extension
+      origin.startsWith('chrome-extension://') || // Chrome Publish Guardian
+      origin.startsWith('extension://') ||       // Edge / Chromium-edge extensions
       extraOrigins.includes(origin);
 
     if (allowed) return callback(null, true);

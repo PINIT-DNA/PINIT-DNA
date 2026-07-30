@@ -37,7 +37,7 @@ Private DMs / WhatsApp / Discord private remain out of scope.
 
 ## Production
 
-Set API to `https://pinit-dna-backend.onrender.com/api/v1` and Hub to `https://www.pinithub.com`.
+Set API to `https://pinit-dna-uf5y.onrender.com/api/v1` and Hub to `https://www.pinithub.com`.
 
 ## Test checklist
 

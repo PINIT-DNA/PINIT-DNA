@@ -1,7 +1,7 @@
 import { PLATFORM_REGISTRY, PLATFORM_IDS, defaultPlatformFlags } from '../shared/platforms.js';
 
 const DEFAULTS = {
-  apiBaseUrl: 'https://pinit-dna-backend.onrender.com/api/v1',
+  apiBaseUrl: 'https://pinit-dna-uf5y.onrender.com/api/v1',
   hubBaseUrl: 'https://www.pinithub.com',
   publishGuardianEnabled: true,
   platforms: defaultPlatformFlags(true),
