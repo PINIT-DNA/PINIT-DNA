@@ -1,4 +1,7 @@
-# PinIT Chrome Extension — Publish Guardian
+# PinIT Hub (Chrome Extension)
+
+Store / display name: **PinIT Hub**  
+Feature mode: Publish Guardian (protect at publish/export)
 
 ## Load (Chrome or Edge)
 
@@ -34,7 +37,7 @@ Private DMs / WhatsApp / Discord private remain out of scope.
 
 ## Production
 
-Set API to `https://pinit-dna-backend.onrender.com/api/v1` and Hub to `https://dna-pinit-web.vercel.app`.
+Set API to `https://pinit-dna-backend.onrender.com/api/v1` and Hub to `https://www.pinithub.com`.
 
 ## Test checklist
 

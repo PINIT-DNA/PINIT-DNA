@@ -4,8 +4,8 @@
 import { defaultPlatformFlags } from './platforms.js';
 
 export const DEFAULT_CONFIG = {
-  apiBaseUrl: 'http://localhost:4000/api/v1',
-  hubBaseUrl: 'http://localhost:3000',
+  apiBaseUrl: 'https://pinit-dna-backend.onrender.com/api/v1',
+  hubBaseUrl: 'https://www.pinithub.com',
   publishGuardianEnabled: true,
   platforms: defaultPlatformFlags(true),
 };

@@ -64,4 +64,13 @@ h1 { font-size: 14px; margin: 0; }
   font-size: 12px;
 }
 .hint { color: var(--muted); font-size: 11px; margin: 8px 0 0; }
+.error {
+  background: #3b1d1d;
+  border: 1px solid #7f1d1d;
+  color: #fecaca;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 11px;
+  margin: 0 0 10px;
+}
 .hidden { display: none !important; }

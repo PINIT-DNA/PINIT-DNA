@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PinIT Publish Guardian</title>
+  <title>PinIT Hub</title>
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
@@ -11,14 +11,17 @@
     <div class="brand">
       <img src="../icons/icon48.png" alt="" width="28" height="28" />
       <div>
-        <h1>PinIT Guardian</h1>
-        <p id="subtitle">Publish protection</p>
+        <h1>PinIT Hub</h1>
+        <p id="subtitle">Publish Guardian</p>
       </div>
     </div>
     <span id="status-pill" class="pill muted">…</span>
   </header>
 
-  <section id="signed-out" class="hidden">
+  <p id="error-box" class="error hidden"></p>
+
+  <!-- Default visible so popup is never blank if background is slow/offline -->
+  <section id="signed-out">
     <p class="copy">Sign in with your PinIT Hub account to protect posts and verify media.</p>
     <button id="btn-signin" class="primary">Sign in to PinIT</button>
     <div class="code-row">
@@ -31,19 +34,20 @@
     <p class="copy">Signed in as <strong id="user-id">—</strong></p>
     <div class="actions">
       <button id="btn-hub" class="secondary">Open Protected Posts</button>
+      <button id="btn-assets" class="secondary">Open Assets</button>
       <button id="btn-investigate" class="secondary">Investigation</button>
       <button id="btn-signout" class="ghost">Sign out</button>
     </div>
     <div id="last-protect" class="card hidden"></div>
     <div id="last-verify" class="card hidden"></div>
     <div id="queue-status" class="card hidden"></div>
-    <p class="hint">Right-click any image → <em>Verify with PinIT</em>. Offline publishes are queued and retried automatically.</p>
+    <p class="hint">Right-click any image → <em>Verify with PinIT</em> or <em>Protect with PinIT</em>.</p>
     <div class="actions" style="margin-top:8px">
       <button id="btn-flush" class="ghost">Retry queued protects</button>
       <button id="btn-sync" class="ghost">Sync from Hub</button>
     </div>
   </section>
 
-  <script type="module" src="popup.js"></script>
+  <script src="popup.js"></script>
 </body>
 </html>

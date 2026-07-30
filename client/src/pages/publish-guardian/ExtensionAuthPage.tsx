@@ -67,8 +67,8 @@ export function ExtensionAuthPage() {
             <Shield className="text-dna-400" size={22} />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-white">Connect Chrome Extension</h1>
-            <p className="text-xs text-gray-500">{BRAND.name} Publish Guardian</p>
+            <h1 className="text-lg font-bold text-white">Connect {BRAND.name}</h1>
+            <p className="text-xs text-gray-500">Chrome extension · Publish Guardian</p>
           </div>
         </div>
 

@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "PinIT Publish Guardian",
+  "name": "PinIT Hub",
   "version": "1.2.0",
-  "description": "Asset-first digital protection — protect images, video, and documents wherever you create, publish, or export.",
+  "description": "PinIT Hub — protect assets at publish/export with DNA, Vault, Certificate, and Monitoring.",
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "PinIT Publish Guardian",
+    "default_title": "PinIT Hub",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -33,6 +33,8 @@
     "https://pinit-dna-uf5y.onrender.com/*",
     "https://pinit-dna-backend.onrender.com/*",
     "https://dna-pinit-web.vercel.app/*",
+    "https://www.pinithub.com/*",
+    "https://pinithub.com/*",
     "http://localhost:4000/*",
     "http://localhost:3000/*",
     "<all_urls>"
