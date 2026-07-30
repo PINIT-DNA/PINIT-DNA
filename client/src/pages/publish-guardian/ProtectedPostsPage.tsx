@@ -23,6 +23,7 @@ interface ProtectedPostRow {
   id: string;
   platform: string;
   postUrl: string | null;
+  platformPostId?: string | null;
   ownerAccount: string | null;
   status: string;
   monitorStatus: string;
@@ -99,7 +100,9 @@ export function ProtectedPostsPage() {
       if (q.trim()) params.set('q', q.trim());
       const [listRes, statsRes] = await Promise.all([
         api.get<{ posts: ProtectedPostRow[] }>(`${API_BASE_URL}/posts?${params.toString()}`),
-        api.get<{ stats: NonNullable<typeof stats> }>(`${API_BASE_URL}/posts/stats`).catch(() => null),
+        api
+          .get<{ stats: NonNullable<typeof stats> }>(`${API_BASE_URL}/posts/stats`)
+          .catch((): { data: { stats: NonNullable<typeof stats> } } | null => null),
       ]);
       setPosts(listRes.data.posts ?? []);
       if (statsRes?.data?.stats) setStats(statsRes.data.stats);

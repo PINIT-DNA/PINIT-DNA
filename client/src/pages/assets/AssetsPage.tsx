@@ -64,7 +64,9 @@ export function AssetsPage() {
       if (assetType !== 'ALL') params.set('assetType', assetType);
       const [listRes, statsRes] = await Promise.all([
         api.get<{ assets: AssetRow[] }>(`${API_BASE_URL}/assets?${params}`),
-        api.get<{ stats: NonNullable<typeof stats> }>(`${API_BASE_URL}/assets/stats`).catch(() => null),
+        api
+          .get<{ stats: NonNullable<typeof stats> }>(`${API_BASE_URL}/assets/stats`)
+          .catch((): { data: { stats: NonNullable<typeof stats> } } | null => null),
       ]);
       setAssets(listRes.data.assets || []);
       if (statsRes?.data?.stats) setStats(statsRes.data.stats);
