@@ -13,7 +13,6 @@ export const DEFAULT_CONFIG = {
 /** Old personal-backend host — migrate stored options to live Hub API. */
 const LEGACY_API_HOSTS = [
   'pinit-dna-backend.onrender.com',
-  'localhost:4000',
 ];
 
 function migrateConfig(raw) {

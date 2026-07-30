@@ -30,18 +30,26 @@ export class ExtensionAuthService {
     expiresIn: number;
     user: { id: string; shortId: string; fullName: string; email: string | null };
   }> {
-    const row = await prisma.extensionAuthCode.findUnique({ where: { code: params.code } });
-    if (!row || row.usedAt || row.expiresAt.getTime() < Date.now()) {
-      throw new AppError(401, 'Invalid or expired extension auth code');
-    }
-    if (row.extensionId !== params.extensionId) {
-      throw new AppError(401, 'Extension ID mismatch');
-    }
+    const code = String(params.code || '').trim();
+    const extensionId = String(params.extensionId || '').trim();
+    if (!code || !extensionId) throw new AppError(400, 'code and extensionId are required');
 
-    await prisma.extensionAuthCode.update({
-      where: { id: row.id },
-      data: { usedAt: new Date() },
-    });
+    const row = await prisma.extensionAuthCode.findUnique({ where: { code } });
+    if (!row) {
+      throw new AppError(401, 'Auth code not found — click Authorize again and paste the new code');
+    }
+    if (row.usedAt) {
+      throw new AppError(401, 'Auth code already used — click Authorize again for a fresh code');
+    }
+    if (row.expiresAt.getTime() < Date.now()) {
+      throw new AppError(401, 'Auth code expired (5 min) — click Authorize again');
+    }
+    if (row.extensionId !== extensionId) {
+      throw new AppError(
+        401,
+        `Extension ID mismatch — open Sign in from the extension popup (expected ${row.extensionId.slice(0, 8)}…)`,
+      );
+    }
 
     const user = await prisma.user.findUnique({
       where: { id: row.ownerUserId },
@@ -54,6 +62,12 @@ export class ExtensionAuthService {
       shortId: user.shortId,
       fullName: user.fullName,
       role: user.role,
+    });
+
+    // Mark used only after tokens succeed so a transient failure can retry the same code
+    await prisma.extensionAuthCode.update({
+      where: { id: row.id },
+      data: { usedAt: new Date() },
     });
 
     return {

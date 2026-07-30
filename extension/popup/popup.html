@@ -25,9 +25,10 @@
     <p class="copy">Sign in with your PinIT Hub account to protect posts and verify media.</p>
     <button id="btn-signin" class="primary">Sign in to PinIT</button>
     <div class="code-row">
-      <input id="auth-code" type="text" placeholder="Paste auth code" />
+      <input id="auth-code" type="text" placeholder="Paste auth code" autocomplete="off" spellcheck="false" />
       <button id="btn-exchange" class="secondary">Connect</button>
     </div>
+    <p id="api-hint" class="hint"></p>
   </section>
 
   <section id="signed-in" class="hidden">

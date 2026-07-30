@@ -7,7 +7,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Shield, Check, Copy, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../../config/api.config';
-import { api } from '../../services/dashboard.api';
+import { api, formatApiError } from '../../services/dashboard.api';
 import { useAuth } from '../../context/AuthContext';
 import { BRAND } from '../../config/brand.config';
 
@@ -29,24 +29,27 @@ export function ExtensionAuthPage() {
     }
     setLoading(true);
     try {
-      const { data } = await api.post<{ code: string; expiresAt: string }>(
+      const { data } = await api.post<{ success?: boolean; code?: string; expiresAt?: string; error?: string }>(
         `${API_BASE_URL}/auth/extension/issue-code`,
         { extensionId },
       );
-      setCode(data.code);
-      setExpiresAt(data.expiresAt);
-      // Notify extension if opened as a connected window
+      const issuedCode = data?.code;
+      if (!issuedCode) {
+        throw new Error(data?.error || 'No code returned from Hub API');
+      }
+      setCode(issuedCode);
+      setExpiresAt(data.expiresAt ?? null);
       try {
         window.postMessage(
-          { type: 'PINIT_EXTENSION_AUTH_CODE', code: data.code, extensionId, expiresAt: data.expiresAt },
+          { type: 'PINIT_EXTENSION_AUTH_CODE', code: issuedCode, extensionId, expiresAt: data.expiresAt },
           '*',
         );
       } catch {
         /* ignore */
       }
       toast.success('Auth code ready — return to the extension');
-    } catch {
-      toast.error('Could not issue extension auth code');
+    } catch (err) {
+      toast.error(formatApiError(err) || 'Could not issue extension auth code');
     } finally {
       setLoading(false);
     }

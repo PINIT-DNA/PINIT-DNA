@@ -36,6 +36,13 @@ async function refresh() {
   const pill = document.getElementById('status-pill');
 
   const status = await send('GET_STATUS');
+  const apiHint = document.getElementById('api-hint');
+  if (apiHint) {
+    const api = (status && status.config && status.config.apiBaseUrl) || '';
+    apiHint.textContent = api
+      ? 'API: ' + api
+      : 'API not loaded — Reload extension, then open Options and Save.';
+  }
   if (!status || status.ok === false && !status.signedIn) {
     // Keep sign-in visible; show hint if background failed
     signedOut.classList.remove('hidden');
@@ -108,11 +115,16 @@ document.getElementById('btn-signout').addEventListener('click', async function 
 document.getElementById('btn-exchange').addEventListener('click', async function () {
   const code = document.getElementById('auth-code').value.trim();
   if (!code) return;
+  if (code.length < 20) {
+    alert('That does not look like a full auth code. Click Authorize again and copy the whole code.');
+    return;
+  }
   const res = await send('EXCHANGE_AUTH_CODE', { code: code });
   if (!res || !res.ok) {
     alert((res && res.error) || 'Connect failed');
     return;
   }
+  document.getElementById('auth-code').value = '';
   await refresh();
 });
 
