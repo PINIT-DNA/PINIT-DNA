@@ -27,7 +27,7 @@ export function distanceToConfidence(distance: number, threshold: number): numbe
 
 /** Derive a 128-d fingerprint template from WebAuthn credential or device hash. */
 export function deriveFingerprintTemplate(credentialId?: string | null, deviceFingerprint?: string | null): number[] {
-  const seed = credentialId?.startsWith('sim_')
+  const seed = credentialId?.startsWith('sim_') || credentialId?.startsWith('dev_')
     ? `device:${deviceFingerprint ?? 'web'}`
     : (credentialId ?? `device:${deviceFingerprint ?? 'unknown'}`);
   const hash = crypto.createHash('sha256').update(seed).digest();

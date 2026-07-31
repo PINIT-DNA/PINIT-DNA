@@ -22,6 +22,11 @@ function silentProxyErrors(): Plugin {
 
 export default defineConfig({
   plugins: [react(), silentProxyErrors()],
+  // Do NOT use default "assets" — it collides with the SPA route /assets
+  // (pinithub.com/assets was serving hashed JS instead of AssetsPage).
+  build: {
+    assetsDir: 'static',
+  },
   server: {
     host: '0.0.0.0',
     port: 3000,

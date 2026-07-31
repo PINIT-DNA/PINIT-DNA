@@ -76,6 +76,7 @@ async function refreshAccessToken(refreshToken, apiBaseUrl) {
 
 export async function publishProtect(file, meta) {
   const { config } = await getConfig();
+  const url = `${config.apiBaseUrl.replace(/\/$/, '')}/extension/publish-protect`;
   const form = new FormData();
   form.append('media', file, file.name || 'publish-media.bin');
   Object.entries(meta || {}).forEach(([k, v]) => {
@@ -84,13 +85,58 @@ export async function publishProtect(file, meta) {
   form.append('extensionVersion', chrome.runtime.getManifest().version);
 
   const headers = await authHeaders();
-  const res = await fetch(`${config.apiBaseUrl.replace(/\/$/, '')}/extension/publish-protect`, {
-    method: 'POST',
-    headers,
-    body: form,
+  console.info('[PinIT] [api] [publish-protect.begin]', {
+    url,
+    fileName: file.name,
+    size: file.size,
+    type: file.type,
+    platform: meta?.platform,
+    pageUrl: meta?.pageUrl,
+    clientRequestId: meta?.clientRequestId,
+    hasAuth: !!headers.Authorization,
   });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || data.message || `Protect failed (${res.status})`);
+
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+  } catch (err) {
+    console.error('[PinIT] [api] [publish-protect.network_error]', {
+      url,
+      error: String(err.message || err),
+      stack: err && err.stack ? String(err.stack) : undefined,
+    });
+    throw err;
+  }
+
+  const rawText = await res.text().catch(() => '');
+  let data = {};
+  try {
+    data = rawText ? JSON.parse(rawText) : {};
+  } catch {
+    data = { raw: rawText.slice(0, 500) };
+  }
+
+  console.info('[PinIT] [api] [publish-protect.response]', {
+    url,
+    status: res.status,
+    ok: res.ok,
+    bodyPreview: rawText.slice(0, 500),
+    assetId: data.assetId || null,
+    vaultId: data.vaultId || null,
+    error: data.error || data.message || null,
+  });
+
+  if (!res.ok) {
+    const err = new Error(data.error || data.message || `Protect failed (${res.status})`);
+    err.status = res.status;
+    err.data = data;
+    err.stack = `${err.message}\nHTTP ${res.status} ${url}\nBody: ${rawText.slice(0, 300)}`;
+    throw err;
+  }
   return data;
 }
 

@@ -26,9 +26,10 @@ export async function captureVoiceFingerprint(
 
     const bins = new Float32Array(analyser.frequencyBinCount);
     const samples: number[][] = [];
-    const durationMs = 1600;
+    const durationMs = 2200;
     const start = Date.now();
     let heardVoice = false;
+    let peakLevel = -Infinity;
 
     await new Promise<void>((resolve, reject) => {
       function tick() {
@@ -38,7 +39,8 @@ export async function captureVoiceFingerprint(
           samples.push(frame);
 
           const peak = Math.max(...frame);
-          if (peak > -55) heardVoice = true;
+          if (peak > peakLevel) peakLevel = peak;
+          if (peak > -62) heardVoice = true;
 
           const pct = Math.min(99, ((Date.now() - start) / durationMs) * 100);
           onProgress?.(pct);

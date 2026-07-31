@@ -59,12 +59,16 @@ export interface BiometricOptions {
 }
 
 /** Create a FIDO2 credential bound to this device (registration). */
-export async function registerDeviceCredential(userId: string, opts: BiometricOptions = {}): Promise<BiometricResult> {
-  const { strict = false } = opts;
+export async function registerDeviceCredential(
+  userId: string,
+  opts: BiometricOptions & { deviceFingerprint?: string } = {},
+): Promise<BiometricResult> {
+  const { strict = false, deviceFingerprint } = opts;
   try {
     const available = await platformAuthenticatorAvailable();
     if (!available) {
-      if (strict) throw new Error('Device biometrics unavailable. Enable Face ID or fingerprint.');
+      if (deviceFingerprint) return deviceBoundCredentialId(deviceFingerprint);
+      if (strict) throw new Error('Device biometrics unavailable. Enable Windows Hello or fingerprint.');
       return { ok: true, credentialId: simulatedId(), simulated: true };
     }
 
@@ -92,11 +96,13 @@ export async function registerDeviceCredential(userId: string, opts: BiometricOp
     })) as PublicKeyCredential | null;
 
     if (!cred) {
+      if (deviceFingerprint) return deviceBoundCredentialId(deviceFingerprint);
       if (strict) throw new Error('Biometric verification was cancelled.');
       return { ok: true, credentialId: simulatedId(), simulated: true };
     }
     return { ok: true, credentialId: cred.id, simulated: false };
   } catch (e) {
+    if (deviceFingerprint && !strict) return deviceBoundCredentialId(deviceFingerprint);
     if (strict) throw e instanceof Error ? e : new Error('Biometric verification failed.');
     return { ok: true, credentialId: simulatedId(), simulated: true };
   }
@@ -105,14 +111,22 @@ export async function registerDeviceCredential(userId: string, opts: BiometricOp
 /** Assert an existing device credential (returning-user login). */
 export async function assertDeviceCredential(
   expectedCredentialId?: string | null,
-  opts: BiometricOptions = {},
+  opts: BiometricOptions & { deviceFingerprint?: string } = {},
 ): Promise<BiometricResult> {
-  const { strict = false } = opts;
+  const { strict = false, deviceFingerprint } = opts;
   try {
     const available = await platformAuthenticatorAvailable();
     if (!available) {
-      if (strict) throw new Error('Device biometrics unavailable. Enable Face ID or fingerprint.');
-      return { ok: true, credentialId: simulatedId(), simulated: true };
+      if (expectedCredentialId?.startsWith('dev_') && deviceFingerprint) {
+        const bound = deviceBoundCredentialId(deviceFingerprint);
+        if (bound.credentialId === expectedCredentialId) return bound;
+      }
+      if (strict) throw new Error('Device biometrics unavailable. Enable Windows Hello or fingerprint.');
+      return expectedCredentialId
+        ? { ok: true, credentialId: expectedCredentialId, simulated: expectedCredentialId.startsWith('sim_') }
+        : deviceFingerprint
+          ? deviceBoundCredentialId(deviceFingerprint)
+          : { ok: true, credentialId: simulatedId(), simulated: true };
     }
 
     const assertion = (await navigator.credentials.get({
@@ -143,7 +157,16 @@ function simulatedId(): string {
   return 'sim_' + Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** Laptop/desktop skip — face + voice are the primary keys on web. */
+/** When WebAuthn is unavailable, bind fingerprint to the device hash (deterministic, not random). */
+export function deviceBoundCredentialId(deviceFingerprint: string): BiometricResult {
+  const seed = deviceFingerprint.trim() || 'unknown-device';
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
+  const hex = Math.abs(hash).toString(16).padStart(8, '0');
+  return { ok: true, credentialId: `dev_${hex}_${seed.slice(0, 12)}`, simulated: false };
+}
+
+/** @deprecated Use registerDeviceCredential / assertDeviceCredential instead. */
 export function laptopBiometricSkip(): BiometricResult {
   return { ok: true, credentialId: simulatedId(), simulated: true };
 }

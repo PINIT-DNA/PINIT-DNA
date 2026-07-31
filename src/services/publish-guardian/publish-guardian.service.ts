@@ -77,6 +77,7 @@ export class PublishGuardianService {
         return {
           success: true,
           protectedPostId: existing.id,
+          assetId: existing.assetId ?? null,
           vaultId: existing.vaultId,
           dnaRecordId: existing.dnaRecordId,
           certificateId: existing.certificateId,
@@ -121,7 +122,7 @@ export class PublishGuardianService {
         mediaHash,
         mediaType: input.mimeType.startsWith('video/') ? 'VIDEO' : 'IMAGE',
         postUrl: input.postUrl ?? null,
-        currentUrl: input.postUrl ?? null,
+        currentUrl: input.postUrl ?? input.pageUrl ?? null,
         ownerAccount: input.ownerAccount ?? null,
         mediaUrl: input.mediaUrl ?? null,
         caption: input.caption ?? null,
@@ -133,7 +134,10 @@ export class PublishGuardianService {
         extensionVersion: input.extensionVersion ?? null,
         capturedVia: input.capturedVia || 'extension_publish_guardian',
         metadata: {
+          pageUrl: input.pageUrl ?? null,
+          postUrl: input.postUrl ?? null,
           profileUrl: input.profileUrl ?? null,
+          mediaUrl: input.mediaUrl ?? null,
           mimeType: input.mimeType,
           originalFileName: input.originalFileName,
         } as Prisma.InputJsonValue,
@@ -272,9 +276,9 @@ export class PublishGuardianService {
     await this.appendTimeline(post.id, {
       eventType: 'ORIGINAL_PUBLISHED',
       title: `Published on ${platform}`,
-      detail: input.postUrl ?? input.pageTitle ?? input.originalFileName,
+      detail: input.postUrl ?? input.pageUrl ?? input.pageTitle ?? input.originalFileName,
       platform,
-      url: input.postUrl ?? null,
+      url: input.postUrl ?? input.pageUrl ?? null,
     });
     await this.appendTimeline(post.id, {
       eventType: 'PROTECTED',
@@ -362,13 +366,16 @@ export class PublishGuardianService {
         monitorRecordId: monitorId,
         monitorStatus,
         sourcePlatform: platform,
-        sourceUrl: input.postUrl ?? null,
+        sourceUrl: input.postUrl ?? input.pageUrl ?? input.mediaUrl ?? null,
         capturedVia: input.capturedVia || 'extension_publish_guardian',
         clientRequestId: clientRequestId || `pg:${post.id}`,
         status: lifecycleStatus === 'MONITORING' ? 'MONITORING' : 'PROTECTED',
         protectedPostId: post.id,
         metadata: {
           pageTitle: input.pageTitle ?? null,
+          pageUrl: input.pageUrl ?? null,
+          postUrl: input.postUrl ?? null,
+          mediaUrl: input.mediaUrl ?? null,
           profileUrl: input.profileUrl ?? null,
         },
       });

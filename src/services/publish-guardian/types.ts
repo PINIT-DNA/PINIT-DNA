@@ -37,6 +37,7 @@ export interface PublishProtectInput {
   mimeType: string;
   platform: PublishPlatform | string;
   postUrl?: string | null;
+  pageUrl?: string | null;
   mediaUrl?: string | null;
   profileUrl?: string | null;
   platformPostId?: string | null;

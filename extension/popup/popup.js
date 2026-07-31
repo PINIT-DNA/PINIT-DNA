@@ -62,18 +62,106 @@ async function refresh() {
   if (status.signedIn) {
     signedOut.classList.add('hidden');
     signedIn.classList.remove('hidden');
-    pill.textContent = 'Connected';
-    pill.className = 'pill ok';
+    const degraded = !!(status.lastProtect && status.lastProtect.degraded);
+    const hasQueue = status.queue && (status.queue.pending || status.queue.failed);
+    if (hasQueue) {
+      pill.textContent = 'Queue';
+      pill.className = 'pill warn';
+    } else if (degraded) {
+      pill.textContent = 'Degraded';
+      pill.className = 'pill warn';
+    } else {
+      pill.textContent = 'Connected';
+      pill.className = 'pill ok';
+    }
     document.getElementById('user-id').textContent = (status.user && status.user.shortId) || 'PinIT user';
+
+    const health = document.getElementById('health-card');
+    if (health) {
+      health.classList.remove('hidden');
+      const h = status.health || {};
+      const online = h.online === false ? 'Offline' : 'Online';
+      health.innerHTML =
+        '<strong>Extension health</strong><br/>v' +
+        (status.version || h.version || '?') +
+        ' · ' + online +
+        ' · Queue P' + (status.queue && status.queue.pending != null ? status.queue.pending : 0) +
+        '/F' + (status.queue && status.queue.failed != null ? status.queue.failed : 0);
+    }
 
     const lp = document.getElementById('last-protect');
     if (status.lastProtect) {
       lp.classList.remove('hidden');
-      lp.innerHTML = '<strong>Last protect</strong><br/>' +
-        (status.lastProtect.platform || 'web') + ' · ' +
-        (status.lastProtect.certificateId || status.lastProtect.vaultId || 'OK');
+      const lpData = status.lastProtect;
+      const parts = [
+        lpData.platform || 'web',
+        lpData.pageUrl ? 'page linked' : null,
+        lpData.postUrl ? 'public URL' : 'URL pending',
+        lpData.certificateId || lpData.vaultId || (lpData.error ? 'error' : 'OK'),
+      ].filter(Boolean);
+      lp.innerHTML =
+        '<strong>Last protect</strong><br/>' +
+        parts.join(' · ') +
+        (lpData.degraded
+          ? '<br/><span class="warn-text">Degraded: ' +
+            ((lpData.degradedReasons && lpData.degradedReasons.join(', ')) || lpData.message || 'partial') +
+            '</span>'
+          : '') +
+        (lpData.error && lpData.message ? '<br/>' + lpData.message : '');
     } else {
       lp.classList.add('hidden');
+    }
+
+    const tel = document.getElementById('capture-telemetry');
+    if (tel) {
+      const t = status.captureTelemetry;
+      if (t && t.stages && t.stages.length) {
+        tel.classList.remove('hidden');
+        const want = [
+          'adapter.file_input_hooked',
+          'main.file_input_hooked',
+          'capture.file_input_change',
+          'capture.file_object',
+          'capture.sendMessage_call',
+          'PUBLISH_CAPTURE.received',
+        ];
+        const seen = {};
+        t.stages.forEach(function (s) {
+          seen[s.stage] = true;
+        });
+        const checklist = want
+          .map(function (s) {
+            return (seen[s] ? '✓' : '✗') + ' ' + s;
+          })
+          .join('<br/>');
+        const probe = t.probe
+          ? '<br/>Probe: inputs=' +
+            (t.probe.fileInputCount != null ? t.probe.fileInputCount : '?') +
+            ' dialogs=' +
+            (t.probe.dialogHostCount != null ? t.probe.dialogHostCount : '?') +
+            ' iframes=' +
+            (t.probe.iframeCount != null ? t.probe.iframeCount : '?')
+          : '';
+        const last = t.stages[t.stages.length - 1];
+        const attempt = status.lastCaptureAttempt;
+        const attemptLine = attempt
+          ? '<br/>Attempt: ' +
+            (attempt.stage || '?') +
+            (attempt.fileName ? ' · ' + attempt.fileName : '') +
+            (attempt.assetId ? ' · asset ' + attempt.assetId : '') +
+            (attempt.error ? ' · ERR ' + attempt.error : '')
+          : '';
+        tel.innerHTML =
+          '<strong>Capture stages</strong><br/>' +
+          checklist +
+          probe +
+          attemptLine +
+          '<br/>Last: ' +
+          (t.lastStage || last.stage) +
+          (t.pageUrl ? '<br/><span class="hint">' + t.pageUrl + '</span>' : '');
+      } else {
+        tel.classList.add('hidden');
+      }
     }
 
     const lv = document.getElementById('last-verify');
@@ -85,13 +173,33 @@ async function refresh() {
     }
 
     const qs = document.getElementById('queue-status');
-    if (status.queue && (status.queue.pending || status.queue.failed)) {
+    if (qs) {
       qs.classList.remove('hidden');
-      qs.innerHTML = '<strong>Protect queue</strong><br/>Pending ' +
-        (status.queue.pending || 0) + ' · Failed ' + (status.queue.failed || 0) +
-        ' · Done ' + (status.queue.done || 0);
-    } else if (qs) {
-      qs.classList.add('hidden');
+      let html =
+        '<strong>Protect queue</strong><br/>Pending ' +
+        ((status.queue && status.queue.pending) || 0) +
+        ' · Failed ' +
+        ((status.queue && status.queue.failed) || 0) +
+        ' · Done ' +
+        ((status.queue && status.queue.done) || 0);
+      const fail = status.lastQueueFailure;
+      if (fail && fail.error) {
+        html +=
+          '<br/><span class="warn-text">Last failure [' +
+          (fail.id || '?') +
+          ']: ' +
+          fail.error +
+          '</span>';
+      } else if (status.queue && status.queue.failedItems && status.queue.failedItems[0]) {
+        const f = status.queue.failedItems[0];
+        html +=
+          '<br/><span class="warn-text">Failed [' +
+          f.id +
+          ']: ' +
+          (f.error || 'unknown') +
+          '</span>';
+      }
+      qs.innerHTML = html;
     }
   } else {
     signedIn.classList.add('hidden');
@@ -149,6 +257,25 @@ document.getElementById('btn-investigate').addEventListener('click', async funct
 document.getElementById('btn-flush').addEventListener('click', async function () {
   await send('FLUSH_QUEUE');
   await refresh();
+});
+
+document.getElementById('btn-selftest').addEventListener('click', async function () {
+  const btn = document.getElementById('btn-selftest');
+  btn.disabled = true;
+  btn.textContent = 'Testing…';
+  try {
+    const res = await send('SELF_TEST_PROTECT');
+    if (res && res.ok) {
+      const asset = (res.result && res.result.assetId) || 'ok';
+      alert('Pipeline self-test OK. Asset: ' + asset);
+    } else {
+      alert('Pipeline self-test failed: ' + ((res && res.error) || 'unknown'));
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Run pipeline self-test';
+    await refresh();
+  }
 });
 
 document.getElementById('btn-sync').addEventListener('click', async function () {

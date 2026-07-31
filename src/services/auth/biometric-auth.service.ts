@@ -329,10 +329,12 @@ export const biometricAuthService = {
       throw new Error('Invalid face embedding. Must be 128-dimensional float array.');
     }
 
+    if (!voiceFingerprint || !isValidTemplate(voiceFingerprint)) {
+      throw new Error('Voice fingerprint is required. Complete voice verification before registering.');
+    }
+
     const faceNorm = normalizeEmbedding(faceEmbedding);
-    const voiceNorm = voiceFingerprint && isValidTemplate(voiceFingerprint)
-      ? normalizeEmbedding(voiceFingerprint)
-      : undefined;
+    const voiceNorm = normalizeEmbedding(voiceFingerprint);
     const fpNorm = deriveFingerprintTemplate(webauthnCredentialId, deviceFingerprint);
 
     const duplicate = await findDuplicateModality(faceNorm, voiceNorm, fpNorm);
@@ -369,8 +371,6 @@ export const biometricAuthService = {
     logger.info('[Auth:Register] ✓ Fingerprint template generated', { dimensions: fpNorm.length, hasWebAuthn: Boolean(webauthnCredentialId) });
     if (voiceNorm) {
       logger.info('[Auth:Register] ✓ Voice template generated', { dimensions: voiceNorm.length });
-    } else {
-      logger.info('[Auth:Register] ○ Voice template skipped (not provided)');
     }
 
     const shortId = generateShortId();

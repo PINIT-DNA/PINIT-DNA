@@ -108,21 +108,30 @@ export function RegistrationFlow() {
             </>
           )}
           {step === 'biometric'   && (
-            <BiometricStep mode="register" onDone={afterBiometric} />
+            <BiometricStep
+              mode="register"
+              enrollmentLabel={deviceFpRef.current || 'pinit-enroll'}
+              deviceFingerprint={deviceFpRef.current || undefined}
+              strict
+              onDone={afterBiometric}
+              onError={(m) => setError(m)}
+            />
           )}
           {step === 'voice'       && (
-            <VoiceCaptureStep onDone={afterVoice} onError={(m) => setError(m)} />
+            <VoiceCaptureStep randomPhrase onDone={afterVoice} onError={(m) => setError(m)} />
           )}
           {step === 'creating'    && (
             <Creating
               error={error}
               run={async () => {
                 const embedding = faceEmbeddingRef.current;
+                const voiceFp = voiceFingerprintRef.current;
                 if (!embedding) throw new Error('Face data missing. Go back and scan again.');
+                if (!voiceFp) throw new Error('Voice data missing. Go back and complete voice verification.');
 
                 const result = await registerFaceIdentity({
                   embedding,
-                  voiceFingerprint: voiceFingerprintRef.current ?? undefined,
+                  voiceFingerprint: voiceFp,
                   webauthnCredentialId: bioRef.current?.credentialId,
                   deviceFingerprint: deviceFpRef.current || undefined,
                   accountType: accountTypeRef.current,
@@ -265,7 +274,7 @@ function Permissions({ deviceFpRef, onNext }: { deviceFpRef: React.MutableRefObj
         {[
           { icon: <Camera size={18} />, label: 'Camera', sub: 'Round face scan' },
           { icon: <Mic size={18} />, label: 'Microphone', sub: 'Quick voiceprint' },
-          { icon: <ShieldCheck size={18} />, label: 'Fingerprint UI', sub: 'Visual scan step (auto-continues on web)' },
+          { icon: <ShieldCheck size={18} />, label: 'Device biometric', sub: 'Windows Hello or fingerprint when available' },
         ].map((p) => (
           <div key={p.label} className="pa-check">
             <span style={{ color: '#3b9eff', display: 'flex' }}>{p.icon}</span>

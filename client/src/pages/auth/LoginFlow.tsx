@@ -41,11 +41,12 @@ export function LoginFlow() {
   const faceEmbeddingRef = useRef<number[] | null>(null);
   const voiceFingerprintRef = useRef<number[] | null>(null);
   const bioCredentialRef = useRef<string | undefined>(undefined);
+  const deviceFpRef = useRef<string>('');
 
   const go = (s: Step) => { setError(''); setStep(s); };
   const idx = ORDER.indexOf(step);
 
-  useEffect(() => { warmBackend(); preloadFaceModels(); }, []);
+  useEffect(() => { warmBackend(); preloadFaceModels(); collectFingerprint().then((f) => { deviceFpRef.current = f.hash; }).catch(() => {}); }, []);
 
   function goToRegister() {
     clearRegistration();
@@ -78,14 +79,16 @@ export function LoginFlow() {
           {step === 'biometric' && (
             <BiometricStep
               mode="login"
+              enrollmentLabel={(getStoredWebAuthnCredential() ?? deviceFpRef.current) || 'pinit-login'}
+              deviceFingerprint={deviceFpRef.current || undefined}
+              expectedCredentialId={getStoredWebAuthnCredential()}
+              strict
               onDone={(r) => { bioCredentialRef.current = r.credentialId; go('voice'); }}
+              onError={(m) => setError(m)}
             />
           )}
           {step === 'voice' && (
-            <VoiceCaptureStep
-              onDone={(fp) => { voiceFingerprintRef.current = fp; go('presence'); }}
-              onError={(m) => setError(m)}
-            />
+            <VoiceCaptureStep randomPhrase onDone={(fp) => { voiceFingerprintRef.current = fp; go('presence'); }} onError={(m) => setError(m)} />
           )}
           {step === 'presence' && (
             <Presence

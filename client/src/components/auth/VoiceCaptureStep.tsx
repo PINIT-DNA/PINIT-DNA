@@ -2,14 +2,20 @@ import { useEffect, useRef, useState } from 'react';
 import { Mic } from 'lucide-react';
 import { StepHead } from './parts';
 import { captureVoiceFingerprint } from '../../lib/voice-fingerprint';
+import { pickRandomVoicePhrase } from '../../lib/voice-phrases';
 
 interface VoiceCaptureStepProps {
+  /** When true, pick a random phrase each session (enterprise enrollment). */
+  randomPhrase?: boolean;
+  /** Fixed phrase override. */
+  phrase?: string;
   onDone: (fp: number[]) => void;
   onError?: (msg: string) => void;
 }
 
-/** Voice capture — auto-starts, shows progress, retry on failure. */
-export function VoiceCaptureStep({ onDone, onError }: VoiceCaptureStepProps) {
+/** Voice capture — random enterprise phrase, real mic fingerprint. */
+export function VoiceCaptureStep({ randomPhrase = true, phrase, onDone, onError }: VoiceCaptureStepProps) {
+  const [spokenPhrase, setSpokenPhrase] = useState(() => phrase ?? pickRandomVoicePhrase());
   const [progress, setProgress] = useState(0);
   const [phase, setPhase] = useState<'recording' | 'error'>('recording');
   const [error, setError] = useState('');
@@ -18,6 +24,10 @@ export function VoiceCaptureStep({ onDone, onError }: VoiceCaptureStepProps) {
   const onErrorRef = useRef(onError);
   onDoneRef.current = onDone;
   onErrorRef.current = onError;
+
+  useEffect(() => {
+    if (randomPhrase && !phrase) setSpokenPhrase(pickRandomVoicePhrase());
+  }, [attempt, randomPhrase, phrase]);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,17 +46,17 @@ export function VoiceCaptureStep({ onDone, onError }: VoiceCaptureStepProps) {
       });
 
     return () => { cancelled = true; };
-  }, [attempt]);
+  }, [attempt, spokenPhrase]);
 
   return (
     <div className="pa-card">
       <StepHead
         icon={<Mic size={26} color="#6366f1" />}
         title="Voice Verification"
-        subtitle={phase === 'error' ? 'Could not capture voice' : 'Say the phrase clearly…'}
+        subtitle={phase === 'error' ? 'Could not capture voice' : 'Read the phrase aloud clearly…'}
       />
       <div style={{ margin: '4px 0 18px', padding: '16px', borderRadius: 14, textAlign: 'center', background: 'rgba(99,102,241,0.06)', fontSize: 16, fontWeight: 600, color: '#3730a3', fontStyle: 'italic' }}>
-        “My digital identity belongs only to me.”
+        “{spokenPhrase}”
       </div>
       {phase === 'recording' && (
         <>

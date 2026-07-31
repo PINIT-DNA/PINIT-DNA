@@ -41,6 +41,7 @@ export async function publishProtect(req: Request, res: Response, next: NextFunc
       mimeType: file.mimetype || 'application/octet-stream',
       platform,
       postUrl: body.postUrl ?? null,
+      pageUrl: body.pageUrl ?? null,
       mediaUrl: body.mediaUrl ?? null,
       profileUrl: body.profileUrl ?? null,
       platformPostId: body.platformPostId ?? null,

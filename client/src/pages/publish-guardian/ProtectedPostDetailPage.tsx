@@ -15,6 +15,7 @@ import { Badge } from '../../components/ui/Badge';
 import { SkeletonCard } from '../../components/ui/Skeleton';
 import { cn } from '../../components/ui/utils';
 import { BRAND } from '../../config/brand.config';
+import { VaultFileThumbnail } from '../../components/VaultFileThumbnail';
 
 interface TimelineEvent {
   id: string;
@@ -176,6 +177,16 @@ export function ProtectedPostDetailPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <section className="lg:col-span-1 rounded-xl border border-bg-border bg-bg-card p-4 space-y-3">
+          {post.vaultId && (
+            <div className="rounded-lg overflow-hidden border border-bg-border bg-bg-elevated aspect-square">
+              <VaultFileThumbnail
+                vaultId={post.vaultId}
+                fileName={post.dnaRecord?.imageFilename || 'Protected media'}
+                mimeType={post.dnaRecord?.imageMimeType || post.mediaType || 'image/*'}
+                className="w-full h-full object-cover"
+              />
+            </div>
+          )}
           <h2 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">Identity</h2>
           <dl className="space-y-2 text-xs">
             {[

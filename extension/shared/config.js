@@ -54,9 +54,10 @@ export async function setTokens(tokens) {
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,
     user: tokens.user || null,
+    lastAuthAt: Date.now(),
   });
 }
 
 export async function clearTokens() {
-  await chrome.storage.local.remove(['accessToken', 'refreshToken', 'user']);
+  await chrome.storage.local.remove(['accessToken', 'refreshToken', 'user', 'lastAuthAt']);
 }

@@ -9,10 +9,10 @@ export const PLATFORM_REGISTRY = [
   { id: 'pinterest', label: 'Pinterest', group: 'social' },
   { id: 'linkedin', label: 'LinkedIn', group: 'business' },
   { id: 'telegram', label: 'Telegram Web (public)', group: 'social' },
+  { id: 'youtube', label: 'YouTube / Studio', group: 'social' },
+  { id: 'tiktok', label: 'TikTok Web', group: 'social' },
   { id: 'github', label: 'GitHub', group: 'business' },
-  // Creators / video
-  { id: 'youtube', label: 'YouTube / Studio', group: 'creator' },
-  { id: 'tiktok', label: 'TikTok Web', group: 'creator' },
+  // Creators / publishing
   { id: 'threads', label: 'Threads', group: 'creator' },
   { id: 'vimeo', label: 'Vimeo', group: 'creator' },
   { id: 'twitch', label: 'Twitch', group: 'creator' },

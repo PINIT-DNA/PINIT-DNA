@@ -33,6 +33,7 @@
 
   <section id="signed-in" class="hidden">
     <p class="copy">Signed in as <strong id="user-id">—</strong></p>
+    <div id="health-card" class="card hidden"></div>
     <div class="actions">
       <button id="btn-hub" class="secondary">Open Protected Posts</button>
       <button id="btn-assets" class="secondary">Open Assets</button>
@@ -40,10 +41,12 @@
       <button id="btn-signout" class="ghost">Sign out</button>
     </div>
     <div id="last-protect" class="card hidden"></div>
+    <div id="capture-telemetry" class="card hidden"></div>
     <div id="last-verify" class="card hidden"></div>
-    <div id="queue-status" class="card hidden"></div>
-    <p class="hint">Right-click any image → <em>Verify with PinIT</em> or <em>Protect with PinIT</em>.</p>
+    <div id="queue-status" class="card"></div>
+    <p class="hint">YouTube Studio: choose a video once — PinIT protects in the background. Right-click → <em>Verify / Protect with PinIT</em>.</p>
     <div class="actions" style="margin-top:8px">
+      <button id="btn-selftest" class="secondary">Run pipeline self-test</button>
       <button id="btn-flush" class="ghost">Retry queued protects</button>
       <button id="btn-sync" class="ghost">Sync from Hub</button>
     </div>
