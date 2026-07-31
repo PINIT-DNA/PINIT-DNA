@@ -1,36 +1,23 @@
-# PINIT Architecture Contracts
+# PINIT Architecture Documentation
 
-These documents are the **core architecture specification** for Unified Investigation.  
-Implementations must follow them. Threshold or schema changes require a **version bump** (DNA and/or acceptance policy), not silent edits.
-
-## Documents
+Complete system architecture for the PINIT-DNA / PinIT Hub monorepo (Express + React + Python AI + extension + Prisma), derived from the current codebase.
 
 | # | File | Purpose |
 |---|------|---------|
-| 01 | [01_UNIFIED_INVESTIGATION.md](./01_UNIFIED_INVESTIGATION.md) | One engine, adapters, pipeline, invariants |
-| 02 | [02_ACCEPTANCE_RULES.md](./02_ACCEPTANCE_RULES.md) | Five verdicts, gates, policy version |
-| 03 | [03_DNA_SPECIFICATION.md](./03_DNA_SPECIFICATION.md) | 15-layer map, PASS/FAIL/SKIPPED, DNA version |
-| 04 | [04_CONFIDENCE_SCORECARD.md](./04_CONFIDENCE_SCORECARD.md) | Deterministic weights, no hidden boost |
-| 05 | [05_EVIDENCE_GRAPH.md](./05_EVIDENCE_GRAPH.md) | Custody graph, trail, ranking scale |
-| 06 | [06_TAMPER_MATRIX.md](./06_TAMPER_MATRIX.md) | Tamper flags |
-| 07 | [07_MEDIA_ADAPTERS.md](./07_MEDIA_ADAPTERS.md) | Evidence collection only |
-| 08 | [08_GOLDEN_DATASET.md](./08_GOLDEN_DATASET.md) | Forensic benchmark |
-| 09 | [09_REGRESSION_TESTS.md](./09_REGRESSION_TESTS.md) | Merge gates |
-| 10 | [10_INVESTIGATION_REPORT_SPEC.md](./10_INVESTIGATION_REPORT_SPEC.md) | Manifest + report sections |
+| 01 | [01_Project_Overview.md](./01_Project_Overview.md) | Purpose, modules, stack, deployment overview |
+| 02 | [02_System_Architecture.md](./02_System_Architecture.md) | Monolithic layered architecture + flows |
+| 03 | [03_Folder_Structure.md](./03_Folder_Structure.md) | Folder-by-folder map |
+| 04 | [04_Backend_Architecture.md](./04_Backend_Architecture.md) | Express startup, routes, services, config |
+| 05 | [05_Frontend_Architecture.md](./05_Frontend_Architecture.md) | React SPA structure, auth, state |
+| 06 | [06_Database_Architecture.md](./06_Database_Architecture.md) | ER, keys, indexes, migrations |
+| 07 | [07_API_Documentation.md](./07_API_Documentation.md) | Endpoint inventory |
+| 08 | [08_Request_Flow.md](./08_Request_Flow.md) | Request lifecycle diagrams |
+| 09 | [09_Security_Architecture.md](./09_Security_Architecture.md) | AuthZ, JWT, encryption, CORS, etc. |
+| 10 | [10_Deployment_Architecture.md](./10_Deployment_Architecture.md) | Dev/prod, Render, Vercel, Docker |
+| 11 | [11_Component_Diagrams.md](./11_Component_Diagrams.md) | Mermaid component views |
+| 12 | [12_Sequence_Diagrams.md](./12_Sequence_Diagrams.md) | Login, upload, share, search, … |
+| 13 | [13_Class_Diagrams.md](./13_Class_Diagrams.md) | UML-style module diagrams |
+| 14 | [14_Developer_Guide.md](./14_Developer_Guide.md) | Onboarding & how to run |
+| 15 | [15_Tech_Stack.md](./15_Tech_Stack.md) | Languages, libraries, services |
 
-## Versions (current freeze)
-
-| Artifact | Version |
-|----------|---------|
-| Acceptance policy | `acceptance-policy-v1.0` |
-| DNA algorithm | `15-layer-v1` |
-
-## Implementation order
-
-1. Wire Acceptance Engine to five verdicts (no new features).
-2. Scorecard confidence (failed channel = 0).
-3. Manifest as single source for UI/API/PDF.
-4. Tamper matrix + evidence trail on existing report.
-5. Golden dataset + regression gates.
-
-**Do not** add new AI features, screens, or dashboards until acceptance + golden metrics are stable.
+**Documentation rules:** only document what exists in code; state **Not implemented in current codebase** when absent (e.g. SMTP, Redis, formal Repository/DTO layers, dedicated staging).
