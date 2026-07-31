@@ -13,6 +13,7 @@ const K_TRUST        = 'pinit_trust_score';
 const K_LAST_LOGIN   = 'pinit_last_login';
 const K_REGISTERED   = 'pinit_registered_at';
 const K_DEVICE_FP    = 'pinit_device_fp';
+const K_WEBAUTHN     = 'pinit_webauthn_credential';
 
 export interface HoidRecord {
   hoid: string;
@@ -42,6 +43,7 @@ export function saveRegistration(rec: {
   shortId: string;
   trustScore?: number;
   deviceFp?: string;
+  webauthnCredentialId?: string;
 }): void {
   localStorage.setItem(K_HOID, rec.hoid);
   localStorage.setItem(K_SHORT_ID, rec.shortId);
@@ -49,6 +51,11 @@ export function saveRegistration(rec: {
   localStorage.setItem(K_REGISTERED, new Date().toISOString());
   localStorage.setItem(K_LAST_LOGIN, new Date().toISOString());
   if (rec.deviceFp) localStorage.setItem(K_DEVICE_FP, rec.deviceFp);
+  if (rec.webauthnCredentialId) localStorage.setItem(K_WEBAUTHN, rec.webauthnCredentialId);
+}
+
+export function getStoredWebAuthnCredential(): string | null {
+  return localStorage.getItem(K_WEBAUTHN);
 }
 
 export function recordLogin(): void {
@@ -89,7 +96,7 @@ export function getHoidRecord(): HoidRecord | null {
 
 /** Wipe device-side identity (used by "use a different identity" / reset). */
 export function clearRegistration(): void {
-  [K_HOID, K_SHORT_ID, K_TRUST, K_LAST_LOGIN, K_REGISTERED, K_DEVICE_FP].forEach((k) =>
+  [K_HOID, K_SHORT_ID, K_TRUST, K_LAST_LOGIN, K_REGISTERED, K_DEVICE_FP, K_WEBAUTHN].forEach((k) =>
     localStorage.removeItem(k)
   );
 }

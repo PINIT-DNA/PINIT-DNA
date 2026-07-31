@@ -211,7 +211,7 @@ export function LinkTreePage() {
   const totalForwarded  = (tree?.childLinks ?? []).filter(c => c.forwardingDetected).length;
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
+    <div className="page-shell w-full max-w-3xl space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link to="/vault" className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-white transition-colors">
@@ -235,7 +235,7 @@ export function LinkTreePage() {
 
       {/* Summary cards */}
       {tree && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="stat-grid-3 gap-3">
           <div className="bg-bg-elevated border border-bg-border rounded-xl p-3 text-center">
             <p className="text-2xl font-bold text-white">{totalRecipients}</p>
             <p className="text-2xs text-gray-500 mt-0.5">Recipients</p>

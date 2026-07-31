@@ -9,6 +9,7 @@ import { tikaService }   from '../../services/tika/tika.service';
 import { VaultService }  from '../../services/vault/vault.service';
 import { prisma }        from '../../lib/prisma';
 import { AppError }      from '../middleware/error.middleware';
+import { getAuthUserId } from '../../lib/tenant-scope';
 
 const vaultService = new VaultService();
 
@@ -34,7 +35,8 @@ export async function extractTikaMetadata(req: Request, res: Response, next: Nex
     if (!record) return next(new AppError(404, `DNA record not found: ${dnaRecordId}`));
     if (!record.vaultRecord) return next(new AppError(400, 'File not in vault — store in vault first'));
 
-    const retrieved = await vaultService.retrieve(record.vaultRecord.id);
+    const userId = getAuthUserId(req);
+    const retrieved = await vaultService.retrieve(record.vaultRecord.id, userId);
     const result    = await tikaService.extract(retrieved.originalBuffer, record.imageMimeType);
     const normalized = tikaService.normalize(result.metadata);
 

@@ -253,7 +253,7 @@ export function ForensicDiffPage() {
   const sevCfg = report ? SEV_COLOR[report.overallSeverity] ?? SEV_COLOR.NONE : null;
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 animate-fade-in">
+    <div className="page-shell space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -288,7 +288,7 @@ export function ForensicDiffPage() {
               : <><Search size={16} /> Run Forensic Difference Analysis</>}
           </button>
           {loading && (
-            <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
               {['Text Diff', 'Image Diff', 'Metadata Diff'].map((s, i) => (
                 <div key={s} className="bg-bg-elevated rounded-lg p-2">
                   <motion.div className="h-1 bg-dna-500 rounded-full mb-1"
@@ -370,7 +370,7 @@ export function ForensicDiffPage() {
               count={report.textDiff.addedLines + report.textDiff.removedLines}
             >
               {/* Stats row */}
-              <div className="grid grid-cols-4 gap-3 mb-4">
+              <div className="stat-grid-4 gap-3 mb-4">
                 {[
                   { label: 'Added Lines',   value: report.textDiff.addedLines,   color: 'text-success' },
                   { label: 'Removed Lines', value: report.textDiff.removedLines, color: 'text-danger'  },

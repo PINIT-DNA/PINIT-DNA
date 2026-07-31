@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>PINIT-DNA — Generate DNA Progress Mockups (Light / Dark)</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#e8edf3;color:#1e293b;padding:28px 20px 48px;}
+h1{text-align:center;font-size:20px;font-weight:800;margin-bottom:4px;}
+.subtitle{text-align:center;font-size:12px;color:#64748b;margin-bottom:28px;}
+.row{display:flex;gap:24px;flex-wrap:wrap;justify-content:center;}
+.frame-wrap{display:flex;flex-direction:column;align-items:center;gap:8px;}
+.badge{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:3px 12px;border-radius:20px;}
+.badge-light{background:#ede9fe;color:#6366f1;}
+.badge-dark{background:#312e81;color:#c7d2fe;}
+
+.desk{width:920px;max-width:100%;border-radius:16px;overflow:hidden;border:1px solid #cbd5e1;box-shadow:0 12px 40px rgba(15,23,42,.12);}
+.desk-body{display:grid;grid-template-columns:1.55fr .9fr;gap:14px;padding:16px;}
+@media (max-width:900px){.desk-body{grid-template-columns:1fr;}}
+
+/* Light theme tokens */
+.desk.light{background:#f4f6fc;color:#0f172a;}
+.desk.light .card{background:#fff;border:1.5px solid #e2e8f0;}
+.desk.light .muted{color:#64748b;}
+.desk.light .bar-track{background:#e2e8f0;}
+.desk.light .chip{background:#f1f5f9;color:#475569;}
+.desk.light .step-done{background:#dcfce7;color:#16a34a;border-color:#86efac;}
+.desk.light .step-active{background:#ede9fe;color:#6366f1;border-color:#c4b5fd;}
+.desk.light .step-idle{background:#fff;color:#94a3b8;border-color:#e2e8f0;}
+
+/* Dark theme tokens */
+.desk.dark{background:#0b0f19;color:#e2e8f0;border-color:#1e293b;}
+.desk.dark .card{background:#111827;border:1.5px solid #1e293b;}
+.desk.dark .muted{color:#94a3b8;}
+.desk.dark .bar-track{background:#1e293b;}
+.desk.dark .chip{background:#1e293b;color:#94a3b8;}
+.desk.dark .step-done{background:rgba(34,197,94,.12);color:#4ade80;border-color:rgba(34,197,94,.35);}
+.desk.dark .step-active{background:rgba(99,102,241,.18);color:#a5b4fc;border-color:rgba(99,102,241,.45);}
+.desk.dark .step-idle{background:#0f172a;color:#64748b;border-color:#1e293b;}
+
+.card{border-radius:14px;padding:14px;}
+.asset{display:flex;gap:12px;align-items:center;}
+.thumb{width:72px;height:72px;border-radius:12px;background:linear-gradient(135deg,#6366f1,#06b6d4);flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:12px;}
+.title{font-size:14px;font-weight:800;}
+.meta{font-size:10px;margin-top:3px;}
+.stepper{display:flex;gap:6px;overflow-x:auto;padding:2px;}
+.step{flex:1;min-width:96px;border-radius:10px;border:1.5px solid;padding:8px 6px;text-align:center;font-size:9px;font-weight:700;}
+.step .n{font-size:10px;opacity:.7;display:block;margin-bottom:2px;}
+.active-panel{display:grid;grid-template-columns:120px 1fr;gap:12px;align-items:center;}
+.helix{width:110px;height:110px;border-radius:50%;margin:0 auto;background:
+  radial-gradient(circle at 50% 50%,rgba(99,102,241,.35),transparent 55%),
+  conic-gradient(from 180deg,#6366f1,#06b6d4,#8b5cf6,#6366f1);
+  display:flex;align-items:center;justify-content:center;position:relative;}
+.helix::after{content:'DNA';position:absolute;inset:18px;border-radius:50%;background:inherit;filter:brightness(.55);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:#fff;background:#1e1b4b;}
+.desk.light .helix::after{background:#fff;color:#6366f1;box-shadow:inset 0 0 0 1px #e2e8f0;}
+.check{font-size:11px;display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(148,163,184,.2);}
+.check:last-child{border-bottom:none;}
+.ok{color:#22c55e;font-weight:700;}
+.run{color:#6366f1;font-weight:700;}
+.wait{color:#94a3b8;}
+.bar{height:8px;border-radius:99px;overflow:hidden;margin-top:10px;}
+.bar > span{display:block;height:100%;width:72%;background:linear-gradient(90deg,#6366f1,#8b5cf6);}
+.gauge{width:88px;height:88px;border-radius:50%;margin:0 auto 8px;background:conic-gradient(#6366f1 0 72%,#e2e8f0 72% 100%);display:flex;align-items:center;justify-content:center;}
+.desk.dark .gauge{background:conic-gradient(#818cf8 0 72%,#1e293b 72% 100%);}
+.gauge > span{width:64px;height:64px;border-radius:50%;background:inherit;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;}
+.desk.light .gauge > span{background:#fff;}
+.desk.dark .gauge > span{background:#111827;}
+.list li{font-size:11px;padding:4px 0;display:flex;gap:6px;}
+.mono{font-family:ui-monospace,Consolas,monospace;letter-spacing:.04em;}
+.note{font-size:10px;text-align:center;margin-top:10px;}
+</style>
+</head>
+<body>
+<h1>Generate DNA — Progress Workspace</h1>
+<p class="subtitle">Theme-flexible mockups · same layout for light &amp; dark (follows Settings toggle)</p>
+
+<div class="row">
+
+  <!-- LIGHT -->
+  <div class="frame-wrap">
+    <span class="badge badge-light">Light mode</span>
+    <div class="desk light">
+      <div class="desk-body">
+        <div>
+          <div class="card asset" style="margin-bottom:12px;">
+            <div class="thumb">IMG</div>
+            <div>
+              <div class="title">WhatsApp Image 2026-07-10….jpeg</div>
+              <div class="meta muted">118.4 KB · image/jpeg · Ready for DNA</div>
+              <span class="chip" style="display:inline-block;margin-top:6px;padding:2px 8px;border-radius:999px;font-size:9px;font-weight:700;">Generating DNA…</span>
+            </div>
+          </div>
+          <div class="card" style="margin-bottom:12px;">
+            <div class="stepper">
+              <div class="step step-done"><span class="n">1</span>Upload</div>
+              <div class="step step-done"><span class="n">2</span>Analyze</div>
+              <div class="step step-active"><span class="n">3</span>Generate DNA</div>
+              <div class="step step-idle"><span class="n">4</span>Secure &amp; Store</div>
+              <div class="step step-idle"><span class="n">5</span>Ready</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="active-panel">
+              <div class="helix"></div>
+              <div>
+                <div class="title" style="margin-bottom:8px;">Generating DNA…</div>
+                <div class="check"><span class="ok">✓</span> Reading file content</div>
+                <div class="check"><span class="ok">✓</span> Extracting metadata</div>
+                <div class="check"><span class="ok">✓</span> Generating visual fingerprint</div>
+                <div class="check"><span class="run">●</span> Building DNA hash — 72%</div>
+                <div class="check"><span class="wait">○</span> Encrypting &amp; storing in vault</div>
+                <div class="bar bar-track"><span></span></div>
+                <div class="note muted">Keep this page open · usually a few seconds</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="card" style="margin-bottom:12px;">
+            <div class="muted" style="font-size:10px;font-weight:700;text-transform:uppercase;margin-bottom:8px;">DNA Preview</div>
+            <div class="mono" style="font-size:12px;color:#6366f1;">6c7a98bf••••••••</div>
+            <div class="meta muted" style="margin-top:6px;">Algorithm · PINIT DNA v2.0<br/>Hash · SHA-256</div>
+          </div>
+          <div class="card" style="margin-bottom:12px;text-align:center;">
+            <div class="muted" style="font-size:10px;font-weight:700;text-transform:uppercase;margin-bottom:8px;">Pipeline confidence</div>
+            <div class="gauge"><span>72%</span></div>
+            <div class="meta muted">Stage completion · not a forensic verdict</div>
+          </div>
+          <div class="card">
+            <div class="muted" style="font-size:10px;font-weight:700;text-transform:uppercase;margin-bottom:8px;">What’s next</div>
+            <ul class="list">
+              <li><span>1.</span> Store encrypted original in Vault</li>
+              <li><span>2.</span> Issue / link certificate</li>
+              <li><span>3.</span> Share with Smart Link protection</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DARK -->
+  <div class="frame-wrap">
+    <span class="badge badge-dark">Dark mode</span>
+    <div class="desk dark">
+      <div class="desk-body">
+        <div>
+          <div class="card asset" style="margin-bottom:12px;">
+            <div class="thumb">IMG</div>
+            <div>
+              <div class="title">WhatsApp Image 2026-07-10….jpeg</div>
+              <div class="meta muted">118.4 KB · image/jpeg · Ready for DNA</div>
+              <span class="chip" style="display:inline-block;margin-top:6px;padding:2px 8px;border-radius:999px;font-size:9px;font-weight:700;">Generating DNA…</span>
+            </div>
+          </div>
+          <div class="card" style="margin-bottom:12px;">
+            <div class="stepper">
+              <div class="step step-done"><span class="n">1</span>Upload</div>
+              <div class="step step-done"><span class="n">2</span>Analyze</div>
+              <div class="step step-active"><span class="n">3</span>Generate DNA</div>
+              <div class="step step-idle"><span class="n">4</span>Secure &amp; Store</div>
+              <div class="step step-idle"><span class="n">5</span>Ready</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="active-panel">
+              <div class="helix"></div>
+              <div>
+                <div class="title" style="margin-bottom:8px;">Generating DNA…</div>
+                <div class="check"><span class="ok">✓</span> Reading file content</div>
+                <div class="check"><span class="ok">✓</span> Extracting metadata</div>
+                <div class="check"><span class="ok">✓</span> Generating visual fingerprint</div>
+                <div class="check"><span class="run">●</span> Building DNA hash — 72%</div>
+                <div class="check"><span class="wait">○</span> Encrypting &amp; storing in vault</div>
+                <div class="bar bar-track"><span></span></div>
+                <div class="note muted">Keep this page open · usually a few seconds</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="card" style="margin-bottom:12px;">
+            <div class="muted" style="font-size:10px;font-weight:700;text-transform:uppercase;margin-bottom:8px;">DNA Preview</div>
+            <div class="mono" style="font-size:12px;color:#a5b4fc;">6c7a98bf••••••••</div>
+            <div class="meta muted" style="margin-top:6px;">Algorithm · PINIT DNA v2.0<br/>Hash · SHA-256</div>
+          </div>
+          <div class="card" style="margin-bottom:12px;text-align:center;">
+            <div class="muted" style="font-size:10px;font-weight:700;text-transform:uppercase;margin-bottom:8px;">Pipeline confidence</div>
+            <div class="gauge"><span>72%</span></div>
+            <div class="meta muted">Stage completion · not a forensic verdict</div>
+          </div>
+          <div class="card">
+            <div class="muted" style="font-size:10px;font-weight:700;text-transform:uppercase;margin-bottom:8px;">What’s next</div>
+            <ul class="list">
+              <li><span>1.</span> Store encrypted original in Vault</li>
+              <li><span>2.</span> Issue / link certificate</li>
+              <li><span>3.</span> Share with Smart Link protection</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -17,6 +17,7 @@ import path from 'path';
 import fs from 'fs';
 import { Request } from 'express';
 import { config } from '../../config';
+import { mimeMatchesAllowed } from '../../lib/mime-normalize';
 
 // Ensure temp directory exists at startup
 if (!fs.existsSync(config.upload.tempDir)) {
@@ -44,13 +45,13 @@ const fileFilter = (
   file: Express.Multer.File,
   cb: FileFilterCallback
 ): void => {
-  if (config.upload.allowedMimeTypes.includes(file.mimetype)) {
+  if (mimeMatchesAllowed(file.mimetype, config.upload.allowedMimeTypes)) {
     cb(null, true);
   } else {
     cb(
       new Error(
         `Unsupported file type: "${file.mimetype}". ` +
-        `Supported: IMAGE, PDF, DOCX, PPTX, TXT, CSV, JSON, ZIP, VIDEO, AUDIO. ` +
+        `Supported: IMAGE, PDF, DOCX, PPTX, TXT, HTML, CSV, JSON, ZIP, VIDEO, AUDIO. ` +
         `Check GET /api/v1/dna/supported-types for the full MIME list.`
       )
     );
@@ -70,6 +71,17 @@ const multerInstance = multer({
  * Used by all existing routes.  Backward compatible with the frontend.
  */
 export const uploadSingle = multerInstance.single('image');
+
+/**
+ * uploadInvestigation — memory storage for unified investigation uploads.
+ * Avoids OneDrive/temp-disk races and guarantees file.buffer is always set.
+ */
+const investigationMulter = multer({
+  storage: multer.memoryStorage(),
+  fileFilter,
+  limits: { fileSize: config.upload.maxFileSizeBytes },
+});
+export const uploadInvestigation = investigationMulter.single('image');
 
 /**
  * uploadFile — field name "file"

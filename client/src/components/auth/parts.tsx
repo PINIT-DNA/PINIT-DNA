@@ -14,8 +14,8 @@ export function StepHead({ icon, title, subtitle }: { icon: ReactNode; title: st
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: 'rgba(99,102,241,0.10)',
-          border: '1px solid rgba(99,102,241,0.22)',
+          background: 'rgba(59,158,255,0.12)',
+          border: '1px solid rgba(59,158,255,0.28)',
         }}
       >
         {icon}
@@ -50,14 +50,14 @@ export function Checklist({ items }: { items: CheckItem[] }) {
               alignItems: 'center',
               justifyContent: 'center',
               flexShrink: 0,
-              background: it.done ? '#10b981' : '#e5e9f1',
-              color: it.done ? '#fff' : '#94a3b8',
+              background: it.done ? '#10b981' : 'rgba(120,160,220,0.14)',
+              color: it.done ? '#fff' : '#8b9bb8',
               transition: 'background .25s ease',
             }}
           >
             {it.done ? <Check size={13} strokeWidth={3} /> : <Loader2 size={13} className="pa-spin" />}
           </span>
-          <span style={{ fontSize: 14, color: it.done ? '#0f172a' : '#64748b', fontWeight: 500 }}>{it.label}</span>
+          <span style={{ fontSize: 14, color: it.done ? '#f4f8ff' : '#8b9bb8', fontWeight: 500 }}>{it.label}</span>
         </div>
       ))}
     </div>
@@ -96,10 +96,11 @@ export function SystemTrace({
         marginTop: 16,
         padding: '12px 14px',
         borderRadius: 12,
-        background: '#f7f9fc',
-        border: '1px solid #e9edf5',
+        background: 'rgba(255,255,255,0.03)',
+        border: '1px solid rgba(120,160,220,0.16)',
         fontSize: 12.5,
         lineHeight: 1.9,
+        color: '#b7c6de',
       }}
     >
       {lines.map((l, i) => (
@@ -114,11 +115,11 @@ export function SystemTrace({
           }}
         >
           {i < shown ? (
-            <Check size={12} color="#059669" strokeWidth={3} />
+            <Check size={12} color="#34d399" strokeWidth={3} />
           ) : (
-            <Loader2 size={12} className="pa-spin" color="#94a3b8" />
+            <Loader2 size={12} className="pa-spin" color="#617089" />
           )}
-          <span style={{ color: i < shown ? '#047857' : '#94a3b8' }}>{l}</span>
+          <span style={{ color: i < shown ? '#6ee7b7' : '#617089' }}>{l}</span>
         </div>
       ))}
     </div>
@@ -141,8 +142,8 @@ export function TrustBadge({ score = 99.8 }: { score?: number }) {
         border: '1px solid rgba(16,185,129,0.4)',
       }}
     >
-      <ShieldCheck size={17} color="#059669" />
-      <span style={{ fontSize: 14, fontWeight: 700, color: '#047857' }}>
+      <ShieldCheck size={17} color="#34d399" />
+      <span style={{ fontSize: 14, fontWeight: 700, color: '#6ee7b7' }}>
         Trust Score: {score.toFixed(1)}%
       </span>
     </div>

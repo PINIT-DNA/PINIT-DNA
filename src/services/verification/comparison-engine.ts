@@ -27,6 +27,10 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { dnaEnhancements } from '../../config/dna-enhancements';
+import { DNA_COMPARISON_VERSION } from '../../config/dna-versions';
+import { tamperClassifierService } from '../forensics/tamper-classifier.service';
+import type { LayerScoreInput } from '../../types/dna-enhancements.types';
 import type { EphemeralFingerprint, EphemeralLayer } from './ephemeral-fingerprinter';
 import type {
   DnaComparisonResult,
@@ -35,6 +39,12 @@ import type {
   DnaClassification,
   ForensicReport,
 } from '../../types/comparison.types';
+import { DNA_LAYER_REGISTRY } from '../../constants/dna-layer-registry';
+
+export interface ComparisonEngineOptions {
+  /** Vault registry original — L7–L10 lifecycle layers use content-verified scoring */
+  vaultCompare?: boolean;
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -58,7 +68,11 @@ const LAYER_THRESHOLDS: Record<number, number> = {
   10: 1.00, // L10 merkle root matches exactly when file is identical
 };
 
-const ENGINE_VERSION = '2.0.0-universal';
+/**
+ * WHY DNA_COMPARISON_VERSION (Task A1): same literal '2.0.0-universal' as before;
+ * centralized so comparison suite id cannot drift from the version contract.
+ */
+const ENGINE_VERSION = DNA_COMPARISON_VERSION;
 
 // ─── Comparison Engine ────────────────────────────────────────────────────────
 
@@ -69,15 +83,17 @@ export class ComparisonEngine {
   compare(
     fpA: EphemeralFingerprint,
     fpB: EphemeralFingerprint,
-    processingMs: number
+    processingMs: number,
+    options?: ComparisonEngineOptions,
   ): DnaComparisonResult {
     const comparisonId = uuidv4();
+    const vaultCompare = options?.vaultCompare ?? false;
 
-    // ── Layer-by-layer comparison ─────────────────────────────────────────────
-    const layerComparisons = this.compareLayers(fpA.layers, fpB.layers);
+    const layerComparisons = this.compareLayers(fpA.layers, fpB.layers, vaultCompare);
 
-    // ── Overall confidence score ──────────────────────────────────────────────
+    // ── Overall confidence score (registry SKIPPED layers contribute nothing) ─
     const rawScore = layerComparisons.reduce((sum, l) => {
+      if (l.skipped) return sum;
       const weight = LAYER_WEIGHTS[l.layer] ?? 0;
       return sum + l.similarityScore * weight;
     }, 0);
@@ -99,6 +115,17 @@ export class ComparisonEngine {
       fpA, fpB, layerComparisons, classification, overallScore,
       tamperingDetected, indicators, changedLayers, matchedLayers,
     });
+
+    let enhancedForensic: DnaComparisonResult['enhancedForensic'];
+    if (dnaEnhancements.enabled && dnaEnhancements.verify.tamperClassification) {
+      const layerInputs = this.toLayerScoreInputs(layerComparisons);
+      const tamper = tamperClassifierService.classify(layerInputs);
+      enhancedForensic = {
+        tamperVector: tamper.primaryVector,
+        tamperDescription: tamper.description,
+        tamperConfidence: tamper.tamperConfidence,
+      };
+    }
 
     return {
       comparisonId,
@@ -126,55 +153,165 @@ export class ComparisonEngine {
       forensicReport,
       processingMs,
       comparedAt: new Date().toISOString(),
+      enhancedForensic,
     };
+  }
+
+  /** Map ephemeral layer comparison results to weighted scorer layer names */
+  private toLayerScoreInputs(layers: LayerComparisonResult[]): LayerScoreInput[] {
+    const nameMap: Record<number, string> = {
+      1: 'cryptographic',
+      2: 'structural',
+      3: 'perceptual',
+      4: 'semantic',
+      5: 'metadata',
+      6: 'steganography',
+    };
+    return layers
+      .filter((l) => l.layer <= 6)
+      .map((l) => ({
+        layer: nameMap[l.layer] ?? l.name,
+        score: l.similarityScore,
+        weight: LAYER_WEIGHTS[l.layer] ?? 0,
+        passed: l.matched,
+      }));
   }
 
   // ─── Layer comparison ─────────────────────────────────────────────────────
 
+  /**
+   * Phase 4.5 — Evidence pairing.
+   * Content layers (L1–L6): compare equivalent constructions only.
+   * Registry layers (L7–L15): never FAIL when probe did not generate them;
+   * load from vault and mark SKIPPED or PASS-via-content-verification.
+   */
   private compareLayers(
     layersA: EphemeralLayer[],
-    layersB: EphemeralLayer[]
+    layersB: EphemeralLayer[],
+    vaultCompare = false,
   ): LayerComparisonResult[] {
     const results: LayerComparisonResult[] = [];
-    const maxLayers = Math.max(layersA.length, layersB.length, 10);
+    const maxLayers = Math.max(layersA.length, layersB.length, 15);
+
+    const skipped = (
+      layerNum: number,
+      name: string,
+      implementation: string,
+      reason: string,
+      fingerprintA = '',
+      fingerprintB = '',
+    ): LayerComparisonResult => ({
+      layer: layerNum,
+      name,
+      implementation,
+      similarityScore: 0,
+      similarityPercent: 0,
+      matched: false,
+      skipped: true,
+      fingerprintA,
+      fingerprintB,
+      changed: false,
+      changeDescription: reason,
+    });
 
     for (let i = 0; i < maxLayers; i++) {
-      const lA = layersA[i];
-      const lB = layersB[i];
-      const layerNum = (lA?.layer ?? lB?.layer ?? i + 1);
+      const layerNum = i + 1;
+      const lA = layersA.find((l) => l.layer === layerNum);
+      const lB = layersB.find((l) => l.layer === layerNum);
+      const reg = DNA_LAYER_REGISTRY[layerNum];
+      const name = reg?.name ?? lA?.name ?? lB?.name ?? `layer${layerNum}`;
+      const impl = reg?.implementation ?? lA?.implementation ?? lB?.implementation ?? 'not_generated';
+
+      // Registry layers on vault investigation — never content-compare session/lifecycle fields.
+      // Credit (PASS) only after content identity is proven (L1 exact or L3 ≥ 88%).
+      if (vaultCompare && layerNum >= 7 && layerNum <= 15) {
+        const onVault = !!(lA?.success && lA.fingerprint);
+        results.push(skipped(
+          layerNum,
+          name,
+          impl,
+          layerNum <= 10
+            ? (onVault
+              ? 'Vault registry has this lifecycle layer — PASS credit requires L1 exact or L3 ≥ 88% (crop/derivative stays SKIPPED)'
+              : 'No lifecycle fingerprint on vault registry for this layer')
+            : (onVault
+              ? 'Vault registry has this protection layer — PASS credit requires L1 exact or L3 ≥ 88%'
+              : 'Advanced protection layer not stored on vault / not generated on probe'),
+          lA?.fingerprint ?? '',
+          '',
+        ));
+        continue;
+      }
+
+      if (!lA?.success && !lB?.success) {
+        results.push(skipped(
+          layerNum,
+          name,
+          impl,
+          'Layer not generated for this file type',
+        ));
+        continue;
+      }
 
       if (!lA?.success || !lB?.success) {
-        results.push({
-          layer: layerNum,
-          name: lA?.name ?? lB?.name ?? `layer${layerNum}`,
-          implementation: lA?.implementation ?? lB?.implementation ?? 'unknown',
-          similarityScore: 0,
-          similarityPercent: 0,
-          matched: false,
-          fingerprintA: lA?.fingerprint ?? '',
-          fingerprintB: lB?.fingerprint ?? '',
-          changed: true,
-          changeDescription: 'Layer missing or failed in one or both files',
-        });
+        results.push(skipped(
+          layerNum,
+          name,
+          impl,
+          !lB?.success
+            ? 'Layer not generated on probe — not a content failure'
+            : 'Layer missing on vault registry — not a content failure',
+          lA?.fingerprint ?? '',
+          lB?.fingerprint ?? '',
+        ));
         continue;
       }
 
       const score = this.scoreLayer(layerNum, lA, lB);
       const threshold = LAYER_THRESHOLDS[layerNum] ?? 0.80;
-      const changed = lA.fingerprint !== lB.fingerprint;
+      const changeDescription = this.describeChange(layerNum, lA, lB, score);
 
       results.push({
         layer: layerNum,
-        name: lA.name,
-        implementation: lA.implementation,
+        name: reg?.name ?? lA.name,
+        implementation: reg?.implementation ?? lA.implementation,
         similarityScore: score,
         similarityPercent: Math.round(score * 100),
         matched: score >= threshold,
+        skipped: false,
         fingerprintA: lA.fingerprint,
         fingerprintB: lB.fingerprint,
-        changed,
-        changeDescription: this.describeChange(layerNum, lA, lB, score),
+        changed: lA.fingerprint !== lB.fingerprint,
+        changeDescription,
       });
+    }
+
+    // After content layers are scored: credit registry L7–L15 when content identity is proven.
+    if (vaultCompare) {
+      const l1 = results.find((r) => r.layer === 1);
+      const l3 = results.find((r) => r.layer === 3);
+      const contentVerified = (l1?.similarityScore === 1)
+        || (l3 != null && !l3.skipped && l3.similarityScore >= 0.88);
+      if (contentVerified) {
+        for (const r of results) {
+          if (r.layer >= 7 && r.layer <= 15 && r.skipped) {
+            const vaultLayer = layersA.find((l) => l.layer === r.layer);
+            if (!vaultLayer?.success && r.layer >= 11) {
+              // Vault never stored this advanced layer — remain SKIPPED
+              continue;
+            }
+            r.skipped = false;
+            r.similarityScore = 1;
+            r.similarityPercent = 100;
+            r.matched = true;
+            r.changed = false;
+            r.changeDescription = r.layer <= 10
+              ? 'Registry evidence confirmed — vault original verified via content DNA (L1–L6)'
+              : 'Registry evidence present on vault — content identity verified';
+            r.fingerprintA = vaultLayer?.fingerprint ?? r.fingerprintA;
+          }
+        }
+      }
     }
 
     return results;
@@ -249,15 +386,31 @@ export class ComparisonEngine {
   }
 
   /**
-   * Hex string similarity — gives partial credit based on matching hex nibbles.
-   * Used for structural/semantic layers where partial similarity is meaningful.
+   * Hex string similarity — partial credit via Hamming / nibble overlap.
+   * Never hard-zero short hashes: image structural/semantic fingerprints are often
+   * ≤16 hex chars; crops would otherwise show L2/L4 = 0% despite shared content.
    */
   private hexSimilarity(a: string, b: string): number {
     if (a === b) return 1.0;
-    // For short hashes (≤64 chars), no partial credit — binary match
-    if (a.length <= 16) return 0.0;
-    // For longer hashes, give partial credit via Hamming
-    return this.hammingSimilarity(a, b);
+    if (!a || !b) return 0.0;
+
+    const ha = a.replace(/^0x/i, '');
+    const hb = b.replace(/^0x/i, '');
+    if (/^[0-9a-fA-F]+$/.test(ha) && /^[0-9a-fA-F]+$/.test(hb)) {
+      if (ha.length === hb.length) return this.hammingSimilarity(ha, hb);
+      const minLen = Math.min(ha.length, hb.length);
+      if (minLen >= 4) {
+        return this.hammingSimilarity(ha.slice(0, minLen), hb.slice(0, minLen)) * (minLen / Math.max(ha.length, hb.length));
+      }
+    }
+
+    const minLen = Math.min(a.length, b.length);
+    if (minLen === 0) return 0;
+    let same = 0;
+    for (let i = 0; i < minLen; i++) {
+      if (a[i] === b[i]) same++;
+    }
+    return same / Math.max(a.length, b.length);
   }
 
   // ─── Change description ───────────────────────────────────────────────────
@@ -275,11 +428,11 @@ export class ComparisonEngine {
     const pct = Math.round(score * 100);
 
     switch (layerNum) {
-      case 1: return `Raw bytes differ — files are not byte-identical`;
-      case 2: return `Structural organisation differs (similarity: ${pct}%)`;
-      case 3: return `Content perceptually differs (similarity: ${pct}%)`;
-      case 4: return `Semantic distribution differs (similarity: ${pct}%)`;
-      case 5: return `Metadata provenance differs — may indicate re-save or edit`;
+      case 1: return `Raw bytes differ — files are not byte-identical (edit, compress, or re-save)`;
+      case 2: return `Structural organisation differs (similarity: ${pct}%) — layout, pages, or edges changed`;
+      case 3: return `Content / text perceptually differs (similarity: ${pct}%) — crop, compress, or letter/text edits`;
+      case 4: return `Semantic / keyword distribution differs (similarity: ${pct}%) — wording or topic drift`;
+      case 5: return `Metadata provenance differs — may indicate re-save, strip, or edit`;
       case 6:  return `Integrity signature differs — seal broken`;
       case 7:  return `Behavioral DNA differs — uploaded from different session/device`;
       case 8:  return `Relationship DNA differs — file has different duplicate graph`;

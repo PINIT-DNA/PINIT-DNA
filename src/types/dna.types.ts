@@ -44,6 +44,7 @@ export type FileType =
   | 'DOCX'
   | 'PPTX'
   | 'TXT'
+  | 'HTML'
   | 'CSV'
   | 'JSON'
   | 'ZIP'
@@ -149,6 +150,10 @@ export interface MetadataLayerResult extends LayerResult {
     iptcData: Record<string, unknown> | null;
     xmpData: Record<string, unknown> | null;
     metadataHash: string;
+    /** Milestone B dual-write — EDS claims_digest */
+    claimsDigest?: string;
+    claimsDigestAlgorithmId?: string;
+    deterministic?: boolean;
   };
 }
 
@@ -164,6 +169,16 @@ export interface StegoLayerResult extends LayerResult {
     payloadHmac: string;
     channel: 'R' | 'G' | 'B' | 'alpha';
     carrierPath: string | null;
+    /** EDS content seal (identity) */
+    contentSealHmac?: string;
+    /** Ownership watermark HMAC (stable for same ownership tile) */
+    stegoTraceHmac?: string;
+    contentSealAlgorithmId?: string;
+    deterministic?: boolean;
+    /** Full ownership signature details persisted with the file */
+    ownershipSignature?: Record<string, unknown>;
+    ownershipAlgorithm?: string;
+    ownershipTileCount?: number;
   };
 }
 
@@ -269,6 +284,11 @@ export interface DnaGenerationResult {
   status: 'COMPLETE' | 'PARTIAL' | 'FAILED';
   totalProcessingMs: number;
   generatedAt: Date;
+  layerSummary: {
+    total: number;
+    successful: number;
+    failed: number;
+  };
 }
 
 // ─── Verification ─────────────────────────────────────────────────────────────
@@ -297,6 +317,19 @@ export interface DnaVerificationResult {
   layersChecked: LayerName[];
   verifiedAt: Date;
   verificationLogId: string;
+  /** v2.1+ enterprise forensic scoring — present when DNA_ENHANCEMENTS_ENABLED=true */
+  forensic?: {
+    overallMatchScore?: number;
+    ownershipConfidence?: number;
+    tamperConfidence?: number;
+    tamperVector?: string;
+    tamperDescription?: string;
+    mediaProfile?: string;
+    explanation?: import('./dna-enhancements.types').DnaExplanationResult;
+    evidenceConfidence?: import('./dna-enhancements.types').EvidenceConfidenceResult;
+    crossMedia?: import('./dna-enhancements.types').CrossMediaMatchResult;
+    transformationHistory?: import('./dna-enhancements.types').TransformationHistoryEntry[];
+  };
 }
 
 // ─── API Request / Response shapes ───────────────────────────────────────────
@@ -308,7 +341,7 @@ export interface GenerateDnaResponse {
   schemaVersion: string;
   /** Detected file type — e.g. "IMAGE", "PDF" */
   fileType: string;
-  /** Engine version that processed this file — e.g. "2.0.0-universal" */
+  /** Engine version that processed this file — e.g. DNA_GENERATOR_VERSION ("2.0.0-universal") */
   engineVersion: string;
   /** How the file type was detected */
   detectedBy: string;
@@ -321,6 +354,9 @@ export interface GenerateDnaResponse {
     totalProcessingMs: number;
   };
   generatedAt: string;
+  /** Whole-file authenticity report (also persisted on DnaRecord.fileAnalysis) */
+  fileAnalysisLabel?: string | null;
+  fileAnalysis?: import('../services/vault/authenticity.types').VaultContentAnalysis | null;
 }
 
 export interface VerifyDnaRequest {
@@ -359,6 +395,10 @@ export interface GetDnaRecordResponse {
       metadata: boolean;
       steganography: boolean;
     };
+    /** Stored ownership watermark details for this file (if embedded) */
+    ownershipSignature?: Record<string, unknown> | null;
+    ownershipAlgorithm?: string | null;
+    ownershipTileCount?: number | null;
     createdAt: string;
     updatedAt: string;
   };

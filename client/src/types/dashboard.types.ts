@@ -14,6 +14,120 @@ export interface DnaRecord {
   vaultId: string | null;
 }
 
+/** Custody location — never part of DNA (immutable identity) */
+export interface VaultLocationStatus {
+  status: 'AVAILABLE' | 'UNAVAILABLE';
+  creationLabel?: string;
+  creationSource?: 'gps' | 'ip' | 'none';
+  sharedLabel?: string;
+  sharedSource?: 'gps' | 'ip' | 'none';
+  sharedAt?: string;
+  presentLabel?: string;
+  presentSource?: 'gps' | 'ip' | 'none';
+  presentAt?: string;
+  lastKnownLabel?: string;
+  lastKnownSource?: 'gps' | 'ip' | 'none';
+  lastKnownAt?: string;
+  latitude?: number;
+  longitude?: number;
+}
+
+export type AuthenticityVerdict =
+  | 'ORIGINAL'
+  | 'EDITED'
+  | 'TAMPERED'
+  | 'AI_GENERATED'
+  | 'LIKELY_AI'
+  | 'LIKELY_EDITED'
+  | 'DEEPFAKE'
+  | 'SCREENSHOT'
+  | 'RECOMPRESSED'
+  | 'METADATA_MODIFIED'
+  | 'DOCUMENT'
+  | 'COURSE_MATERIAL'
+  | 'SUSPICIOUS'
+  | 'UNKNOWN'
+  | string;
+
+export interface AuthenticityEvidence {
+  id: string;
+  engine: string;
+  severity: 'info' | 'low' | 'medium' | 'high' | 'critical' | string;
+  title: string;
+  detail: string;
+  scoreImpact?: number;
+}
+
+export interface AuthenticityEngineResult {
+  id: string;
+  name: string;
+  status: 'COMPLETE' | 'PARTIAL' | 'SKIPPED' | 'UNAVAILABLE' | 'FAILED' | string;
+  summary: string;
+  score?: number | null;
+  findings?: string[];
+}
+
+export interface VaultContentAnalysis {
+  version?: string;
+  label: string;
+  labelDisplay?: string;
+  verdict?: AuthenticityVerdict;
+  verdictDisplay?: string;
+  confidence: number;
+  summary?: string;
+  reasons?: string[];
+  scores?: {
+    authenticityScore: number;
+    tamperScore: number;
+    aiProbability: number;
+    confidence: number;
+    confidenceLevel?: 'LOW' | 'MEDIUM' | 'HIGH' | string;
+  };
+  composition?: {
+    manualPercent: number;
+    aiGeneratedPercent: number;
+    editedPercent: number;
+    screenshotPercent: number;
+    courseMaterialPercent: number;
+    tamperedPercent?: number;
+    recompressedPercent?: number;
+  };
+  evidence?: AuthenticityEvidence[];
+  engines?: AuthenticityEngineResult[];
+  signals?: {
+    fileCategory?: string;
+    mimeType?: string;
+    isImage?: boolean;
+    isDocument?: boolean;
+    isVideo?: boolean;
+    deepfakeScore?: number | null;
+    isDeepfake?: boolean | null;
+    aiEdited?: boolean | null;
+    aiConfidencePercent?: number | null;
+    pythonAiGenerated?: boolean | null;
+    pythonAiGeneratedPct?: number | null;
+    isScreenshot?: boolean | null;
+    screenshotPlatform?: string | null;
+    screenshotConfidencePercent?: number | null;
+    wordCount?: number | null;
+    courseKeywordsHit?: string[];
+    metadataMissing?: boolean | null;
+    metadataSoftware?: string | null;
+    doubleJpegHint?: boolean | null;
+    elaMean?: number | null;
+    sha256?: string | null;
+    aiGenerationScore?: number | null;
+    likelyAiGenerated?: boolean | null;
+    aiMarkerHit?: boolean | null;
+    hasCameraExif?: boolean | null;
+    ensembleAiPct?: number | null;
+    ensembleTamperPct?: number | null;
+  };
+  heatmapPngBase64?: string | null;
+  analyzedAt?: string;
+  source?: string[];
+}
+
 export interface VaultRecord {
   id: string;
   dnaRecordId: string;
@@ -24,11 +138,14 @@ export interface VaultRecord {
   encryptionAlgorithm: string;
   keyDerivation: string;
   createdAt: string;
+  contentLabel?: string | null;
+  contentAnalysis?: VaultContentAnalysis | null;
   dnaRecord: {
     id: string;
     status: string;
     filename: string;
   };
+  location?: VaultLocationStatus;
 }
 
 export interface SupportedFileType {

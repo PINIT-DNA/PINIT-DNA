@@ -18,7 +18,7 @@ import { logger } from '../../../lib/logger';
 import { prisma } from '../../../lib/prisma';
 import { FileInput } from '../../universal-file-router';
 import { UniversalEngineResult, UniversalLayerResult } from '../../../types/universal-engine.types';
-import { simHash64, computeHmac, sha256 } from '../base/text-utils';
+import { simHash64, computeLayer6IdentitySeal, sha256 } from '../base/text-utils';
 
 // music-metadata v7 — CJS compatible
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -218,7 +218,7 @@ export class AudioDnaEngine {
 
   private layer6(fingerprints: string, dnaRecordId: string): UniversalLayerResult {
     const t = Date.now();
-    const hmac = computeHmac(`AUDIO:${dnaRecordId}:${fingerprints}`, config.stego.signatureSecret);
+    const hmac = computeLayer6IdentitySeal('AUDIO', fingerprints, dnaRecordId, config.stego.signatureSecret);
     return { layer: 6, name: 'signature', implementation: 'hmac_sha256',
       fingerprint: hmac, data: { hmac, dnaRecordId, embedded: false },
       success: true, processingMs: Date.now() - t };

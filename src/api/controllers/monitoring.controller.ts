@@ -2,19 +2,49 @@ import { Request, Response, NextFunction } from 'express';
 import { monitoringService } from '../../services/crawler/monitoring.service';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
+import { getAuthUserId } from '../../lib/tenant-scope';
+
+async function emitMonitorLifecycle(
+  monitorId: string,
+  action: 'paused' | 'resumed' | 'stopped',
+): Promise<void> {
+  const monitor = await prisma.monitorRecord.findUnique({
+    where: { id: monitorId },
+    select: { id: true, ownerUserId: true, filename: true },
+  });
+  if (!monitor?.ownerUserId) return;
+  import('../../services/platform-events/extended-events').then(({ emitMonitoringLifecycle }) => {
+    emitMonitoringLifecycle({
+      ownerUserId: monitor.ownerUserId!,
+      monitorRecordId: monitor.id,
+      filename: monitor.filename,
+      action,
+    });
+  }).catch(() => {});
+}
+
+export async function getEngineStats(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const userId = getAuthUserId(req);
+    const { crawlerEngineService } = await import('../../services/crawler/engine');
+    const stats = await crawlerEngineService.getEngineStats(userId);
+    res.json({ success: true, engine: stats });
+  } catch (err) { next(err); }
+}
 
 export async function enrollMonitor(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { dnaRecordId } = req.params;
-    const { watchUrls = [], scanType = 'DAILY' } = req.body;
-    const monitorId = await monitoringService.enroll(dnaRecordId, { watchUrls, scanType });
+    const { watchUrls = [], scanType = 'CONTINUOUS' } = req.body;
+    const ownerUserId = getAuthUserId(req);
+    const monitorId = await monitoringService.enroll(dnaRecordId, { watchUrls, scanType, ownerUserId });
     res.status(201).json({ success: true, monitorId, message: 'File enrolled for monitoring' });
   } catch (err) { next(err); }
 }
 
 export async function listMonitors(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const userId = (req as any).user?.sub;
+    const userId = getAuthUserId(req);
     const monitors = await monitoringService.listMonitors(userId);
     res.json({ success: true, count: monitors.length, monitors });
   } catch (err) { next(err); }
@@ -22,6 +52,7 @@ export async function listMonitors(req: Request, res: Response, next: NextFuncti
 
 export async function runCheckNow(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    logger.info('[Monitor] Check Now requested', { monitorId: req.params.id });
     const result = await monitoringService.runCheck(req.params.id, 'MANUAL');
     res.json({ success: true, result });
   } catch (err) { next(err); }
@@ -48,8 +79,9 @@ export async function updateScanType(req: Request, res: Response, next: NextFunc
 
 export async function getAlerts(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    const userId = getAuthUserId(req);
     const status = (req.query['status'] as string) ?? 'PENDING';
-    const alerts = await monitoringService.getAlerts(status);
+    const alerts = await monitoringService.getAlerts(status, userId);
     res.json({ success: true, count: alerts.length, alerts });
   } catch (err) { next(err); }
 }
@@ -68,36 +100,37 @@ export async function confirmAlert(req: Request, res: Response, next: NextFuncti
   } catch (err) { next(err); }
 }
 
-export async function getMonitoringStats(_req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function getMonitoringStats(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const stats = await monitoringService.getStats();
+    const userId = getAuthUserId(req);
+    const stats = await monitoringService.getStats(userId);
     res.json({ success: true, ...stats });
   } catch (err) { next(err); }
 }
 
 export async function pauseMonitor(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { prisma } = await import('../../lib/prisma');
     await prisma.monitorRecord.update({ where: { id: req.params.id }, data: { status: 'PAUSED' } });
+    await emitMonitorLifecycle(req.params.id, 'paused');
     res.json({ success: true });
   } catch (err) { next(err); }
 }
 
 export async function resumeMonitor(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { prisma } = await import('../../lib/prisma');
     await prisma.monitorRecord.update({
       where: { id: req.params.id },
       data: { status: 'ACTIVE', nextCheckAt: new Date(Date.now() + 60_000) },
     });
+    await emitMonitorLifecycle(req.params.id, 'resumed');
     res.json({ success: true });
   } catch (err) { next(err); }
 }
 
 export async function stopMonitor(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { prisma } = await import('../../lib/prisma');
     await prisma.monitorRecord.update({ where: { id: req.params.id }, data: { status: 'STOPPED' } });
+    await emitMonitorLifecycle(req.params.id, 'stopped');
     res.json({ success: true });
   } catch (err) { next(err); }
 }
@@ -116,17 +149,17 @@ export async function updateWatchUrls(req: Request, res: Response, next: NextFun
 // Enroll all DNA records that don't have an active monitor yet
 export async function enrollAll(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const userId = (req as any).user?.sub;
+    const userId = getAuthUserId(req);
     const allDna = await prisma.dnaRecord.findMany({
       where: {
         status: { in: ['COMPLETE', 'PARTIAL'] },
-        ownerUserId: userId ?? undefined,
+        ownerUserId: userId,
       },
       select: { id: true, imageFilename: true },
     });
 
     const monitored = await prisma.monitorRecord.findMany({
-      where: { status: { not: 'STOPPED' } },
+      where: { status: { not: 'STOPPED' }, ownerUserId: userId },
       select: { dnaRecordId: true },
     });
     const monitoredIds = new Set(monitored.map(m => m.dnaRecordId));
@@ -136,7 +169,7 @@ export async function enrollAll(req: Request, res: Response, next: NextFunction)
     let enrolled = 0;
     for (const record of unmonitored) {
       try {
-        await monitoringService.enroll(record.id, { scanType: 'DAILY' });
+        await monitoringService.enroll(record.id, { scanType: 'CONTINUOUS', ownerUserId: userId });
         enrolled++;
       } catch (err) {
         logger.warn('[Monitor] Bulk enroll skip', { id: record.id, error: String(err) });

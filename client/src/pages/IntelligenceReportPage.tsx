@@ -122,7 +122,7 @@ function Row({ label, value, mono = false, accent }: { label: string; value: Rea
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-export function IntelligenceReportPage() {
+export function IntelligenceReportPage({ adminMode = false }: { adminMode?: boolean }) {
   const { vaultId } = useParams<{ vaultId: string }>();
   const navigate    = useNavigate();
   const [report, setReport] = useState<IntelReport | null>(null);
@@ -134,7 +134,10 @@ export function IntelligenceReportPage() {
     setLoading(true);
     setError(null);
     try {
-      const res  = await fetch(`${API_BASE_URL}/intelligence/report/${vaultId}`, {
+      const url = adminMode
+        ? `${API_BASE_URL}/super-admin/vault/${vaultId}/intelligence`
+        : `${API_BASE_URL}/intelligence/report/${vaultId}`;
+      const res  = await fetch(url, {
         headers: { Authorization: `Bearer ${getAccessToken()}` },
       });
       const data = await res.json();
@@ -147,7 +150,7 @@ export function IntelligenceReportPage() {
     }
   };
 
-  useEffect(() => { load(); }, [vaultId]);
+  useEffect(() => { load(); }, [vaultId, adminMode]);
 
   // ── Loading ────────────────────────────────────────────────────────────────
   if (loading) return (
@@ -170,7 +173,7 @@ export function IntelligenceReportPage() {
   const TamperIcon = tamper.icon;
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
+    <div className="page-shell w-full max-w-4xl space-y-6">
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -210,7 +213,7 @@ export function IntelligenceReportPage() {
       )}
 
       {/* ── 6-stat summary bar ────────────────────────────────────────────── */}
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
         {[
           { label: 'Risk Score',    value: `${r.risk.riskScore}`,          sub: '/100',    color: r.risk.riskScore > 50 ? 'text-red-400' : 'text-emerald-400' },
           { label: 'Views',         value: `${r.distribution.totalViews}`,   sub: 'total',   color: 'text-dna-400' },
@@ -283,7 +286,7 @@ export function IntelligenceReportPage() {
           )}
         </div>
         <Row label="DNA Status"       value={r.integrity.dnaStatus} />
-        <Row label="Layers Complete"  value={`${r.integrity.layersComplete}/10`} accent="text-emerald-400" />
+        <Row label="Layers Complete"  value={`${r.integrity.layersComplete}/15`} accent="text-emerald-400" />
         <Row label="SHA-256 Hash"      value={shortHash(r.integrity.sha256Hash)} mono />
         {r.integrity.lastVerification && (
           <Row label="Last Verified" value={fmtDate(r.integrity.lastVerification.at)} />

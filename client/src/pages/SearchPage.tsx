@@ -116,7 +116,7 @@ export function SearchPage() {
   const handleKeyDown = (e: React.KeyboardEvent) => { if (e.key === 'Enter') handleSearch(); };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-5 animate-fade-in">
+    <div className="page-shell space-y-5 animate-fade-in">
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -171,7 +171,7 @@ export function SearchPage() {
               </p>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-3 mt-4">
+          <div className="stat-grid-3 gap-3 mt-4">
             {[
               { icon: <Zap size={13} className="text-dna-400" />, label: 'Model', value: 'all-MiniLM-L6-v2' },
               { icon: <FileText size={13} className="text-success" />, label: 'Indexed', value: String(totalIndexed) },

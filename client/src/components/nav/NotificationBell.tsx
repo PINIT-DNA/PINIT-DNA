@@ -1,73 +1,79 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Bell, Eye, GitBranch, Award, Radio, CheckCheck, Trash2, X,
-  AlertTriangle, ExternalLink, Dna, Archive,
-} from 'lucide-react';
+import { Bell, CheckCheck, Trash2, X, ExternalLink } from 'lucide-react';
 import { api } from '../../services/dashboard.api';
 import { API_BASE_URL } from '../../config/api.config';
+import { getAccessToken } from '../../lib/auth';
 import { formatDistanceToNow } from 'date-fns';
-
-interface Notification {
-  id: string;
-  createdAt: string;
-  type: string;
-  title: string;
-  body: string;
-  severity: string;
-  read: boolean;
-  linkToken?: string;
-  fileName?: string;
-  riskLevel?: string;
-  country?: string;
-  device?: string;
-  ip?: string;
-}
-
-const TYPE_CONFIG: Record<string, { icon: React.ReactNode; color: string }> = {
-  LINK_VIEWED:       { icon: <Eye size={13} />,        color: 'text-blue-400 bg-blue-500/20' },
-  RISK_ALERT:        { icon: <AlertTriangle size={13} />, color: 'text-red-400 bg-red-500/20' },
-  FORWARD_DETECTED:  { icon: <GitBranch size={13} />,  color: 'text-orange-400 bg-orange-500/20' },
-  CERT_GENERATED:    { icon: <Award size={13} />,      color: 'text-purple-400 bg-purple-500/20' },
-  MONITORING_MATCH:  { icon: <Radio size={13} />,      color: 'text-yellow-400 bg-yellow-500/20' },
-  DNA_GENERATED:     { icon: <Dna size={13} />,        color: 'text-dna-400 bg-dna-500/20' },
-  VAULT_STORED:      { icon: <Archive size={13} />,    color: 'text-green-400 bg-green-500/20' },
-};
-
-const SEVERITY_BORDER: Record<string, string> = {
-  critical: 'border-l-red-500',
-  warning:  'border-l-orange-400',
-  info:     'border-l-transparent',
-};
+import {
+  type NotificationItem,
+  notificationTypeConfig,
+  NOTIFICATION_SEVERITY_BORDER,
+  resolveNotificationDeepLink,
+} from '../../lib/notification-config';
 
 export function NotificationBell() {
   const [open, setOpen] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
   const fetchNotifs = useCallback(() => {
-    api.get(`${API_BASE_URL}/notifications?limit=20`).then(r => {
-      const data = r.data as any;
+    api.get(`${API_BASE_URL}/notifications?limit=30`).then(r => {
+      const data = r.data as { notifications?: NotificationItem[]; unreadCount?: number };
       setNotifications(data.notifications ?? []);
       setUnreadCount(data.unreadCount ?? 0);
-    }).catch(() => {});
+    }).catch((err: unknown) => {
+      const code = (err as { response?: { data?: { code?: string } } })?.response?.data?.code;
+      if (code === 'BACKEND_OFFLINE') return;
+    });
   }, []);
 
-  // Poll every 30 seconds
   useEffect(() => {
     fetchNotifs();
-    const interval = setInterval(fetchNotifs, 30000);
-    return () => clearInterval(interval);
+    const token = getAccessToken();
+    let es: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let closed = false;
+
+    const connectSse = () => {
+      if (!token || closed) return;
+      const url = `${API_BASE_URL}/notifications/stream?token=${encodeURIComponent(token)}`;
+      es = new EventSource(url);
+      es.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data) as { unreadCount?: number };
+          if (typeof data.unreadCount === 'number') {
+            setUnreadCount(data.unreadCount);
+            fetchNotifs();
+          }
+        } catch { /* ignore */ }
+      };
+      es.onerror = () => {
+        es?.close();
+        es = null;
+        if (!closed) {
+          reconnectTimer = setTimeout(connectSse, 5000);
+        }
+      };
+    };
+
+    connectSse();
+    const interval = setInterval(fetchNotifs, 60000);
+
+    return () => {
+      closed = true;
+      clearInterval(interval);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      es?.close();
+    };
   }, [fetchNotifs]);
 
-  // Fetch when opened
   useEffect(() => {
     if (open) fetchNotifs();
   }, [open, fetchNotifs]);
 
-  // Close on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
@@ -89,20 +95,16 @@ export function NotificationBell() {
   };
 
   const deleteNotif = async (id: string) => {
+    const was = notifications.find(n => n.id === id);
     await api.delete(`${API_BASE_URL}/notifications/${id}`);
     setNotifications(prev => prev.filter(n => n.id !== id));
-    setUnreadCount(prev => {
-      const was = notifications.find(n => n.id === id);
-      return was && !was.read ? Math.max(0, prev - 1) : prev;
-    });
+    if (was && !was.read) setUnreadCount(prev => Math.max(0, prev - 1));
   };
 
-  const handleClick = (n: Notification) => {
+  const handleClick = (n: NotificationItem) => {
     markRead(n.id);
-    if (n.linkToken) {
-      setOpen(false);
-      navigate(`/timeline`);
-    }
+    setOpen(false);
+    navigate(resolveNotificationDeepLink(n));
   };
 
   return (
@@ -110,6 +112,7 @@ export function NotificationBell() {
       <button
         onClick={() => setOpen(!open)}
         className="btn-icon btn-ghost relative"
+        aria-label="Notifications"
       >
         <Bell size={16} className={unreadCount > 0 ? 'text-dna-400' : 'text-gray-400'} />
         {unreadCount > 0 && (
@@ -120,8 +123,14 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-10 w-96 bg-bg-card border border-bg-border rounded-xl shadow-2xl z-[9999] overflow-hidden animate-fade-in">
-          {/* Header */}
+        <>
+          <button
+            type="button"
+            className="dropdown-backdrop"
+            aria-label="Close notifications"
+            onClick={() => setOpen(false)}
+          />
+          <div className="dropdown-panel w-full sm:w-96">
           <div className="flex items-center justify-between px-4 py-3 border-b border-bg-border">
             <div className="flex items-center gap-2">
               <Bell size={14} className="text-dna-400" />
@@ -144,23 +153,22 @@ export function NotificationBell() {
             </div>
           </div>
 
-          {/* List */}
           <div className="max-h-96 overflow-y-auto">
             {notifications.length === 0 ? (
               <div className="py-12 text-center">
                 <Bell size={24} className="text-gray-600 mx-auto mb-2" />
                 <p className="text-xs text-gray-500">No notifications yet</p>
-                <p className="text-2xs text-gray-600 mt-1">You'll see alerts when someone views your shared files</p>
+                <p className="text-2xs text-gray-600 mt-1">Alerts appear when activity occurs on your assets</p>
               </div>
             ) : (
               notifications.map(n => {
-                const cfg = TYPE_CONFIG[n.type] ?? { icon: <Bell size={13} />, color: 'text-gray-400 bg-gray-500/20' };
-                const borderColor = SEVERITY_BORDER[n.severity] ?? 'border-l-transparent';
+                const cfg = notificationTypeConfig(n.type);
+                const borderColor = NOTIFICATION_SEVERITY_BORDER[n.severity] ?? 'border-l-transparent';
                 return (
                   <div
                     key={n.id}
                     onClick={() => handleClick(n)}
-                    className={`flex items-start gap-3 px-4 py-3 border-b border-bg-border border-l-2 cursor-pointer transition-colors ${borderColor} ${
+                    className={`group flex items-start gap-3 px-4 py-3 border-b border-bg-border border-l-2 cursor-pointer transition-colors ${borderColor} ${
                       n.read ? 'opacity-60 hover:opacity-80' : 'hover:bg-bg-elevated'
                     }`}
                   >
@@ -173,8 +181,16 @@ export function NotificationBell() {
                         {!n.read && <span className="w-2 h-2 bg-dna-500 rounded-full shrink-0 mt-1" />}
                       </div>
                       <p className="text-2xs text-gray-500 mt-0.5 line-clamp-2">{n.body}</p>
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className="text-2xs text-gray-600">{formatDistanceToNow(new Date(n.createdAt))} ago</span>
+                        {(n.aggregateCount ?? 1) > 1 && (
+                          <span className="text-2xs bg-dna-500/15 text-dna-400 px-1.5 py-0.5 rounded-full">
+                            ×{n.aggregateCount}
+                          </span>
+                        )}
+                        {n.category && (
+                          <span className="text-2xs text-gray-600 capitalize">{n.category}</span>
+                        )}
                         {n.riskLevel && n.riskLevel !== 'LOW' && (
                           <span className={`text-2xs px-1 py-0.5 rounded ${
                             n.riskLevel === 'CRITICAL' ? 'bg-red-500/20 text-red-400' :
@@ -186,7 +202,7 @@ export function NotificationBell() {
                     </div>
                     <button
                       onClick={(e) => { e.stopPropagation(); deleteNotif(n.id); }}
-                      className="text-gray-600 hover:text-red-400 p-1 shrink-0 opacity-0 group-hover:opacity-100"
+                      className="text-gray-600 hover:text-red-400 p-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       <Trash2 size={10} />
                     </button>
@@ -196,18 +212,18 @@ export function NotificationBell() {
             )}
           </div>
 
-          {/* Footer */}
           {notifications.length > 0 && (
             <div className="px-4 py-2 border-t border-bg-border text-center">
               <button
-                onClick={() => { setOpen(false); navigate('/profile?tab=activity'); }}
+                onClick={() => { setOpen(false); navigate('/profile?tab=notifications'); }}
                 className="text-2xs text-dna-400 hover:text-white flex items-center gap-1 mx-auto transition-colors"
               >
-                <ExternalLink size={10} /> View all activity
+                <ExternalLink size={10} /> View notification history
               </button>
             </div>
           )}
-        </div>
+          </div>
+        </>
       )}
     </div>
   );

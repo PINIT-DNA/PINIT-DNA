@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PINITHub Enterprise — UX Mockups</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- Screen picker -->
+<nav class="proto-bar" id="protoBar">
+  <span>Mockups</span>
+  <button class="active" data-screen="upgrade">Upgrade</button>
+  <button data-screen="success">Payment Success</button>
+  <button data-screen="wizard">Org Setup</button>
+  <button data-screen="dashboard">Dashboard</button>
+  <button data-screen="vault">Shared Vault</button>
+  <button data-screen="invite">Invite Members</button>
+  <button data-screen="roles">Roles Matrix</button>
+  <button data-screen="investigation">Investigation</button>
+  <button data-screen="audit">Audit Logs</button>
+  <button data-screen="billing">Billing</button>
+  <button data-screen="api">API Access</button>
+  <button data-screen="settings">Settings</button>
+  <button data-screen="monitoring">Monitoring</button>
+  <button data-screen="mobile">Mobile</button>
+</nav>
+
+<div class="app-shell">
+
+<!-- ═══ 1. UPGRADE / PURCHASE ═══ -->
+<section class="screen active" id="screen-upgrade">
+  <div class="standalone" style="flex-direction:column; padding-top:60px;">
+    <div style="text-align:center; margin-bottom:32px;">
+      <span class="badge badge-purple">PINITHub Enterprise</span>
+      <h1 class="page-title" style="margin-top:12px;">Choose your protection plan</h1>
+      <p class="page-sub" style="margin:0;">ABC Media Pvt Ltd · Upgrade to unlock teams, audit, and unlimited storage</p>
+    </div>
+    <div class="pricing-grid">
+      <div class="pricing-card">
+        <strong>Free</strong>
+        <div class="pricing-price">₹0</div>
+        <span class="badge badge-muted">Forever</span>
+        <ul class="pricing-features">
+          <li>Generate DNA</li>
+          <li>Encrypt & Vault</li>
+          <li>Certificates</li>
+          <li>2 GB storage</li>
+        </ul>
+        <button class="btn btn-ghost" style="width:100%">Stay on Free</button>
+      </div>
+      <div class="pricing-card">
+        <strong>Pro</strong>
+        <div class="pricing-price">₹999<span style="font-size:14px;font-weight:400;color:var(--text-dim)">/mo</span></div>
+        <span class="badge badge-amber">Popular</span>
+        <ul class="pricing-features">
+          <li>Investigation & Tracking</li>
+          <li>Smart Share links</li>
+          <li>100 GB storage</li>
+        </ul>
+        <button class="btn btn-amber" style="width:100%">Activate Pro</button>
+      </div>
+      <div class="pricing-card featured">
+        <strong>Enterprise</strong>
+        <div class="pricing-price">₹4,999<span style="font-size:14px;font-weight:400;color:var(--text-dim)">/mo</span></div>
+        <span class="badge badge-purple">For Teams</span>
+        <ul class="pricing-features">
+          <li>Everything in Pro</li>
+          <li>Organization & teams</li>
+          <li>Unlimited storage</li>
+          <li>API access & audit logs</li>
+          <li>Compliance reports</li>
+        </ul>
+        <button class="btn btn-purple" style="width:100%">Pay with Razorpay</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 2. PAYMENT SUCCESS ═══ -->
+<section class="screen" id="screen-success">
+  <div class="standalone">
+    <div class="success-card">
+      <div class="success-icon">✓</div>
+      <h1 class="page-title">Payment successful</h1>
+      <p class="page-sub">Welcome to PINITHub Enterprise</p>
+      <p style="color:var(--text-muted);font-size:13px;margin-bottom:24px;">Let's set up <strong style="color:var(--text)">ABC Media Pvt Ltd</strong></p>
+      <div style="text-align:left;background:var(--bg-elevated);border-radius:12px;padding:16px;margin-bottom:24px;">
+        <p style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">What you'll configure:</p>
+        <p style="font-size:13px;color:var(--text-muted);margin:6px 0;">○ Organization profile</p>
+        <p style="font-size:13px;color:var(--text-muted);margin:6px 0;">○ Team workspace</p>
+        <p style="font-size:13px;color:var(--text-muted);margin:6px 0;">○ Invite your first members</p>
+      </div>
+      <button class="btn btn-purple" style="width:100%;margin-bottom:8px;">Continue setup →</button>
+      <button class="btn btn-ghost" style="width:100%">Skip for now</button>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 3. ORG SETUP WIZARD ═══ -->
+<section class="screen" id="screen-wizard">
+  <div class="wizard">
+    <div class="wizard-steps">
+      <div class="wizard-step done"></div>
+      <div class="wizard-step current"></div>
+      <div class="wizard-step"></div>
+      <div class="wizard-step"></div>
+    </div>
+    <span class="badge badge-muted">Step 2 of 4</span>
+    <h1 class="page-title" style="margin-top:12px;">Create your first workspace</h1>
+    <p class="page-sub">Departments help organize shared assets by team.</p>
+    <div class="card" style="margin-top:8px;">
+      <div class="form-group">
+        <label class="form-label">Workspace name *</label>
+        <input class="form-input" value="Main Operations" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <input class="form-input" value="Central vault for marketing, legal, and production" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Default departments</label>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
+          <span class="badge badge-green">☑ Marketing</span>
+          <span class="badge badge-green">☑ Legal</span>
+          <span class="badge badge-green">☑ Production</span>
+          <span class="badge badge-muted">☐ HR</span>
+          <span class="badge badge-muted">☐ Finance</span>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:24px;">
+        <button class="btn btn-ghost">← Back</button>
+        <button class="btn btn-primary">Continue →</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 4–14: APP SHELL SCREENS ═══ -->
+<section class="screen" id="screen-dashboard">
+  <aside class="sidebar" id="sidebar-shared"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="breadcrumb">ABC Media &gt; <strong>Dashboard</strong></div>
+      <input class="topbar-search" placeholder="Search assets, people, investigations… ⌘K" readonly />
+      <div class="topbar-actions">
+        <button class="btn btn-primary btn-sm">+ Generate DNA</button>
+        <span style="font-size:18px;cursor:pointer;">🔔</span>
+        <div class="user-avatar">PS</div>
+      </div>
+    </header>
+    <div class="content">
+      <h1 class="page-title">Good morning, Priya</h1>
+      <p class="page-sub">ABC Media Pvt Ltd · Enterprise · This week</p>
+      <div class="grid-4" style="margin-bottom:20px;">
+        <div class="card">
+          <div class="card-label">Organization Assets</div>
+          <div class="card-value">1,247</div>
+          <div class="card-trend">↑ 12% vs last month</div>
+        </div>
+        <div class="card">
+          <div class="card-label">DNA Generated (30d)</div>
+          <div class="card-value">342</div>
+          <div class="stat-bar"><div class="stat-bar-fill" style="width:78%"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-label">Storage</div>
+          <div class="card-value">847 GB</div>
+          <div class="card-trend">Unlimited plan</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Team Members</div>
+          <div class="card-value">12</div>
+          <div class="card-trend">+3 pending invites</div>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;margin-bottom:12px;">
+            <strong>Active Investigations</strong>
+            <span class="badge badge-amber">4 open</span>
+          </div>
+          <div class="alert alert-danger">
+            <span class="alert-icon">⚠</span>
+            <div><strong>INV-2026-041</strong> · leaked_ad.jpg · In Progress · Rahul</div>
+          </div>
+          <div style="padding:10px;background:var(--bg-elevated);border-radius:8px;font-size:12px;">
+            <strong>INV-2026-040</strong> · contract.pdf · Pending Review
+          </div>
+        </div>
+        <div class="card">
+          <strong style="display:block;margin-bottom:12px;">Recent Activity</strong>
+          <p style="font-size:12px;color:var(--text-muted);margin:8px 0;">• Rahul uploaded <strong style="color:var(--text)">contract_draft.pdf</strong></p>
+          <p style="font-size:12px;color:var(--text-muted);margin:8px 0;">• Ananya closed <strong style="color:var(--text)">INV-2026-038</strong></p>
+          <p style="font-size:12px;color:var(--text-muted);margin:8px 0;">• System: TEP match on social media</p>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px;">
+        <span class="badge badge-purple">Enterprise</span>
+        <span style="margin-left:8px;font-size:12px;color:var(--text-muted);">Renews Apr 21, 2026 · 12 seats · API 24.1K calls</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="screen" id="screen-vault">
+  <aside class="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="breadcrumb">ABC Media &gt; <strong>Shared Vault</strong> &gt; Marketing &gt; Q3 Campaign</div>
+      <div class="topbar-actions">
+        <button class="btn btn-ghost btn-sm">Filter</button>
+        <button class="btn btn-primary btn-sm">+ Upload</button>
+      </div>
+    </header>
+    <div class="content" style="padding:0;">
+      <div class="vault-layout">
+        <div class="vault-folders">
+          <p class="nav-label">Folders</p>
+          <div class="folder-item active">All Assets</div>
+          <div class="folder-item">Marketing</div>
+          <div class="folder-item indent active">Q3 Campaign</div>
+          <div class="folder-item indent">Brand Assets</div>
+          <div class="folder-item">Legal</div>
+          <div class="folder-item">Production</div>
+          <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:12px;">+ Folder</button>
+        </div>
+        <div style="flex:1;padding:16px;overflow:auto;">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th></th><th>File</th><th>DNA</th><th>Owner</th><th>Modified</th><th>Access</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>☑</td><td><strong>hero_banner.jpg</strong></td><td><span class="badge badge-green">✓</span></td><td>Priya</td><td>Mar 12</td><td><span class="badge badge-green">Shared</span></td></tr>
+                <tr><td>☑</td><td><strong>promo_video.mp4</strong></td><td><span class="badge badge-green">✓</span></td><td>Rahul</td><td>Mar 10</td><td><span class="badge badge-amber">Restricted</span></td></tr>
+                <tr><td>☑</td><td><strong>press_release.pdf</strong></td><td><span class="badge badge-green">✓</span></td><td>Ananya</td><td>Mar 8</td><td><span class="badge badge-muted">View only</span></td></tr>
+                <tr><td>☐</td><td><strong>campaign_brief.docx</strong></td><td><span class="badge badge-green">✓</span></td><td>Priya</td><td>Mar 5</td><td><span class="badge badge-green">Shared</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div style="width:280px;border-left:1px solid var(--bg-border);padding:16px;">
+          <p style="font-size:11px;color:var(--text-dim);margin-bottom:8px;">SELECTED</p>
+          <strong>hero_banner.jpg</strong>
+          <div style="height:100px;background:var(--bg-elevated);border-radius:8px;margin:12px 0;"></div>
+          <p style="font-size:11px;color:var(--text-muted);">DNA: PINIT-8X2K9…</p>
+          <p style="font-size:11px;color:var(--text-muted);">Owner: Priya Sharma</p>
+          <div style="margin-top:16px;display:flex;flex-direction:column;gap:8px;">
+            <button class="btn btn-primary btn-sm">Share</button>
+            <button class="btn btn-ghost btn-sm">Investigate</button>
+            <button class="btn btn-ghost btn-sm">Download Protected</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="screen" id="screen-invite">
+  <aside class="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="breadcrumb">ABC Media &gt; <strong>Members</strong></div>
+      <div class="topbar-actions">
+        <button class="btn btn-primary btn-sm">+ Invite members</button>
+      </div>
+    </header>
+    <div class="content">
+      <h1 class="page-title">Team Members</h1>
+      <p class="page-sub">12 active · 3 pending invitations</p>
+      <div class="grid-2">
+        <div class="card">
+          <strong style="display:block;margin-bottom:16px;">Invite members</strong>
+          <div class="form-group">
+            <label class="form-label">Email addresses</label>
+            <textarea class="form-input" rows="3" style="resize:vertical;">legal@abmedia.in, ops@abmedia.in</textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Role</label>
+              <select class="form-input form-select"><option>Investigator</option><option>Team Member</option></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Team</label>
+              <select class="form-input form-select"><option>Legal</option><option>Marketing</option></select>
+            </div>
+          </div>
+          <button class="btn btn-primary">Send invitations</button>
+        </div>
+        <div class="card">
+          <strong style="display:block;margin-bottom:12px;">Pending invitations</strong>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Email</th><th>Role</th><th>Status</th></tr></thead>
+              <tbody>
+                <tr><td><strong>legal@abmedia.in</strong></td><td>Investigator</td><td><span class="badge badge-amber">Pending</span></td></tr>
+                <tr><td><strong>ops@abmedia.in</strong></td><td>Team Member</td><td><span class="badge badge-amber">Pending</span></td></tr>
+                <tr><td><strong>dev@abmedia.in</strong></td><td>Viewer</td><td><span class="badge badge-red">Expired</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px;">
+        <strong style="display:block;margin-bottom:12px;">Active members</strong>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Team</th><th>Last active</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Priya Sharma</strong></td><td>priya@abmedia.in</td><td><span class="badge badge-purple">Owner</span></td><td>—</td><td>Now</td></tr>
+              <tr><td><strong>Rahul Mehta</strong></td><td>rahul@abmedia.in</td><td><span class="badge badge-amber">Investigator</span></td><td>Legal</td><td>2h ago</td></tr>
+              <tr><td><strong>Ananya Reddy</strong></td><td>ananya@abmedia.in</td><td><span class="badge badge-green">Manager</span></td><td>Marketing</td><td>1d ago</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="screen" id="screen-roles">
+  <aside class="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="breadcrumb">ABC Media &gt; <strong>Roles & Permissions</strong></div>
+    </header>
+    <div class="content">
+      <h1 class="page-title">Permission Matrix</h1>
+      <p class="page-sub">Role-based access control for ABC Media Pvt Ltd</p>
+      <div class="card table-wrap">
+        <table class="permission-matrix">
+          <thead>
+            <tr><th>Capability</th><th>Owner</th><th>Admin</th><th>Manager</th><th>Investigator</th><th>Member</th><th>Viewer</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Manage billing</strong></td><td>✓</td><td>✓</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+            <tr><td><strong>Manage members</strong></td><td>✓</td><td>✓</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+            <tr><td><strong>Upload & DNA</strong></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>—</td></tr>
+            <tr><td><strong>Smart Share links</strong></td><td>✓</td><td>✓</td><td>✓</td><td>—</td><td>✓*</td><td>—</td></tr>
+            <tr><td><strong>Run investigations</strong></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>—</td><td>—</td></tr>
+            <tr><td><strong>Approve investigations</strong></td><td>✓</td><td>✓</td><td>✓</td><td>—</td><td>—</td><td>—</td></tr>
+            <tr><td><strong>View audit logs</strong></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>—</td><td>✓</td></tr>
+            <tr><td><strong>API keys</strong></td><td>✓</td><td>✓</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="screen" id="screen-investigation">
+  <aside class="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="breadcrumb">ABC Media &gt; Investigations &gt; <strong>INV-2026-041</strong></div>
+      <div class="topbar-actions">
+        <span class="badge badge-amber">In Progress</span>
+        <button class="btn btn-primary btn-sm">Submit for review</button>
+      </div>
+    </header>
+    <div class="content">
+      <h1 class="page-title">Leaked campaign asset</h1>
+      <p class="page-sub">Assignee: Rahul Mehta · Owner: Priya Sharma · Team: Legal</p>
+      <div class="inv-layout">
+        <div class="card">
+          <strong style="display:block;margin-bottom:12px;">Evidence</strong>
+          <div style="padding:10px;background:var(--bg-elevated);border-radius:8px;margin-bottom:8px;font-size:12px;">
+            <strong>Original vault file</strong><br/>hero_banner.jpg · DNA PINIT-8X2K9
+          </div>
+          <div style="padding:10px;background:var(--bg-elevated);border-radius:8px;margin-bottom:8px;font-size:12px;">
+            <strong>Suspect upload</strong><br/>leaked_ad.jpg · Source: Twitter
+          </div>
+          <div style="padding:10px;background:var(--bg-elevated);border-radius:8px;font-size:12px;">
+            <strong>Acceptance report</strong><br/>LIKELY_MATCH · 94.2% confidence
+          </div>
+          <button class="btn btn-ghost btn-sm" style="margin-top:12px;">+ Attach evidence</button>
+        </div>
+        <div class="card">
+          <strong style="display:block;margin-bottom:12px;">Timeline & Comments</strong>
+          <div class="comment">
+            <div class="comment-meta">Mar 12, 10:00 · System</div>
+            Investigation created
+          </div>
+          <div class="comment">
+            <div class="comment-meta">Mar 12, 10:15 · Rahul</div>
+            DNA compare returned 94.2% match
+          </div>
+          <div class="comment">
+            <div class="comment-meta">Mar 12, 11:00 · Rahul</div>
+            @Priya please approve for compliance export
+          </div>
+          <input class="form-input" placeholder="Add comment… @mention" style="margin-top:8px;" />
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <span class="badge badge-green">LIKELY_MATCH</span>
+          <span style="margin-left:8px;font-size:12px;color:var(--text-muted);">Confidence 94.2% · Acceptance Engine v2</span>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-ghost btn-sm">Export PDF</button>
+          <button class="btn btn-primary btn-sm">Approve & close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="screen" id="screen-audit">
+  <aside class="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="breadcrumb">ABC Media &gt; <strong>Audit Logs</strong></div>
+      <div class="topbar-actions">
+        <button class="btn btn-ghost btn-sm">Export CSV</button>
+        <button class="btn btn-ghost btn-sm">Export PDF</button>
+      </div>
+    </header>
+    <div class="content">
+      <h1 class="page-title">Audit Logs</h1>
+      <p class="page-sub">Immutable record · 7-year retention</p>
+      <input class="form-input" placeholder="Search actor, resource, IP…" style="margin-bottom:16px;max-width:400px;" />
+      <div class="card table-wrap">
+        <table>
+          <thead><tr><th>Time</th><th>Actor</th><th>Category</th><th>Action</th><th>Resource</th><th>IP</th></tr></thead>
+          <tbody>
+            <tr><td>11:02:03</td><td><strong>Rahul</strong></td><td>Upload</td><td>VAULT_STORED</td><td>contract.pdf</td><td>103.*.*.*</td></tr>
+            <tr><td>11:01:44</td><td><strong>System</strong></td><td>Investigation</td><td>VERDICT_ISSUED</td><td>INV-041</td><td>—</td></tr>
+            <tr><td>10:58:12</td><td><strong>Priya</strong></td><td>Role</td><td>MEMBER_ROLE_CHANGED</td><td>ops@abmedia.in</td><td>49.*.*.*</td></tr>
+            <tr><td>10:45:00</td><td><strong>Ananya</strong></td><td>Share</td><td>SHARE_LINK_CREATED</td><td>hero_banner.jpg</td><td>49.*.*.*</td></tr>
+            <tr><td>09:30:00</td><td><strong>Priya</strong></td><td>Billing</td><td>SUBSCRIPTION_ENTERPRISE</td><td>Enterprise plan</td><td>49.*.*.*</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="screen" id="screen-billing">
+  <aside class="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="breadcrumb">ABC Media &gt; Settings &gt; <strong>Billing</strong></div>
+    </header>
+    <div class="content">
+      <h1 class="page-title">Billing</h1>
+      <div class="grid-2">
+        <div class="card">
+          <span class="badge badge-purple">Enterprise</span>
+          <div class="pricing-price" style="margin-top:12px;">₹4,999<span style="font-size:14px;font-weight:400;color:var(--text-dim)">/month</span></div>
+          <p style="font-size:12px;color:var(--text-muted);margin:8px 0;">Renews Apr 21, 2026</p>
+          <p style="font-size:12px;color:var(--text-muted);">Seats: 12 / unlimited · Storage: 847 GB / unlimited</p>
+          <div style="margin-top:16px;display:flex;gap:8px;">
+            <button class="btn btn-ghost btn-sm">Payment method</button>
+            <button class="btn btn-ghost btn-sm">Upgrade to annual</button>
+          </div>
+        </div>
+        <div class="card">
+          <strong>Usage this period</strong>
+          <p style="font-size:12px;color:var(--text-muted);margin:12px 0;">Storage <span style="float:right">847 GB</span></p>
+          <div class="stat-bar"><div class="stat-bar-fill" style="width:45%"></div></div>
+          <p style="font-size:12px;color:var(--text-muted);margin:12px 0;">API calls <span style="float:right">24.1K / 100K</span></p>
+          <div class="stat-bar"><div class="stat-bar-fill" style="width:24%"></div></div>
+          <p style="font-size:12px;color:var(--text-muted);margin:12px 0;">Investigations <span style="float:right">18</span></p>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px;">
+        <strong style="display:block;margin-bottom:12px;">Invoices</strong>
+        <table>
+          <thead><tr><th>Date</th><th>Amount</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>Mar 2026</td><td><strong>₹4,999</strong></td><td><span class="badge badge-green">Paid</span></td><td><button class="btn btn-ghost btn-sm">PDF</button></td></tr>
+            <tr><td>Feb 2026</td><td><strong>₹4,999</strong></td><td><span class="badge badge-green">Paid</span></td><td><button class="btn btn-ghost btn-sm">PDF</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="screen" id="screen-api">
+  <aside class="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="breadcrumb">ABC Media &gt; <strong>API & Integrations</strong></div>
+      <div class="topbar-actions">
+        <button class="btn btn-primary btn-sm">+ Create API key</button>
+      </div>
+    </header>
+    <div class="content">
+      <h1 class="page-title">API Access</h1>
+      <div style="display:flex;gap:8px;margin-bottom:20px;">
+        <span class="badge badge-purple" style="padding:6px 12px;">API Keys</span>
+        <span class="badge badge-muted" style="padding:6px 12px;">Webhooks</span>
+        <span class="badge badge-muted" style="padding:6px 12px;">SDK</span>
+        <span class="badge badge-muted" style="padding:6px 12px;">Usage</span>
+      </div>
+      <div class="card">
+        <table>
+          <thead><tr><th>Key name</th><th>Scopes</th><th>Last used</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><strong>prod-vault-sync</strong></td><td>vault:read, dna:generate</td><td>2 minutes ago</td><td><button class="btn btn-ghost btn-sm">Revoke</button></td></tr>
+            <tr><td><strong>investigation-bot</strong></td><td>investigation:read, investigation:write</td><td>1 day ago</td><td><button class="btn btn-ghost btn-sm">Revoke</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="grid-2" style="margin-top:16px;">
+        <div class="card">
+          <div class="card-label">Rate limits</div>
+          <div class="card-value" style="font-size:18px;">100 req/min</div>
+          <div class="card-trend">24.1K calls this month</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Webhooks</div>
+          <p style="font-size:12px;color:var(--text-muted);margin-top:8px;">investigation.completed</p>
+          <p style="font-size:12px;color:var(--text-muted);">leak.detected</p>
+          <p style="font-size:12px;color:var(--text-muted);">share.accessed</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="screen" id="screen-settings">
+  <aside class="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="breadcrumb">ABC Media &gt; <strong>Settings</strong></div>
+    </header>
+    <div class="content" style="display:flex;gap:24px;">
+      <div style="width:200px;flex-shrink:0;">
+        <div class="nav-item active">General</div>
+        <div class="nav-item">Security</div>
+        <div class="nav-item">Members & Roles</div>
+        <div class="nav-item">Teams</div>
+        <div class="nav-item">Storage</div>
+        <div class="nav-item">Branding</div>
+        <div class="nav-item">Notifications</div>
+        <div class="nav-item">Integrations</div>
+        <div class="nav-item">Policies</div>
+        <div class="nav-item" style="color:var(--red-400);">Danger Zone</div>
+      </div>
+      <div style="flex:1;">
+        <h1 class="page-title">General</h1>
+        <div class="card">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Organization name</label>
+              <input class="form-input" value="ABC Media Pvt Ltd" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Primary domain</label>
+              <input class="form-input" value="abmedia.in" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Industry</label>
+              <select class="form-input form-select"><option>Media & Entertainment</option></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Company size</label>
+              <select class="form-input form-select"><option>51–200 employees</option></select>
+            </div>
+          </div>
+          <button class="btn btn-primary">Save changes</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="screen" id="screen-monitoring">
+  <aside class="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="breadcrumb">ABC Media &gt; <strong>Monitoring</strong></div>
+      <div class="topbar-actions">
+        <button class="btn btn-ghost btn-sm">Configure alerts</button>
+      </div>
+    </header>
+    <div class="content">
+      <h1 class="page-title">Enterprise Monitoring</h1>
+      <div class="alert alert-danger">
+        <span class="alert-icon">⚠</span>
+        <div><strong>2 critical alerts</strong> · Leak detected on campaign_v3.jpg · TEP match on contract_draft</div>
+      </div>
+      <div class="grid-2">
+        <div class="card" style="min-height:200px;">
+          <strong>Live access map</strong>
+          <div style="margin-top:16px;height:140px;background:var(--bg-elevated);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:12px;">Geo map widget</div>
+        </div>
+        <div class="card">
+          <strong style="display:block;margin-bottom:12px;">Investigation queue</strong>
+          <div style="padding:10px;background:var(--bg-elevated);border-radius:8px;margin-bottom:8px;font-size:12px;">
+            <span class="badge badge-red">Critical</span> Leak: campaign_v3 on Twitter
+          </div>
+          <div style="padding:10px;background:var(--bg-elevated);border-radius:8px;font-size:12px;">
+            <span class="badge badge-amber">High</span> TEP match: contract_draft
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="screen" id="screen-mobile">
+  <div class="standalone">
+    <div class="mobile-frame">
+      <div class="mobile-status">ABC Media · Enterprise</div>
+      <div class="mobile-content">
+        <h2 style="font-size:18px;margin-bottom:4px;">Good morning, Priya</h2>
+        <p style="font-size:11px;color:var(--text-dim);margin-bottom:16px;">2 critical alerts</p>
+        <div class="alert alert-danger" style="margin-bottom:12px;">
+          <span class="alert-icon">⚠</span>
+          <div style="font-size:11px;">Leak detected · campaign_v3.jpg</div>
+        </div>
+        <div class="card" style="margin-bottom:12px;padding:12px;">
+          <div class="card-label">Organization Assets</div>
+          <div class="card-value" style="font-size:20px;">1,247</div>
+        </div>
+        <div class="card" style="padding:12px;">
+          <strong style="font-size:12px;">Recent</strong>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:8px;">Rahul uploaded contract_draft.pdf</p>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:4px;">INV-041 assigned to you</p>
+        </div>
+      </div>
+      <div class="mobile-nav">
+        <div class="mobile-nav-item active">Home</div>
+        <div class="mobile-nav-item">Vault</div>
+        <div class="mobile-nav-item" style="color:var(--dna-400);font-size:20px;">+</div>
+        <div class="mobile-nav-item">Investigate</div>
+        <div class="mobile-nav-item">More</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div><!-- app-shell -->
+
+<script>
+const SIDEBAR_HTML = `
+  <div class="sidebar-org">
+    <div class="sidebar-org-logo">AB</div>
+    <div>
+      <div class="sidebar-org-name">ABC Media Pvt Ltd</div>
+      <div class="sidebar-org-plan">Enterprise</div>
+    </div>
+  </div>
+  <div class="nav-section">
+    <div class="nav-label">Organization</div>
+    <div class="nav-item" data-nav="dashboard"><span>▣</span> Dashboard</div>
+    <div class="nav-item" data-nav="vault"><span>▤</span> Shared Vault</div>
+    <div class="nav-item" data-nav="investigation"><span>◉</span> Investigations</div>
+    <div class="nav-item" data-nav="monitoring"><span>◎</span> Monitoring</div>
+    <div class="nav-item"><span>▥</span> Reports</div>
+  </div>
+  <div class="nav-section">
+    <div class="nav-label">Team</div>
+    <div class="nav-item" data-nav="invite"><span>👥</span> Members</div>
+    <div class="nav-item"><span>⊞</span> Teams</div>
+    <div class="nav-item"><span>✉</span> Invitations</div>
+  </div>
+  <div class="nav-section">
+    <div class="nav-label">Governance</div>
+    <div class="nav-item" data-nav="audit"><span>📋</span> Audit Logs</div>
+    <div class="nav-item"><span>✓</span> Compliance</div>
+  </div>
+  <div class="nav-section">
+    <div class="nav-label">Admin</div>
+    <div class="nav-item" data-nav="settings"><span>⚙</span> Settings</div>
+    <div class="nav-item" data-nav="billing"><span>₹</span> Billing</div>
+    <div class="nav-item" data-nav="api"><span>{ }</span> API & Integrations</div>
+  </div>
+  <div class="sidebar-footer">
+    <div class="user-chip">
+      <div class="user-avatar">PS</div>
+      <div>
+        <div class="user-name">Priya Sharma</div>
+        <div class="user-role">Owner · Unlimited</div>
+      </div>
+    </div>
+  </div>
+`;
+
+document.querySelectorAll('.screen .sidebar').forEach(el => {
+  el.innerHTML = SIDEBAR_HTML;
+});
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.proto-bar button').forEach(b => b.classList.remove('active'));
+  const screen = document.getElementById('screen-' + id);
+  if (screen) screen.classList.add('active');
+  const btn = document.querySelector('.proto-bar button[data-screen="' + id + '"]');
+  if (btn) btn.classList.add('active');
+
+  document.querySelectorAll('.nav-item[data-nav]').forEach(item => {
+    item.classList.toggle('active', item.dataset.nav === id);
+  });
+}
+
+document.getElementById('protoBar').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-screen]');
+  if (btn) showScreen(btn.dataset.screen);
+});
+
+document.addEventListener('click', e => {
+  const nav = e.target.closest('.nav-item[data-nav]');
+  if (nav) showScreen(nav.dataset.nav);
+});
+
+showScreen('upgrade');
+</script>
+</body>
+</html>

@@ -10,6 +10,7 @@ import type { ComparisonResult, VaultRecord, DnaRecord } from '../types/dashboar
 import type { AuthUser } from '../lib/auth';
 import { classifyTampering, explainLayer } from './forensic-analysis';
 import { formatBytes } from '../hooks/useApi';
+import { DNA_GENERATOR_VERSION } from '../config/dna-versions';
 
 // ─── Report metadata ──────────────────────────────────────────────────────────
 
@@ -29,7 +30,7 @@ export function exportComparisonJSON(result: ComparisonResult): void {
     reportId:          reportId(),
     reportType:        'DNA_COMPARISON_FORENSIC_REPORT',
     generatedAt:       ts(),
-    engineVersion:     '2.0.0-universal',
+    engineVersion:     DNA_GENERATOR_VERSION,
     pinit_dna_version: '2.0',
     comparison: {
       comparisonId:         result.comparisonId,

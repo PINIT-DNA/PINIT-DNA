@@ -1,46 +1,132 @@
 import { NavLink, useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
 import {
   LayoutDashboard, Dna, Shield, Archive, FileSearch,
-  GitCompare, Award, ChevronRight, Zap, Clock,
-  ShieldCheck, Activity, Microscope, Radio, Ban, LogOut, User, ShieldAlert, X,
-  Sun, Moon,
+  Award, ChevronRight, Zap,
+  Activity, Radio, Ban, LogOut, User, X,
+  Sun, Moon, CreditCard, Building2, Settings, Users, Key, ShieldCheck,
 } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../hooks/useTheme';
+import { useSubscription, FeatureKey } from '../../hooks/useSubscription';
+import { useAccountViewMode } from '../../hooks/useAccountViewMode';
+import { API_BASE_URL } from '../../config/api.config';
+import { BRAND } from '../../config/brand.config';
 
-const NAV_GROUPS = [
+function BackendStatus() {
+  const [online, setOnline] = useState<boolean | null>(null);
+  const isProd = import.meta.env.PROD;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const probe = async (): Promise<boolean> => {
+      const root = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
+      const urls = [`${API_BASE_URL}/ping`, `${API_BASE_URL}/health`, `${root}/health`];
+      for (const url of urls) {
+        try {
+          const controller = new AbortController();
+          const timer = window.setTimeout(() => controller.abort(), 25_000);
+          const res = await fetch(url, { cache: 'no-store', signal: controller.signal });
+          window.clearTimeout(timer);
+          if (res.ok) return true;
+        } catch {
+          /* try next endpoint */
+        }
+      }
+      return false;
+    };
+
+    const check = async () => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (cancelled) return;
+        const ok = await probe();
+        if (ok) {
+          if (!cancelled) setOnline(true);
+          return;
+        }
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 4000 + attempt * 2000));
+      }
+      if (!cancelled) setOnline(false);
+    };
+
+    check();
+    const id = window.setInterval(check, 20_000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+    };
+  }, []);
+
+  const isOnline = online === true;
+  const isChecking = online === null;
+
+  return (
+    <>
+      <div className="flex items-center gap-2 mb-1">
+        <span className={cn(
+          'w-1.5 h-1.5 rounded-full',
+          isChecking && 'bg-yellow-400 animate-pulse',
+          isOnline && 'bg-success animate-pulse-slow',
+          online === false && 'bg-danger',
+        )} />
+        <span className="text-xs text-gray-400 font-medium">
+          {isChecking ? 'Checking API…' : isOnline ? 'System Online' : 'Backend Offline'}
+        </span>
+      </div>
+      <div className="flex items-center gap-1.5 text-2xs text-gray-600 mono">
+        <Zap size={10} className={isOnline ? 'text-dna-500' : 'text-danger'} />
+        <span>
+          {isChecking
+            ? (isProd ? 'Connecting to Render API…' : 'Connecting to localhost:4000')
+            : isOnline
+              ? 'All systems operational'
+              : (isProd ? 'API waking up — refresh in a moment' : 'Run npm run dev:all')}
+        </span>
+      </div>
+    </>
+  );
+}
+
+const NAV_GROUPS: Array<{
+  label: string;
+  items: Array<{
+    to: string;
+    icon: typeof LayoutDashboard;
+    label: string;
+    end?: boolean;
+    feature?: string;
+  }>;
+}> = [
   {
     label: 'Core',
     items: [
       { to: '/',          icon: LayoutDashboard, label: 'Dashboard',     end: true },
-      { to: '/generate',  icon: Dna,             label: 'Generate DNA'             },
-      { to: '/compare',   icon: GitCompare,      label: 'DNA Compare'              },
+      { to: '/generate',  icon: Dna,             label: 'Protect file'             },
     ],
   },
   {
     label: 'Explorer',
     items: [
-      { to: '/vault',       icon: Archive,    label: 'Vault Explorer' },
-      { to: '/dna-records', icon: FileSearch, label: 'DNA Records'    },
-      { to: '/timeline',    icon: Clock,      label: 'File Timeline'  },
+      { to: '/vault',       icon: Archive,    label: 'Digital Assets' },
+      { to: '/dna-records', icon: FileSearch, label: 'DNA Records' },
     ],
   },
   {
     label: 'Intelligence',
     items: [
-      { to: '/access-intelligence', icon: Activity, label: 'Access Intelligence' },
-      { to: '/forensic-diff',       icon: Microscope, label: 'Difference Engine'    },
-      { to: '/monitoring',          icon: Radio,      label: 'Monitoring & Crawler' },
+      // Tracking / Diff / Timeline live on Files → Quick Actions (per-file)
+      { to: '/monitoring', icon: Radio, label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },
+      { to: '/assets', icon: Archive, label: 'Assets', feature: FeatureKey.FEATURE_TRACKING },
+      { to: '/protected-posts', icon: Shield, label: 'Protected Posts', feature: FeatureKey.FEATURE_TRACKING },
     ],
   },
   {
     label: 'Forensics',
     items: [
-      { to: '/verify-leaked',         icon: FileSearch,  label: 'Verify Leaked File'  },
-      { to: '/forensic-dashboard',  icon: ShieldAlert, label: 'Forensic Dashboard'  },
-      { to: '/security-center',     icon: ShieldAlert, label: 'Security Center'     },
-      { to: '/reports',             icon: Shield,      label: 'Forensic Reports'    },
+      { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Unified Investigation', feature: FeatureKey.FEATURE_INVESTIGATION },
+      { to: '/reports',             icon: Shield,      label: 'Forensic Reports', feature: FeatureKey.FEATURE_INVESTIGATION },
       { to: '/unmask-requests',     icon: Shield,      label: 'Unmask Requests'     },
       { to: '/duplicate-attempts',  icon: Ban,         label: 'Duplicate Attempts'  },
       { to: '/vault-integrity',     icon: Activity,    label: 'Vault Integrity'     },
@@ -51,8 +137,42 @@ const NAV_GROUPS = [
     items: [
       { to: '/certificates',        icon: Award,       label: 'Certificates'        },
       { to: '/verify-certificate',  icon: ShieldCheck, label: 'Verify Certificate'  },
+      { to: '/upgrade',             icon: Award,       label: 'Plans & Upgrade'     },
+      { to: '/subscription',        icon: CreditCard,  label: 'Subscription'      },
     ],
   },
+];
+
+const NAV_GROUP_COLORS: Record<string, string> = {
+  Core: 'text-gray-500',
+  Organization: 'text-gray-500',
+  Explorer: 'text-gray-500',
+  Intelligence: 'text-gray-500',
+  Forensics: 'text-gray-500',
+  Sharing: 'text-gray-500',
+};
+
+/** Business accounts — single flat nav (no duplicate Intelligence / Forensics / Sharing groups). */
+const BUSINESS_NAV_ITEMS: Array<{
+  to: string;
+  icon: typeof LayoutDashboard;
+  label: string;
+  end?: boolean;
+  feature?: string;
+}> = [
+  { to: '/business', icon: Building2, label: 'Dashboard', end: true },
+  { to: '/generate', icon: Dna, label: 'Protect file' },
+  { to: '/vault', icon: Archive, label: 'Digital Assets' },
+  { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Unified Investigation', feature: FeatureKey.FEATURE_INVESTIGATION },
+  { to: '/reports', icon: Shield, label: 'Forensics', feature: FeatureKey.FEATURE_INVESTIGATION },
+  { to: '/monitoring', icon: Radio, label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },
+  { to: '/assets', icon: Archive, label: 'Assets', feature: FeatureKey.FEATURE_TRACKING },
+  { to: '/protected-posts', icon: Shield, label: 'Protected Posts', feature: FeatureKey.FEATURE_TRACKING },
+  { to: '/certificates', icon: Award, label: 'Certificates' },
+  { to: '/profile?tab=team', icon: Users, label: 'Team' },
+  { to: '/profile?tab=audit', icon: FileSearch, label: 'Audit Logs' },
+  { to: '/profile?tab=api', icon: Key, label: 'API Access', feature: 'FEATURE_API_ACCESS' },
+  { to: '/profile', icon: Settings, label: 'Organization Profile' },
 ];
 
 interface SidebarProps {
@@ -66,6 +186,26 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { theme, toggle: toggleTheme } = useTheme();
+  const { subscription } = useSubscription();
+  const { isBusinessShell } = useAccountViewMode();
+
+  const navGroups = useMemo(() => {
+    if (isBusinessShell) {
+      return [{ label: 'Organization', items: BUSINESS_NAV_ITEMS }];
+    }
+
+    return NAV_GROUPS.map((group) => {
+      if (group.label !== 'Core') return group;
+      return {
+        ...group,
+        items: group.items.map((item) =>
+          item.to === '/'
+            ? { ...item, label: 'Personal Dashboard', end: true }
+            : item,
+        ),
+      };
+    });
+  }, [isBusinessShell]);
 
   async function handleLogout() {
     await logout();
@@ -75,7 +215,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'fixed left-0 top-0 h-screen w-60 bg-bg-surface border-r border-bg-border flex flex-col z-50 select-none',
+        'fixed left-0 top-0 h-screen w-60 bg-white/85 dark:bg-bg-surface/95 backdrop-blur-xl border-r border-bg-border flex flex-col z-[90] select-none',
         // Off-canvas drawer on mobile; always docked from lg up (desktop web unchanged).
         'transform transition-transform duration-200 lg:translate-x-0',
         open ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:shadow-none'
@@ -83,15 +223,17 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     >
 
       {/* Logo */}
-      <div className="h-14 flex items-center gap-3 px-5 border-b border-bg-border shrink-0">
-        <div className="w-7 h-7 rounded-lg bg-dna-500 flex items-center justify-center shadow-glow-purple">
-          <Dna size={14} className="text-white" />
-        </div>
-        <div className="leading-none">
-          <p className="font-bold text-white text-sm tracking-tight">
-            PINIT<span className="text-dna-400">-DNA</span>
+      <div className="h-14 flex items-center gap-3 px-5 border-b border-bg-border shrink-0 bg-white/60 dark:bg-bg-elevated/40">
+        <img
+          src={BRAND.logoSrc}
+          alt={BRAND.name}
+          className="w-8 h-8 rounded-xl object-contain shrink-0"
+        />
+        <div className="leading-none min-w-0">
+          <p className="font-bold text-white text-sm tracking-tight truncate">
+            {BRAND.name}
           </p>
-          <p className="text-2xs text-gray-500 mono mt-0.5">v2.0 · Universal</p>
+          <p className="text-2xs text-gray-500 mono mt-0.5 truncate">{BRAND.version}</p>
         </div>
         {/* Close button — mobile drawer only */}
         <button
@@ -105,9 +247,9 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-4">
-        {NAV_GROUPS.map(group => (
+        {navGroups.map(group => (
           <div key={group.label}>
-            <p className="text-2xs font-semibold text-gray-600 uppercase tracking-widest px-2 mb-1">
+            <p className={cn('text-2xs font-bold uppercase tracking-widest px-2 mb-1', NAV_GROUP_COLORS[group.label] ?? 'text-gray-500')}>
               {group.label}
             </p>
             <ul className="space-y-0.5">
@@ -118,15 +260,15 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                     end={end}
                     onClick={onClose}
                     className={({ isActive }) => cn(
-                      'group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150',
+                      'group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150',
                       isActive
-                        ? 'bg-dna-500/15 text-dna-400'
-                        : 'text-gray-400 hover:text-white hover:bg-bg-elevated'
+                        ? 'bg-gradient-to-r from-dna-500/15 via-teal-500/10 to-transparent text-dna-600 dark:text-dna-400 border border-dna-200/60 dark:border-dna-500/30 shadow-sm'
+                        : 'text-gray-500 dark:text-gray-400 hover:text-dna-700 dark:hover:text-white hover:bg-dna-50/70 dark:hover:bg-bg-elevated border border-transparent'
                     )}
                   >
                     {({ isActive }) => (
                       <>
-                        <Icon size={15} className={cn('shrink-0', isActive ? 'text-dna-400' : 'text-gray-500 group-hover:text-gray-300')} />
+                        <Icon size={15} className={cn('shrink-0', isActive ? 'text-dna-500' : 'text-gray-400 group-hover:text-dna-500')} />
                         <span className="flex-1 text-[13px]">{label}</span>
                         {isActive && <ChevronRight size={11} className="text-dna-500 shrink-0" />}
                       </>
@@ -152,6 +294,9 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                 <div className="min-w-0">
                   <p className="text-2xs text-gray-500 font-medium leading-none mb-0.5">Logged in as</p>
                   <p className="text-xs text-dna-400 font-bold truncate mono">{(user as any).shortId ?? user.sub?.slice(0,8)}</p>
+                  {subscription && (
+                    <p className="text-2xs text-gray-500 mt-0.5">{subscription.planName} plan</p>
+                  )}
                 </div>
               </div>
               <button
@@ -173,14 +318,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         )}
 
         <div className="rounded-xl bg-bg-elevated border border-bg-border p-3">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse-slow" />
-            <span className="text-xs text-gray-400 font-medium">System Online</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-2xs text-gray-600 mono">
-            <Zap size={10} className="text-dna-500" />
-            <span>10 file types · 6 DNA layers</span>
-          </div>
+          <BackendStatus />
         </div>
       </div>
     </aside>

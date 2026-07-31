@@ -7,83 +7,123 @@
  */
 
 import { spawn, ChildProcess } from 'child_process';
+import net from 'net';
 import path from 'path';
-import fs   from 'fs';
+import fs from 'fs';
 import { logger } from './logger';
+import type { AiBannerStatus } from './dev-startup-banner';
 
 let pythonProcess: ChildProcess | null = null;
+let shuttingDown = false;
+let aiReadyNotified = false;
 
-const PYTHON_DIR  = path.resolve(__dirname, '../../python-ai');
+export type PythonAiReadyCallback = (status: AiBannerStatus) => void;
+
+const PYTHON_DIR = path.resolve(__dirname, '../../python-ai');
 const PYTHON_MAIN = path.join(PYTHON_DIR, 'main.py');
-const AI_PORT     = parseInt(process.env['AI_SERVICE_PORT'] ?? '8001', 10);
+const AI_PORT = parseInt(process.env['AI_SERVICE_PORT'] ?? '8001', 10);
 
-export function startPythonAI(): void {
-  // Skip if AI is hosted externally (Hugging Face Spaces or any non-localhost URL)
+function notifyAiReady(cb: PythonAiReadyCallback | undefined, status: AiBannerStatus): void {
+  if (!cb || aiReadyNotified) return;
+  if (status === 'starting') return;
+  aiReadyNotified = true;
+  cb(status);
+}
+
+export function markPythonShuttingDown(): void {
+  shuttingDown = true;
+}
+
+export function startPythonAI(opts?: { onReady?: PythonAiReadyCallback }): void {
+  const onReady = opts?.onReady;
+
+  if (shuttingDown) return;
+
   const aiUrl = process.env['AI_SERVICE_URL'] ?? '';
   if (aiUrl && !aiUrl.includes('localhost') && !aiUrl.includes('127.0.0.1')) {
     logger.info(`Python AI: using external service at ${aiUrl} — skipping local spawn`);
+    notifyAiReady(onReady, 'external');
     return;
   }
 
-  // Skip if python-ai/main.py doesn't exist
   if (!fs.existsSync(PYTHON_MAIN)) {
     logger.warn('Python AI service not found — skipping', { path: PYTHON_MAIN });
+    notifyAiReady(onReady, 'unavailable');
     return;
   }
 
-  // Skip if already running as child process
   if (pythonProcess && !pythonProcess.killed) return;
 
-  // Check if port is already in use (Python running in another terminal)
-  const net = require('net');
   const tester = net.createServer()
     .once('error', () => {
-      // Port already in use — Python is already running externally
       logger.info(`Python AI already running on port ${AI_PORT} — skipping auto-start`);
+      notifyAiReady(onReady, 'already-running');
     })
     .once('listening', () => {
       tester.close(() => {
-        // Port is free — start Python as child process
-        _doStartPython();
+        _doStartPython(onReady);
       });
     })
     .listen(AI_PORT, '127.0.0.1');
-  return;
+  void tester;
 }
 
-function _doStartPython(): void {
+function resolvePythonCmd(): string {
+  const venvPython =
+    process.platform === 'win32'
+      ? path.join(PYTHON_DIR, '.venv', 'Scripts', 'python.exe')
+      : path.join(PYTHON_DIR, '.venv', 'bin', 'python3');
+  if (fs.existsSync(venvPython)) return venvPython;
+  return process.platform === 'win32' ? 'python' : 'python3';
+}
 
-  // Try python3 first, fall back to python
-  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+function _doStartPython(onReady?: PythonAiReadyCallback): void {
+  if (shuttingDown) return;
+
+  const pythonCmd = resolvePythonCmd();
 
   logger.info('Starting Python AI service…', { port: AI_PORT });
 
   pythonProcess = spawn(
     pythonCmd,
-    ['-m', 'uvicorn', 'main:app', '--host', '0.0.0.0', '--port', String(AI_PORT)],
+    ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', String(AI_PORT)],
     {
-      cwd:   PYTHON_DIR,
+      cwd: PYTHON_DIR,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env:   { ...process.env, PYTHONUNBUFFERED: '1' },
-    }
+      env: { ...process.env, PYTHONUNBUFFERED: '1' },
+    },
   );
+
+  const signalReady = (msg: string) => {
+    if (msg.includes('Uvicorn running') || msg.includes('Application startup complete')) {
+      logger.info(`Python AI service ready on port ${AI_PORT}`);
+      notifyAiReady(onReady, 'ready');
+    }
+  };
 
   pythonProcess.stdout?.on('data', (data: Buffer) => {
     const msg = data.toString().trim();
-    if (msg) logger.info(`[python-ai] ${msg}`);
+    if (msg) {
+      logger.info(`[python-ai] ${msg}`);
+      signalReady(msg);
+    }
   });
 
   let missingModule = false;
 
+  const isMissingPythonDep = (msg: string) =>
+    msg.includes('ModuleNotFoundError') || /No module named/i.test(msg);
+
   pythonProcess.stderr?.on('data', (data: Buffer) => {
     const msg = data.toString().trim();
     if (!msg) return;
-    if (msg.includes('ModuleNotFoundError')) {
+    if (isMissingPythonDep(msg)) {
       missingModule = true;
-      logger.warn('Python AI: missing module — run: cd python-ai && pip install -r requirements.txt');
-    } else if (msg.includes('Uvicorn running')) {
-      logger.info(`Python AI service ready on port ${AI_PORT}`);
-    } else if (!msg.includes('INFO') && !msg.includes('WARNING')) {
+      logger.warn('Python AI: missing module — run: npm run dev:ai:setup');
+    } else {
+      signalReady(msg);
+    }
+    if (!isMissingPythonDep(msg) && !msg.includes('INFO') && !msg.includes('WARNING')) {
       logger.warn(`[python-ai] ${msg.slice(0, 200)}`);
     }
   });
@@ -91,16 +131,21 @@ function _doStartPython(): void {
   pythonProcess.on('exit', (code, signal) => {
     logger.warn('Python AI process exited', { code, signal });
     pythonProcess = null;
-    // Do NOT restart if dependencies are missing — would loop forever
-    if (missingModule) {
-      logger.warn('Python AI disabled — install dependencies first: cd python-ai && pip install -r requirements.txt');
+
+    if (shuttingDown || missingModule) {
+      if (missingModule) {
+        logger.warn('Python AI disabled — install dependencies first: npm run dev:ai:setup');
+        notifyAiReady(onReady, 'unavailable');
+      }
       return;
     }
-    // Auto-restart after 5s on unexpected crash
+
     if (code !== 0 && signal !== 'SIGTERM') {
       setTimeout(() => {
-        logger.info('Restarting Python AI service…');
-        startPythonAI();
+        if (!shuttingDown) {
+          logger.info('Restarting Python AI service…');
+          startPythonAI();
+        }
       }, 5000);
     }
   });
@@ -109,14 +154,21 @@ function _doStartPython(): void {
     logger.error('Failed to start Python AI', { error: err.message });
     logger.warn('Python AI unavailable — AI features degraded gracefully');
     pythonProcess = null;
+    notifyAiReady(onReady, 'unavailable');
   });
 }
 
-
 export function stopPythonAI(): void {
-  if (pythonProcess && !pythonProcess.killed) {
-    logger.info('Stopping Python AI service…');
-    pythonProcess.kill('SIGTERM');
-    pythonProcess = null;
+  if (!pythonProcess || pythonProcess.killed) return;
+
+  logger.info('Stopping Python AI service…');
+  const proc = pythonProcess;
+  pythonProcess = null;
+
+  if (process.platform === 'win32' && proc.pid) {
+    spawn('taskkill', ['/pid', String(proc.pid), '/f', '/t'], { stdio: 'ignore' });
+    return;
   }
+
+  proc.kill('SIGTERM');
 }

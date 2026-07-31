@@ -14,6 +14,7 @@ import { prisma }           from '../../lib/prisma';
 import { extractDocumentText } from '../../services/text-extraction/document-text-extractor';
 import { VaultService }     from '../../services/vault/vault.service';
 import { logger }           from '../../lib/logger';
+import { getAuthUserId }    from '../../lib/tenant-scope';
 
 const vaultService = new VaultService();
 const AI_BASE = process.env['AI_SERVICE_URL'] ?? 'http://localhost:8001';
@@ -46,10 +47,13 @@ export async function debugIndexed(req: Request, res: Response, next: NextFuncti
     } catch { /* AI offline */ }
 
     // ── Step 3: Cross-reference with DB records ───────────────────────────────
+    const userId = getAuthUserId(req);
     const testDnaId = req.query['testDnaId'] as string | undefined;
 
     const dbRecords = await prisma.dnaRecord.findMany({
-      where: testDnaId ? { id: testDnaId } : undefined,
+      where: testDnaId
+        ? { id: testDnaId, ownerUserId: userId }
+        : { ownerUserId: userId },
       include: {
         vaultRecord: { select: { id: true, originalMimeType: true } },
         ocrRecord:   { select: { extractedText: true, wordCount: true, ocrStatus: true } },
@@ -81,7 +85,7 @@ export async function debugIndexed(req: Request, res: Response, next: NextFuncti
 
       if (testDnaId && record.vaultRecord) {
         try {
-          const retrieved = await vaultService.retrieve(record.vaultRecord.id);
+          const retrieved = await vaultService.retrieve(record.vaultRecord.id, userId);
           const result = await extractDocumentText(
             retrieved.originalBuffer,
             record.vaultRecord.originalMimeType,

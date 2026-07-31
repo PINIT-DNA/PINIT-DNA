@@ -10,7 +10,10 @@ import crypto   from 'crypto';
 import axios    from 'axios';
 import { prisma } from '../../lib/prisma';
 import { logger }  from '../../lib/logger';
-import { riskEngineService } from './risk-engine.service';
+import { assertRecordOwner } from '../../lib/tenant-scope';
+import { riskEngineService, serializeRiskEvidence } from './risk-engine.service';
+import { sanitizeCoordinatePair } from '../../lib/geo-coords';
+import { getIpIntelligence } from '../forensic/ip-intelligence.service';
 
 // ─── HMAC token signing (integrity layer — detects tampered/guessed tokens) ──
 const HMAC_SECRET = process.env['SHARE_HMAC_SECRET'] || 'pinit-dna-dev-secret-change-me';
@@ -103,6 +106,9 @@ export interface CreateShareLinkInput {
 
   // ── Multi-recipient child links ───────────────────────────────────────
   recipients?: Array<{ label: string; email?: string }>;
+
+  /** PARENT (default), FILE (Share File open-on-PinIT page), CHILD/GRANDCHILD (hops) */
+  linkType?: string;
 }
 
 export interface ChildLinkResult {
@@ -134,6 +140,8 @@ export interface ShareLinkPublicInfo {
   signatureValid:   boolean;
   privacyMaskingEnabled: boolean;
   requestLocation:  boolean;
+  inactiveReason?:  'expired' | 'exhausted' | 'revoked' | 'one_time' | 'tampered' | null;
+  viewerRevoked?:   boolean;
 }
 
 export interface AccessLogInput {
@@ -218,6 +226,18 @@ function parseUserAgent(ua: string): { browser: string; os: string; device: stri
   return { browser, os, device };
 }
 
+/** Case-sensitive first, then unique case-insensitive fallback (screenshots / OCR typos). */
+async function findShareLinkByToken(token: string) {
+  const exact = await prisma.shareLink.findUnique({ where: { token } });
+  if (exact) return exact;
+  const rows = await prisma.$queryRawUnsafe<Array<{ token: string }>>(
+    `SELECT token FROM share_links WHERE LOWER(token) = LOWER($1) LIMIT 2`,
+    token,
+  );
+  if (rows.length !== 1 || !rows[0]?.token) return null;
+  return prisma.shareLink.findUnique({ where: { token: rows[0].token } });
+}
+
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 export class ShareLinkService {
@@ -225,12 +245,15 @@ export class ShareLinkService {
   // ── Create share link ─────────────────────────────────────────────────────
 
   async create(input: CreateShareLinkInput) {
+    if (!input.ownerUserId) throw new Error('Authentication required to create share links');
+
     // Fetch vault + dna record info
     const vault = await prisma.vaultRecord.findUnique({
       where: { id: input.vaultId },
-      include: { dnaRecord: { select: { id: true, imageFilename: true, imageMimeType: true } } },
+      include: { dnaRecord: { select: { id: true, imageFilename: true, imageMimeType: true, ownerUserId: true } } },
     });
     if (!vault) throw new Error(`Vault record not found: ${input.vaultId}`);
+    assertRecordOwner(vault.dnaRecord?.ownerUserId, input.ownerUserId, 'Vault');
 
     // Generate unique token
     let token = generateToken();
@@ -304,11 +327,25 @@ export class ShareLinkService {
         oneDeviceOnly: input.oneDeviceOnly ?? false,
 
         // Tenant isolation
-        ownerUserId: input.ownerUserId ?? null,
+        ownerUserId: input.ownerUserId,
+
+        // PARENT (Share Secure Link) vs FILE (Share File → open on PinIT page)
+        linkType: input.linkType ?? 'PARENT',
       },
     });
 
     logger.info('[SmartLink] Created', { token, filename: vault.originalFileName, expiresAt });
+
+    import('../platform-events/module-events').then(({ emitShareLinkCreated }) => {
+      emitShareLinkCreated({
+        ownerUserId: input.ownerUserId!,
+        shareLinkId: link.id,
+        token: link.token,
+        filename: vault.originalFileName,
+        dnaRecordId: vault.dnaRecordId,
+        vaultId: vault.id,
+      });
+    }).catch(() => {});
 
     // If recipients provided, auto-create child links
     let childLinks: ChildLinkResult[] = [];
@@ -317,6 +354,48 @@ export class ShareLinkService {
     }
 
     return { ...link, devOtp: plainOtp, childLinks };
+  }
+
+  /**
+   * Share File channel: open on PinIT `/s/:token` page so views are tracked.
+   * Reuses the latest active FILE link for the vault when available.
+   */
+  async createOrGetFileShare(input: {
+    vaultId: string;
+    ownerUserId: string;
+    requestLocation?: boolean;
+  }) {
+    if (!input.ownerUserId) throw new Error('Authentication required to create file shares');
+
+    const existing = await prisma.shareLink.findFirst({
+      where: {
+        vaultId: input.vaultId,
+        ownerUserId: input.ownerUserId,
+        linkType: 'FILE',
+        isActive: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (existing) {
+      const expired = existing.expiresAt != null && existing.expiresAt.getTime() <= Date.now();
+      const exhausted =
+        existing.maxViews != null && existing.viewCount >= existing.maxViews;
+      if (!expired && !exhausted) {
+        return { ...existing, reused: true as const };
+      }
+    }
+
+    const created = await this.create({
+      vaultId: input.vaultId,
+      ownerUserId: input.ownerUserId,
+      linkType: 'FILE',
+      allowDownload: true,
+      requestLocation: input.requestLocation ?? true,
+      note: 'Share File — opens on PinIT Hub for tracking',
+    });
+
+    return { ...created, reused: false as const };
   }
 
   // ── Create child links for each recipient ─────────────────────────────────
@@ -393,8 +472,269 @@ export class ShareLinkService {
     return results;
   }
 
-  // ── Detect forwarding: called on every access to a CHILD link ────────────
+  /**
+   * Forward / hop graph algorithm
+   * ─────────────────────────────────────────────────────────────────────────
+   * Every unique recipient device that opens a share URL should get its OWN
+   * child token with a separate timeline — not silently share the same logs.
+   *
+   * Rules:
+   *  1. Skip link-preview bots (WhatsApp/Telegram OG scrapers) — never anchor
+   *     or mint hops for them (they would steal the "intended" slot).
+   *  2. First real viewer of a token becomes the intended recipient (device + IP).
+   *  3. Same device fingerprint → stay on this token (one timeline per person/device).
+   *  4. New device fingerprint → mint (or reuse) a child hop, redirect there.
+   *  5. Depth is unlimited: PARENT → CHILD → GRANDCHILD → deeper GRANDCHILD…
+   *  6. Explicit "Share further" also mints a fresh unused child URL to copy.
+   */
 
+  private isLikelyLinkPreviewBot(ua: string | null | undefined): boolean {
+    if (!ua) return false;
+    return /bot|crawl|spider|slurp|facebookexternalhit|facebot|WhatsApp|TelegramBot|Twitterbot|LinkedInBot|Discordbot|Slackbot|SkypeUriPreview|preview/i.test(ua);
+  }
+
+  private async mintUniqueToken(): Promise<string> {
+    let token = generateToken();
+    let attempts = 0;
+    while (await prisma.shareLink.findUnique({ where: { token } })) {
+      token = generateToken();
+      if (++attempts > 12) throw new Error('Failed to mint unique share hop token');
+    }
+    return token;
+  }
+
+  /** Clone parent policies into a new hop child with its own token + timeline. */
+  private async createHopLink(opts: {
+    parentId: string;
+    recipientLabel: string;
+    forwardedByLabel: string | null;
+    intendedIp?: string | null;
+    intendedFingerprint?: string | null;
+  }): Promise<{ id: string; token: string; depth: number; linkType: string }> {
+    const parent = await prisma.shareLink.findUnique({ where: { id: opts.parentId } });
+    if (!parent) throw new Error('Parent share link not found');
+
+    const token = await this.mintUniqueToken();
+    const depth = (parent.depth ?? 0) + 1;
+    const linkType = depth <= 1 ? 'CHILD' : 'GRANDCHILD';
+
+    const hop = await prisma.shareLink.create({
+      data: {
+        token,
+        tokenSignature: signToken(token),
+        vaultId: parent.vaultId,
+        dnaRecordId: parent.dnaRecordId,
+        filename: parent.filename,
+        mimeType: parent.mimeType,
+        expiresAt: parent.expiresAt,
+        maxViews: null, // each hop recipient gets their own quota — don't inherit parent cap
+        allowDownload: parent.allowDownload,
+        requireName: parent.requireName,
+        note: parent.note,
+        oneTimeUse: false, // each hop is independent; don't inherit one-shot of parent
+        maxDownloads: parent.maxDownloads,
+        allowedCountries: parent.allowedCountries,
+        allowedDeviceTypes: parent.allowedDeviceTypes,
+        allowedIpPrefixes: parent.allowedIpPrefixes,
+        requireOtp: false, // otp already cleared on ancestor for this distribution chain
+        privacyMaskingEnabled: parent.privacyMaskingEnabled,
+        maskEmail: parent.maskEmail,
+        maskPhone: parent.maskPhone,
+        maskAadhaar: parent.maskAadhaar,
+        maskPan: parent.maskPan,
+        maskAddress: parent.maskAddress,
+        maskCustomPatterns: parent.maskCustomPatterns,
+        requestLocation: parent.requestLocation,
+        vpnBlock: parent.vpnBlock,
+        torBlock: parent.torBlock,
+        ownerUserId: parent.ownerUserId,
+        linkType,
+        parentLinkId: parent.id,
+        depth,
+        recipientLabel: opts.recipientLabel,
+        forwardedByLabel: opts.forwardedByLabel,
+        intendedIpAddress: opts.intendedIp ?? null,
+        intendedDeviceFingerprint: opts.intendedFingerprint ?? null,
+      },
+    });
+
+    logger.info('[SmartLink] Hop link minted', {
+      parentToken: parent.token,
+      hopToken: hop.token,
+      depth,
+      linkType,
+      recipientLabel: opts.recipientLabel,
+    });
+
+    return { id: hop.id, token: hop.token, depth, linkType };
+  }
+
+  /**
+   * On VIEWED: bind first viewer OR redirect a new device onto a fresh hop token.
+   * Returns redirectToken when the client must navigate to /s/{redirectToken}.
+   */
+  async resolveAccessHop(
+    link: {
+      id: string; token: string; linkType: string; depth: number;
+      recipientLabel: string | null; intendedIpAddress: string | null;
+      intendedDeviceFingerprint: string | null; forwardingDetected: boolean;
+      parentLinkId: string | null;
+    },
+    incomingIp: string,
+    incomingFingerprint: string | null,
+    accessInfo: {
+      country?: string; city?: string; browser?: string; os?: string;
+      userAgent?: string; recipientName?: string;
+    },
+  ): Promise<{ forwarded: boolean; redirectToken?: string; hopCreated?: boolean }> {
+    if (this.isLikelyLinkPreviewBot(accessInfo.userAgent)) {
+      return { forwarded: false };
+    }
+
+    const fp = incomingFingerprint?.trim() || null;
+
+    // First real human access — anchor this token to this device
+    if (!link.intendedDeviceFingerprint && !link.intendedIpAddress) {
+      await prisma.shareLink.update({
+        where: { id: link.id },
+        data: {
+          intendedIpAddress: incomingIp || null,
+          intendedDeviceFingerprint: fp,
+          ...(accessInfo.recipientName && !link.recipientLabel
+            ? { recipientLabel: accessInfo.recipientName }
+            : {}),
+        },
+      });
+      return { forwarded: false };
+    }
+
+    // Same device fingerprint → same hop / same timeline
+    if (fp && link.intendedDeviceFingerprint && fp === link.intendedDeviceFingerprint) {
+      return { forwarded: false };
+    }
+
+    // No fingerprint available: fall back to /24 subnet match (weaker)
+    if (!fp) {
+      const intended = link.intendedIpAddress ?? '';
+      const sameSubnet =
+        intended.includes('.') &&
+        incomingIp.includes('.') &&
+        intended.split('.').slice(0, 3).join('.') === incomingIp.split('.').slice(0, 3).join('.');
+      if (sameSubnet) return { forwarded: false };
+    }
+
+    // Reuse an existing hop already minted for this fingerprint under this parent
+    if (fp) {
+      const existing = await prisma.shareLink.findFirst({
+        where: {
+          parentLinkId: link.id,
+          intendedDeviceFingerprint: fp,
+          isActive: true,
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (existing) {
+        await prisma.shareLink.update({
+          where: { id: link.id },
+          data: { forwardingDetected: true },
+        });
+        return { forwarded: true, redirectToken: existing.token, hopCreated: false };
+      }
+    }
+
+    const forwardedBy =
+      link.recipientLabel ??
+      accessInfo.recipientName ??
+      (link.linkType === 'PARENT' ? 'original link' : 'prior hop');
+    const hopLabel =
+      accessInfo.recipientName?.trim() ||
+      `Forward hop (from ${forwardedBy})`;
+
+    const hop = await this.createHopLink({
+      parentId: link.id,
+      recipientLabel: hopLabel,
+      forwardedByLabel: forwardedBy,
+      intendedIp: incomingIp || null,
+      intendedFingerprint: fp,
+    });
+
+    await prisma.shareLink.update({
+      where: { id: link.id },
+      data: { forwardingDetected: true },
+    });
+
+    await prisma.linkForwardEvent.create({
+      data: {
+        shareLinkId: link.id,
+        intendedRecipient: link.recipientLabel ?? null,
+        intendedIp: link.intendedIpAddress,
+        intendedDevice: link.intendedDeviceFingerprint,
+        newIp: incomingIp,
+        newDevice: fp,
+        newCountry: accessInfo.country ?? null,
+        newCity: accessInfo.city ?? null,
+        newBrowser: accessInfo.browser ?? null,
+        newOs: accessInfo.os ?? null,
+        grandchildToken: hop.token,
+        action: 'HOP_MINTED',
+      },
+    }).catch((err) => {
+      logger.warn('[SmartLink] linkForwardEvent write failed', { error: String(err) });
+    });
+
+    logger.warn('[SmartLink] Forward hop minted — redirect recipient to new URL', {
+      fromToken: link.token,
+      redirectToken: hop.token,
+      depth: hop.depth,
+    });
+
+    return { forwarded: true, redirectToken: hop.token, hopCreated: true };
+  }
+
+  /** Explicit "Share further": mint a fresh child URL the current viewer can send on WhatsApp. */
+  async mintShareFurther(
+    parentToken: string,
+    opts?: { recipientLabel?: string; forwardedByLabel?: string },
+  ): Promise<{ token: string; parentToken: string; depth: number; linkType: string }> {
+    const parent = await prisma.shareLink.findUnique({ where: { token: parentToken } });
+    if (!parent || !parent.isActive) {
+      throw Object.assign(new Error('Share link not found or revoked'), { statusCode: 404 });
+    }
+
+    const hop = await this.createHopLink({
+      parentId: parent.id,
+      recipientLabel: opts?.recipientLabel?.trim() || `Shared further from ${parent.recipientLabel ?? parent.token}`,
+      forwardedByLabel: opts?.forwardedByLabel?.trim() || parent.recipientLabel || parent.token,
+      // Leave intended empty — next opener of THIS new URL becomes the hop's recipient
+      intendedIp: null,
+      intendedFingerprint: null,
+    });
+
+    await prisma.shareLink.update({
+      where: { id: parent.id },
+      data: { forwardingDetected: true },
+    });
+
+    await prisma.linkForwardEvent.create({
+      data: {
+        shareLinkId: parent.id,
+        intendedRecipient: parent.recipientLabel,
+        intendedIp: parent.intendedIpAddress,
+        intendedDevice: parent.intendedDeviceFingerprint,
+        grandchildToken: hop.token,
+        action: 'SHARE_FURTHER',
+      },
+    }).catch(() => {});
+
+    return {
+      token: hop.token,
+      parentToken: parent.token,
+      depth: hop.depth,
+      linkType: hop.linkType,
+    };
+  }
+
+  /** @deprecated Prefer resolveAccessHop — kept for callers that still use the old name. */
   async detectForwarding(
     link: { id: string; token: string; linkType: string; depth: number;
             recipientLabel: string | null; intendedIpAddress: string | null;
@@ -402,96 +742,10 @@ export class ShareLinkService {
             parentLinkId: string | null; },
     incomingIp: string,
     incomingFingerprint: string | null,
-    accessInfo: { country?: string; city?: string; browser?: string; os?: string }
+    accessInfo: { country?: string; city?: string; browser?: string; os?: string; userAgent?: string; recipientName?: string }
   ): Promise<{ forwarded: boolean; grandchildToken?: string }> {
-    if (link.linkType !== 'CHILD' && link.linkType !== 'GRANDCHILD') {
-      return { forwarded: false };
-    }
-
-    // First ever access — register this device as the intended recipient
-    if (!link.intendedIpAddress) {
-      await prisma.shareLink.update({
-        where: { id: link.id },
-        data: {
-          intendedIpAddress: incomingIp,
-          intendedDeviceFingerprint: incomingFingerprint ?? null,
-        },
-      });
-      return { forwarded: false };
-    }
-
-    // Compare against registered device — different IP subnet OR different fingerprint = forwarding
-    const sameSubnet = link.intendedIpAddress.split('.').slice(0, 3).join('.') ===
-                       incomingIp.split('.').slice(0, 3).join('.');
-    const sameFingerprint = !incomingFingerprint || !link.intendedDeviceFingerprint ||
-                            incomingFingerprint === link.intendedDeviceFingerprint;
-
-    if (sameSubnet && sameFingerprint) {
-      return { forwarded: false };
-    }
-
-    // Forwarding detected — create a grandchild link record and log the event
-    logger.warn('[SmartLink] Forwarding detected', {
-      token: link.token, intendedIp: link.intendedIpAddress, newIp: incomingIp,
-    });
-
-    // Auto-create grandchild link
-    let grandchildToken = generateToken();
-    let attempts = 0;
-    while (await prisma.shareLink.findUnique({ where: { token: grandchildToken } })) {
-      grandchildToken = generateToken();
-      if (++attempts > 10) break;
-    }
-
-    const parentLink = await prisma.shareLink.findUnique({ where: { id: link.id } });
-    if (parentLink) {
-      await prisma.shareLink.create({
-        data: {
-          token:        grandchildToken,
-          tokenSignature: signToken(grandchildToken),
-          vaultId:      parentLink.vaultId,
-          dnaRecordId:  parentLink.dnaRecordId,
-          filename:     parentLink.filename,
-          mimeType:     parentLink.mimeType,
-          expiresAt:    parentLink.expiresAt,
-          maxViews:     1,
-          allowDownload: false,
-          requireName:  true,
-          ownerUserId:  parentLink.ownerUserId,
-          linkType:     'GRANDCHILD',
-          parentLinkId: link.id,
-          depth:        2,
-          recipientLabel: `unknown (forwarded by ${link.recipientLabel ?? 'unknown'})`,
-          forwardedByLabel: link.recipientLabel ?? 'unknown',
-        },
-      });
-    }
-
-    // Mark original child link as forwarded
-    await prisma.shareLink.update({
-      where: { id: link.id },
-      data: { forwardingDetected: true },
-    });
-
-    // Log forwarding event
-    await prisma.linkForwardEvent.create({
-      data: {
-        shareLinkId:      link.id,
-        intendedRecipient: link.recipientLabel ?? null,
-        intendedIp:       link.intendedIpAddress,
-        intendedDevice:   link.intendedDeviceFingerprint,
-        newIp:            incomingIp,
-        newDevice:        incomingFingerprint,
-        newCountry:       accessInfo.country ?? null,
-        newCity:          accessInfo.city ?? null,
-        newBrowser:       accessInfo.browser ?? null,
-        newOs:            accessInfo.os ?? null,
-        grandchildToken,
-        action:           'FLAGGED',
-      },
-    });
-
-    return { forwarded: true, grandchildToken };
+    const result = await this.resolveAccessHop(link, incomingIp, incomingFingerprint, accessInfo);
+    return { forwarded: result.forwarded, grandchildToken: result.redirectToken };
   }
 
   // ── Tamper check: verify file hash on every serve ─────────────────────────
@@ -543,18 +797,24 @@ export class ShareLinkService {
   // ── Get link tree (parent + all children + grandchildren) ─────────────────
 
   async getLinkTree(parentToken: string, ownerUserId: string) {
+    const hopInclude = {
+      accessLogs: { orderBy: { createdAt: 'desc' as const }, take: 8 },
+      forwardEvents: true,
+    };
+
     const parent = await prisma.shareLink.findUnique({
       where: { token: parentToken },
       include: {
-        accessLogs: { orderBy: { createdAt: 'desc' }, take: 5 },
-        forwardEvents: true,
+        ...hopInclude,
         childLinks: {
           include: {
-            accessLogs:   { orderBy: { createdAt: 'desc' }, take: 5 },
-            forwardEvents: true,
-            childLinks: {   // grandchildren
+            ...hopInclude,
+            childLinks: {
               include: {
-                accessLogs: { orderBy: { createdAt: 'desc' }, take: 5 },
+                ...hopInclude,
+                childLinks: {
+                  include: hopInclude, // depth 4 hops visible in tree
+                },
               },
             },
           },
@@ -570,23 +830,106 @@ export class ShareLinkService {
 
   // ── Get link public info (no auth required) ───────────────────────────────
 
-  async getPublicInfo(token: string): Promise<ShareLinkPublicInfo | null> {
-    const link = await prisma.shareLink.findUnique({ where: { token } });
+  /** Walk parentLinkId chain — used for per-viewer blocks on hop trees. */
+  private async getShareLinkAncestryIds(shareLinkId: string): Promise<string[]> {
+    const ids: string[] = [shareLinkId];
+    let currentId = shareLinkId;
+    for (let depth = 0; depth < 32; depth++) {
+      const parentRow = await prisma.shareLink.findUnique({
+        where: { id: currentId },
+        select: { parentLinkId: true },
+      });
+      const parentId = parentRow?.parentLinkId;
+      if (!parentId) break;
+      ids.push(parentId);
+      currentId = parentId;
+    }
+    return ids;
+  }
+
+  /** All descendant hop link ids under a root share link (BFS, max depth 32). */
+  private async getShareLinkDescendantIds(rootId: string): Promise<string[]> {
+    const ids: string[] = [];
+    let frontier = [rootId];
+    for (let depth = 0; depth < 32 && frontier.length > 0; depth++) {
+      const children = await prisma.shareLink.findMany({
+        where: { parentLinkId: { in: frontier } },
+        select: { id: true },
+      });
+      const childIds = children.map(c => c.id);
+      if (!childIds.length) break;
+      ids.push(...childIds);
+      frontier = childIds;
+    }
+    return ids;
+  }
+
+  async getPublicInfo(
+    token: string,
+    viewer?: { deviceFingerprint?: string | null; sessionId?: string | null; ipAddress?: string | null },
+  ): Promise<ShareLinkPublicInfo | null> {
+    let link = await findShareLinkByToken(token);
     if (!link) return null;
+
+    const isHop = link.linkType === 'CHILD' || link.linkType === 'GRANDCHILD';
+
+    // Legacy hops may have inherited oneTimeUse=true and been auto-deactivated after
+    // the first VIEWED — heal so other recipients on their own hop URLs keep access.
+    if (isHop && link.oneTimeUse && !link.isActive) {
+      link = await prisma.shareLink.update({
+        where: { id: link.id },
+        data: { isActive: true, oneTimeUse: false },
+      });
+      logger.info('[SmartLink] Healed legacy hop oneTimeUse deactivation', { token: link.token });
+    }
+
+    // Legacy hops inherited parent maxViews — clear so one recipient doesn't exhaust the hop for everyone.
+    if (isHop && link.maxViews != null) {
+      link = await prisma.shareLink.update({
+        where: { id: link.id },
+        data: { maxViews: null },
+      });
+      logger.info('[SmartLink] Cleared inherited maxViews on hop link', { token: link.token });
+    }
 
     const isExpired   = !!link.expiresAt && new Date(link.expiresAt) < new Date();
     const isExhausted = !!link.maxViews  && link.viewCount >= link.maxViews;
+    const isParent    = link.linkType === 'PARENT';
 
     // ── HMAC integrity check — a token whose signature doesn't match the
     //    server secret was either forged, guessed, or predates signing
     //    (legacy links created before this feature shipped get `null`
     //    signatures and are treated as "unsigned, but not flagged tampered").
+    // Use DB token (canonical casing), not the typed URL token.
     const signatureValid = link.tokenSignature
-      ? verifyTokenSignature(token, link.tokenSignature)
+      ? verifyTokenSignature(link.token, link.tokenSignature)
       : true; // unsigned legacy link — don't false-flag it as tampered
 
     if (link.tokenSignature && !signatureValid) {
-      logger.warn('[SmartLink] HMAC signature mismatch — possible tampered/forged token', { token });
+      logger.warn('[SmartLink] HMAC signature mismatch — possible tampered/forged token', { token: link.token });
+    }
+
+    let inactiveReason: ShareLinkPublicInfo['inactiveReason'] = null;
+    if (!signatureValid) inactiveReason = 'tampered';
+    else if (isExpired) inactiveReason = 'expired';
+    else if (isExhausted) inactiveReason = 'exhausted';
+    else if (!link.isActive && !isParent) {
+      inactiveReason = link.oneTimeUse ? 'one_time' : 'revoked';
+    } else if (!link.isActive && isParent && link.oneTimeUse) {
+      inactiveReason = 'one_time';
+    }
+
+    // PARENT links stay open for new devices to mint hop URLs even after oneTimeUse consumed the row.
+    const parentAcceptsForwards = isParent && !isExpired && !isExhausted && signatureValid;
+    const linkAccessible =
+      !isExpired &&
+      !isExhausted &&
+      signatureValid &&
+      (link.isActive || parentAcceptsForwards);
+
+    let viewerRevoked = false;
+    if (viewer && (viewer.deviceFingerprint || viewer.sessionId || viewer.ipAddress)) {
+      viewerRevoked = await this.isViewerBlocked(link.id, viewer);
     }
 
     return {
@@ -601,7 +944,7 @@ export class ShareLinkService {
       viewCount:     link.viewCount,
       isExpired,
       isExhausted,
-      isActive:      link.isActive && !isExpired && !isExhausted && signatureValid,
+      isActive:      linkAccessible,
 
       oneTimeUse:    link.oneTimeUse,
       maxDownloads:  link.maxDownloads,
@@ -611,13 +954,15 @@ export class ShareLinkService {
       signatureValid,
       privacyMaskingEnabled: link.privacyMaskingEnabled,
       requestLocation:       link.requestLocation,
+      inactiveReason,
+      viewerRevoked,
     };
   }
 
   // ── Verify recipient-entered OTP ──────────────────────────────────────────
 
   async verifyOtp(token: string, otp: string): Promise<{ ok: boolean; message: string }> {
-    const link = await prisma.shareLink.findUnique({ where: { token } });
+    const link = await findShareLinkByToken(token);
     if (!link) return { ok: false, message: 'Link not found' };
     if (!link.requireOtp) return { ok: true, message: 'OTP not required' };
     if (!link.otpCodeHash) return { ok: false, message: 'No OTP was generated for this link' };
@@ -627,8 +972,8 @@ export class ShareLinkService {
     if (hashOtp(otp) !== link.otpCodeHash) {
       return { ok: false, message: 'Incorrect code — please try again' };
     }
-    await prisma.shareLink.update({ where: { token }, data: { otpVerified: true } });
-    logger.info('[SmartLink] OTP verified', { token });
+    await prisma.shareLink.update({ where: { id: link.id }, data: { otpVerified: true } });
+    logger.info('[SmartLink] OTP verified', { token: link.token });
     return { ok: true, message: 'Verified' };
   }
 
@@ -641,34 +986,52 @@ export class ShareLinkService {
     ctx: { country?: string | null; device?: string | null; ipAddress?: string | null }
   ): PolicyCheckResult {
     if (link.allowedCountries?.length && ctx.country) {
-      // Normalise: convert geo-IP full name ("India") to ISO code ("IN") so it matches
-      // stored values (VaultPage saves ISO codes). Also accept direct full-name match.
-      const countryIsoMap: Record<string, string> = {
-        'india': 'IN', 'united states': 'US', 'united states of america': 'US',
-        'united kingdom': 'GB', 'australia': 'AU', 'canada': 'CA',
-        'germany': 'DE', 'france': 'FR', 'japan': 'JP', 'china': 'CN',
-        'singapore': 'SG', 'united arab emirates': 'AE', 'russia': 'RU',
-        'brazil': 'BR', 'south africa': 'ZA', 'italy': 'IT', 'spain': 'ES',
-        'netherlands': 'NL', 'new zealand': 'NZ', 'pakistan': 'PK',
-        'bangladesh': 'BD', 'sri lanka': 'LK', 'indonesia': 'ID',
-        'malaysia': 'MY', 'thailand': 'TH', 'philippines': 'PH',
-        'south korea': 'KR', 'taiwan': 'TW', 'hong kong': 'HK',
-        'mexico': 'MX', 'argentina': 'AR', 'chile': 'CL', 'colombia': 'CO',
-        'sweden': 'SE', 'norway': 'NO', 'denmark': 'DK', 'finland': 'FI',
-        'poland': 'PL', 'ukraine': 'UA', 'turkey': 'TR', 'egypt': 'EG',
-        'nigeria': 'NG', 'kenya': 'KE', 'ghana': 'GH',
-      };
-      const geoKey    = ctx.country.toLowerCase();
-      const geoIso    = countryIsoMap[geoKey] ?? ctx.country.toUpperCase().slice(0, 2);
-      const geoName   = ctx.country;
-      const allowed   = link.allowedCountries;
-      const match = allowed.some(a =>
-        a.toUpperCase() === geoIso ||
-        a.toLowerCase() === geoKey ||
-        a.toLowerCase() === geoName.toLowerCase()
-      );
-      if (!match) {
-        return { allowed: false, reason: 'BLOCKED_COUNTRY', message: `Access from ${ctx.country} is not permitted. Allowed: ${allowed.join(', ')}` };
+      // Private / loopback IPs cannot be geolocated (localhost, LAN). They are
+      // labeled "Local Network" — blocking them as "not India" is a false positive
+      // during local testing. Real public IPs still go through country allow-list.
+      const countryLower = ctx.country.toLowerCase();
+      const ip = (ctx.ipAddress ?? '').replace('::ffff:', '');
+      const isPrivateIp =
+        !ip ||
+        ip === '::1' ||
+        ip.startsWith('127.') ||
+        ip.startsWith('192.168.') ||
+        ip.startsWith('10.') ||
+        /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip) ||
+        countryLower === 'local network' ||
+        countryLower === 'localhost' ||
+        countryLower === 'private';
+
+      if (!isPrivateIp) {
+        // Normalise: convert geo-IP full name ("India") to ISO code ("IN") so it matches
+        // stored values (VaultPage saves ISO codes). Also accept direct full-name match.
+        const countryIsoMap: Record<string, string> = {
+          'india': 'IN', 'united states': 'US', 'united states of america': 'US',
+          'united kingdom': 'GB', 'australia': 'AU', 'canada': 'CA',
+          'germany': 'DE', 'france': 'FR', 'japan': 'JP', 'china': 'CN',
+          'singapore': 'SG', 'united arab emirates': 'AE', 'russia': 'RU',
+          'brazil': 'BR', 'south africa': 'ZA', 'italy': 'IT', 'spain': 'ES',
+          'netherlands': 'NL', 'new zealand': 'NZ', 'pakistan': 'PK',
+          'bangladesh': 'BD', 'sri lanka': 'LK', 'indonesia': 'ID',
+          'malaysia': 'MY', 'thailand': 'TH', 'philippines': 'PH',
+          'south korea': 'KR', 'taiwan': 'TW', 'hong kong': 'HK',
+          'mexico': 'MX', 'argentina': 'AR', 'chile': 'CL', 'colombia': 'CO',
+          'sweden': 'SE', 'norway': 'NO', 'denmark': 'DK', 'finland': 'FI',
+          'poland': 'PL', 'ukraine': 'UA', 'turkey': 'TR', 'egypt': 'EG',
+          'nigeria': 'NG', 'kenya': 'KE', 'ghana': 'GH',
+        };
+        const geoKey    = countryLower;
+        const geoIso    = countryIsoMap[geoKey] ?? ctx.country.toUpperCase().slice(0, 2);
+        const geoName   = ctx.country;
+        const allowed   = link.allowedCountries;
+        const match = allowed.some(a =>
+          a.toUpperCase() === geoIso ||
+          a.toLowerCase() === geoKey ||
+          a.toLowerCase() === geoName.toLowerCase()
+        );
+        if (!match) {
+          return { allowed: false, reason: 'BLOCKED_COUNTRY', message: `Access from ${ctx.country} is not permitted. Allowed: ${allowed.join(', ')}` };
+        }
       }
     }
     if (link.allowedDeviceTypes?.length && ctx.device) {
@@ -724,6 +1087,28 @@ export class ShareLinkService {
       isp     = isp    ?? geo.isp    ?? null;
     }
 
+    let ipLat = input.lat;
+    let ipLng = input.lng;
+    // Always resolve IP geo when missing — needed for Fake GPS (GPS vs IP) comparison
+    if ((ipLat == null || ipLng == null) && input.ipAddress) {
+      try {
+        const intel = await getIpIntelligence(input.ipAddress);
+        const c = sanitizeCoordinatePair(intel.lat, intel.lng);
+        if (c) {
+          ipLat = c.lat;
+          ipLng = c.lng;
+        }
+        if (!country && intel.country) country = intel.country;
+        if (!city && intel.city) city = intel.city;
+        if (!region && intel.region) region = intel.region;
+        if (!isp && intel.isp) isp = intel.isp;
+        // Prefer intel VPN/Tor flags when caller did not set them
+        if (input.isVpn == null && intel.isVpn) input.isVpn = true;
+        if (input.isTor == null && intel.isTor) input.isTor = true;
+        if (input.isProxy == null && intel.isProxy) input.isProxy = true;
+      } catch { /* best-effort */ }
+    }
+
     // Override IP-based city with GPS city when available (GPS is more accurate)
     if (input.gpsCity) {
       city = input.gpsCity;
@@ -743,19 +1128,39 @@ export class ShareLinkService {
       }
     }
 
-    // ── AI Risk Engine — score this event against the link's prior history
     const history = await prisma.shareAccessLog.findMany({
       where:   { shareLinkId: input.shareLinkId },
       orderBy: { createdAt: 'desc' },
       take:    50,
-      select:  { action: true, country: true, ipAddress: true, device: true, createdAt: true },
+      select:  {
+        action: true, country: true, city: true, region: true,
+        ipAddress: true, device: true, browser: true, createdAt: true,
+        gpsLat: true, gpsLng: true, deviceFingerprint: true,
+      },
     });
     const risk = riskEngineService.score({
       action: input.action,
-      country, device: finalDevice, browser: input.browser ?? browser,
+      country, city, region, device: finalDevice,
+      browser: input.browser ?? browser,
+      os: input.os ?? os,
       ipAddress: input.ipAddress ?? null,
+      gpsLat: input.gpsLat ?? null,
+      gpsLng: input.gpsLng ?? null,
+      gpsAccuracyM: input.gpsAccuracy ?? null,
+      ipLat: ipLat ?? null,
+      ipLng: ipLng ?? null,
+      isVpn: input.isVpn ?? false,
+      isTor: input.isTor ?? false,
+      isProxy: input.isProxy ?? false,
+      isDatacenter: input.isDatacenter ?? false,
+      asn: input.asn ?? null,
+      org: input.org ?? null,
+      isp: isp ?? null,
+      deviceFingerprint: input.deviceFingerprint ?? null,
       history,
     });
+
+    const riskEvidenceJson = serializeRiskEvidence(risk);
 
     // [DEBUG] Stage-3b: log exactly what is being written to DB
     logger.debug('[IP-AUDIT] Stage-3b writing to DB', {
@@ -764,6 +1169,9 @@ export class ShareLinkService {
       country,
       city,
     });
+
+    const gpsCoords = sanitizeCoordinatePair(input.gpsLat, input.gpsLng);
+    const ipCoords  = sanitizeCoordinatePair(ipLat, ipLng);
 
     await prisma.shareAccessLog.create({
       data: {
@@ -786,11 +1194,10 @@ export class ShareLinkService {
         deviceFingerprint: input.deviceFingerprint ?? null,
         riskScore:     risk.score,
         riskLevel:     risk.level,
-        riskFactors:   JSON.stringify(risk.factors),
+        riskFactors:   riskEvidenceJson,
         sessionDurationSec,
-        // GPS — stored only when user consented
-        gpsLat:        input.gpsLat        ?? null,
-        gpsLng:        input.gpsLng        ?? null,
+        gpsLat:        gpsCoords?.lat ?? null,
+        gpsLng:        gpsCoords?.lng ?? null,
         gpsAccuracy:   input.gpsAccuracy   ?? null,
         gpsCity:       input.gpsCity       ?? null,
         gpsTimestamp:  input.gpsTimestamp  ?? null,
@@ -801,35 +1208,54 @@ export class ShareLinkService {
         gpsState:        input.gpsState       ?? null,
         gpsPincode:      input.gpsPincode     ?? null,
         gpsFullAddress:  input.gpsFullAddress ?? null,
-        locationSource:  input.locationSource ?? (input.locationShared ? 'gps' : 'ip'),
-        // Forensic IP intelligence
+        locationSource:  gpsCoords
+          ? (input.locationSource ?? 'gps')
+          : ipCoords
+            ? 'ip'
+            : (input.locationSource ?? null),
         isVpn:         input.isVpn         ?? false,
         isTor:         input.isTor         ?? false,
         isProxy:       input.isProxy       ?? false,
         isDatacenter:  input.isDatacenter  ?? false,
         asn:           input.asn           ?? null,
         org:           input.org           ?? null,
-        lat:           input.lat           ?? null,
-        lng:           input.lng           ?? null,
+        lat:           ipCoords?.lat ?? null,
+        lng:           ipCoords?.lng ?? null,
         canvasFp:      input.canvasFp      ?? null,
         webglFp:       input.webglFp       ?? null,
         audioFp:       input.audioFp       ?? null,
       },
     });
 
-    // ── Fire notifications ──────────────────────────────────────────────────
-    if (link.ownerUserId && (input.action === 'VIEWED' || input.action === 'DOWNLOADED')) {
-      import('../../services/notifications/notification.service').then(({ notificationService }) => {
-        const ipKey = input.ipAddress ?? 'Unknown';
-        const countryKey = country ?? 'Unknown';
-
-        // Always notify on link access
-        notificationService.linkViewed(link.ownerUserId!, link.filename ?? 'File', ipKey, countryKey, finalDevice, link.token);
-
-        // Risk alert for HIGH/CRITICAL
-        if (risk.level === 'HIGH' || risk.level === 'CRITICAL') {
-          notificationService.riskAlert(link.ownerUserId!, link.filename ?? 'File', risk.level, ipKey, countryKey, finalDevice, link.token);
-        }
+    // ── Platform events (notifications via Unified Event Engine) ───────────
+    const NOTIFY_ACTIONS = new Set([
+      'VIEWED', 'DOWNLOADED', 'FORWARDING_DETECTED',
+      'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT',
+    ]);
+    if (link.ownerUserId && NOTIFY_ACTIONS.has(input.action)) {
+      const hopNumber = link.linkType === 'GRANDCHILD' ? 2 : link.linkType === 'CHILD' ? 1 : undefined;
+      import('../platform-events/share-events').then(({ emitShareAccessEvent }) => {
+        emitShareAccessEvent({
+          ownerUserId: link.ownerUserId!,
+          shareLinkId: link.id,
+          token: link.token,
+          filename: link.filename ?? 'File',
+          dnaRecordId: link.dnaRecordId,
+          vaultId: link.vaultId,
+          action: input.action,
+          ip: input.ipAddress,
+          country,
+          device: finalDevice,
+          riskLevel: risk.level,
+          riskScore: risk.score,
+          riskFactors: risk.factors,
+          locationSpoofSuspected: risk.locationInconsistent,
+          trustScore: risk.trustScore,
+          locationTrust: risk.locationTrust,
+          alerts: risk.alerts,
+          suggestedActions: risk.suggestedActions,
+          hopNumber,
+        });
       }).catch(() => {});
     }
 
@@ -837,8 +1263,9 @@ export class ShareLinkService {
     const updateData: Record<string, unknown> = {};
     if (input.action === 'VIEWED') {
       updateData['viewCount'] = { increment: 1 };
-      if (link.oneTimeUse) {
-        // Self-revoke after the first real view — true "one-time access link"
+      // PARENT links stay open so WhatsApp forwards can mint hop URLs for new devices.
+      // One-time-use only consumes leaf (CHILD / GRANDCHILD) links.
+      if (link.oneTimeUse && link.linkType !== 'PARENT') {
         updateData['isActive'] = false;
         logger.info('[SmartLink] One-time-use link consumed — auto-revoking', { token: link.token });
       }
@@ -862,14 +1289,36 @@ export class ShareLinkService {
     // actions exist in the history (guards against single-event false positives,
     // e.g. a first-time traveller triggering "+new country" alone).
     const SUSPICIOUS_ACTIONS = new Set(['COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT']);
+    let autoRevoked = false;
     if (risk.level === 'CRITICAL' && risk.score >= 85) {
       const suspiciousCount = history.filter(h => SUSPICIOUS_ACTIONS.has(h.action)).length;
       if (suspiciousCount >= 2 || risk.score >= 90) {
         await prisma.shareLink.update({ where: { id: input.shareLinkId }, data: { isActive: false } });
+        autoRevoked = true;
         logger.warn('[SmartLink] 🚨 AUTO-REVOKE triggered — CRITICAL risk with confirmed suspicious behaviour', {
           token: link.token, score: risk.score, suspiciousCount, factors: risk.factors,
         });
       }
+    }
+
+    const oneTimeConsumed = input.action === 'VIEWED' && link.oneTimeUse && link.linkType !== 'PARENT';
+    if (link.ownerUserId && oneTimeConsumed) {
+      import('../platform-events/extended-events').then(({ emitLinkOneTimeConsumed }) => {
+        emitLinkOneTimeConsumed({
+          ownerUserId: link.ownerUserId!,
+          shareLinkId: link.id,
+          token: link.token,
+          filename: link.filename ?? 'File',
+        });
+      }).catch(() => {});
+    }
+    if (link.ownerUserId && autoRevoked) {
+      import('../platform-events/share-events').then(({ emitShareLinkRevoked }) => {
+        emitShareLinkRevoked(link.ownerUserId!, link.id, link.token, link.filename ?? 'File', {
+          dnaRecordId: link.dnaRecordId,
+          vaultId: link.vaultId,
+        });
+      }).catch(() => {});
     }
 
     logger.info('[SmartLink] Access logged', {
@@ -911,10 +1360,89 @@ export class ShareLinkService {
       .sort((a, b) => b.accessCount - a.accessCount);
   }
 
+  /** Live map pins — where shared files were opened (GPS or IP geolocation). */
+  async getLiveTrackingMap(ownerUserId: string) {
+    const TRACKED_ACTIONS = [
+      'VIEWED', 'DOWNLOADED', 'FORWARDING_DETECTED',
+      'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT',
+    ];
+
+    const logs = await prisma.shareAccessLog.findMany({
+      where: {
+        shareLink: { ownerUserId },
+        action: { in: TRACKED_ACTIONS },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 300,
+      select: {
+        id: true,
+        action: true,
+        createdAt: true,
+        country: true,
+        city: true,
+        device: true,
+        gpsLat: true,
+        gpsLng: true,
+        lat: true,
+        lng: true,
+        locationSource: true,
+        shareLink: {
+          select: { filename: true, vaultId: true, token: true },
+        },
+      },
+    });
+
+    const points: Array<{
+      id: string;
+      vaultId: string | null;
+      filename: string;
+      lat: number;
+      lng: number;
+      action: string;
+      locationLabel: string;
+      source: 'gps' | 'ip';
+      timestamp: string;
+      device: string | null;
+    }> = [];
+
+    for (const log of logs) {
+      const gps = sanitizeCoordinatePair(log.gpsLat, log.gpsLng);
+      const ip = sanitizeCoordinatePair(log.lat, log.lng);
+      const coords = gps ?? ip;
+      if (!coords) continue;
+
+      const locationLabel = [log.city, log.country].filter(Boolean).join(', ')
+        || `${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`;
+
+      points.push({
+        id: log.id,
+        vaultId: log.shareLink.vaultId,
+        filename: log.shareLink.filename ?? 'Shared file',
+        lat: coords.lat,
+        lng: coords.lng,
+        action: log.action,
+        locationLabel,
+        source: gps ? 'gps' : 'ip',
+        timestamp: log.createdAt.toISOString(),
+        device: log.device,
+      });
+    }
+
+    const oneHourAgo = Date.now() - 60 * 60 * 1000;
+    const recentCount = points.filter(p => new Date(p.timestamp).getTime() > oneHourAgo).length;
+
+    return {
+      points,
+      totalAccessPoints: points.length,
+      recentAccessCount: recentCount,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
   // ── CSV export of a link's full access log (Audit Export) ─────────────────
 
   async exportAccessLogsCsv(token: string): Promise<string | null> {
-    const link = await this.getWithLogs(token);
+    const link = await this.getWithAggregatedLogs(token);
     if (!link) return null;
 
     const headers = [
@@ -935,49 +1463,294 @@ export class ShareLinkService {
 
   // ── Get all links for a vault record ─────────────────────────────────────
 
-  async listByVault(vaultId: string) {
+  async listByVault(vaultId: string, ownerUserId: string) {
+    const vault = await prisma.vaultRecord.findUnique({
+      where: { id: vaultId },
+      include: { dnaRecord: { select: { ownerUserId: true } } },
+    });
+    if (!vault) throw new Error(`Vault record not found: ${vaultId}`);
+    assertRecordOwner(vault.dnaRecord?.ownerUserId, ownerUserId, 'Vault');
+
     return prisma.shareLink.findMany({
-      where:   { vaultId },
+      where:   { vaultId, ownerUserId, linkType: 'PARENT' },
       orderBy: { createdAt: 'desc' },
       include: { accessLogs: { orderBy: { createdAt: 'desc' }, take: 10 } },
     });
   }
 
   // ── List all share links (admin view) ─────────────────────────────────────
+  // Only PARENT links belong here — hop CHILD/GRANDCHILD tokens are internal
+  // forward tracking rows; listing them made every forward look "Revoked".
 
-  async listAll(userId?: string) {
-    return prisma.shareLink.findMany({
-      where: userId ? { ownerUserId: userId } : undefined,
+  async listAll(userId: string) {
+    const links = await prisma.shareLink.findMany({
+      where: {
+        ownerUserId: userId,
+        linkType: 'PARENT',
+      },
       orderBy: { createdAt: 'desc' },
       include: {
-        _count: { select: { accessLogs: true } },
+        _count: { select: { accessLogs: true, childLinks: true } },
         accessLogs: { orderBy: { createdAt: 'desc' } },
       },
     });
+
+    const healed: typeof links = [];
+    for (const link of links) {
+      const isExpired = !!link.expiresAt && new Date(link.expiresAt) < new Date();
+      const isExhausted = !!link.maxViews && link.viewCount >= link.maxViews;
+      const hopCount = link._count.childLinks;
+
+      if (
+        !link.isActive &&
+        !isExpired &&
+        !isExhausted &&
+        (link.oneTimeUse || hopCount > 0)
+      ) {
+        const updated = await prisma.shareLink.update({
+          where: { id: link.id },
+          data: { isActive: true },
+        });
+        logger.info('[SmartLink] Reactivated parent link (legacy auto-revoke)', {
+          token: link.token,
+          oneTimeUse: link.oneTimeUse,
+          hopCount,
+        });
+        healed.push({ ...link, ...updated, isActive: true });
+      } else {
+        healed.push(link);
+      }
+    }
+
+    return healed;
   }
 
   // ── Get a specific link with full logs ────────────────────────────────────
 
   async getWithLogs(token: string) {
-    return prisma.shareLink.findUnique({
-      where:   { token },
+    const resolved = await findShareLinkByToken(token);
+    if (!resolved) return null;
+    const canonical = resolved.token;
+
+    const baseInclude = {
+      accessLogs: { orderBy: { createdAt: 'desc' as const } },
+      _count: { select: { accessLogs: true } },
+    };
+
+    try {
+      return await prisma.shareLink.findUnique({
+        where: { token: canonical },
+        include: {
+          ...baseInclude,
+          blockedViewers: { orderBy: { createdAt: 'desc' as const } },
+        },
+      });
+    } catch (err) {
+      // Graceful fallback if blocked_share_viewers table not yet migrated
+      logger.warn('[SmartLink] getWithLogs fallback (no blockedViewers)', { token: canonical, error: String(err) });
+      return prisma.shareLink.findUnique({
+        where: { token: canonical },
+        include: baseInclude,
+      });
+    }
+  }
+
+  /**
+   * Parent + entire hop tree — Access Intelligence must show every forwarded recipient,
+   * not only people who hit the original URL (their VIEWED logs live on hop tokens).
+   */
+  async getWithAggregatedLogs(token: string) {
+    const resolved = await findShareLinkByToken(token);
+    if (!resolved) return null;
+
+    let root = resolved;
+    while (root.parentLinkId) {
+      const parent = await prisma.shareLink.findUnique({ where: { id: root.parentLinkId } });
+      if (!parent) break;
+      root = parent;
+    }
+
+    const descendantIds = await this.getShareLinkDescendantIds(root.id);
+    const allIds = [root.id, ...descendantIds];
+
+    const accessLogsRaw = await prisma.shareAccessLog.findMany({
+      where: { shareLinkId: { in: allIds } },
+      orderBy: { createdAt: 'desc' },
       include: {
-        accessLogs: { orderBy: { createdAt: 'desc' } },
-        _count: { select: { accessLogs: true } },
+        shareLink: {
+          select: { id: true, token: true, linkType: true, depth: true, parentLinkId: true },
+        },
       },
     });
+
+    // Flatten hop metadata onto each log so Access Intelligence can color
+    // Direct Recipient (green) / Direct Share (blue) / Reshared (red).
+    const accessLogs = accessLogsRaw.map((log) => {
+      const { shareLink: hopLink, ...rest } = log;
+      const linkType = hopLink?.linkType ?? 'PARENT';
+      const linkDepth = hopLink?.depth ?? 0;
+      const isReshareLink = linkType !== 'PARENT' || linkDepth > 0 || hopLink?.id !== root.id;
+      return {
+        ...rest,
+        shareLinkId: hopLink?.id ?? rest.shareLinkId,
+        linkType,
+        linkDepth,
+        isReshareLink,
+        hopToken: hopLink?.token ?? null,
+      };
+    });
+
+    const baseInclude = {
+      _count: { select: { accessLogs: true } },
+    };
+
+    let rootLink;
+    try {
+      rootLink = await prisma.shareLink.findUnique({
+        where: { id: root.id },
+        include: {
+          ...baseInclude,
+          blockedViewers: { orderBy: { createdAt: 'desc' as const } },
+        },
+      });
+    } catch (err) {
+      logger.warn('[SmartLink] getWithAggregatedLogs fallback (no blockedViewers)', {
+        token: root.token,
+        error: String(err),
+      });
+      rootLink = await prisma.shareLink.findUnique({
+        where: { id: root.id },
+        include: baseInclude,
+      });
+    }
+
+    if (!rootLink) return null;
+
+    const viewCount = accessLogs.filter(l => l.action === 'VIEWED').length;
+    const downloadCount = accessLogs.filter(l => l.action === 'DOWNLOADED').length;
+
+    logger.debug('[SmartLink] Aggregated access logs', {
+      rootToken: root.token,
+      hopLinks: descendantIds.length,
+      logRows: accessLogs.length,
+      uniqueViewersApprox: new Set(
+        accessLogs
+          .filter(l => l.action === 'VIEWED' || l.action === 'FORWARDING_DETECTED')
+          .map(l => l.deviceFingerprint ?? `${l.ipAddress}|${l.sessionId}`),
+      ).size,
+    });
+
+    return {
+      ...rootLink,
+      accessLogs,
+      viewCount,
+      downloadCount,
+      hopLinkCount: descendantIds.length,
+    };
+  }
+
+  // ── Per-viewer block / revoke ─────────────────────────────────────────────
+
+  /**
+   * Match blocks precisely:
+   * - If a block has a deviceFingerprint → ONLY that device (same Wi‑Fi IP must not revoke others)
+   * - Else if sessionId → that session only
+   * - Else IP-only blocks (last resort when fingerprint was missing)
+   */
+  async isViewerBlocked(
+    shareLinkId: string,
+    viewer: { deviceFingerprint?: string | null; sessionId?: string | null; ipAddress?: string | null },
+  ): Promise<boolean> {
+    const ancestryIds = await this.getShareLinkAncestryIds(shareLinkId);
+    const blocks = await prisma.blockedShareViewer.findMany({
+      where: { shareLinkId: { in: ancestryIds } },
+    });
+    if (!blocks.length) return false;
+    return blocks.some((b) => {
+      if (b.deviceFingerprint) {
+        return Boolean(viewer.deviceFingerprint && b.deviceFingerprint === viewer.deviceFingerprint);
+      }
+      if (b.sessionId) {
+        return Boolean(viewer.sessionId && b.sessionId === viewer.sessionId);
+      }
+      if (b.ipAddress) {
+        return Boolean(viewer.ipAddress && b.ipAddress === viewer.ipAddress);
+      }
+      return false;
+    });
+  }
+
+  async blockViewer(
+    token: string,
+    ownerUserId: string,
+    input: { deviceFingerprint?: string; sessionId?: string; ipAddress?: string; label?: string; reason?: string },
+  ) {
+    const link = await prisma.shareLink.findUnique({ where: { token } });
+    if (!link) throw new Error(`Share link not found: ${token}`);
+    if (link.ownerUserId && link.ownerUserId !== ownerUserId) {
+      throw new Error('Unauthorized — you do not own this share link');
+    }
+
+    // Prefer device fingerprint so home Wi‑Fi (shared public IP) does not
+    // revoke every phone/laptop on the same network.
+    const hasFp = Boolean(input.deviceFingerprint?.trim());
+    const ancestryIds = await this.getShareLinkAncestryIds(link.id);
+    const rootShareLinkId = ancestryIds[ancestryIds.length - 1] ?? link.id;
+    const block = await prisma.blockedShareViewer.create({
+      data: {
+        shareLinkId: rootShareLinkId,
+        deviceFingerprint: hasFp ? input.deviceFingerprint!.trim() : null,
+        sessionId: hasFp ? null : (input.sessionId ?? null),
+        ipAddress: hasFp ? null : (input.ipAddress ?? null),
+        label: input.label ?? null,
+        reason: input.reason ?? 'Revoked by owner',
+        blockedByUserId: ownerUserId,
+      },
+    });
+
+    logger.info('[SmartLink] Viewer blocked', {
+      token,
+      scope: hasFp ? 'device' : input.sessionId ? 'session' : 'ip',
+      deviceFingerprint: input.deviceFingerprint?.slice(0, 12),
+      sessionId: input.sessionId?.slice(0, 12),
+      ipAddress: hasFp ? undefined : input.ipAddress,
+    });
+
+    return block;
+  }
+
+  async unblockViewer(token: string, ownerUserId: string, blockId: string) {
+    const link = await prisma.shareLink.findUnique({ where: { token } });
+    if (!link) throw new Error(`Share link not found: ${token}`);
+    if (link.ownerUserId && link.ownerUserId !== ownerUserId) {
+      throw new Error('Unauthorized — you do not own this share link');
+    }
+
+    await prisma.blockedShareViewer.deleteMany({
+      where: { id: blockId, shareLinkId: link.id },
+    });
+
+    return { ok: true };
   }
 
   // ── Revoke ────────────────────────────────────────────────────────────────
 
-  async revoke(token: string) {
+  async revoke(token: string, ownerUserId: string) {
     const link = await prisma.shareLink.findUnique({ where: { token } });
     if (!link) throw new Error(`Share link not found: ${token}`);
+    assertRecordOwner(link.ownerUserId, ownerUserId, 'Share link');
 
     await prisma.shareLink.update({
       where: { token },
       data:  { isActive: false },
     });
+
+    import('../platform-events/share-events').then(({ emitShareLinkRevoked }) => {
+      emitShareLinkRevoked(ownerUserId, link.id, link.token, link.filename ?? 'File', {
+        dnaRecordId: link.dnaRecordId,
+        vaultId: link.vaultId,
+      });
+    }).catch(() => {});
 
     logger.info('[SmartLink] Revoked', { token, filename: link.filename });
     return link;
@@ -988,10 +1761,10 @@ export class ShareLinkService {
   // "Force logout" maps to revoking the parent link — the next request from
   // that session is blocked server-side immediately (see recordAccess/serveSharedFile).
 
-  async getLiveSessions(ownerUserId?: string) {
+  async getLiveSessions(ownerUserId: string) {
     const cutoff = new Date(Date.now() - 5 * 60_000);
     const recent = await prisma.shareAccessLog.findMany({
-      where:   { sessionId: { not: null }, createdAt: { gte: cutoff }, ...(ownerUserId ? { shareLink: { ownerUserId } } : {}) },
+      where:   { sessionId: { not: null }, createdAt: { gte: cutoff }, shareLink: { ownerUserId } },
       orderBy: { createdAt: 'desc' },
       include: { shareLink: { select: { token: true, filename: true, dnaRecordId: true, isActive: true } } },
     });
@@ -1040,9 +1813,16 @@ export class ShareLinkService {
 
   // ── Get access logs for File Timeline ────────────────────────────────────
 
-  async getTimelineEvents(dnaRecordId: string) {
+  async getTimelineEvents(dnaRecordId: string, ownerUserId: string) {
+    const dna = await prisma.dnaRecord.findUnique({
+      where: { id: dnaRecordId },
+      select: { ownerUserId: true },
+    });
+    if (!dna) throw new Error(`DNA record not found: ${dnaRecordId}`);
+    assertRecordOwner(dna.ownerUserId, ownerUserId, 'DNA record');
+
     const links = await prisma.shareLink.findMany({
-      where:   { dnaRecordId },
+      where:   { dnaRecordId, ownerUserId },
       orderBy: { createdAt: 'asc' },
       include: { accessLogs: { orderBy: { createdAt: 'asc' } } },
     });

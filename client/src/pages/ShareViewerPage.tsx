@@ -9,10 +9,18 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { Shield, Lock, Download, Eye, AlertTriangle, CheckCircle2, Clock, Ban } from 'lucide-react';
+import { Shield, Lock, Download, Eye, AlertTriangle, CheckCircle2, Clock, Ban, Share2, Copy } from 'lucide-react';
 import axios from 'axios';
 import { format } from 'date-fns';
 import { API_BASE_URL } from '../config/api.config';
+import { stripPinitProtectionTailsForDisplay } from '../lib/strip-pinit-tails';
+import { isValidMapCoordinate } from '../lib/geo-coords';
+import {
+  captureBestGps,
+  captureQuickGps,
+  isGeolocationPermissionDenied,
+  type GpsCapture,
+} from '../lib/precise-gps';
 import * as docxPreview from 'docx-preview';
 import { formatTextAsDocument, DOCUMENT_STYLES } from '../utils/document-formatter';
 
@@ -36,6 +44,8 @@ interface LinkInfo {
   requireOtp?:     boolean;
   otpVerified?:    boolean;
   signatureValid?: boolean;
+  inactiveReason?: 'expired' | 'exhausted' | 'revoked' | 'one_time' | 'tampered' | null;
+  viewerRevoked?: boolean;
   // ── Privacy & Location ──────────────────────────────────────────────────
   privacyMaskingEnabled?: boolean;
   requestLocation?:       boolean;
@@ -90,6 +100,65 @@ function getScreenResolution(): string {
   try { return `${screen.width}x${screen.height}`; } catch { return ''; }
 }
 
+function buildGpsPayload(
+  gps: GpsCapture | null,
+  requestLocation?: boolean,
+  locationAccepted?: boolean,
+) {
+  if (gps && isValidMapCoordinate(gps.lat, gps.lng)) {
+    return {
+      gpsLat: gps.lat,
+      gpsLng: gps.lng,
+      gpsAccuracy: gps.accuracy,
+      gpsCity: gps.city ?? gps.village,
+      gpsTimestamp: gps.timestamp,
+      gpsVillage: gps.village,
+      gpsMandal: gps.mandal,
+      gpsDistrict: gps.district,
+      gpsState: gps.state,
+      gpsPincode: gps.pincode,
+      gpsFullAddress: gps.fullAddress,
+      locationShared: true,
+      locationSource: gps.locationSource === 'network' ? 'network' : 'gps',
+    };
+  }
+  // Owner required GPS and viewer allowed — IP geo until GPS arrives
+  if (requestLocation && locationAccepted) {
+    return { locationShared: true, locationSource: 'ip' as const };
+  }
+  if (requestLocation) return { locationShared: false, locationSource: 'denied' as const };
+  // Owner did not require GPS — track via IP only
+  return { locationShared: true, locationSource: 'ip' as const };
+}
+
+function shareTrackingHeaders() {
+  return {
+    'X-PINIT-Session': getSessionId(),
+    'X-PINIT-Fingerprint': computeDeviceFingerprint(),
+  };
+}
+
+/** Axios blob responses return JSON errors as Blob — parse for a readable message. */
+async function extractApiError(err: unknown): Promise<string | undefined> {
+  const ax = err as { response?: { data?: unknown } };
+  const data = ax.response?.data;
+  if (!data) return undefined;
+  if (typeof data === 'object' && data !== null && 'error' in data) {
+    const msg = (data as { error?: unknown }).error;
+    return typeof msg === 'string' ? msg : undefined;
+  }
+  if (data instanceof Blob) {
+    try {
+      const text = await data.text();
+      const parsed = JSON.parse(text) as { error?: string };
+      return typeof parsed.error === 'string' ? parsed.error : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 export function ShareViewerPage() {
   const { token } = useParams<{ token: string }>();
   const [info, setInfo]           = useState<LinkInfo | null>(null);
@@ -100,17 +169,17 @@ export function ShareViewerPage() {
   const [fileUrl, setFileUrl]     = useState('');
   const [downloading, setDownloading] = useState(false);
   const [fileLoadError, setFileLoadError] = useState<string | null>(null);
+  const [shareFurtherUrl, setShareFurtherUrl] = useState<string | null>(null);
+  const [shareFurtherBusy, setShareFurtherBusy] = useState(false);
+  const [shareFurtherMsg, setShareFurtherMsg] = useState('');
+  const hopRedirecting = useRef(false);
 
-  // ── GPS Location state ────────────────────────────────────────────────────
-  const [locationAsked,  setLocationAsked]  = useState(false);  // screen shown
-  const [locationDone,   setLocationDone]   = useState(false);  // screen dismissed
-  const [locationDenied, setLocationDenied] = useState(false);  // user denied GPS
-  const [gpsData, setGpsData] = useState<{
-    lat: number; lng: number; accuracy: number; timestamp: string;
-    city?: string; village?: string; mandal?: string; district?: string;
-    state?: string; pincode?: string; fullAddress?: string;
-  } | null>(null);
-  const gpsDataRef = useRef<typeof gpsData>(null);
+  // ── GPS Location (only when owner enabled requestLocation on the share) ───
+  const [locationAsked, setLocationAsked] = useState(false);
+  const [locationDone, setLocationDone] = useState(false);
+  const [locationDenied, setLocationDenied] = useState(false);
+  const [gpsData, setGpsData] = useState<GpsCapture | null>(null);
+  const gpsDataRef = useRef<GpsCapture | null>(null);
 
   // ── Privacy Masking state ──────────────────────────────────────────────────
   const [maskedText, setMaskedText]           = useState<string | null>(null);
@@ -119,7 +188,6 @@ export function ShareViewerPage() {
   const [unmaskRequesting, setUnmaskRequesting] = useState(false);
   const [_unmaskRequestId, setUnmaskRequestId] = useState<string | null>(null);
 
-  // Keep ref in sync so the tracking closure always has the latest GPS
   useEffect(() => { gpsDataRef.current = gpsData; }, [gpsData]);
 
   const hasTracked = useRef(false);
@@ -127,6 +195,7 @@ export function ShareViewerPage() {
   const [isIdleBlur, setIsIdleBlur] = useState(false);   // blur overlay on inactivity
   const nameRef = useRef('');
   useEffect(() => { nameRef.current = name; }, [name]);
+  const viewedSentRef = useRef(false);
 
   // ── OTP / email-verification gate state ───────────────────────────────────
   const [otp, setOtp]               = useState('');
@@ -156,44 +225,68 @@ export function ShareViewerPage() {
   // ── Load link info ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!token) return;
-    axios.get(`${API_BASE_URL}/share/${token}`)
+    const sid = getSessionId();
+    const fingerprint = computeDeviceFingerprint();
+    axios.get(`${API_BASE_URL}/share/${token}`, {
+      headers: {
+        'x-pinit-session': sid,
+        'x-pinit-fingerprint': fingerprint,
+      },
+    })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .then(({ data }) => setInfo((data as any).link))
-      .catch(() => setError('Link not found or has been removed.'))
+      .catch((err) => {
+        const status = (err as { response?: { status?: number; data?: { error?: string; code?: string } } })?.response?.status;
+        const apiErr = (err as { response?: { data?: { error?: string; code?: string } } })?.response?.data;
+        if (status === 503 || apiErr?.code === 'BACKEND_OFFLINE') {
+          setError('Backend is starting. Wait a few seconds and refresh.');
+        } else if (status === 404) {
+          setError('Link not found or has been removed. Check the full URL (token letters are case-sensitive).');
+        } else {
+          setError(apiErr?.error || 'Could not open this link. Is the backend running on port 4000?');
+        }
+      })
       .then(() => setLoading(false), () => setLoading(false));
   }, [token]);
 
-  // ── Silent passive GPS capture — runs once on mount regardless of requestLocation.
-  //    The browser prompt appears only if the site already has permission; if not,
-  //    it silently fails (no error shown). This means GPS is captured even for
-  //    links where the owner forgot to toggle requestLocation, as long as the
-  //    browser allows geolocation without a fresh prompt.
+  // When GPS not required, mark location gate complete immediately
   useEffect(() => {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude: lat, longitude: lng, accuracy } = pos.coords;
-        let geo: { city?: string; village?: string; mandal?: string; district?: string; state?: string; pincode?: string; fullAddress?: string } = {};
-        try {
-          const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`);
-          const j = await r.json() as { display_name?: string; address?: Record<string, string> };
-          const a = j.address ?? {};
-          geo = {
-            village:     a.village ?? a.hamlet ?? a.neighbourhood ?? a.suburb,
-            city:        a.city ?? a.town ?? a.village ?? a.county,
-            mandal:      a.county ?? a.state_district,
-            district:    a.state_district ?? a.county,
-            state:       a.state,
-            pincode:     a.postcode,
-            fullAddress: j.display_name,
-          };
-        } catch { /* non-fatal */ }
-        setGpsData({ lat, lng, accuracy, timestamp: new Date().toISOString(), ...geo });
-      },
-      () => { /* denied or unavailable — silent */ },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
-  }, []);
+    if (info && !info.requestLocation && !locationDone) {
+      setLocationDone(true);
+    }
+  }, [info, locationDone]);
+
+  // Background GPS refine — after Allow, or when GPS not required (best-effort, no gate)
+  useEffect(() => {
+    if (!info) return;
+    if (info.requestLocation && !locationDone) return;
+    let cancelled = false;
+    void (async () => {
+      // Only run browser GPS when owner required it (after Allow)
+      if (!info.requestLocation) return;
+      const best = await captureBestGps({ targetAccuracyM: 45, maxWaitMs: 28_000, minSamples: 1 });
+      if (cancelled || !best) return;
+      setGpsData((prev) => {
+        if (prev && prev.accuracy <= best.accuracy) return prev;
+        return best;
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [info?.requestLocation, locationDone, info]);
+
+  useEffect(() => {
+    if (!viewedSentRef.current || !token || !gpsData) return;
+    if (gpsData.accuracy > 75) return;
+    void axios.post(`${API_BASE_URL}/share/${token}/access`, {
+      action: 'LOCATION_UPDATE',
+      recipientName: nameRef.current || undefined,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      sessionId: getSessionId(),
+      screenResolution: getScreenResolution(),
+      deviceFingerprint: computeDeviceFingerprint(),
+      ...buildGpsPayload(gpsData, info?.requestLocation, locationDone),
+    }).catch(() => {});
+  }, [gpsData?.lat, gpsData?.lng, gpsData?.accuracy, token, info?.requestLocation, locationDone]);
 
   // ── Decide once that tracking can start (info loaded, name gate passed,
   //    link active at the moment of arrival). This flag is a one-way switch:
@@ -207,7 +300,6 @@ export function ShareViewerPage() {
     if (info.requireName && !nameSubmitted) return;
     if (info.requireOtp && !info.otpVerified && !otpVerifiedLocal) return;
     if (!info.isActive) return;
-    // Wait for location decision if requested (allow or deny — just must be decided)
     if (info.requestLocation && !locationDone) return;
     setTrackingReady(true);
   }, [info, nameSubmitted, otpVerifiedLocal, trackingReady, locationDone]);
@@ -223,55 +315,74 @@ export function ShareViewerPage() {
     const fingerprint = computeDeviceFingerprint();
 
     const track = (action: string, extra?: Record<string, string>) => {
-      // Always read GPS from ref so we get the latest value even if state
-      // updated after this closure was created (ref is always current)
       const gps = gpsDataRef.current;
       return axios.post(`${API_BASE_URL}/share/${token}/access`, {
         action, recipientName: nameRef.current || undefined,
         timezone: tz, sessionId: sid,
         screenResolution: screenRes, deviceFingerprint: fingerprint,
-        // GPS — send on VIEWED only if captured
-        ...(action === 'VIEWED' && gps ? {
-          gpsLat:         gps.lat,
-          gpsLng:         gps.lng,
-          gpsAccuracy:    gps.accuracy,
-          gpsCity:        gps.city ?? gps.village,
-          gpsTimestamp:   gps.timestamp,
-          gpsVillage:     gps.village,
-          gpsMandal:      gps.mandal,
-          gpsDistrict:    gps.district,
-          gpsState:       gps.state,
-          gpsPincode:     gps.pincode,
-          gpsFullAddress: gps.fullAddress,
-          locationShared: true,
-          locationSource: 'gps',
-        } : {}),
-        ...(action === 'VIEWED' && !gps && info?.requestLocation ? { locationShared: false } : {}),
+        ...buildGpsPayload(gps, info?.requestLocation, locationDone || !info?.requestLocation),
         ...extra,
+      }).then((res) => {
+        const data = res.data as { redirectToken?: string; grandchildToken?: string };
+        const next = data.redirectToken || data.grandchildToken;
+        // New person opened this URL → server minted a hop link; move them onto it
+        // so their timeline stays separate from the previous recipient.
+        if (
+          action === 'VIEWED' &&
+          next &&
+          token &&
+          next !== token &&
+          !hopRedirecting.current
+        ) {
+          hopRedirecting.current = true;
+          try {
+            sessionStorage.setItem('pinit_hop_from', token);
+            sessionStorage.setItem('pinit_hop_to', next);
+          } catch { /* ignore */ }
+          window.location.replace(`/s/${next}`);
+        }
+        return res;
       }).catch((err) => {
         // eslint-disable-next-line no-console
         console.warn('[SmartLink] track failed', action, err?.message);
       });
     };
 
-    // Initial view — wait up to 4 seconds for passive GPS to resolve before
-    // sending VIEWED, so GPS is included in the first event record.
-    const sendViewed = () => track('VIEWED');
-    if (gpsDataRef.current) {
+    // Wait for the best GPS we can get before VIEWED so Access Intelligence shows
+    // village-level fix — shorter wait after hop redirect so forwards still register.
+    const sendViewed = () => {
+      viewedSentRef.current = true;
+      void track('VIEWED');
+    };
+    let isHopLanding = false;
+    try {
+      const hopTo = sessionStorage.getItem('pinit_hop_to');
+      if (hopTo && token && hopTo === token) {
+        isHopLanding = true;
+        sessionStorage.removeItem('pinit_hop_to');
+        sessionStorage.removeItem('pinit_hop_from');
+      }
+    } catch { /* ignore */ }
+    const wantsPreciseGps = Boolean(info?.requestLocation);
+    if (!wantsPreciseGps) {
       sendViewed();
     } else {
-      const gpsWait = setTimeout(sendViewed, 4000);
-      // If GPS arrives early (ref updated by passive capture), cancel the timer
-      // and send immediately via a one-shot polling check
-      const gpsCheck = setInterval(() => {
-        if (gpsDataRef.current) {
-          clearInterval(gpsCheck);
-          clearTimeout(gpsWait);
-          sendViewed();
-        }
-      }, 200);
-      // Clean up if GPS never arrives
-      setTimeout(() => clearInterval(gpsCheck), 4200);
+      const GPS_WAIT_MS = isHopLanding ? 2_000 : 3_000;
+      const GOOD_ACCURACY_M = 60;
+      if (gpsDataRef.current && gpsDataRef.current.accuracy <= GOOD_ACCURACY_M) {
+        sendViewed();
+      } else {
+        const gpsWait = setTimeout(sendViewed, GPS_WAIT_MS);
+        const gpsCheck = setInterval(() => {
+          const g = gpsDataRef.current;
+          if (g && g.accuracy <= GOOD_ACCURACY_M) {
+            clearInterval(gpsCheck);
+            clearTimeout(gpsWait);
+            sendViewed();
+          }
+        }, 400);
+        setTimeout(() => clearInterval(gpsCheck), GPS_WAIT_MS + 300);
+      }
     }
 
     // ── Mouse activity / idle detection ───────────────────────────────────
@@ -433,6 +544,7 @@ export function ShareViewerPage() {
     try {
       const resp = await axios.get<Blob>(`${API_BASE_URL}/share/${token}/file`, {
         responseType: 'blob',
+        headers: shareTrackingHeaders(),
       });
       const url = URL.createObjectURL(resp.data);
       const a   = document.createElement('a');
@@ -444,10 +556,39 @@ export function ShareViewerPage() {
         action: 'DOWNLOADED', recipientName: name || undefined,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         sessionId: getSessionId(),
+        screenResolution: getScreenResolution(),
+        deviceFingerprint: computeDeviceFingerprint(),
+        ...buildGpsPayload(gpsDataRef.current, info?.requestLocation, locationDone || !info?.requestLocation),
       }).catch(() => {});
     } catch {
       alert('Download failed. The file may have been removed.');
     } finally { setDownloading(false); }
+  };
+
+  /** Mint a NEW tracked hop URL for the next person (WhatsApp / email). */
+  const handleShareFurther = async () => {
+    if (!token || shareFurtherBusy) return;
+    setShareFurtherBusy(true);
+    setShareFurtherMsg('');
+    try {
+      const { data } = await axios.post(`${API_BASE_URL}/share/${token}/share-further`, {
+        recipientLabel: name.trim() ? `Shared by ${name.trim()}` : undefined,
+        forwardedByLabel: name.trim() || undefined,
+      });
+      const url = (data as { url?: string }).url;
+      if (!url) throw new Error('No hop URL returned');
+      setShareFurtherUrl(url);
+      try {
+        await navigator.clipboard.writeText(url);
+        setShareFurtherMsg('New tracked link copied — send this to the next person (not the old link).');
+      } catch {
+        setShareFurtherMsg('New tracked link ready — copy it below and send it.');
+      }
+    } catch {
+      setShareFurtherMsg('Could not create a new hop link. Try again.');
+    } finally {
+      setShareFurtherBusy(false);
+    }
   };
 
   // ── Text/CSV/JSON content state — must be declared before any conditional returns ──
@@ -461,36 +602,78 @@ export function ShareViewerPage() {
     if (info.requireName && !nameSubmitted) return;
     if (fileLoadedRef.current) return;   // already loaded — don't re-fetch on info updates
     fileLoadedRef.current = true;
-    axios.get<Blob>(`${API_BASE_URL}/share/${token}/file`, { responseType: 'blob' })
+    axios.get<Blob>(`${API_BASE_URL}/share/${token}/file`, {
+      responseType: 'blob',
+      headers: shareTrackingHeaders(),
+    })
       .then(({ data }) => {
         fileBlobRef.current = data;
         const url = URL.createObjectURL(data);
+        setFileLoadError(null);
         setFileUrl(url);
       })
-      .catch((err) => {
+      .catch(async (err) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const status = (err as any)?.response?.status;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const msg    = (err as any)?.response?.data?.error;
+        const msg    = await extractApiError(err);
         if (status === 403) {
           setFileLoadError(msg ?? 'Access denied: your country, device, or IP is not permitted by the sender\'s policy.');
         } else if (status === 410) {
           setFileLoadError(msg ?? 'This link has been revoked or has reached its download limit.');
+        } else if (status === 503) {
+          setFileLoadError(msg ?? 'The file could not be loaded from vault storage. The server may need configuration.');
         } else {
-          setFileLoadError('Failed to load the file. The server may be unreachable.');
+          setFileLoadError(msg ?? 'Failed to load the file. The server may be unreachable.');
         }
       });
   }, [info, nameSubmitted, token]);
 
-  // ── Load text content when it's a text/csv/json file ─────────────────────
+  // ── Load text content when it's a text/csv/json file (not HTML — rendered in iframe) ─
   useEffect(() => {
     const mt = info?.mimeType ?? '';
     const fn = info?.filename?.toLowerCase() ?? '';
-    const isTextFile = mt === 'text/plain' || mt === 'text/csv' || mt === 'application/json'
-      || ['.txt','.csv','.json','.md','.log'].some(e => fn.endsWith(e));
+    const isHtmlFile = mt === 'text/html' || mt === 'application/xhtml+xml'
+      || ['.html', '.htm', '.xhtml'].some((e) => fn.endsWith(e));
+    const isTextFile = !isHtmlFile && (
+      mt === 'text/plain' || mt === 'text/csv' || mt === 'application/json'
+      || ['.txt', '.csv', '.json', '.md', '.log'].some((e) => fn.endsWith(e))
+    );
     if (!fileUrl || !isTextFile || !fileBlobRef.current) return;
-    fileBlobRef.current.text().then(t => setTextContent(t)).catch(() => {});
+    fileBlobRef.current.text().then((t) => setTextContent(t)).catch(() => {});
   }, [fileUrl, info]);
+
+  // ── HTML preview URL (force text/html so browser renders the page) ─────────
+  const [htmlPreviewUrl, setHtmlPreviewUrl] = useState('');
+  useEffect(() => {
+    const mt = info?.mimeType ?? '';
+    const fn = info?.filename?.toLowerCase() ?? '';
+    const isHtmlFile = mt === 'text/html' || mt === 'application/xhtml+xml'
+      || ['.html', '.htm', '.xhtml'].some((e) => fn.endsWith(e));
+    if (!fileUrl || !isHtmlFile || !fileBlobRef.current) {
+      setHtmlPreviewUrl('');
+      return;
+    }
+    let cancelled = false;
+    void fileBlobRef.current.text().then((raw) => {
+      if (cancelled) return;
+      const cleaned = stripPinitProtectionTailsForDisplay(raw);
+      const blob = new Blob([cleaned], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      setHtmlPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return url;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fileUrl, info]);
+
+  useEffect(() => {
+    return () => {
+      if (htmlPreviewUrl) URL.revokeObjectURL(htmlPreviewUrl);
+    };
+  }, [htmlPreviewUrl]);
 
   // ── Privacy Masking: load masked text when masking is enabled ─────────────
   useEffect(() => {
@@ -594,20 +777,16 @@ export function ShareViewerPage() {
     </div>
   );
 
-  // ── Expired / exhausted ────────────────────────────────────────────────────
-  if (!info.isActive) return (
+  // ── Per-viewer revoke (owner blocked this device only) ─────────────────────
+  if (info.viewerRevoked) return (
     <div className="min-h-screen bg-bg-base flex items-center justify-center">
       <div className="text-center max-w-sm mx-auto p-6">
-        <div className="w-16 h-16 bg-warning/10 rounded-full flex items-center justify-center mx-auto mb-4">
-          <Ban size={28} className="text-warning" />
+        <div className="w-16 h-16 bg-danger/10 rounded-full flex items-center justify-center mx-auto mb-4">
+          <Ban size={28} className="text-danger" />
         </div>
-        <h1 className="text-white font-bold text-lg mb-2">
-          {info.isExpired ? 'Link Expired' : 'View Limit Reached'}
-        </h1>
+        <h1 className="text-white font-bold text-lg mb-2">Access Revoked</h1>
         <p className="text-gray-400 text-sm">
-          {info.isExpired
-            ? 'This share link has expired and is no longer accessible.'
-            : `This link was limited to ${info.maxViews} views and has been exhausted.`}
+          The owner has revoked your access to this file. Other recipients are not affected.
         </p>
         <div className="mt-4 px-4 py-2 bg-bg-elevated rounded-lg border border-bg-border inline-block">
           <p className="text-2xs text-gray-500 mono">{token}</p>
@@ -615,6 +794,40 @@ export function ShareViewerPage() {
       </div>
     </div>
   );
+
+  // ── Expired / exhausted / revoked ────────────────────────────────────────────
+  if (!info.isActive) {
+    const reason = info.inactiveReason
+      ?? (info.isExpired ? 'expired' : info.isExhausted ? 'exhausted' : 'revoked');
+    const title = reason === 'expired' ? 'Link Expired'
+      : reason === 'exhausted' ? 'View Limit Reached'
+      : reason === 'one_time' ? 'Link Already Used'
+      : reason === 'tampered' ? 'Link Invalid'
+      : 'Link Unavailable';
+    const message = reason === 'expired'
+      ? 'This share link has expired and is no longer accessible.'
+      : reason === 'exhausted'
+      ? `This link was limited to ${info.maxViews ?? '?'} views and has been exhausted.`
+      : reason === 'one_time'
+      ? 'This was a one-time link and has already been used.'
+      : reason === 'tampered'
+      ? 'This link could not be verified and may have been tampered with.'
+      : 'This share link has been revoked or is no longer active.';
+    return (
+    <div className="min-h-screen bg-bg-base flex items-center justify-center">
+      <div className="text-center max-w-sm mx-auto p-6">
+        <div className="w-16 h-16 bg-warning/10 rounded-full flex items-center justify-center mx-auto mb-4">
+          <Ban size={28} className="text-warning" />
+        </div>
+        <h1 className="text-white font-bold text-lg mb-2">{title}</h1>
+        <p className="text-gray-400 text-sm">{message}</p>
+        <div className="mt-4 px-4 py-2 bg-bg-elevated rounded-lg border border-bg-border inline-block">
+          <p className="text-2xs text-gray-500 mono">{token}</p>
+        </div>
+      </div>
+    </div>
+    );
+  }
 
   // ── Name gate ──────────────────────────────────────────────────────────────
   if (info.requireName && !nameSubmitted) return (
@@ -682,81 +895,104 @@ export function ShareViewerPage() {
     </div>
   );
 
-  // ── GPS Location Permission Gate ──────────────────────────────────────────
+  // ── GPS Location Permission Gate (Chrome-style compact prompt) ─────────────
   if (info.requestLocation && !locationDone) {
     const handleAllow = () => {
       if (!navigator.geolocation) {
-        setLocationDone(true); // browser doesn't support it — skip
+        setLocationDone(true);
         return;
       }
       setLocationAsked(true);
+      setLocationDenied(false);
+
       navigator.geolocation.getCurrentPosition(
-        async (pos) => {
+        (pos) => {
           const { latitude: lat, longitude: lng, accuracy } = pos.coords;
-          // Reverse-geocode using free nominatim API
-          let city: string | undefined;
-          try {
-            const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
-            const j = await r.json() as { address?: { city?: string; town?: string; village?: string; county?: string } };
-            city = j.address?.city ?? j.address?.town ?? j.address?.village ?? j.address?.county;
-          } catch { /* non-fatal */ }
-          setGpsData({ lat, lng, accuracy, city, timestamp: new Date().toISOString() });
+          setGpsData({
+            lat,
+            lng,
+            accuracy,
+            timestamp: new Date(pos.timestamp).toISOString(),
+            locationSource: accuracy <= 75 ? 'gps' : 'network',
+          });
+          setLocationDone(true);
+          void captureQuickGps(8_000).then((quick) => {
+            if (quick) setGpsData(quick);
+          });
+        },
+        (err) => {
+          if (isGeolocationPermissionDenied(err)) {
+            setLocationAsked(false);
+            setLocationDenied(true);
+            return;
+          }
+          // Timeout / unavailable — still open; IP geo on server
           setLocationDone(true);
         },
-        () => {
-          setLocationDenied(true);
-        },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+        { enableHighAccuracy: true, maximumAge: 120_000, timeout: 3_500 },
       );
     };
 
+    const hostLabel = typeof window !== 'undefined' ? window.location.host : 'this site';
+
     return (
-      <div className="min-h-screen bg-bg-base flex items-center justify-center">
-        <div className="max-w-sm w-full mx-auto p-6">
-          <div className="text-center mb-6">
-            <div className="w-16 h-16 bg-green-500/15 rounded-full flex items-center justify-center mx-auto mb-4">
-              <span className="text-3xl">📍</span>
-            </div>
-            <h1 className="text-white font-bold text-lg">Location Sharing</h1>
-            <p className="text-gray-400 text-sm mt-2">
-              The owner of this document has requested your location for audit purposes.
-            </p>
-            <p className="text-gray-500 text-xs mt-1">
-              Location sharing is <strong className="text-white">required</strong> to view this document.
-            </p>
-          </div>
-          <div className="card space-y-3">
-            <div className="bg-bg-elevated rounded-xl p-3 text-2xs text-gray-400 space-y-1">
-              <p>✅ Your approximate GPS location</p>
-              <p>✅ Accuracy radius in metres</p>
-              <p>✅ Timestamp of capture</p>
-              <p className="text-gray-600 mt-2">❌ Your exact address is never stored</p>
-              <p className="text-gray-600">❌ Location is not shared with anyone else</p>
-            </div>
-            <button
-              onClick={handleAllow}
-              disabled={locationAsked}
-              className="btn btn-primary w-full"
-            >
-              {locationAsked
-                ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Getting location…</>
-                : <>📍 Allow Location Sharing (Recommended)</>
-              }
-            </button>
-            {locationDenied && (
-              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-center">
-                <p className="text-sm font-semibold text-red-400">Access Denied</p>
-                <p className="text-2xs text-gray-400 mt-1">
-                  You must allow location sharing to view this document. Please refresh and try again.
-                </p>
-                <button
-                  onClick={() => { setLocationDenied(false); setLocationAsked(false); }}
-                  className="btn btn-primary btn-sm text-xs mt-3"
-                >
-                  Try Again
-                </button>
+      <div className="min-h-screen bg-[#f1f3f4] relative overflow-hidden">
+        {/* Soft page behind prompt (like a blank tab) */}
+        <div className="absolute inset-0 flex flex-col items-center pt-28 px-4 opacity-40 pointer-events-none select-none">
+          <div className="w-10 h-10 rounded-xl bg-violet-600/20 mb-3" />
+          <div className="h-3 w-40 bg-slate-300 rounded mb-2" />
+          <div className="h-2 w-56 bg-slate-200 rounded" />
+        </div>
+
+        {/* Chrome-like permission bubble — top center */}
+        <div className="relative z-10 flex justify-center pt-3 px-3 sm:pt-4 sm:justify-start sm:pl-4">
+          <div
+            className="w-full max-w-[360px] rounded-lg bg-white shadow-[0_1px_3px_rgba(60,64,67,0.3),0_4px_8px_3px_rgba(60,64,67,0.15)] border border-black/[0.08]"
+            role="dialog"
+            aria-labelledby="loc-perm-title"
+            aria-describedby="loc-perm-desc"
+          >
+            <div className="px-4 pt-3.5 pb-2 flex gap-3">
+              <div className="w-5 h-5 mt-0.5 rounded-full bg-[#1a73e8] flex items-center justify-center shrink-0 text-white text-[10px] font-bold">
+                P
               </div>
-            )}
+              <div className="min-w-0">
+                <p id="loc-perm-title" className="text-[13px] leading-snug text-[#202124] font-medium">
+                  <span className="font-normal text-[#5f6368]">{hostLabel}</span>
+                  {' '}wants to
+                </p>
+                <p id="loc-perm-desc" className="text-[13px] leading-snug text-[#202124] mt-0.5">
+                  Know your location
+                </p>
+                {locationDenied && (
+                  <p className="text-[11px] text-[#d93025] mt-2 leading-snug">
+                    Location was blocked. Allow it in the address bar, then try again.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-1 px-2 pb-2 pt-1">
+              <button
+                type="button"
+                disabled={locationAsked}
+                onClick={() => {
+                  setLocationDenied(true);
+                  setLocationAsked(false);
+                }}
+                className="min-w-[64px] h-9 px-3 rounded text-[13px] font-medium text-[#1a73e8] hover:bg-[#f1f3f4] disabled:opacity-50"
+              >
+                Block
+              </button>
+              <button
+                type="button"
+                disabled={locationAsked}
+                onClick={handleAllow}
+                className="min-w-[64px] h-9 px-3 rounded text-[13px] font-medium text-[#1a73e8] hover:bg-[#f1f3f4] disabled:opacity-50"
+              >
+                {locationAsked ? '…' : 'Allow'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -772,8 +1008,12 @@ export function ShareViewerPage() {
                    || filename.endsWith('.docx');
   const isVideo  = mime.startsWith('video/') || ['.mp4','.webm','.mov','.avi','.mkv'].some(e => filename.endsWith(e));
   const isAudio  = mime.startsWith('audio/') || ['.mp3','.wav','.ogg','.flac','.aac','.m4a'].some(e => filename.endsWith(e));
-  const isText   = mime === 'text/plain' || mime === 'text/csv' || mime === 'application/json'
-                   || ['.txt','.csv','.json','.md','.log'].some(e => filename.endsWith(e));
+  const isHtml   = mime === 'text/html' || mime === 'application/xhtml+xml'
+                   || ['.html', '.htm', '.xhtml'].some((e) => filename.endsWith(e));
+  const isText   = !isHtml && (
+                   mime === 'text/plain' || mime === 'text/csv' || mime === 'application/json'
+                   || ['.txt','.csv','.json','.md','.log'].some(e => filename.endsWith(e))
+                 );
 
   return (
     <div className="min-h-screen bg-bg-base flex flex-col"
@@ -831,6 +1071,17 @@ export function ShareViewerPage() {
             <CheckCircle2 size={10} />
             Verified
           </div>
+          {/* Share further — mint a NEW hop URL for the next recipient */}
+          <button
+            type="button"
+            onClick={handleShareFurther}
+            disabled={shareFurtherBusy}
+            className="btn btn-secondary btn-sm text-xs"
+            title="Create a new tracked link to send to someone else"
+          >
+            <Share2 size={12} />
+            {shareFurtherBusy ? 'Creating…' : 'Share further'}
+          </button>
           {/* Download button */}
           {info.allowDownload && (
             <button onClick={handleDownload} disabled={downloading}
@@ -846,6 +1097,31 @@ export function ShareViewerPage() {
       {info.note && (
         <div className="bg-dna-500/5 border-b border-dna-500/20 px-4 py-2">
           <p className="text-xs text-dna-300">📝 {info.note}</p>
+        </div>
+      )}
+
+      {(shareFurtherUrl || shareFurtherMsg) && (
+        <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-3 space-y-2">
+          {shareFurtherMsg && (
+            <p className="text-xs text-amber-200">{shareFurtherMsg}</p>
+          )}
+          {shareFurtherUrl && (
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-2xs text-white/90 bg-black/30 rounded px-2 py-1.5 truncate">
+                {shareFurtherUrl}
+              </code>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm text-xs shrink-0"
+                onClick={() => {
+                  void navigator.clipboard.writeText(shareFurtherUrl);
+                  setShareFurtherMsg('Copied again — send this NEW link only.');
+                }}
+              >
+                <Copy size={12} /> Copy
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -980,6 +1256,27 @@ export function ShareViewerPage() {
               </audio>
               <p className="text-2xs text-gray-500">🔒 Protected · Access tracked and logged</p>
             </div>
+          </div>
+        ) : isHtml ? (
+          /* ── HTML: render as a real webpage (browser-like) ── */
+          <div className="w-full flex-1 flex flex-col print-hide" style={{ minHeight: 'calc(100vh - 120px)' }}>
+            {htmlPreviewUrl ? (
+              <iframe
+                src={htmlPreviewUrl}
+                title={info.filename}
+                className="w-full flex-1 rounded-xl border border-bg-border bg-white shadow-xl"
+                style={{ minHeight: 'calc(100vh - 140px)' }}
+                sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="flex items-center justify-center py-20 text-gray-400 text-sm">
+                Loading page…
+              </div>
+            )}
+            <p className="text-2xs text-gray-500 text-center mt-2">
+              🔒 Protected · Access tracked and logged
+            </p>
           </div>
         ) : isText ? (
           /* ── TEXT / CSV / JSON ── */

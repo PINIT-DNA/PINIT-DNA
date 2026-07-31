@@ -5,6 +5,8 @@
  * Completely separate from existing generation/verification types.
  */
 
+import type { EnterpriseComparisonReport } from './enterprise-comparison.types';
+
 // ─── Per-layer comparison ─────────────────────────────────────────────────────
 
 export interface LayerComparisonResult {
@@ -18,6 +20,11 @@ export interface LayerComparisonResult {
   similarityPercent: number;
   /** True when similarityScore >= layer threshold */
   matched: boolean;
+  /**
+   * True when the layer is not content-comparable (registry / not generated on probe).
+   * Must never be reported as FAIL — UI maps to SKIPPED.
+   */
+  skipped?: boolean;
 
   fingerprintA: string;
   fingerprintB: string;
@@ -106,4 +113,13 @@ export interface DnaComparisonResult {
   processingMs: number;
 
   comparedAt: string;
+
+  /** v2.1 — optional tamper vector when DNA_VERIFY_TAMPER_CLASS=true */
+  enhancedForensic?: {
+    tamperVector: string;
+    tamperDescription: string;
+    tamperConfidence: number;
+  };
+
+  enterpriseComparison?: EnterpriseComparisonReport;
 }

@@ -93,7 +93,7 @@ export function VaultIntegrityPage() {
   const healthCfg = report ? HEALTH_CFG[report.summary.overallHealth] : null;
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="page-shell space-y-6 animate-fade-in">
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -186,7 +186,7 @@ export function VaultIntegrityPage() {
           )}
 
           {/* Stat cards */}
-          <div className="grid grid-cols-4 gap-3">
+          <div className="stat-grid-4 gap-3">
             {[
               { label: 'Total Files',   value: report.summary.total,   color: 'text-white',   icon: <HardDrive size={16} className="text-gray-400" /> },
               { label: 'Healthy',       value: report.summary.healthy,  color: 'text-success', icon: <CheckCircle2 size={16} className="text-success" /> },

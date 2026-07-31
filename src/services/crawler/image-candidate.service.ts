@@ -118,6 +118,16 @@ export class ImageCandidateService {
     return p * 0.6 + a * 0.2 + d * 0.2;
   }
 
+  /** Fingerprint an in-memory image buffer (crawler DNA comparison). */
+  async fingerprintBuffer(buffer: Buffer): Promise<{ pHash64: string; aHash64: string; dHash64: string }> {
+    const [pHash64, aHash64, dHash64] = await Promise.all([
+      this.computePHash64(buffer),
+      this.computeAHash64(buffer),
+      this.computeDHash64(buffer),
+    ]);
+    return { pHash64, aHash64, dHash64 };
+  }
+
   // ─── pHash algorithms (identical to layer3.perceptual.ts) ────────────────
 
   private async computePHash64(buffer: Buffer): Promise<string> {

@@ -4,13 +4,14 @@
  * Orchestrates encrypted storage and retrieval of DNA-protected images.
  *
  * Storage flow:
- *   1. Receive original image buffer + dnaRecordId
+ *   1. Receive original file buffer + dnaRecordId
  *   2. Generate a vaultId (UUID)
- *   3. Derive AES-256 key via HKDF(masterSecret, vaultId)
- *   4. Encrypt image → [IV][AuthTag][Ciphertext]
- *   5. Write encrypted file to VAULT_STORAGE_DIR — original is NEVER written
- *   6. Persist vault_records row in DB
- *   7. Return vault metadata
+ *   3. Run identity embedding pipeline (watermark + signature + manifest)
+ *   4. Derive AES-256 key via HKDF(masterSecret, vaultId)
+ *   5. Encrypt file → [IV][AuthTag][Ciphertext]
+ *   6. Write encrypted file to storage — original is NEVER written
+ *   7. Persist vault_records row in DB
+ *   8. Return vault metadata
  *
  * Retrieval flow:
  *   1. Load vault_records row by vaultId
@@ -26,8 +27,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { encrypt, decrypt } from './encryption.service';
-import { uploadVaultFile, downloadVaultFile } from '../../lib/supabase-storage';
-import { identityEmbeddingService } from '../identity/identity-embedding.service';
+import { uploadVaultFile, downloadVaultFile, deleteVaultFile, isSupabaseStorageConfigured } from '../../lib/supabase-storage';
+import { assertRecordOwner } from '../../lib/tenant-scope';
+import { identityEmbeddingPipeline } from '../identity/identity-embedding-pipeline.service';
 
 // In development without Supabase configured, fall back to local disk.
 const USE_LOCAL = process.env['NODE_ENV'] !== 'production' &&
@@ -59,6 +61,15 @@ export interface StoreResult {
   ivHex:              string;
   authTagHex:         string;
   createdAt:          Date;
+  identityEmbedding?: {
+    success:           boolean;
+    methods:           string[];
+    verified:          boolean;
+    watermarkEmbedded: boolean;
+    signatureEmbedded: boolean;
+    manifestEmbedded:  boolean;
+    detail:            string;
+  };
 }
 
 export interface RetrieveResult {
@@ -67,6 +78,7 @@ export interface RetrieveResult {
   originalMimeType:  string;
   originalSizeBytes: number;
   vaultId:           string;
+  dnaRecordId:       string;
 }
 
 export class VaultService {
@@ -81,11 +93,12 @@ export class VaultService {
    */
   async store(params: {
     dnaRecordId:      string;
+    ownerUserId:      string;
     imageBuffer:      Buffer;
     originalFileName: string;
     originalMimeType: string;
   }): Promise<StoreResult> {
-    const { dnaRecordId, imageBuffer, originalFileName, originalMimeType } = params;
+    const { dnaRecordId, ownerUserId, imageBuffer, originalFileName, originalMimeType } = params;
 
     logger.info('Vault — storing encrypted file', {
       dnaRecordId,
@@ -96,6 +109,7 @@ export class VaultService {
     // ── Check DNA record exists ────────────────────────────────────────────
     const dnaRecord = await prisma.dnaRecord.findUnique({ where: { id: dnaRecordId } });
     if (!dnaRecord) throw new Error(`DNA record not found: ${dnaRecordId}`);
+    assertRecordOwner(dnaRecord.ownerUserId, ownerUserId, 'DNA record');
 
     // ── Check not already vaulted ─────────────────────────────────────────
     const existing = await prisma.vaultRecord.findUnique({ where: { dnaRecordId } });
@@ -106,28 +120,55 @@ export class VaultService {
     // inside the file itself. Even if 90% of the file is tampered, this
     // signature allows us to prove original ownership and detect the culprit.
     const vaultId = uuidv4();
+    const certificateId = await identityEmbeddingPipeline.resolveCertificateId(dnaRecordId);
+
     let fileToEncrypt = imageBuffer;
+    let embedAudit: StoreResult['identityEmbedding'];
+
     try {
-      const embedResult = await identityEmbeddingService.embed(
+      const pipelineResult = await identityEmbeddingPipeline.process(
         imageBuffer,
         originalMimeType,
         originalFileName,
         {
-          dnaId:       dnaRecordId,
           vaultId,
-          ownerUserId: dnaRecord.ownerUserId ?? 'unknown',
-        }
-      );
-      if (embedResult.success) {
-        fileToEncrypt = embedResult.buffer;
-        logger.info('Vault — identity embedded', {
-          method: embedResult.method,
           dnaRecordId,
-          vaultId,
-        });
+          ownerUserId: dnaRecord.ownerUserId ?? ownerUserId,
+          certificateId,
+        },
+      );
+
+      if (pipelineResult.success) {
+        fileToEncrypt = pipelineResult.buffer;
       }
+
+      embedAudit = {
+        success: pipelineResult.success,
+        methods: pipelineResult.methods,
+        verified: pipelineResult.verified,
+        watermarkEmbedded: pipelineResult.watermarkEmbedded,
+        signatureEmbedded: pipelineResult.signatureEmbedded,
+        manifestEmbedded: pipelineResult.manifestEmbedded,
+        detail: pipelineResult.detail,
+      };
+
+      logger.info('Vault — identity pipeline complete', {
+        vaultId,
+        dnaRecordId,
+        methods: pipelineResult.methods,
+        verified: pipelineResult.verified,
+      });
     } catch (embedErr) {
-      logger.warn('Vault — identity embedding failed (proceeding without)', { error: embedErr });
+      logger.warn('Vault — identity pipeline failed (proceeding without)', { error: embedErr });
+      embedAudit = {
+        success: false,
+        methods: [],
+        verified: false,
+        watermarkEmbedded: false,
+        signatureEmbedded: false,
+        manifestEmbedded: false,
+        detail: 'Pipeline failed — stored without embedded identity',
+      };
     }
 
     // ── Encrypt in-memory ─────────────────────────────────────────────────
@@ -139,7 +180,7 @@ export class VaultService {
       encryptedFilePath = await writeLocal(vaultId, encResult.encryptedBuffer);
       logger.debug('Vault — stored locally', { vaultId, encryptedFilePath });
     } else {
-      encryptedFilePath = await uploadVaultFile(vaultId, encResult.encryptedBuffer);
+      encryptedFilePath = await uploadVaultFile(vaultId, encResult.encryptedBuffer, ownerUserId);
       logger.debug('Vault — uploaded to Supabase Storage', { vaultId, encryptedFilePath });
     }
 
@@ -162,6 +203,41 @@ export class VaultService {
 
     logger.info('Vault — storage complete', { vaultId, dnaRecordId });
 
+    try {
+      const { forensicProvenanceService } = await import('../forensics/forensic-provenance.service');
+      forensicProvenanceService.appendAsync({
+        eventType: 'ENCRYPTED',
+        summary: `Encrypted — AES-256-GCM`,
+        dnaRecordId,
+        vaultId,
+        payload: { algorithm: 'AES-256-GCM' },
+        dedupeKey: `encrypted:${vaultId}`,
+      });
+      forensicProvenanceService.appendAsync({
+        eventType: 'VAULT_STORED',
+        summary: `Stored in vault — ${originalFileName}`,
+        dnaRecordId,
+        vaultId,
+        actorUserId: ownerUserId,
+        payload: {
+          originalSizeBytes: record.originalSizeBytes,
+          encryptedSizeBytes: record.encryptedSizeBytes,
+        },
+        dedupeKey: `vault_stored:${vaultId}`,
+      });
+    } catch {
+      /* non-fatal */
+    }
+
+    import('../platform-events/module-events').then(({ emitVaultStored }) => {
+      emitVaultStored({
+        ownerUserId,
+        vaultId,
+        dnaRecordId,
+        filename: originalFileName,
+      });
+    }).catch(() => {});
+
     return {
       vaultId:            record.id,
       dnaRecordId:        record.dnaRecordId,
@@ -174,6 +250,7 @@ export class VaultService {
       ivHex:              record.ivHex,
       authTagHex:         record.authTagHex,
       createdAt:          record.createdAt,
+      identityEmbedding:  embedAudit,
     };
   }
 
@@ -198,13 +275,18 @@ export class VaultService {
    * Reads the encrypted file, decrypts it in-memory, returns original bytes.
    * If the auth tag is invalid (file tampered), AES-GCM will throw automatically.
    */
-  async retrieve(vaultId: string): Promise<RetrieveResult> {
+  async retrieve(vaultId: string, requestingUserId?: string): Promise<RetrieveResult> {
     logger.info('Vault — retrieving encrypted image', { vaultId });
 
     const record = await prisma.vaultRecord.findUnique({
       where: { id: vaultId },
+      include: { dnaRecord: { select: { ownerUserId: true } } },
     });
     if (!record) throw new Error(`Vault record not found: ${vaultId}`);
+    if (requestingUserId) {
+      assertRecordOwner(record.dnaRecord?.ownerUserId, requestingUserId, 'Vault');
+    }
+    const ownerUserId = record.dnaRecord?.ownerUserId ?? undefined;
 
     // ── Download encrypted file (local in dev, Supabase in production) ──
     let encryptedBuffer: Buffer;
@@ -212,14 +294,27 @@ export class VaultService {
       if (USE_LOCAL) {
         encryptedBuffer = await readLocal(vaultId);
       } else {
-        encryptedBuffer = await downloadVaultFile(vaultId);
+        encryptedBuffer = await downloadVaultFile(
+          vaultId,
+          ownerUserId,
+          record.encryptedFilePath ? [record.encryptedFilePath] : [],
+        );
       }
     } catch (err) {
       throw new Error(`Vault file unavailable: ${String(err)}`);
     }
 
     // ── Decrypt (key re-derived from vaultId + master secret) ─────────────
-    const originalBuffer = decrypt(encryptedBuffer, vaultId);
+    let originalBuffer: Buffer;
+    try {
+      originalBuffer = decrypt(encryptedBuffer, vaultId);
+    } catch (err) {
+      const detail = (err as Error).message ?? String(err);
+      throw new Error(
+        `Vault decrypt failed for ${vaultId}: ${detail}. `
+        + 'Ensure VAULT_MASTER_SECRET on the server matches the key used when this file was vaulted.',
+      );
+    }
 
     logger.info('Vault — retrieval complete', {
       vaultId,
@@ -232,6 +327,125 @@ export class VaultService {
       originalMimeType:  record.originalMimeType,
       originalSizeBytes: record.originalSizeBytes,
       vaultId,
+      dnaRecordId:       record.dnaRecordId,
     };
+  }
+
+  /**
+   * Remove encrypted file from storage and delete the vault record.
+   * DNA record is retained for audit; share links for this vault are deactivated.
+   * DB row is deleted first so the UI can update immediately; storage cleanup is best-effort after.
+   */
+  async delete(vaultId: string, ownerUserId: string): Promise<{ vaultId: string; dnaRecordId: string }> {
+    const record = await prisma.vaultRecord.findUnique({
+      where: { id: vaultId },
+      include: { dnaRecord: { select: { ownerUserId: true, id: true } } },
+    });
+    if (!record) throw new Error(`Vault record not found: ${vaultId}`);
+    assertRecordOwner(record.dnaRecord?.ownerUserId, ownerUserId, 'Vault');
+
+    const storageOwner = record.dnaRecord?.ownerUserId ?? ownerUserId;
+    const encryptedFilePath = record.encryptedFilePath;
+    const dnaRecordId = record.dnaRecordId;
+    const originalFileName = record.originalFileName;
+
+    await prisma.shareLink.updateMany({
+      where: { vaultId },
+      data: { isActive: false },
+    });
+
+    // Remove DB row first — client list updates as soon as this returns
+    await prisma.vaultRecord.delete({ where: { id: vaultId } });
+
+    // Storage cleanup after DB delete (do not block the API response on slow Supabase I/O)
+    void (async () => {
+      try {
+        if (USE_LOCAL) {
+          await fs.unlink(path.join(LOCAL_DIR, `${vaultId}.enc`)).catch(() => {});
+        } else if (isSupabaseStorageConfigured()) {
+          await deleteVaultFile(vaultId, {
+            ownerUserId: storageOwner,
+            storedPath: encryptedFilePath,
+          });
+        }
+      } catch (err) {
+        logger.warn('Vault — storage cleanup failed after DB delete', { vaultId, error: String(err) });
+      }
+    })();
+
+    try {
+      const { aiService } = await import('../ai/ai-embeddings.service');
+      void aiService.removeFromIndex(dnaRecordId).catch(() => {});
+    } catch {
+      /* non-fatal */
+    }
+
+    try {
+      const { forensicProvenanceService } = await import('../forensics/forensic-provenance.service');
+      forensicProvenanceService.appendAsync({
+        eventType: 'VAULT_DELETED',
+        summary: `Removed from vault — ${originalFileName}`,
+        dnaRecordId,
+        vaultId,
+        actorUserId: ownerUserId,
+        dedupeKey: `vault_deleted:${vaultId}`,
+      });
+    } catch {
+      /* non-fatal */
+    }
+
+    logger.info('Vault — record deleted', { vaultId, dnaRecordId });
+
+    import('../platform-events/module-events').then(({ emitVaultDeleted }) => {
+      emitVaultDeleted({
+        ownerUserId,
+        vaultId,
+        dnaRecordId,
+        filename: originalFileName,
+      });
+    }).catch(() => {});
+
+    return { vaultId, dnaRecordId };
+  }
+
+  /** Update display name only — encrypted bytes and DNA hashes are unchanged. */
+  async rename(
+    vaultId: string,
+    ownerUserId: string,
+    newFileName: string,
+  ): Promise<{ vaultId: string; originalFileName: string }> {
+    const trimmed = newFileName.trim();
+    if (!trimmed || trimmed.length > 255) {
+      throw new Error('Invalid file name');
+    }
+    if (/[<>:"/\\|?*\u0000-\u001f]/.test(trimmed)) {
+      throw new Error('File name contains invalid characters');
+    }
+
+    const record = await prisma.vaultRecord.findUnique({
+      where: { id: vaultId },
+      include: { dnaRecord: { select: { ownerUserId: true, id: true } } },
+    });
+    if (!record) throw new Error(`Vault record not found: ${vaultId}`);
+    assertRecordOwner(record.dnaRecord?.ownerUserId, ownerUserId, 'Vault');
+
+    if (trimmed === record.originalFileName) {
+      return { vaultId, originalFileName: trimmed };
+    }
+
+    await prisma.$transaction([
+      prisma.vaultRecord.update({
+        where: { id: vaultId },
+        data: { originalFileName: trimmed },
+      }),
+      prisma.dnaRecord.update({
+        where: { id: record.dnaRecordId },
+        data: { imageFilename: trimmed },
+      }),
+    ]);
+
+    logger.info('Vault — file renamed', { vaultId, originalFileName: trimmed });
+
+    return { vaultId, originalFileName: trimmed };
   }
 }

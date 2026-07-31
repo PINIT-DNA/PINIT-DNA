@@ -28,6 +28,7 @@ import { imageCandidateService } from './image-candidate.service';
 import { FilenameSearchProvider } from './providers/filename-search.provider';
 import { BingVisualSearchProvider } from './providers/bing-visual-search.provider';
 import type { ImageSearchResult }   from './providers/image-search.provider';
+import { isBlockedCrawlerUrl, pickNavigableUrl } from './url-sanitize';
 
 // Match thresholds
 const THRESHOLD_DUPLICATE  = 0.95;
@@ -163,6 +164,13 @@ export class ImageMonitoringService {
     let highestSimilarity = 0;
 
     for (const candidate of candidates) {
+      if (isBlockedCrawlerUrl(candidate.imageUrl)) {
+        logger.debug('[ImageMonitor] Skipping blocked tracker URL', {
+          url: candidate.imageUrl.slice(0, 120),
+        });
+        continue;
+      }
+
       urlsChecked++;
 
       logger.debug(`[ImageMonitor] [${urlsChecked}/${candidates.length}] Downloading`, {
@@ -203,6 +211,16 @@ export class ImageMonitoringService {
       }
 
       downloaded++;
+
+      if (img.sizeBytes < 500 || /^0+$/.test(img.pHash64)) {
+        failed++;
+        rejections.push({
+          url: candidate.imageUrl,
+          reason: `Image too small or empty fingerprint (${img.sizeBytes} bytes)`,
+          score: 0,
+        });
+        continue;
+      }
 
       // ── pHash comparison ───────────────────────────────────────────────
       const pHashSim  = imageCandidateService.combinedPHashSimilarity(
@@ -245,10 +263,13 @@ export class ImageMonitoringService {
       }
 
       // Persist result (all candidates — matches and rejections)
-      await prisma.crawlResult.create({
+      const navigableUrl = pickNavigableUrl(candidate.imageUrl, candidate.pageUrl)
+        ?? candidate.imageUrl;
+
+      const crawlRow = await prisma.crawlResult.create({
         data: {
           monitorRecordId,
-          url:       candidate.imageUrl.slice(0, 1000),
+          url:       navigableUrl.slice(0, 1000),
           pageTitle: [
             `[${matchType}]`,
             `pHash: ${(pHashSim * 100).toFixed(1)}%`,
@@ -266,6 +287,7 @@ export class ImageMonitoringService {
             pHashSimilarity: pHashSim,
             source:          candidate.source,
             pageUrl:         candidate.pageUrl,
+            imageUrl:        candidate.imageUrl,
             mimeType:        img.mimeType,
             sizeBytes:       img.sizeBytes,
           }),
@@ -276,6 +298,18 @@ export class ImageMonitoringService {
         },
       });
 
+      if (isMatch) {
+        const { notifyPublishGuardianOfMatch } = await import('../publish-guardian/monitoring-bridge');
+        void notifyPublishGuardianOfMatch({
+          monitorRecordId,
+          discoveryUrl: navigableUrl,
+          pageTitle: candidate.pageUrl,
+          matchType,
+          similarity: pHashSim,
+          crawlResultId: crawlRow.id,
+        });
+      }
+
       if (isMatch && matchType !== 'NO_MATCH') {
         matches.push({
           imageUrl:        candidate.imageUrl,
@@ -285,6 +319,20 @@ export class ImageMonitoringService {
           pHashDistance:   pHashDist,
           matchType,
         });
+        if (monitor.ownerUserId) {
+          const ownerId = monitor.ownerUserId;
+          import('../platform-events/module-events').then(({ emitMonitoringMatch }) => {
+            emitMonitoringMatch({
+              ownerUserId: ownerId,
+              monitorRecordId: monitor.id,
+              dnaRecordId: monitor.dnaRecordId,
+              filename: monitor.filename,
+              url: candidate.pageUrl ?? candidate.imageUrl,
+              matchType,
+              similarity: Math.round(pHashSim * 100),
+            });
+          }).catch(() => {});
+        }
       }
     }
 

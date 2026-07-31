@@ -14,11 +14,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma }                from '../../lib/prisma';
 import { AppError }              from '../middleware/error.middleware';
+import { getAuthUserId, assertDnaOwner, assertVaultOwner } from '../../lib/tenant-scope';
 import { OcrService }            from '../../services/ocr/ocr.service';
 import { SemanticSearchService } from '../../services/semantic/semantic-search.service';
 import { DocumentLineageService } from '../../services/lineage/document-lineage.service';
 import { auditService }          from '../../services/audit/audit.service';
 import { VaultService }          from '../../services/vault/vault.service';
+import { buildIntelligenceReportPayload } from '../../services/intelligence/intelligence-report.builder';
 
 const ocrService      = new OcrService();
 const searchService   = new SemanticSearchService();
@@ -31,6 +33,8 @@ export async function runOcr(req: Request, res: Response, next: NextFunction): P
   const { dnaRecordId } = req.params;
 
   try {
+    const userId = getAuthUserId(req);
+    await assertDnaOwner(dnaRecordId, userId);
     // Check OCR already done
     const existing = await prisma.ocrRecord.findUnique({ where: { dnaRecordId } });
     if (existing?.extractedText) {
@@ -58,7 +62,7 @@ export async function runOcr(req: Request, res: Response, next: NextFunction): P
     // Retrieve the file from vault for OCR
     let ocrResult;
     if (record.vaultRecord) {
-      const retrieved = await vaultService.retrieve(record.vaultRecord.id);
+      const retrieved = await vaultService.retrieve(record.vaultRecord.id, userId);
       const mime      = record.vaultRecord.originalMimeType;
 
       if (mime === 'application/pdf') {
@@ -137,19 +141,28 @@ export async function semanticSearch(req: Request, res: Response, next: NextFunc
   }
 
   try {
+    const userId = getAuthUserId(req);
     const results = await searchService.search(query, topK);
+
+    const ownedIds = new Set(
+      (await prisma.dnaRecord.findMany({ where: { ownerUserId: userId }, select: { id: true } }))
+        .map((r) => r.id),
+    );
+    const filtered = results.filter((r: { dnaRecordId?: string }) =>
+      r.dnaRecordId && ownedIds.has(r.dnaRecordId),
+    );
 
     await auditService.log({
       eventType: 'SEMANTIC_SEARCH',
-      detail: { query, resultCount: results.length },
+      detail: { query, resultCount: filtered.length },
       req,
     });
 
     res.status(200).json({
       success: true,
       query,
-      count:   results.length,
-      results,
+      count:   filtered.length,
+      results: filtered,
     });
   } catch (err) {
     next(err);
@@ -161,6 +174,7 @@ export async function semanticSearch(req: Request, res: Response, next: NextFunc
 export async function getLineage(req: Request, res: Response, next: NextFunction): Promise<void> {
   const { dnaRecordId } = req.params;
   try {
+    await assertDnaOwner(dnaRecordId, getAuthUserId(req));
     const graph = await lineageService.getLineage(dnaRecordId);
     res.status(200).json({ success: true, dnaRecordId, ...graph });
   } catch (err) {
@@ -170,9 +184,10 @@ export async function getLineage(req: Request, res: Response, next: NextFunction
 
 // ─── GET /intelligence/duplicates ─────────────────────────────────────────────
 
-export async function getDuplicates(_req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function getDuplicates(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const clusters = await lineageService.getDuplicateClusters();
+    const userId = getAuthUserId(req);
+    const clusters = await lineageService.getDuplicateClusters(userId);
     res.status(200).json({
       success: true,
       totalClusters: clusters.length,
@@ -189,7 +204,8 @@ export async function getDuplicates(_req: Request, res: Response, next: NextFunc
 export async function getAuditLog(req: Request, res: Response, next: NextFunction): Promise<void> {
   const limit = Math.min(parseInt(req.query['limit'] as string ?? '50', 10), 200);
   try {
-    const events = await auditService.getRecentEvents(limit);
+    const userId = getAuthUserId(req);
+    const events = await auditService.getRecentEvents(limit, userId);
     res.status(200).json({ success: true, count: events.length, events });
   } catch (err) {
     next(err);
@@ -201,6 +217,7 @@ export async function getAuditLog(req: Request, res: Response, next: NextFunctio
 export async function getAuditForRecord(req: Request, res: Response, next: NextFunction): Promise<void> {
   const { dnaRecordId } = req.params;
   try {
+    await assertDnaOwner(dnaRecordId, getAuthUserId(req));
     const events = await auditService.getEventsForRecord(dnaRecordId);
     res.status(200).json({ success: true, dnaRecordId, count: events.length, events });
   } catch (err) {
@@ -213,7 +230,8 @@ export async function getAuditForRecord(req: Request, res: Response, next: NextF
 export async function exportAuditCsv(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { from, to, eventType } = req.query as Record<string, string>;
-    const csv = await auditService.exportCsv({ from, to, eventType });
+    const userId = getAuthUserId(req);
+    const csv = await auditService.exportCsv({ from, to, eventType, userId });
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="audit-export-${Date.now()}.csv"`);
     res.status(200).send(csv);
@@ -227,191 +245,13 @@ export async function exportAuditCsv(req: Request, res: Response, next: NextFunc
 export async function getIntelligenceReport(req: Request, res: Response, next: NextFunction): Promise<void> {
   const { vaultId } = req.params;
   try {
-    // ── Core record ───────────────────────────────────────────────────────────
-    const vault = await prisma.vaultRecord.findUnique({
-      where: { id: vaultId },
-      include: {
-        dnaRecord: {
-          include: {
-            cryptoLayer:    true,
-            metadataLayer:  true,
-            perceptualLayer: true,
-            ocrRecord:      true,
-            verifications:  { orderBy: { createdAt: 'desc' }, take: 1 },
-            monitorRecords: {
-              include: {
-                crawlResults:   { orderBy: { createdAt: 'desc' }, take: 20 },
-                monitoringRuns: { orderBy: { startedAt: 'desc' }, take: 5 },
-              },
-            },
-          },
-        },
-      },
-    });
-    if (!vault) {
+    await assertVaultOwner(vaultId, getAuthUserId(req));
+    const payload = await buildIntelligenceReportPayload(vaultId);
+    if (!payload) {
       res.status(404).json({ success: false, error: `Vault record not found: ${vaultId}` });
       return;
     }
-
-    const dna = vault.dnaRecord;
-
-    // ── Share links + access logs ─────────────────────────────────────────────
-    const shareLinks = await prisma.shareLink.findMany({
-      where: { vaultId },
-      include: { accessLogs: { orderBy: { createdAt: 'desc' }, take: 100 } },
-    });
-
-    // ── Evidence ──────────────────────────────────────────────────────────────
-    const evidence = await prisma.evidenceRecord.findMany({
-      where: { dnaRecordId: dna.id },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    // ── Owner ─────────────────────────────────────────────────────────────────
-    const owner = await prisma.user.findFirst({ select: { shortId: true } });
-
-    // ─── Assemble sections ────────────────────────────────────────────────────
-
-    // Identity
-    const identity = {
-      ownerUserId:  owner?.shortId ?? 'PINIT-UNKNOWN',
-      uploaderId:   owner?.shortId ?? 'PINIT-UNKNOWN',
-      mfid:         vault.id,
-      dnaRecordId:  dna.id,
-      filename:     vault.originalFileName,
-      mimeType:     vault.originalMimeType,
-      fileSize:     vault.originalSizeBytes,
-      encryptedSize: vault.encryptedSizeBytes,
-      fileType:     dna.fileType ?? 'IMAGE',
-      engineVersion: dna.engineVersion ?? '1.0.0',
-    };
-
-    // Provenance
-    const meta = dna.metadataLayer;
-    const allAccessLogs = shareLinks.flatMap(l => l.accessLogs)
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-    const geoAccess = allAccessLogs.find(l => l.country) ?? allAccessLogs[0] ?? null;
-    const gpsAccess = allAccessLogs.find(l => l.gpsLat !== null) ?? null;
-
-    const provenance = {
-      uploadedAt:    dna.createdAt.toISOString(),
-      vaultedAt:     vault.createdAt.toISOString(),
-      capturedAt:    meta?.capturedAt?.toISOString() ?? null,
-      // File EXIF GPS (images only)
-      gpsLatitude:   meta?.gpsLatitude  ?? null,
-      gpsLongitude:  meta?.gpsLongitude ?? null,
-      // Share-link access GPS (viewer's browser location, if consented)
-      accessGpsLat:  gpsAccess?.gpsLat  ?? null,
-      accessGpsLng:  gpsAccess?.gpsLng  ?? null,
-      accessGpsCity: gpsAccess?.gpsCity ?? null,
-      // Geo from IP
-      country:       geoAccess?.country ?? null,
-      city:          geoAccess?.city    ?? null,
-      // Device info (images only — from EXIF)
-      deviceModel:   meta?.deviceModel ?? null,
-      software:      meta?.software    ?? null,
-    };
-
-    // Integrity
-    const lastVerif = dna.verifications[0];
-    const sha256 = dna.cryptoLayer?.sha256Hash ?? dna.sha256Hash ?? null;
-    let tamperStatus = 'UNVERIFIED';
-    if (lastVerif) tamperStatus = lastVerif.passed ? 'VERIFIED' : 'TAMPERED';
-    const integrity = {
-      sha256Hash:       sha256,
-      normalizedHash:   dna.cryptoLayer?.normalizedHash ?? null,
-      dnaStatus:        dna.status,
-      layersComplete:   6,
-      tamperStatus,
-      lastVerification: lastVerif
-        ? { passed: lastVerif.passed, confidenceScore: lastVerif.confidenceScore, at: lastVerif.createdAt.toISOString() }
-        : null,
-    };
-
-    // Discovery
-    const monitor  = dna.monitorRecords[0] ?? null;
-    const allResults = dna.monitorRecords.flatMap(m => m.crawlResults);
-    const matches  = allResults.filter(r => r.matchType !== 'NO_MATCH');
-    const discovery = {
-      monitoringActive: monitor?.status === 'ACTIVE',
-      scanType:         monitor?.scanType ?? null,
-      totalRuns:        dna.monitorRecords.reduce((s, m) => s + m.monitoringRuns.length, 0),
-      totalMatches:     monitor?.totalMatches ?? 0,
-      exactMatches:     matches.filter(r => r.matchType === 'EXACT_MATCH' || r.matchType === 'DUPLICATE').length,
-      highMatches:      matches.filter(r => r.matchType === 'HIGH_MATCH'  || r.matchType === 'NEAR_MATCH').length,
-      possibleMatches:  matches.filter(r => r.matchType === 'POSSIBLE_MATCH' || r.matchType === 'POSSIBLE').length,
-      recentMatches:    matches.slice(0, 5).map(r => ({
-        url:       r.url,
-        matchType: r.matchType,
-        similarity: r.similarity,
-        foundAt:   r.createdAt.toISOString(),
-      })),
-      ocrIndexed:       dna.ocrRecord?.indexed ?? false,
-      ocrWordCount:     dna.ocrRecord?.wordCount ?? 0,
-      ocrLanguage:      dna.ocrRecord?.language ?? null,
-    };
-
-    // Distribution
-    const allLogs    = shareLinks.flatMap(l => l.accessLogs);
-    const countries  = [...new Set(allLogs.map(l => l.country).filter(Boolean))] as string[];
-    const devices    = [...new Set(allLogs.map(l => l.device).filter(Boolean))]  as string[];
-    const browsers   = [...new Set(allLogs.map(l => l.browser).filter(Boolean))] as string[];
-    const recipients = [...new Set(allLogs.map(l => l.recipientName).filter(Boolean))] as string[];
-    const distribution = {
-      totalShareLinks: shareLinks.length,
-      activeLinks:     shareLinks.filter(l => l.isActive).length,
-      totalViews:      shareLinks.reduce((s, l) => s + l.viewCount, 0),
-      totalDownloads:  shareLinks.reduce((s, l) => s + l.downloadCount, 0),
-      totalEvents:     allLogs.length,
-      uniqueCountries: countries,
-      uniqueDevices:   devices,
-      uniqueBrowsers:  browsers,
-      recipients:      recipients.slice(0, 20),
-      timeline: allLogs
-        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-        .slice(0, 30)
-        .map(l => ({
-          action:  l.action,
-          at:      l.createdAt.toISOString(),
-          country: l.country  ?? null,
-          device:  l.device   ?? null,
-          browser: l.browser  ?? null,
-          riskLevel: l.riskLevel ?? null,
-        })),
-    };
-
-    // Risk
-    const highRiskEvents = allLogs.filter(l => l.riskLevel === 'HIGH' || l.riskLevel === 'CRITICAL').length;
-    const avgRiskScore   = allLogs.length > 0
-      ? Math.round(allLogs.reduce((s, l) => s + (l.riskScore ?? 0), 0) / allLogs.length)
-      : 0;
-    const leakIndicators: string[] = [];
-    if (discovery.exactMatches > 0)  leakIndicators.push(`${discovery.exactMatches} exact match(es) found online`);
-    if (discovery.highMatches  > 0)  leakIndicators.push(`${discovery.highMatches} high-similarity match(es) online`);
-    if (highRiskEvents > 0)          leakIndicators.push(`${highRiskEvents} high-risk access event(s)`);
-    if (distribution.totalDownloads > 10) leakIndicators.push('High download volume detected');
-    const overallRisk = leakIndicators.length >= 3 ? 'CRITICAL'
-      : leakIndicators.length === 2                ? 'HIGH'
-      : leakIndicators.length === 1                ? 'MEDIUM'
-      : avgRiskScore > 50                          ? 'MEDIUM'
-      : 'LOW';
-    const risk = {
-      riskScore:         Math.max(avgRiskScore, leakIndicators.length * 25),
-      riskLevel:         overallRisk,
-      evidenceCount:     evidence.length,
-      suspiciousEvents:  highRiskEvents,
-      leakIndicators,
-      recentEvidence: evidence.slice(0, 5).map(e => ({
-        code: e.evidenceCode, type: e.evidenceType, description: e.description, at: e.createdAt.toISOString(),
-      })),
-    };
-
-    res.json({
-      success: true,
-      generatedAt: new Date().toISOString(),
-      vaultId,
-      identity, provenance, integrity, discovery, distribution, risk,
-    });
+    res.json({ success: true, ...payload });
   } catch (err) {
     next(err);
   }
@@ -419,12 +259,28 @@ export async function getIntelligenceReport(req: Request, res: Response, next: N
 
 // ─── GET /intelligence/stats ──────────────────────────────────────────────────
 
-export async function getIntelligenceStats(_req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function getIntelligenceStats(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    const userId = getAuthUserId(req);
+    const ownedDnaIds = (await prisma.dnaRecord.findMany({
+      where: { ownerUserId: userId },
+      select: { id: true },
+    })).map((d) => d.id);
+
     const [ocrStats, lineageCount, auditStats, indexSize] = await Promise.all([
-      prisma.ocrRecord.aggregate({ _count: true, _sum: { wordCount: true }, _avg: { confidence: true } }),
-      prisma.documentLineage.count(),
-      auditService.getStats(),
+      prisma.ocrRecord.aggregate({
+        where: { dnaRecordId: { in: ownedDnaIds } },
+        _count: true, _sum: { wordCount: true }, _avg: { confidence: true },
+      }),
+      prisma.documentLineage.count({
+        where: {
+          OR: [
+            { fromDnaRecordId: { in: ownedDnaIds } },
+            { toDnaRecordId: { in: ownedDnaIds } },
+          ],
+        },
+      }),
+      auditService.getStats(userId),
       searchService.getIndexSize().catch(() => 0),
     ]);
 

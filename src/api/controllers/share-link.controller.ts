@@ -15,16 +15,59 @@ import { Request, Response, NextFunction } from 'express';
 import { shareLinkService, geoFromIp } from '../../services/share/share-link.service';
 import { getIpIntelligence } from '../../services/forensic/ip-intelligence.service';
 import { detectForwardingForLink } from '../../services/forensic/forward-detection.engine';
-import {
-  getOrCreateRecipient,
-  createWatermarkProfile,
-  embedWatermark,
-} from '../../services/watermark/watermark.service';
+import { tepService } from '../../services/tep/tep.service';
+import { getOrCreateRecipient } from '../../services/watermark/watermark.service';
 import { VaultService }     from '../../services/vault/vault.service';
 import { logger }           from '../../lib/logger';
 import { prisma }           from '../../lib/prisma';
 import { auditService }     from '../../services/audit/audit.service';
 import { resolveClientIp, buildShareUrl, dumpIpHeaders, resolvePublicBaseUrl } from '../../lib/request-utils';
+import { sanitizeCoordinatePair } from '../../lib/geo-coords';
+import { getAuthUserId } from '../../lib/tenant-scope';
+import { isSupabaseStorageConfigured } from '../../lib/supabase-storage';
+import { AppError } from '../middleware/error.middleware';
+
+/** Parse GPS + address fields from share access POST body. */
+function parseAccessGps(body: Record<string, unknown>) {
+  const b = body as {
+    gpsLat?: number; gpsLng?: number; gpsAccuracy?: number;
+    gpsCity?: string; gpsTimestamp?: string;
+    gpsVillage?: string; gpsMandal?: string; gpsDistrict?: string;
+    gpsState?: string; gpsPincode?: string; gpsFullAddress?: string;
+    locationShared?: boolean; locationSource?: string;
+  };
+  return {
+    gpsLat:        b.gpsLat ?? undefined,
+    gpsLng:        b.gpsLng ?? undefined,
+    gpsAccuracy:   b.gpsAccuracy ?? undefined,
+    gpsCity:       b.gpsCity ?? undefined,
+    gpsTimestamp:  b.gpsTimestamp ? new Date(b.gpsTimestamp) : undefined,
+    gpsVillage:    b.gpsVillage ?? undefined,
+    gpsMandal:     b.gpsMandal ?? undefined,
+    gpsDistrict:   b.gpsDistrict ?? undefined,
+    gpsState:      b.gpsState ?? undefined,
+    gpsPincode:    b.gpsPincode ?? undefined,
+    gpsFullAddress: b.gpsFullAddress ?? undefined,
+    locationShared: b.locationShared ?? false,
+    locationSource: b.locationSource ?? undefined,
+  };
+}
+
+function accessBodyFields(body: Record<string, unknown>) {
+  const b = body as {
+    action?: string; recipientName?: string; timezone?: string; sessionId?: string;
+    scrollDepth?: string; screenResolution?: string; deviceFingerprint?: string;
+  };
+  return {
+    action: b.action,
+    recipientName: b.recipientName,
+    timezone: b.timezone,
+    sessionId: b.sessionId,
+    screenResolution: b.screenResolution,
+    deviceFingerprint: b.deviceFingerprint,
+    ...parseAccessGps(body),
+  };
+}
 import {
   applyMasks,
   extractTextFromPdf,
@@ -82,7 +125,7 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
 
     if (!vaultId) { res.status(400).json({ success: false, error: 'vaultId is required' }); return; }
 
-    const ownerUserId = (req as any).user?.sub as string | undefined;
+    const ownerUserId = getAuthUserId(req);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const recipients = (req.body as any).recipients as Array<{ label: string; email?: string }> | undefined;
 
@@ -117,11 +160,52 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
   } catch (err) { next(err); }
 }
 
+// ── Create / reuse Share File open link (tracked via PinIT page, not PARENT list) ─
+
+export async function createFileShare(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { vaultId, requestLocation } = req.body as {
+      vaultId?: string;
+      requestLocation?: boolean;
+    };
+    if (!vaultId) {
+      res.status(400).json({ success: false, error: 'vaultId is required' });
+      return;
+    }
+
+    const ownerUserId = getAuthUserId(req);
+    const link = await shareLinkService.createOrGetFileShare({
+      vaultId,
+      ownerUserId,
+      requestLocation,
+    });
+
+    const shareUrl = buildShareUrl(req, link.token);
+    logger.info('[ShareFile] Open URL ready', {
+      shareUrl,
+      token: link.token,
+      reused: 'reused' in link ? link.reused : false,
+    });
+
+    res.status(201).json({
+      success: true,
+      shareUrl,
+      token: link.token,
+      linkType: 'FILE',
+      reused: 'reused' in link ? link.reused : false,
+      filename: link.filename,
+      requestLocation: link.requestLocation,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ── List all links ────────────────────────────────────────────────────────────
 
 export async function listShareLinks(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const userId = (req as any).user?.sub;
+    const userId = getAuthUserId(req);
     const links = await shareLinkService.listAll(userId);
     res.json({ success: true, count: links.length, links });
   } catch (err) { next(err); }
@@ -131,7 +215,13 @@ export async function listShareLinks(req: Request, res: Response, next: NextFunc
 
 export async function getShareLinkInfo(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const info = await shareLinkService.getPublicInfo(req.params['token']!);
+    const deviceFingerprint = (req.headers['x-pinit-fingerprint'] as string | undefined) ?? undefined;
+    const sessionId = (req.headers['x-pinit-session'] as string | undefined) ?? undefined;
+    const info = await shareLinkService.getPublicInfo(req.params['token']!, {
+      deviceFingerprint,
+      sessionId,
+      ipAddress: resolveClientIp(req),
+    });
     if (!info) { res.status(404).json({ success: false, error: 'Link not found' }); return; }
     res.json({ success: true, link: info });
   } catch (err) { next(err); }
@@ -141,12 +231,22 @@ export async function getShareLinkInfo(req: Request, res: Response, next: NextFu
 
 export async function getShareLinkLogs(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const link = await shareLinkService.getWithLogs(req.params['token']!);
-    if (!link) { res.status(404).json({ success: false, error: 'Link not found' }); return; }
+    const token = req.params['token']!;
+    const ownerUserId = (req as { user?: { sub?: string } }).user?.sub;
 
-    // [DEBUG] Stage-4: log IP values in the last 5 logs being returned
+    const link = await shareLinkService.getWithAggregatedLogs(token);
+    if (!link) {
+      res.status(404).json({ success: false, error: 'Link not found' });
+      return;
+    }
+
+    if (link.ownerUserId && ownerUserId && link.ownerUserId !== ownerUserId) {
+      res.status(403).json({ success: false, error: 'You do not have access to this link' });
+      return;
+    }
+
     const sample = link.accessLogs.slice(0, 5).map(l => ({ action: l.action, ipAddress: l.ipAddress ?? 'NULL', createdAt: l.createdAt }));
-    logger.debug('[IP-AUDIT] Stage-4 getShareLinkLogs returning', { token: req.params['token'], sample });
+    logger.debug('[IP-AUDIT] Stage-4 getShareLinkLogs returning', { token, sample });
 
     res.json({ success: true, link });
   } catch (err) { next(err); }
@@ -157,14 +257,11 @@ export async function getShareLinkLogs(req: Request, res: Response, next: NextFu
 export async function recordAccess(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const token = req.params['token']!;
-    const { action, recipientName, timezone, sessionId, screenResolution, deviceFingerprint,
-            gpsLat, gpsLng, gpsAccuracy, gpsCity, gpsTimestamp, locationShared } =
-      req.body as {
-        action?: string; recipientName?: string; timezone?: string; sessionId?: string;
-        scrollDepth?: string; screenResolution?: string; deviceFingerprint?: string;
-        gpsLat?: number; gpsLng?: number; gpsAccuracy?: number;
-        gpsCity?: string; gpsTimestamp?: string; locationShared?: boolean;
-      };
+    const body = req.body as Record<string, unknown>;
+    const {
+      action, recipientName, timezone, sessionId, screenResolution, deviceFingerprint,
+    } = accessBodyFields(body);
+    const gpsFields = parseAccessGps(body);
 
     const link = await shareLinkService.getPublicInfo(token);
     if (!link) { res.status(404).json({ success: false, error: 'Link not found' }); return; }
@@ -172,15 +269,35 @@ export async function recordAccess(req: Request, res: Response, next: NextFuncti
     const realIp = resolveClientIp(req);
     logger.debug('[IP-AUDIT] Stage-2 recordAccess', { token, action, ...dumpIpHeaders(req) });
 
-    // ── Security events (copy/screenshot/print/idle/active) must ALWAYS be
-    //    logged — even if the link is already revoked/consumed/expired.
-    //    A one-time-use link revokes after VIEWED, but the recipient is still
-    //    on the page and may attempt to copy/screenshot — we MUST capture that.
     const SECURITY_EVENTS = new Set([
       'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT',
       'TAB_SWITCH', 'SCROLL', 'IDLE', 'ACTIVE',
     ]);
     const isSecurityEvent = SECURITY_EVENTS.has(action ?? '');
+
+    const fullLinkEarly = await shareLinkService.getWithLogs(token);
+    if (fullLinkEarly && await shareLinkService.isViewerBlocked(fullLinkEarly.id, {
+      deviceFingerprint, sessionId, ipAddress: realIp,
+    })) {
+      await shareLinkService.recordAccess({
+        shareLinkId: fullLinkEarly.id,
+        action: 'BLOCKED_REVOKED',
+        ipAddress: realIp,
+        userAgent: req.headers['user-agent'],
+        referrer: req.headers['referer'],
+        timezone, sessionId, screenResolution, deviceFingerprint,
+        ...gpsFields,
+      });
+      if (!isSecurityEvent) {
+        res.status(403).json({
+          success: false,
+          error: 'Your access to this link has been revoked by the owner',
+          blocked: true,
+          viewerRevoked: true,
+        });
+        return;
+      }
+    }
 
     // Block access if expired, exhausted, or signature invalid (tampered token)
     // — BUT let security/behaviour events through regardless
@@ -194,6 +311,7 @@ export async function recordAccess(req: Request, res: Response, next: NextFuncti
         userAgent: req.headers['user-agent'],
         referrer:  req.headers['referer'],
         timezone, sessionId, screenResolution, deviceFingerprint,
+        ...gpsFields,
       });
       res.status(403).json({
         success: false,
@@ -238,7 +356,38 @@ export async function recordAccess(req: Request, res: Response, next: NextFuncti
         userAgent: ua,
         referrer:  req.headers['referer'],
         timezone, sessionId, screenResolution, deviceFingerprint,
+        ...gpsFields,
       });
+      if (fullLink.ownerUserId) {
+        const blockedType = policyCheck.reason === 'BLOCKED_COUNTRY' ? 'GEO_BLOCKED' as const : 'POLICY_BLOCKED' as const;
+        if (blockedType === 'GEO_BLOCKED') {
+          import('../../services/platform-events/extended-events').then(({ emitShareAccessBlocked }) => {
+            emitShareAccessBlocked({
+              ownerUserId: fullLink.ownerUserId!,
+              shareLinkId: fullLink.id,
+              token: fullLink.token,
+              filename: fullLink.filename ?? 'File',
+              notificationType: 'GEO_BLOCKED',
+              reason: policyCheck.message ?? 'Geo-restricted access blocked',
+              country: geoCountry,
+              ip: realIp,
+            });
+          }).catch(() => {});
+        } else {
+          import('../../services/platform-events/module-events').then(({ emitSharePolicyBlocked }) => {
+            emitSharePolicyBlocked({
+              ownerUserId: fullLink.ownerUserId!,
+              shareLinkId: fullLink.id,
+              token: fullLink.token,
+              filename: fullLink.filename ?? 'File',
+              reason: policyCheck.reason ?? policyCheck.message ?? 'Policy violation',
+              country: geoCountry,
+              ip: realIp,
+              device: deviceGuess,
+            });
+          }).catch(() => {});
+        }
+      }
       res.status(403).json({ success: false, error: policyCheck.message, blocked: true, reason: policyCheck.reason });
       return;
     }
@@ -250,58 +399,114 @@ export async function recordAccess(req: Request, res: Response, next: NextFuncti
     if (!isSecurityEvent && ipIntel) {
       if ((fullLink as any).torBlock && ipIntel.isTor) {
         await shareLinkService.recordAccess({ shareLinkId: fullLink.id, action: 'BLOCKED_TOR', ipAddress: realIp, userAgent: req.headers['user-agent'], sessionId, isTor: true, isProxy: true });
+        if (fullLink.ownerUserId) {
+          import('../../services/platform-events/extended-events').then(({ emitShareAccessBlocked }) => {
+            emitShareAccessBlocked({
+              ownerUserId: fullLink.ownerUserId!,
+              shareLinkId: fullLink.id,
+              token: fullLink.token,
+              filename: fullLink.filename ?? 'File',
+              notificationType: 'TOR_BLOCKED',
+              reason: 'TOR access blocked',
+              ip: realIp,
+            });
+          }).catch(() => {});
+        }
         res.status(403).json({ success: false, error: 'TOR access is not permitted for this link', blocked: true });
         return;
       }
       if ((fullLink as any).vpnBlock && ipIntel.isVpn) {
         await shareLinkService.recordAccess({ shareLinkId: fullLink.id, action: 'BLOCKED_VPN', ipAddress: realIp, userAgent: req.headers['user-agent'], sessionId, isVpn: true });
+        if (fullLink.ownerUserId) {
+          import('../../services/platform-events/extended-events').then(({ emitShareAccessBlocked }) => {
+            emitShareAccessBlocked({
+              ownerUserId: fullLink.ownerUserId!,
+              shareLinkId: fullLink.id,
+              token: fullLink.token,
+              filename: fullLink.filename ?? 'File',
+              notificationType: 'VPN_BLOCKED',
+              reason: 'VPN access blocked',
+              ip: realIp,
+            });
+          }).catch(() => {});
+        }
         res.status(403).json({ success: false, error: 'VPN access is not permitted for this link', blocked: true });
         return;
       }
     }
 
-    // ── Forwarding detection for CHILD / GRANDCHILD links ────────────────
+    // ── Forward hop graph: new device on ANY link → mint child + redirect ──
+    // Applies to PARENT as well (common WhatsApp: A copies one URL, B opens it).
     let forwardingDetected = false;
-    let grandchildToken: string | undefined;
-    if (fullLink.linkType !== 'PARENT' && (action === 'VIEWED' || !action) && realIp) {
+    let redirectToken: string | undefined;
+    let hopCreated = false;
+    if ((action === 'VIEWED' || !action) && realIp) {
       const fwdVerdict = await detectForwardingForLink(fullLink.id, realIp, deviceFingerprint, ipIntel ?? { ip: realIp, country: '', countryCode: '', city: '', region: '', isp: '', org: '', asn: '', timezone: '', lat: 0, lng: 0, isVpn: false, isTor: false, isProxy: false, isDatacenter: false, abuseScore: 0 });
-      forwardingDetected = fwdVerdict.status !== 'CLEAN';
-      if (forwardingDetected) {
-        logger.warn('[SmartLink] Forwarding detected', { token, score: fwdVerdict.score, status: fwdVerdict.status, reasons: fwdVerdict.reasons });
-      }
-      // Also run old detectForwarding for grandchild link creation
       const geo = await geoFromIp(realIp);
-      const fwdResult = await shareLinkService.detectForwarding(fullLink as any, realIp, deviceFingerprint ?? null, { country: geo.country, city: geo.city, browser: parseUaBrowser(req.headers['user-agent'] ?? ''), os: parseUaOs(req.headers['user-agent'] ?? '') });
-      grandchildToken = fwdResult.grandchildToken;
+      const hopResult = await shareLinkService.resolveAccessHop(
+        fullLink as any,
+        realIp,
+        deviceFingerprint ?? null,
+        {
+          country: geo.country,
+          city: geo.city,
+          browser: parseUaBrowser(req.headers['user-agent'] ?? ''),
+          os: parseUaOs(req.headers['user-agent'] ?? ''),
+          userAgent: req.headers['user-agent'] as string | undefined,
+          recipientName: recipientName ?? undefined,
+        },
+      );
+      redirectToken = hopResult.redirectToken;
+      hopCreated = hopResult.hopCreated ?? false;
+      forwardingDetected = hopResult.forwarded || fwdVerdict.status !== 'CLEAN';
+      if (forwardingDetected) {
+        logger.warn('[SmartLink] Forward hop signal', {
+          token,
+          score: fwdVerdict.score,
+          status: fwdVerdict.status,
+          redirectToken,
+          hopCreated,
+        });
+      }
     }
+
+    const ipCoords = ipIntel ? sanitizeCoordinatePair(ipIntel.lat, ipIntel.lng) : null;
+
+    // If we minted/redirect to a hop, log FORWARD on the source link then stop —
+    // the VIEWED event must land on the new token after client redirect.
+    const accessAction = redirectToken
+      ? 'FORWARDING_DETECTED'
+      : forwardingDetected
+        ? 'FORWARDING_DETECTED'
+        : (action ?? 'VIEWED');
 
     await shareLinkService.recordAccess({
       shareLinkId:  fullLink.id,
-      action:       forwardingDetected ? 'FORWARDING_DETECTED' : (action ?? 'VIEWED'),
+      action:       accessAction,
       recipientName,
       ipAddress:    realIp,
       userAgent:    req.headers['user-agent'],
       referrer:     req.headers['referer'],
       timezone, sessionId, screenResolution, deviceFingerprint,
-      gpsLat:        gpsLat        ?? undefined,
-      gpsLng:        gpsLng        ?? undefined,
-      gpsAccuracy:   gpsAccuracy   ?? undefined,
-      gpsCity:       gpsCity       ?? undefined,
-      gpsTimestamp:  gpsTimestamp  ? new Date(gpsTimestamp) : undefined,
-      locationShared: locationShared ?? false,
-      // Forensic IP intelligence fields
+      ...gpsFields,
       isVpn:        ipIntel?.isVpn ?? false,
       isTor:        ipIntel?.isTor ?? false,
       isProxy:      ipIntel?.isProxy ?? false,
       isDatacenter: ipIntel?.isDatacenter ?? false,
       asn:          ipIntel?.asn,
       org:          ipIntel?.org,
-      lat:          ipIntel?.lat,
-      lng:          ipIntel?.lng,
+      lat:          ipCoords?.lat,
+      lng:          ipCoords?.lng,
     });
 
-    logger.info('[SmartLink] Access recorded', { token, action, ip: realIp });
-    res.json({ success: true, link, forwardingDetected, ...(grandchildToken ? { grandchildToken } : {}) });
+    logger.info('[SmartLink] Access recorded', { token, action: accessAction, ip: realIp, redirectToken });
+    res.json({
+      success: true,
+      link,
+      forwardingDetected,
+      hopCreated,
+      ...(redirectToken ? { redirectToken, grandchildToken: redirectToken } : {}),
+    });
   } catch (err) { next(err); }
 }
 
@@ -350,7 +555,7 @@ export async function exportShareLogsCsv(req: Request, res: Response, next: Next
 
 export async function getLiveSessions(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const ownerUserId = (req as any).user?.sub;
+    const ownerUserId = getAuthUserId(req);
     const data = await shareLinkService.getLiveSessions(ownerUserId);
     res.json({ success: true, ...data });
   } catch (err) { next(err); }
@@ -360,7 +565,8 @@ export async function getLiveSessions(req: Request, res: Response, next: NextFun
 
 export async function forceLogoutLink(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const link = await shareLinkService.revoke(req.params['token']!);
+    const ownerUserId = getAuthUserId(req);
+    const link = await shareLinkService.revoke(req.params['token']!, ownerUserId);
     logger.info('[SmartLink] Force logout — link revoked', { token: link.token });
     res.json({ success: true, message: 'All active sessions for this link have been terminated', token: link.token });
   } catch (err) { next(err); }
@@ -388,8 +594,24 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
     const fullLink = await shareLinkService.getWithLogs(token);
     if (!fullLink) { res.status(404).json({ success: false, error: 'Link not found' }); return; }
 
-    // ── Policy enforcement: device / geo / IP allow-lists ─────────────────────
     const realIp = resolveClientIp(req);
+    const sessionId = (req.headers['x-pinit-session'] as string | undefined) ?? undefined;
+    const deviceFingerprint = (req.headers['x-pinit-fingerprint'] as string | undefined) ?? undefined;
+
+    if (await shareLinkService.isViewerBlocked(fullLink.id, { deviceFingerprint, sessionId, ipAddress: realIp }).catch((err) => {
+      logger.warn('[SmartLink] isViewerBlocked check failed — allowing access', { token, error: String(err) });
+      return false;
+    })) {
+      res.status(403).json({
+        success: false,
+        error: 'Your access to this link has been revoked by the owner',
+        blocked: true,
+        viewerRevoked: true,
+      });
+      return;
+    }
+
+    // ── Policy enforcement: device / geo / IP allow-lists ─────────────────────
     logger.debug('[IP-AUDIT] Stage-2 serveSharedFile', { token, ...dumpIpHeaders(req) });
 
     const ua = req.headers['user-agent'] as string ?? '';
@@ -413,28 +635,52 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
 
     // ── maxDownloads enforcement ───────────────────────────────────────────────
     if (fullLink.maxDownloads != null && fullLink.downloadCount >= fullLink.maxDownloads) {
+      if (fullLink.ownerUserId) {
+        import('../../services/platform-events/extended-events').then(({ emitMaxDownloadsReached }) => {
+          emitMaxDownloadsReached({
+            ownerUserId: fullLink.ownerUserId!,
+            shareLinkId: fullLink.id,
+            token: fullLink.token,
+            filename: fullLink.filename ?? 'File',
+          });
+        }).catch(() => {});
+      }
       res.status(403).json({ success: false, error: 'Maximum downloads reached for this link', blocked: true });
       return;
     }
 
-    // Log the view
+    // Audit file delivery — client POST /access records the tracked VIEWED event with GPS
+    if (process.env['NODE_ENV'] === 'production' && !isSupabaseStorageConfigured()) {
+      throw new AppError(
+        503,
+        'Vault storage is not configured on the server. Set SUPABASE_URL and SUPABASE_SERVICE_KEY in Render environment variables.',
+      );
+    }
+
+    // Retrieve decrypted file from vault and stream it (public — no owner auth gate)
+    const result = await vaultService.retrieve(fullLink.vaultId);
+
     await shareLinkService.recordAccess({
       shareLinkId: fullLink.id,
-      action:      'VIEWED',
+      action:      'FILE_SERVED',
       ipAddress:   realIp,
       userAgent:   req.headers['user-agent'],
       referrer:    req.headers['referer'],
+      sessionId,
+      deviceFingerprint,
+    }).catch((err) => {
+      logger.warn('[SmartLink] FILE_SERVED audit log failed (non-fatal)', { token, error: String(err) });
     });
-
-    // Retrieve decrypted file from vault and stream it
-    const result = await vaultService.retrieve(fullLink.vaultId);
 
     // ── File tamper check: re-hash decrypted buffer and compare with stored DNA hash ──
     const tamperResult = await shareLinkService.checkFileTamper(
       fullLink.dnaRecordId, fullLink.vaultId, result.originalBuffer,
       token, realIp ?? undefined,
       req.headers['user-agent'] ?? undefined
-    );
+    ).catch((err) => {
+      logger.warn('[TamperDetection] checkFileTamper failed (non-fatal)', { token, error: String(err) });
+      return { tampered: false };
+    });
     if (tamperResult.tampered) {
       // Hash mismatch is expected when identity embedding is active (modifies file before encryption).
       // Log for forensic audit but do NOT block file serving.
@@ -457,7 +703,7 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
       'Pragma':              'no-cache',
       'Expires':             '0',
     });
-    // ── Invisible watermarking ────────────────────────────────────────────────
+    // ── TEP v3.0 — Tracked Export Package (per-recipient forensic attribution) ─
     let fileBuffer = result.originalBuffer;
     try {
       const fingerprint = req.headers['x-device-fingerprint'] as string | undefined
@@ -468,14 +714,28 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
         device:  req.headers['user-agent'],
         ipAddress: realIp,
       });
-      const { watermarkCode, payload } = await createWatermarkProfile({
-        dnaRecordId: fullLink.dnaRecordId,
-        shareLinkId: fullLink.id,
+
+      const geo = realIp ? await geoFromIp(realIp) : null;
+      const tep = await tepService.createTrackedExport({
+        fileBuffer:    result.originalBuffer,
+        mimeType:      fullLink.mimeType,
+        filename:      fullLink.filename,
+        dnaRecordId:   fullLink.dnaRecordId,
+        vaultId:       fullLink.vaultId,
+        shareLinkId:   fullLink.id,
         recipientId,
+        sessionToken:  req.headers['x-session-id'] as string | undefined,
+        recipientEmail: fullLink.recipientEmail ?? undefined,
+        ipAddress:     realIp ?? undefined,
+        geoCountry:    geo?.country ?? undefined,
+        geoCity:       geo?.city ?? undefined,
+        deviceContext: req.headers['user-agent'] as string | undefined,
+        ownerUserId:   fullLink.ownerUserId ?? undefined,
       });
-      fileBuffer = await embedWatermark(fileBuffer, fullLink.mimeType, watermarkCode, payload);
-    } catch (wmErr) {
-      logger.warn('[Watermark] Watermarking failed — serving original', { error: (wmErr as Error).message });
+      fileBuffer = tep.buffer;
+      res.set('X-TEP-Code', tep.tepCode);
+    } catch (tepErr) {
+      logger.warn('[TEP] Generation failed — serving vault file without TEP', { error: (tepErr as Error).message });
     }
 
     res.send(fileBuffer);
@@ -486,7 +746,8 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
 
 export async function getVaultShareLinks(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const links = await shareLinkService.listByVault(req.params['vaultId']!);
+    const ownerUserId = getAuthUserId(req);
+    const links = await shareLinkService.listByVault(req.params['vaultId']!, ownerUserId);
     res.json({ success: true, count: links.length, links });
   } catch (err) { next(err); }
 }
@@ -495,7 +756,8 @@ export async function getVaultShareLinks(req: Request, res: Response, next: Next
 
 export async function getShareTimeline(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const events = await shareLinkService.getTimelineEvents(req.params['dnaId']!);
+    const ownerUserId = getAuthUserId(req);
+    const events = await shareLinkService.getTimelineEvents(req.params['dnaId']!, ownerUserId);
     res.json({ success: true, events });
   } catch (err) { next(err); }
 }
@@ -504,8 +766,48 @@ export async function getShareTimeline(req: Request, res: Response, next: NextFu
 
 export async function revokeShareLink(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const link = await shareLinkService.revoke(req.params['token']!);
+    const ownerUserId = getAuthUserId(req);
+    const link = await shareLinkService.revoke(req.params['token']!, ownerUserId);
     res.json({ success: true, message: 'Share link revoked', token: link.token });
+  } catch (err) { next(err); }
+}
+
+// ── Block a single viewer (device / session / IP) ───────────────────────────────
+
+export async function blockShareViewer(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const ownerUserId = (req as { user?: { sub?: string } }).user?.sub;
+    if (!ownerUserId) { res.status(401).json({ success: false, error: 'Unauthorized' }); return; }
+
+    const { deviceFingerprint, sessionId, ipAddress, label, reason } = req.body as {
+      deviceFingerprint?: string; sessionId?: string; ipAddress?: string; label?: string; reason?: string;
+    };
+
+    if (!deviceFingerprint && !sessionId && !ipAddress) {
+      res.status(400).json({ success: false, error: 'Provide deviceFingerprint, sessionId, or ipAddress' });
+      return;
+    }
+
+    const block = await shareLinkService.blockViewer(req.params['token']!, ownerUserId, {
+      deviceFingerprint, sessionId, ipAddress, label, reason,
+    });
+
+    res.json({ success: true, message: 'Viewer access revoked', block });
+  } catch (err) { next(err); }
+}
+
+export async function unblockShareViewer(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const ownerUserId = (req as { user?: { sub?: string } }).user?.sub;
+    if (!ownerUserId) { res.status(401).json({ success: false, error: 'Unauthorized' }); return; }
+
+    await shareLinkService.unblockViewer(
+      req.params['token']!,
+      ownerUserId,
+      req.params['blockId']!,
+    );
+
+    res.json({ success: true, message: 'Viewer unblocked' });
   } catch (err) { next(err); }
 }
 
@@ -677,9 +979,11 @@ export async function getUnmaskStatus(req: Request, res: Response, next: NextFun
 // ── Privacy Masking — List all unmask requests (owner dashboard) ──────────────
 // GET /share/unmask-requests
 
-export async function listUnmaskRequests(_req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function listUnmaskRequests(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    const ownerUserId = getAuthUserId(req);
     const requests = await prisma.unmaskRequest.findMany({
+      where: { shareLink: { ownerUserId } },
       orderBy: { createdAt: 'desc' },
       take: 200,
       include: { shareLink: { select: { filename: true, token: true } } },
@@ -703,6 +1007,21 @@ export async function reviewUnmaskRequest(req: Request, res: Response, next: Nex
       return;
     }
 
+    const ownerUserId = getAuthUserId(req);
+
+    const existing = await prisma.unmaskRequest.findUnique({
+      where: { id },
+      include: { shareLink: { select: { ownerUserId: true, filename: true } } },
+    });
+    if (!existing) {
+      res.status(404).json({ success: false, error: 'Unmask request not found' });
+      return;
+    }
+    if (existing.shareLink.ownerUserId !== ownerUserId) {
+      res.status(403).json({ success: false, error: 'Access denied' });
+      return;
+    }
+
     const status = action === 'approve' ? 'APPROVED' : 'REJECTED';
     const updated = await prisma.unmaskRequest.update({
       where: { id },
@@ -721,11 +1040,20 @@ export async function reviewUnmaskRequest(req: Request, res: Response, next: Nex
   } catch (err) { next(err); }
 }
 
+// GET /share/analytics/live-map — live file open/download locations for dashboard map
+export async function getLiveTrackingMap(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const ownerUserId = getAuthUserId(req);
+    const data = await shareLinkService.getLiveTrackingMap(ownerUserId);
+    res.json({ success: true, ...data });
+  } catch (err) { next(err); }
+}
+
 // ── Global Share Analytics — all metrics for dashboard ────────────────────────
 // GET /share/analytics/global
 export async function getGlobalShareStats(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const ownerUserId = (req as any).user?.sub;
+    const ownerUserId = getAuthUserId(req);
     const logs = await prisma.shareAccessLog.findMany({
       where: { shareLink: { ownerUserId } },
       select: {
@@ -827,6 +1155,37 @@ export async function attributeLeakedFile(req: Request, res: Response, next: Nex
       } : null,
     });
   } catch (err) { next(err); }
+}
+
+
+// ── Mint a fresh hop URL for intentional "share further" (WhatsApp → next person)
+
+export async function shareFurther(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const token = req.params['token']!;
+    const body = req.body as { recipientLabel?: string; forwardedByLabel?: string };
+    const hop = await shareLinkService.mintShareFurther(token, {
+      recipientLabel: body.recipientLabel,
+      forwardedByLabel: body.forwardedByLabel,
+    });
+    const url = buildShareUrl(req, hop.token);
+    res.json({
+      success: true,
+      token: hop.token,
+      url,
+      parentToken: hop.parentToken,
+      depth: hop.depth,
+      linkType: hop.linkType,
+      message: 'New tracked hop link created — send this URL to the next person (do not reuse the old URL).',
+    });
+  } catch (err) {
+    const e = err as { statusCode?: number; message?: string };
+    if (e.statusCode === 404) {
+      res.status(404).json({ success: false, error: e.message ?? 'Link not found' });
+      return;
+    }
+    next(err);
+  }
 }
 
 

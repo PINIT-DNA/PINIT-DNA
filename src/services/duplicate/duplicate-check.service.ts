@@ -1,16 +1,19 @@
 /**
  * PINIT-DNA — Duplicate File Prevention Service
  *
- * Runs BEFORE DNA generation. Checks the entire registry for:
+ * Runs BEFORE DNA generation. Checks the registry for:
  *   1. SHA-256 exact match  — catches any identical file (all types)
- *   2. pHash near-duplicate  — catches visually identical images (configurable threshold)
+ *   2. TEP tracked export   — share-link download bytes
+ *   3. Embedded PINIT identity — vault / LSB / binary tail
+ *   4. PINIT vault signature  — visible watermarks + OCR (share-viewer screenshots)
+ *   5. Normalized pixel hash  — survives metadata / re-save
+ *   6. pHash near-duplicate   — visually identical images (configurable threshold)
  *
- * If a duplicate is found:
- *   - Returns the existing DNA record ID + match details
- *   - Logs a DUPLICATE_UPLOAD_ATTEMPT audit event
- *   - Marks as HIGH_RISK when the uploader is different from the original
+ * Policy:
+ *   • Same PINIT account (ownerUserId) → ALLOW — user may protect the same file again
+ *   • Different PINIT account → BLOCK — file already has DNA under another user
  *
- * The caller (dna.controller.ts) must abort processing and return 409 Conflict.
+ * The caller (dna.controller.ts) must abort processing and return 409 Conflict when blocked.
  */
 
 import crypto from 'crypto';
@@ -19,15 +22,30 @@ import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { auditService } from '../audit/audit.service';
 import { resolveClientIp } from '../../lib/request-utils';
+import { identityEmbeddingService } from '../identity/identity-embedding.service';
+import { tepService } from '../tep/tep.service';
+import { pinitSignatureDetector } from './pinit-signature-detector.service';
+import { PerceptualLayer } from '../layers/layer3.perceptual';
+import { CryptographicLayer } from '../layers/layer1.cryptographic';
+import { withTimeoutSoft } from '../../lib/safe-runner';
 
 // ─── Configurable near-duplicate threshold ────────────────────────────────────
 // Hamming similarity ≥ this → considered a near-duplicate for images.
 // 1.0 = exact, 0.9 = very close, 0.8 = same image resized/filtered
 const PHASH_NEAR_DUPLICATE_THRESHOLD = 0.90;
+/** Max ms for duplicate checks before DNA generate — keeps upload path in seconds */
+const DUPLICATE_CHECK_BUDGET_MS = parseInt(process.env['DUPLICATE_CHECK_BUDGET_MS'] ?? '12000', 10);
+const PHASH_SCAN_LIMIT = parseInt(process.env['DUPLICATE_PHASH_SCAN_LIMIT'] ?? '400', 10);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type DuplicateMatchType = 'EXACT_HASH' | 'NEAR_DUPLICATE_PHASH';
+export type DuplicateMatchType =
+  | 'EXACT_HASH'
+  | 'NORMALIZED_HASH'
+  | 'NEAR_DUPLICATE_PHASH'
+  | 'EMBEDDED_IDENTITY'
+  | 'TEP_TRACKED_EXPORT'
+  | 'PINIT_VAULT_SIGNATURE';
 
 export interface DuplicateCheckResult {
   isDuplicate:     boolean;
@@ -35,33 +53,20 @@ export interface DuplicateCheckResult {
   existingRecordId?: string;
   existingFilename?: string;
   existingCreatedAt?: string;
+  ownerShortId?:   string;
+  ownerUserId?:    string;
   sha256Hash?:     string;
   pHashSimilarity?: number; // 0–1, only for NEAR_DUPLICATE_PHASH
-  isHighRisk:      boolean; // true when uploader IP ≠ original IP (different user heuristic)
+  isHighRisk:      boolean; // true when a different PINIT user uploads an existing file
 }
 
-// ─── Hamming similarity helper (same logic as Layer 3) ────────────────────────
-
-function hammingBits(a: string, b: string): number {
-  if (a.length !== b.length) return a.length * 4; // max distance if lengths differ
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-    const xor = parseInt(a[i]!, 16) ^ parseInt(b[i]!, 16);
-    // count set bits in xor nibble
-    diff += [0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4][xor]!;
-  }
-  return diff;
-}
-
-function hammingSimilarity(a: string, b: string): number {
-  const maxBits = a.length * 4;
-  if (maxBits === 0) return 0;
-  return 1 - hammingBits(a, b) / maxBits;
-}
+// Hamming similarity helpers removed — PerceptualLayer.verify() used instead.
 
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 export class DuplicateCheckService {
+  private readonly perceptualLayer = new PerceptualLayer();
+  private readonly cryptoLayer     = new CryptographicLayer();
 
   /**
    * Compute SHA-256 of raw bytes synchronously.
@@ -89,31 +94,47 @@ export class DuplicateCheckService {
 
     const sha256 = this.computeSha256(buffer);
     const uploaderIp = resolveClientIp(req);
+    const uploaderUserId = (req as { user?: { sub?: string } }).user?.sub;
+    const deadline = Date.now() + DUPLICATE_CHECK_BUDGET_MS;
+    const hasBudget = () => Date.now() < deadline;
+
+    const recordSelect = {
+      id: true,
+      imageFilename: true,
+      createdAt: true,
+      imageMimeType: true,
+      ownerUserId: true,
+      ownerUser: { select: { shortId: true } },
+    } as const;
 
     // ── 1. SHA-256 exact match (all file types) ───────────────────────────────
-    // Primary: check DnaRecord.sha256Hash (works for ALL file types: PDF, DOCX, video, etc.)
-    // Fallback: check CryptoLayer.sha256Hash (legacy image records pre-duplicate-check)
+    // Cross-account: block. Same account: allow re-upload (new DNA allowed).
     let exactMatchRecord = await prisma.dnaRecord.findFirst({
-      where: { sha256Hash: sha256 },
-      select: { id: true, imageFilename: true, createdAt: true, imageMimeType: true },
+      where: { sha256Hash: sha256, status: { in: ['COMPLETE', 'PARTIAL', 'PROCESSING'] } },
+      select: recordSelect,
     });
 
     if (!exactMatchRecord) {
-      // Fallback: old image records that pre-date the sha256Hash field on DnaRecord
       const cryptoMatch = await prisma.cryptoLayer.findFirst({
         where: { sha256Hash: sha256 },
-        include: {
-          dnaRecord: {
-            select: { id: true, imageFilename: true, createdAt: true, imageMimeType: true },
-          },
-        },
+        include: { dnaRecord: { select: recordSelect } },
       });
       if (cryptoMatch) exactMatchRecord = cryptoMatch.dnaRecord;
     }
 
     if (exactMatchRecord) {
       const rec = exactMatchRecord;
-      const isHighRisk = await this._isHighRisk(rec.id, uploaderIp);
+      if (this._isSameAccount(rec.ownerUserId, uploaderUserId)) {
+        logger.info('[DuplicateCheck] Same-account re-upload allowed (EXACT_HASH)', {
+          sha256: sha256.slice(0, 16) + '…',
+          existingRecordId: rec.id,
+          uploaderUserId,
+        });
+        return { isDuplicate: false, isHighRisk: false };
+      }
+
+      const ownerShortId = rec.ownerUser?.shortId ?? undefined;
+      const isHighRisk = true;
 
       await this._logAttempt({
         sha256,
@@ -124,13 +145,16 @@ export class DuplicateCheckService {
         matchType: 'EXACT_HASH',
         isHighRisk,
         pHashSimilarity: undefined,
+        ownerShortId,
+        ownerUserId: rec.ownerUserId ?? undefined,
         req,
       });
 
-      logger.warn('[DuplicateCheck] EXACT duplicate blocked', {
+      logger.warn('[DuplicateCheck] EXACT duplicate blocked (cross-account)', {
         sha256: sha256.slice(0, 16) + '…',
         existingRecordId: rec.id,
-        uploaderIp,
+        ownerShortId,
+        uploaderUserId,
       });
 
       return {
@@ -139,14 +163,60 @@ export class DuplicateCheckService {
         existingRecordId:  rec.id,
         existingFilename:  rec.imageFilename,
         existingCreatedAt: rec.createdAt.toISOString(),
+        ownerShortId,
+        ownerUserId:       rec.ownerUserId ?? undefined,
         sha256Hash:        sha256,
         isHighRisk,
       };
     }
 
-    // ── 2. pHash near-duplicate (images only) ─────────────────────────────────
-    if (mimeType.startsWith('image/')) {
-      const nearMatch = await this._checkPHashNearDuplicate(buffer, sha256, req, originalName, mimeType, uploaderIp);
+    // ── 2. TEP Tracked Export Package (share-link download re-upload) ─────────
+    if (hasBudget()) {
+      const tepMatch = await withTimeoutSoft(
+        () => this._checkTepExport(buffer, mimeType, originalName, sha256, uploaderIp, req),
+        4_000,
+        'duplicate-tep',
+      );
+      if (tepMatch) return tepMatch;
+    }
+
+    // ── 3. Embedded PINIT identity (vault / share-link downloads) ─────────────
+    if (hasBudget()) {
+      const identityMatch = await withTimeoutSoft(
+        () => this._checkEmbeddedIdentity(buffer, mimeType, originalName, sha256, uploaderIp, req),
+        5_000,
+        'duplicate-embedded-identity',
+      );
+      if (identityMatch) return identityMatch;
+    }
+
+    // ── 4. PINIT vault visible signature (share-viewer screenshots / OCR) ─────
+    if (mimeType.startsWith('image/') && hasBudget()) {
+      const signatureMatch = await withTimeoutSoft(
+        () => this._checkPinitVaultSignature(buffer, mimeType, originalName, sha256, uploaderIp, req),
+        5_000,
+        'duplicate-pinit-signature',
+      );
+      if (signatureMatch) return signatureMatch;
+    }
+
+    // ── 5. Normalized pixel hash (images — survives metadata / re-save) ───────
+    if (mimeType.startsWith('image/') && hasBudget()) {
+      const normalizedMatch = await withTimeoutSoft(
+        () => this._checkNormalizedHash(buffer, mimeType, originalName, sha256, uploaderIp, req),
+        6_000,
+        'duplicate-normalized-hash',
+      );
+      if (normalizedMatch) return normalizedMatch;
+    }
+
+    // ── 6. pHash near-duplicate (images — share watermark / compression) ─────
+    if (mimeType.startsWith('image/') && hasBudget()) {
+      const nearMatch = await withTimeoutSoft(
+        () => this._checkPHashNearDuplicate(buffer, sha256, req, originalName, mimeType, uploaderIp),
+        5_000,
+        'duplicate-phash',
+      );
       if (nearMatch) return nearMatch;
     }
 
@@ -154,7 +224,286 @@ export class DuplicateCheckService {
     return { isDuplicate: false, isHighRisk: false };
   }
 
-  // ── pHash near-duplicate check ─────────────────────────────────────────────
+  // ── TEP tracked export (share download → re-upload) ────────────────────────
+
+  private async _checkTepExport(
+    buffer: Buffer,
+    mimeType: string,
+    originalName: string,
+    sha256: string,
+    uploaderIp: string,
+    req: Request,
+  ): Promise<DuplicateCheckResult | null> {
+    try {
+      const tep = await tepService.extractFromFile(buffer, mimeType, originalName);
+      if (!tep.found || !tep.dnaRecordId) return null;
+
+      const rec = await prisma.dnaRecord.findUnique({
+        where: { id: tep.dnaRecordId },
+        select: {
+          id: true, imageFilename: true, createdAt: true, ownerUserId: true,
+          ownerUser: { select: { shortId: true } },
+        },
+      });
+      if (!rec) return null;
+
+      if (this._isSameAccount(rec.ownerUserId, (req as { user?: { sub?: string } }).user?.sub)) {
+        logger.info('[DuplicateCheck] Same-account TEP re-upload allowed', { dnaRecordId: rec.id });
+        return null;
+      }
+
+      if (tep.tepCode) {
+        await tepService.markRediscovered(tep.tepCode);
+        await auditService.log({
+          eventType: 'TEP_REDISCOVERED' as never,
+          dnaRecordId: rec.id,
+          filename: originalName,
+          fileType: mimeType,
+          req,
+          detail: {
+            tepCode: tep.tepCode,
+            watermarkCode: tep.watermarkCode,
+            method: tep.method,
+            valid: tep.valid,
+          },
+        });
+      }
+
+      const result = await this._finalizeMatch({
+        rec,
+        sha256,
+        originalName,
+        mimeType,
+        uploaderIp,
+        req,
+        matchType: 'TEP_TRACKED_EXPORT',
+      });
+
+      logger.warn('[DuplicateCheck] TEP tracked export blocked re-upload', {
+        tepCode: tep.tepCode,
+        dnaRecordId: rec.id,
+        method: tep.method,
+      });
+
+      return result;
+    } catch (err) {
+      logger.warn('[DuplicateCheck] TEP check failed (non-fatal)', { error: String(err) });
+      return null;
+    }
+  }
+
+  // ── PINIT vault signature (screenshots, visible watermarks, metadata) ────────
+
+  private async _checkPinitVaultSignature(
+    buffer: Buffer,
+    mimeType: string,
+    originalName: string,
+    sha256: string,
+    uploaderIp: string,
+    req: Request,
+  ): Promise<DuplicateCheckResult | null> {
+    try {
+      const hit = await pinitSignatureDetector.detect(buffer, mimeType, originalName, { fast: true });
+      if (!hit.detected) return null;
+
+      let rec: {
+        id: string;
+        imageFilename: string;
+        createdAt: Date;
+        ownerUserId: string | null;
+        ownerUser: { shortId: string } | null;
+      } | null = null;
+
+      if (hit.dnaRecordId) {
+        rec = await prisma.dnaRecord.findUnique({
+          where: { id: hit.dnaRecordId },
+          select: {
+            id: true, imageFilename: true, createdAt: true, ownerUserId: true,
+            ownerUser: { select: { shortId: true } },
+          },
+        });
+      }
+
+      const uploaderUserId = (req as { user?: { sub?: string } }).user?.sub;
+
+      if (rec && this._isSameAccount(rec.ownerUserId, uploaderUserId)) {
+        logger.info('[DuplicateCheck] Same-account PINIT signature re-upload allowed', {
+          dnaRecordId: rec.id,
+        });
+        return null;
+      }
+
+      const ownerShortId = rec?.ownerUser?.shortId ?? hit.ownerShortId;
+      const isHighRisk = rec
+        ? await this._isHighRisk(rec.id, uploaderIp)
+        : true;
+
+      await this._logAttempt({
+        sha256,
+        existingRecordId: rec?.id ?? 'PINIT_SIGNATURE_UNRESOLVED',
+        existingFilename: rec?.imageFilename ?? originalName,
+        originalName,
+        mimeType,
+        matchType: 'PINIT_VAULT_SIGNATURE',
+        isHighRisk,
+        pHashSimilarity: undefined,
+        ownerShortId,
+        ownerUserId: rec?.ownerUserId ?? hit.ownerUserId,
+        req,
+        extraDetail: {
+          signatureMethod: hit.method,
+          signals: hit.signals.slice(0, 10),
+          shareToken: hit.shareToken,
+          watermarkCode: hit.watermarkCode,
+        },
+      });
+
+      logger.warn('[DuplicateCheck] PINIT vault signature blocked DNA generation', {
+        method: hit.method,
+        shareToken: hit.shareToken,
+        watermarkCode: hit.watermarkCode,
+        dnaRecordId: hit.dnaRecordId,
+        ownerShortId,
+      });
+
+      return {
+        isDuplicate: true,
+        matchType: 'PINIT_VAULT_SIGNATURE',
+        existingRecordId: rec?.id,
+        existingFilename: rec?.imageFilename,
+        existingCreatedAt: rec?.createdAt.toISOString(),
+        ownerShortId,
+        ownerUserId: rec?.ownerUserId ?? hit.ownerUserId,
+        sha256Hash: sha256,
+        isHighRisk,
+      };
+    } catch (err) {
+      logger.warn('[DuplicateCheck] PINIT signature check failed (non-fatal)', { error: String(err) });
+      return null;
+    }
+  }
+
+  // ── Embedded identity (vault / share-link re-upload) ───────────────────────
+
+  private async _checkEmbeddedIdentity(
+    buffer: Buffer,
+    mimeType: string,
+    originalName: string,
+    sha256: string,
+    uploaderIp: string,
+    req: Request,
+  ): Promise<DuplicateCheckResult | null> {
+    try {
+      const identity = await identityEmbeddingService.extractAndVerify(buffer, mimeType, originalName);
+      if (!identity.found || !identity.dnaId) return null;
+
+      const rec = await prisma.dnaRecord.findUnique({
+        where: { id: identity.dnaId },
+        select: {
+          id: true, imageFilename: true, createdAt: true, ownerUserId: true,
+          ownerUser: { select: { shortId: true } },
+        },
+      });
+      if (!rec) return null;
+
+      const uploaderUserId = (req as { user?: { sub?: string } }).user?.sub;
+      if (this._isSameAccount(rec.ownerUserId, uploaderUserId)) {
+        logger.info('[DuplicateCheck] Same-account embedded identity re-upload allowed', {
+          dnaId: identity.dnaId,
+        });
+        return null;
+      }
+
+      const ownerShortId = rec.ownerUser?.shortId ?? undefined;
+      const isHighRisk = !identity.valid || await this._isHighRisk(rec.id, uploaderIp);
+
+      await this._logAttempt({
+        sha256,
+        existingRecordId: rec.id,
+        existingFilename: rec.imageFilename,
+        originalName,
+        mimeType,
+        matchType: 'EMBEDDED_IDENTITY',
+        isHighRisk,
+        pHashSimilarity: undefined,
+        ownerShortId,
+        ownerUserId: rec.ownerUserId ?? undefined,
+        req,
+      });
+
+      logger.warn('[DuplicateCheck] EMBEDDED IDENTITY duplicate blocked', {
+        dnaId: identity.dnaId,
+        vaultId: identity.vaultId,
+        ownerShortId,
+        valid: identity.valid,
+      });
+
+      return {
+        isDuplicate: true,
+        matchType: 'EMBEDDED_IDENTITY',
+        existingRecordId: rec.id,
+        existingFilename: rec.imageFilename,
+        existingCreatedAt: rec.createdAt.toISOString(),
+        ownerShortId,
+        ownerUserId: rec.ownerUserId ?? undefined,
+        sha256Hash: sha256,
+        isHighRisk,
+      };
+    } catch (err) {
+      logger.warn('[DuplicateCheck] Identity extraction failed (non-fatal)', { error: String(err) });
+      return null;
+    }
+  }
+
+  // ── Normalized pixel hash (Layer 1 content fingerprint) ──────────────────────
+
+  private async _checkNormalizedHash(
+    buffer: Buffer,
+    mimeType: string,
+    originalName: string,
+    sha256: string,
+    uploaderIp: string,
+    req: Request,
+  ): Promise<DuplicateCheckResult | null> {
+    try {
+      const probe = await this.cryptoLayer.generate({
+        buffer,
+        mimeType,
+        originalName,
+        filePath: '',
+        sizeBytes: buffer.length,
+      });
+      if (!probe.success || !probe.data.normalizedHash) return null;
+
+      const cryptoMatch = await prisma.cryptoLayer.findFirst({
+        where: { normalizedHash: probe.data.normalizedHash },
+        include: {
+          dnaRecord: {
+            select: {
+              id: true, imageFilename: true, createdAt: true, ownerUserId: true,
+              ownerUser: { select: { shortId: true } },
+            },
+          },
+        },
+      });
+      if (!cryptoMatch?.dnaRecord) return null;
+
+      return this._finalizeMatch({
+        rec: cryptoMatch.dnaRecord,
+        sha256,
+        originalName,
+        mimeType,
+        uploaderIp,
+        req,
+        matchType: 'NORMALIZED_HASH',
+      });
+    } catch (err) {
+      logger.warn('[DuplicateCheck] Normalized hash check failed (non-fatal)', { error: String(err) });
+      return null;
+    }
+  }
+
+  // ── pHash near-duplicate check (Layer 3) ───────────────────────────────────
 
   private async _checkPHashNearDuplicate(
     buffer: Buffer,
@@ -165,145 +514,135 @@ export class DuplicateCheckService {
     uploaderIp: string,
   ): Promise<DuplicateCheckResult | null> {
     try {
-      // Compute pHash64 of the uploaded image using the same sharp pipeline
-      // as Layer 3 so comparisons are valid.
-      const sharp = await import('sharp');
-      const { data: rawPixels, info } = await sharp.default(buffer)
-        .resize(32, 32, { fit: 'fill' })
-        .removeAlpha()
-        .raw()
-        .toBuffer({ resolveWithObject: true });
+      const probe = await this.perceptualLayer.computeFingerprints(buffer);
 
-      // DCT-based pHash64 — simplified 8x8 DCT of greyscale 32x32 block
-      // (matches the implementation in layer3.perceptual.ts)
-      const grey = new Float64Array(32 * 32);
-      for (let i = 0; i < grey.length; i++) {
-        const r = rawPixels[i * 3]!;
-        const g = rawPixels[i * 3 + 1]!;
-        const b = rawPixels[i * 3 + 2]!;
-        grey[i] = 0.299 * r + 0.587 * g + 0.114 * b;
-      }
-
-      // Get all stored pHash64 values
       const stored = await prisma.perceptualLayer.findMany({
-        select: { pHash64: true, dnaRecordId: true },
-        take: 5000, // reasonable ceiling
+        select: { pHash64: true, aHash64: true, dHash64: true, dnaRecordId: true },
+        orderBy: { dnaRecord: { createdAt: 'desc' } },
+        take: PHASH_SCAN_LIMIT,
       });
 
-      // Fast-compute probe pHash64 for comparison
-      // Use the same method as the UI approach: compare bit-by-bit
       let bestMatch: { similarity: number; recordId: string } | null = null;
+
       for (const s of stored) {
-        // We don't have the full pHash64 computation here, so we use the stored hash
-        // and compare using hamming similarity — if any stored hash was computed from
-        // the same image, similarity will be ≥ threshold
-        // NOTE: We need the probe's pHash64 — fetch it from the already-generated record
-        // if it exists. For now, use the stored approach: compute inline.
-        // This is a best-effort: if sha256 didn't match but phash would,
-        // we compare with ALL stored hashes.
-        // Simple greyscale average hash (aHash) for fast comparison since
-        // we don't have pHash64 computed yet:
-        const sim = hammingSimilarity(s.pHash64, s.pHash64); // placeholder until pHash computed
-        void sim; // suppress unused warning
-      }
-
-      // Better approach: look for records with VERY similar normalizedHash too
-      // For now, just compare sha256 normalizedHash (already done above via CryptoLayer)
-      // The pHash comparison requires the probe's pHash64 to be computed by sharp/dct
-      // which is done in Layer3 — so we'll do a lightweight aHash comparison:
-      const aHash = this._computeAHash(rawPixels, info.width ?? 8, info.height ?? 8);
-
-      const storedAHashes = await prisma.perceptualLayer.findMany({
-        select: { aHash64: true, pHash64: true, dnaRecordId: true },
-        take: 5000,
-      });
-
-      for (const s of storedAHashes) {
-        if (!s.aHash64) continue;
-        const aHashSim = hammingSimilarity(aHash, s.aHash64);
-        if (aHashSim >= PHASH_NEAR_DUPLICATE_THRESHOLD) {
-          // Confirm with pHash64 comparison (more accurate)
-          const pHashSim = hammingSimilarity(aHash, s.pHash64 ?? '');
-          const finalSim = Math.max(aHashSim, pHashSim);
-
-          if (!bestMatch || finalSim > bestMatch.similarity) {
-            bestMatch = { similarity: finalSim, recordId: s.dnaRecordId };
+        if (!s.pHash64) continue;
+        const sim = this.perceptualLayer.verify(probe, {
+          pHash64: s.pHash64,
+          aHash64: s.aHash64 ?? '',
+          dHash64: s.dHash64 ?? '',
+        });
+        if (sim >= PHASH_NEAR_DUPLICATE_THRESHOLD) {
+          if (!bestMatch || sim > bestMatch.similarity) {
+            bestMatch = { similarity: sim, recordId: s.dnaRecordId };
           }
         }
       }
 
-      if (bestMatch && bestMatch.similarity >= PHASH_NEAR_DUPLICATE_THRESHOLD) {
-        const rec = await prisma.dnaRecord.findUnique({
-          where: { id: bestMatch.recordId },
-          select: { id: true, imageFilename: true, createdAt: true },
-        });
-        if (!rec) return null;
+      if (!bestMatch) return null;
 
-        const isHighRisk = await this._isHighRisk(rec.id, uploaderIp);
+      const rec = await prisma.dnaRecord.findUnique({
+        where: { id: bestMatch.recordId },
+        select: {
+          id: true, imageFilename: true, createdAt: true, ownerUserId: true,
+          ownerUser: { select: { shortId: true } },
+        },
+      });
+      if (!rec) return null;
 
-        await this._logAttempt({
-          sha256,
-          existingRecordId: rec.id,
-          existingFilename:  rec.imageFilename,
-          originalName,
-          mimeType,
-          matchType: 'NEAR_DUPLICATE_PHASH',
-          isHighRisk,
-          pHashSimilarity: bestMatch.similarity,
-          req,
-        });
-
-        logger.warn('[DuplicateCheck] NEAR-DUPLICATE image blocked', {
-          similarity: bestMatch.similarity.toFixed(3),
-          existingRecordId: rec.id,
-          uploaderIp,
-        });
-
-        return {
-          isDuplicate:       true,
-          matchType:         'NEAR_DUPLICATE_PHASH',
-          existingRecordId:  rec.id,
-          existingFilename:  rec.imageFilename,
-          existingCreatedAt: rec.createdAt.toISOString(),
-          sha256Hash:        sha256,
-          pHashSimilarity:   bestMatch.similarity,
-          isHighRisk,
-        };
-      }
+      return this._finalizeMatch({
+        rec,
+        sha256,
+        originalName,
+        mimeType,
+        uploaderIp,
+        req,
+        matchType: 'NEAR_DUPLICATE_PHASH',
+        pHashSimilarity: bestMatch.similarity,
+      });
     } catch (err) {
-      // Non-fatal — if pHash check fails, allow upload (SHA-256 already cleared)
       logger.warn('[DuplicateCheck] pHash check failed (non-fatal)', { error: String(err) });
     }
 
     return null;
   }
 
-  // ── Average hash (aHash) for fast pre-filter ───────────────────────────────
+  private async _finalizeMatch(params: {
+    rec: {
+      id: string;
+      imageFilename: string;
+      createdAt: Date;
+      ownerUserId: string | null;
+      ownerUser: { shortId: string } | null;
+    };
+    sha256: string;
+    originalName: string;
+    mimeType: string;
+    uploaderIp: string;
+    req: Request;
+    matchType: DuplicateMatchType;
+    pHashSimilarity?: number;
+  }): Promise<DuplicateCheckResult> {
+    const { rec, sha256, originalName, mimeType, uploaderIp, req, matchType, pHashSimilarity } = params;
+    const uploaderUserId = (req as { user?: { sub?: string } }).user?.sub;
 
-  private _computeAHash(pixels: Buffer, _w: number, _h: number): string {
-    // Resize to 8x8 is already done by sharp.resize(32,32)
-    // For aHash: take first 64 pixels (8x8 after resize to 8x8)
-    // Here we use the 32x32 grey and sample every 4th pixel to get 8x8
-    const grey64: number[] = [];
-    for (let row = 0; row < 8; row++) {
-      for (let col = 0; col < 8; col++) {
-        const idx = (row * 4 * 32 + col * 4) * 3;
-        const r = pixels[idx] ?? 0;
-        const g = pixels[idx + 1] ?? 0;
-        const b = pixels[idx + 2] ?? 0;
-        grey64.push(0.299 * r + 0.587 * g + 0.114 * b);
-      }
+    if (this._isSameAccount(rec.ownerUserId, uploaderUserId)) {
+      logger.info(`[DuplicateCheck] Same-account re-upload allowed (${matchType})`, {
+        existingRecordId: rec.id,
+        uploaderUserId,
+      });
+      return { isDuplicate: false, isHighRisk: false };
     }
-    const mean = grey64.reduce((a, b) => a + b, 0) / grey64.length;
-    let hashHex = '';
-    for (let i = 0; i < 64; i += 4) {
-      let nibble = 0;
-      for (let j = 0; j < 4; j++) {
-        if ((grey64[i + j] ?? 0) >= mean) nibble |= (1 << j);
-      }
-      hashHex += nibble.toString(16);
-    }
-    return hashHex; // 16 hex chars = 64 bits
+
+    const ownerShortId = rec.ownerUser?.shortId ?? undefined;
+    const isHighRisk = this._isCrossUserUpload(rec.ownerUserId, uploaderUserId)
+      || await this._isHighRisk(rec.id, uploaderIp);
+
+    await this._logAttempt({
+      sha256,
+      existingRecordId: rec.id,
+      existingFilename: rec.imageFilename,
+      originalName,
+      mimeType,
+      matchType,
+      isHighRisk,
+      pHashSimilarity,
+      ownerShortId,
+      ownerUserId: rec.ownerUserId ?? undefined,
+      req,
+    });
+
+    logger.warn(`[DuplicateCheck] ${matchType} blocked (cross-account)`, {
+      existingRecordId: rec.id,
+      ownerShortId,
+      pHashSimilarity,
+    });
+
+    return {
+      isDuplicate: true,
+      matchType,
+      existingRecordId: rec.id,
+      existingFilename: rec.imageFilename,
+      existingCreatedAt: rec.createdAt.toISOString(),
+      ownerShortId,
+      ownerUserId: rec.ownerUserId ?? undefined,
+      sha256Hash: sha256,
+      pHashSimilarity,
+      isHighRisk,
+    };
+  }
+
+  // ── Same PINIT account → allow duplicate uploads ───────────────────────────
+
+  private _isSameAccount(originalOwnerId: string | null | undefined, uploaderUserId?: string): boolean {
+    if (!originalOwnerId || !uploaderUserId) return false;
+    return originalOwnerId === uploaderUserId;
+  }
+
+  // ── Cross-user: different PINIT account re-uploading an existing file ────────
+
+  private _isCrossUserUpload(originalOwnerId: string | null | undefined, uploaderUserId?: string): boolean {
+    if (!originalOwnerId || !uploaderUserId) return false;
+    return originalOwnerId !== uploaderUserId;
   }
 
   // ── Risk heuristic: different uploader IP than original record ─────────────
@@ -334,23 +673,88 @@ export class DuplicateCheckService {
     matchType: DuplicateMatchType;
     isHighRisk: boolean;
     pHashSimilarity: number | undefined;
+    ownerShortId?: string;
+    ownerUserId?: string;
     req: Request;
+    extraDetail?: Record<string, unknown>;
   }): Promise<void> {
+    const uploaderUserId = (params.req as { user?: { sub?: string } }).user?.sub;
+    let uploaderShortId: string | undefined;
+    if (uploaderUserId) {
+      const uploader = await prisma.user.findUnique({
+        where: { id: uploaderUserId },
+        select: { shortId: true },
+      });
+      uploaderShortId = uploader?.shortId;
+    }
+
     await auditService.log({
-      eventType:  'DUPLICATE_UPLOAD_ATTEMPT' as never, // typed below
+      eventType:  'DUPLICATE_UPLOAD_ATTEMPT' as never,
       filename:   params.originalName,
       fileType:   params.mimeType,
+      dnaRecordId: params.existingRecordId,
       req:        params.req,
       detail: {
         sha256Hash:          params.sha256,
         existingDnaRecordId: params.existingRecordId,
         existingFilename:    params.existingFilename,
+        ownerShortId:        params.ownerShortId,
+        ownerUserId:         params.ownerUserId,
+        uploaderUserId,
+        uploaderShortId,
         matchType:           params.matchType,
         riskLevel:           params.isHighRisk ? 'HIGH' : 'LOW',
         pHashSimilarity:     params.pHashSimilarity,
         blocked:             true,
+        scope:               'CROSS_ACCOUNT_REGISTRY',
+        crossUser:           this._isCrossUserUpload(params.ownerUserId, uploaderUserId),
+        ...params.extraDetail,
       },
     });
+
+    const crossUser = this._isCrossUserUpload(params.ownerUserId, uploaderUserId);
+
+    // Same-account re-upload: allowed — no block, no owner alert.
+    // Cross-account: alert the file owner that another PINIT ID tried to upload their file.
+    if (crossUser && params.ownerUserId) {
+      import('../platform-events/module-events').then(({ emitDuplicateUploadBlocked, emitDuplicateUploadAdminAlert }) => {
+        emitDuplicateUploadBlocked({
+          ownerUserId: params.ownerUserId!,
+          dnaRecordId: params.existingRecordId,
+          filename: params.existingFilename || params.originalName,
+          matchType: params.matchType,
+          uploaderLabel: uploaderShortId,
+          crossUser: true,
+        });
+
+        // Admin Console / platform-owner inbox
+        void (async () => {
+          try {
+            const { getPlatformOwnerShortIds } = await import('../../lib/platform-owner');
+            const ownerIds = getPlatformOwnerShortIds();
+            if (!ownerIds.length) return;
+            const admins = await prisma.user.findMany({
+              where: { shortId: { in: ownerIds } },
+              select: { id: true, shortId: true },
+            });
+            for (const admin of admins) {
+              // Don't double-notify if the platform owner is also the file owner
+              if (admin.id === params.ownerUserId) continue;
+              emitDuplicateUploadAdminAlert({
+                adminUserId: admin.id,
+                ownerShortId: params.ownerShortId,
+                uploaderShortId,
+                filename: params.existingFilename || params.originalName,
+                dnaRecordId: params.existingRecordId,
+                matchType: params.matchType,
+              });
+            }
+          } catch {
+            /* non-fatal */
+          }
+        })();
+      }).catch(() => {});
+    }
   }
 }
 

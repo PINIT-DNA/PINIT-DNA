@@ -21,6 +21,7 @@ export type AuditEventType =
   | 'DNA_COMPARED'
   | 'VAULT_STORED'
   | 'VAULT_RETRIEVED'
+  | 'VAULT_DELETED'
   | 'VAULT_INTEGRITY_CHECK'
   | 'CERTIFICATE_ISSUED'
   | 'CERTIFICATE_REVOKED'
@@ -35,6 +36,8 @@ export type AuditEventType =
   | 'INTEGRITY_CHECK_RUN'
   | 'VAULT_BACKUP_RUN'
   | 'DUPLICATE_UPLOAD_ATTEMPT'
+  | 'TEP_GENERATED'
+  | 'TEP_REDISCOVERED'
   | 'MASKING_ENABLED'
   | 'UNMASK_REQUESTED'
   | 'UNMASK_APPROVED'
@@ -58,10 +61,12 @@ export class AuditService {
   async log(data: AuditEventData): Promise<void> {
     try {
       const deviceInfo = this.extractDeviceInfo(data.req);
+      const userId = (data.req as { user?: { sub?: string } } | undefined)?.user?.sub ?? null;
 
       await prisma.auditEvent.create({
         data: {
           eventType:   data.eventType,
+          userId,
           dnaRecordId: data.dnaRecordId ?? null,
           vaultId:     data.vaultId    ?? null,
           filename:    data.filename   ?? null,
@@ -144,18 +149,37 @@ export class AuditService {
   /**
    * Get recent audit events across the system.
    */
-  async getRecentEvents(limit = 50) {
+  async getRecentEvents(limit = 50, userId?: string) {
+    const scope = userId ? await this.userEventScope(userId) : undefined;
     return prisma.auditEvent.findMany({
+      where: scope,
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
   }
 
+  private async userEventScope(userId: string) {
+    const ownedDna = await prisma.dnaRecord.findMany({
+      where: { ownerUserId: userId },
+      select: { id: true },
+    });
+    const dnaIds = ownedDna.map((d) => d.id);
+    return {
+      OR: [
+        { userId },
+        ...(dnaIds.length ? [{ dnaRecordId: { in: dnaIds } }] : []),
+      ],
+    };
+  }
+
   /**
    * Export audit log as CSV string.
    */
-  async exportCsv(params?: { from?: string; to?: string; eventType?: string }): Promise<string> {
+  async exportCsv(params?: { from?: string; to?: string; eventType?: string; userId?: string }): Promise<string> {
     const where: Record<string, unknown> = {};
+    if (params?.userId) {
+      Object.assign(where, await this.userEventScope(params.userId));
+    }
     if (params?.from || params?.to) {
       where['createdAt'] = {};
       if (params.from) (where['createdAt'] as Record<string, unknown>)['gte'] = new Date(params.from);
@@ -184,11 +208,13 @@ export class AuditService {
   /**
    * Get audit statistics.
    */
-  async getStats() {
+  async getStats(userId?: string) {
+    const scope = userId ? await this.userEventScope(userId) : undefined;
     const [total, byType] = await Promise.all([
-      prisma.auditEvent.count(),
+      prisma.auditEvent.count({ where: scope }),
       prisma.auditEvent.groupBy({
         by:      ['eventType'],
+        where:   scope,
         _count:  { eventType: true },
         orderBy: { _count: { eventType: 'desc' } },
       }),

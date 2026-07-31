@@ -20,7 +20,7 @@ import { UniversalEngineResult, UniversalLayerResult } from '../../../types/univ
 import {
   simHash64,
   detectEncoding,
-  computeHmac,
+  computeLayer6IdentitySeal,
   sha256,
 } from '../base/text-utils';
 
@@ -245,7 +245,7 @@ export class JsonDnaEngine {
 
   private layer6(fingerprints: string, dnaRecordId: string): UniversalLayerResult {
     const t = Date.now();
-    const hmac = computeHmac(`JSON:${dnaRecordId}:${fingerprints}`, config.stego.signatureSecret);
+    const hmac = computeLayer6IdentitySeal('JSON', fingerprints, dnaRecordId, config.stego.signatureSecret);
     return { layer: 6, name: 'signature', implementation: 'hmac_sha256',
       fingerprint: hmac, data: { hmac, dnaRecordId, embedded: false },
       success: true, processingMs: Date.now() - t };

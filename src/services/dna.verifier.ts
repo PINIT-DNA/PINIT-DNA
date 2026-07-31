@@ -34,6 +34,18 @@ import {
   LayerVerificationResult,
   LayerName,
 } from '../types/dna.types';
+import { dnaEnhancements } from '../config/dna-enhancements';
+import { isPhase2Active } from '../config/dna-phase2';
+import { buildEnhancementBundle, parseEnhancementBundle } from './forensics/dna-enhancement-bundle.service';
+import { weightedDnaScoringService } from './forensics/weighted-dna-scoring.service';
+import { adaptiveScoringService, detectMediaProfile } from './forensics/adaptive-scoring.service';
+import { tamperClassifierService } from './forensics/tamper-classifier.service';
+import { dnaExplanationService } from './forensics/dna-explanation.service';
+import { evidenceConfidenceService } from './forensics/evidence-confidence.service';
+import { selfLearningDnaService } from './forensics/self-learning-dna.service';
+import { transformationHistoryService } from './forensics/transformation-history.service';
+import { crossMediaDetectionService } from './forensics/cross-media-detection.service';
+import type { LayerScoreInput, TamperVector } from '../types/dna-enhancements.types';
 
 // Minimum similarity score for each layer to be considered "passing"
 const LAYER_THRESHOLDS: Record<LayerName, number> = {
@@ -168,8 +180,93 @@ export class DnaVerifier {
     }
 
     // ── Compute weighted confidence score ─────────────────────────────────────
-    const confidenceScore = this.computeConfidenceScore(layerResults);
-    const passed = this.evaluatePassCriteria(layerResults, confidenceScore);
+    let confidenceScore = this.computeConfidenceScore(layerResults);
+    let passed = this.evaluatePassCriteria(layerResults, confidenceScore);
+
+    let forensic: DnaVerificationResult['forensic'];
+
+    if (dnaEnhancements.enabled && dnaEnhancements.verify.weightedScoring) {
+      const coreInputs: LayerScoreInput[] = layerResults.map((r) => ({
+        layer: r.layer,
+        score: r.similarityScore,
+        weight: LAYER_WEIGHTS[r.layer],
+        passed: r.passed,
+      }));
+
+      const storedBundle = parseEnhancementBundle(stored.universalFingerprints);
+      const probeBundle = await buildEnhancementBundle(probeImage.buffer, {
+        mimeType: probeImage.mimeType,
+        fileType: 'IMAGE',
+      });
+
+      const mediaProfile = detectMediaProfile(probeImage.mimeType, stored.fileType ?? 'IMAGE');
+
+      const weighted = isPhase2Active()
+        ? adaptiveScoringService.compute(mediaProfile, coreInputs, probeBundle, storedBundle)
+        : weightedDnaScoringService.compute(coreInputs, probeBundle, storedBundle);
+
+      const learningBoost = selfLearningDnaService.boostFromLearning(
+        stored.universalFingerprints,
+        'UNKNOWN_TAMPER',
+        coreInputs,
+      );
+      confidenceScore = Math.min(1, weighted.overallMatchScore + learningBoost);
+
+      let tamperVector: TamperVector | undefined;
+      let tamperDescription: string | undefined;
+
+      if (dnaEnhancements.verify.tamperClassification) {
+        const tamper = tamperClassifierService.classify(coreInputs, weighted.enhancedLayerScores);
+        tamperVector = tamper.primaryVector;
+        tamperDescription = tamper.description;
+
+        await transformationHistoryService.append(
+          dnaRecordId,
+          tamper.primaryVector,
+          confidenceScore,
+        );
+        await selfLearningDnaService.recordVerification(dnaRecordId, tamper.primaryVector, coreInputs);
+      }
+
+      const explanation = dnaExplanationService.explain(
+        confidenceScore,
+        coreInputs,
+        weighted.enhancedLayerScores,
+        storedBundle,
+      );
+
+      const evidenceConfidence = evidenceConfidenceService.compute(
+        confidenceScore,
+        [...coreInputs, ...(weighted.enhancedLayerScores ?? [])],
+        tamperVector,
+        false,
+        layerResults.find((r) => r.layer === 'steganography')?.similarityScore,
+      );
+
+      const crossMedia = crossMediaDetectionService.detect(
+        probeImage.mimeType,
+        'IMAGE',
+        probeBundle,
+        stored.imageMimeType ?? probeImage.mimeType,
+        stored.fileType ?? 'IMAGE',
+        storedBundle,
+      );
+
+      forensic = {
+        overallMatchScore: weighted.overallMatchScore,
+        ownershipConfidence: weighted.ownershipConfidence,
+        tamperConfidence: weighted.tamperConfidence,
+        tamperVector,
+        tamperDescription,
+        mediaProfile,
+        explanation,
+        evidenceConfidence,
+        crossMedia,
+        transformationHistory: transformationHistoryService.getHistory(stored.universalFingerprints),
+      };
+
+      passed = this.evaluatePassCriteria(layerResults, confidenceScore);
+    }
 
     // ── Persist verification log ──────────────────────────────────────────────
     const logEntry = await prisma.verificationLog.create({
@@ -200,6 +297,7 @@ export class DnaVerifier {
       layersChecked: layersToCheck,
       verifiedAt: new Date(),
       verificationLogId: logEntry.id,
+      forensic,
     };
   }
 

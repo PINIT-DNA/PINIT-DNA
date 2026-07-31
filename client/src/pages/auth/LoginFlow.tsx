@@ -1,208 +1,254 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ScanFace, Fingerprint, ShieldCheck, ArrowRight, CheckCircle2, UserCheck } from 'lucide-react';
+import { ScanFace, ShieldCheck, ArrowRight, CheckCircle2, UserCheck } from 'lucide-react';
 
 import { AuthShell } from '../../components/auth/AuthShell';
-import { CameraStage } from '../../components/auth/CameraStage';
+import { FaceRoundScan } from '../../components/auth/FaceRoundScan';
+import { BiometricStep, isNotRegisteredError } from '../../components/auth/BiometricStep';
+import { VoiceCaptureStep } from '../../components/auth/VoiceCaptureStep';
 import { StepHead, Checklist, SystemTrace, TrustBadge, type CheckItem } from '../../components/auth/parts';
 import { useAuth } from '../../context/AuthContext';
-import { getStoredShortId, getTrustScore, getLastLogin, recordLogin, clearRegistration } from '../../lib/hoid';
-import { assertDeviceCredential } from '../../lib/webauthn';
+import {
+  getTrustScore, getLastLogin, recordLogin, clearRegistration,
+  saveRegistration, getStoredWebAuthnCredential, generateHoid,
+} from '../../lib/hoid';
 import { touchLastLogin } from '../../lib/identity-store';
-import { warmBackend } from '../../lib/auth';
+import { warmBackend, parseJwt, getAccessToken } from '../../lib/auth';
+import { resolveDefaultHomePath } from '../../lib/subscription/post-upgrade-redirect';
+import { loginWithFace } from '../../lib/face-api-client';
+import { collectFingerprint } from '../../lib/device-fingerprint';
+import { preloadFaceModels } from '../../lib/face-capture';
 
-type Step = 'welcome' | 'face' | 'biometric' | 'presence' | 'success';
-const ORDER: Step[] = ['welcome', 'face', 'biometric', 'presence', 'success'];
+type Step = 'welcome' | 'face' | 'biometric' | 'voice' | 'presence' | 'success';
+/** Face → fingerprint UI → voice → database check. */
+const ORDER: Step[] = ['welcome', 'face', 'biometric', 'voice', 'presence', 'success'];
 
 const fade = {
   initial: { opacity: 0, y: 16 },
   animate: { opacity: 1, y: 0 },
   exit:    { opacity: 0, y: -16 },
-  transition: { duration: 0.28 },
+  transition: { duration: 0.22 },
 };
 
 export function LoginFlow() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { loginWithFaceResponse } = useAuth();
 
   const [step, setStep] = useState<Step>('welcome');
   const [error, setError] = useState('');
+  const [presenceKey, setPresenceKey] = useState(0);
+  const faceEmbeddingRef = useRef<number[] | null>(null);
+  const voiceFingerprintRef = useRef<number[] | null>(null);
+  const bioCredentialRef = useRef<string | undefined>(undefined);
+  const deviceFpRef = useRef<string>('');
+
   const go = (s: Step) => { setError(''); setStep(s); };
   const idx = ORDER.indexOf(step);
 
-  // Wake the backend as soon as the login flow opens (covers Render cold start).
-  useEffect(() => { warmBackend(); }, []);
+  useEffect(() => { warmBackend(); preloadFaceModels(); collectFingerprint().then((f) => { deviceFpRef.current = f.hash; }).catch(() => {}); }, []);
 
-  function useDifferentIdentity() {
+  function goToRegister() {
     clearRegistration();
-    navigate('/register', { replace: true });
+    navigate('/register/account-type', { replace: true });
+  }
+
+  function handleNotRegistered(msg: string) {
+    setError(msg);
   }
 
   return (
-    <AuthShell steps={ORDER.length} current={idx} tagline="Verify Your Presence">
+    <AuthShell steps={ORDER.length} current={idx} tagline="Biometric Access">
       <AnimatePresence mode="wait">
         <motion.div key={step} {...fade}>
-          {step === 'welcome'   && <WelcomeBack onNext={() => go('face')} onSwitch={useDifferentIdentity} />}
-          {step === 'face'      && <FaceAuth onNext={() => go('biometric')} />}
-          {step === 'biometric' && <BiometricConfirm onNext={() => go('presence')} />}
-          {step === 'presence'  && (
-            <Presence
-              error={error}
-              run={async () => {
-                const shortId = getStoredShortId();
-                if (!shortId) throw new Error('No identity bound to this device.');
-                await login(shortId);
-                recordLogin();
-                await touchLastLogin(shortId);
-              }}
-              onDone={() => go('success')}
+          {step === 'welcome' && (
+            <WelcomeBack onNext={() => go('face')} onRegister={goToRegister} />
+          )}
+          {step === 'face' && (
+            <>
+              <FaceRoundScan
+                mode="login"
+                title="Face Authentication"
+                onEmbedding={(emb) => { faceEmbeddingRef.current = emb; }}
+                onNext={() => go('biometric')}
+                onError={(m) => setError(m)}
+              />
+              {error && <p style={{ color: '#fca5a5', fontSize: 13, marginTop: 8, textAlign: 'center' }}>{error}</p>}
+            </>
+          )}
+          {step === 'biometric' && (
+            <BiometricStep
+              mode="login"
+              enrollmentLabel={(getStoredWebAuthnCredential() ?? deviceFpRef.current) || 'pinit-login'}
+              deviceFingerprint={deviceFpRef.current || undefined}
+              expectedCredentialId={getStoredWebAuthnCredential()}
+              strict
+              onDone={(r) => { bioCredentialRef.current = r.credentialId; go('voice'); }}
               onError={(m) => setError(m)}
-              onSwitch={useDifferentIdentity}
             />
           )}
-          {step === 'success'   && <LoginSuccess onEnter={() => navigate('/', { replace: true })} />}
+          {step === 'voice' && (
+            <VoiceCaptureStep randomPhrase onDone={(fp) => { voiceFingerprintRef.current = fp; go('presence'); }} onError={(m) => setError(m)} />
+          )}
+          {step === 'presence' && (
+            <Presence
+              key={presenceKey}
+              error={error}
+              run={async () => {
+                const embedding = faceEmbeddingRef.current;
+                const voiceFp = voiceFingerprintRef.current;
+                if (!embedding || !voiceFp) throw new Error('Biometric data missing.');
+
+                const result = await loginWithFace({
+                  embedding,
+                  voiceFingerprint: voiceFp,
+                  webauthnCredentialId: bioCredentialRef.current,
+                  deviceFingerprint: (await collectFingerprint().catch(() => ({ hash: '' }))).hash || undefined,
+                });
+                loginWithFaceResponse(result);
+
+                const shortId = result.user?.shortId ?? '';
+                if (shortId) {
+                  let deviceFp = '';
+                  try { deviceFp = (await collectFingerprint()).hash; } catch { /* noop */ }
+                  saveRegistration({
+                    hoid: generateHoid(deviceFp),
+                    shortId,
+                    trustScore: getTrustScore(),
+                    deviceFp,
+                    webauthnCredentialId: getStoredWebAuthnCredential() ?? undefined,
+                  });
+                  recordLogin();
+                  await touchLastLogin(shortId);
+                }
+              }}
+              onDone={() => go('success')}
+              onError={(m) => {
+                if (isNotRegisteredError(m)) handleNotRegistered(m);
+                else setError(m);
+              }}
+              onRegister={goToRegister}
+              onRetry={() => { setError(''); setPresenceKey((k) => k + 1); }}
+            />
+          )}
+          {step === 'success' && (
+            <LoginSuccess
+              onEnter={() => {
+                const token = getAccessToken();
+                const parsed = token ? parseJwt(token) : null;
+                navigate(resolveDefaultHomePath(parsed?.accountType ?? 'INDIVIDUAL'), { replace: true });
+              }}
+            />
+          )}
         </motion.div>
       </AnimatePresence>
     </AuthShell>
   );
 }
 
-/* ── Screen 1 — Welcome Back ──────────────────────────────────────────────── */
-function WelcomeBack({ onNext, onSwitch }: { onNext: () => void; onSwitch: () => void }) {
+function WelcomeBack({ onNext, onRegister }: { onNext: () => void; onRegister: () => void }) {
   return (
     <div className="pa-card" style={{ textAlign: 'center' }}>
-      <div style={{ width: 76, height: 76, margin: '4px auto 16px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at 50% 30%, rgba(129,140,248,0.35), rgba(99,102,241,0.06))', border: '1px solid rgba(129,140,248,0.4)' }}>
-        <UserCheck size={38} color="#6366f1" />
+      <div style={{
+        width: 72, height: 72, margin: '4px auto 16px', borderRadius: 20,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'radial-gradient(circle at 50% 30%, rgba(59,158,255,0.35), rgba(29,111,216,0.08))',
+        border: '1px solid rgba(59,158,255,0.35)',
+      }}>
+        <UserCheck size={34} color="#3b9eff" />
       </div>
-      <h1 style={{ fontSize: 23, fontWeight: 800 }}>Welcome Back</h1>
-      <p className="pa-muted" style={{ fontSize: 14, marginTop: 8, marginBottom: 22 }}>
-        Verify your presence to continue.
+      <h1 style={{ fontSize: 22, fontWeight: 800 }}>Welcome Back</h1>
+      <p className="pa-muted" style={{ fontSize: 14, marginTop: 8 }}>
+        Biometric login only — no email or password.
       </p>
+      <div className="pa-bio-steps">
+        <div className="pa-bio-step">
+          <ScanFace size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
+          <span>Face</span>
+          <em>Scan</em>
+        </div>
+        <div className="pa-bio-step">
+          <ShieldCheck size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
+          <span>Fingerprint</span>
+          <em>Verify</em>
+        </div>
+        <div className="pa-bio-step">
+          <CheckCircle2 size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
+          <span>Voice</span>
+          <em>Match</em>
+        </div>
+      </div>
       <button className="pa-btn" onClick={onNext}><ScanFace size={17} /> Verify Identity</button>
-      <button className="pa-btn pa-btn-ghost" style={{ marginTop: 10 }} onClick={onSwitch}>
-        Use a different identity
+      <button className="pa-btn pa-btn-ghost" style={{ marginTop: 10 }} onClick={onRegister}>
+        New here? Create biometric account
       </button>
     </div>
   );
 }
 
-/* ── Screen 2 — Face Authentication ───────────────────────────────────────── */
-function FaceAuth({ onNext }: { onNext: () => void }) {
-  const [progress, setProgress] = useState(0);
-  const [done, setDone] = useState(false);
-  const advancedRef = useRef(false);
-
-  useEffect(() => {
-    const iv = setInterval(() => setProgress((p) => Math.min(100, p + 4)), 65);
-    return () => clearInterval(iv);
-  }, []);
-
-  // `done` is intentionally NOT a dependency (see RegistrationFlow FaceEnroll).
-  useEffect(() => {
-    if (progress >= 100 && !advancedRef.current) {
-      advancedRef.current = true;
-      setDone(true);
-      const t = setTimeout(onNext, 850);
-      return () => clearTimeout(t);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [progress, onNext]);
-
-  return (
-    <div className="pa-card">
-      <StepHead icon={<ScanFace size={26} color="#6366f1" />} title="Face Authentication" subtitle="Look at the camera." />
-      <CameraStage active progress={progress} done={done} />
-      <p className="pa-accent mono" style={{ textAlign: 'center', fontSize: 12.5, marginTop: 16, lineHeight: 1.9 }}>
-        {done ? 'Face matched ✓' : 'Face scan · matching · liveness · deepfake check…'}
-      </p>
-    </div>
-  );
-}
-
-/* ── Screen 3 — Device Biometric ──────────────────────────────────────────── */
-function BiometricConfirm({ onNext }: { onNext: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const ran = useRef(false);
-
-  useEffect(() => {
-    if (ran.current) return;
-    ran.current = true;
-    (async () => {
-      setBusy(true);
-      await assertDeviceCredential();
-      setBusy(false);
-      setTimeout(onNext, 400);
-    })();
-  }, [onNext]);
-
-  return (
-    <div className="pa-card" style={{ textAlign: 'center' }}>
-      <StepHead icon={<Fingerprint size={26} color="#6366f1" />} title="Confirm Identity" subtitle="Use Face ID or Fingerprint" />
-      <div style={{ display: 'flex', justifyContent: 'center', margin: '10px 0 18px' }}>
-        <div className={busy ? 'pa-spin' : 'pa-pop'} style={{ width: 92, height: 92, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at 50% 30%, rgba(129,140,248,0.35), rgba(99,102,241,0.08))', border: '1px solid rgba(129,140,248,0.4)' }}>
-          <Fingerprint size={44} color="#6366f1" />
-        </div>
-      </div>
-      <p className="pa-faint mono" style={{ fontSize: 11.5, lineHeight: 1.9 }}>
-        WebAuthn Assertion · Secure Enclave · FIDO2
-      </p>
-    </div>
-  );
-}
-
-/* ── Screen 4 — Presence Verification ─────────────────────────────────────── */
 function Presence({
-  run, onDone, onError, onSwitch, error,
+  run, onDone, onError, onRegister, onRetry, error,
 }: {
   run: () => Promise<void>;
   onDone: () => void;
   onError: (m: string) => void;
-  onSwitch: () => void;
+  onRegister: () => void;
+  onRetry: () => void;
   error: string;
 }) {
   const [items, setItems] = useState<CheckItem[]>([
-    { label: 'Face Match', done: false },
-    { label: 'Voice Profile', done: false },
-    { label: 'Device Signature', done: false },
-    { label: 'Presence Certificate', done: false },
-    { label: 'Trust Score', done: false },
+    { label: 'Face Captured', done: false },
+    { label: 'Fingerprint Verified', done: false },
+    { label: 'Voice Captured', done: false },
+    { label: 'Database Match', done: false },
   ]);
   const ran = useRef(false);
+  const notRegistered = isNotRegisteredError(error);
 
   useEffect(() => {
     if (ran.current) return;
     ran.current = true;
-    items.forEach((_, i) =>
-      setTimeout(() => setItems((prev) => prev.map((it, j) => (j <= i ? { ...it, done: true } : it))), 420 * (i + 1))
+    const preMatch = items.length - 1;
+    items.slice(0, preMatch).forEach((_, i) =>
+      setTimeout(() => setItems((prev) => prev.map((it, j) => (j <= i ? { ...it, done: true } : it))), 250 * (i + 1))
     );
     run()
-      .then(() => setTimeout(onDone, 2600))
+      .then(() => {
+        setItems((prev) => prev.map((it) => ({ ...it, done: true })));
+        setTimeout(onDone, 700);
+      })
       .catch((e) => onError(e?.message || 'Verification failed.'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <div className="pa-card">
-      <StepHead icon={<ShieldCheck size={26} color="#6366f1" />} title="Presence Verification" subtitle="Validating your identity signals…" />
+      <StepHead icon={<ShieldCheck size={26} color="#3b9eff" />} title="Checking Database" subtitle="Matching your biometrics…" />
       <Checklist items={items} />
-      <SystemTrace lines={['Validate Face Match', 'Verify Device Signature', 'Check Presence Certificate', 'Compute Trust Score']} />
+      <SystemTrace lines={['Compare Face', 'Verify Voice', 'Lookup Identity']} />
       {error && (
         <div style={{ marginTop: 14, textAlign: 'center' }}>
           <p style={{ color: '#fca5a5', fontSize: 13 }}>{error}</p>
-          <button className="pa-btn pa-btn-ghost" style={{ marginTop: 10 }} onClick={onSwitch}>Register a new identity</button>
+          <button type="button" className="pa-btn" style={{ marginTop: 10 }} onClick={onRetry}>Try again</button>
+          {notRegistered && (
+            <button className="pa-btn pa-btn-ghost" style={{ marginTop: 10, marginLeft: 8 }} onClick={onRegister}>
+              Register instead
+            </button>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-/* ── Screen 5 — Login Success ─────────────────────────────────────────────── */
 function LoginSuccess({ onEnter }: { onEnter: () => void }) {
   const last = getLastLogin();
-  const lastStr = last
-    ? `Today ${last.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-    : '—';
+  const lastStr = last ? `Today ${last.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '—';
+
+  useEffect(() => {
+    const t = setTimeout(onEnter, 1600);
+    return () => clearTimeout(t);
+  }, [onEnter]);
 
   return (
     <div className="pa-card" style={{ textAlign: 'center' }}>
@@ -213,9 +259,9 @@ function LoginSuccess({ onEnter }: { onEnter: () => void }) {
       <div style={{ margin: '18px 0' }}><TrustBadge score={getTrustScore()} /></div>
       <div className="pa-check" style={{ justifyContent: 'center', marginBottom: 18 }}>
         <span className="pa-faint" style={{ fontSize: 13 }}>Last login</span>
-        <span style={{ fontSize: 13, color: '#0f172a', fontWeight: 600 }}>{lastStr}</span>
+        <span style={{ fontSize: 13, color: '#e8eef8', fontWeight: 600 }}>{lastStr}</span>
       </div>
-      <button className="pa-btn" onClick={onEnter}>Enter PINIT <ArrowRight size={17} /></button>
+      <button className="pa-btn" onClick={onEnter}>Enter PinIT Hub <ArrowRight size={17} /></button>
     </div>
   );
 }

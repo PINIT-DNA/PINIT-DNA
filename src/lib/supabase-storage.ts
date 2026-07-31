@@ -47,8 +47,8 @@ async function ensureBucket(): Promise<void> {
 let _bucketReady = false;
 
 /** Upload encrypted buffer to Supabase Storage. Returns the storage path. */
-export async function uploadVaultFile(vaultId: string, buffer: Buffer): Promise<string> {
-  const storagePath = `${vaultId}.enc`;
+export async function uploadVaultFile(vaultId: string, buffer: Buffer, ownerUserId?: string): Promise<string> {
+  const storagePath = ownerUserId ? `${ownerUserId}/${vaultId}.enc` : `${vaultId}.enc`;
 
   if (!_bucketReady) {
     await ensureBucket();
@@ -68,24 +68,121 @@ export async function uploadVaultFile(vaultId: string, buffer: Buffer): Promise<
   return storagePath;
 }
 
-/** Download encrypted buffer from Supabase Storage. */
-export async function downloadVaultFile(vaultId: string): Promise<Buffer> {
-  const storagePath = `${vaultId}.enc`;
+/** True when Supabase Storage env vars are present (required in production). */
+export function isSupabaseStorageConfigured(): boolean {
+  const url = process.env['SUPABASE_URL']?.trim() ?? '';
+  const key = process.env['SUPABASE_SERVICE_KEY']?.trim()
+    || process.env['SUPABASE_ANON_KEY']?.trim()
+    || '';
+  return Boolean(url && key);
+}
 
-  const { data, error } = await getClient().storage
-    .from(BUCKET)
-    .download(storagePath);
+/** Normalise a DB-stored path to a Supabase object key. */
+export function normalizeVaultStoragePath(storedPath: string, vaultId: string): string {
+  const norm = storedPath.replace(/\\/g, '/');
+  // Already a bucket-relative key, e.g. "{ownerUserId}/{vaultId}.enc"
+  if (!norm.includes(':') && norm.endsWith('.enc') && !norm.startsWith('/')) {
+    return norm;
+  }
+  const base = norm.split('/').filter(Boolean).pop();
+  return base?.endsWith('.enc') ? base : `${vaultId}.enc`;
+}
 
-  if (error) throw new Error(`Supabase download failed: ${error.message}`);
-  if (!data)  throw new Error(`No data returned for vault file: ${storagePath}`);
-
+/** Download encrypted buffer from Supabase Storage by object key. */
+export async function downloadVaultFileByPath(storagePath: string): Promise<Buffer> {
+  const { data, error } = await getClient().storage.from(BUCKET).download(storagePath);
+  if (error || !data) {
+    throw new Error(`Supabase download failed: ${error?.message ?? `no data for ${storagePath}`}`);
+  }
   const arrayBuffer = await data.arrayBuffer();
   return Buffer.from(arrayBuffer);
 }
 
+/** Download encrypted buffer from Supabase Storage. */
+export async function downloadVaultFile(
+  vaultId: string,
+  ownerUserId?: string,
+  extraPaths: string[] = [],
+): Promise<Buffer> {
+  const paths = [
+    ...extraPaths.map((p) => normalizeVaultStoragePath(p, vaultId)),
+    ownerUserId ? `${ownerUserId}/${vaultId}.enc` : null,
+    `${vaultId}.enc`,
+  ].filter((p, i, arr): p is string => Boolean(p) && arr.indexOf(p) === i);
+
+  let lastError: Error | null = null;
+  for (const storagePath of paths) {
+    try {
+      return await downloadVaultFileByPath(storagePath);
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+  }
+
+  throw new Error(`Supabase download failed: ${lastError?.message ?? 'unknown'}`);
+}
+
 /** Delete vault file from Supabase Storage (on vault record deletion). */
-export async function deleteVaultFile(vaultId: string): Promise<void> {
-  const storagePath = `${vaultId}.enc`;
-  const { error } = await getClient().storage.from(BUCKET).remove([storagePath]);
-  if (error) logger.warn('[Storage] Delete failed (non-fatal)', { vaultId, error: error.message });
+export async function deleteVaultFile(
+  vaultId: string,
+  options?: { ownerUserId?: string; storedPath?: string },
+): Promise<void> {
+  const paths = [
+    options?.storedPath ? normalizeVaultStoragePath(options.storedPath, vaultId) : null,
+    options?.ownerUserId ? `${options.ownerUserId}/${vaultId}.enc` : null,
+    `${vaultId}.enc`,
+  ].filter((p, i, arr): p is string => Boolean(p) && arr.indexOf(p) === i);
+
+  for (const storagePath of paths) {
+    const { error } = await getClient().storage.from(BUCKET).remove([storagePath]);
+    if (!error) {
+      logger.debug('[Storage] Deleted vault file', { vaultId, storagePath });
+      return;
+    }
+  }
+
+  logger.warn('[Storage] Delete failed (non-fatal)', { vaultId });
+}
+
+/**
+ * Check whether an encrypted vault blob exists in Supabase (or return null paths tried).
+ * Uses Storage list metadata — does not download file bytes.
+ */
+export async function findVaultFileInSupabase(
+  vaultId: string,
+  options?: { ownerUserId?: string; storedPath?: string },
+): Promise<{ exists: boolean; size: number | null; storagePath: string | null }> {
+  const paths = [
+    options?.storedPath ? normalizeVaultStoragePath(options.storedPath, vaultId) : null,
+    options?.ownerUserId ? `${options.ownerUserId}/${vaultId}.enc` : null,
+    `${vaultId}.enc`,
+  ].filter((p, i, arr): p is string => Boolean(p) && arr.indexOf(p) === i);
+
+  for (const storagePath of paths) {
+    const segments = storagePath.split('/').filter(Boolean);
+    const fileName = segments.pop();
+    if (!fileName) continue;
+    const folder = segments.join('/');
+
+    const { data, error } = await getClient().storage.from(BUCKET).list(folder || '', {
+      search: fileName,
+      limit: 20,
+    });
+
+    if (error) {
+      logger.debug('[Storage] list failed', { storagePath, error: error.message });
+      continue;
+    }
+
+    const match = data?.find((f) => f.name === fileName);
+    if (match) {
+      const sizeRaw = (match as { metadata?: { size?: number }; meta?: { size?: number } }).metadata?.size
+        ?? (match as { meta?: { size?: number } }).meta?.size
+        ?? null;
+      const size = typeof sizeRaw === 'number' ? sizeRaw : null;
+      return { exists: true, size, storagePath };
+    }
+  }
+
+  return { exists: false, size: null, storagePath: null };
 }

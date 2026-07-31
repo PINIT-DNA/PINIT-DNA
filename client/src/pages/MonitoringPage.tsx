@@ -3,7 +3,7 @@
  * Route: /monitoring
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Radio, Search, AlertTriangle, CheckCircle2, XCircle,
   RefreshCw, Play, Pause, Globe, Shield, Clock, Activity,
@@ -20,6 +20,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { Modal } from '../components/ui/Modal';
 import { cn } from '../components/ui/utils';
+import { resolveAlertUrl, resolveAlertSubtitle } from '../lib/crawler-url';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -110,6 +111,8 @@ function AlertCard({ alert, onDismiss, onConfirm }: {
 }) {
   const cfg = MATCH_CONFIG[alert.matchType] ?? MATCH_CONFIG['POSSIBLE_MATCH'];
   const pct = Math.round(alert.similarity * 100);
+  const linkUrl = resolveAlertUrl(alert);
+  const subtitle = resolveAlertSubtitle(alert);
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
       className={cn('card border transition-all', cfg.bg, cfg.border)}>
@@ -128,13 +131,16 @@ function AlertCard({ alert, onDismiss, onConfirm }: {
           {alert.monitorRecord && (
             <p className="text-xs font-semibold text-white mb-1">{alert.monitorRecord.filename}</p>
           )}
-          <p className="text-xs text-gray-400 truncate mb-1">{alert.pageTitle || 'No title'}</p>
-          <a href={alert.url} target="_blank" rel="noreferrer"
-            className="text-2xs text-dna-400 hover:underline truncate block mono">
-            {alert.url.slice(0, 80)}{alert.url.length > 80 ? '…' : ''}
-          </a>
-          {alert.foundText && (
-            <p className="text-2xs text-gray-500 mt-2 line-clamp-2">{alert.foundText.slice(0, 150)}</p>
+          <p className="text-xs text-gray-400 truncate mb-1">{subtitle || 'No title'}</p>
+          {linkUrl ? (
+            <a href={linkUrl} target="_blank" rel="noreferrer"
+              className="text-2xs text-dna-400 hover:underline truncate block mono font-semibold">
+              {linkUrl}
+            </a>
+          ) : (
+            <p className="text-2xs text-gray-500 italic">
+              Source page unavailable (search tracker URL — dismiss or re-scan)
+            </p>
           )}
           <p className="text-2xs text-gray-600 mt-1">
             Found {format(new Date(alert.checkedAt), 'MMM d, HH:mm')}
@@ -241,12 +247,26 @@ function MonitorCard({ m, onCheck, onPause, onResume, onScanTypeChange, checking
           {/* Recent matches */}
           {m.crawlResults.length > 0 && (
             <div className="mt-2 space-y-1">
-              {m.crawlResults.slice(0, 2).map(r => {
+              <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wide">Discovered URLs</p>
+              {m.crawlResults.slice(0, 3).map(r => {
                 const mc = MATCH_CONFIG[r.matchType] ?? MATCH_CONFIG['POSSIBLE_MATCH'];
+                const linkUrl = resolveAlertUrl(r);
                 return (
-                  <div key={r.id} className="flex items-center gap-2 bg-bg-elevated rounded p-1.5">
+                  <div key={r.id} className="flex items-center gap-2 bg-bg-elevated rounded p-1.5 min-w-0">
                     <Globe size={10} className="text-gray-500 shrink-0" />
-                    <span className="text-2xs text-gray-400 truncate flex-1">{r.url.slice(0, 60)}…</span>
+                    {linkUrl ? (
+                      <a
+                        href={linkUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-2xs text-dna-400 hover:underline truncate flex-1 mono"
+                        title={linkUrl}
+                      >
+                        {linkUrl}
+                      </a>
+                    ) : (
+                      <span className="text-2xs text-gray-400 truncate flex-1">{r.url.slice(0, 60)}…</span>
+                    )}
                     <span className={cn('text-2xs font-bold shrink-0', mc.color)}>
                       {Math.round(r.similarity * 100)}%
                     </span>
@@ -341,15 +361,31 @@ function MonitorCard({ m, onCheck, onPause, onResume, onScanTypeChange, checking
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+interface EngineStats {
+  crawlerStatus: string;
+  platformsConnected: Record<string, boolean>;
+  jobsPending: number;
+  jobsRunning: number;
+  jobsCompleted24h: number;
+  jobsFailed24h: number;
+  matchesFound: number;
+  incidentsOpen: number;
+  lastScanAt: string | null;
+  nextScanAt: string | null;
+  successRate: number;
+  coverage: { monitorsActive: number; monitorsTotal: number; platformsEnabled: number };
+}
+
 export function MonitoringPage() {
   const [monitors,    setMonitors]    = useState<MonitorRecord[]>([]);
   const [alerts,      setAlerts]      = useState<CrawlResult[]>([]);
   const [stats,       setStats]       = useState<Stats | null>(null);
+  const [engineStats, setEngineStats] = useState<EngineStats | null>(null);
   const [loading,     setLoading]     = useState(true);
   const [enrollOpen,  setEnrollOpen]  = useState(false);
   const [checking,    setChecking]    = useState<string | null>(null);
   const [checkResult, setCheckResult] = useState<Record<string, unknown> | null>(null);
-  const [enrollScanType, setEnrollScanType] = useState<string>('DAILY');
+  const [enrollScanType, setEnrollScanType] = useState<string>('CONTINUOUS');
   const [enrollUrls,  setEnrollUrls]  = useState('');
   const [enrollingId, setEnrollingId] = useState<string | null>(null);
   const [alertTab,    setAlertTab]    = useState<'PENDING'|'CONFIRMED'|'DISMISSED'>('PENDING');
@@ -359,28 +395,38 @@ export function MonitoringPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [mResp, aResp, sResp] = await Promise.all([
+      const [mResp, aResp, sResp, eResp] = await Promise.all([
         api.get(`${API_BASE_URL}/monitor`),
         api.get(`${API_BASE_URL}/monitor/alerts?status=${alertTab}`),
         api.get(`${API_BASE_URL}/monitor/stats`),
+        api.get(`${API_BASE_URL}/monitor/engine/stats`).catch(() => ({ data: null })),
       ]);
       setMonitors((mResp.data as any).monitors ?? []);
       setAlerts((aResp.data as any).alerts ?? []);
       setStats(sResp.data as any);
+      setEngineStats(
+        (eResp?.data as unknown as { engine?: EngineStats } | null)?.engine ?? null,
+      );
     } catch { toast.error('Failed to load monitoring data'); }
     finally { setLoading(false); }
   };
 
-  useState(() => { load(); });
+  useEffect(() => { load(); }, [alertTab]);
 
   const handleEnroll = async (dnaRecordId: string) => {
     setEnrollingId(dnaRecordId);
     try {
       const watchUrls = enrollUrls.split('\n').map(u => u.trim()).filter(u => u.startsWith('http'));
-      await api.post(`${API_BASE_URL}/monitor/enroll/${dnaRecordId}`, { watchUrls, scanType: enrollScanType });
-      toast.success('File enrolled for monitoring');
+      const already = monitors.some(m => m.dnaRecordId === dnaRecordId && (m.status === 'ACTIVE' || m.status === 'PAUSED'));
+      const { data } = await api.post<{ monitorId?: string }>(
+        `${API_BASE_URL}/monitor/enroll/${dnaRecordId}`,
+        { watchUrls, scanType: enrollScanType },
+      );
+      toast.success(already ? 'Settings updated — auto-crawler will scan on schedule' : 'Enrolled — auto-crawler active');
       setEnrollOpen(false); setEnrollUrls('');
-      load();
+      await load();
+      // Only run immediate scan for MANUAL on-demand; CONTINUOUS uses scheduler automatically
+      if (data?.monitorId && enrollScanType === 'MANUAL') void handleCheck(data.monitorId);
     } catch { toast.error('Enrollment failed'); }
     finally { setEnrollingId(null); }
   };
@@ -392,7 +438,14 @@ export function MonitoringPage() {
       const d = data as any;
       const result = d.result ?? d;
       setCheckResult(result);
-      toast.success(`Check complete — ${result.matchesFound ?? 0} match(es) found`);
+      const yt = (result as { youtubeCandidates?: number }).youtubeCandidates ?? 0;
+      const matches = result.matchesFound ?? 0;
+      const candidates = result.candidatesFound ?? yt ?? 0;
+      toast.success(
+        matches > 0
+          ? `Found ${matches} match(es) — check Match Alerts`
+          : `Scan complete — ${candidates} candidate(s) checked on YouTube/web, no match yet`,
+      );
       load();
     } catch { toast.error('Check failed'); }
     finally { setChecking(null); }
@@ -423,7 +476,7 @@ export function MonitoringPage() {
   );
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="page-shell space-y-5 animate-fade-in">
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -441,7 +494,7 @@ export function MonitoringPage() {
               let enrolled = 0;
               for (const r of toEnroll) {
                 try {
-                  await api.post(`${API_BASE_URL}/monitor/enroll/${r.id}`, { scanType: 'DAILY' });
+                  await api.post(`${API_BASE_URL}/monitor/enroll/${r.id}`, { scanType: 'CONTINUOUS' });
                   enrolled++;
                 } catch { /* skip already enrolled */ }
               }
@@ -481,6 +534,49 @@ export function MonitoringPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Crawler Engine Phase 1 */}
+      {engineStats && (
+        <div className="card">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+              <Globe size={14} className="text-dna-400" /> Crawler Engine
+            </h2>
+            <Badge variant={engineStats.crawlerStatus === 'RUNNING' ? 'success' : engineStats.crawlerStatus === 'DISABLED' ? 'muted' : 'dna'}>
+              {engineStats.crawlerStatus}
+            </Badge>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
+            {[
+              { label: 'Jobs Pending', value: engineStats.jobsPending },
+              { label: 'Jobs Running', value: engineStats.jobsRunning },
+              { label: 'Matches Found', value: engineStats.matchesFound },
+              { label: 'Success Rate', value: `${engineStats.successRate}%` },
+              { label: 'Incidents Open', value: engineStats.incidentsOpen },
+            ].map(s => (
+              <div key={s.label} className="bg-bg-elevated rounded-lg p-2 border border-bg-border">
+                <p className="text-sm font-bold text-white">{s.value}</p>
+                <p className="text-2xs text-gray-500">{s.label}</p>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2 text-2xs">
+            {Object.entries(engineStats.platformsConnected).map(([platform, on]) => (
+              <span key={platform} className={cn('px-2 py-0.5 rounded-full border',
+                on ? 'border-success/40 text-success bg-success/10' : 'border-bg-border text-gray-600')}>
+                {platform}
+              </span>
+            ))}
+          </div>
+          <p className="text-2xs text-gray-600 mt-2">
+            Last scan: {engineStats.lastScanAt ? formatDistanceToNow(new Date(engineStats.lastScanAt), { addSuffix: true }) : '—'}
+            {' · '}
+            Next: {engineStats.nextScanAt ? formatDistanceToNow(new Date(engineStats.nextScanAt), { addSuffix: true }) : '—'}
+            {' · '}
+            Coverage: {engineStats.coverage.monitorsActive}/{engineStats.coverage.monitorsTotal} monitors · {engineStats.coverage.platformsEnabled} platforms
+          </p>
         </div>
       )}
 
@@ -536,12 +632,15 @@ export function MonitoringPage() {
                 </p>
                 <p className="text-2xs text-gray-500 mono mt-0.5">
                   Category: {String(checkResult['fileCategory'] ?? checkResult['method'] ?? 'DOCUMENT')}
+                  {(checkResult['youtubeCandidates'] as number) > 0
+                    ? ` · YouTube: ${checkResult['youtubeCandidates']} videos scanned`
+                    : ''}
                   {checkResult['durationMs'] ? ` · ${((checkResult['durationMs'] as number)/1000).toFixed(1)}s` : ''}
                 </p>
               </div>
               <button onClick={() => setCheckResult(null)} className="btn-ghost btn-icon"><XCircle size={14} /></button>
             </div>
-            <div className="grid grid-cols-4 gap-2 text-center">
+            <div className="stat-grid-4 gap-2 text-center">
               {[
                 { label: 'URLs Checked',   value: checkResult['urlsChecked'] },
                 { label: 'Candidates',     value: checkResult['candidatesFound'] ?? checkResult['candidatesDownloaded'] ?? 0 },
@@ -612,8 +711,8 @@ export function MonitoringPage() {
         <div className="p-5 space-y-4">
           <div>
             <p className="text-xs text-gray-400 mb-3">
-              Select a file and scan schedule. The system will crawl the web and compare using
-              content fingerprints, embeddings, and similarity algorithms.
+              Files are crawled automatically — no URLs needed. Pick a schedule, click a file, and the system
+              searches YouTube, GitHub, Reddit, and the web on its own every 1–24 hours.
             </p>
 
             {/* Scan type */}
@@ -642,7 +741,9 @@ export function MonitoringPage() {
               <textarea value={enrollUrls} onChange={e => setEnrollUrls(e.target.value)}
                 placeholder="https://example.com&#10;https://another-site.com"
                 className="input text-xs font-mono w-full" rows={3} />
-              <p className="text-2xs text-gray-600 mt-1">One URL per line. Leave empty to use auto-generated search URLs.</p>
+              <p className="text-2xs text-gray-600 mt-1">
+                Click any file below to enroll or re-scan. Optional URLs only — leave empty for automatic search.
+              </p>
             </div>
           </div>
 
@@ -651,11 +752,15 @@ export function MonitoringPage() {
           ) : (
             <div className="space-y-2 max-h-52 overflow-y-auto">
               {(dnaRecords ?? []).map(r => {
-                const alreadyMonitored = monitors.some(m => m.dnaRecordId === r.id && (m.status === 'ACTIVE' || m.status === 'PAUSED'));
+                const existingMonitor = monitors.find(m => m.dnaRecordId === r.id && (m.status === 'ACTIVE' || m.status === 'PAUSED'));
+                const alreadyMonitored = !!existingMonitor;
                 return (
-                <button key={r.id} onClick={() => !alreadyMonitored && handleEnroll(r.id)}
-                  disabled={enrollingId === r.id || alreadyMonitored}
-                  className={`w-full flex items-center gap-3 p-3 bg-bg-elevated rounded-xl border border-bg-border transition-all text-left ${alreadyMonitored ? 'opacity-50 cursor-not-allowed' : 'hover:bg-bg-muted'} disabled:opacity-60`}>
+                <button key={r.id} onClick={() => handleEnroll(r.id)}
+                  disabled={enrollingId === r.id}
+                  className={cn(
+                    'w-full flex items-center gap-3 p-3 bg-bg-elevated rounded-xl border border-bg-border transition-all text-left',
+                    enrollingId === r.id ? 'opacity-60' : 'hover:bg-bg-muted hover:border-dna-500/30',
+                  )}>
                   <FileTypeBadge type={deriveFileType(r)} />
                   <span className="text-xs text-gray-500 shrink-0">
                     {FILE_CATEGORY_ICON[fileCategory(deriveFileType(r))]}
@@ -664,11 +769,11 @@ export function MonitoringPage() {
                     <p className="text-sm font-medium text-white truncate">{r.imageFilename}</p>
                     <p className="text-2xs text-gray-500 mono">{r.id.slice(0,12)}…</p>
                   </div>
-                  {alreadyMonitored
-                    ? <span className="text-2xs text-success bg-success/10 border border-success/20 px-2 py-0.5 rounded shrink-0">Monitoring</span>
-                    : enrollingId === r.id
+                  {enrollingId === r.id
                     ? <RefreshCw size={14} className="text-dna-400 shrink-0 animate-spin" />
-                    : <Radio size={14} className="text-dna-400 shrink-0" />}
+                    : alreadyMonitored
+                    ? <span className="text-2xs text-dna-400 bg-dna-500/10 border border-dna-500/30 px-2 py-0.5 rounded shrink-0">Update & Scan</span>
+                    : <span className="text-2xs text-success bg-success/10 border border-success/20 px-2 py-0.5 rounded shrink-0">Enroll</span>}
                 </button>
                 );
               })}

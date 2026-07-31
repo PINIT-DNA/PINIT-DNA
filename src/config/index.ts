@@ -8,6 +8,7 @@
 import dotenv from 'dotenv';
 import path from 'path';
 import { ALL_ACCEPTED_MIME_TYPES, GLOBAL_MAX_FILE_SIZE_BYTES } from './supported-file-types';
+import { DNA_GENERATOR_VERSION, DNA_SCHEMA_VERSION } from './dna-versions';
 
 dotenv.config();
 
@@ -56,9 +57,10 @@ export const config = {
   },
 
   dna: {
-    schemaVersion: optional('DNA_SCHEMA_VERSION', '1.0.0'),
+    // WHY defaults from dna-versions (Task A1): same strings as before; env override unchanged.
+    schemaVersion: optional('DNA_SCHEMA_VERSION', DNA_SCHEMA_VERSION),
     /** Universal engine version — bumped each phase */
-    engineVersion: optional('DNA_ENGINE_VERSION', '2.0.0-universal'),
+    engineVersion: optional('DNA_ENGINE_VERSION', DNA_GENERATOR_VERSION),
   },
 
   stego: {
@@ -76,9 +78,46 @@ export const config = {
     secret: optional('JWT_SECRET', 'dev_jwt_secret_change_in_prod_min_32_chars_long!!'),
   },
 
+  biometric: {
+    encryptionKey: optional('BIOMETRIC_ENCRYPTION_KEY', optional('VAULT_MASTER_SECRET', 'dev_biometric_key_change_in_prod')),
+    thresholds: {
+      faceLogin: parseFloat(optional('BIOMETRIC_FACE_LOGIN_THRESHOLD', '0.62')),
+      // Must be >= faceLogin so any face that can log in cannot register a second ID
+      faceDuplicate: parseFloat(optional('BIOMETRIC_FACE_DUPLICATE_THRESHOLD', '0.62')),
+      voiceLogin: parseFloat(optional('BIOMETRIC_VOICE_LOGIN_THRESHOLD', '0.45')),
+      voiceDuplicate: parseFloat(optional('BIOMETRIC_VOICE_DUPLICATE_THRESHOLD', '0.35')),
+      fingerprintLogin: parseFloat(optional('BIOMETRIC_FINGERPRINT_LOGIN_THRESHOLD', '0.40')),
+      fingerprintDuplicate: parseFloat(optional('BIOMETRIC_FINGERPRINT_DUPLICATE_THRESHOLD', '0.30')),
+      fusionMinConfidence: parseFloat(optional('BIOMETRIC_FUSION_MIN_CONFIDENCE', '72')),
+      weights: {
+        face: parseFloat(optional('BIOMETRIC_WEIGHT_FACE', '0.50')),
+        voice: parseFloat(optional('BIOMETRIC_WEIGHT_VOICE', '0.30')),
+        fingerprint: parseFloat(optional('BIOMETRIC_WEIGHT_FINGERPRINT', '0.20')),
+      },
+    },
+  },
+
   rateLimit: {
     windowMs: optionalInt('RATE_LIMIT_WINDOW_MS', 15 * 60 * 1000), // 15 min
     max: optionalInt('RATE_LIMIT_MAX', 2000),
+  },
+
+  /**
+   * Freemium subscription enforcement.
+   * When false, all features are allowed (emergency bypass). Default: true.
+   * Quota limits below are configurable via env — not hardcoded in business logic.
+   */
+  subscription: {
+    enforcementEnabled: optional('SUBSCRIPTION_ENFORCEMENT', 'true').toLowerCase() !== 'false',
+    freeAssetLimit: optionalInt('SUBSCRIPTION_FREE_ASSET_LIMIT', 5),
+    businessFreeTeamLimit: optionalInt('SUBSCRIPTION_BUSINESS_FREE_TEAM_LIMIT', 1),
+    businessFreeWorkspaceLimit: optionalInt('SUBSCRIPTION_BUSINESS_FREE_WORKSPACE_LIMIT', 1),
+  },
+
+  razorpay: {
+    keyId: optional('RAZORPAY_KEY_ID', ''),
+    keySecret: optional('RAZORPAY_KEY_SECRET', ''),
+    webhookSecret: optional('RAZORPAY_WEBHOOK_SECRET', ''),
   },
 
   log: {

@@ -171,7 +171,7 @@ export function VerifyCertificatePage() {
   const statusCfg = result ? STATUS_CFG[result.status] : null;
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
+    <div className="page-shell space-y-3 mx-auto animate-fade-in">
 
       {/* Header */}
       <div>

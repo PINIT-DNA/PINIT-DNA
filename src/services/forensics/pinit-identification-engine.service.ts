@@ -1,0 +1,86 @@
+/**
+ * PINIT Identification Engine — backward-compatible facade.
+ * Delegates to PINIT Original Identity Recovery Algorithm (7-stage enterprise pipeline).
+ */
+import { pinitOriginalIdentityRecoveryService } from './pinit-original-identity-recovery.service';
+import type { DeepCompareResult } from './deep-vault-compare.service';
+import type { FusionResult } from './confidence-fusion-engine.service';
+import type { VaultMatchResult } from './vault-auto-match.service';
+import type { RankedVaultCandidate } from '../../types/unified-investigation.types';
+import type { AuthoritativeAsset } from '../../types/authoritative-asset.types';
+import type { VaultSimilarityVector } from './vault-similarity-vector.service';
+import type { LocalDnaSearchHit } from './vault-local-dna-search.service';
+import type { RetrievalSelectionStep } from '../../types/investigation-pipeline-audit.types';
+
+export interface RecoveryStage {
+  stage: string;
+  status: 'complete' | 'partial' | 'failed' | 'skipped';
+  detail: string;
+}
+
+export interface RecoveredIdentitySignal {
+  stage: string;
+  score: number;
+  recovered: boolean;
+  detail: string;
+}
+
+export interface PinitIdentificationResult {
+  match: VaultMatchResult | null;
+  probableMatch: VaultMatchResult | null;
+  /** Retrieval-selected vault — authoritative for reports (never substituted downstream) */
+  verifiedCandidate: VaultMatchResult | null;
+  /** @deprecated alias of verifiedCandidate */
+  bestCandidate: VaultMatchResult | null;
+  /** VERIFIED | POSSIBLE | NO_SIGNATURE */
+  reportState: 'VERIFIED' | 'POSSIBLE' | 'NO_SIGNATURE';
+  reportStateReason: string;
+  candidates: RankedVaultCandidate[];
+  fusion: FusionResult;
+  stages: RecoveryStage[];
+  variantCount: number;
+  manifestRecovered: boolean;
+  identityTokenRecovered: boolean;
+  watermarkRecovered: boolean;
+  identified: boolean;
+  highConfidence: boolean;
+  recoveredSignals: RecoveredIdentitySignal[];
+  deepCompareResults: DeepCompareResult[];
+  certificateId: string | null;
+  ownerShortId: string | null;
+  tamperingSummary: string | null;
+  bestDeepCompare: DeepCompareResult | null;
+  stageTimings?: Array<{ stage: string; durationMs: number; detail?: string }>;
+  /** Immutable winner — single source for vault, DNA, certificate, filename, scores */
+  authoritativeAsset: AuthoritativeAsset | null;
+  /** Structured audit context for pipeline trace */
+  auditContext?: {
+    vectors: VaultSimilarityVector[];
+    vaultRecordIds: string[];
+    selectionSteps: RetrievalSelectionStep[];
+    identityHit: VaultMatchResult | null;
+    localDnaHit: LocalDnaSearchHit | null;
+    /** Phase 4 — candidate walk logs for manifest */
+    candidateRankingLogs?: import('./candidate-ranking-engine.service').CandidateRankingLog[];
+    /** Phase 2 — enterprise forensic scanner output */
+    forensicScan?: import('./forensic-scanner.service').ForensicScanResult | null;
+  };
+  /** Milestone G — unified enterprise investigation report when ENTERPRISE_PIPELINE_V2 ran */
+  enterpriseInvestigationReport?: import('../../types/enterprise-investigation-pipeline.types').EnterpriseInvestigationReport;
+}
+
+export class PinitIdentificationEngine {
+  identify(
+    buffer: Buffer,
+    mimeType: string,
+    originalName: string,
+    sizeBytes: number,
+    ownerUserId: string,
+  ): Promise<PinitIdentificationResult> {
+    return pinitOriginalIdentityRecoveryService.recover(
+      buffer, mimeType, originalName, sizeBytes, ownerUserId,
+    );
+  }
+}
+
+export const pinitIdentificationEngine = new PinitIdentificationEngine();

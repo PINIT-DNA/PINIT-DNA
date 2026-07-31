@@ -17,16 +17,20 @@ import { autoIndexer }   from '../../services/ai/auto-indexer.service';
 import { monitoringService } from '../../services/crawler/monitoring.service';
 import { UniversalFileRouter } from '../../services/universal-file-router';
 import { duplicateCheckService } from '../../services/duplicate/duplicate-check.service';
+import { getAuthUserId, dnaOwnerWhere } from '../../lib/tenant-scope';
+import { resolveClientIp } from '../../lib/request-utils';
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../middleware/error.middleware';
 import { logger } from '../../lib/logger';
 import { SUPPORTED_FILE_TYPES } from '../../config/supported-file-types';
+import { DNA_GENERATOR_VERSION } from '../../config/dna-versions';
 import {
   GenerateDnaResponse,
   VerifyDnaResponse,
   GetDnaRecordResponse,
   LayerName,
 } from '../../types/dna.types';
+import { dnaStorageAuditService } from '../../services/forensics/dna-storage-audit.service';
 
 const router             = new UniversalFileRouter();
 const imageVerifier      = new DnaVerifier();
@@ -58,9 +62,9 @@ export async function listDnaRecords(
   next: NextFunction
 ): Promise<void> {
   try {
-    const userId = (req as any).user?.sub;
+    const userId = getAuthUserId(req);
     const records = await prisma.dnaRecord.findMany({
-      where: { ownerUserId: userId ?? undefined },
+      where: dnaOwnerWhere(userId),
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -111,11 +115,8 @@ export async function generateDna(
     return next(new AppError(500, 'Failed to read uploaded file from disk.'));
   }
 
-  // ── DUPLICATE CHECK — disabled for now ──────────────────────────────────────
-  // The system-wide duplicate check blocks uploads of files that any user has
-  // uploaded before. This causes false positives during testing and for multi-
-  // user scenarios. Duplicate detection still runs for forensic logging but
-  // never blocks the upload.
+  // ── DUPLICATE CHECK — cross-account only (same account may re-protect same file) ─
+  // Blocks when another PINIT user uploads bytes that already have DNA under a different account.
   const dupResult = await duplicateCheckService.check(
     buffer,
     req.file.mimetype,
@@ -123,33 +124,35 @@ export async function generateDna(
     req,
   );
 
-  // Log duplicates for forensic audit but NEVER block the upload.
-  // The forensic value is in KNOWING a duplicate was uploaded, not in preventing it.
   if (dupResult.isDuplicate) {
-    logger.info('[DNA] Duplicate detected (allowed — logged for forensics)', {
+    await fs.unlink(req.file.path).catch(() => {});
+
+    const ownerLabel = dupResult.ownerShortId
+      ? ` This file belongs to ${dupResult.ownerShortId}.`
+      : dupResult.matchType === 'PINIT_VAULT_SIGNATURE'
+        ? ' This image contains PINIT-DNA vault watermarks or share-link signatures.'
+        : '';
+
+    const duplicateReason = dupResult.matchType === 'PINIT_VAULT_SIGNATURE'
+      ? `Protected PINIT content detected.${ownerLabel} DNA cannot be generated from watermarked or share-viewer captures owned by another account.`
+      : `This file already exists under another PINIT account.${ownerLabel} Duplicate DNA cannot be generated across accounts.`;
+
+    logger.warn('[DNA] Duplicate upload blocked (cross-account)', {
       matchType:        dupResult.matchType,
       existingRecordId: dupResult.existingRecordId,
-    });
-  }
-
-  if (false && dupResult.isDuplicate) { // disabled — all uploads allowed
-    // Clean up the temp file immediately
-    await fs.unlink(req.file!.path).catch(() => {});
-
-    logger.warn('[DNA] Duplicate upload blocked', {
-      matchType:        dupResult.matchType,
-      existingRecordId: dupResult.existingRecordId,
+      ownerShortId:     dupResult.ownerShortId,
       isHighRisk:       dupResult.isHighRisk,
     });
 
     res.status(409).json({
       success:   false,
       duplicate: true,
-      error:     'This file already exists in the PINIT-DNA registry. Duplicate uploads are not permitted.',
+      error:     duplicateReason,
       matchType:           dupResult.matchType,
       existingRecordId:    dupResult.existingRecordId,
       existingFilename:    dupResult.existingFilename,
       existingCreatedAt:   dupResult.existingCreatedAt,
+      ownerShortId:        dupResult.ownerShortId ?? null,
       sha256Hash:          dupResult.sha256Hash,
       pHashSimilarity:     dupResult.pHashSimilarity,
       riskLevel:           dupResult.isHighRisk ? 'HIGH' : 'LOW',
@@ -160,13 +163,53 @@ export async function generateDna(
 
   try {
     // UniversalFileRouter: detects file type → routes to correct engine
+    const userId = (req as any).user?.sub;
+    const gpsLat = parseFloat(String((req.body as { gpsLat?: string })?.gpsLat ?? ''));
+    const gpsLng = parseFloat(String((req.body as { gpsLng?: string })?.gpsLng ?? ''));
+    const locationShared = String((req.body as { locationShared?: string })?.locationShared ?? '') === 'true';
+    const hasGps = locationShared && Number.isFinite(gpsLat) && Number.isFinite(gpsLng);
+    const clientIp = resolveClientIp(req);
+
     const result = await router.route({
       filePath:        req.file.path,
       originalName:    req.file.originalname,
       declaredMimeType: req.file.mimetype,
       sizeBytes:       req.file.size,
       buffer,
+      ownerUserId:     userId,
+      uploadStartMs:   Date.now(),
+      userAgent:       req.headers['user-agent'] as string | undefined,
+      ip:              clientIp ?? undefined,
+      country:         (req.headers['cf-ipcountry'] as string | undefined) || undefined,
+      gpsLatitude:     hasGps ? gpsLat : undefined,
+      gpsLongitude:    hasGps ? gpsLng : undefined,
+      locationShared:  hasGps,
     });
+
+    // Non-image engines do not go through DnaOrchestrator provenance — record creation here.
+    if (userId && result.fileType !== 'IMAGE') {
+      try {
+        const { forensicProvenanceService } = await import('../../services/forensics/forensic-provenance.service');
+        forensicProvenanceService.appendAsync({
+          eventType: 'DNA_GENERATED',
+          summary: hasGps
+            ? `DNA generated — ${req.file.originalname} (location shared)`
+            : `DNA generated — ${req.file.originalname}`,
+          dnaRecordId: result.dnaRecordId,
+          actorUserId: userId,
+          userAgent: req.headers['user-agent'] as string | undefined,
+          ipAddress: clientIp ?? null,
+          country: (req.headers['cf-ipcountry'] as string | undefined) || null,
+          latitude: hasGps ? gpsLat : null,
+          longitude: hasGps ? gpsLng : null,
+          locationSource: hasGps ? 'gps' : (req.headers['cf-ipcountry'] ? 'ip' : 'none'),
+          payload: { fileType: result.fileType, locationShared: hasGps },
+          dedupeKey: `dna_generated:${result.dnaRecordId}`,
+        });
+      } catch {
+        /* non-fatal */
+      }
+    }
 
     const response: GenerateDnaResponse = {
       success:             true,
@@ -186,13 +229,54 @@ export async function generateDna(
       generatedAt: result.generatedAt.toISOString(),
     };
 
-    // Stamp owner on the DNA record if user is authenticated
-    const userId = (req as any).user?.sub;
+    // Owner already stamped during pipeline; ensure it is set if route missed it
     if (userId) {
       await prisma.dnaRecord.update({
         where: { id: result.dnaRecordId },
         data: { ownerUserId: userId },
       });
+      try {
+        const { tagDnaWithOrgContext } = await import('../../services/organization/org-asset.service');
+        const tagged = await tagDnaWithOrgContext(result.dnaRecordId, userId);
+        if (tagged?.organizationId) {
+          const { orgWebhookService } = await import('../../services/organization/webhook.service');
+          const { orgIntegrationService } = await import('../../services/organization/integration.service');
+          void orgWebhookService.dispatch(tagged.organizationId, 'dna.generated', {
+            dnaRecordId: result.dnaRecordId,
+            filename: req.file?.originalname ?? null,
+            fileType: result.fileType,
+          });
+          void orgIntegrationService.notifyAlertChannels(
+            tagged.organizationId,
+            `🧬 PinIT — DNA generated for ${req.file?.originalname ?? result.dnaRecordId}`,
+            {
+              event: 'dna.generated',
+              dnaRecordId: result.dnaRecordId,
+              filename: req.file?.originalname ?? null,
+              fileType: result.fileType,
+            },
+          );
+        }
+      } catch {
+        /* non-fatal */
+      }
+    }
+
+    // Auto image authenticity analysis → DNA response + Vault Details
+    try {
+      const { vaultContentAnalysisService } = await import('../../services/vault/vault-content-analysis.service');
+      const fileAnalysis = await vaultContentAnalysisService.analyzeAndStoreOnDna({
+        dnaRecordId: result.dnaRecordId,
+        buffer,
+        mimeType: req.file?.mimetype ?? 'application/octet-stream',
+        filename: req.file?.originalname ?? 'file',
+      });
+      if (fileAnalysis) {
+        response.fileAnalysisLabel = fileAnalysis.verdict;
+        response.fileAnalysis = fileAnalysis;
+      }
+    } catch (err) {
+      logger.warn('[ContentAnalysis] skipped during DNA generate', { error: String(err) });
     }
 
     // Fire-and-forget: auto-index in FAISS for semantic search
@@ -205,7 +289,7 @@ export async function generateDna(
     });
 
     // Fire-and-forget: auto-start web monitoring for every enrolled file
-    monitoringService.enroll(result.dnaRecordId, { scanType: 'DAILY' })
+    monitoringService.enroll(result.dnaRecordId, { scanType: 'CONTINUOUS', ownerUserId: userId })
       .catch((err: unknown) => logger.warn('[Monitor] Auto-start failed', { error: String(err) }));
 
     // Fire-and-forget audit log
@@ -265,7 +349,7 @@ export async function getSupportedTypes(
 
     res.status(200).json({
       success:        true,
-      engineVersion:  '2.0.0-universal',
+      engineVersion:  DNA_GENERATOR_VERSION,
       totalSupported: types.length,
       live:           live.length,
       planned:        planned.length,
@@ -304,7 +388,8 @@ export async function verifyDna(
   try {
     // Look up the stored record's fileType to route to correct verifier
     const record = await prisma.dnaRecord.findUnique({
-      where: { id }, select: { fileType: true },
+      where: { id },
+      select: { fileType: true, ownerUserId: true, imageFilename: true },
     });
 
     if (!record) return next(new AppError(404, `DNA record not found: ${id}`));
@@ -337,6 +422,27 @@ export async function verifyDna(
       verifiedAt: result.verifiedAt.toISOString(),
     };
 
+    if (record.ownerUserId) {
+      const filename = record.imageFilename ?? req.file.originalname;
+      import('../../services/platform-events/extended-events').then(({ emitDnaVerifyResult, emitDnaMismatch }) => {
+        emitDnaVerifyResult({
+          ownerUserId: record.ownerUserId!,
+          dnaRecordId: id,
+          filename,
+          passed: result.passed,
+          confidence: result.confidenceScore,
+        });
+        if (!result.passed) {
+          emitDnaMismatch({
+            ownerUserId: record.ownerUserId!,
+            dnaRecordId: id,
+            filename,
+            score: result.confidenceScore,
+          });
+        }
+      }).catch(() => {});
+    }
+
     res.status(200).json(response);
   } catch (err) {
     if (err instanceof Error && err.message.includes('not found')) {
@@ -368,7 +474,16 @@ export async function getDnaRecord(
         perceptualLayer: { select: { id: true } },
         semanticLayer: { select: { id: true } },
         metadataLayer: { select: { id: true } },
-        stegoLayer: { select: { id: true } },
+        stegoLayer: {
+          select: {
+            id: true,
+            ownershipSignature: true,
+            ownershipAlgorithm: true,
+            ownershipTileCount: true,
+            payloadHmac: true,
+            embedded: true,
+          },
+        },
       },
     });
 
@@ -397,6 +512,9 @@ export async function getDnaRecord(
           metadata: !!record.metadataLayer,
           steganography: !!record.stegoLayer,
         },
+        ownershipSignature: (record.stegoLayer?.ownershipSignature as Record<string, unknown> | null) ?? null,
+        ownershipAlgorithm: record.stegoLayer?.ownershipAlgorithm ?? null,
+        ownershipTileCount: record.stegoLayer?.ownershipTileCount ?? null,
         createdAt: record.createdAt.toISOString(),
         updatedAt: record.updatedAt.toISOString(),
       },
@@ -417,17 +535,32 @@ export async function getDuplicateAttempts(
   next: NextFunction,
 ): Promise<void> {
   try {
+    const userId = getAuthUserId(req);
     const limit  = Math.min(parseInt(req.query['limit']  as string ?? '100', 10), 500);
     const offset = parseInt(req.query['offset'] as string ?? '0',   10);
 
+    const ownedDna = await prisma.dnaRecord.findMany({
+      where: { ownerUserId: userId },
+      select: { id: true },
+    });
+    const ownedDnaIds = ownedDna.map((d) => d.id);
+
+    const dupWhere = {
+      eventType: 'DUPLICATE_UPLOAD_ATTEMPT' as const,
+      OR: [
+        { userId },
+        ...(ownedDnaIds.length ? [{ dnaRecordId: { in: ownedDnaIds } }] : []),
+      ],
+    };
+
     const [events, total] = await Promise.all([
       prisma.auditEvent.findMany({
-        where:   { eventType: 'DUPLICATE_UPLOAD_ATTEMPT' },
+        where: dupWhere,
         orderBy: { createdAt: 'desc' },
         take:    limit,
         skip:    offset,
       }),
-      prisma.auditEvent.count({ where: { eventType: 'DUPLICATE_UPLOAD_ATTEMPT' } }),
+      prisma.auditEvent.count({ where: dupWhere }),
     ]);
 
     res.json({
@@ -452,11 +585,122 @@ export async function getDuplicateAttempts(
           existingDnaRecordId: detail['existingDnaRecordId'] ?? null,
           existingFilename:    detail['existingFilename']    ?? null,
           pHashSimilarity:     detail['pHashSimilarity']     ?? null,
+          ownerShortId:        detail['ownerShortId']        ?? null,
+          uploaderShortId:     detail['uploaderShortId']     ?? null,
+          crossUser:           detail['crossUser'] === true,
         };
       }),
     });
   } catch (err) {
     next(err);
+  }
+}
+
+/** GET /dna/storage-audit — verify 15-layer persistence and authoritative linkage per owner */
+export async function getDnaStorageAudit(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const ownerUserId = getAuthUserId(req);
+    const report = await dnaStorageAuditService.auditOwner(ownerUserId);
+    res.json({ success: true, audit: report });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /dna/recover-ownership
+ * Upload a full image OR a cropped fragment (~20%+) and recover PinIT ownership
+ * from the redundant watermark tiles embedded at generation time.
+ */
+export async function recoverOwnershipFromImage(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  if (!req.file) {
+    return next(new AppError(400, 'No image file uploaded'));
+  }
+
+  try {
+    const buffer = await fs.readFile(req.file.path);
+    const { SteganographyLayer } = await import('../../services/layers/layer6.steganography');
+    const layer = new SteganographyLayer();
+    const extracted = await layer.recoverOwnership({
+      filePath: req.file.path,
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      sizeBytes: req.file.size,
+      buffer,
+    });
+
+    if (!extracted.found || !extracted.dnaFingerprint) {
+      res.status(200).json({
+        success: true,
+        isPinitFile: false,
+        message: 'No PinIT ownership watermark found in this image/fragment',
+        extraction: extracted,
+      });
+      return;
+    }
+
+    const stego = await prisma.stegoLayer.findFirst({
+      where: { ownershipDnaFp: extracted.dnaFingerprint },
+      include: {
+        dnaRecord: {
+          select: {
+            id: true,
+            ownerUserId: true,
+            imageFilename: true,
+            imageMimeType: true,
+            status: true,
+            createdAt: true,
+            sha256Hash: true,
+          },
+        },
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      isPinitFile: true,
+      sealValid: extracted.sealValid === true,
+      confidence: extracted.confidence,
+      extraction: {
+        dnaFingerprint: extracted.dnaFingerprint,
+        ownerFingerprint: extracted.ownerFingerprint,
+        uploadedAt: extracted.uploadedAt
+          ? new Date(extracted.uploadedAt * 1000).toISOString()
+          : null,
+        metaHash: extracted.metaHash,
+      },
+      storedSignature: stego?.ownershipSignature ?? null,
+      matchedRecord: stego?.dnaRecord
+        ? {
+            dnaRecordId: stego.dnaRecord.id,
+            ownerUserId: stego.dnaRecord.ownerUserId,
+            filename: stego.dnaRecord.imageFilename,
+            mimeType: stego.dnaRecord.imageMimeType,
+            status: stego.dnaRecord.status,
+            createdAt: stego.dnaRecord.createdAt.toISOString(),
+            sha256Hash: stego.dnaRecord.sha256Hash,
+            ownershipAlgorithm: stego.ownershipAlgorithm,
+            ownershipTileCount: stego.ownershipTileCount,
+          }
+        : null,
+      message: stego
+        ? 'PinIT ownership watermark recovered and matched to stored file signature'
+        : 'PinIT watermark found in pixels, but no matching stored signature in vault',
+    });
+  } catch (err) {
+    next(err);
+  } finally {
+    fs.unlink(req.file.path).catch((e) =>
+      logger.warn('Failed to delete temp file', { path: req.file?.path, error: e }),
+    );
   }
 }
 

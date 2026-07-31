@@ -1,17 +1,28 @@
 """
-PINIT-DNA — Python AI Microservice v2.0
+PINIT-DNA — Python AI Microservice v2.1 (Enterprise infrastructure)
 FastAPI service on port 8001
 
 Phase 1: /embed, /index, /search, /health
 Phase 3: /search/hybrid (keyword + semantic)
 Phase 4: Confidence thresholds — hide weak matches
 Phase 5: /ocr, /duplicates, /similar
+Enterprise prep: modular services/, startup diagnostics, enhanced /health
 """
 
 import os, json, time, hashlib, re, logging
+
+# Silence HuggingFace / tqdm progress bars in Node dev logs (stderr → [warn])
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("TQDM_DISABLE", "1")
+
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
+
+from config import SERVICE_NAME, SERVICE_VERSION, EMBEDDING_MODEL, EMBEDDING_DIMENSION
+from diagnostics import run_startup_diagnostics, get_health_extensions
+from services import enterprise_services_status
 
 import numpy as np
 import faiss
@@ -24,6 +35,10 @@ from sentence_transformers import SentenceTransformer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("pinit-dna-ai")
+
+# ── Enterprise dependency diagnostics (non-fatal for optional modules) ────────
+
+run_startup_diagnostics()
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -38,19 +53,34 @@ MODEL_CACHE_DIR.mkdir(exist_ok=True)
 
 # ── Model & Index ─────────────────────────────────────────────────────────────
 
-DIMENSION = 384
+DIMENSION = EMBEDDING_DIMENSION
 
-log.info("Loading sentence-transformer model (all-MiniLM-L6-v2)…")
-model = SentenceTransformer("all-MiniLM-L6-v2", cache_folder=str(MODEL_CACHE_DIR))
+log.info("Loading sentence-transformer model (%s)…", EMBEDDING_MODEL)
+model = SentenceTransformer(EMBEDDING_MODEL, cache_folder=str(MODEL_CACHE_DIR))
 log.info("Model loaded.")
+
+
+def encode_one(text: str) -> np.ndarray:
+    return model.encode([text], show_progress_bar=False)[0]
 
 def load_or_create_index():
     if INDEX_FILE.exists() and META_FILE.exists():
-        log.info("Loading existing FAISS index from disk…")
-        idx  = faiss.read_index(str(INDEX_FILE))
-        meta = json.loads(META_FILE.read_text())
-        log.info(f"Index loaded: {idx.ntotal} vectors")
-        return idx, meta
+        try:
+            if INDEX_FILE.stat().st_size < 16:
+                raise RuntimeError("FAISS index file is empty or truncated")
+            log.info("Loading existing FAISS index from disk…")
+            idx = faiss.read_index(str(INDEX_FILE))
+            meta = json.loads(META_FILE.read_text())
+            log.info(f"Index loaded: {idx.ntotal} vectors")
+            return idx, meta
+        except Exception as exc:
+            backup = INDEX_FILE.with_suffix(".bin.corrupt")
+            try:
+                INDEX_FILE.rename(backup)
+                log.warning("Corrupt FAISS index quarantined to %s — creating fresh index (%s)", backup.name, exc)
+            except OSError:
+                INDEX_FILE.unlink(missing_ok=True)
+                log.warning("Corrupt FAISS index removed — creating fresh index (%s)", exc)
     log.info("Creating new FAISS index…")
     return faiss.IndexFlatL2(DIMENSION), []
 
@@ -62,7 +92,7 @@ def save_index():
 
 # ── FastAPI ───────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="PINIT-DNA AI Microservice", version="2.0.0")
+app = FastAPI(title=SERVICE_NAME, version=SERVICE_VERSION)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # ── Request models ────────────────────────────────────────────────────────────
@@ -122,14 +152,26 @@ def keyword_score(query: str, text: str) -> float:
 
 @app.get("/health")
 def health():
+    diag = get_health_extensions()
     return {
         "status":    "online",
-        "service":   "PINIT-DNA AI Microservice",
-        "version":   "2.0.0",
-        "model":     "all-MiniLM-L6-v2",
+        "service":   SERVICE_NAME,
+        "version":   SERVICE_VERSION,
+        "model":     EMBEDDING_MODEL,
         "dimension": DIMENSION,
         "indexed":   index.ntotal,
         "timestamp": datetime.utcnow().isoformat() + "Z",
+        # Enterprise extensions (additive — existing clients ignore unknown keys)
+        "pythonVersion": diag.get("pythonVersion"),
+        "ocrAvailable": diag.get("ocrAvailable"),
+        "opencvAvailable": diag.get("opencvAvailable"),
+        "torchAvailable": diag.get("torchAvailable"),
+        "gpuAvailable": diag.get("gpuAvailable"),
+        "installedModules": diag.get("modules"),
+        "moduleDetails": diag.get("moduleDetails"),
+        "enterpriseServices": enterprise_services_status(),
+        "platform": diag.get("platform"),
+        "diagnosticWarnings": diag.get("warnings", []),
     }
 
 # ── Phase 1: Embed ────────────────────────────────────────────────────────────
@@ -138,7 +180,7 @@ def health():
 def embed(req: EmbedRequest):
     if not req.text.strip(): raise HTTPException(400, "text must not be empty")
     start = time.time()
-    vec   = model.encode([req.text])[0].tolist()
+    vec   = encode_one(req.text).tolist()
     return { "embedding": vec, "dimension": len(vec), "processingMs": round((time.time()-start)*1000,1) }
 
 # ── Phase 1 + 3: Index (content-first) ───────────────────────────────────────
@@ -163,7 +205,7 @@ def index_document(req: IndexRequest):
     ]
     full_text = " ".join(p for p in parts if p).strip()
 
-    vec = model.encode([full_text])[0]
+    vec = encode_one(full_text)
     index.add(np.array([vec], dtype=np.float32))
 
     entry = {
@@ -193,7 +235,7 @@ def semantic_search(req: SearchRequest):
     if index.ntotal == 0: return { "results": [], "query": req.query, "totalIndexed": 0, "count": 0 }
 
     start = time.time()
-    vec   = model.encode([req.query])[0]
+    vec   = encode_one(req.query)
     k     = min(req.topK * 4, index.ntotal)
     D, I  = index.search(np.array([vec], dtype=np.float32), k)
 
@@ -247,7 +289,7 @@ def hybrid_search(req: HybridSearchRequest):
     start = time.time()
 
     # Step 1: Get semantic results (lower threshold to get more candidates)
-    vec  = model.encode([req.query])[0]
+    vec  = encode_one(req.query)
     k    = min(req.topK * 6, index.ntotal)
     D, I = index.search(np.array([vec], dtype=np.float32), k)
 
@@ -314,6 +356,7 @@ async def ocr_extract(file: UploadFile = File(...)):
         contents = await file.read()
         start    = time.time()
         image    = Image.open(io.BytesIO(contents)).convert("RGB")
+        image.info["dpi"] = (72, 72)
         text     = pytesseract.image_to_string(image, lang="eng").strip()
         ms       = round((time.time()-start)*1000,1)
 
@@ -329,13 +372,138 @@ async def ocr_extract(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(500, f"OCR failed: {str(e)}")
 
+# ── Computer vision: ORB/AKAZE compare ───────────────────────────────────────
+
+@app.post("/cv/compare")
+async def cv_compare_images(
+    probe: UploadFile = File(...),
+    reference: UploadFile = File(...),
+):
+    from services.computer_vision import computer_vision_service
+
+    start = time.time()
+    probe_bytes = await probe.read()
+    ref_bytes = await reference.read()
+    result = computer_vision_service.compare_images(probe_bytes, ref_bytes)
+    if not result.success:
+        raise HTTPException(503, result.message or "CV compare failed")
+    return {
+        "success": True,
+        **result.data,
+        "processingMs": round((time.time() - start) * 1000, 1),
+    }
+
+@app.post("/cv/local-index")
+async def cv_extract_local_index(
+    image: UploadFile = File(...),
+    patch_size: int = 32,
+):
+    """Extract global ORB/AKAZE descriptors for PINIT Local DNA vault index."""
+    from services.computer_vision import computer_vision_service
+
+    start = time.time()
+    image_bytes = await image.read()
+    result = computer_vision_service.extract_local_index(image_bytes, patch_size=patch_size)
+    if not result.success:
+        raise HTTPException(503, result.message or "Local index extract failed")
+    return {
+        "success": True,
+        **result.data,
+        "processingMs": round((time.time() - start) * 1000, 1),
+    }
+
+@app.post("/cv/match-descriptors")
+async def cv_match_descriptors(
+    probe: UploadFile = File(...),
+    descriptors: str = "",
+):
+    """Match probe image against stored ORB descriptor JSON."""
+    from services.computer_vision import computer_vision_service
+
+    start = time.time()
+    probe_bytes = await probe.read()
+    try:
+        ref_desc = json.loads(descriptors) if descriptors else {}
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid descriptors JSON")
+    result = computer_vision_service.match_local_descriptors(probe_bytes, ref_desc)
+    if not result.success:
+        raise HTTPException(503, result.message or "Descriptor match failed")
+    return {
+        "success": True,
+        **result.data,
+        "processingMs": round((time.time() - start) * 1000, 1),
+    }
+
+# ── Enterprise Forensic Scanner ───────────────────────────────────────────────
+
+@app.post("/cv/forensic-scan")
+async def cv_forensic_scan(
+    probe: UploadFile = File(...),
+    reference: UploadFile | None = File(None),
+):
+    """Multi-stage forensic scan: normalize, features, tile FAISS, crop detection."""
+    from services.forensic_scanner import forensic_scanner_service
+
+    start = time.time()
+    probe_bytes = await probe.read()
+    ref_bytes = await reference.read() if reference else None
+    result = forensic_scanner_service.forensic_scan(probe_bytes, ref_bytes)
+    if not result.success:
+        raise HTTPException(503, result.message or "Forensic scan failed")
+    return {
+        "success": True,
+        **result.data,
+        "processingMs": round((time.time() - start) * 1000, 1),
+    }
+
+@app.post("/cv/forensic-index-tiles")
+async def cv_forensic_index_tiles(
+    image: UploadFile = File(...),
+    vault_id: str = "",
+    dna_record_id: str = "",
+):
+    """Index overlapping vault tiles into FAISS for fast crop-resistant search."""
+    from services.forensic_scanner import forensic_scanner_service
+
+    if not vault_id or not dna_record_id:
+        raise HTTPException(400, "vault_id and dna_record_id required")
+    start = time.time()
+    image_bytes = await image.read()
+    result = forensic_scanner_service.index_vault_tiles(
+        image_bytes, vault_id, dna_record_id, image.filename or "",
+    )
+    if not result.success:
+        raise HTTPException(503, result.message or "Tile index failed")
+    return {
+        "success": True,
+        **result.data,
+        "processingMs": round((time.time() - start) * 1000, 1),
+    }
+
+@app.post("/cv/forensic-features")
+async def cv_forensic_features(image: UploadFile = File(...)):
+    """Extract enterprise fingerprint features from an image."""
+    from services.forensic_scanner import forensic_scanner_service
+
+    start = time.time()
+    image_bytes = await image.read()
+    result = forensic_scanner_service.extract_features(image_bytes)
+    if not result.success:
+        raise HTTPException(503, result.message or "Feature extract failed")
+    return {
+        "success": True,
+        **result.data,
+        "processingMs": round((time.time() - start) * 1000, 1),
+    }
+
 # ── Phase 6: Duplicate detection ─────────────────────────────────────────────
 
 @app.post("/duplicates")
 def detect_duplicates(req: DuplicateRequest):
     if index.ntotal == 0: return { "duplicates": [], "nearMatches": [] }
 
-    vec  = model.encode([req.text])[0]
+    vec  = encode_one(req.text)
     k    = min(req.topK, index.ntotal)
     D, I = index.search(np.array([vec], dtype=np.float32), k)
 
@@ -389,7 +557,7 @@ def get_stats():
         "totalVectors":    index.ntotal,
         "activeDocuments": len(active),
         "fileTypeBreakdown": ft_count,
-        "model":           "all-MiniLM-L6-v2",
+        "model":           EMBEDDING_MODEL,
         "dimension":       DIMENSION,
         "indexSizeBytes":  INDEX_FILE.stat().st_size if INDEX_FILE.exists() else 0,
     }

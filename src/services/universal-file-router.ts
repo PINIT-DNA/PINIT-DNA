@@ -17,10 +17,12 @@ import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { config } from '../config';
+import { DNA_GENERATOR_VERSION } from '../config/dna-versions';
 
 import { FileTypeDetector, DetectionResult } from './file-type-detector';
 import { DnaOrchestrator } from './dna.orchestrator';
 import { TxtDnaEngine }  from './engines/txt/txt-dna-engine';
+import { HtmlDnaEngine } from './engines/html/html-dna-engine';
 import { CsvDnaEngine }  from './engines/csv/csv-dna-engine';
 import { JsonDnaEngine } from './engines/json/json-dna-engine';
 import { PdfDnaEngine }   from './engines/pdf/pdf-dna-engine';
@@ -35,6 +37,11 @@ import { BehavioralLayer }  from './layers/layer7.behavioral';
 import { RelationshipLayer } from './layers/layer8.relationship';
 import { OriginLayer }       from './layers/layer9.origin';
 import { EvolutionLayer }    from './layers/layer10.evolution';
+import { processAdvancedLayers } from './layers/layers-11-15.service';
+import { TOTAL_DNA_LAYERS } from '../constants/dna-layers';
+import { buildEnhancementBundle, mergeUniversalFingerprints } from './forensics/dna-enhancement-bundle.service';
+import { dnaEnhancements } from '../config/dna-enhancements';
+import { persistEnterpriseDnaPackage, mergeUniversalFingerprintsImmutable } from './dna/enterprise-dna-package.service';
 
 // ─── Universal input type ────────────────────────────────────────────────────
 
@@ -45,11 +52,26 @@ export interface FileInput {
   declaredMimeType: string;
   sizeBytes: number;
   buffer: Buffer;
+  /** Authenticated uploader — required for L11–L15 */
+  ownerUserId?: string;
+  uploadStartMs?: number;
+  userAgent?: string;
+  ip?: string;
+  country?: string;
+  city?: string;
+  /** Optional user-granted GPS for custody only (never DNA identity) */
+  gpsLatitude?: number;
+  gpsLongitude?: number;
+  locationShared?: boolean;
 }
 
 // ─── Engine version ───────────────────────────────────────────────────────────
 
-export const UNIVERSAL_ENGINE_VERSION = '2.0.0-universal';
+/**
+ * WHY alias DNA_GENERATOR_VERSION (Task A1): preserve UNIVERSAL_ENGINE_VERSION
+ * export for existing imports; literal centralized in dna-versions.ts.
+ */
+export const UNIVERSAL_ENGINE_VERSION = DNA_GENERATOR_VERSION;
 
 // ─── Router ───────────────────────────────────────────────────────────────────
 
@@ -61,6 +83,7 @@ export class UniversalFileRouter {
   private readonly layer9Origin       = new OriginLayer();
   private readonly layer10Evolution   = new EvolutionLayer();
   private readonly txtEngine   = new TxtDnaEngine();
+  private readonly htmlEngine  = new HtmlDnaEngine();
   private readonly csvEngine   = new CsvDnaEngine();
   private readonly jsonEngine  = new JsonDnaEngine();
   private readonly pdfEngine   = new PdfDnaEngine();
@@ -87,7 +110,7 @@ export class UniversalFileRouter {
       throw new Error(
         `DNA engine for "${detection.config.displayName}" is not yet available. ` +
         `Planned for Phase ${detection.config.plannedPhase}. ` +
-        `Currently supported: IMAGE, TXT, CSV, JSON, PDF, DOCX, PPTX, ZIP, VIDEO, AUDIO.`
+        `Currently supported: IMAGE, TXT, HTML, CSV, JSON, PDF, DOCX, PPTX, ZIP, VIDEO, AUDIO.`
       );
     }
 
@@ -99,6 +122,10 @@ export class UniversalFileRouter {
       case 'TXT':
         return this.routeText('TXT', file, detection,
           (id) => this.txtEngine.generate(file, id));
+
+      case 'HTML':
+        return this.routeText('HTML', file, detection,
+          (id) => this.htmlEngine.generate(file, id));
 
       case 'CSV':
         return this.routeText('CSV', file, detection,
@@ -142,10 +169,18 @@ export class UniversalFileRouter {
     };
 
     const result = await this.imageEngine.generate(imageInput, {
-      fileType: 'IMAGE', engineVersion: UNIVERSAL_ENGINE_VERSION,
+      fileType: 'IMAGE',
+      engineVersion: UNIVERSAL_ENGINE_VERSION,
+      ownerUserId: file.ownerUserId,
+      uploadStartMs: file.uploadStartMs,
+      userAgent: file.userAgent,
+      ip: file.ip,
+      country: file.country,
+      city: file.city,
+      gpsLatitude: file.gpsLatitude,
+      gpsLongitude: file.gpsLongitude,
+      locationShared: file.locationShared,
     });
-
-    const successful = Object.values(result.layers).filter(l => l.success).length;
 
     return {
       dnaRecordId:         result.dnaRecordId,
@@ -157,7 +192,7 @@ export class UniversalFileRouter {
       status:              result.status,
       totalProcessingMs:   result.totalProcessingMs,
       generatedAt:         result.generatedAt,
-      layerSummary: { total: 10, successful, failed: 10 - successful },
+      layerSummary:        result.layerSummary,
     };
   }
 
@@ -188,6 +223,7 @@ export class UniversalFileRouter {
         fileType,
         engineVersion:  UNIVERSAL_ENGINE_VERSION,
         sha256Hash,
+        ownerUserId:    file.ownerUserId ?? null,
       },
     });
 
@@ -196,7 +232,7 @@ export class UniversalFileRouter {
     });
 
     const result = await runEngine(dnaRecordId);
-    const uploadStartMs = Date.now();
+    const uploadStartMs = file.uploadStartMs ?? Date.now();
 
     // Build a minimal ImageInput-compatible object so L7–L10 can run on any file type
     const fileAsImage: ImageInput = {
@@ -207,11 +243,14 @@ export class UniversalFileRouter {
       buffer:       file.buffer,
     };
 
-    // Run L7–L10 in parallel — these are file-type-agnostic
+    // Run L7–L10 in parallel — identity fingerprints content-only when deterministic
     const [l7, l8, l9, l10] = await Promise.allSettled([
-      this.layer7Behavioral.generate(fileAsImage, dnaRecordId, uploadStartMs, undefined, undefined),
-      this.layer8Relationship.generate(fileAsImage, dnaRecordId, sha256Hash),
-      this.layer9Origin.generate(fileAsImage, dnaRecordId, {}),
+      this.layer7Behavioral.generate(
+        fileAsImage, dnaRecordId, uploadStartMs, undefined, undefined,
+        { contentId: sha256Hash, perceptualPrimary: '' },
+      ),
+      this.layer8Relationship.generate(fileAsImage, dnaRecordId, sha256Hash, ''),
+      this.layer9Origin.generate(fileAsImage, dnaRecordId, {}, { contentId: sha256Hash }),
       this.layer10Evolution.generate(fileAsImage, dnaRecordId, sha256Hash),
     ]);
 
@@ -236,11 +275,69 @@ export class UniversalFileRouter {
     });
 
     const allLayers = [...result.layers, ...extraLayers];
-    const successful = allLayers.filter(l => l.success).length;
-    const status = successful === 10 ? 'COMPLETE' : successful > 0 ? 'PARTIAL' : 'FAILED';
+    const coreSuccessful = allLayers.filter(l => l.success).length;
+
+    // ── Layers 11–15 (advanced protection) ───────────────────────────────────
+    let advancedSuccessful = 0;
+    if (file.ownerUserId) {
+      const advanced = await processAdvancedLayers(
+        dnaRecordId,
+        file.buffer,
+        detection.mimeType,
+        file.ownerUserId,
+        file.originalName,
+      );
+      advancedSuccessful = advanced.successful;
+    }
+
+    const successful = coreSuccessful + advancedSuccessful;
+    const status =
+      successful === TOTAL_DNA_LAYERS ? 'COMPLETE'
+        : successful > 0 ? 'PARTIAL'
+        : 'FAILED';
 
     // Update final status
     await prisma.dnaRecord.update({ where: { id: dnaRecordId }, data: { status } });
+
+    // ── v2.2 Phase 2 enhancement bundle (non-fatal) ─────────────────────────
+    if (dnaEnhancements.enabled) {
+      try {
+        const bundle = await buildEnhancementBundle(file.buffer, {
+          mimeType: detection.mimeType,
+          fileType,
+          tempPath: file.filePath,
+        });
+        if (bundle) {
+          const rec = await prisma.dnaRecord.findUnique({
+            where: { id: dnaRecordId },
+            select: { universalFingerprints: true },
+          });
+          const merged = mergeUniversalFingerprints(rec?.universalFingerprints, bundle);
+          await prisma.dnaRecord.update({
+            where: { id: dnaRecordId },
+            data: {
+              // Safe merge preserves sealed enterpriseDnaPackage if already present
+              universalFingerprints: mergeUniversalFingerprintsImmutable(
+                rec?.universalFingerprints,
+                merged,
+              ) as object,
+            },
+          });
+        }
+      } catch (err) {
+        logger.warn('Phase 2 enhancement bundle skipped (non-fatal)', { dnaRecordId, error: String(err) });
+      }
+    }
+
+    // Milestone B Step 2 — enterprise DNA package (immutable SSoT dual-write)
+    try {
+      await persistEnterpriseDnaPackage(dnaRecordId);
+    } catch (err) {
+      logger.warn('Enterprise DNA package persistence skipped (non-fatal)', {
+        dnaRecordId,
+        error: String(err),
+      });
+    }
 
     return {
       dnaRecordId,
@@ -252,7 +349,11 @@ export class UniversalFileRouter {
       status,
       totalProcessingMs:   result.totalProcessingMs,
       generatedAt:         result.generatedAt,
-      layerSummary: { total: 10, successful, failed: 10 - successful },
+      layerSummary: {
+        total: TOTAL_DNA_LAYERS,
+        successful,
+        failed: TOTAL_DNA_LAYERS - successful,
+      },
     };
   }
 }

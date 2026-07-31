@@ -9,9 +9,9 @@
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const _env = (import.meta as any).env as Record<string, string | undefined>;
-const RENDER_BACKEND = 'https://pinit-dna.onrender.com/api/v1';
+const RENDER_BACKEND = 'https://pinit-dna-uf5y.onrender.com/api/v1';
 // Use || not ?? so empty string also falls back to the hardcoded Render URL
 const _raw = (_env['VITE_API_BASE_URL'] ?? '').trim().replace(/\/$/, '');
-// ALWAYS fall back to the Render backend — never use '/api/v1' (which breaks in the APK
-// because there's no local server). The Vite dev proxy handles '/api/v1' only in `vite dev`.
-export const API_BASE_URL: string = _raw || RENDER_BACKEND;
+// Web dev → Vite proxy to localhost:4000. Production build → Render backend.
+export const API_BASE_URL: string =
+  _raw || (_env['PROD'] ? RENDER_BACKEND : '/api/v1');

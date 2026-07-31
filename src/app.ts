@@ -2,6 +2,8 @@
  * PINIT-DNA — Application Entry Point
  */
 
+import './bootstrap-env';
+
 import 'express-async-errors';
 import fs   from 'fs';
 import path from 'path';
@@ -19,6 +21,7 @@ import { vaultRouter }             from './api/routes/vault.routes';
 import { intelligenceRouter }      from './api/routes/intelligence.routes';
 import { certificateMgmtRouter }   from './api/routes/certificate-mgmt.routes';
 import { forensicDiffRouter }      from './api/routes/forensic-diff.routes';
+import { unifiedInvestigationRouter } from './api/routes/unified-investigation.routes';
 import { aiRouter }               from './api/routes/ai.routes';
 import { monitoringRouter }        from './api/routes/monitoring.routes';
 import { shareRouter }            from './api/routes/share.routes';
@@ -27,9 +30,19 @@ import { evidenceRouter }         from './api/routes/evidence.routes';
 import { authRouter }             from './api/routes/auth.routes';
 import { profileRouter }          from './api/routes/profile.routes';
 import { notificationRouter }     from './api/routes/notification.routes';
+import { adminRouter }            from './api/routes/admin.routes';
+import { superAdminRouter }       from './api/routes/super-admin.routes';
+import { tepRouter }              from './api/routes/tep.routes';
+import { subscriptionRouter }     from './api/routes/subscription.routes';
+import { organizationRouter }     from './api/routes/organization.routes';
+import { publishGuardianRouter }  from './api/routes/publish-guardian.routes';
+import { assetRouter }            from './api/routes/asset.routes';
+import {
+  issueExtensionAuthCode,
+  exchangeExtensionAuthToken,
+} from './api/controllers/publish-guardian.controller';
+import { requireAuth } from './api/middleware/auth.middleware';
 import { getHealthReport }         from './lib/health';
-import { vaultScheduler }         from './services/scheduler/vault-scheduler.service';
-import { startPythonAI } from './lib/python-ai-process';
 import { errorMiddleware } from './api/middleware/error.middleware';
 
 const app = express();
@@ -52,11 +65,18 @@ app.set('trust proxy', 1);
 app.use(helmet({ contentSecurityPolicy: false }));
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
-// Allows: localhost (any port) + ALL ngrok domains + optional custom domain
+// Allows: localhost + ngrok + Vercel + PinIT Hub custom domains + ALLOWED_ORIGIN(S)
 app.use(cors({
   origin: (origin, callback) => {
     // No origin = server-to-server, Postman, curl → always allow
     if (!origin) return callback(null, true);
+
+    const extraOrigins = [
+      process.env['ALLOWED_ORIGIN'] ?? '',
+      ...(process.env['ALLOWED_ORIGINS'] ?? '').split(','),
+    ]
+      .map((value) => value.trim())
+      .filter(Boolean);
 
     const allowed =
       origin.includes('localhost')       ||
@@ -65,8 +85,11 @@ app.use(cors({
       origin.includes('ngrok-free.app')  ||
       origin.includes('ngrok-free.dev')  ||
       origin.includes('ngrok.app')       ||
-      origin.includes('vercel.app')      ||   // ← Vercel preview + production deployments
-      (!!process.env['ALLOWED_ORIGIN'] && origin === process.env['ALLOWED_ORIGIN']);
+      origin.includes('vercel.app')      ||   // Vercel preview + production
+      origin.includes('pinithub.com')    ||   // custom domain (apex + www)
+      origin.startsWith('chrome-extension://') || // Chrome Publish Guardian
+      origin.startsWith('extension://') ||       // Edge / Chromium-edge extensions
+      extraOrigins.includes(origin);
 
     if (allowed) return callback(null, true);
 
@@ -97,16 +120,31 @@ const apiLimiter = rateLimit({
   legacyHeaders:   false,
   skip: (req) =>
     process.env['NODE_ENV'] !== 'production' ||
+    req.path === '/health' ||
+    req.path === `${config.apiPrefix}/ping` ||
+    req.path === `${config.apiPrefix}/health` ||
     (req.path.startsWith('/api/v1/share/') && req.method === 'GET'),
 });
-app.use(apiLimiter);
 
-// ─── Health check (Phase 6 — detailed) ────────────────────────────────────────
+// ─── Health check (Phase 6 — detailed) — before rate limiter ─────────────────
+/** Instant liveness — used by Vite proxy / dev auto-retry (no DB). */
+app.get(`${config.apiPrefix}/ping`, (_req, res) => {
+  res.json({ ok: true, service: 'pinit-dna-api', ts: Date.now() });
+});
+
+app.get(`${config.apiPrefix}/health`, async (_req, res) => {
+  const report = await getHealthReport();
+  const httpStatus = report.status === 'healthy' ? 200 : report.status === 'degraded' ? 207 : 503;
+  res.status(httpStatus).json(report);
+});
+
 app.get('/health', async (_req, res) => {
   const report = await getHealthReport();
   const httpStatus = report.status === 'healthy' ? 200 : report.status === 'degraded' ? 207 : 503;
   res.status(httpStatus).json(report);
 });
+
+app.use(apiLimiter);
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
 app.use(`${config.apiPrefix}/dna`,          dnaRouter);
@@ -114,6 +152,7 @@ app.use(`${config.apiPrefix}/vault`,        vaultRouter);
 app.use(`${config.apiPrefix}/intelligence`, intelligenceRouter);
 app.use(`${config.apiPrefix}/certificates`, certificateMgmtRouter);
 app.use(`${config.apiPrefix}/forensic`,    forensicDiffRouter);
+app.use(`${config.apiPrefix}/forensics`,   unifiedInvestigationRouter);
 app.use(`${config.apiPrefix}/ai`,         aiRouter);
 app.use(`${config.apiPrefix}/monitor`,   monitoringRouter);
 app.use(`${config.apiPrefix}/share`,      shareRouter);
@@ -122,6 +161,18 @@ app.use(`${config.apiPrefix}/evidence`,   evidenceRouter);
 app.use(`${config.apiPrefix}/auth`,      authRouter);
 app.use(`${config.apiPrefix}/profile`,       profileRouter);
 app.use(`${config.apiPrefix}/notifications`, notificationRouter);
+app.use(`${config.apiPrefix}/admin`,         adminRouter);
+app.use(`${config.apiPrefix}/super-admin`,   superAdminRouter);
+app.use(`${config.apiPrefix}/tep`,           tepRouter);
+app.use(`${config.apiPrefix}/subscription`,  subscriptionRouter);
+app.use(`${config.apiPrefix}/organization`,   organizationRouter);
+/** Publish Guardian — /api/v1/extension/* and /api/v1/posts* (additive) */
+app.use(`${config.apiPrefix}`, publishGuardianRouter);
+app.use(`${config.apiPrefix}`, assetRouter);
+
+/** Extension OAuth (additive — does not change password/biometric login) */
+app.post(`${config.apiPrefix}/auth/extension/issue-code`, requireAuth, issueExtensionAuthCode);
+app.post(`${config.apiPrefix}/auth/extension/token`, exchangeExtensionAuthToken);
 
 // ─── Share viewer with dynamic OG meta tags (trackable preview) ──────────────
 // When WhatsApp/Telegram crawl /s/:token, they get OG tags with our trackable
@@ -180,92 +231,5 @@ app.get('*', (_req, res) => {
 
 // ─── Global error handler ─────────────────────────────────────────────────────
 app.use(errorMiddleware);
-
-// ─── Start server ─────────────────────────────────────────────────────────────
-if (require.main === module) {
-  const server = app.listen(config.port, () => {
-    logger.info('PINIT-DNA API running', {
-      port:   config.port,
-      env:    config.env,
-      prefix: config.apiPrefix,
-      engineVersion: config.dna.engineVersion,
-    });
-
-    // Phase 5: Start scheduled tasks
-    vaultScheduler.start();
-
-    // Start Python AI only in local dev — too memory-heavy for Render free tier (512MB)
-    if (config.env !== 'production') {
-      startPythonAI();
-    }
-
-    // Log Tika status (Tika runs in Docker separately — just check if available)
-    setTimeout(async () => {
-      const { tikaService } = await import('./services/tika/tika.service');
-      const available = await tikaService.isAvailable();
-      if (available) {
-        logger.info('Apache Tika is available — enhanced metadata extraction active');
-      } else {
-        logger.info('Apache Tika not running — start with: docker run -d -p 9998:9998 apache/tika');
-      }
-    }, 3000);
-
-    // Auto-reindex all records into FAISS after 20s (give Python AI time to start)
-    // Uses OCR text from DB — completes in < 5 seconds, user never sees it
-    setTimeout(async () => {
-      try {
-        const { prisma: db } = await import('./lib/prisma');
-        const { aiService }  = await import('./services/ai/ai-embeddings.service');
-
-        const online = await aiService.isOnline();
-        if (!online) return;
-
-        const records = await db.dnaRecord.findMany({
-          select: {
-            id: true, imageFilename: true, fileType: true,
-            ocrRecord: { select: { extractedText: true } },
-          },
-        });
-
-        let indexed = 0;
-        const BATCH = 10;
-        for (let i = 0; i < records.length; i += BATCH) {
-          await Promise.all(records.slice(i, i + BATCH).map(async (r) => {
-            try {
-              const ocrText = r.ocrRecord?.extractedText;
-              const text = ocrText && ocrText.length > 50
-                ? `${r.imageFilename} ${ocrText}`
-                : r.imageFilename.replace(/\.[^.]+$/, '').replace(/[_\-\.]/g, ' ').trim();
-
-              await aiService.indexDocument({
-                dnaRecordId: r.id, filename: r.imageFilename,
-                fileType: r.fileType ?? 'IMAGE', text,
-              });
-              indexed++;
-            } catch { /* non-fatal */ }
-          }));
-        }
-        logger.info(`Auto-reindex complete: ${indexed}/${records.length} documents indexed silently`);
-      } catch (err) {
-        logger.debug('Auto-reindex failed (non-fatal)', { error: String(err) });
-      }
-    }, 20_000);
-
-    // Keep Render free tier awake — ping self every 14 minutes
-    if (process.env['NODE_ENV'] === 'production' && process.env['RENDER_EXTERNAL_URL']) {
-      const keepAliveUrl = `${process.env['RENDER_EXTERNAL_URL']}/api/v1/health`;
-      setInterval(() => {
-        import('https').then(({ default: https }) =>
-          https.get(keepAliveUrl, () => {}).on('error', () => {})
-        );
-      }, 14 * 60 * 1000);
-      logger.info('Keep-alive ping enabled', { url: keepAliveUrl });
-    }
-
-    // Phase 6: Register graceful shutdown (also stops Python AI)
-    const { registerGracefulShutdown } = require('./lib/graceful-shutdown');
-    registerGracefulShutdown(server);
-  });
-}
 
 export { app };

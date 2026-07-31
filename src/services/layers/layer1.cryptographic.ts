@@ -20,6 +20,7 @@ import crypto from 'crypto';
 import sharp from 'sharp';
 import { ImageInput, CryptoLayerResult } from '../../types/dna.types';
 import { logger } from '../../lib/logger';
+import { computeLayer1Blake3 } from '../forensics/dna-enhancement-bundle.service';
 
 export class CryptographicLayer {
   readonly layerNumber = 1 as const;
@@ -70,7 +71,7 @@ export class CryptographicLayer {
         data: {
           sha256Hash,
           normalizedHash,
-          blake3Hash: null, // reserved for future implementation
+          blake3Hash: computeLayer1Blake3(image.buffer),
         },
       };
 
@@ -128,6 +129,13 @@ export class CryptographicLayer {
     if (probe.sha256Hash && probe.sha256Hash === stored.sha256Hash) {
       logger.debug('Layer 1 — verify PASSED (sha256Hash match)');
       return 1.0;
+    }
+
+    // Optional BLAKE3 when stored (enhancement v2.1)
+    const storedBlake = (stored as { blake3Hash?: string | null }).blake3Hash;
+    if (probe.blake3Hash && storedBlake && probe.blake3Hash === storedBlake) {
+      logger.debug('Layer 1 — verify PASSED (blake3Hash match)');
+      return 0.95;
     }
 
     logger.debug('Layer 1 — verify FAILED (no hash match)');

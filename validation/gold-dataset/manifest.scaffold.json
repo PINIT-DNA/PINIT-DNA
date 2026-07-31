@@ -1,0 +1,158 @@
+{
+  "schema": "enterprise-gold-dataset-manifest-v1",
+  "version": "0.1.0-scaffold",
+  "description": "Scaffold gold dataset — metadata paths only; binaries not generated",
+  "createdAt": "2026-07-17T00:00:00.000Z",
+  "samples": [
+    {
+      "sampleId": "asset-original-001",
+      "relativePath": "gold/originals/asset-original-001.jpg",
+      "relationship": "ORIGINAL",
+      "originalSampleId": null,
+      "mimeType": "image/jpeg",
+      "expectedVerdicts": ["VERIFIED_OWNER"],
+      "notes": "Placeholder — file not generated",
+      "tags": ["scaffold"]
+    },
+    {
+      "sampleId": "asset-jpeg80-001",
+      "relativePath": "gold/derivatives/asset-jpeg80-001.jpg",
+      "relationship": "JPEG_RECOMPRESSION",
+      "originalSampleId": "asset-original-001",
+      "mimeType": "image/jpeg",
+      "expectedVerdicts": ["VERIFIED_COPY", "DERIVATIVE"],
+      "notes": "Placeholder — file not generated",
+      "tags": ["scaffold"]
+    },
+    {
+      "sampleId": "asset-png-001",
+      "relativePath": "gold/derivatives/asset-png-001.png",
+      "relationship": "PNG_CONVERSION",
+      "originalSampleId": "asset-original-001",
+      "mimeType": "image/png",
+      "expectedVerdicts": ["VERIFIED_COPY", "DERIVATIVE"],
+      "notes": "Placeholder — file not generated",
+      "tags": ["scaffold"]
+    },
+    {
+      "sampleId": "asset-resize-001",
+      "relativePath": "gold/derivatives/asset-resize-001.jpg",
+      "relationship": "RESIZE",
+      "originalSampleId": "asset-original-001",
+      "mimeType": "image/jpeg",
+      "expectedVerdicts": ["DERIVATIVE", "VERIFIED_COPY"],
+      "notes": "Placeholder — file not generated",
+      "tags": ["scaffold"]
+    },
+    {
+      "sampleId": "asset-crop-001",
+      "relativePath": "gold/derivatives/asset-crop-001.jpg",
+      "relationship": "CROP",
+      "originalSampleId": "asset-original-001",
+      "mimeType": "image/jpeg",
+      "expectedVerdicts": ["DERIVATIVE", "POSSIBLE_MATCH"],
+      "notes": "Placeholder — file not generated",
+      "tags": ["scaffold"]
+    },
+    {
+      "sampleId": "asset-screenshot-001",
+      "relativePath": "gold/derivatives/asset-screenshot-001.png",
+      "relationship": "SCREENSHOT",
+      "originalSampleId": "asset-original-001",
+      "mimeType": "image/png",
+      "expectedVerdicts": ["DERIVATIVE", "POSSIBLE_MATCH"],
+      "notes": "Placeholder — file not generated",
+      "tags": ["scaffold"]
+    },
+    {
+      "sampleId": "asset-nometa-001",
+      "relativePath": "gold/derivatives/asset-nometa-001.jpg",
+      "relationship": "METADATA_REMOVED",
+      "originalSampleId": "asset-original-001",
+      "mimeType": "image/jpeg",
+      "expectedVerdicts": ["VERIFIED_COPY", "POSSIBLE_MATCH", "DERIVATIVE"],
+      "notes": "Placeholder — file not generated",
+      "tags": ["scaffold"]
+    },
+    {
+      "sampleId": "asset-bright-001",
+      "relativePath": "gold/derivatives/asset-bright-001.jpg",
+      "relationship": "BRIGHTNESS_ADJUSTMENT",
+      "originalSampleId": "asset-original-001",
+      "mimeType": "image/jpeg",
+      "expectedVerdicts": ["DERIVATIVE", "VERIFIED_COPY", "POSSIBLE_MATCH"],
+      "notes": "Placeholder — file not generated",
+      "tags": ["scaffold"]
+    },
+    {
+      "sampleId": "asset-contrast-001",
+      "relativePath": "gold/derivatives/asset-contrast-001.jpg",
+      "relationship": "CONTRAST_ADJUSTMENT",
+      "originalSampleId": "asset-original-001",
+      "mimeType": "image/jpeg",
+      "expectedVerdicts": ["DERIVATIVE", "VERIFIED_COPY", "POSSIBLE_MATCH"],
+      "notes": "Placeholder — file not generated",
+      "tags": ["scaffold"]
+    },
+    {
+      "sampleId": "asset-wm-add-001",
+      "relativePath": "gold/derivatives/asset-wm-add-001.jpg",
+      "relationship": "WATERMARK_ADDED",
+      "originalSampleId": "asset-original-001",
+      "mimeType": "image/jpeg",
+      "expectedVerdicts": ["VERIFIED_COPY", "DERIVATIVE"],
+      "notes": "Placeholder — file not generated",
+      "tags": ["scaffold"]
+    },
+    {
+      "sampleId": "asset-wm-rm-001",
+      "relativePath": "gold/derivatives/asset-wm-rm-001.jpg",
+      "relationship": "WATERMARK_REMOVED",
+      "originalSampleId": "asset-original-001",
+      "mimeType": "image/jpeg",
+      "expectedVerdicts": ["POSSIBLE_MATCH", "DERIVATIVE", "INSUFFICIENT_EVIDENCE"],
+      "notes": "Placeholder — file not generated",
+      "tags": ["scaffold"]
+    },
+    {
+      "sampleId": "asset-pdf-001",
+      "relativePath": "gold/derivatives/asset-pdf-001.pdf",
+      "relationship": "PDF_EXPORT",
+      "originalSampleId": "asset-original-001",
+      "mimeType": "application/pdf",
+      "expectedVerdicts": ["DERIVATIVE", "POSSIBLE_MATCH", "INSUFFICIENT_EVIDENCE"],
+      "notes": "Placeholder — file not generated",
+      "tags": ["scaffold"]
+    },
+    {
+      "sampleId": "asset-video-001",
+      "relativePath": "gold/derivatives/asset-video-001.mp4",
+      "relationship": "VIDEO_TRANSCODE",
+      "originalSampleId": "asset-original-001",
+      "mimeType": "video/mp4",
+      "expectedVerdicts": ["DERIVATIVE", "POSSIBLE_MATCH", "INSUFFICIENT_EVIDENCE"],
+      "notes": "Placeholder — file not generated",
+      "tags": ["scaffold"]
+    },
+    {
+      "sampleId": "asset-audio-001",
+      "relativePath": "gold/derivatives/asset-audio-001.mp3",
+      "relationship": "AUDIO_RECOMPRESSION",
+      "originalSampleId": "asset-original-001",
+      "mimeType": "audio/mpeg",
+      "expectedVerdicts": ["DERIVATIVE", "POSSIBLE_MATCH", "INSUFFICIENT_EVIDENCE"],
+      "notes": "Placeholder — file not generated",
+      "tags": ["scaffold"]
+    },
+    {
+      "sampleId": "asset-unrelated-001",
+      "relativePath": "gold/negatives/asset-unrelated-001.jpg",
+      "relationship": "UNRELATED",
+      "originalSampleId": null,
+      "mimeType": "image/jpeg",
+      "expectedVerdicts": ["NO_MATCH", "INSUFFICIENT_EVIDENCE"],
+      "notes": "Placeholder — file not generated",
+      "tags": ["scaffold"]
+    }
+  ]
+}

@@ -1,23 +1,34 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   User, Shield, Bell, Clock, Activity, Save, RefreshCw,
   Dna, Archive, Share2, Award, Eye, Radio, Trash2,
-  Sun, Moon, Monitor,
+  Sun, Moon, Monitor, ShieldCheck, Download,
 } from 'lucide-react';
-import { api } from '../services/dashboard.api';
+import { api, listVaultRecords, retrieveFromVault } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
 import { useTheme } from '../hooks/useTheme';
+import { useAccountViewMode } from '../hooks/useAccountViewMode';
+import { BusinessProfileHub } from './business/BusinessProfileHub';
 import { formatDistanceToNow, format } from 'date-fns';
+import toast from 'react-hot-toast';
+import { formatBytes } from '../hooks/useApi';
+import type { VaultRecord } from '../types/dashboard.types';
+import {
+  type NotificationItem,
+  notificationTypeConfig,
+  NOTIFICATION_SEVERITY_BORDER,
+  resolveNotificationDeepLink,
+} from '../lib/notification-config';
 
 type Tab = 'profile' | 'security' | 'notifications' | 'activity' | 'settings';
 
-const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-  { id: 'profile',       label: 'Profile',       icon: <User size={14} /> },
-  { id: 'security',      label: 'Security',      icon: <Shield size={14} /> },
+const BASE_TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+  { id: 'profile', label: 'Profile', icon: <User size={14} /> },
+  { id: 'security', label: 'Security', icon: <Shield size={14} /> },
   { id: 'notifications', label: 'Notifications', icon: <Bell size={14} /> },
-  { id: 'activity',      label: 'Activity',      icon: <Clock size={14} /> },
-  { id: 'settings',      label: 'Settings',      icon: <Activity size={14} /> },
+  { id: 'activity', label: 'Activity', icon: <Clock size={14} /> },
+  { id: 'settings', label: 'Settings', icon: <Activity size={14} /> },
 ];
 
 export function ProfilePage() {
@@ -26,27 +37,75 @@ export function ProfilePage() {
   const [profile, setProfile] = useState<any>(null);
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const { isBusinessShell } = useAccountViewMode();
+
+  // Business org profile only while Business shell is active
+  const showBusinessProfile = isBusinessShell;
+
+  const tabs = BASE_TABS;
+
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadProfile = () => {
+    setLoading(true);
+    setLoadError(null);
+
+    void (async () => {
+      try {
+        const { data } = await api.get(`${API_BASE_URL}/profile`);
+        const p = (data as { profile?: unknown }).profile;
+        if (p) setProfile(p);
+        else setLoadError('Profile data was empty. Try again.');
+      } catch {
+        setLoadError('Profile could not be loaded. The backend may be busy — try again.');
+      } finally {
+        setLoading(false);
+      }
+    })();
+
+    void api
+      .get(`${API_BASE_URL}/profile/stats`)
+      .then((r) => setStats((r.data as { stats?: unknown }).stats))
+      .catch(() => {});
+  };
 
   useEffect(() => {
-    Promise.all([
-      api.get(`${API_BASE_URL}/profile`).then(r => setProfile((r.data as any).profile)),
-      api.get(`${API_BASE_URL}/profile/stats`).then(r => setStats((r.data as any).stats)),
-    ]).finally(() => setLoading(false));
+    loadProfile();
   }, []);
 
   useEffect(() => {
     const t = params.get('tab') as Tab;
-    if (t && TABS.some(x => x.id === t)) setTab(t);
+    if (t && tabs.some(x => x.id === t)) setTab(t);
   }, [params]);
 
   if (loading) return (
-    <div className="flex items-center justify-center min-h-[60vh]">
+    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
       <RefreshCw size={24} className="animate-spin text-dna-400" />
+      <p className="text-xs text-gray-500">Loading profile…</p>
     </div>
   );
 
+  if (!profile && loadError) {
+    return (
+      <div className="page-shell max-w-lg mx-auto text-center py-16">
+        <p className="text-sm text-amber-200 mb-4">{loadError}</p>
+        <button
+          type="button"
+          onClick={loadProfile}
+          className="text-xs px-4 py-2 rounded-lg bg-dna-500 text-white"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+
+  if (showBusinessProfile && profile) {
+    return <BusinessProfileHub profile={profile} stats={stats} />;
+  }
+
   return (
-    <div className="max-w-5xl mx-auto">
+    <div className="page-shell w-full max-w-5xl">
       {/* Header with stats */}
       <div className="card mb-6">
         <div className="flex items-start gap-4 flex-wrap">
@@ -65,9 +124,8 @@ export function ProfilePage() {
           </div>
         </div>
 
-        {/* Stats row */}
         {stats && (
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mt-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mt-4">
             <StatMini icon={<Dna size={12} />} label="DNA" value={stats.dnaGenerated} />
             <StatMini icon={<Archive size={12} />} label="Vault" value={stats.filesProtected} />
             <StatMini icon={<Share2 size={12} />} label="Shares" value={stats.activeShares} />
@@ -80,7 +138,7 @@ export function ProfilePage() {
 
       {/* Tab bar */}
       <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
-        {TABS.map(t => (
+        {tabs.map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
@@ -94,7 +152,7 @@ export function ProfilePage() {
       </div>
 
       {/* Tab content */}
-      {tab === 'profile'       && <ProfileTab profile={profile} onUpdate={setProfile} />}
+      {tab === 'profile' && <ProfileTab profile={profile} onUpdate={setProfile} />}
       {tab === 'security'      && <SecurityTab profile={profile} />}
       {tab === 'notifications' && <NotificationsTab profile={profile} onUpdate={setProfile} />}
       {tab === 'activity'      && <ActivityTab />}
@@ -235,11 +293,27 @@ function SecurityTab({ profile }: { profile: any }) {
 // ── Notifications Tab ──────────────────────────────────────────────────────────
 
 function NotificationsTab({ profile, onUpdate }: { profile: any; onUpdate: (p: any) => void }) {
+  return (
+    <div className="space-y-4">
+      <NotificationPreferences profile={profile} onUpdate={onUpdate} />
+      <NotificationHistoryPanel />
+    </div>
+  );
+}
+
+function NotificationPreferences({ profile, onUpdate }: { profile: any; onUpdate: (p: any) => void }) {
   const [prefs, setPrefs] = useState({
     notifyShareAccess: profile?.notifyShareAccess ?? true,
     notifyRiskAlerts: profile?.notifyRiskAlerts ?? true,
     notifyCertificates: profile?.notifyCertificates ?? true,
     notifyMonitoring: profile?.notifyMonitoring ?? true,
+    notifyVault: profile?.notifyVault ?? true,
+    notifyDna: profile?.notifyDna ?? true,
+    notifyInvestigation: profile?.notifyInvestigation ?? true,
+    notifyAutomation: profile?.notifyAutomation ?? true,
+    notifySecurity: profile?.notifySecurity ?? true,
+    notifyReports: profile?.notifyReports ?? true,
+    notifySystem: profile?.notifySystem ?? true,
     notifyUpdates: profile?.notifyUpdates ?? false,
   });
 
@@ -251,10 +325,17 @@ function NotificationsTab({ profile, onUpdate }: { profile: any; onUpdate: (p: a
   };
 
   const items = [
-    { key: 'notifyShareAccess', label: 'Share Access Alerts', desc: 'When someone views or downloads your shared files' },
-    { key: 'notifyRiskAlerts', label: 'Risk Alerts', desc: 'When suspicious activity is detected on your files' },
-    { key: 'notifyCertificates', label: 'Certificate Alerts', desc: 'When new certificates are generated' },
-    { key: 'notifyMonitoring', label: 'Monitoring Alerts', desc: 'When monitoring crawlers find matches' },
+    { key: 'notifyVault', label: 'Vault', desc: 'Storage, encryption issues, protected downloads, TEP events' },
+    { key: 'notifyDna', label: 'DNA', desc: 'DNA generated, verification results, and mismatches' },
+    { key: 'notifyCertificates', label: 'Certificates', desc: 'Issued, revoked, expired, and validation failures' },
+    { key: 'notifyShareAccess', label: 'Secure Share', desc: 'Link views, downloads, forwards, revokes, and expiry' },
+    { key: 'notifyMonitoring', label: 'Monitoring & Crawler', desc: 'Matches, scan completion, and crawler errors' },
+    { key: 'notifyRiskAlerts', label: 'AI Detection & Risk', desc: 'Policy blocks, tampering, copy/screenshot attempts' },
+    { key: 'notifyInvestigation', label: 'Investigation', desc: 'Investigation started, completed, and failed' },
+    { key: 'notifyAutomation', label: 'Automation', desc: 'Scheduled scans and automated task completion' },
+    { key: 'notifySecurity', label: 'Security', desc: 'Login events, password changes, and session revokes' },
+    { key: 'notifyReports', label: 'Reports', desc: 'Report generated, downloaded, and shared' },
+    { key: 'notifySystem', label: 'System', desc: 'Registration, storage warnings, and maintenance notices' },
     { key: 'notifyUpdates', label: 'Product Updates', desc: 'News about PINIT-DNA features and improvements' },
   ];
 
@@ -277,6 +358,169 @@ function NotificationsTab({ profile, onUpdate }: { profile: any; onUpdate: (p: a
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function NotificationHistoryPanel() {
+  const [items, setItems] = useState<NotificationItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [filter, setFilter] = useState<'all' | 'unread'>('all');
+  const [category, setCategory] = useState('');
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<'createdAt' | 'severity'>('createdAt');
+  const [includeArchived, setIncludeArchived] = useState(false);
+  const navigate = useNavigate();
+
+  const load = async (offset = 0, append = false) => {
+    if (offset === 0) setLoading(true);
+    else setLoadingMore(true);
+    try {
+      const params = new URLSearchParams({ limit: '25', offset: String(offset), sort });
+      if (filter === 'unread') params.set('unread', 'true');
+      if (category) params.set('category', category);
+      if (search.trim()) params.set('q', search.trim());
+      if (includeArchived) params.set('includeArchived', 'true');
+      const { data } = await api.get(`${API_BASE_URL}/notifications?${params}`);
+      const payload = data as {
+        notifications?: NotificationItem[];
+        hasMore?: boolean;
+      };
+      const batch = payload.notifications ?? [];
+      setItems(prev => append ? [...prev, ...batch] : batch);
+      setHasMore(!!payload.hasMore);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  };
+
+  useEffect(() => { load(0, false); }, [filter, category, sort, includeArchived]);
+
+  const markAllRead = async () => {
+    await api.put(`${API_BASE_URL}/notifications/read-all`);
+    load(0, false);
+  };
+
+  const archiveItem = async (id: string) => {
+    await api.put(`${API_BASE_URL}/notifications/${id}/archive`);
+    setItems(prev => prev.filter(n => n.id !== id));
+  };
+
+  const categories = ['', 'sharing', 'security', 'vault', 'monitoring', 'certificates', 'investigation', 'account', 'automation'];
+
+  return (
+    <div className="card">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+          <Bell size={14} className="text-dna-400" /> Notification History
+        </h2>
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <input
+            type="search"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && load(0, false)}
+            placeholder="Search notifications…"
+            className="text-2xs bg-bg-elevated border border-bg-border rounded px-2 py-1 text-gray-300 min-w-[140px] flex-1"
+          />
+          <button onClick={() => load(0, false)} className="text-2xs text-dna-400 hover:text-white px-2 py-1 rounded border border-bg-border">
+            Search
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={sort}
+            onChange={e => setSort(e.target.value as 'createdAt' | 'severity')}
+            className="text-2xs bg-bg-elevated border border-bg-border rounded px-2 py-1 text-gray-300"
+          >
+            <option value="createdAt">Newest first</option>
+            <option value="severity">By severity</option>
+          </select>
+          <select
+            value={filter}
+            onChange={e => setFilter(e.target.value as 'all' | 'unread')}
+            className="text-2xs bg-bg-elevated border border-bg-border rounded px-2 py-1 text-gray-300"
+          >
+            <option value="all">All</option>
+            <option value="unread">Unread only</option>
+          </select>
+          <select
+            value={category}
+            onChange={e => setCategory(e.target.value)}
+            className="text-2xs bg-bg-elevated border border-bg-border rounded px-2 py-1 text-gray-300"
+          >
+            {categories.map(c => (
+              <option key={c || 'all'} value={c}>{c ? c.charAt(0).toUpperCase() + c.slice(1) : 'All categories'}</option>
+            ))}
+          </select>
+          <label className="text-2xs text-gray-500 flex items-center gap-1">
+            <input type="checkbox" checked={includeArchived} onChange={e => setIncludeArchived(e.target.checked)} />
+            Archived
+          </label>
+          <button onClick={markAllRead} className="text-2xs text-dna-400 hover:text-white px-2 py-1 rounded border border-bg-border">
+            Mark all read
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-8"><RefreshCw size={16} className="animate-spin text-dna-400 mx-auto" /></div>
+      ) : items.length === 0 ? (
+        <p className="text-xs text-gray-500 text-center py-8">No notifications match this filter</p>
+      ) : (
+        <div className="space-y-2">
+          {items.map(n => {
+            const cfg = notificationTypeConfig(n.type);
+            const border = NOTIFICATION_SEVERITY_BORDER[n.severity] ?? '';
+            return (
+              <div
+                key={n.id}
+                onClick={() => navigate(resolveNotificationDeepLink(n))}
+                className={`group flex items-start gap-3 bg-bg-elevated rounded-lg px-3 py-2.5 border border-bg-border border-l-2 ${border} cursor-pointer hover:bg-bg-base ${n.read ? 'opacity-70' : ''}`}
+              >
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${cfg.color}`}>{cfg.icon}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-xs font-medium text-white">{n.title}</p>
+                    {n.category && (
+                      <span className="text-2xs text-gray-600 capitalize px-1.5 py-0.5 rounded bg-bg-base">{n.category}</span>
+                    )}
+                    <span className={`text-2xs px-1 py-0.5 rounded capitalize ${
+                      n.severity === 'critical' ? 'bg-red-500/20 text-red-400' :
+                      n.severity === 'warning' ? 'bg-orange-500/20 text-orange-400' :
+                      'bg-gray-500/20 text-gray-400'
+                    }`}>{n.severity}</span>
+                  </div>
+                  <p className="text-2xs text-gray-500 line-clamp-2">{n.body}</p>
+                  <p className="text-2xs text-gray-600 mt-1">{formatDistanceToNow(new Date(n.createdAt))} ago · {n.type.replace(/_/g, ' ')}</p>
+                </div>
+                <div className="flex flex-col items-center gap-1 shrink-0">
+                  {!n.read && <span className="w-2 h-2 bg-dna-500 rounded-full" />}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); archiveItem(n.id); }}
+                    className="text-gray-600 hover:text-gray-300 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Archive"
+                  >
+                    <Archive size={10} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          {hasMore && (
+            <button
+              disabled={loadingMore}
+              onClick={() => load(items.length, true)}
+              className="w-full text-2xs text-dna-400 hover:text-white py-2 border border-bg-border rounded-lg"
+            >
+              {loadingMore ? 'Loading…' : 'Load more'}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -338,38 +582,115 @@ function ActivityTab() {
 
 function SettingsTab() {
   const { theme, toggle: toggleTheme } = useTheme();
+  const [vaultFiles, setVaultFiles] = useState<VaultRecord[]>([]);
+  const [vaultLoading, setVaultLoading] = useState(true);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setVaultLoading(true);
+    listVaultRecords()
+      .then(setVaultFiles)
+      .catch(() => setVaultFiles([]))
+      .finally(() => setVaultLoading(false));
+  }, []);
+
+  const downloadOwnerBackup = async (record: VaultRecord) => {
+    setDownloadingId(record.id);
+    try {
+      const blob = await retrieveFromVault(record.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = record.originalFileName;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Owner backup downloaded (not tracked)');
+    } catch {
+      toast.error('Failed to download owner backup');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   return (
-    <div className="card">
-      <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-4"><Activity size={14} className="text-dna-400" /> App Settings</h2>
+    <div className="space-y-4">
+      <div className="card">
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2 mb-4"><Activity size={14} className="text-dna-400" /> App Settings</h2>
 
-      <div className="space-y-3">
-        {/* Theme toggle */}
-        <div className="flex items-center justify-between bg-bg-elevated rounded-lg px-4 py-3 border border-bg-border">
-          <div className="flex items-center gap-3">
-            {theme === 'dark' ? <Moon size={14} className="text-dna-400" /> : <Sun size={14} className="text-dna-400" />}
-            <div>
-              <p className="text-xs font-medium text-white">Theme</p>
-              <p className="text-2xs text-gray-500">Switch between light and dark mode</p>
+        <div className="space-y-3">
+          {/* Theme toggle */}
+          <div className="flex items-center justify-between bg-slate-50 dark:bg-bg-elevated rounded-lg px-4 py-3 border border-slate-200 dark:border-bg-border">
+            <div className="flex items-center gap-3">
+              {theme === 'dark' ? <Moon size={14} className="text-dna-400" /> : <Sun size={14} className="text-dna-400" />}
+              <div>
+                <p className="text-xs font-medium text-slate-900 dark:text-white">Theme</p>
+                <p className="text-2xs text-slate-600 dark:text-gray-400">Switch between light and dark mode</p>
+              </div>
+            </div>
+            <button
+              onClick={toggleTheme}
+              className={`w-9 h-5 rounded-full transition-colors relative ${theme === 'dark' ? 'bg-dna-500' : 'bg-gray-400'}`}
+            >
+              <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${theme === 'dark' ? 'left-[18px]' : 'left-0.5'}`} />
+            </button>
+          </div>
+
+          {/* Account Info */}
+          <div className="bg-bg-elevated rounded-lg px-4 py-3 border border-bg-border">
+            <p className="text-xs font-medium text-white mb-2">Account</p>
+            <div className="space-y-1 text-2xs text-gray-500">
+              <p>Account Type: <span className="text-gray-400">Free</span></p>
+              <p>API Keys: <span className="text-gray-400">Coming Soon</span></p>
+              <p>Billing: <span className="text-gray-400">Coming Soon</span></p>
             </div>
           </div>
-          <button
-            onClick={toggleTheme}
-            className={`w-9 h-5 rounded-full transition-colors relative ${theme === 'dark' ? 'bg-dna-500' : 'bg-gray-400'}`}
-          >
-            <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${theme === 'dark' ? 'left-[18px]' : 'left-0.5'}`} />
-          </button>
         </div>
+      </div>
 
-        {/* Account Info */}
-        <div className="bg-bg-elevated rounded-lg px-4 py-3 border border-bg-border">
-          <p className="text-xs font-medium text-white mb-2">Account</p>
-          <div className="space-y-1 text-2xs text-gray-500">
-            <p>Account Type: <span className="text-gray-400">Free</span></p>
-            <p>API Keys: <span className="text-gray-400">Coming Soon</span></p>
-            <p>Billing: <span className="text-gray-400">Coming Soon</span></p>
+      <div className="card">
+        <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-1">
+          <ShieldCheck size={14} className="text-dna-400" /> Owner Backup
+        </h2>
+        <p className="text-2xs text-gray-500 mb-4">
+          Download the original (untracked) copy of a vault file. Use this for personal backup — not for sharing.
+        </p>
+
+        {vaultLoading ? (
+          <div className="flex justify-center py-8">
+            <RefreshCw size={18} className="animate-spin text-gray-500" />
           </div>
-        </div>
+        ) : vaultFiles.length === 0 ? (
+          <p className="text-xs text-gray-500 text-center py-6">No vault files yet.</p>
+        ) : (
+          <ul className="space-y-2 max-h-[360px] overflow-y-auto">
+            {vaultFiles.map((file) => (
+              <li
+                key={file.id}
+                className="flex items-center gap-3 rounded-lg border border-bg-border bg-bg-elevated px-3 py-2.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-white truncate">{file.originalFileName}</p>
+                  <p className="text-2xs text-gray-500 mono">
+                    {formatBytes(file.originalSizeBytes)} · {format(new Date(file.createdAt), 'MMM d, yyyy')}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void downloadOwnerBackup(file)}
+                  disabled={downloadingId === file.id}
+                  className="btn-secondary btn-sm shrink-0 gap-1.5"
+                >
+                  {downloadingId === file.id ? (
+                    <RefreshCw size={13} className="animate-spin" />
+                  ) : (
+                    <Download size={13} />
+                  )}
+                  Backup
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

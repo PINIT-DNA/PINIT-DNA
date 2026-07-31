@@ -23,6 +23,7 @@ import {
   FILE_TYPE_BY_MIME,
   FILE_TYPE_BY_EXT,
 } from '../config/supported-file-types';
+import { normalizeMimeType } from '../lib/mime-normalize';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -100,7 +101,7 @@ export class FileTypeDetector {
     throw new Error(
       `Unsupported file type. ` +
       `File: "${originalName}", declared MIME: "${declaredMime}". ` +
-      `Supported types: IMAGE, PDF, DOCX, PPTX, TXT, CSV, JSON, ZIP, VIDEO, AUDIO.`
+      `Supported types: IMAGE, PDF, DOCX, PPTX, TXT, HTML, CSV, JSON, ZIP, VIDEO, AUDIO.`
     );
   }
 
@@ -182,12 +183,13 @@ export class FileTypeDetector {
   // ─── Layer 2: Declared MIME type ───────────────────────────────────────────
 
   private detectByMimeType(declaredMime: string): DetectionResult | null {
-    const config = FILE_TYPE_BY_MIME.get(declaredMime);
+    const baseMime = normalizeMimeType(declaredMime);
+    const config = FILE_TYPE_BY_MIME.get(baseMime) ?? FILE_TYPE_BY_MIME.get(declaredMime);
     if (!config) return null;
 
     return {
       fileType:   config.fileType,
-      mimeType:   declaredMime,
+      mimeType:   baseMime,
       detectedBy: 'mime_type',
       confidence: 'MEDIUM',
       config,

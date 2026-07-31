@@ -1,32 +1,9 @@
 /**
  * PINIT-DNA — Layer 5: Metadata Provenance Record
  *
- * From the theoretical spec:
- *   "Following the emerging industry standard called C2PA (Coalition for Content
- *    Provenance and Authenticity), the system creates a structured record containing:
- *    the creation timestamp, the owner session identifier, the tool name and version,
- *    and a cryptographic link to the Layer 1 hash. This record is embedded in the
- *    image file's metadata fields and travels with the image whenever it is shared."
- *
- * What this layer does:
- *
- *   GENERATE:
- *     1. Extract all existing EXIF/IPTC/XMP metadata from the image (via exifr)
- *     2. Build a C2PA-style provenance manifest (our own structured record)
- *     3. Compute SHA-256 of the full metadata block for tamper detection
- *     4. Return device fingerprint, GPS, capture time, and provenance record
- *
- *   VERIFY (spec §5.3 step 16):
- *     "System reads metadata fields. Is a valid C2PA provenance record present?"
- *     - metadataHash exact match → score 1.0
- *     - Partial field matches → proportional score
- *     - No provenance record found → score 0.0
- *
- * Survives:  Normal file sharing, email, messaging apps that preserve metadata.
- * Defeated by: Any image editor or social media platform that strips EXIF.
- *
- * Note: This is the most easily stripped layer — its value is providing
- * human-readable provenance evidence for legitimate use cases and legal proceedings.
+ * Milestone B Step 1: when DNA_DETERMINISTIC_MODE is ON, metadataHash equals
+ * EDS claims_digest (content/claims only — no dnaRecordId / generatedAt).
+ * Legacy mode retains dnaRecordId in the hash for rollback.
  */
 
 import crypto from 'crypto';
@@ -34,15 +11,22 @@ import sharp from 'sharp';
 import { ImageInput, MetadataLayerResult } from '../../types/dna.types';
 import { logger } from '../../lib/logger';
 import { config } from '../../config';
+import {
+  CLAIMS_DIGEST_ALGORITHM_ID,
+  computeClaimsDigest,
+  isDnaDeterministicModeEnabled,
+} from '../dna/deterministic-identity';
+import {
+  logIdentityLayerCompleted,
+  logIdentityLayerStarted,
+} from '../dna/identity-generation-logger';
 
-// C2PA-style provenance manifest structure embedded by this system
 interface ProvenanceManifest {
   tool: string;
   version: string;
   dnaRecordId: string | null;
   generatedAt: string;
   schemaVersion: string;
-  // Cryptographic link to Layer 1 (populated by orchestrator if available)
   layer1HashRef: string | null;
 }
 
@@ -50,46 +34,27 @@ export class MetadataLayer {
   readonly layerNumber = 5 as const;
   readonly layerName = 'metadata' as const;
 
-  /**
-   * Extract metadata provenance from the image and build a C2PA-style record.
-   *
-   * @param image       - The uploaded image
-   * @param dnaRecordId - DNA record ID to embed in the provenance manifest
-   * @param layer1Hash  - SHA-256 hash from Layer 1 (cryptographic link per spec)
-   */
   async generate(
     image: ImageInput,
     dnaRecordId?: string,
     layer1Hash?: string
   ): Promise<MetadataLayerResult> {
     const start = Date.now();
-    logger.debug('Layer 5 — extracting metadata provenance', {
-      file: image.originalName,
-    });
+    const deterministic = isDnaDeterministicModeEnabled();
+    logIdentityLayerStarted(5, this.layerName, { file: image.originalName, deterministic });
 
     try {
-      // ── Step 1: Extract existing EXIF/IPTC/XMP via exifr ─────────────────
       const exifData = await this.parseExif(image.buffer);
 
-      // ── Step 2: Pull device fingerprint fields ─────────────────────────────
       const deviceMake   = this.getString(exifData, ['Make', 'make']) ?? null;
       const deviceModel  = this.getString(exifData, ['Model', 'model']) ?? null;
       const software     = this.getString(exifData, ['Software', 'software']) ?? null;
-
-      // ── Step 3: Pull capture datetime ─────────────────────────────────────
       const capturedAt = this.parseDatetime(exifData);
-
-      // ── Step 4: Pull GPS coordinates ──────────────────────────────────────
       const gpsLatitude  = this.getNumber(exifData, ['latitude', 'GPSLatitude']) ?? null;
       const gpsLongitude = this.getNumber(exifData, ['longitude', 'GPSLongitude']) ?? null;
-
-      // ── Step 5: Extract IPTC and XMP blocks ───────────────────────────────
       const iptcData = this.extractBlock(exifData, 'iptc');
       const xmpData  = this.extractBlock(exifData, 'xmp');
 
-      // ── Step 6: Build C2PA-style provenance manifest ──────────────────────
-      // Per spec: "creation timestamp, session identifier, tool name and version,
-      //            and a cryptographic link to the Layer 1 hash"
       const provenance: ProvenanceManifest = {
         tool: 'PINIT-DNA',
         version: config.dna.schemaVersion,
@@ -99,23 +64,28 @@ export class MetadataLayer {
         layer1HashRef: layer1Hash ?? null,
       };
 
-      // ── Step 7: Compute metadata hash ─────────────────────────────────────
-      // SHA-256 of the stable fields only — excludes generatedAt (timestamp)
-      // so the hash is deterministic for the same image + dnaRecordId + layer1Hash.
-      const stablePayload = {
-        exif: exifData ? this.sortKeys(exifData as Record<string, unknown>) : null,
-        dnaRecordId: provenance.dnaRecordId,
-        layer1HashRef: provenance.layer1HashRef,
+      const claimsDigest = computeClaimsDigest({
+        exifData: exifData as Record<string, unknown> | null,
+        layer1HashRef: layer1Hash ?? null,
         tool: provenance.tool,
         version: provenance.version,
-      };
+      });
 
-      const metadataHash = crypto
-        .createHash('sha256')
-        .update(JSON.stringify(stablePayload))
-        .digest('hex');
+      const metadataHash = deterministic
+        ? claimsDigest
+        : crypto
+            .createHash('sha256')
+            .update(
+              JSON.stringify({
+                exif: exifData ? this.sortKeys(exifData as Record<string, unknown>) : null,
+                dnaRecordId: provenance.dnaRecordId,
+                layer1HashRef: provenance.layer1HashRef,
+                tool: provenance.tool,
+                version: provenance.version,
+              }),
+            )
+            .digest('hex');
 
-      // ── Step 8: Get image dimensions via sharp ─────────────────────────────
       const sharpMeta = await sharp(image.buffer).metadata();
 
       const result: MetadataLayerResult = {
@@ -134,24 +104,42 @@ export class MetadataLayer {
           iptcData,
           xmpData,
           metadataHash,
+          claimsDigest,
+          claimsDigestAlgorithmId: CLAIMS_DIGEST_ALGORITHM_ID,
+          deterministic,
         },
       };
 
+      logIdentityLayerCompleted({
+        layer: 5,
+        name: this.layerName,
+        durationMs: result.processingMs,
+        fingerprintLength: metadataHash.length,
+        success: true,
+        deterministic,
+      });
+
       logger.debug('Layer 5 — complete', {
         hasExif: !!exifData,
-        deviceMake,
-        deviceModel,
-        hasCaptureTime: !!capturedAt,
-        hasGps: !!gpsLatitude,
         imageWidth: sharpMeta.width,
         imageHeight: sharpMeta.height,
         metadataHash: metadataHash.substring(0, 16) + '...',
+        claimsDigest: claimsDigest.substring(0, 16) + '...',
+        deterministic,
         processingMs: result.processingMs,
       });
 
       return result;
     } catch (err) {
       logger.error('Layer 5 — failed', { error: err });
+      logIdentityLayerCompleted({
+        layer: 5,
+        name: this.layerName,
+        durationMs: Date.now() - start,
+        fingerprintLength: 0,
+        success: false,
+        deterministic,
+      });
       return {
         layer: 5,
         name: this.layerName,
@@ -174,16 +162,6 @@ export class MetadataLayer {
     }
   }
 
-  /**
-   * Verify metadata provenance against stored record.
-   *
-   * Scoring:
-   *   metadataHash exact match       → 1.0 (full provenance intact)
-   *   deviceMake + deviceModel match  → 0.5
-   *   capturedAt within 1s           → 0.3
-   *   Any single field match          → 0.1
-   *   No match                        → 0.0
-   */
   verify(
     probe: MetadataLayerResult['data'],
     stored: {
@@ -194,21 +172,13 @@ export class MetadataLayer {
     }
   ): number {
     if (!probe.metadataHash || !stored.metadataHash) return 0;
+    if (probe.metadataHash === stored.metadataHash) return 1.0;
 
-    // Exact hash match — full provenance record intact
-    if (probe.metadataHash === stored.metadataHash) {
-      logger.debug('Layer 5 — verify PASSED (metadataHash match)');
-      return 1.0;
-    }
-
-    // Partial field matching
     let score = 0;
-
     const makeMatch  = probe.deviceMake  && stored.deviceMake  &&
                        probe.deviceMake.toLowerCase() === stored.deviceMake.toLowerCase();
     const modelMatch = probe.deviceModel && stored.deviceModel &&
                        probe.deviceModel.toLowerCase() === stored.deviceModel.toLowerCase();
-
     if (makeMatch && modelMatch) score += 0.5;
     else if (makeMatch || modelMatch) score += 0.2;
 
@@ -219,43 +189,23 @@ export class MetadataLayer {
       if (diffMs <= 1000) score += 0.3;
       else if (diffMs <= 60000) score += 0.1;
     }
-
-    logger.debug('Layer 5 — verify PARTIAL', {
-      score,
-      makeMatch,
-      modelMatch,
-    });
-
     return Math.min(score, 1.0);
   }
 
-  // ── Private helpers ────────────────────────────────────────────────────────
-
-  /** Parse EXIF/IPTC/XMP from image buffer using exifr */
   private async parseExif(buffer: Buffer): Promise<Record<string, unknown> | null> {
     try {
-      // Dynamic import — exifr is ESM-only in newer versions
       const exifr = await import('exifr');
       const data = await exifr.default.parse(buffer, {
-        tiff: true,
-        xmp: true,
-        iptc: true,
-        gps: true,
-        translateKeys: true,
-        translateValues: true,
+        tiff: true, xmp: true, iptc: true, gps: true,
+        translateKeys: true, translateValues: true,
       });
       return data ?? null;
     } catch {
-      // Image has no EXIF — not an error, just absence of metadata
       return null;
     }
   }
 
-  /** Safely extract a string value from nested keys */
-  private getString(
-    data: Record<string, unknown> | null,
-    keys: string[]
-  ): string | undefined {
+  private getString(data: Record<string, unknown> | null, keys: string[]): string | undefined {
     if (!data) return undefined;
     for (const key of keys) {
       const val = data[key];
@@ -264,11 +214,7 @@ export class MetadataLayer {
     return undefined;
   }
 
-  /** Safely extract a numeric value from nested keys */
-  private getNumber(
-    data: Record<string, unknown> | null,
-    keys: string[]
-  ): number | undefined {
+  private getNumber(data: Record<string, unknown> | null, keys: string[]): number | undefined {
     if (!data) return undefined;
     for (const key of keys) {
       const val = data[key];
@@ -277,7 +223,6 @@ export class MetadataLayer {
     return undefined;
   }
 
-  /** Extract and parse capture datetime from EXIF */
   private parseDatetime(data: Record<string, unknown> | null): Date | null {
     if (!data) return null;
     const keys = ['DateTimeOriginal', 'DateTime', 'CreateDate', 'dateTimeOriginal'];
@@ -292,7 +237,6 @@ export class MetadataLayer {
     return null;
   }
 
-  /** Extract a named block (iptc/xmp) as a plain object or null */
   private extractBlock(
     data: Record<string, unknown> | null,
     key: string
@@ -305,7 +249,6 @@ export class MetadataLayer {
     return null;
   }
 
-  /** Sort object keys for deterministic JSON serialisation */
   private sortKeys(obj: Record<string, unknown>): Record<string, unknown> {
     return Object.keys(obj)
       .sort()

@@ -87,6 +87,19 @@ export class PerceptualLayer {
   }
 
   /**
+   * Compute all perceptual hashes for a raw buffer (used by duplicate detection).
+   */
+  async computeFingerprints(buffer: Buffer): Promise<PerceptualLayerResult['data']> {
+    const [pHash64, pHash256, aHash64, dHash64] = await Promise.all([
+      this.computePHash64(buffer),
+      this.computePHash256(buffer),
+      this.computeAHash64(buffer),
+      this.computeDHash64(buffer),
+    ]);
+    return { pHash64, pHash256, aHash64, dHash64 };
+  }
+
+  /**
    * Verify a probe image against stored perceptual hashes.
    *
    * From spec §5.3: "System computes the perceptual hash of the suspected image.

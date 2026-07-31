@@ -1,0 +1,76 @@
+/**
+ * Unified Investigation performance tuning — two-stage retrieval + parallelism.
+ */
+function intEnv(key: string, fallback: number): number {
+  const n = parseInt(process.env[key] ?? '', 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function flag(key: string, defaultValue = true): boolean {
+  const v = (process.env[key] ?? '').trim().toLowerCase();
+  if (!v) return defaultValue;
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
+function scalesFromEnv(key: string, fallback: number[]): number[] {
+  const raw = (process.env[key] ?? '').trim();
+  if (!raw) return fallback;
+  const parsed = raw.split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => n >= 8 && n <= 256);
+  return parsed.length ? parsed : fallback;
+}
+
+export const investigationPerformanceConfig = {
+  /** Stage-1 fast filter: max vault candidates passed to heavy retrieval */
+  candidatePoolSize: intEnv('PINIT_INVESTIGATION_CANDIDATE_POOL', 25),
+  /** When watermark/token already found vault — cap stage-2 pool */
+  candidatePoolWithIdentity: intEnv('PINIT_INVESTIGATION_IDENTITY_POOL', 8),
+  candidatePoolMin: 10,
+  candidatePoolMax: 50,
+  /** ORB refine on top-K of filtered pool only */
+  orbRefineTopK: intEnv('PINIT_INVESTIGATION_ORB_TOP_K', 5),
+  /** 15-layer deep compare cap */
+  deepCompareTopN: intEnv('PINIT_INVESTIGATION_DEEP_COMPARE_TOP_N', 6),
+  /** Max forensic variants for investigation local-DNA probes */
+  maxInvestigationProbes: intEnv('PINIT_INVESTIGATION_MAX_PROBES', 3),
+  /** ORB refinement improves crop/screenshot matching accuracy */
+  skipOrbInInvestigation: flag('PINIT_INVESTIGATION_SKIP_ORB', false),
+  /**
+   * Skip local patch search only for hard identity anchors (watermark/token/SHA/manifest).
+   * Never skip for vector-only leads — crops need patch DNA to avoid lookalike vaults.
+   */
+  skipLocalDnaWhenWatermark: flag('PINIT_INVESTIGATION_SKIP_LOCAL_DNA_WATERMARK', true),
+  /** Skip second-pass vector ORB when identity anchor present */
+  skipVectorOrbWhenWatermark: flag('PINIT_INVESTIGATION_SKIP_VECTOR_ORB_WATERMARK', true),
+  /** OCR on tampered screenshots is slow — vault patch DNA handles identification */
+  skipInvestigationOcr: flag('PINIT_INVESTIGATION_SKIP_OCR', true),
+  /** Per-signal caps during parallel identity recovery */
+  watermarkTimeoutMs: intEnv('PINIT_INVESTIGATION_WATERMARK_TIMEOUT_MS', 5_000),
+  embeddingTimeoutMs: intEnv('PINIT_INVESTIGATION_EMBEDDING_TIMEOUT_MS', 5_000),
+  /** Local patch search time budget (tampered / compressed probes) */
+  localDnaTimeoutMs: intEnv('PINIT_INVESTIGATION_LOCAL_DNA_TIMEOUT_MS', 90_000),
+  /** Per-candidate 15-layer DNA — must exceed real compare time on Render + AI cold start */
+  deepCompareTimeoutMs: intEnv('PINIT_INVESTIGATION_DEEP_COMPARE_TIMEOUT_MS', 45_000),
+  /** Image enterprise recovery — local DNA + deep DNA + ORB (Render needs headroom) */
+  imageRecoveryTimeoutMs: intEnv('PINIT_INVESTIGATION_IMAGE_RECOVERY_MS', 150_000),
+  /** Video partial recovery — enterprise stage budget */
+  videoRecoveryTimeoutMs: intEnv('PINIT_INVESTIGATION_VIDEO_RECOVERY_MS', 180_000),
+  /** Post-retrieval report enrichment (timeline, crawler) — Render/Supabase needs headroom */
+  orchestratorEnrichmentTimeoutMs: intEnv('PINIT_INVESTIGATION_ENRICHMENT_TIMEOUT_MS', 20_000),
+  /** Skip crawler monitor scan during unified investigation (major latency win) */
+  skipCrawlerOnInvestigation: flag('PINIT_INVESTIGATION_SKIP_CRAWLER', true),
+  /** Never re-run 15-layer compare when enterprise pipeline already compared this vault */
+  skipOrchestratorRecompare: flag('PINIT_INVESTIGATION_SKIP_RECOMPARE', true),
+  orchestratorCompareTimeoutMs: intEnv('PINIT_INVESTIGATION_ORCHESTRATOR_COMPARE_MS', 20_000),
+  vaultRetrieveTimeoutMs: intEnv('PINIT_INVESTIGATION_VAULT_RETRIEVE_MS', 12_000),
+  /** Multi-scale patch retrieval for crop/screenshot recovery */
+  investigationPatchScales: scalesFromEnv('PINIT_INVESTIGATION_PATCH_SCALES', [32, 64, 128]),
+  cacheTtlMs: intEnv('PINIT_INVESTIGATION_CACHE_TTL_MS', 900_000),
+} as const;
+
+export function clampCandidatePool(size?: number): number {
+  const n = size ?? investigationPerformanceConfig.candidatePoolSize;
+  return Math.max(
+    investigationPerformanceConfig.candidatePoolMin,
+    Math.min(investigationPerformanceConfig.candidatePoolMax, n),
+  );
+}

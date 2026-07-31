@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Shield, Bell, Clock, LogOut, Settings, HelpCircle, Sun, Moon } from 'lucide-react';
+import { User, Shield, Bell, Clock, LogOut, Settings, HelpCircle, Sun, Moon, LayoutDashboard } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../hooks/useTheme';
 import { api } from '../../services/dashboard.api';
 import { API_BASE_URL } from '../../config/api.config';
+import { isPlatformOwnerShortId } from '../../lib/platform-owner';
 
 interface ProfileData {
   fullName: string;
@@ -58,7 +59,14 @@ export function ProfileDropdown() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-10 w-72 bg-bg-card border border-bg-border rounded-xl shadow-2xl z-[9999] overflow-hidden animate-fade-in">
+        <>
+          <button
+            type="button"
+            className="dropdown-backdrop"
+            aria-label="Close profile menu"
+            onClick={() => setOpen(false)}
+          />
+          <div className="dropdown-panel w-full sm:w-72">
           {/* Header */}
           <div className="p-4 border-b border-bg-border">
             <div className="flex items-center gap-3">
@@ -90,6 +98,9 @@ export function ProfileDropdown() {
             <MenuItem icon={<Shield size={14} />} label="Security Settings" onClick={() => go('/profile?tab=security')} />
             <MenuItem icon={<Bell size={14} />} label="Notifications" onClick={() => go('/profile?tab=notifications')} />
             <MenuItem icon={<Clock size={14} />} label="Activity History" onClick={() => go('/profile?tab=activity')} />
+            {isPlatformOwnerShortId(profile?.shortId ?? (user as { shortId?: string } | null)?.shortId) && (
+              <MenuItem icon={<LayoutDashboard size={14} />} label="Admin Console" onClick={() => go('/admin')} />
+            )}
             <MenuItem
               icon={theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
               label={theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
@@ -109,7 +120,8 @@ export function ProfileDropdown() {
               Sign Out
             </button>
           </div>
-        </div>
+          </div>
+        </>
       )}
     </div>
   );

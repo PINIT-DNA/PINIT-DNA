@@ -48,11 +48,12 @@ describe('SteganographyLayer', () => {
     const image = await makeLargeEnoughImage(64, 64);
     const result = await layer.generate(image, DNA_ID);
 
-    // 64×64 = 4096 pixels = 4096 capacity bits
+    // 64×64 → 2×4 spatial blocks (32×16) = 8 tiles covering all pixels
     expect(result.data.capacityBits).toBe(4096);
-    // 16 + 256 + 256 = 528 bits used
-    expect(result.data.usedBits).toBe(528);
+    expect(result.data.usedBits).toBe(8 * 512);
     expect(result.data.channel).toBe('B');
+    expect(result.data.ownershipTileCount).toBe(8);
+    expect(result.data.ownershipSignature).toBeTruthy();
   });
 
   it('stores a 64-char HMAC hex string', async () => {
@@ -62,13 +63,20 @@ describe('SteganographyLayer', () => {
     expect(result.data.payloadHmac).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it('produces different HMAC on each call (unique token per image)', async () => {
+  it('stores stable contentSealHmac and stable ownership payloadHmac for same meta', async () => {
     const image = await makeLargeEnoughImage();
-    const r1 = await layer.generate(image, DNA_ID);
-    const r2 = await layer.generate(image, DNA_ID);
+    const digests = ['a', 'b', 'c', 'd', 'e'];
+    const ownership = { dnaRecordId: DNA_ID, ownerUserId: 'owner-1', uploadedAt: new Date('2026-07-27T00:00:00Z') };
+    const r1 = await layer.generate(image, DNA_ID, digests, ownership);
+    const r2 = await layer.generate(image, DNA_ID, digests, ownership);
 
-    // Each call generates a new random token → different HMAC
-    expect(r1.data.payloadHmac).not.toBe(r2.data.payloadHmac);
+    // EDS identity seal is stable
+    expect(r1.data.contentSealHmac).toBe(r2.data.contentSealHmac);
+    expect(r1.data.contentSealHmac).toMatch(/^[a-f0-9]{64}$/);
+    // Ownership watermark HMAC is deterministic for same ownership tile
+    expect(r1.data.payloadHmac).toBe(r2.data.payloadHmac);
+    expect(r1.data.stegoTraceHmac).toBe(r1.data.payloadHmac);
+    expect(r1.data.ownershipSignature?.['dnaRecordId']).toBe(DNA_ID);
   });
 
   it('carrier image is visually identical (pixel values differ by at most 1)', async () => {
@@ -103,8 +111,8 @@ describe('SteganographyLayer', () => {
     }
   });
 
-  it('fails for image too small to hold payload (< 528 pixels)', async () => {
-    // 22×23 = 506 pixels < 528 required
+  it('fails for image too small to hold ownership tile (< 512 pixels)', async () => {
+    // 22×23 = 506 pixels < 512 required
     const smallBuf = await sharp({
       create: { width: 22, height: 23, channels: 3, background: { r: 100, g: 100, b: 100 } },
     }).png().toBuffer();

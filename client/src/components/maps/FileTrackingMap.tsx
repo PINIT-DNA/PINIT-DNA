@@ -1,6 +1,9 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { isValidMapCoordinate } from '../../lib/geo-coords';
+
+export type AccessKind = 'direct_recipient' | 'direct_share' | 'reshared';
 
 interface MapPoint {
   lat: number;
@@ -19,6 +22,10 @@ interface MapPoint {
   gpsState?: string | null;
   gpsPincode?: string | null;
   gpsAccuracy?: number | null;
+  gpsFullAddress?: string | null;
+  locationSource?: string | null;
+  /** Green / blue / red pin role */
+  accessKind?: AccessKind;
 }
 
 interface FileTrackingMapProps {
@@ -26,23 +33,64 @@ interface FileTrackingMapProps {
   height?: string;
 }
 
-const HOP_COLORS = [
-  '#6366f1', // Hop 1 — purple (direct recipient)
-  '#f97316', // Hop 2 — orange
-  '#ef4444', // Hop 3 — red
-  '#eab308', // Hop 4 — yellow
-  '#10b981', // Hop 5 — green
-  '#3b82f6', // Hop 6 — blue
-  '#8b5cf6', // Hop 7
-  '#ec4899', // Hop 8
-];
+/** Pin colors: Direct Recipient = green, Direct Share = blue, Reshared = red */
+export const ACCESS_KIND_COLORS: Record<AccessKind, string> = {
+  direct_recipient: '#10b981',
+  direct_share: '#3b82f6',
+  reshared: '#ef4444',
+};
 
-function getColor(hop: number): string {
-  return HOP_COLORS[(hop - 1) % HOP_COLORS.length];
+export const ACCESS_KIND_LABELS: Record<AccessKind, string> = {
+  direct_recipient: 'Direct Recipient',
+  direct_share: 'Direct Share',
+  reshared: 'Reshared',
+};
+
+function resolveAccessKind(hop: number, kind?: AccessKind): AccessKind {
+  if (kind) return kind;
+  // Fallback when hop metadata missing: hop 1 = recipient, rest = reshared
+  return hop === 1 ? 'direct_recipient' : 'reshared';
 }
 
-function createPinIcon(hop: number, riskLevel: string): L.DivIcon {
-  const color = riskLevel === 'CRITICAL' ? '#ef4444' : riskLevel === 'HIGH' ? '#f97316' : getColor(hop);
+/**
+ * When two viewers share the same IP/GPS coordinates, stack them in a small
+ * circle so each pin is clickable (otherwise Leaflet draws one on top of the other).
+ */
+function spreadOverlappingPoints(points: MapPoint[]): MapPoint[] {
+  const counts = new Map<string, number>();
+  const indexes = new Map<string, number>();
+
+  for (const p of points) {
+    const key = `${p.lat.toFixed(5)}:${p.lng.toFixed(5)}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  return points.map((p) => {
+    const key = `${p.lat.toFixed(5)}:${p.lng.toFixed(5)}`;
+    const total = counts.get(key) ?? 1;
+    if (total < 2) return p;
+
+    const idx = indexes.get(key) ?? 0;
+    indexes.set(key, idx + 1);
+
+    // ~120–220m ring so pins separate at street zoom
+    const angle = (2 * Math.PI * idx) / total - Math.PI / 2;
+    const meters = 120 + (total > 2 ? idx * 35 : 0);
+    const dLat = (meters / 111_320) * Math.cos(angle);
+    const cosLat = Math.cos((p.lat * Math.PI) / 180) || 0.01;
+    const dLng = (meters / (111_320 * cosLat)) * Math.sin(angle);
+
+    return { ...p, lat: p.lat + dLat, lng: p.lng + dLng };
+  });
+}
+
+function getColor(hop: number, kind?: AccessKind): string {
+  return ACCESS_KIND_COLORS[resolveAccessKind(hop, kind)];
+}
+
+function createPinIcon(hop: number, riskLevel: string, accessKind?: AccessKind): L.DivIcon {
+  // Risk override only for CRITICAL; HIGH keeps role color so reshared stays red
+  const color = riskLevel === 'CRITICAL' ? '#ef4444' : getColor(hop, accessKind);
   const pulse = riskLevel === 'CRITICAL' || riskLevel === 'HIGH' ? 'animation: pulse 1.5s infinite;' : '';
 
   return L.divIcon({
@@ -68,7 +116,10 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
   const mapInstance = useRef<L.Map | null>(null);
 
   useEffect(() => {
-    if (!mapRef.current || points.length === 0) return;
+    const validPoints = spreadOverlappingPoints(
+      points.filter((p) => isValidMapCoordinate(p.lat, p.lng)),
+    );
+    if (!mapRef.current || validPoints.length === 0) return;
 
     // Clean up previous map
     if (mapInstance.current) {
@@ -91,17 +142,23 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
     const markers: L.LatLng[] = [];
 
     // Add markers
-    points.forEach((p) => {
+    validPoints.forEach((p) => {
       const latlng = L.latLng(p.lat, p.lng);
       markers.push(latlng);
 
-      const marker = L.marker(latlng, { icon: createPinIcon(p.hopNumber, p.riskLevel) });
+      const kind = resolveAccessKind(p.hopNumber, p.accessKind);
+      const marker = L.marker(latlng, { icon: createPinIcon(p.hopNumber, p.riskLevel, kind) });
 
       const riskBadge = p.riskLevel === 'CRITICAL' || p.riskLevel === 'HIGH'
         ? `<span style="background:${p.riskLevel === 'CRITICAL' ? '#ef4444' : '#f97316'};color:#fff;padding:1px 6px;border-radius:4px;font-size:10px;margin-left:4px">${p.riskLevel}</span>`
         : '';
 
-      const locationLines = p.gpsVillage
+      const kindColor = ACCESS_KIND_COLORS[kind];
+      const kindLabel = ACCESS_KIND_LABELS[kind];
+
+      const locationLines = p.gpsFullAddress
+        ? p.gpsFullAddress.replace(/,/g, '<br/>')
+        : p.gpsVillage
         ? [
             p.gpsVillage,
             [p.gpsMandal, p.gpsDistrict].filter(Boolean).join(', '),
@@ -111,14 +168,19 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
         : `${p.city ? p.city + ', ' : ''}${p.country}`;
 
       const accuracyBadge = p.gpsAccuracy
-        ? `<div style="font-size:10px;color:#10b981;margin-top:2px">📡 Accuracy: ±${Math.round(p.gpsAccuracy)}m</div>`
-        : '';
+        ? `<div style="font-size:10px;color:#10b981;margin-top:2px">📡 Accuracy: ±${p.gpsAccuracy < 1000 ? Math.round(p.gpsAccuracy) + 'm' : Math.round(p.gpsAccuracy / 1000) + 'km'}</div>`
+        : p.locationSource === 'ip'
+          ? `<div style="font-size:10px;color:#eab308;margin-top:2px">🌐 IP-based location (approximate)</div>`
+          : '';
 
       marker.bindPopup(`
         <div style="font-family:Inter,system-ui,sans-serif;min-width:220px">
           <div style="font-size:13px;font-weight:700;color:#333;margin-bottom:6px">
-            Hop ${p.hopNumber} — ${p.hopNumber === 1 ? 'Direct Recipient' : 'Forwarded'}
+            Hop ${p.hopNumber} — ${kindLabel}
             ${riskBadge}
+          </div>
+          <div style="font-size:10px;font-weight:600;color:${kindColor};margin-bottom:6px;text-transform:uppercase;letter-spacing:0.04em">
+            ${kindLabel}
           </div>
           <div style="font-size:11px;color:#666;line-height:1.5">
             <div style="margin-bottom:4px">📍 <strong>${locationLines}</strong></div>
@@ -138,17 +200,17 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
 
     // Draw polyline connecting hops in order
     if (markers.length > 1) {
-      const sortedPoints = [...points].sort((a, b) => a.hopNumber - b.hopNumber);
+      const sortedPoints = [...validPoints].sort((a, b) => a.hopNumber - b.hopNumber);
       const lineCoords = sortedPoints.map(p => L.latLng(p.lat, p.lng));
 
       L.polyline(lineCoords, {
-        color: '#6366f1',
+        color: '#64748b',
         weight: 2,
         opacity: 0.7,
         dashArray: '8, 8',
       }).addTo(map);
 
-      // Animated arrow markers along the path
+      // Arrow markers along the path
       for (let i = 0; i < lineCoords.length - 1; i++) {
         const mid = L.latLng(
           (lineCoords[i].lat + lineCoords[i + 1].lat) / 2,
@@ -158,7 +220,7 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
           icon: L.divIcon({
             className: '',
             iconSize: [20, 20],
-            html: `<div style="color:#6366f1;font-size:14px;text-align:center">→</div>`,
+            html: `<div style="color:#94a3b8;font-size:14px;text-align:center">→</div>`,
           }),
         }).addTo(map);
       }
@@ -166,9 +228,9 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
 
     // Fit bounds
     if (markers.length === 1) {
-      map.setView(markers[0], 8);
+      map.setView(markers[0], 12);
     } else if (markers.length > 1) {
-      map.fitBounds(L.latLngBounds(markers), { padding: [40, 40], maxZoom: 10 });
+      map.fitBounds(L.latLngBounds(markers), { padding: [48, 48], maxZoom: 14 });
     }
 
     return () => {
@@ -179,22 +241,37 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
     };
   }, [points]);
 
-  if (points.length === 0) {
+  const validCount = points.filter(p => isValidMapCoordinate(p.lat, p.lng)).length;
+
+  if (validCount === 0) {
     return (
       <div style={{ height }} className="bg-bg-elevated rounded-lg flex items-center justify-center border border-bg-border">
         <div className="text-center">
-          <p className="text-xs text-gray-500">No GPS data available</p>
-          <p className="text-2xs text-gray-600 mt-1">Map will appear when viewers share their location</p>
+          <p className="text-xs text-gray-500">No location data available yet</p>
+          <p className="text-2xs text-gray-600 mt-1">Map appears when viewers share GPS or IP geolocation is resolved</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div
-      ref={mapRef}
-      style={{ height, width: '100%', borderRadius: '12px', overflow: 'hidden' }}
-      className="border border-bg-border"
-    />
+    <div className="relative">
+      <div
+        ref={mapRef}
+        style={{ height, width: '100%', borderRadius: '12px', overflow: 'hidden' }}
+        className="border border-bg-border"
+      />
+      <div className="absolute bottom-3 left-3 z-[1000] flex flex-wrap gap-2 rounded-lg bg-black/70 backdrop-blur-sm px-2.5 py-2 border border-white/10">
+        {(Object.keys(ACCESS_KIND_COLORS) as AccessKind[]).map((kind) => (
+          <span key={kind} className="flex items-center gap-1.5 text-2xs text-white/90">
+            <span
+              className="inline-block w-2.5 h-2.5 rounded-full border border-white/40"
+              style={{ backgroundColor: ACCESS_KIND_COLORS[kind] }}
+            />
+            {ACCESS_KIND_LABELS[kind]}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }

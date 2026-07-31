@@ -10,8 +10,10 @@ interface CameraStageProps {
   done?: boolean;
   /** Called once when the camera stream is live (or fails — `false`). */
   onReady?: (ok: boolean) => void;
-  /** Called with a captured JPEG data URL (or null if no camera) when `done` flips true. */
+  /** Called with a captured JPEG data URL when `done` flips true. */
   onCapture?: (dataUrl: string | null) => void;
+  /** Called when the live video element is ready for face-api capture. */
+  onVideoReady?: (video: HTMLVideoElement | null) => void;
 }
 
 /**
@@ -19,7 +21,7 @@ interface CameraStageProps {
  * degrades to a placeholder when no camera is available (desktop/denied), so
  * the flow is still demonstrable everywhere.
  */
-export function CameraStage({ active, progress = 0, done = false, onReady, onCapture }: CameraStageProps) {
+export function CameraStage({ active, progress = 0, done = false, onReady, onCapture, onVideoReady }: CameraStageProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const capturedRef = useRef(false);
@@ -66,16 +68,30 @@ export function CameraStage({ active, progress = 0, done = false, onReady, onCap
           return;
         }
         streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play().catch(() => {});
+        const video = videoRef.current;
+        if (video) {
+          video.srcObject = stream;
+          await video.play().catch(() => {});
+          await new Promise<void>((resolve) => {
+            if (video.videoWidth > 0) { resolve(); return; }
+            const done = () => {
+              if (video.videoWidth > 0) {
+                video.removeEventListener('loadeddata', done);
+                resolve();
+              }
+            };
+            video.addEventListener('loadeddata', done);
+            setTimeout(() => { video.removeEventListener('loadeddata', done); resolve(); }, 4000);
+          });
         }
         setHasCam(true);
         onReady?.(true);
+        if (videoRef.current) onVideoReady?.(videoRef.current);
       } catch {
         if (cancelled) return;
         setHasCam(false);
         onReady?.(false);
+        onVideoReady?.(null);
       }
     }
 
@@ -84,6 +100,7 @@ export function CameraStage({ active, progress = 0, done = false, onReady, onCap
       cancelled = true;
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
+      onVideoReady?.(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);

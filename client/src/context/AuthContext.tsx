@@ -1,14 +1,14 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import {
   AuthUser, getAccessToken, parseJwt, clearTokens,
-  apiLogin, apiLogout, apiCreateAccount, refreshAccessToken,
+  apiLogout, refreshAccessToken, applyFaceAuthTokens,
 } from '../lib/auth';
+import { syncServerAccountTypeOnboarding } from '../lib/account-onboarding';
 
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
-  createAccount: () => Promise<AuthUser>;
-  login: (shortId: string) => Promise<void>;
+  loginWithFaceResponse: (data: { accessToken?: string; refreshToken?: string }) => void;
   logout: () => Promise<void>;
 }
 
@@ -28,24 +28,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const payload = JSON.parse(atob(token.split('.')[1]));
     if (payload.exp && payload.exp * 1000 < Date.now()) {
       refreshAccessToken().then(t => {
-        if (t) setUser(parseJwt(t));
+        if (t) {
+          const parsed = parseJwt(t);
+          if (parsed) syncServerAccountTypeOnboarding(parsed);
+          setUser(parsed);
+        } else { clearTokens(); setUser(null); }
         setLoading(false);
       });
     } else {
       setUser(parsed);
+      syncServerAccountTypeOnboarding(parsed);
       setLoading(false);
     }
   }, []);
 
-  async function createAccount(): Promise<AuthUser> {
-    const u = await apiCreateAccount();
-    setUser(u);
-    return u;
-  }
-
-  async function login(shortId: string) {
-    const u = await apiLogin(shortId);
-    setUser(u);
+  function loginWithFaceResponse(data: { accessToken?: string; refreshToken?: string }) {
+    const u = applyFaceAuthTokens(data);
+    if (u) {
+      syncServerAccountTypeOnboarding(u);
+      setUser(u);
+    } else if (data.accessToken) {
+      const parsed = parseJwt(data.accessToken);
+      if (parsed) {
+        syncServerAccountTypeOnboarding(parsed);
+        setUser(parsed);
+      }
+    }
   }
 
   async function logout() {
@@ -54,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, createAccount, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, loginWithFaceResponse, logout }}>
       {children}
     </AuthContext.Provider>
   );

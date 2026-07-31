@@ -13,6 +13,7 @@ import path from 'path';
 import os   from 'os';
 import { prisma } from './prisma';
 import { config } from '../config';
+import { isSupabaseStorageConfigured } from './supabase-storage';
 
 export interface ComponentHealth {
   status:  'healthy' | 'degraded' | 'unhealthy';
@@ -30,6 +31,7 @@ export interface HealthReport {
     vault:      ComponentHealth;
     storage:    ComponentHealth;
     encryption: ComponentHealth;
+    supabase:   ComponentHealth;
     memory:     ComponentHealth;
   };
 }
@@ -40,16 +42,17 @@ export async function getHealthReport(): Promise<HealthReport> {
     checkVaultDirectory(),
     checkStorageDirectory(),
     checkEncryptionConfig(),
+    checkSupabaseStorage(),
     checkMemory(),
   ]);
 
-  const [database, vault, storage, encryption, memory] = checks.map(r =>
+  const [database, vault, storage, encryption, supabase, memory] = checks.map(r =>
     r.status === 'fulfilled' ? r.value : { status: 'unhealthy' as const, message: String((r as PromiseRejectedResult).reason) }
   );
 
-  const allHealthy = [database, vault, storage, encryption, memory]
+  const allHealthy = [database, vault, storage, encryption, supabase, memory]
     .every(c => c.status === 'healthy');
-  const anyUnhealthy = [database, vault, storage, encryption, memory]
+  const anyUnhealthy = [database, vault, storage, encryption, supabase, memory]
     .some(c => c.status === 'unhealthy');
 
   return {
@@ -57,7 +60,7 @@ export async function getHealthReport(): Promise<HealthReport> {
     timestamp: new Date().toISOString(),
     uptime:    Math.round(process.uptime()),
     version:   config.dna.engineVersion,
-    components: { database, vault, storage, encryption, memory },
+    components: { database, vault, storage, encryption, supabase, memory },
   };
 }
 
@@ -101,6 +104,21 @@ function checkEncryptionConfig(): ComponentHealth {
     return { status: 'degraded', message: 'Vault master secret appears to be default/weak — set VAULT_MASTER_SECRET env var' };
   }
   return { status: 'healthy', message: 'Encryption configuration valid' };
+}
+
+function checkSupabaseStorage(): ComponentHealth {
+  if (process.env['NODE_ENV'] !== 'production') {
+    return isSupabaseStorageConfigured()
+      ? { status: 'healthy', message: 'Supabase Storage configured (dev)' }
+      : { status: 'healthy', message: 'Supabase not set — using local vault disk (dev)' };
+  }
+  if (!isSupabaseStorageConfigured()) {
+    return {
+      status: 'unhealthy',
+      message: 'SUPABASE_URL and SUPABASE_SERVICE_KEY are required in production for share links and vault retrieval',
+    };
+  }
+  return { status: 'healthy', message: 'Supabase Storage configured' };
 }
 
 function checkMemory(): ComponentHealth {

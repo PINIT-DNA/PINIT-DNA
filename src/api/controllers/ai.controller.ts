@@ -10,6 +10,7 @@ import { Request, Response, NextFunction } from 'express';
 import { aiService }  from '../../services/ai/ai-embeddings.service';
 import { prisma }     from '../../lib/prisma';
 import { auditService } from '../../services/audit/audit.service';
+import { getAuthUserId, assertDnaOwner } from '../../lib/tenant-scope';
 
 // ─── GET /ai/health ───────────────────────────────────────────────────────────
 
@@ -37,6 +38,8 @@ export async function indexDocument(req: Request, res: Response, next: NextFunct
   }
 
   try {
+    await assertDnaOwner(dnaRecordId, getAuthUserId(req));
+
     const record = await prisma.dnaRecord.findUnique({
       where: { id: dnaRecordId },
       select: { imageFilename: true, fileType: true },

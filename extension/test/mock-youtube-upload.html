@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PinIT YouTube Shadow Upload Mock</title>
+  <style>
+    body { font: 14px system-ui; margin: 24px; max-width: 640px; }
+    #host { border: 1px dashed #888; padding: 16px; margin-top: 12px; }
+    #log { white-space: pre-wrap; background: #111; color: #9f9; padding: 12px; min-height: 120px; }
+  </style>
+</head>
+<body>
+  <h1>YouTube Studio upload mock (Shadow DOM)</h1>
+  <p>
+    Simulates Studio hosting <code>&lt;input type="file"&gt;</code> inside an open shadow root.
+    Load this page with the PinIT extension content scripts injected, or run the Node self-test.
+  </p>
+  <div id="host"></div>
+  <p><button id="btn-light">Also add light-DOM input</button></p>
+  <h2>Log</h2>
+  <div id="log"></div>
+  <script>
+    const logEl = document.getElementById('log');
+    function log(msg, obj) {
+      logEl.textContent += msg + (obj ? ' ' + JSON.stringify(obj) : '') + '\n';
+      console.info('[MOCK]', msg, obj || '');
+    }
+
+    // Shadow-hosted file input (the Studio failure mode)
+    const host = document.getElementById('host');
+    const shadow = host.attachShadow({ mode: 'open' });
+    shadow.innerHTML = '<label>Shadow upload <input id="shadow-file" type="file" accept="video/*" /></label>';
+    log('shadow file input created');
+
+    document.getElementById('btn-light').onclick = () => {
+      const i = document.createElement('input');
+      i.type = 'file';
+      i.accept = 'video/*';
+      document.body.appendChild(i);
+      log('light-DOM file input added');
+    };
+
+    // Expose helpers for automated tests
+    window.__PINIT_MOCK__ = {
+      getShadowInput() {
+        return shadow.querySelector('input[type="file"]');
+      },
+      collectDeep(root = document) {
+        const out = [];
+        function walk(node, depth) {
+          if (!node || depth > 40) return;
+          try {
+            node.querySelectorAll?.('input[type="file"]').forEach((el) => out.push(el));
+            node.querySelectorAll?.('*').forEach((el) => {
+              if (el.shadowRoot) walk(el.shadowRoot, depth + 1);
+            });
+          } catch (_) {}
+        }
+        walk(root, 0);
+        return out;
+      },
+    };
+    log('deep collect count', { count: window.__PINIT_MOCK__.collectDeep().length });
+  </script>
+</body>
+</html>

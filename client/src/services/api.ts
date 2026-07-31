@@ -1,129 +1,135 @@
 /**
- * PINIT-DNA API Service
- * Connects to the backend at localhost:4000 via Vite proxy.
+ * PINIT-DNA — DNA generation & vault API (authenticated via dashboard api instance).
  */
 
-import axios from 'axios';
-import type { GenerateDnaResponse } from '../types';
+import { api, formatApiError } from './dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
+import type { GenerateDnaResponse } from '../types';
 
-// 120s timeout — large file uploads + DNA processing can take 60-90s on free tier
-const client = axios.create({ baseURL: API_BASE_URL, timeout: 120000 });
+/** DNA generate should finish in seconds; avoid 7×180s retry loops (~21 min spinner). */
+const GENERATE_TIMEOUT_MS = 90_000;
+const VAULT_TIMEOUT_MS = 90_000;
+const COLD_START_RETRIES = 2;
+const COLD_START_GAP_MS = 4_000;
 
-client.interceptors.request.use((config) => {
-  const token = localStorage.getItem('pinit_access_token');
-  if (token) config.headers = { ...config.headers, Authorization: `Bearer ${token}` } as typeof config.headers;
-  return config;
-});
-
-// Handle 401 (expired token) — try to refresh, or redirect to login.
-// Also retry on 5xx / network / timeout (Render free-tier cold starts ~50s).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-client.interceptors.response.use((r: any) => r, async (error: any) => {
-  const config = error.config;
-  const status = error.response?.status;
+function isRetryable(err: any): boolean {
+  if (err?.response?.status === 409 || err?.response?.status === 401) return false;
+  // Timeout already waited full budget — do not retry (was causing ~20 min hangs)
+  if (err?.code === 'ECONNABORTED') return false;
+  const status = err?.response?.status;
+  if (status && status < 500) return false;
+  return !status || status >= 500 || err?.code === 'ERR_NETWORK';
+}
 
-  // 401 = expired/invalid token → try refresh, then redirect to login
-  if (status === 401 && !config._authRetried) {
-    config._authRetried = true;
+async function postMultipart<T>(url: string, form: FormData, timeoutMs: number): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < COLD_START_RETRIES; attempt++) {
     try {
-      const refreshToken = localStorage.getItem('pinit_refresh_token');
-      if (refreshToken && refreshToken !== 'x') {
-        const { data } = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken }, { timeout: 30000 });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const d = (data as any).data ?? data;
-        if (d.accessToken) {
-          localStorage.setItem('pinit_access_token', d.accessToken);
-          if (d.refreshToken) localStorage.setItem('pinit_refresh_token', d.refreshToken);
-          config.headers = { ...config.headers, Authorization: `Bearer ${d.accessToken}` };
-          return client.request(config);
-        }
-      }
-    } catch { /* refresh failed — fall through to redirect */ }
-    // Refresh failed or no refresh token → clear session and redirect to login
-    localStorage.removeItem('pinit_access_token');
-    localStorage.removeItem('pinit_refresh_token');
-    window.location.href = '/login';
-    throw error;
+      const { data } = await api.post<T>(url, form, { timeout: timeoutMs });
+      return data;
+    } catch (err) {
+      lastErr = err;
+      if (!isRetryable(err) || attempt >= COLD_START_RETRIES - 1) throw err;
+      await new Promise((r) => setTimeout(r, COLD_START_GAP_MS));
+    }
   }
-
-  // 5xx / network / timeout → retry with smart backoff
-  // Only retry on actual server errors, not on slow processing
-  if (!config || config._retryCount >= 3) throw error;
-  const retryable = !status || status >= 500;
-  if (!retryable) throw error;
-  config._retryCount = (config._retryCount || 0) + 1;
-  // Quick retries: 2s, 4s, 6s — total 12s, enough for a cold start wake
-  await new Promise((r) => setTimeout(r, 2000 * config._retryCount));
-  return client.request(config);
-});
+  throw lastErr;
+}
 
 /**
- * Upload an image and generate its 10-layer DNA fingerprint.
- * Calls: POST /api/v1/dna/generate
+ * Upload a file and generate its DNA fingerprint.
+ * POST /api/v1/dna/generate
  */
-export async function generateDna(file: File): Promise<GenerateDnaResponse> {
+export async function generateDna(
+  file: File,
+  options?: { locationShared?: boolean; latitude?: number; longitude?: number },
+): Promise<GenerateDnaResponse> {
   const form = new FormData();
   form.append('image', file);
+  if (options?.locationShared && options.latitude != null && options.longitude != null) {
+    form.append('locationShared', 'true');
+    form.append('gpsLat', String(options.latitude));
+    form.append('gpsLng', String(options.longitude));
+  }
 
   try {
-    const { data } = await client.post<GenerateDnaResponse>('dna/generate', form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-    return data;
+    return await postMultipart<GenerateDnaResponse>(
+      `${API_BASE_URL}/dna/generate`,
+      form,
+      GENERATE_TIMEOUT_MS,
+    );
   } catch (err: unknown) {
-    // 409 Conflict = duplicate file — surface as a typed error with extra context
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const axiosErr = err as any;
+    if (axiosErr?.code === 'ECONNABORTED') {
+      throw new Error(
+        'DNA generation timed out. Ensure the backend is running (`npm run dev:all`) and try again.',
+      );
+    }
     if (axiosErr?.response?.status === 409) {
       const body = axiosErr.response.data ?? {};
-      const dupErr = new Error(body.error ?? 'Duplicate file detected') as Error & {
+      const dupErr = new Error(body.error ?? 'Duplicate file') as Error & {
         isDuplicate: boolean;
         existingRecordId?: string;
         existingFilename?: string;
         matchType?: string;
         riskLevel?: string;
+        ownerShortId?: string;
       };
-      dupErr.isDuplicate        = true;
-      dupErr.existingRecordId   = body.existingRecordId;
-      dupErr.existingFilename   = body.existingFilename;
-      dupErr.matchType          = body.matchType;
-      dupErr.riskLevel          = body.riskLevel;
+      dupErr.isDuplicate = true;
+      dupErr.existingRecordId = body.existingRecordId;
+      dupErr.existingFilename = body.existingFilename;
+      dupErr.matchType = body.matchType;
+      dupErr.riskLevel = body.riskLevel;
+      dupErr.ownerShortId = body.ownerShortId;
       throw dupErr;
+    }
+    throw new Error(formatApiError(err));
+  }
+}
+
+export async function getDnaRecord(id: string) {
+  const { data } = await api.get(`${API_BASE_URL}/dna/${id}`);
+  return data;
+}
+
+export async function storeInVault(
+  file: File,
+  dnaRecordId: string,
+  options?: { locationShared?: boolean; latitude?: number; longitude?: number },
+) {
+  const form = new FormData();
+  form.append('image', file);
+  form.append('dnaRecordId', dnaRecordId);
+  if (options?.locationShared && options.latitude != null && options.longitude != null) {
+    form.append('locationShared', 'true');
+    form.append('gpsLat', String(options.latitude));
+    form.append('gpsLng', String(options.longitude));
+  }
+
+  try {
+    return await postMultipart(`${API_BASE_URL}/vault/store`, form, VAULT_TIMEOUT_MS);
+  } catch (err: unknown) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const axiosErr = err as any;
+    if (axiosErr?.response?.status === 403) {
+      const body = axiosErr.response.data ?? {};
+      if (body.code === 'ASSET_QUOTA_EXCEEDED') {
+        const quotaErr = new Error(body.error ?? 'Protected asset limit reached') as Error & {
+          isAssetQuotaExceeded: boolean;
+          requiredPlan?: string;
+        };
+        quotaErr.isAssetQuotaExceeded = true;
+        quotaErr.requiredPlan = body.requiredPlan;
+        throw quotaErr;
+      }
     }
     throw err;
   }
 }
 
-/**
- * Get a stored DNA record.
- * Calls: GET /api/v1/dna/:id
- */
-export async function getDnaRecord(id: string) {
-  const { data } = await client.get(`dna/${id}`);
-  return data;
-}
-
-/**
- * Encrypt image and store in vault.
- * Calls: POST /api/v1/vault/store
- */
-export async function storeInVault(file: File, dnaRecordId: string) {
-  const form = new FormData();
-  form.append('image', file);
-  form.append('dnaRecordId', dnaRecordId);
-
-  const { data } = await client.post('vault/store', form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
-  return data;
-}
-
-/**
- * Get vault record metadata.
- * Calls: GET /api/v1/vault/:id
- */
 export async function getVaultRecord(vaultId: string) {
-  const { data } = await client.get(`vault/${vaultId}`);
+  const { data } = await api.get(`${API_BASE_URL}/vault/${vaultId}`);
   return data;
 }

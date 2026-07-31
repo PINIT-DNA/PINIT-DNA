@@ -67,13 +67,15 @@ describe('MetadataLayer', () => {
     expect(r1.data.metadataHash).toBe(r2.data.metadataHash);
   });
 
-  it('produces different metadataHash when dnaRecordId changes', async () => {
+  it('produces the same metadataHash for the same image regardless of dnaRecordId (deterministic mode)', async () => {
     const image = await makePlainPng();
 
-    const r1 = await layer.generate(image, 'id-aaa');
-    const r2 = await layer.generate(image, 'id-bbb');
+    const r1 = await layer.generate(image, 'id-aaa', 'abc123hash');
+    const r2 = await layer.generate(image, 'id-bbb', 'abc123hash');
 
-    expect(r1.data.metadataHash).not.toBe(r2.data.metadataHash);
+    // Milestone B: identity fingerprint excludes dnaRecordId
+    expect(r1.data.metadataHash).toBe(r2.data.metadataHash);
+    expect(r1.data.claimsDigest).toBe(r2.data.claimsDigest);
   });
 
   it('produces different metadataHash when layer1Hash changes', async () => {

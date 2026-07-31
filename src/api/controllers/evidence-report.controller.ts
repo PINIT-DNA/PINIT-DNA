@@ -10,6 +10,7 @@ import { Request, Response, NextFunction } from 'express';
 import { generateEvidenceReport, ReportOptions } from '../../services/evidence/evidence-report.service';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
+import { getAuthUserId, assertEvidenceOwner } from '../../lib/tenant-scope';
 
 export async function generateReport(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -27,7 +28,7 @@ export async function generateReport(req: Request, res: Response, next: NextFunc
       return;
     }
 
-    const requestedBy = (req as any).userId ?? 'system';
+    const requestedBy = getAuthUserId(req);
 
     logger.info('[EvidenceReport] Generating report', { type, shareLinkId, dnaRecordId, incidentId, watermarkCode });
 
@@ -59,12 +60,24 @@ export async function generateReport(req: Request, res: Response, next: NextFunc
 
 export async function listEvidenceRecords(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    const userId = getAuthUserId(req);
     const { incidentId, dnaRecordId, shareLinkId, limit = '50', offset = '0' } = req.query as Record<string, string>;
 
-    const where: any = {};
-    if (incidentId)  where.incidentId  = incidentId;
-    if (dnaRecordId) where.dnaRecordId = dnaRecordId;
-    if (shareLinkId) where.shareLinkId = shareLinkId;
+    const ownedDnaIds = (await prisma.dnaRecord.findMany({
+      where: { ownerUserId: userId },
+      select: { id: true },
+    })).map((d) => d.id);
+
+    const where: Record<string, unknown> = {
+      OR: [
+        { ownerUserId: userId },
+        ...(ownedDnaIds.length ? [{ dnaRecordId: { in: ownedDnaIds } }] : []),
+        { shareLink: { ownerUserId: userId } },
+      ],
+    };
+    if (incidentId)  where['incidentId']  = incidentId;
+    if (dnaRecordId) where['dnaRecordId'] = dnaRecordId;
+    if (shareLinkId) where['shareLinkId'] = shareLinkId;
 
     const [records, total] = await Promise.all([
       prisma.evidenceRecord.findMany({
@@ -83,6 +96,9 @@ export async function listEvidenceRecords(req: Request, res: Response, next: Nex
 
 export async function getEvidenceRecord(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    const userId = getAuthUserId(req);
+    await assertEvidenceOwner(req.params['id']!, userId);
+
     const record = await prisma.evidenceRecord.findUnique({
       where: { id: req.params['id']! },
       include: { incident: true },
@@ -97,13 +113,28 @@ export async function getEvidenceRecord(req: Request, res: Response, next: NextF
 
 export async function listIncidents(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    const userId = getAuthUserId(req);
     const { dnaRecordId, shareLinkId, severity, status, limit = '50', offset = '0' } = req.query as Record<string, string>;
 
-    const where: any = {};
-    if (dnaRecordId) where.dnaRecordId = dnaRecordId;
-    if (shareLinkId) where.shareLinkId = shareLinkId;
-    if (severity)    where.severity    = severity;
-    if (status)      where.status      = status;
+    const [ownedDnaIds, ownedShareIds] = await Promise.all([
+      prisma.dnaRecord.findMany({ where: { ownerUserId: userId }, select: { id: true } }).then((r) => r.map((d) => d.id)),
+      prisma.shareLink.findMany({ where: { ownerUserId: userId }, select: { id: true } }).then((r) => r.map((s) => s.id)),
+    ]);
+
+    const where: Record<string, unknown> = {
+      OR: [
+        ...(ownedDnaIds.length ? [{ dnaRecordId: { in: ownedDnaIds } }] : []),
+        ...(ownedShareIds.length ? [{ shareLinkId: { in: ownedShareIds } }] : []),
+      ],
+    };
+    if (!ownedDnaIds.length && !ownedShareIds.length) {
+      res.json({ success: true, total: 0, incidents: [] });
+      return;
+    }
+    if (dnaRecordId) where['dnaRecordId'] = dnaRecordId;
+    if (shareLinkId) where['shareLinkId'] = shareLinkId;
+    if (severity)    where['severity']    = severity;
+    if (status)      where['status']      = status;
 
     const [incidents, total] = await Promise.all([
       prisma.incident.findMany({

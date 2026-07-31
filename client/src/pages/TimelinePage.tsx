@@ -1,5 +1,5 @@
 /**
- * PINIT-DNA · File Timeline & History (Phase 4.3)
+ * PINIT-DNA · View in Timeline & History (Phase 4.3)
  * Route: /timeline
  *
  * Reads DNA records + vault records + session comparison reports.
@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { listDnaRecords, listVaultRecords, deriveFileType, api } from '../services/dashboard.api';
+import { listForensicReports } from '../lib/forensic-reports-storage';
+import { SYSTEM_VERSION } from '../config/dna-versions';
 import { FileTypeBadge, Badge } from '../components/ui/Badge';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -70,7 +72,7 @@ function buildHistory(
       title: '10-Layer DNA Fingerprint Generated',
       detail: `${r.status} · ${deriveFileType(r)} · ${Math.round(r.imageSizeBytes / 1024)} KB`,
       icon: <Dna size={14} />, color: 'bg-dna-500/20 border-dna-500/40 text-dna-400',
-      meta: { 'DNA Record ID': r.id, Status: r.status, 'Engine': r.engineVersion ?? '1.0.0' },
+      meta: { 'DNA Record ID': r.id, Status: r.status, 'Engine': r.engineVersion ?? SYSTEM_VERSION },
     });
 
     // Vault stored
@@ -237,7 +239,8 @@ function buildHistory(
     }
 
     // Comparisons involving this DNA record
-    for (const c of comparisons) {
+    for (const c of (comparisons ?? [])) {
+      if (!c?.fileA?.filename || !c?.fileB?.filename) continue;
       const involved = c.fileA.filename === r.imageFilename || c.fileB.filename === r.imageFilename;
       if (involved) {
         events.push({
@@ -278,8 +281,9 @@ function buildHistory(
 }
 
 function getStoredComparisons(): ComparisonResult[] {
-  try { return JSON.parse(sessionStorage.getItem('pinit_dna_reports') ?? '[]'); }
-  catch { return []; }
+  return listForensicReports()
+    .filter((e): e is { kind: 'comparison'; id: string; savedAt: string; data: ComparisonResult } => e.kind === 'comparison')
+    .map(e => e.data);
 }
 
 // --- File history card --------------------------------------------------------
@@ -400,7 +404,7 @@ function FileHistoryCard({ history, expanded, onToggle }: { history: FileHistory
                     {event.type === 'SHARE_CREATED' && event.meta?.['Token'] && (
                       <div className="flex items-center gap-3 mt-2">
                         <button
-                          onClick={() => navigate(`/link/${event.meta!['Token']}`)}
+                          onClick={() => navigate(`/access-intelligence/${encodeURIComponent(event.meta!['Token'] as string)}`)}
                           className="inline-flex items-center gap-1.5 text-2xs text-dna-400 hover:text-dna-300 bg-dna-500/10 hover:bg-dna-500/20 px-2.5 py-1 rounded-lg transition-colors"
                         >
                           <Shield size={11} /> View Link Intelligence
@@ -513,12 +517,12 @@ export function TimelinePage() {
   const totalEvents = histories.reduce((s, h) => s + h.events.length, 0);
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="page-shell space-y-5 animate-fade-in">
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold text-white">File Timeline & Audit Trail</h1>
+          <h1 className="text-xl font-bold text-white">View in Timeline</h1>
           <p className="text-sm text-gray-500 mt-0.5">Complete lifecycle history for every registered file</p>
         </div>
         <div className="flex items-center gap-2">
@@ -577,7 +581,7 @@ export function TimelinePage() {
 
       {/* Stats row */}
       {!loading && histories.length > 0 && (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="stat-grid-4 gap-3">
           {[
             { icon: <Dna size={16} className="text-dna-400" />, label: 'Files Tracked', value: histories.length },
             { icon: <Lock size={16} className="text-success" />, label: 'Files Vaulted', value: histories.filter(h => h.vaultId).length },

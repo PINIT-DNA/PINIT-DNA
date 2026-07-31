@@ -10,8 +10,16 @@
 
 import { Router } from 'express';
 import { uploadSingle, uploadComparison } from '../middleware/upload.middleware';
-import { listDnaRecords, generateDna, verifyDna, getDnaRecord, getSupportedTypes, getDuplicateAttempts } from '../controllers/dna.controller';
+import { listDnaRecords, generateDna, verifyDna, getDnaRecord, getSupportedTypes, getDuplicateAttempts, getDnaStorageAudit, recoverOwnershipFromImage } from '../controllers/dna.controller';
 import { compareDna } from '../controllers/comparison.controller';
+import { autoCompareDna } from '../controllers/auto-compare.controller';
+import {
+  generateLightweightDnaHandler,
+  compareLightweightDnaHandler,
+  extractImageFingerprintHandler,
+  extractVideoFingerprintHandler,
+  extractAudioFingerprintHandler,
+} from '../controllers/lightweight-dna.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import { requireDnaOwnership } from '../middleware/ownership.middleware';
 
@@ -27,7 +35,7 @@ const router = Router();
  *   success: true,
  *   dnaRecordId: "uuid",
  *   status: "COMPLETE",
- *   schemaVersion: "1.0.0",
+ *   schemaVersion: DNA_SCHEMA_VERSION ("1.0.0"),
  *   summary: { totalLayers, successfulLayers, failedLayers, totalProcessingMs },
  *   generatedAt: "ISO8601"
  * }
@@ -44,8 +52,16 @@ router.get('/', requireAuth, listDnaRecords);
 router.get('/supported-types', getSupportedTypes);
 /** GET /dna/duplicate-attempts — Admin: list all blocked duplicate upload attempts */
 router.get('/duplicate-attempts', requireAuth, getDuplicateAttempts);
+/** GET /dna/storage-audit — 15-layer storage integrity + linkage audit for authenticated owner */
+router.get('/storage-audit', requireAuth, getDnaStorageAudit);
 
 router.post('/generate', requireAuth, uploadSingle, generateDna);
+
+/**
+ * POST /dna/recover-ownership
+ * Upload full image or crop/fragment → recover vault/user ownership watermark.
+ */
+router.post('/recover-ownership', requireAuth, uploadSingle, recoverOwnershipFromImage);
 
 /**
  * POST /dna/compare
@@ -57,6 +73,14 @@ router.post('/generate', requireAuth, uploadSingle, generateDna);
  * Response 200: DnaComparisonResult with forensic report
  */
 router.post('/compare', requireAuth, uploadComparison, compareDna);
+router.post('/auto-compare', requireAuth, uploadSingle, autoCompareDna);
+
+/** Phase 2 — Lightweight DNA APIs for Internet Intelligence Engine (feature-flagged) */
+router.post('/generate-lightweight-dna', requireAuth, uploadSingle, generateLightweightDnaHandler);
+router.post('/compare-lightweight-dna', requireAuth, compareLightweightDnaHandler);
+router.post('/extract-image-fingerprint', requireAuth, uploadSingle, extractImageFingerprintHandler);
+router.post('/extract-video-fingerprint', requireAuth, uploadSingle, extractVideoFingerprintHandler);
+router.post('/extract-audio-fingerprint', requireAuth, uploadSingle, extractAudioFingerprintHandler);
 
 /**
  * POST /dna/:id/verify

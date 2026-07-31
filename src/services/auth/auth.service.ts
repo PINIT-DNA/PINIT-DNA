@@ -118,4 +118,26 @@ export const authService = {
   verifyAccess(token: string): JwtPayload {
     return jwt.verify(token, config.jwt.secret) as JwtPayload;
   },
+
+  /** Issue access+refresh for an already-authenticated user (extension OAuth). */
+  async issueSessionTokens(user: {
+    id: string;
+    shortId: string;
+    fullName: string;
+    role: string;
+  }): Promise<{ accessToken: string; refreshToken: string }> {
+    const row: UserRow = {
+      id: user.id,
+      shortId: user.shortId,
+      fullName: user.fullName,
+      role: user.role,
+      isActive: true,
+      lastLoginAt: null,
+    };
+    const { access, refresh } = tokenFor(row);
+    await prisma.refreshToken.create({
+      data: { token: refresh, userId: user.id, expiresAt: new Date(Date.now() + REFRESH_MS) },
+    });
+    return { accessToken: access, refreshToken: refresh };
+  },
 };

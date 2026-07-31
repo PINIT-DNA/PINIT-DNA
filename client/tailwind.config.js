@@ -3,42 +3,56 @@ export default {
   darkMode: 'class',
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
+    container: {
+      center: true,
+      padding: {
+        DEFAULT: '1rem',
+        sm: '1.25rem',
+        lg: '1.5rem',
+        xl: '2rem',
+      },
+      screens: {
+        sm: '640px',
+        md: '768px',
+        lg: '1024px',
+        xl: '1280px',
+        '2xl': '1400px',
+      },
+    },
     extend: {
       colors: {
-        // ── Light background palette ─────────────────────────────────────────
+        // ── Surfaces — neat monochrome ───────────────────────────────────────
         bg: {
-          base:    '#f6f8fb',
-          surface: '#eef2f7',
-          card:    '#ffffff',
-          elevated:'#f1f5f9',
-          border:  '#e2e8f0',
-          muted:   '#e8edf3',
+          base:     '#eef2f7',
+          surface:  '#e2e8f0',
+          card:     '#ffffff',
+          elevated: '#f1f5f9',
+          border:   '#cbd5e1',
+          muted:    '#e2e8f0',
         },
-        // ── Primary accent — DNA purple/indigo ───────────────────────────────
+        // ── Single accent — electric blue (token name stays dna-*) ───────────
         dna: {
-          50:  '#eef2ff',
-          100: '#e0e7ff',
-          400: '#818cf8',
-          500: '#6366f1',
-          600: '#4f46e5',
-          700: '#4338ca',
-          900: '#312e81',
+          50:  '#eff6ff',
+          100: '#dbeafe',
+          400: '#60a5fa',
+          500: '#2f7cf6',
+          600: '#2563eb',
+          700: '#1d4ed8',
+          900: '#1e3a8a',
         },
-        // ── Status / semantic colours ────────────────────────────────────────
         layer: {
-          pending:    '#374151',
+          pending:    '#6b7280',
           processing: '#f59e0b',
-          complete:   '#10b981',
+          complete:   '#22c55e',
           failed:     '#ef4444',
         },
-        // ── Extended semantic palette ────────────────────────────────────────
-        success: { DEFAULT: '#10b981', light: '#d1fae5', dark: '#065f46' },
+        success: { DEFAULT: '#22c55e', light: '#dcfce7', dark: '#14532d' },
         warning: { DEFAULT: '#f59e0b', light: '#fef3c7', dark: '#78350f' },
         danger:  { DEFAULT: '#ef4444', light: '#fee2e2', dark: '#7f1d1d' },
-        info:    { DEFAULT: '#3b82f6', light: '#dbeafe', dark: '#1e3a5f' },
-        purple:  { DEFAULT: '#8b5cf6', light: '#ede9fe', dark: '#4c1d95' },
-        cyan:    { DEFAULT: '#06b6d4', light: '#cffafe', dark: '#164e63' },
-        orange:  { DEFAULT: '#f97316', light: '#ffedd5', dark: '#7c2d12' },
+        info:    { DEFAULT: '#2f7cf6', light: '#dbeafe', dark: '#1e3a8a' },
+        purple:  { DEFAULT: '#2f7cf6', light: '#eff6ff', dark: '#1e3a8a' },
+        cyan:    { DEFAULT: '#2f7cf6', light: '#eff6ff', dark: '#1e3a8a' },
+        orange:  { DEFAULT: '#f59e0b', light: '#fffbeb', dark: '#78350f' },
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
@@ -60,9 +74,9 @@ export default {
         shimmer:     { '0%': { backgroundPosition: '-200% 0' }, '100%': { backgroundPosition: '200% 0' } },
       },
       boxShadow: {
-        'glow-purple': '0 0 20px rgba(99,102,241,0.25), 0 0 40px rgba(99,102,241,0.08)',
-        'glow-green':  '0 0 20px rgba(16,185,129,0.25), 0 0 40px rgba(16,185,129,0.08)',
-        'glow-red':    '0 0 20px rgba(239,68,68,0.20)',
+        'glow-purple': '0 0 20px rgba(47,124,246,0.28), 0 0 40px rgba(47,124,246,0.1)',
+        'glow-green':  '0 0 20px rgba(34,197,94,0.22)',
+        'glow-red':    '0 0 20px rgba(239,68,68,0.18)',
       },
     },
   },

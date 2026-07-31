@@ -61,8 +61,20 @@ export class CertificateService {
     dnaRecordId:    string;
     vaultId:        string;
     issuedByUserId? :string;
+    ownerUserId?:   string;
     expiresInDays?  :number;   // optional expiry — null = never expires
   }): Promise<IssuedCertificate> {
+    const dna = await prisma.dnaRecord.findUnique({
+      where: { id: params.dnaRecordId },
+      select: { ownerUserId: true },
+    });
+    if (!dna) throw new Error(`DNA record not found: ${params.dnaRecordId}`);
+    if (params.ownerUserId) {
+      const { assertRecordOwner } = await import('../../lib/tenant-scope');
+      assertRecordOwner(dna.ownerUserId, params.ownerUserId, 'DNA record');
+    }
+    const ownerUserId = dna.ownerUserId ?? params.ownerUserId ?? params.issuedByUserId ?? null;
+
     // Check existing
     const existing = await prisma.certificate.findFirst({
       where: {
@@ -93,10 +105,39 @@ export class CertificateService {
         issuedAt,
         expiresAt,
         issuedByUserId: params.issuedByUserId ?? null,
+        ownerUserId,
       },
     });
 
     logger.info('Certificate issued', { certificateId, dnaRecordId: params.dnaRecordId });
+
+    try {
+      const { forensicProvenanceService } = await import('../forensics/forensic-provenance.service');
+      forensicProvenanceService.appendAsync({
+        eventType: 'CERTIFICATE_ISSUED',
+        summary: `Certificate issued — ${certificateId}`,
+        dnaRecordId: params.dnaRecordId,
+        vaultId: params.vaultId,
+        certificateId,
+        actorUserId: ownerUserId,
+        payload: { expiresAt: expiresAt?.toISOString() ?? null },
+        dedupeKey: `cert_issued:${certificateId}`,
+      });
+    } catch {
+      /* non-fatal */
+    }
+
+    if (ownerUserId) {
+      import('../platform-events/module-events').then(({ emitCertificateIssued }) => {
+        emitCertificateIssued({
+          ownerUserId,
+          certificateId,
+          dnaRecordId: params.dnaRecordId,
+          vaultId: params.vaultId,
+        });
+      }).catch(() => {});
+    }
+
     return this.toDto(cert);
   }
 
@@ -141,6 +182,15 @@ export class CertificateService {
     );
 
     if (!signatureValid) {
+      if (cert.ownerUserId) {
+        import('../platform-events/extended-events').then(({ emitCertificateVerified }) => {
+          emitCertificateVerified({
+            ownerUserId: cert.ownerUserId!,
+            certificateId,
+            valid: false,
+          });
+        }).catch(() => {});
+      }
       return {
         valid: false, status: 'ACTIVE', signatureValid: false,
         certificateId, detail: 'Certificate signature is INVALID — possible forgery detected',
@@ -155,12 +205,85 @@ export class CertificateService {
     };
   }
 
+  /**
+   * Resolve the best active certificate for a vault asset.
+   * Tries hint ID → DNA+vault → DNA only → vault only (tenant-scoped when ownerUserId given).
+   */
+  async findActiveForAsset(params: {
+    dnaRecordId?: string;
+    vaultId?: string;
+    ownerUserId?: string;
+    hintCertificateId?: string | null;
+  }): Promise<IssuedCertificate | null> {
+    const ownerFilter = params.ownerUserId ? { ownerUserId: params.ownerUserId } : {};
+
+    if (params.hintCertificateId) {
+      const hinted = await prisma.certificate.findUnique({
+        where: { certificateId: params.hintCertificateId },
+      });
+      if (hinted?.status === 'ACTIVE') {
+        if (!params.ownerUserId || hinted.ownerUserId === params.ownerUserId) {
+          if (params.vaultId && hinted.vaultId !== params.vaultId) {
+            logger.warn('Certificate hint rejected — vault mismatch', {
+              hint: params.hintCertificateId.slice(0, 12),
+              expectedVault: params.vaultId.slice(0, 8),
+              certVault: hinted.vaultId.slice(0, 8),
+            });
+          } else if (params.dnaRecordId && hinted.dnaRecordId !== params.dnaRecordId) {
+            logger.warn('Certificate hint rejected — DNA mismatch', {
+              hint: params.hintCertificateId.slice(0, 12),
+              expectedDna: params.dnaRecordId.slice(0, 8),
+              certDna: hinted.dnaRecordId.slice(0, 8),
+            });
+          } else {
+            return this.toDto(hinted);
+          }
+        }
+      }
+    }
+
+    if (params.dnaRecordId && params.vaultId) {
+      const exact = await prisma.certificate.findFirst({
+        where: {
+          dnaRecordId: params.dnaRecordId,
+          vaultId: params.vaultId,
+          status: 'ACTIVE',
+          ...ownerFilter,
+        },
+        orderBy: { issuedAt: 'desc' },
+      });
+      if (exact) return this.toDto(exact);
+    }
+
+    if (params.dnaRecordId) {
+      const byDna = await prisma.certificate.findFirst({
+        where: { dnaRecordId: params.dnaRecordId, status: 'ACTIVE', ...ownerFilter },
+        orderBy: { issuedAt: 'desc' },
+      });
+      if (byDna) return this.toDto(byDna);
+    }
+
+    if (params.vaultId) {
+      const byVault = await prisma.certificate.findFirst({
+        where: { vaultId: params.vaultId, status: 'ACTIVE', ...ownerFilter },
+        orderBy: { issuedAt: 'desc' },
+      });
+      if (byVault) return this.toDto(byVault);
+    }
+
+    return null;
+  }
+
   // ─── Revoke ──────────────────────────────────────────────────────────────────
 
   async revoke(certificateId: string, reason: string, revokedByUserId?: string): Promise<IssuedCertificate> {
     const cert = await prisma.certificate.findUnique({ where: { certificateId } });
     if (!cert) throw new Error(`Certificate not found: ${certificateId}`);
     if (cert.status === 'REVOKED') throw new Error('Certificate is already revoked');
+    if (revokedByUserId) {
+      const { assertCertificateOwnerByCertId } = await import('../../lib/tenant-scope');
+      await assertCertificateOwnerByCertId(certificateId, revokedByUserId);
+    }
 
     const updated = await prisma.certificate.update({
       where: { certificateId },
@@ -168,22 +291,34 @@ export class CertificateService {
     });
 
     logger.info('Certificate revoked', { certificateId, reason, revokedByUserId });
+
+    if (updated.ownerUserId) {
+      import('../platform-events/module-events').then(({ emitCertificateRevoked }) => {
+        emitCertificateRevoked({
+          ownerUserId: updated.ownerUserId!,
+          certificateId,
+          dnaRecordId: updated.dnaRecordId,
+          reason,
+        });
+      }).catch(() => {});
+    }
+
     return this.toDto(updated);
   }
 
   // ─── List ────────────────────────────────────────────────────────────────────
 
-  async listByDnaRecord(dnaRecordId: string): Promise<IssuedCertificate[]> {
+  async listByDnaRecord(dnaRecordId: string, userId: string): Promise<IssuedCertificate[]> {
     const certs = await prisma.certificate.findMany({
-      where:   { dnaRecordId },
+      where:   { dnaRecordId, ownerUserId: userId },
       orderBy: { issuedAt: 'desc' },
     });
     return certs.map(c => this.toDto(c));
   }
 
-  async listAll(userId?: string): Promise<IssuedCertificate[]> {
+  async listAll(userId: string): Promise<IssuedCertificate[]> {
     const certs = await prisma.certificate.findMany({
-      where: userId ? { issuedByUserId: userId } : undefined,
+      where: { ownerUserId: userId },
       orderBy: { issuedAt: 'desc' },
     });
     return certs.map(c => this.toDto(c));

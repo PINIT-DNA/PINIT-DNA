@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PinIT Extension Options</title>
+  <style>
+    body { font: 14px/1.5 system-ui, sans-serif; max-width: 720px; margin: 32px auto; padding: 0 16px 48px; color: #e8eef7; background: #0f1419; }
+    label { display: block; margin: 12px 0 4px; color: #9fb0c6; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    input[type=text], input[type=url] { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #2a3544; background: #1a222d; color: #fff; box-sizing: border-box; }
+    .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; margin: 8px 0 16px; }
+    @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+    h1 { font-size: 20px; }
+    h2 { font-size: 13px; color: #9fb0c6; text-transform: uppercase; letter-spacing: .06em; margin: 20px 0 8px; border-bottom: 1px solid #2a3544; padding-bottom: 6px; }
+    button { margin-top: 16px; padding: 10px 16px; border: 0; border-radius: 8px; background: #5b8def; color: #fff; font-weight: 600; cursor: pointer; }
+    .hint { color: #9fb0c6; font-size: 12px; margin-top: 12px; }
+    #msg { color: #10b981; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>PinIT Hub — Options</h1>
+  <p>Configure API endpoints and platform auto-protect toggles. Private chats remain out of scope.</p>
+
+  <label>API Base URL</label>
+  <input id="apiBaseUrl" type="url" placeholder="https://pinit-dna-uf5y.onrender.com/api/v1" />
+
+  <label>Hub Base URL</label>
+  <input id="hubBaseUrl" type="url" placeholder="https://www.pinithub.com" />
+
+  <div class="row"><input id="publishGuardianEnabled" type="checkbox" checked /> <span>Enable Publish Guardian</span></div>
+
+  <h2>Social</h2>
+  <div class="grid" id="group-social"></div>
+  <p class="hint" style="margin-top:0">Includes Instagram, X, YouTube / Studio, TikTok, and more.</p>
+
+  <h2>Creators</h2>
+  <div class="grid" id="group-creator"></div>
+
+  <h2>Photography</h2>
+  <div class="grid" id="group-photo"></div>
+
+  <h2>Business / design / commerce</h2>
+  <div class="grid" id="group-business"></div>
+
+  <button id="save">Save</button>
+  <p id="msg"></p>
+  <p class="hint">
+    Right-click any image → <strong>Protect with PinIT</strong>. On Canva / Figma / Adobe Web, export/download offers parallel protect without blocking the export.
+  </p>
+  <script type="module" src="options.js"></script>
+</body>
+</html>

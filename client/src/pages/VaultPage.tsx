@@ -1,90 +1,166 @@
 import { useState, useEffect } from 'react';
-import { Archive, Search, Lock, RefreshCw, Download, Eye, ExternalLink, Share2, Copy, Check, Clock, Ban, FileSearch, Cpu, GitBranch } from 'lucide-react';
+import { Archive, Search, Lock, RefreshCw, Eye, Share2, Copy, Check, Clock, Ban, GitBranch, ShieldCheck, MapPin, LayoutGrid, List, Cpu } from 'lucide-react';
+import { VaultFileThumbnail } from '../components/VaultFileThumbnail';
+import { VaultDetailSidePanel } from '../components/VaultDetailSidePanel';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { useApi, formatBytes } from '../hooks/useApi';
-import { listVaultRecords, retrieveFromVault, api } from '../services/dashboard.api';
-import { SkeletonTable } from '../components/ui/Skeleton';
+import {
+  listVaultRecords,
+  protectedDownloadFromVault,
+  deleteVaultRecord,
+  api,
+} from '../services/dashboard.api';
+import { SkeletonTable, SkeletonCard } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
+import { cn } from '../components/ui/utils';
+import { FILE_TYPES, getVaultFileTypeLabel, getVaultFileTypeDisplay } from '../lib/file-type-utils';
 import { API_BASE_URL } from '../config/api.config';
-import { useAuth } from '../context/AuthContext';
+import { ShareQrBlock } from '../components/ShareQrBlock';
 import type { VaultRecord } from '../types/dashboard.types';
 
-function VaultDetailModal({ record, onClose }: { record: VaultRecord; onClose: () => void }) {
-  const [retrieving, setRetrieving] = useState(false);
-  const { user } = useAuth();
+// ─── Protected Download Modal ─────────────────────────────────────────────────
 
-  const handleRetrieve = async () => {
-    setRetrieving(true);
+const PROTECTED_STEPS = [
+  { id: 'ownership', label: 'Verifying ownership…' },
+  { id: 'dna', label: 'Verifying DNA…' },
+  { id: 'certificate', label: 'Verifying Certificate…' },
+  { id: 'prepare', label: 'Preparing Protected File…' },
+  { id: 'ready', label: 'Download Ready' },
+];
+
+function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onClose: () => void }) {
+  const [phase, setPhase] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [activeStep, setActiveStep] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [forensicPreserved, setForensicPreserved] = useState(false);
+  const [recipientLabel, setRecipientLabel] = useState('');
+  const [lastTep, setLastTep] = useState<string | null>(null);
+
+  const runProtectedDownload = async () => {
+    setPhase('running');
+    setError(null);
+    setActiveStep(0);
+
+    const stepTimer = window.setInterval(() => {
+      setActiveStep((s) => Math.min(s + 1, PROTECTED_STEPS.length - 2));
+    }, 600);
+
     try {
-      const blob = await retrieveFromVault(record.id);
+      const { blob, tepCode, tracking } = await protectedDownloadFromVault(record.id, {
+        recipientLabel: recipientLabel.trim() || undefined,
+      });
+      setForensicPreserved(true);
+      setLastTep(tepCode ?? null);
+      setActiveStep(PROTECTED_STEPS.length - 2);
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = record.originalFileName;
-      a.click(); URL.revokeObjectURL(url);
-      toast.success('File retrieved and decrypted successfully');
-    } catch {
-      toast.error('Failed to retrieve file from vault');
+      a.href = url;
+      a.download = record.originalFileName;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setActiveStep(PROTECTED_STEPS.length - 1);
+      setPhase('done');
+      toast.success(
+        tepCode
+          ? `Protected download complete — TEP ${tepCode} (${tracking ?? 'tracked'})`
+          : 'Protected download complete — download event recorded',
+      );
+    } catch (err) {
+      setPhase('error');
+      const msg = err instanceof Error ? err.message : 'Protected download failed';
+      setError(msg);
+      toast.error(msg.length > 80 ? 'Protected download failed' : msg);
     } finally {
-      setRetrieving(false);
+      window.clearInterval(stepTimer);
     }
   };
 
   return (
-    <Modal open title="Vault Record Details" onClose={onClose} size="lg">
+    <Modal open title="Protected Download" onClose={onClose} size="md">
       <div className="p-6 space-y-4">
-        {/* File info */}
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { label: 'Vault ID',            value: record.id,                     mono: true,  accent: true  },
-            { label: 'DNA Record ID',        value: record.dnaRecordId,            mono: true,  accent: true  },
-            { label: 'Original File',        value: record.originalFileName,       mono: false, accent: false },
-            { label: 'MIME Type',            value: record.originalMimeType,       mono: true,  accent: false },
-            { label: 'Original Size',        value: formatBytes(record.originalSizeBytes), mono: true, accent: false },
-            { label: 'Encrypted Size',       value: formatBytes(record.encryptedSizeBytes), mono: true, accent: false },
-            { label: 'Encryption',           value: record.encryptionAlgorithm,    mono: true,  accent: false },
-            { label: 'Key Derivation',       value: record.keyDerivation,          mono: true,  accent: false },
-            { label: 'Stored At',            value: format(new Date(record.createdAt), 'PPpp'), mono: false, accent: false },
-            { label: 'Owner User ID',        value: user?.shortId ?? '—', mono: true, accent: true },
-          ].map(row => (
-            <div key={row.label} className="bg-bg-elevated rounded-lg p-3">
-              <p className="text-2xs text-gray-500 mono mb-1">{row.label}</p>
-              <p className={`text-xs break-all ${row.mono ? 'mono' : ''} ${row.accent ? 'text-dna-400' : 'text-gray-200'}`}>
-                {row.value}
-              </p>
-            </div>
-          ))}
-        </div>
-
-        {/* Security info */}
-        <div className="rounded-xl bg-success/5 border border-success/20 p-4">
+        <div className="rounded-xl bg-dna-500/10 border border-dna-500/30 p-4">
           <div className="flex items-center gap-2 mb-2">
-            <Lock size={14} className="text-success" />
-            <p className="text-xs font-semibold text-success">Encryption Details</p>
+            <ShieldCheck size={16} className="text-dna-400" />
+            <p className="text-sm font-semibold text-white">{record.originalFileName}</p>
           </div>
-          <p className="text-2xs text-gray-400">
-            File is encrypted with AES-256-GCM. The encryption key is NEVER stored —
-            it is re-derived on demand from the Vault ID using HKDF-SHA256.
-            The authentication tag ensures tamper detection during decryption.
+          <p className="text-2xs text-gray-400 mb-2">
+            Enterprise delivery: TEP tracking, download logging, and chain of custody.
+            Browsers cannot force the file to open only in PINIT — recovery happens when the file
+            is investigated or opened through a PINIT-controlled path.
           </p>
+          <ul className="text-2xs text-dna-300 space-y-0.5">
+            <li>✓ TEP Tracking</li>
+            <li>✓ Dynamic Watermark</li>
+            <li>✓ Download Logging (IP / device / time)</li>
+            <li>✓ Chain of Custody</li>
+            <li>✓ Future Identification via Investigation</li>
+          </ul>
         </div>
 
-        {/* Actions */}
+        {phase === 'idle' && (
+          <div className="space-y-3">
+            <div>
+              <label className="text-2xs text-gray-500">Recipient (optional label)</label>
+              <input
+                className="input text-sm mt-1"
+                placeholder="e.g. HR team / self"
+                value={recipientLabel}
+                onChange={(e) => setRecipientLabel(e.target.value)}
+              />
+            </div>
+          </div>
+        )}
+
+        <ul className="space-y-2">
+          {PROTECTED_STEPS.map((step, i) => {
+            const done = phase === 'done' ? true : i < activeStep;
+            const current = phase === 'running' && i === activeStep;
+            return (
+              <li
+                key={step.id}
+                className={`flex items-center gap-2 text-xs rounded-lg px-3 py-2 ${
+                  done ? 'bg-success/10 text-success' : current ? 'bg-dna-500/10 text-dna-300' : 'bg-bg-elevated text-gray-500'
+                }`}
+              >
+                {done ? <Check size={14} /> : current ? <RefreshCw size={14} className="animate-spin" /> : <Clock size={14} />}
+                {step.label}
+              </li>
+            );
+          })}
+        </ul>
+
+        {phase === 'done' && forensicPreserved && (
+          <div className="text-2xs text-success text-center space-y-1">
+            <p>Protected download recorded in chain of custody.</p>
+            {lastTep && <p className="mono text-dna-300">TEP {lastTep}</p>}
+          </div>
+        )}
+
+        {error && (
+          <p className="text-xs text-danger text-center">{error}</p>
+        )}
+
         <div className="flex gap-3 pt-2">
-          <button
-            onClick={handleRetrieve}
-            disabled={retrieving}
-            className="btn btn-primary flex-1"
-          >
-            {retrieving ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
-            {retrieving ? 'Decrypting…' : 'Retrieve & Decrypt'}
-          </button>
-          <button onClick={onClose} className="btn btn-secondary">
-            Close
-          </button>
+          {phase === 'idle' || phase === 'error' ? (
+            <button onClick={runProtectedDownload} className="btn btn-primary flex-1">
+              <ShieldCheck size={14} /> Generate Protected Download
+            </button>
+          ) : phase === 'running' ? (
+            <button disabled className="btn btn-primary flex-1 opacity-70">
+              <RefreshCw size={14} className="animate-spin" /> Processing…
+            </button>
+          ) : (
+            <button onClick={onClose} className="btn btn-primary flex-1">Done</button>
+          )}
+          {phase !== 'running' && (
+            <button onClick={onClose} className="btn btn-secondary">Close</button>
+          )}
         </div>
       </div>
     </Modal>
@@ -135,8 +211,8 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
   const [scanMsg,        setScanMsg]       = useState('');
   const [detected, setDetected] = useState({ email: false, phone: false, aadhaar: false, pan: false, address: false });
 
-  // ── GPS Location Request ───────────────────────────────────────────────────
-  const [requestLocation, setRequestLocation] = useState(false);
+  // ── GPS Location — optional (owner chooses at share time)
+  const [requestLocation, setRequestLocation] = useState(true);
 
   // ── Enterprise Security Controls ──────────────────────────────────────────
   const [vpnBlock,       setVpnBlock]       = useState(false);
@@ -239,6 +315,51 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
     toast.success('Link copied to clipboard!');
   };
 
+  /** Open OS share sheet (WhatsApp, Email, etc.) — close app modal first so they don't overlap. */
+  const handleNativeShareLink = async () => {
+    if (!created) return;
+    const { shareUrl, token } = created;
+    const shareData: ShareData = {
+      title: record.originalFileName,
+      text: `Secure file via PinIT Hub\n${shareUrl}`,
+      url: shareUrl,
+    };
+
+    const canShare =
+      typeof navigator !== 'undefined'
+      && typeof navigator.share === 'function'
+      && (typeof navigator.canShare !== 'function' || navigator.canShare(shareData));
+
+    if (canShare) {
+      // Close PinIT modal first — only the OS share card should show
+      onClose();
+      try {
+        await navigator.share(shareData);
+        toast.success('Smart link shared');
+        return;
+      } catch (err) {
+        const name = (err as { name?: string })?.name ?? '';
+        const msg = err instanceof Error ? err.message : String(err);
+        if (name === 'AbortError' || /canceled|cancelled/i.test(msg)) return;
+        // Share sheet failed — copy so user can still paste
+      }
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        api.post(`${API_BASE_URL}/share/${token}/access`, { action: 'COPIED' }).catch(() => {});
+        toast.success('Link copied — paste it in WhatsApp, Email, or any app', { duration: 4500 });
+      } catch {
+        toast.error('Could not share or copy the link');
+      }
+      return;
+    }
+
+    await navigator.clipboard.writeText(shareUrl);
+    setCopied(true);
+    api.post(`${API_BASE_URL}/share/${token}/access`, { action: 'COPIED' }).catch(() => {});
+    setTimeout(() => setCopied(false), 2000);
+    toast.success('Link copied — paste it in WhatsApp, Email, or any app', { duration: 4500 });
+  };
+
   return (
     <Modal open title="Generate Smart Share Link" onClose={onClose} size="md">
       <div className="p-5 space-y-4">
@@ -292,7 +413,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
             {/* Expiry */}
             <div>
               <label className="text-xs font-semibold text-gray-300 block mb-2">Link Expires After</label>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {[
                   { label: '1 Hour',   value: '1'    },
                   { label: '24 Hours', value: '24'   },
@@ -422,6 +543,9 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
                     </label>
                     <input type="text" value={allowedCountries} onChange={e => setAllowedCountries(e.target.value)}
                       placeholder="India, US, UK" className="input text-sm w-full" />
+                    <p className="text-2xs text-gray-500 mt-1">
+                      Enforced on real internet IPs. Localhost / LAN opens are not geo-tagged as India — they are allowed for testing.
+                    </p>
                   </div>
 
                   <div>
@@ -563,22 +687,37 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
               )}
             </div>
 
-            {/* ── GPS Location Request ──────────────────────────────── */}
-            <label className="flex items-center justify-between cursor-pointer px-3 py-2.5 rounded-xl border border-bg-border bg-bg-elevated hover:bg-bg-card">
+            {/* ── GPS Location — optional toggle ──────────────────── */}
+            <button
+              type="button"
+              onClick={() => setRequestLocation((v) => !v)}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-left transition-colors ${
+                requestLocation
+                  ? 'border-green-500/40 bg-green-500/10'
+                  : 'border-bg-border bg-bg-elevated hover:border-green-500/25'
+              }`}
+            >
               <div>
-                <p className="text-xs font-semibold text-gray-300 flex items-center gap-2">
-                  📍 Request Location
-                  <span className="text-gray-500 font-normal">(optional — user can deny)</span>
+                <p className={`text-xs font-semibold flex items-center gap-2 ${requestLocation ? 'text-green-400' : 'text-gray-300'}`}>
+                  📍 GPS Location Tracking
+                  <span className={`text-2xs px-1.5 py-0.5 rounded font-bold ${
+                    requestLocation
+                      ? 'bg-green-500/20 text-green-400'
+                      : 'bg-bg-border text-gray-500'
+                  }`}>
+                    {requestLocation ? 'ON' : 'OFF'}
+                  </span>
                 </p>
-                <p className="text-2xs text-gray-500 mt-0.5">Ask recipient for GPS permission. More accurate than IP geolocation.</p>
+                <p className="text-2xs text-gray-500 mt-0.5">
+                  {requestLocation
+                    ? 'Viewer must allow GPS location to access the file. No location = no access.'
+                    : 'Off — open without GPS prompt; still track via IP (approximate).'}
+                </p>
               </div>
-              <div
-                onClick={() => setRequestLocation(v => !v)}
-                className={`w-8 h-4 rounded-full transition-colors relative cursor-pointer shrink-0 ml-3 ${requestLocation ? 'bg-green-500' : 'bg-bg-border'}`}
-              >
+              <div className={`w-8 h-4 rounded-full transition-colors relative shrink-0 ml-3 ${requestLocation ? 'bg-green-500' : 'bg-bg-border'}`}>
                 <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${requestLocation ? 'left-4' : 'left-0.5'}`} />
               </div>
-            </label>
+            </button>
 
             <button onClick={handleCreate} disabled={creating} className="btn btn-primary w-full">
               {creating
@@ -593,7 +732,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
               <Check size={18} className="text-success shrink-0" />
               <div>
                 <p className="text-sm font-semibold text-success">Smart Link Generated!</p>
-                <p className="text-2xs text-gray-400 mt-0.5">Access is tracked — every view is logged in File Timeline</p>
+                <p className="text-2xs text-gray-400 mt-0.5">Access is tracked — every view is logged in View in Timeline</p>
               </div>
             </div>
 
@@ -618,8 +757,21 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
               </div>
             </div>
 
-            {/* Share via */}
-            <div className="grid grid-cols-3 gap-2">
+            <ShareQrBlock url={created.shareUrl} />
+
+            {/* Native share — opens WhatsApp / Email / etc. like Share File */}
+            <button
+              type="button"
+              onClick={() => void handleNativeShareLink()}
+              className="btn btn-primary w-full"
+            >
+              <Share2 size={14} /> Share Link
+            </button>
+            <p className="text-2xs text-gray-500 text-center -mt-2">
+              Opens your device share menu — pick WhatsApp, Email, or any app
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <a href={`https://wa.me/?text=${encodeURIComponent('Secure file: ' + created.shareUrl)}`}
                 target="_blank" rel="noreferrer"
                 className="btn btn-secondary btn-sm text-xs justify-center">
@@ -629,7 +781,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
                 className="btn btn-secondary btn-sm text-xs justify-center">
                 Email
               </a>
-              <button onClick={handleCopy} className="btn btn-secondary btn-sm text-xs">
+              <button type="button" onClick={() => void handleCopy()} className="btn btn-secondary btn-sm text-xs">
                 <Copy size={11} /> Copy Link
               </button>
             </div>
@@ -686,7 +838,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
             )}
 
             <p className="text-2xs text-gray-600 text-center">
-              All access events appear in File Timeline with IP, browser, and location
+              All access events appear in View in Timeline with IP, browser, and location
             </p>
           </div>
         )}
@@ -697,15 +849,88 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+function VaultGalleryCard({
+  record,
+  selected,
+  onSelect,
+}: {
+  record: VaultRecord;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        'card overflow-hidden p-0 text-left transition-all hover:border-dna-500/30',
+        selected && 'ring-2 ring-dna-500/60 border-dna-500/40',
+      )}
+    >
+      <div className="w-full aspect-[4/3] bg-bg-elevated relative overflow-hidden">
+        <VaultFileThumbnail
+          vaultId={record.id}
+          fileName={record.originalFileName}
+          mimeType={record.originalMimeType}
+          variant="gallery"
+        />
+      </div>
+      <div className="p-3 space-y-1">
+        <p className="text-sm font-semibold text-white truncate">{record.originalFileName}</p>
+        <p className="text-xs text-gray-500">
+          {getVaultFileTypeDisplay(record.originalMimeType, record.originalFileName)}
+        </p>
+        <p className="text-xs text-gray-500">
+          {format(new Date(record.createdAt), 'MMM d, yyyy · h:mm a')}
+        </p>
+      </div>
+    </button>
+  );
+}
+
 export function VaultPage() {
-  const { data: records, loading, error, refetch } = useApi(listVaultRecords);
+  const { data: records, loading, error, refetch, setData: setRecords } = useApi(listVaultRecords);
   const [search, setSearch]     = useState('');
   const [selected, setSelected] = useState<VaultRecord | null>(null);
   const [sharing, setSharing]   = useState<VaultRecord | null>(null);
+  const [protecting, setProtecting] = useState<VaultRecord | null>(null);
   const [aiMode, setAiMode]     = useState(false);
   const [aiResults, setAiResults] = useState<string[]>([]); // dnaRecordIds matching AI search
   const [aiSearching, setAiSearching] = useState(false);
-  const navigate = useNavigate();
+  const [viewMode, setViewMode] = useState<'gallery' | 'list'>('gallery');
+  const [typeFilter, setTypeFilter] = useState<string>('ALL');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const handleShare = (record: VaultRecord) => {
+    setSharing(record);
+  };
+
+  const handleRenamed = (vaultId: string, originalFileName: string) => {
+    setRecords((prev) =>
+      (prev ?? []).map((r) => (r.id === vaultId ? { ...r, originalFileName } : r)),
+    );
+    setSelected((prev) => (prev?.id === vaultId ? { ...prev, originalFileName } : prev));
+  };
+
+  const handleDelete = async (record: VaultRecord) => {
+    if (!window.confirm(`Delete "${record.originalFileName}" from vault?`)) return;
+    const previous = records;
+    setDeletingId(record.id);
+    // Optimistic UI — remove card + close panel immediately
+    setRecords((prev) => (prev ?? []).filter((r) => r.id !== record.id));
+    if (selected?.id === record.id) setSelected(null);
+    if (sharing?.id === record.id) setSharing(null);
+    if (protecting?.id === record.id) setProtecting(null);
+    try {
+      await deleteVaultRecord(record.id);
+      toast.success('File removed from vault');
+    } catch {
+      setRecords(previous);
+      toast.error('Failed to delete file');
+      refetch();
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const handleSearch = async (q: string) => {
     setSearch(q);
@@ -726,6 +951,9 @@ export function VaultPage() {
   };
 
   const filtered = (records ?? []).filter(r => {
+    const typeLabel = getVaultFileTypeLabel(r.originalMimeType, r.originalFileName);
+    if (typeFilter !== 'ALL' && typeLabel !== typeFilter) return false;
+
     if (!search) return true;
     const keyword = (
       r.originalFileName.toLowerCase().includes(search.toLowerCase()) ||
@@ -733,11 +961,16 @@ export function VaultPage() {
       r.dnaRecordId.toLowerCase().includes(search.toLowerCase())
     );
     if (aiMode && !aiSearching) {
-      // If AI returned results, use them; otherwise fall back to keyword
       return aiResults.length > 0 ? aiResults.includes(r.dnaRecordId) : keyword;
     }
     return keyword;
   });
+
+  const typeCounts = (records ?? []).reduce<Record<string, number>>((acc, r) => {
+    const label = getVaultFileTypeLabel(r.originalMimeType, r.originalFileName);
+    acc[label] = (acc[label] ?? 0) + 1;
+    return acc;
+  }, {});
 
   if (error) return (
     <div className="flex items-center justify-center h-64 text-center">
@@ -751,11 +984,12 @@ export function VaultPage() {
   );
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="page-shell animate-fade-in">
+      <div className="space-y-5 min-w-0">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold text-white">Vault Explorer</h1>
+          <h1 className="text-xl font-bold text-white">Digital Assets</h1>
           <p className="text-sm text-gray-500 mt-0.5">AES-256-GCM encrypted file storage</p>
         </div>
         <div className="flex items-center gap-3">
@@ -773,7 +1007,7 @@ export function VaultPage() {
 
       {/* Stats row */}
       {!loading && records && records.length > 0 && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="stat-grid-3 gap-3">
           <div className="card-sm text-center">
             <p className="text-2xl font-bold text-purple">{records.length}</p>
             <p className="text-2xs text-gray-500 mt-1">Encrypted Files</p>
@@ -791,10 +1025,46 @@ export function VaultPage() {
         </div>
       )}
 
+      {/* File type filter bar */}
+      {!loading && records && records.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+          <button
+            type="button"
+            onClick={() => setTypeFilter('ALL')}
+            className={`shrink-0 px-3 py-2 rounded-lg border text-xs font-semibold transition-all min-h-[40px] ${
+              typeFilter === 'ALL'
+                ? 'bg-dna-500/15 border-dna-500/40 text-dna-400'
+                : 'bg-bg-card border-bg-border text-gray-400 hover:text-white hover:border-dna-500/25'
+            }`}
+          >
+            All · {records.length}
+          </button>
+          {FILE_TYPES.map(({ label, icon, color }) => {
+            const count = typeCounts[label] ?? 0;
+            return (
+              <button
+                key={label}
+                type="button"
+                onClick={() => setTypeFilter(label)}
+                className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold transition-all min-h-[40px] ${
+                  typeFilter === label
+                    ? 'bg-dna-500/15 border-dna-500/40 text-dna-400'
+                    : 'bg-bg-card border-bg-border text-gray-400 hover:text-white hover:border-dna-500/25'
+                }`}
+              >
+                <span>{icon}</span>
+                <span className={typeFilter === label ? '' : color}>{label}</span>
+                <span className="mono text-2xs opacity-70">{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Search + table */}
       <div className="card overflow-hidden p-0">
-        <div className="flex items-center gap-3 p-4 border-b border-bg-border">
-          <div className="relative flex-1">
+        <div className="toolbar-row p-4 border-b border-bg-border">
+          <div className="relative flex-1 min-w-0 w-full">
             {aiSearching
               ? <RefreshCw size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dna-400 animate-spin" />
               : <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />}
@@ -806,27 +1076,83 @@ export function VaultPage() {
               className="input pl-9 text-sm"
             />
           </div>
-          <button
-            onClick={() => { setAiMode(m => !m); setSearch(''); setAiResults([]); }}
-            title={aiMode ? 'Switch to keyword search' : 'Switch to AI semantic search'}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all shrink-0 ${
-              aiMode
-                ? 'bg-dna-500/20 border-dna-500/40 text-dna-400'
-                : 'border-bg-border text-gray-500 hover:text-white hover:border-gray-600'
-            }`}
-          >
-            <Cpu size={13} />
-            {aiMode ? 'AI Search ON' : 'AI Search'}
-          </button>
-          <Archive size={16} className="text-gray-500 shrink-0" />
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto shrink-0">
+            <button
+              onClick={() => { setAiMode(m => !m); setSearch(''); setAiResults([]); }}
+              title={aiMode ? 'Switch to keyword search' : 'Switch to AI semantic search'}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all shrink-0 min-h-[44px] sm:min-h-0 ${
+                aiMode
+                  ? 'bg-dna-500/20 border-dna-500/40 text-dna-400'
+                  : 'border-bg-border text-gray-500 hover:text-white hover:border-gray-600'
+              }`}
+            >
+              <Cpu size={13} />
+              {aiMode ? 'AI Search ON' : 'AI Search'}
+            </button>
+            <div className="flex items-center rounded-lg border border-bg-border overflow-hidden shrink-0">
+              <button
+                onClick={() => setViewMode('gallery')}
+                title="Gallery view"
+                className={cn(
+                  'px-2.5 py-1.5 transition-colors min-h-[44px] sm:min-h-0',
+                  viewMode === 'gallery' ? 'bg-dna-500/20 text-dna-400' : 'text-gray-500 hover:text-white',
+                )}
+              >
+                <LayoutGrid size={14} />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                title="List view"
+                className={cn(
+                  'px-2.5 py-1.5 border-l border-bg-border transition-colors min-h-[44px] sm:min-h-0',
+                  viewMode === 'list' ? 'bg-dna-500/20 text-dna-400' : 'text-gray-500 hover:text-white',
+                )}
+              >
+                <List size={14} />
+              </button>
+            </div>
+            <Archive size={16} className="text-gray-500 shrink-0 hidden sm:block" />
+          </div>
         </div>
 
+        {viewMode === 'gallery' ? (
+          <div className="p-4">
+            {loading ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                {Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)}
+              </div>
+            ) : filtered.length === 0 ? (
+              <EmptyState
+                icon={Archive}
+                title="No vault records"
+                description="Encrypt and store files using the Generate DNA flow"
+              />
+            ) : (
+              <div className={cn(
+                'grid gap-4',
+                selected
+                  ? 'grid-cols-2 sm:grid-cols-2 lg:grid-cols-3'
+                  : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5',
+              )}>
+                {filtered.map(r => (
+                  <VaultGalleryCard
+                    key={r.id}
+                    record={r}
+                    selected={selected?.id === r.id}
+                    onSelect={() => setSelected(prev => (prev?.id === r.id ? null : r))}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
         <div className="overflow-x-auto">
           <table className="data-table">
             <thead>
               <tr>
                 <th>File</th>
                 <th>Vault ID</th>
+                <th>Location</th>
                 <th>Original Size</th>
                 <th>Encryption</th>
                 <th>Stored At</th>
@@ -838,7 +1164,7 @@ export function VaultPage() {
                 <SkeletonTable rows={5} />
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     <EmptyState
                       icon={Archive}
                       title="No vault records"
@@ -848,20 +1174,55 @@ export function VaultPage() {
                 </tr>
               ) : (
                 filtered.map(r => (
-                  <tr key={r.id}>
+                  <tr
+                    key={r.id}
+                    onClick={() => setSelected(prev => (prev?.id === r.id ? null : r))}
+                    className={cn(
+                      'cursor-pointer transition-colors',
+                      selected?.id === r.id && 'bg-dna-500/10',
+                    )}
+                  >
                     <td>
-                      <div className="flex items-center gap-2">
-                        <Lock size={12} className="text-success shrink-0" />
-                        <div>
+                      <div className="flex items-center gap-2.5">
+                        <VaultFileThumbnail
+                          vaultId={r.id}
+                          fileName={r.originalFileName}
+                          mimeType={r.originalMimeType}
+                        />
+                        <div className="min-w-0">
                           <p className="text-sm font-medium text-white truncate max-w-[200px]">
                             {r.originalFileName}
                           </p>
-                          <p className="text-2xs text-gray-500 mono">{r.originalMimeType}</p>
+                          <p className="text-2xs text-gray-500">
+                            {getVaultFileTypeDisplay(r.originalMimeType, r.originalFileName)}
+                          </p>
                         </div>
                       </div>
                     </td>
                     <td>
                       <span className="mono text-2xs text-dna-400">{r.id.slice(0, 16)}…</span>
+                    </td>
+                    <td>
+                      {r.location?.status === 'AVAILABLE' ? (
+                        <div className="flex items-start gap-1 max-w-[160px]">
+                          <MapPin size={12} className="text-dna-400 shrink-0 mt-0.5" />
+                          <span
+                            className="text-2xs text-gray-300 truncate"
+                            title={[
+                              r.location.creationLabel && `Created: ${r.location.creationLabel}`,
+                              r.location.sharedLabel && `Shared: ${r.location.sharedLabel}`,
+                              (r.location.presentLabel ?? r.location.lastKnownLabel)
+                                && `Present: ${r.location.presentLabel ?? r.location.lastKnownLabel}`,
+                            ].filter(Boolean).join(' · ')}
+                          >
+                            {r.location.presentLabel
+                              ?? r.location.lastKnownLabel
+                              ?? r.location.creationLabel}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-2xs text-gray-500">Unavailable</span>
+                      )}
                     </td>
                     <td>
                       <span className="mono text-xs">{formatBytes(r.originalSizeBytes)}</span>
@@ -874,39 +1235,14 @@ export function VaultPage() {
                         {format(new Date(r.createdAt), 'MMM d, yyyy · HH:mm')}
                       </span>
                     </td>
-                    <td>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => setSelected(r)}
-                          className="btn-ghost btn-icon text-gray-500 hover:text-white"
-                          title="View details"
-                        >
-                          <Eye size={14} />
-                        </button>
-                        <button
-                          onClick={() => setSharing(r)}
-                          className="btn-ghost btn-icon text-gray-500 hover:text-dna-400"
-                          title="Generate Smart Share Link"
-                        >
-                          <Share2 size={14} />
-                        </button>
-                        <button
-                          onClick={() => navigate(`/intelligence/${r.id}`)}
-                          className="btn-ghost btn-icon text-gray-500 hover:text-purple-400"
-                          title="Intelligence Report"
-                        >
-                          <FileSearch size={14} />
-                        </button>
-                        <a
-                          href={`/api/v1/dna/${r.dnaRecordId}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="btn-ghost btn-icon text-gray-500 hover:text-dna-400"
-                          title="Open DNA record"
-                        >
-                          <ExternalLink size={14} />
-                        </a>
-                      </div>
+                    <td onClick={e => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => setSelected(r)}
+                        className="btn-ghost btn-sm text-xs text-dna-400"
+                      >
+                        <Eye size={12} /> Open
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -914,13 +1250,26 @@ export function VaultPage() {
             </tbody>
           </table>
         </div>
+        )}
+      </div>
       </div>
 
-      {selected && (
-        <VaultDetailModal record={selected} onClose={() => setSelected(null)} />
-      )}
+        {selected && (
+          <VaultDetailSidePanel
+            record={selected}
+            onClose={() => setSelected(null)}
+            onShare={() => handleShare(selected)}
+            onDelete={() => handleDelete(selected)}
+            onRenamed={handleRenamed}
+            deleting={deletingId === selected.id}
+          />
+        )}
+
       {sharing && (
         <ShareModal record={sharing} onClose={() => setSharing(null)} />
+      )}
+      {protecting && (
+        <ProtectedDownloadModal record={protecting} onClose={() => setProtecting(null)} />
       )}
     </div>
   );

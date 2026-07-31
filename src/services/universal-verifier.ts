@@ -21,6 +21,7 @@ import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { FileInput } from './universal-file-router';
 import { TxtDnaEngine }  from './engines/txt/txt-dna-engine';
+import { HtmlDnaEngine } from './engines/html/html-dna-engine';
 import { CsvDnaEngine }  from './engines/csv/csv-dna-engine';
 import { JsonDnaEngine } from './engines/json/json-dna-engine';
 import { PdfDnaEngine }   from './engines/pdf/pdf-dna-engine';
@@ -37,6 +38,7 @@ import {
 } from '../types/universal-engine.types';
 import { computeHmac } from './engines/base/text-utils';
 import { config } from '../config';
+import { DNA_GENERATOR_VERSION, DNA_SCHEMA_VERSION } from '../config/dna-versions';
 import { v4 as uuidv4 } from 'uuid';
 
 // ─── Weights and thresholds ───────────────────────────────────────────────────
@@ -93,10 +95,10 @@ export class UniversalVerifier {
           imageFilename: probeFile.originalName,
           imageMimeType: probeFile.declaredMimeType,
           imageSizeBytes: probeFile.sizeBytes,
-          schemaVersion: '1.0.0',
+          schemaVersion: DNA_SCHEMA_VERSION,
           status: 'PROCESSING',
           fileType,
-          engineVersion: '2.0.0-universal',
+          engineVersion: DNA_GENERATOR_VERSION,
         },
       });
 
@@ -230,6 +232,11 @@ export class UniversalVerifier {
         const result = await engine.generate(file, tempId);
         return result.layers;
       }
+      case 'HTML': {
+        const engine = new HtmlDnaEngine();
+        const result = await engine.generate(file, tempId);
+        return result.layers;
+      }
       case 'CSV': {
         const engine = new CsvDnaEngine();
         const result = await engine.generate(file, tempId);
@@ -247,7 +254,7 @@ export class UniversalVerifier {
           mimeType: file.declaredMimeType, sizeBytes: file.sizeBytes, buffer: file.buffer,
         };
         const orcResult = await new (await import('./dna.orchestrator')).DnaOrchestrator()
-          .generate(imageInput, { fileType: 'IMAGE', engineVersion: '2.0.0-universal' });
+          .generate(imageInput, { fileType: 'IMAGE', engineVersion: DNA_GENERATOR_VERSION });
         // Overwrite tempId so cleanup targets the right record
         await prisma.dnaRecord.delete({ where: { id: tempId } }).catch(() => {});
         // Re-read from the orchestrator's actual ID — but we need layers from image tables
