@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Shield,
   Eye,
@@ -16,6 +16,7 @@ import {
   Copy,
   Check,
   MapPin,
+  ArrowLeft,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
@@ -30,6 +31,7 @@ import { formatDistanceToNow } from 'date-fns';
 interface ShareLink {
   id: string;
   token: string;
+  vaultId?: string | null;
   filename: string;
   createdAt: string;
   isActive: boolean;
@@ -58,6 +60,8 @@ export function AccessIntelligencePage() {
   const [loadingFiles, setLoadingFiles] = useState(true);
   const [copiedTep, setCopiedTep] = useState<string | null>(null);
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const vaultFilter = searchParams.get('vaultId')?.trim() || null;
 
   const loadLinks = () => {
     setLoading(true);
@@ -89,16 +93,39 @@ export function AccessIntelligencePage() {
     loadFileShares();
   }, []);
 
-  const activeLinks = links.filter((l) => l.isActive);
-  const totalViews = links.reduce((s, l) => s + (l.viewCount ?? 0), 0);
-  const totalLogs = links.reduce((s, l) => s + (l.accessLogs?.length ?? 0), 0);
-  const uniqueCountries = new Set(links.flatMap((l) => (l.accessLogs ?? []).map((a) => a.country).filter(Boolean)));
+  // Vault → Tracking lands on ?vaultId=… so all share links for that file stay visible.
+  // Do not auto-jump to a single token (that hid other shares of the same file).
 
-  const openFileShares = fileShares.filter((s) => s.kind === 'file_open' && s.token);
+  const filteredLinks = useMemo(
+    () => (vaultFilter ? links.filter((l) => l.vaultId === vaultFilter) : links),
+    [links, vaultFilter],
+  );
+
+  const filteredFileShares = useMemo(
+    () => (vaultFilter ? fileShares.filter((s) => s.vaultId === vaultFilter) : fileShares),
+    [fileShares, vaultFilter],
+  );
+
+  const activeLinks = filteredLinks.filter((l) => l.isActive);
+  const totalViews = filteredLinks.reduce((s, l) => s + (l.viewCount ?? 0), 0);
+  const totalLogs = filteredLinks.reduce((s, l) => s + (l.accessLogs?.length ?? 0), 0);
+  const uniqueCountries = new Set(filteredLinks.flatMap((l) => (l.accessLogs ?? []).map((a) => a.country).filter(Boolean)));
+
+  const openFileShares = filteredFileShares.filter((s) => s.kind === 'file_open' && s.token);
   const activeFiles = openFileShares.filter((s) => s.status === 'ACTIVE');
   const totalFileViews = openFileShares.reduce((s, f) => s + (f.viewCount ?? 0), 0);
   const fileCountries = new Set(openFileShares.map((s) => s.geoCountry).filter(Boolean));
 
+  const filterFilename =
+    filteredLinks[0]?.filename
+    ?? filteredFileShares[0]?.filename
+    ?? null;
+
+  const clearVaultFilter = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('vaultId');
+    setSearchParams(next, { replace: true });
+  };
   const copyText = async (value: string, okMsg: string) => {
     try {
       await navigator.clipboard.writeText(value);
@@ -163,27 +190,52 @@ export function AccessIntelligencePage() {
 
   return (
     <div className="page-shell w-full max-w-5xl">
-      <div className="flex items-center justify-between mb-6 gap-3">
-        <div>
-          <h1 className="text-lg font-bold text-white flex items-center gap-2">
-            <Shield size={20} className="text-dna-400" />
+      <div className="flex items-end justify-between mb-6 gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-gray-500 mb-1">Activity</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+            <Shield size={22} className="text-dna-400" />
             Tracking
           </h1>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-sm text-gray-500 mt-1">
             {tab === 'links'
-              ? 'Share Secure Link tracking — who opened your links'
-              : 'Share File tracking — click a file to see who viewed it'}
+              ? 'Who opened your share links'
+              : 'Who opened files you sent'}
           </p>
         </div>
         <button
           type="button"
           onClick={() => (tab === 'links' ? loadLinks() : loadFileShares())}
-          className="p-2 rounded-lg border border-bg-border text-gray-400 hover:text-white hover:border-dna-500/40 transition-colors"
+          className="p-2 rounded-lg border border-bg-border text-gray-400 hover:text-white hover:border-dna-500/40 transition-colors shrink-0"
           title="Refresh"
         >
           <RefreshCw size={14} className={busy ? 'animate-spin' : ''} />
         </button>
       </div>
+
+      {vaultFilter && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dna-500/30 bg-dna-500/10 px-3 py-2.5">
+          <div className="min-w-0">
+            <p className="text-xs text-dna-200">
+              Tracking for this file only
+              {filterFilename ? <span className="text-white font-medium"> — {filterFilename}</span> : null}
+            </p>
+            <p className="text-2xs text-gray-400 mt-0.5">
+              {filteredLinks.length} share link{filteredLinks.length === 1 ? '' : 's'}
+              {openFileShares.length > 0 ? ` · ${openFileShares.length} file share(s)` : ''}
+              {' '}— open any row for its map &amp; viewers
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={clearVaultFilter}
+            className="inline-flex items-center gap-1 text-2xs font-semibold text-dna-300 hover:text-white shrink-0"
+          >
+            <ArrowLeft size={12} />
+            Show all files
+          </button>
+        </div>
+      )}
 
       <div className="flex gap-2 mb-5">
         <TabButton
@@ -191,7 +243,7 @@ export function AccessIntelligencePage() {
           onClick={() => setTab('links')}
           icon={<Shield size={13} />}
           label="Share Links"
-          count={links.length}
+          count={filteredLinks.length}
         />
         <TabButton
           active={tab === 'files'}
@@ -205,22 +257,29 @@ export function AccessIntelligencePage() {
       {tab === 'links' ? (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
-            <StatCard icon={<Shield size={14} />} label="Total Links" value={links.length} color="text-dna-400" />
+            <StatCard icon={<Shield size={14} />} label="Links" value={filteredLinks.length} color="text-dna-400" />
             <StatCard icon={<Eye size={14} />} label="Active" value={activeLinks.length} color="text-green-400" />
-            <StatCard icon={<Users size={14} />} label="Total Views" value={totalViews} color="text-blue-400" />
-            <StatCard icon={<Clock size={14} />} label="Access Events" value={totalLogs} color="text-purple-400" />
+            <StatCard icon={<Users size={14} />} label="Views" value={totalViews} color="text-blue-400" />
+            <StatCard icon={<Clock size={14} />} label="Events" value={totalLogs} color="text-purple-400" />
             <StatCard icon={<Globe size={14} />} label="Countries" value={uniqueCountries.size} color="text-orange-400" />
           </div>
 
-          {links.length === 0 ? (
+          {filteredLinks.length === 0 ? (
             <div className="card text-center py-16">
-              <Shield size={40} className="text-gray-600 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">No Smart Links created yet</p>
-              <p className="text-2xs text-gray-600 mt-1">Go to Files → Share Secure Link to create your first tracked link</p>
+              <Shield size={40} className="text-gray-500 mx-auto mb-3" />
+              <p className="text-sm text-gray-500">
+                {vaultFilter ? 'No share links for this file yet' : 'No share links yet'}
+              </p>
+              <p className="text-2xs text-gray-500 mt-1">
+                {vaultFilter
+                  ? 'Open Digital Assets → Share to create a tracked link for this file'
+                  : 'Go to Digital Assets → Share to create your first tracked link'}
+              </p>
             </div>
           ) : (
             <div className="space-y-3">
-              {links
+              {filteredLinks
+                .slice()
                 .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
                 .map((link) => {
                   const logs = link.accessLogs ?? [];
@@ -247,8 +306,9 @@ export function AccessIntelligencePage() {
                               </span>
                             )}
                           </div>
-                          <p className="text-2xs text-gray-500 font-mono mb-2">
-                            Token: {link.token} · Created {formatDistanceToNow(new Date(link.createdAt))} ago
+                          <p className="text-2xs text-gray-500 mb-2">
+                            Shared {formatDistanceToNow(new Date(link.createdAt))} ago
+                            {link.isActive ? ' · Live' : ' · Stopped'}
                           </p>
 
                           <div className="flex items-center gap-4 text-2xs text-gray-500 flex-wrap">
@@ -283,18 +343,18 @@ export function AccessIntelligencePage() {
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                if (!confirm(`Revoke link ${link.token}? All active sessions will be terminated.`)) return;
+                                if (!confirm(`Stop access for “${link.filename}”? People with this link will no longer be able to open it.`)) return;
                                 api.delete(`${API_BASE_URL}/share/${link.token}`).then(() => {
                                   setLinks((prev) => prev.map((l) => (l.id === link.id ? { ...l, isActive: false } : l)));
                                 });
                               }}
                               className="flex items-center gap-1 px-2 py-1 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-2xs font-medium rounded-lg transition-colors"
                             >
-                              <XCircle size={10} /> Revoke
+                              <XCircle size={10} /> Stop access
                             </button>
                           ) : (
                             <span className="flex items-center gap-1 px-2 py-1 bg-gray-500/10 border border-gray-500/30 text-gray-500 text-2xs rounded-lg">
-                              <Ban size={10} /> Revoked
+                              <Ban size={10} /> Stopped
                             </span>
                           )}
                           <ChevronRight size={14} className="text-gray-600 group-hover:text-dna-400 transition-colors mx-auto" />
@@ -309,18 +369,18 @@ export function AccessIntelligencePage() {
       ) : (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-            <StatCard icon={<Send size={14} />} label="Share Files" value={openFileShares.length} color="text-dna-400" />
+            <StatCard icon={<Send size={14} />} label="File shares" value={openFileShares.length} color="text-dna-400" />
             <StatCard icon={<Eye size={14} />} label="Active" value={activeFiles.length} color="text-green-400" />
-            <StatCard icon={<Users size={14} />} label="Total Views" value={totalFileViews} color="text-blue-400" />
+            <StatCard icon={<Users size={14} />} label="Views" value={totalFileViews} color="text-blue-400" />
             <StatCard icon={<Globe size={14} />} label="Countries" value={fileCountries.size} color="text-orange-400" />
           </div>
 
           {openFileShares.length === 0 ? (
             <div className="card text-center py-16">
-              <Send size={40} className="text-gray-600 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">No Share File tracking yet</p>
-              <p className="text-2xs text-gray-600 mt-1">
-                Go to Files → Share File. Send the file; when opened it loads PinIT Hub. Click a row here for Access Intelligence (who opened it).
+              <Send size={40} className="text-gray-500 mx-auto mb-3" />
+              <p className="text-sm text-gray-500">No shared files tracked yet</p>
+              <p className="text-2xs text-gray-500 mt-1">
+                From Digital Assets, use Share File. When someone opens it in PinIT, activity shows up here.
               </p>
             </div>
           ) : (
@@ -352,8 +412,8 @@ export function AccessIntelligencePage() {
                             {share.status}
                           </span>
                         </div>
-                        <p className="text-2xs text-gray-500 font-mono mb-2 truncate">
-                          Token: {token} · Shared {formatDistanceToNow(new Date(share.createdAt))} ago
+                        <p className="text-2xs text-gray-500 mb-2 truncate">
+                          Shared {formatDistanceToNow(new Date(share.createdAt))} ago
                         </p>
                         <div className="flex items-center gap-4 text-2xs text-gray-500 flex-wrap">
                           <span className="flex items-center gap-1">

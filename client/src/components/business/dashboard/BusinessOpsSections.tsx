@@ -151,7 +151,7 @@ export function OrgOverviewGrid({
 export function LiveActivityFeed({ events }: { events: ActivityEvent[] }) {
   return (
     <SectionCard
-      title="Live Activity Feed"
+      title="What happened today"
       icon={<Activity size={16} className="text-dna-400" />}
       action={
         <Link to="/profile" className="text-2xs text-dna-400 hover:text-dna-300 flex items-center gap-1">
@@ -839,7 +839,7 @@ export function OpsDashboardHeader({
       <div>
         <div className="inline-flex items-center gap-2 text-dna-400 text-xs font-semibold uppercase tracking-wider mb-1">
           <Building2 size={14} />
-          Organization Command Center
+          Organization home
         </div>
         <h1 className="text-2xl sm:text-3xl font-bold text-white">
           {greeting}, {welcomeName}

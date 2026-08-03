@@ -18,7 +18,6 @@ import {
 import { useApi } from '../hooks/useApi';
 import { listDnaRecords, listVaultRecords, deriveFileType, api } from '../services/dashboard.api';
 import { listForensicReports } from '../lib/forensic-reports-storage';
-import { SYSTEM_VERSION } from '../config/dna-versions';
 import { FileTypeBadge, Badge } from '../components/ui/Badge';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -69,10 +68,10 @@ function buildHistory(
       id: `dna-${r.id}`,
       timestamp: r.createdAt,
       type: 'DNA_GENERATED',
-      title: '10-Layer DNA Fingerprint Generated',
+      title: 'File protected',
       detail: `${r.status} · ${deriveFileType(r)} · ${Math.round(r.imageSizeBytes / 1024)} KB`,
       icon: <Dna size={14} />, color: 'bg-dna-500/20 border-dna-500/40 text-dna-400',
-      meta: { 'DNA Record ID': r.id, Status: r.status, 'Engine': r.engineVersion ?? SYSTEM_VERSION },
+      meta: { 'Record ID': r.id, Status: r.status },
     });
 
     // Vault stored
@@ -81,10 +80,10 @@ function buildHistory(
         id: `vault-${vault.id}`,
         timestamp: vault.createdAt,
         type: 'VAULT_STORED',
-        title: 'AES-256-GCM Encrypted & Vaulted',
-        detail: `${vault.encryptionAlgorithm} · ${Math.round(vault.encryptedSizeBytes / 1024)} KB encrypted`,
+        title: 'Stored securely in your vault',
+        detail: `Protected · ${Math.round(vault.encryptedSizeBytes / 1024)} KB stored`,
         icon: <Lock size={14} />, color: 'bg-success/20 border-success/40 text-success',
-        meta: { 'Vault ID': vault.id, Encryption: vault.encryptionAlgorithm, 'Key Derivation': vault.keyDerivation },
+        meta: { 'Asset ID': vault.id },
       });
 
       // Certificate (if vaulted)
@@ -92,8 +91,8 @@ function buildHistory(
         id: `cert-${vault.id}`,
         timestamp: vault.createdAt,
         type: 'CERTIFICATE',
-        title: 'Ownership Certificate Available',
-        detail: `CERT-DNA-${vault.id.slice(0, 8).toUpperCase()} · Available for download`,
+        title: 'Ownership certificate available',
+        detail: `CERT-DNA-${vault.id.slice(0, 8).toUpperCase()} · Ready to download`,
         icon: <Award size={14} />, color: 'bg-purple/20 border-purple/40 text-purple',
         meta: { 'Certificate ID': `CERT-DNA-${vault.id.slice(0, 8).toUpperCase()}` },
       });
@@ -107,8 +106,8 @@ function buildHistory(
         id: `share-created-${link.id}`,
         timestamp: link.createdAt,
         type: 'SHARE_CREATED',
-        title: 'Smart Share Link Generated',
-        detail: `Token: ${link.token} · ${link.expiresAt ? `Expires ${new Date(link.expiresAt).toLocaleDateString()}` : 'No expiry'}${link.maxViews ? ` · Max ${link.maxViews} views` : ''}`,
+        title: 'Share link created',
+        detail: `${link.expiresAt ? `Expires ${new Date(link.expiresAt).toLocaleDateString()}` : 'No expiry'}${link.maxViews ? ` · Max ${link.maxViews} views` : ''}`,
         icon: <Share2 size={14} />, color: 'bg-orange/20 border-orange/40 text-orange',
         meta: {
           Token: link.token,
@@ -158,16 +157,16 @@ function buildHistory(
           BLOCKED_MAX_VIEWS:  'bg-danger/20 border-danger/40 text-danger',
         };
         const actionLabel: Record<string, string> = {
-          VIEWED:             'Link Viewed by Recipient',
-          DOWNLOADED:         'File Downloaded via Link',
-          COPIED:             'Link Copied',
-          COPY_ATTEMPT:       '⚠️ Copy Attempt Detected',
-          SCREENSHOT_ATTEMPT: '⚠️ Screenshot Attempt Detected',
-          SCROLL:             'Scroll Activity',
-          TAB_SWITCH:         'Tab Switch Detected',
-          PRINT_ATTEMPT:      '⚠️ Print Attempt Detected',
-          BLOCKED_EXPIRED:    'Access Blocked · Link Expired',
-          BLOCKED_MAX_VIEWS:  'Access Blocked · View Limit Reached',
+          VIEWED:             'Opened by recipient',
+          DOWNLOADED:         'Downloaded by recipient',
+          COPIED:             'Link copied',
+          COPY_ATTEMPT:       'Copy attempt',
+          SCREENSHOT_ATTEMPT: 'Screenshot attempt',
+          SCROLL:             'Scrolled while viewing',
+          TAB_SWITCH:         'Switched away from the tab',
+          PRINT_ATTEMPT:      'Print attempt',
+          BLOCKED_EXPIRED:    'Blocked — link expired',
+          BLOCKED_MAX_VIEWS:  'Blocked — view limit reached',
         };
 
         // [DEBUG] Stage-5: log raw IP value from API before display logic
@@ -522,8 +521,8 @@ export function TimelinePage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold text-white">View in Timeline</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Complete lifecycle history for every registered file</p>
+          <h1 className="text-xl font-bold text-white">File activity</h1>
+          <p className="text-sm text-gray-500 mt-0.5">The story of every file — who opened it, when, and what changed</p>
         </div>
         <div className="flex items-center gap-2">
           {!loading && <Badge variant="dna">{histories.length} files · {totalEvents} events</Badge>}
@@ -536,8 +535,8 @@ export function TimelinePage() {
       {/* Legend */}
       <div className="flex items-center gap-4 flex-wrap">
         {[
-          { color: 'bg-dna-500/20 border-dna-500/40 text-dna-400', icon: <Dna size={12} />, label: 'DNA Generated' },
-          { color: 'bg-success/20 border-success/40 text-success', icon: <Lock size={12} />, label: 'Vault Stored' },
+          { color: 'bg-dna-500/20 border-dna-500/40 text-dna-400', icon: <Dna size={12} />, label: 'Protected' },
+          { color: 'bg-success/20 border-success/40 text-success', icon: <Lock size={12} />, label: 'Saved to vault' },
           { color: 'bg-cyan/20 border-cyan/40 text-cyan',          icon: <GitCompare size={12} />, label: 'Compared' },
           { color: 'bg-purple/20 border-purple/40 text-purple',    icon: <Award size={12} />, label: 'Certificate' },
         ].map(item => (
@@ -673,7 +672,7 @@ export function TimelinePage() {
           <EmptyState
             icon={Clock}
             title="No timeline events"
-            description="Generate DNA fingerprints to start building your audit trail"
+            description="Protect a file to start building its activity history"
           />
         </div>
       ) : (

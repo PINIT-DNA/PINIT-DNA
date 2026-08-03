@@ -1,8 +1,8 @@
 import { Link } from 'react-router-dom';
 import { useState, useEffect, useMemo } from 'react';
 import {
-  Database, Archive, Shield, GitCompare, Zap, TrendingUp,
-  FileText, CheckCircle2, AlertTriangle, RefreshCw,
+  Database, Archive, Shield, GitCompare, Zap,
+  FileText, AlertTriangle, RefreshCw,
   Eye, Download, Printer, Copy, Camera, Globe, MapPin,
   Clock, BarChart2, AlertOctagon, Ban, Plus, Link2, Radio, ChevronRight,
 } from 'lucide-react';
@@ -60,14 +60,16 @@ interface StatCardProps {
 function StatCard({ icon, label, value, sub, variant, to }: StatCardProps) {
   const v = STAT_VARIANTS[variant];
   const content = (
-    <div className={`${v.card} group h-full cursor-pointer`}>
+    <div className={`${v.card} group h-full ${to ? 'cursor-pointer' : ''}`}>
       <div className="flex items-start justify-between mb-3">
         <div className={v.icon}>{icon}</div>
-        <TrendingUp size={14} className="text-gray-400 group-hover:opacity-80 transition-opacity" />
+        {to && (
+          <ChevronRight size={14} className="text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity mt-1" />
+        )}
       </div>
       <p className={`text-3xl font-extrabold mb-0.5 tracking-tight ${v.value}`}>{value}</p>
       <p className="text-xs font-semibold text-slate-600">{label}</p>
-      {sub && <p className="text-2xs text-slate-400 mt-1 mono">{sub}</p>}
+      {sub && <p className="text-2xs text-slate-500 mt-1">{sub}</p>}
     </div>
   );
   return to ? <Link to={to}>{content}</Link> : <div>{content}</div>;
@@ -210,73 +212,43 @@ export function DashboardPage() {
     );
   }
 
+  const firstName = user?.name?.trim().split(/\s+/)[0] || null;
+
   return (
-    <div className="page-shell space-y-6 animate-fade-in">
+    <div className="page-shell space-y-7 animate-fade-in">
 
       {/* -- Header ----------------------------------------------------------- */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-lg sm:text-xl font-bold text-gradient">Forensic Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Universal File DNA · Real-time system overview
+          <p className="text-xs font-medium text-gray-500 mb-1">Home</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-gradient tracking-tight">
+            {firstName ? `Hi ${firstName}` : 'Your files at a glance'}
+          </h1>
+          <p className="text-sm text-gray-500 mt-1 max-w-xl">
+            See who opened what you shared — and what needs a look
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {/* Generate DNA — shown on mobile/APK (top-bar's button is hidden there) */}
-          <Link to="/generate" className="btn btn-primary btn-sm gap-2 sm:hidden">
+          <Link to="/generate" className="btn btn-primary btn-sm gap-2">
             <Plus size={14} />
-            Generate DNA
+            Protect a file
           </Link>
-          <button onClick={handleRefresh} disabled={loading} className="btn btn-secondary btn-sm gap-2">
+          <button onClick={handleRefresh} disabled={loading} className="btn btn-secondary btn-sm gap-2" title="Refresh">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-            Refresh
+            <span className="hidden sm:inline">Refresh</span>
           </button>
         </div>
       </div>
 
-      {/* -- Stat cards ------------------------------------------------------- */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {loading ? (
-          Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
-        ) : stats ? (
-          <>
-            <StatCard
-              icon={<Database size={20} className="text-white" />}
-              variant="blue"
-              label="DNA Records"
-              value={stats.totalDnaRecords}
-              sub={`${stats.completedDna} complete`}
-              to="/dna-records"
-            />
-            <StatCard
-              icon={<Archive size={20} className="text-white" />}
-              variant="purple"
-              label="Vault Records"
-              value={stats.totalVaultRecords}
-              sub={formatBytes(stats.totalEncryptedBytes) + ' encrypted'}
-              to="/vault"
-            />
-            <StatCard
-              icon={<Shield size={20} className="text-white" />}
-              variant="green"
-              label="Verified Files"
-              value={stats.completedDna}
-              sub="AES-256-GCM secured"
-            />
-            <StatCard
-              icon={<GitCompare size={20} className="text-white" />}
-              variant="orange"
-              label="Forensic Reports"
-              value={stats.totalVerifications}
-              sub="Investigations & comparisons"
-              to="/reports"
-            />
-          </>
-        ) : null}
-      </div>
-
-      {/* -- Security & sharing insights ------------------------------------- */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      {/* -- What matters now (activity-first) -------------------------------- */}
+      <section className="home-attention">
+        <div className="flex flex-wrap items-end justify-between gap-2 mb-4">
+          <div>
+            <h2 className="text-sm font-semibold text-white">Needs attention</h2>
+            <p className="text-2xs text-gray-500 mt-0.5">Sharing, monitoring, and access updates</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {securityLoading && !securityInsights ? (
           Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="insight-panel skeleton h-[200px] rounded-xl" />
@@ -284,11 +256,12 @@ export function DashboardPage() {
         ) : (
           <>
             <InsightPanel
-              title="Active Shares"
+              title="Being viewed"
               count={securityInsights?.activeShares.count ?? 0}
               icon={<Link2 size={16} className="text-white" />}
               variant="green"
               to="/access-intelligence"
+              hint="Files with live share links"
             >
               {(securityInsights?.activeShares.items.length ?? 0) > 0 ? (
                 securityInsights!.activeShares.items.map((item, i) => (
@@ -298,22 +271,23 @@ export function DashboardPage() {
                   </div>
                 ))
               ) : (
-                <InsightEmpty text="No live share links — create one from Vault" />
+                <InsightEmpty text="No live share links yet — share a file from Digital Assets" />
               )}
             </InsightPanel>
 
             <InsightPanel
-              title="Revokes"
+              title="Access stopped"
               count={securityInsights?.revokedShares.count ?? 0}
               icon={<Ban size={16} className="text-white" />}
               variant="rose"
               to="/access-intelligence"
+              hint="Links you revoked"
             >
               {(securityInsights?.revokedShares.items.length ?? 0) > 0 ? (
                 securityInsights!.revokedShares.items.map((item, i) => (
                   <div key={i} className="insight-row">
                     <p className="text-xs font-medium text-slate-800 truncate">{item.filename}</p>
-                    <p className="text-[10px] text-slate-500">Revoked · {item.ago}</p>
+                    <p className="text-[10px] text-slate-500">Access revoked · {item.ago}</p>
                   </div>
                 ))
               ) : (
@@ -322,12 +296,12 @@ export function DashboardPage() {
             </InsightPanel>
 
             <InsightPanel
-              title="Crawler Alerts"
+              title="Found online"
               count={securityInsights?.crawlerAlerts.count ?? 0}
               icon={<Radio size={16} className="text-white" />}
               variant="cyan"
               to="/monitoring"
-              hint="Where your file was found online"
+              hint="Possible copies spotted on the web"
             >
               {(securityInsights?.crawlerAlerts.items.length ?? 0) > 0 ? (
                 securityInsights!.crawlerAlerts.items.map((item, i) => (
@@ -339,17 +313,17 @@ export function DashboardPage() {
                   </div>
                 ))
               ) : (
-                <InsightEmpty text="No web matches yet — enroll files in Monitoring & Crawler" />
+                <InsightEmpty text="No web matches yet — turn on Monitoring for important files" />
               )}
             </InsightPanel>
 
             <InsightPanel
-              title="Duplicate Attempts"
+              title="Someone tried your file"
               count={securityInsights?.duplicateAttempts.count ?? 0}
               icon={<Copy size={16} className="text-white" />}
               variant="amber"
               to="/duplicate-attempts"
-              hint="Another PINIT account tried your file"
+              hint="Another account uploaded a matching file"
             >
               {(securityInsights?.duplicateAttempts.items.length ?? 0) > 0 ? (
                 securityInsights!.duplicateAttempts.items.map((item, i) => (
@@ -361,11 +335,53 @@ export function DashboardPage() {
                   </div>
                 ))
               ) : (
-                <InsightEmpty text="No one has tried to upload your protected files" />
+                <InsightEmpty text="No one has tried to re-upload your protected files" />
               )}
             </InsightPanel>
           </>
         )}
+        </div>
+      </section>
+
+      {/* -- Snapshot stats (secondary) -------------------------------------- */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {loading ? (
+          Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
+        ) : stats ? (
+          <>
+            <StatCard
+              icon={<Database size={20} className="text-white" />}
+              variant="blue"
+              label="Protected files"
+              value={stats.totalDnaRecords}
+              sub={`${stats.completedDna} ready`}
+              to="/dna-records"
+            />
+            <StatCard
+              icon={<Archive size={20} className="text-white" />}
+              variant="purple"
+              label="Digital Assets"
+              value={stats.totalVaultRecords}
+              sub={formatBytes(stats.totalEncryptedBytes) + ' stored'}
+              to="/vault"
+            />
+            <StatCard
+              icon={<Shield size={20} className="text-white" />}
+              variant="green"
+              label="Secured"
+              value={stats.completedDna}
+              sub="Only you control access"
+            />
+            <StatCard
+              icon={<GitCompare size={20} className="text-white" />}
+              variant="orange"
+              label="Investigations"
+              value={stats.totalVerifications}
+              sub="Reports & comparisons"
+              to="/reports"
+            />
+          </>
+        ) : null}
       </div>
 
       {/* -- System capabilities + recent activity ---------------------------- */}
@@ -373,12 +389,15 @@ export function DashboardPage() {
 
         {/* Quick actions + live file tracking map */}
         <div className="card card-accent-teal flex flex-col h-full min-h-[420px]">
-          <h2 className="text-sm font-semibold text-white mb-4 shrink-0">Quick Actions</h2>
+          <div className="mb-4 shrink-0">
+            <h2 className="text-sm font-semibold text-white">Quick actions</h2>
+            <p className="text-2xs text-gray-500 mt-0.5">Common next steps</p>
+          </div>
           <div className="grid grid-cols-2 gap-2 mb-4 shrink-0">
             {[
-              { to: '/generate', label: 'Generate DNA', icon: <Zap size={15} className="text-white" />, tile: 'action-tile-dna' },
+              { to: '/generate', label: 'Protect a file', icon: <Zap size={15} className="text-white" />, tile: 'action-tile-dna' },
               { to: BRAND.investigationPath, label: 'Investigate', icon: <Shield size={15} className="text-white" />, tile: 'action-tile-cyan' },
-              { to: '/vault', label: 'Vault', icon: <Archive size={15} className="text-white" />, tile: 'action-tile-purple' },
+              { to: '/vault', label: 'Digital Assets', icon: <Archive size={15} className="text-white" />, tile: 'action-tile-purple' },
               { to: '/certificates', label: 'Certificates', icon: <Shield size={15} className="text-white" />, tile: 'action-tile-success' },
             ].map(item => (
               <Link
@@ -397,7 +416,7 @@ export function DashboardPage() {
           <div className="flex-1 flex flex-col min-h-0 border-t border-bg-border pt-4">
             <div className="flex items-center gap-2 mb-2 flex-wrap shrink-0">
               <Globe size={14} className="text-dna-400" />
-              <h3 className="text-xs font-semibold text-white">Live File Tracking</h3>
+              <h3 className="text-xs font-semibold text-white">Where files were opened</h3>
               {trackingMeta.recent > 0 && (
                 <Badge variant="success" dot>{trackingMeta.recent} in last hour</Badge>
               )}
@@ -412,7 +431,7 @@ export function DashboardPage() {
         {/* Recent activity */}
         <div className="card card-accent-rose flex flex-col h-full min-h-[420px]">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-white">Recent DNA Records</h2>
+            <h2 className="text-sm font-semibold text-white">Recently protected</h2>
             <Link to="/dna-records" className="text-xs text-dna-400 hover:text-dna-300 transition-colors">
               View all
             </Link>
@@ -453,11 +472,12 @@ export function DashboardPage() {
               })}
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center py-8 text-center">
-              <FileText size={24} className="text-gray-600 mb-2" />
-              <p className="text-sm text-gray-500">No DNA records yet</p>
-              <Link to="/generate" className="btn btn-primary btn-sm mt-3">
-                Generate First DNA
+            <div className="flex flex-col items-center justify-center py-10 text-center px-4">
+              <FileText size={24} className="text-gray-500 mb-2" />
+              <p className="text-sm text-gray-500">No protected files yet</p>
+              <p className="text-2xs text-gray-500 mt-1 max-w-[220px]">Protect a file to start tracking who opens it</p>
+              <Link to="/generate" className="btn btn-primary btn-sm mt-4">
+                Protect a file
               </Link>
             </div>
           )}
@@ -470,89 +490,91 @@ export function DashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Archive size={16} className="text-purple" />
-              <h2 className="text-sm font-semibold text-white">Vault Storage</h2>
+              <h2 className="text-sm font-semibold text-white">Digital Assets storage</h2>
             </div>
             <Link to="/vault" className="text-xs text-dna-400 hover:text-dna-300 transition-colors">
-              Open Vault ?
+              Open Digital Assets
             </Link>
           </div>
           <div className="stat-grid-3">
             <div className="p-3 rounded-xl bg-bg-elevated border border-bg-border text-center">
               <p className="text-xl font-bold text-purple">{stats.totalVaultRecords}</p>
-              <p className="text-2xs text-gray-500 mt-1">Encrypted Files</p>
+              <p className="text-2xs text-gray-500 mt-1">Protected files</p>
             </div>
             <div className="p-3 rounded-xl bg-bg-elevated border border-bg-border text-center">
               <p className="text-xl font-bold text-success">{formatBytes(stats.totalEncryptedBytes)}</p>
-              <p className="text-2xs text-gray-500 mt-1">Total Encrypted</p>
+              <p className="text-2xs text-gray-500 mt-1">Stored securely</p>
             </div>
             <div className="p-3 rounded-xl bg-bg-elevated border border-bg-border text-center">
-              <p className="text-xl font-bold text-dna-400">AES-256-GCM</p>
-              <p className="text-2xs text-gray-500 mt-1">Encryption Standard</p>
+              <p className="text-xl font-bold text-dna-400">Protected</p>
+              <p className="text-2xs text-gray-500 mt-1">Only you control access</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* -- Smart Link Analytics --------------------------------------------- */}
+      {/* -- Sharing activity ------------------------------------------------ */}
       {shareStats && (
         <div className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Eye size={15} className="text-dna-400" />
-            <h2 className="text-sm font-semibold text-white">Smart Link Analytics</h2>
-            <span className="text-2xs text-gray-600 ml-1">� live � auto-refreshes every 15s</span>
+          <div>
+            <h2 className="text-sm font-semibold text-white">Sharing activity</h2>
+            <p className="text-2xs text-gray-500 mt-0.5">Updates every 15 seconds</p>
           </div>
 
-          {/* Row 1 � reach metrics */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-            {[
-              { icon: <Eye size={14} className="text-dna-400" />,    label: 'Total Views',       value: shareStats.totalViews,        color: 'bg-dna-500/10 border-dna-500/20' },
-              { icon: <Globe size={14} className="text-cyan" />,      label: 'Unique Recipients', value: shareStats.uniqueRecipients,   color: 'bg-cyan/10 border-cyan/20' },
-              { icon: <Globe size={14} className="text-blue-400" />,  label: 'Countries',         value: shareStats.countriesReached,   color: 'bg-blue-500/10 border-blue-500/20' },
-              { icon: <MapPin size={14} className="text-purple" />,   label: 'Cities',            value: shareStats.citiesReached,      color: 'bg-purple/10 border-purple/20' },
-              { icon: <Clock size={14} className="text-amber-400" />, label: 'Avg View Time',     value: shareStats.avgViewTimeSec > 0 ? `${shareStats.avgViewTimeSec}s` : '�', color: 'bg-amber-500/10 border-amber-500/20' },
-              { icon: <Download size={14} className="text-success" />,label: 'Downloads',         value: shareStats.downloads,          color: 'bg-success/10 border-success/20' },
-            ].map(m => (
-              <div key={m.label} className={`rounded-xl border p-3 ${m.color}`}>
-                <div className="flex items-center gap-1.5 mb-1.5">{m.icon}<span className="text-2xs text-gray-500 font-medium">{m.label}</span></div>
-                <p className="text-xl font-bold text-white">{m.value}</p>
-              </div>
-            ))}
+          <div>
+            <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Reach</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              {[
+                { icon: <Eye size={14} className="text-dna-400" />,    label: 'Views',       value: shareStats.totalViews },
+                { icon: <Globe size={14} className="text-cyan" />,      label: 'People',      value: shareStats.uniqueRecipients },
+                { icon: <Globe size={14} className="text-blue-400" />,  label: 'Countries',   value: shareStats.countriesReached },
+                { icon: <MapPin size={14} className="text-purple" />,   label: 'Cities',      value: shareStats.citiesReached },
+                { icon: <Clock size={14} className="text-amber-400" />, label: 'Avg time',    value: shareStats.avgViewTimeSec > 0 ? `${shareStats.avgViewTimeSec}s` : '—' },
+                { icon: <Download size={14} className="text-success" />,label: 'Downloads',   value: shareStats.downloads },
+              ].map(m => (
+                <div key={m.label} className="rounded-xl border border-bg-border bg-bg-card p-3">
+                  <div className="flex items-center gap-1.5 mb-1.5">{m.icon}<span className="text-2xs text-gray-500 font-medium">{m.label}</span></div>
+                  <p className="text-xl font-bold text-white tabular-nums">{m.value}</p>
+                </div>
+              ))}
+            </div>
           </div>
 
-          {/* Row 2 � violation/security metrics */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-            {[
-              { icon: <Ban size={14} className="text-red-400" />,        label: 'Blocked Downloads', value: shareStats.blockedDownloads,   color: 'bg-red-500/10 border-red-500/20' },
-              { icon: <Printer size={14} className="text-orange-400" />, label: 'Print Attempts',    value: shareStats.printAttempts,      color: 'bg-orange-500/10 border-orange-500/20' },
-              { icon: <Copy size={14} className="text-yellow-400" />,    label: 'Copy Attempts',     value: shareStats.copyAttempts,       color: 'bg-yellow-500/10 border-yellow-500/20' },
-              { icon: <Camera size={14} className="text-pink-400" />,    label: 'Screenshot Attempts', value: shareStats.screenshotAttempts, color: 'bg-pink-500/10 border-pink-500/20' },
-              { icon: <BarChart2 size={14} className="text-gray-400" />, label: 'Forward Chains',    value: '�',                           color: 'bg-gray-500/10 border-gray-500/20' },
-              { icon: <AlertOctagon size={14} className="text-gray-400" />, label: 'Leak Incidents', value: '�',                           color: 'bg-gray-500/10 border-gray-500/20' },
-            ].map(m => (
-              <div key={m.label} className={`rounded-xl border p-3 ${m.color}`}>
-                <div className="flex items-center gap-1.5 mb-1.5">{m.icon}<span className="text-2xs text-gray-500 font-medium">{m.label}</span></div>
-                <p className="text-xl font-bold text-white">{m.value}</p>
-              </div>
-            ))}
+          <div>
+            <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Protection events</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              {[
+                { icon: <Ban size={14} className="text-red-400" />,        label: 'Blocked downloads', value: shareStats.blockedDownloads },
+                { icon: <Printer size={14} className="text-orange-400" />, label: 'Print tries',       value: shareStats.printAttempts },
+                { icon: <Copy size={14} className="text-yellow-400" />,    label: 'Copy tries',        value: shareStats.copyAttempts },
+                { icon: <Camera size={14} className="text-pink-400" />,    label: 'Screenshot tries',  value: shareStats.screenshotAttempts },
+                { icon: <BarChart2 size={14} className="text-gray-400" />, label: 'Forwards',          value: '—' },
+                { icon: <AlertOctagon size={14} className="text-gray-400" />, label: 'Leaks',          value: '—' },
+              ].map(m => (
+                <div key={m.label} className="rounded-xl border border-bg-border bg-bg-card p-3">
+                  <div className="flex items-center gap-1.5 mb-1.5">{m.icon}<span className="text-2xs text-gray-500 font-medium">{m.label}</span></div>
+                  <p className="text-xl font-bold text-white tabular-nums">{m.value}</p>
+                </div>
+              ))}
+            </div>
           </div>
 
-          {/* Risk score distribution */}
           {(shareStats.riskDistribution.LOW + shareStats.riskDistribution.MEDIUM + shareStats.riskDistribution.HIGH + shareStats.riskDistribution.CRITICAL) > 0 && (
             <div className="card">
               <div className="flex items-center gap-2 mb-3">
                 <Shield size={14} className="text-dna-400" />
-                <h3 className="text-xs font-semibold text-white">Risk Score Distribution</h3>
+                <h3 className="text-xs font-semibold text-white">Viewer risk levels</h3>
               </div>
               <div className="stat-grid-4">
                 {([
-                  { key: 'LOW',      color: 'text-green-400',  bg: 'bg-green-500/15 border-green-500/30'  },
-                  { key: 'MEDIUM',   color: 'text-yellow-400', bg: 'bg-yellow-500/15 border-yellow-500/30' },
-                  { key: 'HIGH',     color: 'text-orange-400', bg: 'bg-orange-500/15 border-orange-500/30' },
-                  { key: 'CRITICAL', color: 'text-red-400',    bg: 'bg-red-500/15 border-red-500/30'       },
-                ] as const).map(({ key, color, bg }) => (
+                  { key: 'LOW' as const,      label: 'Low',      color: 'text-green-400',  bg: 'bg-green-500/15 border-green-500/30'  },
+                  { key: 'MEDIUM' as const,   label: 'Medium',   color: 'text-yellow-400', bg: 'bg-yellow-500/15 border-yellow-500/30' },
+                  { key: 'HIGH' as const,     label: 'High',     color: 'text-orange-400', bg: 'bg-orange-500/15 border-orange-500/30' },
+                  { key: 'CRITICAL' as const, label: 'Critical', color: 'text-red-400',    bg: 'bg-red-500/15 border-red-500/30'       },
+                ]).map(({ key, label, color, bg }) => (
                   <div key={key} className={`rounded-xl border p-3 text-center ${bg}`}>
-                    <p className={`text-xl font-bold ${color}`}>{shareStats.riskDistribution[key]}</p>
-                    <p className="text-2xs text-gray-500 mt-0.5 font-medium">{key}</p>
+                    <p className={`text-xl font-bold tabular-nums ${color}`}>{shareStats.riskDistribution[key]}</p>
+                    <p className="text-2xs text-gray-500 mt-0.5 font-medium">{label}</p>
                   </div>
                 ))}
               </div>
@@ -560,25 +582,6 @@ export function DashboardPage() {
           )}
         </div>
       )}
-
-      {/* -- Quick actions ----------------------------------------------------- */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          { to: '/generate',    icon: <Database size={16} />,  label: 'Generate DNA',      color: 'hover:border-dna-500/50'    },
-          { to: BRAND.investigationPath, icon: <Shield size={16} />, label: 'Investigate', color: 'hover:border-cyan/50' },
-          { to: '/vault',       icon: <Archive size={16} />,    label: 'Browse Vault',      color: 'hover:border-purple/50'     },
-          { to: '/certificates',icon: <CheckCircle2 size={16}/>,label: 'Certificates',      color: 'hover:border-success/50'    },
-        ].map(a => (
-          <Link
-            key={a.to}
-            to={a.to}
-            className={`card-sm flex items-center gap-3 transition-all duration-200 group border border-bg-border ${a.color} hover:bg-bg-elevated cursor-pointer`}
-          >
-            <span className="text-gray-500 group-hover:text-dna-400 transition-colors">{a.icon}</span>
-            <span className="text-sm font-medium text-gray-400 group-hover:text-white transition-colors">{a.label}</span>
-          </Link>
-        ))}
-      </div>
 
       {welcomePlan && user?.sub && (
         <UpgradeWelcomeModal

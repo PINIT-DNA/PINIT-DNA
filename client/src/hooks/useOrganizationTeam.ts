@@ -19,8 +19,16 @@ export interface TeamInvite {
   inviteeShortId: string | null;
   role: string;
   status: string;
+  token?: string;
   expiresAt: string;
   createdAt: string;
+}
+
+export interface CreatedTeamInvite {
+  id: string;
+  token: string;
+  expiresAt: string;
+  role: string;
 }
 
 export function useOrganizationTeam() {
@@ -54,9 +62,13 @@ export function useOrganizationTeam() {
     void refresh();
   }, [refresh]);
 
-  async function invite(payload: { email?: string; inviteeShortId?: string; role?: string }) {
-    await api.post(`${API_BASE_URL}/organization/team/invite`, payload);
+  async function invite(payload: { email?: string; inviteeShortId?: string; role?: string }): Promise<CreatedTeamInvite> {
+    const { data } = await api.post<{ invite?: CreatedTeamInvite }>(`${API_BASE_URL}/organization/team/invite`, payload);
     await refresh();
+    if (!data.invite?.token) {
+      throw new Error('Invite created but link was missing');
+    }
+    return data.invite;
   }
 
   async function revokeInvite(inviteId: string) {

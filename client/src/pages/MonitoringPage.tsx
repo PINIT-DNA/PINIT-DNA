@@ -542,7 +542,7 @@ export function MonitoringPage() {
         <div className="card">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-              <Globe size={14} className="text-dna-400" /> Crawler Engine
+              <Globe size={14} className="text-dna-400" /> Online monitoring
             </h2>
             <Badge variant={engineStats.crawlerStatus === 'RUNNING' ? 'success' : engineStats.crawlerStatus === 'DISABLED' ? 'muted' : 'dna'}>
               {engineStats.crawlerStatus}

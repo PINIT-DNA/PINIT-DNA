@@ -5,15 +5,15 @@ export function Header() {
         <span className="text-2xl dna-float select-none">🧬</span>
         <div>
           <h1 className="font-bold text-lg leading-none tracking-tight text-white">
-            PINIT<span className="text-dna-500">-DNA</span>
+            PinIT<span className="text-dna-500"> Hub</span>
           </h1>
-          <p className="text-xs text-gray-500 mono mt-0.5">
-            Universal File DNA System v2.0.0
+          <p className="text-xs text-gray-500 mt-0.5">
+            Secure · Connect · Control
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-layer-complete animate-pulse-slow" />
-          <span className="text-xs text-gray-400 mono">API ONLINE</span>
+          <span className="text-xs text-gray-400">Online</span>
         </div>
       </div>
     </header>

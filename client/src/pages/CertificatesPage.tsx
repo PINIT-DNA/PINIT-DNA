@@ -279,7 +279,7 @@ function CertificateCard({
             <span className="mono text-2xs text-dna-400 truncate">{vault.dnaRecordId}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-2xs text-gray-600 w-24 shrink-0">Vault ID</span>
+            <span className="text-2xs text-gray-600 w-24 shrink-0">Asset ID</span>
             <span className="mono text-2xs text-purple truncate">{vault.id}</span>
           </div>
           <div className="flex items-center gap-2">

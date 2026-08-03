@@ -48,14 +48,25 @@ function isBusinessPath(pathname: string): boolean {
 }
 
 export function AccountViewModeProvider({ children }: { children: ReactNode }) {
-  const { user, loginWithFaceResponse } = useAuth();
-  const { accountType, planCode, refresh } = useSubscription();
+  const { user, loading: authLoading, loginWithFaceResponse } = useAuth();
+  const { accountType, planCode, refresh, loading: subscriptionLoading } = useSubscription();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const registeredType = (user?.accountType ?? accountType ?? 'INDIVIDUAL') as AccountViewMode;
-  /** Can use Business shell without converting again */
-  const hasBusinessAccess = registeredType === 'BUSINESS' || planCode === 'ENTERPRISE';
+  // JWT is available first on reload — never trust subscription FREE fallback while still loading.
+  const jwtIsBusiness = user?.accountType === 'BUSINESS';
+  const subscriptionReady = !subscriptionLoading;
+  const subIsBusiness =
+    subscriptionReady && (accountType === 'BUSINESS' || planCode === 'ENTERPRISE');
+  const hasBusinessAccess = jwtIsBusiness || subIsBusiness;
+
+  const registeredType: AccountViewMode = hasBusinessAccess
+    ? 'BUSINESS'
+    : ((user?.accountType ?? (subscriptionReady ? accountType : undefined) ?? 'INDIVIDUAL') as AccountViewMode);
+
+  /** Don’t demote Business → Individual until auth + (JWT business or subscription) are known */
+  const accessResolved =
+    Boolean(user?.sub) && !authLoading && (jwtIsBusiness || subscriptionReady);
 
   const [mode, setMode] = useState<AccountViewMode>(() =>
     getAccountViewMode(user?.sub, hasBusinessAccess ? 'BUSINESS' : 'INDIVIDUAL'),
@@ -65,22 +76,35 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
   const isBusinessShell = mode === 'BUSINESS' && hasBusinessAccess;
 
   useEffect(() => {
+    if (!accessResolved || !user?.sub) return;
+
     const preferred = getAccountViewMode(
-      user?.sub,
-      hasBusinessAccess ? registeredType : 'INDIVIDUAL',
+      user.sub,
+      hasBusinessAccess ? 'BUSINESS' : 'INDIVIDUAL',
     );
-    // Pure individual accounts cannot stay in Business view
-    if (!hasBusinessAccess && preferred === 'BUSINESS') {
+
+    // Pure individual accounts cannot stay in Business view — only after access is resolved
+    if (!hasBusinessAccess) {
+      if (preferred === 'BUSINESS') {
+        setAccountViewMode(user.sub, 'INDIVIDUAL');
+      }
       setMode('INDIVIDUAL');
-      if (user?.sub) setAccountViewMode(user.sub, 'INDIVIDUAL');
       return;
     }
+
+    // Reloading on a Business URL should keep Business shell (heals a bad INDIVIDUAL wipe)
+    if (preferred === 'INDIVIDUAL' && isBusinessPath(location.pathname)) {
+      setAccountViewMode(user.sub, 'BUSINESS');
+      setMode('BUSINESS');
+      return;
+    }
+
     setMode(preferred);
-  }, [user?.sub, registeredType, hasBusinessAccess]);
+  }, [user?.sub, hasBusinessAccess, accessResolved, location.pathname]);
 
   // Keep URL and shell aligned — never mix Individual nav with Business pages
   useEffect(() => {
-    if (!user?.sub || switching) return;
+    if (!accessResolved || !user?.sub || switching) return;
 
     if (mode === 'INDIVIDUAL' && isBusinessPath(location.pathname)) {
       navigate('/', { replace: true });
@@ -90,7 +114,15 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
     if (isBusinessShell && location.pathname === '/') {
       navigate(BUSINESS_DASHBOARD_PATH, { replace: true });
     }
-  }, [mode, isBusinessShell, location.pathname, user?.sub, switching, navigate]);
+  }, [
+    mode,
+    isBusinessShell,
+    location.pathname,
+    user?.sub,
+    switching,
+    navigate,
+    accessResolved,
+  ]);
 
   useEffect(() => {
     const onChange = (e: Event) => {

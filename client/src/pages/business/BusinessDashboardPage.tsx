@@ -142,6 +142,18 @@ export function BusinessDashboardPage() {
 
       <QuickActionsBar />
 
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+        <div className="xl:col-span-2">
+          <LiveActivityFeed events={dashboard.activityEvents} />
+        </div>
+        <ActiveAlertsPanel
+          security={dashboard.security}
+          pendingAlerts={dashboard.pendingAlerts}
+          storagePct={storagePct}
+          planName={subscription?.planName ?? 'Free'}
+        />
+      </div>
+
       <OrgOverviewGrid
         protectedAssets={subscription?.protectedAssetCount ?? dashboard.stats?.totalVaultRecords ?? 0}
         dnaGenerated={dashboard.stats?.totalDnaRecords ?? 0}
@@ -170,18 +182,6 @@ export function BusinessDashboardPage() {
           </button>
         </div>
       )}
-
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        <div className="xl:col-span-2">
-          <LiveActivityFeed events={dashboard.activityEvents} />
-        </div>
-        <ActiveAlertsPanel
-          security={dashboard.security}
-          pendingAlerts={dashboard.pendingAlerts}
-          storagePct={storagePct}
-          planName={subscription?.planName ?? 'Free'}
-        />
-      </div>
 
       <BusinessNotificationsPanel
         notifications={dashboard.notifications}

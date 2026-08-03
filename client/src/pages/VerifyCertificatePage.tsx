@@ -48,20 +48,20 @@ async function verifyInputs(
     const res = await getDnaRecord(dnaRecordId.trim());
     dnaRecord = res;
     checks.push({
-      label: 'DNA Record Exists',
+      label: 'File identity found',
       passed: true,
       detail: `Record found with status: ${res.status}`,
     });
     checks.push({
-      label: 'DNA Generation Complete',
+      label: 'Protection complete',
       passed: res.status === 'COMPLETE',
       detail: res.status === 'COMPLETE'
-        ? '10 fingerprint layers successfully generated'
+        ? 'File identity successfully created'
         : `Status is ${res.status} — not fully complete`,
     });
   } catch {
-    checks.push({ label: 'DNA Record Exists', passed: false, detail: 'DNA Record ID not found in database' });
-    checks.push({ label: 'DNA Generation Complete', passed: false, detail: 'Cannot verify — record not found' });
+    checks.push({ label: 'File identity found', passed: false, detail: 'Record not found' });
+    checks.push({ label: 'Protection complete', passed: false, detail: 'Cannot verify — record not found' });
   }
 
   // Check vault record
@@ -70,21 +70,21 @@ async function verifyInputs(
       const res = await getVaultRecord(vaultId.trim());
       vaultRecord = res;
       checks.push({
-        label: 'Vault Record Exists',
+        label: 'Stored in Digital Assets',
         passed: true,
-        detail: `Vault record found — ${res.encryptionAlgorithm}`,
+        detail: 'Protected file found in storage',
       });
       checks.push({
-        label: 'DNA-Vault Link Valid',
+        label: 'Identity link valid',
         passed: res.dnaRecordId === dnaRecordId.trim(),
         detail: res.dnaRecordId === dnaRecordId.trim()
-          ? 'Vault record correctly linked to this DNA record'
-          : `Vault links to different DNA record: ${res.dnaRecordId?.slice(0, 12)}…`,
+          ? 'Storage correctly linked to this identity'
+          : 'Storage links to a different identity record',
       });
       checks.push({
-        label: 'Encryption Standard',
-        passed: res.encryptionAlgorithm === 'AES-256-GCM',
-        detail: `Algorithm: ${res.encryptionAlgorithm} · Key: ${res.keyDerivation}`,
+        label: 'Protection active',
+        passed: Boolean(res.encryptionAlgorithm),
+        detail: 'File is stored securely under your control',
       });
     } catch {
       checks.push({ label: 'Vault Record Exists', passed: false, detail: 'Vault ID not found in database' });

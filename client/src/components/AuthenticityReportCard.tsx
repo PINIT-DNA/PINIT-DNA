@@ -189,7 +189,7 @@ export function AuthenticityReportCard({
         <div>
           <div className="flex items-center gap-1.5 mb-1.5">
             <Sparkles size={11} className="text-dna-400" />
-            <p className="text-2xs font-semibold text-gray-400 uppercase tracking-wider">Engines</p>
+            <p className="text-2xs font-semibold text-gray-400 uppercase tracking-wider">Checks run</p>
           </div>
           <ul className="space-y-1">
             {analysis.engines

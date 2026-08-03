@@ -11,7 +11,9 @@ export function BusinessTeamPage() {
           Team Management
         </div>
         <h1 className="text-2xl font-bold text-white">Organization Team</h1>
-        <p className="text-sm text-gray-400 mt-1">Invite members and manage roles.</p>
+        <p className="text-sm text-gray-400 mt-1">
+          Create an invite link, share it, and they join automatically when they open it.
+        </p>
       </div>
       <TeamPanel />
       <Link to="/profile?tab=team" className="text-sm text-dna-400 hover:underline">← Back to profile</Link>

@@ -2,22 +2,24 @@
 ## Complete User Test Flow & Application Guide
 
 **Document Type:** User Test Flow / Product Walkthrough  
-**Version:** 1.0  
-**Date:** 6 July 2026  
+**Version:** 1.1  
+**Date:** 3 August 2026  
 **Prepared for:** New users, testers, and stakeholders  
 **Live Application:** https://dna-pinit-web.vercel.app  
-**Repository:** ashwitha2004/DNA-PINIT-WEB (branch: ashwitha)
+**Repository:** ashwitha2004/DNA-PINIT-WEB (branch: ashwitha)  
+**Update note:** v1.1 adds **Business Account** walkthrough (Part F). Earlier tests covered Individual / core Hub before Business was built.
 
 ---
 
 ## Purpose of This Document
 
-This document helps a **new user** understand and **test the full PINIT-DNA application** from login to forensic investigation. Each section explains **what the module does**, **how to use it**, and **what result to expect**.
+This document helps a **new user** understand and **test the full PINIT-DNA application** from login to forensic investigation — including both **Individual** and **Business** account paths. Each section explains **what the module does**, **how to use it**, and **what result to expect**.
 
 Use this when:
 - Onboarding a new tester or reviewer
 - Demonstrating the product to management
 - Validating that all modules work end-to-end
+- Walking through the **Business / Organization** shell (dashboard, setup, team, ops)
 
 ---
 
@@ -29,20 +31,36 @@ Use this when:
 | **Browser** | Chrome or Edge (latest) recommended |
 | **Location** | Allow GPS when prompted (required for share viewing) |
 | **Camera / Mic** | Needed only if testing biometric login or scanner |
-| **Test account** | Use credentials provided by the PINIT team |
+| **Test account (Individual)** | Credentials provided by the PINIT team |
+| **Test account (Business)** | A **Business** account (or Enterprise plan) — required for Part F |
+| **Second tester (optional)** | Another PinIT User ID to invite as a team member |
 
 **Tip:** First API call after idle may take 30–60 seconds (server wake-up). Refresh once if a page loads empty.
+
+**Account types:**
+| Type | Default home after login | Sidebar |
+|------|--------------------------|---------|
+| **Individual** | Personal Dashboard (`/`) | Core / Explorer / Intelligence / Forensics groups |
+| **Business** | Business Dashboard (`/business`) | Flat **Organization** nav (Protect, Digital Assets, Team, etc.) |
+
+Use the top **Individual | Business** switcher (when available) to move between personal and organization shells.
 
 ---
 
 ## Application Overview
 
-PINIT-DNA is a **secure digital vault and forensic platform**. It protects files with DNA fingerprinting, encryption, tracked sharing, and investigation tools.
+PINIT-DNA (PinIT Hub) is a **secure digital vault and forensic platform**. It protects files with DNA fingerprinting, encryption, tracked sharing, and investigation tools — for a solo owner **or** a company team.
 
 ```
-Login → Dashboard → Generate DNA → Vault → Share → Viewer Tracking
-                                              ↓
-                         Timeline → Intelligence → Investigation → Certificates
+Login → Choose / open account shell
+          │
+          ├─ Individual → Personal Dashboard → Generate DNA → Vault → Share → Tracking
+          │                                                      ↓
+          │                              Timeline → Intelligence → Investigation → Certificates
+          │
+          └─ Business → Business Dashboard → Org Setup → Team → same Protect / Vault / Investigate stack
+                              ↓
+                    Org Profile · Audit · API (Enterprise) · Workspaces
 ```
 
 ---
@@ -565,25 +583,255 @@ Login → Dashboard → Generate DNA → Vault → Share → Viewer Tracking
 
 ---
 
+# PART F — BUSINESS ACCOUNT WALKTHROUGH (Test Flow 25–33)
+
+> **Why this part exists:** Tests 1–24 covered the core Individual / forensic Hub **before** Business account was built. Part F walks through the **organization shell**: business dashboard, setup wizard, team, profile, and the same protect stack from a company view.
+
+**Prerequisite:** Log in with a **Business** account (account type = BUSINESS), **or** an Individual account on **Enterprise** that can switch into Business view.
+
+**Time required:** ~25–40 minutes
+
+**Problem this part proves:** A company cannot share one personal PinIT login. PinIT Hub gives a Business workspace with roles, team invites, and ops visibility — while keeping the same DNA → Vault → Share → Investigate engine.
+
+---
+
+## Test 25 — Enter Business Shell (Login / Switch)
+
+**Module:** Account type + Individual | Business switcher
+
+**What it does:** Opens the organization operating mode instead of the personal dashboard.
+
+**Steps:**
+1. Log in with the **Business** test account
+2. Confirm you land on **Business Dashboard** (`/business`) — not only the personal home
+3. If you see the top **Individual | Business** switcher:
+   - Click **Individual** → personal dashboard should open
+   - Click **Business** → return to `/business`
+4. Confirm sidebar shows the **Organization** nav (Dashboard, Protect file, Digital Assets, Team, etc.)
+
+**Expected result:**
+- [ ] Business home is `/business`
+- [ ] Switcher works when available (Business ↔ Individual)
+- [ ] Organization sidebar labels appear (not only Individual groups)
+
+**Record tip (voice):** “Problem: teams need a company shell. Solution: Business dashboard and organization navigation.”
+
+---
+
+## Test 26 — Business Dashboard Overview
+
+**Module:** Business Dashboard (`/business`)
+
+**What it does:** Organization operations home — org name, workspace, snapshots for vault, investigation, monitoring, certificates, team, activity, and quick actions.
+
+**Steps:**
+1. Stay on `/business`
+2. Note **organization name** and **workspace** label in the header
+3. Review ops snapshot panels (as shown): vault / assets, investigation, monitoring, reports, certificates, team
+4. Open **Live activity / alerts / notifications** panels if visible
+5. Use a **Quick Action** (e.g. Protect file or Digital Assets) and confirm it opens the correct page
+6. Return to `/business`
+
+**Expected result:**
+- [ ] Dashboard loads without blank/error state
+- [ ] Org name and workspace are visible (or clear placeholders)
+- [ ] Snapshot / quick-action links navigate correctly
+
+---
+
+## Test 27 — Business Setup Wizard (Organization Onboarding)
+
+**Module:** Business Setup Wizard
+
+**What it does:** Creates / completes the organization profile (name required; industry, country, workspace, optional logo).
+
+**Steps:**
+1. On Business Dashboard, if **Welcome** card is shown → click **Start Setup**
+2. If welcome was skipped earlier, open **Organization Profile** (`/profile`) and use setup / edit org fields instead
+3. In the wizard:
+   - **Step 1 — Organization Information:** enter Organization Name (required, min 2 characters); set industry / country if available
+   - **Step 2 — Workspace:** keep or rename **Main Workspace** (or your test name)
+   - **Step 3 — Logo:** optional — upload a small PNG/JPG or skip
+   - **Step 4 — Finish:** review and complete
+4. Confirm success toast / welcome card dismisses
+5. Confirm org name updates on the Business Dashboard header
+
+**Expected result:**
+- [ ] Organization name saves successfully
+- [ ] Default workspace exists
+- [ ] Dashboard shows the new org name
+- [ ] Setup can be completed without errors
+
+**Note:** If setup was already completed on this account, re-open **Organization Profile** and edit name/industry/country, then save — still mark the “org profile editable” path as tested.
+
+---
+
+## Test 28 — Organization Profile Hub
+
+**Module:** Organization Profile (`/profile` in Business shell)
+
+**What it does:** Central place for org details, contact, workspace, subscription, security, activity, team, and (by plan) departments / audit / API / integrations / billing.
+
+**Steps:**
+1. From sidebar open **Organization Profile**
+2. Walk through available tabs (open each that appears):
+   - Organization / Contact / Workspace
+   - Subscription / Billing (plan, limits, upgrade path)
+   - Security / Settings / Activity
+   - Team (can skip deep invite until Test 29)
+3. Edit one safe field (e.g. country or bio) and **Save** if Save bar appears
+4. Confirm org **short ID** / identity is visible where shown
+
+**Expected result:**
+- [ ] Profile hub loads with organization context
+- [ ] Key tabs open without crash
+- [ ] Save (if used) succeeds
+- [ ] Subscription / plan info visible
+
+---
+
+## Test 29 — Team Invite & Roles
+
+**Module:** Team (`/profile?tab=team` or `/business/team`)
+
+**What it does:** Invite teammates by PinIT ID (and optional email); assign roles: Owner, Manager, Investigator, Member, Viewer.
+
+**Steps:**
+1. Open **Team** from the Business sidebar
+2. Review **Team overview** (member count / limit, pending invites)
+3. Invite a second test user:
+   - Enter their **PINIT ID** (e.g. `PINIT-XXXXXX`)
+   - Optional email
+   - Choose role: **MEMBER** or **VIEWER** for a safe first invite
+   - Submit invite
+4. Confirm invite appears under pending invites (or member list if auto-accepted in your environment)
+5. If you have permission, try **change role** on a non-owner member
+6. Do **not** remove the Owner account
+
+**Expected result:**
+- [ ] Team page loads
+- [ ] Invite accepts PinIT ID (or shows a clear validation error if ID invalid)
+- [ ] Pending invite or member row appears
+- [ ] Role labels are clear (OWNER / MANAGER / INVESTIGATOR / MEMBER / VIEWER)
+- [ ] Team limit respects plan (Free may block extra seats)
+
+**If blocked by plan:** Mark **Blocked — team limit** and still record the limit message on video.
+
+---
+
+## Test 30 — Protect Stack Inside Business Shell
+
+**Module:** Same core engine, Business sidebar labels
+
+**What it does:** Proves Business mode still runs DNA → Vault → Investigate — not a separate weak product.
+
+**Steps:**
+1. From Business sidebar click **Protect file** (`/generate`)
+2. Upload a small test PDF or JPG
+3. Generate DNA — wait for COMPLETE / PARTIAL
+4. Open **Digital Assets** (`/vault`) — confirm file appears
+5. Optional: create a short share link and open in Incognito (same as Test 10–12, abbreviated)
+6. Open **Unified Investigation** — upload the same file (or a copy) and confirm pipeline starts
+7. Open **Certificates** — confirm list / issue path still works from Business shell
+
+**Expected result:**
+- [ ] Protect / DNA works while in Business view
+- [ ] File appears in Digital Assets (Vault)
+- [ ] Investigation and Certificates reachable from Business nav
+- [ ] No “wrong shell” blank pages
+
+**Record tip:** “Business is the same protection engine — with an organization home around it.”
+
+---
+
+## Test 31 — Monitoring, Assets & Protected Posts (Business)
+
+**Module:** Monitoring · Assets · Protected Posts
+
+**Steps:**
+1. Open **Monitoring** — confirm page loads; run a check if button available
+2. Open **Assets** — confirm list/empty state loads
+3. Open **Protected Posts** — confirm list/empty state loads
+4. Return to Business Dashboard
+
+**Expected result:**
+- [ ] All three pages open without error
+- [ ] Empty states are acceptable if no data yet
+- [ ] Navigation back to `/business` works
+
+**Status note:** Full automated crawler may be partial (same as Test 17). Still verify the Business entry points.
+
+---
+
+## Test 32 — Audit Logs & API Access (Enterprise-gated)
+
+**Module:** Audit Logs · API Access · Integrations / Departments (if visible)
+
+**What it does:** Enterprise ops — who did what, API keys, integrations, departments.
+
+**Steps:**
+1. Open **Audit Logs** from Business sidebar (`/profile?tab=audit`)
+2. If Enterprise: review recent org events; confirm list or empty state
+3. Open **API Access** (`/profile?tab=api`)
+4. If gated: confirm upgrade / feature lock message is clear
+5. If unlocked: view keys list; **do not** paste secret keys into chat or leave them on screen in shared videos
+6. Optionally open Departments / Integrations tabs if shown
+
+**Expected result:**
+- [ ] Audit and API pages open (or show clear plan gate)
+- [ ] No crash / infinite spinner
+- [ ] Secrets are not exposed in recordings
+
+**Tester note:** On Business Free / Pro, marking “feature gated correctly” is a **Pass** for this test.
+
+---
+
+## Test 33 — Business End-to-End Mini Scenario
+
+**Time required:** ~15–20 minutes  
+**Goal:** Prove company onboarding + protect path in one continuous walkthrough
+
+| Step | Action | Pass |
+|------|--------|------|
+| 1 | Login as Business → land on `/business` | [ ] |
+| 2 | Complete or confirm Organization Setup (name + workspace) | [ ] |
+| 3 | Open Organization Profile — confirm org identity | [ ] |
+| 4 | Open Team — invite (or show invite form + limits) | [ ] |
+| 5 | Protect a file → DNA complete | [ ] |
+| 6 | Confirm file in Digital Assets | [ ] |
+| 7 | Open Unified Investigation on that file | [ ] |
+| 8 | Return to Business Dashboard — snapshots look sane | [ ] |
+| 9 | Switch to Individual view (if switcher available) then back to Business | [ ] |
+
+**Video name suggestion:** `PINIT_Test33_BusinessE2E_YYYY-MM-DD.mp4`  
+**Proud line to say:** “PinIT Hub for business: organization home, team roles, and the same DNA vault protection stack.”
+
+---
+
 # MODULE REFERENCE — QUICK GUIDE
 
 | # | Module | Sidebar Location | Purpose |
 |---|--------|------------------|---------|
-| 1 | Dashboard | Core | System overview |
-| 2 | Generate DNA | Core | Create file fingerprint |
-| 3 | Vault Explorer | Explorer | Encrypted file storage |
-| 4 | DNA Records | Explorer | Ownership registry |
-| 5 | File Timeline | Explorer | Chain of custody |
-| 6 | Access Intelligence | Intelligence | Per-link viewer tracking |
-| 7 | Difference Engine | Intelligence | File change analysis |
-| 8 | Monitoring & Crawler | Intelligence | Leak detection |
-| 9 | Unified Investigation | Forensics | Owner recovery |
-| 10 | Forensic Reports | Forensics | Report history |
-| 11 | Unmask Requests | Forensics | Sensitive data approval |
-| 12 | Duplicate Attempts | Forensics | Duplicate upload log |
-| 13 | Vault Integrity | Forensics | Storage validation |
-| 14 | Certificates | Sharing | Ownership proof |
-| 15 | Verify Certificate | Sharing | Public verification |
+| 1 | Dashboard | Core (Individual) | Personal system overview |
+| 2 | Business Dashboard | Organization → Dashboard | Company ops home (`/business`) |
+| 3 | Generate DNA / Protect file | Core / Organization | Create file fingerprint |
+| 4 | Vault / Digital Assets | Explorer / Organization | Encrypted file storage |
+| 5 | DNA Records | Explorer | Ownership registry |
+| 6 | File Timeline | Explorer | Chain of custody |
+| 7 | Access Intelligence | Intelligence | Per-link viewer tracking |
+| 8 | Difference Engine | Intelligence | File change analysis |
+| 9 | Monitoring & Crawler | Intelligence / Organization | Leak detection |
+| 10 | Unified Investigation | Forensics / Organization | Owner recovery |
+| 11 | Forensic Reports | Forensics / Organization | Report history |
+| 12 | Unmask Requests | Forensics | Sensitive data approval |
+| 13 | Duplicate Attempts | Forensics | Duplicate upload log |
+| 14 | Vault Integrity | Forensics | Storage validation |
+| 15 | Certificates | Sharing / Organization | Ownership proof |
+| 16 | Verify Certificate | Sharing | Public verification |
+| 17 | Team | Organization → Team | Invites and roles |
+| 18 | Organization Profile | Organization → Profile | Org details, plan, settings |
+| 19 | Audit Logs | Organization → Audit | Org activity (Enterprise) |
+| 20 | API Access | Organization → API | Keys / automation (Enterprise) |
 
 ---
 
@@ -604,6 +852,12 @@ Login → Dashboard → Generate DNA → Vault → Share → Viewer Tracking
 | Certificates PDF/JSON | ✅ Live | Fully testable |
 | Public Certificate Verify | ✅ Live | No login needed |
 | Notifications | ✅ Live | Test via share access |
+| **Business account type** | ✅ Live | Part F — Tests 25–33 |
+| **Business Dashboard** | ✅ Live | `/business` |
+| **Business Setup Wizard** | ✅ Live | Org name + workspace |
+| **Team invites & roles** | ✅ Live | Plan seat limits apply |
+| **Individual \| Business switcher** | ✅ Live | Business account or Enterprise |
+| **Org Audit / API / Integrations** | 🟡 Plan-gated | Full on Enterprise; Free/Pro show gates |
 | Automated Web Crawler | 🟡 Pending | Manual monitoring only |
 | AI Service (production) | 🟡 Pending | Requires AI hosting connection |
 | Unmask Requests | 🟡 Verify | Confirm with team |
@@ -617,11 +871,12 @@ When reporting a bug during testing, include:
 
 1. **Test number** (from this document)
 2. **URL** and page name
-3. **Steps** you followed
-4. **Expected** vs **Actual** result
-5. **Screenshot** or screen recording
-6. **Browser** and device used
-7. **Date and time**
+3. **Account type** (Individual / Business) and plan if known
+4. **Steps** you followed
+5. **Expected** vs **Actual** result
+6. **Screenshot** or screen recording
+7. **Browser** and device used
+8. **Date and time**
 
 Send reports to: **admin@pinit.in**
 
@@ -632,14 +887,19 @@ Send reports to: **admin@pinit.in**
 | Term | Meaning |
 |------|---------|
 | **DNA Record** | Unique fingerprint ID for a file |
-| **Vault** | Encrypted storage for the original file |
+| **Vault / Digital Assets** | Encrypted storage for the original file |
 | **TEP** | Tracked Export Package — protected download |
 | **Chain of Custody** | Complete history of who accessed a file and when |
 | **Cosine Similarity** | AI measure of how similar two files are (0–100%) |
 | **PINIT HOID** | PINIT Host Owner Identity — your user ID system |
+| **Individual account** | Personal Hub shell — solo owner workflow |
+| **Business account** | Organization shell — company dashboard, team, org profile |
+| **Workspace** | Named work area inside an organization (e.g. Main Workspace) |
+| **Org role** | OWNER / MANAGER / INVESTIGATOR / MEMBER / VIEWER |
 
 ---
 
 **End of Document**
 
-*PINIT-DNA — Secure Digital Vault · Forensic Tracking · Investigation Platform*
+*PINIT-DNA — Secure Digital Vault · Forensic Tracking · Investigation Platform · Individual & Business*
+

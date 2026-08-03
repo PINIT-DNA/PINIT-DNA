@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
-  ArrowLeft, RefreshCw, Globe, Eye, Download, Copy, Ban, Shield,
+  ArrowLeft, RefreshCw, Globe, Eye, Download, Copy, Ban,
   Users, Clock, Smartphone, Monitor, MapPin, AlertTriangle, ExternalLink, XCircle,
 } from 'lucide-react';
 import { api } from '../services/dashboard.api';
@@ -63,9 +63,10 @@ interface AccessLog {
   hopToken?: string | null;
 }
 
-interface LinkInfo {
+  interface LinkInfo {
   id: string;
   token: string;
+  vaultId?: string | null;
   filename: string;
   createdAt: string;
   expiresAt: string | null;
@@ -523,7 +524,6 @@ export function LinkIntelligencePage() {
   if (!link) return (
     <div className="max-w-lg mx-auto text-center py-16">
       <p className="text-sm text-gray-400 mb-2">{loadError ?? 'Link not found'}</p>
-      {token && <p className="text-2xs text-gray-600 font-mono mb-4">Token: {token}</p>}
       <div className="flex items-center justify-center gap-3">
         <Link to="/access-intelligence" className="text-dna-400 text-sm hover:underline flex items-center gap-1">
           <ArrowLeft size={14} /> Back to Tracking
@@ -534,23 +534,26 @@ export function LinkIntelligencePage() {
   );
 
   const activeViewer = selectedViewer ? viewers.find(v => v.id === selectedViewer) : null;
+  const trackingBackPath = link.vaultId
+    ? `/access-intelligence?vaultId=${encodeURIComponent(link.vaultId)}`
+    : '/access-intelligence';
 
   return (
     <div className="page-shell-wide w-full">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
-        <Link to="/access-intelligence" className="text-gray-400 hover:text-white transition-colors">
+        <Link to={trackingBackPath} className="text-gray-400 hover:text-white transition-colors" title="Back to this file’s share links">
           <ArrowLeft size={20} />
         </Link>
-        <div className="flex-1">
-          <h1 className="text-lg font-bold text-white flex items-center gap-2">
-            <Shield size={18} className="text-dna-400" />
-            Tracking
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium text-gray-500 mb-0.5">Tracking</p>
+          <h1 className="text-lg sm:text-xl font-bold text-white truncate" title={link.filename}>
+            {link.filename}
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            {link.filename} · Token: {link.token.slice(0, 12)}... · Created {formatDistanceToNow(new Date(link.createdAt))} ago
+            Shared {formatDistanceToNow(new Date(link.createdAt))} ago
             {(link.hopLinkCount ?? 0) > 0 && (
-              <span className="text-dna-400"> · {link.hopLinkCount} forward hop link(s) tracked</span>
+              <span className="text-dna-400"> · {link.hopLinkCount} forward{link.hopLinkCount === 1 ? '' : 's'} tracked</span>
             )}
           </p>
         </div>
@@ -561,7 +564,7 @@ export function LinkIntelligencePage() {
           {link.isActive && !revoked ? (
             <button
               onClick={async () => {
-                if (!confirm('Revoke this link? All active sessions will be terminated immediately.')) return;
+                if (!confirm(`Stop access for “${link.filename}”? People with this link will no longer be able to open it.`)) return;
                 setRevoking(true);
                 try {
                   await api.delete(`${API_BASE_URL}/share/${token}`);
@@ -573,11 +576,11 @@ export function LinkIntelligencePage() {
               className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-xs font-medium rounded-lg transition-colors"
             >
               {revoking ? <RefreshCw size={12} className="animate-spin" /> : <XCircle size={12} />}
-              Revoke Link
+              Stop access
             </button>
           ) : (
             <span className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-medium rounded-lg">
-              <Ban size={12} /> Revoked
+              <Ban size={12} /> Access stopped
             </span>
           )}
         </div>
@@ -585,8 +588,8 @@ export function LinkIntelligencePage() {
 
       {/* Stats row */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
-        <StatCard icon={<Users size={14} />} label="Unique Viewers" value={viewers.length} color="text-dna-400" />
-        <StatCard icon={<Eye size={14} />} label="Total Views" value={link.viewCount} color="text-blue-400" />
+        <StatCard icon={<Users size={14} />} label="Viewers" value={viewers.length} color="text-dna-400" />
+        <StatCard icon={<Eye size={14} />} label="Views" value={link.viewCount} color="text-blue-400" />
         <StatCard icon={<Download size={14} />} label="Downloads" value={link.downloadCount} color="text-green-400" />
         <StatCard icon={<Globe size={14} />} label="Countries" value={Object.keys(countryStats).length} color="text-purple-400" />
         <StatCard
@@ -782,17 +785,22 @@ export function LinkIntelligencePage() {
         <div className="lg:col-span-2">
           {activeViewer ? (
             <div className="card">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-                  <Eye size={14} className="text-dna-400" />
-                  {ACCESS_KIND_LABELS[activeViewer.accessKind]} — Activity Log
-                  {activeViewer.accessKind === 'reshared' && (
-                    <span className={`text-2xs px-1.5 py-0.5 rounded-full border font-semibold ${ACCESS_KIND_BADGE.reshared}`}>
-                      RESHARED
-                    </span>
-                  )}
-                </h2>
-                <span className="text-2xs text-gray-500">
+              <div className="flex items-center justify-between mb-4 gap-3">
+                <div className="min-w-0">
+                  <h2 className="text-sm font-semibold text-white flex items-center gap-2 flex-wrap">
+                    <Eye size={14} className="text-dna-400 shrink-0" />
+                    {ACCESS_KIND_LABELS[activeViewer.accessKind]} — Activity Log
+                    {activeViewer.accessKind === 'reshared' && (
+                      <span className={`text-2xs px-1.5 py-0.5 rounded-full border font-semibold ${ACCESS_KIND_BADGE.reshared}`}>
+                        RESHARED
+                      </span>
+                    )}
+                  </h2>
+                  <p className="text-xs text-dna-300 mt-1 truncate" title={link.filename}>
+                    File: <span className="text-white font-medium">{link.filename}</span>
+                  </p>
+                </div>
+                <span className="text-2xs text-gray-500 shrink-0">
                   First seen {formatDistanceToNow(new Date(activeViewer.firstSeen))} ago
                 </span>
               </div>

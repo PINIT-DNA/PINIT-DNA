@@ -67,6 +67,7 @@ export const teamService = {
       inviteeShortId: i.inviteeShortId,
       role: i.role,
       status: i.status,
+      token: i.token,
       expiresAt: i.expiresAt.toISOString(),
       createdAt: i.createdAt.toISOString(),
     }));
@@ -134,7 +135,7 @@ export const teamService = {
         entityId: invite.id,
         title: 'Organization invitation',
         body: 'You have been invited to join an organization on PinIT Hub.',
-        deepLink: '/business/team',
+        deepLink: `/team/join/${invite.token}`,
         payload: { organizationId, role, inviteToken: invite.token },
       });
     }
@@ -145,7 +146,7 @@ export const teamService = {
       action: 'MEMBER_INVITED',
       entityType: 'organization_invite',
       entityId: invite.id,
-      title: `Invited ${input.email ?? input.inviteeShortId ?? 'member'} as ${role}`,
+      title: `Invited ${input.email ?? input.inviteeShortId ?? 'via link'} as ${role}`,
     });
 
     return {
@@ -169,11 +170,25 @@ export const teamService = {
       throw Object.assign(new Error('Invitation expired'), { status: 410 });
     }
 
+    if (invite.inviteeShortId) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { shortId: true },
+      });
+      if (!user || user.shortId !== invite.inviteeShortId) {
+        throw Object.assign(new Error('This invitation is for a different PinIT account'), { status: 403 });
+      }
+    }
+
     const existing = await prisma.organizationMember.findUnique({
       where: { organizationId_userId: { organizationId: invite.organizationId, userId } },
     });
     if (existing) {
-      throw Object.assign(new Error('Already a member'), { status: 409 });
+      await prisma.organizationInvite.update({
+        where: { id: invite.id },
+        data: { status: 'ACCEPTED', acceptedAt: new Date(), acceptedUserId: userId },
+      });
+      return { organizationId: invite.organizationId, role: existing.role, alreadyMember: true };
     }
 
     await prisma.$transaction([
@@ -200,7 +215,7 @@ export const teamService = {
       title: 'New member joined the organization',
     });
 
-    return { organizationId: invite.organizationId, role: invite.role };
+    return { organizationId: invite.organizationId, role: invite.role, alreadyMember: false };
   },
 
   async revokeInvite(organizationId: string, actorUserId: string, inviteId: string) {

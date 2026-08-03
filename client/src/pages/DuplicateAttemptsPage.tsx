@@ -72,7 +72,7 @@ export function DuplicateAttemptsPage() {
             Duplicate Upload Attempts
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            All blocked duplicate upload attempts — forensic audit trail
+            All blocked duplicate upload attempts — security history
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -212,7 +212,7 @@ export function DuplicateAttemptsPage() {
                   )}
                   {a.sha256Hash && (
                     <div className="bg-bg-elevated rounded-lg px-3 py-2 md:col-span-2">
-                      <p className="text-2xs text-gray-500 uppercase tracking-wide">File SHA-256</p>
+                      <p className="text-2xs text-gray-500 uppercase tracking-wide">File identity</p>
                       <p className="text-xs text-gray-400 mono mt-0.5 truncate">{a.sha256Hash}</p>
                     </div>
                   )}

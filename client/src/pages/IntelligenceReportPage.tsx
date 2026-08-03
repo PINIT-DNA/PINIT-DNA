@@ -231,16 +231,15 @@ export function IntelligenceReportPage({ adminMode = false }: { adminMode?: bool
 
       {/* ── 1. Identity Intelligence ──────────────────────────────────────── */}
       <Section icon={ShieldCheck} title="Identity Intelligence" accent="bg-dna-500/20 text-dna-400">
-        <Row label="Owner User ID"   value={r.identity.ownerUserId}  mono accent="text-dna-400" />
-        <Row label="Uploader ID"     value={r.identity.uploaderId}   mono accent="text-dna-400" />
-        <Row label="MFID (Vault ID)" value={r.identity.mfid}         mono accent="text-purple-400" />
-        <Row label="DNA Record ID"   value={r.identity.dnaRecordId}  mono accent="text-dna-400" />
+        <Row label="Owner"           value={r.identity.ownerUserId}  mono accent="text-dna-400" />
+        <Row label="Uploaded by"     value={r.identity.uploaderId}   mono accent="text-dna-400" />
+        <Row label="Asset ID"        value={r.identity.mfid}         mono accent="text-purple-400" />
+        <Row label="Record ID"       value={r.identity.dnaRecordId}  mono accent="text-dna-400" />
         <Row label="Filename"        value={r.identity.filename} />
-        <Row label="MIME Type"       value={r.identity.mimeType}     mono />
-        <Row label="File Type"       value={r.identity.fileType} />
-        <Row label="Engine"          value={r.identity.engineVersion} mono />
-        <Row label="Original Size"   value={fmt(r.identity.fileSize)} />
-        <Row label="Encrypted Size"  value={fmt(r.identity.encryptedSize)} />
+        <Row label="File type"       value={r.identity.mimeType} />
+        <Row label="Category"        value={r.identity.fileType} />
+        <Row label="Original size"   value={fmt(r.identity.fileSize)} />
+        <Row label="Stored size"     value={fmt(r.identity.encryptedSize)} />
       </Section>
 
       {/* ── 2. Provenance Intelligence ────────────────────────────────────── */}
@@ -285,11 +284,11 @@ export function IntelligenceReportPage({ adminMode = false }: { adminMode?: bool
             </span>
           )}
         </div>
-        <Row label="DNA Status"       value={r.integrity.dnaStatus} />
-        <Row label="Layers Complete"  value={`${r.integrity.layersComplete}/15`} accent="text-emerald-400" />
-        <Row label="SHA-256 Hash"      value={shortHash(r.integrity.sha256Hash)} mono />
+        <Row label="Protection status" value={r.integrity.dnaStatus} />
+        <Row label="Checks complete"   value={`${r.integrity.layersComplete}/15`} accent="text-emerald-400" />
+        <Row label="File identity"     value={shortHash(r.integrity.sha256Hash)} mono />
         {r.integrity.lastVerification && (
-          <Row label="Last Verified" value={fmtDate(r.integrity.lastVerification.at)} />
+          <Row label="Last verified" value={fmtDate(r.integrity.lastVerification.at)} />
         )}
       </Section>
 
@@ -459,7 +458,7 @@ export function IntelligenceReportPage({ adminMode = false }: { adminMode?: bool
       {/* ── Footer ────────────────────────────────────────────────────────── */}
       <div className="text-center py-4 space-y-1">
         <p className="text-2xs text-gray-600">Report generated at {fmtDate(r.generatedAt)}</p>
-        <p className="text-2xs text-gray-700">PINIT-DNA Universal File DNA Engine — Vault ID: {r.vaultId}</p>
+        <p className="text-2xs text-gray-700">PinIT Hub · Asset {r.vaultId}</p>
       </div>
     </div>
   );

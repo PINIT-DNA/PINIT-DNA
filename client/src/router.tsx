@@ -10,11 +10,7 @@ import { TimelinePage } from './pages/TimelinePage';
 import { ForensicDiffPage } from './pages/ForensicDiffPage';
 import { SearchPage } from './pages/SearchPage';
 import { MonitoringPage } from './pages/MonitoringPage';
-import { ProtectedPostsPage } from './pages/publish-guardian/ProtectedPostsPage';
-import { ProtectedPostDetailPage } from './pages/publish-guardian/ProtectedPostDetailPage';
 import { ExtensionAuthPage } from './pages/publish-guardian/ExtensionAuthPage';
-import { AssetsPage } from './pages/assets/AssetsPage';
-import { AssetDetailPage } from './pages/assets/AssetDetailPage';
 import { VerifyCertificatePage } from './pages/VerifyCertificatePage';
 import { VaultIntegrityPage } from './pages/VaultIntegrityPage';
 import { DuplicateAttemptsPage } from './pages/DuplicateAttemptsPage';
@@ -39,6 +35,7 @@ import { OrganizationSettingsPage } from './pages/business/OrganizationSettingsP
 import { BusinessTeamPage } from './pages/business/BusinessTeamPage';
 import { BusinessAuditLogsPage } from './pages/business/BusinessAuditLogsPage';
 import { BusinessApiKeysPage } from './pages/business/BusinessApiKeysPage';
+import { TeamJoinPage } from './pages/TeamJoinPage';
 import { HomeRedirect } from './components/subscription/HomeRedirect';
 import { RequireAccountTypeOnboarding } from './components/onboarding/RequireAccountTypeOnboarding';
 import { BRAND } from './config/brand.config';
@@ -72,6 +69,9 @@ export const router = createBrowserRouter([
 
   // ── Public share viewer ───────────────────────────────────────────────────
   { path: '/s/:token', element: <ShareViewerPage /> },
+
+  // ── Team invite join (remembers token if login is required) ────────────────
+  { path: '/team/join/:token', element: <TeamJoinPage /> },
 
   // ── Onboarding (auth required, isolated shell — no dashboard chrome) ──────
   {
@@ -115,10 +115,10 @@ export const router = createBrowserRouter([
       { path: 'forensic-diff', element: <ForensicDiffPage /> },
       { path: 'search', element: <SearchPage /> },
       { path: 'monitoring', element: <MonitoringPage /> },
-      { path: 'protected-posts', element: <ProtectedPostsPage /> },
-      { path: 'protected-posts/:id', element: <ProtectedPostDetailPage /> },
-      { path: 'assets', element: <AssetsPage /> },
-      { path: 'assets/:id', element: <AssetDetailPage /> },
+      { path: 'protected-posts', element: <Navigate to="/vault" replace /> },
+      { path: 'protected-posts/:id', element: <Navigate to="/vault" replace /> },
+      { path: 'assets', element: <Navigate to="/vault" replace /> },
+      { path: 'assets/:id', element: <Navigate to="/vault" replace /> },
       { path: 'duplicate-attempts', element: <DuplicateAttemptsPage /> },
       { path: 'unmask-requests', element: <UnmaskRequestsPage /> },
       { path: 'chain/:dnaRecordId', element: <ForwardChainPage /> },

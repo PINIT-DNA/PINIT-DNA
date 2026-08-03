@@ -38,6 +38,7 @@ import { useAuth } from '../context/AuthContext';
 import { ShareQrBlock } from './ShareQrBlock';
 import { AuthenticityReportCard } from './AuthenticityReportCard';
 import type { VaultContentAnalysis, VaultRecord } from '../types/dashboard.types';
+import { formatSourcePlatform, vaultSourceCaption } from '../lib/source-platform';
 
 type PanelTab = 'overview' | 'details' | 'permissions' | 'activity';
 
@@ -459,11 +460,13 @@ export function VaultDetailSidePanel({
   };
 
   const handleAccessIntelligence = () => {
-    const active = links.find((l) => l.isActive);
-    const path = active
-      ? `/access-intelligence/${encodeURIComponent(active.token)}`
-      : '/access-intelligence';
-    gatePremium(path);
+    if (loadingLinks) {
+      toast('Loading this file’s share links…');
+      return;
+    }
+    // Always open this file’s Tracking overview so EVERY share link for the
+    // same vault file is listed (shared multiple times → all tracks visible).
+    navigate(`/access-intelligence?vaultId=${encodeURIComponent(record.id)}`);
   };
 
   useEffect(() => {
@@ -497,7 +500,7 @@ export function VaultDetailSidePanel({
           <div className="w-10 h-1 rounded-full bg-gray-600" />
         </div>
       <div className="flex items-center justify-between px-4 py-3 border-b border-bg-border shrink-0">
-        <p className="text-sm font-semibold text-white truncate pr-2">File Details</p>
+        <p className="text-sm font-semibold text-white truncate pr-2">File</p>
         <button type="button" onClick={onClose} className="btn-ghost btn-icon text-gray-500 hover:text-white">
           <X size={16} />
         </button>
@@ -603,13 +606,13 @@ export function VaultDetailSidePanel({
             <>
               <section>
                 <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                  Encryption &amp; Protection
+                  Protection
                 </h3>
                 <dl className="space-y-2 text-xs">
                   {[
                     ['Status', 'Protected'],
-                    ['Encryption', record.encryptionAlgorithm],
-                    ['DNA Verified', 'Verified'],
+                    ['Access', 'Only you control'],
+                    ['Verified', 'Yes'],
                   ].map(([k, v]) => (
                     <div key={k} className="flex justify-between gap-2">
                       <dt className="text-gray-500">{k}</dt>
@@ -620,11 +623,49 @@ export function VaultDetailSidePanel({
               </section>
               <section>
                 <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                  DNA Verification
+                  Where it came from
                 </h3>
                 <dl className="space-y-2 text-xs">
                   <div className="flex justify-between gap-2">
-                    <dt className="text-gray-500">DNA Record</dt>
+                    <dt className="text-gray-500">Source</dt>
+                    <dd className="text-white font-medium text-right">
+                      {vaultSourceCaption(record) ?? 'PinIT Hub upload'}
+                    </dd>
+                  </div>
+                  {formatSourcePlatform(record.sourcePlatform) && (
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-gray-500">Platform</dt>
+                      <dd className="text-white font-medium text-right">
+                        {formatSourcePlatform(record.sourcePlatform)}
+                      </dd>
+                    </div>
+                  )}
+                  {record.sourceUrl && (
+                    <div className="flex flex-col gap-1">
+                      <dt className="text-gray-500">Original link</dt>
+                      <dd className="text-dna-400 text-right break-all">
+                        <a
+                          href={record.sourceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="hover:underline"
+                        >
+                          {record.sourceUrl.length > 48
+                            ? `${record.sourceUrl.slice(0, 48)}…`
+                            : record.sourceUrl}
+                        </a>
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+              </section>
+              <section>
+                <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                  File identity
+                </h3>
+                <dl className="space-y-2 text-xs">
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-gray-500">Record</dt>
                     <dd className="text-dna-400 mono text-right truncate max-w-[180px]">{record.dnaRecordId.slice(0, 16)}…</dd>
                   </div>
                   <div className="flex justify-between gap-2">
@@ -632,7 +673,7 @@ export function VaultDetailSidePanel({
                     <dd className="text-white">Enabled</dd>
                   </div>
                   <div className="flex justify-between gap-2">
-                    <dt className="text-gray-500">AI Tracking</dt>
+                    <dt className="text-gray-500">Live tracking</dt>
                     <dd className="text-white">Active</dd>
                   </div>
                 </dl>
@@ -774,13 +815,12 @@ export function VaultDetailSidePanel({
 
               <dl className="space-y-3 text-xs">
                 {[
-                  ['Vault ID', record.id],
-                  ['DNA Record ID', record.dnaRecordId],
-                  ['MIME Type', resolvedMime],
-                  ['Original Size', formatBytes(record.originalSizeBytes)],
-                  ['Encrypted Size', formatBytes(record.encryptedSizeBytes)],
-                  ['Key Derivation', record.keyDerivation],
-                  ['Stored At', format(new Date(record.createdAt), 'PPpp')],
+                  ['Asset ID', record.id],
+                  ['Record ID', record.dnaRecordId],
+                  ['File type', resolvedMime],
+                  ['Original size', formatBytes(record.originalSizeBytes)],
+                  ['Stored size', formatBytes(record.encryptedSizeBytes)],
+                  ['Stored at', format(new Date(record.createdAt), 'PPpp')],
                 ].map(([label, value]) => (
                   <div key={label} className="bg-bg-elevated rounded-lg p-3">
                     <dt className="text-2xs text-gray-500 mb-1">{label}</dt>
@@ -792,10 +832,10 @@ export function VaultDetailSidePanel({
                 <div className="rounded-xl bg-success/5 border border-success/20 p-3">
                   <div className="flex items-center gap-2 mb-1">
                     <Lock size={12} className="text-success" />
-                    <p className="text-xs font-semibold text-success">AES-256-GCM</p>
+                    <p className="text-xs font-semibold text-success">Protected in your vault</p>
                   </div>
                   <p className="text-2xs text-gray-400">
-                    Key re-derived on demand via HKDF-SHA256. Authentication tag ensures tamper detection.
+                    Only you can open the original. Sharing stays tracked and under your control.
                   </p>
                 </div>
               </dl>
@@ -810,7 +850,7 @@ export function VaultDetailSidePanel({
                 </div>
               ) : links.length === 0 ? (
                 <p className="text-xs text-gray-500 text-center py-6">
-                  No share links yet. Use Share Secure Link to create tracked access.
+                  No share links yet. Use Share to create tracked access.
                 </p>
               ) : (
                 links.map((link) => (
@@ -839,7 +879,7 @@ export function VaultDetailSidePanel({
                 {[
                   { icon: <Users size={12} />, label: 'Views', value: totalViews },
                   { icon: <Share2 size={12} />, label: 'Links', value: activeLinks.length },
-                  { icon: <ShieldCheck size={12} />, label: 'TEP', value: tepPackages.length },
+                  { icon: <ShieldCheck size={12} />, label: 'Protected downloads', value: tepPackages.length },
                 ].map((s) => (
                   <div key={s.label} className="rounded-lg bg-bg-elevated p-2">
                     <p className="text-lg font-bold text-white">{s.value}</p>
@@ -917,7 +957,7 @@ export function VaultDetailSidePanel({
             />
             <QuickAction
               icon={<Microscope size={18} />}
-              label="Difference Engine"
+              label="Compare files"
               onClick={() => gatePremium('/forensic-diff')}
             />
             <QuickAction icon={<Activity size={18} />} label="Tracking" onClick={handleAccessIntelligence} />

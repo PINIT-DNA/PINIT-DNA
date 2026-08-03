@@ -56,29 +56,84 @@ export async function listVaultRecords(
     const { getLocationStatusForAssets } = await import('../../services/forensics/forensic-provenance.service');
     const locationByDna = await getLocationStatusForAssets(records.map((r) => r.dnaRecordId));
 
+    // Extension / Publish Guardian metadata — same Digital Assets list (no separate modules)
+    const vaultIds = records.map((r) => r.id);
+    const [assets, posts] = vaultIds.length === 0
+      ? [[], []]
+      : await Promise.all([
+          prisma.asset.findMany({
+            where: { vaultId: { in: vaultIds } },
+            select: {
+              vaultId: true,
+              sourcePlatform: true,
+              sourceUrl: true,
+              capturedVia: true,
+            },
+          }),
+          prisma.protectedPost.findMany({
+            where: { vaultId: { in: vaultIds } },
+            select: {
+              vaultId: true,
+              platform: true,
+              postUrl: true,
+              currentUrl: true,
+              capturedVia: true,
+            },
+            orderBy: { createdAt: 'desc' },
+          }),
+        ]);
+
+    const assetByVault = new Map(
+      assets
+        .filter((a): a is typeof a & { vaultId: string } => Boolean(a.vaultId))
+        .map((a) => [a.vaultId, a]),
+    );
+    const postByVault = new Map<string, (typeof posts)[number]>();
+    for (const p of posts) {
+      if (!p.vaultId || postByVault.has(p.vaultId)) continue;
+      postByVault.set(p.vaultId, p);
+    }
+
     res.status(200).json({
       success: true,
       count: records.length,
-      vaults: records.map((r) => ({
-        id:                  r.id,
-        dnaRecordId:         r.dnaRecordId,
-        originalFileName:    r.originalFileName,
-        originalMimeType:    r.originalMimeType,
-        encryptedSizeBytes:  r.encryptedSizeBytes,
-        originalSizeBytes:   r.originalSizeBytes,
-        encryptionAlgorithm: r.encryptionAlgorithm,
-        keyDerivation:       r.keyDerivation,
-        contentLabel:        r.contentLabel ?? null,
-        contentAnalysis:     (r.contentAnalysis as Record<string, unknown> | null) ?? null,
-        createdAt:           r.createdAt.toISOString(),
-        dnaRecord: {
-          id:       r.dnaRecord.id,
-          status:   r.dnaRecord.status,
-          filename: r.dnaRecord.imageFilename,
-        },
-        // Custody location — not part of DNA (immutable identity)
-        location: locationByDna.get(r.dnaRecordId) ?? { status: 'UNAVAILABLE' as const },
-      })),
+      vaults: records.map((r) => {
+        const asset = assetByVault.get(r.id);
+        const post = postByVault.get(r.id);
+        const sourcePlatform = asset?.sourcePlatform ?? post?.platform ?? null;
+        const sourceUrl = asset?.sourceUrl ?? post?.currentUrl ?? post?.postUrl ?? null;
+        const capturedVia = asset?.capturedVia ?? post?.capturedVia ?? null;
+        const fromExtension = Boolean(
+          capturedVia?.toLowerCase().includes('extension')
+          || sourcePlatform
+          || post,
+        );
+
+        return {
+          id:                  r.id,
+          dnaRecordId:         r.dnaRecordId,
+          originalFileName:    r.originalFileName,
+          originalMimeType:    r.originalMimeType,
+          encryptedSizeBytes:  r.encryptedSizeBytes,
+          originalSizeBytes:   r.originalSizeBytes,
+          encryptionAlgorithm: r.encryptionAlgorithm,
+          keyDerivation:       r.keyDerivation,
+          contentLabel:        r.contentLabel ?? null,
+          contentAnalysis:     (r.contentAnalysis as Record<string, unknown> | null) ?? null,
+          createdAt:           r.createdAt.toISOString(),
+          dnaRecord: {
+            id:       r.dnaRecord.id,
+            status:   r.dnaRecord.status,
+            filename: r.dnaRecord.imageFilename,
+          },
+          // Custody location — not part of DNA (immutable identity)
+          location: locationByDna.get(r.dnaRecordId) ?? { status: 'UNAVAILABLE' as const },
+          sourcePlatform,
+          sourceUrl,
+          capturedVia,
+          fromExtension,
+        };
+      }),
     });
   } catch (err) {
     next(err);

@@ -207,13 +207,13 @@ export function fmtAgo(iso: string): string {
 }
 
 export const ACTIVITY_LABELS: Record<string, string> = {
-  DNA_GENERATED: 'DNA generated',
-  VAULT_UPLOAD: 'Asset vaulted',
-  SHARE_CREATED: 'Asset shared',
+  DNA_GENERATED: 'File protected',
+  VAULT_UPLOAD: 'Saved to vault',
+  SHARE_CREATED: 'Share link sent',
   CERT_GENERATED: 'Certificate issued',
-  ACCESS_VIEWED: 'Asset viewed',
-  ACCESS_DOWNLOADED: 'Asset downloaded',
-  RISK_EVENT: 'Risk event',
+  ACCESS_VIEWED: 'File opened',
+  ACCESS_DOWNLOADED: 'File downloaded',
+  RISK_EVENT: 'Needs attention',
 };
 
 export const ACTIVITY_ICONS: Record<string, string> = {

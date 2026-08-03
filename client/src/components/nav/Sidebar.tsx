@@ -102,7 +102,7 @@ const NAV_GROUPS: Array<{
   {
     label: 'Core',
     items: [
-      { to: '/',          icon: LayoutDashboard, label: 'Dashboard',     end: true },
+      { to: '/',          icon: LayoutDashboard, label: 'Home',     end: true },
       { to: '/generate',  icon: Dna,             label: 'Protect file'             },
     ],
   },
@@ -110,26 +110,25 @@ const NAV_GROUPS: Array<{
     label: 'Explorer',
     items: [
       { to: '/vault',       icon: Archive,    label: 'Digital Assets' },
-      { to: '/dna-records', icon: FileSearch, label: 'DNA Records' },
+      { to: '/dna-records', icon: FileSearch, label: 'Protected files' },
     ],
   },
   {
     label: 'Intelligence',
     items: [
       // Tracking / Diff / Timeline live on Files → Quick Actions (per-file)
+      // Extension-captured files live in Digital Assets (same vault) — no separate modules
       { to: '/monitoring', icon: Radio, label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },
-      { to: '/assets', icon: Archive, label: 'Assets', feature: FeatureKey.FEATURE_TRACKING },
-      { to: '/protected-posts', icon: Shield, label: 'Protected Posts', feature: FeatureKey.FEATURE_TRACKING },
     ],
   },
   {
     label: 'Forensics',
     items: [
-      { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Unified Investigation', feature: FeatureKey.FEATURE_INVESTIGATION },
-      { to: '/reports',             icon: Shield,      label: 'Forensic Reports', feature: FeatureKey.FEATURE_INVESTIGATION },
+      { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Investigate', feature: FeatureKey.FEATURE_INVESTIGATION },
+      { to: '/reports',             icon: Shield,      label: 'Reports', feature: FeatureKey.FEATURE_INVESTIGATION },
       { to: '/unmask-requests',     icon: Shield,      label: 'Unmask Requests'     },
       { to: '/duplicate-attempts',  icon: Ban,         label: 'Duplicate Attempts'  },
-      { to: '/vault-integrity',     icon: Activity,    label: 'Vault Integrity'     },
+      { to: '/vault-integrity',     icon: Activity,    label: 'Vault check'     },
     ],
   },
   {
@@ -160,14 +159,12 @@ const BUSINESS_NAV_ITEMS: Array<{
   end?: boolean;
   feature?: string;
 }> = [
-  { to: '/business', icon: Building2, label: 'Dashboard', end: true },
+  { to: '/business', icon: Building2, label: 'Home', end: true },
   { to: '/generate', icon: Dna, label: 'Protect file' },
   { to: '/vault', icon: Archive, label: 'Digital Assets' },
-  { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Unified Investigation', feature: FeatureKey.FEATURE_INVESTIGATION },
-  { to: '/reports', icon: Shield, label: 'Forensics', feature: FeatureKey.FEATURE_INVESTIGATION },
+  { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Investigate', feature: FeatureKey.FEATURE_INVESTIGATION },
+  { to: '/reports', icon: Shield, label: 'Reports', feature: FeatureKey.FEATURE_INVESTIGATION },
   { to: '/monitoring', icon: Radio, label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },
-  { to: '/assets', icon: Archive, label: 'Assets', feature: FeatureKey.FEATURE_TRACKING },
-  { to: '/protected-posts', icon: Shield, label: 'Protected Posts', feature: FeatureKey.FEATURE_TRACKING },
   { to: '/certificates', icon: Award, label: 'Certificates' },
   { to: '/profile?tab=team', icon: Users, label: 'Team' },
   { to: '/profile?tab=audit', icon: FileSearch, label: 'Audit Logs' },
@@ -200,7 +197,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         ...group,
         items: group.items.map((item) =>
           item.to === '/'
-            ? { ...item, label: 'Personal Dashboard', end: true }
+            ? { ...item, label: 'Home', end: true }
             : item,
         ),
       };

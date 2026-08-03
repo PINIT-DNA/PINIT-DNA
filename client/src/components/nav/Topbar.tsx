@@ -6,23 +6,28 @@ import { AccountModeSwitcher } from './AccountModeSwitcher';
 import { BRAND } from '../../config/brand.config';
 
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
-  '/':                    { title: 'Dashboard',             subtitle: 'System overview & analytics'              },
-  '/business':            { title: 'Business Dashboard',    subtitle: 'Organization overview & operations'       },
-  '/generate':            { title: 'Protect file',           subtitle: 'Create a fingerprint to prove ownership' },
-  '/vault':               { title: 'Digital Assets',         subtitle: 'Your protected & encrypted files'         },
-  '/vault-integrity':     { title: 'Vault Integrity',        subtitle: 'Verify encrypted files exist on disk'   },
-  '/dna-records':         { title: 'DNA Records',             subtitle: 'All generated fingerprint records'      },
-  '/timeline':            { title: 'View in Timeline',        subtitle: 'Complete lifecycle audit trail'         },
-  '/reports':             { title: 'Forensic Reports',        subtitle: 'Analysis, tampering detection & exports'},
-  '/certificates':        { title: 'Certificates',            subtitle: ''      },
-  '/verify-certificate':  { title: 'Verify Certificate',     subtitle: 'Verify certificate authenticity live'   },
-  '/search':              { title: 'AI Search',              subtitle: 'Find documents by meaning using FAISS'        },
-  '/forensic-diff':       { title: 'Difference Engine',      subtitle: 'What changed, where, and how severely'     },
-  '/monitoring':          { title: 'Monitoring',             subtitle: 'Watch internet for unauthorized file copies' },
-  '/protected-posts':     { title: 'Protected Posts',        subtitle: 'Publish Guardian — tracked social & web posts' },
-  '/assets':              { title: 'Assets',                 subtitle: 'Universal asset protection — Vault, DNA, Monitoring' },
-  '/access-intelligence': { title: 'Tracking',               subtitle: 'Shared links and Share File tracking' },
-  [BRAND.investigationPath]: { title: 'Unified Investigation', subtitle: 'Upload a file to check matches and authenticity' },
+  '/':                    { title: 'Home',                  subtitle: 'What happened with your files'           },
+  '/business':            { title: 'Organization home',     subtitle: 'Team operations overview'                },
+  '/generate':            { title: 'Protect file',          subtitle: 'Create a protected identity for a file'  },
+  '/vault':               { title: 'Digital Assets',        subtitle: 'Your protected files — share and track'  },
+  '/vault-integrity':     { title: 'Vault check',           subtitle: 'Confirm your files are stored safely'    },
+  '/dna-records':         { title: 'Protected files',       subtitle: 'Files you have protected in PinIT Hub'   },
+  '/timeline':            { title: 'File activity',         subtitle: 'What happened to your files'             },
+  '/reports':             { title: 'Reports',               subtitle: 'Investigation and comparison reports'   },
+  '/certificates':        { title: 'Certificates',          subtitle: 'Ownership proof you can share'           },
+  '/verify-certificate':  { title: 'Verify certificate',    subtitle: 'Check if a certificate is still valid'   },
+  '/search':              { title: 'Search',                subtitle: 'Find files and activity'                 },
+  '/forensic-diff':       { title: 'Compare files',         subtitle: 'See what changed between two files'      },
+  '/monitoring':          { title: 'Monitoring',            subtitle: 'Watch for copies of your files online'  },
+  '/protected-posts':     { title: 'Digital Assets',        subtitle: 'Your protected files'                    },
+  '/assets':              { title: 'Digital Assets',        subtitle: 'Your protected files'                    },
+  '/access-intelligence': { title: 'Tracking',              subtitle: 'Who opened your shared files'            },
+  '/unmask-requests':     { title: 'Unmask requests',       subtitle: 'Approve sensitive data reveal requests'  },
+  '/duplicate-attempts':  { title: 'Duplicate attempts',    subtitle: 'When someone tried to re-upload your file' },
+  '/profile':             { title: 'Profile',               subtitle: 'Your account and preferences'            },
+  '/upgrade':             { title: 'Plans',                 subtitle: 'Choose the plan that fits you'           },
+  '/subscription':        { title: 'Subscription',          subtitle: 'Billing and plan details'                },
+  [BRAND.investigationPath]: { title: 'Investigate',        subtitle: 'Find the owner of a suspected file'      },
 };
 
 interface TopbarProps {
@@ -32,10 +37,10 @@ interface TopbarProps {
 export function Topbar({ onMenu }: TopbarProps) {
   const location = useLocation();
   const meta = PAGE_META[location.pathname]
-    ?? (location.pathname.startsWith('/protected-posts/')
-      ? { title: 'Protected Post', subtitle: 'Timeline, discoveries & evidence' }
-      : location.pathname.startsWith('/assets/')
-        ? { title: 'Asset', subtitle: 'Timeline, discoveries & monitoring' }
+    ?? (location.pathname.startsWith('/access-intelligence/')
+      ? { title: 'Tracking', subtitle: 'Activity for this shared file' }
+      : location.pathname.startsWith('/protected-posts/') || location.pathname.startsWith('/assets/')
+        ? { title: 'Digital Assets', subtitle: 'Your protected files' }
         : { title: BRAND.name, subtitle: '' });
 
   return (

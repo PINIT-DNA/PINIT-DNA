@@ -146,6 +146,11 @@ export interface VaultRecord {
     filename: string;
   };
   location?: VaultLocationStatus;
+  /** Social / capture platform when file came via extension or Publish Guardian */
+  sourcePlatform?: string | null;
+  sourceUrl?: string | null;
+  capturedVia?: string | null;
+  fromExtension?: boolean;
 }
 
 export interface SupportedFileType {

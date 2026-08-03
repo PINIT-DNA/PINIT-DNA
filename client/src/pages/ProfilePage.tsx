@@ -325,7 +325,7 @@ function NotificationPreferences({ profile, onUpdate }: { profile: any; onUpdate
   };
 
   const items = [
-    { key: 'notifyVault', label: 'Vault', desc: 'Storage, encryption issues, protected downloads, TEP events' },
+    { key: 'notifyVault', label: 'Digital Assets', desc: 'Storage issues, protected downloads, and file events' },
     { key: 'notifyDna', label: 'DNA', desc: 'DNA generated, verification results, and mismatches' },
     { key: 'notifyCertificates', label: 'Certificates', desc: 'Issued, revoked, expired, and validation failures' },
     { key: 'notifyShareAccess', label: 'Secure Share', desc: 'Link views, downloads, forwards, revokes, and expiry' },
@@ -336,7 +336,7 @@ function NotificationPreferences({ profile, onUpdate }: { profile: any; onUpdate
     { key: 'notifySecurity', label: 'Security', desc: 'Login events, password changes, and session revokes' },
     { key: 'notifyReports', label: 'Reports', desc: 'Report generated, downloaded, and shared' },
     { key: 'notifySystem', label: 'System', desc: 'Registration, storage warnings, and maintenance notices' },
-    { key: 'notifyUpdates', label: 'Product Updates', desc: 'News about PINIT-DNA features and improvements' },
+    { key: 'notifyUpdates', label: 'Product Updates', desc: 'News about PinIT Hub features and improvements' },
   ];
 
   return (

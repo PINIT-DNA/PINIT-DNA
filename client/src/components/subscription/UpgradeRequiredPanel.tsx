@@ -8,7 +8,7 @@ interface UpgradeRequiredPanelProps {
 }
 
 const UNLOCK_ITEMS = [
-  { icon: FileSearch, label: 'Unified Investigation & forensic reports' },
+  { icon: FileSearch, label: 'Investigate & get clear reports' },
   { icon: Radio, label: 'Asset monitoring & leak detection' },
   { icon: ShieldCheck, label: 'Smart Share links with access tracking' },
   { icon: BarChart3, label: 'Access intelligence & tracking analytics' },

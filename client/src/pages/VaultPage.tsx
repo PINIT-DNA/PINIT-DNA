@@ -21,15 +21,16 @@ import { FILE_TYPES, getVaultFileTypeLabel, getVaultFileTypeDisplay } from '../l
 import { API_BASE_URL } from '../config/api.config';
 import { ShareQrBlock } from '../components/ShareQrBlock';
 import type { VaultRecord } from '../types/dashboard.types';
+import { vaultSourceCaption } from '../lib/source-platform';
 
 // ─── Protected Download Modal ─────────────────────────────────────────────────
 
 const PROTECTED_STEPS = [
-  { id: 'ownership', label: 'Verifying ownership…' },
-  { id: 'dna', label: 'Verifying DNA…' },
-  { id: 'certificate', label: 'Verifying Certificate…' },
-  { id: 'prepare', label: 'Preparing Protected File…' },
-  { id: 'ready', label: 'Download Ready' },
+  { id: 'ownership', label: 'Checking ownership…' },
+  { id: 'dna', label: 'Checking protection…' },
+  { id: 'certificate', label: 'Checking certificate…' },
+  { id: 'prepare', label: 'Preparing download…' },
+  { id: 'ready', label: 'Ready' },
 ];
 
 function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onClose: () => void }) {
@@ -82,7 +83,7 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
   };
 
   return (
-    <Modal open title="Protected Download" onClose={onClose} size="md">
+    <Modal open title="Protected download" onClose={onClose} size="md">
       <div className="p-6 space-y-4">
         <div className="rounded-xl bg-dna-500/10 border border-dna-500/30 p-4">
           <div className="flex items-center gap-2 mb-2">
@@ -90,16 +91,15 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
             <p className="text-sm font-semibold text-white">{record.originalFileName}</p>
           </div>
           <p className="text-2xs text-gray-400 mb-2">
-            Enterprise delivery: TEP tracking, download logging, and chain of custody.
-            Browsers cannot force the file to open only in PINIT — recovery happens when the file
-            is investigated or opened through a PINIT-controlled path.
+            Download with tracking so you can see who received the file. Opening outside PinIT may still
+            be identified later through Investigate.
           </p>
           <ul className="text-2xs text-dna-300 space-y-0.5">
-            <li>✓ TEP Tracking</li>
-            <li>✓ Dynamic Watermark</li>
-            <li>✓ Download Logging (IP / device / time)</li>
-            <li>✓ Chain of Custody</li>
-            <li>✓ Future Identification via Investigation</li>
+            <li>✓ Tracked delivery</li>
+            <li>✓ Visible watermark</li>
+            <li>✓ Download log (time / device)</li>
+            <li>✓ Activity history</li>
+            <li>✓ Later match via Investigate</li>
           </ul>
         </div>
 
@@ -138,7 +138,7 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
         {phase === 'done' && forensicPreserved && (
           <div className="text-2xs text-success text-center space-y-1">
             <p>Protected download recorded in chain of custody.</p>
-            {lastTep && <p className="mono text-dna-300">TEP {lastTep}</p>}
+            {lastTep && <p className="text-dna-300 text-xs">Tracking code {lastTep}</p>}
           </div>
         )}
 
@@ -149,7 +149,7 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
         <div className="flex gap-3 pt-2">
           {phase === 'idle' || phase === 'error' ? (
             <button onClick={runProtectedDownload} className="btn btn-primary flex-1">
-              <ShieldCheck size={14} /> Generate Protected Download
+              <ShieldCheck size={14} /> Download with tracking
             </button>
           ) : phase === 'running' ? (
             <button disabled className="btn btn-primary flex-1 opacity-70">
@@ -188,7 +188,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
   const [copied, setCopied]             = useState(false);
 
   // ── Advanced policy controls (Smart Links audit additions) ────────────────
-  const [showAdvanced, setShowAdvanced]   = useState(true);
+  const [showAdvanced, setShowAdvanced]   = useState(false);
   const [oneTimeUse, setOneTimeUse]       = useState(false);
   const [maxDownloads, setMaxDownloads]   = useState<string>('');
   const [allowedCountries, setAllowedCountries]     = useState<string>('');
@@ -361,7 +361,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
   };
 
   return (
-    <Modal open title="Generate Smart Share Link" onClose={onClose} size="md">
+    <Modal open title="Share this file" onClose={onClose} size="md">
       <div className="p-5 space-y-4">
 
         {/* File info */}
@@ -371,21 +371,21 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-white truncate">{record.originalFileName}</p>
-            <p className="text-2xs text-gray-500">{formatBytes(record.originalSizeBytes)} · AES-256-GCM</p>
+            <p className="text-2xs text-gray-500">{formatBytes(record.originalSizeBytes)} · Protected</p>
           </div>
-          <Badge variant="success">Encrypted</Badge>
+          <Badge variant="success">Only you control access</Badge>
         </div>
 
         {/* Active links — manage / revoke (Smart Links audit: link revocation UI) */}
         {!created && (
           <div className="border border-bg-border rounded-xl overflow-hidden">
             <div className="px-3 py-2 bg-bg-elevated text-xs font-semibold text-gray-300 flex items-center justify-between">
-              <span>Share Links for this File ({existingLinks.filter(l => l.isActive).length} active)</span>
+              <span>Links for this file ({existingLinks.filter(l => l.isActive).length} active)</span>
               {loadingLinks && <RefreshCw size={11} className="animate-spin text-gray-500" />}
             </div>
             <div className="divide-y divide-bg-border max-h-44 overflow-y-auto">
               {!loadingLinks && existingLinks.length === 0 && (
-                <p className="text-xs text-gray-500 px-3 py-3 text-center">No links created yet for this file</p>
+                <p className="text-xs text-gray-500 px-3 py-3 text-center">No links yet — create one below</p>
               )}
               {existingLinks.map(link => (
                 <div key={link.id} className="flex items-center justify-between gap-2 px-3 py-2">
@@ -410,9 +410,12 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
 
         {!created ? (
           <>
+            <p className="text-2xs text-gray-400 -mt-1">
+              Choose a few options, create the link, and send it — usually under 20 seconds.
+            </p>
             {/* Expiry */}
             <div>
-              <label className="text-xs font-semibold text-gray-300 block mb-2">Link Expires After</label>
+              <label className="text-xs font-semibold text-gray-300 block mb-2">Access expires after</label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {[
                   { label: '1 Hour',   value: '1'    },
@@ -437,7 +440,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
             {/* Max views */}
             <div>
               <label className="text-xs font-semibold text-gray-300 block mb-1.5">
-                Max Views <span className="text-gray-500 font-normal">(leave empty for unlimited)</span>
+                Max views <span className="text-gray-500 font-normal">(empty = unlimited)</span>
               </label>
               <input type="number" min="1" value={maxViews}
                 onChange={e => setMaxViews(e.target.value)}
@@ -449,8 +452,8 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
             {/* Toggles */}
             <div className="space-y-2">
               {[
-                { label: 'Allow Download',       desc: 'Recipient can download the file',           value: allowDownload, set: setAllowDownload },
-                { label: 'Require Name',         desc: 'Recipient must enter their name to access', value: requireName,   set: setRequireName   },
+                { label: 'Allow download',       desc: 'Recipient can save a copy',           value: allowDownload, set: setAllowDownload },
+                { label: 'Ask for their name',   desc: 'Recipient enters a name before opening', value: requireName,   set: setRequireName   },
               ].map(opt => (
                 <div key={opt.label} className="flex items-center justify-between p-3 bg-bg-elevated rounded-xl border border-bg-border">
                   <div>
@@ -469,7 +472,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
             <div className="border border-bg-border rounded-xl overflow-hidden">
               <button type="button" onClick={() => setShowAdvanced(v => !v)}
                 className="w-full flex items-center justify-between px-3 py-2.5 text-xs font-semibold text-gray-300 hover:text-white bg-bg-elevated">
-                <span>Advanced Access Policies</span>
+                <span>More protection options</span>
                 <span className="text-gray-500">{showAdvanced ? '−' : '+'}</span>
               </button>
               {showAdvanced && (
@@ -477,8 +480,8 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
                   {/* One-time use / max downloads */}
                   <div className="space-y-2">
                     {[
-                      { label: 'One-Time Use',  desc: 'Link self-revokes after the first successful access', value: oneTimeUse, set: setOneTimeUse },
-                      { label: 'Require Identity Verification (OTP)', desc: 'Recipient must enter a 6-digit code before viewing', value: requireOtp, set: setRequireOtp },
+                      { label: 'One-time link',  desc: 'Stops working after the first successful open', value: oneTimeUse, set: setOneTimeUse },
+                      { label: 'Require a code (OTP)', desc: 'Recipient enters a 6-digit code before viewing', value: requireOtp, set: setRequireOtp },
                     ].map(opt => (
                       <div key={opt.label} className="flex items-center justify-between p-3 bg-bg-elevated rounded-xl border border-bg-border">
                         <div>
@@ -495,9 +498,9 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
 
                   {requireOtp && (
                     <div className="p-3 bg-dna-500/5 border border-dna-500/20 rounded-xl">
-                      <p className="text-xs font-semibold text-dna-400 mb-1">ℹ️ How OTP works here</p>
+                      <p className="text-xs font-semibold text-dna-400 mb-1">How the code works</p>
                       <p className="text-2xs text-gray-400 leading-relaxed">
-                        After you click <strong>"Generate Smart Link"</strong>, a 6-digit verification code will appear <strong>right here in the app</strong>. Share that code with your recipient manually (WhatsApp / Email / message). The recipient must enter it before they can view the file.
+                        After you click <strong>"Create share link"</strong>, a 6-digit code appears here. Send it to your recipient (WhatsApp / email / message). They enter it before viewing.
                       </p>
                       <label className="text-xs font-semibold text-gray-300 block mt-3 mb-1.5">
                         Recipient Email <span className="text-gray-500 font-normal">(optional — for your own records)</span>
@@ -509,19 +512,19 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
 
                   {/* Enterprise security controls */}
                   <div className="space-y-2">
-                    <p className="text-xs font-semibold text-purple-400 uppercase tracking-wide">Enterprise Security</p>
+                    <p className="text-xs font-semibold text-dna-400 uppercase tracking-wide">Extra security</p>
                     {[
-                      { label: 'Block TOR Access', desc: 'Reject requests from TOR exit nodes (enabled by default)', value: torBlock, set: setTorBlock },
-                      { label: 'Block VPN Access', desc: 'Reject requests originating from VPN providers', value: vpnBlock, set: setVpnBlock },
-                      { label: 'One Device Only', desc: 'Bind link to the first device that accesses it', value: oneDeviceOnly, set: setOneDeviceOnly },
+                      { label: 'Block TOR', desc: 'Block openings from TOR networks', value: torBlock, set: setTorBlock },
+                      { label: 'Block VPN', desc: 'Block openings from VPN providers', value: vpnBlock, set: setVpnBlock },
+                      { label: 'One device only', desc: 'Lock the link to the first device that opens it', value: oneDeviceOnly, set: setOneDeviceOnly },
                     ].map(opt => (
-                      <div key={opt.label} className="flex items-center justify-between p-3 bg-bg-elevated rounded-xl border border-purple-500/20">
+                      <div key={opt.label} className="flex items-center justify-between p-3 bg-bg-elevated rounded-xl border border-dna-500/20">
                         <div>
                           <p className="text-xs font-semibold text-white">{opt.label}</p>
                           <p className="text-2xs text-gray-500">{opt.desc}</p>
                         </div>
                         <button onClick={() => opt.set(!opt.value)}
-                          className={`w-10 h-5 rounded-full transition-all relative ${opt.value ? 'bg-purple-500' : 'bg-bg-border'}`}>
+                          className={`w-10 h-5 rounded-full transition-all relative ${opt.value ? 'bg-dna-500' : 'bg-bg-border'}`}>
                           <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all ${opt.value ? 'left-5' : 'left-0.5'}`} />
                         </button>
                       </div>
@@ -570,7 +573,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
             {/* Note */}
             <div>
               <label className="text-xs font-semibold text-gray-300 block mb-1.5">
-                Note to Recipient <span className="text-gray-500 font-normal">(optional)</span>
+                Note for recipient <span className="text-gray-500 font-normal">(optional)</span>
               </label>
               <textarea value={note} onChange={e => setNote(e.target.value)}
                 placeholder="Please review this document carefully…"
@@ -617,12 +620,12 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
                 }}
                 className="w-full flex items-center justify-between px-3 py-2.5 text-xs font-semibold text-gray-300 hover:text-white bg-bg-elevated">
                 <span className="flex items-center gap-2">
-                  <span className="text-purple-400">🔏</span> Privacy Masking
-                  <span className="text-gray-500 font-normal">(auto-detects &amp; hides sensitive data)</span>
+                  Hide sensitive details
+                  <span className="text-gray-500 font-normal">(auto-detect &amp; hide)</span>
                 </span>
                 {scanning
-                  ? <span className="text-xs text-purple-400 flex items-center gap-1"><div className="w-3 h-3 border border-purple-400 border-t-transparent rounded-full animate-spin" /> Scanning…</span>
-                  : <span className={`text-xs px-2 py-0.5 rounded font-semibold ${privacyMaskingEnabled ? 'bg-purple-500/20 text-purple-400' : 'text-gray-500'}`}>
+                  ? <span className="text-xs text-dna-400 flex items-center gap-1"><div className="w-3 h-3 border border-dna-400 border-t-transparent rounded-full animate-spin" /> Scanning…</span>
+                  : <span className={`text-xs px-2 py-0.5 rounded font-semibold ${privacyMaskingEnabled ? 'bg-dna-500/20 text-dna-400' : 'text-gray-500'}`}>
                       {privacyMaskingEnabled ? 'ON' : 'OFF'}
                     </span>
                 }
@@ -663,7 +666,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
                           </div>
                           <div
                             onClick={() => set((v: boolean) => !v)}
-                            className={`w-8 h-4 rounded-full transition-colors relative cursor-pointer ${val ? 'bg-purple-500' : 'bg-bg-border'}`}
+                            className={`w-8 h-4 rounded-full transition-colors relative cursor-pointer ${val ? 'bg-dna-500' : 'bg-bg-border'}`}
                           >
                             <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${val ? 'left-4' : 'left-0.5'}`} />
                           </div>
@@ -681,7 +684,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
               {!scanning && scanDone && !scanSupported && (
                 <div className="px-3 py-3 bg-bg-base">
                   <p className="text-2xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 rounded px-2 py-1.5">
-                    📷 {scanMsg}
+                    {scanMsg}
                   </p>
                 </div>
               )}
@@ -699,7 +702,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
             >
               <div>
                 <p className={`text-xs font-semibold flex items-center gap-2 ${requestLocation ? 'text-green-400' : 'text-gray-300'}`}>
-                  📍 GPS Location Tracking
+                  Ask for location
                   <span className={`text-2xs px-1.5 py-0.5 rounded font-bold ${
                     requestLocation
                       ? 'bg-green-500/20 text-green-400'
@@ -710,8 +713,8 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
                 </p>
                 <p className="text-2xs text-gray-500 mt-0.5">
                   {requestLocation
-                    ? 'Viewer must allow GPS location to access the file. No location = no access.'
-                    : 'Off — open without GPS prompt; still track via IP (approximate).'}
+                    ? 'Viewer must allow location to open the file.'
+                    : 'Off — open without location prompt (approximate place via network still may be logged).'}
                 </p>
               </div>
               <div className={`w-8 h-4 rounded-full transition-colors relative shrink-0 ml-3 ${requestLocation ? 'bg-green-500' : 'bg-bg-border'}`}>
@@ -721,8 +724,8 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
 
             <button onClick={handleCreate} disabled={creating} className="btn btn-primary w-full">
               {creating
-                ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Generating…</>
-                : <><Share2 size={14} /> Generate Smart Link</>}
+                ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Creating link…</>
+                : <><Share2 size={14} /> Create share link</>}
             </button>
           </>
         ) : (
@@ -731,15 +734,15 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
             <div className="rounded-xl bg-success/5 border border-success/20 p-4 flex items-center gap-3">
               <Check size={18} className="text-success shrink-0" />
               <div>
-                <p className="text-sm font-semibold text-success">Smart Link Generated!</p>
-                <p className="text-2xs text-gray-400 mt-0.5">Access is tracked — every view is logged in View in Timeline</p>
+                <p className="text-sm font-semibold text-success">Link ready — send it anytime</p>
+                <p className="text-2xs text-gray-400 mt-0.5">Every open is tracked. Check Tracking anytime to see who viewed it.</p>
               </div>
             </div>
 
             {/* Dev OTP — surfaced because no SMTP provider is configured */}
             {created.devOtp && (
               <div className="rounded-xl bg-warning/5 border border-warning/20 p-3">
-                <p className="text-2xs text-warning font-semibold mb-1">VERIFICATION CODE (share manually — no email service configured)</p>
+                <p className="text-2xs text-warning font-semibold mb-1">Verification code (share this manually)</p>
                 <p className="text-lg font-mono tracking-[0.4em] text-white">{created.devOtp}</p>
                 {created.devOtpNote && <p className="text-2xs text-gray-500 mt-1">{created.devOtpNote}</p>}
               </div>
@@ -747,7 +750,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
 
             {/* URL box */}
             <div className="bg-bg-elevated rounded-xl border border-bg-border p-3">
-              <p className="text-2xs text-gray-500 mb-1.5 font-semibold">SHARE URL</p>
+              <p className="text-2xs text-gray-500 mb-1.5 font-semibold">Your link</p>
               <div className="flex items-center gap-2">
                 <p className="text-xs text-dna-400 mono flex-1 truncate">{created.shareUrl}</p>
                 <button onClick={handleCopy}
@@ -858,13 +861,14 @@ function VaultGalleryCard({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const source = vaultSourceCaption(record);
   return (
     <button
       type="button"
       onClick={onSelect}
       className={cn(
-        'card overflow-hidden p-0 text-left transition-all hover:border-dna-500/30',
-        selected && 'ring-2 ring-dna-500/60 border-dna-500/40',
+        'card overflow-hidden p-0 text-left transition-all duration-200 hover:border-dna-500/35 hover:-translate-y-0.5',
+        selected && 'ring-2 ring-dna-500/55 border-dna-500/40',
       )}
     >
       <div className="w-full aspect-[4/3] bg-bg-elevated relative overflow-hidden">
@@ -874,14 +878,23 @@ function VaultGalleryCard({
           mimeType={record.originalMimeType}
           variant="gallery"
         />
+        {source && (
+          <span className="absolute top-2 left-2 text-2xs font-semibold px-1.5 py-0.5 rounded-md bg-black/65 text-white border border-white/15">
+            {source}
+          </span>
+        )}
+        <span className="absolute bottom-2 right-2 text-2xs font-semibold px-1.5 py-0.5 rounded-md bg-emerald-600/90 text-white">
+          Protected
+        </span>
       </div>
       <div className="p-3 space-y-1">
         <p className="text-sm font-semibold text-white truncate">{record.originalFileName}</p>
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-gray-500 truncate">
           {getVaultFileTypeDisplay(record.originalMimeType, record.originalFileName)}
+          {source ? ` · ${source}` : ''}
         </p>
-        <p className="text-xs text-gray-500">
-          {format(new Date(record.createdAt), 'MMM d, yyyy · h:mm a')}
+        <p className="text-2xs text-gray-500">
+          {format(new Date(record.createdAt), 'MMM d, yyyy')}
         </p>
       </div>
     </button>
@@ -912,7 +925,7 @@ export function VaultPage() {
   };
 
   const handleDelete = async (record: VaultRecord) => {
-    if (!window.confirm(`Delete "${record.originalFileName}" from vault?`)) return;
+    if (!window.confirm(`Remove "${record.originalFileName}" from Digital Assets?`)) return;
     const previous = records;
     setDeletingId(record.id);
     // Optimistic UI — remove card + close panel immediately
@@ -922,7 +935,7 @@ export function VaultPage() {
     if (protecting?.id === record.id) setProtecting(null);
     try {
       await deleteVaultRecord(record.id);
-      toast.success('File removed from vault');
+      toast.success('File removed');
     } catch {
       setRecords(previous);
       toast.error('Failed to delete file');
@@ -958,7 +971,9 @@ export function VaultPage() {
     const keyword = (
       r.originalFileName.toLowerCase().includes(search.toLowerCase()) ||
       r.id.toLowerCase().includes(search.toLowerCase()) ||
-      r.dnaRecordId.toLowerCase().includes(search.toLowerCase())
+      r.dnaRecordId.toLowerCase().includes(search.toLowerCase()) ||
+      (r.sourcePlatform ?? '').toLowerCase().includes(search.toLowerCase()) ||
+      (vaultSourceCaption(r) ?? '').toLowerCase().includes(search.toLowerCase())
     );
     if (aiMode && !aiSearching) {
       return aiResults.length > 0 ? aiResults.includes(r.dnaRecordId) : keyword;
@@ -987,19 +1002,22 @@ export function VaultPage() {
     <div className="page-shell animate-fade-in">
       <div className="space-y-5 min-w-0">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-white">Digital Assets</h1>
-          <p className="text-sm text-gray-500 mt-0.5">AES-256-GCM encrypted file storage</p>
+      <div className="flex items-end justify-between flex-wrap gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-gray-500 mb-1">Library</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Digital Assets</h1>
+          <p className="text-sm text-gray-500 mt-1 max-w-xl">
+            All your protected files in one place — Hub uploads and extension captures
+          </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 shrink-0">
           {!loading && records && (
             <div className="flex items-center gap-2">
-              <Badge variant="purple">{records.length} records</Badge>
-              <Badge variant="success" dot>AES-256-GCM</Badge>
+              <Badge variant="purple">{records.length} files</Badge>
+              <Badge variant="success" dot>Protected</Badge>
             </div>
           )}
-          <button onClick={refetch} disabled={loading} className="btn btn-secondary btn-sm">
+          <button onClick={refetch} disabled={loading} className="btn btn-secondary btn-sm" title="Refresh">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
@@ -1009,18 +1027,18 @@ export function VaultPage() {
       {!loading && records && records.length > 0 && (
         <div className="stat-grid-3 gap-3">
           <div className="card-sm text-center">
-            <p className="text-2xl font-bold text-purple">{records.length}</p>
-            <p className="text-2xs text-gray-500 mt-1">Encrypted Files</p>
+            <p className="text-2xl font-bold text-purple tabular-nums">{records.length}</p>
+            <p className="text-2xs text-gray-500 mt-1">Protected files</p>
           </div>
           <div className="card-sm text-center">
-            <p className="text-2xl font-bold text-success">
+            <p className="text-2xl font-bold text-success tabular-nums">
               {formatBytes(records.reduce((s, r) => s + r.encryptedSizeBytes, 0))}
             </p>
-            <p className="text-2xs text-gray-500 mt-1">Total Encrypted Size</p>
+            <p className="text-2xs text-gray-500 mt-1">Storage used</p>
           </div>
           <div className="card-sm text-center">
-            <p className="text-2xl font-bold text-dna-400">100%</p>
-            <p className="text-2xs text-gray-500 mt-1">Encryption Coverage</p>
+            <p className="text-2xl font-bold text-dna-400">Protected</p>
+            <p className="text-2xs text-gray-500 mt-1">Only you control access</p>
           </div>
         </div>
       )}
@@ -1070,7 +1088,7 @@ export function VaultPage() {
               : <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />}
             <input
               type="text"
-              placeholder={aiMode ? 'Search by meaning, content, or filename…' : 'Search by filename, vault ID, or DNA record ID…'}
+              placeholder={aiMode ? 'Search by meaning or filename…' : 'Search by filename or source…'}
               value={search}
               onChange={e => handleSearch(e.target.value)}
               className="input pl-9 text-sm"
@@ -1079,7 +1097,7 @@ export function VaultPage() {
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto shrink-0">
             <button
               onClick={() => { setAiMode(m => !m); setSearch(''); setAiResults([]); }}
-              title={aiMode ? 'Switch to keyword search' : 'Switch to AI semantic search'}
+              title={aiMode ? 'Switch to keyword search' : 'Search by meaning'}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all shrink-0 min-h-[44px] sm:min-h-0 ${
                 aiMode
                   ? 'bg-dna-500/20 border-dna-500/40 text-dna-400'
@@ -1087,7 +1105,7 @@ export function VaultPage() {
               }`}
             >
               <Cpu size={13} />
-              {aiMode ? 'AI Search ON' : 'AI Search'}
+              {aiMode ? 'Smart search on' : 'Smart search'}
             </button>
             <div className="flex items-center rounded-lg border border-bg-border overflow-hidden shrink-0">
               <button
@@ -1124,8 +1142,8 @@ export function VaultPage() {
             ) : filtered.length === 0 ? (
               <EmptyState
                 icon={Archive}
-                title="No vault records"
-                description="Encrypt and store files using the Generate DNA flow"
+                title="No protected files yet"
+                description="Protect a file to store it here — then share and track who opens it"
               />
             ) : (
               <div className={cn(
@@ -1151,11 +1169,12 @@ export function VaultPage() {
             <thead>
               <tr>
                 <th>File</th>
-                <th>Vault ID</th>
+                <th>Source</th>
+                <th>ID</th>
                 <th>Location</th>
-                <th>Original Size</th>
-                <th>Encryption</th>
-                <th>Stored At</th>
+                <th>Size</th>
+                <th>Status</th>
+                <th>Added</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -1164,11 +1183,11 @@ export function VaultPage() {
                 <SkeletonTable rows={5} />
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7}>
+                  <td colSpan={8}>
                     <EmptyState
                       icon={Archive}
-                      title="No vault records"
-                      description="Encrypt and store files using the Generate DNA flow"
+                      title="No protected files yet"
+                      description="Protect a file to store it here — then share and track who opens it"
                     />
                   </td>
                 </tr>
@@ -1200,6 +1219,11 @@ export function VaultPage() {
                       </div>
                     </td>
                     <td>
+                      <span className="text-2xs text-gray-300">
+                        {vaultSourceCaption(r) ?? 'PinIT Hub'}
+                      </span>
+                    </td>
+                    <td>
                       <span className="mono text-2xs text-dna-400">{r.id.slice(0, 16)}…</span>
                     </td>
                     <td>
@@ -1228,7 +1252,7 @@ export function VaultPage() {
                       <span className="mono text-xs">{formatBytes(r.originalSizeBytes)}</span>
                     </td>
                     <td>
-                      <Badge variant="success">{r.encryptionAlgorithm}</Badge>
+                      <Badge variant="success">Protected</Badge>
                     </td>
                     <td>
                       <span className="text-xs text-gray-400">

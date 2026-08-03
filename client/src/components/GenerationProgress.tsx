@@ -117,7 +117,7 @@ function ConfidenceGauge({ percent }: { percent: number }) {
         </div>
       </div>
       <p className="text-2xs text-gray-500 mt-2 text-center">
-        Stage completion — not a forensic verdict
+        Progress — almost ready
       </p>
     </div>
   );
@@ -341,12 +341,8 @@ export function GenerationProgress({
             </p>
             <dl className="mt-3 space-y-1.5 text-2xs">
               <div className="flex justify-between gap-2">
-                <dt className="text-gray-500">Algorithm</dt>
-                <dd className="text-white font-medium">PINIT DNA v2.0</dd>
-              </div>
-              <div className="flex justify-between gap-2">
-                <dt className="text-gray-500">Hash</dt>
-                <dd className="text-white font-medium mono">SHA-256</dd>
+                <dt className="text-gray-500">Protection</dt>
+                <dd className="text-white font-medium">PinIT identity</dd>
               </div>
               <div className="flex justify-between gap-2">
                 <dt className="text-gray-500">Status</dt>

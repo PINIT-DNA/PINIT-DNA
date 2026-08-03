@@ -16,6 +16,7 @@ import {
 import { touchLastLogin } from '../../lib/identity-store';
 import { warmBackend, parseJwt, getAccessToken } from '../../lib/auth';
 import { resolveDefaultHomePath } from '../../lib/subscription/post-upgrade-redirect';
+import { takePendingTeamInvite } from '../../lib/team-invite';
 import { loginWithFace } from '../../lib/face-api-client';
 import { collectFingerprint } from '../../lib/device-fingerprint';
 import { preloadFaceModels } from '../../lib/face-capture';
@@ -134,6 +135,11 @@ export function LoginFlow() {
           {step === 'success' && (
             <LoginSuccess
               onEnter={() => {
+                const pendingInvite = takePendingTeamInvite();
+                if (pendingInvite) {
+                  navigate(`/team/join/${encodeURIComponent(pendingInvite)}`, { replace: true });
+                  return;
+                }
                 const token = getAccessToken();
                 const parsed = token ? parseJwt(token) : null;
                 navigate(resolveDefaultHomePath(parsed?.accountType ?? 'INDIVIDUAL'), { replace: true });
