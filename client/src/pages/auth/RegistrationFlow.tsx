@@ -112,7 +112,6 @@ export function RegistrationFlow() {
               mode="register"
               enrollmentLabel={deviceFpRef.current || 'pinit-enroll'}
               deviceFingerprint={deviceFpRef.current || undefined}
-              strict
               onDone={afterBiometric}
               onError={(m) => setError(m)}
             />
@@ -269,12 +268,12 @@ function Permissions({ deviceFpRef, onNext }: { deviceFpRef: React.MutableRefObj
 
   return (
     <div className="pa-card">
-      <StepHead icon={<ShieldCheck size={26} color="#3b9eff" />} title="Permissions" subtitle="Camera, mic, and device biometrics — one-time setup." />
+      <StepHead icon={<ShieldCheck size={26} color="#3b9eff" />} title="Permissions" subtitle="Camera and mic — one-time setup." />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginBottom: 20 }}>
         {[
           { icon: <Camera size={18} />, label: 'Camera', sub: 'Round face scan' },
           { icon: <Mic size={18} />, label: 'Microphone', sub: 'Quick voiceprint' },
-          { icon: <ShieldCheck size={18} />, label: 'Device biometric', sub: 'Windows Hello or fingerprint when available' },
+          { icon: <ShieldCheck size={18} />, label: 'Device check', sub: 'Quick confirm (no fingerprint popup)' },
         ].map((p) => (
           <div key={p.label} className="pa-check">
             <span style={{ color: '#3b9eff', display: 'flex' }}>{p.icon}</span>

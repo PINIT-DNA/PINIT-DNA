@@ -83,7 +83,6 @@ export function LoginFlow() {
               enrollmentLabel={(getStoredWebAuthnCredential() ?? deviceFpRef.current) || 'pinit-login'}
               deviceFingerprint={deviceFpRef.current || undefined}
               expectedCredentialId={getStoredWebAuthnCredential()}
-              strict
               onDone={(r) => { bioCredentialRef.current = r.credentialId; go('voice'); }}
               onError={(m) => setError(m)}
             />

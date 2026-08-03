@@ -4,8 +4,16 @@ import { StepHead } from './parts';
 import {
   assertDeviceCredential,
   registerDeviceCredential,
+  deviceBoundCredentialId,
+  laptopBiometricSkip,
   type BiometricResult,
 } from '../../lib/webauthn';
+
+/**
+ * TEMP: skip real Windows Hello / passkey / fingerprint UI.
+ * Face + voice still run; device step is a short dummy pass.
+ */
+const SKIP_PLATFORM_WEBAUTHN = true;
 
 interface BiometricStepProps {
   mode: 'register' | 'login';
@@ -21,13 +29,13 @@ interface BiometricStepProps {
   onError?: (msg: string) => void;
 }
 
-/** Fingerprint — real WebAuthn (Windows Hello / Touch ID) when available. */
+/** Device check — dummy for now (no Windows Hello / phone passkey popup). */
 export function BiometricStep({
   mode,
   enrollmentLabel,
   deviceFingerprint,
   expectedCredentialId,
-  strict = true,
+  strict = false,
   onDone,
   onError,
 }: BiometricStepProps) {
@@ -48,7 +56,7 @@ export function BiometricStep({
     setProgress(5);
     setError('');
 
-    const durationMs = mode === 'register' ? 1200 : 1000;
+    const durationMs = SKIP_PLATFORM_WEBAUTHN ? 700 : mode === 'register' ? 1200 : 1000;
     const start = Date.now();
     const tick = setInterval(() => {
       if (cancelled) return;
@@ -57,9 +65,22 @@ export function BiometricStep({
 
     (async () => {
       try {
-        const result = mode === 'register'
-          ? await registerDeviceCredential(enrollmentLabel, { strict, deviceFingerprint })
-          : await assertDeviceCredential(expectedCredentialId, { strict, deviceFingerprint });
+        let result: BiometricResult;
+
+        if (SKIP_PLATFORM_WEBAUTHN) {
+          await new Promise((r) => setTimeout(r, durationMs));
+          if (deviceFingerprint) {
+            result = deviceBoundCredentialId(deviceFingerprint);
+          } else if (expectedCredentialId) {
+            result = { ok: true, credentialId: expectedCredentialId, simulated: true };
+          } else {
+            result = laptopBiometricSkip();
+          }
+        } else {
+          result = mode === 'register'
+            ? await registerDeviceCredential(enrollmentLabel, { strict, deviceFingerprint })
+            : await assertDeviceCredential(expectedCredentialId, { strict, deviceFingerprint });
+        }
 
         if (cancelled) return;
         clearInterval(tick);
@@ -86,8 +107,16 @@ export function BiometricStep({
     <div className="pa-card" style={{ textAlign: 'center' }}>
       <StepHead
         icon={<Fingerprint size={26} color="#6366f1" />}
-        title="Device Biometric"
-        subtitle={done ? 'Verified' : phase === 'error' ? 'Verification failed' : 'Confirm with fingerprint or Windows Hello…'}
+        title="Device check"
+        subtitle={
+          done
+            ? 'Verified'
+            : phase === 'error'
+              ? 'Verification failed'
+              : SKIP_PLATFORM_WEBAUTHN
+                ? 'Confirming this device…'
+                : 'Confirm with fingerprint or Windows Hello…'
+        }
       />
       <div
         className={done ? '' : phase === 'scanning' ? 'pa-spin' : ''}
@@ -120,5 +149,5 @@ export function isNotRegisteredError(msg: string): boolean {
 }
 
 export function isDuplicateIdentityError(msg: string): boolean {
-  return /already exists|already registered|duplicate|sign in using|login instead|one face|one pinit/i.test(msg);
+  return /already registered|duplicate|exists|already exists/i.test(msg);
 }
