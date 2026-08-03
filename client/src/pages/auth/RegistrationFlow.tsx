@@ -8,13 +8,13 @@ import {
 
 import { AuthShell } from '../../components/auth/AuthShell';
 import { FaceRoundScan } from '../../components/auth/FaceRoundScan';
-import { BiometricStep, isDuplicateIdentityError } from '../../components/auth/BiometricStep';
+import { isDuplicateIdentityError } from '../../components/auth/BiometricStep';
 import { VoiceCaptureStep } from '../../components/auth/VoiceCaptureStep';
 import { StepHead, Checklist, SystemTrace, TrustBadge, type CheckItem } from '../../components/auth/parts';
 import { useAuth } from '../../context/AuthContext';
 import { collectFingerprint } from '../../lib/device-fingerprint';
 import { generateHoid, saveRegistration } from '../../lib/hoid';
-import { type BiometricResult } from '../../lib/webauthn';
+import { deviceBoundCredentialId, laptopBiometricSkip, type BiometricResult } from '../../lib/webauthn';
 import { storeIdentity } from '../../lib/identity-store';
 import { warmBackend, parseJwt } from '../../lib/auth';
 import { registerFaceIdentity } from '../../lib/face-api-client';
@@ -30,8 +30,8 @@ import {
   getPreRegisterAccountType,
 } from '../../lib/pre-register';
 
-type Step = 'welcome' | 'permissions' | 'face' | 'biometric' | 'voice' | 'creating' | 'success';
-const ORDER: Step[] = ['welcome', 'permissions', 'face', 'biometric', 'voice', 'creating', 'success'];
+type Step = 'welcome' | 'permissions' | 'face' | 'voice' | 'creating' | 'success';
+const ORDER: Step[] = ['welcome', 'permissions', 'face', 'voice', 'creating', 'success'];
 
 const fade = {
   initial: { opacity: 0, y: 16 },
@@ -69,11 +69,9 @@ export function RegistrationFlow() {
   }, [navigate]);
 
   function afterFace() {
-    go('biometric');
-  }
-
-  function afterBiometric(r: BiometricResult) {
-    bioRef.current = r;
+    bioRef.current = deviceFpRef.current
+      ? deviceBoundCredentialId(deviceFpRef.current)
+      : laptopBiometricSkip();
     go('voice');
   }
 
@@ -106,15 +104,6 @@ export function RegistrationFlow() {
               />
               {error && <p style={{ color: '#fca5a5', fontSize: 13, marginTop: 8, textAlign: 'center' }}>{error}</p>}
             </>
-          )}
-          {step === 'biometric'   && (
-            <BiometricStep
-              mode="register"
-              enrollmentLabel={deviceFpRef.current || 'pinit-enroll'}
-              deviceFingerprint={deviceFpRef.current || undefined}
-              onDone={afterBiometric}
-              onError={(m) => setError(m)}
-            />
           )}
           {step === 'voice'       && (
             <VoiceCaptureStep randomPhrase onDone={afterVoice} onError={(m) => setError(m)} />
@@ -273,7 +262,6 @@ function Permissions({ deviceFpRef, onNext }: { deviceFpRef: React.MutableRefObj
         {[
           { icon: <Camera size={18} />, label: 'Camera', sub: 'Round face scan' },
           { icon: <Mic size={18} />, label: 'Microphone', sub: 'Quick voiceprint' },
-          { icon: <ShieldCheck size={18} />, label: 'Device check', sub: 'Quick confirm (no fingerprint popup)' },
         ].map((p) => (
           <div key={p.label} className="pa-check">
             <span style={{ color: '#3b9eff', display: 'flex' }}>{p.icon}</span>

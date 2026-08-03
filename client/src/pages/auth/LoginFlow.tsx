@@ -5,7 +5,7 @@ import { ScanFace, ShieldCheck, ArrowRight, CheckCircle2, UserCheck } from 'luci
 
 import { AuthShell } from '../../components/auth/AuthShell';
 import { FaceRoundScan } from '../../components/auth/FaceRoundScan';
-import { BiometricStep, isNotRegisteredError } from '../../components/auth/BiometricStep';
+import { isNotRegisteredError } from '../../components/auth/BiometricStep';
 import { VoiceCaptureStep } from '../../components/auth/VoiceCaptureStep';
 import { StepHead, Checklist, SystemTrace, TrustBadge, type CheckItem } from '../../components/auth/parts';
 import { useAuth } from '../../context/AuthContext';
@@ -21,9 +21,9 @@ import { loginWithFace } from '../../lib/face-api-client';
 import { collectFingerprint } from '../../lib/device-fingerprint';
 import { preloadFaceModels } from '../../lib/face-capture';
 
-type Step = 'welcome' | 'face' | 'biometric' | 'voice' | 'presence' | 'success';
-/** Face → fingerprint UI → voice → database check. */
-const ORDER: Step[] = ['welcome', 'face', 'biometric', 'voice', 'presence', 'success'];
+type Step = 'welcome' | 'face' | 'voice' | 'presence' | 'success';
+/** Face → voice → database check (device passkey step skipped for now). */
+const ORDER: Step[] = ['welcome', 'face', 'voice', 'presence', 'success'];
 
 const fade = {
   initial: { opacity: 0, y: 16 },
@@ -71,21 +71,18 @@ export function LoginFlow() {
                 mode="login"
                 title="Face Authentication"
                 onEmbedding={(emb) => { faceEmbeddingRef.current = emb; }}
-                onNext={() => go('biometric')}
-                onError={(m) => setError(m)}
+                onNext={() => {
+                // Dummy device credential — no Windows Hello / passkey popup
+                const fp = deviceFpRef.current;
+                bioCredentialRef.current = fp
+                  ? `dev_${fp.slice(0, 12)}`
+                  : `sim_skip_${Date.now().toString(36)}`;
+                go('voice');
+              }}
+              onError={(m) => setError(m)}
               />
               {error && <p style={{ color: '#fca5a5', fontSize: 13, marginTop: 8, textAlign: 'center' }}>{error}</p>}
             </>
-          )}
-          {step === 'biometric' && (
-            <BiometricStep
-              mode="login"
-              enrollmentLabel={(getStoredWebAuthnCredential() ?? deviceFpRef.current) || 'pinit-login'}
-              deviceFingerprint={deviceFpRef.current || undefined}
-              expectedCredentialId={getStoredWebAuthnCredential()}
-              onDone={(r) => { bioCredentialRef.current = r.credentialId; go('voice'); }}
-              onError={(m) => setError(m)}
-            />
           )}
           {step === 'voice' && (
             <VoiceCaptureStep randomPhrase onDone={(fp) => { voiceFingerprintRef.current = fp; go('presence'); }} onError={(m) => setError(m)} />

@@ -1,12 +1,13 @@
 /**
  * PINIT — Device biometric (WebAuthn / FIDO2) helpers.
  *
- * These trigger the platform authenticator (Face ID / Touch ID / Windows Hello /
- * Android fingerprint) when available. In a demo / unsupported context they
- * resolve to a simulated success so the passwordless flow always completes.
+ * TEMP: platform WebAuthn / passkey popups disabled — always use device-bound
+ * or simulated credentials so login never opens Windows "Choose a passkey".
  */
 
 const RP_NAME = 'PINIT';
+/** Flip to false when re-enabling real Windows Hello / passkeys. */
+const DISABLE_PLATFORM_WEBAUTHN = true;
 
 function randomBytes(len: number): BufferSource {
   const buf = new Uint8Array(new ArrayBuffer(len));
@@ -22,6 +23,7 @@ function encodeUserId(id: string): BufferSource {
 }
 
 export async function platformAuthenticatorAvailable(): Promise<boolean> {
+  if (DISABLE_PLATFORM_WEBAUTHN) return false;
   try {
     if (!window.PublicKeyCredential) return false;
     return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
@@ -64,6 +66,10 @@ export async function registerDeviceCredential(
   opts: BiometricOptions & { deviceFingerprint?: string } = {},
 ): Promise<BiometricResult> {
   const { strict = false, deviceFingerprint } = opts;
+  if (DISABLE_PLATFORM_WEBAUTHN) {
+    if (deviceFingerprint) return deviceBoundCredentialId(deviceFingerprint);
+    return { ok: true, credentialId: simulatedId(), simulated: true };
+  }
   try {
     const available = await platformAuthenticatorAvailable();
     if (!available) {
@@ -114,6 +120,13 @@ export async function assertDeviceCredential(
   opts: BiometricOptions & { deviceFingerprint?: string } = {},
 ): Promise<BiometricResult> {
   const { strict = false, deviceFingerprint } = opts;
+  if (DISABLE_PLATFORM_WEBAUTHN) {
+    if (expectedCredentialId) {
+      return { ok: true, credentialId: expectedCredentialId, simulated: expectedCredentialId.startsWith('sim_') };
+    }
+    if (deviceFingerprint) return deviceBoundCredentialId(deviceFingerprint);
+    return { ok: true, credentialId: simulatedId(), simulated: true };
+  }
   try {
     const available = await platformAuthenticatorAvailable();
     if (!available) {
