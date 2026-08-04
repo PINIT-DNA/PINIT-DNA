@@ -39,7 +39,7 @@ export function AuthShell({
           </div>
           <h2 className="pa-hero-title">Create. Protect. Manage.</h2>
           <p className="pa-hero-copy">
-            Enterprise biometric identity — face, fingerprint, and voice. No passwords.
+            Real face and voice verify you. Device fingerprint binds automatically. No passwords.
           </p>
           <ul className="pa-hero-list">
             <li>Military-grade presence verification</li>

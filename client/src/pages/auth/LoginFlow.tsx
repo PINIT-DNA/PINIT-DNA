@@ -5,7 +5,7 @@ import { ScanFace, ShieldCheck, ArrowRight, CheckCircle2, UserCheck } from 'luci
 
 import { AuthShell } from '../../components/auth/AuthShell';
 import { FaceRoundScan } from '../../components/auth/FaceRoundScan';
-import { isNotRegisteredError } from '../../components/auth/BiometricStep';
+import { BiometricStep, isNotRegisteredError } from '../../components/auth/BiometricStep';
 import { VoiceCaptureStep } from '../../components/auth/VoiceCaptureStep';
 import { StepHead, Checklist, SystemTrace, TrustBadge, type CheckItem } from '../../components/auth/parts';
 import { useAuth } from '../../context/AuthContext';
@@ -21,9 +21,9 @@ import { loginWithFace } from '../../lib/face-api-client';
 import { collectFingerprint } from '../../lib/device-fingerprint';
 import { preloadFaceModels } from '../../lib/face-capture';
 
-type Step = 'welcome' | 'face' | 'voice' | 'presence' | 'success';
-/** Face → voice → database check (device passkey step skipped for now). */
-const ORDER: Step[] = ['welcome', 'face', 'voice', 'presence', 'success'];
+type Step = 'welcome' | 'face' | 'fingerprint' | 'voice' | 'presence' | 'success';
+/** Face (real) → fingerprint (auto) → voice (real) → database match. */
+const ORDER: Step[] = ['welcome', 'face', 'fingerprint', 'voice', 'presence', 'success'];
 
 const fade = {
   initial: { opacity: 0, y: 16 },
@@ -71,18 +71,24 @@ export function LoginFlow() {
                 mode="login"
                 title="Face Authentication"
                 onEmbedding={(emb) => { faceEmbeddingRef.current = emb; }}
-                onNext={() => {
-                // Dummy device credential — no Windows Hello / passkey popup
-                const fp = deviceFpRef.current;
-                bioCredentialRef.current = fp
-                  ? `dev_${fp.slice(0, 12)}`
-                  : `sim_skip_${Date.now().toString(36)}`;
-                go('voice');
-              }}
-              onError={(m) => setError(m)}
+                onNext={() => go('fingerprint')}
+                onError={(m) => setError(m)}
               />
               {error && <p style={{ color: '#fca5a5', fontSize: 13, marginTop: 8, textAlign: 'center' }}>{error}</p>}
             </>
+          )}
+          {step === 'fingerprint' && (
+            <BiometricStep
+              mode="login"
+              enrollmentLabel={deviceFpRef.current || 'login'}
+              deviceFingerprint={deviceFpRef.current || undefined}
+              expectedCredentialId={getStoredWebAuthnCredential()}
+              onDone={(r) => {
+                bioCredentialRef.current = r.credentialId;
+                go('voice');
+              }}
+              onError={(m) => setError(m)}
+            />
           )}
           {step === 'voice' && (
             <VoiceCaptureStep randomPhrase onDone={(fp) => { voiceFingerprintRef.current = fp; go('presence'); }} onError={(m) => setError(m)} />
@@ -172,7 +178,7 @@ function WelcomeBack({ onNext, onRegister }: { onNext: () => void; onRegister: (
         <div className="pa-bio-step">
           <ShieldCheck size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
           <span>Fingerprint</span>
-          <em>Verify</em>
+          <em>Auto</em>
         </div>
         <div className="pa-bio-step">
           <CheckCircle2 size={18} color="#3b9eff" style={{ margin: '0 auto' }} />

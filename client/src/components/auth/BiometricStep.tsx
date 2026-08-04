@@ -10,26 +10,27 @@ import {
 } from '../../lib/webauthn';
 
 /**
- * TEMP: skip real Windows Hello / passkey / fingerprint UI.
- * Face + voice still run; device step is a short dummy pass.
+ * Fingerprint / device bind step — always auto-completes.
+ * Never opens Windows Hello / passkey popups (DISABLE_PLATFORM_WEBAUTHN).
+ * Face + voice remain the real identity checks.
  */
-const SKIP_PLATFORM_WEBAUTHN = true;
+const AUTO_DEVICE_FINGERPRINT = true;
 
 interface BiometricStepProps {
   mode: 'register' | 'login';
   /** Stable label for WebAuthn enrollment (device hash or short id). */
   enrollmentLabel: string;
-  /** Device fingerprint hash — used when platform biometrics unavailable. */
+  /** Browser/device fingerprint hash — binds credential without OS popup. */
   deviceFingerprint?: string;
   /** Stored credential for login verification. */
   expectedCredentialId?: string | null;
-  /** Require real platform biometrics when available (enterprise). */
+  /** Unused while AUTO_DEVICE_FINGERPRINT is on. */
   strict?: boolean;
   onDone: (result: BiometricResult) => void;
   onError?: (msg: string) => void;
 }
 
-/** Device check — dummy for now (no Windows Hello / phone passkey popup). */
+/** Auto fingerprint — binds this browser/device; no OS passkey UI. */
 export function BiometricStep({
   mode,
   enrollmentLabel,
@@ -56,7 +57,7 @@ export function BiometricStep({
     setProgress(5);
     setError('');
 
-    const durationMs = SKIP_PLATFORM_WEBAUTHN ? 700 : mode === 'register' ? 1200 : 1000;
+    const durationMs = AUTO_DEVICE_FINGERPRINT ? 650 : mode === 'register' ? 1200 : 1000;
     const start = Date.now();
     const tick = setInterval(() => {
       if (cancelled) return;
@@ -67,7 +68,8 @@ export function BiometricStep({
       try {
         let result: BiometricResult;
 
-        if (SKIP_PLATFORM_WEBAUTHN) {
+        if (AUTO_DEVICE_FINGERPRINT) {
+          // Never call navigator.credentials — silent device bind only.
           await new Promise((r) => setTimeout(r, durationMs));
           if (deviceFingerprint) {
             result = deviceBoundCredentialId(deviceFingerprint);
@@ -86,11 +88,11 @@ export function BiometricStep({
         clearInterval(tick);
         setProgress(100);
         setDone(true);
-        setTimeout(() => onDoneRef.current(result), 200);
+        setTimeout(() => onDoneRef.current(result), 180);
       } catch (e) {
         if (cancelled) return;
         clearInterval(tick);
-        const msg = e instanceof Error ? e.message : 'Device biometric verification failed.';
+        const msg = e instanceof Error ? e.message : 'Device fingerprint failed.';
         setError(msg);
         setPhase('error');
         onErrorRef.current?.(msg);
@@ -107,15 +109,13 @@ export function BiometricStep({
     <div className="pa-card" style={{ textAlign: 'center' }}>
       <StepHead
         icon={<Fingerprint size={26} color="#6366f1" />}
-        title="Device check"
+        title="Fingerprint"
         subtitle={
           done
-            ? 'Verified'
+            ? 'Device bound'
             : phase === 'error'
               ? 'Verification failed'
-              : SKIP_PLATFORM_WEBAUTHN
-                ? 'Confirming this device…'
-                : 'Confirm with fingerprint or Windows Hello…'
+              : 'Binding this device automatically…'
         }
       />
       <div

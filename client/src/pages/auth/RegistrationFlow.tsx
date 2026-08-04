@@ -8,13 +8,13 @@ import {
 
 import { AuthShell } from '../../components/auth/AuthShell';
 import { FaceRoundScan } from '../../components/auth/FaceRoundScan';
-import { isDuplicateIdentityError } from '../../components/auth/BiometricStep';
+import { BiometricStep, isDuplicateIdentityError } from '../../components/auth/BiometricStep';
 import { VoiceCaptureStep } from '../../components/auth/VoiceCaptureStep';
 import { StepHead, Checklist, SystemTrace, TrustBadge, type CheckItem } from '../../components/auth/parts';
 import { useAuth } from '../../context/AuthContext';
 import { collectFingerprint } from '../../lib/device-fingerprint';
 import { generateHoid, saveRegistration } from '../../lib/hoid';
-import { deviceBoundCredentialId, laptopBiometricSkip, type BiometricResult } from '../../lib/webauthn';
+import { type BiometricResult } from '../../lib/webauthn';
 import { storeIdentity } from '../../lib/identity-store';
 import { warmBackend, parseJwt } from '../../lib/auth';
 import { registerFaceIdentity } from '../../lib/face-api-client';
@@ -30,8 +30,9 @@ import {
   getPreRegisterAccountType,
 } from '../../lib/pre-register';
 
-type Step = 'welcome' | 'permissions' | 'face' | 'voice' | 'creating' | 'success';
-const ORDER: Step[] = ['welcome', 'permissions', 'face', 'voice', 'creating', 'success'];
+type Step = 'welcome' | 'permissions' | 'face' | 'fingerprint' | 'voice' | 'creating' | 'success';
+/** Face (real) → fingerprint (auto) → voice (real). */
+const ORDER: Step[] = ['welcome', 'permissions', 'face', 'fingerprint', 'voice', 'creating', 'success'];
 
 const fade = {
   initial: { opacity: 0, y: 16 },
@@ -69,10 +70,7 @@ export function RegistrationFlow() {
   }, [navigate]);
 
   function afterFace() {
-    bioRef.current = deviceFpRef.current
-      ? deviceBoundCredentialId(deviceFpRef.current)
-      : laptopBiometricSkip();
-    go('voice');
+    go('fingerprint');
   }
 
   function afterVoice(fp: number[]) {
@@ -104,6 +102,18 @@ export function RegistrationFlow() {
               />
               {error && <p style={{ color: '#fca5a5', fontSize: 13, marginTop: 8, textAlign: 'center' }}>{error}</p>}
             </>
+          )}
+          {step === 'fingerprint' && (
+            <BiometricStep
+              mode="register"
+              enrollmentLabel={deviceFpRef.current || hoidRef.current || 'register'}
+              deviceFingerprint={deviceFpRef.current || undefined}
+              onDone={(r) => {
+                bioRef.current = r;
+                go('voice');
+              }}
+              onError={(m) => setError(m)}
+            />
           )}
           {step === 'voice'       && (
             <VoiceCaptureStep randomPhrase onDone={afterVoice} onError={(m) => setError(m)} />
@@ -213,7 +223,7 @@ function Welcome({
         <div className="pa-bio-step">
           <ShieldCheck size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
           <span>Fingerprint</span>
-          <em>Bind</em>
+          <em>Auto</em>
         </div>
         <div className="pa-bio-step">
           <Mic size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
