@@ -29,34 +29,19 @@ export function AuthShell({
       </div>
 
       <div className="pa-layout">
-        <aside className="pa-hero">
-          <div className="pa-brand pa-brand-hero">
-            <img src={BRAND.logoSrc} alt={BRAND.name} className="pa-logo-img" />
-            <div>
-              <div className="pa-brand-name">{BRAND.name}</div>
-              <div className="pa-brand-tag">{tagline}</div>
-            </div>
+        <div className="pa-brand pa-brand-corner">
+          <img src={BRAND.logoSrc} alt={BRAND.name} className="pa-logo-img" />
+          <div>
+            <div className="pa-brand-name">{BRAND.name}</div>
+            <div className="pa-brand-tag">{tagline}</div>
           </div>
+        </div>
+
+        <aside className="pa-hero">
           <h2 className="pa-hero-title">Create. Protect. Manage.</h2>
-          <p className="pa-hero-copy">
-            Real face and voice verify you. Device fingerprint binds automatically. No passwords.
-          </p>
-          <ul className="pa-hero-list">
-            <li>Military-grade presence verification</li>
-            <li>Immutable DNA-backed identity</li>
-            <li>Tracked access &amp; share control</li>
-          </ul>
         </aside>
 
         <div className="pa-shell">
-          <div className="pa-brand pa-brand-mobile">
-            <img src={BRAND.logoSrc} alt={BRAND.name} className="pa-logo-img" />
-            <div>
-              <div className="pa-brand-name">{BRAND.name}</div>
-              <div className="pa-brand-tag">{tagline}</div>
-            </div>
-          </div>
-
           {steps > 0 && (
             <div className="pa-rail" aria-hidden>
               {Array.from({ length: steps }).map((_, i) => (

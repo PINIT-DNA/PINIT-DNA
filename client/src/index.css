@@ -806,19 +806,24 @@
   position: relative;
   z-index: 1;
   width: 100%;
-  max-width: 1080px;
+  max-width: 1180px;
   min-height: 100%;
   margin: 0 auto;
   padding: 36px 28px 48px;
-  display: grid;
-  grid-template-columns: 1.05fr 0.95fr;
-  gap: 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   align-items: center;
 }
 
-.pinit-auth .pa-hero { padding: 12px 8px; }
+.pinit-auth .pa-hero {
+  width: 100%;
+  max-width: 520px;
+  padding: 12px 8px 22px;
+  text-align: center;
+}
 .pinit-auth .pa-hero-title {
-  margin: 28px 0 14px;
+  margin: 0 0 14px;
   font-size: clamp(1.85rem, 3.2vw, 2.55rem);
   font-weight: 800;
   letter-spacing: -0.03em;
@@ -830,7 +835,7 @@
   font-size: 15px;
   line-height: 1.6;
   max-width: 38ch;
-  margin-bottom: 22px;
+  margin: 0 auto 22px;
 }
 .pinit-auth .pa-hero-list {
   list-style: none;
@@ -839,12 +844,14 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  align-items: center;
 }
 .pinit-auth .pa-hero-list li {
   position: relative;
   padding-left: 22px;
   color: #b7c6de;
   font-size: 13.5px;
+  text-align: left;
 }
 .pinit-auth .pa-hero-list li::before {
   content: '';
@@ -859,7 +866,7 @@
 .pinit-auth .pa-shell {
   width: 100%;
   max-width: 440px;
-  margin-left: auto;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
 }
@@ -914,6 +921,12 @@
 .pinit-auth .pa-brand {
   display: flex; align-items: center; gap: 12px;
   margin-bottom: 20px;
+}
+.pinit-auth .pa-brand-corner {
+  position: absolute;
+  top: 36px;
+  left: 28px;
+  margin-bottom: 0;
 }
 .pinit-auth .pa-brand-mobile { display: none; justify-content: center; }
 .pinit-auth .pa-logo-img {
@@ -1045,12 +1058,13 @@
 
 @media (max-width: 900px) {
   .pinit-auth .pa-layout {
-    grid-template-columns: 1fr;
     max-width: 480px;
-    padding: 28px 18px 40px;
+    padding: 88px 18px 40px;
     gap: 0;
   }
-  .pinit-auth .pa-hero { display: none; }
-  .pinit-auth .pa-brand-mobile { display: flex; }
+  .pinit-auth .pa-brand-corner {
+    top: 24px;
+    left: 18px;
+  }
   .pinit-auth .pa-shell { margin: 0 auto; }
 }
