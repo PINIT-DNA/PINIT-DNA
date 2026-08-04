@@ -72,6 +72,8 @@ interface Stats {
   confirmedMatches: number;
   totalRuns: number;
   exactMatches: number;
+  monitoringEnabled?: boolean;
+  crawlerEngineEnabled?: boolean;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -379,7 +381,7 @@ interface EngineStats {
 export function MonitoringPage() {
   const [monitors,    setMonitors]    = useState<MonitorRecord[]>([]);
   const [alerts,      setAlerts]      = useState<CrawlResult[]>([]);
-  const [stats,       setStats]       = useState<Stats | null>(null);
+  const [stats,       setStats]       = useState<(Stats & { monitoringEnabled?: boolean; crawlerEngineEnabled?: boolean }) | null>(null);
   const [engineStats, setEngineStats] = useState<EngineStats | null>(null);
   const [loading,     setLoading]     = useState(true);
   const [enrollOpen,  setEnrollOpen]  = useState(false);
@@ -391,24 +393,33 @@ export function MonitoringPage() {
   const [alertTab,    setAlertTab]    = useState<'PENDING'|'CONFIRMED'|'DISMISSED'>('PENDING');
 
   const { data: dnaRecords } = useApi(listDnaRecords);
+  const monitoringLive = stats?.monitoringEnabled === true;
 
   const load = async () => {
     setLoading(true);
     try {
-      const [mResp, aResp, sResp, eResp] = await Promise.all([
+      const [mResp, aResp, sResp] = await Promise.all([
         api.get(`${API_BASE_URL}/monitor`),
         api.get(`${API_BASE_URL}/monitor/alerts?status=${alertTab}`),
         api.get(`${API_BASE_URL}/monitor/stats`),
-        api.get(`${API_BASE_URL}/monitor/engine/stats`).catch(() => ({ data: null })),
       ]);
       setMonitors((mResp.data as any).monitors ?? []);
       setAlerts((aResp.data as any).alerts ?? []);
       setStats(sResp.data as any);
-      setEngineStats(
-        (eResp?.data as unknown as { engine?: EngineStats } | null)?.engine ?? null,
-      );
-    } catch { toast.error('Failed to load monitoring data'); }
-    finally { setLoading(false); }
+    } catch {
+      toast.error('Failed to load monitoring data — retrying…');
+      setMonitors([]);
+    } finally {
+      setLoading(false);
+    }
+    // Engine stats are optional — never block the monitors list
+    void api.get(`${API_BASE_URL}/monitor/engine/stats`)
+      .then((eResp) => {
+        setEngineStats(
+          (eResp?.data as unknown as { engine?: EngineStats } | null)?.engine ?? null,
+        );
+      })
+      .catch(() => setEngineStats(null));
   };
 
   useEffect(() => { load(); }, [alertTab]);
@@ -489,6 +500,10 @@ export function MonitoringPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={async () => {
+              if (!monitoringLive) {
+                toast('Online monitoring is paused until the crawler build is ready');
+                return;
+              }
               const toEnroll = notMonitored;
               if (toEnroll.length === 0) { toast('All files are already being monitored'); return; }
               let enrolled = 0;
@@ -503,10 +518,21 @@ export function MonitoringPage() {
             }}
             className="btn btn-secondary btn-sm"
             title="Auto-enroll all files that aren't being monitored yet"
+            disabled={!monitoringLive}
           >
             <Radio size={14} /> Monitor All
           </button>
-          <button onClick={() => setEnrollOpen(true)} className="btn btn-primary btn-sm">
+          <button
+            onClick={() => {
+              if (!monitoringLive) {
+                toast('Online monitoring is paused until the crawler build is ready');
+                return;
+              }
+              setEnrollOpen(true);
+            }}
+            className="btn btn-primary btn-sm"
+            disabled={!monitoringLive}
+          >
             <Radio size={14} /> Enroll File
           </button>
           <button onClick={load} disabled={loading} className="btn btn-secondary btn-sm">
@@ -514,6 +540,16 @@ export function MonitoringPage() {
           </button>
         </div>
       </div>
+
+      {!loading && stats && !monitoringLive && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/90">
+          <p className="font-semibold text-amber-200">Online monitoring paused</p>
+          <p className="text-xs text-amber-100/70 mt-1">
+            YouTube, Reddit, GitHub, and web crawlers are kept off until monitoring is rebuilt and stable.
+            Code is still in the project — not removed. Vault, DNA, share, and tracking keep working as usual.
+          </p>
+        </div>
+      )}
 
       {/* Stats */}
       {stats && (
@@ -686,9 +722,20 @@ export function MonitoringPage() {
           <div className="space-y-3">{Array.from({length:3}).map((_,i) => <SkeletonCard key={i} />)}</div>
         ) : monitors.length === 0 ? (
           <div className="card">
-            <EmptyState icon={Radio} title="No files being monitored"
-              description="Enroll files to start monitoring them for unauthorized copies"
-              action={<button onClick={() => setEnrollOpen(true)} className="btn btn-primary btn-sm"><Radio size={14} /> Enroll First File</button>} />
+            <EmptyState
+              icon={Radio}
+              title={monitoringLive ? 'No files being monitored' : 'Monitoring on hold'}
+              description={
+                monitoringLive
+                  ? 'Enroll files to start monitoring them for unauthorized copies'
+                  : 'Online crawlers (YouTube · Reddit · web) stay off until the monitoring build is ready. Your protected files and DNA are unaffected.'
+              }
+              action={
+                monitoringLive
+                  ? <button onClick={() => setEnrollOpen(true)} className="btn btn-primary btn-sm"><Radio size={14} /> Enroll First File</button>
+                  : undefined
+              }
+            />
           </div>
         ) : (
           <div className="space-y-3">

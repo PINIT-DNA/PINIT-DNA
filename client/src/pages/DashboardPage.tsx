@@ -158,7 +158,7 @@ export function DashboardPage() {
         .catch(() => {});
     };
     fetchTracking();
-    const id = setInterval(fetchTracking, 15_000);
+    const id = setInterval(fetchTracking, 30_000);
     return () => clearInterval(id);
   }, []);
 
@@ -194,7 +194,7 @@ export function DashboardPage() {
         .then(({ data }) => setShareStats((data as any).stats))
         .catch(() => {});
     fetch();
-    const id = setInterval(fetch, 15_000);
+    const id = setInterval(fetch, 30_000);
     return () => clearInterval(id);
   }, []);
 
@@ -212,7 +212,16 @@ export function DashboardPage() {
     );
   }
 
-  const firstName = user?.name?.trim().split(/\s+/)[0] || null;
+  // Prefer real name; skip generic "PINIT" / "PINIT User" and show shortId instead
+  const rawName = user?.name?.trim() ?? '';
+  const firstName = rawName.split(/\s+/)[0] || '';
+  const isGenericName =
+    !firstName ||
+    /^pinit$/i.test(firstName) ||
+    /^pinit user$/i.test(rawName);
+  const welcomeName = isGenericName
+    ? (user?.shortId?.trim() || null)
+    : firstName;
 
   return (
     <div className="page-shell space-y-7 animate-fade-in">
@@ -222,7 +231,7 @@ export function DashboardPage() {
         <div className="min-w-0">
           <p className="text-xs font-medium text-gray-500 mb-1">Home</p>
           <h1 className="text-xl sm:text-2xl font-bold text-gradient tracking-tight">
-            {firstName ? `Hi ${firstName}` : 'Your files at a glance'}
+            {welcomeName ? `Hi ${welcomeName}` : 'Your files at a glance'}
           </h1>
           <p className="text-sm text-gray-500 mt-1 max-w-xl">
             See who opened what you shared — and what needs a look

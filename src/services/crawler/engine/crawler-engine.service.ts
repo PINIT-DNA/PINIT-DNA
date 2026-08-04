@@ -132,20 +132,40 @@ export class CrawlerEngineService {
   }
 
   async getEngineStats(ownerUserId?: string): Promise<CrawlerEngineStats> {
+    if (!isCrawlerEngineEnabled()) {
+      const monitorWhere = ownerUserId ? { ownerUserId } : {};
+      const [monitorsActive, monitorsTotal] = await Promise.all([
+        prisma.monitorRecord.count({ where: { ...monitorWhere, status: 'ACTIVE' } }),
+        prisma.monitorRecord.count({ where: monitorWhere }),
+      ]);
+      return {
+        crawlerStatus: 'DISABLED',
+        platformsConnected: {
+          WEBSITE: false, GITHUB: false, YOUTUBE: false, REDDIT: false, TELEGRAM: false, BING: false, GOOGLE: false,
+        },
+        jobsPending: 0,
+        jobsRunning: 0,
+        jobsCompleted24h: 0,
+        jobsFailed24h: 0,
+        matchesFound: 0,
+        incidentsOpen: 0,
+        lastScanAt: null,
+        nextScanAt: null,
+        successRate: 100,
+        coverage: { monitorsActive, monitorsTotal, platformsEnabled: 0 },
+      };
+    }
+
     const monitorWhere = ownerUserId ? { ownerUserId } : {};
     const [
       queueStats,
       matchesFound,
-      incidentsOpen,
       monitorsActive,
       monitorsTotal,
       lastRun,
     ] = await Promise.all([
       crawlerQueue.getQueueStats(),
       prisma.crawlerMatch.count({ where: ownerUserId ? { ownerUserId } : {} }),
-      prisma.incident.count({
-        where: { status: 'OPEN', triggerType: 'CRAWLER_MATCH', ...(ownerUserId ? { dnaRecordId: { in: await this.ownerDnaIds(ownerUserId) } } : {}) },
-      }),
       prisma.monitorRecord.count({ where: { ...monitorWhere, status: 'ACTIVE' } }),
       prisma.monitorRecord.count({ where: monitorWhere }),
       prisma.monitoringRun.findFirst({
@@ -154,6 +174,20 @@ export class CrawlerEngineService {
         select: { startedAt: true },
       }),
     ]);
+
+    let incidentsOpen = 0;
+    try {
+      const dnaIds = ownerUserId ? await this.ownerDnaIds(ownerUserId) : [];
+      incidentsOpen = await prisma.incident.count({
+        where: {
+          status: 'OPEN',
+          triggerType: 'CRAWLER_MATCH',
+          ...(ownerUserId ? { dnaRecordId: { in: dnaIds } } : {}),
+        },
+      });
+    } catch {
+      incidentsOpen = 0;
+    }
 
     const schedule = crawlerScheduler.getScheduleInfo();
     const total = queueStats.completed24h + queueStats.failed24h;
@@ -171,7 +205,7 @@ export class CrawlerEngineService {
     } satisfies Record<CrawlerPlatform, boolean>;
 
     return {
-      crawlerStatus: isCrawlerEngineEnabled() ? (queueStats.running > 0 ? 'RUNNING' : 'IDLE') : 'DISABLED',
+      crawlerStatus: queueStats.running > 0 ? 'RUNNING' : 'IDLE',
       platformsConnected,
       jobsPending: queueStats.pending,
       jobsRunning: queueStats.running,

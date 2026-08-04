@@ -114,8 +114,9 @@ export class UniversalVerifier {
         probeLayers[5] = { ...probeLayers[5], fingerprint: correctHmac };
       }
     } finally {
-      // Clean up the temp record — we only needed it for the engine's DB write
-      await prisma.dnaRecord.delete({ where: { id: tempId } }).catch(() => {/* ignore */});
+      // Clean up the temp record — soft-archive only (DNA is never hard-deleted)
+      const { softArchiveProbeDna } = await import('../lib/dna-immutability');
+      await softArchiveProbeDna(tempId, 'universal_verifier_probe');
     }
 
     // ── Compare layer by layer ────────────────────────────────────────────────
@@ -255,8 +256,9 @@ export class UniversalVerifier {
         };
         const orcResult = await new (await import('./dna.orchestrator')).DnaOrchestrator()
           .generate(imageInput, { fileType: 'IMAGE', engineVersion: DNA_GENERATOR_VERSION });
-        // Overwrite tempId so cleanup targets the right record
-        await prisma.dnaRecord.delete({ where: { id: tempId } }).catch(() => {});
+        // Soft-archive unused placeholder temp row (DNA never hard-deleted)
+        const { softArchiveProbeDna } = await import('../lib/dna-immutability');
+        await softArchiveProbeDna(tempId, 'universal_verifier_image_placeholder');
         // Re-read from the orchestrator's actual ID — but we need layers from image tables
         // For now, re-use the returned dnaRecordId via a direct query
         const rec = await prisma.dnaRecord.findUnique({
@@ -272,7 +274,7 @@ export class UniversalVerifier {
           rec?.metadataLayer ? { layer: 5, name: 'metadata', implementation: 'exif', fingerprint: rec.metadataLayer.metadataHash, data: {}, success: true, processingMs: 0 } : null,
           rec?.stegoLayer ? { layer: 6, name: 'signature', implementation: 'lsb', fingerprint: rec.stegoLayer.payloadHmac, data: {}, success: true, processingMs: 0 } : null,
         ].filter(Boolean) as UniversalLayerResult[];
-        await prisma.dnaRecord.delete({ where: { id: orcResult.dnaRecordId } }).catch(() => {});
+        await softArchiveProbeDna(orcResult.dnaRecordId, 'universal_verifier_image_probe');
         return layers;
       }
       case 'PDF': {

@@ -45,10 +45,21 @@ export async function listVaultRecords(
     const userId = getAuthUserId(req);
     const { prisma } = await import('../../lib/prisma');
     const { vaultAccessWhere } = await import('../../services/organization/org-asset.service');
+    // Select only list fields — full contentAnalysis JSON can be multi‑MB and starve the app.
     const records = await prisma.vaultRecord.findMany({
       where: await vaultAccessWhere(userId),
       orderBy: { createdAt: 'desc' },
-      include: {
+      select: {
+        id: true,
+        dnaRecordId: true,
+        originalFileName: true,
+        originalMimeType: true,
+        encryptedSizeBytes: true,
+        originalSizeBytes: true,
+        encryptionAlgorithm: true,
+        keyDerivation: true,
+        contentLabel: true,
+        createdAt: true,
         dnaRecord: { select: { id: true, status: true, imageFilename: true } },
       },
     });
@@ -119,7 +130,7 @@ export async function listVaultRecords(
           encryptionAlgorithm: r.encryptionAlgorithm,
           keyDerivation:       r.keyDerivation,
           contentLabel:        r.contentLabel ?? null,
-          contentAnalysis:     (r.contentAnalysis as Record<string, unknown> | null) ?? null,
+          contentAnalysis:     null,
           createdAt:           r.createdAt.toISOString(),
           dnaRecord: {
             id:       r.dnaRecord.id,

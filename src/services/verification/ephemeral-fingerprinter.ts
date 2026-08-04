@@ -402,8 +402,9 @@ export class EphemeralFingerprinter {
 
   private async cleanup(tempId: string): Promise<void> {
     try {
-      // Delete the temp DB record (cascades to all layer rows)
-      await prisma.dnaRecord.delete({ where: { id: tempId } });
+      // Soft-archive only — DNA records are never hard-deleted
+      const { softArchiveProbeDna } = await import('../../lib/dna-immutability');
+      await softArchiveProbeDna(tempId, 'ephemeral_fingerprinter');
     } catch {
       logger.warn('Ephemeral fingerprinter: DB cleanup failed', { tempId });
     }

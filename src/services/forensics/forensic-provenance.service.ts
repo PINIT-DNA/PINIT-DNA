@@ -570,6 +570,8 @@ export async function getLocationStatusForAssets(
         ],
       },
       orderBy: { createdAt: 'desc' },
+      // Cap rows so vault list stays fast when provenance history is large.
+      take: Math.min(unique.length * 8, 400),
       select: {
         dnaRecordId: true,
         eventType: true,

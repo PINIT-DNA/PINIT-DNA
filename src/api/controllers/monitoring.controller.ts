@@ -104,7 +104,14 @@ export async function getMonitoringStats(req: Request, res: Response, next: Next
   try {
     const userId = getAuthUserId(req);
     const stats = await monitoringService.getStats(userId);
-    res.json({ success: true, ...stats });
+    const { isMonitoringCrawlerEnabled } = await import('../../services/crawler/monitoring.service');
+    const { isCrawlerEngineEnabled } = await import('../../services/crawler/engine');
+    res.json({
+      success: true,
+      ...stats,
+      monitoringEnabled: isMonitoringCrawlerEnabled(),
+      crawlerEngineEnabled: isCrawlerEngineEnabled(),
+    });
   } catch (err) { next(err); }
 }
 

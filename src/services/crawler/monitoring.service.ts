@@ -120,9 +120,8 @@ export class MonitoringService {
     dnaRecordId: string,
     opts: { watchUrls?: string[]; scanType?: string; ownerUserId: string }
   ): Promise<string> {
-    if (!isMonitoringCrawlerEnabled()) {
-      throw new Error('Monitoring crawler is disabled. Set MONITORING_CRAWLER_ENABLED=true when ready.');
-    }
+    // Enrollment always allowed — auto background scans only run when crawler is enabled.
+    const autoCrawl = isMonitoringCrawlerEnabled();
 
     const record = await prisma.dnaRecord.findUnique({
       where:  { id: dnaRecordId },
@@ -152,16 +151,15 @@ export class MonitoringService {
           checkEveryHrs: checkHrs,
           watchUrls: mergedUrls,
           status: 'ACTIVE',
-          nextCheckAt: scanType === 'MANUAL' ? null : new Date(Date.now() + 5_000),
+          nextCheckAt: !autoCrawl || scanType === 'MANUAL' ? null : new Date(Date.now() + 5_000),
         },
       });
 
       logger.info('[Monitor] File re-configured', {
-        filename: record.imageFilename,
+        monitorId: existing.id,
         scanType,
-        id: existing.id,
+        autoCrawl,
       });
-
       return existing.id;
     }
 
@@ -174,12 +172,12 @@ export class MonitoringService {
         status:       'ACTIVE',
         scanType,
         checkEveryHrs: checkHrs,
-        nextCheckAt:  scanType === 'MANUAL' ? null : new Date(Date.now() + 5_000),
+        nextCheckAt:  !autoCrawl || scanType === 'MANUAL' ? null : new Date(Date.now() + 5_000),
         watchUrls,
       },
     });
 
-    logger.info('[Monitor] File enrolled', { filename: record.imageFilename, scanType, id: monitor.id });
+    logger.info('[Monitor] File enrolled', { filename: record.imageFilename, scanType, id: monitor.id, autoCrawl });
     import('../platform-events/extended-events').then(({ emitMonitoringLifecycle }) => {
       emitMonitoringLifecycle({
         ownerUserId,
@@ -189,8 +187,8 @@ export class MonitoringService {
       });
     }).catch(() => {});
 
-    // Kick off first scan immediately — don't wait for the scheduler (skip for MANUAL)
-    if (scanType !== 'MANUAL') {
+    // Kick off first scan only when auto-crawler is enabled (skip MANUAL)
+    if (autoCrawl && scanType !== 'MANUAL') {
       void this.runCheck(monitor.id, 'SCHEDULED').catch((err) =>
         logger.warn('[Monitor] Initial scan failed', { id: monitor.id, error: String(err) }),
       );
@@ -607,19 +605,28 @@ export class MonitoringService {
     });
   }
 
-  /** Called on server startup — queue all non-manual monitors for the next scheduler tick. */
+  /** Called on server startup — queue a small batch so we don't stampede the DB. */
   async kickstartAutoCrawler(): Promise<void> {
     if (!isMonitoringCrawlerEnabled()) return;
 
-    const result = await prisma.monitorRecord.updateMany({
+    const dueSoon = await prisma.monitorRecord.findMany({
       where: {
         status: 'ACTIVE',
         scanType: { not: 'MANUAL' },
       },
-      data: { nextCheckAt: new Date() },
+      orderBy: { nextCheckAt: 'asc' },
+      take: 5,
+      select: { id: true },
     });
 
-    logger.info('[Monitor] Auto-crawler kickstart', { monitorsQueued: result.count });
+    if (dueSoon.length > 0) {
+      await prisma.monitorRecord.updateMany({
+        where: { id: { in: dueSoon.map((m) => m.id) } },
+        data: { nextCheckAt: new Date() },
+      });
+    }
+
+    logger.info('[Monitor] Auto-crawler kickstart', { monitorsQueued: dueSoon.length });
     await this.runDueChecks();
   }
 
@@ -644,7 +651,7 @@ export class MonitoringService {
         scanType: { not: 'MANUAL' },
         nextCheckAt: { lte: new Date() },
       },
-      take: 25,
+      take: 3,
     });
     if (due.length === 0) return;
 
@@ -667,11 +674,20 @@ export class MonitoringService {
         crawlResults: {
           where:   { matchType: { not: MATCH.NONE } },
           orderBy: { createdAt: 'desc' },
-          take:    5,
+          take:    3,
+          select: {
+            id: true,
+            url: true,
+            matchType: true,
+            similarity: true,
+            alertStatus: true,
+            createdAt: true,
+            pageTitle: true,
+          },
         },
         monitoringRuns: {
           orderBy: { createdAt: 'desc' },
-          take:    3,
+          take:    2,
           select: { id: true, status: true, trigger: true, startedAt: true, durationMs: true, matchesFound: true },
         },
         _count: { select: { crawlResults: true, monitoringRuns: true } },

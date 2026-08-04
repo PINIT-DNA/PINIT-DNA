@@ -332,9 +332,10 @@ export class VaultService {
   }
 
   /**
-   * Remove encrypted file from storage and delete the vault record.
-   * DNA record is retained for audit; share links for this vault are deactivated.
-   * DB row is deleted first so the UI can update immediately; storage cleanup is best-effort after.
+   * Remove encrypted file from storage and delete the vault record only.
+   * DNA record is ALWAYS retained (immutable identity / forensics).
+   * Share links for this vault are deactivated.
+   * DB vault row is deleted first so the UI can update immediately; storage cleanup is best-effort after.
    */
   async delete(vaultId: string, ownerUserId: string): Promise<{ vaultId: string; dnaRecordId: string }> {
     const record = await prisma.vaultRecord.findUnique({
@@ -354,7 +355,7 @@ export class VaultService {
       data: { isActive: false },
     });
 
-    // Remove DB row first — client list updates as soon as this returns
+    // Vault file only — never delete the DNA record
     await prisma.vaultRecord.delete({ where: { id: vaultId } });
 
     // Storage cleanup after DB delete (do not block the API response on slow Supabase I/O)
@@ -373,12 +374,7 @@ export class VaultService {
       }
     })();
 
-    try {
-      const { aiService } = await import('../ai/ai-embeddings.service');
-      void aiService.removeFromIndex(dnaRecordId).catch(() => {});
-    } catch {
-      /* non-fatal */
-    }
+    // Keep DNA searchable in AI index — vault removal must not erase identity
 
     try {
       const { forensicProvenanceService } = await import('../forensics/forensic-provenance.service');
@@ -394,7 +390,7 @@ export class VaultService {
       /* non-fatal */
     }
 
-    logger.info('Vault — record deleted', { vaultId, dnaRecordId });
+    logger.info('Vault — record deleted (DNA retained)', { vaultId, dnaRecordId });
 
     import('../platform-events/module-events').then(({ emitVaultDeleted }) => {
       emitVaultDeleted({

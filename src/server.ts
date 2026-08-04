@@ -102,6 +102,11 @@ async function onServerReady(): Promise<void> {
   }, 3000);
 
   setTimeout(async () => {
+    // Dev auto-reindex of every DNA row floods AI + DB — only run in production unless forced.
+    if (process.env['NODE_ENV'] !== 'production' && process.env['AI_AUTO_REINDEX'] !== 'true') {
+      logger.info('Skipping startup AI reindex in development (set AI_AUTO_REINDEX=true to force)');
+      return;
+    }
     try {
       const { prisma: db } = await import('./lib/prisma');
       const { aiService } = await import('./services/ai/ai-embeddings.service');
@@ -116,10 +121,11 @@ async function onServerReady(): Promise<void> {
           fileType: true,
           ocrRecord: { select: { extractedText: true } },
         },
+        take: 200,
       });
 
       let indexed = 0;
-      const BATCH = 10;
+      const BATCH = 5;
       for (let i = 0; i < records.length; i += BATCH) {
         await Promise.all(records.slice(i, i + BATCH).map(async (r) => {
           try {
