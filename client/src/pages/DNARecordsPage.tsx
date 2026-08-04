@@ -57,7 +57,7 @@ function DnaDetailModal({ record, onClose }: { record: DnaRecord; onClose: () =>
 type SortField = 'createdAt' | 'imageFilename' | 'fileType' | 'status';
 
 export function DnaRecordsPage() {
-  const { data: records, loading, error, refetch } = useApi(listDnaRecords);
+  const { data: records, loading, error, refetch } = useApi(listDnaRecords, [], { cacheKey: 'dna-records' });
   const [search, setSearch]     = useState('');
   const [filter, setFilter]     = useState('ALL');
   const [sort, setSort]         = useState<SortField>('createdAt');

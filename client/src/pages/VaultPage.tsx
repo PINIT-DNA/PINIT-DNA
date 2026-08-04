@@ -902,7 +902,7 @@ function VaultGalleryCard({
 }
 
 export function VaultPage() {
-  const { data: records, loading, error, refetch, setData: setRecords } = useApi(listVaultRecords);
+  const { data: records, loading, error, refetch, setData: setRecords } = useApi(listVaultRecords, [], { cacheKey: 'vault-records' });
   const [search, setSearch]     = useState('');
   const [selected, setSelected] = useState<VaultRecord | null>(null);
   const [sharing, setSharing]   = useState<VaultRecord | null>(null);

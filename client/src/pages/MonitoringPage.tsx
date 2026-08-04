@@ -392,7 +392,7 @@ export function MonitoringPage() {
   const [enrollingId, setEnrollingId] = useState<string | null>(null);
   const [alertTab,    setAlertTab]    = useState<'PENDING'|'CONFIRMED'|'DISMISSED'>('PENDING');
 
-  const { data: dnaRecords } = useApi(listDnaRecords);
+  const { data: dnaRecords } = useApi(listDnaRecords, [], { cacheKey: 'dna-records' });
   const monitoringLive = stats?.monitoringEnabled === true;
 
   const load = async () => {

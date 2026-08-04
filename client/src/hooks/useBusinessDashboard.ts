@@ -92,6 +92,9 @@ const EMPTY: BusinessDashboardData = {
   investigations: [],
 };
 
+let cached: BusinessDashboardData | null = null;
+let inflight: Promise<BusinessDashboardData> | null = null;
+
 async function fetchAll(): Promise<BusinessDashboardData> {
   const REQ_MS = 28_000;
 
@@ -146,7 +149,7 @@ async function fetchAll(): Promise<BusinessDashboardData> {
     unreadCount?: number;
   } | null;
 
-  return {
+  const result: BusinessDashboardData = {
     stats,
     security,
     vaultRecords,
@@ -160,20 +163,25 @@ async function fetchAll(): Promise<BusinessDashboardData> {
     unreadNotifications: notifPayload?.unreadCount ?? 0,
     investigations: listForensicReports().filter((r) => r.kind === 'investigation'),
   };
+  cached = result;
+  return result;
 }
 
-export function useBusinessDashboard(pollMs = 30_000) {
-  const [data, setData] = useState<BusinessDashboardData>(EMPTY);
-  const [loading, setLoading] = useState(true);
+export function useBusinessDashboard(pollMs = 60_000) {
+  const [data, setData] = useState<BusinessDashboardData>(cached ?? EMPTY);
+  const [loading, setLoading] = useState(!cached);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    else setRefreshing(true);
+    if (!silent && !cached) setLoading(true);
+    else if (silent) setRefreshing(true);
     setError(null);
     try {
-      const next = await fetchAll();
+      if (!inflight) {
+        inflight = fetchAll().finally(() => { inflight = null; });
+      }
+      const next = await inflight;
       setData(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load dashboard');
@@ -184,8 +192,11 @@ export function useBusinessDashboard(pollMs = 30_000) {
   }, []);
 
   useEffect(() => {
-    void load();
-    const id = setInterval(() => void load(true), pollMs);
+    void load(Boolean(cached));
+    const id = setInterval(() => {
+      if (document.hidden) return;
+      void load(true);
+    }, pollMs);
     return () => clearInterval(id);
   }, [load, pollMs]);
 

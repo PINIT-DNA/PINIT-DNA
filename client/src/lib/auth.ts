@@ -70,6 +70,18 @@ export function clearTokens() {
 
 /** Clear all user-specific client caches on logout — prevents cross-tenant data bleed. */
 export function clearUserSessionCaches() {
+  void import('../hooks/useOrganization').then(({ invalidateOrganizationCache }) => {
+    invalidateOrganizationCache();
+  }).catch(() => {});
+  void import('../hooks/useUserProfile').then(({ invalidateUserProfileCache }) => {
+    invalidateUserProfileCache();
+  }).catch(() => {});
+  void import('../hooks/useSubscription').then(({ invalidateSubscriptionCache }) => {
+    invalidateSubscriptionCache();
+  }).catch(() => {});
+  void import('../hooks/useApi').then(({ invalidateApiCache }) => {
+    invalidateApiCache();
+  }).catch(() => {});
   try {
     sessionStorage.removeItem('pinit_pre_register_account_type');
     sessionStorage.removeItem('pinit_dna_reports');

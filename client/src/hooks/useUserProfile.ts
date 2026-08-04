@@ -1,7 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
 import { useAuth } from '../context/AuthContext';
+
+/** Fired after profile fullName (or related fields) are saved — Home/header refetch. */
+export const PROFILE_UPDATED_EVENT = 'pinit:profile-updated';
+
+export function notifyProfileUpdated() {
+  window.dispatchEvent(new Event(PROFILE_UPDATED_EVENT));
+}
 
 export interface UserProfileSummary {
   fullName: string;
@@ -9,6 +16,7 @@ export interface UserProfileSummary {
   email: string | null;
   role?: string;
   avatarUrl?: string | null;
+  profileCompletion?: number;
 }
 
 const PLACEHOLDER_NAMES = new Set([
@@ -42,39 +50,89 @@ export function firstNameFrom(displayName: string): string {
   return first || displayName;
 }
 
+let cachedProfile: UserProfileSummary | null = null;
+let cachedForUserId: string | null = null;
+let inflight: Promise<UserProfileSummary | null> | null = null;
+
+export function invalidateUserProfileCache() {
+  cachedProfile = null;
+  cachedForUserId = null;
+  inflight = null;
+}
+
+async function fetchProfile(userId: string): Promise<UserProfileSummary | null> {
+  try {
+    const r = await api.get(`${API_BASE_URL}/profile`);
+    const p = (r.data as { profile?: UserProfileSummary })?.profile ?? null;
+    if (p) {
+      cachedProfile = p;
+      cachedForUserId = userId;
+    }
+    return p;
+  } catch {
+    return cachedForUserId === userId ? cachedProfile : null;
+  }
+}
+
 /**
  * Loads `/profile` so welcome/header UI can use the same fullName as Profile.
+ * Cached per session — revisiting pages shows data instantly.
  */
 export function useUserProfile() {
   const { user } = useAuth();
-  const [profile, setProfile] = useState<UserProfileSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const userId = user?.sub ?? null;
+  const hasCache = Boolean(userId && cachedForUserId === userId && cachedProfile);
+
+  const [profile, setProfile] = useState<UserProfileSummary | null>(
+    hasCache ? cachedProfile : null,
+  );
+  const [loading, setLoading] = useState(Boolean(userId) && !hasCache);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const refetch = useCallback(() => {
+    setRefreshKey((k) => k + 1);
+  }, []);
 
   useEffect(() => {
-    if (!user?.sub) {
+    if (!userId) {
       setProfile(null);
       setLoading(false);
       return;
     }
+
+    if (cachedForUserId === userId && cachedProfile) {
+      setProfile(cachedProfile);
+      setLoading(false);
+    }
+
     let cancelled = false;
-    setLoading(true);
+    const silent = Boolean(cachedForUserId === userId && cachedProfile);
+    if (!silent) setLoading(true);
+
     void (async () => {
       try {
-        const r = await api.get(`${API_BASE_URL}/profile`);
+        if (!inflight) {
+          inflight = fetchProfile(userId).finally(() => { inflight = null; });
+        }
+        const p = await inflight;
         if (cancelled) return;
-        const p = (r.data as { profile?: UserProfileSummary })?.profile;
-        setProfile(p ?? null);
-      } catch {
-        if (!cancelled) setProfile(null);
+        setProfile(p);
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
+
     return () => { cancelled = true; };
-  }, [user?.sub]);
+  }, [userId, refreshKey]);
+
+  useEffect(() => {
+    const onUpdated = () => refetch();
+    window.addEventListener(PROFILE_UPDATED_EVENT, onUpdated);
+    return () => window.removeEventListener(PROFILE_UPDATED_EVENT, onUpdated);
+  }, [refetch]);
 
   const displayName = resolveDisplayName(profile?.fullName, user?.name);
   const firstName = firstNameFrom(displayName);
 
-  return { profile, displayName, firstName, loading };
+  return { profile, displayName, firstName, loading, refetch };
 }

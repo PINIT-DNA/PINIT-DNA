@@ -37,6 +37,7 @@ import { AuditPanel } from '../../components/business/profile/AuditPanel';
 import { ApiKeysPanel } from '../../components/business/profile/ApiKeysPanel';
 import { IntegrationsPanel } from '../../components/business/profile/IntegrationsPanel';
 import { resolveOrgIdentity } from '../../lib/org-identity';
+import { notifyProfileUpdated } from '../../hooks/useUserProfile';
 
 type BusinessTab =
   | 'organization'
@@ -325,10 +326,8 @@ function OrganizationTab({
   async function handleSave() {
     setSaving(true);
     try {
-      await updateProfile({
-        organizationName: form.organizationName,
-        industry: form.industry as OrganizationIndustry,
-        organizationSize: form.organizationSize as OrganizationSize,
+      const payload: Parameters<typeof updateProfile>[0] = {
+        organizationName: form.organizationName.trim(),
         businessType: form.businessType,
         registrationNumber: form.registrationNumber,
         gst: form.gst,
@@ -337,12 +336,21 @@ function OrganizationTab({
         services: form.services,
         notes: form.notes,
         linkedIn: form.linkedIn,
-      });
+      };
+      if (form.industry) payload.industry = form.industry as OrganizationIndustry;
+      if (form.organizationSize) payload.organizationSize = form.organizationSize as OrganizationSize;
+      if (!payload.organizationName || payload.organizationName.length < 2) {
+        toast.error('Organization name must be at least 2 characters');
+        return;
+      }
+      await updateProfile(payload);
       setSaved(true);
       toast.success('Organization profile saved');
       setTimeout(() => setSaved(false), 2000);
-    } catch {
-      toast.error('Could not save profile');
+    } catch (err: unknown) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const msg = (err as any)?.response?.data?.error as string | undefined;
+      toast.error(msg ?? 'Could not save profile');
     } finally {
       setSaving(false);
     }
@@ -850,6 +858,8 @@ function PersonalActivityTab() {
 
 function BusinessSettingsTab({ profile }: { profile: ProfileData }) {
   const { theme, toggle: toggleTheme } = useTheme();
+  const [personalName, setPersonalName] = useState(profile?.fullName?.trim() ?? '');
+  const [savingName, setSavingName] = useState(false);
   const [prefs, setPrefs] = useState({
     notifyShareAccess: profile?.notifyShareAccess ?? true,
     notifyRiskAlerts: profile?.notifyRiskAlerts ?? true,
@@ -865,6 +875,28 @@ function BusinessSettingsTab({ profile }: { profile: ProfileData }) {
       .catch(() => setVaultFiles([]))
       .finally(() => setVaultLoading(false));
   }, []);
+
+  useEffect(() => {
+    setPersonalName(profile?.fullName?.trim() ?? '');
+  }, [profile?.fullName]);
+
+  async function savePersonalName() {
+    const fullName = personalName.trim();
+    if (fullName.length < 2) {
+      toast.error('Your name must be at least 2 characters');
+      return;
+    }
+    setSavingName(true);
+    try {
+      await api.put(`${API_BASE_URL}/profile`, { fullName });
+      notifyProfileUpdated();
+      toast.success('Your name saved');
+    } catch {
+      toast.error('Could not save your name');
+    } finally {
+      setSavingName(false);
+    }
+  }
 
   async function toggle(key: keyof typeof prefs) {
     const updated = { ...prefs, [key]: !prefs[key] };
@@ -893,6 +925,33 @@ function BusinessSettingsTab({ profile }: { profile: ProfileData }) {
 
   return (
     <div className="space-y-4">
+      <EnterpriseCard title="Your name" icon={<User size={16} />}>
+        <p className="text-2xs text-slate-600 dark:text-gray-400 mb-3">
+          This is the name shown on your Individual home page and profile menu.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+          <div className="flex-1">
+            <EnterpriseField
+              label="Full name"
+              value={personalName}
+              onChange={setPersonalName}
+              placeholder="Your name"
+            />
+          </div>
+          <button
+            type="button"
+            disabled={savingName}
+            onClick={() => void savePersonalName()}
+            className="px-4 py-2 rounded-lg bg-dna-500 hover:bg-dna-400 text-white text-xs font-semibold disabled:opacity-60"
+          >
+            {savingName ? 'Saving…' : 'Save name'}
+          </button>
+        </div>
+        {profile?.shortId && (
+          <p className="text-2xs text-slate-500 dark:text-gray-500 mt-2 font-mono">PINIT ID · {profile.shortId}</p>
+        )}
+      </EnterpriseCard>
+
       <EnterpriseCard title="Appearance" icon={theme === 'dark' ? <Moon size={16} /> : <Sun size={16} />}>
         <div className="flex items-center justify-between">
           <div>

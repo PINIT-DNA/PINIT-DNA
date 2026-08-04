@@ -12,6 +12,7 @@ import { useAccountViewMode } from '../hooks/useAccountViewMode';
 import { BusinessProfileHub } from './business/BusinessProfileHub';
 import { formatDistanceToNow, format } from 'date-fns';
 import toast from 'react-hot-toast';
+import { notifyProfileUpdated, PROFILE_UPDATED_EVENT, useUserProfile } from '../hooks/useUserProfile';
 import { formatBytes } from '../hooks/useApi';
 import type { VaultRecord } from '../types/dashboard.types';
 import {
@@ -34,9 +35,10 @@ const BASE_TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 export function ProfilePage() {
   const [params] = useSearchParams();
   const [tab, setTab] = useState<Tab>((params.get('tab') as Tab) || 'profile');
-  const [profile, setProfile] = useState<any>(null);
+  const { profile: cachedProfile, loading: profileHookLoading } = useUserProfile();
+  const [profile, setProfile] = useState<any>(cachedProfile);
   const [stats, setStats] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(profileHookLoading && !cachedProfile);
   const { isBusinessShell } = useAccountViewMode();
 
   // Business org profile only while Business shell is active
@@ -46,8 +48,12 @@ export function ProfilePage() {
 
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const loadProfile = () => {
-    setLoading(true);
+  useEffect(() => {
+    if (cachedProfile) setProfile(cachedProfile);
+  }, [cachedProfile]);
+
+  const loadProfile = (silent = false) => {
+    if (!silent) setLoading(true);
     setLoadError(null);
 
     void (async () => {
@@ -74,11 +80,17 @@ export function ProfilePage() {
   }, []);
 
   useEffect(() => {
+    const onUpdated = () => loadProfile();
+    window.addEventListener(PROFILE_UPDATED_EVENT, onUpdated);
+    return () => window.removeEventListener(PROFILE_UPDATED_EVENT, onUpdated);
+  }, []);
+
+  useEffect(() => {
     const t = params.get('tab') as Tab;
     if (t && tabs.some(x => x.id === t)) setTab(t);
   }, [params]);
 
-  if (loading) return (
+  if (loading && !profile) return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
       <RefreshCw size={24} className="animate-spin text-dna-400" />
       <p className="text-xs text-gray-500">Loading profile…</p>
@@ -91,7 +103,7 @@ export function ProfilePage() {
         <p className="text-sm text-amber-200 mb-4">{loadError}</p>
         <button
           type="button"
-          onClick={loadProfile}
+          onClick={() => loadProfile()}
           className="text-xs px-4 py-2 rounded-lg bg-dna-500 text-white"
         >
           Try again
@@ -180,6 +192,7 @@ function ProfileTab({ profile, onUpdate }: { profile: any; onUpdate: (p: any) =>
     try {
       const { data } = await api.put(`${API_BASE_URL}/profile`, form);
       onUpdate({ ...profile, ...(data as any).profile });
+      notifyProfileUpdated();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } finally { setSaving(false); }

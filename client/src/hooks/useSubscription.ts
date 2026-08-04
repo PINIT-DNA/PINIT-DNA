@@ -66,6 +66,8 @@ const FREE_FALLBACK: SubscriptionView = {
 
 let cached: SubscriptionView | null = null;
 let inflight: Promise<SubscriptionView> | null = null;
+let lastFetchedAt = 0;
+const STALE_MS = 60_000;
 
 async function fetchSubscription(): Promise<SubscriptionView> {
   try {
@@ -74,6 +76,7 @@ async function fetchSubscription(): Promise<SubscriptionView> {
     );
     if (data?.success && data.subscription) {
       cached = data.subscription as SubscriptionView;
+      lastFetchedAt = Date.now();
       return cached;
     }
   } catch {
@@ -86,6 +89,7 @@ async function fetchSubscription(): Promise<SubscriptionView> {
 export function invalidateSubscriptionCache(): void {
   cached = null;
   inflight = null;
+  lastFetchedAt = 0;
 }
 
 export function useSubscription() {
@@ -106,7 +110,9 @@ export function useSubscription() {
   }, []);
 
   useEffect(() => {
-    void refresh();
+    const stale = !cached || Date.now() - lastFetchedAt > STALE_MS;
+    if (stale) void refresh();
+    else if (cached) setSubscription(cached);
   }, [refresh]);
 
   const hasFeature = useCallback(

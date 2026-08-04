@@ -3,35 +3,24 @@ import { useNavigate } from 'react-router-dom';
 import { User, Shield, Bell, Clock, LogOut, Settings, HelpCircle, Sun, Moon, LayoutDashboard } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../hooks/useTheme';
-import { api } from '../../services/dashboard.api';
-import { API_BASE_URL } from '../../config/api.config';
+import { useUserProfile, isRealDisplayName, resolveDisplayName } from '../../hooks/useUserProfile';
 import { isPlatformOwnerShortId } from '../../lib/platform-owner';
-
-interface ProfileData {
-  fullName: string;
-  shortId: string;
-  email: string | null;
-  role: string;
-  lastLoginAt: string | null;
-  profileCompletion: number;
-  avatarUrl: string | null;
-}
 
 export function ProfileDropdown() {
   const [open, setOpen] = useState(false);
-  const [profile, setProfile] = useState<ProfileData | null>(null);
   const { user, logout } = useAuth();
+  const { profile } = useUserProfile();
   const { theme, toggle: toggleTheme } = useTheme();
   const navigate = useNavigate();
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (open && !profile) {
-      api.get(`${API_BASE_URL}/profile`).then(r => {
-        setProfile((r.data as any).profile);
-      }).catch(() => {});
-    }
-  }, [open, profile]);
+  const displayName = resolveDisplayName(profile?.fullName, user?.name);
+  const labelName = isRealDisplayName(displayName) ? displayName : (profile?.shortId ?? user?.shortId ?? 'PINIT User');
+  const initials = isRealDisplayName(displayName)
+    ? displayName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+    : (profile?.shortId ?? user?.shortId ?? 'P').replace(/^PINIT-/i, '').slice(0, 2).toUpperCase() || 'P';
+
+  function go(path: string) { setOpen(false); navigate(path); }
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -40,12 +29,6 @@ export function ProfileDropdown() {
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
-
-  const initials = profile?.fullName
-    ? profile.fullName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
-    : 'P';
-
-  function go(path: string) { setOpen(false); navigate(path); }
 
   return (
     <div ref={ref} className="relative">
@@ -74,12 +57,12 @@ export function ProfileDropdown() {
                 {initials}
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-semibold text-white truncate">{profile?.fullName ?? 'PINIT User'}</p>
+                <p className="text-sm font-semibold text-white truncate">{labelName}</p>
                 <p className="text-2xs text-dna-400 font-mono">{profile?.shortId ?? (user as any)?.shortId ?? ''}</p>
                 {profile?.email && <p className="text-2xs text-gray-500 truncate">{profile.email}</p>}
               </div>
             </div>
-            {profile && (
+            {profile?.profileCompletion != null && (
               <div className="mt-3">
                 <div className="flex items-center justify-between text-2xs text-gray-500 mb-1">
                   <span>Profile Completion</span>

@@ -436,8 +436,8 @@ function FileHistoryCard({ history, expanded, onToggle }: { history: FileHistory
 // --- Page ---------------------------------------------------------------------
 
 export function TimelinePage() {
-  const { data: dnaRecords, loading: loadDna, error: errDna, refetch } = useApi(listDnaRecords);
-  const { data: vaultRecords, loading: loadVault }                      = useApi(listVaultRecords);
+  const { data: dnaRecords, loading: loadDna, error: errDna, refetch } = useApi(listDnaRecords, [], { cacheKey: 'dna-records' });
+  const { data: vaultRecords, loading: loadVault } = useApi(listVaultRecords, [], { cacheKey: 'vault-records' });
   const [search, setSearch]     = useState('');
   const [filterType, setFilterType] = useState('ALL');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

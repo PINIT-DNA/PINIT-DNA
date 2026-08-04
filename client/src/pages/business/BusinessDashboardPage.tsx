@@ -5,7 +5,6 @@ import { useAuth } from '../../context/AuthContext';
 import { useSubscription } from '../../hooks/useSubscription';
 import { useOrganization } from '../../hooks/useOrganization';
 import { useBusinessDashboard, fmtAgo } from '../../hooks/useBusinessDashboard';
-import { useUserProfile } from '../../hooks/useUserProfile';
 import { getForensicReportCount } from '../../lib/forensic-reports-storage';
 import { UpgradeWelcomeModal } from '../../components/subscription/UpgradeWelcomeModal';
 import {
@@ -33,9 +32,8 @@ import type { PlanCode } from '../../hooks/useSubscription';
 
 export function BusinessDashboardPage() {
   const { user } = useAuth();
-  const { displayName, firstName } = useUserProfile();
-  const { subscription, planCode, loading: subLoading } = useSubscription();
-  const { organization, loading: orgLoading, skipWelcome, completeSetup } = useOrganization(true);
+  const { subscription, planCode } = useSubscription();
+  const { organization, skipWelcome, completeSetup } = useOrganization(true);
   const dashboard = useBusinessDashboard();
   const [welcomePlan, setWelcomePlan] = useState<PlanCode | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -46,19 +44,6 @@ export function BusinessDashboardPage() {
     const pending = consumePendingUpgradeWelcome(user.sub);
     if (pending === 'ENTERPRISE') setWelcomePlan('ENTERPRISE');
   }, [user?.sub]);
-
-  const [bootReady, setBootReady] = useState(false);
-
-  useEffect(() => {
-    if (!subLoading && !orgLoading) {
-      setBootReady(true);
-      return;
-    }
-    const t = window.setTimeout(() => setBootReady(true), 8_000);
-    return () => window.clearTimeout(t);
-  }, [subLoading, orgLoading]);
-
-  const loading = !bootReady;
 
   const teamDisplay = subscription?.teamMemberLimit != null
     ? `${subscription.teamMemberCount ?? 1} / ${subscription.teamMemberLimit}`
@@ -82,15 +67,6 @@ export function BusinessDashboardPage() {
   );
 
   const reportCount = getForensicReportCount();
-
-  if (loading) {
-    return (
-      <div className="min-h-[50vh] flex flex-col items-center justify-center gap-3">
-        <div className="w-8 h-8 border-2 border-dna-500 border-t-transparent rounded-full animate-spin" />
-        <p className="text-xs text-gray-500">Loading organization operations…</p>
-      </div>
-    );
-  }
 
   const orgName = organization?.name?.trim() || 'Your Organization';
   const workspaceLabel = organization?.defaultWorkspace?.name ?? 'Main Workspace';
@@ -121,8 +97,6 @@ export function BusinessDashboardPage() {
         workspaceLabel={workspaceLabel}
         orgShortId={organization?.shortId}
         planName={subscription?.planName ?? 'Free'}
-        userName={firstName}
-        displayName={displayName}
         refreshing={dashboard.refreshing || dashboard.loading}
         onRefresh={dashboard.refetch}
       />
@@ -194,7 +168,7 @@ export function BusinessDashboardPage() {
         <VaultExplorerSnapshot
           records={dashboard.vaultRecords}
           workspaceName={workspaceLabel}
-          ownerName={user?.name ?? 'Owner'}
+          ownerName={orgName}
         />
         <AccessIntelligenceSnapshot
           links={dashboard.shareLinks}
@@ -206,7 +180,7 @@ export function BusinessDashboardPage() {
       </div>
 
       <TeamSnapshotPanel
-        ownerName={user?.name ?? 'Owner'}
+        ownerName={orgName}
         teamDisplay={teamDisplay}
         planCode={planCode ?? 'FREE'}
       />

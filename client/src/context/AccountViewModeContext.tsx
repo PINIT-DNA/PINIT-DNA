@@ -64,9 +64,8 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
     ? 'BUSINESS'
     : ((user?.accountType ?? (subscriptionReady ? accountType : undefined) ?? 'INDIVIDUAL') as AccountViewMode);
 
-  /** Don’t demote Business → Individual until auth + (JWT business or subscription) are known */
-  const accessResolved =
-    Boolean(user?.sub) && !authLoading && (jwtIsBusiness || subscriptionReady);
+  /** Resolve access from JWT immediately — subscription refines in background. */
+  const accessResolved = Boolean(user?.sub) && !authLoading;
 
   const [mode, setMode] = useState<AccountViewMode>(() =>
     getAccountViewMode(user?.sub, hasBusinessAccess ? 'BUSINESS' : 'INDIVIDUAL'),

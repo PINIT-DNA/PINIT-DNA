@@ -21,6 +21,7 @@ import type { VaultRecord } from '../types/dashboard.types';
 import { formatDistanceToNow } from 'date-fns';
 import { API_BASE_URL } from '../config/api.config';
 import { useAuth } from '../context/AuthContext';
+import { isRealDisplayName, useUserProfile } from '../hooks/useUserProfile';
 import { UpgradeWelcomeModal } from '../components/subscription/UpgradeWelcomeModal';
 import {
   consumePendingUpgradeWelcome,
@@ -120,7 +121,8 @@ function InsightEmpty({ text }: { text: string }) {
 
 export function DashboardPage() {
   const { user } = useAuth();
-  const { data: stats, loading, error, refetch } = useApi(getDashboardStats);
+  const { firstName, displayName } = useUserProfile();
+  const { data: stats, loading, error, refetch } = useApi(getDashboardStats, [], { cacheKey: 'dashboard-stats' });
   const [shareStats, setShareStats] = useState<ShareStats | null>(null);
   const [vaultRecords, setVaultRecords] = useState<VaultRecord[]>([]);
   const [trackingPoints, setTrackingPoints] = useState<DashboardFileMapPoint[]>([]);
@@ -212,16 +214,10 @@ export function DashboardPage() {
     );
   }
 
-  // Prefer real name; skip generic "PINIT" / "PINIT User" and show shortId instead
-  const rawName = user?.name?.trim() ?? '';
-  const firstName = rawName.split(/\s+/)[0] || '';
-  const isGenericName =
-    !firstName ||
-    /^pinit$/i.test(firstName) ||
-    /^pinit user$/i.test(rawName);
-  const welcomeName = isGenericName
-    ? (user?.shortId?.trim() || null)
-    : firstName;
+  // Prefer saved profile fullName; fall back to PINIT ID when name is unset or generic
+  const welcomeName = isRealDisplayName(displayName)
+    ? firstName
+    : (user?.shortId?.trim() || null);
 
   return (
     <div className="page-shell space-y-7 animate-fade-in">

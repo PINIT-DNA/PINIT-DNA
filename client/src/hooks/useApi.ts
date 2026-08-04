@@ -21,19 +21,55 @@ export interface ApiState<T> {
   setData: Dispatch<SetStateAction<T | null>>;
 }
 
+export interface UseApiOptions {
+  /** Module-level cache key — revisits show cached data instantly. */
+  cacheKey?: string;
+  /** How long cached data stays fresh (default 30s). */
+  staleTimeMs?: number;
+}
+
+const apiCache = new Map<string, { data: unknown; at: number }>();
+const DEFAULT_STALE_MS = 30_000;
+
+function readCache<T>(key: string, staleTimeMs: number): T | null {
+  const hit = apiCache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > staleTimeMs) return hit.data as T;
+  return hit.data as T;
+}
+
+function writeCache<T>(key: string, data: T) {
+  apiCache.set(key, { data, at: Date.now() });
+}
+
+export function invalidateApiCache(prefix?: string) {
+  if (!prefix) {
+    apiCache.clear();
+    return;
+  }
+  for (const key of apiCache.keys()) {
+    if (key.startsWith(prefix)) apiCache.delete(key);
+  }
+}
+
 /**
  * Generic data-fetching hook with loading, error, and refetch support.
  * Cancels stale requests when component unmounts or fn changes.
  */
 export function useApi<T>(
   fn: () => Promise<T>,
-  deps: unknown[] = []
+  deps: unknown[] = [],
+  options?: UseApiOptions,
 ): ApiState<T> {
-  const [data,    setData]    = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cacheKey = options?.cacheKey;
+  const staleTimeMs = options?.staleTimeMs ?? DEFAULT_STALE_MS;
+  const cachedInitial = cacheKey ? readCache<T>(cacheKey, staleTimeMs) : null;
+
+  const [data,    setData]    = useState<T | null>(cachedInitial);
+  const [loading, setLoading] = useState(!cachedInitial);
   const [error,   setError]   = useState<string | null>(null);
   const abortRef = useRef(false);
-  const hasDataRef = useRef(false);
+  const hasDataRef = useRef(cachedInitial != null);
 
   useEffect(() => {
     hasDataRef.current = data != null;
@@ -54,6 +90,7 @@ export function useApi<T>(
         const result = await fn();
         if (!abortRef.current) {
           setData(result);
+          if (cacheKey) writeCache(cacheKey, result);
           setError(null);
           setLoading(false);
         }

@@ -72,7 +72,8 @@ export function useOrganization(enabled = true) {
 
   const refresh = useCallback(async () => {
     if (!enabled) return null;
-    setLoading(true);
+    const silent = Boolean(cache);
+    if (!silent) setLoading(true);
     setError(null);
     try {
       let org: OrganizationView | null = null;

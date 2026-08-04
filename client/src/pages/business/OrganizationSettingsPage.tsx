@@ -24,7 +24,7 @@ export function OrganizationSettingsPage() {
     }
   }
 
-  if (loading) {
+  if (loading && !organization) {
     return (
       <div className="min-h-[40vh] flex items-center justify-center">
         <div className="w-6 h-6 border-2 border-dna-500 border-t-transparent rounded-full animate-spin" />

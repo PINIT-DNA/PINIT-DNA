@@ -232,10 +232,19 @@ export interface OrganizationProfileInput {
 }
 
 function profileDataFromInput(input: OrganizationProfileInput) {
+  const industry =
+    input.industry !== undefined && String(input.industry).trim()
+      ? input.industry
+      : undefined;
+  const organizationSize =
+    input.organizationSize !== undefined && String(input.organizationSize).trim()
+      ? input.organizationSize
+      : undefined;
+
   return {
     ...(input.organizationName !== undefined ? { name: input.organizationName.trim() } : {}),
-    ...(input.industry !== undefined ? { industry: input.industry } : {}),
-    ...(input.organizationSize !== undefined ? { organizationSize: input.organizationSize } : {}),
+    ...(industry !== undefined ? { industry } : {}),
+    ...(organizationSize !== undefined ? { organizationSize } : {}),
     ...(input.businessType !== undefined ? { businessType: input.businessType.trim() || null } : {}),
     ...(input.country !== undefined ? { country: input.country.trim() || null } : {}),
     ...(input.website !== undefined ? { website: input.website.trim() || null } : {}),

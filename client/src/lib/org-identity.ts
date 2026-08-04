@@ -25,7 +25,6 @@ export function resolveOrgIdentity(
   const orgName =
     organization?.name?.trim()
     || profile.organization?.trim()
-    || profile.fullName?.trim()
     || 'Your Organization';
   const workspaceName =
     organization?.defaultWorkspace?.name?.trim()
