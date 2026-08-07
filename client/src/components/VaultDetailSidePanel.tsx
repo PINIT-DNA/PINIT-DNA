@@ -39,6 +39,13 @@ import { ShareQrBlock } from './ShareQrBlock';
 import { AuthenticityReportCard } from './AuthenticityReportCard';
 import type { VaultContentAnalysis, VaultRecord } from '../types/dashboard.types';
 import { formatSourcePlatform, vaultSourceCaption } from '../lib/source-platform';
+import {
+  buildPlatformShareOptions,
+  openEditorOrCloud,
+  shareViaOs,
+  type EditorCloudTarget,
+} from '../lib/platform-share';
+import { formatReshareId, formatShareId, formatTrackId } from '../lib/lifecycle-ids';
 
 type PanelTab = 'overview' | 'details' | 'permissions' | 'activity';
 
@@ -318,7 +325,7 @@ export function VaultDetailSidePanel({
     const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     const urlPayload: ShareData = {
       title: file.name,
-      text: `Protected file via PinIT Hub\n${shareUrl}`,
+      text: `Protected file via Pinit HUB\n${shareUrl}`,
       url: shareUrl,
     };
     const filePayload: ShareData = {
@@ -341,7 +348,7 @@ export function VaultDetailSidePanel({
     if (!isMobile && canShareUrl) {
       try {
         await navigator.share(urlPayload);
-        toast.success('Shared — recipient opens PinIT Hub (tracked)');
+        toast.success('Shared — recipient opens Pinit HUB (tracked)');
         return;
       } catch (err) {
         const name = (err as { name?: string })?.name ?? '';
@@ -353,7 +360,7 @@ export function VaultDetailSidePanel({
     if (canShareFiles) {
       try {
         await navigator.share(filePayload);
-        toast.success('Share the file — when opened it goes to PinIT Hub (tracked)');
+        toast.success('Share the file — when opened it goes to Pinit HUB (tracked)');
         return;
       } catch (err) {
         const name = (err as { name?: string })?.name ?? '';
@@ -368,7 +375,7 @@ export function VaultDetailSidePanel({
           if (canShareUrl) {
             try {
               await navigator.share(urlPayload);
-              toast.success('Shared link — opens PinIT Hub (tracked)');
+              toast.success('Shared link — opens Pinit HUB (tracked)');
               return;
             } catch (e2) {
               const n2 = (e2 as { name?: string })?.name ?? '';
@@ -377,7 +384,7 @@ export function VaultDetailSidePanel({
           }
           saveFileLocally();
           toast.success(
-            'File saved — attach it in WhatsApp/Email. Opening it loads PinIT Hub.',
+            'File saved — attach it in WhatsApp/Email. Opening it loads Pinit HUB.',
             { duration: 5500 },
           );
           return;
@@ -389,7 +396,7 @@ export function VaultDetailSidePanel({
     if (canShareUrl) {
       try {
         await navigator.share(urlPayload);
-        toast.success('Shared link — opens PinIT Hub (tracked)');
+        toast.success('Shared link — opens Pinit HUB (tracked)');
         return;
       } catch (err) {
         const name = (err as { name?: string })?.name ?? '';
@@ -399,7 +406,7 @@ export function VaultDetailSidePanel({
 
     saveFileLocally();
     toast.success(
-      'File saved — send that file in WhatsApp/Email. Opening it loads PinIT Hub.',
+      'File saved — send that file in WhatsApp/Email. Opening it loads Pinit HUB.',
       { duration: 5000 },
     );
   };
@@ -629,7 +636,7 @@ export function VaultDetailSidePanel({
                   <div className="flex justify-between gap-2">
                     <dt className="text-gray-500">Source</dt>
                     <dd className="text-white font-medium text-right">
-                      {vaultSourceCaption(record) ?? 'PinIT Hub upload'}
+                      {vaultSourceCaption(record) ?? 'Pinit HUB upload'}
                     </dd>
                   </div>
                   {formatSourcePlatform(record.sourcePlatform) && (
@@ -775,11 +782,27 @@ export function VaultDetailSidePanel({
                     <dt className="text-gray-500">Vault</dt>
                     <dd className="text-dna-400 mono text-right truncate max-w-[180px]">{record.id.slice(0, 16)}…</dd>
                   </div>
-                  {record.location?.status === 'AVAILABLE' && record.location.creationLabel && (
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-gray-500 flex items-center gap-1"><MapPin size={10} /> Location</dt>
-                      <dd className="text-white text-right truncate max-w-[180px]">{record.location.creationLabel}</dd>
-                    </div>
+                  {record.location?.status === 'AVAILABLE' && (
+                    <>
+                      {record.location.creationLabel && (
+                        <div className="flex justify-between gap-2">
+                          <dt className="text-gray-500 flex items-center gap-1"><MapPin size={10} /> Asset GPS</dt>
+                          <dd className="text-white text-right truncate max-w-[180px]">{record.location.creationLabel}</dd>
+                        </div>
+                      )}
+                      {record.location.sharedLabel && (
+                        <div className="flex justify-between gap-2">
+                          <dt className="text-gray-500">Share GPS</dt>
+                          <dd className="text-white text-right truncate max-w-[180px]">{record.location.sharedLabel}</dd>
+                        </div>
+                      )}
+                      {record.location.presentLabel && record.location.presentLabel !== record.location.creationLabel && (
+                        <div className="flex justify-between gap-2">
+                          <dt className="text-gray-500">Latest GPS</dt>
+                          <dd className="text-white text-right truncate max-w-[180px]">{record.location.presentLabel}</dd>
+                        </div>
+                      )}
+                    </>
                   )}
                 </dl>
               </section>
@@ -936,8 +959,86 @@ export function VaultDetailSidePanel({
         <div className="p-4 border-t border-bg-border space-y-3">
           <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">Quick Actions</h3>
           {shareReady && readyShareUrl && (
-            <ShareQrBlock url={readyShareUrl} />
+            <>
+              <ShareQrBlock url={readyShareUrl} />
+              <div className="rounded-xl border border-bg-border bg-bg-elevated p-3 space-y-2">
+                <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">
+                  Share to platforms
+                </p>
+                <p className="text-2xs text-gray-500 mono truncate">
+                  Share ID: {formatShareId(readyShareUrl.split('/').pop() || null)}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {buildPlatformShareOptions(readyShareUrl, record.originalFileName || 'Protected file').map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={async () => {
+                        if (opt.id === 'copy') {
+                          try {
+                            await navigator.clipboard.writeText(readyShareUrl);
+                            toast.success('Share link copied');
+                          } catch {
+                            toast.error('Could not copy link');
+                          }
+                          return;
+                        }
+                        if (opt.href) window.open(opt.href, '_blank', 'noopener,noreferrer');
+                      }}
+                      className="px-2 py-1 rounded-lg border border-bg-border text-2xs text-gray-300 hover:text-white hover:border-dna-500/40"
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const ok = await shareViaOs(readyShareUrl, record.originalFileName || 'Protected file');
+                      if (!ok) toast('OS share not available — use WhatsApp, Email, or Copy link');
+                    }}
+                    className="px-2 py-1 rounded-lg border border-bg-border text-2xs text-gray-300 hover:text-white hover:border-dna-500/40"
+                  >
+                    Device share
+                  </button>
+                </div>
+              </div>
+            </>
           )}
+          <div className="rounded-xl border border-bg-border bg-bg-elevated p-3 space-y-2">
+            <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">
+              Edit / cloud workflow
+            </p>
+            <p className="text-2xs text-gray-500">
+              Download protected file first, then open your editor or cloud. Re-protect after changes.
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {([
+                { label: 'Canva', target: 'canva' as EditorCloudTarget },
+                { label: 'Adobe', target: 'adobe' as EditorCloudTarget },
+                { label: 'Drive', target: 'drive' as EditorCloudTarget },
+                { label: 'Dropbox', target: 'dropbox' as EditorCloudTarget },
+              ]).map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() => openEditorOrCloud(item.target, (msg) => toast(msg, { duration: 4500 }))}
+                  className="px-2 py-1 rounded-lg border border-bg-border text-2xs text-gray-300 hover:text-white hover:border-dna-500/40"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            {latestTep?.tepCode && (
+              <p className="text-2xs text-gray-500 mono">
+                Track ID: {formatTrackId(latestTep.tepCode, record.id)}
+              </p>
+            )}
+            {links[0] && (
+              <p className="text-2xs text-gray-500 mono">
+                Share ID: {formatShareId(links[0].token, links[0].id)} · Reshare ID: {formatReshareId(links[0].id)}
+              </p>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <QuickAction
               icon={protectDownloading ? <RefreshCw size={18} className="animate-spin" /> : <Download size={18} />}

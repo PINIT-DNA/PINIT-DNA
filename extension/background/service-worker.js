@@ -13,6 +13,9 @@ import {
   markQueueItemDone,
   canDurableEnqueue,
 } from '../shared/queue.js';
+import { normalizePlatformEvent } from '../shared/platform-events.js';
+import { classifyIntent } from '../shared/intent-engine.js';
+import { evaluateProtectionPolicy, buildSurfacePreview } from '../shared/policy-engine.js';
 
 const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 
@@ -97,6 +100,21 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     const platform = detectPlatformFromUrl(pageUrl) || 'web';
     let mediaUrl = info.srcUrl || '';
 
+    // Published YouTube pages (watch / shorts / channel) are Viewer surfaces.
+    // Context-menu protect can only fetch a thumbnail URL — not the original upload file.
+    // Guide users to Studio upload for real video protection.
+    const isYoutubeViewerPage = (() => {
+      try {
+        const u = new URL(pageUrl);
+        const host = u.hostname.replace(/^www\./, '');
+        if (host === 'studio.youtube.com') return false;
+        if (!host.endsWith('youtube.com') && host !== 'youtu.be') return false;
+        return !/\/(upload|create)(\/|$)/i.test(u.pathname);
+      } catch {
+        return false;
+      }
+    })();
+
     if (!mediaUrl && tab?.id) {
       try {
         const [{ result }] = await chrome.scripting.executeScript({
@@ -106,8 +124,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
             const tw = document.querySelector('meta[name="twitter:image"]')?.getAttribute('content');
             const poster = document.querySelector('video')?.getAttribute('poster');
             const thumb =
-              document.querySelector('ytd-reel-video-renderer #thumbnail img, ytd-player img')?.src ||
-              null;
+              document.querySelector(
+                'ytd-reel-video-renderer #thumbnail img, ytd-thumbnail img, img#img',
+              )?.src || null;
             return og || tw || poster || thumb || null;
           },
         });
@@ -124,8 +143,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
           at: Date.now(),
           error: true,
           degraded: true,
-          message:
-            'No media found. On YouTube Studio: choose a file to upload (PinIT captures automatically), or Shift+Right-click → Protect with PinIT.',
+          message: isYoutubeViewerPage
+            ? 'Cannot protect this Short from the channel page. Open YouTube Studio → Upload and choose the original file — PinIT protects automatically. Or use Hub → Protect file.'
+            : 'No media found. On YouTube Studio: choose a file to upload (PinIT captures automatically), or right-click a real image (not a video card).',
           platform,
           pageUrl,
           postUrl: pageUrl,
@@ -134,16 +154,57 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       return;
     }
 
-    return handleMessage({
-      type: 'PUBLISH_CAPTURE',
-      platform,
-      mediaUrl,
-      postUrl: pageUrl,
-      pageUrl,
-      pageTitle: tab?.title || '',
-      fileName: `protect-${Date.now()}.bin`,
-      capturedVia: 'extension_context_menu',
-    });
+    try {
+      await setBadge('…', '#6366f1');
+      const res = await handleMessage({
+        type: 'PLATFORM_EVENT',
+        event: {
+          platform,
+          action: 'manual_protect',
+          confidence: isYoutubeViewerPage ? 40 : 100,
+          mediaUrl,
+          postUrl: pageUrl,
+          pageUrl,
+          pageTitle: tab?.title || '',
+          fileName: `protect-${Date.now()}.bin`,
+          platformSurface: isYoutubeViewerPage ? 'youtube-viewer-thumbnail' : 'context-menu',
+          captureMethod: 'context-menu',
+          capturedVia: 'extension_context_menu',
+        },
+      });
+      if (!res || res.ok === false) {
+        await setBadge('!', '#ef4444');
+        const msg =
+          (res && res.error) ||
+          (isYoutubeViewerPage
+            ? 'Protect failed. For YouTube videos, upload the original file in YouTube Studio (or Hub → Protect file). Right-click on Shorts only sees a thumbnail.'
+            : 'Protect failed');
+        await chrome.storage.local.set({
+          lastProtect: {
+            at: Date.now(),
+            error: true,
+            degraded: true,
+            message: msg,
+            platform,
+            pageUrl,
+            postUrl: pageUrl,
+          },
+        });
+      }
+    } catch (err) {
+      await setBadge('!', '#ef4444');
+      await chrome.storage.local.set({
+        lastProtect: {
+          at: Date.now(),
+          error: true,
+          degraded: true,
+          message: String(err.message || err),
+          platform,
+          pageUrl,
+        },
+      });
+    }
+    return;
   }
 
   if (info.menuItemId === 'pinit-verify' && info.srcUrl) {
@@ -309,6 +370,7 @@ async function handleMessage(message) {
         'lastQueueFailure',
         'captureTelemetry',
         'lastCaptureAttempt',
+        'protectionPreview',
       ]);
       const queue = await getQueue();
       const health = last.extensionHealth || (await recordHealth('status'));
@@ -338,6 +400,7 @@ async function handleMessage(message) {
         lastQueueFailure: last.lastQueueFailure || null,
         captureTelemetry: last.captureTelemetry || null,
         lastCaptureAttempt: last.lastCaptureAttempt || null,
+        protectionPreview: last.protectionPreview || null,
         queue: {
           pending: queue.filter((i) => i.status === 'pending' || i.status === 'processing').length,
           failed: queue.filter((i) => i.status === 'failed').length,
@@ -393,6 +456,10 @@ async function handleMessage(message) {
           pageTitle: 'PinIT SELF_TEST_PROTECT',
           clientRequestId,
           capturedVia: 'extension_self_test',
+          captureReason: 'self_test',
+          ownerAction: 'self_test',
+          captureMethod: 'self-test',
+          platformType: 'social',
         });
         const flags = buildDegradedFlags(result);
         await chrome.storage.local.set({
@@ -451,18 +518,174 @@ async function handleMessage(message) {
         return { ok: false, error, stack, clientRequestId };
       }
     }
+    case 'REPORT_SURFACE_PREVIEW': {
+      const mode = message.mode === 'CREATOR' ? 'CREATOR' : 'VIEWER';
+      const preview = buildSurfacePreview({
+        mode,
+        platform: message.platform || 'web',
+        pageUrl: message.pageUrl || '',
+        platformSurface: message.platformSurface || null,
+        fileName: message.fileName || null,
+      });
+      if (message.reason) preview.reason = String(message.reason);
+      await chrome.storage.local.set({ protectionPreview: preview });
+      return { ok: true, preview };
+    }
+    case 'PLATFORM_EVENT': {
+      // Adapters emit events only — Intent + Policy decide protect.
+      const event = normalizePlatformEvent(message.event || message);
+      const classified = classifyIntent(event);
+      const { config, accessToken } = await getConfig();
+      const policy = evaluateProtectionPolicy({
+        intent: classified.intent,
+        intentRationale: classified.rationale,
+        event,
+        config,
+        signedIn: !!accessToken,
+      });
+      await chrome.storage.local.set({
+        protectionPreview: {
+          at: Date.now(),
+          ...policy.preview,
+          reason: policy.reason,
+          confidence: classified.confidence,
+        },
+      });
+      console.info('[PinIT] [sw] [PLATFORM_EVENT]', {
+        platform: event.platform,
+        action: event.action,
+        intent: classified.intent,
+        shouldProtect: policy.shouldProtect,
+        shouldLinkOnly: policy.shouldLinkOnly,
+        reason: policy.reason,
+      });
+
+      if (policy.shouldLinkOnly && (event.postUrl || event.pageUrl)) {
+        return handleMessage({
+          type: 'REGISTER_POST',
+          payload: {
+            vaultId: message.vaultId,
+            protectedPostId: message.protectedPostId,
+            platform: event.platform,
+            postUrl: event.postUrl || event.pageUrl,
+            ownerAccount: event.uploader || null,
+            profileUrl: event.profileUrl || null,
+            platformPostId: event.platformPostId || null,
+          },
+        });
+      }
+
+      if (!policy.shouldProtect) {
+        return {
+          ok: false,
+          skipped: true,
+          intent: classified.intent,
+          error: policy.reason,
+          preview: policy.preview,
+        };
+      }
+
+      return handleMessage({
+        type: 'PUBLISH_CAPTURE',
+        platform: event.platform,
+        dataUrl: event.dataUrl,
+        mediaUrl: event.mediaUrl,
+        fileName: event.fileName,
+        pageUrl: event.pageUrl,
+        postUrl: event.postUrl,
+        pageTitle: event.pageTitle,
+        caption: event.caption,
+        profileUrl: event.profileUrl,
+        ownerAccount: event.uploader,
+        platformPostId: event.platformPostId,
+        pipelineId: event.pipelineId,
+        clientRequestId: event.clientRequestId,
+        platformType: event.platformType,
+        platformSurface: event.platformSurface,
+        capturedVia: event.capturedVia || `extension_event_${event.action}`,
+        captureReason: policy.captureReason,
+        ownerAction: policy.ownerAction,
+        captureMethod: policy.captureMethod,
+        _policyChecked: true,
+        _intent: classified.intent,
+      });
+    }
     case 'PUBLISH_CAPTURE': {
+      // Legacy path + internal continuation after PLATFORM_EVENT policy allow.
+      // Always re-run Intent→Policy unless already checked (prevents adapter bypass).
+      const event = normalizePlatformEvent({
+        ...message,
+        action:
+          message.action ||
+          (message.captureReason === 'manual'
+            ? 'manual_protect'
+            : message.captureReason === 'export'
+              ? 'export'
+              : message.captureReason === 'self_test'
+                ? 'self_test'
+                : message.capturedVia?.includes?.('drop')
+                  ? 'drop'
+                  : 'upload'),
+      });
+      const classified = classifyIntent(event);
+      const stateForPolicy = await getConfig();
+      const policy = message._policyChecked
+        ? {
+            shouldProtect: true,
+            reason: 'Pre-authorized by PLATFORM_EVENT',
+            captureReason: message.captureReason,
+            ownerAction: message.ownerAction,
+            captureMethod: message.captureMethod,
+            enrollMonitoring: true,
+            issueCertificate: true,
+          }
+        : evaluateProtectionPolicy({
+            intent: classified.intent,
+            intentRationale: classified.rationale,
+            event,
+            config: stateForPolicy.config,
+            signedIn: !!stateForPolicy.accessToken,
+          });
+
+      const intentMeta = {
+        captureReason: policy.captureReason || message.captureReason,
+        ownerAction: policy.ownerAction || message.ownerAction,
+        captureMethod: policy.captureMethod || message.captureMethod,
+        platformType: event.platformType || message.platformType,
+        capturedVia: message.capturedVia || event.capturedVia,
+        platformSurface: event.platformSurface || message.platformSurface,
+      };
+
       console.info('[PinIT] [sw] [PUBLISH_CAPTURE.received]', {
         pipelineId: message.pipelineId || null,
         platform: message.platform || 'web',
         fileName: message.fileName || null,
         pageUrl: message.pageUrl || null,
         postUrl: message.postUrl || null,
-        capturedVia: message.capturedVia || 'extension_publish_guardian',
+        intent: classified.intent,
+        shouldProtect: policy.shouldProtect,
+        ...intentMeta,
         hasDataUrl: !!message.dataUrl,
         dataUrlChars: message.dataUrl ? message.dataUrl.length : 0,
         hasMediaUrl: !!message.mediaUrl,
       });
+      if (!policy.shouldProtect) {
+        console.info('[PinIT] [sw] [PUBLISH_CAPTURE.rejected_by_policy]', policy);
+        await chrome.storage.local.set({
+          protectionPreview: {
+            at: Date.now(),
+            ...(policy.preview || {}),
+            reason: policy.reason,
+          },
+        });
+        return {
+          ok: false,
+          skipped: true,
+          intent: classified.intent,
+          error: policy.reason || 'Capture rejected by Protection Policy Engine',
+          preview: policy.preview,
+        };
+      }
       try {
         const { captureTelemetry: prev = { stages: [] } } = await chrome.storage.local.get([
           'captureTelemetry',
@@ -476,7 +699,12 @@ async function handleMessage(message) {
             pipelineId: message.pipelineId || null,
             name: message.fileName || null,
             pageUrl: message.pageUrl || null,
-            via: message.capturedVia || null,
+            via: intentMeta.capturedVia || null,
+            intent: classified.intent,
+            captureReason: intentMeta.captureReason,
+            ownerAction: intentMeta.ownerAction,
+            captureMethod: intentMeta.captureMethod,
+            platformSurface: intentMeta.platformSurface,
           },
         });
         await chrome.storage.local.set({
@@ -496,7 +724,23 @@ async function handleMessage(message) {
             fileName: message.fileName || null,
             pageUrl: message.pageUrl || null,
             dataUrlChars: message.dataUrl ? message.dataUrl.length : 0,
-            capturedVia: message.capturedVia || null,
+            capturedVia: intentMeta.capturedVia || null,
+            captureReason: intentMeta.captureReason,
+            ownerAction: intentMeta.ownerAction,
+            captureMethod: intentMeta.captureMethod,
+            intent: classified.intent,
+          },
+          protectionPreview: {
+            at: Date.now(),
+            willProtect: true,
+            vault: true,
+            monitoring: true,
+            platform: message.platform || 'web',
+            fileName: message.fileName || null,
+            pageUrl: message.pageUrl || null,
+            intent: classified.intent,
+            reason: policy.reason,
+            label: 'Protecting…',
           },
         });
       } catch {
@@ -516,6 +760,24 @@ async function handleMessage(message) {
         throw new Error('No media captured');
       }
 
+      const protectMeta = {
+        platform: message.platform || 'web',
+        postUrl: message.postUrl || '',
+        pageUrl: message.pageUrl || '',
+        mediaUrl: message.mediaUrl || '',
+        profileUrl: message.profileUrl || '',
+        platformPostId: message.platformPostId || '',
+        ownerAccount: message.ownerAccount || '',
+        caption: message.caption || '',
+        pageTitle: message.pageTitle || '',
+        capturedVia: intentMeta.capturedVia,
+        captureReason: intentMeta.captureReason,
+        ownerAction: intentMeta.ownerAction,
+        captureMethod: intentMeta.captureMethod,
+        platformType: intentMeta.platformType,
+        platformSurface: intentMeta.platformSurface || '',
+      };
+
       const online = navigator.onLine;
       const signedIn = !!accessToken;
       const durable = message.dataUrl ? canDurableEnqueue(message.dataUrl) : !!message.mediaUrl;
@@ -528,17 +790,8 @@ async function handleMessage(message) {
           const clientRequestId =
             message.clientRequestId || `pq_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
           const result = await publishProtect(file, {
-            platform: message.platform || 'web',
-            postUrl: message.postUrl || '',
-            pageUrl: message.pageUrl || '',
-            mediaUrl: message.mediaUrl || '',
-            profileUrl: message.profileUrl || '',
-            platformPostId: message.platformPostId || '',
-            ownerAccount: message.ownerAccount || '',
-            caption: message.caption || '',
-            pageTitle: message.pageTitle || '',
+            ...protectMeta,
             clientRequestId,
-            capturedVia: message.capturedVia || 'extension_publish_guardian',
           });
           const { flags } = await persistLastProtectSuccess(result, {
             platform: message.platform,
@@ -551,6 +804,7 @@ async function handleMessage(message) {
             vaultId: result.vaultId,
             certificateId: result.certificateId,
             monitorId: result.monitorId,
+            captureReason: intentMeta.captureReason,
             degraded: flags.degraded,
           });
           return { ok: true, result, clientRequestId, degraded: flags.degraded };
@@ -603,7 +857,7 @@ async function handleMessage(message) {
 
       let queued;
       try {
-        queued = await enqueueProtect(message);
+        queued = await enqueueProtect({ ...message, ...intent });
       } catch (err) {
         return { ok: false, error: String(err.message || err) };
       }
@@ -632,17 +886,8 @@ async function handleMessage(message) {
           ? dataUrlToFile(message.dataUrl, message.fileName || 'publish-media.bin')
           : await fetchAsFile(message.mediaUrl, message.fileName || 'publish-media.bin');
         const result = await publishProtect(file, {
-          platform: message.platform || 'web',
-          postUrl: message.postUrl || '',
-          pageUrl: message.pageUrl || '',
-          mediaUrl: message.mediaUrl || '',
-          profileUrl: message.profileUrl || '',
-          platformPostId: message.platformPostId || '',
-          ownerAccount: message.ownerAccount || '',
-          caption: message.caption || '',
-          pageTitle: message.pageTitle || '',
+          ...protectMeta,
           clientRequestId: queued.clientRequestId || queued.id,
-          capturedVia: message.capturedVia || 'extension_publish_guardian',
         });
         await markQueueItemDone(queued.id, result);
         const { flags } = await persistLastProtectSuccess(result, {
@@ -659,6 +904,8 @@ async function handleMessage(message) {
           platform: message.platform || 'web',
           pageUrl: message.pageUrl || null,
           postUrl: message.postUrl || null,
+          captureReason: intentMeta.captureReason,
+          ownerAction: intentMeta.ownerAction,
           degraded: flags.degraded,
         });
         return { ok: true, result, clientRequestId: queued.id, degraded: flags.degraded };

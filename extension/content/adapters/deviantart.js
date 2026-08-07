@@ -9,6 +9,13 @@
   PinITAdapter.createFileInputAdapter('deviantart', {
     supportsRealtime: false,
     acceptAll: false,
+    platformType: 'creator',
+    detectPublishContext() {
+      return (
+        PinITAdapter.pathMatches([/\/submit/i, /\/studio/i]) ||
+        PinITAdapter.hasComposerDialog(['submit', 'upload', 'stash'])
+      );
+    },
   });
-  console.info('[PinIT] deviantart Publish Guardian adapter active');
+  console.info('[PinIT] deviantart Publish Guardian adapter active (creator-gated)');
 })();

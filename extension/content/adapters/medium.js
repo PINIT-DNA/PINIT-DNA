@@ -9,6 +9,13 @@
   PinITAdapter.createFileInputAdapter('medium', {
     supportsRealtime: false,
     acceptAll: false,
+    platformType: 'creator',
+    detectPublishContext() {
+      return (
+        PinITAdapter.pathMatches([/\/new-story/i, /\/p\//i, /\/edit/i]) ||
+        PinITAdapter.hasComposerDialog(['write', 'upload image', 'add an image'])
+      );
+    },
   });
-  console.info('[PinIT] medium Publish Guardian adapter active');
+  console.info('[PinIT] medium Publish Guardian adapter active (creator-gated)');
 })();

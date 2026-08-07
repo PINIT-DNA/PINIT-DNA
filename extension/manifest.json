@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "PinIT Hub",
-  "version": "1.3.5",
-  "description": "PinIT Hub — protect original assets on upload/export with DNA, Vault, Certificate, and Monitoring.",
+  "name": "Pinit HUB",
+  "version": "1.5.1",
+  "description": "Pinit HUB — Event-Driven Protection Engine. Adapters detect actions; Intent + Policy decide protect. Viewer Mode never auto-captures.",
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "PinIT Hub",
+    "default_title": "Pinit HUB",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

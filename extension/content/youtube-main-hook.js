@@ -7,12 +7,28 @@
  * shadow trees) are still intercepted when clicked / changed / shown.
  *
  * Captured Files are postMessage'd to the isolated adapter (youtube.js).
+ *
+ * SECURITY: Only activate Creator Mode on studio.youtube.com (or /upload|/create).
+ * Never emit files from watch / shorts / home / search / channel browsing.
  */
 (function () {
   if (window.__PINIT_YT_MAIN_HOOK__) return;
   window.__PINIT_YT_MAIN_HOOK__ = true;
 
   const SOURCE = 'pinit-yt-main';
+
+  function isCreatorSurface() {
+    try {
+      const host = location.hostname.replace(/^www\./, '');
+      if (host === 'studio.youtube.com') return true;
+      if (host.endsWith('youtube.com') && /\/(upload|create)(\/|$)/i.test(location.pathname)) {
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
 
   function emit(stage, detail) {
     try {
@@ -32,6 +48,10 @@
   }
 
   function emitFiles(files, via, inputMeta) {
+    if (!isCreatorSurface()) {
+      emit('main.ignored_viewer_mode', { via, href: location.href });
+      return;
+    }
     const list = Array.from(files || []).filter(Boolean);
     if (!list.length) return;
     try {
@@ -72,6 +92,7 @@
   }
 
   function attachInput(input, reason) {
+    if (!isCreatorSurface()) return;
     if (!(input instanceof HTMLInputElement)) return;
     if (input.type && input.type !== 'file') return;
     if (input.__pinitMainHooked) return;
@@ -91,7 +112,7 @@
   const origClick = HTMLInputElement.prototype.click;
   HTMLInputElement.prototype.click = function (...args) {
     try {
-      if (!this.type || this.type === 'file') attachInput(this, 'click');
+      if (isCreatorSurface() && (!this.type || this.type === 'file')) attachInput(this, 'click');
     } catch {
       /* ignore */
     }
@@ -103,7 +124,9 @@
     const origPicker = HTMLInputElement.prototype.showPicker;
     HTMLInputElement.prototype.showPicker = function (...args) {
       try {
-        if (!this.type || this.type === 'file') attachInput(this, 'showPicker');
+        if (isCreatorSurface() && (!this.type || this.type === 'file')) {
+          attachInput(this, 'showPicker');
+        }
       } catch {
         /* ignore */
       }
@@ -116,6 +139,7 @@
   EventTarget.prototype.addEventListener = function (type, listener, options) {
     try {
       if (
+        isCreatorSurface() &&
         type === 'change' &&
         this instanceof HTMLInputElement &&
         (!this.type || this.type === 'file')
@@ -128,10 +152,11 @@
     return origAEL.call(this, type, listener, options);
   };
 
-  // Drop zones often set files programmatically then dispatch change
+  // Drop zones — Creator Mode only
   document.addEventListener(
     'drop',
     function (e) {
+      if (!isCreatorSurface()) return;
       const files = e.dataTransfer && e.dataTransfer.files;
       if (files && files.length) {
         emit('main.drop_detected', { count: files.length });
@@ -155,6 +180,10 @@
   }
 
   function scan(reason) {
+    if (!isCreatorSurface()) {
+      emit('main.viewer_mode', { reason, href: location.href });
+      return;
+    }
     const inputs = [];
     collectFileInputs(document, inputs, 0);
     let hooked = 0;
@@ -177,7 +206,10 @@
     });
   }
 
-  emit('main.hook_installed', { href: location.href });
+  emit('main.hook_installed', {
+    href: location.href,
+    creatorMode: isCreatorSurface(),
+  });
   if (document.documentElement) {
     scan('main_init');
     setTimeout(() => scan('main_t+500ms'), 500);

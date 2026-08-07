@@ -7,6 +7,16 @@
     console.error('[PinIT] adapter-interface.js must load before adobe_photoshop.js');
     return;
   }
-  PinITAdapter.createFileInputAdapter('adobe_photoshop', { supportsRealtime: false, acceptAll: true });
+  PinITAdapter.createFileInputAdapter('adobe_photoshop', {
+    supportsRealtime: false,
+    acceptAll: true,
+    platformType: 'business',
+    detectPublishContext() {
+      return (
+        PinITAdapter.pathMatches([/photoshop\.adobe/i]) ||
+        PinITAdapter.hasComposerDialog(['upload', 'open', 'export', 'download'])
+      );
+    },
+  });
   console.info('[PinIT] adobe_photoshop Publish Guardian adapter active');
 })();

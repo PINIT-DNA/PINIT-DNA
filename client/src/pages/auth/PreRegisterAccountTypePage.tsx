@@ -25,7 +25,7 @@ export function PreRegisterAccountTypePage() {
       <div className="text-center space-y-2 max-w-3xl mx-auto">
         <h1 className="ob-heading text-2xl sm:text-3xl font-bold">Choose your account type</h1>
         <p className="ob-subtext text-sm max-w-lg mx-auto">
-          Pick how you will use PinIT Hub. You start on the Free plan — upgrade anytime.
+          Pick how you will use Pinit HUB. You start on the Free plan — upgrade anytime.
         </p>
       </div>
 

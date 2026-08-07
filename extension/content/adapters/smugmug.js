@@ -6,6 +6,16 @@
     console.error('[PinIT] adapter-interface.js must load before smugmug.js');
     return;
   }
-  PinITAdapter.createFileInputAdapter('smugmug', { supportsRealtime: false, acceptAll: true });
+  PinITAdapter.createFileInputAdapter('smugmug', {
+    supportsRealtime: false,
+    acceptAll: true,
+    platformType: 'photo',
+    detectPublishContext() {
+      return (
+        PinITAdapter.pathMatches([/\/upload/i, /organizer/i]) ||
+        PinITAdapter.hasComposerDialog(['upload', 'add photos'])
+      );
+    },
+  });
   console.info('[PinIT] smugmug Publish Guardian adapter active');
 })();

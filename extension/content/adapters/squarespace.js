@@ -6,6 +6,16 @@
     console.error('[PinIT] adapter-interface.js must load before squarespace.js');
     return;
   }
-  PinITAdapter.createFileInputAdapter('squarespace', { supportsRealtime: false, acceptAll: true });
+  PinITAdapter.createFileInputAdapter('squarespace', {
+    supportsRealtime: false,
+    acceptAll: true,
+    platformType: 'photo',
+    detectPublishContext() {
+      return (
+        PinITAdapter.pathMatches([/\/config/i, /\/pages/i, /editor/i]) ||
+        PinITAdapter.hasComposerDialog(['upload', 'add image', 'replace image'])
+      );
+    },
+  });
   console.info('[PinIT] squarespace Publish Guardian adapter active');
 })();

@@ -42,14 +42,31 @@ export async function registerFaceIdentity(payload: {
   accountType?: 'INDIVIDUAL' | 'BUSINESS';
   organizationName?: string;
 }): Promise<FaceAuthResponse> {
+  if (!Array.isArray(payload.voiceFingerprint) || payload.voiceFingerprint.length !== 128) {
+    throw new Error('Voice fingerprint missing. Go back and complete voice verification.');
+  }
+  if (payload.voiceFingerprint.some((v) => typeof v !== 'number' || !Number.isFinite(v))) {
+    throw new Error('Voice fingerprint is invalid. Re-record your voice and try again.');
+  }
+
   const { status, data } = await postFace('/register', payload);
-  if (status === 409 || data.success === false) {
+  if (status === 409) {
     const msg = data.shortId
       ? (data.message?.includes(data.shortId)
           ? data.message
-          : `This face is already registered to ${data.shortId}. One face = one PINIT ID — please login with your face instead.`)
-      : (data.message ?? 'This face is already registered. One face = one PINIT ID — please login instead.');
+          : `This face is already registered to ${data.shortId}. Please login instead.`)
+      : (data.message ?? 'This face is already registered. Please login instead.');
     throw new Error(msg);
+  }
+  if (status >= 400 || data.success === false) {
+    const detail =
+      data.message
+      || (data as { error?: string }).error
+      || `Registration failed (${status}). Please try again.`;
+    // Never map generic server errors to "already registered"
+    throw new Error(detail === 'Internal server error'
+      ? 'Registration failed on the server. Check voice/face capture and try again.'
+      : detail);
   }
   if (!data.accessToken) throw new Error('Registration failed. Please try again.');
   return data;

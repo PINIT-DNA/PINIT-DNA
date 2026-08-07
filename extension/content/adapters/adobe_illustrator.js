@@ -7,6 +7,16 @@
     console.error('[PinIT] adapter-interface.js must load before adobe_illustrator.js');
     return;
   }
-  PinITAdapter.createFileInputAdapter('adobe_illustrator', { supportsRealtime: false, acceptAll: true });
+  PinITAdapter.createFileInputAdapter('adobe_illustrator', {
+    supportsRealtime: false,
+    acceptAll: true,
+    platformType: 'business',
+    detectPublishContext() {
+      return (
+        PinITAdapter.pathMatches([/illustrator\.adobe/i]) ||
+        PinITAdapter.hasComposerDialog(['upload', 'open', 'export', 'download'])
+      );
+    },
+  });
   console.info('[PinIT] adobe_illustrator Publish Guardian adapter active');
 })();

@@ -1,4 +1,4 @@
-﻿/** Reddit image/video submit — PlatformAdapter contract. */
+﻿/** Reddit — Creator Mode only (submit). Feed browsing = Viewer Mode. */
 (function () {
   if (window.__PINIT_RD_ADAPTER__) return;
   window.__PINIT_RD_ADAPTER__ = true;
@@ -8,7 +8,13 @@
   }
   PinITAdapter.createFileInputAdapter('reddit', {
     supportsRealtime: false,
-    acceptAll: false,
+    platformType: 'creator',
+    detectPublishContext() {
+      return (
+        PinITAdapter.pathMatches([/\/submit(\/|$)/i]) ||
+        PinITAdapter.hasComposerDialog(['create post', 'upload', 'images & video', 'drag and drop'])
+      );
+    },
   });
-  console.info('[PinIT] reddit Publish Guardian adapter active');
+  console.info('[PinIT] Reddit adapter active (creator-gated)');
 })();

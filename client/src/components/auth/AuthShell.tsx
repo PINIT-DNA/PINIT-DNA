@@ -11,7 +11,7 @@ interface AuthShellProps {
 }
 
 /**
- * Enterprise dark shell for PinIT Hub biometric auth.
+ * Enterprise dark shell for Pinit HUB biometric auth.
  * Biometric-only — no email/password UI.
  */
 export function AuthShell({

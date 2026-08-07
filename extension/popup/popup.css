@@ -75,4 +75,18 @@ h1 { font-size: 14px; margin: 0; }
   font-size: 11px;
   margin: 0 0 10px;
 }
-.hidden { display: none !important; }
+.preview-card.yes {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
+}
+.preview-card.no {
+  border-color: color-mix(in srgb, var(--muted) 50%, var(--border));
+}
+.preview-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+.preview-row span:last-child { color: var(--text); font-weight: 600; }
+.preview-yes { color: var(--ok); }
+.preview-no { color: var(--muted); }

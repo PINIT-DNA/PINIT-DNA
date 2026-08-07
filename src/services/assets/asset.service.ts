@@ -234,6 +234,52 @@ export class AssetService {
     return asset;
   }
 
+  /**
+   * Associate one of many platform URLs with an Asset.
+   * Viewing a URL is never enough — only call after protect / late-bind publish.
+   */
+  async upsertPlatformLink(opts: {
+    assetId: string;
+    platform: string;
+    url?: string | null;
+    platformPostId?: string | null;
+    uploadMethod?: string | null;
+    isOriginal?: boolean;
+    role?: string;
+    metadata?: Prisma.InputJsonValue;
+  }) {
+    const url = (opts.url || '').trim();
+    if (!url) return null;
+    const platform = String(opts.platform || 'web').toLowerCase();
+
+    return prisma.assetPlatformLink.upsert({
+      where: {
+        assetId_platform_url: {
+          assetId: opts.assetId,
+          platform,
+          url,
+        },
+      },
+      create: {
+        assetId: opts.assetId,
+        platform,
+        url,
+        platformPostId: opts.platformPostId ?? null,
+        uploadMethod: opts.uploadMethod ?? null,
+        isOriginal: !!opts.isOriginal,
+        role: opts.role || (opts.isOriginal ? 'original' : 'published'),
+        metadata: opts.metadata,
+      },
+      update: {
+        platformPostId: opts.platformPostId ?? undefined,
+        uploadMethod: opts.uploadMethod ?? undefined,
+        isOriginal: opts.isOriginal === true ? true : undefined,
+        role: opts.role ?? undefined,
+        metadata: opts.metadata ?? undefined,
+      },
+    });
+  }
+
   async list(ownerUserId: string, opts?: { assetType?: string; status?: string; limit?: number }) {
     const take = Math.min(opts?.limit ?? 50, 100);
     return prisma.asset.findMany({
@@ -256,6 +302,7 @@ export class AssetService {
       include: {
         timeline: { orderBy: { createdAt: 'desc' }, take: 100 },
         discoveries: { orderBy: { lastSeen: 'desc' }, take: 50 },
+        platformLinks: { orderBy: [{ isOriginal: 'desc' }, { createdAt: 'asc' }] },
         protectedPosts: {
           select: {
             id: true,

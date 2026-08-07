@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
-  ArrowLeft, Shield, ExternalLink, Archive, FileSearch, Award, Radio, MapPin,
+  ArrowLeft, Shield, ExternalLink, Archive, FileSearch, Award, Radio, MapPin, FileWarning,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -16,6 +16,8 @@ import { SkeletonCard } from '../../components/ui/Skeleton';
 import { cn } from '../../components/ui/utils';
 import { BRAND } from '../../config/brand.config';
 import { VaultFileThumbnail } from '../../components/VaultFileThumbnail';
+import { formatPublishId } from '../../lib/lifecycle-ids';
+import { downloadDmcaDraft } from '../../lib/dmca-draft';
 
 interface TimelineEvent {
   id: string;
@@ -190,6 +192,7 @@ export function ProtectedPostDetailPage() {
           <h2 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">Identity</h2>
           <dl className="space-y-2 text-xs">
             {[
+              ['Publish ID', formatPublishId(post.id, post.dnaRecordId)],
               ['Vault ID', post.vaultId ?? '—'],
               ['DNA Record', post.dnaRecordId ?? '—'],
               ['Certificate', post.certificateId ?? '—'],
@@ -292,14 +295,36 @@ export function ProtectedPostDetailPage() {
                     {d.tampered && <span className="text-2xs text-amber-400">Tampered</span>}
                   </div>
                 </div>
-                <a
-                  href={d.discoveryUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="btn-ghost text-xs flex items-center gap-1 shrink-0"
-                >
-                  <ExternalLink size={14} /> Open
-                </a>
+                <div className="flex flex-wrap gap-2 shrink-0">
+                  <a
+                    href={d.discoveryUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-ghost text-xs flex items-center gap-1"
+                  >
+                    <ExternalLink size={12} /> Open
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      downloadDmcaDraft({
+                        certificateId: post.certificateId,
+                        dnaRecordId: post.dnaRecordId,
+                        filename: post.dnaRecord?.imageFilename,
+                        matchUrl: d.discoveryUrl,
+                        matchType: d.matchType,
+                        similarity: d.dnaMatchPercent,
+                        riskLevel: String(d.riskScore),
+                        discoveredAt: d.createdAt,
+                        notes: `Publish Guardian discovery on ${d.platform || post.platform}.`,
+                      });
+                      toast.success('Takedown draft downloaded — review before sending');
+                    }}
+                    className="btn-ghost text-xs flex items-center gap-1 text-amber-300"
+                  >
+                    <FileWarning size={12} /> Takedown draft
+                  </button>
+                </div>
               </div>
             ))}
           </div>

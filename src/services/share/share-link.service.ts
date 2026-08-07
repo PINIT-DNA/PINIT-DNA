@@ -392,7 +392,7 @@ export class ShareLinkService {
       linkType: 'FILE',
       allowDownload: true,
       requestLocation: input.requestLocation ?? true,
-      note: 'Share File — opens on PinIT Hub for tracking',
+      note: 'Share File — opens on Pinit HUB for tracking',
     });
 
     return { ...created, reused: false as const };

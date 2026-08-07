@@ -349,7 +349,7 @@ function NotificationPreferences({ profile, onUpdate }: { profile: any; onUpdate
     { key: 'notifySecurity', label: 'Security', desc: 'Login events, password changes, and session revokes' },
     { key: 'notifyReports', label: 'Reports', desc: 'Report generated, downloaded, and shared' },
     { key: 'notifySystem', label: 'System', desc: 'Registration, storage warnings, and maintenance notices' },
-    { key: 'notifyUpdates', label: 'Product Updates', desc: 'News about PinIT Hub features and improvements' },
+    { key: 'notifyUpdates', label: 'Product Updates', desc: 'News about Pinit HUB features and improvements' },
   ];
 
   return (

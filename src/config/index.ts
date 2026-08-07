@@ -81,9 +81,13 @@ export const config = {
   biometric: {
     encryptionKey: optional('BIOMETRIC_ENCRYPTION_KEY', optional('VAULT_MASTER_SECRET', 'dev_biometric_key_change_in_prod')),
     thresholds: {
-      faceLogin: parseFloat(optional('BIOMETRIC_FACE_LOGIN_THRESHOLD', '0.62')),
-      // Must be >= faceLogin so any face that can log in cannot register a second ID
-      faceDuplicate: parseFloat(optional('BIOMETRIC_FACE_DUPLICATE_THRESHOLD', '0.62')),
+      // face-api.js L2 on normalized 128-d: same person ~0.25–0.45; strangers often ≥0.55.
+      // 0.62 was too loose and caused wrong-face logins with a small registry.
+      faceLogin: parseFloat(optional('BIOMETRIC_FACE_LOGIN_THRESHOLD', '0.48')),
+      // Same as login — one face → one PINIT ID (Individual + Business share that ID).
+      faceDuplicate: parseFloat(optional('BIOMETRIC_FACE_DUPLICATE_THRESHOLD', '0.48')),
+      // Best match must beat 2nd-best by this margin when ≥2 templates exist.
+      faceLoginMargin: parseFloat(optional('BIOMETRIC_FACE_LOGIN_MARGIN', '0.08')),
       voiceLogin: parseFloat(optional('BIOMETRIC_VOICE_LOGIN_THRESHOLD', '0.45')),
       voiceDuplicate: parseFloat(optional('BIOMETRIC_VOICE_DUPLICATE_THRESHOLD', '0.35')),
       fingerprintLogin: parseFloat(optional('BIOMETRIC_FINGERPRINT_LOGIN_THRESHOLD', '0.40')),

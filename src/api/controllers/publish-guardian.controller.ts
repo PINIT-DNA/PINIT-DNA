@@ -53,6 +53,10 @@ export async function publishProtect(req: Request, res: Response, next: NextFunc
       extensionVersion: body.extensionVersion ?? null,
       clientRequestId: body.clientRequestId ?? null,
       capturedVia: body.capturedVia ?? 'extension_publish_guardian',
+      captureReason: body.captureReason ?? null,
+      ownerAction: body.ownerAction ?? null,
+      captureMethod: body.captureMethod ?? null,
+      platformType: body.platformType ?? null,
       userAgent: req.headers['user-agent'] as string | undefined,
       ip: resolveClientIp(req),
     });

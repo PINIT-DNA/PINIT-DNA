@@ -149,5 +149,5 @@ export function isNotRegisteredError(msg: string): boolean {
 }
 
 export function isDuplicateIdentityError(msg: string): boolean {
-  return /already registered|duplicate|exists|already exists/i.test(msg);
+  return /already registered|already enrolled|duplicate identity|one face = one/i.test(msg);
 }

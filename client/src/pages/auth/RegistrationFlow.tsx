@@ -125,7 +125,9 @@ export function RegistrationFlow() {
                 const embedding = faceEmbeddingRef.current;
                 const voiceFp = voiceFingerprintRef.current;
                 if (!embedding) throw new Error('Face data missing. Go back and scan again.');
-                if (!voiceFp) throw new Error('Voice data missing. Go back and complete voice verification.');
+                if (!voiceFp || voiceFp.length !== 128 || voiceFp.some((v) => !Number.isFinite(v))) {
+                  throw new Error('Voice data missing or invalid. Go back and complete voice verification.');
+                }
 
                 const result = await registerFaceIdentity({
                   embedding,
@@ -207,11 +209,11 @@ function Welcome({
     <div className="pa-card" style={{ textAlign: 'center' }}>
       <StepHead
         icon={isBusiness ? <Building2 size={26} color="#a855f7" /> : <User size={26} color="#3b9eff" />}
-        title="Create your PinIT Hub identity"
+        title="Create your Pinit HUB identity"
         subtitle={
           isBusiness
-            ? 'Business account · Free plan. Biometric enrollment — face, fingerprint, and voice.'
-            : 'Individual account · Free plan. Biometric enrollment — face, fingerprint, and voice.'
+            ? 'Business mode · Free plan. One face = one PINIT ID. You can also use Individual on the same ID.'
+            : 'Individual mode · Free plan. One face = one PINIT ID. You can also enable Business on the same ID later.'
         }
       />
       <div className="pa-bio-steps">
@@ -363,9 +365,9 @@ function Success({ onEnter }: { onEnter: () => void }) {
       <div className="pa-pop" style={{ width: 76, height: 76, margin: '4px auto 16px', borderRadius: '50%', background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 34px rgba(16,185,129,0.65)' }}>
         <CheckCircle2 size={42} color="#fff" />
       </div>
-      <h1 style={{ fontSize: 23, fontWeight: 800 }}>Welcome to PinIT Hub</h1>
+      <h1 style={{ fontSize: 23, fontWeight: 800 }}>Welcome to Pinit HUB</h1>
       <div style={{ marginBottom: 18 }}><TrustBadge score={99.8} /></div>
-      <button className="pa-btn" onClick={onEnter}>Enter PinIT Hub <ArrowRight size={17} /></button>
+      <button className="pa-btn" onClick={onEnter}>Enter Pinit HUB <ArrowRight size={17} /></button>
     </div>
   );
 }

@@ -91,6 +91,10 @@ export async function enqueueProtect(payload) {
     pageTitle: payload.pageTitle || '',
     platformPostId: payload.platformPostId || '',
     capturedVia: payload.capturedVia || 'extension_publish_guardian',
+    captureReason: payload.captureReason || '',
+    ownerAction: payload.ownerAction || '',
+    captureMethod: payload.captureMethod || '',
+    platformType: payload.platformType || '',
     pipelineId: payload.pipelineId || '',
     attempts: 0,
     nextAttemptAt: Date.now(),
@@ -232,6 +236,10 @@ export async function processQueue(publishFn) {
         platformPostId: item.platformPostId,
         clientRequestId: item.clientRequestId || item.id,
         capturedVia: item.capturedVia || 'extension_publish_guardian',
+        captureReason: item.captureReason || '',
+        ownerAction: item.ownerAction || '',
+        captureMethod: item.captureMethod || '',
+        platformType: item.platformType || '',
       });
       item.status = 'done';
       item.lastError = '';

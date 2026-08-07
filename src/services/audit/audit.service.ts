@@ -42,7 +42,9 @@ export type AuditEventType =
   | 'UNMASK_REQUESTED'
   | 'UNMASK_APPROVED'
   | 'UNMASK_REJECTED'
-  | 'UNMASK_VIEWED';
+  | 'UNMASK_VIEWED'
+  | 'SHARE_VIEWER_MESSAGE'
+  | 'SHARE_VIEWER_MESSAGE_REPLY';
 
 export interface AuditEventData {
   eventType:    AuditEventType;

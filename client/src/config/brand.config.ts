@@ -1,6 +1,6 @@
-/** Product branding — PinIT Hub (replaces legacy PINIT-DNA shell labels). */
+/** Product branding — Pinit HUB (replaces legacy PINIT-DNA shell labels). */
 export const BRAND = {
-  name: 'PinIT Hub',
+  name: 'Pinit HUB',
   tagline: 'Secure · Connect · Control',
   version: 'v2.0 · Universal',
   logoSrc: '/pinithub-logo.png',

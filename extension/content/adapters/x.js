@@ -1,4 +1,4 @@
-/** X / Twitter Web — Publish Guardian adapter (PlatformAdapter contract). */
+/** X / Twitter Web — Creator Mode only (compose). Timeline browsing = Viewer Mode. */
 (function () {
   if (window.__PINIT_X_ADAPTER__) return;
   window.__PINIT_X_ADAPTER__ = true;
@@ -8,6 +8,13 @@
   }
   PinITAdapter.createFileInputAdapter('x', {
     supportsRealtime: false,
+    platformType: 'social',
+    detectPublishContext() {
+      return (
+        PinITAdapter.pathMatches([/\/compose\//i, /\/messages\/compose/i]) ||
+        PinITAdapter.hasComposerDialog(['compose', 'post', 'media', 'what.?s happening', 'add photos'])
+      );
+    },
     profileUrl() {
       const handle = location.pathname.split('/').filter(Boolean)[0];
       return handle ? `${location.origin}/${handle}` : null;
@@ -16,5 +23,5 @@
       return location.pathname.split('/').filter(Boolean)[0] || null;
     },
   });
-  console.info('[PinIT] X adapter active');
+  console.info('[PinIT] X adapter active (creator-gated)');
 })();

@@ -13,6 +13,7 @@ import { GenerationProgress } from './components/GenerationProgress';
 import { generateDna } from './services/api';
 import type { AppStage, DnaSession, EncryptionResult, VaultStoreResponse } from './types';
 import { DNA_GENERATOR_VERSION } from './config/dna-versions';
+import { requestCustodyLocation, type CustodyLocation } from './lib/location-consent';
 
 type FlowStage = AppStage | 'vaulting' | 'readying';
 
@@ -21,6 +22,7 @@ export default function App() {
   const [stage, setStage] = useState<FlowStage>('idle');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [session, setSession] = useState<DnaSession | null>(null);
+  const [custodyLocation, setCustodyLocation] = useState<CustodyLocation | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [duplicateInfo, setDuplicateInfo] = useState<{
     existingRecordId?: string;
@@ -55,6 +57,10 @@ export default function App() {
     setStage('processing');
 
     try {
+      // Optional custody GPS — never blocks protect if denied/unavailable
+      const loc = await requestCustodyLocation();
+      setCustodyLocation(loc);
+
       const result = await generateDna(selectedFile);
 
       setSession({
@@ -146,6 +152,7 @@ export default function App() {
     setSelectedFile(null);
     setError(null);
     setDuplicateInfo(null);
+    setCustodyLocation(null);
   };
 
   const isWorking =
@@ -213,6 +220,7 @@ export default function App() {
                   <VaultStep
                     file={selectedFile}
                     dnaRecordId={session.dnaRecordId}
+                    custodyLocation={custodyLocation}
                     onComplete={handleVaultComplete}
                     onError={handleVaultError}
                   />

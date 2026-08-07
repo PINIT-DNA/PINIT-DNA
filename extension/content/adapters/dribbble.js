@@ -9,6 +9,13 @@
   PinITAdapter.createFileInputAdapter('dribbble', {
     supportsRealtime: false,
     acceptAll: false,
+    platformType: 'creator',
+    detectPublishContext() {
+      return (
+        PinITAdapter.pathMatches([/\/uploads\/new/i, /\/shots\/new/i]) ||
+        PinITAdapter.hasComposerDialog(['upload', 'new shot'])
+      );
+    },
   });
-  console.info('[PinIT] dribbble Publish Guardian adapter active');
+  console.info('[PinIT] dribbble Publish Guardian adapter active (creator-gated)');
 })();

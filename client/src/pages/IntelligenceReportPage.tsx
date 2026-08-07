@@ -458,7 +458,7 @@ export function IntelligenceReportPage({ adminMode = false }: { adminMode?: bool
       {/* ── Footer ────────────────────────────────────────────────────────── */}
       <div className="text-center py-4 space-y-1">
         <p className="text-2xs text-gray-600">Report generated at {fmtDate(r.generatedAt)}</p>
-        <p className="text-2xs text-gray-700">PinIT Hub · Asset {r.vaultId}</p>
+        <p className="text-2xs text-gray-700">Pinit HUB · Asset {r.vaultId}</p>
       </div>
     </div>
   );

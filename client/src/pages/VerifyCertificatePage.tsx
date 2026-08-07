@@ -255,25 +255,6 @@ export function VerifyCertificatePage() {
             ? <><RefreshCw size={15} className="animate-spin" /> Verifying…</>
             : <><Shield size={15} /> Verify Certificate</>}
         </button>
-
-        {/* How to find IDs */}
-        <div className="rounded-xl bg-bg-elevated border border-bg-border p-3">
-          <p className="text-xs font-semibold text-gray-400 mb-2">Where to find these IDs:</p>
-          <div className="space-y-1">
-            {[
-              { icon: <Dna size={11} className="text-dna-400" />, label: 'DNA Record ID', source: 'DNA Records page or Generate DNA result' },
-              { icon: <Lock size={11} className="text-success" />, label: 'Vault ID', source: 'Vault Explorer page or Store in Vault result' },
-              { icon: <Award size={11} className="text-purple" />, label: 'Certificate ID', source: 'Certificates page (prefixed CERT-DNA-)' },
-            ].map(item => (
-              <div key={item.label} className="flex items-center gap-2">
-                {item.icon}
-                <span className="text-2xs text-gray-500">
-                  <span className="text-gray-300 font-medium">{item.label}</span> — {item.source}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
 
       {/* Result */}

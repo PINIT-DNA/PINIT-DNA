@@ -20,7 +20,7 @@ export function formatSourcePlatform(platform?: string | null): string | null {
     browser: 'Browser',
     extension: 'Browser extension',
     extension_publish_guardian: 'Browser extension',
-    hub: 'PinIT Hub',
+    hub: 'Pinit HUB',
     upload: 'Upload',
   };
   if (labels[key]) return labels[key];

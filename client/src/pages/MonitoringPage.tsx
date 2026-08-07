@@ -8,6 +8,7 @@ import {
   Radio, Search, AlertTriangle, CheckCircle2, XCircle,
   RefreshCw, Play, Pause, Globe, Shield, Clock, Activity,
   FileText, Image, Music, Video, Zap, BarChart2, ChevronDown, ChevronUp,
+  FileWarning,
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -21,6 +22,7 @@ import { SkeletonCard } from '../components/ui/Skeleton';
 import { Modal } from '../components/ui/Modal';
 import { cn } from '../components/ui/utils';
 import { resolveAlertUrl, resolveAlertSubtitle } from '../lib/crawler-url';
+import { downloadDmcaDraft } from '../lib/dmca-draft';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -74,6 +76,17 @@ interface Stats {
   exactMatches: number;
   monitoringEnabled?: boolean;
   crawlerEngineEnabled?: boolean;
+  readiness?: {
+    monitoringEnabled: boolean;
+    crawlerEngineEnabled: boolean;
+    platforms: {
+      website: boolean;
+      youtube: boolean;
+      github: boolean;
+      reddit: boolean;
+      telegram: boolean;
+    };
+  };
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -147,6 +160,24 @@ function AlertCard({ alert, onDismiss, onConfirm }: {
           <p className="text-2xs text-gray-600 mt-1">
             Found {format(new Date(alert.checkedAt), 'MMM d, HH:mm')}
           </p>
+          <button
+            type="button"
+            onClick={() => {
+              downloadDmcaDraft({
+                dnaRecordId: alert.monitorRecord?.dnaRecordId,
+                filename: alert.monitorRecord?.filename,
+                matchUrl: linkUrl || undefined,
+                matchType: alert.matchType,
+                similarity: alert.similarity,
+                discoveredAt: alert.checkedAt,
+                notes: 'Online monitoring match — review evidence before sending.',
+              });
+              toast.success('Takedown draft downloaded — review before sending');
+            }}
+            className="mt-2 inline-flex items-center gap-1.5 text-2xs font-semibold px-2 py-1 rounded-lg border border-amber-500/30 text-amber-300 hover:bg-amber-500/10"
+          >
+            <FileWarning size={11} /> Download takedown draft
+          </button>
         </div>
         <div className="flex flex-col gap-1 shrink-0">
           <button onClick={onConfirm} className="btn btn-danger btn-sm text-2xs px-2 py-1">
@@ -548,6 +579,35 @@ export function MonitoringPage() {
             YouTube, Reddit, GitHub, and web crawlers are kept off until monitoring is rebuilt and stable.
             Code is still in the project — not removed. Vault, DNA, share, and tracking keep working as usual.
           </p>
+        </div>
+      )}
+
+      {stats?.readiness && (
+        <div className="rounded-xl border border-bg-border bg-bg-card px-4 py-3">
+          <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Monitoring readiness</p>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { label: 'Crawler', ok: stats.readiness.monitoringEnabled },
+              { label: 'Engine', ok: stats.readiness.crawlerEngineEnabled },
+              { label: 'Web', ok: stats.readiness.platforms.website },
+              { label: 'YouTube', ok: stats.readiness.platforms.youtube },
+              { label: 'GitHub', ok: stats.readiness.platforms.github },
+              { label: 'Reddit', ok: stats.readiness.platforms.reddit },
+              { label: 'Telegram', ok: stats.readiness.platforms.telegram },
+            ].map((p) => (
+              <span
+                key={p.label}
+                className={cn(
+                  'text-2xs px-2 py-1 rounded-lg border',
+                  p.ok
+                    ? 'border-emerald-500/30 text-emerald-300 bg-emerald-500/10'
+                    : 'border-bg-border text-gray-500 bg-bg-elevated',
+                )}
+              >
+                {p.label}: {p.ok ? 'Ready' : 'Needs key'}
+              </span>
+            ))}
+          </div>
         </div>
       )}
 

@@ -9,6 +9,13 @@
   PinITAdapter.createFileInputAdapter('substack', {
     supportsRealtime: false,
     acceptAll: false,
+    platformType: 'creator',
+    detectPublishContext() {
+      return (
+        PinITAdapter.pathMatches([/\/publish/i, /\/post/i]) ||
+        PinITAdapter.hasComposerDialog(['write', 'upload', 'add image', 'publish'])
+      );
+    },
   });
-  console.info('[PinIT] substack Publish Guardian adapter active');
+  console.info('[PinIT] substack Publish Guardian adapter active (creator-gated)');
 })();

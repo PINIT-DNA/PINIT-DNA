@@ -14,6 +14,7 @@ import {
 import { FORENSIC_REPORTS_UPDATED_EVENT } from '../lib/forensic-reports-storage';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { BRAND } from '../config/brand.config';
+import { toUserPinitId } from '../lib/pinit-identity';
 import { Badge, FileTypeBadge, ClassificationBadge } from '../components/ui/Badge';
 import { VaultFileThumbnail } from '../components/VaultFileThumbnail';
 import { DashboardFilesMap, type DashboardFileMapPoint } from '../components/maps/DashboardFilesMap';
@@ -214,10 +215,10 @@ export function DashboardPage() {
     );
   }
 
-  // Prefer saved profile fullName; fall back to PINIT ID when name is unset or generic
+  // Prefer saved profile fullName; fall back to Individual PINIT-USER id when name is unset
   const welcomeName = isRealDisplayName(displayName)
     ? firstName
-    : (user?.shortId?.trim() || null);
+    : (toUserPinitId(user?.shortId) || user?.shortId?.trim() || null);
 
   return (
     <div className="page-shell space-y-7 animate-fade-in">

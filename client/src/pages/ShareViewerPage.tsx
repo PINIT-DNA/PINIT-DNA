@@ -12,6 +12,7 @@ import { useParams } from 'react-router-dom';
 import { Shield, Lock, Download, Eye, AlertTriangle, CheckCircle2, Clock, Ban, Share2, Copy } from 'lucide-react';
 import axios from 'axios';
 import { format } from 'date-fns';
+import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../config/api.config';
 import { stripPinitProtectionTailsForDisplay } from '../lib/strip-pinit-tails';
 import { isValidMapCoordinate } from '../lib/geo-coords';
@@ -187,6 +188,10 @@ export function ShareViewerPage() {
   const [unmaskStatus, setUnmaskStatus]       = useState<'NONE'|'PENDING'|'APPROVED'|'REJECTED'>('NONE');
   const [unmaskRequesting, setUnmaskRequesting] = useState(false);
   const [_unmaskRequestId, setUnmaskRequestId] = useState<string | null>(null);
+  const [ownerMsg, setOwnerMsg] = useState('');
+  const [ownerMsgSending, setOwnerMsgSending] = useState(false);
+  const [ownerMsgSent, setOwnerMsgSent] = useState(false);
+  const [ownerReply, setOwnerReply] = useState<string | null>(null);
 
   useEffect(() => { gpsDataRef.current = gpsData; }, [gpsData]);
 
@@ -731,6 +736,39 @@ export function ShareViewerPage() {
     } catch { /* ignore */ }
     finally { setUnmaskRequesting(false); }
   };
+
+  const handleSendOwnerMessage = async () => {
+    const text = ownerMsg.trim();
+    if (!text || ownerMsgSending) return;
+    setOwnerMsgSending(true);
+    try {
+      const sid = getSessionId();
+      await axios.post(`${API_BASE_URL}/share/${token}/messages`, {
+        body: text,
+        senderName: name || undefined,
+        sessionId: sid,
+      });
+      setOwnerMsg('');
+      setOwnerMsgSent(true);
+      toast.success('Message sent to the owner');
+    } catch {
+      toast.error('Could not send message — try again');
+    } finally { setOwnerMsgSending(false); }
+  };
+
+  useEffect(() => {
+    if (!token || !info?.isActive) return;
+    const sid = getSessionId();
+    axios
+      .get(`${API_BASE_URL}/share/${token}/messages/mine?sessionId=${encodeURIComponent(sid)}`)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then(({ data }: { data: any }) => {
+        const msgs = data?.messages ?? [];
+        const withReply = msgs.find((m: { ownerReply?: string | null }) => m.ownerReply);
+        if (withReply?.ownerReply) setOwnerReply(withReply.ownerReply);
+      })
+      .catch(() => undefined);
+  }, [token, info?.isActive, ownerMsgSent]);
 
   // ── Render DOCX inline using docx-preview ─────────────────────────────────
   const docxContainerRef = useRef<HTMLDivElement>(null);
@@ -1347,10 +1385,39 @@ export function ShareViewerPage() {
         </svg>
       </div>
 
+      {/* Message owner */}
+      {info.isActive && (
+        <div className="print-hide border-t border-bg-border bg-bg-card px-4 py-3 space-y-2">
+          <p className="text-xs font-semibold text-white">Message the owner</p>
+          <p className="text-2xs text-gray-500">Ask a question or leave a note about this shared file.</p>
+          {ownerReply && (
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
+              Owner reply: {ownerReply}
+            </div>
+          )}
+          <textarea
+            value={ownerMsg}
+            onChange={(e) => setOwnerMsg(e.target.value)}
+            rows={2}
+            maxLength={2000}
+            placeholder="Write a short message…"
+            className="w-full rounded-xl bg-bg-elevated border border-bg-border px-3 py-2 text-sm text-white placeholder:text-gray-600"
+          />
+          <button
+            type="button"
+            disabled={!ownerMsg.trim() || ownerMsgSending}
+            onClick={() => void handleSendOwnerMessage()}
+            className="btn btn-secondary btn-sm disabled:opacity-50"
+          >
+            {ownerMsgSending ? 'Sending…' : ownerMsgSent ? 'Sent' : 'Send message'}
+          </button>
+        </div>
+      )}
+
       {/* Footer */}
       <div className="bg-bg-card border-t border-bg-border px-4 py-2 flex items-center justify-between">
         <p className="text-2xs text-gray-600">
-          Protected by PINIT-DNA Smart Links · Access is tracked and logged
+          Protected by Pinit HUB Smart Links · Access is tracked and logged
         </p>
         <p className="text-2xs text-gray-600 mono">{token}</p>
       </div>

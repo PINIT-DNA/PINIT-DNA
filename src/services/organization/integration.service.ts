@@ -414,25 +414,25 @@ export const orgIntegrationService = {
     const body =
       provider === 'SLACK'
         ? {
-            text: `✅ *PinIT Hub* test alert — ${label} integration is working.`,
+            text: `✅ *Pinit HUB* test alert — ${label} integration is working.`,
             blocks: [
               {
                 type: 'section',
                 text: {
                   type: 'mrkdwn',
-                  text: `*PinIT Hub* · ${label} connected\nThis is a test notification from your Business organization.`,
+                  text: `*Pinit HUB* · ${label} connected\nThis is a test notification from your Business organization.`,
                 },
               },
             ],
           }
         : provider === 'MICROSOFT_TEAMS'
           ? {
-              text: `✅ PinIT Hub test alert — ${label} integration is working.`,
+              text: `✅ Pinit HUB test alert — ${label} integration is working.`,
             }
           : {
               source: 'pinit-hub',
               event: 'integration.test',
-              message: `PinIT Hub test — ${label} Catch Hook is working.`,
+              message: `Pinit HUB test — ${label} Catch Hook is working.`,
               at: new Date().toISOString(),
             };
 

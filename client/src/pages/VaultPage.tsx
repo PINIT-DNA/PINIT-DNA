@@ -321,7 +321,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
     const { shareUrl, token } = created;
     const shareData: ShareData = {
       title: record.originalFileName,
-      text: `Secure file via PinIT Hub\n${shareUrl}`,
+      text: `Secure file via Pinit HUB\n${shareUrl}`,
       url: shareUrl,
     };
 
@@ -1220,7 +1220,7 @@ export function VaultPage() {
                     </td>
                     <td>
                       <span className="text-2xs text-gray-300">
-                        {vaultSourceCaption(r) ?? 'PinIT Hub'}
+                        {vaultSourceCaption(r) ?? 'Pinit HUB'}
                       </span>
                     </td>
                     <td>

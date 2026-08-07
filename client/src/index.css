@@ -755,7 +755,7 @@
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   PinIT Hub Authentication — enterprise dark shell (biometric-only)
+   Pinit HUB Authentication — enterprise dark shell (biometric-only)
    Scoped under .pinit-auth so it is isolated from the rest of the app.
    ════════════════════════════════════════════════════════════════════════════ */
 .pinit-auth {

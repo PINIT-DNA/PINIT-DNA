@@ -9,6 +9,13 @@
   PinITAdapter.createFileInputAdapter('vimeo', {
     supportsRealtime: false,
     acceptAll: true,
+    platformType: 'creator',
+    detectPublishContext() {
+      return (
+        PinITAdapter.pathMatches([/\/upload/i, /\/manage/i]) ||
+        PinITAdapter.hasComposerDialog(['upload', 'new video'])
+      );
+    },
   });
-  console.info('[PinIT] vimeo Publish Guardian adapter active');
+  console.info('[PinIT] vimeo Publish Guardian adapter active (creator-gated)');
 })();

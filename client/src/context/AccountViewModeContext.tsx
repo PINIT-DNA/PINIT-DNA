@@ -146,24 +146,29 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // ── Business ↔ Individual when org already exists (view only) ─────────
+      // ── Business ↔ Individual when org already exists (view only — same account) ─
       if (hasBusinessAccess) {
         setAccountViewMode(user.sub, next);
         setMode(next);
         if (next === 'BUSINESS') {
           navigate(BUSINESS_DASHBOARD_PATH, { replace: true });
-          toast.success('Switched to Business dashboard');
+          toast.success('Business mode — same account, ORG ID');
         } else {
           navigate('/', { replace: true });
-          toast.success('Switched to Individual dashboard');
+          toast.success('Individual mode — same account, USER ID');
         }
         return;
       }
 
-      // ── Individual-only account enabling Business for the first time ─────
+      // ── Individual-only: enable Business mode on the SAME face / ShortId ─────
       if (next === 'BUSINESS') {
+        const rootId = user.shortId ?? 'your PINIT ID';
         const ok = window.confirm(
-          'Set up a Business account? This enables organization features (Team, Audit, API). You can return to the Individual dashboard anytime.',
+          `Enable Business mode on ${rootId}?\n\n` +
+            'This is NOT a new account. Same face → same number:\n' +
+            `• Individual: PINIT-USER-…\n` +
+            `• Business:   PINIT-ORG-…\n\n` +
+            'You can switch back to Individual anytime.',
         );
         if (!ok) return;
 
@@ -191,9 +196,9 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
           setAccountViewMode(user.sub, 'BUSINESS');
           setMode('BUSINESS');
           navigate(BUSINESS_DASHBOARD_PATH, { replace: true });
-          toast.success('Business account ready');
+          toast.success('Business mode enabled on your existing PINIT ID');
         } catch (err) {
-          toast.error(err instanceof Error ? err.message : 'Could not switch to Business');
+          toast.error(err instanceof Error ? err.message : 'Could not enable Business mode');
         } finally {
           setSwitching(false);
         }

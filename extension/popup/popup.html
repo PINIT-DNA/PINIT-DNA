@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PinIT Hub</title>
+  <title>Pinit HUB</title>
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
@@ -11,7 +11,7 @@
     <div class="brand">
       <img src="../icons/icon48.png" alt="" width="28" height="28" />
       <div>
-        <h1>PinIT Hub</h1>
+        <h1>Pinit HUB</h1>
         <p id="subtitle">Publish Guardian</p>
       </div>
     </div>
@@ -22,7 +22,7 @@
 
   <!-- Default visible so popup is never blank if background is slow/offline -->
   <section id="signed-out">
-    <p class="copy">Sign in with your PinIT Hub account to protect posts and verify media.</p>
+    <p class="copy">Sign in with your Pinit HUB account to protect posts and verify media.</p>
     <button id="btn-signin" class="primary">Sign in to PinIT</button>
     <div class="code-row">
       <input id="auth-code" type="text" placeholder="Paste auth code" autocomplete="off" spellcheck="false" />
@@ -33,6 +33,7 @@
 
   <section id="signed-in" class="hidden">
     <p class="copy">Signed in as <strong id="user-id">—</strong></p>
+    <div id="protection-preview" class="card preview-card hidden"></div>
     <div id="health-card" class="card hidden"></div>
     <div class="actions">
       <button id="btn-hub" class="secondary">Open Protected Posts</button>

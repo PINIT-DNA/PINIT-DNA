@@ -269,7 +269,7 @@ function LoginSuccess({ onEnter }: { onEnter: () => void }) {
         <span className="pa-faint" style={{ fontSize: 13 }}>Last login</span>
         <span style={{ fontSize: 13, color: '#e8eef8', fontWeight: 600 }}>{lastStr}</span>
       </div>
-      <button className="pa-btn" onClick={onEnter}>Enter PinIT Hub <ArrowRight size={17} /></button>
+      <button className="pa-btn" onClick={onEnter}>Enter Pinit HUB <ArrowRight size={17} /></button>
     </div>
   );
 }

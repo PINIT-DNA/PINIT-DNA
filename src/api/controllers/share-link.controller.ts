@@ -1040,6 +1040,140 @@ export async function reviewUnmaskRequest(req: Request, res: Response, next: Nex
   } catch (err) { next(err); }
 }
 
+// ── Viewer → owner messages (beyond unmask) ───────────────────────────────────
+// POST /share/:token/messages
+export async function postShareViewerMessage(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { token } = req.params;
+    const { body, senderName, sessionId } = req.body as {
+      body?: string;
+      senderName?: string;
+      sessionId?: string;
+    };
+
+    const text = (body ?? '').trim();
+    if (!text || text.length > 2000) {
+      res.status(400).json({ success: false, error: 'Message must be 1–2000 characters' });
+      return;
+    }
+
+    const fullLink = await prisma.shareLink.findUnique({ where: { token } });
+    if (!fullLink || !fullLink.isActive) {
+      res.status(404).json({ success: false, error: 'Link not found' });
+      return;
+    }
+
+    const ua = req.headers['user-agent'] ?? '';
+    const device = /Mobi|Android/.test(String(ua)) ? 'mobile' : /Tablet|iPad/.test(String(ua)) ? 'tablet' : 'desktop';
+    const ip = resolveClientIp(req);
+
+    const msg = await prisma.shareViewerMessage.create({
+      data: {
+        shareToken: token,
+        senderName: senderName?.trim() || null,
+        sessionId: sessionId || null,
+        ipAddress: ip,
+        device,
+        body: text,
+        status: 'PENDING',
+      },
+    });
+
+    auditService.log({
+      eventType: 'SHARE_VIEWER_MESSAGE',
+      filename: fullLink.filename,
+      req,
+      detail: { shareToken: token, messageId: msg.id },
+    });
+
+    res.status(201).json({ success: true, messageId: msg.id, status: 'PENDING' });
+  } catch (err) { next(err); }
+}
+
+// GET /share/messages — owner inbox
+export async function listShareViewerMessages(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const ownerUserId = getAuthUserId(req);
+    const messages = await prisma.shareViewerMessage.findMany({
+      where: { shareLink: { ownerUserId } },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      include: { shareLink: { select: { filename: true, token: true } } },
+    });
+    res.json({ success: true, messages });
+  } catch (err) { next(err); }
+}
+
+// POST /share/messages/:id/reply — owner reply
+export async function replyShareViewerMessage(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const ownerUserId = getAuthUserId(req);
+    const reply = String(req.body?.reply ?? '').trim();
+    if (!reply || reply.length > 2000) {
+      res.status(400).json({ success: false, error: 'Reply must be 1–2000 characters' });
+      return;
+    }
+
+    const existing = await prisma.shareViewerMessage.findUnique({
+      where: { id },
+      include: { shareLink: { select: { ownerUserId: true, filename: true } } },
+    });
+    if (!existing) {
+      res.status(404).json({ success: false, error: 'Message not found' });
+      return;
+    }
+    if (existing.shareLink.ownerUserId !== ownerUserId) {
+      res.status(403).json({ success: false, error: 'Access denied' });
+      return;
+    }
+
+    const updated = await prisma.shareViewerMessage.update({
+      where: { id },
+      data: {
+        ownerReply: reply,
+        repliedAt: new Date(),
+        status: 'REPLIED',
+      },
+    });
+
+    auditService.log({
+      eventType: 'SHARE_VIEWER_MESSAGE_REPLY',
+      filename: existing.shareLink.filename,
+      req,
+      detail: { messageId: id },
+    });
+
+    res.json({ success: true, message: updated });
+  } catch (err) { next(err); }
+}
+
+// GET /share/:token/messages/mine — viewer checks replies for their session
+export async function getMyShareViewerMessages(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { token } = req.params;
+    const sessionId = String(req.query['sessionId'] ?? '');
+    if (!sessionId) {
+      res.json({ success: true, messages: [] });
+      return;
+    }
+    const messages = await prisma.shareViewerMessage.findMany({
+      where: { shareToken: token, sessionId },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: {
+        id: true,
+        body: true,
+        status: true,
+        ownerReply: true,
+        repliedAt: true,
+        createdAt: true,
+      },
+    });
+    res.json({ success: true, messages });
+  } catch (err) { next(err); }
+}
+
 // GET /share/analytics/live-map — live file open/download locations for dashboard map
 export async function getLiveTrackingMap(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {

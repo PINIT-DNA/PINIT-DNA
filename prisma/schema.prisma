@@ -1126,6 +1126,7 @@ model ShareLink {
   childLinks                ShareLink[]        @relation("LinkHierarchy")
   shareRecipient            ShareRecipient?    @relation(fields: [shareRecipientId], references: [id])
   unmaskRequests            UnmaskRequest[]
+  viewerMessages            ShareViewerMessage[]
 
   @@index([token])
   @@index([vaultId])
@@ -1134,6 +1135,27 @@ model ShareLink {
   @@index([shareRecipientId])
   @@index([forwardStatus])
   @@map("share_links")
+}
+
+model ShareViewerMessage {
+  id            String    @id @default(uuid())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  shareToken    String
+  senderName    String?
+  sessionId     String?
+  ipAddress     String?
+  device        String?
+  body          String
+  status        String    @default("PENDING")
+  ownerReply    String?
+  repliedAt     DateTime?
+  shareLink     ShareLink @relation(fields: [shareToken], references: [token], onDelete: Cascade)
+
+  @@index([shareToken])
+  @@index([status])
+  @@index([createdAt])
+  @@map("share_viewer_messages")
 }
 
 model ShareRecipient {
@@ -1924,6 +1946,7 @@ model Asset {
   protectedPosts ProtectedPost[]
   timeline      AssetTimelineEvent[]
   discoveries   AssetDiscovery[]
+  platformLinks AssetPlatformLink[]
 
   @@unique([ownerUserId, clientRequestId])
   @@index([ownerUserId, createdAt])
@@ -1933,6 +1956,32 @@ model Asset {
   @@index([dnaId])
   @@index([vaultId])
   @@map("assets")
+}
+
+/// Multiple published surfaces for one Asset (Instagram + YouTube + …)
+model AssetPlatformLink {
+  id             String   @id @default(uuid())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  assetId        String
+  platform       String
+  url            String
+  platformPostId String?
+  /// studio_upload | file-picker | export-gesture | context-menu | …
+  uploadMethod   String?
+  /// First/original publish surface
+  isOriginal     Boolean  @default(false)
+  /// original | published | related
+  role           String   @default("published")
+  metadata       Json?
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, platform, url])
+  @@index([assetId, createdAt])
+  @@index([platform])
+  @@index([url])
+  @@map("asset_platform_links")
 }
 
 model AssetTimelineEvent {

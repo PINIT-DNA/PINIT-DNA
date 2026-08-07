@@ -51,11 +51,48 @@ export interface FusionResult {
   scores: ModalityScores;
 }
 
+export interface FaceRankResult {
+  best: { userId: string; shortId: string; distance: number; source?: string } | null;
+  secondDistance: number;
+}
+
+/** Rank probe against all face templates (ascending distance). */
+export function rankFaceMatches(
+  probe: number[],
+  candidates: Array<{ userId: string; shortId: string; embedding: number[]; source?: string }>,
+): FaceRankResult {
+  let best: FaceRankResult['best'] = null;
+  let secondDistance = Infinity;
+  for (const c of candidates) {
+    const d = euclideanDistance(probe, c.embedding);
+    if (!best || d < best.distance) {
+      if (best) secondDistance = best.distance;
+      best = { userId: c.userId, shortId: c.shortId, distance: d, source: c.source };
+    } else if (d < secondDistance) {
+      secondDistance = d;
+    }
+  }
+  return { best, secondDistance };
+}
+
+/**
+ * Accept login only when:
+ * 1) nearest distance < faceLogin threshold, AND
+ * 2) if another template exists, nearest beats 2nd-best by faceLoginMargin
+ *    (prevents "closest stranger" false accepts in small registries).
+ */
+export function isConfidentFaceMatch(bestDistance: number, secondDistance: number): boolean {
+  if (!Number.isFinite(bestDistance) || bestDistance >= THRESHOLDS.faceLogin) return false;
+  if (!Number.isFinite(secondDistance) || secondDistance === Infinity) return true;
+  const margin = THRESHOLDS.faceLoginMargin ?? 0.08;
+  return secondDistance - bestDistance >= margin;
+}
+
 export function fuseBiometricScores(
   faceDist: number,
   voiceDist: number | null,
   fingerprintDist: number | null,
-  opts: { hasVoice: boolean; hasFingerprint: boolean },
+  opts: { hasVoice: boolean; hasFingerprint: boolean; secondFaceDistance?: number },
 ): FusionResult {
   const w = THRESHOLDS.weights;
   const faceConf = distanceToConfidence(faceDist, THRESHOLDS.faceLogin);
@@ -78,13 +115,14 @@ export function fuseBiometricScores(
     weighted += fpConf * w.fingerprint;
   }
 
-  // Face-primary authentication — Face is the primary lock.
-  const faceOk = faceDist < THRESHOLDS.faceLogin;
+  // Face-primary authentication — Face is the primary lock + margin gate.
+  const faceOk = isConfidentFaceMatch(faceDist, opts.secondFaceDistance ?? Infinity);
   const verified = faceOk;
 
   const overallConfidence = totalWeight > 0 ? weighted / totalWeight : 0;
 
-  return {    overallConfidence: Math.round(overallConfidence * 10) / 10,
+  return {
+    overallConfidence: Math.round(overallConfidence * 10) / 10,
     verified,
     scores: {
       face: faceConf,

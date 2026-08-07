@@ -40,7 +40,7 @@ async function waitForVideoFrames(video: HTMLVideoElement, maxMs = 5000): Promis
   throw new Error('Camera not ready. Allow camera access and try again.');
 }
 
-/** Fast face capture — 3 frames averaged (phone-style, ~1–2 s). */
+/** Fast face capture — register averages more frames; rejects 0 or 2+ faces. */
 export async function captureFaceEmbeddingFromVideo(
   video: HTMLVideoElement,
   onProgress?: (pct: number) => void,
@@ -50,29 +50,34 @@ export async function captureFaceEmbeddingFromVideo(
   await waitForVideoFrames(video);
 
   const mode = opts.mode ?? 'login';
-  const need = opts.samples ?? (mode === 'register' ? 3 : 2);
-  const timeoutMs = opts.timeoutMs ?? 12000;
+  const need = opts.samples ?? (mode === 'register' ? 5 : 3);
+  const timeoutMs = opts.timeoutMs ?? (mode === 'register' ? 16000 : 12000);
   const samples: Float32Array[] = [];
   const started = Date.now();
-  const detector = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 });
+  const scoreThreshold = mode === 'register' ? 0.5 : 0.45;
+  const detector = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold });
 
   onProgress?.(8);
 
   while (samples.length < need) {
     if (Date.now() - started > timeoutMs) {
-      if (samples.length >= 1) break;
+      if (samples.length >= (mode === 'register' ? 3 : 1)) break;
       throw new Error('Face not detected. Move closer to the camera and try again.');
     }
 
-    const detection = await faceapi
-      .detectSingleFace(video, detector)
+    const all = await faceapi
+      .detectAllFaces(video, detector)
       .withFaceLandmarks()
-      .withFaceDescriptor();
+      .withFaceDescriptors();
 
-    if (detection) {
-      samples.push(detection.descriptor);
+    if (all.length > 1) {
+      throw new Error('Only one face is allowed. Make sure nobody else is in the camera frame.');
+    }
+
+    if (all.length === 1 && all[0]) {
+      samples.push(all[0].descriptor);
       onProgress?.(Math.min(92, 15 + samples.length * (75 / need)));
-      if (samples.length < need) await new Promise((r) => setTimeout(r, 40));
+      if (samples.length < need) await new Promise((r) => setTimeout(r, 60));
     } else {
       onProgress?.(Math.min(12, 5 + (Date.now() - started) / 500));
       await new Promise((r) => setTimeout(r, 50));

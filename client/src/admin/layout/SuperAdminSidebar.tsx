@@ -104,7 +104,7 @@ export function SuperAdminSidebar({ open = false, onClose }: { open?: boolean; o
             navigate('/');
           }}
           className="w-full flex items-center gap-2 px-3 py-2.5 text-sm font-medium text-zinc-100 bg-zinc-800 hover:bg-zinc-700 rounded-md border border-zinc-700"
-          title="Leave Admin Console and return to your PinIT Hub dashboard"
+          title="Leave Admin Console and return to your Pinit HUB dashboard"
         >
           <ChevronLeft size={16} />
           Back to User Dashboard

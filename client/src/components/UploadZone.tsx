@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion } from 'framer-motion';
-import { Upload, ScanLine, Video, Mic, FileUp, Pencil, Check, X } from 'lucide-react';
+import { Upload, ScanLine, Video, Mic, FileUp, Pencil, Check, X, Camera } from 'lucide-react';
 import { DocumentScanner } from './DocumentScanner';
 import { MediaRecorderPanel } from './MediaRecorderPanel';
 import {
@@ -15,7 +15,7 @@ import {
   isVideoFile,
 } from '../lib/file-type-utils';
 
-export type CaptureMode = 'upload' | 'scan' | 'video' | 'audio';
+export type CaptureMode = 'upload' | 'photo' | 'scan' | 'video' | 'audio';
 
 interface Props {
   onFileSelected: (file: File | null) => void;
@@ -25,6 +25,7 @@ interface Props {
 
 const CAPTURE_MODES: { id: CaptureMode; label: string; icon: typeof Upload }[] = [
   { id: 'upload', label: 'Upload', icon: Upload },
+  { id: 'photo', label: 'Photo', icon: Camera },
   { id: 'scan', label: 'Scan', icon: ScanLine },
   { id: 'video', label: 'Video', icon: Video },
   { id: 'audio', label: 'Audio', icon: Mic },
@@ -171,7 +172,7 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-5"
+          className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-5"
         >
           {CAPTURE_MODES.map(({ id, label, icon: Icon }) => (
             <button
@@ -195,9 +196,20 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
         </motion.div>
       )}
 
+      {!selectedFile && captureMode === 'photo' && (
+        <DocumentScanner
+          subtitle="Take a photo — it goes straight into Protect → Vault"
+          captureMode="single"
+          quickCapture
+          onScanComplete={handleFileReady}
+          onCancel={() => setCaptureMode('upload')}
+        />
+      )}
+
       {!selectedFile && captureMode === 'scan' && (
         <DocumentScanner
-          subtitle=""
+          subtitle="Scan pages into a protected PDF"
+          captureMode="multi"
           onScanComplete={handleFileReady}
           onCancel={() => setCaptureMode('upload')}
         />

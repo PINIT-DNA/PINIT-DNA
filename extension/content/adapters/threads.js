@@ -1,4 +1,4 @@
-﻿/** Threads compose upload — PlatformAdapter contract. */
+﻿/** Threads — Creator Mode only (compose). Feed browsing = Viewer Mode. */
 (function () {
   if (window.__PINIT_TH_ADAPTER__) return;
   window.__PINIT_TH_ADAPTER__ = true;
@@ -8,7 +8,16 @@
   }
   PinITAdapter.createFileInputAdapter('threads', {
     supportsRealtime: false,
-    acceptAll: false,
+    platformType: 'creator',
+    detectPublishContext() {
+      return PinITAdapter.hasComposerDialog([
+        'new thread',
+        'create',
+        'attach',
+        "what's new",
+        'add to thread',
+      ]);
+    },
   });
-  console.info('[PinIT] threads Publish Guardian adapter active');
+  console.info('[PinIT] Threads adapter active (creator-gated)');
 })();

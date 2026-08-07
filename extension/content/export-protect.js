@@ -32,27 +32,39 @@
         reader.readAsDataURL(fileOrUrl);
       });
       chrome.runtime.sendMessage({
-        type: 'PUBLISH_CAPTURE',
-        platform: PLATFORM,
-        dataUrl,
-        fileName: meta.fileName || `export-${Date.now()}.bin`,
-        pageTitle: document.title,
-        pageUrl: location.href,
-        capturedVia: 'extension_export_protect',
+        type: 'PLATFORM_EVENT',
+        event: {
+          platform: PLATFORM,
+          action: 'export',
+          confidence: 100,
+          dataUrl,
+          fileName: meta.fileName || `export-${Date.now()}.bin`,
+          pageTitle: document.title,
+          pageUrl: location.href,
+          platformSurface: `${PLATFORM}-export`,
+          captureMethod: 'export-gesture',
+          capturedVia: 'extension_export_protect',
+        },
       });
       return;
     }
 
     if (typeof fileOrUrl === 'string') {
       chrome.runtime.sendMessage({
-        type: 'PUBLISH_CAPTURE',
-        platform: PLATFORM,
-        mediaUrl: fileOrUrl,
-        fileName: meta.fileName || `export-${Date.now()}.bin`,
-        pageTitle: document.title,
-        pageUrl: location.href,
-        postUrl: location.href,
-        capturedVia: 'extension_export_protect',
+        type: 'PLATFORM_EVENT',
+        event: {
+          platform: PLATFORM,
+          action: 'export',
+          confidence: 100,
+          mediaUrl: fileOrUrl,
+          fileName: meta.fileName || `export-${Date.now()}.bin`,
+          pageTitle: document.title,
+          pageUrl: location.href,
+          postUrl: location.href,
+          platformSurface: `${PLATFORM}-export`,
+          captureMethod: 'export-gesture',
+          capturedVia: 'extension_export_protect',
+        },
       });
     }
   }

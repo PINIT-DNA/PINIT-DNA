@@ -1,5 +1,5 @@
 /**
- * PinIT Hub popup — classic script (no module) so it always paints UI.
+ * Pinit HUB popup — classic script (no module) so it always paints UI.
  */
 
 function showError(msg) {
@@ -75,6 +75,43 @@ async function refresh() {
       pill.className = 'pill ok';
     }
     document.getElementById('user-id').textContent = (status.user && status.user.shortId) || 'PinIT user';
+
+    const previewEl = document.getElementById('protection-preview');
+    if (previewEl) {
+      const p = status.protectionPreview;
+      if (p && p.at && Date.now() - p.at < 15 * 60 * 1000) {
+        previewEl.classList.remove('hidden');
+        const yes = !!p.willProtect;
+        previewEl.className = 'card preview-card ' + (yes ? 'yes' : 'no');
+        previewEl.innerHTML =
+          '<strong>Protection Preview</strong>' +
+          '<div class="preview-row"><span>Mode</span><span>' +
+          (p.label || (yes ? 'Creator Mode' : 'Viewer Mode')) +
+          '</span></div>' +
+          '<div class="preview-row"><span>Platform</span><span>' +
+          (p.platform || '—') +
+          '</span></div>' +
+          (p.fileName
+            ? '<div class="preview-row"><span>File</span><span>' + p.fileName + '</span></div>'
+            : '') +
+          '<div class="preview-row"><span>Will Protect</span><span class="' +
+          (yes ? 'preview-yes' : 'preview-no') +
+          '">' +
+          (yes ? 'YES' : 'NO') +
+          '</span></div>' +
+          '<div class="preview-row"><span>Vault</span><span>' +
+          (p.vault ? 'YES' : 'NO') +
+          '</span></div>' +
+          '<div class="preview-row"><span>Monitoring</span><span>' +
+          (p.monitoring ? 'YES' : 'NO') +
+          '</span></div>' +
+          '<p class="hint" style="margin:8px 0 0">' +
+          (p.reason || '') +
+          '</p>';
+      } else {
+        previewEl.classList.add('hidden');
+      }
+    }
 
     const health = document.getElementById('health-card');
     if (health) {

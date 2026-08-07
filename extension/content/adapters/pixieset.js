@@ -6,6 +6,16 @@
     console.error('[PinIT] adapter-interface.js must load before pixieset.js');
     return;
   }
-  PinITAdapter.createFileInputAdapter('pixieset', { supportsRealtime: false, acceptAll: true });
+  PinITAdapter.createFileInputAdapter('pixieset', {
+    supportsRealtime: false,
+    acceptAll: true,
+    platformType: 'photo',
+    detectPublishContext() {
+      return (
+        PinITAdapter.pathMatches([/\/upload/i, /\/collections/i]) ||
+        PinITAdapter.hasComposerDialog(['upload', 'add photos'])
+      );
+    },
+  });
   console.info('[PinIT] pixieset Publish Guardian adapter active');
 })();

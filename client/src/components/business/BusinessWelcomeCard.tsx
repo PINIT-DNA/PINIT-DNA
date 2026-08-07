@@ -24,9 +24,9 @@ export function BusinessWelcomeCard({
             <Sparkles size={12} />
             Welcome to PINITHub Business
           </div>
-          <h2 className="text-xl font-bold text-white">Your organization has been created</h2>
+          <h2 className="text-xl font-bold text-white">Business mode is ready on your account</h2>
           <p className="text-sm text-gray-400">
-            Complete your organization profile when you are ready — or start using the platform right away.
+            Same face, same number — only the prefix changes (USER ↔ ORG). Complete your organization profile when ready.
           </p>
         </div>
       </div>
@@ -34,6 +34,7 @@ export function BusinessWelcomeCard({
       <div className="rounded-xl border border-bg-border bg-bg-elevated/80 px-4 py-3">
         <p className="text-2xs text-gray-500 uppercase tracking-wider mb-1">Organization PINIT ID</p>
         <p className="text-lg font-mono font-semibold text-white">{orgShortId}</p>
+        <p className="text-2xs text-gray-500 mt-1">Shares your Individual account code — not a separate registration.</p>
       </div>
 
       <p className="text-sm text-gray-400">Complete your organization setup.</p>

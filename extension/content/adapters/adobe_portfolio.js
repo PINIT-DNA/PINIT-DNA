@@ -7,6 +7,16 @@
     console.error('[PinIT] adapter-interface.js must load before adobe_portfolio.js');
     return;
   }
-  PinITAdapter.createFileInputAdapter('adobe_portfolio', { supportsRealtime: false, acceptAll: true });
+  PinITAdapter.createFileInputAdapter('adobe_portfolio', {
+    supportsRealtime: false,
+    acceptAll: true,
+    platformType: 'photo',
+    detectPublishContext() {
+      return (
+        PinITAdapter.pathMatches([/\/editor/i, /myportfolio\.com/i]) ||
+        PinITAdapter.hasComposerDialog(['upload', 'add image', 'edit'])
+      );
+    },
+  });
   console.info('[PinIT] adobe_portfolio Publish Guardian adapter active');
 })();

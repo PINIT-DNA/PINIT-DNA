@@ -35,7 +35,9 @@ export async function captureVoiceFingerprint(
       function tick() {
         try {
           analyser.getFloatFrequencyData(bins);
-          const frame = Array.from(bins);
+          // Clamp -Infinity / NaN from silent FFT bins — otherwise normalize() yields NaN
+          // and the server rejects registration as "voice required".
+          const frame = Array.from(bins, (v) => (Number.isFinite(v) ? Math.max(-100, Math.min(0, v)) : -100));
           samples.push(frame);
 
           const peak = Math.max(...frame);
@@ -69,7 +71,11 @@ export async function captureVoiceFingerprint(
     }
 
     onProgress?.(100);
-    return normalizeVector(averageSamples(samples, 128));
+    const fp = normalizeVector(averageSamples(samples, 128));
+    if (fp.length !== 128 || fp.some((v) => !Number.isFinite(v))) {
+      throw new Error('Voice capture produced an invalid fingerprint. Try again in a quieter place.');
+    }
+    return fp;
   } catch (e) {
     stream.getTracks().forEach((t) => t.stop());
     await ctx.close().catch(() => {});

@@ -9,6 +9,13 @@
   PinITAdapter.createFileInputAdapter('artstation', {
     supportsRealtime: false,
     acceptAll: false,
+    platformType: 'creator',
+    detectPublishContext() {
+      return (
+        PinITAdapter.pathMatches([/\/artwork\/new/i, /\/uploads/i]) ||
+        PinITAdapter.hasComposerDialog(['upload', 'new artwork', 'publish'])
+      );
+    },
   });
-  console.info('[PinIT] artstation Publish Guardian adapter active');
+  console.info('[PinIT] artstation Publish Guardian adapter active (creator-gated)');
 })();

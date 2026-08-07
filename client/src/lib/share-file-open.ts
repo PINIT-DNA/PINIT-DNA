@@ -1,5 +1,5 @@
 /**
- * Build a shareable file that opens on PinIT Hub when the recipient opens it.
+ * Build a shareable file that opens on Pinit HUB when the recipient opens it.
  * WhatsApp/Email get a file attachment (not a pasted link). Opening routes to PinIT.
  */
 
@@ -18,10 +18,10 @@ function isHtmlFile(fileName: string, mimeType?: string | null): boolean {
 export function injectPinitOpenRedirect(html: string, openUrl: string): string {
   const safeUrl = JSON.stringify(openUrl);
   const bridge = [
-    '<!-- PinIT Hub open bridge -->',
+    '<!-- Pinit HUB open bridge -->',
     `<meta http-equiv="refresh" content="0;url=${openUrl.replace(/"/g, '&quot;')}">`,
     `<script>(function(){try{location.replace(${safeUrl});}catch(e){location.href=${safeUrl};}})();</script>`,
-    `<noscript><p>Open this file on PinIT Hub: <a href="${openUrl.replace(/"/g, '&quot;')}">${openUrl.replace(/</g, '')}</a></p></noscript>`,
+    `<noscript><p>Open this file on Pinit HUB: <a href="${openUrl.replace(/"/g, '&quot;')}">${openUrl.replace(/</g, '')}</a></p></noscript>`,
   ].join('');
 
   if (/<head[^>]*>/i.test(html)) {
@@ -30,7 +30,7 @@ export function injectPinitOpenRedirect(html: string, openUrl: string): string {
   if (/<html[^>]*>/i.test(html)) {
     return html.replace(/<html([^>]*)>/i, `<html$1><head>${bridge}</head>`);
   }
-  return `<!DOCTYPE html><html><head>${bridge}<meta charset="utf-8"><title>PinIT Hub</title></head><body></body></html>`;
+  return `<!DOCTYPE html><html><head>${bridge}<meta charset="utf-8"><title>Pinit HUB</title></head><body></body></html>`;
 }
 
 function buildPinitLauncherHtml(openUrl: string, filename: string): string {
@@ -42,11 +42,11 @@ function buildPinitLauncherHtml(openUrl: string, filename: string): string {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="refresh" content="0;url=${openUrl.replace(/"/g, '&quot;')}">
-  <title>${safeName} · PinIT Hub</title>
+  <title>${safeName} · Pinit HUB</title>
   <script>(function(){try{location.replace(${safeUrl});}catch(e){location.href=${safeUrl};}})();</script>
 </head>
 <body style="font-family:system-ui,sans-serif;background:#0b1220;color:#e5e7eb;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;">
-  <p>Opening <strong>${safeName}</strong> on PinIT Hub…<br>
+  <p>Opening <strong>${safeName}</strong> on Pinit HUB…<br>
   <a href="${openUrl.replace(/"/g, '&quot;')}" style="color:#38bdf8">Continue</a></p>
 </body>
 </html>`;

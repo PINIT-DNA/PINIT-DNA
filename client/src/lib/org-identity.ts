@@ -1,5 +1,6 @@
 import type { OrganizationView } from '../hooks/useOrganization';
 import type { OrganizationIndustry, OrganizationSize } from './organization-profile';
+import { toOrgPinitId, toRootPinitId } from './pinit-identity';
 
 export interface UserProfileSnapshot {
   fullName?: string;
@@ -20,7 +21,15 @@ export function resolveOrgIdentity(
   profile: UserProfileSnapshot,
   loading = false,
 ) {
-  const orgShortId = organization?.shortId ?? (loading ? 'Loading…' : '');
+  const ownerRoot = toRootPinitId(profile.shortId) || profile.shortId?.trim() || '';
+  const expectedOrgId = toOrgPinitId(ownerRoot);
+  // Prefer ID derived from the biometric account so USER/ORG share the same code.
+  const orgShortId =
+    (organization?.shortId && expectedOrgId && organization.shortId === expectedOrgId
+      ? organization.shortId
+      : expectedOrgId)
+    || organization?.shortId
+    || (loading ? 'Loading…' : '');
   const workspaceShortId = organization?.defaultWorkspace?.shortId ?? (loading ? 'Loading…' : '');
   const orgName =
     organization?.name?.trim()
@@ -30,7 +39,7 @@ export function resolveOrgIdentity(
     organization?.defaultWorkspace?.name?.trim()
     || profile.workspaceName?.trim()
     || 'Main Workspace';
-  const ownerShortId = profile.shortId?.trim() ?? '';
+  const ownerShortId = ownerRoot;
   const ownerName = profile.fullName?.trim() ?? '';
   const ownerEmail = profile.email?.trim() ?? organization?.supportEmail?.trim() ?? '';
 

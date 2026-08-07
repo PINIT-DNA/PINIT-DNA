@@ -13,6 +13,7 @@ import { useSubscription, FeatureKey } from '../../hooks/useSubscription';
 import { useAccountViewMode } from '../../hooks/useAccountViewMode';
 import { API_BASE_URL } from '../../config/api.config';
 import { BRAND } from '../../config/brand.config';
+import { displayPinitIdForMode, toRootPinitId } from '../../lib/pinit-identity';
 
 function BackendStatus() {
   const [online, setOnline] = useState<boolean | null>(null);
@@ -184,7 +185,10 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   const navigate = useNavigate();
   const { theme, toggle: toggleTheme } = useTheme();
   const { subscription } = useSubscription();
-  const { isBusinessShell } = useAccountViewMode();
+  const { isBusinessShell, mode } = useAccountViewMode();
+  const rootShortId = (user as { shortId?: string } | null)?.shortId ?? '';
+  const displayId = displayPinitIdForMode(rootShortId, mode) || rootShortId;
+  const accountRootId = toRootPinitId(rootShortId) || rootShortId;
 
   const navGroups = useMemo(() => {
     if (isBusinessShell) {
@@ -289,8 +293,17 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                   <User size={11} className="text-dna-400" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-2xs text-gray-500 font-medium leading-none mb-0.5">Logged in as</p>
-                  <p className="text-xs text-dna-400 font-bold truncate mono">{(user as any).shortId ?? user.sub?.slice(0,8)}</p>
+                  <p className="text-2xs text-gray-500 font-medium leading-none mb-0.5">
+                    {mode === 'BUSINESS' ? 'Business ID' : 'Individual ID'}
+                  </p>
+                  <p className="text-xs text-dna-400 font-bold truncate mono" title={`Account ${accountRootId}`}>
+                    {displayId || user.sub?.slice(0, 8)}
+                  </p>
+                  {accountRootId && displayId !== accountRootId && (
+                    <p className="text-2xs text-gray-600 truncate mono mt-0.5" title="Biometric account">
+                      {accountRootId}
+                    </p>
+                  )}
                   {subscription && (
                     <p className="text-2xs text-gray-500 mt-0.5">{subscription.planName} plan</p>
                   )}

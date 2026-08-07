@@ -56,6 +56,37 @@ function uniqueUrls(urls: Array<string | null | undefined>): string[] {
   return out;
 }
 
+/** Studio upload dialog / ephemeral editor URLs — never show as the public "original link". */
+function isEphemeralCaptureUrl(url: string | null | undefined): boolean {
+  const t = (url ?? '').trim();
+  if (!t) return true;
+  try {
+    const u = new URL(t);
+    const host = u.hostname.replace(/^www\./, '').toLowerCase();
+    if (host === 'studio.youtube.com') return true;
+    if (host.endsWith('youtube.com') && /\/(upload|create)(\/|$)/i.test(u.pathname)) return true;
+    if (/\/videos\/upload/i.test(u.pathname)) return true;
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+/** Prefer public post URL; never fall back to Studio upload page as the asset link. */
+function resolvePublicSourceUrl(opts: {
+  postUrl?: string | null;
+  pageUrl?: string | null;
+  mediaUrl?: string | null;
+  profileUrl?: string | null;
+}): string | null {
+  for (const c of [opts.postUrl, opts.mediaUrl, opts.profileUrl, opts.pageUrl]) {
+    const t = (c ?? '').trim();
+    if (!t || isEphemeralCaptureUrl(t)) continue;
+    return t;
+  }
+  return null;
+}
+
 export class PublishGuardianService {
   async publishProtect(input: PublishProtectInput): Promise<PublishProtectResult> {
     const platform = normalizePlatform(input.platform);
@@ -115,14 +146,20 @@ export class PublishGuardianService {
     }
 
     // Draft row for recovery visibility while pipeline runs
+    const publicUrl = resolvePublicSourceUrl({
+      postUrl: input.postUrl,
+      pageUrl: input.pageUrl,
+      mediaUrl: input.mediaUrl,
+      profileUrl: input.profileUrl,
+    });
     const draft = await prisma.protectedPost.create({
       data: {
         ownerUserId: input.ownerUserId,
         platform,
         mediaHash,
         mediaType: input.mimeType.startsWith('video/') ? 'VIDEO' : 'IMAGE',
-        postUrl: input.postUrl ?? null,
-        currentUrl: input.postUrl ?? input.pageUrl ?? null,
+        postUrl: input.postUrl && !isEphemeralCaptureUrl(input.postUrl) ? input.postUrl : null,
+        currentUrl: publicUrl,
         ownerAccount: input.ownerAccount ?? null,
         mediaUrl: input.mediaUrl ?? null,
         caption: input.caption ?? null,
@@ -140,6 +177,10 @@ export class PublishGuardianService {
           mediaUrl: input.mediaUrl ?? null,
           mimeType: input.mimeType,
           originalFileName: input.originalFileName,
+          captureReason: input.captureReason ?? null,
+          ownerAction: input.ownerAction ?? null,
+          captureMethod: input.captureMethod ?? null,
+          platformType: input.platformType ?? null,
         } as Prisma.InputJsonValue,
       },
     });
@@ -213,7 +254,9 @@ export class PublishGuardianService {
       }
     }
 
-    const watchUrls = uniqueUrls([input.postUrl, input.profileUrl, input.mediaUrl]);
+    const watchUrls = uniqueUrls([input.postUrl, input.profileUrl, input.mediaUrl]).filter(
+      (u) => !isEphemeralCaptureUrl(u),
+    );
     let monitorId: string | null = null;
     let monitorStatus: MonitorProfileStatus = MONITOR_PROFILE.PENDING;
     let lastMonitorError: string | null = null;
@@ -366,7 +409,7 @@ export class PublishGuardianService {
         monitorRecordId: monitorId,
         monitorStatus,
         sourcePlatform: platform,
-        sourceUrl: input.postUrl ?? input.pageUrl ?? input.mediaUrl ?? null,
+        sourceUrl: publicUrl,
         capturedVia: input.capturedVia || 'extension_publish_guardian',
         clientRequestId: clientRequestId || `pg:${post.id}`,
         status: lifecycleStatus === 'MONITORING' ? 'MONITORING' : 'PROTECTED',
@@ -377,9 +420,34 @@ export class PublishGuardianService {
           postUrl: input.postUrl ?? null,
           mediaUrl: input.mediaUrl ?? null,
           profileUrl: input.profileUrl ?? null,
+          captureReason: input.captureReason ?? null,
+          ownerAction: input.ownerAction ?? null,
+          captureMethod: input.captureMethod ?? null,
+          platformType: input.platformType ?? null,
         },
       });
       assetId = asset.id;
+      // Seed original platform link only for a real public URL (not Studio upload page)
+      try {
+        if (publicUrl) {
+          await assetService.upsertPlatformLink({
+            assetId: asset.id,
+            platform,
+            url: publicUrl,
+            platformPostId: input.platformPostId ?? null,
+            uploadMethod: input.captureMethod ?? input.capturedVia ?? null,
+            isOriginal: true,
+            role: 'original',
+            metadata: {
+              captureReason: input.captureReason ?? null,
+              ownerAction: input.ownerAction ?? null,
+              pageUrl: input.pageUrl ?? null,
+            },
+          });
+        }
+      } catch (linkErr) {
+        logger.warn('[PublishGuardian] Platform link seed skipped', { error: String(linkErr) });
+      }
     } catch (err) {
       logger.warn('[PublishGuardian] Asset link skipped', { error: String(err) });
     }
@@ -504,6 +572,33 @@ export class PublishGuardianService {
       platform,
       url: input.postUrl ?? null,
     });
+
+    if (post.assetId && input.postUrl) {
+      try {
+        const { assetService } = await import('../assets/asset.service');
+        const linkUrl = isEphemeralCaptureUrl(input.postUrl) ? null : input.postUrl;
+        if (linkUrl) {
+          await assetService.upsertPlatformLink({
+            assetId: post.assetId,
+            platform,
+            url: linkUrl,
+            platformPostId: input.platformPostId ?? null,
+            uploadMethod: 'late_bind',
+            isOriginal: false,
+            role: 'published',
+          });
+          // Update display link so Hub "Original link" opens the public watch URL
+          await prisma.asset.updateMany({
+            where: { id: post.assetId, ownerUserId: input.ownerUserId },
+            data: { sourceUrl: linkUrl },
+          });
+        }
+      } catch (err) {
+        logger.warn('[PublishGuardian] Platform link on register-post skipped', {
+          error: String(err),
+        });
+      }
+    }
 
     return post;
   }

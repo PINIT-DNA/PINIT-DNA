@@ -239,7 +239,7 @@ export const orgWebhookService = {
     if (!webhook) throw Object.assign(new Error('Webhook not found'), { status: 404 });
 
     const result = await this.deliverOne(webhookId, 'integration.test', {
-      message: 'PinIT Hub test event',
+      message: 'Pinit HUB test event',
       triggeredBy: actorUserId,
     });
     return result;

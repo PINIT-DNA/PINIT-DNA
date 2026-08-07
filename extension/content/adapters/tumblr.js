@@ -9,6 +9,13 @@
   PinITAdapter.createFileInputAdapter('tumblr', {
     supportsRealtime: false,
     acceptAll: false,
+    platformType: 'creator',
+    detectPublishContext() {
+      return (
+        PinITAdapter.pathMatches([/\/new\//i, /\/blog\//i]) ||
+        PinITAdapter.hasComposerDialog(['create post', 'upload', 'photo', 'video'])
+      );
+    },
   });
-  console.info('[PinIT] tumblr Publish Guardian adapter active');
+  console.info('[PinIT] tumblr Publish Guardian adapter active (creator-gated)');
 })();

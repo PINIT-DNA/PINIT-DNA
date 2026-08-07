@@ -137,7 +137,7 @@ export function DnaRecordsPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold text-white">Protected files</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Files you have protected in PinIT Hub</p>
+          <p className="text-sm text-gray-500 mt-0.5">Files you have protected in Pinit HUB</p>
         </div>
         <div className="flex items-center gap-2">
           {!loading && records && <Badge variant="dna">{records.length} records</Badge>}

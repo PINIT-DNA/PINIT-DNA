@@ -9,12 +9,14 @@
 
 import { useState } from 'react';
 import { format } from 'date-fns';
-import { Shield, RefreshCw, AlertTriangle, Copy, CheckCircle2 } from 'lucide-react';
+import { Shield, RefreshCw, AlertTriangle, Copy, CheckCircle2, FileWarning } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { API_BASE_URL } from '../config/api.config';
 import { Badge } from '../components/ui/Badge';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
+import { downloadDmcaDraft } from '../lib/dmca-draft';
+import toast from 'react-hot-toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -216,6 +218,31 @@ export function DuplicateAttemptsPage() {
                       <p className="text-xs text-gray-400 mono mt-0.5 truncate">{a.sha256Hash}</p>
                     </div>
                   )}
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      downloadDmcaDraft({
+                        ownerShortId: a.ownerShortId,
+                        dnaRecordId: a.existingDnaRecordId,
+                        filename: a.existingFilename || a.filename,
+                        matchType: a.matchType,
+                        similarity: a.pHashSimilarity,
+                        riskLevel: a.riskLevel,
+                        discoveredAt: a.timestamp,
+                        notes: a.crossUser
+                          ? `Cross-account duplicate attempt by ${a.uploaderShortId || 'unknown'}.`
+                          : 'Duplicate upload attempt blocked by Pinit HUB.',
+                      });
+                      toast.success('Takedown draft downloaded — review before sending');
+                    }}
+                    className="inline-flex items-center gap-1.5 text-2xs font-semibold px-2.5 py-1.5 rounded-lg border border-amber-500/30 text-amber-300 hover:bg-amber-500/10"
+                  >
+                    <FileWarning size={12} />
+                    Download takedown draft
+                  </button>
                 </div>
               </div>
             </div>

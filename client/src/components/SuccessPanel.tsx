@@ -1,10 +1,16 @@
 import { motion } from 'framer-motion';
 import { CheckCircle2, Shield, Lock, Archive, Plus, Copy, Check, Download, Loader2 } from 'lucide-react';
 import { useState } from 'react';
+import toast from 'react-hot-toast';
 import type { DnaSession } from '../types';
 import { formatBytes } from '../lib/file-type-utils';
 import { protectedDownloadFromVault } from '../services/dashboard.api';
 import { AuthenticityReportCard } from './AuthenticityReportCard';
+import { formatTrackId, formatVaultId } from '../lib/lifecycle-ids';
+import {
+  openEditorOrCloud,
+  type EditorCloudTarget,
+} from '../lib/platform-share';
 
 interface Props {
   session: DnaSession;
@@ -14,11 +20,13 @@ interface Props {
 export function SuccessPanel({ session, onReset }: Props) {
   const [copied, setCopied] = useState(false);
   const [copiedTep, setCopiedTep] = useState(false);
+  const [copiedVault, setCopiedVault] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadDone, setDownloadDone] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const ms = session.totalProcessingMs;
   const vaultId = session.vault?.vaultId;
+  const trackId = formatTrackId(session.tepCode, vaultId);
   const canDownload = !!vaultId || !!session.protectedBlobUrl;
   const analysis = (session.vault?.contentAnalysis ?? session.fileAnalysis ?? null);
   const imageAnalysis = analysis?.signals?.fileCategory === 'IMAGE' ? analysis : null;
@@ -32,11 +40,19 @@ export function SuccessPanel({ session, onReset }: Props) {
   };
 
   const copyTep = async () => {
-    if (!session.tepCode) return;
     try {
-      await navigator.clipboard.writeText(session.tepCode);
+      await navigator.clipboard.writeText(trackId);
       setCopiedTep(true);
       setTimeout(() => setCopiedTep(false), 1800);
+    } catch { /* ignore */ }
+  };
+
+  const copyVault = async () => {
+    if (!vaultId) return;
+    try {
+      await navigator.clipboard.writeText(formatVaultId(vaultId));
+      setCopiedVault(true);
+      setTimeout(() => setCopiedVault(false), 1800);
     } catch { /* ignore */ }
   };
 
@@ -57,11 +73,19 @@ export function SuccessPanel({ session, onReset }: Props) {
       a.click();
       if (url !== session.protectedBlobUrl) URL.revokeObjectURL(url);
       setDownloadDone(true);
+      toast.success('Downloaded — open Canva, Adobe, Drive, or Dropbox next, then re-protect after edits');
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : 'Download failed. Try again from Vault.');
     } finally {
       setDownloading(false);
     }
+  };
+
+  const openWorkflow = (target: EditorCloudTarget) => {
+    if (!downloadDone) {
+      toast('Download the protected file first, then continue');
+    }
+    openEditorOrCloud(target, (msg) => toast(msg, { duration: 4500 }));
   };
 
   return (
@@ -116,25 +140,40 @@ export function SuccessPanel({ session, onReset }: Props) {
             <p className="text-xs text-white mono break-all">{session.dnaRecordId}</p>
           </div>
 
-          {session.tepCode && (
-            <div className="rounded-xl bg-dna-500/5 border border-dna-500/25 p-3.5">
+          {vaultId && (
+            <div className="rounded-xl bg-bg-elevated border border-bg-border p-3.5">
               <div className="flex items-center justify-between gap-2 mb-1">
-                <p className="text-2xs text-gray-500 uppercase tracking-wider">Tracking code</p>
+                <p className="text-2xs text-gray-500 uppercase tracking-wider">Vault ID</p>
                 <button
                   type="button"
-                  onClick={copyTep}
+                  onClick={copyVault}
                   className="text-2xs text-dna-400 hover:text-dna-300 flex items-center gap-1"
                 >
-                  {copiedTep ? <Check size={12} /> : <Copy size={12} />}
-                  {copiedTep ? 'Copied' : 'Copy'}
+                  {copiedVault ? <Check size={12} /> : <Copy size={12} />}
+                  {copiedVault ? 'Copied' : 'Copy'}
                 </button>
               </div>
-              <p className="text-sm font-bold text-dna-400 mono">{session.tepCode}</p>
-              <p className="text-2xs text-gray-500 mt-1">
-                Use this when sharing the downloaded file — investigation can recover it later.
-              </p>
+              <p className="text-xs text-white mono break-all">{formatVaultId(vaultId)}</p>
             </div>
           )}
+
+          <div className="rounded-xl bg-dna-500/5 border border-dna-500/25 p-3.5">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <p className="text-2xs text-gray-500 uppercase tracking-wider">Track ID</p>
+              <button
+                type="button"
+                onClick={copyTep}
+                className="text-2xs text-dna-400 hover:text-dna-300 flex items-center gap-1"
+              >
+                {copiedTep ? <Check size={12} /> : <Copy size={12} />}
+                {copiedTep ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <p className="text-sm font-bold text-dna-400 mono">{trackId}</p>
+            <p className="text-2xs text-gray-500 mt-1">
+              Use this when sharing the downloaded file — investigation can recover it later.
+            </p>
+          </div>
 
           <div className="grid grid-cols-4 gap-2">
             {[
@@ -179,11 +218,35 @@ export function SuccessPanel({ session, onReset }: Props) {
                   {downloading ? 'Preparing file…' : downloadDone ? 'Downloaded' : 'Download protected file'}
                 </span>
                 <span className="block text-2xs text-gray-400 mt-0.5">
-                  Tracked copy with invisible protection — ready to share
+                  Then continue in Canva, Adobe, Drive, or Dropbox if needed
                 </span>
               </span>
             </button>
           )}
+
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              { label: 'Open Canva', target: 'canva' as const },
+              { label: 'Adobe Express', target: 'adobe' as const },
+              { label: 'Google Drive', target: 'drive' as const },
+              { label: 'Dropbox', target: 'dropbox' as const },
+            ]).map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => openWorkflow(item.target)}
+                className="rounded-xl border border-bg-border bg-bg-elevated px-3 py-2 text-2xs font-semibold text-gray-300 hover:text-white hover:border-dna-500/40"
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-2xs text-gray-500 text-center">
+            Complete workflow: download → open editor/cloud → upload the file there → re-protect in Hub when done.
+          </p>
+          <p className="text-2xs text-gray-500 text-center">
+            Multi-platform share (WhatsApp, Email, X, LinkedIn, Telegram) is available from Vault → Share File.
+          </p>
 
           {downloadError && (
             <p className="text-xs text-danger text-center">{downloadError}</p>

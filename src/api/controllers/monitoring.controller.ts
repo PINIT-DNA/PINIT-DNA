@@ -106,11 +106,24 @@ export async function getMonitoringStats(req: Request, res: Response, next: Next
     const stats = await monitoringService.getStats(userId);
     const { isMonitoringCrawlerEnabled } = await import('../../services/crawler/monitoring.service');
     const { isCrawlerEngineEnabled } = await import('../../services/crawler/engine');
+    const { crawlerEngineConfig } = await import('../../services/crawler/engine/config');
+    const cfg = crawlerEngineConfig;
     res.json({
       success: true,
       ...stats,
       monitoringEnabled: isMonitoringCrawlerEnabled(),
       crawlerEngineEnabled: isCrawlerEngineEnabled(),
+      readiness: {
+        monitoringEnabled: isMonitoringCrawlerEnabled(),
+        crawlerEngineEnabled: isCrawlerEngineEnabled(),
+        platforms: {
+          website: cfg.platforms.website,
+          youtube: cfg.platforms.youtube && !!cfg.youtube.apiKey,
+          github: cfg.platforms.github && !!cfg.github.token,
+          reddit: cfg.platforms.reddit && !!cfg.reddit.clientId && !!cfg.reddit.clientSecret,
+          telegram: cfg.platforms.telegram && !!cfg.telegram.botToken,
+        },
+      },
     });
   } catch (err) { next(err); }
 }

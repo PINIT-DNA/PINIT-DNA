@@ -11,7 +11,7 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   '/generate':            { title: 'Protect file',          subtitle: 'Create a protected identity for a file'  },
   '/vault':               { title: 'Digital Assets',        subtitle: 'Your protected files — share and track'  },
   '/vault-integrity':     { title: 'Vault check',           subtitle: 'Confirm your files are stored safely'    },
-  '/dna-records':         { title: 'Protected files',       subtitle: 'Files you have protected in PinIT Hub'   },
+  '/dna-records':         { title: 'Protected files',       subtitle: 'Files you have protected in Pinit HUB'   },
   '/timeline':            { title: 'File activity',         subtitle: 'What happened to your files'             },
   '/reports':             { title: 'Reports',               subtitle: 'Investigation and comparison reports'   },
   '/certificates':        { title: 'Certificates',          subtitle: 'Ownership proof you can share'           },

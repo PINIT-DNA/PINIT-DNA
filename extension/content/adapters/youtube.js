@@ -72,10 +72,14 @@
   function isStudioSurface() {
     try {
       const host = location.hostname.replace(/^www\./, '');
+      // Creator Mode: YouTube Studio only
       if (host === 'studio.youtube.com') return true;
-      // youtube.com upload entry points
-      if (host.endsWith('youtube.com') && /\/upload|\/create/i.test(location.pathname)) return true;
-      return host.endsWith('youtube.com');
+      // Rare upload entry points on youtube.com (not watch/shorts/home/search)
+      if (host.endsWith('youtube.com') && /\/(upload|create)(\/|$)/i.test(location.pathname)) {
+        return true;
+      }
+      // Viewer Mode everywhere else (watch, shorts, home, search, channel, …)
+      return false;
     } catch {
       return false;
     }
@@ -286,6 +290,10 @@
   adapter = PinITAdapter.createFileInputAdapter(PLATFORM, {
     supportsRealtime: false,
     acceptAll: true,
+    platformType: 'social',
+    platformSurface: 'studio-upload',
+    // MAIN-world hook is the sole capture path — prevents 2 Assets per upload
+    disableNativeHooks: true,
     detectPublishContext() {
       return isStudioSurface();
     },

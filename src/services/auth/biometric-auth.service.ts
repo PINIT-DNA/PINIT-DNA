@@ -12,6 +12,7 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { config } from '../../config';
+import { AppError } from '../../api/middleware/error.middleware';
 import {
   encryptTemplate,
   decryptTemplate,
@@ -24,6 +25,8 @@ import {
   deriveFingerprintTemplate,
   fuseBiometricScores,
   isValidTemplate,
+  rankFaceMatches,
+  isConfidentFaceMatch,
   type FusionResult,
 } from './biometric-matching.service';
 import { logSecurityEvent, logLoginHistory } from './biometric-audit.service';
@@ -93,9 +96,14 @@ function createTokens(user: {
   return { accessToken, refreshToken };
 }
 
-async function loadAllFaceTemplates(): Promise<Array<{ userId: string; shortId: string; embedding: number[]; source: string }>> {
+async function loadAllFaceTemplates(opts?: {
+  activeOnly?: boolean;
+}): Promise<Array<{ userId: string; shortId: string; embedding: number[]; source: string }>> {
   const users = await prisma.user.findMany({
-    where: { faceRegistered: true },
+    where: {
+      faceRegistered: true,
+      ...(opts?.activeOnly ? { isActive: true } : {}),
+    },
     select: {
       id: true,
       shortId: true,
@@ -142,9 +150,88 @@ async function loadAllFaceTemplates(): Promise<Array<{ userId: string; shortId: 
   logger.info('[Auth] Face template registry loaded', {
     registeredUsers: users.length,
     searchableTemplates: results.length,
+    activeOnly: Boolean(opts?.activeOnly),
   });
 
   return results;
+}
+
+/**
+ * Face is the only uniqueness gate for registration.
+ * Device fingerprint / WebAuthn MUST NOT block new people on a shared browser —
+ * that caused "No identity found" on login then "already registered" on register.
+ */
+async function findMatchingFace(
+  face: number[],
+): Promise<{ userId: string; shortId: string; distance: number } | null> {
+  const faceNorm = normalizeEmbedding(face);
+  const faceDupThreshold = Math.max(THRESHOLDS.faceDuplicate, THRESHOLDS.faceLogin);
+  const faces = await loadAllFaceTemplates();
+  const { best, secondDistance } = rankFaceMatches(faceNorm, faces);
+
+  if (!best) {
+    logger.info('[Auth:Register] Face uniqueness check — empty registry');
+    return null;
+  }
+
+  logger.info('[Auth:Register] Face uniqueness check', {
+    nearestShortId: best.shortId,
+    nearestDistance: Number(best.distance.toFixed(4)),
+    secondDistance: Number.isFinite(secondDistance) ? Number(secondDistance.toFixed(4)) : null,
+    threshold: faceDupThreshold,
+    compared: faces.length,
+  });
+
+  if (!isConfidentFaceMatch(best.distance, secondDistance)) {
+    return null;
+  }
+
+  return { userId: best.userId, shortId: best.shortId, distance: best.distance };
+}
+
+async function issueSessionForUser(
+  user: { id: string; shortId: string; fullName: string; email: string | null; role: string; accountType?: string | null },
+  opts: {
+    webauthnCredentialId?: string;
+    deviceFingerprint?: string;
+    ip?: string;
+    userAgent?: string;
+    event: 'REGISTRATION' | 'BIOMETRIC_MATCH' | 'ACCOUNT_TYPE_LINK';
+  },
+): Promise<{ user: AuthUser; tokens: AuthTokens }> {
+  const deviceId = await upsertDevice(user.id, opts.deviceFingerprint, opts.webauthnCredentialId);
+  const tokens = createTokens({
+    id: user.id,
+    shortId: user.shortId,
+    fullName: user.fullName,
+    role: user.role,
+    accountType: user.accountType ?? 'INDIVIDUAL',
+  });
+  await createSession(user.id, tokens.refreshToken, opts.ip, opts.userAgent, deviceId);
+  await logSecurityEvent(opts.event, {
+    userId: user.id,
+    ip: opts.ip,
+    userAgent: opts.userAgent,
+    deviceId,
+    detail: { shortId: user.shortId },
+  });
+  await logLoginHistory({
+    userId: user.id,
+    method: opts.event === 'REGISTRATION' ? 'biometric_register' : 'biometric_login',
+    ip: opts.ip,
+    userAgent: opts.userAgent,
+    success: true,
+  });
+  return {
+    user: {
+      id: user.id,
+      shortId: user.shortId,
+      fullName: user.fullName,
+      email: user.email,
+      role: user.role,
+    },
+    tokens,
+  };
 }
 
 async function loadVoiceForUser(userId: string): Promise<number[] | null> {
@@ -188,80 +275,6 @@ async function loadFingerprintForUser(userId: string): Promise<number[] | null> 
   if (user?.webauthnCredentialId || user?.deviceFingerprint) {
     return deriveFingerprintTemplate(user.webauthnCredentialId, user.deviceFingerprint);
   }
-  return null;
-}
-
-async function findDuplicateModality(
-  face: number[],
-  voice?: number[],
-  fingerprint?: number[],
-): Promise<{ modality: string; shortId: string; distance?: number } | null> {
-  const faceNorm = normalizeEmbedding(face);
-  // One face → one PINIT ID: reject if this face would match an existing login
-  const faceDupThreshold = Math.max(THRESHOLDS.faceDuplicate, THRESHOLDS.faceLogin);
-  const faces = await loadAllFaceTemplates();
-  let bestFace: { shortId: string; distance: number } | null = null;
-  for (const f of faces) {
-    const d = euclideanDistance(faceNorm, f.embedding);
-    if (!bestFace || d < bestFace.distance) bestFace = { shortId: f.shortId, distance: d };
-    if (d < faceDupThreshold) {
-      logger.info('[Auth:Register] Duplicate face blocked', {
-        existingShortId: f.shortId,
-        distance: Number(d.toFixed(4)),
-        threshold: faceDupThreshold,
-      });
-      return { modality: 'face', shortId: f.shortId, distance: d };
-    }
-  }
-  if (bestFace) {
-    logger.info('[Auth:Register] Face uniqueness check passed', {
-      nearestShortId: bestFace.shortId,
-      nearestDistance: Number(bestFace.distance.toFixed(4)),
-      threshold: faceDupThreshold,
-      compared: faces.length,
-    });
-  }
-
-  if (voice && isValidTemplate(voice)) {
-    const voiceNorm = normalizeEmbedding(voice);
-    const voiceTemplates = await prisma.voiceTemplate.findMany({
-      include: { biometricIdentity: { include: { user: { select: { shortId: true } } } } },
-    });
-    for (const vt of voiceTemplates) {
-      try {
-        const stored = normalizeEmbedding(decryptTemplate(vt.templateCipher));
-        if (euclideanDistance(voiceNorm, stored) < THRESHOLDS.voiceDuplicate) {
-          return { modality: 'voice', shortId: vt.biometricIdentity.user.shortId };
-        }
-      } catch { /* skip */ }
-    }
-    const legacyVoice = await prisma.user.findMany({
-      where: { voiceRegistered: true, biometricIdentity: null },
-      select: { shortId: true, voiceEmbedding: true },
-    });
-    for (const u of legacyVoice) {
-      if (u.voiceEmbedding.length === 128) {
-        const d = euclideanDistance(voiceNorm, normalizeEmbedding(u.voiceEmbedding));
-        if (d < THRESHOLDS.voiceDuplicate) return { modality: 'voice', shortId: u.shortId };
-      }
-    }
-  }
-
-  if (fingerprint) {
-    const fpNorm = normalizeEmbedding(fingerprint);
-    const fpTemplates = await prisma.fingerprintTemplate.findMany({
-      include: { biometricIdentity: { include: { user: { select: { shortId: true } } } } },
-    });
-    for (const ft of fpTemplates) {
-      try {
-        const stored = normalizeEmbedding(decryptTemplate(ft.templateCipher));
-        if (euclideanDistance(fpNorm, stored) < THRESHOLDS.fingerprintDuplicate) {
-          return { modality: 'fingerprint', shortId: ft.biometricIdentity.user.shortId };
-        }
-      } catch { /* skip */ }
-    }
-  }
-
   return null;
 }
 
@@ -309,7 +322,7 @@ async function createSession(userId: string, refreshToken: string, ip?: string, 
 
 export const biometricAuthService = {
   async register(input: BiometricRegisterInput): Promise<
-    | { ok: true; user: AuthUser; tokens: AuthTokens }
+    | { ok: true; user: AuthUser; tokens: AuthTokens; linked?: boolean; message?: string }
     | { ok: false; status: 409; message: string; shortId?: string }
   > {
     const {
@@ -326,37 +339,91 @@ export const biometricAuthService = {
     const resolvedAccountType = accountType === 'BUSINESS' ? 'BUSINESS' : 'INDIVIDUAL';
 
     if (!isValidTemplate(faceEmbedding)) {
-      throw new Error('Invalid face embedding. Must be 128-dimensional float array.');
+      throw new AppError(400, 'Invalid face embedding. Must be 128-dimensional float array.');
     }
 
     if (!voiceFingerprint || !isValidTemplate(voiceFingerprint)) {
-      throw new Error('Voice fingerprint is required. Complete voice verification before registering.');
+      throw new AppError(
+        400,
+        'Voice fingerprint is required and must be 128 finite numbers. Complete voice verification before registering.',
+      );
     }
 
     const faceNorm = normalizeEmbedding(faceEmbedding);
     const voiceNorm = normalizeEmbedding(voiceFingerprint);
     const fpNorm = deriveFingerprintTemplate(webauthnCredentialId, deviceFingerprint);
 
-    const duplicate = await findDuplicateModality(faceNorm, voiceNorm, fpNorm);
-    if (duplicate) {
-      await logSecurityEvent('DUPLICATE_REGISTRATION', {
-        ip, userAgent, success: false,
-        detail: {
-          modality: duplicate.modality,
-          existingShortId: duplicate.shortId,
-          distance: duplicate.distance ?? null,
+    // Same face → same PINIT ID. Individual + Business share that ID (mode only differs).
+    const existingFace = await findMatchingFace(faceNorm);
+    if (existingFace) {
+      const existing = await prisma.user.findUnique({
+        where: { id: existingFace.userId },
+        select: {
+          id: true,
+          shortId: true,
+          fullName: true,
+          email: true,
+          role: true,
+          accountType: true,
+          isActive: true,
         },
       });
-      const faceMsg = duplicate.shortId
-        ? `This face is already registered to ${duplicate.shortId}. One face = one PINIT ID — please login with your face instead.`
-        : 'This face is already registered. One face = one PINIT ID — please login instead.';
+
+      if (!existing || !existing.isActive) {
+        await logSecurityEvent('DUPLICATE_REGISTRATION', {
+          ip, userAgent, success: false,
+          detail: {
+            modality: 'face',
+            existingShortId: existingFace.shortId,
+            distance: existingFace.distance,
+            inactive: true,
+          },
+        });
+        return {
+          ok: false,
+          status: 409,
+          message: `This face is linked to ${existingFace.shortId}, but that account is inactive. Contact support to recover access.`,
+          shortId: existingFace.shortId,
+        };
+      }
+
+      let working = existing;
+      // Enable Business on the same ShortId when the person enrolls for Business later (or vice versa stays on same ID).
+      if (resolvedAccountType === 'BUSINESS' && existing.accountType !== 'BUSINESS') {
+        const upgraded = await this.updateAccountType(existing.id, 'BUSINESS', organizationName);
+        working = {
+          ...existing,
+          accountType: upgraded.accountType,
+        };
+        logger.info('[Auth:Register] Linked Business mode to existing face identity', {
+          shortId: existing.shortId,
+          distance: Number(existingFace.distance.toFixed(4)),
+        });
+      } else {
+        logger.info('[Auth:Register] Face already enrolled — signing into existing PINIT ID', {
+          shortId: existing.shortId,
+          requestedType: resolvedAccountType,
+          storedType: existing.accountType,
+          distance: Number(existingFace.distance.toFixed(4)),
+        });
+      }
+
+      const session = await issueSessionForUser(working, {
+        webauthnCredentialId,
+        deviceFingerprint,
+        ip,
+        userAgent,
+        event: 'ACCOUNT_TYPE_LINK',
+      });
+
       return {
-        ok: false,
-        status: 409,
-        message: duplicate.modality === 'face'
-          ? faceMsg
-          : `This biometric identity already exists (${duplicate.modality}). Please sign in using your existing identity${duplicate.shortId ? ` (${duplicate.shortId})` : ''}.`,
-        shortId: duplicate.shortId,
+        ok: true,
+        ...session,
+        linked: true,
+        message:
+          resolvedAccountType === 'BUSINESS'
+            ? `Welcome back — Business mode is ready on ${working.shortId} (same face identity).`
+            : `Welcome back — signed in as ${working.shortId}. Use Individual / Business switch when both modes are enabled.`,
       };
     }
 
@@ -465,64 +532,34 @@ export const biometricAuthService = {
       logger.warn('[Auth:Register] Subscription backfill skipped (non-fatal)', { error: String(subErr) });
     }
 
-    const persisted = await prisma.user.findUnique({
-      where: { id: user.id },
-      select: {
-        faceRegistered: true,
-        voiceRegistered: true,
-        biometricIdentity: {
-          select: {
-            id: true,
-            faceTemplate: { select: { id: true } },
-            voiceTemplate: { select: { id: true } },
-            fingerprintTemplate: { select: { id: true } },
-          },
-        },
-      },
-    });
+    if (resolvedAccountType === 'BUSINESS') {
+      try {
+        const { organizationService } = await import('../organization/organization.service');
+        await organizationService.ensureForOwner(user.id);
+      } catch (orgErr) {
+        logger.warn('[Auth:Register] Org bootstrap skipped (non-fatal)', { error: String(orgErr) });
+      }
+    }
 
-    if (persisted?.biometricIdentity?.faceTemplate) {
-      logger.info('[Auth:Register] ✓ Face template stored (encrypted)', { identityId: persisted.biometricIdentity.id });
-    } else {
-      logger.info('[Auth:Register] ✓ Face template stored (user.faceEmbedding)', { dimensions: faceNorm.length });
-    }
-    if (voiceNorm) {
-      logger.info('[Auth:Register] ✓ Voice stored', {
-        encrypted: Boolean(persisted?.biometricIdentity?.voiceTemplate),
-        voiceRegistered: persisted?.voiceRegistered,
-      });
-    }
-    if (persisted?.biometricIdentity?.fingerprintTemplate) {
-      logger.info('[Auth:Register] ✓ Fingerprint stored (encrypted)');
-    } else {
-      logger.info('[Auth:Register] ✓ Fingerprint stored (derived template)');
-    }
+    const session = await issueSessionForUser(
+      { ...user, accountType: resolvedAccountType },
+      {
+        webauthnCredentialId,
+        deviceFingerprint,
+        ip,
+        userAgent,
+        event: 'REGISTRATION',
+      },
+    );
+
     logger.info('[Auth:Register] Pipeline complete', {
       userId: user.id,
       pinitId: user.shortId,
+      accountType: resolvedAccountType,
       enterpriseTables: usedEnterpriseTables,
     });
 
-    const deviceId = await upsertDevice(user.id, deviceFingerprint, webauthnCredentialId);
-    const tokens = createTokens({
-      id: user.id,
-      shortId: user.shortId,
-      fullName: user.fullName,
-      role: user.role,
-      accountType: resolvedAccountType,
-    });
-    await createSession(user.id, tokens.refreshToken, ip, userAgent, deviceId);
-
-    await logSecurityEvent('REGISTRATION', { userId: user.id, ip, userAgent, deviceId, detail: { shortId } });
-    await logLoginHistory({ userId: user.id, method: 'biometric_register', ip, userAgent, success: true });
-
-    logger.info('Enterprise biometric registration complete', { shortId, userId: user.id });
-
-    return {
-      ok: true,
-      user: { id: user.id, shortId: user.shortId, fullName: user.fullName, email: user.email, role: user.role },
-      tokens,
-    };
+    return { ok: true, ...session };
   },
 
   async login(input: BiometricLoginInput): Promise<
@@ -553,39 +590,44 @@ export const biometricAuthService = {
       logger.info('[Auth:Login] ○ Voice template not provided or invalid');
     }
 
-    const candidates = await loadAllFaceTemplates();
-    let bestUserId: string | null = null;
-    let bestShortId = '';
-    let bestFaceDist = Infinity;
-    let bestSource = '';
-
-    for (const c of candidates) {
-      const d = euclideanDistance(faceNorm, c.embedding);
-      if (d < bestFaceDist) {
-        bestFaceDist = d;
-        bestUserId = c.userId;
-        bestShortId = c.shortId;
-        bestSource = c.source;
-      }
-    }
+    const candidates = await loadAllFaceTemplates({ activeOnly: true });
+    const ranked = rankFaceMatches(faceNorm, candidates);
+    const best = ranked.best;
+    const bestFaceDist = best?.distance ?? Infinity;
+    const bestUserId = best?.userId ?? null;
+    const bestShortId = best?.shortId ?? '';
+    const bestSource = best?.source ?? '';
+    const secondFaceDistance = ranked.secondDistance;
 
     logger.info('[Auth:Login] Matching score', {
       candidateCount: candidates.length,
       bestCandidate: bestShortId || null,
       bestDistance: bestFaceDist === Infinity ? null : Number(bestFaceDist.toFixed(4)),
+      secondDistance: Number.isFinite(secondFaceDistance) ? Number(secondFaceDistance.toFixed(4)) : null,
       threshold: THRESHOLDS.faceLogin,
+      margin: THRESHOLDS.faceLoginMargin,
       templateSource: bestSource || null,
     });
 
-    if (!bestUserId || bestFaceDist >= THRESHOLDS.faceLogin) {
+    if (!bestUserId || !isConfidentFaceMatch(bestFaceDist, secondFaceDistance)) {
       logger.warn('[Auth:Login] ✗ Authentication result: NO_MATCH', {
-        reason: candidates.length === 0 ? 'empty_registry' : 'face_distance_above_threshold',
+        reason: candidates.length === 0
+          ? 'empty_registry'
+          : bestFaceDist >= THRESHOLDS.faceLogin
+            ? 'face_distance_above_threshold'
+            : 'face_margin_insufficient',
         bestDistance: bestFaceDist === Infinity ? null : bestFaceDist.toFixed(4),
+        secondDistance: Number.isFinite(secondFaceDistance) ? secondFaceDistance.toFixed(4) : null,
         threshold: THRESHOLDS.faceLogin,
       });
       await logSecurityEvent('BIOMETRIC_FAILURE', {
         ip, userAgent, success: false,
-        detail: { reason: 'no_face_match', distance: bestFaceDist, candidateCount: candidates.length },
+        detail: {
+          reason: 'no_face_match',
+          distance: bestFaceDist,
+          secondDistance: secondFaceDistance,
+          candidateCount: candidates.length,
+        },
       });
       return {
         ok: false,
@@ -609,7 +651,11 @@ export const biometricAuthService = {
       bestFaceDist,
       voiceDist,
       fpDist,
-      { hasVoice: Boolean(storedVoice && probeVoice), hasFingerprint: Boolean(storedFp) },
+      {
+        hasVoice: Boolean(storedVoice && probeVoice),
+        hasFingerprint: Boolean(storedFp),
+        secondFaceDistance,
+      },
     );
 
     logger.info('[Auth:Login] Fusion scores', {

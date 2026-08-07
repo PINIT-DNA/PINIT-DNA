@@ -53,6 +53,14 @@ export interface PublishProtectInput {
   clientRequestId?: string | null;
   /** How the media was captured (export, publish, protect-menu, …) */
   capturedVia?: string | null;
+  /** Intent: publish | export | manual | self_test */
+  captureReason?: string | null;
+  /** upload | export | protect | self_test */
+  ownerAction?: string | null;
+  /** file-picker | drop | export-gesture | context-menu | main-hook | … */
+  captureMethod?: string | null;
+  /** social | creator | business | photo | web */
+  platformType?: string | null;
 }
 
 export interface PublishProtectResult {

@@ -13,6 +13,7 @@ import {
 import { formatStorage, FALLBACK_PLANS } from '../../lib/subscription/plans';
 import { fetchBillingHistory, type BillingHistoryRow } from '../../lib/subscription/payment-provider';
 import { formatBytes } from '../../hooks/useApi';
+import { downloadInvoiceReceipt, formatInvoiceNumber } from '../../lib/invoice-receipt';
 
 export function SubscriptionPage() {
   const navigate = useNavigate();
@@ -182,12 +183,20 @@ export function SubscriptionPage() {
                     <td className="p-3 pr-5 text-right">
                       <button
                         type="button"
-                        disabled
-                        title="Available when live billing is connected"
-                        className="inline-flex items-center gap-1 text-2xs text-gray-600 cursor-not-allowed"
+                        disabled={row.status !== 'SUCCEEDED'}
+                        title={
+                          row.status === 'SUCCEEDED'
+                            ? `Download ${formatInvoiceNumber(row)}`
+                            : 'Receipt available after successful payment'
+                        }
+                        onClick={() => {
+                          downloadInvoiceReceipt(row);
+                          toast.success('Receipt downloaded');
+                        }}
+                        className="inline-flex items-center gap-1 text-2xs text-dna-400 hover:text-dna-300 disabled:text-gray-600 disabled:cursor-not-allowed"
                       >
                         <Download size={12} />
-                        PDF
+                        Receipt
                       </button>
                     </td>
                   </tr>
@@ -199,7 +208,7 @@ export function SubscriptionPage() {
       </div>
 
       <p className="text-2xs text-gray-600 text-center">
-        Future: Razorpay · Stripe · PayPal — payment provider swaps without changing this page.
+        Download a receipt for any succeeded payment. Live Razorpay checkout is used when configured.
       </p>
     </div>
   );

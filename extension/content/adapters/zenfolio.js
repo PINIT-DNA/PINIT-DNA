@@ -6,6 +6,16 @@
     console.error('[PinIT] adapter-interface.js must load before zenfolio.js');
     return;
   }
-  PinITAdapter.createFileInputAdapter('zenfolio', { supportsRealtime: false, acceptAll: true });
+  PinITAdapter.createFileInputAdapter('zenfolio', {
+    supportsRealtime: false,
+    acceptAll: true,
+    platformType: 'photo',
+    detectPublishContext() {
+      return (
+        PinITAdapter.pathMatches([/\/upload/i, /\/photographer/i]) ||
+        PinITAdapter.hasComposerDialog(['upload', 'add photos'])
+      );
+    },
+  });
   console.info('[PinIT] zenfolio Publish Guardian adapter active');
 })();

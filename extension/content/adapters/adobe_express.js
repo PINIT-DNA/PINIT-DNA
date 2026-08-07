@@ -7,6 +7,16 @@
     console.error('[PinIT] adapter-interface.js must load before adobe_express.js');
     return;
   }
-  PinITAdapter.createFileInputAdapter('adobe_express', { supportsRealtime: false, acceptAll: true });
+  PinITAdapter.createFileInputAdapter('adobe_express', {
+    supportsRealtime: false,
+    acceptAll: true,
+    platformType: 'business',
+    detectPublishContext() {
+      return (
+        PinITAdapter.pathMatches([/express\.adobe/i, /\/new/i, /\/id\//i]) ||
+        PinITAdapter.hasComposerDialog(['upload', 'import', 'download', 'export'])
+      );
+    },
+  });
   console.info('[PinIT] adobe_express Publish Guardian adapter active');
 })();

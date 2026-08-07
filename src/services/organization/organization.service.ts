@@ -11,8 +11,13 @@ import { logOrgAudit } from './audit-log.service';
 import { uploadOrgLogo, resolveOrgLogoUrl } from '../../lib/org-logo-storage';
 import { entitlementService } from '../subscription/entitlements/entitlement.service';
 import { PLAN_DEFINITIONS } from '../subscription/constants/plans';
+import { extractPinitCode, toOrgPinitId } from '../../lib/pinit-identity';
 
-function generateOrgShortId(): string {
+/** Org ID always shares the owner's biometric code: PINIT-ORG-{CODE}. */
+function orgShortIdForOwner(ownerShortId: string): string {
+  const expected = toOrgPinitId(ownerShortId);
+  if (expected) return expected;
+  // Fallback only if owner shortId is malformed
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let id = '';
   const bytes = crypto.randomBytes(8);
@@ -136,6 +141,7 @@ const orgInclude = {
 };
 
 const ownerProfileSelect = {
+  shortId: true,
   accountType: true,
   organization: true,
   country: true,
@@ -289,9 +295,18 @@ export const organizationService = {
     });
     if (existing) {
       await backfillWorkspaceShortIds(existing.id);
+      const expectedOrgId = orgShortIdForOwner(user.shortId);
       const patch = hydrateFromUserProfile(user, existing);
+      // Keep ORG id locked to the same face/account code (fix random PINIT-ORG-* if mismatched).
+      if (expectedOrgId && existing.shortId !== expectedOrgId) {
+        const taken = await prisma.organization.findUnique({ where: { shortId: expectedOrgId } });
+        if (!taken || taken.id === existing.id) {
+          (patch as { shortId?: string }).shortId = expectedOrgId;
+        }
+      }
       const workspaceName = user.workspaceName?.trim();
-      const refreshed = Object.keys(patch).length > 0 || workspaceName
+      const needsShortIdFix = Boolean((patch as { shortId?: string }).shortId);
+      const refreshed = Object.keys(patch).length > 0 || workspaceName || needsShortIdFix
         ? await prisma.$transaction(async (tx) => {
             if (Object.keys(patch).length > 0) {
               await tx.organization.update({ where: { id: existing.id }, data: patch });
@@ -309,11 +324,13 @@ export const organizationService = {
       return toClientView(refreshed);
     }
 
-    let shortId = generateOrgShortId();
+    let shortId = orgShortIdForOwner(user.shortId);
     for (let attempt = 0; attempt < 5; attempt++) {
       const collision = await prisma.organization.findUnique({ where: { shortId } });
       if (!collision) break;
-      shortId = generateOrgShortId();
+      // Extremely rare: another org already holds this code — append attempt marker
+      const code = extractPinitCode(user.shortId) || 'UNKNOWN';
+      shortId = `PINIT-ORG-${code}${attempt + 1}`;
     }
 
     const createPatch = hydrateFromUserProfile(user, {
@@ -352,11 +369,8 @@ export const organizationService = {
 
   async getForOwner(userId: string): Promise<OrganizationView | null> {
     await assertBusinessOwner(userId);
-    const org = await prisma.organization.findUnique({
-      where: { ownerUserId: userId },
-      include: orgInclude,
-    });
-    return org ? toClientView(org) : null;
+    // Align ORG shortId to owner biometric code whenever Business shell loads.
+    return this.ensureForOwner(userId);
   },
 
   async skipWelcome(userId: string): Promise<OrganizationView> {

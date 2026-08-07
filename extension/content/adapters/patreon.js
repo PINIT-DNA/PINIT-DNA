@@ -9,6 +9,13 @@
   PinITAdapter.createFileInputAdapter('patreon', {
     supportsRealtime: false,
     acceptAll: false,
+    platformType: 'creator',
+    detectPublishContext() {
+      return (
+        PinITAdapter.pathMatches([/\/posts\/new/i, /\/create/i]) ||
+        PinITAdapter.hasComposerDialog(['create post', 'upload', 'add media'])
+      );
+    },
   });
-  console.info('[PinIT] patreon Publish Guardian adapter active');
+  console.info('[PinIT] patreon Publish Guardian adapter active (creator-gated)');
 })();

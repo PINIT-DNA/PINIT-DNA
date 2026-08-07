@@ -65,7 +65,7 @@ app.set('trust proxy', 1);
 app.use(helmet({ contentSecurityPolicy: false }));
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
-// Allows: localhost + ngrok + Vercel + PinIT Hub custom domains + ALLOWED_ORIGIN(S)
+// Allows: localhost + ngrok + Vercel + Pinit HUB custom domains + ALLOWED_ORIGIN(S)
 app.use(cors({
   origin: (origin, callback) => {
     // No origin = server-to-server, Postman, curl → always allow

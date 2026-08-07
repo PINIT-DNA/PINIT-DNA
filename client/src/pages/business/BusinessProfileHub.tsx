@@ -411,7 +411,7 @@ function OrganizationTab({
               value={form.organizationName}
               onChange={(v) => setForm({ ...form, organizationName: v })}
             />
-            <EnterpriseField label="Organization PINIT ID" value={identity.orgShortId} disabled hint="Auto-assigned PINIT-ORG ID" />
+            <EnterpriseField label="Organization PINIT ID" value={identity.orgShortId} disabled hint="Same number as your Individual ID — PINIT-ORG-{code}" />
             <EnterpriseSelect
               label="Industry"
               value={form.industry}

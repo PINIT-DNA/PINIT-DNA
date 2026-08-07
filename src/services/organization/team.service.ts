@@ -134,7 +134,7 @@ export const teamService = {
         entityType: 'organization_invite',
         entityId: invite.id,
         title: 'Organization invitation',
-        body: 'You have been invited to join an organization on PinIT Hub.',
+        body: 'You have been invited to join an organization on Pinit HUB.',
         deepLink: `/team/join/${invite.token}`,
         payload: { organizationId, role, inviteToken: invite.token },
       });

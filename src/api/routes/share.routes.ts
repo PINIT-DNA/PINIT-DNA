@@ -29,6 +29,10 @@ import {
   getUnmaskStatus,
   listUnmaskRequests,
   reviewUnmaskRequest,
+  postShareViewerMessage,
+  listShareViewerMessages,
+  replyShareViewerMessage,
+  getMyShareViewerMessages,
   debugReport,
   getGlobalShareStats,
   getLiveTrackingMap,
@@ -55,6 +59,8 @@ shareRouter.get('/sessions/live',              requireAuth, getLiveSessions);
 shareRouter.get('/debug/report',               requireAuth, debugReport);              // ── Diagnostic: URL + IP test report
 shareRouter.get('/unmask-requests',            requireAuth, listUnmaskRequests);       // ── Privacy Masking — owner dashboard
 shareRouter.post('/unmask-requests/:id/review', requireAuth, reviewUnmaskRequest);    // ── Privacy Masking — approve / reject
+shareRouter.get('/messages',                   requireAuth, listShareViewerMessages);
+shareRouter.post('/messages/:id/reply',        requireAuth, replyShareViewerMessage);
 
 // ── Token-scoped routes ───────────────────────────────────────────────────────
 // Public routes (no auth — accessed by recipients without accounts)
@@ -67,7 +73,8 @@ shareRouter.get('/:token/preview.png',         previewImage);              // �
 shareRouter.get('/:token/masked-text',         getMaskedText);            // ── Privacy Masking — masked content
 shareRouter.post('/:token/unmask-request',     requestUnmask);            // ── Privacy Masking — request access
 shareRouter.get('/:token/unmask-status',       getUnmaskStatus);          // ── Privacy Masking — check approval
-
+shareRouter.post('/:token/messages',           postShareViewerMessage);
+shareRouter.get('/:token/messages/mine',       getMyShareViewerMessages);
 // Owner-only routes (require auth)
 shareRouter.get('/:token/logs',                requireAuth, requireFeature(FeatureKey.FEATURE_TRACKING), requireShareLinkOwnership, getShareLinkLogs);
 shareRouter.get('/:token/export',              requireAuth, requireShareLinkOwnership, exportShareLogsCsv);

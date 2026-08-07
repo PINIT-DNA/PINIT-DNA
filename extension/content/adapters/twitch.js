@@ -9,6 +9,13 @@
   PinITAdapter.createFileInputAdapter('twitch', {
     supportsRealtime: false,
     acceptAll: true,
+    platformType: 'creator',
+    detectPublishContext() {
+      return (
+        PinITAdapter.pathMatches([/dashboard\./i, /\/dashboard/i, /\/u\//i]) ||
+        PinITAdapter.hasComposerDialog(['upload', 'edit stream', 'add media'])
+      );
+    },
   });
-  console.info('[PinIT] twitch Publish Guardian adapter active');
+  console.info('[PinIT] twitch Publish Guardian adapter active (creator-gated)');
 })();
