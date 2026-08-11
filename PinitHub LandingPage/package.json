@@ -1,0 +1,46 @@
+{
+  "name": "pinithub-landing",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && prisma db push && next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "prisma generate",
+    "db:push": "prisma db push",
+    "db:seed": "prisma db seed",
+    "db:apply-defaults": "tsx scripts/apply-defaults.ts",
+    "db:reset-password": "tsx scripts/reset-admin-password.ts",
+    "db:studio": "prisma studio",
+    "db:reset": "prisma db push --force-reset && prisma db seed",
+    "setup": "prisma generate && prisma db push && prisma db seed"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "bcryptjs": "^3.0.3",
+    "framer-motion": "^11.15.0",
+    "jose": "^6.2.8",
+    "lucide-react": "^0.469.0",
+    "next": "^15.1.6",
+    "prisma": "6.19.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "three": "^0.172.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.0.7",
+    "@types/react-dom": "^19.0.3",
+    "@types/three": "^0.172.0",
+    "tailwindcss": "^4.0.0",
+    "tsx": "^4.23.7",
+    "typescript": "^5.7.3"
+  }
+}
