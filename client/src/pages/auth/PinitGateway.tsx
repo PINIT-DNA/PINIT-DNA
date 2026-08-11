@@ -1,8 +1,10 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { LoginFlow } from './LoginFlow';
 import { RegistrationFlow } from './RegistrationFlow';
 import { getPreRegisterAccountType } from '../../lib/pre-register';
+import { ExchangeReturnHandoff } from '../../components/auth/ExchangeReturnHandoff';
+import { resolveExchangeReturn, stashExchangeReturn } from '../../lib/exchange-return';
 
 function Booting() {
   return (
@@ -12,20 +14,35 @@ function Booting() {
   );
 }
 
-/** If already signed in, go straight to dashboard — stays in sync after login completes. */
+/** If already signed in, go straight to dashboard — or Exchange if exchange_return is set. */
 export function PinitGateway() {
   const { user, loading } = useAuth();
+  const [searchParams] = useSearchParams();
   if (loading) return <Booting />;
-  if (user) return <Navigate to="/" replace />;
+  if (user) {
+    const er = resolveExchangeReturn(searchParams.get('exchange_return'));
+    if (er) stashExchangeReturn(er);
+    return (
+      <ExchangeReturnHandoff fallback={<Navigate to="/" replace />} />
+    );
+  }
   return <LoginFlow />;
 }
 
 export function RegisterGateway() {
   const { user, loading } = useAuth();
+  const [searchParams] = useSearchParams();
   if (loading) return <Booting />;
-  if (user) return <Navigate to="/" replace />;
+
+  const er = resolveExchangeReturn(searchParams.get('exchange_return'));
+  if (er) stashExchangeReturn(er);
+
+  if (user) {
+    return <ExchangeReturnHandoff fallback={<Navigate to="/" replace />} />;
+  }
   if (!getPreRegisterAccountType()) {
-    return <Navigate to="/register/account-type" replace />;
+    const qs = er ? `?exchange_return=${encodeURIComponent(er)}` : '';
+    return <Navigate to={`/register/account-type${qs}`} replace />;
   }
   return <RegistrationFlow />;
 }

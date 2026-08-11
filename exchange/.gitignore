@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+*.log
+.vscode/
+*.db
+server/exchange.db
+server/tests/test-trust.db

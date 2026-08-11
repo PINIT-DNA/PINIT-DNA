@@ -595,6 +595,36 @@ export async function revokeCertificate(certificateId: string, reason: string): 
   return data.certificate;
 }
 
+// ─── Pinit Exchange bridge ───────────────────────────────────────────────────
+
+export async function createExchangeListIntent(vaultId: string): Promise<{
+  success: boolean;
+  token: string;
+  listUrl: string;
+  expiresIn: string;
+  asset: {
+    asset_id: string;
+    vault_id: string;
+    dna_record_id: string;
+    title: string;
+    badge_tier: string;
+    pinit_id: string;
+  };
+}> {
+  const { data } = await api.post(`${API_BASE_URL}/exchange/list-intent`, { vaultId });
+  return data;
+}
+
+export async function createExchangeSso(): Promise<{
+  success: boolean;
+  token: string;
+  exchangeUrl: string;
+  pinitId: string;
+}> {
+  const { data } = await api.post(`${API_BASE_URL}/exchange/sso`);
+  return data;
+}
+
 // ─── DNA Comparison ───────────────────────────────────────────────────────────
 
 export async function compareDna(

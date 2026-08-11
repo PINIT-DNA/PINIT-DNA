@@ -5,10 +5,11 @@
   "main": "dist/server.js",
   "scripts": {
     "predev": "node scripts/free-dev-ports.cjs",
-    "dev": "node ./node_modules/ts-node-dev/lib/bin.js --respawn --transpile-only --exit-child --ignore-watch node_modules --ignore-watch client --ignore-watch python-ai --ignore-watch vault --ignore-watch .git --ignore-watch dist src/server.ts",
+    "dev": "node ./node_modules/ts-node-dev/lib/bin.js --respawn --transpile-only --exit-child --ignore-watch node_modules --ignore-watch client --ignore-watch exchange --ignore-watch python-ai --ignore-watch vault --ignore-watch .git --ignore-watch dist src/server.ts",
     "dev:all": "node scripts/dev-stack.cjs",
     "dev:backend": "npm run dev",
     "dev:client": "cd client && npm run dev",
+    "dev:exchange": "cd exchange && npm run dev",
     "dev:ai:setup": "cd python-ai && setup-venv.bat",
     "dev:ai": "cd python-ai && .venv\\Scripts\\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8001 --reload",
     "build": "tsc --project tsconfig.json",

@@ -37,6 +37,7 @@ import { subscriptionRouter }     from './api/routes/subscription.routes';
 import { organizationRouter }     from './api/routes/organization.routes';
 import { publishGuardianRouter }  from './api/routes/publish-guardian.routes';
 import { assetRouter }            from './api/routes/asset.routes';
+import { exchangeRouter }         from './api/routes/exchange.routes';
 import {
   issueExtensionAuthCode,
   exchangeExtensionAuthToken,
@@ -87,6 +88,8 @@ app.use(cors({
       origin.includes('ngrok.app')       ||
       origin.includes('vercel.app')      ||   // Vercel preview + production
       origin.includes('pinithub.com')    ||   // custom domain (apex + www)
+      origin.includes('pinitexchange.com') || // Exchange custom domain (optional)
+      origin.includes('exchange.pinithub.com') ||
       origin.startsWith('chrome-extension://') || // Chrome Publish Guardian
       origin.startsWith('extension://') ||       // Edge / Chromium-edge extensions
       extraOrigins.includes(origin);
@@ -169,6 +172,8 @@ app.use(`${config.apiPrefix}/organization`,   organizationRouter);
 /** Publish Guardian — /api/v1/extension/* and /api/v1/posts* (additive) */
 app.use(`${config.apiPrefix}`, publishGuardianRouter);
 app.use(`${config.apiPrefix}`, assetRouter);
+/** Exchange bridge — Hub master identity + list/sale handoff */
+app.use(`${config.apiPrefix}/exchange`, exchangeRouter);
 
 /** Extension OAuth (additive — does not change password/biometric login) */
 app.post(`${config.apiPrefix}/auth/extension/issue-code`, requireAuth, issueExtensionAuthCode);

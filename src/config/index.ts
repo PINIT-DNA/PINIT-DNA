@@ -6,11 +6,26 @@
  */
 
 import dotenv from 'dotenv';
+import fs from 'fs';
 import path from 'path';
 import { ALL_ACCEPTED_MIME_TYPES, GLOBAL_MAX_FILE_SIZE_BYTES } from './supported-file-types';
 import { DNA_GENERATOR_VERSION, DNA_SCHEMA_VERSION } from './dna-versions';
 
 dotenv.config();
+// Ensure Exchange bridge secret from .env wins even if a shell JWT_SECRET was already set
+try {
+  const envPath = path.resolve(process.cwd(), '.env');
+  if (fs.existsSync(envPath)) {
+    const text = fs.readFileSync(envPath, 'utf8');
+    const match = text.match(/^EXCHANGE_BRIDGE_SECRET=(.*)$/m);
+    if (match) {
+      const val = match[1].trim().replace(/^["']|["']$/g, '');
+      if (val) process.env.EXCHANGE_BRIDGE_SECRET = val;
+    }
+  }
+} catch {
+  /* ignore */
+}
 
 function required(key: string): string {
   const value = process.env[key];
@@ -122,6 +137,19 @@ export const config = {
     keyId: optional('RAZORPAY_KEY_ID', ''),
     keySecret: optional('RAZORPAY_KEY_SECRET', ''),
     webhookSecret: optional('RAZORPAY_WEBHOOK_SECRET', ''),
+  },
+
+  /**
+   * Pinit Exchange bridge — marketplace stays a separate app.
+   * Hub owns identity / vault / DNA; Exchange only receives public-safe listing payloads.
+   */
+  exchange: {
+    appUrl: optional('EXCHANGE_APP_URL', 'http://localhost:5174').replace(/\/$/, ''),
+    apiUrl: optional('EXCHANGE_API_URL', 'http://localhost:5000').replace(/\/$/, ''),
+    bridgeSecret: optional(
+      'EXCHANGE_BRIDGE_SECRET',
+      optional('JWT_SECRET', 'dev_jwt_secret_change_in_prod_min_32_chars_long!!'),
+    ),
   },
 
   log: {

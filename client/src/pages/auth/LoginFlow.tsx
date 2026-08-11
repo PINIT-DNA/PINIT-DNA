@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ScanFace, ShieldCheck, ArrowRight, CheckCircle2, UserCheck } from 'lucide-react';
 
@@ -20,6 +20,12 @@ import { takePendingTeamInvite } from '../../lib/team-invite';
 import { loginWithFace } from '../../lib/face-api-client';
 import { collectFingerprint } from '../../lib/device-fingerprint';
 import { preloadFaceModels } from '../../lib/face-capture';
+import { createExchangeSso } from '../../services/dashboard.api';
+import {
+  resolveExchangeReturn,
+  stashExchangeReturn,
+  takeStashedExchangeReturn,
+} from '../../lib/exchange-return';
 
 type Step = 'welcome' | 'face' | 'fingerprint' | 'voice' | 'presence' | 'success';
 /** Face (real) → fingerprint (auto) → voice (real) → database match. */
@@ -34,11 +40,18 @@ const fade = {
 
 export function LoginFlow() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { loginWithFaceResponse } = useAuth();
+  const exchangeReturn = resolveExchangeReturn(searchParams.get('exchange_return'));
+
+  useEffect(() => {
+    if (exchangeReturn) stashExchangeReturn(exchangeReturn);
+  }, [exchangeReturn]);
 
   const [step, setStep] = useState<Step>('welcome');
   const [error, setError] = useState('');
   const [presenceKey, setPresenceKey] = useState(0);
+  const [openingExchange, setOpeningExchange] = useState(false);
   const faceEmbeddingRef = useRef<number[] | null>(null);
   const voiceFingerprintRef = useRef<number[] | null>(null);
   const bioCredentialRef = useRef<string | undefined>(undefined);
@@ -51,11 +64,42 @@ export function LoginFlow() {
 
   function goToRegister() {
     clearRegistration();
-    navigate('/register/account-type', { replace: true });
+    const er = exchangeReturn || takeStashedExchangeReturn();
+    if (er) stashExchangeReturn(er);
+    const qs = er ? `?exchange_return=${encodeURIComponent(er)}` : '';
+    navigate(`/register/account-type${qs}`, { replace: true });
   }
 
   function handleNotRegistered(msg: string) {
     setError(msg);
+  }
+
+  async function enterAfterLogin() {
+    const pendingInvite = takePendingTeamInvite();
+    if (pendingInvite) {
+      navigate(`/team/join/${encodeURIComponent(pendingInvite)}`, { replace: true });
+      return;
+    }
+
+    const er = exchangeReturn || takeStashedExchangeReturn();
+    if (er) {
+      setOpeningExchange(true);
+      try {
+        const sso = await createExchangeSso();
+        const target = new URL(er);
+        target.searchParams.set('hub_sso', sso.token);
+        window.location.replace(target.toString());
+        return;
+      } catch {
+        // Fall through to Hub home if SSO fails
+      } finally {
+        setOpeningExchange(false);
+      }
+    }
+
+    const token = getAccessToken();
+    const parsed = token ? parseJwt(token) : null;
+    navigate(resolveDefaultHomePath(parsed?.accountType ?? 'INDIVIDUAL'), { replace: true });
   }
 
   return (
@@ -63,7 +107,11 @@ export function LoginFlow() {
       <AnimatePresence mode="wait">
         <motion.div key={step} {...fade}>
           {step === 'welcome' && (
-            <WelcomeBack onNext={() => go('face')} onRegister={goToRegister} />
+            <WelcomeBack
+              onNext={() => go('face')}
+              onRegister={goToRegister}
+              exchangeReturn={!!exchangeReturn}
+            />
           )}
           {step === 'face' && (
             <>
@@ -136,16 +184,9 @@ export function LoginFlow() {
           )}
           {step === 'success' && (
             <LoginSuccess
-              onEnter={() => {
-                const pendingInvite = takePendingTeamInvite();
-                if (pendingInvite) {
-                  navigate(`/team/join/${encodeURIComponent(pendingInvite)}`, { replace: true });
-                  return;
-                }
-                const token = getAccessToken();
-                const parsed = token ? parseJwt(token) : null;
-                navigate(resolveDefaultHomePath(parsed?.accountType ?? 'INDIVIDUAL'), { replace: true });
-              }}
+              exchangeReturn={!!exchangeReturn}
+              openingExchange={openingExchange}
+              onEnter={() => { void enterAfterLogin(); }}
             />
           )}
         </motion.div>
@@ -154,7 +195,15 @@ export function LoginFlow() {
   );
 }
 
-function WelcomeBack({ onNext, onRegister }: { onNext: () => void; onRegister: () => void }) {
+function WelcomeBack({
+  onNext,
+  onRegister,
+  exchangeReturn,
+}: {
+  onNext: () => void;
+  onRegister: () => void;
+  exchangeReturn?: boolean;
+}) {
   return (
     <div className="pa-card" style={{ textAlign: 'center' }}>
       <div style={{
@@ -167,8 +216,15 @@ function WelcomeBack({ onNext, onRegister }: { onNext: () => void; onRegister: (
       </div>
       <h1 style={{ fontSize: 22, fontWeight: 800 }}>Welcome Back</h1>
       <p className="pa-muted" style={{ fontSize: 14, marginTop: 8 }}>
-        Biometric login only — no email or password.
+        {exchangeReturn
+          ? 'Sign in to Pinit Hub to continue into Exchange with the same identity.'
+          : 'Biometric login only — no email or password.'}
       </p>
+      {exchangeReturn && (
+        <p style={{ fontSize: 12, color: '#6ee7b7', marginTop: 8 }}>
+          After verification you’ll return to Pinit Exchange automatically.
+        </p>
+      )}
       <div className="pa-bio-steps">
         <div className="pa-bio-step">
           <ScanFace size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
@@ -249,7 +305,15 @@ function Presence({
   );
 }
 
-function LoginSuccess({ onEnter }: { onEnter: () => void }) {
+function LoginSuccess({
+  onEnter,
+  exchangeReturn,
+  openingExchange,
+}: {
+  onEnter: () => void;
+  exchangeReturn?: boolean;
+  openingExchange?: boolean;
+}) {
   const last = getLastLogin();
   const lastStr = last ? `Today ${last.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '—';
 
@@ -269,7 +333,13 @@ function LoginSuccess({ onEnter }: { onEnter: () => void }) {
         <span className="pa-faint" style={{ fontSize: 13 }}>Last login</span>
         <span style={{ fontSize: 13, color: '#e8eef8', fontWeight: 600 }}>{lastStr}</span>
       </div>
-      <button className="pa-btn" onClick={onEnter}>Enter Pinit HUB <ArrowRight size={17} /></button>
+      <button className="pa-btn" onClick={onEnter} disabled={openingExchange}>
+        {openingExchange
+          ? 'Opening Exchange…'
+          : exchangeReturn
+            ? <>Continue to Exchange <ArrowRight size={17} /></>
+            : <>Enter Pinit HUB <ArrowRight size={17} /></>}
+      </button>
     </div>
   );
 }

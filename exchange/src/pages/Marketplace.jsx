@@ -1,0 +1,326 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Search, Filter, ShieldCheck, Pencil, X, Check, Heart, ArrowRight,
+} from 'lucide-react';
+import ListingCard from '../components/ListingCard.jsx';
+import EmptyState from '../components/EmptyState.jsx';
+import { apiFetch } from '../lib/api.js';
+import { buyerKey } from '../lib/buyer.js';
+
+const VERTICALS = [
+  { id: 'all', name: 'All Verticals' },
+  { id: 'mine', name: 'My Listings' },
+  { id: 'images', name: 'Photography' },
+  { id: 'video', name: 'Video' },
+  { id: 'ui_ux', name: 'UI/UX' },
+  { id: '3d', name: '3D Models' },
+  { id: 'audio', name: 'Audio' },
+  { id: 'concepts', name: 'Concepts' },
+];
+
+export default function Marketplace({
+  onSelectListing,
+  onOpenListFromHub,
+  user = null,
+  focusListingId = null,
+  resetFiltersToken = 0,
+}) {
+  const [listings, setListings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedVertical, setSelectedVertical] = useState('all');
+  const [selectedBadge, setSelectedBadge] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortOption, setSortOption] = useState('newest');
+  const [editing, setEditing] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState('');
+
+  useEffect(() => {
+    if (resetFiltersToken) {
+      setSelectedVertical(user?.pinit_id ? 'mine' : 'all');
+      setSelectedBadge('all');
+      setSearchQuery('');
+      setSortOption('newest');
+    }
+  }, [resetFiltersToken, user?.pinit_id]);
+
+  useEffect(() => {
+    fetchListings();
+  }, [selectedVertical, selectedBadge, sortOption, resetFiltersToken, user?.pinit_id]);
+
+  useEffect(() => {
+    if (!focusListingId || !listings.length) return;
+    const el = document.getElementById(`listing-${focusListingId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('listing-card--flash');
+      setTimeout(() => el.classList.remove('listing-card--flash'), 2400);
+    }
+  }, [focusListingId, listings]);
+
+  const fetchListings = async () => {
+    setLoading(true);
+    try {
+      const verticalParam = selectedVertical === 'mine' ? 'all' : selectedVertical;
+      let url = `/api/listings?vertical=${verticalParam}&badge=${selectedBadge}&sort=${sortOption}`;
+      if (selectedVertical === 'mine' && user?.pinit_id) {
+        url += `&seller=${encodeURIComponent(user.pinit_id)}`;
+      }
+      if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
+      const res = await fetch(url);
+      if (res.ok) setListings(await res.json());
+    } catch (err) {
+      console.error('Error fetching listings:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    fetchListings();
+  };
+
+  const openEdit = (e, item) => {
+    e.stopPropagation();
+    setEditError('');
+    setEditing(item);
+    setEditForm({
+      title: item.title || '',
+      tagline: item.tagline || '',
+      description: item.description || '',
+      tags: item.tags || '',
+      vertical: item.vertical || 'images',
+      price_personal: item.price_personal ?? 49,
+      price_commercial: item.price_commercial ?? 149,
+      price_exclusive: item.price_exclusive ?? 899,
+      price_enterprise: item.price_enterprise ?? 2499,
+    });
+  };
+
+  const saveEdit = async (e) => {
+    e.preventDefault();
+    if (!user?.pinit_id || !editing) return;
+    setSaving(true);
+    setEditError('');
+    try {
+      const res = await fetch(`/api/listings/${encodeURIComponent(editing.listing_id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinit_id: user.pinit_id, ...editForm }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Update failed');
+      setEditing(null);
+      await fetchListings();
+    } catch (err) {
+      setEditError(err.message || 'Update failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const isOwner = (item) => user?.pinit_id && item.pinit_id === user.pinit_id;
+
+  return (
+    <div style={{ maxWidth: '1320px', margin: '0 auto', padding: '32px 24px' }}>
+      <div className="glass-panel" style={{
+        padding: '48px',
+        marginBottom: '40px',
+        background: 'radial-gradient(circle at top right, rgba(99, 102, 241, 0.15) 0%, rgba(15, 23, 42, 0.85) 60%)',
+      }}>
+        <div style={{ maxWidth: '780px' }}>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: '8px',
+            background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)',
+            padding: '6px 14px', borderRadius: 'var(--radius-full)', fontSize: '0.8rem',
+            color: 'var(--primary)', fontWeight: 600, marginBottom: '20px',
+          }}>
+            <ShieldCheck size={16} />
+            <span>Pinit HUB DNA &amp; Vault Protection Powered</span>
+          </div>
+          <h1 style={{ fontSize: '2.8rem', lineHeight: '1.15', marginBottom: '16px', color: '#fff' }}>
+            The verified marketplace for creative licenses
+          </h1>
+          <p style={{ fontSize: '1.1rem', color: 'var(--text-muted)', marginBottom: '28px', lineHeight: '1.6' }}>
+            Stock-agency style browsing — titles, taglines, keywords, and provenance badges on every card.
+          </p>
+          <div style={{ display: 'flex', gap: '16px' }}>
+            <button className="btn-primary" onClick={onOpenListFromHub} style={{ padding: '12px 24px', fontSize: '1rem' }}>
+              List from Pinit HUB <ArrowRight size={18} />
+            </button>
+            <a href="#browse-section" className="btn-secondary" style={{ padding: '12px 24px', fontSize: '1rem', textDecoration: 'none' }}>
+              Browse Exchange
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div id="browse-section" style={{ marginBottom: '32px' }}>
+        <div style={{
+          display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '12px',
+          marginBottom: '20px', borderBottom: '1px solid var(--border-subtle)',
+        }}>
+          {VERTICALS.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => setSelectedVertical(v.id)}
+              style={{
+                padding: '8px 18px', borderRadius: 'var(--radius-full)', fontSize: '0.88rem', fontWeight: 600,
+                border: selectedVertical === v.id ? '1px solid var(--primary)' : '1px solid var(--border-subtle)',
+                background: selectedVertical === v.id ? 'var(--primary)' : 'rgba(255,255,255,0.03)',
+                color: selectedVertical === v.id ? '#fff' : 'var(--text-muted)',
+                cursor: 'pointer', whiteSpace: 'nowrap',
+              }}
+            >
+              {v.name}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center' }}>
+          <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '10px', flex: 1, minWidth: '300px' }}>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <Search size={18} color="var(--text-muted)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Search title, tagline, tags, Asset ID, or listing ID…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{ paddingLeft: '40px' }}
+              />
+            </div>
+            <button type="submit" className="btn-secondary">Search</button>
+          </form>
+
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Filter size={16} color="var(--text-muted)" />
+              <select className="form-select" value={selectedBadge} onChange={(e) => setSelectedBadge(e.target.value)} style={{ width: 'auto', minWidth: '180px' }}>
+                <option value="all">All Authenticity Badges</option>
+                <option value="Gold">Gold Badge</option>
+                <option value="Silver">Silver Badge</option>
+                <option value="Bronze">Bronze Badge</option>
+              </select>
+            </div>
+            <select className="form-select" value={sortOption} onChange={(e) => setSortOption(e.target.value)} style={{ width: 'auto', minWidth: '150px' }}>
+              <option value="newest">Newest Listings</option>
+              <option value="popular">Most Viewed</option>
+              <option value="price_asc">Price: Low to High</option>
+              <option value="price_desc">Price: High to Low</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>Loading marketplace…</div>
+      ) : listings.length === 0 ? (
+        <EmptyState
+          icon={<ShieldCheck size={36} color="var(--primary)" />}
+          title="No listings in this view"
+          description={
+            selectedVertical === 'mine'
+              ? 'Your protected assets can become licenses on Pinit Exchange.'
+              : 'Try another category, clear filters, or list a protected asset.'
+          }
+          primaryLabel={selectedVertical === 'mine' ? 'List an asset' : 'Show all categories'}
+          onPrimary={() => {
+            if (selectedVertical === 'mine') onOpenListFromHub?.();
+            else setSelectedVertical('all');
+          }}
+          secondaryLabel="Open Pinit HUB"
+          onSecondary={() => window.open((import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3000'), '_blank')}
+        />
+      ) : (
+        <div className="listing-grid">
+          {listings.map((item) => (
+            <div key={item.listing_id} style={{ position: 'relative' }}>
+              {isOwner(item) && (
+                <button
+                  type="button"
+                  className="card-edit-btn"
+                  style={{ zIndex: 5 }}
+                  title="Edit listing"
+                  onClick={(e) => openEdit(e, item)}
+                >
+                  <Pencil size={14} /> Edit
+                </button>
+              )}
+              <ListingCard
+                item={item}
+                onSelect={onSelectListing}
+                onWishlist={async (listing) => {
+                  const key = buyerKey(user) || localStorage.getItem('pinit_guest_buyer') || `GUEST-${Date.now()}`;
+                  if (!localStorage.getItem('pinit_guest_buyer') && !user) {
+                    localStorage.setItem('pinit_guest_buyer', key);
+                  }
+                  await apiFetch('/api/commerce/wishlist', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ buyer_key: key, listing_id: listing.listing_id }),
+                  });
+                }}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {editing && (
+        <div className="modal-overlay" onClick={() => setEditing(null)} role="presentation">
+          <div className="modal-content" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()} role="dialog">
+            <div className="modal-header">
+              <div>
+                <h3 style={{ color: '#fff', fontSize: '1.2rem' }}>Edit listing</h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>Update title, tagline, tags, and prices — stock-agency style.</p>
+              </div>
+              <button type="button" onClick={() => setEditing(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={saveEdit} className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <label className="form-label">Title
+                <input className="form-input" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} required />
+              </label>
+              <label className="form-label">Tagline
+                <input className="form-input" value={editForm.tagline} onChange={(e) => setEditForm({ ...editForm, tagline: e.target.value })} placeholder="One punchy line buyers see on the card" maxLength={120} />
+              </label>
+              <label className="form-label">Tags / keywords
+                <input className="form-input" value={editForm.tags} onChange={(e) => setEditForm({ ...editForm, tags: e.target.value })} placeholder="cinematic, drone, golden-hour, 8k" />
+              </label>
+              <label className="form-label">Description
+                <textarea className="form-textarea" rows={3} value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
+              </label>
+              <label className="form-label">Category
+                <select className="form-select" value={editForm.vertical} onChange={(e) => setEditForm({ ...editForm, vertical: e.target.value })}>
+                  {VERTICALS.filter((v) => v.id !== 'all' && v.id !== 'mine').map((v) => (
+                    <option key={v.id} value={v.id}>{v.name}</option>
+                  ))}
+                </select>
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {['price_personal', 'price_commercial', 'price_exclusive', 'price_enterprise'].map((key) => (
+                  <label key={key} className="form-label" style={{ textTransform: 'capitalize' }}>
+                    {key.replace('price_', '').replace('_', ' ')}
+                    <input type="number" className="form-input" value={editForm[key]} onChange={(e) => setEditForm({ ...editForm, [key]: Number(e.target.value) })} />
+                  </label>
+                ))}
+              </div>
+              {editError && <div style={{ color: '#f87171', fontSize: '0.88rem' }}>{editError}</div>}
+              <div className="modal-footer" style={{ marginTop: 8 }}>
+                <button type="button" className="btn-secondary" onClick={() => setEditing(null)}>Cancel</button>
+                <button type="submit" className="btn-primary" disabled={saving}>
+                  {saving ? 'Saving…' : <><Check size={16} /> Save changes</>}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

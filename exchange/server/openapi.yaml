@@ -1,0 +1,139 @@
+openapi: 3.0.3
+info:
+  title: Pinit Exchange API
+  version: 1.0.0
+  description: |
+    Marketplace API for Pinit Exchange. License sales require payment
+    (Razorpay when keys are set, otherwise mock). Hub vault/DNA remains on Pinit HUB.
+servers:
+  - url: http://localhost:5000
+    description: Local Exchange API
+paths:
+  /api/health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Online
+  /api/orders/billing/config:
+    get:
+      summary: Payment provider config (mock vs Razorpay)
+      responses:
+        '200':
+          description: Public billing config
+  /api/orders/create-payment:
+    post:
+      summary: Create payment intent for a single listing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [listing_id, license_tier, buyer_name, buyer_email]
+              properties:
+                listing_id: { type: string }
+                license_tier: { type: string, enum: [personal, commercial, exclusive, enterprise] }
+                buyer_name: { type: string }
+                buyer_email: { type: string }
+                buyer_org: { type: string }
+                buyer_pinit_id: { type: string }
+                coupon_code: { type: string }
+      responses:
+        '201':
+          description: Razorpay or mock order created
+  /api/orders/verify-payment:
+    post:
+      summary: Verify payment signature and seal license(s)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payment_intent_id]
+              properties:
+                payment_intent_id: { type: string }
+                razorpay_order_id: { type: string }
+                razorpay_payment_id: { type: string }
+                razorpay_signature: { type: string }
+      responses:
+        '201':
+          description: Order sealed after paid verification
+  /api/orders/checkout:
+    post:
+      summary: Legacy checkout (mock auto-seal; live keys return 402 payment_required)
+      responses:
+        '201':
+          description: Sealed (mock)
+        '402':
+          description: Open Razorpay Checkout.js then call verify-payment
+  /api/orders/my-licenses:
+    get:
+      summary: Buyer licenses
+      parameters:
+        - in: query
+          name: email
+          schema: { type: string }
+        - in: query
+          name: pinit_id
+          schema: { type: string }
+      responses:
+        '200':
+          description: License list
+  /api/commerce/cart:
+    get:
+      summary: Get cart
+      parameters:
+        - in: query
+          name: buyer_key
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Cart items
+    post:
+      summary: Add to cart
+      responses:
+        '201':
+          description: Added
+  /api/commerce/cart/create-payment:
+    post:
+      summary: Create one payment for entire cart
+      responses:
+        '201':
+          description: Cart payment intent
+  /api/commerce/wishlist:
+    get:
+      summary: Wishlist
+      responses:
+        '200':
+          description: Saved listings
+    post:
+      summary: Save listing
+      responses:
+        '201':
+          description: Saved
+  /api/commerce/reviews/{listingId}:
+    get:
+      summary: Listing reviews
+      parameters:
+        - in: path
+          name: listingId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Reviews + average
+  /api/listings:
+    get:
+      summary: Marketplace listings
+      responses:
+        '200':
+          description: Listing array
+  /api/hub/protect-upload:
+    post:
+      summary: Workflow B — upload file for silent Hub protect then list
+      responses:
+        '200':
+          description: Protected asset metadata

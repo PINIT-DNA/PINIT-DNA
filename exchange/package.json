@@ -1,0 +1,38 @@
+{
+  "name": "pinit-exchange",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "client": "vite",
+    "server": "node --watch server/server.js",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test server/tests/*.test.js",
+    "migrate:postgres": "node server/scripts/migrate-sqlite-to-postgres.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.2",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.3",
+    "lucide-react": "^0.380.0",
+    "multer": "^2.2.0",
+    "pg": "^8.22.0",
+    "razorpay": "^2.9.8",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "sqlite3": "^5.1.7",
+    "swagger-ui-express": "^5.0.1",
+    "uuid": "^9.0.1",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "concurrently": "^8.2.2",
+    "vite": "^5.2.11"
+  }
+}
