@@ -1,18 +1,33 @@
 /**
  * Public site destinations that are not CMS-editable.
  * Override via env on each Vercel project.
+ *
+ * Domain cutover (www.pinithub.com):
+ *   - Landing owns the domain (this Next.js project).
+ *   - Hub routes (/login, /vault, /s/…, /static/…) are reverse-proxied
+ *     to the Hub Vercel app via vercel.json rewrites.
+ *   - Set NEXT_PUBLIC_HUB_APP_URL=https://www.pinithub.com (or empty "")
+ *     so Log in / Get started stay on the same domain.
  */
+const rawHub = process.env.NEXT_PUBLIC_HUB_APP_URL;
 export const HUB_APP_URL =
-  process.env.NEXT_PUBLIC_HUB_APP_URL?.trim() || 'https://pinit-dna.vercel.app';
+  rawHub !== undefined
+    ? rawHub.trim().replace(/\/$/, '')
+    : 'https://www.pinithub.com';
+
+function hubPath(path: string): string {
+  const p = path.startsWith('/') ? path : `/${path}`;
+  return HUB_APP_URL ? `${HUB_APP_URL}${p}` : p;
+}
 
 /** Hub signup entry (account type → biometric registration → dashboard). */
 export function hubSignupUrl(): string {
-  return `${HUB_APP_URL.replace(/\/$/, '')}/register/account-type`;
+  return hubPath('/register/account-type');
 }
 
 /** Hub login for returning users. */
 export function hubLoginUrl(): string {
-  return `${HUB_APP_URL.replace(/\/$/, '')}/login`;
+  return hubPath('/login');
 }
 
 /** YouTube, Vimeo, ScreenPal, or direct MP4 URL for “Watch Platform”. */
@@ -24,7 +39,7 @@ export const DEMO_VIDEO_URL =
 export const LANDING_URL =
   process.env.LANDING_URL?.trim().replace(/\/$/, '') ||
   process.env.NEXT_PUBLIC_LANDING_URL?.trim().replace(/\/$/, '') ||
-  'https://pinit-landing-page.vercel.app';
+  'https://www.pinithub.com';
 
 /**
  * Deploy surface:

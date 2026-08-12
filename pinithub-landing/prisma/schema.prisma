@@ -1,5 +1,10 @@
 // PINITHUB — content + operations database.
 //
+// Same Supabase Postgres as Hub + Exchange; isolated schema via DATABASE_URL:
+//   Hub      → public
+//   Exchange → exchange
+//   Landing  → landing  (?schema=landing on the connection string)
+//
 // Every string the landing page renders lives in one of these models, so the
 // marketing site can be edited entirely from /admin without a deploy.
 //
@@ -14,6 +19,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // Shared Supabase URI with ?schema=landing (never public / exchange).
   url      = env("DATABASE_URL")
 }
 
