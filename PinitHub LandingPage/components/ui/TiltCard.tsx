@@ -12,7 +12,7 @@ export function TiltCard({
   children,
   className = '',
   maxTilt = 6,
-  glow = 'rgba(45,123,255,0.16)',
+  glow = 'rgba(45,123,255,0.08)',
   as: Tag = 'div',
 }: {
   children: ReactNode;
@@ -30,7 +30,7 @@ export function TiltCard({
   const rx = useSpring(useMotionValue(0), { stiffness: 200, damping: 22 });
   const ry = useSpring(useMotionValue(0), { stiffness: 200, damping: 22 });
 
-  const spotlight = useMotionTemplate`radial-gradient(420px circle at ${px}% ${py}%, ${glow}, transparent 62%)`;
+  const spotlight = useMotionTemplate`radial-gradient(320px circle at ${px}% ${py}%, ${glow}, transparent 62%)`;
 
   const onMove = useCallback(
     (e: MouseEvent) => {
@@ -62,7 +62,7 @@ export function TiltCard({
   return (
     <MotionTag
       ref={ref}
-      className={`panel grain group relative overflow-hidden transition-[box-shadow,border-color,transform] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-white/15 hover:shadow-[var(--shadow-lift-hi)] ${className}`}
+      className={`panel grain group relative overflow-hidden transition-[box-shadow,border-color,transform] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-white/12 hover:shadow-[var(--shadow-lift)] ${className}`}
       style={
         reduce
           ? undefined

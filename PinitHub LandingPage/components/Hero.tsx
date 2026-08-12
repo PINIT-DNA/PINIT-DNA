@@ -5,7 +5,7 @@ import { ArrowUpRight, Play, Sparkles } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useRef, useState } from 'react';
 import type { SiteContent } from '@/lib/content';
-import { DEMO_VIDEO_URL } from '@/lib/site';
+import { DEMO_VIDEO_URL, hubSignupUrl } from '@/lib/site';
 import { MagneticButton } from './ui/MagneticButton';
 import { ParticleField } from './ui/ParticleField';
 import { VideoModal } from './ui/VideoModal';
@@ -41,14 +41,14 @@ export function Hero({ content }: { content: HeroContent }) {
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
         <div className="absolute inset-0 bg-[radial-gradient(120%_88%_at_72%_18%,#0d1c3d_0%,#070E22_42%,#050816_78%)]" />
         <div className="lattice mask-radial absolute inset-0 opacity-70" />
-        <div className="aura anim-drift top-[-14%] right-[6%] h-[42rem] w-[42rem] bg-blue/22" />
-        <div className="aura anim-breathe bottom-[-24%] left-[-8%] h-[38rem] w-[38rem] bg-violet/16" />
-        <div className="aura top-[26%] right-[26%] h-[22rem] w-[22rem] bg-cyan/12" />
-        <ParticleField density={0.00007} speed={0.85} />
-        {/* Volumetric light rays raking across the scene */}
-        <div className="absolute inset-0 overflow-hidden opacity-[0.22]">
-          <div className="absolute -top-1/2 left-1/3 h-[200%] w-[36rem] -rotate-[18deg] bg-[linear-gradient(90deg,transparent,rgba(85,230,255,0.16),transparent)] blur-3xl" />
-          <div className="absolute -top-1/2 left-2/3 h-[200%] w-[24rem] -rotate-[12deg] bg-[linear-gradient(90deg,transparent,rgba(111,92,255,0.14),transparent)] blur-3xl" />
+        <div className="aura anim-drift top-[-14%] right-[6%] h-[42rem] w-[42rem] bg-blue/14" />
+        <div className="aura anim-breathe bottom-[-24%] left-[-8%] h-[38rem] w-[38rem] bg-violet/10" />
+        <div className="aura top-[26%] right-[26%] h-[22rem] w-[22rem] bg-cyan/8" />
+        <ParticleField density={0.00005} speed={0.7} />
+        {/* Soft light — restrained, not neon wash */}
+        <div className="absolute inset-0 overflow-hidden opacity-[0.12]">
+          <div className="absolute -top-1/2 left-1/3 h-[200%] w-[36rem] -rotate-[18deg] bg-[linear-gradient(90deg,transparent,rgba(85,230,255,0.12),transparent)] blur-3xl" />
+          <div className="absolute -top-1/2 left-2/3 h-[200%] w-[24rem] -rotate-[12deg] bg-[linear-gradient(90deg,transparent,rgba(111,92,255,0.10),transparent)] blur-3xl" />
         </div>
       </div>
 
@@ -74,12 +74,16 @@ export function Hero({ content }: { content: HeroContent }) {
             <RevealLine delay={0.34}>
               <span className="text-glow">{content.headline1}</span>
             </RevealLine>
-            <RevealLine delay={0.44}>
-              <span className="text-beam">{content.headline2}</span>
-            </RevealLine>
-            <RevealLine delay={0.52}>
-              <span className="text-beam">{content.headline3}</span>
-            </RevealLine>
+            {content.headline2 ? (
+              <RevealLine delay={0.44}>
+                <span className="text-beam">{content.headline2}</span>
+              </RevealLine>
+            ) : null}
+            {content.headline3 ? (
+              <RevealLine delay={0.52}>
+                <span className="text-beam">{content.headline3}</span>
+              </RevealLine>
+            ) : null}
           </h1>
 
           <motion.p
@@ -97,32 +101,37 @@ export function Hero({ content }: { content: HeroContent }) {
             transition={{ duration: 0.9, delay: 0.78, ease: [0.16, 1, 0.3, 1] }}
             className="mt-8 flex w-full flex-col gap-3 sm:mt-10 sm:flex-row sm:flex-wrap sm:items-center"
           >
-            <MagneticButton href="#demo" size="lg" className="w-full sm:w-auto">
-              {content.ctaPrimary}
+            <MagneticButton href={hubSignupUrl()} size="lg" className="w-full sm:w-auto">
+              Get started
               <ArrowUpRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
             </MagneticButton>
+            <MagneticButton href="#how-it-works" size="lg" variant="ghost" strength={0.2} className="w-full sm:w-auto">
+              {content.ctaSecondary}
+            </MagneticButton>
             {videoUrl ? (
-              <MagneticButton onClick={() => setVideoOpen(true)} size="lg" variant="ghost" strength={0.2} className="w-full sm:w-auto">
-                <span className="grid h-7 w-7 place-items-center rounded-full border border-cyan/30 bg-cyan/10">
-                  <Play className="h-3 w-3 fill-cyan text-cyan" />
+              <MagneticButton onClick={() => setVideoOpen(true)} size="lg" variant="quiet" strength={0.15} className="w-full sm:w-auto">
+                <span className="grid h-7 w-7 place-items-center rounded-full border border-line bg-white/[0.03]">
+                  <Play className="h-3 w-3 fill-mute text-mute" />
                 </span>
-                {content.ctaSecondary}
+                Watch demo
               </MagneticButton>
-            ) : (
-              <MagneticButton href="#platform" size="lg" variant="ghost" strength={0.2} className="w-full sm:w-auto">
-                <span className="grid h-7 w-7 place-items-center rounded-full border border-cyan/30 bg-cyan/10">
-                  <Play className="h-3 w-3 fill-cyan text-cyan" />
-                </span>
-                {content.ctaSecondary}
-              </MagneticButton>
-            )}
+            ) : null}
           </motion.div>
+
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 1, delay: 0.88 }}
+            className="eyebrow mt-8 tracking-[0.18em] text-mute-2"
+          >
+            Protect · Prove · Share · Detect · Investigate
+          </motion.p>
 
           <motion.dl
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 1, delay: 0.95 }}
-            className="mt-10 grid grid-cols-1 gap-x-8 gap-y-5 border-t border-line pt-6 min-[420px]:grid-cols-2 sm:mt-12 sm:flex sm:flex-wrap sm:gap-x-10 sm:pt-8"
+            className="mt-8 grid grid-cols-1 gap-x-8 gap-y-5 border-t border-line pt-6 min-[420px]:grid-cols-2 sm:mt-10 sm:flex sm:flex-wrap sm:gap-x-10 sm:pt-8"
           >
             {stats.map(([k, v]) => (
               <div key={k}>

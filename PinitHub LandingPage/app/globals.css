@@ -14,6 +14,10 @@
   --color-mute: #b8c2d0;
   --color-mute-2: #7d899b;
   --color-signal: #14d991;
+  /* Semantic status */
+  --color-warn: #f5b942;
+  --color-danger: #f07178;
+  --color-verified: #14d991;
 
   --color-line: rgba(184, 194, 208, 0.12);
   --color-line-2: rgba(184, 194, 208, 0.07);
@@ -25,10 +29,15 @@
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out-quint: cubic-bezier(0.83, 0, 0.17, 1);
 
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
+
   --shadow-lift: 0 1px 0 0 rgba(248, 250, 252, 0.05) inset, 0 30px 60px -20px rgba(2, 5, 14, 0.9);
   --shadow-lift-hi:
-    0 1px 0 0 rgba(248, 250, 252, 0.09) inset, 0 50px 90px -25px rgba(2, 5, 14, 0.95),
-    0 0 60px -20px rgba(45, 123, 255, 0.55);
+    0 1px 0 0 rgba(248, 250, 252, 0.06) inset, 0 40px 70px -28px rgba(2, 5, 14, 0.9),
+    0 0 40px -24px rgba(45, 123, 255, 0.22);
 }
 
 /* ============================================================
@@ -159,7 +168,7 @@
   }
   @media (min-width: 1280px) {
     .section-pad {
-      padding-block: 10rem;
+      padding-block: 7.5rem;
     }
   }
 
@@ -247,7 +256,7 @@
     color: transparent;
   }
   .text-beam {
-    background: linear-gradient(100deg, #55e6ff 0%, #2d7bff 45%, #6f5cff 100%);
+    background: linear-gradient(100deg, #d7ecff 0%, #55e6ff 38%, #2d7bff 100%);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;

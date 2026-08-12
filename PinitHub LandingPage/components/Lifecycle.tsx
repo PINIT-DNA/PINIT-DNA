@@ -55,7 +55,7 @@ export function Lifecycle({
   if (!stage) return null;
 
   return (
-    <section id="solutions" className="relative scroll-mt-24 overflow-hidden section-pad">
+    <section id="how-it-works" className="relative scroll-mt-24 overflow-hidden section-pad">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
         <div className="absolute inset-0 bg-ink-2" />
         <div className="lattice absolute inset-0 opacity-40" />

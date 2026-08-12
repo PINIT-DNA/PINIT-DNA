@@ -3,7 +3,17 @@
  * Override via env on each Vercel project.
  */
 export const HUB_APP_URL =
-  process.env.NEXT_PUBLIC_HUB_APP_URL?.trim() || 'https://dna-pinit-web.vercel.app';
+  process.env.NEXT_PUBLIC_HUB_APP_URL?.trim() || 'https://pinit-dna.vercel.app';
+
+/** Hub signup entry (account type → biometric registration → dashboard). */
+export function hubSignupUrl(): string {
+  return `${HUB_APP_URL.replace(/\/$/, '')}/register/account-type`;
+}
+
+/** Hub login for returning users. */
+export function hubLoginUrl(): string {
+  return `${HUB_APP_URL.replace(/\/$/, '')}/login`;
+}
 
 /** YouTube, Vimeo, ScreenPal, or direct MP4 URL for “Watch Platform”. */
 export const DEMO_VIDEO_URL =

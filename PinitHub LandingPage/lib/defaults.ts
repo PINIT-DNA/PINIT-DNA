@@ -1,346 +1,350 @@
 /**
  * Launch content for seed + offline fallback.
  *
- * Framing: PINITHUB (platform brand) → PinIT Hub (live product).
- * Available now: protect, vault, share, monitor, investigate.
- * Coming soon: Exchange, Career, full collaboration, SSO/SCIM, licensing.
+ * Framing: PINITHUB (platform) → PinIT Hub (live product).
+ * Lead with customer outcomes; introduce mechanisms underneath.
+ * Available now: Protect → Prove → Share → Detect → Investigate.
+ * Coming soon: Exchange, Career, licensing / marketplace commerce.
  *
  * Editing here does not update an already-seeded database.
  * Use /admin or `npm run db:apply-defaults` for that.
  */
 
 export const DEFAULT_HERO = {
-  badgeLabel: 'Live today',
-  badgeText: 'PinIT Hub — protect, prove, share, detect, investigate',
-  headline1: 'Prove ownership.',
-  headline2: 'Protect originals.',
-  headline3: 'Investigate leaks.',
+  badgeLabel: 'Digital asset intelligence',
+  badgeText: 'Protect · Prove · Share · Detect · Investigate',
+  headline1: 'Protect what you create.',
+  headline2: 'Prove what you own.',
+  headline3: '',
   lede:
-    'PINITHUB is the Digital Asset Intelligence platform. PinIT Hub — available now — captures multi-layer DNA fingerprints, stores encrypted originals in Vault, tracks every share, and helps you investigate misuse. Exchange and Career are on the roadmap.',
-  ctaPrimary: 'Book a Live Demo',
-  ctaSecondary: 'Watch Demo',
-  // Prefer CMS; otherwise NEXT_PUBLIC_DEMO_VIDEO_URL / site default is used.
+    'PINITHUB gives creators, teams, and organizations a secure control layer for digital assets—from protection and ownership evidence to accountable sharing and investigation.',
+  ctaPrimary: 'Talk to our team',
+  ctaSecondary: 'Explore the platform',
   videoUrl: 'https://go.screenpal.com/watch/cOj123nv0bo',
-  stat1Key: 'DNA',
-  stat1Value: 'Multi-layer fingerprinting',
-  stat2Key: 'Vault',
-  stat2Value: 'Encrypted originals + certificates',
+  stat1Key: 'Protect',
+  stat1Value: 'Secure the original',
+  stat2Key: 'Prove',
+  stat2Value: 'Ownership evidence',
   stat3Key: 'Investigate',
-  stat3Value: 'Forensic share & leak trails',
-  logosLabel: 'Built for teams that need proof, not another cloud drive',
+  stat3Value: 'When something leaks',
+  logosLabel: 'Not another cloud drive — a control layer for what happens to your assets',
 };
 
-/** Non-metric scene cues — no fabricated KPI numbers. */
+/** Scene cues — customer outcomes, not engineering jargon. */
 export const DEFAULT_HERO_READOUTS = [
-  { label: 'CORE LOOP', value: 'PROTECT → PROVE', accent: false, position: 'top-[14%] left-[4%]' },
-  { label: 'MODULE', value: 'PINIT VAULT', accent: true, position: 'right-[3%] bottom-[26%]' },
-  { label: 'FOCUS', value: 'SHARE · DETECT · INVESTIGATE', accent: false, position: 'bottom-[10%] left-[10%]' },
+  { label: 'LIVE TODAY', value: 'PROTECT → PROVE → SHARE', accent: false, position: 'top-[14%] left-[4%]' },
+  { label: 'YOUR SPACE', value: 'PRIVATE WORKSPACE', accent: true, position: 'right-[3%] bottom-[26%]' },
+  { label: 'WHEN NEEDED', value: 'DETECT · INVESTIGATE', accent: false, position: 'bottom-[10%] left-[10%]' },
 ];
 
 /** Empty until real customer logos are approved. */
 export const DEFAULT_TRUSTED_LOGOS: string[] = [];
 
 export const DEFAULT_PROBLEMS = [
-  { icon: 'Boxes', title: 'Assets scattered everywhere', body: 'Drives, inboxes, chat threads, local machines. Nobody knows what exists — or who owns it.' },
-  { icon: 'FileWarning', title: 'Weak ownership proof', body: 'Filenames and EXIF are not evidence. When a file leaks, provenance is already gone.' },
-  { icon: 'ShieldAlert', title: 'Security outside governance', body: 'Sensitive originals live outside encryption, access control, and audit trails.' },
-  { icon: 'Copy', title: 'Shares without accountability', body: 'Links get forwarded. Access is forgotten. Revocation is guesswork.' },
-  { icon: 'Layers', title: 'Lost context after handoff', body: 'Authorship, certificates, and history evaporate the moment someone leaves the team.' },
-  { icon: 'TrendingDown', title: 'Hard to investigate misuse', body: 'When a copy appears elsewhere, teams lack fingerprints, share trails, and forensic comparison.' },
+  {
+    icon: 'Boxes',
+    title: 'Assets scatter',
+    body: 'Files move across devices, teams, platforms, and workflows—faster than anyone can track.',
+  },
+  {
+    icon: 'FileWarning',
+    title: 'Ownership becomes hard to prove',
+    body: 'Copies, exports, and transformations can separate an asset from its original evidence.',
+  },
+  {
+    icon: 'Share2',
+    title: 'Sharing creates blind spots',
+    body: 'Once an asset leaves your workspace, visibility and accountability often disappear.',
+  },
+  {
+    icon: 'TrendingDown',
+    title: 'Misuse is discovered too late',
+    body: 'When a copy appears elsewhere, investigation starts without enough evidence to act.',
+  },
 ];
 
 export const DEFAULT_PROBLEM_CONTENT = {
-  resolutionTitle: 'Protection and provenance — not another cloud drive.',
+  resolutionTitle: 'Not another place to put your files.',
   resolutionBody:
-    'PinIT Hub gives organizations DNA-backed ownership proof, an encrypted Vault for originals, tracked shares, monitoring when enabled, and investigation tools when something goes wrong.',
+    'PINITHUB is a control layer for what happens to them—protect the original, establish proof, control access, detect misuse, and investigate what happened.',
 };
 
 /**
  * Primary loop matches what PinIT Hub ships.
- * metric = status badge shown in the UI: "Available now" | "Coming soon"
+ * metric = status badge: "Available now" | "Coming soon"
  */
 export const DEFAULT_LIFECYCLE_STAGES = [
   {
     key: 'Protect',
     icon: 'ShieldCheck',
-    headline: 'Protection begins when you create or publish.',
-    body: 'PinIT Hub captures DNA at upload/export, stores encrypted originals in Vault, and attaches provenance before the asset leaves your control — including via Publish Guardian.',
+    headline: 'Secure the original when it enters your workspace.',
+    body: 'Assets are protected as they are created or uploaded—so protection starts before a file escapes into the wild.',
     metric: 'Available now',
     metricLabel: 'PinIT Hub',
   },
   {
     key: 'Prove',
     icon: 'Fingerprint',
-    headline: 'Ownership beyond filename and EXIF.',
-    body: 'Multi-layer DNA fingerprinting and certificates give verifiable authenticity so disputes and leaks start from evidence, not memory.',
+    headline: 'Establish ownership evidence that travels with the asset.',
+    body: 'Every protected asset receives persistent identity and provenance evidence you can compare later—beyond filename and metadata.',
     metric: 'Available now',
-    metricLabel: 'DNA + certificates',
+    metricLabel: 'Ownership evidence',
   },
   {
     key: 'Share',
     icon: 'Share2',
-    headline: 'Share with tracking — and revoke when needed.',
-    body: 'Smart Share adds access intelligence: who opened what, geo signals, forward chains, and the ability to cut access without hunting links.',
+    headline: 'Share without losing control.',
+    body: 'Time-bound, access-controlled sharing with activity visibility and the ability to revoke when access should end.',
     metric: 'Available now',
-    metricLabel: 'Smart Share',
+    metricLabel: 'Accountable sharing',
   },
   {
     key: 'Detect',
     icon: 'Radar',
-    headline: 'Continuous monitoring when you enable it.',
-    body: 'Watch for re-uploads and public appearances across configured crawler sources so leaked copies surface earlier in the cycle.',
+    headline: 'Find what changed or escaped.',
+    body: 'Monitor authorized sources and surface copies that look like your protected assets—so issues appear earlier.',
     metric: 'Available now',
     metricLabel: 'Monitoring',
   },
   {
     key: 'Investigate',
     icon: 'Search',
-    headline: 'Unified investigation and forensic comparison.',
-    body: 'Trace share history, compare files, and build an account of what left your tenancy — the accountability layer most cloud drives never ship.',
+    headline: 'Turn a suspicious copy into evidence.',
+    body: 'Compare assets, review activity, and build an investigation trail when something leaves your control.',
     metric: 'Available now',
-    metricLabel: 'Forensics',
+    metricLabel: 'Investigation',
   },
   {
     key: 'License',
     icon: 'ScrollText',
-    headline: 'Machine-readable rights — on the roadmap.',
-    body: 'Territories, terms, and expiry enforced by the platform are planned for PinIT Exchange. Not shipped in PinIT Hub today.',
+    headline: 'License when you choose to go commercial.',
+    body: 'Rights, terms, and controlled licensing workflows are planned for PINIT Exchange—not sold as live marketplace today.',
     metric: 'Coming soon',
-    metricLabel: 'PinIT Exchange',
+    metricLabel: 'PINIT Exchange',
   },
   {
     key: 'Monetize',
     icon: 'DollarSign',
-    headline: 'Marketplace licensing — planned, not live.',
-    body: 'Sell and license through PinIT Exchange is architecture and planning work. There is no live marketplace checkout from this product yet.',
+    headline: 'Monetize protected assets—only when you make them available.',
+    body: 'Discover, license, and sell through Exchange is on the roadmap. Protecting an asset in Hub does not list it for sale.',
     metric: 'Coming soon',
-    metricLabel: 'PinIT Exchange',
+    metricLabel: 'PINIT Exchange',
   },
 ];
 
 export const DEFAULT_FEATURES = [
   {
-    icon: 'Fingerprint',
-    title: 'Multi-layer DNA fingerprinting',
-    body: 'Prove ownership beyond filename and EXIF with fingerprints built for dispute and leak investigation.',
-    span: 'lg:col-span-4',
-    tint: '#55E6FF',
-    glow: 'rgba(85,230,255,0.16)',
+    icon: 'ShieldCheck',
+    title: 'Protect',
+    body: 'Secure the original. Encrypted asset storage with protection and provenance established when an asset enters your workspace.',
+    span: 'lg:col-span-2',
+    tint: '#2D7BFF',
+    glow: 'rgba(45,123,255,0.08)',
     featured: false,
   },
   {
-    icon: 'Lock',
-    title: 'Encrypted Vault + certificates',
-    body: 'Secure originals in Vault with verifiable authenticity certificates — the storage foundation inside PinIT Hub.',
+    icon: 'Fingerprint',
+    title: 'Prove',
+    body: 'Establish ownership evidence. Persistent asset identity that can be compared against later copies or transformations.',
     span: 'lg:col-span-2',
-    tint: '#2D7BFF',
-    glow: 'rgba(45,123,255,0.16)',
+    tint: '#55E6FF',
+    glow: 'rgba(85,230,255,0.08)',
     featured: false,
   },
   {
     icon: 'Share2',
-    title: 'Smart Share',
-    body: 'Share with tracking, revoke access, and inspect geo and forward-chain signals when accountability matters.',
+    title: 'Share',
+    body: 'Share without losing control. Access-controlled sharing with activity visibility and revocation when you need it.',
     span: 'lg:col-span-2',
     tint: '#6F5CFF',
-    glow: 'rgba(111,92,255,0.16)',
+    glow: 'rgba(111,92,255,0.08)',
     featured: false,
   },
   {
     icon: 'Radar',
-    title: 'Monitoring',
-    body: 'Detect re-uploads and public copies when crawler monitoring is enabled for your workspace.',
-    span: 'lg:col-span-2',
+    title: 'Detect',
+    body: 'Find what changed or escaped. Monitor sources and compare discovered copies against your protected assets.',
+    span: 'lg:col-span-3',
     tint: '#14D991',
-    glow: 'rgba(20,217,145,0.14)',
+    glow: 'rgba(20,217,145,0.07)',
     featured: false,
   },
   {
     icon: 'Search',
-    title: 'Investigation & forensic diff',
-    body: 'Investigate leaks with share trails and file comparison — not just a download log.',
-    span: 'lg:col-span-2',
+    title: 'Investigate',
+    body: 'Turn a suspicious copy into evidence. Compare assets, inspect provenance, reconstruct activity, and build a trail.',
+    span: 'lg:col-span-3',
     tint: '#55E6FF',
-    glow: 'rgba(85,230,255,0.16)',
-    featured: false,
-  },
-  {
-    icon: 'Puzzle',
-    title: 'Publish Guardian',
-    body: 'Protect at the moment of upload or export with the browser extension workflow, so DNA and Vault start before the file escapes.',
-    span: 'lg:col-span-2',
-    tint: '#2D7BFF',
-    glow: 'rgba(45,123,255,0.16)',
+    glow: 'rgba(85,230,255,0.08)',
     featured: false,
   },
   {
     icon: 'ScanFace',
-    title: 'Biometric identity',
-    body: 'Face auth and ShortId support stronger identity for creator and team protection workflows where enabled.',
-    span: 'lg:col-span-2',
+    title: 'Identity & access',
+    body: 'Strong account identity and controlled access so only the right people enter the workspace that holds your assets.',
+    span: 'lg:col-span-3',
     tint: '#6F5CFF',
-    glow: 'rgba(111,92,255,0.16)',
+    glow: 'rgba(111,92,255,0.07)',
     featured: false,
   },
   {
     icon: 'Building2',
-    title: 'Org workspaces',
-    body: 'Teams, API keys, webhooks, and subscription tiers for organizations that need shared governance — without claiming SSO/SCIM today.',
-    span: 'lg:col-span-2',
+    title: 'Teams & workspaces',
+    body: 'Organization workspaces for shared governance—roles, team access, and policy-minded control without claiming every enterprise IdP feature today.',
+    span: 'lg:col-span-3',
     tint: '#B8C2D0',
-    glow: 'rgba(184,194,208,0.12)',
+    glow: 'rgba(184,194,208,0.06)',
     featured: false,
   },
   {
     icon: 'ShieldCheck',
-    title: 'Accountability loop',
-    body: 'Protect → Prove → Share → Detect → Investigate. The core PinIT Hub loop for ownership and leak response — not a generic DAM feature grid.',
+    title: 'One control layer around every asset',
+    body: 'Protect → Prove → Share → Detect → Investigate. The PinIT Hub loop for ownership and accountability—not a generic storage feature grid.',
     span: 'sm:col-span-2 lg:col-span-6',
     tint: '#14D991',
-    glow: 'rgba(20,217,145,0.12)',
+    glow: 'rgba(20,217,145,0.06)',
     featured: true,
   },
 ];
 
 export const DEFAULT_ECOSYSTEM_PRODUCTS = [
   {
-    name: 'PinIT Vault',
-    tagline: 'Available now · inside PinIT Hub',
-    body: 'Enterprise storage, AI indexing, search, versioning, and compliance encryption — shipped as the foundation module of PinIT Hub, not a separate live product URL today.',
-    points: 'Encrypted originals\nCertificates & provenance\nSearch inside Hub',
+    name: 'PinIT Hub',
+    tagline: 'Available now · private asset workspace',
+    body: 'Protect and manage digital assets privately. Your assets do not need to be listed, published, or sold to stay protected inside Hub.',
+    points: 'Protect & store privately\nProve ownership evidence\nShare with control\nDetect & investigate',
     tint: '#2D7BFF',
-    glow: 'rgba(45,123,255,0.18)',
+    glow: 'rgba(45,123,255,0.10)',
     artKey: 'vault',
-    ctaLabel: 'Open PinIT Hub',
-    ctaHref: 'https://dna-pinit-web.vercel.app',
+    ctaLabel: 'Get started',
+    ctaHref: 'https://pinit-dna.vercel.app/register/account-type',
   },
   {
-    name: 'PinIT Exchange',
-    tagline: 'Coming soon · roadmap',
-    body: 'Licensing, marketplace commerce, and royalties are planned. There is no live checkout or rights engine in production from this codebase yet.',
-    points: 'Licensing engine (planned)\nMarketplace (planned)\nRoyalties (planned)',
+    name: 'PINIT Exchange',
+    tagline: 'Coming soon · commerce when you choose',
+    body: 'Turn protected assets into commerce only when you make them available. Buyers browse and license; sellers list and sell—roles stay separate.',
+    points: 'List & license (planned)\nBuy & acquire (planned)\nPrivate Hub stays private\nRoles enforce actions',
     tint: '#6F5CFF',
-    glow: 'rgba(111,92,255,0.18)',
+    glow: 'rgba(111,92,255,0.10)',
     artKey: 'exchange',
-    ctaLabel: 'Talk about the roadmap',
+    ctaLabel: 'Ask about the roadmap',
     ctaHref: '#demo',
   },
   {
-    name: 'PinIT Career',
-    tagline: 'Coming soon · future product',
-    body: 'Verified portfolios, AI résumés, and talent discovery are a future PINITHUB product — not part of the live PinIT Hub protect/investigate platform today.',
-    points: 'Portfolios (planned)\nTalent discovery (planned)\nCredentials (planned)',
+    name: 'PINIT Career',
+    tagline: 'Roadmap · professional identity',
+    body: 'Verified portfolios and professional identity built on protected work—future PINITHUB surface, not part of live Hub today.',
+    points: 'Verified portfolios (planned)\nProfessional identity (planned)\nCredentials (planned)',
     tint: '#55E6FF',
-    glow: 'rgba(85,230,255,0.18)',
+    glow: 'rgba(85,230,255,0.08)',
     artKey: 'career',
-    ctaLabel: 'Book a demo',
+    ctaLabel: 'Talk to our team',
     ctaHref: '#demo',
   },
 ];
 
 export const DEFAULT_WHY_CARDS = [
   {
-    kicker: 'Origin',
-    title: 'Why we exist',
-    glow: 'rgba(85,230,255,0.14)',
+    kicker: 'Positioning',
+    title: 'Evidence. Control. Accountability.',
+    glow: 'rgba(85,230,255,0.08)',
     artKey: 'fragment',
     body: [
-      'Digital assets are valuable — and fragile. Files scatter, ownership is hard to prove, shares escape governance, and leaks leave teams without forensic trails.',
-      'PINITHUB exists to put intelligence, ownership proof, and accountability around the assets organizations already create.',
-      'PinIT Hub is the product you can use today. Exchange and Career extend the platform vision over time.',
+      'Customers do not wake up needing fingerprints or forensics jargon. They need to protect what they create, prove what they own, and respond when assets escape.',
+      'PINITHUB is built as that control layer—with deeper mechanisms underneath when you need them.',
     ].join('\n'),
   },
   {
-    kicker: 'Vision',
-    title: 'Our vision',
-    glow: 'rgba(45,123,255,0.14)',
+    kicker: 'Private first',
+    title: 'Not every asset needs to be sold',
+    glow: 'rgba(45,123,255,0.08)',
     artKey: 'horizon',
     body: [
-      'To make Digital Asset Intelligence the standard layer for protect, prove, share, detect, and investigate — then grow into licensing and creator careers as those products ship.',
-      'A future where every asset carries provenance, and misuse can be investigated with evidence.',
+      'Protect an asset privately inside PINITHUB without publishing it, listing it, or exposing it to a marketplace.',
+      'Hub is your private workspace. Exchange is optional commerce—only when you choose.',
     ].join('\n'),
   },
   {
-    kicker: 'Mission',
-    title: 'Our mission',
-    glow: 'rgba(111,92,255,0.14)',
+    kicker: 'Honesty',
+    title: 'Ship what we claim',
+    glow: 'rgba(111,92,255,0.08)',
     artKey: 'network',
     body: [
-      'Eliminate digital chaos where it hurts most: ownership, vault security, accountable sharing, and investigation.',
-      'Ship honest capabilities first. Roadmap the rest without overselling procurement.',
+      'Available now vs Coming soon is labeled clearly so demos and procurement stay aligned.',
+      'PinIT Hub is live. Exchange and Career extend the platform as they ship—not as brochure filler.',
     ].join('\n'),
   },
 ];
 
 export const DEFAULT_CHOOSE_US = [
   {
-    icon: 'Fingerprint',
-    title: 'Proof, not placeholders',
-    body: 'DNA fingerprinting and certificates are built for ownership disputes and leak response — the differentiated layer generic cloud drives skip.',
-    stat: 'Evidence-grade provenance',
+    icon: 'Lock',
+    title: 'Your workspace. Your assets. Your choice.',
+    body: 'Protect assets privately without listing or selling them. Commerce is optional—never the default.',
+    stat: 'Private by design',
   },
   {
-    icon: 'Lock',
-    title: 'Vault inside the product',
-    body: 'Encrypted originals and authenticity live in PinIT Hub. You are not buying a disconnected storage silo with a marketing name.',
-    stat: 'Security with the asset',
+    icon: 'Fingerprint',
+    title: 'Proof that travels with the asset',
+    body: 'Ownership evidence stays with the asset so later copies can be compared—when disputes or leaks happen.',
+    stat: 'Evidence when it matters',
   },
   {
     icon: 'Share2',
     title: 'Accountable sharing',
-    body: 'Smart Share, revoke, and access intelligence so “who has this file?” is answerable after the link leaves chat.',
+    body: 'Share with access control and visibility—so “who still has this?” is answerable after a file leaves chat.',
     stat: 'Share with a trail',
   },
   {
     icon: 'Search',
-    title: 'Investigate when it breaks',
-    body: 'Forensic comparison and investigation workflows for the moments storage products stop being enough.',
+    title: 'Investigation when something breaks',
+    body: 'Compare assets and reconstruct activity for the moments storage products stop being enough.',
     stat: 'Leak response ready',
   },
   {
-    icon: 'Puzzle',
-    title: 'Protect at publish time',
-    body: 'Publish Guardian and Hub capture DNA and Vault state at upload/export — before the asset is already public.',
-    stat: 'Earlier in the lifecycle',
+    icon: 'Building2',
+    title: 'Built for assets that matter',
+    body: 'Identity, workspace governance, encryption, and evidence trails for creators through enterprises.',
+    stat: 'Enterprise-minded',
   },
   {
     icon: 'Map',
     title: 'Honest roadmap',
-    body: 'Exchange, Career, SSO/SCIM, and full collaboration are labeled Coming soon — so demos match what you can show today.',
-    stat: 'Procurement-safe messaging',
+    body: 'Exchange commerce and Career are labeled Coming soon—so what you see in a demo matches what ships today.',
+    stat: 'Procurement-safe',
   },
 ];
 
 export const DEFAULT_INDUSTRIES = [
-  { icon: 'Palette', name: 'Creators', useCase: 'Prove authorship and protect originals before they circulate.' },
-  { icon: 'Code2', name: 'Developers', useCase: 'Track sensitive build artifacts and shared packages with accountability.' },
-  { icon: 'Megaphone', name: 'Agencies', useCase: 'Govern client deliverables with share trails and revoke when retainers end.' },
-  { icon: 'Building', name: 'Enterprises', useCase: 'Keep vaulted originals and investigation tooling under org workspaces.' },
-  { icon: 'Landmark', name: 'Governments', useCase: 'Strengthen chain-of-custody style trails for sensitive digital records.' },
-  { icon: 'GraduationCap', name: 'Educational', useCase: 'Protect course assets and investigate unauthorized redistribution.' },
-  { icon: 'Camera', name: 'Photographers', useCase: 'Fingerprint sets and track where shares travel after delivery.' },
-  { icon: 'Compass', name: 'Architects', useCase: 'Vault drawings and revisions with clearer ownership history.' },
-  { icon: 'PenLine', name: 'Writers', useCase: 'Protect manuscripts and prove earlier drafts when disputes arise.' },
-  { icon: 'Radio', name: 'Media', useCase: 'Investigate leaked cuts with fingerprints and share intelligence.' },
-  { icon: 'Baseline', name: 'Marketing', useCase: 'Control approved assets leaving the brand system via tracked shares.' },
-  { icon: 'Cpu', name: 'Technology', useCase: 'Govern model weights, datasets, and docs with vault + monitoring.' },
+  { icon: 'Palette', name: 'Creators', useCase: 'Protect originals and prove authorship before work circulates.' },
+  { icon: 'Megaphone', name: 'Agencies', useCase: 'Govern client deliverables with share control and revoke when work ends.' },
+  { icon: 'Building', name: 'Enterprises', useCase: 'Keep sensitive digital assets under identity, access, and evidence.' },
+  { icon: 'Camera', name: 'Photographers', useCase: 'Protect sets and track where shares travel after delivery.' },
+  { icon: 'Radio', name: 'Media', useCase: 'Investigate leaked cuts with ownership evidence and share history.' },
+  { icon: 'Baseline', name: 'Marketing', useCase: 'Control approved assets leaving the brand system.' },
+  { icon: 'GraduationCap', name: 'Education', useCase: 'Protect course materials and investigate unauthorized redistribution.' },
+  { icon: 'Compass', name: 'Design & architecture', useCase: 'Vault drawings and revisions with clearer ownership history.' },
+  { icon: 'PenLine', name: 'Writers & publishers', useCase: 'Protect manuscripts and prove earlier drafts when disputes arise.' },
+  { icon: 'Cpu', name: 'Technology', useCase: 'Govern sensitive docs, datasets, and deliverables with accountability.' },
+  { icon: 'Landmark', name: 'Public sector', useCase: 'Strengthen custody-style trails for sensitive digital records.' },
+  { icon: 'Code2', name: 'Product teams', useCase: 'Track shared packages and sensitive artifacts with access trails.' },
 ];
 
 export const DEFAULT_ABOUT = {
   title: 'The company behind PINITHUB',
-  lede: 'PINITHUB is developed by TheCareerTech Pvt. Ltd., a technology company building platforms for creators and organizations that need digital asset intelligence — starting with PinIT Hub.',
+  lede: 'PINITHUB is developed by TheCareerTech Pvt. Ltd.—building a Digital Asset Intelligence platform that starts with protection, proof, and accountability.',
   body1:
-    'We started with a practical failure mode: files escape, ownership is hard to prove, and investigation starts too late. PinIT Hub addresses that loop first.',
+    'We started from a practical failure mode: files escape, ownership is hard to prove, and investigation starts too late. PinIT Hub addresses that loop first.',
   body2:
-    'Our commitment: ship what we claim, label what is roadmap, and grow Exchange and Career when those products are real — not when the brochure needs them.',
+    'Our commitment: ship what we claim, label what is roadmap, and grow Exchange and Career when those products are real.',
   hqLabel: 'THECAREERTECH PVT. LTD.',
 };
 
 export const DEFAULT_ABOUT_PILLARS = [
   { title: 'Honest product claims', body: 'Available now vs Coming soon is labeled so demos and procurement stay aligned.' },
-  { title: 'Proof over storage', body: 'DNA, Vault, share trails, and investigation — not another undifferentiated drive.' },
-  { title: 'Platform over time', body: 'PINITHUB is the parent brand; PinIT Hub is live; Exchange and Career follow.' },
-  { title: 'Built in Hyderabad', body: 'Developed by TheCareerTech Pvt. Ltd. with a focus on security and accountability.' },
+  { title: 'Proof over storage', body: 'Protection, provenance, accountable sharing, and investigation—not another undifferentiated drive.' },
+  { title: 'Private before commerce', body: 'Hub is the private workspace. Exchange is optional commerce when you choose.' },
+  { title: 'Built in Bangalore', body: 'Developed by TheCareerTech Pvt. Ltd. with a focus on security and accountability.' },
 ];
 
 /** No unverified company KPIs. */
@@ -371,7 +375,7 @@ export const DEFAULT_TESTIMONIALS: {
 }[] = [
   {
     quote:
-      'We needed ownership proof before a sensitive campaign went out. PinIT Hub’s DNA and Vault gave us a trail we could actually show legal — not another folder sync.',
+      'We needed ownership proof before a sensitive campaign went out. PinIT Hub gave us a trail we could show legal—not another folder sync.',
     name: 'Ananya R.',
     role: 'Creative Operations Lead · Bengaluru, India',
     company: '',
@@ -381,7 +385,7 @@ export const DEFAULT_TESTIMONIALS: {
   },
   {
     quote:
-      'Smart Share finally answered “who forwarded this?” when a deck leaked internally. Revoking access without hunting links saved us a full day.',
+      'Accountable sharing finally answered “who still has this?” when a deck leaked internally. Revoking access without hunting links saved us a day.',
     name: 'Rahul M.',
     role: 'IT Security Manager · Hyderabad, India',
     company: '',
@@ -391,7 +395,7 @@ export const DEFAULT_TESTIMONIALS: {
   },
   {
     quote:
-      'Investigation used to mean screenshots and guesswork. Fingerprint comparison and share history in Hub is the first tool that felt built for accountability.',
+      'Investigation used to mean screenshots and guesswork. Comparing assets and reviewing share history felt built for accountability.',
     name: 'Kavya P.',
     role: 'Media Operations · Mumbai, India',
     company: '',
@@ -401,7 +405,7 @@ export const DEFAULT_TESTIMONIALS: {
   },
   {
     quote:
-      'We did not need another drive — we needed proof when assets leave the team. Hub’s protect-and-prove loop matched how we actually work.',
+      'We did not need another drive—we needed proof when assets leave the team. The protect-and-prove loop matched how we actually work.',
     name: 'Vikram S.',
     role: 'Head of Digital Assets · Chennai, India',
     company: '',
@@ -413,87 +417,87 @@ export const DEFAULT_TESTIMONIALS: {
 
 export const DEFAULT_FAQ = [
   {
+    question: 'What is PINITHUB?',
+    answer:
+      'PINITHUB is a Digital Asset Intelligence platform. PinIT Hub—available now—helps you protect originals, establish ownership evidence, share with accountability, detect misuse, and investigate what happened. PINIT Exchange and Career are on the roadmap.',
+  },
+  {
+    question: 'Do my assets have to be listed or sold?',
+    answer:
+      'No. Hub is a private asset workspace. You can protect and manage assets without publishing, listing, or exposing them to a marketplace. Commerce through Exchange is optional and coming later.',
+  },
+  {
+    question: 'How is this different from cloud storage?',
+    answer:
+      'Cloud drives store files. PINITHUB adds a control layer: protection at intake, ownership evidence, accountable sharing, monitoring when enabled, and investigation tools when something escapes.',
+  },
+  {
     question: 'What is available in PinIT Hub today?',
     answer:
-      'Protect and provenance workflows: DNA fingerprinting, encrypted Vault with certificates, Smart Share with tracking and revoke, monitoring when enabled, investigation/forensic comparison, org workspaces, and Publish Guardian at upload/export. PinIT Exchange and PinIT Career are not live products yet.',
+      'Protect, prove, share, detect, and investigate—plus identity and org workspaces. Marketplace licensing, buy/sell checkout, and Career are not live products yet.',
   },
   {
-    question: 'Does PinIT Hub replace our current storage?',
+    question: 'How will buyers and sellers work on Exchange?',
     answer:
-      'Vault stores encrypted originals as part of Hub’s protection workflow. Many teams keep existing drives while Hub becomes the system of record for protected assets and proof. Full “replace every drive in a week” migration is not what we claim today.',
-  },
-  {
-    question: 'Where is our data stored?',
-    answer:
-      'Assets are stored according to your Hub workspace configuration. Broad regional data-residency productization (pick-any-region enterprise residency) is not positioned as a shipped guarantee on this page — ask on a demo for your tenancy options.',
-  },
-  {
-    question: 'How does AI handle confidential material?',
-    answer:
-      'Indexing and search features run in service of your workspace. Ask on a live demo how your tenancy isolates enrichment and what can be excluded by policy for your deployment.',
+      'When Exchange ships: buyers can browse, discover, and buy/license—and keep private assets in their own Hub—but cannot list or sell. Sellers can protect, list, and sell/license—but cannot buy. Roles determine marketplace actions.',
   },
   {
     question: 'Can we try it before committing?',
     answer:
-      'Yes. Book a live demo — we walk PinIT Hub against scenarios that match how you protect and share assets, not a fictional marketplace tour.',
-  },
-  {
-    question: 'Do you support SSO and SCIM today?',
-    answer:
-      'Not as a marketed shipped enterprise suite on this landing page. Org teams, API keys, and webhooks exist in Hub; SSO/SCIM and similar IdP automation remain roadmap. We will not pretend otherwise in procurement.',
+      'Yes. Get started in Hub, or book a live demo focused on protect, share, and investigate—not a fictional marketplace tour.',
   },
 ];
 
 export const DEFAULT_CTA = {
-  headline: 'See PinIT Hub on your assets — not a brochure.',
-  lede: 'Book a live demo of protect, vault, share, detect, and investigate. Ask us anything about Exchange and Career as roadmap — we will not oversell them.',
-  ctaPrimary: 'Book a Live Demo',
-  ctaSecondary: 'Talk to Sales',
-  footnote: 'No credit card required · 30-minute session · Focused on what ships today',
+  headline: 'Protect what you create.',
+  lede: 'Start in PinIT Hub—your private workspace for protection, proof, accountable sharing, and investigation. Ask us about Exchange as roadmap—we will not oversell it.',
+  ctaPrimary: 'Talk to our team',
+  ctaSecondary: 'Book a demo',
+  footnote: 'No credit card required · Focused on what ships today',
 };
 
 export const DEFAULT_SITE_SETTINGS = {
   footerTagline:
-    'PINITHUB — Digital Asset Intelligence. PinIT Hub is live for protect, prove, share, detect, and investigate. PinIT Exchange and PinIT Career are on the roadmap.',
+    'PINITHUB — Digital Asset Intelligence. PinIT Hub is live for protect, prove, share, detect, and investigate. Exchange and Career are on the roadmap. Private workspace first—commerce only when you choose.',
   supportEmail: 'hello@pinithub.com',
-  officeAddress: 'TheCareerTech Pvt. Ltd., Hyderabad, India',
+  officeAddress: 'TheCareerTech Pvt. Ltd., Bangalore, India',
   responseTime: 'Under 1 business hour',
   demoLength: '30 minutes, tailored to your stack',
-  newsletterLabel: 'Get the intelligence briefing',
-  newsletterHint: 'Monthly. Product, research, and nothing else.',
+  newsletterLabel: 'Product updates',
+  newsletterHint: 'Occasional. What shipped—and what is still roadmap.',
   copyrightName: 'PINITHUB · TheCareerTech Pvt. Ltd.',
   demoFormEnabled: true,
   announcement: '',
   announcementHref: '#demo',
-  metaTitle: 'PINITHUB — PinIT Hub for digital asset protection & provenance',
+  metaTitle: 'PINITHUB — Protect what you create. Prove what you own.',
   metaDescription:
-    'PINITHUB’s PinIT Hub protects digital assets with DNA fingerprints, encrypted Vault, tracked shares, monitoring, and investigation. Exchange and Career are on the roadmap.',
+    'PINITHUB is a Digital Asset Intelligence platform. Protect originals, prove ownership, share with accountability, detect misuse, and investigate—starting with PinIT Hub.',
   metaKeywords:
-    'PinIT Hub, PINITHUB, digital asset protection, DNA fingerprint, encrypted vault, provenance, forensic investigation, Smart Share',
+    'PINITHUB, PinIT Hub, digital asset intelligence, ownership evidence, encrypted vault, Smart Share, asset investigation',
   siteUrl: 'https://pinithub.com',
 };
 
 export const DEFAULT_NAV_LINKS = [
   { label: 'Platform', href: '#platform' },
+  { label: 'How it works', href: '#how-it-works' },
   { label: 'Solutions', href: '#solutions' },
-  { label: 'Ecosystem', href: '#resources' },
+  { label: 'Security', href: '#security' },
   { label: 'Company', href: '#company' },
-  { label: 'Demo', href: '#demo' },
 ];
 
 export const DEFAULT_FOOTER_LINKS: { column: string; label: string; href: string }[] = [
-  ...['DNA fingerprinting', 'Encrypted Vault', 'Smart Share', 'Monitoring', 'Investigation'].map((label) => ({
+  ...['Protect', 'Prove', 'Share', 'Detect', 'Investigate'].map((label) => ({
     column: 'PinIT Hub',
     label,
-    href: '#solutions',
+    href: '#how-it-works',
   })),
   ...[
-    { label: 'PinIT Vault (in Hub)', href: '#resources' },
-    { label: 'PinIT Exchange (roadmap)', href: '#resources' },
-    { label: 'PinIT Career (roadmap)', href: '#resources' },
+    { label: 'Private workspace', href: '#resources' },
+    { label: 'PINIT Exchange (roadmap)', href: '#resources' },
+    { label: 'PINIT Career (roadmap)', href: '#resources' },
     { label: 'Book a Demo', href: '#demo' },
-    { label: 'Open PinIT Hub', href: 'https://dna-pinit-web.vercel.app' },
-  ].map((row) => ({ column: 'Ecosystem', ...row })),
+    { label: 'Get started', href: 'https://pinit-dna.vercel.app/register/account-type' },
+  ].map((row) => ({ column: 'Platform', ...row })),
   ...['About', 'FAQ', 'Contact'].map((label) => ({
     column: 'Company',
     label,
@@ -513,81 +517,81 @@ export const DEFAULT_SOCIAL_LINKS = [
 
 export const DEFAULT_SECTIONS = [
   {
-    key: 'about',
-    index: '02',
-    label: 'About',
-    title: 'The company behind PINITHUB',
-    lede: 'Developed by TheCareerTech Pvt. Ltd., Hyderabad — building PinIT Hub first, with Exchange and Career on the platform roadmap.',
-  },
-  {
     key: 'problem',
-    index: '03',
+    index: '01',
     label: 'The problem',
-    title: 'Assets escape. Proof disappears. Investigation starts too late.',
-    lede: 'Scattered files, weak ownership evidence, shares without trails, and security outside governance — the failure modes PinIT Hub is built to address.',
+    title: 'Digital assets move faster than their proof.',
+    lede: 'Files scatter. Ownership gets hard to prove. Sharing creates blind spots. Misuse is found too late. PINITHUB closes that gap.',
   },
   {
     key: 'lifecycle',
-    index: '04',
-    label: 'What ships today',
+    index: '02',
+    label: 'How it works',
     title: 'Protect → Prove → Share → Detect → Investigate',
-    lede: 'The PinIT Hub core loop is available now. Licensing and monetization via Exchange are labeled Coming soon — not sold as live.',
+    lede: 'One clear lifecycle for every asset. Licensing and monetization via Exchange are Coming soon—not sold as live today.',
   },
   {
     key: 'features',
-    index: '05',
+    index: '03',
     label: 'Capabilities',
-    title: 'Differentiated protection and accountability',
-    lede: 'DNA, Vault, Smart Share, monitoring, investigation, Publish Guardian, and org workspaces — framed as what Hub ships, not a full DAM + marketplace.',
+    title: 'One control layer around every asset',
+    lede: 'Benefit first. Mechanisms underneath. Built for creators, teams, and organizations that need evidence—not another drive.',
+  },
+  {
+    key: 'chooseUs',
+    index: '04',
+    label: 'Why PINITHUB',
+    title: 'Built for assets that matter',
+    lede: 'Private workspace, ownership evidence, accountable sharing, and investigation—with an honest roadmap for commerce.',
   },
   {
     key: 'ecosystem',
+    index: '05',
+    label: 'Platform',
+    title: 'One platform. Multiple ways to use it.',
+    lede: 'Hub is your private asset workspace—available now. Exchange and Career extend the platform when they ship.',
+  },
+  {
+    key: 'industries',
     index: '06',
-    label: 'The ecosystem',
-    title: 'One platform brand. Clear product status.',
-    lede: 'PINITHUB is the parent. PinIT Vault lives inside Hub today. PinIT Exchange and PinIT Career are roadmap products — not separate live apps from this page.',
+    label: 'Who it is for',
+    title: 'Same need. Different assets.',
+    lede: 'Creators, agencies, enterprises, and media teams all need protection, proof, and accountability.',
   },
   {
     key: 'why',
     index: '07',
-    label: 'Why PINITHUB',
-    title: 'Built on proof and accountability',
-    lede: 'We are not positioning another generic cloud drive. We are building Digital Asset Intelligence starting with protection and provenance.',
+    label: 'Principles',
+    title: 'Evidence. Control. Accountability.',
+    lede: 'Lead with outcomes customers understand. Keep technical depth available without making it the first sentence.',
   },
   {
-    key: 'chooseUs',
+    key: 'about',
     index: '08',
-    label: 'Why teams choose Hub',
-    title: 'Reasons that survive a live demo',
-    lede: 'Every claim below maps to PinIT Hub capabilities you can show — or is explicitly marked as roadmap elsewhere on the page.',
-  },
-  {
-    key: 'industries',
-    index: '09',
-    label: 'Industries',
-    title: 'Same failure modes. Different assets.',
-    lede: 'Creators, agencies, enterprises, and media teams all need ownership proof and accountable sharing — Hub starts there.',
+    label: 'Company',
+    title: 'The company behind PINITHUB',
+    lede: 'Developed by TheCareerTech Pvt. Ltd., Bangalore—shipping Hub first, with Exchange and Career on the roadmap.',
   },
   {
     key: 'testimonials',
-    index: '10',
-    label: 'Proof',
+    index: '09',
+    label: 'Voices',
     title: 'What teams in India are saying',
-    lede: 'Permissioned feedback from Indian teams using PinIT Hub — no company names, no inflated claims.',
+    lede: 'Permissioned feedback from teams using PinIT Hub—no company names, no inflated claims.',
   },
   {
     key: 'faq',
-    index: '11',
+    index: '10',
     label: 'Questions',
-    title: 'What procurement should ask',
-    lede: 'Straight answers on what is live in PinIT Hub versus what remains roadmap.',
+    title: 'Straight answers',
+    lede: 'What is live, what is private, what is roadmap—and how buyers and sellers will differ when Exchange ships.',
   },
   {
     key: 'demo',
-    index: '12',
-    label: 'Book a live demo',
-    title: 'Book a live demo',
-    lede: 'See PinIT Hub on protect, vault, share, and investigate — and ask candidly about the roadmap.',
+    index: '11',
+    label: 'See it live',
+    title: 'See PINITHUB in action',
+    lede: 'Walk protect, share, and investigate on real scenarios—and ask candidly about the roadmap.',
   },
 ];
 

@@ -20,10 +20,10 @@ export function Features({
   const { grid, featured } = content;
 
   return (
-    <section className="relative overflow-hidden section-pad">
+    <section id="solutions" className="relative scroll-mt-24 overflow-hidden section-pad">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
         <div className="absolute inset-0 bg-[linear-gradient(180deg,#050816,#060B1B_60%,#050816)]" />
-        <div className="aura top-[8%] right-[-6%] h-[32rem] w-[32rem] bg-blue/12" />
+        <div className="aura top-[8%] right-[-6%] h-[28rem] w-[28rem] bg-blue/8" />
       </div>
 
       <div className="shell">
@@ -81,7 +81,7 @@ export function Features({
                   </div>
 
                   <div className="relative rounded-2xl border border-line bg-ink/50 p-6">
-                    <p className="eyebrow">PinIT Hub core loop</p>
+                    <p className="eyebrow">Core lifecycle</p>
                     <p className="mt-2 font-mono text-xs text-cyan">Available now</p>
                     <ol className="mt-5 space-y-2.5">
                       {LOOP.map((step, i) => (

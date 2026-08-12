@@ -13,7 +13,7 @@ export function ChooseUs({
   reasons: SiteContent['chooseUs'];
 }) {
   return (
-    <section className="relative overflow-hidden section-pad">
+    <section id="security" className="relative scroll-mt-24 overflow-hidden section-pad">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
         <div className="absolute inset-0 bg-ink-2" />
         <div className="aura top-[-8%] right-[24%] h-[30rem] w-[30rem] bg-cyan/10" />

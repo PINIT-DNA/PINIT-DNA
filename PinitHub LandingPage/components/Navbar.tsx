@@ -3,6 +3,7 @@
 import { AnimatePresence, motion, useMotionValueEvent, useScroll } from 'framer-motion';
 import { ArrowUpRight, Menu, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { hubLoginUrl, hubSignupUrl } from '@/lib/site';
 import { Logo } from './ui/Logo';
 import { MagneticButton } from './ui/MagneticButton';
 
@@ -10,12 +11,12 @@ type NavItem = { id: string; label: string; href: string };
 
 export function Navbar({
   links,
-  ctaLabel,
 }: {
   links: NavItem[];
-  ctaLabel: string;
 }) {
   const LINKS = links;
+  const signupUrl = hubSignupUrl();
+  const loginUrl = hubLoginUrl();
   const { scrollY } = useScroll();
   const [lifted, setLifted] = useState(false);
   const [open, setOpen] = useState(false);
@@ -77,8 +78,11 @@ export function Navbar({
             </ul>
 
             <div className="hidden items-center gap-2 lg:flex">
-              <MagneticButton href="#demo">
-                {ctaLabel}
+              <MagneticButton href={loginUrl} variant="quiet" strength={0.15}>
+                Log in
+              </MagneticButton>
+              <MagneticButton href={signupUrl}>
+                Get started
                 <ArrowUpRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
               </MagneticButton>
             </div>
@@ -128,10 +132,20 @@ export function Navbar({
                   </motion.li>
                 ))}
               </ul>
-              <div className="mt-auto pt-10">
-                <MagneticButton href="#demo" size="lg" className="w-full" onClick={() => setOpen(false)}>
-                  {ctaLabel}
+              <div className="mt-auto flex flex-col gap-3 pt-10">
+                <MagneticButton href={signupUrl} size="lg" className="w-full" onClick={() => setOpen(false)}>
+                  Get started
                   <ArrowUpRight className="h-4 w-4" />
+                </MagneticButton>
+                <MagneticButton
+                  href={loginUrl}
+                  size="lg"
+                  variant="ghost"
+                  strength={0.2}
+                  className="w-full"
+                  onClick={() => setOpen(false)}
+                >
+                  Log in
                 </MagneticButton>
               </div>
             </div>

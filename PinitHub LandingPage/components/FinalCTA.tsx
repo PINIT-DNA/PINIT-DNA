@@ -3,6 +3,7 @@
 import { motion, useReducedMotion } from 'framer-motion';
 import { ArrowUpRight, MessageSquare } from 'lucide-react';
 import type { SiteContent } from '@/lib/content';
+import { hubSignupUrl } from '@/lib/site';
 import { MagneticButton } from './ui/MagneticButton';
 import { ParticleField } from './ui/ParticleField';
 import { Reveal, RevealWords } from './ui/Reveal';
@@ -61,8 +62,8 @@ export function FinalCTA({ content }: { content: SiteContent['cta'] }) {
 
         <Reveal delay={0.3}>
           <div className="mt-10 flex w-full flex-col items-stretch gap-3 sm:mt-11 sm:flex-row sm:flex-wrap sm:justify-center">
-            <MagneticButton href="#demo" size="lg" className="w-full sm:w-auto">
-              {content.ctaPrimary}
+            <MagneticButton href={hubSignupUrl()} size="lg" className="w-full sm:w-auto">
+              Get started
               <ArrowUpRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
             </MagneticButton>
             <MagneticButton href="#demo" size="lg" variant="ghost" strength={0.2} className="w-full sm:w-auto">

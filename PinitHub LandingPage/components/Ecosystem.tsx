@@ -30,8 +30,8 @@ export function Ecosystem({
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
         <div className="absolute inset-0 bg-ink-2" />
         <div className="lattice absolute inset-0 opacity-35" />
-        <div className="aura top-[30%] left-[-8%] h-[30rem] w-[30rem] bg-violet/12" />
-        <div className="aura right-[-6%] bottom-[8%] h-[28rem] w-[28rem] bg-cyan/10" />
+        <div className="aura top-[30%] left-[-8%] h-[30rem] w-[30rem] bg-violet/8" />
+        <div className="aura right-[-6%] bottom-[8%] h-[28rem] w-[28rem] bg-cyan/6" />
       </div>
 
       <div className="shell">
@@ -48,9 +48,9 @@ export function Ecosystem({
             const Art = ART[p.artKey];
             return (
             <RevealItem key={p.id}>
-              <TiltCard glow={p.glow} maxTilt={5} className="flex h-full flex-col p-7 sm:p-8">
-                <div className="relative mb-8 h-44 overflow-hidden rounded-2xl border border-line bg-[radial-gradient(120%_100%_at_50%_0%,rgba(255,255,255,0.05),transparent_65%)]">
-                  <div className="lattice-fine absolute inset-0 opacity-50" aria-hidden />
+              <TiltCard glow={p.glow} maxTilt={4} className="flex h-full flex-col p-7 sm:p-8">
+                <div className="relative mb-8 h-44 overflow-hidden rounded-2xl border border-line bg-[radial-gradient(120%_100%_at_50%_0%,rgba(255,255,255,0.04),transparent_65%)]">
+                  <div className="lattice-fine absolute inset-0 opacity-40" aria-hidden />
                   {Art && <Art />}
                 </div>
 
@@ -61,11 +61,12 @@ export function Ecosystem({
                   {p.tagline}
                 </p>
                 {(p.tagline.toLowerCase().includes('available') ||
-                  p.tagline.toLowerCase().includes('coming')) && (
+                  p.tagline.toLowerCase().includes('coming') ||
+                  p.tagline.toLowerCase().includes('roadmap')) && (
                   <span
                     className={`mt-3 inline-flex w-fit rounded-full border px-2.5 py-1 text-[0.625rem] font-semibold tracking-[0.14em] uppercase ${
                       p.tagline.toLowerCase().includes('available')
-                        ? 'border-signal/40 bg-signal/10 text-signal'
+                        ? 'border-signal/35 bg-signal/8 text-signal'
                         : 'border-line bg-white/[0.03] text-mute-2'
                     }`}
                   >
@@ -80,7 +81,7 @@ export function Ecosystem({
                       <span
                         aria-hidden
                         className="h-1 w-1 shrink-0 rounded-full"
-                        style={{ background: p.tint, boxShadow: `0 0 8px 1px ${p.tint}` }}
+                        style={{ background: p.tint }}
                       />
                       {pt}
                     </li>
@@ -104,6 +105,27 @@ export function Ecosystem({
             );
           })}
         </RevealGroup>
+
+        <div className="mt-14 grid gap-4 rounded-2xl border border-line bg-ink/40 p-6 sm:mt-16 sm:grid-cols-2 sm:p-8">
+          <div>
+            <p className="eyebrow">When Exchange ships</p>
+            <h3 className="mt-3 font-display text-xl font-medium tracking-[-0.03em] text-paper">
+              Buyer
+            </h3>
+            <p className="mt-2 text-[0.9375rem] leading-relaxed text-mute-2">
+              Browse, discover, and buy or license. Keep private assets in your own Hub. Cannot list or sell.
+            </p>
+          </div>
+          <div>
+            <p className="eyebrow">When Exchange ships</p>
+            <h3 className="mt-3 font-display text-xl font-medium tracking-[-0.03em] text-paper">
+              Seller
+            </h3>
+            <p className="mt-2 text-[0.9375rem] leading-relaxed text-mute-2">
+              Protect, list, and sell or license. Keep a private Hub workspace. Cannot buy on the marketplace.
+            </p>
+          </div>
+        </div>
       </div>
     </section>
   );
