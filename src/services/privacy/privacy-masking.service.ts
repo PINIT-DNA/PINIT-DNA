@@ -128,13 +128,22 @@ export function detectSensitiveTypes(text: string): SensitiveDetectionResult {
 
 /**
  * Extract plain text from a PDF buffer.
- * Uses pdf-parse (already installed for PDF DNA engine).
+ * Caps pages + wall time so share UX never hangs on large/slow PDFs.
  */
 export async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const pdfParse = require('pdf-parse') as (b: Buffer, opts?: { max?: number }) => Promise<{ text: string }>;
-  const { text } = await pdfParse(buffer, { max: 0 });
-  return text;
+  const EXTRACT_MS = 8_000;
+  const MAX_PAGES = 10;
+  const MAX_CHARS = 100_000;
+
+  const parsed = await Promise.race([
+    pdfParse(buffer, { max: MAX_PAGES }),
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('PDF text extraction timed out')), EXTRACT_MS);
+    }),
+  ]);
+  return (parsed.text ?? '').slice(0, MAX_CHARS);
 }
 
 /**

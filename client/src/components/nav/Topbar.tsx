@@ -37,11 +37,15 @@ interface TopbarProps {
 export function Topbar({ onMenu }: TopbarProps) {
   const location = useLocation();
   const meta = PAGE_META[location.pathname]
-    ?? (location.pathname.startsWith('/access-intelligence/')
-      ? { title: 'Tracking', subtitle: 'Activity for this shared file' }
-      : location.pathname.startsWith('/protected-posts/') || location.pathname.startsWith('/assets/')
-        ? { title: 'Digital Assets', subtitle: 'Your protected files' }
-        : { title: BRAND.name, subtitle: '' });
+    ?? (/^\/vault\/assets\/[^/]+\/shares\//.test(location.pathname)
+      ? { title: 'Manage Share', subtitle: 'Secure link details and actions' }
+      : /^\/vault\/assets\/[^/]+\/share$/.test(location.pathname)
+        ? { title: 'Share Secure Link', subtitle: 'Control how this protected asset can be accessed' }
+        : location.pathname.startsWith('/access-intelligence/')
+          ? { title: 'Tracking', subtitle: 'Activity for this shared file' }
+          : location.pathname.startsWith('/protected-posts/') || location.pathname.startsWith('/assets/')
+            ? { title: 'Digital Assets', subtitle: 'Your protected files' }
+            : { title: BRAND.name, subtitle: '' });
 
   return (
     <header

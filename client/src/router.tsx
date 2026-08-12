@@ -3,6 +3,8 @@ import { DashboardLayout } from './layouts/DashboardLayout';
 import { OnboardingLayout } from './layouts/OnboardingLayout';
 import { GeneratePage } from './pages/GeneratePage';
 import { VaultPage } from './pages/VaultPage';
+import { VaultSharePage } from './pages/VaultSharePage';
+import { VaultShareManagePage } from './pages/VaultShareManagePage';
 import { DnaRecordsPage } from './pages/DNARecordsPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { CertificatesPage } from './pages/CertificatesPage';
@@ -108,6 +110,8 @@ export const router = createBrowserRouter([
       { path: 'enterprise', element: <Navigate to="/business" replace /> },
       { path: 'generate', element: <GeneratePage /> },
       { path: 'vault', element: <VaultPage /> },
+      { path: 'vault/assets/:assetId/share', element: <VaultSharePage /> },
+      { path: 'vault/assets/:assetId/shares/:shareId', element: <VaultShareManagePage /> },
       { path: 'vault-integrity', element: <VaultIntegrityPage /> },
       { path: 'dna-records', element: <DnaRecordsPage /> },
       { path: 'reports', element: <ReportsPage /> },
