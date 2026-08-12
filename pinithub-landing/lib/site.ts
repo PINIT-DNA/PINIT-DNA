@@ -30,10 +30,10 @@ export function hubLoginUrl(): string {
   return hubPath('/login');
 }
 
-/** YouTube, Vimeo, ScreenPal, or direct MP4 URL for “Watch Platform”. */
+/** YouTube, Vimeo, ScreenPal, or direct MP4 URL for “Watch demo”. */
 export const DEMO_VIDEO_URL =
   process.env.NEXT_PUBLIC_DEMO_VIDEO_URL?.trim() ||
-  'https://go.screenpal.com/watch/cOj123nv0bo';
+  '/videos/PinIT_Hub_Animated_Demo.mp4';
 
 /** Public landing URL used by the admin CMS after save. */
 export const LANDING_URL =

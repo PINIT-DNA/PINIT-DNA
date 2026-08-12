@@ -20,7 +20,7 @@ export const DEFAULT_HERO = {
     'PINITHUB gives creators, teams, and organizations a secure control layer for digital assets—from protection and ownership evidence to accountable sharing and investigation.',
   ctaPrimary: 'Talk to our team',
   ctaSecondary: 'Explore the platform',
-  videoUrl: 'https://go.screenpal.com/watch/cOj123nv0bo',
+  videoUrl: '/videos/PinIT_Hub_Animated_Demo.mp4',
   stat1Key: 'Protect',
   stat1Value: 'Secure the original',
   stat2Key: 'Prove',

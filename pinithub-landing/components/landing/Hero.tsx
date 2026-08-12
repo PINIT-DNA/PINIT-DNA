@@ -1,12 +1,18 @@
-import { ArrowUpRight } from 'lucide-react';
+'use client';
+
+import { useState } from 'react';
+import { ArrowUpRight, Play } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { ProductMockup } from '@/components/ui/ProductMockup';
+import { VideoModal } from '@/components/ui/VideoModal';
 import { LANDING_HERO } from '@/lib/landing-content';
-import { hubSignupUrl } from '@/lib/site';
+import { DEMO_VIDEO_URL, hubSignupUrl } from '@/lib/site';
 import { HubDashboardMock } from './mockups';
 
 export function LandingHero() {
   const [line1, line2] = LANDING_HERO.headline.split('\n');
+  const [videoOpen, setVideoOpen] = useState(false);
+  const videoUrl = DEMO_VIDEO_URL.trim();
 
   return (
     <section id="hero" className="relative isolate overflow-hidden pt-14 sm:pt-[4.5rem]">
@@ -42,6 +48,18 @@ export function LandingHero() {
             >
               {LANDING_HERO.secondaryCta}
             </a>
+            {videoUrl ? (
+              <button
+                type="button"
+                onClick={() => setVideoOpen(true)}
+                className="inline-flex h-[3.35rem] w-full items-center justify-center gap-2.5 px-4 text-base font-medium text-mute transition-colors hover:text-paper sm:w-auto"
+              >
+                <span className="grid h-7 w-7 place-items-center rounded-full border border-line bg-white/[0.03]">
+                  <Play className="h-3 w-3 fill-mute text-mute" aria-hidden />
+                </span>
+                Watch demo
+              </button>
+            ) : null}
             <a
               href="#demo"
               className="inline-flex h-[3.35rem] w-full items-center justify-center px-4 text-base font-medium text-mute transition-colors hover:text-paper sm:w-auto"
@@ -60,6 +78,8 @@ export function LandingHero() {
           <HubDashboardMock />
         </ProductMockup>
       </div>
+
+      {videoOpen && videoUrl ? <VideoModal url={videoUrl} onClose={() => setVideoOpen(false)} /> : null}
     </section>
   );
 }

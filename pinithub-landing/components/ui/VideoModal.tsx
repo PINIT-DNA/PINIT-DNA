@@ -12,30 +12,39 @@ type ParsedVideo =
 /** Recognizes YouTube, Vimeo, and ScreenPal links; video files play natively;
  *  anything else falls back to a generic iframe embed. */
 function parseVideoUrl(raw: string): ParsedVideo | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  // Same-origin public assets: `/videos/demo.mp4`
+  if (trimmed.startsWith('/') && /\.(mp4|webm|ogg|mov)$/i.test(trimmed.split('?')[0])) {
+    return { kind: 'file', url: trimmed };
+  }
+
   let url: URL;
   try {
-    url = new URL(raw);
+    url = new URL(trimmed, typeof window !== 'undefined' ? window.location.origin : 'https://www.pinithub.com');
   } catch {
     return null;
   }
 
   const host = url.hostname.replace(/^www\./, '').replace(/^m\./, '');
+  const path = url.pathname;
 
   if (host === 'youtube.com') {
-    const id = url.pathname === '/watch' ? url.searchParams.get('v') : url.pathname.split('/').pop();
+    const id = path === '/watch' ? url.searchParams.get('v') : path.split('/').pop();
     if (id) return { kind: 'youtube', id };
   }
   if (host === 'youtu.be') {
-    const id = url.pathname.slice(1);
+    const id = path.slice(1);
     if (id) return { kind: 'youtube', id };
   }
   if (host === 'vimeo.com' || host === 'player.vimeo.com') {
-    const id = url.pathname.split('/').filter(Boolean).pop();
+    const id = path.split('/').filter(Boolean).pop();
     if (id && /^\d+$/.test(id)) return { kind: 'vimeo', id };
   }
   // ScreenPal share links: /watch/ID → embed player /player/ID
   if (host === 'go.screenpal.com' || host === 'screenpal.com') {
-    const parts = url.pathname.split('/').filter(Boolean);
+    const parts = path.split('/').filter(Boolean);
     const id = parts[0] === 'watch' || parts[0] === 'player' ? parts[1] : parts.pop();
     if (id) {
       return {
@@ -44,10 +53,10 @@ function parseVideoUrl(raw: string): ParsedVideo | null {
       };
     }
   }
-  if (/\.(mp4|webm|ogg|mov)$/i.test(url.pathname)) {
-    return { kind: 'file', url: raw };
+  if (/\.(mp4|webm|ogg|mov)$/i.test(path)) {
+    return { kind: 'file', url: trimmed.startsWith('/') ? trimmed : url.toString() };
   }
-  return { kind: 'embed', url: raw };
+  return { kind: 'embed', url: trimmed };
 }
 
 export function VideoModal({ url, onClose }: { url: string; onClose: () => void }) {
