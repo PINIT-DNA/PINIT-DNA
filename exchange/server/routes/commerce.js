@@ -9,6 +9,7 @@ import {
   toPaise,
 } from '../lib/pricing.js';
 import { createRazorpayOrder, isPaymentMockMode } from '../razorpay.js';
+import { forbidSellerCommerce, requireBuyer, requireSeller } from '../lib/rbac.js';
 
 const router = express.Router();
 
@@ -54,7 +55,7 @@ router.get('/cart', (req, res) => {
 });
 
 /** POST /api/commerce/cart  { buyer_key, listing_id, license_tier } */
-router.post('/cart', (req, res) => {
+router.post('/cart', forbidSellerCommerce, (req, res) => {
   const key = String(req.body?.buyer_key || '').trim();
   const listingId = String(req.body?.listing_id || '').trim();
   const tier = String(req.body?.license_tier || 'commercial').trim();
@@ -83,7 +84,7 @@ router.delete('/cart/:id', (req, res) => {
 });
 
 /** POST /api/commerce/cart/create-payment — one Razorpay order for entire cart */
-router.post('/cart/create-payment', async (req, res) => {
+router.post('/cart/create-payment', requireBuyer, async (req, res) => {
   try {
     const key = String(req.body?.buyer_key || '').trim();
     const buyer_name = String(req.body?.buyer_name || '').trim();
@@ -166,7 +167,7 @@ router.post('/cart/create-payment', async (req, res) => {
 });
 
 /** POST /api/commerce/cart/checkout — prefer create-payment; mock auto-seals via verify */
-router.post('/cart/checkout', async (req, res) => {
+router.post('/cart/checkout', requireBuyer, async (req, res) => {
   const key = String(req.body?.buyer_key || '').trim();
   const buyer_name = String(req.body?.buyer_name || '').trim();
   const buyer_email = String(req.body?.buyer_email || '').trim();
@@ -313,7 +314,7 @@ router.get('/coupons', (req, res) => {
   );
 });
 
-router.post('/coupons', (req, res) => {
+router.post('/coupons', requireSeller, (req, res) => {
   const code = String(req.body?.code || '').trim().toUpperCase();
   const seller = String(req.body?.seller_pinit_id || '').trim();
   const percent = Math.min(90, Math.max(1, Number(req.body?.percent_off) || 10));

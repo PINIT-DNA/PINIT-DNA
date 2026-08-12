@@ -1,13 +1,9 @@
 import { useLocation, Link } from 'react-router-dom';
-import { useState } from 'react';
-import { Plus, ChevronRight, Menu, Store } from 'lucide-react';
-import toast from 'react-hot-toast';
+import { Plus, ChevronRight, Menu } from 'lucide-react';
 import { ProfileDropdown } from './ProfileDropdown';
 import { NotificationBell } from './NotificationBell';
 import { AccountModeSwitcher } from './AccountModeSwitcher';
 import { BRAND } from '../../config/brand.config';
-import { createExchangeSso } from '../../services/dashboard.api';
-import { useAuth } from '../../context/AuthContext';
 
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   '/':                    { title: 'Home',                  subtitle: 'What happened with your files'           },
@@ -40,34 +36,12 @@ interface TopbarProps {
 
 export function Topbar({ onMenu }: TopbarProps) {
   const location = useLocation();
-  const { user } = useAuth();
-  const [openingExchange, setOpeningExchange] = useState(false);
   const meta = PAGE_META[location.pathname]
     ?? (location.pathname.startsWith('/access-intelligence/')
       ? { title: 'Tracking', subtitle: 'Activity for this shared file' }
       : location.pathname.startsWith('/protected-posts/') || location.pathname.startsWith('/assets/')
         ? { title: 'Digital Assets', subtitle: 'Your protected files' }
         : { title: BRAND.name, subtitle: '' });
-
-  const openExchange = async () => {
-    if (!user) {
-      toast.error('Sign in to Hub first, then open Exchange');
-      return;
-    }
-    setOpeningExchange(true);
-    try {
-      const result = await createExchangeSso();
-      window.open(result.exchangeUrl, '_blank', 'noopener,noreferrer');
-      toast.success('Opening Pinit Exchange with your Hub identity…');
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-        (err instanceof Error ? err.message : 'Could not open Exchange');
-      toast.error(msg);
-    } finally {
-      setOpeningExchange(false);
-    }
-  };
 
   return (
     <header
@@ -98,16 +72,6 @@ export function Topbar({ onMenu }: TopbarProps) {
 
       <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
         <AccountModeSwitcher />
-        <button
-          type="button"
-          onClick={() => void openExchange()}
-          disabled={openingExchange}
-          className="btn btn-ghost btn-sm text-xs hidden md:flex items-center gap-1.5"
-          title="Open Pinit Exchange with Hub SSO"
-        >
-          <Store size={14} />
-          {openingExchange ? 'Opening…' : 'Exchange'}
-        </button>
         <Link
           to="/generate"
           className="btn btn-primary btn-sm text-xs hidden lg:flex nav-cta"

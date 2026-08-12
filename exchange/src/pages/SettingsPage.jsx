@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { User, Store, ShieldCheck, CreditCard, Bell, Lock, Sliders, CheckCircle, RefreshCw } from 'lucide-react';
+import { canList, canPurchase, roleLabel, rolePositioning } from '../lib/roles.js';
+import { apiFetch } from '../lib/api.js';
 
 export default function SettingsPage({ user, onUserUpdated }) {
   const [activeTab, setActiveTab] = useState('account');
@@ -16,20 +18,21 @@ export default function SettingsPage({ user, onUserUpdated }) {
   const handleSaveSettings = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/auth/onboard-seller', {
+      const endpoint = canList(user) ? '/api/auth/onboard-seller' : '/api/auth/profile';
+      const { ok, data } = await apiFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          pinit_id: user?.pinit_id || 'PINIT-90481234',
+          pinit_id: user?.pinit_id,
           name: name,
           email: email,
           bio: bio,
-          seller_plan: sellerPlan
-        })
+          seller_plan: canList(user) ? sellerPlan : undefined,
+          display_name: name,
+        }),
       });
 
-      if (res.ok) {
-        const data = await res.json();
+      if (ok) {
         setSaveSuccessMsg('Settings updated successfully!');
         if (onUserUpdated) onUserUpdated(data.user);
         setTimeout(() => setSaveSuccessMsg(''), 3000);
@@ -52,10 +55,17 @@ export default function SettingsPage({ user, onUserUpdated }) {
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '32px 24px' }}>
       <div style={{ marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '2.2rem', color: '#fff' }}>Platform &amp; Seller Settings</h1>
+        <h1 style={{ fontSize: '2.2rem', color: '#fff' }}>
+          {canList(user) ? 'Creator settings' : 'Account settings'}
+        </h1>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>
-          Manage your Pinit identity, storefront, biometric KYC verification, and billing.
+          {roleLabel(user)} · {rolePositioning(user)}
         </p>
+        {canPurchase(user) && !canList(user) && (
+          <p style={{ color: 'var(--text-dim)', fontSize: '0.85rem', marginTop: 8 }}>
+            Pinit HUB is your private workspace. Listing on Exchange requires becoming a Creator.
+          </p>
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: '32px' }}>

@@ -107,7 +107,7 @@ export interface CreateShareLinkInput {
   // ── Multi-recipient child links ───────────────────────────────────────
   recipients?: Array<{ label: string; email?: string }>;
 
-  /** PARENT (default), FILE (Share File open-on-PinIT page), CHILD/GRANDCHILD (hops) */
+  /** PARENT (default), FILE (Share File open-on-Pinit page), CHILD/GRANDCHILD (hops) */
   linkType?: string;
 }
 
@@ -329,7 +329,7 @@ export class ShareLinkService {
         // Tenant isolation
         ownerUserId: input.ownerUserId,
 
-        // PARENT (Share Secure Link) vs FILE (Share File → open on PinIT page)
+        // PARENT (Share Secure Link) vs FILE (Share File → open on Pinit page)
         linkType: input.linkType ?? 'PARENT',
       },
     });
@@ -357,7 +357,7 @@ export class ShareLinkService {
   }
 
   /**
-   * Share File channel: open on PinIT `/s/:token` page so views are tracked.
+   * Share File channel: open on Pinit `/s/:token` page so views are tracked.
    * Reuses the latest active FILE link for the vault when available.
    */
   async createOrGetFileShare(input: {

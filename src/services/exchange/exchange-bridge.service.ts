@@ -5,13 +5,13 @@
  * Exchange receives only public-safe listing payloads + short-lived SSO tokens.
  * Vault encryption keys and full forensic DNA never leave Hub.
  */
-// bridge-env-reload: force Hub ts-node-dev to pick up EXCHANGE_BRIDGE_SECRET
+// bridge-env-reload: force Hub ts-node-dev to pick up EXCHANGE_BRIDGE_SECRET + role gate
 
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { config } from '../../config';
 import { prisma } from '../../lib/prisma';
-import { extractPinitCode, toRootPinitId } from '../../lib/pinit-identity';
+import { extractPinitCode, toExchangePinitId, toRootPinitId } from '../../lib/pinit-identity';
 import { AppError } from '../../api/middleware/error.middleware';
 import { VaultService } from '../vault/vault.service';
 
@@ -39,6 +39,7 @@ export type ExchangeSsoPayload = {
   purpose: 'exchange_sso';
   ownerUserId: string;
   pinitId: string;
+  rootPinitId: string;
   name: string;
   email: string | null;
 };
@@ -148,11 +149,13 @@ export const exchangeBridgeService = {
     });
     if (!user) throw new AppError(404, 'User not found');
 
-    const pinitId = toRootPinitId(user.shortId) || user.shortId;
+    const rootPinitId = toRootPinitId(user.shortId) || user.shortId;
+    const pinitId = toExchangePinitId(user.shortId) || rootPinitId;
     const payload: ExchangeSsoPayload = {
       purpose: 'exchange_sso',
       ownerUserId: user.id,
       pinitId,
+      rootPinitId,
       name: user.fullName,
       email: user.email,
     };
@@ -163,7 +166,7 @@ export const exchangeBridgeService = {
       expiresIn: SSO_EXPIRES,
       pinitId,
       exchangeUrl: `${config.exchange.appUrl}/?hub_sso=${encodeURIComponent(token)}`,
-      hubContinueUrl: `${config.exchange.appUrl}/creator-desk?hub_sso=${encodeURIComponent(token)}`,
+      hubContinueUrl: `${config.exchange.appUrl}/marketplace?hub_sso=${encodeURIComponent(token)}`,
     };
   },
 
@@ -218,6 +221,7 @@ export const exchangeBridgeService = {
       `PINIT-${code}`,
       `PINIT-USER-${code}`,
       `PINIT-ORG-${code}`,
+      `PINIT-EX-${code}`,
       rootId,
     ];
 
@@ -237,6 +241,68 @@ export const exchangeBridgeService = {
     };
   },
 
+  async getExchangeMarketplaceRole(ownerUserId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: ownerUserId },
+      select: { id: true, shortId: true },
+    });
+    if (!user) throw new AppError(404, 'User not found');
+    const pinitId = toExchangePinitId(user.shortId) || toRootPinitId(user.shortId) || user.shortId;
+    try {
+      const res = await fetch(
+        `${config.exchange.apiUrl}/api/auth/me?pinit_id=${encodeURIComponent(pinitId)}`,
+      );
+      if (res.status === 404) {
+        return {
+          pinitId,
+          registered: false,
+          role: null,
+          exchange_role: null,
+          can_list: false,
+          can_purchase: false,
+        };
+      }
+      if (!res.ok) {
+        return {
+          pinitId,
+          registered: false,
+          role: null,
+          exchange_role: null,
+          can_list: false,
+          can_purchase: false,
+          unavailable: true,
+        };
+      }
+      const data = (await res.json()) as {
+        role?: string;
+        exchange_role?: string;
+        can_list?: boolean;
+        can_purchase?: boolean;
+      };
+      const exchangeRole = String(data.exchange_role || data.role || '').toLowerCase();
+      const canList =
+        Boolean(data.can_list) || exchangeRole === 'creator' || exchangeRole === 'seller' || exchangeRole === 'admin';
+      return {
+        pinitId,
+        registered: true,
+        role: data.role || null,
+        exchange_role: data.exchange_role || data.role || null,
+        can_list: canList,
+        can_purchase: Boolean(data.can_purchase) || exchangeRole === 'buyer' || exchangeRole === 'admin',
+      };
+    } catch {
+      return {
+        pinitId,
+        registered: false,
+        role: null,
+        exchange_role: null,
+        can_list: false,
+        can_purchase: false,
+        unavailable: true,
+      };
+    }
+  },
+
   async createListIntent(ownerUserId: string, vaultId: string) {
     const user = await prisma.user.findUnique({
       where: { id: ownerUserId },
@@ -244,9 +310,17 @@ export const exchangeBridgeService = {
     });
     if (!user) throw new AppError(404, 'User not found');
 
+    const marketplace = await this.getExchangeMarketplaceRole(ownerUserId);
+    if (!marketplace.can_list) {
+      throw new AppError(
+        403,
+        'Buyer Hub assets stay private. Become a Creator on Pinit Exchange to list.',
+      );
+    }
+
     const vault = await loadOwnedVault(vaultId, ownerUserId);
     const badge = badgeFromAnalysis(vault.contentAnalysis ?? vault.dnaRecord.fileAnalysis);
-    const pinitId = toRootPinitId(user.shortId) || user.shortId;
+    const pinitId = toExchangePinitId(user.shortId) || toRootPinitId(user.shortId) || user.shortId;
 
     const payload: ExchangeListIntentPayload = {
       purpose: 'exchange_list_intent',

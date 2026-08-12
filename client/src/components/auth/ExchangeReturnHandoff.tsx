@@ -2,14 +2,13 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { createExchangeSso } from '../../services/dashboard.api';
 import {
-  safeExchangeReturnUrl,
+  resolveExchangeReturn,
   stashExchangeReturn,
 } from '../../lib/exchange-return';
 
 /**
- * When Hub user is already authenticated and arrived with ?exchange_return=,
- * mint SSO and send them back to Exchange.
- * Only query param counts here (not leftover sessionStorage) to avoid surprise redirects.
+ * When Hub user is already authenticated and arrived from Exchange,
+ * mint SSO and send them back. Query param or a fresh stash both count.
  */
 export function ExchangeReturnHandoff({ fallback }: { fallback: ReactNode }) {
   const [searchParams] = useSearchParams();
@@ -17,7 +16,7 @@ export function ExchangeReturnHandoff({ fallback }: { fallback: ReactNode }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    const target = safeExchangeReturnUrl(searchParams.get('exchange_return'));
+    const target = resolveExchangeReturn(searchParams.get('exchange_return'));
     if (!target) {
       setStatus('done');
       return;

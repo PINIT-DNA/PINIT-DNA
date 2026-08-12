@@ -1,5 +1,6 @@
 import express from 'express';
 import db from '../database.js';
+import { requireBuyer, requireSeller } from '../lib/rbac.js';
 
 const router = express.Router();
 
@@ -12,7 +13,7 @@ router.get('/', (req, res) => {
 });
 
 // Post a new requirement brief
-router.post('/', (req, res) => {
+router.post('/', requireBuyer, (req, res) => {
   const { buyer_name, buyer_org, title, description, vertical, budget, deadline } = req.body;
 
   if (!buyer_name || !title || !description || !budget) {
@@ -40,7 +41,7 @@ router.post('/', (req, res) => {
 });
 
 // Submit proposal to requirement
-router.post('/:id/propose', (req, res) => {
+router.post('/:id/propose', requireSeller, (req, res) => {
   const reqId = req.params.id;
   db.run("UPDATE requirements SET proposals_count = proposals_count + 1 WHERE req_id = ?", [reqId], function(err) {
     if (err) return res.status(500).json({ error: err.message });

@@ -3,6 +3,7 @@ import { ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
 import ListingCard from '../components/ListingCard.jsx';
 import HubTrustBadge from '../components/HubTrustBadge.jsx';
 import { apiFetch } from '../lib/api.js';
+import { canList, canPurchase } from '../lib/roles.js';
 
 const CATEGORIES = [
   { id: 'images', label: 'Photography' },
@@ -14,7 +15,7 @@ const CATEGORIES = [
   { id: 'graphics', label: 'Graphics' },
 ];
 
-export default function HomePage({ onNavigate, onOpenListFromHub, onOpenAuth, user, onSelectListing }) {
+export default function HomePage({ onNavigate, onOpenListFromHub, onOpenAuth, onBecomeCreator, user, onSelectListing }) {
   const [featured, setFeatured] = useState([]);
 
   useEffect(() => {
@@ -33,7 +34,9 @@ export default function HomePage({ onNavigate, onOpenListFromHub, onOpenAuth, us
         <div className="home-hero__eyebrow">
           <Sparkles size={14} /> Verified creative marketplace
         </div>
-        <h1 className="home-hero__title">Buy and license verified creative assets</h1>
+        <h1 className="home-hero__title">
+          {canList(user) ? 'Create, protect, list and earn from creative assets.' : 'Discover, license and manage creative assets.'}
+        </h1>
         <p className="home-hero__sub">
           Photography · Video · Illustration · UI/UX · 3D · Audio · Graphics
         </p>
@@ -53,16 +56,23 @@ export default function HomePage({ onNavigate, onOpenListFromHub, onOpenAuth, us
           <button type="button" className="btn-primary" onClick={() => onNavigate('marketplace')}>
             Explore assets <ArrowRight size={16} />
           </button>
+          {!canList(user) && (
           <button
             type="button"
             className="btn-secondary"
             onClick={() => {
-              if (user && Number(user.hub_linked)) onOpenListFromHub?.();
+              if (user) onBecomeCreator?.();
               else onOpenAuth?.({ mode: 'signup', intent: 'creator' });
             }}
           >
-            Become a creator
+            Become a Creator
           </button>
+          )}
+          {canList(user) && (
+            <button type="button" className="btn-secondary" onClick={onOpenListFromHub}>
+              List an asset
+            </button>
+          )}
         </div>
       </section>
 
@@ -98,6 +108,7 @@ export default function HomePage({ onNavigate, onOpenListFromHub, onOpenAuth, us
               <ListingCard
                 key={item.listing_id}
                 item={item}
+                user={user}
                 onSelect={(id) => (onSelectListing ? onSelectListing(id) : onNavigate('marketplace'))}
               />
             ))}

@@ -248,7 +248,7 @@ export async function generateDna(
           });
           void orgIntegrationService.notifyAlertChannels(
             tagged.organizationId,
-            `🧬 PinIT — DNA generated for ${req.file?.originalname ?? result.dnaRecordId}`,
+            `🧬 Pinit — DNA generated for ${req.file?.originalname ?? result.dnaRecordId}`,
             {
               event: 'dna.generated',
               dnaRecordId: result.dnaRecordId,
@@ -613,7 +613,7 @@ export async function getDnaStorageAudit(
 
 /**
  * POST /dna/recover-ownership
- * Upload a full image OR a cropped fragment (~20%+) and recover PinIT ownership
+ * Upload a full image OR a cropped fragment (~20%+) and recover Pinit ownership
  * from the redundant watermark tiles embedded at generation time.
  */
 export async function recoverOwnershipFromImage(
@@ -641,7 +641,7 @@ export async function recoverOwnershipFromImage(
       res.status(200).json({
         success: true,
         isPinitFile: false,
-        message: 'No PinIT ownership watermark found in this image/fragment',
+        message: 'No Pinit ownership watermark found in this image/fragment',
         extraction: extracted,
       });
       return;
@@ -692,8 +692,8 @@ export async function recoverOwnershipFromImage(
           }
         : null,
       message: stego
-        ? 'PinIT ownership watermark recovered and matched to stored file signature'
-        : 'PinIT watermark found in pixels, but no matching stored signature in vault',
+        ? 'Pinit ownership watermark recovered and matched to stored file signature'
+        : 'Pinit watermark found in pixels, but no matching stored signature in vault',
     });
   } catch (err) {
     next(err);

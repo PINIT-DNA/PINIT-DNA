@@ -160,7 +160,7 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
   } catch (err) { next(err); }
 }
 
-// ── Create / reuse Share File open link (tracked via PinIT page, not PARENT list) ─
+// ── Create / reuse Share File open link (tracked via Pinit page, not PARENT list) ─
 
 export async function createFileShare(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {

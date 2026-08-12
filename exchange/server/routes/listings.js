@@ -5,6 +5,9 @@ import { exchangePreviewUrl, PLACEHOLDER_PREVIEW } from '../lib/preview-url.js';
 import { LISTING_STATUS, publicListingSql, BRIDGE_EVENT } from '../lib/lifecycle.js';
 import { recordBridgeEvent, markBridgeEventProcessed } from '../lib/bridge-events.js';
 import { getSql, runSql } from '../lib/db.js';
+import { toExchangePinitId } from '../lib/pinit-identity.js';
+import { canList, buyerDeniedList } from '../lib/roles.js';
+import { findUserByPinitId, requireSeller } from '../lib/rbac.js';
 
 const router = express.Router();
 
@@ -14,7 +17,7 @@ function upsertHubAssetFromIntent(intent, cb) {
   }
 
   const assetId = intent.assetId || intent.vaultId;
-  const pinitId = intent.pinitId || 'PINIT-UNKNOWN';
+  const pinitId = toExchangePinitId(intent.pinitId) || intent.pinitId || 'PINIT-UNKNOWN';
   const title = intent.title || 'Protected Hub Asset';
   const fileTypeRaw = intent.fileType || intent.mimeType || 'images';
   const fileType = String(fileTypeRaw).toLowerCase().startsWith('image') ? 'images'
@@ -46,16 +49,7 @@ function upsertHubAssetFromIntent(intent, cb) {
     dnaRecordId, humanPercent, aiPercent, badgeTier,
   ], (err) => {
     if (err) return cb(err);
-    db.run(`
-      INSERT OR IGNORE INTO users (pinit_id, exchange_id, name, email, role, kyc_status, biometric_verified, seller_plan, bio)
-      VALUES (?, ?, 'Pinit Creator', ?, 'creator', 'pending', 1, 'starter', 'Connected via Pinit HUB')
-    `, [
-      pinitId,
-      'PX-' + Math.floor(100000 + Math.random() * 900000),
-      `${String(pinitId).toLowerCase().replace(/[^a-z0-9]/g, '')}@pinithub.local`,
-    ], () => {
-      db.get('SELECT * FROM hub_assets WHERE asset_id = ?', [assetId], cb);
-    });
+    db.get('SELECT * FROM hub_assets WHERE asset_id = ?', [assetId], cb);
   });
 }
 
@@ -178,26 +172,31 @@ router.post('/from-hub', (req, res) => {
     });
   }
 
-  upsertHubAssetFromIntent(intent, (err, asset) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({
-      message: 'Hub asset ready for Exchange listing',
-      asset,
-      intent: {
-        asset_id: asset.asset_id,
-        pinit_id: asset.pinit_id,
-        title: asset.title,
-        human_percent: asset.human_percent,
-        ai_percent: asset.ai_percent,
-        badge_tier: asset.badge_tier,
-        dna_record_id: asset.dna_record_id,
-      },
+  findUserByPinitId(intent.pinitId).then((seller) => {
+    if (!seller || !canList(seller.role)) {
+      return res.status(403).json(buyerDeniedList());
+    }
+    upsertHubAssetFromIntent(intent, (err, asset) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({
+        message: 'Hub asset ready for Exchange listing',
+        asset,
+        intent: {
+          asset_id: asset.asset_id,
+          pinit_id: asset.pinit_id,
+          title: asset.title,
+          human_percent: asset.human_percent,
+          ai_percent: asset.ai_percent,
+          badge_tier: asset.badge_tier,
+          dna_record_id: asset.dna_record_id,
+        },
+      });
     });
-  });
+  }).catch((err) => res.status(500).json({ error: err.message }));
 });
 
 // Create / Publish Listing from Hub to Exchange (WITH MANDATORY SECTION 9 AI POLICY CHECK)
-router.post('/', (req, res) => {
+router.post('/', requireSeller, (req, res) => {
   const {
     asset_id,
     pinit_id,
@@ -232,17 +231,14 @@ router.post('/', (req, res) => {
   }
 
   function publishListing() {
-  const sellerPinitId = pinit_id || 'PINIT-90481234';
+  const sellerPinitId = req.exchangeUser?.pinit_id || pinit_id;
+  if (!sellerPinitId) {
+    return res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Sign in as a Creator to publish listings.' });
+  }
 
   if (!asset_id) {
     return res.status(400).json({ error: "asset_id is required from Pinit HUB Vault" });
   }
-
-  // Ensure seller user exists in SQLite
-  db.run(`
-    INSERT OR IGNORE INTO users (pinit_id, exchange_id, name, email, role, kyc_status, biometric_verified, seller_plan, bio)
-    VALUES (?, ?, 'Elena Rostova', 'elena.rostova@pinit.io', 'creator', 'verified', 1, 'pro', 'Verified Provenance Creator')
-  `, [sellerPinitId, 'PX-' + Math.floor(100000 + Math.random() * 900000)]);
 
   // Fetch Hub Asset to evaluate DNA and AI score
   db.get("SELECT * FROM hub_assets WHERE asset_id = ?", [asset_id], (err, hubAsset) => {
@@ -382,10 +378,10 @@ router.post('/', (req, res) => {
 });
 
 /** POST /api/listings/:id/status — seller lifecycle transitions */
-router.post('/:id/status', async (req, res) => {
+router.post('/:id/status', requireSeller, async (req, res) => {
   try {
     const listingId = req.params.id;
-    const sellerId = String(req.body?.pinit_id || '').trim();
+    const sellerId = req.exchangeUser?.pinit_id || String(req.body?.pinit_id || '').trim();
     const next = String(req.body?.status || '').toLowerCase();
     if (!sellerId) return res.status(400).json({ error: 'pinit_id is required' });
 
@@ -426,9 +422,9 @@ router.post('/:id/status', async (req, res) => {
 });
 
 /** PATCH /api/listings/:id — seller edits title, tagline, tags, description, prices */
-router.patch('/:id', (req, res) => {
+router.patch('/:id', requireSeller, (req, res) => {
   const listingId = req.params.id;
-  const sellerId = String(req.body?.pinit_id || '').trim();
+  const sellerId = req.exchangeUser?.pinit_id || String(req.body?.pinit_id || '').trim();
   if (!sellerId) return res.status(400).json({ error: 'pinit_id is required' });
 
   db.get('SELECT * FROM listings WHERE listing_id = ?', [listingId], (err, row) => {

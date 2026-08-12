@@ -3,6 +3,31 @@
     {
       "source": "/api/:path*",
       "destination": "https://pinit-dna-3fmw.onrender.com/api/:path*"
-    }
+    },
+    { "source": "/marketplace", "destination": "/index.html" },
+    { "source": "/collections", "destination": "/index.html" },
+    { "source": "/requirements", "destination": "/index.html" },
+    { "source": "/creators", "destination": "/index.html" },
+    { "source": "/creator-program", "destination": "/index.html" },
+    { "source": "/trust", "destination": "/index.html" },
+    { "source": "/licensing-guide", "destination": "/index.html" },
+    { "source": "/provenance", "destination": "/index.html" },
+    { "source": "/security", "destination": "/index.html" },
+    { "source": "/sell", "destination": "/index.html" },
+    { "source": "/enterprise", "destination": "/index.html" },
+    { "source": "/creator-support", "destination": "/index.html" },
+    { "source": "/terms", "destination": "/index.html" },
+    { "source": "/privacy", "destination": "/index.html" },
+    { "source": "/license-agreement", "destination": "/index.html" },
+    { "source": "/refund-policy", "destination": "/index.html" },
+    { "source": "/knowledge", "destination": "/index.html" },
+    { "source": "/cart", "destination": "/index.html" },
+    { "source": "/wishlist", "destination": "/index.html" },
+    { "source": "/licenses", "destination": "/index.html" },
+    { "source": "/my-listings", "destination": "/index.html" },
+    { "source": "/settings", "destination": "/index.html" },
+    { "source": "/404", "destination": "/index.html" },
+    { "source": "/exchange", "destination": "/index.html" },
+    { "source": "/exchange/:path*", "destination": "/index.html" }
   ]
 }

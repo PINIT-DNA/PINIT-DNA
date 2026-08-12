@@ -26,7 +26,7 @@ const CATALOG: Array<{
   {
     provider: 'SLACK',
     label: 'Slack',
-    description: 'Send PinIT alerts to a Slack channel via Incoming Webhook (free Slack app).',
+    description: 'Send Pinit alerts to a Slack channel via Incoming Webhook (free Slack app).',
     status: 'available',
   },
   {
@@ -44,19 +44,19 @@ const CATALOG: Array<{
   {
     provider: 'ZAPIER',
     label: 'Zapier',
-    description: 'Trigger Zaps with a Catch Hook URL when PinIT events happen.',
+    description: 'Trigger Zaps with a Catch Hook URL when Pinit events happen.',
     status: 'available',
   },
   {
     provider: 'GOOGLE_DRIVE',
     label: 'Google Drive',
-    description: 'Connect a Drive access token to pull files into PinIT (OAuth token).',
+    description: 'Connect a Drive access token to pull files into Pinit (OAuth token).',
     status: 'available',
   },
   {
     provider: 'DROPBOX',
     label: 'Dropbox',
-    description: 'Connect a Dropbox access token to pull files into PinIT.',
+    description: 'Connect a Dropbox access token to pull files into Pinit.',
     status: 'available',
   },
 ];

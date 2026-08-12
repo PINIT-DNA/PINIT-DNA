@@ -1,6 +1,6 @@
 /**
  * Client mirror of server `src/lib/pinit-identity.ts`.
- * One face → one code; USER vs ORG prefix only.
+ * One face → one code; USER / ORG / EX prefix only.
  */
 
 const CODE_RE = /^[A-Z0-9]{6,12}$/;
@@ -10,7 +10,7 @@ export function extractPinitCode(shortId: string | null | undefined): string {
   const raw = shortId.trim().toUpperCase();
   if (!raw) return '';
 
-  const prefixed = raw.match(/^PINIT-(?:USER|ORG|WS)-([A-Z0-9]+)$/);
+  const prefixed = raw.match(/^PINIT-(?:USER|ORG|WS|EX)-([A-Z0-9]+)$/);
   if (prefixed?.[1] && CODE_RE.test(prefixed[1])) return prefixed[1];
 
   const root = raw.match(/^PINIT-([A-Z0-9]+)$/);
@@ -34,6 +34,11 @@ export function toUserPinitId(shortIdOrCode: string | null | undefined): string 
 export function toOrgPinitId(shortIdOrCode: string | null | undefined): string {
   const code = extractPinitCode(shortIdOrCode);
   return code ? `PINIT-ORG-${code}` : '';
+}
+
+export function toExchangePinitId(shortIdOrCode: string | null | undefined): string {
+  const code = extractPinitCode(shortIdOrCode);
+  return code ? `PINIT-EX-${code}` : '';
 }
 
 export function displayPinitIdForMode(

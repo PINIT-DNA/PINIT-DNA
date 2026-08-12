@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { CheckCircle2, Heart, Play, ArrowRight } from 'lucide-react';
+import { CheckCircle2, Heart, Play, ArrowRight, ShoppingCart } from 'lucide-react';
+import { canPurchase, isSeller } from '../lib/roles.js';
 import HubTrustBadge from './HubTrustBadge.jsx';
 import ProvenanceDrawer from './ProvenanceDrawer.jsx';
 import { verticalLabel } from '../lib/api.js';
@@ -89,6 +90,8 @@ export default function ListingCard({
   item,
   onSelect,
   onWishlist,
+  onAddToCart,
+  user = null,
   wishlisted = false,
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -161,16 +164,31 @@ export default function ListingCard({
             <HubTrustBadge compact onOpenProvenance={() => setDrawerOpen(true)} />
           </div>
 
-          <button
-            type="button"
-            className="btn-primary listing-card__cta"
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelect?.(item.listing_id);
-            }}
-          >
-            View &amp; License <ArrowRight size={14} />
-          </button>
+          {isSeller(user) && (
+            <div className="listing-card__creator-view">Creator view</div>
+          )}
+
+          <div className="listing-card__actions" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="btn-secondary listing-card__cta"
+              onClick={() => onSelect?.(item.listing_id)}
+            >
+              View Asset <ArrowRight size={14} />
+            </button>
+            {(!user || canPurchase(user)) && (
+              <button
+                type="button"
+                className="btn-primary listing-card__cta"
+                onClick={() => {
+                  if (onAddToCart) onAddToCart(item);
+                  else onSelect?.(item.listing_id);
+                }}
+              >
+                <ShoppingCart size={14} /> Add to Cart
+              </button>
+            )}
+          </div>
         </div>
       </article>
 

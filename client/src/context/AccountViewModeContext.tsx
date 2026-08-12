@@ -167,7 +167,8 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
           `Enable Business mode on ${rootId}?\n\n` +
             'This is NOT a new account. Same face → same number:\n' +
             `• Individual: PINIT-USER-…\n` +
-            `• Business:   PINIT-ORG-…\n\n` +
+            `• Business:   PINIT-ORG-…\n` +
+            `• Exchange:   PINIT-EX-…\n\n` +
             'You can switch back to Individual anytime.',
         );
         if (!ok) return;

@@ -1,10 +1,11 @@
 import express from 'express';
 import db from '../database.js';
+import { requireSeller } from '../lib/rbac.js';
 
 const router = express.Router();
 
 // Creator Desk Consolidated Metrics
-router.get('/desk', (req, res) => {
+router.get('/desk', requireSeller, (req, res) => {
   const pinitId = String(req.query.pinit_id || '').trim();
   if (!pinitId) {
     return res.status(400).json({ error: 'pinit_id is required' });

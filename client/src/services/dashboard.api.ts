@@ -615,6 +615,20 @@ export async function createExchangeListIntent(vaultId: string): Promise<{
   return data;
 }
 
+export async function getExchangeRole(): Promise<{
+  success: boolean;
+  pinitId: string;
+  registered: boolean;
+  role: string | null;
+  exchange_role: string | null;
+  can_list: boolean;
+  can_purchase: boolean;
+  unavailable?: boolean;
+}> {
+  const { data } = await api.get(`${API_BASE_URL}/exchange/role`);
+  return data;
+}
+
 export async function createExchangeSso(): Promise<{
   success: boolean;
   token: string;

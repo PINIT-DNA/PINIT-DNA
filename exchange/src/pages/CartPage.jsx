@@ -4,6 +4,7 @@ import { payAndSeal } from '../lib/razorpay-checkout.js';
 import { apiFetch } from '../lib/api.js';
 import EmptyState from '../components/EmptyState.jsx';
 import { buyerKey } from '../lib/buyer.js';
+import { canPurchase } from '../lib/roles.js';
 
 export default function CartPage({ user, onOpenAuth, onSelectListing, onCheckoutDone, onBrowse }) {
   const [items, setItems] = useState([]);
@@ -77,23 +78,33 @@ export default function CartPage({ user, onOpenAuth, onSelectListing, onCheckout
       onOpenAuth?.({ mode: 'signup', intent: 'buyer' });
       return;
     }
+    if (!canPurchase(user)) {
+      setError('Creator accounts cannot purchase marketplace assets.');
+      return;
+    }
     setCheckingOut(true);
     setError('');
     setMessage('');
     try {
+      const buyerName = user.display_name || user.name || 'Pinit Buyer';
+      const buyerEmail =
+        user.email ||
+        (user.pinit_id
+          ? `${String(user.pinit_id).toLowerCase().replace(/[^a-z0-9]/g, '')}@buyer.local`
+          : 'buyer@pinit.local');
       const data = await payAndSeal({
         mode: 'cart',
         createBody: {
           buyer_key: key,
-          buyer_name: user.display_name || user.name || 'Buyer',
-          buyer_email: user.email || `${user.pinit_id}@buyer.local`,
+          buyer_name: buyerName,
+          buyer_email: buyerEmail,
           buyer_org: user.org_name || '',
           buyer_pinit_id: user.pinit_id,
           coupon_code: couponInfo?.code || '',
         },
         description: `Pinit Exchange cart (${items.length} licenses)`,
-        userName: user.display_name || user.name,
-        userEmail: user.email,
+        userName: buyerName,
+        userEmail: buyerEmail,
       });
       setMessage(`Sealed ${data.sealed} license(s). Open My Licenses to download.`);
       setItems([]);
@@ -193,7 +204,7 @@ export default function CartPage({ user, onOpenAuth, onSelectListing, onCheckout
           <span>Total</span><span>${total.toFixed(2)}</span>
         </div>
         <button type="button" className="btn-primary" style={{ width: '100%' }} disabled={checkingOut} onClick={checkout}>
-          {checkingOut ? 'Processing…' : 'Checkout & seal licenses'}
+          {checkingOut ? 'Auto-completing payment…' : 'Checkout · auto-success & seal'}
         </button>
       </div>
     </div>

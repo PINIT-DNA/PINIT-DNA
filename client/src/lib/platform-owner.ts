@@ -1,5 +1,5 @@
 /**
- * Platform owner — only these PinIT IDs see / open Admin Console.
+ * Platform owner — only these Pinit IDs see / open Admin Console.
  * Others (even SUPER_ADMIN role) are blocked from the console UI/route.
  *
  * Override via VITE_PLATFORM_OWNER_SHORT_IDS=PINIT-xxx,PINIT-yyy (comma-separated).

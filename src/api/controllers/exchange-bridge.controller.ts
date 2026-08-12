@@ -14,6 +14,16 @@ function userId(req: Request): string {
   return (req as any).user?.sub as string;
 }
 
+/** GET /exchange/role — Hub UI uses this to hide List on Exchange for buyers */
+export async function getExchangeRole(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const result = await exchangeBridgeService.getExchangeMarketplaceRole(userId(req));
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 /** GET /exchange/config — public-safe URLs for Hub UI */
 export async function getExchangeConfig(_req: Request, res: Response): Promise<void> {
   res.json({

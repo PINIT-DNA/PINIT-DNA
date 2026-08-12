@@ -4,7 +4,7 @@ import {
   ShieldCheck,
   ShoppingBag,
   Camera,
-  Lock,
+  Fingerprint,
   ArrowRight,
   CheckCircle2,
   ExternalLink,
@@ -14,169 +14,91 @@ import {
 
 const HUB_APP_URL = (import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
 const SESSION_KEY = 'pinit_exchange_session';
+const INTENT_KEY = 'pinit_exchange_intent';
+
+function stashIntent(nextIntent) {
+  try {
+    sessionStorage.setItem(INTENT_KEY, nextIntent === 'creator' ? 'creator' : 'buyer');
+  } catch {
+    /* ignore */
+  }
+}
 
 /**
- * Phase 1 auth — Buyer/Seller first.
- * Buyers: Exchange email only (never Hub).
- * Sellers: Pinit HUB identity required (Individual/Business on Hub).
+ * Exchange never stores passwords or runs its own biometric capture.
+ * Identity is Pinit HUB only (face / voice / Hub login), then SSO returns here.
  */
 export default function AuthModal({
   isOpen,
   onClose,
-  onAuthenticated,
   initialMode = 'welcome',
   initialIntent = null,
 }) {
   const [mode, setMode] = useState(initialMode);
   const [intent, setIntent] = useState(initialIntent);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [orgName, setOrgName] = useState('');
-  const [acceptTerms, setAcceptTerms] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
     setMode(initialMode || 'welcome');
     setIntent(initialIntent);
-    setError('');
     setSuccess('');
-    setAcceptTerms(false);
   }, [isOpen, initialMode, initialIntent]);
 
-  const exchangeReturnUrl = useMemo(
-    () => `${window.location.origin}/?hub_return=1`,
-    [],
-  );
-
   const title = useMemo(() => {
-    if (mode === 'login') return 'Sign in';
-    if (mode === 'signup' && intent === 'buyer') return 'Create buyer account';
+    if (mode === 'login') return 'Sign in with Pinit HUB';
+    if (mode === 'signup' && intent === 'buyer') return 'Buy with Hub identity';
     if (mode === 'signup' && intent === 'creator') return 'Sell on Exchange';
     return 'Choose your account type';
   }, [mode, intent]);
 
   const subtitle = useMemo(() => {
-    if (mode === 'login') return 'Sellers use Pinit HUB. Buyers sign in with email.';
-    if (mode === 'signup' && intent === 'buyer') {
-      return 'Browse, buy, and manage licenses — Hub access is not required.';
+    if (mode === 'login') {
+      return 'No email or password on Exchange. Complete Hub biometric verification, then you return here.';
     }
-    if (mode === 'signup' && intent === 'creator') {
-      return 'Sellers need a verified Pinit HUB identity (Individual or Business).';
+    if (intent === 'buyer') {
+      return 'Buyers also use Pinit HUB biometric identity — same secure login as Hub.';
     }
-    return 'Pinit Exchange is the marketplace. Pinit HUB is identity & protection for sellers.';
+    if (intent === 'creator') {
+      return 'Sellers protect assets in Hub, then list them here with the same biometric identity.';
+    }
+    return 'Pinit Exchange does not accept email/password. All access is Pinit HUB biometric identity.';
   }, [mode, intent]);
 
   if (!isOpen) return null;
 
-  const persistSession = (user) => {
-    localStorage.setItem(SESSION_KEY, JSON.stringify({
-      pinit_id: user.pinit_id,
-      exchange_id: user.exchange_id,
-      role: user.role,
-      at: Date.now(),
-    }));
-    onAuthenticated?.(user);
-  };
-
-  const openHubContinue = () => {
+  const openHubContinue = (nextIntent = intent || 'buyer') => {
+    stashIntent(nextIntent);
+    const returnUrl = `${window.location.origin}/?hub_return=1&exchange_intent=${nextIntent === 'creator' ? 'creator' : 'buyer'}`;
     window.open(
-      `${HUB_APP_URL}/login?exchange_return=${encodeURIComponent(exchangeReturnUrl)}`,
+      `${HUB_APP_URL}/login?exchange_return=${encodeURIComponent(returnUrl)}`,
       '_blank',
       'noopener,noreferrer',
     );
-    setSuccess('Pinit HUB opened. After you sign in, you return to Exchange as a Hub-linked seller.');
+    setSuccess('Pinit HUB opened. Complete biometric sign-in — you will return to Exchange automatically.');
   };
 
   const openHubRegister = (accountHint = null) => {
-    const base = `${HUB_APP_URL}/register/account-type?exchange_return=${encodeURIComponent(exchangeReturnUrl)}`;
+    stashIntent('creator');
+    const returnUrl = `${window.location.origin}/?hub_return=1&exchange_intent=creator`;
+    const base = `${HUB_APP_URL}/register/account-type?exchange_return=${encodeURIComponent(returnUrl)}`;
     const url = accountHint ? `${base}&hint=${accountHint}` : base;
     window.open(url, '_blank', 'noopener,noreferrer');
-    setSuccess(
-      accountHint === 'BUSINESS'
-        ? 'Create a Business Pinit HUB account, then you’ll return to Exchange as a seller.'
-        : accountHint === 'INDIVIDUAL'
-          ? 'Create an Individual Pinit HUB account, then you’ll return to Exchange as a seller.'
-          : 'Choose Individual or Business on Pinit HUB. After registration you’ll return here as a seller.',
-    );
+    setSuccess('Create your Pinit HUB account with biometric verification, then you return here as a seller.');
   };
 
   const startIntent = (nextIntent) => {
     setIntent(nextIntent);
+    stashIntent(nextIntent);
     setMode('signup');
-    setError('');
     setSuccess('');
-  };
-
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Login failed');
-      persistSession(data.user);
-      onClose?.();
-    } catch (err) {
-      setError(err.message || 'Login failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleBuyerSignup = async (e) => {
-    e.preventDefault();
-    setError('');
-    if (!fullName.trim() || !email.trim() || !password.trim()) {
-      setError('Enter your name, email, and password.');
-      return;
-    }
-    if (!acceptTerms) {
-      setError('Accept the buyer terms to continue.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const res = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          intent: 'buyer',
-          full_name: fullName.trim(),
-          display_name: fullName.trim(),
-          email: email.trim().toLowerCase(),
-          password,
-          org_name: orgName.trim(),
-          accept_terms: acceptTerms,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || data.message || 'Signup failed');
-      persistSession(data.user);
-      setSuccess('Buyer account ready. You can browse and purchase licenses.');
-      setTimeout(() => onClose?.(), 900);
-    } catch (err) {
-      setError(err.message || 'Signup failed');
-    } finally {
-      setLoading(false);
-    }
   };
 
   const eyebrow =
     intent === 'buyer' || (mode === 'login' && intent !== 'creator')
-      ? 'Buyer access'
+      ? 'Hub biometric · Buyer'
       : intent === 'creator'
-        ? 'Seller · Pinit HUB identity'
+        ? 'Hub biometric · Seller'
         : 'Pinit Exchange';
 
   return (
@@ -191,7 +113,7 @@ export default function AuthModal({
         <div className="auth-modal__header">
           <div className="auth-modal__header-text">
             <div className="auth-modal__eyebrow">
-              <ShieldCheck size={15} aria-hidden />
+              <Fingerprint size={15} aria-hidden />
               <span>{eyebrow}</span>
             </div>
             <h2 id="auth-modal-title" className="auth-modal__title">{title}</h2>
@@ -210,7 +132,7 @@ export default function AuthModal({
               </span>
               <span className="auth-path-card__body">
                 <strong>Seller</strong>
-                <span>Requires a Pinit HUB account — Individual or Business.</span>
+                <span>Hub biometric identity required to list protected assets.</span>
               </span>
               <ArrowRight size={16} className="auth-path-card__arrow" aria-hidden />
             </button>
@@ -221,15 +143,15 @@ export default function AuthModal({
               </span>
               <span className="auth-path-card__body">
                 <strong>Buyer</strong>
-                <span>Browse and purchase licenses — no Hub account needed.</span>
+                <span>Same Hub biometric login — no email or password on Exchange.</span>
               </span>
               <ArrowRight size={16} className="auth-path-card__arrow" aria-hidden />
             </button>
 
             <p className="auth-footer-line">
-              Already have an account?{' '}
-              <button type="button" className="auth-text-link" onClick={() => setMode('login')}>
-                Sign in
+              Already have a Hub account?{' '}
+              <button type="button" className="auth-text-link" onClick={() => { setMode('login'); setSuccess(''); }}>
+                Sign in with Hub biometric
               </button>
             </p>
           </div>
@@ -237,25 +159,24 @@ export default function AuthModal({
 
         {mode === 'signup' && intent === 'creator' && (
           <div className="auth-form" style={{ gap: 12 }}>
+            <div className="auth-protect-note">
+              <ShieldCheck size={16} aria-hidden />
+              <p>
+                <strong>Biometric identity lives on Pinit HUB.</strong> Face and voice verification
+                never run inside Exchange. After Hub confirms you, Exchange receives a signed SSO token only.
+              </p>
+            </div>
             <div className="auth-hub-block" style={{ margin: 0 }}>
-              <button type="button" className="auth-hub-btn" onClick={openHubContinue}>
-                <Lock size={17} aria-hidden />
-                <span>Continue with Pinit HUB</span>
+              <button type="button" className="auth-hub-btn" onClick={() => openHubContinue('creator')}>
+                <Fingerprint size={17} aria-hidden />
+                <span>Continue with Hub biometric</span>
                 <ExternalLink size={14} aria-hidden />
               </button>
-              <p className="auth-hub-hint">Already have a Hub account? Sign in once — you return here as a seller.</p>
+              <p className="auth-hub-hint">Sign in on Hub with face / voice, then return here as a seller.</p>
             </div>
 
             <div className="auth-divider" role="separator">
-              <span>or create a Pinit HUB account</span>
-            </div>
-
-            <div className="auth-protect-note">
-              <Lock size={16} aria-hidden />
-              <p>
-                <strong>Sellers need Hub first.</strong> Choose Individual or Business, complete Hub registration,
-                then your Exchange seller profile activates automatically.
-              </p>
+              <span>new Hub account</span>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -266,94 +187,80 @@ export default function AuthModal({
                 <Building2 size={16} /> Business
               </button>
             </div>
-            <button type="button" className="btn-primary auth-submit" onClick={() => openHubRegister(null)}>
-              Create Pinit HUB account <ExternalLink size={14} />
-            </button>
 
             {success && <SuccessBox text={success} />}
-            {error && <ErrorBox text={error} />}
+            <button type="button" className="auth-back" onClick={() => { setMode('welcome'); setIntent(null); setSuccess(''); }}>
+              Back to account type
+            </button>
+          </div>
+        )}
 
-            <button type="button" className="auth-back" onClick={() => { setMode('welcome'); setIntent(null); setError(''); setSuccess(''); }}>
+        {mode === 'signup' && intent === 'buyer' && (
+          <div className="auth-form" style={{ gap: 12 }}>
+            <div className="auth-protect-note">
+              <Fingerprint size={16} aria-hidden />
+              <p>
+                <strong>Buyers use the same Hub biometric login.</strong> Exchange does not collect
+                email or passwords. Your license is tied to your verified Pinit ID.
+              </p>
+            </div>
+            <div className="auth-hub-block" style={{ margin: 0 }}>
+              <button type="button" className="auth-hub-btn" onClick={() => openHubContinue('buyer')}>
+                <Fingerprint size={17} aria-hidden />
+                <span>Continue with Hub biometric</span>
+                <ExternalLink size={14} aria-hidden />
+              </button>
+              <p className="auth-hub-hint">Complete Hub face / voice verification, then return here to buy.</p>
+            </div>
+            <button
+              type="button"
+              className="btn-secondary auth-submit"
+              onClick={() => {
+                stashIntent('buyer');
+                const returnUrl = `${window.location.origin}/?hub_return=1&exchange_intent=buyer`;
+                window.open(
+                  `${HUB_APP_URL}/register/account-type?exchange_return=${encodeURIComponent(returnUrl)}`,
+                  '_blank',
+                  'noopener,noreferrer',
+                );
+                setSuccess('Create your Pinit HUB account with biometric verification, then you return here to buy.');
+              }}
+            >
+              New to Pinit? Create Hub account
+            </button>
+            {success && <SuccessBox text={success} />}
+            <button type="button" className="auth-back" onClick={() => { setMode('welcome'); setIntent(null); setSuccess(''); }}>
               Back to account type
             </button>
           </div>
         )}
 
         {mode === 'login' && (
-          <>
-            <div className="auth-hub-block">
-              <button type="button" className="auth-hub-btn" onClick={openHubContinue}>
-                <Lock size={17} aria-hidden />
-                <span>Continue with Pinit HUB</span>
+          <div className="auth-form" style={{ gap: 12 }}>
+            <div className="auth-protect-note">
+              <ShieldCheck size={16} aria-hidden />
+              <p>
+                Email and password sign-in is disabled on Exchange. Authenticate on Pinit HUB
+                (biometric), then a one-time signed token opens your Exchange session.
+              </p>
+            </div>
+            <div className="auth-hub-block" style={{ margin: 0 }}>
+              <button type="button" className="auth-hub-btn" onClick={() => openHubContinue(intent || 'buyer')}>
+                <Fingerprint size={17} aria-hidden />
+                <span>Continue with Hub biometric</span>
                 <ExternalLink size={14} aria-hidden />
               </button>
-              <p className="auth-hub-hint">For sellers — same Pinit identity for Hub and Exchange.</p>
-              {success && <SuccessBox text={success} />}
+              <p className="auth-hub-hint">Works for buyers and sellers — same Pinit identity.</p>
             </div>
-
-            <div className="auth-divider" role="separator">
-              <span>or buyer email</span>
-            </div>
-
-            <form onSubmit={handleLogin} className="auth-form">
-              <label className="auth-label">
-                Email
-                <input className="auth-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
-              </label>
-              <label className="auth-label">
-                Password
-                <input className="auth-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
-              </label>
-              {error && <ErrorBox text={error} />}
-              <button type="submit" className="btn-primary auth-submit" disabled={loading}>
-                {loading ? 'Signing in…' : 'Sign in with email'}
-              </button>
-              <button type="button" className="auth-back" onClick={() => { setMode('welcome'); setError(''); setSuccess(''); }}>
-                Back to account type
-              </button>
-            </form>
-          </>
-        )}
-
-        {mode === 'signup' && intent === 'buyer' && (
-          <form onSubmit={handleBuyerSignup} className="auth-form">
-            <label className="auth-label">
-              Full name
-              <input className="auth-input" value={fullName} onChange={(e) => setFullName(e.target.value)} required autoComplete="name" />
-            </label>
-            <label className="auth-label">
-              Work email
-              <input className="auth-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
-            </label>
-            <label className="auth-label">
-              Organization <span className="auth-optional">(optional)</span>
-              <input className="auth-input" value={orgName} onChange={(e) => setOrgName(e.target.value)} placeholder="Agency, brand, or studio" />
-            </label>
-            <label className="auth-label">
-              Password
-              <input className="auth-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} autoComplete="new-password" />
-            </label>
-            <label className="auth-check">
-              <input type="checkbox" checked={acceptTerms} onChange={(e) => setAcceptTerms(e.target.checked)} />
-              <span>I agree to Pinit Exchange buyer terms and license rules.</span>
-            </label>
-            {error && <ErrorBox text={error} />}
             {success && <SuccessBox text={success} />}
-            <button type="submit" className="btn-primary auth-submit" disabled={loading}>
-              {loading ? 'Creating…' : 'Create buyer account'}
-            </button>
-            <button type="button" className="auth-back" onClick={() => { setMode('welcome'); setIntent(null); setError(''); }}>
+            <button type="button" className="auth-back" onClick={() => { setMode('welcome'); setSuccess(''); }}>
               Back to account type
             </button>
-          </form>
+          </div>
         )}
       </div>
     </div>
   );
-}
-
-function ErrorBox({ text }) {
-  return <div className="auth-alert auth-alert--error" role="alert">{text}</div>;
 }
 
 function SuccessBox({ text }) {
@@ -365,4 +272,4 @@ function SuccessBox({ text }) {
   );
 }
 
-export { SESSION_KEY };
+export { SESSION_KEY, INTENT_KEY };

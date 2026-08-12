@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { DollarSign, Eye, Bookmark, Layers, ShieldCheck, FileCheck, PlusCircle, Award, Activity, Search, RefreshCw, Send, CheckCircle } from 'lucide-react';
+import { canList } from '../lib/roles.js';
 
 export default function CreatorDesk({ user, onOpenListFromHub, onOpenAuth, hubAppUrl: hubAppUrlProp }) {
   const [deskData, setDeskData] = useState(null);
@@ -14,7 +15,7 @@ export default function CreatorDesk({ user, onOpenListFromHub, onOpenAuth, hubAp
   const hubAppUrl = (hubAppUrlProp || import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
 
   useEffect(() => {
-    if (!user?.pinit_id) {
+    if (!user?.pinit_id || !canList(user)) {
       setLoading(false);
       setDeskData(null);
       return;
@@ -91,7 +92,11 @@ export default function CreatorDesk({ user, onOpenListFromHub, onOpenAuth, hubAp
 
   const handleSubmitProposal = async (reqId) => {
     try {
-      const res = await fetch(`/api/requirements/${reqId}/propose`, { method: 'POST' });
+      const res = await fetch(`/api/requirements/${reqId}/propose`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Pinit-Id': user.pinit_id },
+        body: JSON.stringify({ pinit_id: user.pinit_id }),
+      });
       if (res.ok) {
         setProposalSuccessMsg(`Proposal submitted to brief ${reqId}`);
         fetchDeskData();
@@ -111,6 +116,20 @@ export default function CreatorDesk({ user, onOpenListFromHub, onOpenAuth, hubAp
         </p>
         <button className="btn-primary" onClick={() => onOpenAuth?.({ mode: 'signup', intent: 'creator' })}>
           Continue with Pinit HUB
+        </button>
+      </div>
+    );
+  }
+
+  if (!canList(user)) {
+    return (
+      <div style={{ maxWidth: '720px', margin: '0 auto', padding: '60px 24px', textAlign: 'center' }}>
+        <h2 style={{ color: '#fff', marginBottom: 10 }}>Creator tools</h2>
+        <p style={{ color: 'var(--text-muted)', marginBottom: 20 }}>
+          Buyer accounts cannot access the seller dashboard. Become a Creator to list and manage sales.
+        </p>
+        <button className="btn-primary" onClick={() => onOpenAuth?.({ mode: 'signup', intent: 'creator' })}>
+          Become a Creator
         </button>
       </div>
     );

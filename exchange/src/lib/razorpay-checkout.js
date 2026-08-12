@@ -1,4 +1,26 @@
+import { apiFetch } from './api.js';
+
 let scriptPromise = null;
+
+async function postJsonWithRetry(url, body, { attempts = 2 } = {}) {
+  let last = null;
+  for (let i = 0; i < attempts; i += 1) {
+    last = await apiFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (last.ok) return last;
+    const retryable =
+      last.status === 0 ||
+      last.status >= 500 ||
+      String(last.error || '').includes('Empty response') ||
+      String(last.error || '').includes('Cannot reach');
+    if (!retryable || i === attempts - 1) return last;
+    await new Promise((r) => setTimeout(r, 600));
+  }
+  return last;
+}
 
 export function loadRazorpayScript() {
   if (typeof window === 'undefined') return Promise.reject(new Error('No window'));
@@ -40,7 +62,15 @@ export async function openRazorpayCheckout({
       name: 'Pinit Exchange',
       description,
       order_id: orderId,
-      prefill: { name: userName, email: userEmail },
+      prefill: { name: userName, email: userEmail, contact: '9876543210' },
+      method: {
+        upi: true,
+        card: true,
+        netbanking: true,
+        wallet: true,
+        emi: false,
+        paylater: false,
+      },
       theme: { color: '#3b82f6' },
       handler: (response) => resolve(response),
       modal: {
@@ -64,13 +94,11 @@ export async function payAndSeal({ mode = 'single', createBody, description, use
   const createUrl =
     mode === 'cart' ? '/api/commerce/cart/create-payment' : '/api/orders/create-payment';
 
-  const createRes = await fetch(createUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(createBody),
-  });
-  const created = await createRes.json();
-  if (!createRes.ok) throw new Error(created.error || 'Could not create payment');
+  const createParsed = await postJsonWithRetry(createUrl, createBody);
+  if (!createParsed.ok) {
+    throw new Error(createParsed.error || 'Could not create payment. Try again.');
+  }
+  const created = createParsed.data || {};
 
   let razorpay_order_id = created.orderId;
   let razorpay_payment_id = null;
@@ -94,17 +122,14 @@ export async function payAndSeal({ mode = 'single', createBody, description, use
     razorpay_signature = paid.razorpay_signature;
   }
 
-  const verifyRes = await fetch('/api/orders/verify-payment', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      payment_intent_id: created.payment_intent_id,
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
-    }),
+  const verifyParsed = await postJsonWithRetry('/api/orders/verify-payment', {
+    payment_intent_id: created.payment_intent_id,
+    razorpay_order_id,
+    razorpay_payment_id,
+    razorpay_signature,
   });
-  const verified = await verifyRes.json();
-  if (!verifyRes.ok) throw new Error(verified.error || 'Payment verification failed');
-  return verified;
+  if (!verifyParsed.ok) {
+    throw new Error(verifyParsed.error || 'Payment verification failed. Try again.');
+  }
+  return verifyParsed.data;
 }

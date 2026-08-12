@@ -40,7 +40,7 @@ export default function WishlistPage({ user, onOpenAuth, onSelectListing, onAddT
       <div style={{ maxWidth: 720, margin: '40px auto', padding: 24, textAlign: 'center' }}>
         <h2 style={{ color: '#fff' }}>Wishlist</h2>
         <button className="btn-primary" onClick={() => onOpenAuth?.({ mode: 'signup', intent: 'buyer' })}>
-          Sign in as buyer
+          Sign in with Hub biometric
         </button>
       </div>
     );

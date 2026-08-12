@@ -1,5 +1,6 @@
 import React from 'react';
-import { ShieldCheck, ArrowDown, Lock, Fingerprint, FileCheck, ShoppingBag, Eye, Activity } from 'lucide-react';
+import { ShieldCheck, ArrowDown, Lock, Fingerprint, FileCheck, ShoppingBag, Eye, Activity, Users } from 'lucide-react';
+import InfoPage, { InfoCards } from '../components/InfoPage.jsx';
 
 const STEPS = [
   {
@@ -29,21 +30,34 @@ const STEPS = [
   },
 ];
 
-export default function TrustCenter() {
+export default function TrustCenter({ onNavigate }) {
   return (
-    <div style={{ maxWidth: 960, margin: '0 auto', padding: '40px 24px' }}>
-      <div style={{ textAlign: 'center', marginBottom: 40 }}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--emerald)', marginBottom: 12 }}>
-          <ShieldCheck size={20} />
-          <span style={{ fontWeight: 700 }}>Trust Center</span>
-        </div>
-        <h1 style={{ color: '#fff', fontSize: '2.2rem', marginBottom: 10 }}>Pinit Trust Architecture</h1>
-        <p style={{ color: 'var(--text-muted)', maxWidth: 560, margin: '0 auto' }}>
-          HUB protects the asset. Exchange monetizes the license. HUB keeps protecting after the transaction.
-          Buyers see trust — not crypto internals.
-        </p>
-      </div>
+    <InfoPage
+      onNavigate={onNavigate}
+      crumbs={[{ label: 'Trust', page: 'trust' }, { label: 'Trust Center' }]}
+      eyebrow="Trust Center"
+      title="Trust is built into every asset"
+      subtitle="Pinit Exchange combines marketplace commerce with Pinit HUB protection, provenance and verification. Hub protects. Exchange monetizes. Hub keeps protecting after the sale."
+      related={[
+        { page: 'security', label: 'Security', desc: 'Access, encryption, privacy' },
+        { page: 'provenance', label: 'Provenance', desc: 'Asset DNA and evidence' },
+        { page: 'licensing_guide', label: 'Licensing Guide', desc: 'What a purchase grants' },
+      ]}
+      primaryCta={{ label: 'Learn how Pinit protects assets', onClick: () => onNavigate?.('provenance') }}
+      secondaryCta={{ label: 'Explore assets', onClick: () => onNavigate?.('marketplace') }}
+    >
+      <InfoCards
+        items={[
+          { icon: Users, title: 'Verified creators', body: 'Sellers sign in with Hub biometric identity. Exchange IDs share the same core code.' },
+          { icon: Lock, title: 'Protected assets', body: 'Masters stay in the Hub vault. Shoppers see previews and license offers.' },
+          { icon: Fingerprint, title: 'Provenance', body: 'Asset DNA and history help show where the protected file came from.' },
+          { icon: FileCheck, title: 'Licensing transparency', body: 'Personal, commercial, exclusive, and enterprise tiers are explained before checkout.' },
+          { icon: Eye, title: 'Monitoring', body: 'After a sale, Hub can keep watching for copies that look like the original.' },
+          { icon: ShieldCheck, title: 'Evidence', body: 'Sealed licenses and Hub records form an audit trail for that asset.' },
+        ]}
+      />
 
+      <h2>How Hub and Exchange work together</h2>
       <div className="trust-flow">
         {STEPS.map((step, i) => {
           const Icon = step.icon;
@@ -64,7 +78,7 @@ export default function TrustCenter() {
         })}
       </div>
 
-      <div className="glass-panel" style={{ padding: 24, marginTop: 40 }}>
+      <div className="glass-panel" style={{ padding: 24, marginTop: 28 }}>
         <h2 style={{ color: '#fff', marginBottom: 12 }}>Pinit Verified signals</h2>
         <div className="trust-signals">
           <div><strong>Protected</strong><span>Original secured in Hub vault</span></div>
@@ -77,6 +91,6 @@ export default function TrustCenter() {
           Detailed scores appear only in the provenance drawer — not as primary marketplace claims.
         </p>
       </div>
-    </div>
+    </InfoPage>
   );
 }

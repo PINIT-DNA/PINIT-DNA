@@ -6,6 +6,7 @@ import ListingCard from '../components/ListingCard.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import { apiFetch } from '../lib/api.js';
 import { buyerKey } from '../lib/buyer.js';
+import { canList, canPurchase } from '../lib/roles.js';
 
 const VERTICALS = [
   { id: 'all', name: 'All Verticals' },
@@ -21,9 +22,12 @@ const VERTICALS = [
 export default function Marketplace({
   onSelectListing,
   onOpenListFromHub,
+  onOpenCheckout,
+  onBecomeCreator,
   user = null,
   focusListingId = null,
   resetFiltersToken = 0,
+  onCartChanged,
 }) {
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -144,15 +148,30 @@ export default function Marketplace({
             The verified marketplace for creative licenses
           </h1>
           <p style={{ fontSize: '1.1rem', color: 'var(--text-muted)', marginBottom: '28px', lineHeight: '1.6' }}>
-            Stock-agency style browsing — titles, taglines, keywords, and provenance badges on every card.
+            {canList(user)
+              ? 'Create, protect, list and earn from creative assets.'
+              : 'Discover, license and manage creative assets.'}
           </p>
           <div style={{ display: 'flex', gap: '16px' }}>
-            <button className="btn-primary" onClick={onOpenListFromHub} style={{ padding: '12px 24px', fontSize: '1rem' }}>
-              List from Pinit HUB <ArrowRight size={18} />
-            </button>
-            <a href="#browse-section" className="btn-secondary" style={{ padding: '12px 24px', fontSize: '1rem', textDecoration: 'none' }}>
-              Browse Exchange
-            </a>
+            {canList(user) ? (
+              <button className="btn-primary" onClick={onOpenListFromHub} style={{ padding: '12px 24px', fontSize: '1rem' }}>
+                List from Pinit HUB <ArrowRight size={18} />
+              </button>
+            ) : (
+              <a href="#browse-section" className="btn-primary" style={{ padding: '12px 24px', fontSize: '1rem', textDecoration: 'none' }}>
+                Browse Exchange
+              </a>
+            )}
+            {canPurchase(user) && (
+              <button type="button" className="btn-secondary" style={{ padding: '12px 24px', fontSize: '1rem' }} onClick={onBecomeCreator}>
+                Become a Creator
+              </button>
+            )}
+            {!user && (
+              <button type="button" className="btn-secondary" style={{ padding: '12px 24px', fontSize: '1rem' }} onClick={onOpenListFromHub}>
+                Sell on Pinit
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -162,7 +181,7 @@ export default function Marketplace({
           display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '12px',
           marginBottom: '20px', borderBottom: '1px solid var(--border-subtle)',
         }}>
-          {VERTICALS.map((v) => (
+          {VERTICALS.filter((v) => v.id !== 'mine' || canList(user)).map((v) => (
             <button
               key={v.id}
               type="button"
@@ -227,9 +246,9 @@ export default function Marketplace({
               ? 'Your protected assets can become licenses on Pinit Exchange.'
               : 'Try another category, clear filters, or list a protected asset.'
           }
-          primaryLabel={selectedVertical === 'mine' ? 'List an asset' : 'Show all categories'}
+          primaryLabel={selectedVertical === 'mine' && canList(user) ? 'List an asset' : 'Show all categories'}
           onPrimary={() => {
-            if (selectedVertical === 'mine') onOpenListFromHub?.();
+            if (selectedVertical === 'mine' && canList(user)) onOpenListFromHub?.();
             else setSelectedVertical('all');
           }}
           secondaryLabel="Open Pinit HUB"
@@ -239,7 +258,7 @@ export default function Marketplace({
         <div className="listing-grid">
           {listings.map((item) => (
             <div key={item.listing_id} style={{ position: 'relative' }}>
-              {isOwner(item) && (
+              {isOwner(item) && canList(user) && (
                 <button
                   type="button"
                   className="card-edit-btn"
@@ -252,7 +271,25 @@ export default function Marketplace({
               )}
               <ListingCard
                 item={item}
+                user={user}
                 onSelect={onSelectListing}
+                onAddToCart={async (listing) => {
+                  if (user && !canPurchase(user)) return;
+                  const key = buyerKey(user) || localStorage.getItem('pinit_guest_buyer') || `GUEST-${Date.now()}`;
+                  if (!localStorage.getItem('pinit_guest_buyer') && !user) {
+                    localStorage.setItem('pinit_guest_buyer', key);
+                  }
+                  const { ok } = await apiFetch('/api/commerce/cart', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      buyer_key: key,
+                      listing_id: listing.listing_id,
+                      license_tier: 'commercial',
+                    }),
+                  });
+                  if (ok) onCartChanged?.();
+                }}
                 onWishlist={async (listing) => {
                   const key = buyerKey(user) || localStorage.getItem('pinit_guest_buyer') || `GUEST-${Date.now()}`;
                   if (!localStorage.getItem('pinit_guest_buyer') && !user) {

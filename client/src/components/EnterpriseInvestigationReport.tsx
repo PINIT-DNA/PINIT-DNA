@@ -1,5 +1,5 @@
 /**
- * PinIT Sentinel — Forensic Investigation Report UI
+ * Pinit Sentinel — Forensic Investigation Report UI
  * Matches enterprise DMCA/Sentinel document layout; data from view model only.
  */
 import {
@@ -152,7 +152,7 @@ export function EnterpriseInvestigationReport({
                 <Shield size={24} className="text-sky-300" />
               </div>
               <div>
-                <p className="text-xs font-bold tracking-[0.2em] text-sky-300/90">PinIT SENTINEL</p>
+                <p className="text-xs font-bold tracking-[0.2em] text-sky-300/90">Pinit SENTINEL</p>
                 <h1 className="text-xl sm:text-2xl font-bold text-white mt-0.5">
                   Forensic Investigation Report
                 </h1>
@@ -219,7 +219,7 @@ export function EnterpriseInvestigationReport({
                 {[
                   ['Asset Title', String(vm.originalAsset.originalFilename.value)],
                   ['Vault ID', shortId(String(vm.originalAsset.vaultId.value), 16)],
-                  ['PinIT DNA ID', shortId(String(vm.originalAsset.dnaId.value), 16)],
+                  ['Pinit DNA ID', shortId(String(vm.originalAsset.dnaId.value), 16)],
                   ['Certificate ID', shortId(String(vm.originalAsset.certificateId.value), 20)],
                   ['Certificate Status', vm.originalAsset.certificateStatus],
                   ['Owner', String(vm.originalAsset.ownerName.value)],
@@ -338,7 +338,7 @@ export function EnterpriseInvestigationReport({
               </div>
               <div className="space-y-2">
                 <p className="text-2xs text-slate-500 uppercase">C2PA Content Credentials</p>
-                <p className="text-sm text-slate-500">Not available — PinIT DNA certificate used when present</p>
+                <p className="text-sm text-slate-500">Not available — Pinit DNA certificate used when present</p>
               </div>
             </div>
             {vm.layersAvailability === 'available' && (
@@ -507,7 +507,7 @@ export function EnterpriseInvestigationReport({
             <span>Scan signed PDF QR to verify report authenticity</span>
           </div>
           <p className="text-2xs text-slate-600">
-            PinIT Sentinel · Protecting Digital Rights · {new Date().getFullYear()}
+            Pinit Sentinel · Protecting Digital Rights · {new Date().getFullYear()}
           </p>
           <button type="button" onClick={onReset} className="btn btn-secondary text-xs">
             <RefreshCw size={12} /> New Investigation

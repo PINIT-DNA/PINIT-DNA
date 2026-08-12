@@ -1,5 +1,5 @@
 /**
- * Multi-platform share deep links for an existing PinIT Smart Share URL.
+ * Multi-platform share deep links for an existing Pinit Smart Share URL.
  * Reuses one ShareLink — does not mint per-platform tokens.
  */
 

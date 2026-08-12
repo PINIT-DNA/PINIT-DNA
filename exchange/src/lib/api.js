@@ -19,9 +19,24 @@ export async function parseJsonSafe(res) {
   }
 }
 
+function sessionPinitId() {
+  try {
+    const raw = localStorage.getItem('pinit_exchange_session');
+    if (!raw) return '';
+    return JSON.parse(raw)?.pinit_id || '';
+  } catch {
+    return '';
+  }
+}
+
 export async function apiFetch(url, options = {}) {
   try {
-    const res = await fetch(url, options);
+    const headers = { ...(options.headers || {}) };
+    const pid = sessionPinitId();
+    if (pid && !headers['X-Pinit-Id'] && !headers['x-pinit-id']) {
+      headers['X-Pinit-Id'] = pid;
+    }
+    const res = await fetch(url, { ...options, headers });
     const parsed = await parseJsonSafe(res);
     if (!parsed.ok) {
       const msg =

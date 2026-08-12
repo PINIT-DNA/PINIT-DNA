@@ -1,6 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, ShieldCheck, Award, Download } from 'lucide-react';
 import { payAndSeal } from '../lib/razorpay-checkout.js';
+import { apiFetch } from '../lib/api.js';
+import { canPurchase } from '../lib/roles.js';
+
+function defaultBuyer(user) {
+  const name = user?.display_name || user?.name || 'Pinit Buyer';
+  const email =
+    user?.email ||
+    (user?.pinit_id
+      ? `${String(user.pinit_id).toLowerCase().replace(/[^a-z0-9]/g, '')}@buyer.local`
+      : 'buyer@pinit.local');
+  return { name, email, org: user?.org_name || '' };
+}
 
 export default function CheckoutModal({ isOpen, onClose, listing, onOrderCompleted, user }) {
   const [tier, setTier] = useState('commercial');
@@ -12,18 +24,26 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
   const [completedOrder, setCompletedOrder] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [payMode, setPayMode] = useState(null);
+  const autoPayRef = useRef(false);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      autoPayRef.current = false;
+      return;
+    }
     setCompletedOrder(null);
     setErrorMsg('');
-    setBuyerName(user?.display_name || user?.name || '');
-    setBuyerEmail(user?.email || '');
-    setBuyerOrg(user?.org_name || '');
-    fetch('/api/orders/billing/config')
-      .then((r) => r.json())
-      .then((cfg) => setPayMode(cfg.mock ? 'mock' : 'razorpay'))
-      .catch(() => setPayMode('mock'));
+    const defaults = defaultBuyer(user);
+    setBuyerName(defaults.name);
+    setBuyerEmail(defaults.email);
+    setBuyerOrg(defaults.org);
+    apiFetch('/api/orders/billing/config').then((parsed) => {
+      if (parsed.ok && parsed.data) {
+        setPayMode(parsed.data.mock ? 'mock' : 'razorpay');
+        return;
+      }
+      setPayMode('mock');
+    });
   }, [isOpen, user, listing?.listing_id]);
 
   if (!isOpen || !listing) return null;
@@ -38,34 +58,52 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
 
   const selectedPrice = getPriceForTier(tier);
 
-  const handleProcessCheckout = async (e) => {
-    e.preventDefault();
+  const runCheckout = async (name = buyerName, email = buyerEmail, org = buyerOrg) => {
+    if (user && !canPurchase(user)) {
+      setErrorMsg('Creator accounts cannot purchase marketplace assets.');
+      return;
+    }
+    const defaults = defaultBuyer(user);
+    const buyer_name = String(name || defaults.name).trim();
+    const buyer_email = String(email || defaults.email).trim();
     setLoading(true);
     setErrorMsg('');
-
     try {
       const verified = await payAndSeal({
         mode: 'single',
         createBody: {
           listing_id: listing.listing_id,
           license_tier: tier,
-          buyer_name: buyerName,
-          buyer_email: buyerEmail,
-          buyer_org: buyerOrg,
+          buyer_name,
+          buyer_email,
+          buyer_org: org || '',
           buyer_pinit_id: user?.pinit_id,
         },
         description: `${listing.title} · ${tier} license`,
-        userName: buyerName,
-        userEmail: buyerEmail,
+        userName: buyer_name,
+        userEmail: buyer_email,
       });
 
       setCompletedOrder(verified.order);
       onOrderCompleted?.(verified.order);
     } catch (err) {
       setErrorMsg(err.message);
+      autoPayRef.current = false;
     } finally {
       setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    if (!isOpen || payMode !== 'mock' || !listing || completedOrder || autoPayRef.current) return;
+    autoPayRef.current = true;
+    const defaults = defaultBuyer(user);
+    void runCheckout(defaults.name, defaults.email, defaults.org);
+  }, [isOpen, payMode, listing?.listing_id]);
+
+  const handleProcessCheckout = async (e) => {
+    e.preventDefault();
+    await runCheckout();
   };
 
   return (
@@ -83,7 +121,7 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
                   ? `Seal ID: ${completedOrder.seal_id}`
                   : payMode === 'razorpay'
                     ? 'Pay with Razorpay · then provenance seal'
-                    : 'Dev mock payment · set RAZORPAY keys for live checkout'}
+                    : 'Auto-filling buyer details · payment marked successful'}
               </p>
             </div>
           </div>
@@ -246,8 +284,16 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', marginBottom: '6px' }}>
                   <span style={{ color: 'var(--text-muted)' }}>Payment rail:</span>
-                  <span style={{ color: 'var(--emerald)' }}>{payMode === 'razorpay' ? 'Razorpay' : 'Mock (dev)'}</span>
+                  <span style={{ color: 'var(--emerald)' }}>{payMode === 'razorpay' ? 'Razorpay test' : 'Auto-success (demo)'}</span>
                 </div>
+                {payMode === 'razorpay' && (
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: 8, lineHeight: 1.45 }}>
+                    Your Razorpay account blocks international cards. Prefer <strong style={{ color: '#fff' }}>UPI</strong> and pay with
+                    {' '}<strong style={{ color: '#fff' }}>success@razorpay</strong>.
+                    Or use domestic Mastercard <strong style={{ color: '#fff' }}>5267 3181 8797 5449</strong>, any future MM/YY, any CVV.
+                    Do not use 4111… — Razorpay treats that as international.
+                  </p>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.1rem', fontWeight: 800, color: '#fff', paddingTop: '8px', borderTop: '1px solid var(--border-subtle)' }}>
                   <span>Total Due:</span>
                   <span style={{ color: 'var(--emerald)' }}>₹{selectedPrice.toFixed(2)}</span>
@@ -261,10 +307,12 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
               </button>
               <button type="submit" className="btn-primary" disabled={loading}>
                 {loading
-                  ? 'Processing…'
+                  ? payMode === 'mock'
+                    ? 'Auto-completing payment…'
+                    : 'Processing…'
                   : payMode === 'razorpay'
                     ? `Pay ₹${selectedPrice} with Razorpay`
-                    : `Mock pay ₹${selectedPrice} & seal`}
+                    : `Confirm ₹${selectedPrice} · auto-success`}
               </button>
             </div>
           </form>

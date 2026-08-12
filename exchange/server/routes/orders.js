@@ -19,6 +19,8 @@ import { isListingPurchasable, LICENSE_STATUS, ORDER_STATUS, BRIDGE_EVENT } from
 import { authorizeLicenseDownload } from '../lib/license-auth.js';
 import { recordBridgeEvent, markBridgeEventProcessed, retryDueBridgeEvents } from '../lib/bridge-events.js';
 import { getSql, runSql } from '../lib/db.js';
+import { requireBuyer, findUserByPinitId } from '../lib/rbac.js';
+import { canPurchase, sellerDeniedPurchase } from '../lib/roles.js';
 
 const router = express.Router();
 
@@ -31,7 +33,7 @@ router.get('/billing/config', (_req, res) => {
  * POST /api/orders/create-payment
  * Creates a payment intent + Razorpay (or mock) order. Does NOT seal yet.
  */
-router.post('/create-payment', async (req, res) => {
+router.post('/create-payment', requireBuyer, async (req, res) => {
   try {
     const {
       listing_id,
@@ -136,6 +138,12 @@ router.post('/verify-payment', async (req, res) => {
     if (!intent) return res.status(404).json({ error: 'Payment intent not found' });
     if (intent.status === 'paid') {
       return res.status(400).json({ error: 'Payment already completed' });
+    }
+    if (intent.buyer_pinit_id) {
+      const payer = await findUserByPinitId(intent.buyer_pinit_id);
+      if (payer && !canPurchase(payer.role)) {
+        return res.status(403).json(sellerDeniedPurchase());
+      }
     }
 
     const orderId = razorpay_order_id || intent.razorpay_order_id;
@@ -249,7 +257,7 @@ router.post('/verify-payment', async (req, res) => {
  * Legacy checkout — creates payment then auto-verifies in mock mode.
  * With live Razorpay keys, returns payment_required so UI opens Checkout.js.
  */
-router.post('/checkout', async (req, res) => {
+router.post('/checkout', requireBuyer, async (req, res) => {
   try {
     const body = req.body || {};
     if (!body.listing_id || !body.license_tier || !body.buyer_name || !body.buyer_email) {

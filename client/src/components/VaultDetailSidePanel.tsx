@@ -20,6 +20,7 @@ import {
   Microscope,
   Shield,
   Pencil,
+  Store,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { VaultFileThumbnail } from './VaultFileThumbnail';
@@ -33,7 +34,7 @@ import {
 import { buildShareFileAttachment } from '../lib/share-file-open';
 import { API_BASE_URL } from '../config/api.config';
 import { BRAND } from '../config/brand.config';
-import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, renameVaultRecord, type VaultTrackingDashboard } from '../services/dashboard.api';
+import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, renameVaultRecord, createExchangeListIntent, getExchangeRole, type VaultTrackingDashboard } from '../services/dashboard.api';
 import { useAuth } from '../context/AuthContext';
 import { ShareQrBlock } from './ShareQrBlock';
 import { AuthenticityReportCard } from './AuthenticityReportCard';
@@ -130,6 +131,8 @@ export function VaultDetailSidePanel({
   const [loadingTracking, setLoadingTracking] = useState(true);
   const [protectDownloading, setProtectDownloading] = useState(false);
   const [sharingFile, setSharingFile] = useState(false);
+  const [listingOnExchange, setListingOnExchange] = useState(false);
+  const [canListOnExchange, setCanListOnExchange] = useState(false);
   /** Prepared Share File attachment — share() must run on a fresh click (user gesture). */
   const [shareReady, setShareReady] = useState(false);
   const [readyShareUrl, setReadyShareUrl] = useState<string | null>(null);
@@ -162,6 +165,20 @@ export function VaultDetailSidePanel({
   const isImageRecord = resolvedMime.startsWith('image/');
   const tepPackages = tracking?.tepPackages ?? [];
   const latestTep = tepPackages[0] ?? null;
+
+  useEffect(() => {
+    let cancelled = false;
+    void getExchangeRole()
+      .then((role) => {
+        if (!cancelled) setCanListOnExchange(Boolean(role.can_list));
+      })
+      .catch(() => {
+        if (!cancelled) setCanListOnExchange(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setTab('overview');
@@ -309,7 +326,7 @@ export function VaultDetailSidePanel({
   };
 
   /**
-   * Open OS share sheet. On desktop, share the PinIT open URL (so Windows QR
+   * Open OS share sheet. On desktop, share the Pinit open URL (so Windows QR
    * encodes a real link). On mobile, prefer the file attachment when supported.
    */
   const openNativeShareSheet = async (file: File, shareUrl: string) => {
@@ -413,7 +430,7 @@ export function VaultDetailSidePanel({
 
   /**
    * Share File = file attachment (not a chat link).
-   * File opens → PinIT page → tracked under Share Files.
+   * File opens → Pinit page → tracked under Share Files.
    * 1st click prepare · 2nd click share (browser user-gesture rule).
    */
   const handleShareFile = async () => {
@@ -474,6 +491,23 @@ export function VaultDetailSidePanel({
     // Always open this file’s Tracking overview so EVERY share link for the
     // same vault file is listed (shared multiple times → all tracks visible).
     navigate(`/access-intelligence?vaultId=${encodeURIComponent(record.id)}`);
+  };
+
+  const handleListOnExchange = async () => {
+    if (listingOnExchange || !canListOnExchange) return;
+    setListingOnExchange(true);
+    try {
+      const result = await createExchangeListIntent(record.id);
+      toast.success('Opening Pinit Exchange to list this protected asset…');
+      window.open(result.listUrl, '_blank', 'noopener,noreferrer');
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+        (err instanceof Error ? err.message : 'Could not start Exchange listing');
+      toast.error(msg);
+    } finally {
+      setListingOnExchange(false);
+    }
   };
 
   useEffect(() => {
@@ -855,10 +889,14 @@ export function VaultDetailSidePanel({
                 <div className="rounded-xl bg-success/5 border border-success/20 p-3">
                   <div className="flex items-center gap-2 mb-1">
                     <Lock size={12} className="text-success" />
-                    <p className="text-xs font-semibold text-success">Protected in your vault</p>
+                    <p className="text-xs font-semibold text-success">
+                      {canListOnExchange ? 'Protected in your vault' : 'Private · Protected by Pinit HUB'}
+                    </p>
                   </div>
                   <p className="text-2xs text-gray-400">
-                    Only you can open the original. Sharing stays tracked and under your control.
+                    {canListOnExchange
+                      ? 'Only you can open the original. Eligible assets can be listed on Exchange.'
+                      : 'This is a personal Hub asset. Having a file in HUB does not list it on Exchange.'}
                   </p>
                 </div>
               </dl>
@@ -1039,6 +1077,28 @@ export function VaultDetailSidePanel({
               </p>
             )}
           </div>
+
+          {canListOnExchange ? (
+            <>
+          <button
+            type="button"
+            onClick={() => { if (!listingOnExchange) void handleListOnExchange(); }}
+            disabled={listingOnExchange}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-dna-600 hover:bg-dna-500 text-white text-sm font-semibold disabled:opacity-60 shadow-lg shadow-dna-600/20"
+          >
+            {listingOnExchange ? <RefreshCw size={18} className="animate-spin" /> : <Store size={18} />}
+            {listingOnExchange ? 'Opening Exchange…' : 'List on Exchange'}
+          </button>
+          <p className="text-2xs text-gray-500 text-center -mt-1">
+            Opens Pinit Exchange so you can set a price and publish this protected file for sale.
+          </p>
+            </>
+          ) : (
+            <p className="text-2xs text-gray-500 text-center">
+              Private Hub asset. Become a Creator on Pinit Exchange to list marketplace inventory.
+            </p>
+          )}
+
           <div className="grid grid-cols-2 gap-2">
             <QuickAction
               icon={protectDownloading ? <RefreshCw size={18} className="animate-spin" /> : <Download size={18} />}
@@ -1051,6 +1111,13 @@ export function VaultDetailSidePanel({
               label={sharingFile ? 'Preparing…' : shareReady ? 'Share now' : 'Share File'}
               onClick={() => { if (!sharingFile) void handleShareFile(); }}
             />
+            {canListOnExchange && (
+            <QuickAction
+              icon={listingOnExchange ? <RefreshCw size={18} className="animate-spin" /> : <Store size={18} />}
+              label={listingOnExchange ? 'Opening…' : 'List on Exchange'}
+              onClick={() => { if (!listingOnExchange) void handleListOnExchange(); }}
+            />
+            )}
             <QuickAction
               icon={<FileSearch size={18} />}
               label="Intelligence Report"

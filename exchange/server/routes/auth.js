@@ -1,38 +1,18 @@
 import express from 'express';
-import crypto from 'crypto';
 import db from '../database.js';
 import { verifyHubBridgeToken } from '../hub-client.js';
+import { extractPinitCode, identityCandidates, toExchangePinitId } from '../lib/pinit-identity.js';
+import { enrichPublicUser, isSellerRole } from '../lib/roles.js';
+import { findUserByPinitId } from '../lib/rbac.js';
 
 const router = express.Router();
-
-function hashPassword(password) {
-  const salt = crypto.randomBytes(8).toString('hex');
-  const hash = crypto.scryptSync(String(password), salt, 32).toString('hex');
-  return `${salt}:${hash}`;
-}
-
-function verifyPassword(password, stored) {
-  if (!stored || !String(stored).includes(':')) return false;
-  const [salt, hash] = String(stored).split(':');
-  const next = crypto.scryptSync(String(password), salt, 32).toString('hex');
-  return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(next, 'hex'));
-}
-
-function mintPinitId() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let id = 'PINIT-';
-  for (let i = 0; i < 8; i++) id += chars[Math.floor(Math.random() * chars.length)];
-  return id;
-}
 
 function mintExchangeId() {
   return 'PX-' + Math.floor(100000 + Math.random() * 900000);
 }
 
 function publicUser(row) {
-  if (!row) return null;
-  const { password_hash, ...safe } = row;
-  return safe;
+  return enrichPublicUser(row);
 }
 
 function ensureUserColumns(cb) {
@@ -62,7 +42,13 @@ router.get('/me', (req, res) => {
   const pinitId = req.query.pinit_id;
   if (!pinitId) return res.status(400).json({ error: 'pinit_id is required' });
   ensureUserColumns(() => {
-    db.get('SELECT * FROM users WHERE pinit_id = ?', [pinitId], (err, user) => {
+    const candidates = identityCandidates(pinitId);
+    const ids = candidates.length ? candidates : [pinitId];
+    const placeholders = ids.map(() => '?').join(', ');
+    db.get(
+      `SELECT * FROM users WHERE pinit_id IN (${placeholders}) ORDER BY CASE WHEN pinit_id LIKE 'PINIT-EX-%' THEN 0 ELSE 1 END LIMIT 1`,
+      ids,
+      (err, user) => {
       if (err) return res.status(500).json({ error: err.message });
       if (!user) return res.status(404).json({ error: 'User not found' });
       res.json(publicUser(user));
@@ -70,119 +56,20 @@ router.get('/me', (req, res) => {
   });
 });
 
-/**
- * POST /api/auth/signup
- * Stock-agency style: buyer (customer) or creator (contributor)
- */
-router.post('/signup', (req, res) => {
-  ensureUserColumns(() => {
-    const intent = req.body?.intent === 'creator' ? 'creator' : 'buyer';
-
-    // Sellers MUST have a Pinit HUB account — no Exchange-only creator email signup
-    if (intent === 'creator') {
-      return res.status(403).json({
-        error: 'HUB_ACCOUNT_REQUIRED',
-        message: 'Sellers must create a Pinit HUB account first, protect their work in the vault, then continue with Pinit HUB to sell on Exchange.',
-        hub_url: process.env.HUB_APP_URL || 'http://localhost:3000',
-        action: 'continue_with_hub',
-      });
-    }
-
-    const fullName = String(req.body?.full_name || '').trim();
-    const displayName = String(req.body?.display_name || fullName).trim();
-    const email = String(req.body?.email || '').trim().toLowerCase();
-    const password = String(req.body?.password || '');
-    const creatorType = String(req.body?.creator_type || '').trim() || null;
-    const bio = String(req.body?.bio || '').trim() || null;
-    const orgName = String(req.body?.org_name || '').trim() || null;
-    const acceptTerms = !!req.body?.accept_terms;
-    const confirmOwnWork = !!req.body?.confirm_own_work;
-    const confirmAge = !!req.body?.confirm_age;
-
-    if (!fullName || !email || password.length < 8) {
-      return res.status(400).json({ error: 'Name, email, and password (8+ chars) are required' });
-    }
-    if (!acceptTerms) {
-      return res.status(400).json({ error: 'You must accept the terms' });
-    }
-
-    db.get('SELECT pinit_id FROM users WHERE email = ?', [email], (err, existing) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (existing) return res.status(409).json({ error: 'An account with this email already exists — sign in instead' });
-
-      const pinitId = mintPinitId();
-      const exchangeId = intent === 'creator' ? mintExchangeId() : null;
-      const role = intent === 'creator' ? 'creator' : 'buyer';
-      const passwordHash = hashPassword(password);
-      const kyc = intent === 'creator' ? 'pending' : 'not_required';
-      const sellerPlan = intent === 'creator' ? 'starter' : null;
-      const onboarding = intent === 'creator' ? 'protect_in_hub' : 'complete';
-
-      db.run(`
-        INSERT INTO users (
-          pinit_id, exchange_id, name, email, role, kyc_status, biometric_verified,
-          seller_plan, bio, password_hash, display_name, creator_type, org_name,
-          account_intent, hub_linked, onboarding_step
-        ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 0, ?)
-      `, [
-        pinitId,
-        exchangeId,
-        fullName,
-        email,
-        role,
-        kyc,
-        sellerPlan,
-        bio,
-        passwordHash,
-        displayName,
-        creatorType,
-        orgName,
-        intent,
-        onboarding,
-      ], function(insertErr) {
-        if (insertErr) return res.status(500).json({ error: insertErr.message });
-        db.get('SELECT * FROM users WHERE pinit_id = ?', [pinitId], (err2, user) => {
-          if (err2) return res.status(500).json({ error: err2.message });
-          res.status(201).json({
-            message: intent === 'creator'
-              ? 'Creator contributor account created. Protect assets in Pinit HUB, then list on Exchange.'
-              : 'Buyer account created. You can browse and purchase licenses.',
-            user: publicUser(user),
-            next_step: intent === 'creator'
-              ? { action: 'open_hub', url: process.env.HUB_APP_URL || 'http://localhost:3000', reason: 'protect_first' }
-              : { action: 'browse_marketplace' },
-          });
-        });
-      });
-    });
+function hubIdentityRequired(res) {
+  return res.status(403).json({
+    error: 'HUB_BIOMETRIC_REQUIRED',
+    message: 'Email and password are disabled on Exchange. Sign in with Pinit HUB biometric identity.',
+    hub_url: process.env.HUB_APP_URL || 'http://localhost:3000',
+    action: 'continue_with_hub',
   });
-});
+}
 
-/** POST /api/auth/login */
-router.post('/login', (req, res) => {
-  ensureUserColumns(() => {
-    const email = String(req.body?.email || '').trim().toLowerCase();
-    const password = String(req.body?.password || '');
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
-    }
+/** POST /api/auth/signup — disabled. Identity is Hub biometric SSO only. */
+router.post('/signup', (_req, res) => hubIdentityRequired(res));
 
-    db.get('SELECT * FROM users WHERE email = ?', [email], (err, user) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (!user || !user.password_hash) {
-        return res.status(401).json({ error: 'Invalid email or password' });
-      }
-      try {
-        if (!verifyPassword(password, user.password_hash)) {
-          return res.status(401).json({ error: 'Invalid email or password' });
-        }
-      } catch {
-        return res.status(401).json({ error: 'Invalid email or password' });
-      }
-      res.json({ message: 'Signed in', user: publicUser(user) });
-    });
-  });
-});
+/** POST /api/auth/login — disabled. Identity is Hub biometric SSO only. */
+router.post('/login', (_req, res) => hubIdentityRequired(res));
 
 /**
  * POST /api/auth/hub-sso
@@ -201,57 +88,184 @@ router.post('/hub-sso', (req, res) => {
       });
     }
 
-    const pinitId = payload.pinitId;
-    if (!pinitId) {
+    const incomingId = payload.pinitId || payload.rootPinitId;
+    const code = extractPinitCode(incomingId);
+    if (!code) {
       return res.status(401).json({ error: 'Hub SSO token missing Pinit ID' });
     }
-    const name = payload.name || 'Pinit Creator';
-    const email = payload.email || `${String(pinitId).toLowerCase().replace(/[^a-z0-9]/g, '')}@pinithub.local`;
-    const exchangeId = mintExchangeId();
+    const pinitId = toExchangePinitId(incomingId);
+    const requested = String(req.body?.intent || payload.intent || '').toLowerCase() === 'creator'
+      ? 'creator'
+      : 'buyer';
+    const name = payload.name || (requested === 'creator' ? 'Pinit Creator' : 'Pinit Buyer');
+    const email = payload.email || `ex-${code.toLowerCase()}@pinithub.local`;
+    const mintedExchangeId = pinitId;
+    const role = requested;
+    const kyc = requested === 'creator' ? 'pending' : 'not_required';
+    const sellerPlan = requested === 'creator' ? 'starter' : null;
+    const onboarding = requested === 'creator' ? 'protect_in_hub' : 'complete';
+    const candidates = identityCandidates(incomingId);
+    const placeholders = candidates.map(() => '?').join(', ');
 
-    db.run(`
-      INSERT INTO users (
-        pinit_id, exchange_id, name, email, role, kyc_status, biometric_verified,
-        seller_plan, bio, display_name, account_intent, hub_linked, onboarding_step
-      ) VALUES (?, ?, ?, ?, 'creator', 'pending', 1, 'starter', 'Connected via Pinit HUB', ?, 'creator', 1, 'protect_in_hub')
-      ON CONFLICT(pinit_id) DO UPDATE SET
-        name = excluded.name,
-        email = COALESCE(excluded.email, users.email),
-        role = 'creator',
-        account_intent = 'creator',
-        hub_linked = 1,
-        biometric_verified = 1,
-        exchange_id = COALESCE(users.exchange_id, excluded.exchange_id),
-        display_name = COALESCE(users.display_name, excluded.display_name),
-        onboarding_step = CASE
-          WHEN users.onboarding_step = 'complete' THEN 'complete'
-          ELSE 'protect_in_hub'
-        END
-    `, [pinitId, exchangeId, name, email, name], function(err) {
-      if (err) return res.status(500).json({ error: err.message });
-      db.get('SELECT * FROM users WHERE pinit_id = ?', [pinitId], (err2, user) => {
-        if (err2) return res.status(500).json({ error: err2.message });
-        res.json({
-          message: 'Signed in with Pinit HUB — protect vault assets, then list them on Exchange.',
-          user: publicUser(user),
-          hub_linked: true,
-          next_step: {
-            action: 'protect_in_hub',
-            hub_url: process.env.HUB_APP_URL || 'http://localhost:3000',
-          },
-        });
+    const respondWithUser = (user) => {
+      const isCreator = user?.role === 'creator';
+      res.json({
+        message: isCreator
+          ? 'Signed in with Pinit HUB biometric — protect vault assets, then list them on Exchange.'
+          : 'Signed in with Pinit HUB biometric. You can browse and purchase licenses.',
+        user: publicUser(user),
+        hub_linked: true,
+        biometric_verified: true,
+        next_step: isCreator
+          ? { action: 'protect_in_hub', hub_url: process.env.HUB_APP_URL || 'http://localhost:3000' }
+          : { action: 'browse_marketplace' },
       });
-    });
+    };
+
+    db.get(
+      `SELECT * FROM users WHERE pinit_id IN (${placeholders}) ORDER BY CASE
+        WHEN pinit_id LIKE 'PINIT-EX-%' THEN 0 ELSE 1 END LIMIT 1`,
+      candidates,
+      (lookupErr, existing) => {
+        if (lookupErr) return res.status(500).json({ error: lookupErr.message });
+
+        if (existing) {
+          db.run(`
+            UPDATE users SET
+              pinit_id = ?,
+              name = COALESCE(?, name),
+              email = COALESCE(?, email),
+              account_intent = COALESCE(account_intent, ?),
+              hub_linked = 1,
+              biometric_verified = 1,
+              exchange_id = COALESCE(exchange_id, ?),
+              display_name = COALESCE(display_name, ?),
+              seller_plan = COALESCE(seller_plan, ?),
+              onboarding_step = CASE
+                WHEN onboarding_step = 'complete' THEN 'complete'
+                WHEN ? = 'creator' THEN 'protect_in_hub'
+                ELSE COALESCE(onboarding_step, 'complete')
+              END
+            WHERE pinit_id = ?
+          `, [
+            pinitId,
+            name,
+            email,
+            requested,
+            mintedExchangeId,
+            name,
+            sellerPlan,
+            requested,
+            existing.pinit_id,
+          ], (updErr) => {
+            if (updErr) return res.status(500).json({ error: updErr.message });
+            db.get('SELECT * FROM users WHERE pinit_id = ?', [pinitId], (err2, user) => {
+              if (err2) return res.status(500).json({ error: err2.message });
+              respondWithUser(user);
+            });
+          });
+          return;
+        }
+
+        db.run(`
+          INSERT INTO users (
+            pinit_id, exchange_id, name, email, role, kyc_status, biometric_verified,
+            seller_plan, bio, display_name, account_intent, hub_linked, onboarding_step
+          ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, 'Connected via Pinit HUB biometric', ?, ?, 1, ?)
+        `, [pinitId, mintedExchangeId, name, email, role, kyc, sellerPlan, name, requested, onboarding], function(err) {
+          if (err) return res.status(500).json({ error: err.message });
+          db.get('SELECT * FROM users WHERE pinit_id = ?', [pinitId], (err2, user) => {
+            if (err2) return res.status(500).json({ error: err2.message });
+            respondWithUser(user);
+          });
+        });
+      },
+    );
   });
 });
 
-// Update Profile / Seller Onboarding
-router.post('/onboard-seller', (req, res) => {
-  ensureUserColumns(() => {
-    const { pinit_id, name, email, bio, seller_plan, display_name, creator_type } = req.body;
+/** PATCH profile fields without changing marketplace role. */
+router.post('/profile', async (req, res) => {
+  try {
+    const targetId = String(req.body?.pinit_id || '').trim();
+    if (!targetId) return res.status(400).json({ error: 'pinit_id is required' });
+    const existing = await findUserByPinitId(targetId);
+    if (!existing) return res.status(404).json({ error: 'User not found' });
+
+    const { name, email, bio, display_name } = req.body || {};
+    db.run(
+      `UPDATE users SET
+        name = COALESCE(?, name),
+        email = COALESCE(?, email),
+        bio = COALESCE(?, bio),
+        display_name = COALESCE(?, display_name)
+       WHERE pinit_id = ?`,
+      [name || null, email || null, bio || null, display_name || null, existing.pinit_id],
+      (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        db.get('SELECT * FROM users WHERE pinit_id = ?', [existing.pinit_id], (err2, updated) => {
+          if (err2) return res.status(500).json({ error: err2.message });
+          res.json({ message: 'Profile updated', user: publicUser(updated) });
+        });
+      },
+    );
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Controlled buyer → creator conversion. Never automatic from Hub upload.
+ */
+router.post('/become-creator', async (req, res) => {
+  try {
+    const targetId = String(req.body?.pinit_id || '').trim();
+    if (!targetId) return res.status(400).json({ error: 'pinit_id is required' });
+    const existing = await findUserByPinitId(targetId);
+    if (!existing) return res.status(404).json({ error: 'User not found' });
+
+    if (isSellerRole(existing.role)) {
+      return res.json({
+        message: 'Already a Creator account',
+        user: publicUser(existing),
+      });
+    }
+
+    db.run(
+      `UPDATE users SET
+        role = 'creator',
+        account_intent = 'creator',
+        seller_plan = COALESCE(seller_plan, 'starter'),
+        kyc_status = CASE WHEN kyc_status = 'not_required' THEN 'pending' ELSE kyc_status END,
+        onboarding_step = 'protect_in_hub'
+       WHERE pinit_id = ?`,
+      [existing.pinit_id],
+      (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        db.get('SELECT * FROM users WHERE pinit_id = ?', [existing.pinit_id], (err2, updated) => {
+          if (err2) return res.status(500).json({ error: err2.message });
+          res.json({
+            message: 'You are now a Creator. Protect assets in Pinit HUB, then list them here.',
+            user: publicUser(updated),
+          });
+        });
+      },
+    );
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update Profile / Seller Onboarding — does NOT convert buyers unless become_creator=true
+router.post('/onboard-seller', async (req, res) => {
+  try {
+    const { pinit_id, name, email, bio, seller_plan, display_name, creator_type, become_creator } = req.body || {};
     const targetId = pinit_id;
     if (!targetId) return res.status(400).json({ error: 'pinit_id is required' });
+    const existing = await findUserByPinitId(targetId);
+    if (!existing) return res.status(404).json({ error: 'User not found' });
 
+    const convert = Boolean(become_creator) || isSellerRole(existing.role);
     const exchangeId = mintExchangeId();
 
     db.run(`
@@ -262,22 +276,32 @@ router.post('/onboard-seller', (req, res) => {
           seller_plan = COALESCE(?, seller_plan),
           display_name = COALESCE(?, display_name),
           creator_type = COALESCE(?, creator_type),
-          kyc_status = 'verified',
           biometric_verified = 1,
           exchange_id = COALESCE(exchange_id, ?),
-          role = 'creator',
-          account_intent = 'creator',
-          onboarding_step = 'complete'
+          role = CASE WHEN ? = 'yes' THEN 'creator' ELSE role END,
+          account_intent = CASE WHEN ? = 'yes' THEN 'creator' ELSE account_intent END,
+          onboarding_step = CASE WHEN ? = 'yes' THEN 'complete' ELSE onboarding_step END
       WHERE pinit_id = ?
-    `, [name, email, bio, seller_plan, display_name, creator_type, exchangeId, targetId], function(err) {
+    `, [
+      name, email, bio, seller_plan, display_name, creator_type, exchangeId,
+      convert ? 'yes' : 'no', convert ? 'yes' : 'no', convert ? 'yes' : 'no',
+      existing.pinit_id,
+    ], function(err) {
       if (err) return res.status(500).json({ error: err.message });
 
-      db.get('SELECT * FROM users WHERE pinit_id = ?', [targetId], (err2, updatedUser) => {
+      db.get('SELECT * FROM users WHERE pinit_id = ?', [existing.pinit_id], (err2, updatedUser) => {
         if (err2) return res.status(500).json({ error: err2.message });
-        res.json({ message: 'Seller onboarding completed successfully', user: publicUser(updatedUser) });
+        res.json({
+          message: convert && !isSellerRole(existing.role)
+            ? 'Seller onboarding completed successfully'
+            : 'Settings updated',
+          user: publicUser(updatedUser),
+        });
       });
     });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

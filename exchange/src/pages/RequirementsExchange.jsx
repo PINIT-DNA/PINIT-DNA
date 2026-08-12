@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { apiFetch, verticalLabel } from '../lib/api.js';
 import EmptyState from '../components/EmptyState.jsx';
+import { canList, canPurchase } from '../lib/roles.js';
 
 const CATEGORIES = [
   { id: 'all', label: 'All Categories' },
@@ -64,7 +65,7 @@ function formatBudget(budget) {
   return `$${n.toLocaleString()}`;
 }
 
-export default function RequirementsExchange({ onNavigate }) {
+export default function RequirementsExchange({ onNavigate, user = null, onOpenAuth, onBecomeCreator }) {
   const [requirements, setRequirements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -125,6 +126,13 @@ export default function RequirementsExchange({ onNavigate }) {
 
   const handleCreateRequirement = async (e) => {
     e.preventDefault();
+    if (!user) {
+      onOpenAuth?.({ mode: 'signup', intent: 'buyer' });
+      return;
+    }
+    if (!canPurchase(user)) {
+      return;
+    }
     const { ok } = await apiFetch('/api/requirements', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -136,6 +144,8 @@ export default function RequirementsExchange({ onNavigate }) {
         vertical,
         budget,
         deadline,
+        pinit_id: user?.pinit_id,
+        buyer_pinit_id: user?.pinit_id,
       }),
     });
     if (ok) {
@@ -147,7 +157,19 @@ export default function RequirementsExchange({ onNavigate }) {
   };
 
   const handleSubmitWork = async (reqId) => {
-    await apiFetch(`/api/requirements/${reqId}/propose`, { method: 'POST' });
+    if (!user) {
+      onOpenAuth?.({ mode: 'signup', intent: 'creator' });
+      return;
+    }
+    if (!canList(user)) {
+      onBecomeCreator?.();
+      return;
+    }
+    await apiFetch(`/api/requirements/${reqId}/propose`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pinit_id: user.pinit_id }),
+    });
     fetchRequirements();
   };
 
@@ -163,9 +185,19 @@ export default function RequirementsExchange({ onNavigate }) {
           Post a verified creative brief and receive provenance-backed submissions from creators.
         </p>
         <div className="req-hero__cta">
-          <button type="button" className="btn-primary" onClick={() => setIsModalOpen(true)}>
+          {(!user || canPurchase(user)) && (
+          <button type="button" className="btn-primary" onClick={() => {
+            if (!user) onOpenAuth?.({ mode: 'signup', intent: 'buyer' });
+            else setIsModalOpen(true);
+          }}>
             <PlusCircle size={18} /> Post a Brief
           </button>
+          )}
+          {canList(user) && (
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>
+              Browse briefs and submit proposals. Creator accounts cannot purchase through a requirement.
+            </p>
+          )}
           {onNavigate && (
             <button type="button" className="btn-secondary" onClick={() => onNavigate('marketplace')}>
               Browse marketplace <ArrowRight size={14} />
@@ -241,8 +273,11 @@ export default function RequirementsExchange({ onNavigate }) {
             icon={<Briefcase size={32} color="var(--primary)" />}
             title="No buyer briefs available right now"
             description="Be the first to post a creative requirement and connect with verified creators."
-            primaryLabel="Post a Buyer Brief"
-            onPrimary={() => setIsModalOpen(true)}
+            primaryLabel={canPurchase(user) || !user ? 'Post a Buyer Brief' : 'Browse marketplace'}
+            onPrimary={() => {
+              if (canPurchase(user) || !user) setIsModalOpen(true);
+              else onNavigate?.('marketplace');
+            }}
             secondaryLabel="Browse existing assets → Discover Marketplace"
             onSecondary={onNavigate ? () => onNavigate('marketplace') : undefined}
           />
@@ -308,13 +343,15 @@ export default function RequirementsExchange({ onNavigate }) {
                     >
                       <FileText size={14} /> {open ? 'Hide details' : 'View Brief'}
                     </button>
+                    {canList(user) && (
                     <button
                       type="button"
                       className="btn-primary"
                       onClick={() => handleSubmitWork(req.req_id)}
                     >
-                      <Users size={14} /> Submit Work
+                      <Users size={14} /> Submit proposal
                     </button>
+                    )}
                   </div>
                 </article>
               );

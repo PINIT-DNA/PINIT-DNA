@@ -46,7 +46,7 @@ function DnaDetailModal({ record, onClose }: { record: DnaRecord; onClose: () =>
         <div className="rounded-xl bg-dna-500/5 border border-dna-500/20 p-4">
           <p className="text-xs font-semibold text-dna-400 mb-1">Protected identity</p>
           <p className="text-2xs text-gray-400">
-            This file has a unique PinIT identity so you can prove ownership, detect copies, and stay in control after sharing.
+            This file has a unique Pinit identity so you can prove ownership, detect copies, and stay in control after sharing.
           </p>
         </div>
       </div>

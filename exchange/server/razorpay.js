@@ -5,7 +5,7 @@ export function isRazorpayConfigured() {
   return Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
 }
 
-/** Mock payments when keys missing, or PAYMENT_MOCK=1 */
+/** Mock payments when keys missing, or PAYMENT_MOCK=1 (local auto-success). */
 export function isPaymentMockMode() {
   if (String(process.env.PAYMENT_MOCK || '').trim() === '1') return true;
   if (String(process.env.PAYMENT_MOCK || '').toLowerCase() === 'true') return true;

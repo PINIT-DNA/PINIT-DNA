@@ -8,6 +8,7 @@ import {
   fetchPreviewFromHub,
 } from '../hub-client.js';
 import { exchangePreviewUrl, isHubVaultId, PLACEHOLDER_PREVIEW } from '../lib/preview-url.js';
+import { requireSeller } from '../lib/rbac.js';
 
 const router = express.Router();
 const HUB_APP_URL = (process.env.HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
@@ -116,7 +117,7 @@ function upsertLocalCache(asset, pinitId, cb) {
   ], () => cb?.());
 }
 
-router.get('/assets', async (req, res) => {
+router.get('/assets', requireSeller, async (req, res) => {
   const pinitId = String(req.query.pinit_id || '').trim();
   if (!pinitId) {
     return res.status(400).json({
@@ -162,7 +163,7 @@ router.get('/assets', async (req, res) => {
   );
 });
 
-router.post('/protect-upload', (req, res) => {
+router.post('/protect-upload', requireSeller, (req, res) => {
   upload.single('file')(req, res, async (err) => {
     if (err) {
       return res.status(400).json({

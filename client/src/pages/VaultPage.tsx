@@ -91,7 +91,7 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
             <p className="text-sm font-semibold text-white">{record.originalFileName}</p>
           </div>
           <p className="text-2xs text-gray-400 mb-2">
-            Download with tracking so you can see who received the file. Opening outside PinIT may still
+            Download with tracking so you can see who received the file. Opening outside Pinit may still
             be identified later through Investigate.
           </p>
           <ul className="text-2xs text-dna-300 space-y-0.5">
@@ -331,7 +331,7 @@ function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => v
       && (typeof navigator.canShare !== 'function' || navigator.canShare(shareData));
 
     if (canShare) {
-      // Close PinIT modal first — only the OS share card should show
+      // Close Pinit modal first — only the OS share card should show
       onClose();
       try {
         await navigator.share(shareData);

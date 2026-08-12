@@ -5,8 +5,9 @@ import { isVideoListing } from '../lib/media.js';
 import HubTrustBadge from '../components/HubTrustBadge.jsx';
 import ProvenanceDrawer from '../components/ProvenanceDrawer.jsx';
 import { apiFetch, verifiedLabel } from '../lib/api.js';
+import { canList, canPurchase, isSeller } from '../lib/roles.js';
 
-export default function ListingDetail({ listingId, onBack, onOpenCheckout, user, onCartChanged }) {
+export default function ListingDetail({ listingId, onBack, onOpenCheckout, onManageListing, user, onCartChanged }) {
   const [listing, setListing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedTier, setSelectedTier] = useState('commercial');
@@ -58,7 +59,11 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, user,
   };
 
   const addToCart = async () => {
-    const res = await fetch('/api/commerce/cart', {
+    if (user && !canPurchase(user)) {
+      setToast('Creator accounts cannot purchase marketplace assets.');
+      return;
+    }
+    const { ok, error } = await apiFetch('/api/commerce/cart', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -67,8 +72,8 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, user,
         license_tier: selectedTier,
       }),
     });
-    setToast(res.ok ? 'Added to cart' : 'Could not add to cart');
-    if (res.ok) onCartChanged?.();
+    setToast(ok ? 'Added to cart' : (error || 'Could not add to cart'));
+    if (ok) onCartChanged?.();
   };
 
   const addWishlist = async () => {
@@ -230,45 +235,67 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, user,
           </div>
 
           <div className="glass-panel" style={{ padding: 24 }}>
-            <h3 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: 16 }}>Select License Tier</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
-              {tiers.map((t) => (
-                <div
-                  key={t.id}
-                  onClick={() => setSelectedTier(t.id)}
-                  style={{
-                    border: selectedTier === t.id ? '2px solid var(--primary)' : '1px solid var(--border-subtle)',
-                    background: selectedTier === t.id ? 'rgba(59, 130, 246, 0.12)' : 'rgba(0,0,0,0.2)',
-                    padding: '14px 18px',
-                    borderRadius: 'var(--radius-sm)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <strong style={{ color: '#fff' }}>{t.name}</strong>
-                    <span style={{ color: 'var(--emerald)', fontWeight: 800 }}>${t.price}</span>
-                  </div>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 4 }}>{t.desc}</p>
+            {isSeller(user) ? (
+              <>
+                <h3 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: 12 }}>Asset information</h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.5, marginBottom: 16 }}>
+                  Creator accounts cannot purchase marketplace assets.
+                </p>
+                <div style={{ color: 'var(--text-dim)', fontSize: '0.85rem', marginBottom: 16 }}>
+                  From ${listing.price_personal || 49} · Personal · Commercial · Exclusive
                 </div>
-              ))}
-            </div>
+                {canList(user) && user?.pinit_id === listing.pinit_id && (
+                  <button type="button" className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={onManageListing}>
+                    Manage listing
+                  </button>
+                )}
+                <button type="button" className="btn-secondary" style={{ width: '100%', justifyContent: 'center', marginTop: 10 }} onClick={addWishlist}>
+                  <Heart size={16} /> Save for reference
+                </button>
+              </>
+            ) : (
+              <>
+                <h3 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: 16 }}>Select License Tier</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
+                  {tiers.map((t) => (
+                    <div
+                      key={t.id}
+                      onClick={() => setSelectedTier(t.id)}
+                      style={{
+                        border: selectedTier === t.id ? '2px solid var(--primary)' : '1px solid var(--border-subtle)',
+                        background: selectedTier === t.id ? 'rgba(59, 130, 246, 0.12)' : 'rgba(0,0,0,0.2)',
+                        padding: '14px 18px',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <strong style={{ color: '#fff' }}>{t.name}</strong>
+                        <span style={{ color: 'var(--emerald)', fontWeight: 800 }}>${t.price}</span>
+                      </div>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 4 }}>{t.desc}</p>
+                    </div>
+                  ))}
+                </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <button
-                type="button"
-                className="btn-primary"
-                style={{ width: '100%', justifyContent: 'center' }}
-                onClick={() => onOpenCheckout({ ...listing, preferredTier: selectedTier })}
-              >
-                Buy now — {selectedTier} (${currentPrice})
-              </button>
-              <button type="button" className="btn-secondary" style={{ width: '100%', justifyContent: 'center' }} onClick={addToCart}>
-                <ShoppingCart size={16} /> Add to cart
-              </button>
-              <button type="button" className="btn-secondary" style={{ width: '100%', justifyContent: 'center' }} onClick={addWishlist}>
-                <Heart size={16} /> Add to wishlist
-              </button>
-            </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    style={{ width: '100%', justifyContent: 'center' }}
+                    onClick={() => onOpenCheckout({ ...listing, preferredTier: selectedTier })}
+                  >
+                    License now — {selectedTier} (${currentPrice})
+                  </button>
+                  <button type="button" className="btn-secondary" style={{ width: '100%', justifyContent: 'center' }} onClick={addToCart}>
+                    <ShoppingCart size={16} /> Add to cart
+                  </button>
+                  <button type="button" className="btn-secondary" style={{ width: '100%', justifyContent: 'center' }} onClick={addWishlist}>
+                    <Heart size={16} /> Add to wishlist
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

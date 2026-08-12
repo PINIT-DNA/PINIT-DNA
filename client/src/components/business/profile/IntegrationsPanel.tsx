@@ -315,7 +315,7 @@ export function IntegrationsPanel() {
     <div className="space-y-4">
       <EnterpriseCard title="How integrations work" icon={<Plug size={16} />}>
         <p className="text-sm text-slate-700 dark:text-gray-300 leading-relaxed">
-          PinIT stays the security brain (DNA, vault, monitoring). Integrations are bridges to tools
+          Pinit stays the security brain (DNA, vault, monitoring). Integrations are bridges to tools
           you already use. Live now:{' '}
           <strong className="text-slate-900 dark:text-white">Slack</strong>,{' '}
           <strong className="text-slate-900 dark:text-white">Teams</strong>,{' '}
@@ -444,7 +444,7 @@ export function IntegrationsPanel() {
 
       <EnterpriseCard title="Outbound webhooks" icon={<Webhook size={16} />}>
         <p className="text-sm text-slate-600 dark:text-gray-400 mb-3">
-          PinIT POSTs signed JSON to your URL when events happen — use this for PinIT Exchange or your
+          Pinit POSTs signed JSON to your URL when events happen — use this for Pinit Exchange or your
           own server. Tip: try{' '}
           <a
             href="https://webhook.site"
