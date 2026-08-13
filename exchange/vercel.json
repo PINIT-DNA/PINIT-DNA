@@ -28,6 +28,8 @@
     { "source": "/settings", "destination": "/index.html" },
     { "source": "/404", "destination": "/index.html" },
     { "source": "/exchange", "destination": "/index.html" },
-    { "source": "/exchange/:path*", "destination": "/index.html" }
+    { "source": "/exchange/:path*", "destination": "/index.html" },
+    { "source": "/p", "destination": "/index.html" },
+    { "source": "/p/:path*", "destination": "/index.html" }
   ]
 }
