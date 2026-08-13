@@ -241,6 +241,29 @@ export async function redeemDeliveryBridge(req: Request, res: Response, next: Ne
 }
 
 /**
+ * GET /exchange/profiles-bridge?pinitIds=PINIT-EX-ABC,PINIT-USER-ABC
+ * Auth: X-PinIT-Bridge-Secret
+ */
+export async function profilesBridge(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    verifyServiceBridgeSecret(
+      (req.headers['x-pinit-bridge-secret'] as string | undefined) ||
+      (req.headers['x-exchange-bridge-secret'] as string | undefined),
+    );
+    const raw = String(req.query.pinitIds || req.query.pinit_id || req.query.pinitId || '').trim();
+    const ids = raw.split(',').map((id) => id.trim()).filter(Boolean);
+    if (!ids.length) {
+      res.status(400).json({ success: false, error: 'pinitIds is required' });
+      return;
+    }
+    const result = await exchangeBridgeService.getPublicProfilesByPinitIds(ids);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * GET /exchange/monitoring-summaries-bridge?pinitId=
  * Auth: X-PinIT-Bridge-Secret
  */

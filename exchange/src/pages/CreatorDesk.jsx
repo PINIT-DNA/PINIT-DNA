@@ -1,11 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { DollarSign, Eye, Bookmark, Layers, ShieldCheck, FileCheck, PlusCircle, Award, Activity, Search, RefreshCw, Send, CheckCircle } from 'lucide-react';
+import { DollarSign, Eye, Bookmark, Layers, ShieldCheck, FileCheck, PlusCircle, Award, Activity, Search, RefreshCw, Send, CheckCircle, Play } from 'lucide-react';
 import { canList } from '../lib/roles.js';
+import { isVideoListing } from '../lib/media.js';
 
-export default function CreatorDesk({ user, onOpenListFromHub, onOpenAuth, hubAppUrl: hubAppUrlProp }) {
+function listingPreviewUrl(item) {
+  const url = String(item?.preview_url || '');
+  if (url && !url.includes('unsplash.com')) return url;
+  const id = String(item?.asset_id || '');
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+    return `/api/hub/preview/${id}`;
+  }
+  return '';
+}
+
+const SECTION_TAB = {
+  seller_listings: 'listings',
+  seller_assets: 'listings',
+  seller_sales: 'sales',
+  seller_orders: 'sales',
+  seller_earnings: 'earnings',
+  seller_promotions: 'earnings',
+  seller_alerts: 'tracking',
+  seller_reviews: 'overview',
+  seller_analytics: 'overview',
+};
+
+export default function CreatorDesk({ user, onOpenListFromHub, onOpenAuth, onSelectListing, section, hubAppUrl: hubAppUrlProp }) {
   const [deskData, setDeskData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(SECTION_TAB[section] || 'listings');
   const [proposalSuccessMsg, setProposalSuccessMsg] = useState('');
   const [monitorSummaries, setMonitorSummaries] = useState([]);
   const [coupons, setCoupons] = useState([]);
@@ -13,6 +36,10 @@ export default function CreatorDesk({ user, onOpenListFromHub, onOpenAuth, hubAp
   const [couponPercent, setCouponPercent] = useState(10);
   const [couponMsg, setCouponMsg] = useState('');
   const hubAppUrl = (hubAppUrlProp || import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
+
+  useEffect(() => {
+    if (section && SECTION_TAB[section]) setActiveTab(SECTION_TAB[section]);
+  }, [section]);
 
   useEffect(() => {
     if (!user?.pinit_id || !canList(user)) {
@@ -28,7 +55,9 @@ export default function CreatorDesk({ user, onOpenListFromHub, onOpenAuth, hubAp
   const fetchDeskData = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/creator/desk?pinit_id=${encodeURIComponent(user.pinit_id)}`);
+      const res = await fetch(`/api/creator/desk?pinit_id=${encodeURIComponent(user.pinit_id)}`, {
+        headers: { 'X-Pinit-Id': user.pinit_id },
+      });
       if (res.ok) {
         const data = await res.json();
         setDeskData(data);
@@ -145,10 +174,11 @@ export default function CreatorDesk({ user, onOpenListFromHub, onOpenAuth, hubAp
 
   const { metrics, listings, sealed_sales, tracking_jobs, requirements } = deskData || {};
   const needsHub = !Number(user.hub_linked);
+  const compact = Boolean(section);
 
   return (
-    <div style={{ maxWidth: '1320px', margin: '0 auto', padding: '32px 24px' }}>
-      {needsHub && (
+    <div style={{ maxWidth: '1320px', margin: '0 auto', padding: compact ? '24px 28px 48px' : '32px 24px' }}>
+      {!compact && needsHub && (
         <div
           className="glass-panel"
           style={{
@@ -177,7 +207,7 @@ export default function CreatorDesk({ user, onOpenListFromHub, onOpenAuth, hubAp
         </div>
       )}
 
-      {!needsHub && (user.onboarding_step === 'protect_in_hub') && (
+      {!compact && !needsHub && (user.onboarding_step === 'protect_in_hub') && (
         <div
           className="glass-panel"
           style={{
@@ -212,7 +242,7 @@ export default function CreatorDesk({ user, onOpenListFromHub, onOpenAuth, hubAp
         </div>
       )}
 
-      {/* Header Banner */}
+      {!compact && (
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px', flexWrap: 'wrap', gap: 16 }}>
         <div>
           <h1 style={{ fontSize: '2.2rem', color: '#fff' }}>Seller overview</h1>
@@ -230,8 +260,10 @@ export default function CreatorDesk({ user, onOpenListFromHub, onOpenAuth, hubAp
           </button>
         </div>
       </div>
+      )}
 
-      {/* Metrics Row */}
+      {!compact && (
+      <>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginBottom: '24px' }}>
         <div className="glass-panel" style={{ padding: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '8px' }}>
@@ -313,6 +345,8 @@ export default function CreatorDesk({ user, onOpenListFromHub, onOpenAuth, hubAp
           </button>
         ))}
       </div>
+      </>
+      )}
 
       {proposalSuccessMsg && (
         <div style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.88rem' }}>
@@ -346,15 +380,61 @@ export default function CreatorDesk({ user, onOpenListFromHub, onOpenAuth, hubAp
 
       {activeTab === 'listings' && (
         <div className="glass-panel" style={{ padding: '24px' }}>
-          <h3 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: '16px' }}>My Active & Paused Listings</h3>
+          <h3 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: '8px' }}>Published listings</h3>
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 16 }}>
+            Click a card to view the preview. Buyers can see it too — download and share stay locked until they license it.
+          </p>
+          {(!listings || listings.length === 0) && (
+            <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
+              No published listings yet. List a protected file from Pinit HUB.
+            </p>
+          )}
           <div className="listings-grid">
-            {listings?.map(item => (
-              <div key={item.listing_id} className="glass-card" style={{ cursor: 'default' }}>
-                <div className="card-media-wrapper" style={{ height: '160px' }}>
-                  <img src={item.preview_url || 'https://images.unsplash.com/photo-1514565131-fce0801e5785?auto=format&fit=crop&w=800&q=80'} alt={item.title} className="card-media" />
+            {listings?.map(item => {
+              const video = isVideoListing(item);
+              const live = item.status === 'live' || item.status === 'published';
+              const preview = listingPreviewUrl(item);
+              return (
+              <button
+                key={item.listing_id}
+                type="button"
+                className="glass-card"
+                onClick={() => onSelectListing?.(item.listing_id)}
+                style={{
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  width: '100%',
+                  border: '1px solid var(--border-subtle)',
+                  background: 'transparent',
+                  padding: 0,
+                }}
+              >
+                <div className="card-media-wrapper" style={{ height: '180px', position: 'relative', background: '#0b1220' }}>
+                  {preview ? (
+                    video ? (
+                      <video
+                        src={preview}
+                        className="card-media"
+                        muted
+                        playsInline
+                        preload="metadata"
+                      />
+                    ) : (
+                      <img src={preview} alt={item.title} className="card-media" />
+                    )
+                  ) : (
+                    <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                      Preview unavailable
+                    </div>
+                  )}
+                  {video && (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                      <Play size={28} fill="#fff" color="#fff" />
+                    </div>
+                  )}
                   <div className="card-badge-container">
-                    <span className={`badge-${item.badge_tier.toLowerCase()}`}>
-                      <Award size={12} /> {item.badge_tier}
+                    <span className={`badge-${String(item.badge_tier || 'gold').toLowerCase()}`}>
+                      <Award size={12} /> {item.badge_tier || 'Gold'}
                     </span>
                   </div>
                 </div>
@@ -374,7 +454,7 @@ export default function CreatorDesk({ user, onOpenListFromHub, onOpenAuth, hubAp
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
                     <span style={{
-                      color: (item.status === 'live' || item.status === 'published')
+                      color: live
                         ? 'var(--emerald)'
                         : item.status === 'sold_exclusive'
                           ? 'var(--badge-gold)'
@@ -386,8 +466,9 @@ export default function CreatorDesk({ user, onOpenListFromHub, onOpenAuth, hubAp
                     <span style={{ color: 'var(--text-dim)' }}>{item.views || 0} Views</span>
                   </div>
                 </div>
-              </div>
-            ))}
+              </button>
+              );
+            })}
           </div>
         </div>
       )}

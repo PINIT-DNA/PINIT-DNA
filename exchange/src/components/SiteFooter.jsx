@@ -7,29 +7,29 @@ const COLUMNS = [
     id: 'product',
     title: 'Product',
     links: [
-      { label: 'Marketplace', page: 'marketplace', hint: 'Discover verified assets' },
-      { label: 'Collections', page: 'collections', hint: 'Shop by theme' },
-      { label: 'Requirements', page: 'requirements', hint: 'Post a creative brief' },
-      { label: 'Creator Program', page: 'creator_program', hint: 'Join and list work' },
+      { label: 'Marketplace', page: 'marketplace' },
+      { label: 'Collections', page: 'collections' },
+      { label: 'Requirements', page: 'requirements' },
+      { label: 'Creator Program', page: 'creator_program' },
     ],
   },
   {
     id: 'trust',
     title: 'Trust',
     links: [
-      { label: 'Trust Center', page: 'trust', hint: 'How protection works' },
-      { label: 'Licensing Guide', page: 'licensing_guide', hint: 'Personal to exclusive' },
-      { label: 'Provenance', page: 'provenance', hint: 'Asset DNA and evidence' },
-      { label: 'Security', page: 'security', hint: 'Access and privacy' },
+      { label: 'Trust Center', page: 'trust' },
+      { label: 'Licensing Guide', page: 'licensing_guide' },
+      { label: 'Provenance', page: 'provenance' },
+      { label: 'Security', page: 'security' },
     ],
   },
   {
     id: 'business',
     title: 'Business',
     links: [
-      { label: 'Sell on Pinit', page: 'sell', hint: 'Protect, list, earn' },
-      { label: 'Enterprise', page: 'enterprise', hint: 'Teams and studios' },
-      { label: 'Creator Support', page: 'creator_support', hint: 'Help and FAQs' },
+      { label: 'Sell on Exchange', page: 'sell' },
+      { label: 'Enterprise', page: 'enterprise' },
+      { label: 'Creator Support', page: 'creator_support' },
     ],
   },
   {
@@ -80,8 +80,8 @@ export default function SiteFooter({ onNavigate, user = null }) {
               )}
               {seller && (
                 <>
-                  <button type="button" onClick={() => go('creator_desk')}>My Listings</button>
-                  <button type="button" onClick={() => go('creator_desk')}>Creator Dashboard</button>
+                  <button type="button" onClick={() => go('seller_listings')}>Your listings</button>
+                  <button type="button" onClick={() => go('seller_sales')}>Sales</button>
                 </>
               )}
             </div>
@@ -116,7 +116,6 @@ export default function SiteFooter({ onNavigate, user = null }) {
                     onClick={() => go(link.page)}
                   >
                     {link.label}
-                    {link.hint && <em>{link.hint}</em>}
                   </button>
                 ))}
               </div>

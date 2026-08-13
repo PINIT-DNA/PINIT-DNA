@@ -3,7 +3,6 @@ import { ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
 import ListingCard from '../components/ListingCard.jsx';
 import HubTrustBadge from '../components/HubTrustBadge.jsx';
 import { apiFetch } from '../lib/api.js';
-import { canList, canPurchase } from '../lib/roles.js';
 
 const CATEGORIES = [
   { id: 'images', label: 'Photography' },
@@ -15,17 +14,36 @@ const CATEGORIES = [
   { id: 'graphics', label: 'Graphics' },
 ];
 
-export default function HomePage({ onNavigate, onOpenListFromHub, onOpenAuth, onBecomeCreator, user, onSelectListing }) {
+export default function HomePage({ onNavigate, onOpenAuth, user, onSelectListing }) {
   const [featured, setFeatured] = useState([]);
+  const [query, setQuery] = useState('');
+  const [savedCount, setSavedCount] = useState(0);
+  const [purchaseCount, setPurchaseCount] = useState(0);
 
   useEffect(() => {
     (async () => {
       const { ok, data } = await apiFetch('/api/listings?vertical=all&badge=all&sort=popular');
-      if (ok && Array.isArray(data)) {
-        setFeatured(data.slice(0, 6));
-      }
+      if (ok && Array.isArray(data)) setFeatured(data.slice(0, 8));
     })();
   }, []);
+
+  useEffect(() => {
+    if (!user?.pinit_id) return;
+    (async () => {
+      const key = user.pinit_id;
+      const wish = await apiFetch(`/api/commerce/wishlist?buyer_key=${encodeURIComponent(key)}`);
+      if (wish.ok) setSavedCount((wish.data.items || []).length);
+      try {
+        const params = new URLSearchParams({ pinit_id: user.pinit_id });
+        if (user.email) params.set('email', user.email);
+        const res = await fetch(`/api/orders/my-licenses?${params}`);
+        if (res.ok) {
+          const data = await res.json();
+          setPurchaseCount((data.licenses || []).length);
+        }
+      } catch { /* ignore */ }
+    })();
+  }, [user?.pinit_id, user?.email]);
 
   return (
     <div style={{ maxWidth: 1320, margin: '0 auto', padding: '28px 24px 48px' }}>
@@ -35,11 +53,26 @@ export default function HomePage({ onNavigate, onOpenListFromHub, onOpenAuth, on
           <Sparkles size={14} /> Verified creative marketplace
         </div>
         <h1 className="home-hero__title">
-          {canList(user) ? 'Create, protect, list and earn from creative assets.' : 'Discover, license and manage creative assets.'}
+          {user ? `Welcome back, ${(user.display_name || user.name || 'there').split(' ')[0]}` : 'Discover verified creative assets.'}
         </h1>
         <p className="home-hero__sub">
-          Photography · Video · Illustration · UI/UX · 3D · Audio · Graphics
+          What are you looking for?
         </p>
+        <form
+          className="home-search"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onNavigate('marketplace');
+          }}
+        >
+          <input
+            className="form-input"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search assets, creators, collections…"
+          />
+          <button type="submit" className="btn-primary">Search</button>
+        </form>
         <div className="home-hero__cats">
           {CATEGORIES.map((c) => (
             <button
@@ -56,22 +89,14 @@ export default function HomePage({ onNavigate, onOpenListFromHub, onOpenAuth, on
           <button type="button" className="btn-primary" onClick={() => onNavigate('marketplace')}>
             Explore assets <ArrowRight size={16} />
           </button>
-          {!canList(user) && (
+          {!user && (
           <button
             type="button"
             className="btn-secondary"
-            onClick={() => {
-              if (user) onBecomeCreator?.();
-              else onOpenAuth?.({ mode: 'signup', intent: 'creator' });
-            }}
+            onClick={() => onOpenAuth?.({ mode: 'signup', intent: 'creator' })}
           >
-            Become a Creator
+            Sell on Exchange
           </button>
-          )}
-          {canList(user) && (
-            <button type="button" className="btn-secondary" onClick={onOpenListFromHub}>
-              List an asset
-            </button>
           )}
         </div>
       </section>
@@ -87,11 +112,45 @@ export default function HomePage({ onNavigate, onOpenListFromHub, onOpenAuth, on
         <HubTrustBadge compact onOpenProvenance={() => onNavigate('trust')} />
       </section>
 
-      {/* Featured from API */}
+      {user && (
+        <section className="studio-kpi" style={{ marginBottom: 32 }}>
+          <button type="button" className="glass-panel studio-kpi__card" onClick={() => onNavigate('my_licenses')}>
+            <span>My Purchases</span>
+            <strong>{purchaseCount}</strong>
+            <em>Licensed assets</em>
+          </button>
+          <button type="button" className="glass-panel studio-kpi__card" onClick={() => onNavigate('wishlist')}>
+            <span>Wishlist</span>
+            <strong>{savedCount}</strong>
+            <em>Saved items</em>
+          </button>
+          <button type="button" className="glass-panel studio-kpi__card" onClick={() => onNavigate('cart')}>
+            <span>Cart</span>
+            <strong>Open</strong>
+            <em>Checkout when ready</em>
+          </button>
+          <button type="button" className="glass-panel studio-kpi__card" onClick={() => onNavigate('requirements')}>
+            <span>Requirements</span>
+            <strong>Briefs</strong>
+            <em>Post a project</em>
+          </button>
+          <button type="button" className="glass-panel studio-kpi__card" onClick={() => onNavigate('buyer_payments')}>
+            <span>Payment methods</span>
+            <strong>Secure</strong>
+            <em>Provider-tokenized only</em>
+          </button>
+          <button type="button" className="glass-panel studio-kpi__card" onClick={() => onNavigate('buyer_notifications')}>
+            <span>Notifications</span>
+            <strong>Inbox</strong>
+            <em>Purchases and saves</em>
+          </button>
+        </section>
+      )}
+
       <section style={{ marginBottom: 48 }}>
         <div className="section-head">
           <div>
-            <h2>Featured assets</h2>
+            <h2>Recommended for you</h2>
             <p>Live listings from the marketplace — license with confidence.</p>
           </div>
           <button type="button" className="btn-secondary" onClick={() => onNavigate('marketplace')}>

@@ -7,6 +7,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { createPostgresDatabase, initPostgresSchema } from './drivers/postgres.js';
 import { ensureExchangeBuckets } from './lib/exchange-storage.js';
+import { toExchangePinitId } from './lib/pinit-identity.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -39,6 +40,8 @@ export function initDatabase() {
 async function initPostgresDatabase() {
   await initPostgresSchema(db);
   await seedInitialDataAsync();
+  await dedupeMarketplaceListings();
+  await normalizeListingIdentities();
   try {
     const buckets = await ensureExchangeBuckets();
     if (!buckets.ok) {
@@ -235,6 +238,8 @@ function initSqliteDatabase() {
                               `, () => {
                                 applyTrustHardeningSchema()
                                   .then(() => seedInitialDataAsync())
+                                  .then(() => dedupeMarketplaceListings())
+                                  .then(() => normalizeListingIdentities())
                                   .then(() => {
                                     console.log('[exchange] Database driver: sqlite');
                                     resolve();
@@ -258,6 +263,7 @@ function initSqliteDatabase() {
 }
 
 function applyTrustHardeningSchema() {
+  // SQLite/Postgres column hardening — non-fatal if the column already exists.
   const alters = [
     `ALTER TABLE orders_sealed ADD COLUMN license_status TEXT DEFAULT 'active'`,
     `ALTER TABLE orders_sealed ADD COLUMN license_expires_at TEXT`,
@@ -267,6 +273,7 @@ function applyTrustHardeningSchema() {
     `ALTER TABLE listings ADD COLUMN protection_error TEXT`,
     `ALTER TABLE listings ADD COLUMN protection_attempts INTEGER DEFAULT 0`,
     `ALTER TABLE hub_assets ADD COLUMN protection_status TEXT DEFAULT 'protected'`,
+    `ALTER TABLE requirements ADD COLUMN buyer_pinit_id TEXT`,
   ];
 
   const creates = [
@@ -354,7 +361,78 @@ function getAsync(sql, params = []) {
   });
 }
 
+/** Rewrite older prefix forms (PINIT-M58CDMZU) to PINIT-EX-{code}. */
+async function normalizeListingIdentities() {
+  try {
+    const listings = await allAsync('SELECT listing_id, pinit_id FROM listings');
+    for (const row of listings || []) {
+      const next = toExchangePinitId(row.pinit_id);
+      if (next && next !== row.pinit_id) {
+        await runAsync('UPDATE listings SET pinit_id = ? WHERE listing_id = ?', [next, row.listing_id]);
+      }
+    }
+    const assets = await allAsync('SELECT asset_id, pinit_id FROM hub_assets');
+    for (const row of assets || []) {
+      const next = toExchangePinitId(row.pinit_id);
+      if (next && next !== row.pinit_id) {
+        await runAsync('UPDATE hub_assets SET pinit_id = ? WHERE asset_id = ?', [next, row.asset_id]);
+      }
+    }
+  } catch (err) {
+    console.warn('[exchange] Identity normalize skipped:', err.message);
+  }
+}
+
+/** One listing per Hub asset. Hide original seed catalog from the live marketplace. */
+async function dedupeMarketplaceListings() {
+  try {
+    await runAsync(
+      `UPDATE listings SET status = 'archived'
+       WHERE listing_id IN ('L-101','L-102','L-103','L-104','L-105')
+         AND status IN ('live','published')`,
+    );
+    await runAsync(
+      `UPDATE listings SET status = 'archived'
+       WHERE status IN ('live','published')
+         AND (asset_id LIKE 'HA-%' OR pinit_id IN ('PINIT-90481234','PINIT-33109284'))`,
+    );
+
+    const live = await allAsync(
+      `SELECT listing_id, asset_id, pinit_id, title, created_at
+       FROM listings
+       WHERE status IN ('live','published')
+       ORDER BY created_at DESC`,
+    );
+    const seenAsset = new Set();
+    const seenTitle = new Set();
+    for (const row of live || []) {
+      const assetKey = String(row.asset_id || '').trim();
+      const titleKey = `${String(row.pinit_id || '').trim()}::${String(row.title || '').trim().toLowerCase()}`;
+      const dup = (assetKey && seenAsset.has(assetKey)) || seenTitle.has(titleKey);
+      if (dup) {
+        await runAsync(`UPDATE listings SET status = 'archived' WHERE listing_id = ?`, [row.listing_id]);
+        continue;
+      }
+      if (assetKey) seenAsset.add(assetKey);
+      seenTitle.add(titleKey);
+    }
+  } catch (err) {
+    console.warn('[exchange] Listing dedupe skipped:', err.message);
+  }
+}
+
+function allAsync(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows || []);
+    });
+  });
+}
+
 async function seedInitialDataAsync() {
+  // Do not insert demo catalog. Marketplace inventory comes from Hub listings only.
+  return;
   const row = await getAsync('SELECT COUNT(*) as count FROM users');
   const count = Number(row?.count ?? row?.COUNT ?? 0);
   if (count > 0) return;

@@ -71,7 +71,7 @@ export default function WishlistPage({ user, onOpenAuth, onSelectListing, onAddT
             <div key={item.listing_id} className="glass-panel" style={{ overflow: 'hidden' }}>
               <div onClick={() => onSelectListing?.(item.listing_id)} style={{ cursor: 'pointer' }}>
                 <img
-                  src={item.listing?.preview_url || 'https://images.unsplash.com/photo-1514565131-fce0801e5785?auto=format&fit=crop&w=800&q=80'}
+                  src={item.listing?.preview_url || (item.listing?.asset_id ? `/api/hub/preview/${item.listing.asset_id}` : '')}
                   alt={item.listing?.title}
                   style={{ width: '100%', height: 160, objectFit: 'cover' }}
                 />

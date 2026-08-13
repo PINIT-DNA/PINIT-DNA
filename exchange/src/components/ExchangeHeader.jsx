@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
-  ShieldCheck, PlusCircle, Settings, LogIn, LogOut,
-  ExternalLink, ShoppingCart, Heart, Search,
+  ShieldCheck, LogIn, LogOut,
+  ShoppingCart, Heart, Search,
 } from 'lucide-react';
-import { canList, canPurchase, isBuyer, isSeller, roleLabel, rolePositioning } from '../lib/roles.js';
+import { resolveExchangeAccount } from '../lib/roles.js';
 
 const HUB_APP_URL = (import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
 
@@ -25,38 +25,63 @@ function IconBtn({ title, active, onClick, children, badge }) {
 export default function ExchangeHeader({
   activePage,
   setActivePage,
-  onOpenListFromHub,
   onOpenAuth,
   onBecomeCreator,
+  onOpenListFromHub,
   onSignOut,
   user,
   cartCount = 0,
 }) {
-  const seller = canList(user);
-  const buyer = canPurchase(user);
+  const account = resolveExchangeAccount(user);
+  const buyer = account.canPurchase;
+  const seller = account.canList;
   const signedIn = Boolean(user);
+  const [menu, setMenu] = useState(false);
+  const [query, setQuery] = useState('');
+  const name = account.displayName || (seller ? 'Creator' : 'Buyer');
 
-  const openHub = (path = '/') => {
-    window.open(`${HUB_APP_URL}${path}`, '_blank', 'noopener,noreferrer');
+  const links = seller
+    ? [
+      ['marketplace', 'Discover'],
+      ['collections', 'Collections'],
+      ['passports', 'Creators'],
+      ['seller_opportunities', 'Opportunities'],
+      ['seller_listings', 'Your listings'],
+    ]
+    : signedIn && buyer
+      ? [
+        ['home', 'Discover'],
+        ['collections', 'Collections'],
+        ['passports', 'Creators'],
+        ['requirements', 'Requirements'],
+        ['my_licenses', 'Purchases'],
+      ]
+      : [
+        ['marketplace', 'Discover'],
+        ['collections', 'Collections'],
+        ['passports', 'Creators'],
+        ['requirements', 'Requirements'],
+      ];
+
+  const search = (e) => {
+    e?.preventDefault?.();
+    setActivePage('marketplace');
   };
 
-  const links = [
-    ['marketplace', 'Discover'],
-    ['collections', 'Collections'],
-    ['requirements', 'Requirements'],
-    ...(seller ? [['creator_desk', 'My Listings']] : []),
-    ...(signedIn && buyer ? [['my_licenses', 'My Library']] : []),
-  ];
+  const closeGo = (page) => {
+    setMenu(false);
+    setActivePage(page);
+  };
 
   return (
     <header className="header-nav">
       <div className="nav-container">
         <a
-          href="/"
+          href="/exchange/discover"
           className="brand-logo"
           onClick={(e) => {
             e.preventDefault();
-            setActivePage('home');
+            setActivePage(seller ? 'marketplace' : (signedIn ? 'home' : 'marketplace'));
           }}
         >
           <div className="brand-mark">
@@ -80,47 +105,18 @@ export default function ExchangeHeader({
           ))}
         </nav>
 
+        <form className="nav-search" onSubmit={search} role="search">
+          <Search size={15} />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search photos, video, creators…"
+            aria-label="Search the marketplace"
+          />
+        </form>
+
         <div className="nav-actions">
-          <IconBtn title="Search assets" onClick={() => setActivePage('marketplace')}>
-            <Search size={16} />
-          </IconBtn>
-
-          {signedIn && (
-            <button
-              type="button"
-              className="btn-secondary"
-              style={{ padding: '8px 12px', height: 36, fontSize: '0.8rem' }}
-              title="Open Pinit HUB"
-              onClick={() => openHub('/')}
-            >
-              Open Pinit HUB <ExternalLink size={12} style={{ marginLeft: 4 }} />
-            </button>
-          )}
-
-          {seller && (
-            <button
-              type="button"
-              className="btn-primary"
-              style={{ padding: '8px 14px', height: 36 }}
-              title="List a protected asset"
-              onClick={() => onOpenListFromHub?.()}
-            >
-              <PlusCircle size={16} /> List asset
-            </button>
-          )}
-
-          {signedIn && buyer && (
-            <button
-              type="button"
-              className="btn-secondary"
-              style={{ padding: '8px 12px', height: 36, fontSize: '0.8rem' }}
-              title="Become a Creator to list and sell"
-              onClick={() => onBecomeCreator?.()}
-            >
-              Become a Creator
-            </button>
-          )}
-
           {!signedIn && (
             <button
               type="button"
@@ -131,51 +127,65 @@ export default function ExchangeHeader({
               Sell
             </button>
           )}
-
-          <IconBtn title="Saved assets" active={activePage === 'wishlist'} onClick={() => setActivePage('wishlist')}>
-            <Heart size={16} />
-          </IconBtn>
-
-          {!signedIn && (
-            <IconBtn title="Cart" active={activePage === 'cart'} onClick={() => setActivePage('cart')} badge={cartCount}>
-              <ShoppingCart size={16} />
-            </IconBtn>
+          {seller && (
+            <button
+              type="button"
+              className="btn-secondary"
+              style={{ padding: '8px 12px', height: 36, fontSize: '0.8rem' }}
+              onClick={onOpenListFromHub}
+            >
+              List an asset
+            </button>
           )}
 
-          <IconBtn
-            title="Account"
-            active={activePage === 'settings'}
-            onClick={() => {
-              if (!user) {
-                onOpenAuth?.({ mode: 'login' });
-                return;
-              }
-              setActivePage('settings');
-            }}
-          >
-            <Settings size={16} />
-          </IconBtn>
-
-          {user ? (
+          {(buyer || !signedIn) && (
             <>
-              <button
-                type="button"
-                className="nav-account"
-                onClick={() => setActivePage(seller ? 'creator_desk' : 'my_licenses')}
-                title={`${roleLabel(user)} · ${user.pinit_id}`}
-              >
-                <span className="nav-account__avatar">
-                  {(user.display_name || user.name || 'P')[0].toUpperCase()}
-                </span>
-                <span className="nav-account__meta">
-                  <span className="nav-account__role">{roleLabel(user)}</span>
-                  <span className="nav-account__id">{user.pinit_id || 'Account'}</span>
-                </span>
-              </button>
-              <IconBtn title="Sign out" onClick={onSignOut}>
-                <LogOut size={16} />
+              <IconBtn title="Saved assets" active={activePage === 'wishlist'} onClick={() => setActivePage('wishlist')}>
+                <Heart size={16} />
+              </IconBtn>
+              <IconBtn title="Cart" active={activePage === 'cart'} onClick={() => setActivePage('cart')} badge={cartCount}>
+                <ShoppingCart size={16} />
               </IconBtn>
             </>
+          )}
+
+          {user ? (
+            <div className="studio-profile">
+              <button type="button" className="nav-account" onClick={() => setMenu((v) => !v)}>
+                <span className="nav-account__avatar">{name[0].toUpperCase()}</span>
+                <span className="nav-account__meta">
+                  <span className="nav-account__role">{account.uiLabel}</span>
+                  <span className="nav-account__id">{account.pinitId || 'Account'}</span>
+                </span>
+              </button>
+              {menu && (
+                <div className="studio-menu">
+                  <div className="studio-menu__meta">
+                    <strong>{name}</strong>
+                    <span>{account.uiLabel}</span>
+                  </div>
+                  {seller ? (
+                    <>
+                      <button type="button" onClick={() => closeGo('seller_listings')}>Your listings</button>
+                      <button type="button" onClick={() => closeGo('seller_assets')}>Your assets</button>
+                      <button type="button" onClick={() => closeGo('seller_sales')}>Sales</button>
+                      <button type="button" onClick={() => closeGo('seller_earnings')}>Earnings</button>
+                      <button type="button" onClick={() => closeGo('settings')}>Account</button>
+                      <a href={HUB_APP_URL} target="_blank" rel="noreferrer">Open Pinit Hub</a>
+                    </>
+                  ) : (
+                    <>
+                      <button type="button" onClick={() => closeGo('settings')}>Account</button>
+                      <button type="button" onClick={() => closeGo('my_licenses')}>Purchases</button>
+                      <button type="button" onClick={() => closeGo('buyer_payments')}>Payment methods</button>
+                      <button type="button" onClick={() => closeGo('buyer_notifications')}>Notifications</button>
+                      <button type="button" onClick={() => { setMenu(false); onBecomeCreator?.(); }}>Sell on Exchange</button>
+                    </>
+                  )}
+                  <button type="button" onClick={() => { setMenu(false); onSignOut?.(); }}><LogOut size={14} /> Sign out</button>
+                </div>
+              )}
+            </div>
           ) : (
             <>
               <button type="button" className="btn-secondary" style={{ height: 36, padding: '8px 12px' }} onClick={() => onOpenAuth?.({ mode: 'login' })}>
@@ -188,12 +198,6 @@ export default function ExchangeHeader({
           )}
         </div>
       </div>
-      {signedIn && (
-        <div className="exchange-role-strip" role="status">
-          <strong>{isSeller(user) && !isBuyer(user) ? 'Creator account' : isBuyer(user) && !isSeller(user) ? 'Buyer account' : roleLabel(user)}</strong>
-          <span>{rolePositioning(user)}</span>
-        </div>
-      )}
     </header>
   );
 }

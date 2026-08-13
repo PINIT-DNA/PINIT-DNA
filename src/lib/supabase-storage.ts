@@ -32,10 +32,19 @@ function getClient(): SupabaseClient {
   return _client;
 }
 
+export function isSupabaseStorageRestricted(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err || '');
+  return /egress_quota|exceed_cached_egress|project is restricted|Failed to create storage bucket|Supabase upload failed/i.test(msg);
+}
+
 /** Ensure the vault-files bucket exists, creating it if not. */
 async function ensureBucket(): Promise<void> {
   const client = getClient();
-  const { data: buckets } = await client.storage.listBuckets();
+  const { data: buckets, error: listError } = await client.storage.listBuckets();
+  if (listError) {
+    logger.warn('[Storage] listBuckets failed — assuming vault-files exists', { error: listError.message });
+    return;
+  }
   const exists = buckets?.some((b) => b.name === BUCKET);
   if (!exists) {
     const { error } = await client.storage.createBucket(BUCKET, { public: false });

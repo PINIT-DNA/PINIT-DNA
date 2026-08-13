@@ -1,19 +1,19 @@
 import React, { useState } from 'react';
-import { User, Store, ShieldCheck, CreditCard, Bell, Lock, Sliders, CheckCircle, RefreshCw } from 'lucide-react';
+import { User, Store, ShieldCheck, CreditCard, Bell, Lock, Sliders, CheckCircle } from 'lucide-react';
 import { canList, canPurchase, roleLabel, rolePositioning } from '../lib/roles.js';
 import { apiFetch } from '../lib/api.js';
 
-export default function SettingsPage({ user, onUserUpdated }) {
+export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
+  const seller = canList(user);
   const [activeTab, setActiveTab] = useState('account');
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
 
-  // Form states
-  const [name, setName] = useState(user?.name || 'Elena Rostova');
-  const [email, setEmail] = useState(user?.email || 'elena.rostova@pinit.io');
-  const [bio, setBio] = useState(user?.bio || 'Award-winning architectural photographer and digital artist creating high-provenance visual assets.');
+  const [name, setName] = useState(user?.name || user?.display_name || '');
+  const [email, setEmail] = useState(user?.email || '');
+  const [bio, setBio] = useState(user?.bio || '');
   const [sellerPlan, setSellerPlan] = useState(user?.seller_plan || 'pro');
-  const [exchangeId, setExchangeId] = useState(user?.exchange_id || 'PX-772091');
-  const [biometricVerified, setBiometricVerified] = useState(user?.biometric_verified !== undefined ? Boolean(user.biometric_verified) : true);
+  const [exchangeId, setExchangeId] = useState(user?.exchange_id || '');
+  const [biometricVerified, setBiometricVerified] = useState(Boolean(user?.biometric_verified));
 
   const handleSaveSettings = async (e) => {
     e.preventDefault();
@@ -42,15 +42,22 @@ export default function SettingsPage({ user, onUserUpdated }) {
     }
   };
 
-  const tabs = [
-    { id: 'account', label: 'Account Profile', icon: User },
-    { id: 'storefront', label: 'Public Storefront', icon: Store },
-    { id: 'verification', label: 'Seller Verification', icon: ShieldCheck },
-    { id: 'billing', label: 'Billing & Payouts', icon: CreditCard },
-    { id: 'notifications', label: 'Notifications', icon: Bell },
-    { id: 'security', label: 'Security & Sessions', icon: Lock },
-    { id: 'preferences', label: 'Default Presets', icon: Sliders }
-  ];
+  const tabs = seller
+    ? [
+      { id: 'account', label: 'Account Profile', icon: User },
+      { id: 'storefront', label: 'Public Storefront', icon: Store },
+      { id: 'verification', label: 'Seller Verification', icon: ShieldCheck },
+      { id: 'billing', label: 'Billing & Payouts', icon: CreditCard },
+      { id: 'notifications', label: 'Notifications', icon: Bell },
+      { id: 'security', label: 'Security & Sessions', icon: Lock },
+      { id: 'preferences', label: 'Default Presets', icon: Sliders },
+    ]
+    : [
+      { id: 'account', label: 'Account Profile', icon: User },
+      { id: 'payments', label: 'Payment methods', icon: CreditCard },
+      { id: 'notifications', label: 'Notifications', icon: Bell },
+      { id: 'security', label: 'Security & Sessions', icon: Lock },
+    ];
 
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '32px 24px' }}>
@@ -127,9 +134,21 @@ export default function SettingsPage({ user, onUserUpdated }) {
 
                 <div className="form-group">
                   <label className="form-label">Main Platform Pinit ID</label>
-                  <input type="text" className="form-input" value={user?.pinit_id || 'PINIT-90481234'} disabled style={{ opacity: 0.6, cursor: 'not-allowed' }} />
+                  <input type="text" className="form-input" value={user?.pinit_id || ''} disabled style={{ opacity: 0.6, cursor: 'not-allowed' }} />
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '4px', display: 'block' }}>Shared identity between Pinit HUB Vault &amp; Pinit Exchange.</span>
                 </div>
+              </div>
+            )}
+
+            {activeTab === 'payments' && (
+              <div>
+                <h3 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: '20px' }}>Payment methods</h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.55, marginBottom: 16 }}>
+                  Cards are tokenized by the payment provider. Exchange never stores raw card numbers.
+                </p>
+                <button type="button" className="btn-primary" onClick={() => onNavigate?.('buyer_payments')}>
+                  Open payment methods
+                </button>
               </div>
             )}
 
@@ -231,7 +250,7 @@ export default function SettingsPage({ user, onUserUpdated }) {
               <div>
                 <h3 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: '20px' }}>Security &amp; Linked Hub Account</h3>
                 <div style={{ background: 'rgba(0,0,0,0.3)', padding: '16px', borderRadius: '8px', fontSize: '0.88rem' }}>
-                  Linked Pinit HUB Vault ID: <strong style={{ color: 'var(--primary)' }}>HUB-VAULT-90481234</strong> (Active Session)
+                  Linked Pinit HUB identity: <strong style={{ color: 'var(--primary)' }}>{user?.pinit_id || 'Sign in with Hub'}</strong>
                 </div>
               </div>
             )}

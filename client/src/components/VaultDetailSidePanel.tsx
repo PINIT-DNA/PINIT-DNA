@@ -42,9 +42,7 @@ import type { VaultContentAnalysis, VaultRecord } from '../types/dashboard.types
 import { formatSourcePlatform, vaultSourceCaption } from '../lib/source-platform';
 import {
   buildPlatformShareOptions,
-  openEditorOrCloud,
   shareViaOs,
-  type EditorCloudTarget,
 } from '../lib/platform-share';
 import { formatReshareId, formatShareId, formatTrackId } from '../lib/lifecycle-ids';
 
@@ -1042,30 +1040,8 @@ export function VaultDetailSidePanel({
               </div>
             </>
           )}
+          {(latestTep?.tepCode || links[0]) && (
           <div className="rounded-xl border border-bg-border bg-bg-elevated p-3 space-y-2">
-            <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">
-              Edit / cloud workflow
-            </p>
-            <p className="text-2xs text-gray-500">
-              Download protected file first, then open your editor or cloud. Re-protect after changes.
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {([
-                { label: 'Canva', target: 'canva' as EditorCloudTarget },
-                { label: 'Adobe', target: 'adobe' as EditorCloudTarget },
-                { label: 'Drive', target: 'drive' as EditorCloudTarget },
-                { label: 'Dropbox', target: 'dropbox' as EditorCloudTarget },
-              ]).map((item) => (
-                <button
-                  key={item.label}
-                  type="button"
-                  onClick={() => openEditorOrCloud(item.target, (msg) => toast(msg, { duration: 4500 }))}
-                  className="px-2 py-1 rounded-lg border border-bg-border text-2xs text-gray-300 hover:text-white hover:border-dna-500/40"
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
             {latestTep?.tepCode && (
               <p className="text-2xs text-gray-500 mono">
                 Track ID: {formatTrackId(latestTep.tepCode, record.id)}
@@ -1077,6 +1053,7 @@ export function VaultDetailSidePanel({
               </p>
             )}
           </div>
+          )}
 
           {canListOnExchange ? (
             <>

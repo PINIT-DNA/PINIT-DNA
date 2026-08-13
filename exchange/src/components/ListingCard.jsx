@@ -10,8 +10,15 @@ import {
   formatMediaDuration,
 } from '../lib/media.js';
 
-const FALLBACK_IMAGE =
-  'https://images.unsplash.com/photo-1514565131-fce0801e5785?auto=format&fit=crop&w=800&q=80';
+function PreviewPlaceholder({ label = 'Preview' }) {
+  return (
+    <div className="listing-card__video-ph" aria-hidden>
+      <div className="listing-card__video-ph-inner">
+        <span>{label}</span>
+      </div>
+    </div>
+  );
+}
 
 function goldBadgeLabel(tier) {
   const t = String(tier || '').toLowerCase();
@@ -76,11 +83,16 @@ function CardMedia({ item, isVideo }) {
     );
   }
 
+  if (mediaFailed || !item.preview_url) {
+    return <PreviewPlaceholder label="Image preview" />;
+  }
+
   return (
     <img
-      src={!mediaFailed && item.preview_url ? item.preview_url : FALLBACK_IMAGE}
+      src={item.preview_url}
       alt={item.title || 'Asset preview'}
       className="card-media"
+      draggable={false}
       onError={() => setMediaFailed(true)}
     />
   );
@@ -108,10 +120,6 @@ export default function ListingCard({
       >
         <div className="listing-card__media">
           <CardMedia item={item} isVideo={isVideo} />
-
-          <div className="watermark-overlay" style={{ pointerEvents: 'none' }}>
-            <div className="watermark-text">Pinit PROVENANCE</div>
-          </div>
 
           <div className={`card-badge-container listing-card__badges${onWishlist ? ' listing-card__badges--under-wish' : ''}`}>
             <span className="badge-verified listing-card__verified-pill">

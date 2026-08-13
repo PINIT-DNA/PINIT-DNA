@@ -225,7 +225,11 @@ app.get('/s/:token', async (req, res) => {
 
 // ─── React SPA catch-all ─────────────────────────────────────────────────────
 // Serves index.html for /dashboard, /compare, /vault etc. (client-side routing)
-app.get('*', (_req, res) => {
+app.get('*', (req, res) => {
+  if (req.path.startsWith('/api/')) {
+    res.status(404).json({ success: false, error: 'Route not found' });
+    return;
+  }
   const reactIndex = path.join(__dirname, '..', 'client', 'dist', 'index.html');
   if (fs.existsSync(reactIndex)) {
     res.sendFile(reactIndex);

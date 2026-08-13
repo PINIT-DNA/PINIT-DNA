@@ -128,6 +128,12 @@ export async function initPostgresSchema(db) {
     }
   }
 
+  try {
+    await db.query('ALTER TABLE exchange.requirements ADD COLUMN IF NOT EXISTS buyer_pinit_id TEXT');
+  } catch (err) {
+    console.warn('[exchange-pg] requirements.buyer_pinit_id:', err.message);
+  }
+
   // Optional RLS (non-fatal if policies conflict)
   const rlsPath = path.join(__dirname, '..', 'schema', 'exchange.rls.sql');
   if (fs.existsSync(rlsPath)) {

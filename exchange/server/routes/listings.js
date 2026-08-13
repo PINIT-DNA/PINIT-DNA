@@ -5,11 +5,29 @@ import { exchangePreviewUrl, PLACEHOLDER_PREVIEW } from '../lib/preview-url.js';
 import { LISTING_STATUS, publicListingSql, BRIDGE_EVENT } from '../lib/lifecycle.js';
 import { recordBridgeEvent, markBridgeEventProcessed } from '../lib/bridge-events.js';
 import { getSql, runSql } from '../lib/db.js';
-import { toExchangePinitId } from '../lib/pinit-identity.js';
+import { toExchangePinitId, listingUserJoinSql, sellerMatchClause, extractPinitCode } from '../lib/pinit-identity.js';
 import { canList, buyerDeniedList } from '../lib/roles.js';
 import { findUserByPinitId, requireSeller } from '../lib/rbac.js';
 
 const router = express.Router();
+
+function verticalFilterClause(vertical) {
+  const v = String(vertical || '').toLowerCase().trim();
+  if (!v || v === 'all' || v === 'mine') return { sql: '', params: [] };
+  if (v === 'images' || v === 'image' || v === 'photography') {
+    return {
+      sql: ` AND LOWER(l.vertical) IN ('images', 'image', 'photography', 'graphics')`,
+      params: [],
+    };
+  }
+  if (v === 'video' || v === 'videos') {
+    return {
+      sql: ` AND (LOWER(l.vertical) IN ('video', 'videos') OR LOWER(l.vertical) LIKE 'video%')`,
+      params: [],
+    };
+  }
+  return { sql: ` AND l.vertical = ?`, params: [vertical] };
+}
 
 function upsertHubAssetFromIntent(intent, cb) {
   if (!intent || intent.purpose !== 'exchange_list_intent') {
@@ -59,23 +77,23 @@ router.get('/', (req, res) => {
 
   let query = `
     SELECT l.*, 
-           COALESCE(u.name, 'Elena Rostova') as creator_name, 
-           COALESCE(u.exchange_id, 'PX-772091') as creator_exchange_id, 
-           COALESCE(u.kyc_status, 'verified') as creator_kyc
+           COALESCE(NULLIF(u.name, ''), 'PINIT User') as creator_name, 
+           COALESCE(u.exchange_id, '') as creator_exchange_id, 
+           COALESCE(u.kyc_status, 'pending') as creator_kyc
     FROM listings l
-    LEFT JOIN users u ON l.pinit_id = u.pinit_id
+    LEFT JOIN users u ON ${listingUserJoinSql('l', 'u')}
     WHERE ${publicListingSql()}
   `;
   const params = [];
 
-  if (vertical && vertical !== 'all') {
-    query += ` AND l.vertical = ?`;
-    params.push(vertical);
-  }
+  const verticalClause = verticalFilterClause(vertical);
+  query += verticalClause.sql;
+  params.push(...verticalClause.params);
 
   if (req.query.seller || req.query.pinit_id) {
-    query += ` AND l.pinit_id = ?`;
-    params.push(String(req.query.seller || req.query.pinit_id).trim());
+    const sellerClause = sellerMatchClause('l.pinit_id', req.query.seller || req.query.pinit_id);
+    query += sellerClause.sql;
+    params.push(...sellerClause.params);
   }
 
   if (badge && badge !== 'all') {
@@ -117,7 +135,7 @@ router.get('/', (req, res) => {
           item.asset_id,
           assetMap[item.asset_id]?.preview_url || PLACEHOLDER_PREVIEW,
         ),
-        file_type: assetMap[item.asset_id]?.file_type || 'image'
+        file_type: assetMap[item.asset_id]?.file_type || item.vertical || 'images'
       }));
 
       res.json(enrichedRows);
@@ -131,17 +149,17 @@ router.get('/:id', (req, res) => {
 
   const query = `
     SELECT l.*, 
-           COALESCE(u.name, 'Elena Rostova') as creator_name, 
-           COALESCE(u.exchange_id, 'PX-772091') as creator_exchange_id, 
-           COALESCE(u.bio, 'Award-winning provenance creator') as creator_bio, 
-           COALESCE(u.kyc_status, 'verified') as kyc_status, 
-           COALESCE(u.biometric_verified, 1) as biometric_verified,
+           COALESCE(NULLIF(u.name, ''), 'PINIT User') as creator_name, 
+           COALESCE(u.exchange_id, '') as creator_exchange_id, 
+           COALESCE(u.bio, '') as creator_bio, 
+           COALESCE(u.kyc_status, 'pending') as kyc_status, 
+           COALESCE(u.biometric_verified, 0) as biometric_verified,
            COALESCE(ha.preview_url, '') as cached_preview_url, 
-           COALESCE(ha.file_type, 'image') as file_type, 
-           COALESCE(ha.dna_record_id, 'DNA-9001-GOLD') as dna_record_id, 
+           COALESCE(ha.file_type, l.vertical, 'images') as file_type, 
+           COALESCE(ha.dna_record_id, '') as dna_record_id, 
            COALESCE(ha.vault_encrypted, 1) as vault_encrypted
     FROM listings l
-    LEFT JOIN users u ON l.pinit_id = u.pinit_id
+    LEFT JOIN users u ON ${listingUserJoinSql('l', 'u')}
     LEFT JOIN hub_assets ha ON l.asset_id = ha.asset_id
     WHERE l.listing_id = ?
   `;
@@ -292,7 +310,7 @@ router.post('/', requireSeller, (req, res) => {
         });
       }
 
-      const prot = String(hubAsset.protection_status || 'protected').toLowerCase();
+      const prot = String(hubAsset?.protection_status || 'protected').toLowerCase();
       if (prot === 'protection_pending' || prot === 'protection_failed') {
         return res.status(409).json({
           error: 'PROTECTION_NOT_READY',
@@ -313,25 +331,20 @@ router.post('/', requireSeller, (req, res) => {
       badgeTier = 'Bronze';
     }
 
-    const listingId = 'L-' + Math.floor(10000 + Math.random() * 90000);
     const dnaHash = '0x' + Array.from({length: 32}, () => Math.floor(Math.random()*16).toString(16)).join('');
+    const taglineVal = (tagline && String(tagline).trim()) || '';
+    const descVal = description || '';
+    const tagsVal = tags || 'pinit,verified';
+    const prices = [
+      price_personal || 49,
+      price_commercial || 149,
+      price_exclusive || 899,
+      price_enterprise || 2499,
+    ];
+    const optOut = ai_training_opt_out ? 1 : 0;
 
-    db.run(`
-      INSERT INTO listings (
-        listing_id, asset_id, pinit_id, title, description, tagline, vertical, tags,
-        price_personal, price_commercial, price_exclusive, price_enterprise,
-        ai_training_opt_out, status, badge_tier, human_percent, ai_percent, dna_hash, views, saves
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0)
-    `, [
-      listingId, asset_id, sellerPinitId, assetTitle, description || '',
-      (tagline && String(tagline).trim()) || '',
-      assetVertical,
-      tags || 'pinit,verified', price_personal || 49, price_commercial || 149, price_exclusive || 899, price_enterprise || 2499,
-      ai_training_opt_out ? 1 : 0, LISTING_STATUS.PUBLISHED, badgeTier, effectiveHumanPercent, effectiveAiPercent, dnaHash
-    ], function(err) {
-      if (err) return res.status(500).json({ error: err.message });
-
-      db.get("SELECT l.*, COALESCE(u.name, 'Elena Rostova') as creator_name FROM listings l LEFT JOIN users u ON l.pinit_id = u.pinit_id WHERE l.listing_id = ?", [listingId], async (err, newListing) => {
+    const finishPublish = (listingId) => {
+      db.get("SELECT l.*, COALESCE(u.name, 'Creator') as creator_name FROM listings l LEFT JOIN users u ON l.pinit_id = u.pinit_id WHERE l.listing_id = ?", [listingId], async (err, newListing) => {
         if (err) return res.status(500).json({ error: err.message });
 
         let hubConfirm = null;
@@ -362,7 +375,7 @@ router.post('/', requireSeller, (req, res) => {
         }
 
         res.status(201).json({
-          message: "Listing published successfully to Pinit Exchange",
+          message: 'Listing published successfully to Pinit Exchange',
           listing: {
             ...newListing,
             preview_url: exchangePreviewUrl(asset_id, hubAsset?.preview_url || PLACEHOLDER_PREVIEW),
@@ -371,7 +384,50 @@ router.post('/', requireSeller, (req, res) => {
           hub_confirm: hubConfirm,
         });
       });
-    });
+    };
+
+    db.get(
+      `SELECT * FROM listings WHERE asset_id = ? AND pinit_id = ? AND status != ?
+       ORDER BY created_at DESC LIMIT 1`,
+      [asset_id, sellerPinitId, LISTING_STATUS.SOLD_EXCLUSIVE],
+      (existErr, existing) => {
+        if (existErr) return res.status(500).json({ error: existErr.message });
+
+        if (existing) {
+          db.run(`
+            UPDATE listings SET
+              title = ?, description = ?, tagline = ?, vertical = ?, tags = ?,
+              price_personal = ?, price_commercial = ?, price_exclusive = ?, price_enterprise = ?,
+              ai_training_opt_out = ?, status = ?, badge_tier = ?, human_percent = ?, ai_percent = ?
+            WHERE listing_id = ?
+          `, [
+            assetTitle, descVal, taglineVal, assetVertical, tagsVal,
+            ...prices, optOut, LISTING_STATUS.PUBLISHED, badgeTier,
+            effectiveHumanPercent, effectiveAiPercent, existing.listing_id,
+          ], (updErr) => {
+            if (updErr) return res.status(500).json({ error: updErr.message });
+            finishPublish(existing.listing_id);
+          });
+          return;
+        }
+
+        const listingId = 'L-' + Math.floor(10000 + Math.random() * 90000);
+        db.run(`
+          INSERT INTO listings (
+            listing_id, asset_id, pinit_id, title, description, tagline, vertical, tags,
+            price_personal, price_commercial, price_exclusive, price_enterprise,
+            ai_training_opt_out, status, badge_tier, human_percent, ai_percent, dna_hash, views, saves
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0)
+        `, [
+          listingId, asset_id, sellerPinitId, assetTitle, descVal, taglineVal, assetVertical, tagsVal,
+          ...prices, optOut, LISTING_STATUS.PUBLISHED, badgeTier,
+          effectiveHumanPercent, effectiveAiPercent, dnaHash,
+        ], function (insErr) {
+          if (insErr) return res.status(500).json({ error: insErr.message });
+          finishPublish(listingId);
+        });
+      },
+    );
     });
   });
   }
@@ -397,7 +453,10 @@ router.post('/:id/status', requireSeller, async (req, res) => {
 
     const row = await getSql('SELECT * FROM listings WHERE listing_id = ?', [listingId]);
     if (!row) return res.status(404).json({ error: 'Listing not found' });
-    if (row.pinit_id !== sellerId) return res.status(403).json({ error: 'Only the seller can change listing status' });
+    const sameFace = extractPinitCode(row.pinit_id) && extractPinitCode(row.pinit_id) === extractPinitCode(sellerId);
+    if (row.pinit_id !== sellerId && !sameFace) {
+      return res.status(403).json({ error: 'Only the seller can change listing status' });
+    }
     if (row.status === LISTING_STATUS.SOLD_EXCLUSIVE) {
       return res.status(409).json({ error: 'Exclusive sale is final; cannot change marketplace status' });
     }

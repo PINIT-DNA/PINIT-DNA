@@ -182,7 +182,9 @@ async function findMatchingFace(
     compared: faces.length,
   });
 
-  if (!isConfidentFaceMatch(best.distance, secondDistance)) {
+  // Same face → same PINIT ID. Do not require 2nd-best margin here:
+  // duplicate enrollments sit close together and would otherwise mint a new ID.
+  if (best.distance >= faceDupThreshold) {
     return null;
   }
 
@@ -632,7 +634,9 @@ export const biometricAuthService = {
       return {
         ok: false,
         matched: false,
-        message: 'No identity found. Please register.',
+        message: candidates.length === 0
+          ? 'No Hub identity found yet. Only create a new Hub account if you have never registered this face.'
+          : 'Could not match this face to an existing Pinit ID. Try again — do not create a new account.',
         distance: bestFaceDist === Infinity ? undefined : bestFaceDist.toFixed(4),
       };
     }

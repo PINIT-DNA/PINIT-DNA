@@ -9,6 +9,7 @@ import {
 } from '../hub-client.js';
 import { exchangePreviewUrl, isHubVaultId, PLACEHOLDER_PREVIEW } from '../lib/preview-url.js';
 import { requireSeller } from '../lib/rbac.js';
+import { identityCandidates, sellerMatchClause } from '../lib/pinit-identity.js';
 
 const router = express.Router();
 const HUB_APP_URL = (process.env.HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
@@ -118,7 +119,7 @@ function upsertLocalCache(asset, pinitId, cb) {
 }
 
 router.get('/assets', requireSeller, async (req, res) => {
-  const pinitId = String(req.query.pinit_id || '').trim();
+  const pinitId = String(req.query.pinit_id || req.exchangeUser?.pinit_id || '').trim();
   if (!pinitId) {
     return res.status(400).json({
       error: 'pinit_id is required',
@@ -127,18 +128,30 @@ router.get('/assets', requireSeller, async (req, res) => {
     });
   }
 
+  const idsToTry = identityCandidates(pinitId);
+  const tryIds = idsToTry.length ? idsToTry : [pinitId];
+
   try {
-    const live = await fetchListableAssetsFromHub(pinitId);
-    if (!live.skipped && Array.isArray(live.assets)) {
-      const mapped = live.assets.map((a) => mapHubAsset(a, live.pinitId || pinitId));
-      mapped.forEach((asset) => upsertLocalCache(asset, live.pinitId || pinitId));
+    let mapped = null;
+    let skippedAll = true;
+    for (const id of tryIds) {
+      const live = await fetchListableAssetsFromHub(id);
+      if (live.skipped) continue;
+      skippedAll = false;
+      if (Array.isArray(live.assets)) {
+        mapped = live.assets.map((a) => mapHubAsset(a, live.pinitId || id));
+        if (mapped.length) break;
+      }
+    }
+    if (!skippedAll && Array.isArray(mapped)) {
+      mapped.forEach((asset) => upsertLocalCache(asset, pinitId));
       return res.json({
         assets: mapped,
         source: 'hub',
         empty: mapped.length === 0,
         message: mapped.length
           ? undefined
-          : 'No protected vault assets yet. Upload here (silent Hub protect) or protect in Pinit HUB.',
+          : 'No protected vault assets yet. Protect in Pinit HUB, then list from My Assets.',
         hub_protect_url: `${HUB_APP_URL}/generate`,
       });
     }
@@ -146,9 +159,10 @@ router.get('/assets', requireSeller, async (req, res) => {
     console.warn('[hub/assets] live Hub fetch failed, using local cache:', err.message);
   }
 
+  const match = sellerMatchClause('pinit_id', pinitId);
   db.all(
-    'SELECT * FROM hub_assets WHERE pinit_id = ? ORDER BY created_at DESC',
-    [pinitId],
+    `SELECT * FROM hub_assets WHERE ${match.sql.replace(/^\s*AND\s+/i, '')} ORDER BY created_at DESC`,
+    match.params,
     (err, rows) => {
       if (err) return res.status(500).json({ error: err.message });
       res.json({
@@ -272,6 +286,7 @@ router.get('/preview/:assetId', async (req, res) => {
       'Accept-Ranges': 'bytes',
       'Cache-Control': 'private, max-age=120',
       'X-Content-Type-Options': 'nosniff',
+      'Content-Disposition': 'inline',
     });
     res.status(200).send(preview.buffer);
   } catch (err) {

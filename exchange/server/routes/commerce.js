@@ -266,6 +266,53 @@ router.delete('/wishlist/:listingId', (req, res) => {
   );
 });
 
+/** Reviews for a seller's listings (must be before /reviews/:listingId) */
+router.get('/reviews/seller', requireSeller, (req, res) => {
+  const pinitId = String(req.query.pinit_id || req.query.seller_pinit_id || '').trim();
+  if (!pinitId) return res.status(400).json({ error: 'pinit_id required' });
+  db.all(
+    `SELECT r.*, l.title AS listing_title, l.asset_id, l.preview_url
+     FROM reviews r
+     INNER JOIN listings l ON l.listing_id = r.listing_id
+     WHERE REPLACE(REPLACE(REPLACE(REPLACE(UPPER(l.pinit_id), 'PINIT-EX-', ''), 'PINIT-USER-', ''), 'PINIT-ORG-', ''), 'PINIT-', '')
+       = REPLACE(REPLACE(REPLACE(REPLACE(UPPER(?), 'PINIT-EX-', ''), 'PINIT-USER-', ''), 'PINIT-ORG-', ''), 'PINIT-', '')
+     ORDER BY r.created_at DESC
+     LIMIT 100`,
+    [pinitId],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      const reviews = rows || [];
+      const avg = reviews.length
+        ? reviews.reduce((s, r) => s + Number(r.rating || 0), 0) / reviews.length
+        : 0;
+      res.json({
+        reviews,
+        average: Math.round(avg * 10) / 10,
+        count: reviews.length,
+      });
+    },
+  );
+});
+
+router.get('/reviews/mine', (req, res) => {
+  const pinitId = String(req.query.pinit_id || req.query.buyer_pinit_id || '').trim();
+  if (!pinitId) return res.status(400).json({ error: 'pinit_id required' });
+  db.all(
+    `SELECT r.*, l.title AS listing_title
+     FROM reviews r
+     LEFT JOIN listings l ON l.listing_id = r.listing_id
+     WHERE REPLACE(REPLACE(REPLACE(REPLACE(UPPER(COALESCE(r.buyer_pinit_id,'')), 'PINIT-EX-', ''), 'PINIT-USER-', ''), 'PINIT-ORG-', ''), 'PINIT-', '')
+       = REPLACE(REPLACE(REPLACE(REPLACE(UPPER(?), 'PINIT-EX-', ''), 'PINIT-USER-', ''), 'PINIT-ORG-', ''), 'PINIT-', '')
+     ORDER BY r.created_at DESC
+     LIMIT 50`,
+    [pinitId],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ reviews: rows || [] });
+    },
+  );
+});
+
 /** Reviews */
 router.get('/reviews/:listingId', (req, res) => {
   db.all(

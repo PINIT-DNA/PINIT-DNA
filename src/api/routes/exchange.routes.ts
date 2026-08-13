@@ -13,6 +13,7 @@
  *   POST /exchange/listings/confirm
  *   POST /exchange/sales/seal
  *   POST /exchange/delivery/prepare
+ *   GET  /exchange/profiles-bridge?pinitIds=
  *   GET  /exchange/monitoring-summaries-bridge?pinitId=
  *
  * Public (token in path):
@@ -36,6 +37,7 @@ import {
   redeemDeliveryBridge,
   monitoringSummariesBridge,
   marketplacePreviewBridge,
+  profilesBridge,
 } from '../controllers/exchange-bridge.controller';
 
 const router = Router();
@@ -59,6 +61,7 @@ router.post('/listings/confirm', confirmExchangeListing);
 router.post('/sales/seal', sealExchangeSale);
 router.post('/delivery/prepare', prepareDeliveryBridge);
 router.get('/delivery/:token', redeemDeliveryBridge);
+router.get('/profiles-bridge', profilesBridge);
 router.get('/monitoring-summaries-bridge', monitoringSummariesBridge);
 router.get('/preview/:vaultId', marketplacePreviewBridge);
 

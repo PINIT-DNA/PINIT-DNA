@@ -4,9 +4,12 @@ import {
 } from 'lucide-react';
 import ListingCard from '../components/ListingCard.jsx';
 import EmptyState from '../components/EmptyState.jsx';
+import DiscoverHeroArt from '../components/DiscoverHeroArt.jsx';
 import { apiFetch } from '../lib/api.js';
 import { buyerKey } from '../lib/buyer.js';
 import { canList, canPurchase } from '../lib/roles.js';
+import { isImageListing, isVideoListing } from '../lib/media.js';
+import { samePinitIdentity } from '../lib/pinit-identity.js';
 
 const VERTICALS = [
   { id: 'all', name: 'All Verticals' },
@@ -125,16 +128,18 @@ export default function Marketplace({
     }
   };
 
-  const isOwner = (item) => user?.pinit_id && item.pinit_id === user.pinit_id;
+  const isOwner = (item) => samePinitIdentity(user?.pinit_id, item.pinit_id);
+
+  const visibleListings = listings.filter((item) => {
+    if (selectedVertical === 'images') return isImageListing(item);
+    if (selectedVertical === 'video') return isVideoListing(item);
+    return true;
+  });
 
   return (
     <div style={{ maxWidth: '1320px', margin: '0 auto', padding: '32px 24px' }}>
-      <div className="glass-panel" style={{
-        padding: '48px',
-        marginBottom: '40px',
-        background: 'radial-gradient(circle at top right, rgba(99, 102, 241, 0.15) 0%, rgba(15, 23, 42, 0.85) 60%)',
-      }}>
-        <div style={{ maxWidth: '780px' }}>
+      <div className="glass-panel market-hero">
+        <div className="market-hero__copy">
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: '8px',
             background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)',
@@ -155,11 +160,17 @@ export default function Marketplace({
           <div style={{ display: 'flex', gap: '16px' }}>
             {canList(user) ? (
               <button className="btn-primary" onClick={onOpenListFromHub} style={{ padding: '12px 24px', fontSize: '1rem' }}>
-                List from Pinit HUB <ArrowRight size={18} />
+                List from Pinit Hub <ArrowRight size={18} />
               </button>
             ) : (
-              <a href="#browse-section" className="btn-primary" style={{ padding: '12px 24px', fontSize: '1rem', textDecoration: 'none' }}>
-                Browse Exchange
+              <a
+                href={(import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '')}
+                className="btn-primary"
+                style={{ padding: '12px 24px', fontSize: '1rem', textDecoration: 'none' }}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Browse Pinit Hub
               </a>
             )}
             {canPurchase(user) && (
@@ -169,11 +180,12 @@ export default function Marketplace({
             )}
             {!user && (
               <button type="button" className="btn-secondary" style={{ padding: '12px 24px', fontSize: '1rem' }} onClick={onOpenListFromHub}>
-                Sell on Pinit
+                Sell on Exchange
               </button>
             )}
           </div>
         </div>
+        <DiscoverHeroArt />
       </div>
 
       <div id="browse-section" style={{ marginBottom: '32px' }}>
@@ -237,7 +249,7 @@ export default function Marketplace({
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>Loading marketplace…</div>
-      ) : listings.length === 0 ? (
+      ) : visibleListings.length === 0 ? (
         <EmptyState
           icon={<ShieldCheck size={36} color="var(--primary)" />}
           title="No listings in this view"
@@ -256,7 +268,7 @@ export default function Marketplace({
         />
       ) : (
         <div className="listing-grid">
-          {listings.map((item) => (
+          {visibleListings.map((item) => (
             <div key={item.listing_id} style={{ position: 'relative' }}>
               {isOwner(item) && canList(user) && (
                 <button

@@ -4,7 +4,9 @@ import ListFromHubModal from './components/ListFromHubModal.jsx';
 import CheckoutModal from './components/CheckoutModal.jsx';
 import BecomeCreatorModal from './components/BecomeCreatorModal.jsx';
 import AuthModal, { SESSION_KEY, INTENT_KEY } from './components/AuthModal.jsx';
-import { canList, canPurchase, SELLER_ONLY_PAGES, BUYER_ONLY_PAGES } from './lib/roles.js';
+import {
+  canList, canPurchase, homePageForUser, canAccessPage, resolveExchangeAccount,
+} from './lib/roles.js';
 
 import HomePage from './pages/HomePage.jsx';
 import Marketplace from './pages/Marketplace.jsx';
@@ -16,8 +18,19 @@ import EnterpriseLicensing from './pages/EnterpriseLicensing.jsx';
 import TrustCenter from './pages/TrustCenter.jsx';
 import KnowledgeGuide from './pages/KnowledgeGuide.jsx';
 import MyLicenses from './pages/MyLicenses.jsx';
-import CreatorDesk from './pages/CreatorDesk.jsx';
+import CreatorStudio from './pages/CreatorStudio.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
+import SellerAccountNav, { isSellerAccountPage } from './components/SellerAccountNav.jsx';
+import SellerAssets from './pages/seller/SellerAssets.jsx';
+import SellerListings from './pages/seller/SellerListings.jsx';
+import SellerSales from './pages/seller/SellerSales.jsx';
+import SellerEarnings from './pages/seller/SellerEarnings.jsx';
+import SellerReviews from './pages/seller/SellerReviews.jsx';
+import SellerAnalytics from './pages/seller/SellerAnalytics.jsx';
+import SellerPromotions from './pages/seller/SellerPromotions.jsx';
+import SellerAlerts from './pages/seller/SellerAlerts.jsx';
+import BuyerPayments from './pages/buyer/BuyerPayments.jsx';
+import BuyerNotifications from './pages/buyer/BuyerNotifications.jsx';
 import CartPage from './pages/CartPage.jsx';
 import WishlistPage from './pages/WishlistPage.jsx';
 import SiteFooter from './components/SiteFooter.jsx';
@@ -103,7 +116,7 @@ export default function App() {
   const handleSignOut = () => {
     localStorage.removeItem(SESSION_KEY);
     setUser(null);
-    navigate('home');
+    navigate('marketplace');
   };
 
   const saveSession = (u) => {
@@ -111,8 +124,6 @@ export default function App() {
       SESSION_KEY,
       JSON.stringify({
         pinit_id: u.pinit_id,
-        exchange_id: u.exchange_id,
-        role: u.role,
         at: Date.now(),
       }),
     );
@@ -159,7 +170,7 @@ export default function App() {
             setUser(data.user);
             saveSession(data.user);
             setAuthOpen(false);
-            navigate('marketplace', { replace: true });
+            navigate(homePageForUser(data.user), { replace: true });
             try {
               sessionStorage.removeItem(INTENT_KEY);
             } catch {
@@ -198,7 +209,7 @@ export default function App() {
             setPreselectedAssetId(data.asset?.asset_id || data.intent?.asset_id || null);
             setIsListModalOpen(true);
           }
-          navigate('marketplace', { replace: true });
+          navigate(canList(user) || data.asset ? 'seller_listings' : 'marketplace', { replace: true });
           setMarketplaceResetToken((n) => n + 1);
         }
       }
@@ -225,7 +236,7 @@ export default function App() {
     setBecomeCreatorOpen(true);
   };
 
-  const openListFromHub = () => {
+  const openListFromHub = (assetId) => {
     if (!user) {
       openAuth({ mode: 'signup', intent: 'creator' });
       return;
@@ -235,6 +246,7 @@ export default function App() {
       setBecomeCreatorOpen(true);
       return;
     }
+    setPreselectedAssetId(assetId || null);
     setIsListModalOpen(true);
   };
 
@@ -267,46 +279,37 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!user) return;
-    if (SELLER_ONLY_PAGES.has(activePage) && !canList(user)) {
-      setRoleNotice('Creator dashboard is for seller accounts.');
-      setBecomeCreatorOpen(true);
-      navigate('marketplace', { replace: true });
+    if (user && canList(user) && (activePage === 'home' || activePage === 'creator_desk' || activePage === 'creator_studio')) {
+      navigate(activePage === 'home' ? 'marketplace' : 'seller_listings', { replace: true });
+      return;
     }
-    if (BUYER_ONLY_PAGES.has(activePage) && user && !canPurchase(user)) {
-      setRoleNotice('Creator accounts cannot purchase marketplace assets.');
-      navigate('marketplace', { replace: true });
+    if (!canAccessPage(user, activePage)) {
+      if (!user) {
+        navigate('marketplace', { replace: true });
+        openAuth({ mode: 'login' });
+        return;
+      }
+      if (canList(user)) {
+        setRoleNotice('Creator accounts browse the marketplace but cannot purchase.');
+        navigate('marketplace', { replace: true });
+      } else {
+        setRoleNotice('Listing pages are for creator accounts.');
+        setBecomeCreatorOpen(true);
+        navigate('home', { replace: true });
+      }
     }
   }, [activePage, user]);
 
-  return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        background: '#080b11',
-        color: '#f8fafc',
-      }}
-    >
-      <ExchangeHeader
-        activePage={activePage}
-        setActivePage={navigate}
-        onOpenListFromHub={openListFromHub}
-        onOpenAuth={openAuth}
-        onBecomeCreator={openBecomeCreator}
-        onSignOut={handleSignOut}
-        user={user}
-        cartCount={cartCount}
-      />
-      {roleNotice && (
-        <div className="exchange-role-notice" role="status">
-          {roleNotice}
-          <button type="button" onClick={() => setRoleNotice('')}>Dismiss</button>
-        </div>
-      )}
+  const account = resolveExchangeAccount(user);
+  const notice = roleNotice ? (
+    <div className="exchange-role-notice" role="status">
+      {roleNotice}
+      <button type="button" onClick={() => setRoleNotice('')}>Dismiss</button>
+    </div>
+  ) : null;
 
-      <main style={{ flex: 1 }}>
+  const pages = (
+      <>
         {activePage === 'home' && (
           <HomePage
             onNavigate={navigate}
@@ -337,7 +340,7 @@ export default function App() {
             listingId={selectedListingId}
             onBack={() => navigate('marketplace')}
             onOpenCheckout={handleOpenCheckout}
-            onManageListing={() => navigate('creator_desk')}
+            onManageListing={() => navigate('seller_listings')}
             user={user}
             onCartChanged={refreshCartCount}
           />
@@ -392,8 +395,9 @@ export default function App() {
             onNavigateMarketplace={() => navigate('marketplace')}
           />
         )}
-        {activePage === 'requirements' && (
+        {(activePage === 'requirements' || activePage === 'seller_opportunities') && (
           <RequirementsExchange
+            mode={activePage === 'seller_opportunities' || resolveExchangeAccount(user).workspace === 'seller' ? 'seller' : 'buyer'}
             onNavigate={navigate}
             user={user}
             onOpenAuth={openAuth}
@@ -438,19 +442,82 @@ export default function App() {
           />
         )}
 
-        {activePage === 'creator_desk' && (
-          <CreatorDesk
+        {activePage === 'creator_studio' && (
+          <CreatorStudio
             user={user}
-            onOpenListFromHub={openListFromHub}
-            onOpenAuth={openAuth}
-            hubAppUrl={HUB_APP_URL}
+            onNavigate={navigate}
+            onSelectListing={handleSelectListing}
           />
         )}
 
-        {activePage === 'settings' && (
-          <SettingsPage user={user} onUserUpdated={(updated) => setUser(updated)} />
+        {(activePage === 'creator_desk' || activePage === 'seller_listings') && (
+          <SellerListings
+            user={user}
+            onOpenListFromHub={openListFromHub}
+            onSelectListing={handleSelectListing}
+            onNavigate={navigate}
+          />
         )}
-      </main>
+        {activePage === 'seller_assets' && (
+          <SellerAssets
+            user={user}
+            onOpenListFromHub={openListFromHub}
+            onSelectListing={handleSelectListing}
+            hubAppUrl={HUB_APP_URL}
+          />
+        )}
+        {activePage === 'seller_sales' && <SellerSales user={user} mode="sales" />}
+        {activePage === 'seller_orders' && <SellerSales user={user} mode="orders" />}
+        {activePage === 'seller_earnings' && <SellerEarnings user={user} onNavigate={navigate} />}
+        {activePage === 'seller_reviews' && (
+          <SellerReviews user={user} onSelectListing={handleSelectListing} />
+        )}
+        {activePage === 'seller_analytics' && (
+          <SellerAnalytics user={user} onSelectListing={handleSelectListing} />
+        )}
+        {activePage === 'seller_promotions' && <SellerPromotions user={user} />}
+        {activePage === 'seller_alerts' && <SellerAlerts user={user} hubAppUrl={HUB_APP_URL} />}
+        {activePage === 'buyer_payments' && <BuyerPayments onNavigate={navigate} />}
+        {activePage === 'buyer_notifications' && (
+          <BuyerNotifications user={user} onNavigate={navigate} />
+        )}
+
+        {activePage === 'settings' && (
+          <SettingsPage user={user} onUserUpdated={(updated) => setUser(updated)} onNavigate={navigate} />
+        )}
+      </>
+  );
+
+  return (
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        background: '#080b11',
+        color: '#f8fafc',
+      }}
+    >
+      <ExchangeHeader
+        activePage={activePage}
+        setActivePage={navigate}
+        onOpenAuth={openAuth}
+        onBecomeCreator={openBecomeCreator}
+        onOpenListFromHub={openListFromHub}
+        onSignOut={handleSignOut}
+        user={user}
+        cartCount={cartCount}
+      />
+      {account.canList && isSellerAccountPage(activePage) && (
+        <SellerAccountNav
+          activePage={activePage}
+          onNavigate={navigate}
+          onOpenListFromHub={openListFromHub}
+        />
+      )}
+      {notice}
+      <main style={{ flex: 1 }}>{pages}</main>
+      <SiteFooter onNavigate={navigate} user={user} />
 
       <ListFromHubModal
         isOpen={isListModalOpen}
@@ -463,7 +530,7 @@ export default function App() {
           setPreselectedAssetId(null);
           setFocusListingId(listing?.listing_id || null);
           setMarketplaceResetToken((n) => n + 1);
-          navigate('marketplace');
+          navigate(canList(user) ? 'seller_listings' : 'marketplace');
         }}
         user={user}
         preselectedAssetId={preselectedAssetId}
@@ -492,11 +559,11 @@ export default function App() {
         onConverted={(updated) => {
           setUser(updated);
           saveSession(updated);
-          setRoleNotice('You are now a Creator. Protect assets in Pinit HUB, then list them here.');
+          setRoleNotice('You are now a Creator. You can list Hub-protected assets on Exchange.');
+          navigate('seller_listings');
         }}
       />
 
-      <SiteFooter onNavigate={navigate} user={user} />
     </div>
   );
 }

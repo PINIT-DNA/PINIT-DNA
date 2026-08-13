@@ -27,7 +27,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { encrypt, decrypt } from './encryption.service';
-import { uploadVaultFile, downloadVaultFile, deleteVaultFile, isSupabaseStorageConfigured } from '../../lib/supabase-storage';
+import { uploadVaultFile, downloadVaultFile, deleteVaultFile, isSupabaseStorageConfigured, isSupabaseStorageRestricted } from '../../lib/supabase-storage';
 import { assertRecordOwner } from '../../lib/tenant-scope';
 import { identityEmbeddingPipeline } from '../identity/identity-embedding-pipeline.service';
 
@@ -180,8 +180,21 @@ export class VaultService {
       encryptedFilePath = await writeLocal(vaultId, encResult.encryptedBuffer);
       logger.debug('Vault — stored locally', { vaultId, encryptedFilePath });
     } else {
-      encryptedFilePath = await uploadVaultFile(vaultId, encResult.encryptedBuffer, ownerUserId);
-      logger.debug('Vault — uploaded to Supabase Storage', { vaultId, encryptedFilePath });
+      try {
+        encryptedFilePath = await uploadVaultFile(vaultId, encResult.encryptedBuffer, ownerUserId);
+        logger.debug('Vault — uploaded to Supabase Storage', { vaultId, encryptedFilePath });
+      } catch (uploadErr) {
+        if (process.env['NODE_ENV'] !== 'production' && isSupabaseStorageRestricted(uploadErr)) {
+          encryptedFilePath = await writeLocal(vaultId, encResult.encryptedBuffer);
+          logger.warn('Vault — Supabase storage restricted; stored locally for this session', {
+            vaultId,
+            encryptedFilePath,
+            reason: uploadErr instanceof Error ? uploadErr.message : String(uploadErr),
+          });
+        } else {
+          throw uploadErr;
+        }
+      }
     }
 
     // ── Persist vault record ───────────────────────────────────────────────
@@ -290,14 +303,16 @@ export class VaultService {
 
     // ── Download encrypted file (local in dev, Supabase in production) ──
     let encryptedBuffer: Buffer;
+    const storedPath = record.encryptedFilePath || '';
+    const looksLocal = /[/\\]vault[/\\]encrypted[/\\]/i.test(storedPath) || storedPath.includes(':\\');
     try {
-      if (USE_LOCAL) {
-        encryptedBuffer = await readLocal(vaultId);
+      if (USE_LOCAL || looksLocal) {
+        encryptedBuffer = looksLocal ? await fs.readFile(storedPath) : await readLocal(vaultId);
       } else {
         encryptedBuffer = await downloadVaultFile(
           vaultId,
           ownerUserId,
-          record.encryptedFilePath ? [record.encryptedFilePath] : [],
+          storedPath ? [storedPath] : [],
         );
       }
     } catch (err) {

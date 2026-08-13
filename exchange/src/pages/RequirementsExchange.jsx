@@ -18,7 +18,7 @@ const CATEGORIES = [
   { id: 'graphics', label: 'Graphics' },
 ];
 
-const HOW_STEPS = [
+const BUYER_STEPS = [
   {
     n: '01',
     title: 'Post your brief',
@@ -33,6 +33,24 @@ const HOW_STEPS = [
     n: '03',
     title: 'License with confidence',
     body: 'Select the asset and complete licensing securely through Exchange.',
+  },
+];
+
+const SELLER_STEPS = [
+  {
+    n: '01',
+    title: 'Browse open briefs',
+    body: 'See buyer needs, budget and deadline on Exchange.',
+  },
+  {
+    n: '02',
+    title: 'Submit Hub-protected work',
+    body: 'Propose an existing protected asset. Uploading to Hub never auto-lists it.',
+  },
+  {
+    n: '03',
+    title: 'Buyer licenses on Exchange',
+    body: 'If selected, the buyer completes licensing. Creators cannot purchase.',
   },
 ];
 
@@ -65,7 +83,10 @@ function formatBudget(budget) {
   return `$${n.toLocaleString()}`;
 }
 
-export default function RequirementsExchange({ onNavigate, user = null, onOpenAuth, onBecomeCreator }) {
+export default function RequirementsExchange({
+  onNavigate, user = null, onOpenAuth, onBecomeCreator, mode = 'buyer',
+}) {
+  const sellerMode = mode === 'seller' || canList(user);
   const [requirements, setRequirements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -178,14 +199,18 @@ export default function RequirementsExchange({ onNavigate, user = null, onOpenAu
       {/* Hero */}
       <section className="glass-panel req-hero">
         <div className="req-hero__eyebrow">
-          <Briefcase size={14} /> Buyer briefs
+          <Briefcase size={14} /> {sellerMode ? 'Opportunities' : 'Requirements'}
         </div>
-        <h1 className="req-hero__title">Find the right creative asset for your project</h1>
+        <h1 className="req-hero__title">
+          {sellerMode ? 'Open buyer briefs you can fulfill' : 'Find the right creative asset for your project'}
+        </h1>
         <p className="req-hero__sub">
-          Post a verified creative brief and receive provenance-backed submissions from creators.
+          {sellerMode
+            ? 'Submit Hub-protected work to buyer briefs. This is not a purchase flow — Creator accounts cannot buy.'
+            : 'Post a verified creative brief and receive provenance-backed submissions from creators.'}
         </p>
         <div className="req-hero__cta">
-          {(!user || canPurchase(user)) && (
+          {!sellerMode && (!user || canPurchase(user)) && (
           <button type="button" className="btn-primary" onClick={() => {
             if (!user) onOpenAuth?.({ mode: 'signup', intent: 'buyer' });
             else setIsModalOpen(true);
@@ -193,14 +218,14 @@ export default function RequirementsExchange({ onNavigate, user = null, onOpenAu
             <PlusCircle size={18} /> Post a Brief
           </button>
           )}
-          {canList(user) && (
+          {sellerMode && (
             <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>
-              Browse briefs and submit proposals. Creator accounts cannot purchase through a requirement.
+              Browse briefs and submit proposals from assets you already protect in Hub.
             </p>
           )}
           {onNavigate && (
-            <button type="button" className="btn-secondary" onClick={() => onNavigate('marketplace')}>
-              Browse marketplace <ArrowRight size={14} />
+            <button type="button" className="btn-secondary" onClick={() => onNavigate(sellerMode ? 'seller_assets' : 'marketplace')}>
+              {sellerMode ? 'My Assets' : 'Browse marketplace'} <ArrowRight size={14} />
             </button>
           )}
         </div>
@@ -210,14 +235,14 @@ export default function RequirementsExchange({ onNavigate, user = null, onOpenAu
       <section className="req-how" aria-label="How it works">
         <h2 className="req-section-label">How it works</h2>
         <div className="req-how__grid">
-          {HOW_STEPS.map((step, i) => (
+          {(sellerMode ? SELLER_STEPS : BUYER_STEPS).map((step, i) => (
             <React.Fragment key={step.n}>
               <article className="req-how__card">
                 <span className="req-how__n">{step.n}</span>
                 <h3>{step.title}</h3>
                 <p>{step.body}</p>
               </article>
-              {i < HOW_STEPS.length - 1 && <div className="req-how__arrow" aria-hidden>→</div>}
+              {i < (sellerMode ? SELLER_STEPS : BUYER_STEPS).length - 1 && <div className="req-how__arrow" aria-hidden>→</div>}
             </React.Fragment>
           ))}
         </div>
@@ -227,8 +252,8 @@ export default function RequirementsExchange({ onNavigate, user = null, onOpenAu
       <section>
         <div className="section-head">
           <div>
-            <h2>Open buyer briefs</h2>
-            <p>Procurement-ready briefs with clear license and deadline terms.</p>
+            <h2>{sellerMode ? 'Open opportunities' : 'Open buyer briefs'}</h2>
+            <p>{sellerMode ? 'Match your protected work to active buyer needs.' : 'Procurement-ready briefs with clear license and deadline terms.'}</p>
           </div>
         </div>
 
@@ -273,10 +298,10 @@ export default function RequirementsExchange({ onNavigate, user = null, onOpenAu
             icon={<Briefcase size={32} color="var(--primary)" />}
             title="No buyer briefs available right now"
             description="Be the first to post a creative requirement and connect with verified creators."
-            primaryLabel={canPurchase(user) || !user ? 'Post a Buyer Brief' : 'Browse marketplace'}
+            primaryLabel={sellerMode ? 'Browse marketplace' : (canPurchase(user) || !user ? 'Post a Buyer Brief' : 'Browse marketplace')}
             onPrimary={() => {
-              if (canPurchase(user) || !user) setIsModalOpen(true);
-              else onNavigate?.('marketplace');
+              if (!sellerMode && (canPurchase(user) || !user)) setIsModalOpen(true);
+              else onNavigate?.(sellerMode ? 'marketplace' : 'marketplace');
             }}
             secondaryLabel="Browse existing assets → Discover Marketplace"
             onSecondary={onNavigate ? () => onNavigate('marketplace') : undefined}
@@ -362,9 +387,11 @@ export default function RequirementsExchange({ onNavigate, user = null, onOpenAu
 
       {/* Why Exchange */}
       <section className="glass-panel req-why">
-        <h2>Why post a brief on Pinit Exchange?</h2>
+        <h2>{sellerMode ? 'Why submit to a brief?' : 'Why post a brief on Pinit Exchange?'}</h2>
         <p className="req-why__sub">
-          Requirements connect buyers to creators — HUB protects the asset, Exchange closes the license.
+          {sellerMode
+            ? 'Opportunities connect your Hub-protected work to buyer needs. Exchange closes the license — you never buy as a Creator.'
+            : 'Requirements connect buyers to creators — HUB protects the asset, Exchange closes the license.'}
         </p>
         <ul className="req-why__grid">
           {WHY_POINTS.map((point) => (

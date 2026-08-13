@@ -66,9 +66,9 @@ export function rankFaceMatches(
   for (const c of candidates) {
     const d = euclideanDistance(probe, c.embedding);
     if (!best || d < best.distance) {
-      if (best) secondDistance = best.distance;
+      if (best && best.userId !== c.userId) secondDistance = best.distance;
       best = { userId: c.userId, shortId: c.shortId, distance: d, source: c.source };
-    } else if (d < secondDistance) {
+    } else if (c.userId !== best.userId && d < secondDistance) {
       secondDistance = d;
     }
   }
@@ -76,14 +76,15 @@ export function rankFaceMatches(
 }
 
 /**
- * Accept login only when:
- * 1) nearest distance < faceLogin threshold, AND
- * 2) if another template exists, nearest beats 2nd-best by faceLoginMargin
- *    (prevents "closest stranger" false accepts in small registries).
+ * Accept when nearest face is under the login threshold.
+ * If a 2nd template is also under threshold, that is a duplicate enrollment of the
+ * same person — still accept the nearest ID (never mint another).
+ * Margin only rejects a "closest stranger" (2nd template is far / above threshold).
  */
 export function isConfidentFaceMatch(bestDistance: number, secondDistance: number): boolean {
   if (!Number.isFinite(bestDistance) || bestDistance >= THRESHOLDS.faceLogin) return false;
   if (!Number.isFinite(secondDistance) || secondDistance === Infinity) return true;
+  if (secondDistance < THRESHOLDS.faceLogin) return true;
   const margin = THRESHOLDS.faceLoginMargin ?? 0.08;
   return secondDistance - bestDistance >= margin;
 }

@@ -5,7 +5,8 @@ import { isVideoListing } from '../lib/media.js';
 import HubTrustBadge from '../components/HubTrustBadge.jsx';
 import ProvenanceDrawer from '../components/ProvenanceDrawer.jsx';
 import { apiFetch, verifiedLabel } from '../lib/api.js';
-import { canList, canPurchase, isSeller } from '../lib/roles.js';
+import { canPurchase, resolveExchangeAccount } from '../lib/roles.js';
+import { samePinitIdentity } from '../lib/pinit-identity.js';
 
 export default function ListingDetail({ listingId, onBack, onOpenCheckout, onManageListing, user, onCartChanged }) {
   const [listing, setListing] = useState(null);
@@ -132,6 +133,9 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
   ];
 
   const currentPrice = listing[`price_${selectedTier}`] || listing.price_personal;
+  const account = resolveExchangeAccount(user);
+  const seller = account.role === 'SELLER';
+  const ownsListing = seller && samePinitIdentity(account.pinitId, listing.pinit_id);
 
   return (
     <div style={{ maxWidth: '1320px', margin: '0 auto', padding: '32px 24px' }}>
@@ -143,13 +147,17 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '32px' }}>
         <div>
           <div className="glass-panel" style={{ overflow: 'hidden', marginBottom: '24px', padding: 0 }}>
-            <div style={{ position: 'relative', width: '100%', height: '420px', background: '#000' }}>
+            <div
+              style={{ position: 'relative', width: '100%', height: '420px', background: '#000' }}
+              onContextMenu={(e) => e.preventDefault()}
+            >
               {isVideoListing(listing) ? (
                 <video
                   key={listing.preview_url || listing.asset_id}
                   src={listing.preview_url}
                   controls
-                  controlsList="nodownload"
+                  controlsList="nodownload noremoteplayback"
+                  disablePictureInPicture
                   playsInline
                   preload="metadata"
                   onError={() => setMediaError('Preview unavailable — start Pinit HUB API (port 4000) so Exchange can stream the vault file.')}
@@ -165,8 +173,9 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
                 <img
                   src={listing.preview_url}
                   alt={listing.title}
+                  draggable={false}
                   style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                  onError={() => setMediaError('Preview image failed to load.')}
+                  onError={() => setMediaError('Preview image failed to load. Keep Pinit HUB running on port 4000.')}
                 />
               )}
               {mediaError && (
@@ -178,9 +187,6 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
                   {mediaError}
                 </div>
               )}
-              <div className="watermark-overlay" style={{ zIndex: 1, pointerEvents: 'none' }}>
-                <div className="watermark-text">Pinit PROVENANCE SEAL</div>
-              </div>
               <div className="card-badge-container" style={{ zIndex: 3, pointerEvents: 'none' }}>
                 <span className="badge-verified"><Award size={14} /> VERIFIED</span>
                 <span className={`badge-${String(listing.badge_tier || 'bronze').toLowerCase()}`} style={{ marginLeft: 8 }}>
@@ -189,6 +195,9 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
               </div>
             </div>
             <div style={{ padding: '24px' }}>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 12 }}>
+                Preview only — buyers can view this file. Download and share unlock after a license is purchased.
+              </p>
               <h1 style={{ fontSize: '1.8rem', color: '#fff', marginBottom: '8px' }}>{listing.title}</h1>
               {listing.tagline && <p style={{ color: 'var(--text-muted)', marginBottom: 10 }}>{listing.tagline}</p>}
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, color: 'var(--badge-gold)' }}>
@@ -235,22 +244,24 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
           </div>
 
           <div className="glass-panel" style={{ padding: 24 }}>
-            {isSeller(user) ? (
+            {seller ? (
               <>
-                <h3 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: 12 }}>Asset information</h3>
+                <h3 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: 12 }}>
+                  {ownsListing ? 'Your listing' : 'Creator catalog'}
+                </h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.5, marginBottom: 16 }}>
-                  Creator accounts cannot purchase marketplace assets.
+                  {account.uiLabel}. Creators cannot purchase marketplace assets.
                 </p>
                 <div style={{ color: 'var(--text-dim)', fontSize: '0.85rem', marginBottom: 16 }}>
                   From ${listing.price_personal || 49} · Personal · Commercial · Exclusive
                 </div>
-                {canList(user) && user?.pinit_id === listing.pinit_id && (
+                {ownsListing && (
                   <button type="button" className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={onManageListing}>
-                    Manage listing
+                    Back to My Listings
                   </button>
                 )}
-                <button type="button" className="btn-secondary" style={{ width: '100%', justifyContent: 'center', marginTop: 10 }} onClick={addWishlist}>
-                  <Heart size={16} /> Save for reference
+                <button type="button" className="btn-secondary" style={{ width: '100%', justifyContent: 'center', marginTop: 10 }} onClick={() => onBack?.()}>
+                  Browse Exchange
                 </button>
               </>
             ) : (

@@ -7,10 +7,6 @@ import { formatBytes } from '../lib/file-type-utils';
 import { protectedDownloadFromVault } from '../services/dashboard.api';
 import { AuthenticityReportCard } from './AuthenticityReportCard';
 import { formatTrackId, formatVaultId } from '../lib/lifecycle-ids';
-import {
-  openEditorOrCloud,
-  type EditorCloudTarget,
-} from '../lib/platform-share';
 
 interface Props {
   session: DnaSession;
@@ -73,19 +69,12 @@ export function SuccessPanel({ session, onReset }: Props) {
       a.click();
       if (url !== session.protectedBlobUrl) URL.revokeObjectURL(url);
       setDownloadDone(true);
-      toast.success('Downloaded — open Canva, Adobe, Drive, or Dropbox next, then re-protect after edits');
+      toast.success('Protected file downloaded');
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : 'Download failed. Try again from Vault.');
     } finally {
       setDownloading(false);
     }
-  };
-
-  const openWorkflow = (target: EditorCloudTarget) => {
-    if (!downloadDone) {
-      toast('Download the protected file first, then continue');
-    }
-    openEditorOrCloud(target, (msg) => toast(msg, { duration: 4500 }));
   };
 
   return (
@@ -218,35 +207,11 @@ export function SuccessPanel({ session, onReset }: Props) {
                   {downloading ? 'Preparing file…' : downloadDone ? 'Downloaded' : 'Download protected file'}
                 </span>
                 <span className="block text-2xs text-gray-400 mt-0.5">
-                  Then continue in Canva, Adobe, Drive, or Dropbox if needed
+                  Save the protected file to this device
                 </span>
               </span>
             </button>
           )}
-
-          <div className="grid grid-cols-2 gap-2">
-            {([
-              { label: 'Open Canva', target: 'canva' as const },
-              { label: 'Adobe Express', target: 'adobe' as const },
-              { label: 'Google Drive', target: 'drive' as const },
-              { label: 'Dropbox', target: 'dropbox' as const },
-            ]).map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                onClick={() => openWorkflow(item.target)}
-                className="rounded-xl border border-bg-border bg-bg-elevated px-3 py-2 text-2xs font-semibold text-gray-300 hover:text-white hover:border-dna-500/40"
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-          <p className="text-2xs text-gray-500 text-center">
-            Complete workflow: download → open editor/cloud → upload the file there → re-protect in Hub when done.
-          </p>
-          <p className="text-2xs text-gray-500 text-center">
-            Multi-platform share (WhatsApp, Email, X, LinkedIn, Telegram) is available from Vault → Share File.
-          </p>
 
           {downloadError && (
             <p className="text-xs text-danger text-center">{downloadError}</p>

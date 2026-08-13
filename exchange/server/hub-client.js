@@ -228,6 +228,30 @@ export async function prepareDeliveryWithHub(payload) {
   return data;
 }
 
+/** Public Hub profile (name, user id, Pinit User ID) for Exchange creator cards. */
+export async function fetchHubProfiles(pinitIds) {
+  const secret = bridgeSecret();
+  const ids = [...new Set((pinitIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  if (!secret || !ids.length) return { profiles: [], skipped: !secret };
+
+  const url = `${hubApiBase()}/exchange/profiles-bridge?pinitIds=${encodeURIComponent(ids.join(','))}`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      'X-PinIT-Bridge-Secret': secret,
+    },
+  });
+  const contentType = String(res.headers.get('content-type') || '');
+  const data = contentType.includes('json') ? await res.json().catch(() => ({})) : {};
+  if (!res.ok || !contentType.includes('json')) {
+    throw new Error(data.error || `Hub profiles failed (${res.status})`);
+  }
+  return {
+    profiles: Array.isArray(data.profiles) ? data.profiles : [],
+  };
+}
+
 export async function fetchMonitoringSummariesFromHub(pinitId) {
   const secret = bridgeSecret();
   if (!secret) {

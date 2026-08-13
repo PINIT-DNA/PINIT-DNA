@@ -116,8 +116,16 @@ export function errorMiddleware(
     || err.message.includes('Vault decrypt failed')
     || err.message.includes('Supabase download failed')
     || err.message.includes('SUPABASE_URL')
+    || err.message.includes('Failed to create storage bucket')
+    || /egress_quota|project is restricted/i.test(err.message)
   ) {
-    res.status(503).json({ success: false, error: err.message });
+    const quota = /egress_quota|project is restricted|Failed to create storage bucket/i.test(err.message);
+    res.status(503).json({
+      success: false,
+      error: quota
+        ? 'Vault storage is temporarily unavailable (Supabase quota). In local dev the file is saved on disk instead — click Protect again.'
+        : err.message,
+    });
     return;
   }
 

@@ -81,9 +81,12 @@ export function enrichPublicUser(row) {
   if (!row) return null;
   const { password_hash: _pw, ...safe } = row;
   const exchange_role = normalizeRole(row.role);
+  const seller = exchange_role === EXCHANGE_ROLES.SELLER || exchange_role === EXCHANGE_ROLES.ADMIN;
   return {
     ...safe,
     exchange_role,
+    account_type: seller ? 'CREATOR' : 'BUYER',
+    exchange_enabled: true,
     can_list: canList(row.role),
     can_purchase: canPurchase(row.role),
     positioning: rolePositioning(row.role),

@@ -111,7 +111,8 @@ CREATE TABLE IF NOT EXISTS exchange.requirements (
   deadline TEXT NOT NULL,
   proposals_count INTEGER DEFAULT 0,
   status TEXT DEFAULT 'open',
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  buyer_pinit_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS exchange.tracking_jobs (

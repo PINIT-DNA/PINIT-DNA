@@ -28,6 +28,11 @@ export function toRootPinitId(shortIdOrCode) {
   return code ? `PINIT-${code}` : '';
 }
 
+export function toUserPinitId(shortIdOrCode) {
+  const code = extractPinitCode(shortIdOrCode);
+  return code ? `PINIT-USER-${code}` : '';
+}
+
 export function toExchangePinitId(shortIdOrCode) {
   const code = extractPinitCode(shortIdOrCode);
   return code ? `PINIT-EX-${code}` : '';
@@ -42,4 +47,28 @@ export function identityCandidates(shortIdOrCode) {
     `PINIT-USER-${code}`,
     `PINIT-ORG-${code}`,
   ];
+}
+
+/** SQL expression that yields the shared face code (M58CDMZU) from any prefix. */
+export function pinitCodeExpr(column) {
+  return `REPLACE(REPLACE(REPLACE(REPLACE(UPPER(${column}), 'PINIT-EX-', ''), 'PINIT-USER-', ''), 'PINIT-ORG-', ''), 'PINIT-', '')`;
+}
+
+/** Join listings → the Exchange user for the same face, not an exact prefix match. */
+export function listingUserJoinSql(listingAlias = 'l', userAlias = 'u') {
+  return `${userAlias}.pinit_id = (
+    SELECT u2.pinit_id FROM users u2
+    WHERE ${pinitCodeExpr('u2.pinit_id')} = ${pinitCodeExpr(`${listingAlias}.pinit_id`)}
+    ORDER BY CASE WHEN u2.pinit_id LIKE 'PINIT-EX-%' THEN 0 ELSE 1 END
+    LIMIT 1
+  )`;
+}
+
+export function sellerMatchClause(column, sellerId) {
+  const id = String(sellerId || '').trim();
+  const code = extractPinitCode(id);
+  if (code) {
+    return { sql: ` AND ${pinitCodeExpr(column)} = ?`, params: [code] };
+  }
+  return { sql: ` AND ${column} = ?`, params: [id] };
 }

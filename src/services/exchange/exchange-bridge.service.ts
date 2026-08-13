@@ -11,7 +11,7 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { config } from '../../config';
 import { prisma } from '../../lib/prisma';
-import { extractPinitCode, toExchangePinitId, toRootPinitId } from '../../lib/pinit-identity';
+import { extractPinitCode, toExchangePinitId, toRootPinitId, toUserPinitId } from '../../lib/pinit-identity';
 import { AppError } from '../../api/middleware/error.middleware';
 import { VaultService } from '../vault/vault.service';
 
@@ -239,6 +239,73 @@ export const exchangeBridgeService = {
       ownerUserId: user.id,
       assets,
     };
+  },
+
+  /** Public-safe Hub profile for Exchange creator cards (name + IDs only). */
+  async getPublicProfilesByPinitIds(pinitIdsRaw: string[]) {
+    const codes = [...new Set(
+      (pinitIdsRaw || [])
+        .map((id) => extractPinitCode(String(id || '')))
+        .filter(Boolean),
+    )];
+    if (!codes.length) return { profiles: [] as Array<Record<string, string>> };
+
+    const placeholderName = (name: string) => {
+      const n = String(name || '').trim().toLowerCase();
+      return !n || n === 'pinit user' || n === 'pinit creator' || n === 'pinit buyer' || n === 'pinit';
+    };
+
+    const users = await prisma.user.findMany({
+      where: {
+        OR: codes.flatMap((code) => [
+          { shortId: `PINIT-${code}` },
+          { shortId: `PINIT-USER-${code}` },
+          { shortId: `PINIT-ORG-${code}` },
+          { shortId: `PINIT-EX-${code}` },
+          { shortId: { endsWith: `-${code}` } },
+          { shortId: { contains: code } },
+        ]),
+      },
+      select: {
+        id: true,
+        shortId: true,
+        fullName: true,
+        bio: true,
+        avatarUrl: true,
+        accountType: true,
+        updatedAt: true,
+      },
+    });
+
+    const rank = (user: (typeof users)[number]) => {
+      let score = 0;
+      if (!placeholderName(user.fullName)) score += 100;
+      if (user.shortId.includes('-USER-')) score += 20;
+      else if (user.shortId.includes('-ORG-')) score += 10;
+      return score;
+    };
+
+    const byCode = new Map<string, (typeof users)[number]>();
+    for (const user of users) {
+      const code = extractPinitCode(user.shortId);
+      if (!code || !codes.includes(code)) continue;
+      const existing = byCode.get(code);
+      if (!existing || rank(user) > rank(existing) || (rank(user) === rank(existing) && user.updatedAt > existing.updatedAt)) {
+        byCode.set(code, user);
+      }
+    }
+
+    const profiles = [...byCode.values()].map((user) => ({
+      user_id: user.id,
+      pinit_user_id: toUserPinitId(user.shortId),
+      pinit_id: user.shortId,
+      name: String(user.fullName || '').trim(),
+      bio: String(user.bio || '').trim(),
+      avatar_url: String(user.avatarUrl || '').trim(),
+      account_type: String(user.accountType || 'INDIVIDUAL'),
+    }));
+
+    return { profiles };
   },
 
   async getExchangeMarketplaceRole(ownerUserId: string) {

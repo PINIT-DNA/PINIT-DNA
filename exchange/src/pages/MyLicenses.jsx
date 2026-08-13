@@ -50,7 +50,7 @@ export default function MyLicenses({ user, onViewCertificate }) {
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '32px 24px' }}>
       <div style={{ marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '2.2rem', color: '#fff' }}>My Purchased Licenses</h1>
+        <h1 style={{ fontSize: '2.2rem', color: '#fff' }}>My Purchases</h1>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>
           Download licensed exports from Pinit HUB. Master files never leave the Hub vault.
         </p>

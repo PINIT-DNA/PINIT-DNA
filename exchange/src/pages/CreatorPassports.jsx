@@ -1,72 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2, Mail, Search, ShieldCheck, Star, ArrowRight, Briefcase,
 } from 'lucide-react';
-
-/**
- * Showcase creators for discovery UI.
- * Live seller identity will come from Hub-linked Exchange accounts when wired.
- * Stats below are profile fields used for display + Provenance Score formula.
- */
-const CREATORS = [
-  {
-    pinit_id: 'PINIT-90481234',
-    name: 'Elena Rostova',
-    specialties: ['Photography', 'Digital Art'],
-    categoryIds: ['photography', 'digital_art'],
-    bio: 'Architectural photographer specializing in high-provenance visual assets for commercial campaigns.',
-    sales: 42,
-    assets: 18,
-    reviews: 12,
-    rating: 4.9,
-    identityVerified: true,
-    hubConnected: true,
-    avatar: 'E',
-    portfolio: [
-      'https://images.unsplash.com/photo-1514565131-fce0801e5785?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=800&q=80',
-    ],
-  },
-  {
-    pinit_id: 'PINIT-33109284',
-    name: 'Marcus Vance',
-    specialties: ['Video', '3D'],
-    categoryIds: ['video', '3d'],
-    bio: 'Virtual production and verified environment design for film and interactive media.',
-    sales: 28,
-    assets: 11,
-    reviews: 9,
-    rating: 4.8,
-    identityVerified: true,
-    hubConnected: true,
-    avatar: 'M',
-    portfolio: [
-      'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1633356122544-f134324a6cee?auto=format&fit=crop&w=800&q=80',
-    ],
-  },
-  {
-    pinit_id: 'PINIT-77201945',
-    name: 'Aisha Rahman',
-    specialties: ['UI/UX', 'Digital Art'],
-    categoryIds: ['ui_ux', 'digital_art'],
-    bio: 'Product designer shipping licensed interface kits with clear commercial terms.',
-    sales: 61,
-    assets: 24,
-    reviews: 21,
-    rating: 5.0,
-    identityVerified: true,
-    hubConnected: true,
-    avatar: 'A',
-    portfolio: [
-      'https://images.unsplash.com/photo-1561070791-2526d30994b5?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1559028012-481c04fa702d?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1586717791821-3f44a563fa4c?auto=format&fit=crop&w=800&q=80',
-    ],
-  },
-];
+import { apiFetch } from '../lib/api.js';
+import { listingPreviewUrl } from '../lib/listing-preview.js';
 
 const CATEGORIES = [
   { id: 'all', label: 'All' },
@@ -106,7 +43,7 @@ const WHY = [
  * - Buyer reviews: +min(5, reviews * 0.3)
  * Capped at 99.5. Not a marketing random number.
  */
-export function provenanceScore(creator) {
+function provenanceScore(creator) {
   let score = 0;
   if (creator.identityVerified) score += 40;
   if (creator.hubConnected) score += 30;
@@ -121,19 +58,58 @@ function starsLabel(rating) {
   return r.toFixed(1);
 }
 
-export default function CreatorPassports({ onNavigate, onOpenAuth }) {
+function mapCreator(row) {
+  const verticals = String(row.verticals || '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+  const portfolio = (row.portfolio || []).map((item) => listingPreviewUrl(item) || item.preview_url).filter(Boolean);
+  const name = row.name || 'PINIT Creator';
+  const bio = /connected via pinit/i.test(row.bio || '') ? '' : (row.bio || '');
+  return {
+    pinit_id: row.pinit_id,
+    user_id: row.user_id || '',
+    pinit_user_id: row.pinit_user_id || '',
+    name,
+    bio,
+    specialties: verticals.length ? verticals.map((v) => v.replace(/_/g, ' ')) : ['Creative'],
+    categoryIds: verticals,
+    sales: Number(row.sales || 0),
+    assets: Number(row.assets || 0),
+    reviews: Number(row.reviews || 0),
+    rating: Number(row.rating || 5),
+    identityVerified: true,
+    hubConnected: true,
+    avatar: String(name || 'P')[0].toUpperCase(),
+    portfolio,
+    listings: row.portfolio || [],
+  };
+}
+
+export default function CreatorPassports({ onNavigate, onOpenAuth, user }) {
   const [selected, setSelected] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [category, setCategory] = useState('all');
   const [sort, setSort] = useState('recommended');
   const [hireSent, setHireSent] = useState(false);
+  const [creators, setCreators] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const { ok, data } = await apiFetch('/api/creator/directory');
+      setCreators(ok ? (data.creators || []).map(mapCreator) : []);
+      setLoading(false);
+    })();
+  }, []);
 
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    let list = CREATORS.filter((c) => {
-      if (category !== 'all' && !c.categoryIds.includes(category)) return false;
+    let list = creators.filter((c) => {
+      if (category !== 'all' && !(c.categoryIds || []).some((id) => id.includes(category) || category.includes(id))) return false;
       if (!q) return true;
-      const hay = [c.name, c.bio, ...(c.specialties || [])].join(' ').toLowerCase();
+      const hay = [c.name, c.bio, c.user_id, c.pinit_user_id, c.pinit_id, ...(c.specialties || [])].join(' ').toLowerCase();
       return hay.includes(q);
     });
 
@@ -146,7 +122,7 @@ export default function CreatorPassports({ onNavigate, onOpenAuth }) {
       return score(b) - score(a);
     });
     return list;
-  }, [searchQuery, category, sort]);
+  }, [searchQuery, category, sort, creators]);
 
   const goHireFlow = (creator = selected) => {
     if (creator?.name) {
@@ -225,9 +201,15 @@ export default function CreatorPassports({ onNavigate, onOpenAuth }) {
         </select>
       </div>
 
-      {filtered.length === 0 ? (
+      {loading ? (
         <div className="glass-panel" style={{ padding: 36, textAlign: 'center', color: 'var(--text-muted)' }}>
-          No creators match your filters. Try another specialty or clear search.
+          Loading verified creators…
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="glass-panel" style={{ padding: 36, textAlign: 'center', color: 'var(--text-muted)' }}>
+          {creators.length === 0
+            ? 'No live creator storefronts yet. Listed Hub-protected assets appear here.'
+            : 'No creators match your filters. Try another specialty or clear search.'}
         </div>
       ) : (
         <div className="creators-grid">
@@ -245,10 +227,18 @@ export default function CreatorPassports({ onNavigate, onOpenAuth }) {
                       </span>
                     </div>
                     <div className="creator-card__specs">{c.specialties.join(' · ')}</div>
+                    <div className="creator-card__ids">
+                      {c.user_id && (
+                        <span><em>User ID</em> {c.user_id}</span>
+                      )}
+                      {c.pinit_user_id && (
+                        <span><em>Pinit User ID</em> {c.pinit_user_id}</span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                <p className="creator-card__bio">{c.bio}</p>
+                {c.bio ? <p className="creator-card__bio">{c.bio}</p> : null}
 
                 <div className="creator-card__decision">
                   <span className="creator-card__rating">
@@ -326,6 +316,14 @@ export default function CreatorPassports({ onNavigate, onOpenAuth }) {
                   <h3 style={{ color: '#fff', margin: 0 }}>{selected.name}</h3>
                   <div className="creator-card__verified" style={{ marginTop: 4 }}>
                     <CheckCircle2 size={13} /> Verified Creator
+                  </div>
+                  <div className="creator-card__ids" style={{ marginTop: 8 }}>
+                    {selected.user_id && (
+                      <span><em>User ID</em> {selected.user_id}</span>
+                    )}
+                    {selected.pinit_user_id && (
+                      <span><em>Pinit User ID</em> {selected.pinit_user_id}</span>
+                    )}
                   </div>
                 </div>
               </div>

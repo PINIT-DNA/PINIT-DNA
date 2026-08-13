@@ -70,12 +70,12 @@ export default function AuthModal({
   const openHubContinue = (nextIntent = intent || 'buyer') => {
     stashIntent(nextIntent);
     const returnUrl = `${window.location.origin}/?hub_return=1&exchange_intent=${nextIntent === 'creator' ? 'creator' : 'buyer'}`;
-    window.open(
-      `${HUB_APP_URL}/login?exchange_return=${encodeURIComponent(returnUrl)}`,
-      '_blank',
-      'noopener,noreferrer',
+    const existing = window.open(
+      `${HUB_APP_URL}/login?exchange_return=${encodeURIComponent(returnUrl)}&hub_mode=login`,
+      'pinit-hub-auth',
     );
-    setSuccess('Pinit HUB opened. Complete biometric sign-in — you will return to Exchange automatically.');
+    if (existing) existing.focus();
+    setSuccess('Pinit Hub opened. Sign in with your existing identity — this does not create a new Pinit ID.');
   };
 
   const openHubRegister = (accountHint = null) => {

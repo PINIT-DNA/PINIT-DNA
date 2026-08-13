@@ -63,11 +63,13 @@ export function LoginFlow() {
   useEffect(() => { warmBackend(); preloadFaceModels(); collectFingerprint().then((f) => { deviceFpRef.current = f.hash; }).catch(() => {}); }, []);
 
   function goToRegister() {
-    clearRegistration();
     const er = exchangeReturn || takeStashedExchangeReturn();
-    if (er) stashExchangeReturn(er);
-    const qs = er ? `?exchange_return=${encodeURIComponent(er)}` : '';
-    navigate(`/register/account-type${qs}`, { replace: true });
+    if (er) {
+      setError('Continue with Hub signs into your existing Pinit ID. It does not create a new one. Try verification again.');
+      return;
+    }
+    clearRegistration();
+    navigate('/register/account-type', { replace: true });
   }
 
   function handleNotRegistered(msg: string) {
@@ -145,6 +147,7 @@ export function LoginFlow() {
             <Presence
               key={presenceKey}
               error={error}
+              exchangeReturn={!!exchangeReturn}
               run={async () => {
                 const embedding = faceEmbeddingRef.current;
                 const voiceFp = voiceFingerprintRef.current;
@@ -243,15 +246,17 @@ function WelcomeBack({
         </div>
       </div>
       <button className="pa-btn" onClick={onNext}><ScanFace size={17} /> Verify Identity</button>
-      <button className="pa-btn pa-btn-ghost" style={{ marginTop: 10 }} onClick={onRegister}>
-        New here? Create biometric account
-      </button>
+      {!exchangeReturn && (
+        <button className="pa-btn pa-btn-ghost" style={{ marginTop: 10 }} onClick={onRegister}>
+          New here? Create biometric account
+        </button>
+      )}
     </div>
   );
 }
 
 function Presence({
-  run, onDone, onError, onRegister, onRetry, error,
+  run, onDone, onError, onRegister, onRetry, error, exchangeReturn,
 }: {
   run: () => Promise<void>;
   onDone: () => void;
@@ -259,6 +264,7 @@ function Presence({
   onRegister: () => void;
   onRetry: () => void;
   error: string;
+  exchangeReturn?: boolean;
 }) {
   const [items, setItems] = useState<CheckItem[]>([
     { label: 'Face Captured', done: false },
@@ -294,7 +300,7 @@ function Presence({
         <div style={{ marginTop: 14, textAlign: 'center' }}>
           <p style={{ color: '#fca5a5', fontSize: 13 }}>{error}</p>
           <button type="button" className="pa-btn" style={{ marginTop: 10 }} onClick={onRetry}>Try again</button>
-          {notRegistered && (
+          {notRegistered && !exchangeReturn && (
             <button className="pa-btn pa-btn-ghost" style={{ marginTop: 10, marginLeft: 8 }} onClick={onRegister}>
               Register instead
             </button>
