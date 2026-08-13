@@ -12,7 +12,7 @@ import {
  */
 export function ExchangeReturnHandoff({ fallback }: { fallback: ReactNode }) {
   const [searchParams] = useSearchParams();
-  const [status, setStatus] = useState<'checking' | 'redirecting' | 'done'>('checking');
+  const [status, setStatus] = useState<'checking' | 'redirecting' | 'done' | 'failed'>('checking');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -35,7 +35,7 @@ export function ExchangeReturnHandoff({ fallback }: { fallback: ReactNode }) {
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : 'Could not open Exchange');
-          setStatus('done');
+          setStatus('failed');
         }
       }
     })();
@@ -49,20 +49,26 @@ export function ExchangeReturnHandoff({ fallback }: { fallback: ReactNode }) {
 
   return (
     <div className="pinit-auth" style={{ alignItems: 'center', justifyContent: 'center', display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div
-        className="pa-spin"
-        style={{
-          width: 28,
-          height: 28,
-          border: '3px solid rgba(120,160,220,0.2)',
-          borderTopColor: '#3b9eff',
-          borderRadius: '50%',
-        }}
-      />
-      <p style={{ color: 'rgba(200,220,255,0.75)', fontSize: 14 }}>
+      {status !== 'failed' && (
+        <div
+          className="pa-spin"
+          style={{
+            width: 28,
+            height: 28,
+            border: '3px solid rgba(120,160,220,0.2)',
+            borderTopColor: '#3b9eff',
+            borderRadius: '50%',
+          }}
+        />
+      )}
+      <p style={{ color: status === 'failed' ? '#fca5a5' : 'rgba(200,220,255,0.75)', fontSize: 14 }}>
         {error || 'Opening Pinit Exchange…'}
       </p>
-      {error ? fallback : null}
+      {status === 'failed' && (
+        <button type="button" className="pa-btn" onClick={() => window.location.reload()}>
+          Try again
+        </button>
+      )}
     </div>
   );
 }

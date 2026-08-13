@@ -88,14 +88,15 @@ export function LoginFlow() {
       setOpeningExchange(true);
       try {
         const sso = await createExchangeSso();
+        if (!sso?.token) throw new Error('Hub did not issue an Exchange sign-in token.');
         const target = new URL(er);
         target.searchParams.set('hub_sso', sso.token);
         window.location.replace(target.toString());
         return;
-      } catch {
-        // Fall through to Hub home if SSO fails
-      } finally {
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Could not return to Exchange.');
         setOpeningExchange(false);
+        return;
       }
     }
 
@@ -189,6 +190,7 @@ export function LoginFlow() {
             <LoginSuccess
               exchangeReturn={!!exchangeReturn}
               openingExchange={openingExchange}
+              error={error}
               onEnter={() => { void enterAfterLogin(); }}
             />
           )}
@@ -315,10 +317,12 @@ function LoginSuccess({
   onEnter,
   exchangeReturn,
   openingExchange,
+  error,
 }: {
   onEnter: () => void;
   exchangeReturn?: boolean;
   openingExchange?: boolean;
+  error?: string;
 }) {
   const last = getLastLogin();
   const lastStr = last ? `Today ${last.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '—';
@@ -339,6 +343,7 @@ function LoginSuccess({
         <span className="pa-faint" style={{ fontSize: 13 }}>Last login</span>
         <span style={{ fontSize: 13, color: '#e8eef8', fontWeight: 600 }}>{lastStr}</span>
       </div>
+      {error && <p style={{ color: '#fca5a5', fontSize: 13, marginBottom: 12 }}>{error}</p>}
       <button className="pa-btn" onClick={onEnter} disabled={openingExchange}>
         {openingExchange
           ? 'Opening Exchange…'

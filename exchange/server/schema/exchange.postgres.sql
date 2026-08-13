@@ -229,6 +229,35 @@ CREATE TABLE IF NOT EXISTS exchange.seller_earnings (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Public creator portfolio (professional identity). Not vault assets and not marketplace listings.
+CREATE TABLE IF NOT EXISTS exchange.portfolio_profiles (
+  pinit_id TEXT PRIMARY KEY,
+  slug TEXT UNIQUE NOT NULL,
+  visibility TEXT DEFAULT 'private',
+  headline TEXT,
+  about TEXT,
+  location TEXT,
+  cover_url TEXT,
+  photo_url TEXT,
+  skills TEXT,
+  experience TEXT,
+  certifications TEXT,
+  awards TEXT,
+  clients TEXT,
+  services TEXT,
+  available_for TEXT,
+  featured_listing_ids TEXT,
+  project_groups TEXT,
+  section_visibility TEXT,
+  contact_email TEXT,
+  contact_note TEXT,
+  published_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ex_portfolio_slug ON exchange.portfolio_profiles (slug);
+
 CREATE INDEX IF NOT EXISTS idx_ex_listings_asset ON exchange.listings (asset_id);
 CREATE INDEX IF NOT EXISTS idx_ex_listings_seller_status ON exchange.listings (pinit_id, status);
 CREATE INDEX IF NOT EXISTS idx_ex_orders_buyer ON exchange.orders_sealed (buyer_pinit_id);

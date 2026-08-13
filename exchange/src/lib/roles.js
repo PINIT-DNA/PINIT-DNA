@@ -47,6 +47,7 @@ export const SELLER_ONLY_PAGES = new Set([
   'creator_studio',
   'creator_desk',
   'seller_assets',
+  'seller_portfolio',
   'seller_listings',
   'seller_sales',
   'seller_orders',
@@ -88,6 +89,7 @@ export const PUBLIC_PAGES = new Set([
   'refund_policy',
   'knowledge',
   'settings',
+  'public_portfolio',
   'not_found',
 ]);
 

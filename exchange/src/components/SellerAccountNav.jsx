@@ -1,6 +1,7 @@
 import React from 'react';
 
 const LINKS = [
+  ['seller_portfolio', 'Portfolio'],
   ['seller_listings', 'Your listings'],
   ['seller_assets', 'Your assets'],
   ['seller_sales', 'Sales'],
@@ -14,6 +15,7 @@ const SELLER_PAGES = new Set([
   'creator_studio',
   'creator_desk',
   'seller_listings',
+  'seller_portfolio',
   'seller_assets',
   'seller_sales',
   'seller_orders',

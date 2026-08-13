@@ -15,7 +15,9 @@ function publicUser(row) {
   return enrichPublicUser(row);
 }
 
+let userColumnsReady = false;
 function ensureUserColumns(cb) {
+  if (userColumnsReady) return cb();
   // Additive columns for stock-agency style signup (safe if already present)
   const alters = [
     `ALTER TABLE users ADD COLUMN password_hash TEXT`,
@@ -28,7 +30,10 @@ function ensureUserColumns(cb) {
   ];
   let i = 0;
   const next = () => {
-    if (i >= alters.length) return cb();
+    if (i >= alters.length) {
+      userColumnsReady = true;
+      return cb();
+    }
     db.run(alters[i], () => {
       i += 1;
       next();

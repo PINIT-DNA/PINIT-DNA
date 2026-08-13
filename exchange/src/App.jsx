@@ -3,7 +3,8 @@ import ExchangeHeader from './components/ExchangeHeader.jsx';
 import ListFromHubModal from './components/ListFromHubModal.jsx';
 import CheckoutModal from './components/CheckoutModal.jsx';
 import BecomeCreatorModal from './components/BecomeCreatorModal.jsx';
-import AuthModal, { SESSION_KEY, INTENT_KEY } from './components/AuthModal.jsx';
+import AuthModal, { INTENT_KEY } from './components/AuthModal.jsx';
+import { clearSession, readCachedUser, readSession, writeSession } from './lib/session.js';
 import {
   canList, canPurchase, homePageForUser, canAccessPage, resolveExchangeAccount,
 } from './lib/roles.js';
@@ -22,6 +23,7 @@ import CreatorStudio from './pages/CreatorStudio.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
 import SellerAccountNav, { isSellerAccountPage } from './components/SellerAccountNav.jsx';
 import SellerAssets from './pages/seller/SellerAssets.jsx';
+import SellerPortfolio from './pages/seller/SellerPortfolio.jsx';
 import SellerListings from './pages/seller/SellerListings.jsx';
 import SellerSales from './pages/seller/SellerSales.jsx';
 import SellerEarnings from './pages/seller/SellerEarnings.jsx';
@@ -45,18 +47,21 @@ import {
 } from './pages/info/LegalPages.jsx';
 import { apiFetch } from './lib/api.js';
 import { buyerKey } from './lib/buyer.js';
-import { applyPageMeta, pageFromPath, pathForPage } from './lib/exchange-routes.js';
+import { applyPageMeta, pageFromPath, pathForPage, portfolioSlugFromPath } from './lib/exchange-routes.js';
+import PublicPortfolioPage from './pages/PublicPortfolio.jsx';
 
 const HUB_APP_URL = (import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
 
 export default function App() {
   const [activePage, setActivePage] = useState(() => pageFromPath(window.location.pathname));
+  const [portfolioSlug, setPortfolioSlug] = useState(() => portfolioSlugFromPath(window.location.pathname));
 
   const navigate = (page, opts = {}) => {
     if (!page) return;
     setActivePage(page);
+    if (opts.slug) setPortfolioSlug(String(opts.slug).toLowerCase());
     applyPageMeta(page);
-    const next = pathForPage(page);
+    const next = pathForPage(page, { slug: opts.slug || portfolioSlug });
     if (window.location.pathname !== next) {
       window.history[opts.replace ? 'replaceState' : 'pushState']({}, '', next);
     }
@@ -77,7 +82,8 @@ export default function App() {
   const [authIntent, setAuthIntent] = useState(null);
   const [becomeCreatorOpen, setBecomeCreatorOpen] = useState(false);
   const [roleNotice, setRoleNotice] = useState('');
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => readCachedUser());
+  const [sessionReady, setSessionReady] = useState(() => Boolean(readCachedUser()));
   const [cartCount, setCartCount] = useState(0);
 
   const refreshCartCount = async () => {
@@ -91,16 +97,30 @@ export default function App() {
   };
 
   useEffect(() => {
-    restoreSession();
-    handleHubHandoff();
+    let cancelled = false;
+    (async () => {
+      await restoreSession();
+      if (!cancelled) await handleHubHandoff();
+      if (!cancelled) setSessionReady(true);
+    })();
     applyPageMeta(pageFromPath(window.location.pathname));
     const onPop = () => {
       const page = pageFromPath(window.location.pathname);
       setActivePage(page);
+      setPortfolioSlug(portfolioSlugFromPath(window.location.pathname));
       applyPageMeta(page);
     };
+    const onStorage = (e) => {
+      if (e.key !== 'pinit_exchange_session') return;
+      setUser(readCachedUser());
+    };
     window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('popstate', onPop);
+      window.removeEventListener('storage', onStorage);
+    };
   }, []);
 
   useEffect(() => {
@@ -114,30 +134,35 @@ export default function App() {
   };
 
   const handleSignOut = () => {
-    localStorage.removeItem(SESSION_KEY);
+    clearSession();
     setUser(null);
     navigate('marketplace');
   };
 
   const saveSession = (u) => {
-    localStorage.setItem(
-      SESSION_KEY,
-      JSON.stringify({
-        pinit_id: u.pinit_id,
-        at: Date.now(),
-      }),
-    );
+    writeSession(u);
   };
 
   const restoreSession = async () => {
     try {
-      const raw = localStorage.getItem(SESSION_KEY);
-      if (!raw) return;
-      const session = JSON.parse(raw);
-      if (!session?.pinit_id) return;
-      const res = await fetch(`/api/auth/me?pinit_id=${encodeURIComponent(session.pinit_id)}`);
-      if (res.ok) setUser(await res.json());
-      else localStorage.removeItem(SESSION_KEY);
+      const session = readSession();
+      if (session?.user) setUser(session.user);
+      const pinitId = session?.pinit_id;
+      if (!pinitId) return;
+      const res = await fetch(`/api/auth/me?pinit_id=${encodeURIComponent(pinitId)}`);
+      if (res.ok) {
+        const fresh = await res.json();
+        if (fresh?.pinit_id) {
+          setUser(fresh);
+          writeSession(fresh);
+        }
+        return;
+      }
+      // Network / 5xx: keep the cached login. Only drop it if the account is gone.
+      if (res.status === 401 || res.status === 404) {
+        clearSession();
+        setUser(null);
+      }
     } catch (err) {
       console.error('Session restore failed:', err);
     }
@@ -170,13 +195,29 @@ export default function App() {
             setUser(data.user);
             saveSession(data.user);
             setAuthOpen(false);
+            setRoleNotice('');
             navigate(homePageForUser(data.user), { replace: true });
             try {
               sessionStorage.removeItem(INTENT_KEY);
             } catch {
               /* ignore */
             }
+          } else {
+            setRoleNotice('Hub signed in, but Exchange did not receive a user profile.');
+            openAuth({ mode: 'login', intent });
           }
+        } else {
+          let msg = 'Could not sign in with Hub.';
+          try {
+            const data = await res.json();
+            msg = data.message || data.error || msg;
+          } catch {
+            if (res.status === 502 || res.status === 503 || res.status === 504) {
+              msg = 'Exchange API is offline. Start the Exchange server, then try again.';
+            }
+          }
+          setRoleNotice(msg);
+          openAuth({ mode: 'login', intent });
         }
       }
 
@@ -225,6 +266,8 @@ export default function App() {
       }
     } catch (err) {
       console.error('Hub handoff failed:', err);
+      setRoleNotice('Could not reach Exchange to finish Hub sign-in. Confirm the Exchange API is running.');
+      openAuth({ mode: 'login' });
     }
   };
 
@@ -279,6 +322,8 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!sessionReady) return;
+    if (activePage === 'public_portfolio') return;
     if (user && canList(user) && (activePage === 'home' || activePage === 'creator_desk' || activePage === 'creator_studio')) {
       navigate(activePage === 'home' ? 'marketplace' : 'seller_listings', { replace: true });
       return;
@@ -298,7 +343,7 @@ export default function App() {
         navigate('home', { replace: true });
       }
     }
-  }, [activePage, user]);
+  }, [activePage, user, sessionReady]);
 
   const account = resolveExchangeAccount(user);
   const notice = roleNotice ? (
@@ -466,6 +511,14 @@ export default function App() {
             hubAppUrl={HUB_APP_URL}
           />
         )}
+        {activePage === 'seller_portfolio' && (
+          <SellerPortfolio
+            user={user}
+            onOpenListFromHub={openListFromHub}
+            onSelectListing={handleSelectListing}
+            onNavigate={navigate}
+          />
+        )}
         {activePage === 'seller_sales' && <SellerSales user={user} mode="sales" />}
         {activePage === 'seller_orders' && <SellerSales user={user} mode="orders" />}
         {activePage === 'seller_earnings' && <SellerEarnings user={user} onNavigate={navigate} />}
@@ -487,6 +540,34 @@ export default function App() {
         )}
       </>
   );
+
+  if (activePage === 'public_portfolio') {
+    return (
+      <>
+        <PublicPortfolioPage
+          slug={portfolioSlug}
+          viewer={user}
+          onNavigate={navigate}
+          onOpenAuth={openAuth}
+          onSelectListing={handleSelectListing}
+          onOpenCheckout={handleOpenCheckout}
+        />
+        <AuthModal
+          isOpen={authOpen}
+          onClose={() => setAuthOpen(false)}
+          initialMode={authMode}
+          initialIntent={authIntent}
+        />
+        <CheckoutModal
+          isOpen={isCheckoutModalOpen}
+          onClose={() => setIsCheckoutModalOpen(false)}
+          listing={checkoutListing}
+          user={user}
+          onOrderCompleted={(order) => console.log('Order sealed:', order)}
+        />
+      </>
+    );
+  }
 
   return (
     <div

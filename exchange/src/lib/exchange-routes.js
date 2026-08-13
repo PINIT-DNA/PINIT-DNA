@@ -32,6 +32,7 @@ export const ROUTES = {
   creator_desk: { path: '/exchange/seller/listings', title: 'Pinit Exchange | Your listings', description: 'Manage your listings on Pinit Exchange.' },
   creator_studio: { path: '/exchange/seller', title: 'Pinit Exchange | Your listings', description: 'Your listings, sales and earnings on Pinit Exchange.' },
   seller_assets: { path: '/exchange/seller/assets', title: 'Pinit Exchange | My Assets', description: 'Your protected assets on Pinit Exchange.' },
+  seller_portfolio: { path: '/exchange/seller/portfolio', title: 'Pinit Exchange | Portfolio', description: 'Your published creative portfolio on Pinit Exchange.' },
   seller_listings: { path: '/exchange/seller/listings', title: 'Pinit Exchange | Listings', description: 'Manage published listings on Pinit Exchange.' },
   seller_sales: { path: '/exchange/seller/sales', title: 'Pinit Exchange | Sales', description: 'Sealed sales on Pinit Exchange.' },
   seller_orders: { path: '/exchange/seller/orders', title: 'Pinit Exchange | Orders', description: 'Seller orders on Pinit Exchange.' },
@@ -43,6 +44,7 @@ export const ROUTES = {
   seller_opportunities: { path: '/exchange/seller/opportunities', title: 'Pinit Exchange | Opportunities', description: 'Buyer briefs you can submit Hub-protected work to.' },
   buyer_notifications: { path: '/exchange/buyer/notifications', title: 'Pinit Exchange | Notifications', description: 'Buyer account notifications on Pinit Exchange.' },
   settings: { path: '/exchange/account', title: 'Pinit Exchange | Settings', description: 'Account settings on Pinit Exchange.' },
+  public_portfolio: { path: '/p', title: 'Pinit Exchange | Portfolio', description: 'Public creator portfolio on Pinit Exchange.' },
   not_found: { path: '/404', title: 'Pinit Exchange | Page not found', description: 'This Exchange page could not be found.' },
 };
 
@@ -89,14 +91,24 @@ export function normalizePathname(pathname) {
   return p;
 }
 
+export function portfolioSlugFromPath(pathname) {
+  const m = normalizePathname(pathname).match(/^\/p\/([^/]+)$/i);
+  return m ? decodeURIComponent(m[1]).toLowerCase() : '';
+}
+
 export function pageFromPath(pathname) {
   const p = normalizePathname(pathname);
+  if (portfolioSlugFromPath(p)) return 'public_portfolio';
   if (ALIASES[p]) return ALIASES[p];
   const hit = Object.entries(ROUTES).find(([, meta]) => meta.path === p);
   return hit ? hit[0] : 'not_found';
 }
 
-export function pathForPage(page) {
+export function pathForPage(page, extra = {}) {
+  if (page === 'public_portfolio') {
+    const slug = extra.slug || extra.portfolioSlug || '';
+    return slug ? `/p/${encodeURIComponent(slug)}` : '/p';
+  }
   return ROUTES[page]?.path || '/';
 }
 

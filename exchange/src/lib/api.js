@@ -2,19 +2,43 @@
  * Safe fetch helpers — never throw raw "Unexpected end of JSON" to users.
  */
 
+function statusMessage(status, fallback) {
+  if (status === 401) return 'Your session has expired.';
+  if (status === 403) return 'You do not have access';
+  if (status === 404) return 'Not found';
+  if (status >= 500) return 'Server error — try again shortly';
+  return fallback;
+}
+
 export async function parseJsonSafe(res) {
   const text = await res.text();
   if (!text || !String(text).trim()) {
-    return { ok: false, status: res.status, data: null, error: 'Empty response from server' };
-  }
-  try {
-    return { ok: res.ok, status: res.status, data: JSON.parse(text), error: null };
-  } catch {
+    console.warn('[api] empty response', res.status, res.url);
     return {
       ok: false,
       status: res.status,
       data: null,
-      error: res.ok ? 'Invalid response from server' : `Request failed (${res.status})`,
+      error: statusMessage(res.status, 'API returned an invalid response.'),
+    };
+  }
+  if (/^\s*</.test(text)) {
+    console.warn('[api] HTML response', res.status, res.url);
+    return {
+      ok: false,
+      status: res.status,
+      data: null,
+      error: statusMessage(res.status, 'API returned an invalid response.'),
+    };
+  }
+  try {
+    return { ok: res.ok, status: res.status, data: JSON.parse(text), error: null };
+  } catch {
+    console.warn('[api] invalid JSON', res.status, res.url);
+    return {
+      ok: false,
+      status: res.status,
+      data: null,
+      error: statusMessage(res.status, 'API returned an invalid response.'),
     };
   }
 }
@@ -36,22 +60,17 @@ export async function apiFetch(url, options = {}) {
     if (pid && !headers['X-Pinit-Id'] && !headers['x-pinit-id']) {
       headers['X-Pinit-Id'] = pid;
     }
+    if (!headers.Accept && !headers.accept) headers.Accept = 'application/json';
     const res = await fetch(url, { ...options, headers });
     const parsed = await parseJsonSafe(res);
     if (!parsed.ok) {
+      const code = parsed.data?.error;
+      const raw = parsed.data?.message;
       const msg =
-        parsed.data?.error ||
-        parsed.data?.message ||
+        raw ||
+        (code && !/^[A-Z][A-Z0-9_]+$/.test(String(code)) ? String(code) : null) ||
         parsed.error ||
-        (parsed.status === 401
-          ? 'Please sign in again'
-          : parsed.status === 403
-            ? 'You do not have access'
-            : parsed.status === 404
-              ? 'Not found'
-              : parsed.status >= 500
-                ? 'Server error — try again shortly'
-                : 'Something went wrong');
+        statusMessage(parsed.status, 'Something went wrong');
       return { ok: false, status: parsed.status, data: parsed.data, error: msg };
     }
     return { ok: true, status: parsed.status, data: parsed.data, error: null };

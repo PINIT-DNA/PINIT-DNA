@@ -166,6 +166,7 @@ export default function ExchangeHeader({
                   </div>
                   {seller ? (
                     <>
+                      <button type="button" onClick={() => closeGo('seller_portfolio')}>Portfolio</button>
                       <button type="button" onClick={() => closeGo('seller_listings')}>Your listings</button>
                       <button type="button" onClick={() => closeGo('seller_assets')}>Your assets</button>
                       <button type="button" onClick={() => closeGo('seller_sales')}>Sales</button>

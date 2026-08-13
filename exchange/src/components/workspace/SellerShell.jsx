@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  ShieldCheck, LayoutDashboard, Images, ListTree, PlusCircle, BadgeDollarSign,
+  ShieldCheck, LayoutDashboard, Images, LayoutGrid, ListTree, PlusCircle, BadgeDollarSign,
   Receipt, Wallet, Star, LineChart, Megaphone, ClipboardList, Bell, Lock,
   ExternalLink, Settings, LogOut, Store,
 } from 'lucide-react';
@@ -11,6 +11,7 @@ const NAV = [
   { id: 'creator_studio', label: 'Overview', icon: LayoutDashboard },
   { heading: 'Sell' },
   { id: 'seller_assets', label: 'My Assets', icon: Images },
+  { id: 'seller_portfolio', label: 'Portfolio', icon: LayoutGrid },
   { id: 'seller_listings', label: 'Listings', icon: ListTree },
   { id: 'add', label: 'Add Asset', icon: PlusCircle, action: 'list' },
   { heading: 'Business' },
@@ -33,6 +34,7 @@ const TOP = [
   ['creator_studio', 'Dashboard'],
   ['marketplace', 'Marketplace'],
   ['seller_assets', 'My Assets'],
+  ['seller_portfolio', 'Portfolio'],
   ['seller_listings', 'Listings'],
   ['seller_sales', 'Sales'],
   ['seller_earnings', 'Earnings'],
