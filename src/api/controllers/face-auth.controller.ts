@@ -53,8 +53,8 @@ export async function faceRegister(req: Request, res: Response, next: NextFuncti
 
     res.status(201).json({
       success: true,
-      message: result.message ?? (result.linked ? 'Signed into existing face identity' : 'Face registered successfully'),
-      linked: Boolean(result.linked),
+      message: result.message ?? 'Face registered successfully',
+      linked: false,
       user: {
         id: result.user.id,
         shortId: result.user.shortId,

@@ -99,7 +99,7 @@ export const config = {
       // face-api.js L2 on normalized 128-d: same person ~0.25–0.45; strangers often ≥0.55.
       // 0.62 was too loose and caused wrong-face logins with a small registry.
       faceLogin: parseFloat(optional('BIOMETRIC_FACE_LOGIN_THRESHOLD', '0.48')),
-      // Same as login — one face → one PINIT ID (Individual + Business share that ID).
+      // Same as login — 1:N enroll uniqueness. A hit rejects registration (sign in instead).
       faceDuplicate: parseFloat(optional('BIOMETRIC_FACE_DUPLICATE_THRESHOLD', '0.48')),
       // Best match must beat 2nd-best by this margin when ≥2 templates exist.
       faceLoginMargin: parseFloat(optional('BIOMETRIC_FACE_LOGIN_MARGIN', '0.08')),

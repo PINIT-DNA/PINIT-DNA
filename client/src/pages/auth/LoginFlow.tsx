@@ -11,10 +11,10 @@ import { StepHead, Checklist, SystemTrace, TrustBadge, type CheckItem } from '..
 import { useAuth } from '../../context/AuthContext';
 import {
   getTrustScore, getLastLogin, recordLogin, clearRegistration,
-  saveRegistration, getStoredWebAuthnCredential, generateHoid,
+  saveRegistration, generateHoid,
 } from '../../lib/hoid';
 import { touchLastLogin } from '../../lib/identity-store';
-import { warmBackend, parseJwt, getAccessToken } from '../../lib/auth';
+import { warmBackend, parseJwt, getAccessToken, hasHubSession } from '../../lib/auth';
 import { resolveDefaultHomePath } from '../../lib/subscription/post-upgrade-redirect';
 import { takePendingTeamInvite } from '../../lib/team-invite';
 import { loginWithFace } from '../../lib/face-api-client';
@@ -41,7 +41,7 @@ const fade = {
 export function LoginFlow() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { loginWithFaceResponse } = useAuth();
+  const { loginWithFaceResponse, resetLocalSession } = useAuth();
   const exchangeReturn = resolveExchangeReturn(searchParams.get('exchange_return'));
 
   useEffect(() => {
@@ -52,6 +52,7 @@ export function LoginFlow() {
   const [error, setError] = useState('');
   const [presenceKey, setPresenceKey] = useState(0);
   const [openingExchange, setOpeningExchange] = useState(false);
+  const autoExchangeRef = useRef(false);
   const faceEmbeddingRef = useRef<number[] | null>(null);
   const voiceFingerprintRef = useRef<number[] | null>(null);
   const bioCredentialRef = useRef<string | undefined>(undefined);
@@ -60,7 +61,20 @@ export function LoginFlow() {
   const go = (s: Step) => { setError(''); setStep(s); };
   const idx = ORDER.indexOf(step);
 
-  useEffect(() => { warmBackend(); preloadFaceModels(); collectFingerprint().then((f) => { deviceFpRef.current = f.hash; }).catch(() => {}); }, []);
+  const sessionResetRef = useRef(false);
+  useEffect(() => {
+    if (!sessionResetRef.current) {
+      sessionResetRef.current = true;
+      // Exchange return: keep an existing Hub JWT on this origin (handoff uses it).
+      if (!exchangeReturn) {
+        resetLocalSession();
+        clearRegistration();
+      }
+    }
+    warmBackend();
+    preloadFaceModels();
+    collectFingerprint().then((f) => { deviceFpRef.current = f.hash; }).catch(() => {});
+  }, [resetLocalSession, exchangeReturn]);
 
   function goToRegister() {
     const er = exchangeReturn || takeStashedExchangeReturn();
@@ -105,6 +119,38 @@ export function LoginFlow() {
     navigate(resolveDefaultHomePath(parsed?.accountType ?? 'INDIVIDUAL'), { replace: true });
   }
 
+  const enterAfterLoginRef = useRef(enterAfterLogin);
+  enterAfterLoginRef.current = enterAfterLogin;
+
+  /** Already signed into Hub on this origin — skip face steps and return to Exchange. */
+  useEffect(() => {
+    if (!exchangeReturn || autoExchangeRef.current || !hasHubSession()) return;
+    autoExchangeRef.current = true;
+    setOpeningExchange(true);
+    void enterAfterLoginRef.current();
+  }, [exchangeReturn]);
+
+  if (openingExchange && exchangeReturn) {
+    return (
+      <AuthShell steps={ORDER.length} current={0} tagline="Biometric Access">
+        <div className="pa-card" style={{ textAlign: 'center' }}>
+          <div
+            className="pa-spin"
+            style={{
+              width: 32, height: 32, margin: '12px auto',
+              border: '3px solid rgba(120,160,220,0.2)', borderTopColor: '#3b9eff', borderRadius: '50%',
+            }}
+          />
+          <h1 style={{ fontSize: 20, fontWeight: 800, marginTop: 16 }}>Returning to Exchange…</h1>
+          <p className="pa-muted" style={{ fontSize: 14, marginTop: 8 }}>
+            Using your existing Pinit HUB session on {window.location.origin}.
+          </p>
+          {error && <p style={{ color: '#fca5a5', fontSize: 13, marginTop: 12 }}>{error}</p>}
+        </div>
+      </AuthShell>
+    );
+  }
+
   return (
     <AuthShell steps={ORDER.length} current={idx} tagline="Biometric Access">
       <AnimatePresence mode="wait">
@@ -114,6 +160,7 @@ export function LoginFlow() {
               onNext={() => go('face')}
               onRegister={goToRegister}
               exchangeReturn={!!exchangeReturn}
+              needsFaceVerify={Boolean(exchangeReturn && !hasHubSession())}
             />
           )}
           {step === 'face' && (
@@ -133,7 +180,6 @@ export function LoginFlow() {
               mode="login"
               enrollmentLabel={deviceFpRef.current || 'login'}
               deviceFingerprint={deviceFpRef.current || undefined}
-              expectedCredentialId={getStoredWebAuthnCredential()}
               onDone={(r) => {
                 bioCredentialRef.current = r.credentialId;
                 go('voice');
@@ -142,7 +188,13 @@ export function LoginFlow() {
             />
           )}
           {step === 'voice' && (
-            <VoiceCaptureStep randomPhrase onDone={(fp) => { voiceFingerprintRef.current = fp; go('presence'); }} onError={(m) => setError(m)} />
+            <VoiceCaptureStep
+              randomPhrase
+              optional
+              onDone={(fp) => { voiceFingerprintRef.current = fp; go('presence'); }}
+              onSkip={() => { voiceFingerprintRef.current = null; go('presence'); }}
+              onError={(m) => setError(m)}
+            />
           )}
           {step === 'presence' && (
             <Presence
@@ -152,11 +204,11 @@ export function LoginFlow() {
               run={async () => {
                 const embedding = faceEmbeddingRef.current;
                 const voiceFp = voiceFingerprintRef.current;
-                if (!embedding || !voiceFp) throw new Error('Biometric data missing.');
+                if (!embedding) throw new Error('Face data missing. Scan again.');
 
                 const result = await loginWithFace({
                   embedding,
-                  voiceFingerprint: voiceFp,
+                  voiceFingerprint: voiceFp ?? undefined,
                   webauthnCredentialId: bioCredentialRef.current,
                   deviceFingerprint: (await collectFingerprint().catch(() => ({ hash: '' }))).hash || undefined,
                 });
@@ -171,7 +223,7 @@ export function LoginFlow() {
                     shortId,
                     trustScore: getTrustScore(),
                     deviceFp,
-                    webauthnCredentialId: getStoredWebAuthnCredential() ?? undefined,
+                    webauthnCredentialId: bioCredentialRef.current,
                   });
                   recordLogin();
                   await touchLastLogin(shortId);
@@ -204,10 +256,12 @@ function WelcomeBack({
   onNext,
   onRegister,
   exchangeReturn,
+  needsFaceVerify,
 }: {
   onNext: () => void;
   onRegister: () => void;
   exchangeReturn?: boolean;
+  needsFaceVerify?: boolean;
 }) {
   return (
     <div className="pa-card" style={{ textAlign: 'center' }}>
@@ -222,9 +276,16 @@ function WelcomeBack({
       <h1 style={{ fontSize: 22, fontWeight: 800 }}>Welcome Back</h1>
       <p className="pa-muted" style={{ fontSize: 14, marginTop: 8 }}>
         {exchangeReturn
-          ? 'Sign in to Pinit Hub to continue into Exchange with the same identity.'
-          : 'Biometric login only — no email or password.'}
+          ? needsFaceVerify
+            ? 'Exchange needs a quick face check on this browser (localhost:3000). Hub open on another port does not share login.'
+            : 'Sign in to Pinit Hub to continue into Exchange with the same identity.'
+          : 'Face identifies you. Device authentication is bound to that same account.'}
       </p>
+      {exchangeReturn && needsFaceVerify && (
+        <p style={{ fontSize: 12, color: '#fbbf24', marginTop: 8 }}>
+          Tip: use Hub at <strong>http://localhost:3000</strong> only — not :3001 or another port.
+        </p>
+      )}
       {exchangeReturn && (
         <p style={{ fontSize: 12, color: '#6ee7b7', marginTop: 8 }}>
           After verification you’ll return to Pinit Exchange automatically.
@@ -238,13 +299,13 @@ function WelcomeBack({
         </div>
         <div className="pa-bio-step">
           <ShieldCheck size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
-          <span>Fingerprint</span>
-          <em>Auto</em>
+          <span>Device</span>
+          <em>Bind</em>
         </div>
         <div className="pa-bio-step">
           <CheckCircle2 size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
           <span>Voice</span>
-          <em>Match</em>
+          <em>Optional</em>
         </div>
       </div>
       <button className="pa-btn" onClick={onNext}><ScanFace size={17} /> Verify Identity</button>
@@ -270,8 +331,8 @@ function Presence({
 }) {
   const [items, setItems] = useState<CheckItem[]>([
     { label: 'Face Captured', done: false },
-    { label: 'Fingerprint Verified', done: false },
-    { label: 'Voice Captured', done: false },
+    { label: 'Device Bound', done: false },
+    { label: 'Voice (optional)', done: false },
     { label: 'Database Match', done: false },
   ]);
   const ran = useRef(false);
@@ -297,7 +358,7 @@ function Presence({
     <div className="pa-card">
       <StepHead icon={<ShieldCheck size={26} color="#3b9eff" />} title="Checking Database" subtitle="Matching your biometrics…" />
       <Checklist items={items} />
-      <SystemTrace lines={['Compare Face', 'Verify Voice', 'Lookup Identity']} />
+      <SystemTrace lines={['Identify face', '1:1 verify template', 'Bind this device']} />
       {error && (
         <div style={{ marginTop: 14, textAlign: 'center' }}>
           <p style={{ color: '#fca5a5', fontSize: 13 }}>{error}</p>

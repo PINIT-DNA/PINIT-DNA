@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import {
   AuthUser, getAccessToken, parseJwt, clearTokens,
   apiLogout, refreshAccessToken, applyFaceAuthTokens,
@@ -10,6 +10,8 @@ interface AuthContextValue {
   loading: boolean;
   loginWithFaceResponse: (data: { accessToken?: string; refreshToken?: string }) => void;
   logout: () => Promise<void>;
+  /** Drop leftover JWT/local user without a server round-trip — used at biometric login/register start. */
+  resetLocalSession: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -56,13 +58,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const resetLocalSession = useCallback(() => {
+    clearTokens();
+    setUser(null);
+  }, []);
+
   async function logout() {
     await apiLogout();
     setUser(null);
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, loginWithFaceResponse, logout }}>
+    <AuthContext.Provider value={{ user, loading, loginWithFaceResponse, logout, resetLocalSession }}>
       {children}
     </AuthContext.Provider>
   );

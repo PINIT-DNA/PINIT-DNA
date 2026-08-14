@@ -3,8 +3,9 @@ import { useAuth } from '../../context/AuthContext';
 import { LoginFlow } from './LoginFlow';
 import { RegistrationFlow } from './RegistrationFlow';
 import { getPreRegisterAccountType } from '../../lib/pre-register';
-import { ExchangeReturnHandoff } from '../../components/auth/ExchangeReturnHandoff';
 import { resolveExchangeReturn, stashExchangeReturn } from '../../lib/exchange-return';
+import { ExchangeReturnHandoff } from '../../components/auth/ExchangeReturnHandoff';
+import { hasHubSession } from '../../lib/auth';
 
 function Booting() {
   return (
@@ -14,17 +15,19 @@ function Booting() {
   );
 }
 
-/** If already signed in, go straight to dashboard — or Exchange if exchange_return is set. */
+/**
+ * Exchange SSO entry — if Hub JWT exists on this origin, mint SSO and return to Exchange.
+ * Otherwise face login (never register from /login).
+ */
 export function PinitGateway() {
   const { user, loading } = useAuth();
   const [searchParams] = useSearchParams();
   if (loading) return <Booting />;
-  if (user) {
-    const er = resolveExchangeReturn(searchParams.get('exchange_return'));
-    if (er) stashExchangeReturn(er);
-    return (
-      <ExchangeReturnHandoff fallback={<Navigate to="/" replace />} />
-    );
+  const er = resolveExchangeReturn(searchParams.get('exchange_return'));
+  if (er) stashExchangeReturn(er);
+  const sessionActive = Boolean(user) || hasHubSession();
+  if (sessionActive && er) {
+    return <ExchangeReturnHandoff fallback={<LoginFlow />} />;
   }
   return <LoginFlow />;
 }
@@ -37,9 +40,14 @@ export function RegisterGateway() {
   const er = resolveExchangeReturn(searchParams.get('exchange_return'));
   if (er) stashExchangeReturn(er);
 
-  if (user) {
+  const sessionActive = Boolean(user) || hasHubSession();
+  if (sessionActive && er) {
     return <ExchangeReturnHandoff fallback={<Navigate to="/" replace />} />;
   }
+  if (sessionActive) {
+    return <Navigate to="/" replace />;
+  }
+
   if (!getPreRegisterAccountType()) {
     const qs = er ? `?exchange_return=${encodeURIComponent(er)}` : '';
     return <Navigate to={`/register/account-type${qs}`} replace />;

@@ -27,6 +27,7 @@ import {
   isValidTemplate,
   rankFaceMatches,
   isConfidentFaceMatch,
+  isDuplicateFaceEnrollment,
   type FusionResult,
 } from './biometric-matching.service';
 import { logSecurityEvent, logLoginHistory } from './biometric-audit.service';
@@ -72,6 +73,33 @@ function generateShortId(): string {
   const bytes = crypto.randomBytes(8);
   for (let i = 0; i < 8; i++) id += chars[bytes[i]! % chars.length];
   return `PINIT-${id}`;
+}
+
+async function mintUniqueShortId(): Promise<string> {
+  for (let i = 0; i < 12; i++) {
+    const shortId = generateShortId();
+    const exists = await prisma.user.findUnique({ where: { shortId }, select: { id: true } });
+    if (!exists) return shortId;
+  }
+  throw new AppError(500, 'Could not allocate a unique PINIT ID. Try again.');
+}
+
+/** Never attach a WebAuthn / device credential that already belongs to another user. */
+async function credentialIdOwnedByOtherUser(
+  credentialId: string | undefined,
+  userId?: string,
+): Promise<boolean> {
+  if (!credentialId) return false;
+  const owner = await prisma.user.findFirst({
+    where: {
+      webauthnCredentialId: credentialId,
+      ...(userId ? { NOT: { id: userId } } : {}),
+    },
+    select: { id: true },
+  });
+  if (owner && owner.id !== userId) return true;
+  if (!userId && owner) return true;
+  return false;
 }
 
 function createTokens(user: {
@@ -157,15 +185,14 @@ async function loadAllFaceTemplates(opts?: {
 }
 
 /**
- * Face is the only uniqueness gate for registration.
- * Device fingerprint / WebAuthn MUST NOT block new people on a shared browser —
- * that caused "No identity found" on login then "already registered" on register.
+ * 1:N enroll search. Face is the only uniqueness gate.
+ * A hit means "this person already has an account" — never mint or sign them in here.
+ * Device fingerprint / WebAuthn must not decide identity on a shared browser.
  */
 async function findMatchingFace(
   face: number[],
-): Promise<{ userId: string; shortId: string; distance: number } | null> {
+): Promise<{ userId: string; shortId: string; distance: number; ambiguous?: boolean } | null> {
   const faceNorm = normalizeEmbedding(face);
-  const faceDupThreshold = Math.max(THRESHOLDS.faceDuplicate, THRESHOLDS.faceLogin);
   const faces = await loadAllFaceTemplates();
   const { best, secondDistance } = rankFaceMatches(faceNorm, faces);
 
@@ -178,17 +205,48 @@ async function findMatchingFace(
     nearestShortId: best.shortId,
     nearestDistance: Number(best.distance.toFixed(4)),
     secondDistance: Number.isFinite(secondDistance) ? Number(secondDistance.toFixed(4)) : null,
-    threshold: faceDupThreshold,
+    threshold: THRESHOLDS.faceDuplicate,
     compared: faces.length,
   });
 
-  // Same face → same PINIT ID. Do not require 2nd-best margin here:
-  // duplicate enrollments sit close together and would otherwise mint a new ID.
-  if (best.distance >= faceDupThreshold) {
+  if (best.distance >= THRESHOLDS.faceDuplicate) {
     return null;
   }
 
+  if (!isDuplicateFaceEnrollment(best.distance, secondDistance)) {
+    return {
+      userId: best.userId,
+      shortId: best.shortId,
+      distance: best.distance,
+      ambiguous: true,
+    };
+  }
+
   return { userId: best.userId, shortId: best.shortId, distance: best.distance };
+}
+
+async function loadFaceTemplateForUser(userId: string): Promise<number[] | null> {
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      faceEmbedding: true,
+      biometricIdentity: { include: { faceTemplate: true } },
+    },
+  });
+  if (!u) return null;
+
+  if (u.biometricIdentity?.faceTemplate) {
+    try {
+      return normalizeEmbedding(decryptTemplate(u.biometricIdentity.faceTemplate.templateCipher));
+    } catch (err) {
+      logger.warn('[Auth] Face cipher decrypt failed for 1:1 verify', { userId, error: String(err) });
+    }
+  }
+
+  if (u.faceEmbedding.length === 128) {
+    return normalizeEmbedding(u.faceEmbedding);
+  }
+  return null;
 }
 
 async function issueSessionForUser(
@@ -344,88 +402,36 @@ export const biometricAuthService = {
       throw new AppError(400, 'Invalid face embedding. Must be 128-dimensional float array.');
     }
 
-    if (!voiceFingerprint || !isValidTemplate(voiceFingerprint)) {
-      throw new AppError(
-        400,
-        'Voice fingerprint is required and must be 128 finite numbers. Complete voice verification before registering.',
-      );
-    }
-
     const faceNorm = normalizeEmbedding(faceEmbedding);
-    const voiceNorm = normalizeEmbedding(voiceFingerprint);
-    const fpNorm = deriveFingerprintTemplate(webauthnCredentialId, deviceFingerprint);
+    const voiceNorm = voiceFingerprint && isValidTemplate(voiceFingerprint)
+      ? normalizeEmbedding(voiceFingerprint)
+      : null;
+    let boundCredentialId = webauthnCredentialId;
+    if (await credentialIdOwnedByOtherUser(boundCredentialId)) {
+      logger.warn('[Auth:Register] Ignoring WebAuthn credential already bound to another user');
+      boundCredentialId = undefined;
+    }
+    const fpNorm = deriveFingerprintTemplate(boundCredentialId, deviceFingerprint);
 
-    // Same face → same PINIT ID. Individual + Business share that ID (mode only differs).
+    // 1:N duplicate search FIRST. Never create a user, then attach this face.
     const existingFace = await findMatchingFace(faceNorm);
     if (existingFace) {
-      const existing = await prisma.user.findUnique({
-        where: { id: existingFace.userId },
-        select: {
-          id: true,
-          shortId: true,
-          fullName: true,
-          email: true,
-          role: true,
-          accountType: true,
-          isActive: true,
+      await logSecurityEvent('DUPLICATE_REGISTRATION', {
+        ip, userAgent, success: false,
+        detail: {
+          modality: 'face',
+          existingShortId: existingFace.shortId,
+          distance: existingFace.distance,
+          ambiguous: Boolean(existingFace.ambiguous),
         },
       });
-
-      if (!existing || !existing.isActive) {
-        await logSecurityEvent('DUPLICATE_REGISTRATION', {
-          ip, userAgent, success: false,
-          detail: {
-            modality: 'face',
-            existingShortId: existingFace.shortId,
-            distance: existingFace.distance,
-            inactive: true,
-          },
-        });
-        return {
-          ok: false,
-          status: 409,
-          message: `This face is linked to ${existingFace.shortId}, but that account is inactive. Contact support to recover access.`,
-          shortId: existingFace.shortId,
-        };
-      }
-
-      let working = existing;
-      // Enable Business on the same ShortId when the person enrolls for Business later (or vice versa stays on same ID).
-      if (resolvedAccountType === 'BUSINESS' && existing.accountType !== 'BUSINESS') {
-        const upgraded = await this.updateAccountType(existing.id, 'BUSINESS', organizationName);
-        working = {
-          ...existing,
-          accountType: upgraded.accountType,
-        };
-        logger.info('[Auth:Register] Linked Business mode to existing face identity', {
-          shortId: existing.shortId,
-          distance: Number(existingFace.distance.toFixed(4)),
-        });
-      } else {
-        logger.info('[Auth:Register] Face already enrolled — signing into existing PINIT ID', {
-          shortId: existing.shortId,
-          requestedType: resolvedAccountType,
-          storedType: existing.accountType,
-          distance: Number(existingFace.distance.toFixed(4)),
-        });
-      }
-
-      const session = await issueSessionForUser(working, {
-        webauthnCredentialId,
-        deviceFingerprint,
-        ip,
-        userAgent,
-        event: 'ACCOUNT_TYPE_LINK',
-      });
-
       return {
-        ok: true,
-        ...session,
-        linked: true,
-        message:
-          resolvedAccountType === 'BUSINESS'
-            ? `Welcome back — Business mode is ready on ${working.shortId} (same face identity).`
-            : `Welcome back — signed in as ${working.shortId}. Use Individual / Business switch when both modes are enabled.`,
+        ok: false,
+        status: 409,
+        message: existingFace.ambiguous
+          ? 'This face is too similar to an existing Pinit HUB account to create a new one. Sign in instead.'
+          : `This person already has a Pinit HUB account (${existingFace.shortId}). Sign in instead of creating a new one.`,
+        shortId: existingFace.shortId,
       };
     }
 
@@ -437,12 +443,14 @@ export const biometricAuthService = {
       .digest('hex');
 
     logger.info('[Auth:Register] ✓ Face template generated', { dimensions: faceNorm.length });
-    logger.info('[Auth:Register] ✓ Fingerprint template generated', { dimensions: fpNorm.length, hasWebAuthn: Boolean(webauthnCredentialId) });
+    logger.info('[Auth:Register] ✓ Device authenticator template generated', { dimensions: fpNorm.length, hasWebAuthn: Boolean(boundCredentialId) });
     if (voiceNorm) {
       logger.info('[Auth:Register] ✓ Voice template generated', { dimensions: voiceNorm.length });
+    } else {
+      logger.info('[Auth:Register] ○ Voice skipped (optional signal)');
     }
 
-    const shortId = generateShortId();
+    const shortId = await mintUniqueShortId();
 
     let user: { id: string; shortId: string; fullName: string; email: string | null; role: string };
     let usedEnterpriseTables = true;
@@ -461,7 +469,7 @@ export const biometricAuthService = {
             faceRegisteredAt: new Date(),
             voiceEmbedding: voiceNorm ?? [],
             voiceRegistered: Boolean(voiceNorm),
-            webauthnCredentialId: webauthnCredentialId ?? null,
+            webauthnCredentialId: boundCredentialId ?? null,
             deviceFingerprint: deviceFingerprint ?? null,
             authMethod: 'biometric',
             role: 'USER',
@@ -495,7 +503,7 @@ export const biometricAuthService = {
             biometricIdentityId: identity.id,
             templateCipher: fpEnc.cipher,
             templateHash: fpEnc.hash,
-            credentialId: webauthnCredentialId ?? null,
+            credentialId: boundCredentialId ?? null,
           },
         });
 
@@ -517,7 +525,7 @@ export const biometricAuthService = {
           faceRegisteredAt: new Date(),
           voiceEmbedding: voiceNorm ?? [],
           voiceRegistered: Boolean(voiceNorm),
-          webauthnCredentialId: webauthnCredentialId ?? null,
+          webauthnCredentialId: boundCredentialId ?? null,
           deviceFingerprint: deviceFingerprint ?? null,
           authMethod: 'biometric',
           role: 'USER',
@@ -546,7 +554,7 @@ export const biometricAuthService = {
     const session = await issueSessionForUser(
       { ...user, accountType: resolvedAccountType },
       {
-        webauthnCredentialId,
+        webauthnCredentialId: boundCredentialId,
         deviceFingerprint,
         ip,
         userAgent,
@@ -578,18 +586,12 @@ export const biometricAuthService = {
     const probeVoice = voiceFingerprint && isValidTemplate(voiceFingerprint)
       ? normalizeEmbedding(voiceFingerprint)
       : null;
-    const probeFp = deriveFingerprintTemplate(webauthnCredentialId, deviceFingerprint);
 
     logger.info('[Auth:Login] ✓ Face template generated', { dimensions: faceNorm.length });
-    logger.info('[Auth:Login] ✓ Fingerprint template generated', {
-      dimensions: probeFp.length,
-      hasWebAuthn: Boolean(webauthnCredentialId),
-      deviceBound: Boolean(deviceFingerprint),
-    });
     if (probeVoice) {
       logger.info('[Auth:Login] ✓ Voice template generated', { dimensions: probeVoice.length });
     } else {
-      logger.info('[Auth:Login] ○ Voice template not provided or invalid');
+      logger.info('[Auth:Login] ○ Voice not provided (optional signal)');
     }
 
     const candidates = await loadAllFaceTemplates({ activeOnly: true });
@@ -601,7 +603,7 @@ export const biometricAuthService = {
     const bestSource = best?.source ?? '';
     const secondFaceDistance = ranked.secondDistance;
 
-    logger.info('[Auth:Login] Matching score', {
+    logger.info('[Auth:Login] 1:N identification', {
       candidateCount: candidates.length,
       bestCandidate: bestShortId || null,
       bestDistance: bestFaceDist === Infinity ? null : Number(bestFaceDist.toFixed(4)),
@@ -611,13 +613,22 @@ export const biometricAuthService = {
       templateSource: bestSource || null,
     });
 
-    if (!bestUserId || !isConfidentFaceMatch(bestFaceDist, secondFaceDistance)) {
+    const identified = Boolean(bestUserId && isConfidentFaceMatch(bestFaceDist, secondFaceDistance));
+    if (!identified || !bestUserId) {
+      const ambiguous = Boolean(
+        bestUserId
+        && bestFaceDist < THRESHOLDS.faceLogin
+        && Number.isFinite(secondFaceDistance)
+        && secondFaceDistance < THRESHOLDS.faceLogin,
+      );
       logger.warn('[Auth:Login] ✗ Authentication result: NO_MATCH', {
         reason: candidates.length === 0
           ? 'empty_registry'
-          : bestFaceDist >= THRESHOLDS.faceLogin
-            ? 'face_distance_above_threshold'
-            : 'face_margin_insufficient',
+          : ambiguous
+            ? 'face_ambiguous_top2'
+            : bestFaceDist >= THRESHOLDS.faceLogin
+              ? 'face_distance_above_threshold'
+              : 'face_margin_insufficient',
         bestDistance: bestFaceDist === Infinity ? null : bestFaceDist.toFixed(4),
         secondDistance: Number.isFinite(secondFaceDistance) ? secondFaceDistance.toFixed(4) : null,
         threshold: THRESHOLDS.faceLogin,
@@ -625,7 +636,7 @@ export const biometricAuthService = {
       await logSecurityEvent('BIOMETRIC_FAILURE', {
         ip, userAgent, success: false,
         detail: {
-          reason: 'no_face_match',
+          reason: ambiguous ? 'ambiguous_face_match' : 'no_face_match',
           distance: bestFaceDist,
           secondDistance: secondFaceDistance,
           candidateCount: candidates.length,
@@ -636,10 +647,42 @@ export const biometricAuthService = {
         matched: false,
         message: candidates.length === 0
           ? 'No Hub identity found yet. Only create a new Hub account if you have never registered this face.'
-          : 'Could not match this face to an existing Pinit ID. Try again — do not create a new account.',
+          : ambiguous
+            ? 'Could not uniquely identify this face. Try again in better lighting — do not create a new account.'
+            : 'Could not match this face to an existing Pinit ID. Try again — do not create a new account.',
         distance: bestFaceDist === Infinity ? undefined : bestFaceDist.toFixed(4),
       };
     }
+
+    // 1:1 verify against the identified account's enrolled template (never trust 1:N rank alone).
+    const enrolledFace = await loadFaceTemplateForUser(bestUserId);
+    const oneToOneDist = enrolledFace ? euclideanDistance(faceNorm, enrolledFace) : Infinity;
+    if (!enrolledFace || oneToOneDist >= THRESHOLDS.faceLogin) {
+      logger.warn('[Auth:Login] ✗ Authentication result: 1:1_REJECTED', {
+        bestCandidate: bestShortId,
+        oneToOne: Number.isFinite(oneToOneDist) ? oneToOneDist.toFixed(4) : null,
+        threshold: THRESHOLDS.faceLogin,
+      });
+      await logSecurityEvent('BIOMETRIC_FAILURE', {
+        ip, userAgent, success: false,
+        detail: { reason: 'face_one_to_one_failed', userId: bestUserId, distance: oneToOneDist },
+      });
+      return {
+        ok: false,
+        matched: false,
+        message: 'Could not verify this face against the identified account. Try again.',
+        distance: Number.isFinite(oneToOneDist) ? oneToOneDist.toFixed(4) : undefined,
+      };
+    }
+
+    let boundCredentialId = webauthnCredentialId;
+    if (await credentialIdOwnedByOtherUser(boundCredentialId, bestUserId)) {
+      logger.warn('[Auth:Login] Ignoring WebAuthn credential bound to a different user', {
+        identifiedShortId: bestShortId,
+      });
+      boundCredentialId = undefined;
+    }
+    const probeFp = deriveFingerprintTemplate(boundCredentialId, deviceFingerprint);
 
     const storedVoice = await loadVoiceForUser(bestUserId);
     const storedFp = await loadFingerprintForUser(bestUserId);
@@ -652,7 +695,7 @@ export const biometricAuthService = {
       : null;
 
     const fusion = fuseBiometricScores(
-      bestFaceDist,
+      oneToOneDist,
       voiceDist,
       fpDist,
       {
@@ -676,7 +719,7 @@ export const biometricAuthService = {
     if (!fusion.verified) {
       logger.warn('[Auth:Login] ✗ Authentication result: FUSION_REJECTED', {
         bestCandidate: bestShortId,
-        faceDistance: bestFaceDist.toFixed(4),
+        faceDistance: oneToOneDist.toFixed(4),
         threshold: THRESHOLDS.faceLogin,
       });
       await logLoginHistory({
@@ -689,8 +732,8 @@ export const biometricAuthService = {
       return {
         ok: false,
         matched: false,
-        message: 'No identity found. Please register.',
-        distance: bestFaceDist.toFixed(4),
+        message: 'Could not verify this identity. Try face capture again.',
+        distance: oneToOneDist.toFixed(4),
       };
     }
 
@@ -700,10 +743,10 @@ export const biometricAuthService = {
     });
 
     if (!user) {
-      return { ok: false, matched: false, message: 'No identity found. Please register.' };
+      return { ok: false, matched: false, message: 'Could not verify this identity. Try face capture again.' };
     }
 
-    const deviceId = await upsertDevice(user.id, deviceFingerprint, webauthnCredentialId);
+    const deviceId = await upsertDevice(user.id, deviceFingerprint, boundCredentialId);
     await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     await prisma.biometricIdentity.updateMany({
       where: { userId: user.id },
@@ -729,7 +772,7 @@ export const biometricAuthService = {
       userId: user.id,
       pinitId: user.shortId,
       confidence: fusion.overallConfidence,
-      faceDistance: bestFaceDist.toFixed(4),
+      faceDistance: oneToOneDist.toFixed(4),
     });
 
     logger.info('Enterprise biometric login success', {

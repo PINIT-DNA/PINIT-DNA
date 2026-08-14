@@ -1,8 +1,9 @@
 /**
  * PINIT — Device biometric (WebAuthn / FIDO2) helpers.
  *
- * TEMP: platform WebAuthn / passkey popups disabled — always use device-bound
- * or simulated credentials so login never opens Windows "Choose a passkey".
+ * Device bind is NOT identity discovery. Face 1:N identifies the user; this
+ * credential is then stored on that user_id only. Platform WebAuthn popups
+ * stay disabled until server-side challenge/verify is wired.
  */
 
 const RP_NAME = 'PINIT';

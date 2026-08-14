@@ -10,6 +10,7 @@ import { buyerKey } from '../lib/buyer.js';
 import { canList, canPurchase } from '../lib/roles.js';
 import { isImageListing, isVideoListing } from '../lib/media.js';
 import { samePinitIdentity } from '../lib/pinit-identity.js';
+import { resolveHubAppUrl } from '../lib/exchange-routes.js';
 
 const VERTICALS = [
   { id: 'all', name: 'All Verticals' },
@@ -164,7 +165,7 @@ export default function Marketplace({
               </button>
             ) : (
               <a
-                href={(import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '')}
+                href={resolveHubAppUrl()}
                 className="btn-primary"
                 style={{ padding: '12px 24px', fontSize: '1rem', textDecoration: 'none' }}
                 target="_blank"

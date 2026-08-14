@@ -50,19 +50,19 @@ export async function captureFaceEmbeddingFromVideo(
   await waitForVideoFrames(video);
 
   const mode = opts.mode ?? 'login';
-  const need = opts.samples ?? (mode === 'register' ? 5 : 3);
-  const timeoutMs = opts.timeoutMs ?? (mode === 'register' ? 16000 : 12000);
+  const need = opts.samples ?? (mode === 'register' ? 3 : 2);
+  const timeoutMs = opts.timeoutMs ?? (mode === 'register' ? 20000 : 14000);
   const samples: Float32Array[] = [];
   const started = Date.now();
-  const scoreThreshold = mode === 'register' ? 0.5 : 0.45;
-  const detector = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold });
+  const scoreThreshold = mode === 'register' ? 0.32 : 0.38;
+  const detector = new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold });
 
   onProgress?.(8);
 
   while (samples.length < need) {
     if (Date.now() - started > timeoutMs) {
-      if (samples.length >= (mode === 'register' ? 3 : 1)) break;
-      throw new Error('Face not detected. Move closer to the camera and try again.');
+      if (samples.length >= (mode === 'register' ? 2 : 1)) break;
+      throw new Error('Face not detected. Face the camera in good light, then tap Start Face Scan again.');
     }
 
     const all = await faceapi

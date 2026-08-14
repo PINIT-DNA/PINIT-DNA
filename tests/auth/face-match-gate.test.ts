@@ -38,10 +38,15 @@ describe('face match confidence gate', () => {
     expect(isConfidentFaceMatch(ranked.best!.distance, ranked.secondDistance)).toBe(false);
   });
 
-  it('rejects ambiguous top-2 when margin is too small even if under threshold', () => {
-    // Force distances manually via isConfidentFaceMatch
-    const under = Math.max(0, THRESHOLDS.faceLogin - 0.02);
-    const nearSecond = under + 0.01; // margin 0.01 < default 0.08
-    expect(isConfidentFaceMatch(under, nearSecond)).toBe(false);
+  it('rejects ambiguous top-2 when margin is too small even if nearest is under threshold', () => {
+    const under = Math.max(0, THRESHOLDS.faceLogin - 0.03);
+    const justAbove = THRESHOLDS.faceLogin + 0.01; // above threshold, but margin too small
+    expect(isConfidentFaceMatch(under, justAbove)).toBe(false);
+  });
+
+  it('rejects when two different users both sit under the login threshold', () => {
+    const under = Math.max(0, THRESHOLDS.faceLogin - 0.05);
+    const alsoUnder = Math.max(0, THRESHOLDS.faceLogin - 0.01);
+    expect(isConfidentFaceMatch(under, alsoUnder)).toBe(false);
   });
 });

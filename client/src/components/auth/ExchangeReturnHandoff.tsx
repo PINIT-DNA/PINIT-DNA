@@ -65,9 +65,19 @@ export function ExchangeReturnHandoff({ fallback }: { fallback: ReactNode }) {
         {error || 'Opening Pinit Exchange…'}
       </p>
       {status === 'failed' && (
-        <button type="button" className="pa-btn" onClick={() => window.location.reload()}>
-          Try again
-        </button>
+        <>
+          <button type="button" className="pa-btn" onClick={() => window.location.reload()}>
+            Try again
+          </button>
+          <button
+            type="button"
+            className="pa-btn pa-btn-ghost"
+            style={{ marginTop: 10 }}
+            onClick={() => setStatus('done')}
+          >
+            Verify with face instead
+          </button>
+        </>
       )}
     </div>
   );

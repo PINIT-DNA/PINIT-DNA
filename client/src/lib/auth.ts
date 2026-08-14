@@ -117,6 +117,20 @@ export function parseJwt(token: string): AuthUser | null {
   }
 }
 
+/** True when a Hub JWT (or refresh token) exists on this origin — used for Exchange SSO handoff. */
+export function hasHubSession(): boolean {
+  const token = getAccessToken();
+  if (token && parseJwt(token)) {
+    try {
+      const p = JSON.parse(atob(token.split('.')[1]));
+      if (!p.exp || p.exp * 1000 >= Date.now()) return true;
+    } catch {
+      /* fall through */
+    }
+  }
+  return Boolean(getRefreshToken());
+}
+
 export async function apiCreateAccount(): Promise<AuthUser> {
   const res = await postWithRetry(`${BASE}/create`);
   const { accessToken, refreshToken } = (res.data as any).data;

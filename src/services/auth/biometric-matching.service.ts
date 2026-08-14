@@ -76,17 +76,26 @@ export function rankFaceMatches(
 }
 
 /**
- * Accept when nearest face is under the login threshold.
- * If a 2nd template is also under threshold, that is a duplicate enrollment of the
- * same person — still accept the nearest ID (never mint another).
- * Margin only rejects a "closest stranger" (2nd template is far / above threshold).
+ * 1:N identification must be unique.
+ * Accept only when the nearest template is under `threshold` AND the next-best
+ * different user is far enough away (margin). Two users both under threshold
+ * is ambiguous — reject rather than guessing the nearest ID.
  */
-export function isConfidentFaceMatch(bestDistance: number, secondDistance: number): boolean {
-  if (!Number.isFinite(bestDistance) || bestDistance >= THRESHOLDS.faceLogin) return false;
+export function isConfidentFaceMatch(
+  bestDistance: number,
+  secondDistance: number,
+  threshold = THRESHOLDS.faceLogin,
+): boolean {
+  if (!Number.isFinite(bestDistance) || bestDistance >= threshold) return false;
   if (!Number.isFinite(secondDistance) || secondDistance === Infinity) return true;
-  if (secondDistance < THRESHOLDS.faceLogin) return true;
+  if (secondDistance < threshold) return false;
   const margin = THRESHOLDS.faceLoginMargin ?? 0.08;
   return secondDistance - bestDistance >= margin;
+}
+
+/** 1:N enroll uniqueness — any confident hit under the duplicate threshold. */
+export function isDuplicateFaceEnrollment(bestDistance: number, secondDistance: number): boolean {
+  return isConfidentFaceMatch(bestDistance, secondDistance, THRESHOLDS.faceDuplicate);
 }
 
 export function fuseBiometricScores(
@@ -116,7 +125,6 @@ export function fuseBiometricScores(
     weighted += fpConf * w.fingerprint;
   }
 
-  // Face-primary authentication — Face is the primary lock + margin gate.
   const faceOk = isConfidentFaceMatch(faceDist, opts.secondFaceDistance ?? Infinity);
   const verified = faceOk;
 

@@ -42,11 +42,14 @@ export async function registerFaceIdentity(payload: {
   accountType?: 'INDIVIDUAL' | 'BUSINESS';
   organizationName?: string;
 }): Promise<FaceAuthResponse> {
-  if (!Array.isArray(payload.voiceFingerprint) || payload.voiceFingerprint.length !== 128) {
-    throw new Error('Voice fingerprint missing. Go back and complete voice verification.');
-  }
-  if (payload.voiceFingerprint.some((v) => typeof v !== 'number' || !Number.isFinite(v))) {
-    throw new Error('Voice fingerprint is invalid. Re-record your voice and try again.');
+  const voice = payload.voiceFingerprint;
+  if (voice != null) {
+    if (!Array.isArray(voice) || voice.length !== 128) {
+      throw new Error('Voice fingerprint is invalid. Re-record or skip voice.');
+    }
+    if (voice.some((v) => typeof v !== 'number' || !Number.isFinite(v))) {
+      throw new Error('Voice fingerprint is invalid. Re-record or skip voice.');
+    }
   }
 
   const { status, data } = await postFace('/register', payload);

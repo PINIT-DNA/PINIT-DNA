@@ -109,13 +109,13 @@ export function BiometricStep({
     <div className="pa-card" style={{ textAlign: 'center' }}>
       <StepHead
         icon={<Fingerprint size={26} color="#6366f1" />}
-        title="Fingerprint"
+        title="Device authenticator"
         subtitle={
           done
-            ? 'Device bound'
+            ? 'This device is bound to the account after face verification'
             : phase === 'error'
-              ? 'Verification failed'
-              : 'Binding this device automatically…'
+              ? 'Device bind failed'
+              : 'Binding this browser automatically…'
         }
       />
       <div
@@ -149,5 +149,5 @@ export function isNotRegisteredError(msg: string): boolean {
 }
 
 export function isDuplicateIdentityError(msg: string): boolean {
-  return /already registered|already enrolled|duplicate identity|one face = one/i.test(msg);
+  return /already registered|already enrolled|already has a pinit|already has an account|too similar to an existing|duplicate identity|one face = one/i.test(msg);
 }
