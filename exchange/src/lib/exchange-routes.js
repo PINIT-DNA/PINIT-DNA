@@ -3,7 +3,33 @@
  * refreshable URLs without introducing a second router.
  */
 
-export const HUB_APP_URL = (import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
+/** Dead Vercel alias — never send Hub SSO here. */
+const DEAD_HUB_HOSTS = ['dna-pinit-web.vercel.app'];
+
+/**
+ * Resolve the live Hub app URL.
+ * Local: localhost:3000. Production: pinithub.com (or VITE_HUB_APP_URL if valid).
+ */
+export function resolveHubAppUrl() {
+  const raw = String(import.meta.env.VITE_HUB_APP_URL || '').trim().replace(/\/$/, '');
+  const isDead = raw && DEAD_HUB_HOSTS.some((h) => raw.includes(h));
+  if (raw && !isDead) return raw;
+
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname || '';
+    if (
+      host.includes('pinitexchange.com')
+      || host.includes('pinit-dna-exchange')
+      || host.endsWith('.vercel.app')
+    ) {
+      return 'https://www.pinithub.com';
+    }
+  }
+
+  return 'http://localhost:3000';
+}
+
+export const HUB_APP_URL = resolveHubAppUrl();
 
 export const ROUTES = {
   home: { path: '/exchange/buyer', title: 'Pinit Exchange | Discover', description: 'Discover and license Hub-protected creative assets on Pinit Exchange.' },

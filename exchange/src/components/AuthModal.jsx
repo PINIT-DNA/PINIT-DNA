@@ -10,7 +10,8 @@ import {
   User,
 } from 'lucide-react';
 
-const HUB_APP_URL = (import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
+import { resolveHubAppUrl } from '../lib/exchange-routes.js';
+
 const SESSION_KEY = 'pinit_exchange_session';
 const INTENT_KEY = 'pinit_exchange_intent';
 
@@ -51,17 +52,19 @@ export default function AuthModal({
   if (!isOpen) return null;
 
   const openHubContinue = (nextIntent = intent || 'buyer') => {
+    const hubAppUrl = resolveHubAppUrl();
     stashIntent(nextIntent);
     const returnUrl = `${window.location.origin}/?hub_return=1&exchange_intent=${nextIntent === 'creator' ? 'creator' : 'buyer'}`;
     window.location.assign(
-      `${HUB_APP_URL}/login?exchange_return=${encodeURIComponent(returnUrl)}&hub_mode=login`,
+      `${hubAppUrl}/login?exchange_return=${encodeURIComponent(returnUrl)}&hub_mode=login`,
     );
   };
 
   const openHubRegister = (accountHint = null) => {
+    const hubAppUrl = resolveHubAppUrl();
     stashIntent('creator');
     const returnUrl = `${window.location.origin}/?hub_return=1&exchange_intent=creator`;
-    const base = `${HUB_APP_URL}/register/account-type?exchange_return=${encodeURIComponent(returnUrl)}`;
+    const base = `${hubAppUrl}/register/account-type?exchange_return=${encodeURIComponent(returnUrl)}`;
     const url = accountHint ? `${base}&hint=${accountHint}` : base;
     window.location.assign(url);
   };
@@ -177,7 +180,7 @@ export default function AuthModal({
                 stashIntent('buyer');
                 const returnUrl = `${window.location.origin}/?hub_return=1&exchange_intent=buyer`;
                 window.location.assign(
-                  `${HUB_APP_URL}/register/account-type?exchange_return=${encodeURIComponent(returnUrl)}`,
+                  `${resolveHubAppUrl()}/register/account-type?exchange_return=${encodeURIComponent(returnUrl)}`,
                 );
               }}
             >

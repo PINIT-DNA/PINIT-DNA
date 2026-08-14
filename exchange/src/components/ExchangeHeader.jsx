@@ -5,7 +5,9 @@ import {
 } from 'lucide-react';
 import { resolveExchangeAccount } from '../lib/roles.js';
 
-const HUB_APP_URL = (import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
+import { resolveHubAppUrl } from '../lib/exchange-routes.js';
+
+const HUB_APP_URL = resolveHubAppUrl();
 
 function IconBtn({ title, active, onClick, children, badge }) {
   return (

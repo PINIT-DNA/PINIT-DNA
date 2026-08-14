@@ -47,10 +47,10 @@ import {
 } from './pages/info/LegalPages.jsx';
 import { apiFetch } from './lib/api.js';
 import { buyerKey } from './lib/buyer.js';
-import { applyPageMeta, pageFromPath, pathForPage, portfolioSlugFromPath } from './lib/exchange-routes.js';
+import { applyPageMeta, pageFromPath, pathForPage, portfolioSlugFromPath, resolveHubAppUrl } from './lib/exchange-routes.js';
 import PublicPortfolioPage from './pages/PublicPortfolio.jsx';
 
-const HUB_APP_URL = (import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
+const HUB_APP_URL = resolveHubAppUrl();
 
 export default function App() {
   const [activePage, setActivePage] = useState(() => pageFromPath(window.location.pathname));
