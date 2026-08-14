@@ -34,4 +34,5 @@ test('enrichPublicUser strips password and adds flags', () => {
   assert.equal(pub.exchange_role, 'buyer');
   assert.equal(pub.can_list, false);
   assert.equal(pub.can_purchase, true);
+  assert.equal(pub.seller_onboarding_complete, true);
 });

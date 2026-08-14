@@ -72,3 +72,50 @@ export function verifyRazorpaySignature({ orderId, paymentId, signature }) {
     .digest('hex');
   return expected === signature;
 }
+
+/** ₹1 verification hold for seller payment-method setup (refunded after verify). Not a registration fee. */
+export const SELLER_VERIFICATION_AMOUNT_PAISE = 100;
+
+export async function createRazorpayCustomer({ name, email, contact, notes = {} }) {
+  if (isPaymentMockMode()) {
+    return { id: `cust_mock_${Date.now()}`, mock: true };
+  }
+  const client = getClient();
+  const customer = await client.customers.create({
+    name: String(name || 'Pinit Seller').slice(0, 120),
+    email: String(email || '').slice(0, 120) || undefined,
+    contact: contact ? String(contact).slice(0, 15) : undefined,
+    notes,
+  });
+  return { id: customer.id, mock: false };
+}
+
+export async function fetchRazorpayPayment(paymentId) {
+  if (isPaymentMockMode()) {
+    return {
+      id: paymentId,
+      method: 'card',
+      card: { last4: '4242', network: 'Visa' },
+      token_id: `token_mock_${Date.now()}`,
+      mock: true,
+    };
+  }
+  const client = getClient();
+  return client.payments.fetch(paymentId);
+}
+
+export async function refundRazorpayPayment(paymentId, amountPaise) {
+  if (isPaymentMockMode()) {
+    return { id: `rfnd_mock_${Date.now()}`, mock: true };
+  }
+  const client = getClient();
+  return client.payments.refund(paymentId, { amount: amountPaise });
+}
+
+export function verifyRazorpayWebhookSignature(rawBody, signature) {
+  if (isPaymentMockMode()) return true;
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET;
+  if (!secret || !signature) return false;
+  const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+  return expected === signature;
+}

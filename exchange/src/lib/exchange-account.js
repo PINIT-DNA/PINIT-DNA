@@ -27,22 +27,20 @@ export function resolveExchangeAccount(user) {
   const raw = String(user.exchange_role || user.role || '').toLowerCase();
   const rawSeller = raw === 'creator' || raw === 'seller' || raw === 'admin';
 
-  let role = 'BUYER';
-  if (listFlag === true || listFlag === 1) role = 'SELLER';
-  else if (listFlag === false || listFlag === 0) role = 'BUYER';
-  else if (rawSeller) role = 'SELLER';
+  const seller = rawSeller;
+  const canList = listFlag === true || listFlag === 1;
 
-  const seller = role === 'SELLER';
   return {
     userId: user.id || user.pinit_id || null,
     pinitId: user.pinit_id || '',
-    role,
+    role: seller ? 'SELLER' : 'BUYER',
     accountType: seller ? 'CREATOR' : 'BUYER',
     uiLabel: seller ? 'Creator Account' : 'Buyer Account',
     workspace: seller ? 'seller' : 'buyer',
     exchangeEnabled: true,
-    canList: seller,
-    canPurchase: !seller,
+    canList,
+    canPurchase: !rawSeller,
+    sellerOnboardingComplete: user.seller_onboarding_complete !== false,
     displayName: user.display_name || user.name || (seller ? 'Creator' : 'Buyer'),
     raw: user,
   };

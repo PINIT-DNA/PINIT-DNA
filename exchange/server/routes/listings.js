@@ -7,7 +7,7 @@ import { recordBridgeEvent, markBridgeEventProcessed } from '../lib/bridge-event
 import { getSql, runSql } from '../lib/db.js';
 import { toExchangePinitId, listingUserJoinSql, sellerMatchClause, extractPinitCode } from '../lib/pinit-identity.js';
 import { canList, buyerDeniedList } from '../lib/roles.js';
-import { findUserByPinitId, requireSeller } from '../lib/rbac.js';
+import { findUserByPinitId, requireSeller, requireActiveSeller } from '../lib/rbac.js';
 
 const router = express.Router();
 
@@ -178,7 +178,7 @@ router.get('/:id', (req, res) => {
 });
 
 /** Accept Hub list-intent JWT and prepare asset for listing modal */
-router.post('/from-hub', (req, res) => {
+router.post('/from-hub', requireActiveSeller, (req, res) => {
   const token = req.body?.hub_list_token || req.body?.token;
   let intent;
   try {
@@ -214,7 +214,7 @@ router.post('/from-hub', (req, res) => {
 });
 
 // Create / Publish Listing from Hub to Exchange (WITH MANDATORY SECTION 9 AI POLICY CHECK)
-router.post('/', requireSeller, (req, res) => {
+router.post('/', requireActiveSeller, (req, res) => {
   const {
     asset_id,
     pinit_id,

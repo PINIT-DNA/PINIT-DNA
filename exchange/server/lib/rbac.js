@@ -7,6 +7,7 @@ import {
   sellerDeniedPurchase,
   buyerDeniedSellerAction,
 } from './roles.js';
+import { sellerOnboardingBlocked } from './seller-onboarding.js';
 
 export async function findUserByPinitId(pinitId) {
   const id = String(pinitId || '').trim();
@@ -51,6 +52,31 @@ export async function requireSeller(req, res, next) {
     const user = await findUserByPinitId(pinitId);
     if (!user || !canList(user.role)) {
       return res.status(403).json(buyerDeniedList());
+    }
+    req.exchangeUser = user;
+    next();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+/** Seller role + payment-method verification complete (new sellers only). */
+export async function requireActiveSeller(req, res, next) {
+  try {
+    const pinitId = pinitIdFromReq(req);
+    if (!pinitId) {
+      return res.status(401).json({
+        error: 'AUTH_REQUIRED',
+        message: 'Sign in as a Creator to use seller tools.',
+      });
+    }
+    const user = await findUserByPinitId(pinitId);
+    if (!user || !canList(user.role)) {
+      return res.status(403).json(buyerDeniedList());
+    }
+    const blocked = sellerOnboardingBlocked(user);
+    if (blocked) {
+      return res.status(403).json(blocked);
     }
     req.exchangeUser = user;
     next();

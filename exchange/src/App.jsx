@@ -31,6 +31,7 @@ import SellerReviews from './pages/seller/SellerReviews.jsx';
 import SellerAnalytics from './pages/seller/SellerAnalytics.jsx';
 import SellerPromotions from './pages/seller/SellerPromotions.jsx';
 import SellerAlerts from './pages/seller/SellerAlerts.jsx';
+import SellerPaymentOnboarding from './pages/SellerPaymentOnboarding.jsx';
 import BuyerPayments from './pages/buyer/BuyerPayments.jsx';
 import BuyerNotifications from './pages/buyer/BuyerNotifications.jsx';
 import CartPage from './pages/CartPage.jsx';
@@ -337,6 +338,9 @@ export default function App() {
       if (canList(user)) {
         setRoleNotice('Creator accounts browse the marketplace but cannot purchase.');
         navigate('marketplace', { replace: true });
+      } else if (resolveExchangeAccount(user).workspace === 'seller') {
+        setRoleNotice('Verify a payment method to access seller tools.');
+        navigate('seller_onboarding_payment', { replace: true });
       } else {
         setRoleNotice('Listing pages are for creator accounts.');
         setBecomeCreatorOpen(true);
@@ -530,6 +534,21 @@ export default function App() {
         )}
         {activePage === 'seller_promotions' && <SellerPromotions user={user} />}
         {activePage === 'seller_alerts' && <SellerAlerts user={user} hubAppUrl={HUB_APP_URL} />}
+        {activePage === 'seller_onboarding_payment' && (
+          <SellerPaymentOnboarding
+            user={user}
+            onNavigate={navigate}
+            onVerified={(updatedUser) => {
+              const u = updatedUser || user;
+              if (u) {
+                setUser(u);
+                saveSession(u);
+              }
+              setRoleNotice('Seller account verified. You can list and sell on Exchange.');
+              navigate('seller_listings');
+            }}
+          />
+        )}
         {activePage === 'buyer_payments' && <BuyerPayments onNavigate={navigate} />}
         {activePage === 'buyer_notifications' && (
           <BuyerNotifications user={user} onNavigate={navigate} />
@@ -640,8 +659,8 @@ export default function App() {
         onConverted={(updated) => {
           setUser(updated);
           saveSession(updated);
-          setRoleNotice('You are now a Creator. You can list Hub-protected assets on Exchange.');
-          navigate('seller_listings');
+          setRoleNotice('Creator account created. Verify a payment method to start selling — no registration fee.');
+          navigate('seller_onboarding_payment');
         }}
       />
 

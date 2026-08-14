@@ -4,6 +4,7 @@ import { verifyHubBridgeToken } from '../hub-client.js';
 import { extractPinitCode, identityCandidates, toExchangePinitId } from '../lib/pinit-identity.js';
 import { enrichPublicUser, isSellerRole } from '../lib/roles.js';
 import { findUserByPinitId } from '../lib/rbac.js';
+import { initialCreatorOnboardingStatus, ONBOARDING } from '../lib/seller-onboarding.js';
 
 const router = express.Router();
 
@@ -27,6 +28,8 @@ function ensureUserColumns(cb) {
     `ALTER TABLE users ADD COLUMN account_intent TEXT`,
     `ALTER TABLE users ADD COLUMN hub_linked INTEGER DEFAULT 0`,
     `ALTER TABLE users ADD COLUMN onboarding_step TEXT DEFAULT 'complete'`,
+    `ALTER TABLE users ADD COLUMN seller_onboarding_status TEXT DEFAULT 'SELLER_ACTIVE'`,
+    `ALTER TABLE users ADD COLUMN razorpay_customer_id TEXT`,
   ];
   let i = 0;
   const next = () => {
@@ -109,6 +112,9 @@ router.post('/hub-sso', (req, res) => {
     const kyc = requested === 'creator' ? 'pending' : 'not_required';
     const sellerPlan = requested === 'creator' ? 'starter' : null;
     const onboarding = requested === 'creator' ? 'protect_in_hub' : 'complete';
+    const sellerOnboarding = requested === 'creator'
+      ? ONBOARDING.PAYMENT_METHOD_REQUIRED
+      : null;
     const candidates = identityCandidates(incomingId);
     const placeholders = candidates.map(() => '?').join(', ');
 
@@ -135,6 +141,7 @@ router.post('/hub-sso', (req, res) => {
         if (lookupErr) return res.status(500).json({ error: lookupErr.message });
 
         if (existing) {
+          const keepActive = initialCreatorOnboardingStatus(existing);
           db.run(`
             UPDATE users SET
               pinit_id = ?,
@@ -150,6 +157,11 @@ router.post('/hub-sso', (req, res) => {
                 WHEN onboarding_step = 'complete' THEN 'complete'
                 WHEN ? = 'creator' THEN 'protect_in_hub'
                 ELSE COALESCE(onboarding_step, 'complete')
+              END,
+              seller_onboarding_status = CASE
+                WHEN seller_onboarding_status IN ('SELLER_ACTIVE', 'PAYMENT_METHOD_VERIFIED') THEN seller_onboarding_status
+                WHEN ? = 'creator' AND role = 'creator' THEN COALESCE(seller_onboarding_status, ?)
+                ELSE COALESCE(seller_onboarding_status, 'SELLER_ACTIVE')
               END
             WHERE pinit_id = ?
           `, [
@@ -161,6 +173,8 @@ router.post('/hub-sso', (req, res) => {
             name,
             sellerPlan,
             requested,
+            requested,
+            keepActive === ONBOARDING.SELLER_ACTIVE ? keepActive : ONBOARDING.PAYMENT_METHOD_REQUIRED,
             existing.pinit_id,
           ], (updErr) => {
             if (updErr) return res.status(500).json({ error: updErr.message });
@@ -175,9 +189,13 @@ router.post('/hub-sso', (req, res) => {
         db.run(`
           INSERT INTO users (
             pinit_id, exchange_id, name, email, role, kyc_status, biometric_verified,
-            seller_plan, bio, display_name, account_intent, hub_linked, onboarding_step
-          ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, 'Connected via Pinit HUB biometric', ?, ?, 1, ?)
-        `, [pinitId, mintedExchangeId, name, email, role, kyc, sellerPlan, name, requested, onboarding], function(err) {
+            seller_plan, bio, display_name, account_intent, hub_linked, onboarding_step,
+            seller_onboarding_status
+          ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, 'Connected via Pinit HUB biometric', ?, ?, 1, ?, ?)
+        `, [
+          pinitId, mintedExchangeId, name, email, role, kyc, sellerPlan, name, requested,
+          onboarding, sellerOnboarding || 'SELLER_ACTIVE',
+        ], function(err) {
           if (err) return res.status(500).json({ error: err.message });
           db.get('SELECT * FROM users WHERE pinit_id = ?', [pinitId], (err2, user) => {
             if (err2) return res.status(500).json({ error: err2.message });
@@ -242,16 +260,18 @@ router.post('/become-creator', async (req, res) => {
         account_intent = 'creator',
         seller_plan = COALESCE(seller_plan, 'starter'),
         kyc_status = CASE WHEN kyc_status = 'not_required' THEN 'pending' ELSE kyc_status END,
-        onboarding_step = 'protect_in_hub'
+        onboarding_step = 'protect_in_hub',
+        seller_onboarding_status = ?
        WHERE pinit_id = ?`,
-      [existing.pinit_id],
+      [ONBOARDING.PAYMENT_METHOD_REQUIRED, existing.pinit_id],
       (err) => {
         if (err) return res.status(500).json({ error: err.message });
         db.get('SELECT * FROM users WHERE pinit_id = ?', [existing.pinit_id], (err2, updated) => {
           if (err2) return res.status(500).json({ error: err2.message });
           res.json({
-            message: 'You are now a Creator. Protect assets in Pinit HUB, then list them here.',
+            message: 'You are now a Creator. Verify a payment method (free — no registration fee), then list Hub-protected assets.',
             user: publicUser(updated),
+            next_step: { action: 'verify_payment_method', path: '/exchange/seller/onboarding/payment' },
           });
         });
       },

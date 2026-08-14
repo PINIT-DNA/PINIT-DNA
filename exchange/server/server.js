@@ -18,6 +18,7 @@ import creatorRoutes from './routes/creator.js';
 import requirementsRoutes from './routes/requirements.js';
 import commerceRoutes from './routes/commerce.js';
 import portfolioRoutes from './routes/portfolio.js'; // public /p/:slug + seller builder API
+import sellerOnboardingRoutes from './routes/seller-onboarding.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -54,6 +55,7 @@ app.use('/api/creator', creatorRoutes);
 app.use('/api/requirements', requirementsRoutes);
 app.use('/api/commerce', commerceRoutes);
 app.use('/api/portfolio', portfolioRoutes);
+app.use('/api/seller/onboarding', sellerOnboardingRoutes);
 
 app.get('/api/health', (req, res) => {
   const billing = getBillingPublicConfig();

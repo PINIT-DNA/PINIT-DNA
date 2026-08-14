@@ -8,7 +8,7 @@ import {
   fetchPreviewFromHub,
 } from '../hub-client.js';
 import { exchangePreviewUrl, isHubVaultId, PLACEHOLDER_PREVIEW } from '../lib/preview-url.js';
-import { requireSeller } from '../lib/rbac.js';
+import { requireSeller, requireActiveSeller } from '../lib/rbac.js';
 import { identityCandidates, sellerMatchClause } from '../lib/pinit-identity.js';
 
 const router = express.Router();
@@ -177,7 +177,7 @@ router.get('/assets', requireSeller, async (req, res) => {
   );
 });
 
-router.post('/protect-upload', requireSeller, (req, res) => {
+router.post('/protect-upload', requireActiveSeller, (req, res) => {
   upload.single('file')(req, res, async (err) => {
     if (err) {
       return res.status(400).json({

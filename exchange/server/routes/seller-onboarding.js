@@ -1,0 +1,289 @@
+import express from 'express';
+import { v4 as uuidv4 } from 'uuid';
+import { requireSeller } from '../lib/rbac.js';
+import { getSql, runSql } from '../lib/db.js';
+import { enrichPublicUser } from '../lib/roles.js';
+import {
+  ONBOARDING,
+  isSellerOnboardingComplete,
+  normalizeOnboardingStatus,
+} from '../lib/seller-onboarding.js';
+import {
+  createRazorpayOrder,
+  createRazorpayCustomer,
+  fetchRazorpayPayment,
+  refundRazorpayPayment,
+  getBillingPublicConfig,
+  isPaymentMockMode,
+  verifyRazorpaySignature,
+  SELLER_VERIFICATION_AMOUNT_PAISE,
+} from '../razorpay.js';
+
+const router = express.Router();
+
+function idempotencyKey(req) {
+  return String(
+    req.body?.idempotency_key ||
+      req.headers['idempotency-key'] ||
+      req.headers['x-idempotency-key'] ||
+      '',
+  ).trim();
+}
+
+function defaultIdempotencyKey(pinitId) {
+  return `seller_pm_${pinitId}_${new Date().toISOString().slice(0, 10)}`;
+}
+
+async function loadVerifiedPaymentMethod(pinitId) {
+  return getSql(
+    `SELECT id, provider, provider_method_id, status, method_type, last4, brand, verified_at
+     FROM seller_payment_methods
+     WHERE pinit_id = ? AND status = 'verified'
+     ORDER BY verified_at DESC LIMIT 1`,
+    [pinitId],
+  );
+}
+
+async function buildStatusResponse(user) {
+  const verified = await loadVerifiedPaymentMethod(user.pinit_id);
+  const status = normalizeOnboardingStatus(user.seller_onboarding_status);
+  const complete = isSellerOnboardingComplete(user);
+  return {
+    seller_onboarding_status: status,
+    seller_onboarding_complete: complete,
+    seller_payment_verified: complete,
+    requires_payment_method: !complete,
+    payment_method: verified
+      ? {
+          provider: verified.provider,
+          status: verified.status,
+          method_type: verified.method_type,
+          last4: verified.last4,
+          brand: verified.brand,
+          verified_at: verified.verified_at,
+        }
+      : null,
+    billing: getBillingPublicConfig(),
+    message: complete
+      ? 'Seller account verified.'
+      : 'Add a payment method to activate your seller account. No registration fee.',
+  };
+}
+
+/** GET /api/seller/onboarding/status */
+router.get('/status', requireSeller, async (req, res) => {
+  try {
+    res.json(await buildStatusResponse(req.exchangeUser));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** POST /api/seller/onboarding/payment-method — initialize Razorpay verification checkout */
+router.post('/payment-method', requireSeller, async (req, res) => {
+  try {
+    const user = req.exchangeUser;
+    if (isSellerOnboardingComplete(user)) {
+      return res.json({
+        already_verified: true,
+        ...(await buildStatusResponse(user)),
+      });
+    }
+
+    const key = idempotencyKey(req) || defaultIdempotencyKey(user.pinit_id);
+
+    const existingIntent = await getSql(
+      `SELECT * FROM seller_onboarding_intents WHERE idempotency_key = ? AND pinit_id = ? LIMIT 1`,
+      [key, user.pinit_id],
+    );
+    if (existingIntent?.status === 'completed') {
+      const fresh = await getSql('SELECT * FROM users WHERE pinit_id = ?', [user.pinit_id]);
+      return res.json({ already_verified: true, ...(await buildStatusResponse(fresh)) });
+    }
+    if (existingIntent?.razorpay_order_id && existingIntent.status === 'pending') {
+      const billing = getBillingPublicConfig();
+      return res.json({
+        idempotency_key: key,
+        intent_id: existingIntent.id,
+        orderId: existingIntent.razorpay_order_id,
+        amount: SELLER_VERIFICATION_AMOUNT_PAISE,
+        currency: 'INR',
+        keyId: billing.keyId,
+        mock: billing.mock,
+        description: 'Payment method verification (no registration fee)',
+        verification_hold_paise: SELLER_VERIFICATION_AMOUNT_PAISE,
+        refund_after_verify: !billing.mock,
+      });
+    }
+
+    let customerId = user.razorpay_customer_id;
+    if (!customerId) {
+      const customer = await createRazorpayCustomer({
+        name: user.display_name || user.name,
+        email: user.email,
+        notes: { pinit_id: user.pinit_id, purpose: 'seller_onboarding' },
+      });
+      customerId = customer.id;
+      await runSql('UPDATE users SET razorpay_customer_id = ? WHERE pinit_id = ?', [
+        customerId,
+        user.pinit_id,
+      ]);
+    }
+
+    const intentId = uuidv4();
+    const receipt = `spm_${user.pinit_id.slice(-8)}_${Date.now()}`.slice(0, 40);
+    const order = await createRazorpayOrder({
+      amountPaise: SELLER_VERIFICATION_AMOUNT_PAISE,
+      receipt,
+      notes: {
+        purpose: 'seller_payment_verification',
+        pinit_id: user.pinit_id,
+        no_registration_fee: 'true',
+      },
+    });
+
+    await runSql(
+      `INSERT INTO seller_onboarding_intents (id, pinit_id, idempotency_key, razorpay_order_id, status)
+       VALUES (?, ?, ?, ?, 'pending')`,
+      [intentId, user.pinit_id, key, order.orderId],
+    );
+    await runSql(
+      `UPDATE users SET seller_onboarding_status = ? WHERE pinit_id = ?`,
+      [ONBOARDING.PAYMENT_METHOD_PENDING, user.pinit_id],
+    );
+
+    res.json({
+      idempotency_key: key,
+      intent_id: intentId,
+      orderId: order.orderId,
+      amount: order.amount,
+      currency: order.currency || 'INR',
+      keyId: order.keyId,
+      mock: order.mock,
+      customerId,
+      description: 'Payment method verification (no registration fee)',
+      verification_hold_paise: SELLER_VERIFICATION_AMOUNT_PAISE,
+      refund_after_verify: !order.mock,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Could not initialize payment method setup' });
+  }
+});
+
+/** POST /api/seller/onboarding/payment-method/verify */
+router.post('/payment-method/verify', requireSeller, async (req, res) => {
+  try {
+    const user = req.exchangeUser;
+    if (isSellerOnboardingComplete(user)) {
+      return res.json({
+        message: 'Seller account already verified',
+        user: enrichPublicUser(user),
+        ...(await buildStatusResponse(user)),
+      });
+    }
+
+    const {
+      razorpay_order_id: orderId,
+      razorpay_payment_id: paymentId,
+      razorpay_signature: signature,
+    } = req.body || {};
+
+    if (!orderId || !paymentId) {
+      return res.status(400).json({ error: 'razorpay_order_id and razorpay_payment_id are required' });
+    }
+
+    const key = idempotencyKey(req) || defaultIdempotencyKey(user.pinit_id);
+    const intent = await getSql(
+      `SELECT * FROM seller_onboarding_intents WHERE idempotency_key = ? AND pinit_id = ? LIMIT 1`,
+      [key, user.pinit_id],
+    );
+    if (intent && intent.razorpay_order_id && intent.razorpay_order_id !== orderId) {
+      return res.status(409).json({ error: 'Order mismatch for this verification session' });
+    }
+
+    if (!verifyRazorpaySignature({ orderId, paymentId, signature: signature || 'mock' })) {
+      await runSql(
+        `UPDATE users SET seller_onboarding_status = ? WHERE pinit_id = ?`,
+        [ONBOARDING.PAYMENT_METHOD_FAILED, user.pinit_id],
+      );
+      return res.status(402).json({
+        error: 'PAYMENT_VERIFICATION_FAILED',
+        message: 'Payment verification failed. Please try again.',
+      });
+    }
+
+    const existingVerified = await loadVerifiedPaymentMethod(user.pinit_id);
+    if (existingVerified) {
+      const fresh = await getSql('SELECT * FROM users WHERE pinit_id = ?', [user.pinit_id]);
+      return res.json({
+        message: 'Seller account already verified',
+        user: enrichPublicUser(fresh),
+        ...(await buildStatusResponse(fresh)),
+      });
+    }
+
+    const payment = await fetchRazorpayPayment(paymentId);
+    const methodId = payment.token_id || payment.id;
+    const methodType = payment.method || 'unknown';
+    const last4 = payment.card?.last4 || payment.vpa?.slice(-4) || null;
+    const brand = payment.card?.network || payment.bank || null;
+
+    const pmId = uuidv4();
+    await runSql(
+      `INSERT INTO seller_payment_methods (
+        id, pinit_id, provider, provider_customer_id, provider_method_id,
+        provider_payment_id, status, method_type, last4, brand, idempotency_key, verified_at
+      ) VALUES (?, ?, 'razorpay', ?, ?, ?, 'verified', ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+      [
+        pmId,
+        user.pinit_id,
+        user.razorpay_customer_id || null,
+        methodId,
+        paymentId,
+        methodType,
+        last4,
+        brand,
+        key,
+      ],
+    );
+
+    await runSql(
+      `UPDATE users SET seller_onboarding_status = ? WHERE pinit_id = ?`,
+      [ONBOARDING.SELLER_ACTIVE, user.pinit_id],
+    );
+    if (intent?.id) {
+      await runSql(
+        `UPDATE seller_onboarding_intents SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [intent.id],
+      );
+    }
+
+    if (!isPaymentMockMode()) {
+      try {
+        await refundRazorpayPayment(paymentId, SELLER_VERIFICATION_AMOUNT_PAISE);
+      } catch (refundErr) {
+        console.warn('[seller-onboarding] verification refund skipped:', refundErr.message);
+      }
+    }
+
+    const updated = await getSql('SELECT * FROM users WHERE pinit_id = ?', [user.pinit_id]);
+    res.json({
+      message: 'Payment method verified. Your seller account is active.',
+      user: enrichPublicUser(updated),
+      ...(await buildStatusResponse(updated)),
+    });
+  } catch (err) {
+    if (req.exchangeUser?.pinit_id) {
+      await runSql(
+        `UPDATE users SET seller_onboarding_status = ? WHERE pinit_id = ?`,
+        [ONBOARDING.PAYMENT_METHOD_FAILED, req.exchangeUser.pinit_id],
+      ).catch(() => {});
+    }
+    res.status(500).json({
+      error: 'PAYMENT_VERIFICATION_FAILED',
+      message: err.message || 'Payment verification failed',
+    });
+  }
+});
+
+export default router;

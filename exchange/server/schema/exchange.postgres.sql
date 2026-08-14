@@ -22,8 +22,46 @@ CREATE TABLE IF NOT EXISTS exchange.users (
   account_intent TEXT,
   hub_linked SMALLINT DEFAULT 0,
   onboarding_step TEXT DEFAULT 'complete',
+  seller_onboarding_status TEXT DEFAULT 'SELLER_ACTIVE',
+  razorpay_customer_id TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Provider token references only — never store card numbers / CVV / raw credentials.
+CREATE TABLE IF NOT EXISTS exchange.seller_payment_methods (
+  id TEXT PRIMARY KEY,
+  pinit_id TEXT NOT NULL REFERENCES exchange.users(pinit_id) ON DELETE CASCADE,
+  provider TEXT NOT NULL DEFAULT 'razorpay',
+  provider_customer_id TEXT,
+  provider_method_id TEXT,
+  provider_payment_id TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  method_type TEXT,
+  last4 TEXT,
+  brand TEXT,
+  idempotency_key TEXT UNIQUE,
+  failure_reason TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  verified_at TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ex_seller_pm_method
+  ON exchange.seller_payment_methods (provider, provider_method_id)
+  WHERE provider_method_id IS NOT NULL AND provider_method_id <> '';
+
+CREATE INDEX IF NOT EXISTS idx_ex_seller_pm_pinit ON exchange.seller_payment_methods (pinit_id, status);
+
+CREATE TABLE IF NOT EXISTS exchange.seller_onboarding_intents (
+  id TEXT PRIMARY KEY,
+  pinit_id TEXT NOT NULL,
+  idempotency_key TEXT UNIQUE NOT NULL,
+  razorpay_order_id TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  completed_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_ex_seller_intents_pinit ON exchange.seller_onboarding_intents (pinit_id, status);
 
 -- Marketplace-safe Hub asset *references* only (assetId + preview/summary). Not vault masters.
 CREATE TABLE IF NOT EXISTS exchange.hub_assets (

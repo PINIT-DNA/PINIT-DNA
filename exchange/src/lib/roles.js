@@ -101,6 +101,9 @@ export function homePageForUser(user) {
 }
 
 export function canAccessPage(user, page) {
+  if (page === 'seller_onboarding_payment') {
+    return resolveExchangeAccount(user).workspace === 'seller';
+  }
   if (SELLER_ONLY_PAGES.has(page)) return resolveExchangeAccount(user).canList;
   if (BUYER_ONLY_PAGES.has(page)) {
     const a = resolveExchangeAccount(user);

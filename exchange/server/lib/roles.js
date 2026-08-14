@@ -77,18 +77,22 @@ export function rolePositioning(role) {
   return 'Discover, license and manage creative assets.';
 }
 
+import { onboardingFieldsForUser } from './seller-onboarding.js';
+
 export function enrichPublicUser(row) {
   if (!row) return null;
   const { password_hash: _pw, ...safe } = row;
   const exchange_role = normalizeRole(row.role);
   const seller = exchange_role === EXCHANGE_ROLES.SELLER || exchange_role === EXCHANGE_ROLES.ADMIN;
+  const onboarding = onboardingFieldsForUser(row);
   return {
     ...safe,
     exchange_role,
     account_type: seller ? 'CREATOR' : 'BUYER',
     exchange_enabled: true,
-    can_list: canList(row.role),
+    can_list: canList(row.role) && onboarding.seller_onboarding_complete,
     can_purchase: canPurchase(row.role),
     positioning: rolePositioning(row.role),
+    ...onboarding,
   };
 }

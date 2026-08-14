@@ -274,6 +274,8 @@ function applyTrustHardeningSchema() {
     `ALTER TABLE listings ADD COLUMN protection_attempts INTEGER DEFAULT 0`,
     `ALTER TABLE hub_assets ADD COLUMN protection_status TEXT DEFAULT 'protected'`,
     `ALTER TABLE requirements ADD COLUMN buyer_pinit_id TEXT`,
+    `ALTER TABLE users ADD COLUMN seller_onboarding_status TEXT DEFAULT 'SELLER_ACTIVE'`,
+    `ALTER TABLE users ADD COLUMN razorpay_customer_id TEXT`,
   ];
 
   const creates = [
@@ -347,6 +349,31 @@ function applyTrustHardeningSchema() {
       status TEXT DEFAULT 'accrued',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
+    `CREATE TABLE IF NOT EXISTS seller_payment_methods (
+      id TEXT PRIMARY KEY,
+      pinit_id TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'razorpay',
+      provider_customer_id TEXT,
+      provider_method_id TEXT,
+      provider_payment_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      method_type TEXT,
+      last4 TEXT,
+      brand TEXT,
+      idempotency_key TEXT UNIQUE,
+      failure_reason TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      verified_at DATETIME
+    )`,
+    `CREATE TABLE IF NOT EXISTS seller_onboarding_intents (
+      id TEXT PRIMARY KEY,
+      pinit_id TEXT NOT NULL,
+      idempotency_key TEXT UNIQUE NOT NULL,
+      razorpay_order_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      completed_at DATETIME
+    )`,
     `CREATE INDEX IF NOT EXISTS idx_listings_asset ON listings(asset_id)`,
     `CREATE INDEX IF NOT EXISTS idx_listings_seller_status ON listings(pinit_id, status)`,
     `CREATE INDEX IF NOT EXISTS idx_orders_buyer ON orders_sealed(buyer_pinit_id)`,
@@ -362,7 +389,14 @@ function applyTrustHardeningSchema() {
     };
     runNext(alters, 0, () => {
       runNext(creates, 0, () => {
-        db.run(`UPDATE listings SET status = 'published' WHERE status = 'live'`, () => resolve());
+        db.run(`UPDATE listings SET status = 'published' WHERE status = 'live'`, () => {
+          db.run(
+            `UPDATE users SET seller_onboarding_status = 'SELLER_ACTIVE'
+             WHERE role IN ('creator', 'admin')
+               AND (seller_onboarding_status IS NULL OR seller_onboarding_status = '')`,
+            () => resolve(),
+          );
+        });
       });
     });
   });

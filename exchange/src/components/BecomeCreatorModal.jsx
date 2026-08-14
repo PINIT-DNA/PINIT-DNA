@@ -42,8 +42,11 @@ export default function BecomeCreatorModal({ isOpen, onClose, user, onConverted 
         </div>
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.5 }}>
-            Creator accounts can list and earn. They cannot purchase marketplace assets.
-            Your Hub vault stays yours either way.
+            Create your seller account for free. To protect the marketplace and reduce fraudulent seller
+            accounts, a verified payment method is required before you can list assets.
+          </p>
+          <p style={{ color: 'var(--text-dim)', fontSize: '0.82rem' }}>
+            No seller registration fee. Selling and listing remain free.
           </p>
           <div style={{ display: 'flex', gap: 8, color: 'var(--emerald)', fontSize: '0.82rem' }}>
             <Sparkles size={15} /> Create, protect, list and earn from creative assets.
@@ -56,7 +59,7 @@ export default function BecomeCreatorModal({ isOpen, onClose, user, onConverted 
         <div className="modal-footer">
           <button type="button" className="btn-secondary" onClick={onClose}>Keep buyer account</button>
           <button type="button" className="btn-primary" disabled={loading || !user} onClick={convert}>
-            {loading ? 'Updating…' : 'Become a Creator'}
+            {loading ? 'Updating…' : 'Become a Seller'}
           </button>
         </div>
       </div>
