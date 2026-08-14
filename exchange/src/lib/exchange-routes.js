@@ -3,30 +3,65 @@
  * refreshable URLs without introducing a second router.
  */
 
-/** Dead Vercel alias — never send Hub SSO here. */
-const DEAD_HUB_HOSTS = ['dna-pinit-web.vercel.app'];
+const LIVE_HUB_APP_URL = 'https://www.pinithub.com';
+const LIVE_HUB_FALLBACK = 'https://pinit-dna.vercel.app';
+
+/** Never treat these as Hub — they are Exchange / dead aliases. */
+function isInvalidHubUrl(url) {
+  const u = String(url || '').toLowerCase();
+  if (!u) return true;
+  return (
+    u.includes('dna-pinit-web.vercel.app')
+    || u.includes('pinitexchange.com')
+    || u.includes('pinit-dna-exchange')
+    || u.includes('pinit-dna-nu.vercel.app')
+    || u.includes('pinit-dna-3fmw')
+    || u.includes('localhost:5174')
+    || u.includes('localhost:5173')
+  );
+}
 
 /**
- * Resolve the live Hub app URL.
- * Local: localhost:3000. Production: pinithub.com (or VITE_HUB_APP_URL if valid).
+ * Resolve the live Hub app URL for SSO.
+ * Local: localhost:3000. Production: pinithub.com (never Exchange itself).
  */
 export function resolveHubAppUrl() {
   const raw = String(import.meta.env.VITE_HUB_APP_URL || '').trim().replace(/\/$/, '');
-  const isDead = raw && DEAD_HUB_HOSTS.some((h) => raw.includes(h));
-  if (raw && !isDead) return raw;
+  if (raw && !isInvalidHubUrl(raw)) return raw;
 
   if (typeof window !== 'undefined') {
     const host = window.location.hostname || '';
     if (
       host.includes('pinitexchange.com')
       || host.includes('pinit-dna-exchange')
+      || host.includes('pinit-dna-nu')
       || host.endsWith('.vercel.app')
     ) {
-      return 'https://www.pinithub.com';
+      return LIVE_HUB_APP_URL;
     }
   }
 
   return 'http://localhost:3000';
+}
+
+/** Absolute Hub login URL for Exchange SSO. */
+export function hubLoginUrl(returnUrl, { mode = 'login' } = {}) {
+  const hub = resolveHubAppUrl() || LIVE_HUB_FALLBACK;
+  const base = isInvalidHubUrl(hub) ? LIVE_HUB_APP_URL : hub;
+  const url = new URL(`${base}/login`);
+  if (returnUrl) url.searchParams.set('exchange_return', returnUrl);
+  if (mode) url.searchParams.set('hub_mode', mode);
+  return url.toString();
+}
+
+/** Absolute Hub register URL for Exchange SSO. */
+export function hubRegisterUrl(returnUrl, accountHint = null) {
+  const hub = resolveHubAppUrl() || LIVE_HUB_FALLBACK;
+  const base = isInvalidHubUrl(hub) ? LIVE_HUB_APP_URL : hub;
+  const url = new URL(`${base}/register/account-type`);
+  if (returnUrl) url.searchParams.set('exchange_return', returnUrl);
+  if (accountHint) url.searchParams.set('hint', accountHint);
+  return url.toString();
 }
 
 export const HUB_APP_URL = resolveHubAppUrl();

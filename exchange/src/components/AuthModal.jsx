@@ -10,7 +10,7 @@ import {
   User,
 } from 'lucide-react';
 
-import { resolveHubAppUrl } from '../lib/exchange-routes.js';
+import { hubLoginUrl, hubRegisterUrl } from '../lib/exchange-routes.js';
 
 const SESSION_KEY = 'pinit_exchange_session';
 const INTENT_KEY = 'pinit_exchange_intent';
@@ -20,6 +20,15 @@ function stashIntent(nextIntent) {
     sessionStorage.setItem(INTENT_KEY, nextIntent === 'creator' ? 'creator' : 'buyer');
   } catch {
     /* ignore */
+  }
+}
+
+function goToHub(url) {
+  // Force a full navigation off Exchange. Never silently no-op.
+  try {
+    window.top.location.href = url;
+  } catch {
+    window.location.href = url;
   }
 }
 
@@ -52,21 +61,15 @@ export default function AuthModal({
   if (!isOpen) return null;
 
   const openHubContinue = (nextIntent = intent || 'buyer') => {
-    const hubAppUrl = resolveHubAppUrl();
     stashIntent(nextIntent);
     const returnUrl = `${window.location.origin}/?hub_return=1&exchange_intent=${nextIntent === 'creator' ? 'creator' : 'buyer'}`;
-    window.location.assign(
-      `${hubAppUrl}/login?exchange_return=${encodeURIComponent(returnUrl)}&hub_mode=login`,
-    );
+    goToHub(hubLoginUrl(returnUrl, { mode: 'login' }));
   };
 
   const openHubRegister = (accountHint = null) => {
-    const hubAppUrl = resolveHubAppUrl();
     stashIntent('creator');
     const returnUrl = `${window.location.origin}/?hub_return=1&exchange_intent=creator`;
-    const base = `${hubAppUrl}/register/account-type?exchange_return=${encodeURIComponent(returnUrl)}`;
-    const url = accountHint ? `${base}&hint=${accountHint}` : base;
-    window.location.assign(url);
+    goToHub(hubRegisterUrl(returnUrl, accountHint));
   };
 
   const startIntent = (nextIntent) => {
@@ -179,9 +182,7 @@ export default function AuthModal({
               onClick={() => {
                 stashIntent('buyer');
                 const returnUrl = `${window.location.origin}/?hub_return=1&exchange_intent=buyer`;
-                window.location.assign(
-                  `${resolveHubAppUrl()}/register/account-type?exchange_return=${encodeURIComponent(returnUrl)}`,
-                );
+                goToHub(hubRegisterUrl(returnUrl));
               }}
             >
               New to Pinit? Create Hub account
