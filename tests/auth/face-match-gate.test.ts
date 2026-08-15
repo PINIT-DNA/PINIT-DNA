@@ -49,4 +49,8 @@ describe('face match confidence gate', () => {
     const alsoUnder = Math.max(0, THRESHOLDS.faceLogin - 0.01);
     expect(isConfidentFaceMatch(under, alsoUnder)).toBe(false);
   });
+
+  it('does not accept a lone gallery user just because secondDistance is Infinity', () => {
+    expect(isConfidentFaceMatch(0.1, Infinity)).toBe(false);
+  });
 });

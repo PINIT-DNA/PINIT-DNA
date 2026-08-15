@@ -473,6 +473,8 @@ model User {
   deviceFingerprint  String?
   authMethod         String           @default("password")
 
+  webauthnCredentials WebAuthnCredential[]
+
   certificates       Certificate[]
   dnaRecords         DnaRecord[]
   localFeatureIndexes LocalFeatureIndex[]
@@ -817,6 +819,23 @@ model UserDevice {
   @@unique([userId, deviceFingerprint])
   @@index([userId])
   @@map("user_devices")
+}
+
+model WebAuthnCredential {
+  id           String   @id @default(uuid())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  credentialId String   @unique
+  publicKey    String
+  userId       String
+  signCount    Int      @default(0)
+  deviceType   String?
+  backedUp     Boolean  @default(false)
+  transports   String[] @default([])
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("webauthn_credentials")
 }
 
 model SecurityEvent {

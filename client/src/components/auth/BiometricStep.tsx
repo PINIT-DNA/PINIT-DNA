@@ -4,45 +4,31 @@ import { StepHead } from './parts';
 import {
   assertDeviceCredential,
   registerDeviceCredential,
-  deviceBoundCredentialId,
-  laptopBiometricSkip,
   type BiometricResult,
 } from '../../lib/webauthn';
 
-/**
- * Fingerprint / device bind step — always auto-completes.
- * Never opens Windows Hello / passkey popups (DISABLE_PLATFORM_WEBAUTHN).
- * Face + voice remain the real identity checks.
- */
-const AUTO_DEVICE_FINGERPRINT = true;
-
 interface BiometricStepProps {
   mode: 'register' | 'login';
-  /** Stable label for WebAuthn enrollment (device hash or short id). */
   enrollmentLabel: string;
-  /** Browser/device fingerprint hash — binds credential without OS popup. */
   deviceFingerprint?: string;
-  /** Stored credential for login verification. */
   expectedCredentialId?: string | null;
-  /** Unused while AUTO_DEVICE_FINGERPRINT is on. */
+  claimedShortId?: string;
   strict?: boolean;
+  exchangeReturn?: boolean;
   onDone: (result: BiometricResult) => void;
   onError?: (msg: string) => void;
 }
 
-/** Auto fingerprint — binds this browser/device; no OS passkey UI. */
+/** Real WebAuthn / passkey — platform fingerprint, face, or PIN. No simulated hashes. */
 export function BiometricStep({
   mode,
-  enrollmentLabel,
-  deviceFingerprint,
-  expectedCredentialId,
-  strict = false,
+  claimedShortId,
   onDone,
   onError,
 }: BiometricStepProps) {
   const [progress, setProgress] = useState(0);
   const [done, setDone] = useState(false);
-  const [phase, setPhase] = useState<'scanning' | 'error'>('scanning');
+  const [phase, setPhase] = useState<'idle' | 'scanning' | 'error'>('idle');
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const onDoneRef = useRef(onDone);
@@ -51,75 +37,53 @@ export function BiometricStep({
   onErrorRef.current = onError;
 
   useEffect(() => {
-    let cancelled = false;
-    setPhase('scanning');
-    setDone(false);
-    setProgress(5);
-    setError('');
-
-    const durationMs = AUTO_DEVICE_FINGERPRINT ? 650 : mode === 'register' ? 1200 : 1000;
+    if (phase !== 'scanning') return;
     const start = Date.now();
     const tick = setInterval(() => {
-      if (cancelled) return;
-      setProgress(Math.min(95, 5 + ((Date.now() - start) / durationMs) * 90));
-    }, 50);
+      setProgress(Math.min(90, 8 + ((Date.now() - start) / 8000) * 80));
+    }, 80);
+    return () => clearInterval(tick);
+  }, [phase, attempt]);
 
-    (async () => {
-      try {
-        let result: BiometricResult;
-
-        if (AUTO_DEVICE_FINGERPRINT) {
-          // Never call navigator.credentials — silent device bind only.
-          await new Promise((r) => setTimeout(r, durationMs));
-          if (deviceFingerprint) {
-            result = deviceBoundCredentialId(deviceFingerprint);
-          } else if (expectedCredentialId) {
-            result = { ok: true, credentialId: expectedCredentialId, simulated: true };
-          } else {
-            result = laptopBiometricSkip();
-          }
-        } else {
-          result = mode === 'register'
-            ? await registerDeviceCredential(enrollmentLabel, { strict, deviceFingerprint })
-            : await assertDeviceCredential(expectedCredentialId, { strict, deviceFingerprint });
-        }
-
-        if (cancelled) return;
-        clearInterval(tick);
-        setProgress(100);
-        setDone(true);
-        setTimeout(() => onDoneRef.current(result), 180);
-      } catch (e) {
-        if (cancelled) return;
-        clearInterval(tick);
-        const msg = e instanceof Error ? e.message : 'Device fingerprint failed.';
-        setError(msg);
-        setPhase('error');
-        onErrorRef.current?.(msg);
+  async function run() {
+    setPhase('scanning');
+    setDone(false);
+    setProgress(8);
+    setError('');
+    try {
+      const result = mode === 'register'
+        ? await registerDeviceCredential()
+        : await assertDeviceCredential(claimedShortId);
+      if (result.simulated) {
+        throw new Error('Simulated device hashes are not accepted. Use a real passkey.');
       }
-    })();
-
-    return () => {
-      cancelled = true;
-      clearInterval(tick);
-    };
-  }, [mode, enrollmentLabel, deviceFingerprint, expectedCredentialId, strict, attempt]);
+      setProgress(100);
+      setDone(true);
+      setPhase('idle');
+      setTimeout(() => onDoneRef.current(result), 180);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Passkey verification failed.';
+      setError(msg);
+      setPhase('error');
+      onErrorRef.current?.(msg);
+    }
+  }
 
   return (
     <div className="pa-card" style={{ textAlign: 'center' }}>
       <StepHead
         icon={<Fingerprint size={26} color="#6366f1" />}
-        title="Device authenticator"
+        title="Passkey"
         subtitle={
           done
-            ? 'This device is bound to the account after face verification'
+            ? 'Bound'
             : phase === 'error'
-              ? 'Device bind failed'
-              : 'Binding this browser automatically…'
+              ? 'Failed'
+              : 'Windows Hello / PIN'
         }
       />
       <div
-        className={done ? '' : phase === 'scanning' ? 'pa-spin' : ''}
+        className={phase === 'scanning' ? 'pa-spin' : ''}
         style={{
           width: 92, height: 92, margin: '12px auto', borderRadius: '50%',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -137,8 +101,15 @@ export function BiometricStep({
       {phase === 'error' && (
         <div style={{ marginTop: 10 }}>
           <p style={{ color: '#fca5a5', fontSize: 13, marginBottom: 12 }}>{error}</p>
-          <button type="button" className="pa-btn" onClick={() => setAttempt((a) => a + 1)}>Try again</button>
+          <button type="button" className="pa-btn" onClick={() => { setAttempt((a) => a + 1); void run(); }}>
+            Retry
+          </button>
         </div>
+      )}
+      {phase === 'idle' && !done && (
+        <button type="button" className="pa-btn" style={{ marginTop: 12 }} onClick={() => void run()}>
+          <Fingerprint size={16} /> Continue
+        </button>
       )}
     </div>
   );

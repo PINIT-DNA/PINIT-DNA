@@ -145,14 +145,10 @@ export async function assignSubscriptionPlan(req: Request, res: Response, next: 
       throw new AppError(400, 'Valid planCode required (FREE | PRO | ENTERPRISE)');
     }
 
-    const targetUserId = userId?.trim() || callerId;
     const { prisma } = await import('../../lib/prisma');
     const caller = await prisma.user.findUnique({ where: { id: callerId }, select: { role: true } });
     const isAdmin = caller?.role === 'ADMIN' || caller?.role === 'SUPER_ADMIN';
-
-    if (targetUserId !== callerId && !isAdmin) {
-      throw new AppError(403, 'Admin access required to assign plans to other users');
-    }
+    const targetUserId = isAdmin && userId?.trim() ? userId.trim() : callerId;
 
     const paidPlan = planCode === PlanCode.PRO || planCode === PlanCode.ENTERPRISE;
     const demoAllowed =

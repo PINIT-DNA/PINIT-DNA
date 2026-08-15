@@ -657,8 +657,12 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
       );
     }
 
-    // Retrieve decrypted file from vault and stream it (public — no owner auth gate)
-    const result = await vaultService.retrieve(fullLink.vaultId);
+    if (!fullLink.ownerUserId) {
+      throw new AppError(403, 'This share is not bound to an owner.');
+    }
+
+    // Retrieve after explicit share validation — owner comes from the share record, never the client.
+    const result = await vaultService.retrieve(fullLink.vaultId, fullLink.ownerUserId);
 
     await shareLinkService.recordAccess({
       shareLinkId: fullLink.id,
@@ -824,6 +828,7 @@ export async function debugReport(req: Request, res: Response, next: NextFunctio
 
     // Fetch last 3 access log IPs from DB for comparison
     const lastLogs = await prisma.shareAccessLog.findMany({
+      where: { shareLink: { ownerUserId: getAuthUserId(req) } },
       orderBy: { createdAt: 'desc' },
       take: 3,
       select: { ipAddress: true, action: true, createdAt: true, shareLink: { select: { token: true } } },
@@ -875,8 +880,13 @@ export async function getMaskedText(req: Request, res: Response, next: NextFunct
       isUnmasked = !!approved;
     }
 
-    // Decrypt the vault file (read-only — original never modified)
-    const vaultResult = await vaultService.retrieve(fullLink.vaultId);
+    if (!fullLink.ownerUserId) {
+      res.status(403).json({ success: false, error: 'This share is not bound to an owner.' });
+      return;
+    }
+
+    // Decrypt the vault file (read-only — original never modified). Owner from share record.
+    const vaultResult = await vaultService.retrieve(fullLink.vaultId, fullLink.ownerUserId);
     const buffer = vaultResult.originalBuffer;
     const mime   = fullLink.mimeType;
 

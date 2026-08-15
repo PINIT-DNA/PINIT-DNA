@@ -110,12 +110,15 @@ export async function downloadVaultFileByPath(storagePath: string): Promise<Buff
 /** Download encrypted buffer from Supabase Storage. */
 export async function downloadVaultFile(
   vaultId: string,
-  ownerUserId?: string,
+  ownerUserId: string,
   extraPaths: string[] = [],
 ): Promise<Buffer> {
+  if (!ownerUserId) {
+    throw new Error('Vault download requires verified ownerUserId');
+  }
   const paths = [
     ...extraPaths.map((p) => normalizeVaultStoragePath(p, vaultId)),
-    ownerUserId ? `${ownerUserId}/${vaultId}.enc` : null,
+    `${ownerUserId}/${vaultId}.enc`,
     `${vaultId}.enc`,
   ].filter((p, i, arr): p is string => Boolean(p) && arr.indexOf(p) === i);
 

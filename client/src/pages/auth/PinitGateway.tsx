@@ -4,8 +4,6 @@ import { LoginFlow } from './LoginFlow';
 import { RegistrationFlow } from './RegistrationFlow';
 import { getPreRegisterAccountType } from '../../lib/pre-register';
 import { resolveExchangeReturn, stashExchangeReturn } from '../../lib/exchange-return';
-import { ExchangeReturnHandoff } from '../../components/auth/ExchangeReturnHandoff';
-import { hasHubSession } from '../../lib/auth';
 
 function Booting() {
   return (
@@ -16,19 +14,16 @@ function Booting() {
 }
 
 /**
- * Exchange SSO entry — if Hub JWT exists on this origin, mint SSO and return to Exchange.
- * Otherwise face login (never register from /login).
+ * Exchange SSO entry — always run Face/PAD/Passkey for exchange_return.
+ * Leftover Hub JWT/refresh in localStorage must not skip biometrics.
+ * Hub→Exchange while already inside Hub still uses openHubExchange / createExchangeSso.
  */
 export function PinitGateway() {
-  const { user, loading } = useAuth();
+  const { loading } = useAuth();
   const [searchParams] = useSearchParams();
   if (loading) return <Booting />;
   const er = resolveExchangeReturn(searchParams.get('exchange_return'));
   if (er) stashExchangeReturn(er);
-  const sessionActive = Boolean(user) || hasHubSession();
-  if (sessionActive && er) {
-    return <ExchangeReturnHandoff fallback={<LoginFlow />} />;
-  }
   return <LoginFlow />;
 }
 
@@ -40,11 +35,12 @@ export function RegisterGateway() {
   const er = resolveExchangeReturn(searchParams.get('exchange_return'));
   if (er) stashExchangeReturn(er);
 
-  const sessionActive = Boolean(user) || hasHubSession();
-  if (sessionActive && er) {
-    return <ExchangeReturnHandoff fallback={<Navigate to="/" replace />} />;
+  // Existing Hub session + Exchange return → biometric login (never silent SSO).
+  if (er && user) {
+    return <Navigate to={`/login?exchange_return=${encodeURIComponent(er)}`} replace />;
   }
-  if (sessionActive) {
+
+  if (user) {
     return <Navigate to="/" replace />;
   }
 

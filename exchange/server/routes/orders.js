@@ -46,7 +46,7 @@ router.post('/create-payment', requireBuyer, async (req, res) => {
       buyer_key,
     } = req.body || {};
 
-    if (!listing_id || !license_tier || !buyer_name || !buyer_email) {
+  if (!listing_id || !license_tier || !buyer_name || !buyer_email) {
       return res.status(400).json({
         error: 'Missing required fields: listing_id, license_tier, buyer_name, buyer_email',
       });
@@ -242,7 +242,7 @@ router.post('/verify-payment', async (req, res) => {
       [paymentId, intent.id],
     );
 
-    res.status(201).json({
+      res.status(201).json({
       message: 'Payment verified — license sealed',
       mock: isPaymentMockMode(),
       order,

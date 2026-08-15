@@ -7,6 +7,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { requireAuth } from '../middleware/auth.middleware';
+import { requireAssetOwnership } from '../middleware/ownership.middleware';
 import { config } from '../../config';
 import {
   protectAsset,
@@ -52,7 +53,7 @@ function uploadMedia(req: Parameters<typeof protectAsset>[0], res: Parameters<ty
 router.post('/assets/protect', requireAuth, uploadMedia, protectAsset);
 router.get('/assets/stats', requireAuth, getAssetStats);
 router.get('/assets', requireAuth, listAssets);
-router.get('/assets/:id', requireAuth, getAsset);
-router.patch('/assets/:id/status', requireAuth, transitionAsset);
+router.get('/assets/:id', requireAuth, requireAssetOwnership, getAsset);
+router.patch('/assets/:id/status', requireAuth, requireAssetOwnership, transitionAsset);
 
 export { router as assetRouter };

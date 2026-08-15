@@ -119,7 +119,7 @@ router.post('/:id/tep/:tepCode/revoke', requireAuth, requireVaultOwnership, revo
 router.post('/:id/scan-sensitive', requireAuth, requireVaultOwnership, scanVaultFile);
 
 // POST /vault/verify-identity — upload any file to extract & verify embedded PINIT-DNA owner identity
-router.post('/verify-identity', uploadSingle, verifyFileIdentity);
+router.post('/verify-identity', requireAuth, uploadSingle, verifyFileIdentity);
 
 // POST /vault/scan-verify — OCR text from camera scan → search vault files by content match
 // Uses smart matching: filters out template/common words so identity docs (Aadhaar, PAN, etc.)

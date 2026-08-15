@@ -34,8 +34,8 @@ export async function tagDnaWithOrgContext(
 }
 
 /**
- * Prisma where for vault list / bulk ops.
- * STRICT: only assets owned by this user (multi-tenant isolation).
+ * Vault list / bulk ops — JWT.sub only.
+ * Biometric identity is not an input. A face match cannot widen this query.
  * Org-wide sharing must use an explicit share ACL — never “all org DNA”.
  */
 export async function vaultAccessWhere(userId: string) {

@@ -8,9 +8,8 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { aiService }  from '../../services/ai/ai-embeddings.service';
-import { prisma }     from '../../lib/prisma';
 import { auditService } from '../../services/audit/audit.service';
-import { getAuthUserId, assertDnaOwner } from '../../lib/tenant-scope';
+import { getAuthUserId, assertDnaOwner, ownedDnaIdSet, filterByOwnedDna } from '../../lib/tenant-scope';
 
 // ─── GET /ai/health ───────────────────────────────────────────────────────────
 
@@ -107,15 +106,18 @@ export async function semanticSearch(req: Request, res: Response, next: NextFunc
       results = data;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const r = results as any;
+    const ownedIds = await ownedDnaIdSet(getAuthUserId(req));
+    const r = results as { results?: Array<{ dnaRecordId?: string }>; count?: number };
+    const rawHits = Array.isArray(r?.results) ? r.results : [];
+    const scopedHits = filterByOwnedDna(rawHits, ownedIds);
+
     await auditService.log({
       eventType: 'SEMANTIC_SEARCH',
-      detail: { query, resultCount: r.count, mode },
+      detail: { query, resultCount: scopedHits.length, mode },
       req,
     });
 
-    res.status(200).json({ success: true, ...r });
+    res.status(200).json({ success: true, ...r, count: scopedHits.length, results: scopedHits });
   } catch (err) { next(err); }
 }
 
@@ -137,7 +139,9 @@ export async function detectDuplicates(req: Request, res: Response, next: NextFu
       return;
     }
 
-    res.status(200).json({ success: true, ...result });
+    const ownedIds = await ownedDnaIdSet(getAuthUserId(req));
+    const matches = filterByOwnedDna((result as { matches?: Array<{ dnaRecordId?: string }> }).matches, ownedIds);
+    res.status(200).json({ success: true, ...result, matches, count: matches.length });
   } catch (err) { next(err); }
 }
 
@@ -153,7 +157,14 @@ export async function findSimilar(req: Request, res: Response, next: NextFunctio
 
   try {
     const results = await aiService.findSimilar(query, topK ?? 5);
-    res.status(200).json({ success: true, data: results });
+    const ownedIds = await ownedDnaIdSet(getAuthUserId(req));
+    const hits = filterByOwnedDna(
+      Array.isArray((results as { results?: Array<{ dnaRecordId?: string }> })?.results)
+        ? (results as { results: Array<{ dnaRecordId?: string }> }).results
+        : [],
+      ownedIds,
+    );
+    res.status(200).json({ success: true, data: { ...results, results: hits, count: hits.length } });
   } catch (err) { next(err); }
 }
 

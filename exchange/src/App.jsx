@@ -136,6 +136,11 @@ export default function App() {
 
   const handleSignOut = () => {
     clearSession();
+    try {
+      sessionStorage.removeItem(INTENT_KEY);
+    } catch {
+      /* ignore */
+    }
     setUser(null);
     navigate('marketplace');
   };
@@ -183,8 +188,14 @@ export default function App() {
         } catch {
           storedIntent = '';
         }
-        // Default buyer. Creator only when Exchange signup chose Sell / Become a Creator.
-        const intent = paramsIntent === 'creator' || storedIntent === 'creator' ? 'creator' : 'buyer';
+        // URL intent wins (buyer return from Hub). Stale sessionStorage must not force creator.
+        const intent = paramsIntent === 'creator'
+          ? 'creator'
+          : paramsIntent === 'buyer'
+            ? 'buyer'
+            : storedIntent === 'creator'
+              ? 'creator'
+              : 'buyer';
         const res = await fetch('/api/auth/hub-sso', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -576,6 +587,7 @@ export default function App() {
           onClose={() => setAuthOpen(false)}
           initialMode={authMode}
           initialIntent={authIntent}
+          errorMessage={roleNotice}
         />
         <CheckoutModal
           isOpen={isCheckoutModalOpen}
@@ -650,6 +662,7 @@ export default function App() {
         onClose={() => setAuthOpen(false)}
         initialMode={authMode}
         initialIntent={authIntent}
+        errorMessage={roleNotice}
       />
 
       <BecomeCreatorModal
@@ -659,7 +672,7 @@ export default function App() {
         onConverted={(updated) => {
           setUser(updated);
           saveSession(updated);
-          setRoleNotice('Creator account created. Verify a payment method to start selling — no registration fee.');
+          setRoleNotice('Seller account created. Pay $25 to activate listing.');
           navigate('seller_onboarding_payment');
         }}
       />

@@ -7,7 +7,7 @@ interface Props {
   onComplete: (result: EncryptionResult) => void;
 }
 
-const STAGES_MS = [900, 1200, 600];
+const STAGES_MS = [200, 250, 150];
 
 export function EncryptionStep({ onComplete }: Props) {
   const [progress, setProgress] = useState(0);

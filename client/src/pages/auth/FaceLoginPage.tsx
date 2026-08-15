@@ -41,7 +41,7 @@ export function FaceLoginPage() {
         </h2>
         <p className="text-xs text-gray-500 mt-1">
           {mode === 'login'
-            ? 'Look at the camera to sign in'
+            ? 'Enter your Pinit ID, then look at the camera to verify'
             : 'Register your face — no passwords, no manual entry'}
         </p>
       </div>

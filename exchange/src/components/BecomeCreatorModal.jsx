@@ -31,9 +31,9 @@ export default function BecomeCreatorModal({ isOpen, onClose, user, onConverted 
       <div className="modal-content" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()} role="dialog">
         <div className="modal-header">
           <div>
-            <h3 style={{ color: '#fff', fontSize: '1.15rem' }}>Become a Creator</h3>
+            <h3 style={{ color: '#fff', fontSize: '1.15rem' }}>Become a Seller</h3>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-              Uploading to Pinit HUB stays private. Selling on Exchange is a separate, controlled step.
+              Create an Exchange seller account, then subscribe to list and sell.
             </p>
           </div>
           <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
@@ -42,12 +42,22 @@ export default function BecomeCreatorModal({ isOpen, onClose, user, onConverted 
         </div>
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.5 }}>
-            Create your seller account for free. To protect the marketplace and reduce fraudulent seller
-            accounts, a verified payment method is required before you can list assets.
+            Hub stays your private workspace. Selling on Exchange requires a seller subscription.
           </p>
-          <p style={{ color: 'var(--text-dim)', fontSize: '0.82rem' }}>
-            No seller registration fee. Selling and listing remain free.
-          </p>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              padding: '12px 14px',
+              borderRadius: 10,
+              background: 'rgba(59,130,246,0.12)',
+              border: '1px solid rgba(59,130,246,0.28)',
+            }}
+          >
+            <span style={{ color: '#e2e8f0', fontSize: '0.9rem' }}>Seller subscription</span>
+            <strong style={{ color: '#fff', fontSize: '1.25rem' }}>$25</strong>
+          </div>
           <div style={{ display: 'flex', gap: 8, color: 'var(--emerald)', fontSize: '0.82rem' }}>
             <Sparkles size={15} /> Create, protect, list and earn from creative assets.
           </div>
@@ -59,7 +69,7 @@ export default function BecomeCreatorModal({ isOpen, onClose, user, onConverted 
         <div className="modal-footer">
           <button type="button" className="btn-secondary" onClick={onClose}>Keep buyer account</button>
           <button type="button" className="btn-primary" disabled={loading || !user} onClick={convert}>
-            {loading ? 'Updating…' : 'Become a Seller'}
+            {loading ? 'Creating account…' : 'Subscribe'}
           </button>
         </div>
       </div>

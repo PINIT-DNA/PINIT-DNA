@@ -127,25 +127,28 @@ export class SemanticSearchService {
   /**
    * Find top-K documents most similar to the query text.
    */
-  async search(query: string, topK = 5): Promise<SearchResult[]> {
+  async search(query: string, topK = 5, allowedDnaIds: Set<string>): Promise<SearchResult[]> {
     await this.ensureIndex();
 
-    if (!query.trim()) return [];
+    if (!query.trim() || !allowedDnaIds.size) return [];
 
     try {
       const queryVector = textToVector(query);
+      const fetchK = Math.max(topK * 20, 50);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const results     = await (this.index as any).queryItems(queryVector, topK) as Array<{score: number; item: {metadata: Record<string,unknown>}}>;
+      const results     = await (this.index as any).queryItems(queryVector, fetchK) as Array<{score: number; item: {metadata: Record<string,unknown>}}>;
 
       return results
-        .filter(r => r.score > 0.05) // minimum similarity threshold
+        .filter(r => r.score > 0.05)
         .map(r => ({
           dnaRecordId: r.item.metadata['dnaRecordId'] as string,
           filename:    r.item.metadata['filename']    as string,
           fileType:    r.item.metadata['fileType']    as string,
           similarity:  Math.round(r.score * 1000) / 1000,
           snippet:     r.item.metadata['snippet']    as string,
-        }));
+        }))
+        .filter((r) => allowedDnaIds.has(r.dnaRecordId))
+        .slice(0, topK);
     } catch (err) {
       logger.error('Semantic search failed', { error: String(err) });
       return [];

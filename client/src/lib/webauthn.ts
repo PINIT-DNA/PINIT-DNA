@@ -1,30 +1,131 @@
 /**
- * PINIT — Device biometric (WebAuthn / FIDO2) helpers.
- *
- * Device bind is NOT identity discovery. Face 1:N identifies the user; this
- * credential is then stored on that user_id only. Platform WebAuthn popups
- * stay disabled until server-side challenge/verify is wired.
+ * PINIT — WebAuthn / passkey client.
+ * Platform biometrics stay on the device. Pinit only receives a signed assertion.
  */
+import { API_BASE_URL } from '../config/api.config';
 
-const RP_NAME = 'PINIT';
-/** Flip to false when re-enabling real Windows Hello / passkeys. */
-const DISABLE_PLATFORM_WEBAUTHN = true;
-
-function randomBytes(len: number): BufferSource {
-  const buf = new Uint8Array(new ArrayBuffer(len));
-  crypto.getRandomValues(buf);
-  return buf as BufferSource;
+export interface BiometricResult {
+  ok: boolean;
+  credentialId: string;
+  simulated: boolean;
+  webauthnSession?: string;
+  passkeyPendingToken?: string;
 }
 
-function encodeUserId(id: string): BufferSource {
-  const bytes = new TextEncoder().encode(id).slice(0, 64);
-  const out = new Uint8Array(new ArrayBuffer(bytes.length));
-  out.set(bytes);
-  return out as BufferSource;
+function b64urlToBuf(s: string): ArrayBuffer {
+  const pad = '='.repeat((4 - (s.length % 4)) % 4);
+  const b64 = (s + pad).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(b64);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out.buffer;
+}
+
+function bufToB64url(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let raw = '';
+  for (let i = 0; i < bytes.length; i++) raw += String.fromCharCode(bytes[i]!);
+  return btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error('Could not reach Hub passkey API. Keep Hub backend running on port 4000, then try again.');
+  }
+  let data: T & { success?: boolean; message?: string; error?: string; reason?: string };
+  try {
+    data = await res.json() as typeof data;
+  } catch {
+    throw new Error(`Passkey request failed (HTTP ${res.status}). Retry — Hub may have restarted.`);
+  }
+  if (!res.ok || data.success === false) {
+    const msg = data.message || data.error
+      || (data.reason === 'invalid_challenge' || data.reason === 'expired_challenge'
+        ? 'Passkey challenge expired. Tap Try again (Hub may have restarted during the scan).'
+        : `Passkey request failed (HTTP ${res.status}).`);
+    throw new Error(msg);
+  }
+  return data;
+}
+
+function creationOptionsFromJson(options: Record<string, unknown>): PublicKeyCredentialCreationOptions {
+  const user = options.user as { id: string; name: string; displayName: string };
+  const challenge = options.challenge as string;
+  const exclude = (options.excludeCredentials as Array<{ id: string; type?: string; transports?: string[] }> | undefined) ?? [];
+  return {
+    rp: options.rp as PublicKeyCredentialRpEntity,
+    user: {
+      id: b64urlToBuf(user.id),
+      name: user.name,
+      displayName: user.displayName,
+    },
+    challenge: b64urlToBuf(challenge),
+    pubKeyCredParams: options.pubKeyCredParams as PublicKeyCredentialParameters[],
+    timeout: options.timeout as number | undefined,
+    authenticatorSelection: options.authenticatorSelection as AuthenticatorSelectionCriteria | undefined,
+    attestation: (options.attestation as AttestationConveyancePreference | undefined) ?? 'none',
+    excludeCredentials: exclude.map((c) => ({
+      type: 'public-key' as const,
+      id: b64urlToBuf(c.id),
+      transports: c.transports as AuthenticatorTransport[] | undefined,
+    })),
+  };
+}
+
+function requestOptionsFromJson(options: Record<string, unknown>): PublicKeyCredentialRequestOptions {
+  const allow = (options.allowCredentials as Array<{ id: string; transports?: string[] }> | undefined) ?? [];
+  return {
+    challenge: b64urlToBuf(options.challenge as string),
+    rpId: options.rpId as string | undefined,
+    timeout: options.timeout as number | undefined,
+    userVerification: (options.userVerification as UserVerificationRequirement | undefined) ?? 'required',
+    allowCredentials: allow.map((c) => ({
+      type: 'public-key' as const,
+      id: b64urlToBuf(c.id),
+      transports: c.transports as AuthenticatorTransport[] | undefined,
+    })),
+  };
+}
+
+function serializeAttestation(cred: PublicKeyCredential): Record<string, unknown> {
+  const att = cred.response as AuthenticatorAttestationResponse;
+  return {
+    id: cred.id,
+    rawId: bufToB64url(cred.rawId),
+    type: 'public-key',
+    clientExtensionResults: cred.getClientExtensionResults(),
+    response: {
+      clientDataJSON: bufToB64url(att.clientDataJSON),
+      attestationObject: bufToB64url(att.attestationObject),
+      transports: typeof att.getTransports === 'function' ? att.getTransports() : [],
+    },
+  };
+}
+
+function serializeAssertion(cred: PublicKeyCredential): Record<string, unknown> {
+  const ass = cred.response as AuthenticatorAssertionResponse;
+  return {
+    id: cred.id,
+    rawId: bufToB64url(cred.rawId),
+    type: 'public-key',
+    clientExtensionResults: cred.getClientExtensionResults(),
+    response: {
+      clientDataJSON: bufToB64url(ass.clientDataJSON),
+      authenticatorData: bufToB64url(ass.authenticatorData),
+      signature: bufToB64url(ass.signature),
+      userHandle: ass.userHandle ? bufToB64url(ass.userHandle) : null,
+    },
+  };
 }
 
 export async function platformAuthenticatorAvailable(): Promise<boolean> {
-  if (DISABLE_PLATFORM_WEBAUTHN) return false;
   try {
     if (!window.PublicKeyCredential) return false;
     return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
@@ -33,154 +134,86 @@ export async function platformAuthenticatorAvailable(): Promise<boolean> {
   }
 }
 
-/** Phone/tablet — fingerprint / Face ID required when available. */
+/** Enroll a platform passkey. Returns a pending token until the user record exists. */
+export async function registerDeviceCredential(): Promise<BiometricResult> {
+  const available = await platformAuthenticatorAvailable();
+  if (!available) {
+    throw new Error('This device has no passkey authenticator (Windows Hello / Touch ID / device PIN).');
+  }
+  const start = await postJson<{ registrationId: string; options: Record<string, unknown> }>(
+    '/auth/passkey/register/start',
+    {},
+  );
+  const cred = await navigator.credentials.create({
+    publicKey: creationOptionsFromJson(start.options),
+  }) as PublicKeyCredential | null;
+  if (!cred) throw new Error('Passkey enrollment was cancelled.');
+  const finish = await postJson<{ credentialId: string; pendingToken?: string }>(
+    '/auth/passkey/register/finish',
+    { registrationId: start.registrationId, credential: serializeAttestation(cred) },
+  );
+  return {
+    ok: true,
+    credentialId: finish.credentialId,
+    simulated: false,
+    passkeyPendingToken: finish.pendingToken,
+  };
+}
+
+/** Assert an existing passkey for the claimed Pinit account. */
+export async function assertDeviceCredential(claimedShortId?: string): Promise<BiometricResult> {
+  const available = await platformAuthenticatorAvailable();
+  if (!available) {
+    throw new Error('This device has no passkey authenticator (Windows Hello / Touch ID / device PIN).');
+  }
+  const start = await postJson<{
+    loginId: string;
+    options: Record<string, unknown>;
+  }>('/auth/passkey/login/start', { claimedShortId });
+  const allow = (start.options.allowCredentials as unknown[] | undefined) ?? [];
+  if (allow.length === 0) {
+    return registerDeviceCredential();
+  }
+  let assertion: PublicKeyCredential | null;
+  try {
+    assertion = await navigator.credentials.get({
+      publicKey: requestOptionsFromJson(start.options),
+    }) as PublicKeyCredential | null;
+  } catch (e) {
+    const name = e instanceof DOMException ? e.name : '';
+    if (name === 'NotAllowedError' || name === 'AbortError') {
+      throw new Error(
+        'Passkey was cancelled or the Windows Hello PIN/fingerprint did not match. '
+        + 'This is your device unlock PIN — not a Pinit account password. Try again.',
+      );
+    }
+    throw e instanceof Error ? e : new Error('Passkey verification failed.');
+  }
+  if (!assertion) throw new Error('Passkey verification was cancelled.');
+  const finish = await postJson<{ webauthnSession: string; credentialId: string }>(
+    '/auth/passkey/login/finish',
+    { loginId: start.loginId, credential: serializeAssertion(assertion) },
+  );
+  return {
+    ok: true,
+    credentialId: finish.credentialId,
+    simulated: false,
+    webauthnSession: finish.webauthnSession,
+  };
+}
+
 export function isMobileDevice(): boolean {
   const ua = navigator.userAgent;
   if (/Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|IEMobile|Opera Mini/i.test(ua)) return true;
   return navigator.maxTouchPoints > 1 && window.innerWidth < 900;
 }
 
-/** Laptops/desktops: face + voice only. Mobile app: also bind device biometrics. */
-export function biometricStrictMode(): boolean {
-  return isMobileDevice();
-}
-
 export async function shouldUseDeviceBiometric(): Promise<boolean> {
-  if (!biometricStrictMode()) return false;
   return platformAuthenticatorAvailable();
 }
 
-export interface BiometricResult {
-  ok: boolean;
-  credentialId: string;
-  simulated: boolean;
-}
-
-export interface BiometricOptions {
-  /** When true, throws instead of simulating success if WebAuthn unavailable/cancelled. */
-  strict?: boolean;
-}
-
-/** Create a FIDO2 credential bound to this device (registration). */
-export async function registerDeviceCredential(
-  userId: string,
-  opts: BiometricOptions & { deviceFingerprint?: string } = {},
-): Promise<BiometricResult> {
-  const { strict = false, deviceFingerprint } = opts;
-  if (DISABLE_PLATFORM_WEBAUTHN) {
-    if (deviceFingerprint) return deviceBoundCredentialId(deviceFingerprint);
-    return { ok: true, credentialId: simulatedId(), simulated: true };
-  }
-  try {
-    const available = await platformAuthenticatorAvailable();
-    if (!available) {
-      if (deviceFingerprint) return deviceBoundCredentialId(deviceFingerprint);
-      if (strict) throw new Error('Device biometrics unavailable. Enable Windows Hello or fingerprint.');
-      return { ok: true, credentialId: simulatedId(), simulated: true };
-    }
-
-    const cred = (await navigator.credentials.create({
-      publicKey: {
-        challenge: randomBytes(32),
-        rp: { name: RP_NAME, id: window.location.hostname },
-        user: {
-          id: encodeUserId(userId),
-          name: userId,
-          displayName: userId,
-        },
-        pubKeyCredParams: [
-          { type: 'public-key', alg: -7 },
-          { type: 'public-key', alg: -257 },
-        ],
-        authenticatorSelection: {
-          authenticatorAttachment: 'platform',
-          userVerification: 'required',
-          residentKey: 'preferred',
-        },
-        timeout: 60000,
-        attestation: 'none',
-      },
-    })) as PublicKeyCredential | null;
-
-    if (!cred) {
-      if (deviceFingerprint) return deviceBoundCredentialId(deviceFingerprint);
-      if (strict) throw new Error('Biometric verification was cancelled.');
-      return { ok: true, credentialId: simulatedId(), simulated: true };
-    }
-    return { ok: true, credentialId: cred.id, simulated: false };
-  } catch (e) {
-    if (deviceFingerprint && !strict) return deviceBoundCredentialId(deviceFingerprint);
-    if (strict) throw e instanceof Error ? e : new Error('Biometric verification failed.');
-    return { ok: true, credentialId: simulatedId(), simulated: true };
-  }
-}
-
-/** Assert an existing device credential (returning-user login). */
-export async function assertDeviceCredential(
-  expectedCredentialId?: string | null,
-  opts: BiometricOptions & { deviceFingerprint?: string } = {},
-): Promise<BiometricResult> {
-  const { strict = false, deviceFingerprint } = opts;
-  if (DISABLE_PLATFORM_WEBAUTHN) {
-    if (expectedCredentialId) {
-      return { ok: true, credentialId: expectedCredentialId, simulated: expectedCredentialId.startsWith('sim_') };
-    }
-    if (deviceFingerprint) return deviceBoundCredentialId(deviceFingerprint);
-    return { ok: true, credentialId: simulatedId(), simulated: true };
-  }
-  try {
-    const available = await platformAuthenticatorAvailable();
-    if (!available) {
-      if (expectedCredentialId?.startsWith('dev_') && deviceFingerprint) {
-        const bound = deviceBoundCredentialId(deviceFingerprint);
-        if (bound.credentialId === expectedCredentialId) return bound;
-      }
-      if (strict) throw new Error('Device biometrics unavailable. Enable Windows Hello or fingerprint.');
-      return expectedCredentialId
-        ? { ok: true, credentialId: expectedCredentialId, simulated: expectedCredentialId.startsWith('sim_') }
-        : deviceFingerprint
-          ? deviceBoundCredentialId(deviceFingerprint)
-          : { ok: true, credentialId: simulatedId(), simulated: true };
-    }
-
-    const assertion = (await navigator.credentials.get({
-      publicKey: {
-        challenge: randomBytes(32),
-        rpId: window.location.hostname,
-        userVerification: 'required',
-        timeout: 60000,
-      },
-    })) as PublicKeyCredential | null;
-
-    if (!assertion) {
-      if (strict) throw new Error('Biometric verification was cancelled.');
-      return { ok: true, credentialId: simulatedId(), simulated: true };
-    }
-    if (expectedCredentialId && !expectedCredentialId.startsWith('sim_') && assertion.id !== expectedCredentialId) {
-      throw new Error('Device biometric does not match your registered identity.');
-    }
-    return { ok: true, credentialId: assertion.id, simulated: false };
-  } catch (e) {
-    if (strict) throw e instanceof Error ? e : new Error('Biometric verification failed.');
-    return { ok: true, credentialId: simulatedId(), simulated: true };
-  }
-}
-
-function simulatedId(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(8));
-  return 'sim_' + Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-/** When WebAuthn is unavailable, bind fingerprint to the device hash (deterministic, not random). */
+/** Telemetry-only device hash. Not proof of authentication. */
 export function deviceBoundCredentialId(deviceFingerprint: string): BiometricResult {
   const seed = deviceFingerprint.trim() || 'unknown-device';
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
-  const hex = Math.abs(hash).toString(16).padStart(8, '0');
-  return { ok: true, credentialId: `dev_${hex}_${seed.slice(0, 12)}`, simulated: false };
-}
-
-/** @deprecated Use registerDeviceCredential / assertDeviceCredential instead. */
-export function laptopBiometricSkip(): BiometricResult {
-  return { ok: true, credentialId: simulatedId(), simulated: true };
+  return { ok: false, credentialId: `telemetry_${seed.slice(0, 12)}`, simulated: true };
 }

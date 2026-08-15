@@ -32,13 +32,14 @@ function getClient() {
   });
 }
 
-export async function createRazorpayOrder({ amountPaise, receipt, notes = {} }) {
+export async function createRazorpayOrder({ amountPaise, receipt, notes = {}, currency = 'INR' }) {
+  const payCurrency = String(currency || 'INR').toUpperCase();
   if (isPaymentMockMode()) {
     const mockId = `order_mock_${Date.now()}`;
     return {
       orderId: mockId,
       amount: amountPaise,
-      currency: 'INR',
+      currency: payCurrency,
       keyId: null,
       mock: true,
     };
@@ -47,7 +48,7 @@ export async function createRazorpayOrder({ amountPaise, receipt, notes = {} }) 
   const client = getClient();
   const order = await client.orders.create({
     amount: amountPaise,
-    currency: 'INR',
+    currency: payCurrency,
     receipt: String(receipt || `ex_${Date.now()}`).slice(0, 40),
     notes,
   });
@@ -73,8 +74,11 @@ export function verifyRazorpaySignature({ orderId, paymentId, signature }) {
   return expected === signature;
 }
 
-/** ₹1 verification hold for seller payment-method setup (refunded after verify). Not a registration fee. */
-export const SELLER_VERIFICATION_AMOUNT_PAISE = 100;
+/** Seller subscription: $25.00 (minor units / cents). Test-mode mock still uses this amount. */
+export const SELLER_SUBSCRIPTION_AMOUNT_CENTS = 2500;
+export const SELLER_SUBSCRIPTION_CURRENCY = 'USD';
+/** @deprecated use SELLER_SUBSCRIPTION_AMOUNT_CENTS */
+export const SELLER_VERIFICATION_AMOUNT_PAISE = SELLER_SUBSCRIPTION_AMOUNT_CENTS;
 
 export async function createRazorpayCustomer({ name, email, contact, notes = {} }) {
   if (isPaymentMockMode()) {

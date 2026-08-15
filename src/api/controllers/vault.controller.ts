@@ -230,28 +230,31 @@ export async function storeInVault(
       buffer,
     });
 
-    // Auto image analysis → Vault Details (copy from DNA generate, else analyze now)
+    // Auto image analysis → Vault Details (copy from DNA if ready; else finish async)
     let contentAnalysis = null as Awaited<ReturnType<typeof vaultContentAnalysisService.analyzeAndStore>>;
     try {
       const copied = await vaultContentAnalysisService.copyDnaAnalysisToVault(
         result.vaultId,
         result.dnaRecordId,
       );
-      if (!copied) {
-        contentAnalysis = await vaultContentAnalysisService.analyzeAndStore({
-          vaultId: result.vaultId,
-          dnaRecordId: result.dnaRecordId,
-          buffer,
-          mimeType: result.originalMimeType,
-          filename: result.originalFileName,
-        });
-      } else {
+      if (copied) {
         const { prisma } = await import('../../lib/prisma');
         const row = await prisma.vaultRecord.findUnique({
           where: { id: result.vaultId },
           select: { contentAnalysis: true },
         });
         contentAnalysis = (row?.contentAnalysis as typeof contentAnalysis) ?? null;
+      } else {
+        // Do not block vault protect on Python forensic/CLIP — Details fill in when ready
+        void vaultContentAnalysisService.analyzeAndStore({
+          vaultId: result.vaultId,
+          dnaRecordId: result.dnaRecordId,
+          buffer,
+          mimeType: result.originalMimeType,
+          filename: result.originalFileName,
+        }).catch((err) => {
+          logger.warn('[ContentAnalysis] vault store analysis failed', { error: String(err) });
+        });
       }
     } catch (err) {
       logger.warn('[ContentAnalysis] vault store analysis failed', { error: String(err) });
@@ -873,16 +876,13 @@ export async function verifyFileIdentity(req: Request, res: Response, next: Next
     }
 
     const { leakedFileVerifyService } = await import('../../services/forensics/leaked-file-verify.service');
-    let ownerUserId: string | undefined;
-    try {
-      ownerUserId = getAuthUserId(req);
-    } catch { /* public verify — no JWT */ }
+    const ownerUserId = getAuthUserId(req);
 
     const result = await leakedFileVerifyService.verify(
       buffer,
       mimeType,
       file.originalname,
-      ownerUserId ? { ownerUserId } : undefined,
+      { ownerUserId },
     );
 
     logger.info('[LeakedVerify] Scan complete', {

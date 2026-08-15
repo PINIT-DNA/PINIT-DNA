@@ -41,14 +41,17 @@ export default function AuthModal({
   onClose,
   initialMode = 'welcome',
   initialIntent = null,
+  errorMessage = '',
 }) {
   const [mode, setMode] = useState(initialMode);
   const [intent, setIntent] = useState(initialIntent);
+  const [redirecting, setRedirecting] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
     setMode(initialMode || 'welcome');
     setIntent(initialIntent);
+    setRedirecting(false);
   }, [isOpen, initialMode, initialIntent]);
 
   const title = useMemo(() => {
@@ -61,9 +64,12 @@ export default function AuthModal({
   if (!isOpen) return null;
 
   const openHubContinue = (nextIntent = intent || 'buyer') => {
-    stashIntent(nextIntent);
-    const returnUrl = `${window.location.origin}/?hub_return=1&exchange_intent=${nextIntent === 'creator' ? 'creator' : 'buyer'}`;
-    goToHub(hubLoginUrl(returnUrl, { mode: 'login' }));
+    const resolved = nextIntent === 'creator' ? 'creator' : 'buyer';
+    stashIntent(resolved);
+    setRedirecting(true);
+    const returnUrl = `${window.location.origin}/?hub_return=1&exchange_intent=${resolved}`;
+    const hubUrl = hubLoginUrl(returnUrl, { mode: 'login' });
+    goToHub(hubUrl);
   };
 
   const openHubRegister = (accountHint = null) => {
@@ -170,9 +176,14 @@ export default function AuthModal({
         {mode === 'signup' && intent === 'buyer' && (
           <div className="auth-form" style={{ gap: 12 }}>
             <div className="auth-hub-block" style={{ margin: 0 }}>
-              <button type="button" className="auth-hub-btn" onClick={() => openHubContinue('buyer')}>
+              <button
+                type="button"
+                className="auth-hub-btn"
+                disabled={redirecting}
+                onClick={() => openHubContinue('buyer')}
+              >
                 <Fingerprint size={17} aria-hidden />
-                <span>Continue with Hub biometric</span>
+                <span>{redirecting ? 'Opening Pinit Hub…' : 'Continue with Hub biometric'}</span>
                 <ExternalLink size={14} aria-hidden />
               </button>
             </div>
@@ -193,12 +204,23 @@ export default function AuthModal({
           </div>
         )}
 
+        {errorMessage && (
+          <p className="auth-hub-hint" style={{ color: '#fca5a5', marginBottom: 12 }}>
+            {errorMessage}
+          </p>
+        )}
+
         {mode === 'login' && (
           <div className="auth-form" style={{ gap: 12 }}>
             <div className="auth-hub-block" style={{ margin: 0 }}>
-              <button type="button" className="auth-hub-btn" onClick={() => openHubContinue(intent || 'buyer')}>
+              <button
+                type="button"
+                className="auth-hub-btn"
+                disabled={redirecting}
+                onClick={() => openHubContinue(intent || 'buyer')}
+              >
                 <Fingerprint size={17} aria-hidden />
-                <span>Continue with Hub biometric</span>
+                <span>{redirecting ? 'Opening Pinit Hub…' : 'Continue with Hub biometric'}</span>
                 <ExternalLink size={14} aria-hidden />
               </button>
             </div>

@@ -11,13 +11,14 @@ import { StepHead, Checklist, SystemTrace, TrustBadge, type CheckItem } from '..
 import { useAuth } from '../../context/AuthContext';
 import {
   getTrustScore, getLastLogin, recordLogin, clearRegistration,
-  saveRegistration, generateHoid,
+  saveRegistration, generateHoid, getStoredShortId,
 } from '../../lib/hoid';
 import { touchLastLogin } from '../../lib/identity-store';
-import { warmBackend, parseJwt, getAccessToken, hasHubSession } from '../../lib/auth';
+import { warmBackend, parseJwt, getAccessToken, hasValidAccessToken } from '../../lib/auth';
+import { toRootPinitId } from '../../lib/pinit-identity';
 import { resolveDefaultHomePath } from '../../lib/subscription/post-upgrade-redirect';
 import { takePendingTeamInvite } from '../../lib/team-invite';
-import { loginWithFace } from '../../lib/face-api-client';
+import { loginWithFace, type FacePadEvidence } from '../../lib/face-api-client';
 import { collectFingerprint } from '../../lib/device-fingerprint';
 import { preloadFaceModels } from '../../lib/face-capture';
 import { createExchangeSso } from '../../services/dashboard.api';
@@ -28,8 +29,11 @@ import {
 } from '../../lib/exchange-return';
 
 type Step = 'welcome' | 'face' | 'fingerprint' | 'voice' | 'presence' | 'success';
-/** Face (real) → fingerprint (auto) → voice (real) → database match. */
-const ORDER: Step[] = ['welcome', 'face', 'fingerprint', 'voice', 'presence', 'success'];
+/**
+ * Passkey/voice first, then face+PAD immediately before database match.
+ * PAD challenges expire — scanning face too early (before passkey) caused false "liveness inconclusive".
+ */
+const ORDER: Step[] = ['welcome', 'fingerprint', 'voice', 'face', 'presence', 'success'];
 
 const fade = {
   initial: { opacity: 0, y: 16 },
@@ -38,10 +42,12 @@ const fade = {
   transition: { duration: 0.22 },
 };
 
+const CLAIM_PREFILL_KEY = 'pinit_login_claim_prefill';
+
 export function LoginFlow() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { loginWithFaceResponse, resetLocalSession } = useAuth();
+  const { loginWithFaceResponse } = useAuth();
   const exchangeReturn = resolveExchangeReturn(searchParams.get('exchange_return'));
 
   useEffect(() => {
@@ -52,29 +58,48 @@ export function LoginFlow() {
   const [error, setError] = useState('');
   const [presenceKey, setPresenceKey] = useState(0);
   const [openingExchange, setOpeningExchange] = useState(false);
-  const autoExchangeRef = useRef(false);
+  const [claimedShortId, setClaimedShortId] = useState('');
   const faceEmbeddingRef = useRef<number[] | null>(null);
+  const padEvidenceRef = useRef<FacePadEvidence | null>(null);
   const voiceFingerprintRef = useRef<number[] | null>(null);
   const bioCredentialRef = useRef<string | undefined>(undefined);
+  const webauthnSessionRef = useRef<string | undefined>(undefined);
+  const passkeyPendingRef = useRef<string | undefined>(undefined);
   const deviceFpRef = useRef<string>('');
+  const claimedShortIdRef = useRef('');
+  claimedShortIdRef.current = claimedShortId;
 
   const go = (s: Step) => { setError(''); setStep(s); };
   const idx = ORDER.indexOf(step);
 
-  const sessionResetRef = useRef(false);
+  const bootRef = useRef(false);
   useEffect(() => {
-    if (!sessionResetRef.current) {
-      sessionResetRef.current = true;
-      // Exchange return: keep an existing Hub JWT on this origin (handoff uses it).
-      if (!exchangeReturn) {
-        resetLocalSession();
-        clearRegistration();
+    if (!bootRef.current) {
+      bootRef.current = true;
+      let stashed = '';
+      try { stashed = sessionStorage.getItem(CLAIM_PREFILL_KEY) || ''; } catch { /* ignore */ }
+      const remembered = getStoredShortId() || '';
+      const jwtShort = parseJwt(getAccessToken() || '')?.shortId || '';
+      const claim = toRootPinitId(stashed) || stashed
+        || toRootPinitId(remembered) || remembered
+        || toRootPinitId(jwtShort) || jwtShort;
+      if (claim) {
+        setClaimedShortId(claim);
+        try { sessionStorage.setItem(CLAIM_PREFILL_KEY, claim); } catch { /* ignore */ }
+      }
+
+      // Stay signed in until Logout. Visiting /login must NOT wipe the Hub JWT.
+      // Already authenticated + normal login URL → go home (not a forced re-login).
+      if (hasValidAccessToken() && !exchangeReturn) {
+        const parsed = parseJwt(getAccessToken() || '');
+        navigate(resolveDefaultHomePath(parsed?.accountType ?? 'INDIVIDUAL'), { replace: true });
+        return;
       }
     }
     warmBackend();
     preloadFaceModels();
     collectFingerprint().then((f) => { deviceFpRef.current = f.hash; }).catch(() => {});
-  }, [resetLocalSession, exchangeReturn]);
+  }, [navigate, exchangeReturn]);
 
   function goToRegister() {
     const er = exchangeReturn || takeStashedExchangeReturn();
@@ -119,17 +144,6 @@ export function LoginFlow() {
     navigate(resolveDefaultHomePath(parsed?.accountType ?? 'INDIVIDUAL'), { replace: true });
   }
 
-  const enterAfterLoginRef = useRef(enterAfterLogin);
-  enterAfterLoginRef.current = enterAfterLogin;
-
-  /** Already signed into Hub on this origin — skip face steps and return to Exchange. */
-  useEffect(() => {
-    if (!exchangeReturn || autoExchangeRef.current || !hasHubSession()) return;
-    autoExchangeRef.current = true;
-    setOpeningExchange(true);
-    void enterAfterLoginRef.current();
-  }, [exchangeReturn]);
-
   if (openingExchange && exchangeReturn) {
     return (
       <AuthShell steps={ORDER.length} current={0} tagline="Biometric Access">
@@ -141,9 +155,9 @@ export function LoginFlow() {
               border: '3px solid rgba(120,160,220,0.2)', borderTopColor: '#3b9eff', borderRadius: '50%',
             }}
           />
-          <h1 style={{ fontSize: 20, fontWeight: 800, marginTop: 16 }}>Returning to Exchange…</h1>
+          <h1 style={{ fontSize: 20, fontWeight: 800, marginTop: 16 }}>Opening…</h1>
           <p className="pa-muted" style={{ fontSize: 14, marginTop: 8 }}>
-            Using your existing Pinit HUB session on {window.location.origin}.
+            Exchange
           </p>
           {error && <p style={{ color: '#fca5a5', fontSize: 13, marginTop: 12 }}>{error}</p>}
         </div>
@@ -157,10 +171,20 @@ export function LoginFlow() {
         <motion.div key={step} {...fade}>
           {step === 'welcome' && (
             <WelcomeBack
-              onNext={() => go('face')}
+              claimedShortId={claimedShortId}
+              onClaimedShortIdChange={setClaimedShortId}
+              onNext={() => {
+                const claim = (toRootPinitId(claimedShortId) || claimedShortId).trim();
+                if (!claim) {
+                  setError('Enter your Pinit ID, then verify your face against that account.');
+                  return;
+                }
+                setClaimedShortId(claim);
+                go('fingerprint');
+              }}
               onRegister={goToRegister}
               exchangeReturn={!!exchangeReturn}
-              needsFaceVerify={Boolean(exchangeReturn && !hasHubSession())}
+              error={error}
             />
           )}
           {step === 'face' && (
@@ -169,7 +193,8 @@ export function LoginFlow() {
                 mode="login"
                 title="Face Authentication"
                 onEmbedding={(emb) => { faceEmbeddingRef.current = emb; }}
-                onNext={() => go('fingerprint')}
+                onPadEvidence={(ev) => { padEvidenceRef.current = ev; }}
+                onNext={() => go('presence')}
                 onError={(m) => setError(m)}
               />
               {error && <p style={{ color: '#fca5a5', fontSize: 13, marginTop: 8, textAlign: 'center' }}>{error}</p>}
@@ -180,8 +205,12 @@ export function LoginFlow() {
               mode="login"
               enrollmentLabel={deviceFpRef.current || 'login'}
               deviceFingerprint={deviceFpRef.current || undefined}
+              claimedShortId={claimedShortId}
+              exchangeReturn={!!exchangeReturn}
               onDone={(r) => {
-                bioCredentialRef.current = r.credentialId;
+                bioCredentialRef.current = r.simulated ? undefined : r.credentialId;
+                passkeyPendingRef.current = r.passkeyPendingToken;
+                webauthnSessionRef.current = r.webauthnSession;
                 go('voice');
               }}
               onError={(m) => setError(m)}
@@ -191,8 +220,8 @@ export function LoginFlow() {
             <VoiceCaptureStep
               randomPhrase
               optional
-              onDone={(fp) => { voiceFingerprintRef.current = fp; go('presence'); }}
-              onSkip={() => { voiceFingerprintRef.current = null; go('presence'); }}
+              onDone={(fp) => { voiceFingerprintRef.current = fp; go('face'); }}
+              onSkip={() => { voiceFingerprintRef.current = null; go('face'); }}
               onError={(m) => setError(m)}
             />
           )}
@@ -206,12 +235,25 @@ export function LoginFlow() {
                 const voiceFp = voiceFingerprintRef.current;
                 if (!embedding) throw new Error('Face data missing. Scan again.');
 
+                const claim = (toRootPinitId(claimedShortIdRef.current) || claimedShortIdRef.current).trim();
+                if (!claim) throw new Error('Enter your Pinit ID, then verify your face against that account.');
+
                 const result = await loginWithFace({
                   embedding,
+                  claimedShortId: claim,
+                  padEvidence: padEvidenceRef.current ?? undefined,
+                  webauthnSession: webauthnSessionRef.current,
+                  passkeyPendingToken: passkeyPendingRef.current,
                   voiceFingerprint: voiceFp ?? undefined,
                   webauthnCredentialId: bioCredentialRef.current,
                   deviceFingerprint: (await collectFingerprint().catch(() => ({ hash: '' }))).hash || undefined,
                 });
+                if (result.user?.id && result.accessToken) {
+                  const sub = parseJwt(result.accessToken)?.sub;
+                  if (sub && sub !== result.user.id) {
+                    throw new Error('Could not verify this face for the claimed account.');
+                  }
+                }
                 loginWithFaceResponse(result);
 
                 const shortId = result.user?.shortId ?? '';
@@ -235,7 +277,13 @@ export function LoginFlow() {
                 else setError(m);
               }}
               onRegister={goToRegister}
-              onRetry={() => { setError(''); setPresenceKey((k) => k + 1); }}
+              onRetry={() => {
+                // Fresh face+PAD required — retrying with used/expired evidence → replay_detected
+                setError('');
+                padEvidenceRef.current = null;
+                faceEmbeddingRef.current = null;
+                go('face');
+              }}
             />
           )}
           {step === 'success' && (
@@ -256,12 +304,16 @@ function WelcomeBack({
   onNext,
   onRegister,
   exchangeReturn,
-  needsFaceVerify,
+  claimedShortId,
+  onClaimedShortIdChange,
+  error,
 }: {
   onNext: () => void;
   onRegister: () => void;
   exchangeReturn?: boolean;
-  needsFaceVerify?: boolean;
+  claimedShortId: string;
+  onClaimedShortIdChange: (v: string) => void;
+  error?: string;
 }) {
   return (
     <div className="pa-card" style={{ textAlign: 'center' }}>
@@ -273,24 +325,9 @@ function WelcomeBack({
       }}>
         <UserCheck size={34} color="#3b9eff" />
       </div>
-      <h1 style={{ fontSize: 22, fontWeight: 800 }}>Welcome Back</h1>
-      <p className="pa-muted" style={{ fontSize: 14, marginTop: 8 }}>
-        {exchangeReturn
-          ? needsFaceVerify
-            ? 'Exchange needs a quick face check on this browser (localhost:3000). Hub open on another port does not share login.'
-            : 'Sign in to Pinit Hub to continue into Exchange with the same identity.'
-          : 'Face identifies you. Device authentication is bound to that same account.'}
-      </p>
-      {exchangeReturn && needsFaceVerify && (
-        <p style={{ fontSize: 12, color: '#fbbf24', marginTop: 8 }}>
-          Tip: use Hub at <strong>http://localhost:3000</strong> only — not :3001 or another port.
-        </p>
-      )}
-      {exchangeReturn && (
-        <p style={{ fontSize: 12, color: '#6ee7b7', marginTop: 8 }}>
-          After verification you’ll return to Pinit Exchange automatically.
-        </p>
-      )}
+      <h1 style={{ fontSize: 22, fontWeight: 800 }}>
+        {exchangeReturn ? 'Continue' : 'Welcome Back'}
+      </h1>
       <div className="pa-bio-steps">
         <div className="pa-bio-step">
           <ScanFace size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
@@ -308,10 +345,25 @@ function WelcomeBack({
           <em>Optional</em>
         </div>
       </div>
-      <button className="pa-btn" onClick={onNext}><ScanFace size={17} /> Verify Identity</button>
+      <label className="pa-muted" style={{ display: 'block', fontSize: 12, textAlign: 'left', marginTop: 16 }}>
+        Pinit ID
+        <input
+          value={claimedShortId}
+          onChange={(e) => onClaimedShortIdChange(e.target.value.toUpperCase())}
+          placeholder="PINIT-XXXXXX"
+          autoComplete="username"
+          style={{
+            display: 'block', width: '100%', marginTop: 6, padding: '10px 12px',
+            borderRadius: 10, border: '1px solid rgba(59,158,255,0.35)',
+            background: 'rgba(8,14,28,0.7)', color: '#e8eef8', fontWeight: 700, letterSpacing: 0.4,
+          }}
+        />
+      </label>
+      {error && <p style={{ color: '#fca5a5', fontSize: 13, marginTop: 10 }}>{error}</p>}
+      <button className="pa-btn" style={{ marginTop: 14 }} onClick={onNext}><ScanFace size={17} /> Verify</button>
       {!exchangeReturn && (
         <button className="pa-btn pa-btn-ghost" style={{ marginTop: 10 }} onClick={onRegister}>
-          New here? Create biometric account
+          Create account
         </button>
       )}
     </div>
@@ -358,7 +410,7 @@ function Presence({
     <div className="pa-card">
       <StepHead icon={<ShieldCheck size={26} color="#3b9eff" />} title="Checking Database" subtitle="Matching your biometrics…" />
       <Checklist items={items} />
-      <SystemTrace lines={['Identify face', '1:1 verify template', 'Bind this device']} />
+      <SystemTrace lines={['Liveness / PAD', '1:1 verify enrolled face', 'Bind this device']} />
       {error && (
         <div style={{ marginTop: 14, textAlign: 'center' }}>
           <p style={{ color: '#fca5a5', fontSize: 13 }}>{error}</p>
@@ -407,10 +459,10 @@ function LoginSuccess({
       {error && <p style={{ color: '#fca5a5', fontSize: 13, marginBottom: 12 }}>{error}</p>}
       <button className="pa-btn" onClick={onEnter} disabled={openingExchange}>
         {openingExchange
-          ? 'Opening Exchange…'
+          ? 'Opening…'
           : exchangeReturn
-            ? <>Continue to Exchange <ArrowRight size={17} /></>
-            : <>Enter Pinit HUB <ArrowRight size={17} /></>}
+            ? <>Continue <ArrowRight size={17} /></>
+            : <>Enter <ArrowRight size={17} /></>}
       </button>
     </div>
   );

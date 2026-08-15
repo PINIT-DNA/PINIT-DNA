@@ -93,6 +93,12 @@ export const config = {
     secret: optional('JWT_SECRET', 'dev_jwt_secret_change_in_prod_min_32_chars_long!!'),
   },
 
+  webauthn: {
+    rpName: optional('WEBAUTHN_RP_NAME', 'PINIT'),
+    rpID: optional('WEBAUTHN_RP_ID', 'localhost'),
+    origin: optional('WEBAUTHN_ORIGIN', 'http://localhost:3000'),
+  },
+
   biometric: {
     encryptionKey: optional('BIOMETRIC_ENCRYPTION_KEY', optional('VAULT_MASTER_SECRET', 'dev_biometric_key_change_in_prod')),
     thresholds: {

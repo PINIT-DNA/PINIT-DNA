@@ -17,7 +17,7 @@ import { generateHoid, saveRegistration, clearRegistration } from '../../lib/hoi
 import { type BiometricResult } from '../../lib/webauthn';
 import { storeIdentity } from '../../lib/identity-store';
 import { warmBackend, parseJwt } from '../../lib/auth';
-import { registerFaceIdentity } from '../../lib/face-api-client';
+import { registerFaceIdentity, type FacePadEvidence } from '../../lib/face-api-client';
 import { preloadFaceModels } from '../../lib/face-capture';
 import {
   clearBusinessSetup,
@@ -31,7 +31,7 @@ import {
 } from '../../lib/pre-register';
 
 type Step = 'welcome' | 'permissions' | 'face' | 'fingerprint' | 'voice' | 'creating' | 'success';
-/** Face (real) → fingerprint (auto) → voice (real). */
+/** Face (PAD) → device passkey (WebAuthn) → voice (optional). */
 const ORDER: Step[] = ['welcome', 'permissions', 'face', 'fingerprint', 'voice', 'creating', 'success'];
 
 const fade = {
@@ -51,6 +51,7 @@ export function RegistrationFlow() {
   const hoidRef = useRef<string>('');
   const faceImageRef = useRef<string | null>(null);
   const faceEmbeddingRef = useRef<number[] | null>(null);
+  const padEvidenceRef = useRef<FacePadEvidence | null>(null);
   const voiceFingerprintRef = useRef<number[] | null>(null);
   const bioRef = useRef<BiometricResult | null>(null);
   const accountTypeRef = useRef<'INDIVIDUAL' | 'BUSINESS'>(
@@ -102,6 +103,7 @@ export function RegistrationFlow() {
                 title="Face Enrollment"
                 onCapture={(img) => { faceImageRef.current = img; }}
                 onEmbedding={(emb) => { faceEmbeddingRef.current = emb; }}
+                onPadEvidence={(ev) => { padEvidenceRef.current = ev; }}
                 onNext={afterFace}
                 onError={(m) => setError(m)}
               />
@@ -139,8 +141,10 @@ export function RegistrationFlow() {
 
                 const result = await registerFaceIdentity({
                   embedding,
+                  padEvidence: padEvidenceRef.current ?? undefined,
+                  passkeyPendingToken: bioRef.current?.passkeyPendingToken,
                   voiceFingerprint: voiceFp ?? undefined,
-                  webauthnCredentialId: bioRef.current?.credentialId,
+                  webauthnCredentialId: bioRef.current?.simulated ? undefined : bioRef.current?.credentialId,
                   deviceFingerprint: deviceFpRef.current || undefined,
                   accountType: accountTypeRef.current,
                 });
@@ -171,10 +175,10 @@ export function RegistrationFlow() {
                   deviceFp: deviceFpRef.current,
                   faceImage: faceImageRef.current,
                   faceEnrolled: true,
-                  livenessPassed: true,
+                  livenessPassed: Boolean(padEvidenceRef.current),
                   voiceEnrolled: Boolean(voiceFingerprintRef.current),
                   webauthnCredentialId: bioRef.current?.credentialId ?? null,
-                  webauthnSimulated: bioRef.current?.simulated ?? false,
+                  webauthnSimulated: false,
                   trustScore: 99.8,
                 });
               }}

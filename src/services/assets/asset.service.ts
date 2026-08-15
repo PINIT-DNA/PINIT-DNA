@@ -358,7 +358,7 @@ export class AssetService {
 
   async recordDiscovery(opts: {
     assetId: string;
-    ownerUserId?: string;
+    ownerUserId: string;
     platform?: string | null;
     url: string;
     similarity: number;
@@ -375,7 +375,7 @@ export class AssetService {
     const asset = await prisma.asset.findFirst({
       where: {
         id: opts.assetId,
-        ...(opts.ownerUserId ? { ownerUserId: opts.ownerUserId } : {}),
+        ownerUserId: opts.ownerUserId,
       },
     });
     if (!asset) return null;

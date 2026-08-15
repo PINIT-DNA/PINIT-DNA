@@ -12,11 +12,10 @@ import {
   createRazorpayOrder,
   createRazorpayCustomer,
   fetchRazorpayPayment,
-  refundRazorpayPayment,
   getBillingPublicConfig,
-  isPaymentMockMode,
   verifyRazorpaySignature,
-  SELLER_VERIFICATION_AMOUNT_PAISE,
+  SELLER_SUBSCRIPTION_AMOUNT_CENTS,
+  SELLER_SUBSCRIPTION_CURRENCY,
 } from '../razorpay.js';
 
 const router = express.Router();
@@ -66,7 +65,7 @@ async function buildStatusResponse(user) {
     billing: getBillingPublicConfig(),
     message: complete
       ? 'Seller account verified.'
-      : 'Add a payment method to activate your seller account. No registration fee.',
+      : 'Pay the $25 seller subscription to activate your seller account.',
   };
 }
 
@@ -106,13 +105,12 @@ router.post('/payment-method', requireSeller, async (req, res) => {
         idempotency_key: key,
         intent_id: existingIntent.id,
         orderId: existingIntent.razorpay_order_id,
-        amount: SELLER_VERIFICATION_AMOUNT_PAISE,
-        currency: 'INR',
+        amount: SELLER_SUBSCRIPTION_AMOUNT_CENTS,
+        currency: SELLER_SUBSCRIPTION_CURRENCY,
         keyId: billing.keyId,
         mock: billing.mock,
-        description: 'Payment method verification (no registration fee)',
-        verification_hold_paise: SELLER_VERIFICATION_AMOUNT_PAISE,
-        refund_after_verify: !billing.mock,
+        description: 'Seller subscription — $25',
+        subscription_amount_cents: SELLER_SUBSCRIPTION_AMOUNT_CENTS,
       });
     }
 
@@ -121,7 +119,7 @@ router.post('/payment-method', requireSeller, async (req, res) => {
       const customer = await createRazorpayCustomer({
         name: user.display_name || user.name,
         email: user.email,
-        notes: { pinit_id: user.pinit_id, purpose: 'seller_onboarding' },
+        notes: { pinit_id: user.pinit_id, purpose: 'seller_subscription' },
       });
       customerId = customer.id;
       await runSql('UPDATE users SET razorpay_customer_id = ? WHERE pinit_id = ?', [
@@ -133,12 +131,13 @@ router.post('/payment-method', requireSeller, async (req, res) => {
     const intentId = uuidv4();
     const receipt = `spm_${user.pinit_id.slice(-8)}_${Date.now()}`.slice(0, 40);
     const order = await createRazorpayOrder({
-      amountPaise: SELLER_VERIFICATION_AMOUNT_PAISE,
+      amountPaise: SELLER_SUBSCRIPTION_AMOUNT_CENTS,
+      currency: SELLER_SUBSCRIPTION_CURRENCY,
       receipt,
       notes: {
-        purpose: 'seller_payment_verification',
+        purpose: 'seller_subscription',
         pinit_id: user.pinit_id,
-        no_registration_fee: 'true',
+        amount_usd: '25',
       },
     });
 
@@ -157,13 +156,12 @@ router.post('/payment-method', requireSeller, async (req, res) => {
       intent_id: intentId,
       orderId: order.orderId,
       amount: order.amount,
-      currency: order.currency || 'INR',
+      currency: order.currency || SELLER_SUBSCRIPTION_CURRENCY,
       keyId: order.keyId,
       mock: order.mock,
       customerId,
-      description: 'Payment method verification (no registration fee)',
-      verification_hold_paise: SELLER_VERIFICATION_AMOUNT_PAISE,
-      refund_after_verify: !order.mock,
+      description: 'Seller subscription — $25',
+      subscription_amount_cents: SELLER_SUBSCRIPTION_AMOUNT_CENTS,
     });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Could not initialize payment method setup' });
@@ -258,17 +256,9 @@ router.post('/payment-method/verify', requireSeller, async (req, res) => {
       );
     }
 
-    if (!isPaymentMockMode()) {
-      try {
-        await refundRazorpayPayment(paymentId, SELLER_VERIFICATION_AMOUNT_PAISE);
-      } catch (refundErr) {
-        console.warn('[seller-onboarding] verification refund skipped:', refundErr.message);
-      }
-    }
-
     const updated = await getSql('SELECT * FROM users WHERE pinit_id = ?', [user.pinit_id]);
     res.json({
-      message: 'Payment method verified. Your seller account is active.',
+      message: 'Seller subscription paid. Your seller account is active.',
       user: enrichPublicUser(updated),
       ...(await buildStatusResponse(updated)),
     });

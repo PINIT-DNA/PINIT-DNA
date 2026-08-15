@@ -288,18 +288,20 @@ export class VaultService {
    * Reads the encrypted file, decrypts it in-memory, returns original bytes.
    * If the auth tag is invalid (file tampered), AES-GCM will throw automatically.
    */
-  async retrieve(vaultId: string, requestingUserId?: string): Promise<RetrieveResult> {
+  async retrieve(vaultId: string, requestingUserId: string): Promise<RetrieveResult> {
     logger.info('Vault — retrieving encrypted image', { vaultId });
+
+    if (!requestingUserId) {
+      throw new Error('Vault retrieval requires an authenticated owner or a validated share.');
+    }
 
     const record = await prisma.vaultRecord.findUnique({
       where: { id: vaultId },
       include: { dnaRecord: { select: { ownerUserId: true } } },
     });
     if (!record) throw new Error(`Vault record not found: ${vaultId}`);
-    if (requestingUserId) {
-      assertRecordOwner(record.dnaRecord?.ownerUserId, requestingUserId, 'Vault');
-    }
-    const ownerUserId = record.dnaRecord?.ownerUserId ?? undefined;
+    assertRecordOwner(record.dnaRecord?.ownerUserId, requestingUserId, 'Vault');
+    const ownerUserId = record.dnaRecord?.ownerUserId ?? requestingUserId;
 
     // ── Download encrypted file (local in dev, Supabase in production) ──
     let encryptedBuffer: Buffer;

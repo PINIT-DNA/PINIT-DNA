@@ -20,6 +20,15 @@ export async function ensureFaceModels(): Promise<void> {
   await modelsReady;
 }
 
+export async function waitForVideoFrames(video: HTMLVideoElement, maxMs = 5000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    if (video.readyState >= 2 && video.videoWidth >= 160 && video.videoHeight >= 120) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error('Camera not ready. Allow camera access and try again.');
+}
+
 function normalize(values: Float32Array | number[]): number[] {
   const out = new Float32Array(128);
   let norm = 0;
@@ -30,15 +39,6 @@ function normalize(values: Float32Array | number[]): number[] {
 }
 
 export type FaceCaptureMode = 'register' | 'login';
-
-async function waitForVideoFrames(video: HTMLVideoElement, maxMs = 5000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < maxMs) {
-    if (video.readyState >= 2 && video.videoWidth >= 160 && video.videoHeight >= 120) return;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  throw new Error('Camera not ready. Allow camera access and try again.');
-}
 
 /** Fast face capture — register averages more frames; rejects 0 or 2+ faces. */
 export async function captureFaceEmbeddingFromVideo(

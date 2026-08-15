@@ -11,6 +11,11 @@ export interface FaceAuthResponse {
   refreshToken?: string;
   user?: { id: string; shortId: string; fullName: string; role?: string };
   shortId?: string;
+  token?: string;
+  nonce?: string;
+  actions?: Array<'yaw_left' | 'yaw_right' | 'pitch_down'>;
+  expiresAt?: number;
+  instructions?: Record<string, string>;
 }
 
 async function postFace(path: string, body: unknown): Promise<{ status: number; data: FaceAuthResponse }> {
@@ -41,6 +46,8 @@ export async function registerFaceIdentity(payload: {
   deviceFingerprint?: string;
   accountType?: 'INDIVIDUAL' | 'BUSINESS';
   organizationName?: string;
+  padEvidence?: FacePadEvidence;
+  passkeyPendingToken?: string;
 }): Promise<FaceAuthResponse> {
   const voice = payload.voiceFingerprint;
   if (voice != null) {
@@ -77,14 +84,55 @@ export async function registerFaceIdentity(payload: {
 
 export async function loginWithFace(payload: {
   embedding: number[];
+  claimedShortId?: string;
+  claimedUserId?: string;
+  padEvidence?: FacePadEvidence;
+  webauthnSession?: string;
+  passkeyPendingToken?: string;
   voiceFingerprint?: number[];
   webauthnCredentialId?: string;
   deviceFingerprint?: string;
 }): Promise<FaceAuthResponse> {
   const { data } = await postFace('/login', payload);
   if (data.success !== true || data.matched === false) {
-    throw new Error(data.message ?? 'No identity found. Please register.');
+    throw new Error(data.message ?? 'Could not verify this face for the claimed account.');
   }
   if (!data.accessToken) throw new Error('Login failed. Please try again.');
   return data;
+}
+
+export interface FacePadEvidence {
+  challengeToken: string;
+  samples: Array<{
+    t: number;
+    yaw: number;
+    pitch: number;
+    faceCount: number;
+    boxRatio: number;
+    brightness: number;
+  }>;
+  patches: string[];
+}
+
+export interface FaceChallenge {
+  token: string;
+  nonce: string;
+  actions: Array<'yaw_left' | 'yaw_right' | 'pitch_down'>;
+  expiresAt: number;
+  instructions: Record<string, string>;
+}
+
+export async function requestFaceChallenge(): Promise<FaceChallenge> {
+  const { status, data } = await postFace('/challenge', {});
+  const body = data as FaceAuthResponse & Partial<FaceChallenge>;
+  if (status >= 400 || !body.token || !Array.isArray(body.actions)) {
+    throw new Error(body.message ?? 'Could not start liveness check. Try again.');
+  }
+  return {
+    token: body.token,
+    nonce: body.nonce ?? '',
+    actions: body.actions,
+    expiresAt: body.expiresAt ?? Date.now() + 45_000,
+    instructions: body.instructions ?? {},
+  };
 }

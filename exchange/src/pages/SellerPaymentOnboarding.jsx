@@ -66,8 +66,8 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
           keyId: created.keyId,
           orderId: created.orderId,
           amount: created.amount,
-          currency: created.currency || 'INR',
-          description: created.description || 'Payment method verification',
+          currency: created.currency || 'USD',
+          description: created.description || 'Seller subscription — $25',
           userName: user.display_name || user.name,
           userEmail: user.email,
         });
@@ -129,7 +129,7 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
             <h2 style={{ margin: 0, color: '#fff' }}>You&apos;re ready to sell</h2>
           </div>
           <p style={{ color: 'var(--text-muted)', lineHeight: 1.6 }}>
-            Your seller account is verified. No registration fee was charged.
+            Your seller subscription is active. You can list and sell on Exchange.
           </p>
           <button
             type="button"
@@ -149,23 +149,29 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
       <div className="modal-content" style={{ padding: 28 }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
           <CreditCard size={22} color="#60a5fa" />
-          <h2 style={{ margin: 0, color: '#fff' }}>Become a Seller</h2>
+          <h2 style={{ margin: 0, color: '#fff' }}>Pay seller subscription</h2>
         </div>
         <p style={{ color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 8 }}>
-          Create your seller account for free. To protect the marketplace and reduce fraudulent seller
-          accounts, a verified payment method is required before you can list assets.
+          Complete payment to activate your Exchange seller account and start listing.
         </p>
-        <p style={{ color: 'var(--text-dim)', fontSize: '0.85rem', marginBottom: 20 }}>
-          No seller registration fee. Selling and listing remain free — transaction fees follow existing Pinit rules.
-        </p>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'baseline',
+            padding: '12px 14px',
+            marginBottom: 16,
+            borderRadius: 10,
+            background: 'rgba(59,130,246,0.12)',
+            border: '1px solid rgba(59,130,246,0.28)',
+          }}
+        >
+          <span style={{ color: '#e2e8f0', fontSize: '0.9rem' }}>Seller subscription</span>
+          <strong style={{ color: '#fff', fontSize: '1.35rem' }}>$25</strong>
+        </div>
         {status?.billing?.mock && (
           <p style={{ color: 'var(--amber)', fontSize: '0.82rem', marginBottom: 12 }}>
-            Dev mode: mock payment verification (no real charge).
-          </p>
-        )}
-        {!status?.billing?.mock && status?.verification_hold_paise > 0 && (
-          <p style={{ color: 'var(--text-dim)', fontSize: '0.82rem', marginBottom: 12 }}>
-            A temporary ₹1 verification hold may apply during setup and is refunded automatically — not a registration fee.
+            Test mode: payment is simulated — $25 is recorded, no live charge.
           </p>
         )}
         {error && (
@@ -179,7 +185,7 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
           disabled={verifying}
           onClick={startVerification}
         >
-          {verifying ? 'Verifying…' : 'Add Payment Method'}
+          {verifying ? 'Processing payment…' : 'Pay $25'}
         </button>
       </div>
     </div>

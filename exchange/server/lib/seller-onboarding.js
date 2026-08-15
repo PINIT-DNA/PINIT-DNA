@@ -42,7 +42,7 @@ export function sellerOnboardingBlocked(user) {
   const status = normalizeOnboardingStatus(user.seller_onboarding_status);
   return {
     error: 'PAYMENT_VERIFICATION_REQUIRED',
-    message: 'Add and verify a payment method to activate your seller account. No registration fee.',
+    message: 'Pay the $25 seller subscription to activate your seller account.',
     seller_onboarding_status: status,
     next_step: {
       action: 'verify_payment_method',
