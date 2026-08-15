@@ -27,8 +27,8 @@ function makePatch(frame: number): string {
 }
 
 function poseFor(action: PadAction): { yaw: number; pitch: number } {
-  if (action === 'yaw_left') return { yaw: -0.22, pitch: 0.02 };
-  if (action === 'yaw_right') return { yaw: 0.22, pitch: 0.02 };
+  if (action === 'yaw_left') return { yaw: 0.22, pitch: 0.02 };
+  if (action === 'yaw_right') return { yaw: -0.22, pitch: 0.02 };
   return { yaw: 0.02, pitch: 0.16 };
 }
 

@@ -45,9 +45,14 @@ function headPose(landmarks: faceapi.FaceLandmarks68): { yaw: number; pitch: num
   };
 }
 
+/**
+ * Video is unmirrored (raw camera feed, no CSS flip) — turning the head to the
+ * subject's own left shifts the nose toward larger x (screen-right) in that feed,
+ * the same reason your right hand appears on the left side of an unmirrored call.
+ */
 function poseHit(action: string, yaw: number, pitch: number): boolean {
-  if (action === 'yaw_left') return yaw <= -YAW;
-  if (action === 'yaw_right') return yaw >= YAW;
+  if (action === 'yaw_left') return yaw >= YAW;
+  if (action === 'yaw_right') return yaw <= -YAW;
   return pitch >= PITCH;
 }
 

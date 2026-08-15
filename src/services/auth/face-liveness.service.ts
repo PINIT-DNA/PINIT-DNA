@@ -171,9 +171,14 @@ function sharpnessScore(patch: Uint8Array): number {
   return n ? acc / n : 0;
 }
 
+/**
+ * Video is unmirrored (raw camera feed, no CSS flip) — turning the head to the
+ * subject's own left shifts the nose toward larger x (screen-right) in that feed,
+ * the same reason your right hand appears on the left side of an unmirrored call.
+ */
 function poseHit(action: PadAction, yaw: number, pitch: number): boolean {
-  if (action === 'yaw_left') return yaw <= -PAD_LIMITS.yaw;
-  if (action === 'yaw_right') return yaw >= PAD_LIMITS.yaw;
+  if (action === 'yaw_left') return yaw >= PAD_LIMITS.yaw;
+  if (action === 'yaw_right') return yaw <= -PAD_LIMITS.yaw;
   return pitch >= PAD_LIMITS.pitch;
 }
 
