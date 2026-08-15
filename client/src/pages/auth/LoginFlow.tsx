@@ -56,7 +56,6 @@ export function LoginFlow() {
 
   const [step, setStep] = useState<Step>('welcome');
   const [error, setError] = useState('');
-  const [presenceKey, setPresenceKey] = useState(0);
   const [openingExchange, setOpeningExchange] = useState(false);
   const [claimedShortId, setClaimedShortId] = useState('');
   const faceEmbeddingRef = useRef<number[] | null>(null);
@@ -227,7 +226,6 @@ export function LoginFlow() {
           )}
           {step === 'presence' && (
             <Presence
-              key={presenceKey}
               error={error}
               exchangeReturn={!!exchangeReturn}
               run={async () => {
