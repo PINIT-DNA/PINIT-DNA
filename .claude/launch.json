@@ -13,6 +13,13 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["serve", "-l", "5555", "mockups"],
       "port": 5555
+    },
+    {
+      "name": "exchange",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "exchange", "run", "client"],
+      "port": 5174,
+      "autoPort": false
     }
   ]
 }

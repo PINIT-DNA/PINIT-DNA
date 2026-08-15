@@ -10,6 +10,7 @@ import { Request, Response, NextFunction } from 'express';
 import { aiService }  from '../../services/ai/ai-embeddings.service';
 import { auditService } from '../../services/audit/audit.service';
 import { getAuthUserId, assertDnaOwner, ownedDnaIdSet, filterByOwnedDna } from '../../lib/tenant-scope';
+import { prisma } from '../../lib/prisma';
 
 // ─── GET /ai/health ───────────────────────────────────────────────────────────
 

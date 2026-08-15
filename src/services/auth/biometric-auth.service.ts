@@ -502,6 +502,18 @@ export const biometricAuthService = {
       };
     }
 
+    if (boundCredentialId && await credentialIdOwnedByOtherUser(boundCredentialId)) {
+      await logSecurityEvent('DUPLICATE_REGISTRATION', {
+        ip, userAgent, success: false,
+        detail: { modality: 'webauthn', credentialId: boundCredentialId },
+      });
+      return {
+        ok: false,
+        status: 409,
+        message: 'This device authenticator is already registered to another Pinit HUB account. Sign in instead.',
+      };
+    }
+
     const faceEnc = encryptTemplate(faceNorm);
     const voiceEnc = voiceNorm ? encryptTemplate(voiceNorm) : null;
     const fpEnc = encryptTemplate(fpNorm);
