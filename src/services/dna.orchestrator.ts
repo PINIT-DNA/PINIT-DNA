@@ -339,6 +339,18 @@ export class DnaOrchestrator {
       totalMs,
     });
 
+    // Phase 1 Spatial Auth (Mode A) — additive, feature-flagged, non-fatal
+    try {
+      const { tryEnrollSpatialAuthAfterDna } = await import('./spatial/enroll.service');
+      await tryEnrollSpatialAuthAfterDna({
+        imageBuffer: image.buffer,
+        dnaRecordId,
+        ownerUserId: universalCtx?.ownerUserId,
+      });
+    } catch {
+      /* non-fatal — Spatial auth must never break DNA generation */
+    }
+
     // Forensic provenance — only for registered assets (never ephemeral probe DNA)
     if (universalCtx?.ownerUserId) {
       try {

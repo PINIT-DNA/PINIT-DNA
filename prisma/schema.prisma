@@ -65,10 +65,56 @@ model DnaRecord {
   protectedPosts        ProtectedPost[]
   /// Universal assets linked to this DNA (additive)
   assets                Asset[]
+  /// Phase 1 spatial block authentication (Mode A) — additive
+  spatialAuthPackage    SpatialAuthPackage?
 
   @@index([organizationId])
   @@index([ownerUserId])
   @@map("dna_records")
+}
+
+/// Phase 1 — SpatialAuthPackage: one compact package per DNA image (no per-pixel rows)
+model SpatialAuthPackage {
+  id                 String    @id @default(uuid())
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  dnaRecordId        String    @unique
+  ownerUserId        String
+  width              Int
+  height             Int
+  /// Decode policy id (file-pixel-order-v1 = no EXIF rotate, RGB removeAlpha)
+  orientationPolicy  String    @default("file-pixel-order-v1")
+  /// Content-seal HMAC or sha256:… / dna:… parent binding
+  globalDnaRef       String
+  keyId              String
+  algorithmVersion   String
+  primaryScale       Int
+  scales             Int[]
+  merkleRoot         String    @db.Char(64)
+  rootMac            String    @db.Char(64)
+  /// Compact binary block leaves (SPB1)
+  blockBlob          Bytes
+  /// Phase 3A — Hierarchical Keyed Cell Auth (8×8 HKCA); nullable = Phase1/2-only packages
+  pixelAlgoVersion   String?
+  pixelScheme        String?
+  pixelKeyId         String?
+  pixelCellSize      Int?
+  pixelTagBytes      Int?
+  pixelAuthBlob      Bytes?
+  pixelAuthRoot      String?   @db.Char(64)
+  pixelRootMac       String?   @db.Char(64)
+  /// Phase 4E — dense enrolled 1×1 HMAC tags (SP1T blob; not per-pixel rows)
+  pixel1AlgoVersion  String?
+  pixel1KeyId        String?
+  pixel1TagBytes     Int?
+  pixel1AuthBlob     Bytes?
+  pixel1AuthRoot     String?   @db.Char(64)
+  pixel1RootMac      String?   @db.Char(64)
+  dnaRecord          DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+  ownerUser          User      @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@index([ownerUserId])
+  @@map("spatial_auth_packages")
 }
 
 // ── Forensic Provenance (append-only lifecycle events — NEVER mutates DNA) ─────
@@ -476,6 +522,7 @@ model User {
   certificates       Certificate[]
   dnaRecords         DnaRecord[]
   localFeatureIndexes LocalFeatureIndex[]
+  spatialAuthPackages SpatialAuthPackage[]
   evidenceRecords    EvidenceRecord[]
   loginHistory       LoginHistory[]
   monitorRecords     MonitorRecord[]

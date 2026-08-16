@@ -10,6 +10,7 @@ import { InvestigationScanner } from '../components/InvestigationScanner';
 import { InvestigationProcessingCard } from '../components/InvestigationProcessingCard';
 import { InvestigationLivePanel } from '../components/InvestigationLivePanel';
 import { InvestigationSideBySideCompare } from '../components/InvestigationSideBySideCompare';
+import type { SpatialInvestigationViewModel, SpatialHierarchyViewModel } from '../components/SpatialAuthInvestigationPanel';
 import type { InvestigationLiveSnapshot } from '../services/dashboard.api';
 import {
   downloadInvestigationReportPdf,
@@ -87,6 +88,8 @@ interface InvestigationReport {
       missingPercent?: number;
       homographyFound?: boolean;
     };
+    spatialAuthInvestigation?: SpatialInvestigationViewModel | null;
+    spatialHierarchy?: SpatialHierarchyViewModel | null;
   };
   forensicEvidence?: {
     recoveredWatermark?: boolean;
@@ -704,6 +707,14 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               cropSharedPercent={report.tamperAnalysis.cropDetection?.sharedRegionPercent ?? null}
               cropMissingPercent={report.tamperAnalysis.cropDetection?.cropPercent ?? report.tamperAnalysis.cropDetection?.missingPercent ?? null}
               cropVisiblePercent={report.tamperAnalysis.cropDetection?.visiblePercent ?? null}
+              spatialInvestigation={
+                (report.tamperAnalysis.spatialAuthInvestigation as SpatialInvestigationViewModel | null | undefined)
+                ?? null
+              }
+              spatialHierarchy={
+                ((report.tamperAnalysis as { spatialHierarchy?: SpatialHierarchyViewModel | null })
+                  .spatialHierarchy) ?? null
+              }
             />
           )}
 

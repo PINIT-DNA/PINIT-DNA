@@ -31,9 +31,11 @@ import { uploadVaultFile, downloadVaultFile, deleteVaultFile, isSupabaseStorageC
 import { assertRecordOwner } from '../../lib/tenant-scope';
 import { identityEmbeddingPipeline } from '../identity/identity-embedding-pipeline.service';
 
-// In development without Supabase configured, fall back to local disk.
-const USE_LOCAL = process.env['NODE_ENV'] !== 'production' &&
-  (!process.env['SUPABASE_URL'] || !process.env['SUPABASE_SERVICE_KEY']);
+// Local disk in development by default. Supabase is often quota-limited locally;
+// set VAULT_USE_SUPABASE=true to force cloud storage in non-production.
+const USE_LOCAL =
+  process.env['VAULT_FORCE_LOCAL'] === 'true' ||
+  (process.env['NODE_ENV'] !== 'production' && process.env['VAULT_USE_SUPABASE'] !== 'true');
 
 const LOCAL_DIR = path.resolve(process.env['VAULT_STORAGE_DIR'] ?? './vault/encrypted');
 
@@ -173,6 +175,35 @@ export class VaultService {
 
     // ── Encrypt in-memory ─────────────────────────────────────────────────
     const encResult = encrypt(fileToEncrypt, vaultId);
+
+    // ── Re-enroll Spatial Auth on POST-embed bytes ─────────────────────────
+    // DNA-time enroll uses the raw upload. Identity embedding (LSB/DCT/tail)
+    // changes many pixels, so protected downloads would look "100% tampered".
+    // Upsert the package from the exact bytes that enter the vault.
+    if ((originalMimeType.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(originalFileName))) {
+      try {
+        const { tryEnrollSpatialAuthAfterDna } = await import('../spatial/enroll.service');
+        const spatialEnroll = await tryEnrollSpatialAuthAfterDna({
+          imageBuffer: fileToEncrypt,
+          dnaRecordId,
+          ownerUserId: dnaRecord.ownerUserId ?? ownerUserId,
+        });
+        if (spatialEnroll) {
+          logger.info('Vault — spatial auth re-enrolled on post-embed bytes', {
+            dnaRecordId,
+            vaultId,
+            width: spatialEnroll.width,
+            height: spatialEnroll.height,
+            blockCount: spatialEnroll.blockCount,
+          });
+        }
+      } catch (spatialErr) {
+        logger.warn('Vault — spatial re-enroll failed (non-fatal)', {
+          dnaRecordId,
+          error: String(spatialErr),
+        });
+      }
+    }
 
     // ── Store encrypted file (local in dev, Supabase in production) ──────
     let encryptedFilePath: string;

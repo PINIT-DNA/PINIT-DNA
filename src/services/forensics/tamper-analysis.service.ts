@@ -401,6 +401,12 @@ export interface BuildTamperAnalysisInput {
   leakVerify: LeakedFileVerifyResult;
   mimeType?: string;
   filename?: string;
+  /** Phase 2 — optional Mode A spatial localization summary (additive) */
+  spatialAuthBlockLocalization?: Record<string, unknown> | null;
+  /** Phase 3C — hierarchical investigation (visualization only) */
+  spatialAuthInvestigation?: Record<string, unknown> | null;
+  /** Phase 4B–4E hierarchy summary for Investigate JSON */
+  spatialHierarchy?: Record<string, unknown> | null;
 }
 
 /**
@@ -472,7 +478,23 @@ export function buildTamperAnalysis(input: BuildTamperAnalysisInput): TamperAnal
     description = inventoryDescription;
   }
 
-  return registryToSection(registry, primaryVector, overallTamperScore, description);
+  // Additive Phase 2 hint in description only when localization available (no edit-op claim)
+  const spatial = input.spatialAuthBlockLocalization;
+  if (spatial && spatial['available'] === true && typeof spatial['pattern'] === 'object' && spatial['pattern']) {
+    const pattern = spatial['pattern'] as { summary?: string };
+    if (pattern.summary) {
+      description = `${description}${description ? ' · ' : ''}${pattern.summary}`;
+    }
+  }
+
+  const section = registryToSection(registry, primaryVector, overallTamperScore, description);
+  if (input.spatialAuthBlockLocalization !== undefined) {
+    section.spatialAuthBlockLocalization = input.spatialAuthBlockLocalization;
+  }
+  if (input.spatialAuthInvestigation !== undefined) {
+    section.spatialAuthInvestigation = input.spatialAuthInvestigation;
+  }
+  return section;
 }
 
 /** Human inventory: Confirmed / Possible / Not confirmed — per-detector, no AI-from-crop. */

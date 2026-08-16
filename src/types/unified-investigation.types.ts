@@ -218,6 +218,21 @@ export interface TamperAnalysisSection {
     missingPercent?: number;
     homographyFound?: boolean;
   };
+  /**
+   * Phase 2 Spatial Auth — additive block localization summary (derived evidence only).
+   * Never an independent trust source; does not claim edit-operation type.
+   */
+  spatialAuthBlockLocalization?: Record<string, unknown> | null;
+  /**
+   * Phase 3C — hierarchical coarse→fine investigation (visualization only).
+   * localizationClaim remains 8x8_cell; not single-pixel cryptographic proof.
+   */
+  spatialAuthInvestigation?: Record<string, unknown> | null;
+  /**
+   * Phase 4B–4E compact hierarchy summary (4×4 / 2×2 / 1×1) for Investigate JSON.
+   * Public production claim remains 8x8_cell until explicitly upgraded.
+   */
+  spatialHierarchy?: Record<string, unknown> | null;
 }
 
 export interface MatchReason {
