@@ -11,6 +11,7 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { config } from '../../config';
 import { prisma } from '../../lib/prisma';
+import { logger } from '../../lib/logger';
 import { extractPinitCode, toExchangePinitId, toRootPinitId, toUserPinitId } from '../../lib/pinit-identity';
 import { AppError } from '../../api/middleware/error.middleware';
 import { VaultService } from '../vault/vault.service';
@@ -189,24 +190,43 @@ export const exchangeBridgeService = {
       },
     });
 
-    return vaults.map((v) => {
-      const badge = badgeFromAnalysis(v.contentAnalysis ?? v.dnaRecord.fileAnalysis);
-      return {
-        asset_id: v.id,
-        vault_id: v.id,
-        dna_record_id: v.dnaRecordId,
-        title: v.originalFileName || v.dnaRecord.imageFilename,
-        file_type: verticalFromMime(v.originalMimeType, v.dnaRecord.fileType),
-        mime_type: v.originalMimeType,
-        preview_path: `/api/v1/vault/${v.id}/preview`,
-        vault_encrypted: true,
-        dna_status: v.dnaRecord.status,
-        human_percent: badge.humanPercent,
-        ai_percent: badge.aiPercent,
-        badge_tier: badge.badgeTier,
-        created_at: v.createdAt.toISOString(),
-      };
+    // Canonical assetId lookup — Asset.vaultId is the real link (indexed).
+    // A vault without an Asset row means it predates the Hub Asset-identity fix
+    // and hasn't been backfilled yet; it's excluded rather than faking assetId = vaultId.
+    const assets = await prisma.asset.findMany({
+      where: { vaultId: { in: vaults.map((v) => v.id) } },
+      select: { id: true, vaultId: true },
     });
+    const assetIdByVaultId = new Map(assets.map((a) => [a.vaultId, a.id]));
+
+    return vaults
+      .filter((v) => {
+        const hasAsset = assetIdByVaultId.has(v.id);
+        if (!hasAsset) {
+          logger.warn('Exchange bridge — vault has no Asset identity yet, excluding from listable assets', {
+            vaultId: v.id,
+          });
+        }
+        return hasAsset;
+      })
+      .map((v) => {
+        const badge = badgeFromAnalysis(v.contentAnalysis ?? v.dnaRecord.fileAnalysis);
+        return {
+          asset_id: assetIdByVaultId.get(v.id) as string,
+          vault_id: v.id,
+          dna_record_id: v.dnaRecordId,
+          title: v.originalFileName || v.dnaRecord.imageFilename,
+          file_type: verticalFromMime(v.originalMimeType, v.dnaRecord.fileType),
+          mime_type: v.originalMimeType,
+          preview_path: `/api/v1/vault/${v.id}/preview`,
+          vault_encrypted: true,
+          dna_status: v.dnaRecord.status,
+          human_percent: badge.humanPercent,
+          ai_percent: badge.aiPercent,
+          badge_tier: badge.badgeTier,
+          created_at: v.createdAt.toISOString(),
+        };
+      });
   },
 
   /** Exchange service: resolve Hub owner by Pinit ID, return listable vault assets */
@@ -386,6 +406,13 @@ export const exchangeBridgeService = {
     }
 
     const vault = await loadOwnedVault(vaultId, ownerUserId);
+    const asset = await prisma.asset.findFirst({ where: { vaultId: vault.id, ownerUserId } });
+    if (!asset) {
+      throw new AppError(
+        409,
+        'This protected file is missing its Asset identity. Re-protect the file, or contact support to backfill it.',
+      );
+    }
     const badge = badgeFromAnalysis(vault.contentAnalysis ?? vault.dnaRecord.fileAnalysis);
     const pinitId = toExchangePinitId(user.shortId) || toRootPinitId(user.shortId) || user.shortId;
 
@@ -393,7 +420,7 @@ export const exchangeBridgeService = {
       purpose: 'exchange_list_intent',
       vaultId: vault.id,
       dnaRecordId: vault.dnaRecordId,
-      assetId: vault.id,
+      assetId: asset.id,
       pinitId,
       ownerUserId: user.id,
       title: vault.originalFileName || vault.dnaRecord.imageFilename,
@@ -438,7 +465,7 @@ export const exchangeBridgeService = {
       expiresIn: LIST_INTENT_EXPIRES,
       listUrl,
       asset: {
-        asset_id: vault.id,
+        asset_id: asset.id,
         vault_id: vault.id,
         dna_record_id: vault.dnaRecordId,
         title: payload.title,

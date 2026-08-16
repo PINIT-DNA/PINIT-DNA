@@ -95,7 +95,7 @@ export const PUBLIC_PAGES = new Set([
 
 export function homePageForUser(user) {
   const a = resolveExchangeAccount(user);
-  if (a.workspace === 'seller') return 'marketplace';
+  if (a.workspace === 'seller') return a.canList ? 'seller_listings' : 'seller_onboarding_payment';
   if (a.workspace === 'buyer') return 'home';
   return 'marketplace';
 }

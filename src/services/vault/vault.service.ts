@@ -216,6 +216,41 @@ export class VaultService {
 
     logger.info('Vault — storage complete', { vaultId, dnaRecordId });
 
+    // ── Canonical Asset identity (assetId != vaultId != dnaId) ────────────
+    // Skipped for anonymous protections (no ownerUserId) — Asset.ownerUserId is required.
+    if (dnaRecord.ownerUserId) {
+      try {
+        const { assetService } = await import('../assets/asset.service');
+        const { inferAssetType, ASSET_STATUS } = await import('../assets/lifecycle');
+        await assetService.ensureAssetFromProtect({
+          ownerUserId: dnaRecord.ownerUserId,
+          assetType: inferAssetType(originalMimeType, originalFileName),
+          originalFilename: originalFileName,
+          mimeType: originalMimeType,
+          sizeBytes: encResult.originalSizeBytes,
+          contentHash: dnaRecord.sha256Hash || '',
+          vaultId: record.id,
+          dnaId: dnaRecordId,
+          certificateId: certificateId ?? null,
+          monitorRecordId: null,
+          monitorStatus: 'PENDING',
+          sourcePlatform: 'hub',
+          sourceUrl: null,
+          capturedVia: 'hub_protect_file',
+          clientRequestId: `hub:${dnaRecordId}`,
+          status: ASSET_STATUS.PROTECTED,
+          protectedPostId: '',
+        });
+      } catch (assetErr) {
+        // Non-fatal — Vault/DNA are the source of truth; Asset is an additional identity layer.
+        logger.warn('Vault — Asset identity creation failed (non-fatal)', {
+          vaultId,
+          dnaRecordId,
+          error: assetErr instanceof Error ? assetErr.message : String(assetErr),
+        });
+      }
+    }
+
     try {
       const { forensicProvenanceService } = await import('../forensics/forensic-provenance.service');
       forensicProvenanceService.appendAsync({

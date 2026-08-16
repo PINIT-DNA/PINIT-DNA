@@ -1,0 +1,1709 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+
+  <meta charset="UTF-8" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Database Structure — Pinit Hub, Exchange &amp; Landing</title>
+
+  <style>
+
+    :root {
+
+      --bg: #0b1220;
+
+      --surface: #111827;
+
+      --border: #1f2937;
+
+      --text: #e5e7eb;
+
+      --muted: #9ca3af;
+
+      --accent: #3b82f6;
+
+      --accent2: #22d3ee;
+
+      --warn-bg: #1e3a5f;
+
+      --warn-border: #3b82f6;
+
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+
+      margin: 0;
+
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+
+      background: var(--bg);
+
+      color: var(--text);
+
+      line-height: 1.65;
+
+    }
+
+    .wrap {
+
+      max-width: 1200px;
+
+      margin: 0 auto;
+
+      padding: 2rem 1.5rem 4rem;
+
+    }
+
+    .open-hint {
+
+      background: var(--warn-bg);
+
+      border: 1px solid var(--warn-border);
+
+      border-radius: 8px;
+
+      padding: .75rem 1rem;
+
+      margin-bottom: 1.25rem;
+
+      font-size: .9rem;
+
+      color: #bfdbfe;
+
+    }
+
+    nav.toc {
+
+      background: var(--surface);
+
+      border: 1px solid var(--border);
+
+      border-radius: 10px;
+
+      padding: 1rem 1.25rem;
+
+      margin-bottom: 2rem;
+
+    }
+
+    nav.toc strong { display: block; margin-bottom: .5rem; color: #fff; }
+
+    nav.toc a {
+
+      color: var(--accent2);
+
+      text-decoration: none;
+
+      margin-right: 1rem;
+
+      font-size: .9rem;
+
+    }
+
+    nav.toc a:hover { text-decoration: underline; }
+
+    header.doc-header {
+
+      text-align: center;
+
+      padding: 2rem 1rem;
+
+      margin-bottom: 2rem;
+
+      border: 1px solid var(--border);
+
+      border-radius: 12px;
+
+      background: linear-gradient(135deg, #111827 0%, #0f172a 100%);
+
+    }
+
+    header.doc-header h1 { margin: 0 0 .5rem; font-size: 1.85rem; color: #fff; }
+
+    header.doc-header p { margin: .25rem 0; color: var(--muted); font-size: .95rem; }
+
+    h1, h2, h3, h4 { color: #f9fafb; scroll-margin-top: 1rem; }
+
+    h2 {
+
+      margin-top: 2.5rem;
+
+      padding-bottom: .4rem;
+
+      border-bottom: 2px solid var(--accent);
+
+      font-size: 1.45rem;
+
+    }
+
+    h3 { margin-top: 1.75rem; color: var(--accent2); font-size: 1.15rem; }
+
+    h4 { margin-top: 1.25rem; font-size: 1rem; color: #cbd5e1; }
+
+    p { margin: .75rem 0; }
+
+    hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+
+    code {
+
+      background: #1e293b;
+
+      padding: .12rem .35rem;
+
+      border-radius: 4px;
+
+      font-size: .9em;
+
+      color: #93c5fd;
+
+    }
+
+    pre {
+
+      background: #0f172a;
+
+      border: 1px solid var(--border);
+
+      border-radius: 8px;
+
+      padding: 1rem;
+
+      overflow-x: auto;
+
+      font-size: .85rem;
+
+    }
+
+    .diagram-box {
+
+      background: #0f172a;
+
+      border: 1px solid var(--border);
+
+      border-radius: 10px;
+
+      padding: 1.25rem;
+
+      margin: 1.25rem 0 1.75rem;
+
+      overflow-x: auto;
+
+      min-height: 80px;
+
+    }
+
+    .diagram-box .mermaid {
+
+      display: flex;
+
+      justify-content: center;
+
+    }
+
+    .diagram-box svg {
+
+      max-width: 100%;
+
+      height: auto;
+
+    }
+
+    .diagram-box[data-error="1"] {
+
+      border-color: #ef4444;
+
+    }
+
+    .diagram-box[data-error="1"]::before {
+
+      content: "Diagram failed to render — open in Chrome/Edge browser";
+
+      display: block;
+
+      color: #fca5a5;
+
+      font-size: .85rem;
+
+      margin-bottom: .5rem;
+
+    }
+
+    table {
+
+      width: 100%;
+
+      border-collapse: collapse;
+
+      margin: 1rem 0 1.5rem;
+
+      font-size: .92rem;
+
+      background: var(--surface);
+
+      border: 1px solid var(--border);
+
+      border-radius: 8px;
+
+      overflow: hidden;
+
+      display: block;
+
+      overflow-x: auto;
+
+    }
+
+    thead, tbody { display: table; width: 100%; table-layout: auto; }
+
+    th, td {
+
+      border: 1px solid var(--border);
+
+      padding: .55rem .75rem;
+
+      text-align: left;
+
+      vertical-align: top;
+
+    }
+
+    th { background: #1e293b; color: #f3f4f6; font-weight: 600; white-space: nowrap; }
+
+    tr:nth-child(even) td { background: rgba(255,255,255,.02); }
+
+    strong { color: #fff; }
+
+    em { color: var(--muted); }
+
+    footer {
+
+      margin-top: 3rem;
+
+      padding-top: 1rem;
+
+      border-top: 1px solid var(--border);
+
+      color: var(--muted);
+
+      font-size: .85rem;
+
+      text-align: center;
+
+    }
+
+    @media print {
+
+      body { background: #fff; color: #111; }
+
+      h1,h2,h3,h4,strong { color: #111; }
+
+      table, th, td, pre, .diagram-box { border-color: #ccc; }
+
+      th { background: #eee; }
+
+      .open-hint, nav.toc { display: none; }
+
+    }
+
+  </style>
+
+</head>
+
+<body>
+
+  <div class="wrap">
+
+    <div class="open-hint">
+
+      <strong>Interactive diagrams:</strong> Open this file in <strong>Chrome</strong> or <strong>Edge</strong>
+
+      (double-click the .html file). Cursor/VS Code preview does not run Mermaid JavaScript.
+
+    </div>
+
+    <header class="doc-header">
+
+      <h1>Database Structure — Pinit Hub, Exchange &amp; Landing</h1>
+
+      <p>Full platform schema: Hub (public) · Exchange (exchange) · Landing (landing) · Supabase Storage</p>
+
+      <p>Source: prisma/schema.prisma · exchange.postgres.sql · pinithub-landing/prisma/schema.prisma</p>
+
+      <p>Last updated: August 2026</p>
+
+    </header>
+
+    <nav class="toc">
+
+      <strong>Diagram sections</strong>
+
+      <a href="#0-master-platform-map-hub-exchange-landing">0 · Master map</a>
+
+      <a href="#1-platform-topology-one-supabase-postgres-project">1 · Topology</a>
+
+      <a href="#2-pinit-hub-public-schema-77-models">2 · Hub ER</a>
+
+      <a href="#3-pinit-exchange-exchange-schema-20-tables">3 · Exchange ER</a>
+
+      <a href="#4-pinit-landing-landing-schema-cms">4 · Landing ER</a>
+
+      <a href="#5-cross-system-logical-links-hub-exchange">5 · Hub↔Exchange links</a>
+
+    </nav>
+
+    <main>
+
+<p><strong>Document:</strong> Database structure of Pinit Hub (full platform)  </p>
+<p><strong>Scope:</strong> Hub (<code>public</code> schema) → Exchange (<code>exchange</code> schema) → Landing (<code>landing</code> schema) + Supabase Storage  </p>
+<p><strong>Source of truth:</strong> <code>prisma/schema.prisma</code>, <code>exchange/server/schema/exchange.postgres.sql</code>, <code>pinithub-landing/prisma/schema.prisma</code>  </p>
+<p><strong>Last updated:</strong> August 2026</p>
+<hr />
+<h2 id="0-master-platform-map-hub-exchange-landing">0. Master platform map (Hub → Exchange → Landing)</h2>
+<div class="diagram-box">
+<div class="mermaid">
+flowchart TB
+  subgraph APPS["Applications"]
+    HUB["PinIT Hub<br/>www.pinithub.com"]
+    EXAPP["PinIT Exchange<br/>www.pinitexchange.com"]
+    LAND["PinIT Landing<br/>pinithub.com"]
+  end
+
+  subgraph PG["Supabase PostgreSQL — single project"]
+    direction TB
+
+    subgraph PUB["schema: public — Hub · 77 models"]
+      direction LR
+      H_DNA["DNA core<br/>dna_records + 15 layers"]
+      H_VAULT["Vault<br/>vault_records"]
+      H_ID["Identity<br/>users · biometrics · sessions"]
+      H_ORG["Organization<br/>orgs · workspaces · members"]
+      H_SHARE["Smart Share<br/>share_links · recipients"]
+      H_MON["Monitoring<br/>monitor_records · crawler"]
+      H_FOR["Forensics<br/>provenance · incidents"]
+      H_BILL["Billing<br/>plans · subscriptions"]
+      H_ASSET["Assets<br/>assets · protected_posts"]
+    end
+
+    subgraph EXS["schema: exchange — 20 tables"]
+      direction LR
+      E_USER["users · seller_payment_methods"]
+      E_ASSET["hub_assets · asset_commerce_locks"]
+      E_LIST["listings · coupons · portfolio"]
+      E_ORDER["orders_sealed · payment_intents"]
+      E_CART["cart · wishlist · reviews"]
+      E_BRIDGE["hub_bridge_events · tracking · refunds"]
+    end
+
+    subgraph LDS["schema: landing — ~30 CMS models"]
+      direction LR
+      L_ADMIN["User · AuditLog"]
+      L_HERO["Hero · Problem · Lifecycle"]
+      L_FEAT["Features · Ecosystem · Why"]
+      L_ABOUT["About · Team · Testimonials"]
+      L_SITE["Nav · Footer · CTA · Settings"]
+      L_INBOX["DemoRequest · Newsletter"]
+    end
+  end
+
+  subgraph STOR["Supabase Storage"]
+    VF["vault-files<br/>Hub .enc masters"]
+    EP["exchange-previews<br/>thumbnails"]
+    ED["exchange-deliveries<br/>buyer downloads"]
+  end
+
+  HUB --> PUB
+  HUB --> VF
+  EXAPP --> EXS
+  EXAPP --> EP
+  EXAPP --> ED
+  LAND --> LDS
+
+  EXAPP -. "JWT bridge<br/>EXCHANGE_BRIDGE_SECRET" .-> HUB
+  EXS -. "pinit_id · asset_id<br/>logical refs only" .-> PUB
+  VF -. "asset_id = vault_records.id" .-> E_ASSET
+</div>
+</div>
+<hr />
+<h2 id="1-platform-topology-one-supabase-postgres-project">1. Platform topology (one Supabase Postgres project)</h2>
+<div class="diagram-box">
+<div class="mermaid">
+flowchart TB
+  subgraph SUPABASE["Supabase PostgreSQL (single project)"]
+    PUB["schema: public<br/>Hub — 77 Prisma models"]
+    EX["schema: exchange<br/>20 marketplace tables"]
+    LD["schema: landing<br/>CMS / marketing content"]
+  end
+
+  subgraph STORAGE["Supabase Storage (files — not SQL tables)"]
+    VF["vault-files<br/>Hub encrypted vault .enc"]
+    EP["exchange-previews<br/>marketplace thumbnails"]
+    ED["exchange-deliveries<br/>licensed downloads"]
+  end
+
+  subgraph APPS["Applications"]
+    HUB["PinIT Hub<br/>www.pinithub.com"]
+    EXAPP["PinIT Exchange<br/>www.pinitexchange.com"]
+    LAND["PinIT Landing<br/>pinithub.com marketing"]
+  end
+
+  HUB --> PUB
+  HUB --> VF
+  EXAPP --> EX
+  EXAPP --> EP
+  EXAPP --> ED
+  LAND --> LD
+
+  EXAPP -. "bridge API + JWT<br/>EXCHANGE_BRIDGE_SECRET" .-> HUB
+  EX -. "logical refs only<br/>asset_id = vault UUID<br/>pinit_id = Hub shortId" .-> PUB
+</div>
+</div>
+<h3 id="key-rules">Key rules</h3>
+<table>
+<thead><tr>
+<th>Rule</th>
+<th>Detail</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>Same Postgres server</strong></td>
+<td>Hub, Exchange, and Landing share one Supabase project</td>
+</tr>
+<tr>
+<td><strong>Separate schemas</strong></td>
+<td><code>public</code> (Hub), <code>exchange</code> (marketplace), <code>landing</code> (CMS)</td>
+</tr>
+<tr>
+<td><strong>No cross-schema FKs</strong></td>
+<td>Exchange references Hub by <strong>logical IDs</strong> only (<code>asset_id</code>, <code>pinit_id</code>)</td>
+</tr>
+<tr>
+<td><strong>Vault isolation</strong></td>
+<td>Encrypted masters stay in Hub <code>vault-files</code> — never in Exchange DB</td>
+</tr>
+</tbody></table>
+<h3 id="connection-strings">Connection strings</h3>
+<table>
+<thead><tr>
+<th>App</th>
+<th>Schema</th>
+<th>Env variable</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Hub</td>
+<td><code>public</code></td>
+<td><code>DATABASE_URL</code>, <code>DIRECT_URL</code> (Prisma)</td>
+</tr>
+<tr>
+<td>Exchange</td>
+<td><code>exchange</code></td>
+<td><code>EXCHANGE_DATABASE_URL</code> (or SQLite locally)</td>
+</tr>
+<tr>
+<td>Landing</td>
+<td><code>landing</code></td>
+<td><code>DATABASE_URL?schema=landing</code> (Prisma)</td>
+</tr>
+</tbody></table>
+<hr />
+<h2 id="2-pinit-hub-public-schema-77-models">2. PinIT Hub — <code>public</code> schema (77 models)</h2>
+<p><strong>ORM:</strong> Prisma 5  </p>
+<p><strong>Schema file:</strong> <code>prisma/schema.prisma</code>  </p>
+<p><strong>Migrations:</strong> <code>prisma/migrations/</code> (21 folders)</p>
+<h3 id="21-core-er-diagram-by-domain">2.1 Core ER diagram (by domain)</h3>
+<div class="diagram-box">
+<div class="mermaid">
+erDiagram
+  User ||--o{ DnaRecord : owns
+  User ||--o| BiometricIdentity : has
+  User ||--o| Subscription : has
+  User ||--o| Organization : owns
+  User ||--o{ ShareLink : creates
+  User ||--o{ Asset : protects
+  User ||--o{ ProtectedPost : publishes
+
+  DnaRecord ||--|| VaultRecord : vaulted
+  DnaRecord ||--|| CryptoLayer : layer1
+  DnaRecord ||--|| StructuralLayer : layer2
+  DnaRecord ||--|| PerceptualLayer : layer3
+  DnaRecord ||--|| SemanticLayer : layer4
+  DnaRecord ||--|| MetadataLayer : layer5
+  DnaRecord ||--|| StegoLayer : layer6
+  DnaRecord ||--o| BehavioralLayer : layer7
+  DnaRecord ||--o| RelationshipLayer : layer8
+  DnaRecord ||--o| OriginLayer : layer9
+  DnaRecord ||--o| EvolutionLayer : layer10
+  DnaRecord ||--o| DeepfakeLayer : layer11
+  DnaRecord ||--o| DctWatermarkLayer : layer12
+  DnaRecord ||--o| CustodyLayer : layer13
+  DnaRecord ||--o| ZkProofLayer : layer14
+  DnaRecord ||--o| BiometricBindLayer : layer15
+  DnaRecord ||--o{ VerificationLog : verifies
+  DnaRecord ||--o| LocalFeatureIndex : localDna
+  DnaRecord ||--o{ MonitorRecord : monitors
+  DnaRecord ||--o{ Certificate : certs
+  DnaRecord ||--o{ ForensicProvenanceEvent : provenance
+  DnaRecord ||--o{ TrackedExportPackage : tep
+
+  LocalFeatureIndex ||--o{ LocalDnaPatch : patches
+
+  Organization ||--o{ Workspace : has
+  Organization ||--o{ Department : has
+  Organization ||--o{ OrganizationMember : members
+  Organization ||--o{ OrganizationApiKey : keys
+  Organization ||--o{ OrganizationWebhook : webhooks
+
+  ShareLink ||--o{ ShareAccessLog : access
+  ShareLink ||--o{ ShareRecipient : recipients
+  ShareLink ||--o{ UnmaskRequest : unmask
+
+  MonitorRecord ||--o{ CrawlerJob : jobs
+  MonitorRecord ||--o{ CrawlerMatch : matches
+
+  Plan ||--o{ Subscription : plans
+  Subscription ||--o{ BillingHistory : bills
+
+  Asset ||--o{ AssetTimelineEvent : timeline
+  ProtectedPost ||--o{ ProtectedPostTimelineEvent : timeline
+</div>
+</div>
+<h3 id="22-hub-table-inventory-all-77-models">2.2 Hub table inventory (all 77 models)</h3>
+<table>
+<thead><tr>
+<th>Domain</th>
+<th>Prisma models</th>
+<th>DB table names (<code>@@map</code>)</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>DNA core</strong></td>
+<td><code>DnaRecord</code> + 15 layer models, <code>VerificationLog</code>, <code>OcrRecord</code>, <code>DocumentLineage</code></td>
+<td><code>dna_records</code>, layer tables, <code>verification_logs</code>, <code>ocr_records</code>, <code>document_lineage</code></td>
+</tr>
+<tr>
+<td><strong>Vault</strong></td>
+<td><code>VaultRecord</code></td>
+<td><code>vault_records</code> → files in <strong><code>vault-files</code></strong> bucket</td>
+</tr>
+<tr>
+<td><strong>Identity / auth</strong></td>
+<td><code>User</code>, <code>BiometricIdentity</code>, <code>FaceTemplate</code>, <code>VoiceTemplate</code>, <code>FingerprintTemplate</code>, <code>UserSession</code>, <code>UserDevice</code>, <code>SecurityEvent</code>, <code>LoginHistory</code>, <code>RefreshToken</code></td>
+<td><code>users</code>, <code>biometric_identities</code>, template tables, <code>user_sessions</code>, etc.</td>
+</tr>
+<tr>
+<td><strong>Organization</strong></td>
+<td><code>Organization</code>, <code>Workspace</code>, <code>Department</code>, <code>OrganizationMember</code>, <code>OrganizationInvite</code>, <code>OrganizationAuditLog</code>, <code>OrganizationApiKey</code>, <code>OrganizationWebhook</code>, <code>OrganizationIntegration</code></td>
+<td><code>organizations</code>, <code>workspaces</code>, etc.</td>
+</tr>
+<tr>
+<td><strong>Smart share</strong></td>
+<td><code>ShareLink</code>, <code>ShareViewerMessage</code>, <code>ShareRecipient</code>, <code>RecipientTrustEvent</code>, <code>UnmaskRequest</code>, <code>LinkForwardEvent</code>, <code>FileTamperEvent</code>, <code>RecipientProfile</code>, <code>WatermarkProfile</code>, <code>ShareAccessLog</code>, <code>BlockedShareViewer</code></td>
+<td>share_* tables</td>
+</tr>
+<tr>
+<td><strong>Monitoring / crawler</strong></td>
+<td><code>MonitorRecord</code>, <code>CrawlResult</code>, <code>MonitoringRun</code>, <code>MonitoringFailure</code>, <code>CrawlerJob</code>, <code>CrawlerMatch</code></td>
+<td>monitor_*, crawler_* tables</td>
+</tr>
+<tr>
+<td><strong>Forensics</strong></td>
+<td><code>ForensicProvenanceEvent</code>, <code>TrackedExportPackage</code>, <code>Incident</code>, <code>EvidenceRecord</code>, <code>AuditEvent</code></td>
+<td>provenance, TEP, incident tables</td>
+</tr>
+<tr>
+<td><strong>Billing</strong></td>
+<td><code>Plan</code>, <code>Subscription</code>, <code>FeatureEntitlement</code>, <code>BillingHistory</code>, <code>UsageRecord</code></td>
+<td>plans, subscriptions, etc.</td>
+</tr>
+<tr>
+<td><strong>Certificates</strong></td>
+<td><code>Certificate</code></td>
+<td><code>certificates</code></td>
+</tr>
+<tr>
+<td><strong>Publish Guardian</strong></td>
+<td><code>ProtectedPost</code>, <code>ProtectedPostTimelineEvent</code>, <code>ProtectedPostDiscovery</code>, <code>ExtensionAuthCode</code></td>
+<td>protected_post_* tables</td>
+</tr>
+<tr>
+<td><strong>Universal assets</strong></td>
+<td><code>Asset</code>, <code>AssetPlatformLink</code>, <code>AssetTimelineEvent</code>, <code>AssetDiscovery</code></td>
+<td>assets, asset_* tables</td>
+</tr>
+<tr>
+<td><strong>Platform</strong></td>
+<td><code>Notification</code>, <code>PlatformEvent</code></td>
+<td><code>notifications</code>, <code>platform_events</code></td>
+</tr>
+<tr>
+<td><strong>Local DNA index</strong></td>
+<td><code>LocalFeatureIndex</code>, <code>LocalDnaPatch</code></td>
+<td><code>local_feature_indexes</code>, <code>local_dna_patches</code></td>
+</tr>
+</tbody></table>
+<h3 id="23-hub-identity-vault-keys">2.3 Hub identity & vault keys</h3>
+<table>
+<thead><tr>
+<th>Concept</th>
+<th>Column / field</th>
+<th>Example</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>User identity</strong></td>
+<td><code>users.shortId</code> (unique)</td>
+<td><code>PINIT-EX-M58CDMZU</code></td>
+</tr>
+<tr>
+<td><strong>Internal user PK</strong></td>
+<td><code>users.id</code> (UUID)</td>
+<td>Used for FK scoping</td>
+</tr>
+<tr>
+<td><strong>Vault asset ID</strong></td>
+<td><code>vault_records.id</code> (UUID)</td>
+<td>Same as Exchange <code>asset_id</code></td>
+</tr>
+<tr>
+<td><strong>DNA record ID</strong></td>
+<td><code>dna_records.id</code> (UUID)</td>
+<td>Referenced in Exchange <code>hub_assets.dna_record_id</code></td>
+</tr>
+<tr>
+<td><strong>Encrypted file path</strong></td>
+<td><code>vault_records.encryptedFilePath</code></td>
+<td>Supabase key <code>{ownerUserId}/{vaultId}.enc</code> or local path in dev</td>
+</tr>
+</tbody></table>
+<h3 id="24-dna-layer-models-11-with-dnarecord">2.4 DNA layer models (1:1 with <code>DnaRecord</code>)</h3>
+<table>
+<thead><tr>
+<th>Layer</th>
+<th>Model</th>
+<th>Purpose</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>CryptoLayer</code></td>
+<td>SHA-256 hashes</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>StructuralLayer</code></td>
+<td>Sobel edge / structural signature</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>PerceptualLayer</code></td>
+<td>pHash / aHash / dHash</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>SemanticLayer</code></td>
+<td>RGB histogram / dominant colours</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>MetadataLayer</code></td>
+<td>EXIF / IPTC / provenance</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>StegoLayer</code></td>
+<td>LSB steganography + HMAC</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>BehavioralLayer</code></td>
+<td>Behavioral fingerprint</td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>RelationshipLayer</code></td>
+<td>Relationship graph</td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>OriginLayer</code></td>
+<td>Origin metadata</td>
+</tr>
+<tr>
+<td>10</td>
+<td><code>EvolutionLayer</code></td>
+<td>Evolution tracking</td>
+</tr>
+<tr>
+<td>11</td>
+<td><code>DeepfakeLayer</code></td>
+<td>Deepfake signals</td>
+</tr>
+<tr>
+<td>12</td>
+<td><code>DctWatermarkLayer</code></td>
+<td>DCT watermark</td>
+</tr>
+<tr>
+<td>13</td>
+<td><code>CustodyLayer</code></td>
+<td>Chain of custody</td>
+</tr>
+<tr>
+<td>14</td>
+<td><code>ZkProofLayer</code></td>
+<td>ZK proof metadata</td>
+</tr>
+<tr>
+<td>15</td>
+<td><code>BiometricBindLayer</code></td>
+<td>Biometric bind</td>
+</tr>
+</tbody></table>
+<h3 id="25-hub-user-model-key-fields">2.5 Hub <code>User</code> model (key fields)</h3>
+<table>
+<thead><tr>
+<th>Field</th>
+<th>Type</th>
+<th>Notes</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>id</code></td>
+<td>UUID PK</td>
+<td>Internal</td>
+</tr>
+<tr>
+<td><code>shortId</code></td>
+<td>String unique</td>
+<td>Public PINIT ID</td>
+</tr>
+<tr>
+<td><code>email</code></td>
+<td>String? unique</td>
+<td>Optional</td>
+</tr>
+<tr>
+<td><code>fullName</code></td>
+<td>String</td>
+<td>Display name</td>
+</tr>
+<tr>
+<td><code>role</code></td>
+<td><code>UserRole</code> enum</td>
+<td>USER, ADMIN, etc.</td>
+</tr>
+<tr>
+<td><code>accountType</code></td>
+<td><code>AccountType</code></td>
+<td>INDIVIDUAL / BUSINESS</td>
+</tr>
+<tr>
+<td><code>faceRegistered</code></td>
+<td>Boolean</td>
+<td>Biometric auth</td>
+</tr>
+<tr>
+<td><code>voiceRegistered</code></td>
+<td>Boolean</td>
+<td>Voice auth</td>
+</tr>
+<tr>
+<td><code>webauthnCredentialId</code></td>
+<td>String?</td>
+<td>Device bind</td>
+</tr>
+<tr>
+<td><code>organization</code></td>
+<td>String?</td>
+<td>Legacy org label</td>
+</tr>
+</tbody></table>
+<p>Related: <code>BiometricIdentity</code>, <code>FaceTemplate</code>, <code>VoiceTemplate</code>, <code>UserSession</code>, <code>RefreshToken</code>.</p>
+<h3 id="26-hub-vaultrecord-model-key-fields">2.6 Hub <code>VaultRecord</code> model (key fields)</h3>
+<table>
+<thead><tr>
+<th>Field</th>
+<th>Type</th>
+<th>Notes</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>id</code></td>
+<td>UUID PK</td>
+<td>= Exchange <code>asset_id</code></td>
+</tr>
+<tr>
+<td><code>dnaRecordId</code></td>
+<td>UUID unique FK</td>
+<td>Links to DNA</td>
+</tr>
+<tr>
+<td><code>encryptedFilePath</code></td>
+<td>String</td>
+<td>Supabase path or local</td>
+</tr>
+<tr>
+<td><code>originalFileName</code></td>
+<td>String</td>
+<td></td>
+</tr>
+<tr>
+<td><code>originalMimeType</code></td>
+<td>String</td>
+<td></td>
+</tr>
+<tr>
+<td><code>encryptionAlgorithm</code></td>
+<td>String</td>
+<td>AES-256-GCM</td>
+</tr>
+<tr>
+<td><code>ivHex</code>, <code>authTagHex</code></td>
+<td>String</td>
+<td>Decryption metadata</td>
+</tr>
+</tbody></table>
+<hr />
+<h2 id="3-pinit-exchange-exchange-schema-20-tables">3. PinIT Exchange — <code>exchange</code> schema (20 tables)</h2>
+<p><strong>Schema file:</strong> <code>exchange/server/schema/exchange.postgres.sql</code>  </p>
+<p><strong>Local dev:</strong> SQLite <code>exchange/server/exchange.db</code> (same logical tables)  </p>
+<p><strong>Init:</strong> <code>exchange/server/database.js</code> on startup</p>
+<h3 id="31-exchange-er-diagram">3.1 Exchange ER diagram</h3>
+<div class="diagram-box">
+<div class="mermaid">
+erDiagram
+  users ||--o{ seller_payment_methods : has
+  users ||--o{ seller_onboarding_intents : has
+  users ||--o| portfolio_profiles : portfolio
+  users ||--o{ hub_assets : owns
+  users ||--o{ listings : sells
+  users ||--o{ coupons : creates
+  users ||--o{ seller_earnings : earns
+
+  hub_assets ||--o{ listings : listed_as
+  listings ||--o{ orders_sealed : sold_via
+  listings ||--o{ cart_items : in_cart
+  listings ||--o{ wishlist : saved
+  listings ||--o{ reviews : reviewed
+
+  orders_sealed ||--o| seller_earnings : accrues
+  orders_sealed ||--o| tracking_jobs : monitors
+  orders_sealed ||--o| refunds : refunded
+
+  payment_intents ||--o| orders_sealed : pays
+  hub_bridge_events }o--|| listings : syncs
+  asset_commerce_locks }o--|| hub_assets : locks
+</div>
+</div>
+<h3 id="32-exchange-tables-full-reference">3.2 Exchange tables (full reference)</h3>
+<h4 id="exchangeusers"><code>exchange.users</code></h4>
+<p>Marketplace profile — <strong>not</strong> Hub auth. Linked by <code>pinit_id</code>.</p>
+<table>
+<thead><tr>
+<th>Column</th>
+<th>Type</th>
+<th>Default</th>
+<th>Notes</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>pinit_id</code></td>
+<td>TEXT PK</td>
+<td>—</td>
+<td>Hub <code>shortId</code> (e.g. <code>PINIT-EX-…</code>)</td>
+</tr>
+<tr>
+<td><code>exchange_id</code></td>
+<td>TEXT UNIQUE</td>
+<td>—</td>
+<td><code>PX-######</code> commerce ID</td>
+</tr>
+<tr>
+<td><code>name</code></td>
+<td>TEXT</td>
+<td>—</td>
+<td>Display name</td>
+</tr>
+<tr>
+<td><code>email</code></td>
+<td>TEXT UNIQUE</td>
+<td>—</td>
+<td>From Hub SSO</td>
+</tr>
+<tr>
+<td><code>role</code></td>
+<td>TEXT</td>
+<td><code>creator</code></td>
+<td><code>creator</code> = seller, <code>buyer</code> = buyer</td>
+</tr>
+<tr>
+<td><code>kyc_status</code></td>
+<td>TEXT</td>
+<td><code>verified</code></td>
+<td>Informational</td>
+</tr>
+<tr>
+<td><code>biometric_verified</code></td>
+<td>SMALLINT</td>
+<td>1</td>
+<td>Set on Hub SSO</td>
+</tr>
+<tr>
+<td><code>seller_plan</code></td>
+<td>TEXT</td>
+<td><code>pro</code></td>
+<td>starter / pro / enterprise_pro</td>
+</tr>
+<tr>
+<td><code>bio</code></td>
+<td>TEXT</td>
+<td>—</td>
+<td>Storefront bio</td>
+</tr>
+<tr>
+<td><code>hub_linked</code></td>
+<td>SMALLINT</td>
+<td>0</td>
+<td>1 after SSO</td>
+</tr>
+<tr>
+<td><code>onboarding_step</code></td>
+<td>TEXT</td>
+<td><code>complete</code></td>
+<td>e.g. <code>protect_in_hub</code></td>
+</tr>
+<tr>
+<td><code>seller_onboarding_status</code></td>
+<td>TEXT</td>
+<td><code>SELLER_ACTIVE</code></td>
+<td>Payment verification gate</td>
+</tr>
+<tr>
+<td><code>razorpay_customer_id</code></td>
+<td>TEXT</td>
+<td>—</td>
+<td>Provider ref only</td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td>TIMESTAMPTZ</td>
+<td>NOW()</td>
+<td></td>
+</tr>
+</tbody></table>
+<h4 id="exchangeseller-payment-methods"><code>exchange.seller_payment_methods</code></h4>
+<p>Provider token references — <strong>never</strong> card numbers / CVV.</p>
+<table>
+<thead><tr>
+<th>Column</th>
+<th>Type</th>
+<th>Notes</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>id</code></td>
+<td>TEXT PK</td>
+<td></td>
+</tr>
+<tr>
+<td><code>pinit_id</code></td>
+<td>TEXT FK → users</td>
+<td></td>
+</tr>
+<tr>
+<td><code>provider</code></td>
+<td>TEXT</td>
+<td><code>razorpay</code></td>
+</tr>
+<tr>
+<td><code>provider_customer_id</code></td>
+<td>TEXT</td>
+<td></td>
+</tr>
+<tr>
+<td><code>provider_method_id</code></td>
+<td>TEXT UNIQUE</td>
+<td>Token ref</td>
+</tr>
+<tr>
+<td><code>provider_payment_id</code></td>
+<td>TEXT</td>
+<td></td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td>TEXT</td>
+<td>pending / verified</td>
+</tr>
+<tr>
+<td><code>method_type</code>, <code>last4</code>, <code>brand</code></td>
+<td>TEXT</td>
+<td>Display only</td>
+</tr>
+<tr>
+<td><code>idempotency_key</code></td>
+<td>TEXT UNIQUE</td>
+<td></td>
+</tr>
+<tr>
+<td><code>verified_at</code></td>
+<td>TIMESTAMPTZ</td>
+<td></td>
+</tr>
+</tbody></table>
+<h4 id="exchangeseller-onboarding-intents"><code>exchange.seller_onboarding_intents</code></h4>
+<p>Idempotent seller payment verification sessions.</p>
+<table>
+<thead><tr>
+<th>Column</th>
+<th>Type</th>
+<th>Notes</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>id</code></td>
+<td>TEXT PK</td>
+<td></td>
+</tr>
+<tr>
+<td><code>pinit_id</code></td>
+<td>TEXT</td>
+<td>Seller</td>
+</tr>
+<tr>
+<td><code>idempotency_key</code></td>
+<td>TEXT UNIQUE</td>
+<td></td>
+</tr>
+<tr>
+<td><code>razorpay_order_id</code></td>
+<td>TEXT</td>
+<td></td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td>TEXT</td>
+<td>pending / completed</td>
+</tr>
+<tr>
+<td><code>completed_at</code></td>
+<td>TIMESTAMPTZ</td>
+<td></td>
+</tr>
+</tbody></table>
+<h4 id="exchangehub-assets"><code>exchange.hub_assets</code></h4>
+<p>Marketplace-safe <strong>references</strong> to Hub vault assets (not vault masters).</p>
+<table>
+<thead><tr>
+<th>Column</th>
+<th>Type</th>
+<th>Notes</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>asset_id</code></td>
+<td>TEXT PK</td>
+<td>= Hub <code>vault_records.id</code></td>
+</tr>
+<tr>
+<td><code>pinit_id</code></td>
+<td>TEXT</td>
+<td>Seller</td>
+</tr>
+<tr>
+<td><code>title</code>, <code>file_type</code>, <code>vertical</code></td>
+<td>TEXT</td>
+<td></td>
+</tr>
+<tr>
+<td><code>preview_url</code></td>
+<td>TEXT</td>
+<td>Often <code>/api/hub/preview/{uuid}</code></td>
+</tr>
+<tr>
+<td><code>dna_record_id</code></td>
+<td>TEXT</td>
+<td>Hub DNA UUID</td>
+</tr>
+<tr>
+<td><code>human_percent</code>, <code>ai_percent</code>, <code>badge_tier</code></td>
+<td>INT/TEXT</td>
+<td>Authenticity badge</td>
+</tr>
+<tr>
+<td><code>protection_status</code></td>
+<td>TEXT</td>
+<td>protected / pending / failed</td>
+</tr>
+</tbody></table>
+<h4 id="exchangelistings"><code>exchange.listings</code></h4>
+<table>
+<thead><tr>
+<th>Column</th>
+<th>Type</th>
+<th>Notes</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>listing_id</code></td>
+<td>TEXT PK</td>
+<td>e.g. <code>L-90227</code></td>
+</tr>
+<tr>
+<td><code>asset_id</code></td>
+<td>TEXT</td>
+<td>Hub vault UUID</td>
+</tr>
+<tr>
+<td><code>pinit_id</code></td>
+<td>TEXT</td>
+<td>Seller</td>
+</tr>
+<tr>
+<td><code>title</code>, <code>description</code>, <code>vertical</code>, <code>tags</code></td>
+<td>TEXT</td>
+<td></td>
+</tr>
+<tr>
+<td><code>price_personal</code> … <code>price_enterprise</code></td>
+<td>DOUBLE</td>
+<td>Tier pricing</td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td>TEXT</td>
+<td>draft / published / live / archived / sold_exclusive</td>
+</tr>
+<tr>
+<td><code>badge_tier</code>, <code>human_percent</code>, <code>ai_percent</code></td>
+<td></td>
+<td>Trust metadata</td>
+</tr>
+<tr>
+<td><code>dna_hash</code></td>
+<td>TEXT</td>
+<td>Summary hash</td>
+</tr>
+<tr>
+<td><code>tagline</code>, <code>protection_error</code></td>
+<td>TEXT</td>
+<td></td>
+</tr>
+</tbody></table>
+<h4 id="exchangeorders-sealed"><code>exchange.orders_sealed</code></h4>
+<p>Tamper-proof sale ledger.</p>
+<table>
+<thead><tr>
+<th>Column</th>
+<th>Type</th>
+<th>Notes</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>seal_id</code></td>
+<td>TEXT PK</td>
+<td></td>
+</tr>
+<tr>
+<td><code>order_id</code></td>
+<td>TEXT UNIQUE</td>
+<td></td>
+</tr>
+<tr>
+<td><code>listing_id</code>, <code>asset_id</code></td>
+<td>TEXT</td>
+<td></td>
+</tr>
+<tr>
+<td><code>seller_pinit_id</code>, <code>seller_exchange_id</code></td>
+<td>TEXT</td>
+<td></td>
+</tr>
+<tr>
+<td><code>buyer_pinit_id</code>, <code>buyer_name</code>, <code>buyer_email</code></td>
+<td>TEXT</td>
+<td></td>
+</tr>
+<tr>
+<td><code>license_tier</code>, <code>price_paid</code>, <code>platform_fee</code>, <code>creator_net</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>dna_hash_summary</code></td>
+<td>TEXT</td>
+<td></td>
+</tr>
+<tr>
+<td><code>payment_status</code>, <code>razorpay_order_id</code>, <code>razorpay_payment_id</code></td>
+<td>TEXT</td>
+<td></td>
+</tr>
+<tr>
+<td><code>license_status</code>, <code>delivery_status</code></td>
+<td>TEXT</td>
+<td></td>
+</tr>
+<tr>
+<td><code>delivery_url</code>, <code>delivery_token</code></td>
+<td>TEXT</td>
+<td></td>
+</tr>
+</tbody></table>
+<h4 id="other-exchange-tables">Other Exchange tables</h4>
+<table>
+<thead><tr>
+<th>Table</th>
+<th>Purpose</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>requirements</code></td>
+<td>Buyer briefs / RFPs</td>
+</tr>
+<tr>
+<td><code>tracking_jobs</code></td>
+<td>Post-sale monitoring refs</td>
+</tr>
+<tr>
+<td><code>cart_items</code></td>
+<td>Buyer cart (by <code>buyer_key</code>)</td>
+</tr>
+<tr>
+<td><code>wishlist</code></td>
+<td>Saved listings</td>
+</tr>
+<tr>
+<td><code>reviews</code></td>
+<td>Listing reviews</td>
+</tr>
+<tr>
+<td><code>coupons</code></td>
+<td>Seller promo codes</td>
+</tr>
+<tr>
+<td><code>payment_intents</code></td>
+<td>Razorpay checkout intents (buyers)</td>
+</tr>
+<tr>
+<td><code>asset_commerce_locks</code></td>
+<td>Exclusive-sale locks</td>
+</tr>
+<tr>
+<td><code>hub_bridge_events</code></td>
+<td>Async Hub↔Exchange bridge queue</td>
+</tr>
+<tr>
+<td><code>refunds</code></td>
+<td>Refund records</td>
+</tr>
+<tr>
+<td><code>seller_earnings</code></td>
+<td>Accrued seller revenue (<code>status: accrued</code>)</td>
+</tr>
+<tr>
+<td><code>portfolio_profiles</code></td>
+<td>Public creator portfolios (<code>/p/:slug</code>)</td>
+</tr>
+</tbody></table>
+<hr />
+<h2 id="4-pinit-landing-landing-schema-cms">4. PinIT Landing — <code>landing</code> schema (CMS)</h2>
+<p><strong>Schema file:</strong> <code>pinithub-landing/prisma/schema.prisma</code>  </p>
+<p><strong>Purpose:</strong> Marketing site content editable from <code>/admin</code> — <strong>no link</strong> to Hub users or Exchange sellers.</p>
+<h3 id="41-landing-er-diagram-simplified">4.1 Landing ER diagram (simplified)</h3>
+<div class="diagram-box">
+<div class="mermaid">
+erDiagram
+  User ||--o{ AuditLog : admin_actions
+
+  HeroContent ||--o{ HeroReadout : readouts
+  HeroContent ||--o{ TrustedLogo : logos
+
+  ProblemContent ||--o{ ProblemItem : items
+  DemoRequest ||--o{ NewsletterSubscriber : inbox
+</div>
+</div>
+<h3 id="42-landing-tables-grouped">4.2 Landing tables (grouped)</h3>
+<table>
+<thead><tr>
+<th>Group</th>
+<th>Models</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>Admin access</strong></td>
+<td><code>User</code>, <code>AuditLog</code></td>
+</tr>
+<tr>
+<td><strong>Section chrome</strong></td>
+<td><code>SectionMeta</code></td>
+</tr>
+<tr>
+<td><strong>Hero</strong></td>
+<td><code>HeroContent</code>, <code>HeroReadout</code>, <code>TrustedLogo</code></td>
+</tr>
+<tr>
+<td><strong>Problem</strong></td>
+<td><code>ProblemContent</code>, <code>ProblemItem</code></td>
+</tr>
+<tr>
+<td><strong>Lifecycle</strong></td>
+<td><code>LifecycleStage</code></td>
+</tr>
+<tr>
+<td><strong>Capabilities</strong></td>
+<td><code>Feature</code></td>
+</tr>
+<tr>
+<td><strong>Ecosystem</strong></td>
+<td><code>EcosystemProduct</code></td>
+</tr>
+<tr>
+<td><strong>Why PINITHUB</strong></td>
+<td><code>WhyCard</code></td>
+</tr>
+<tr>
+<td><strong>Choose us</strong></td>
+<td><code>ChooseUsReason</code></td>
+</tr>
+<tr>
+<td><strong>Industries</strong></td>
+<td><code>Industry</code></td>
+</tr>
+<tr>
+<td><strong>About</strong></td>
+<td><code>AboutContent</code>, <code>AboutPillar</code>, <code>Stat</code>, <code>TeamMember</code></td>
+</tr>
+<tr>
+<td><strong>Proof</strong></td>
+<td><code>Testimonial</code>, <code>FaqItem</code></td>
+</tr>
+<tr>
+<td><strong>CTA / site chrome</strong></td>
+<td><code>CtaContent</code>, <code>SiteSettings</code>, <code>NavLink</code>, <code>FooterLink</code>, <code>SocialLink</code></td>
+</tr>
+<tr>
+<td><strong>Inbox</strong></td>
+<td><code>DemoRequest</code>, <code>NewsletterSubscriber</code></td>
+</tr>
+</tbody></table>
+<p><strong>Connection:</strong> <code>DATABASE_URL</code> with <code>?schema=landing</code> on the shared Supabase project.</p>
+<hr />
+<h2 id="5-cross-system-logical-links-hub-exchange">5. Cross-system logical links (Hub ↔ Exchange)</h2>
+<div class="diagram-box">
+<div class="mermaid">
+flowchart LR
+  subgraph HUB["Hub public schema"]
+    U["users.shortId<br/>PINIT-EX-…"]
+    V["vault_records.id<br/>UUID"]
+    D["dna_records.id"]
+  end
+
+  subgraph EX["Exchange exchange schema"]
+    EU["users.pinit_id"]
+    HA["hub_assets.asset_id"]
+    L["listings.asset_id"]
+    O["orders_sealed.asset_id"]
+  end
+
+  U -. "SSO JWT purpose: exchange_sso" .-> EU
+  V -. "asset_id" .-> HA
+  V -. "asset_id" .-> L
+  V -. "asset_id" .-> O
+  D -. "dna_record_id" .-> HA
+
+  VF["Supabase vault-files"] --- V
+  EP["exchange-previews"] --- HA
+</div>
+</div>
+<table>
+<thead><tr>
+<th>Link</th>
+<th>Hub</th>
+<th>Exchange</th>
+<th>Mechanism</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>Identity</strong></td>
+<td><code>users.shortId</code></td>
+<td><code>users.pinit_id</code></td>
+<td>Hub signs JWT → <code>POST /api/auth/hub-sso</code></td>
+</tr>
+<tr>
+<td><strong>Asset</strong></td>
+<td><code>vault_records.id</code></td>
+<td><code>hub_assets.asset_id</code>, <code>listings.asset_id</code></td>
+<td>Bridge API; vault bytes stay in Hub</td>
+</tr>
+<tr>
+<td><strong>DNA</strong></td>
+<td><code>dna_records.id</code></td>
+<td><code>hub_assets.dna_record_id</code></td>
+<td>Summary copied at list time</td>
+</tr>
+<tr>
+<td><strong>Preview</strong></td>
+<td>Vault decrypt (Hub API)</td>
+<td><code>GET /api/hub/preview/:assetId</code></td>
+<td>Exchange proxies with <code>EXCHANGE_BRIDGE_SECRET</code></td>
+</tr>
+<tr>
+<td><strong>List confirm</strong></td>
+<td>Hub bridge</td>
+<td><code>hub_bridge_events</code></td>
+<td>Async confirm / seal callbacks</td>
+</tr>
+<tr>
+<td><strong>Delivery</strong></td>
+<td>Hub vault</td>
+<td><code>orders_sealed.delivery_*</code></td>
+<td>Short-lived delivery tokens</td>
+</tr>
+</tbody></table>
+<h3 id="bridge-environment-variables">Bridge environment variables</h3>
+<table>
+<thead><tr>
+<th>Variable</th>
+<th>Service</th>
+<th>Purpose</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>EXCHANGE_BRIDGE_SECRET</code></td>
+<td>Hub + Exchange Render</td>
+<td>JWT sign/verify for SSO and bridge</td>
+</tr>
+<tr>
+<td><code>HUB_API_URL</code></td>
+<td>Exchange</td>
+<td>Hub API base (e.g. <code>…/api/v1</code>)</td>
+</tr>
+<tr>
+<td><code>HUB_APP_URL</code> / <code>VITE_HUB_APP_URL</code></td>
+<td>Exchange frontend</td>
+<td>Hub UI for SSO redirect</td>
+</tr>
+</tbody></table>
+<hr />
+<h2 id="6-supabase-storage-not-sql">6. Supabase Storage (not SQL)</h2>
+<table>
+<thead><tr>
+<th>Bucket</th>
+<th>Owner</th>
+<th>Path convention</th>
+<th>Access</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>vault-files</code></td>
+<td><strong>Hub</strong></td>
+<td><code>{ownerUserId}/{vaultId}.enc</code></td>
+<td>Private; Hub service key</td>
+</tr>
+<tr>
+<td><code>exchange-previews</code></td>
+<td><strong>Exchange</strong></td>
+<td><code>sellers/{pinitId}/{assetId}.*</code></td>
+<td>Public read for marketplace previews</td>
+</tr>
+<tr>
+<td><code>exchange-deliveries</code></td>
+<td><strong>Exchange</strong></td>
+<td>Licensed delivery objects</td>
+<td>Private; signed URLs only</td>
+</tr>
+</tbody></table>
+<p><strong>Rule:</strong> Exchange policies must <strong>never</strong> grant access to <code>vault-files</code>.</p>
+<hr />
+<h2 id="7-schema-counts-summary">7. Schema counts summary</h2>
+<table>
+<thead><tr>
+<th>Layer</th>
+<th>Postgres schema</th>
+<th>Tables</th>
+<th>ORM / access</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>PinIT Hub</strong></td>
+<td><code>public</code></td>
+<td>77</td>
+<td>Prisma</td>
+</tr>
+<tr>
+<td><strong>PinIT Exchange</strong></td>
+<td><code>exchange</code></td>
+<td>20</td>
+<td>Raw SQL / sqlite adapter</td>
+</tr>
+<tr>
+<td><strong>PinIT Landing</strong></td>
+<td><code>landing</code></td>
+<td>~30</td>
+<td>Prisma</td>
+</tr>
+<tr>
+<td><strong>Storage</strong></td>
+<td>Supabase buckets</td>
+<td>3</td>
+<td>Supabase Storage API</td>
+</tr>
+</tbody></table>
+<hr />
+<h2 id="8-seller-onboarding-states-exchange">8. Seller onboarding states (Exchange)</h2>
+<table>
+<thead><tr>
+<th>Status</th>
+<th>Meaning</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>SELLER_ACTIVE</code></td>
+<td>Can list and sell (existing sellers grandfathered here)</td>
+</tr>
+<tr>
+<td><code>PAYMENT_METHOD_REQUIRED</code></td>
+<td>New seller — must verify payment method</td>
+</tr>
+<tr>
+<td><code>PAYMENT_METHOD_PENDING</code></td>
+<td>Razorpay checkout in progress</td>
+</tr>
+<tr>
+<td><code>PAYMENT_METHOD_FAILED</code></td>
+<td>Verification failed — retry allowed</td>
+</tr>
+<tr>
+<td><code>PAYMENT_METHOD_VERIFIED</code></td>
+<td>Payment method stored — treated as active</td>
+</tr>
+</tbody></table>
+<hr />
+<h2 id="9-related-documentation">9. Related documentation</h2>
+<table>
+<thead><tr>
+<th>Document</th>
+<th>Path</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Hub DB architecture (detailed)</td>
+<td><code>docs/architecture/06_Database_Architecture.md</code></td>
+</tr>
+<tr>
+<td>Hub Prisma schema</td>
+<td><code>prisma/schema.prisma</code></td>
+</tr>
+<tr>
+<td>Exchange Postgres DDL</td>
+<td><code>exchange/server/schema/exchange.postgres.sql</code></td>
+</tr>
+<tr>
+<td>Exchange storage buckets</td>
+<td><code>exchange/server/schema/exchange.storage.sql</code></td>
+</tr>
+<tr>
+<td>Landing CMS schema</td>
+<td><code>pinithub-landing/prisma/schema.prisma</code></td>
+</tr>
+<tr>
+<td>Project overview</td>
+<td><code>docs/architecture/01_Project_Overview.md</code></td>
+</tr>
+</tbody></table>
+<hr />
+<h2 id="10-production-urls-reference">10. Production URLs (reference)</h2>
+<table>
+<thead><tr>
+<th>Service</th>
+<th>URL</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Hub UI</td>
+<td>https://www.pinithub.com</td>
+</tr>
+<tr>
+<td>Exchange UI</td>
+<td>https://www.pinitexchange.com</td>
+</tr>
+<tr>
+<td>Hub API</td>
+<td>https://pinit-dna-uf5y.onrender.com/api/v1</td>
+</tr>
+<tr>
+<td>Exchange API</td>
+<td>https://pinit-dna-3fmw.onrender.com</td>
+</tr>
+</tbody></table>
+<hr />
+<p><em>End of document — Database Structure of Pinit Hub (full platform)</em></p>
+
+    </main>
+
+    <footer>Database Structure of Pinit Hub (full platform) — PINIT-DNA</footer>
+
+  </div>
+
+  <script src="vendor/mermaid.min.js"></script>
+
+  <script>
+
+    (function () {
+
+      if (typeof mermaid === "undefined") {
+
+        document.querySelectorAll(".diagram-box").forEach(function (el) {
+
+          el.setAttribute("data-error", "1");
+
+        });
+
+        return;
+
+      }
+
+      mermaid.initialize({
+
+        startOnLoad: false,
+
+        theme: "dark",
+
+        securityLevel: "loose",
+
+        flowchart: { htmlLabels: true, curve: "basis", useMaxWidth: true },
+
+        er: { useMaxWidth: true, layoutDirection: "TB" }
+
+      });
+
+      document.addEventListener("DOMContentLoaded", function () {
+
+        mermaid.run({ querySelector: ".mermaid" }).catch(function (err) {
+
+          console.error("Mermaid render error:", err);
+
+          document.querySelectorAll(".diagram-box").forEach(function (el) {
+
+            if (!el.querySelector("svg")) el.setAttribute("data-error", "1");
+
+          });
+
+        });
+
+      });
+
+    })();
+
+  </script>
+
+</body>
+
+</html>
+

@@ -6,7 +6,7 @@ import HubTrustBadge from '../components/HubTrustBadge.jsx';
 import ProvenanceDrawer from '../components/ProvenanceDrawer.jsx';
 import { apiFetch, verifiedLabel } from '../lib/api.js';
 import { canPurchase, resolveExchangeAccount } from '../lib/roles.js';
-import { samePinitIdentity } from '../lib/pinit-identity.js';
+import { samePinitIdentity, extractPinitCode } from '../lib/pinit-identity.js';
 
 export default function ListingDetail({ listingId, onBack, onOpenCheckout, onManageListing, user, onCartChanged }) {
   const [listing, setListing] = useState(null);
@@ -241,6 +241,16 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
             </div>
             <div style={{ fontSize: '0.9rem', color: '#fff' }}>{listing.creator_name || 'Creator'}</div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Pinit ID: {listing.pinit_id}</div>
+            {listing.pinit_id && (
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                Hub Pinit ID: PINIT-{extractPinitCode(listing.pinit_id)}
+              </div>
+            )}
+            {listing.asset_id && (
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 6, wordBreak: 'break-all' }}>
+                Asset ID: {listing.asset_id}
+              </div>
+            )}
           </div>
 
           <div className="glass-panel" style={{ padding: 24 }}>
