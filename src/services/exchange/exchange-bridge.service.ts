@@ -155,9 +155,16 @@ async function resolveVaultIdFromExchangeId(
   return null;
 }
 
-/** Hub-hosted share viewer URL. Share links are always served by Hub, never Exchange. */
-function buildHubShareUrl(token: string): string {
-  const base = (process.env['PUBLIC_APP_URL'] || process.env['HUB_APP_URL'] || 'http://localhost:3000')
+/**
+ * Hub-hosted share viewer URL. Share links are always served by Hub, never Exchange.
+ *
+ * `baseUrl` comes from the caller, which passes the same resolvePublicBaseUrl()
+ * result the normal Hub share flow uses — so a licensed share and an owner share
+ * produce identical URLs in every environment. Falls back to env only when there
+ * is no request context (the bridge is service-to-service).
+ */
+function buildHubShareUrl(token: string, baseUrl?: string): string {
+  const base = (baseUrl || process.env['PUBLIC_APP_URL'] || process.env['HUB_APP_URL'] || 'http://localhost:3000')
     .replace(/\/$/, '');
   return `${base}/s/${token}`;
 }
@@ -896,6 +903,8 @@ export const exchangeBridgeService = {
     orderId?: string;
     buyerPinitId: string;
     licenseTier?: string;
+    /** Public base URL resolved from the incoming request (same source the Hub share flow uses). */
+    baseUrl?: string;
     options?: {
       expiresIn?: number | null;
       maxViews?: number | null;
@@ -958,7 +967,7 @@ export const exchangeBridgeService = {
 
     return {
       token: created.token,
-      shareUrl: buildHubShareUrl(created.token),
+      shareUrl: buildHubShareUrl(created.token, input.baseUrl),
       expiresAt: created.expiresAt ?? null,
       allowDownload: created.allowDownload,
     };

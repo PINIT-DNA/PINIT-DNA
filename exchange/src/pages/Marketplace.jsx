@@ -163,7 +163,9 @@ export default function Marketplace({
               <button className="btn-primary" onClick={onOpenListFromHub} style={{ padding: '12px 24px', fontSize: '1rem' }}>
                 List from Pinit Hub <ArrowRight size={18} />
               </button>
-            ) : (
+            ) : !user ? (
+              // Guests only. A signed-in buyer is already inside the marketplace,
+              // so sending them out to Hub is not a useful primary action.
               <a
                 href={resolveHubAppUrl()}
                 className="btn-primary"
@@ -173,7 +175,7 @@ export default function Marketplace({
               >
                 Browse Pinit Hub
               </a>
-            )}
+            ) : null}
             {canPurchase(user) && (
               <button type="button" className="btn-secondary" style={{ padding: '12px 24px', fontSize: '1rem' }} onClick={onBecomeCreator}>
                 Become a Creator

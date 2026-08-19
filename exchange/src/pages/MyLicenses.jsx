@@ -1,9 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldCheck, Download, Award, FileText, ExternalLink } from 'lucide-react';
+import { ShieldCheck, Download, Award, FileText, ExternalLink, Share2, Copy, X } from 'lucide-react';
 
 export default function MyLicenses({ user, onViewCertificate }) {
   const [licenses, setLicenses] = useState([]);
   const [loading, setLoading] = useState(true);
+  /** Licence currently being shared (null = modal closed). */
+  const [shareFor, setShareFor] = useState(null);
+  const [shareOpts, setShareOpts] = useState({ expiresIn: '', maxViews: '', allowDownload: false, requireName: false });
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareResult, setShareResult] = useState(null);
+  const [shareError, setShareError] = useState('');
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     fetchMyLicenses();
@@ -44,6 +51,56 @@ export default function MyLicenses({ user, onViewCertificate }) {
       window.open(data.download_url, '_blank', 'noopener,noreferrer');
     } catch (err) {
       alert(err.message);
+    }
+  };
+
+  const openShare = (lic) => {
+    setShareFor(lic);
+    setShareOpts({ expiresIn: '', maxViews: '', allowDownload: false, requireName: false });
+    setShareResult(null);
+    setShareError('');
+    setCopied(false);
+  };
+
+  /**
+   * Hub creates and hosts the share link; Exchange only proves the caller owns
+   * this seal. All view/download tracking lives in Hub, so nothing is stored here.
+   */
+  const createShare = async () => {
+    if (!shareFor) return;
+    setShareBusy(true);
+    setShareError('');
+    try {
+      const res = await fetch(`/api/commerce/purchases/${encodeURIComponent(shareFor.seal_id)}/share`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-PinIT-Id': user?.pinit_id || '' },
+        body: JSON.stringify({
+          options: {
+            expiresIn: shareOpts.expiresIn ? Number(shareOpts.expiresIn) : null,
+            maxViews: shareOpts.maxViews ? Number(shareOpts.maxViews) : null,
+            allowDownload: shareOpts.allowDownload,
+            requireName: shareOpts.requireName,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not create share link');
+      setShareResult(data);
+    } catch (err) {
+      setShareError(err.message);
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
+  const copyShareUrl = async () => {
+    if (!shareResult?.shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareResult.shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setShareError('Copy failed — select the link and copy manually.');
     }
   };
 
@@ -137,6 +194,14 @@ export default function MyLicenses({ user, onViewCertificate }) {
                 >
                   <FileText size={16} /> Certificate
                 </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => openShare(lic)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                >
+                  <Share2 size={16} /> Share
+                </button>
                 {lic.badge_tier && (
                   <span className={`badge-${String(lic.badge_tier).toLowerCase()}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     <Award size={14} /> {lic.badge_tier}
@@ -146,6 +211,126 @@ export default function MyLicenses({ user, onViewCertificate }) {
             </div>
             );
           })}
+        </div>
+      )}
+
+      {shareFor && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => !shareBusy && setShareFor(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(3,7,18,0.78)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+          }}
+        >
+          <div
+            className="glass-panel"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: '100%', maxWidth: 520, padding: 26 }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+              <div>
+                <h2 style={{ fontSize: '1.3rem', color: '#fff', margin: 0 }}>Share licensed file</h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 6 }}>
+                  {shareFor.title || shareFor.asset_id}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => !shareBusy && setShareFor(null)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {!shareResult ? (
+              <>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', margin: '14px 0 18px' }}>
+                  The link is created and hosted by Pinit HUB. Every view and download is
+                  tracked there, and the master file never leaves the Hub vault.
+                </p>
+
+                <div style={{ display: 'grid', gap: 14 }}>
+                  <label style={{ display: 'grid', gap: 6, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    Expires after (hours) — blank = never
+                    <input
+                      type="number" min="1" placeholder="e.g. 48"
+                      value={shareOpts.expiresIn}
+                      onChange={(e) => setShareOpts((s) => ({ ...s, expiresIn: e.target.value }))}
+                      style={{ padding: '9px 11px', borderRadius: 8, border: '1px solid rgba(148,163,184,0.28)', background: 'rgba(8,14,28,0.7)', color: '#e8eef8' }}
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 6, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    Max views — blank = unlimited
+                    <input
+                      type="number" min="1" placeholder="e.g. 25"
+                      value={shareOpts.maxViews}
+                      onChange={(e) => setShareOpts((s) => ({ ...s, maxViews: e.target.value }))}
+                      style={{ padding: '9px 11px', borderRadius: 8, border: '1px solid rgba(148,163,184,0.28)', background: 'rgba(8,14,28,0.7)', color: '#e8eef8' }}
+                    />
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    <input
+                      type="checkbox" checked={shareOpts.allowDownload}
+                      onChange={(e) => setShareOpts((s) => ({ ...s, allowDownload: e.target.checked }))}
+                    />
+                    Allow the recipient to download
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    <input
+                      type="checkbox" checked={shareOpts.requireName}
+                      onChange={(e) => setShareOpts((s) => ({ ...s, requireName: e.target.checked }))}
+                    />
+                    Ask the recipient for their name
+                  </label>
+                </div>
+
+                {shareError && (
+                  <p style={{ color: '#fca5a5', fontSize: '0.83rem', marginTop: 14 }}>{shareError}</p>
+                )}
+
+                <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
+                  <button type="button" className="btn-primary" onClick={createShare} disabled={shareBusy}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <Share2 size={16} /> {shareBusy ? 'Creating…' : 'Create share link'}
+                  </button>
+                  <button type="button" className="btn-secondary" onClick={() => setShareFor(null)} disabled={shareBusy}>
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p style={{ color: 'var(--emerald)', fontSize: '0.88rem', margin: '16px 0 10px' }}>
+                  Share link created
+                </p>
+                <div style={{
+                  background: 'rgba(8,14,28,0.75)', border: '1px solid rgba(148,163,184,0.25)',
+                  borderRadius: 8, padding: '11px 12px', fontSize: '0.8rem', color: '#e8eef8',
+                  wordBreak: 'break-all', fontFamily: 'monospace',
+                }}>
+                  {shareResult.shareUrl}
+                </div>
+                <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
+                  <button type="button" className="btn-primary" onClick={copyShareUrl}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <Copy size={16} /> {copied ? 'Copied' : 'Copy link'}
+                  </button>
+                  <a className="btn-secondary" href={shareResult.shareUrl} target="_blank" rel="noopener noreferrer"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>
+                    <ExternalLink size={16} /> Open
+                  </a>
+                  <button type="button" className="btn-secondary" onClick={() => setShareFor(null)}>Done</button>
+                </div>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: 14 }}>
+                  Activity for this link is tracked in Pinit HUB.
+                </p>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

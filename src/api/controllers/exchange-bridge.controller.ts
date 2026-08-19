@@ -9,6 +9,7 @@ import {
   verifyServiceBridgeSecret,
 } from '../../services/exchange/exchange-bridge.service';
 import { config } from '../../config';
+import { resolvePublicBaseUrl } from '../../lib/request-utils';
 
 function userId(req: Request): string {
   return (req as any).user?.sub as string;
@@ -188,6 +189,7 @@ export async function createLicensedShareBridge(req: Request, res: Response, nex
       orderId: req.body?.orderId || req.body?.order_id,
       buyerPinitId,
       licenseTier: req.body?.licenseTier || req.body?.license_tier,
+      baseUrl: resolvePublicBaseUrl(req),
       options: req.body?.options || {},
     });
     res.status(201).json({ success: true, ...result });
