@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Award, ArrowLeft, Heart, ShoppingCart, Star } from 'lucide-react';
+import { Award, ArrowLeft, Heart, ImageOff, ShoppingCart, Star } from 'lucide-react';
 import { buyerKey } from '../lib/buyer.js';
 import { isVideoListing } from '../lib/media.js';
 import HubTrustBadge from '../components/HubTrustBadge.jsx';
@@ -78,12 +78,14 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
   };
 
   const addWishlist = async () => {
-    const res = await fetch('/api/commerce/wishlist', {
+    // Uses apiFetch (like addToCart) so a server-side failure surfaces its real
+    // message instead of a blanket "Could not save".
+    const { ok, error } = await apiFetch('/api/commerce/wishlist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ buyer_key: ensureBuyerKey(), listing_id: listing.listing_id }),
     });
-    setToast(res.ok ? 'Saved to wishlist' : 'Could not save');
+    setToast(ok ? 'Saved to wishlist' : (error || 'Could not save'));
   };
 
   const submitReview = async (e) => {
@@ -160,7 +162,7 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
                   disablePictureInPicture
                   playsInline
                   preload="metadata"
-                  onError={() => setMediaError('Preview unavailable — start Pinit HUB API (port 4000) so Exchange can stream the vault file.')}
+                  onError={() => setMediaError('Preview unavailable')}
                   style={{
                     width: '100%',
                     height: '100%',
@@ -175,16 +177,20 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
                   alt={listing.title}
                   draggable={false}
                   style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                  onError={() => setMediaError('Preview image failed to load. Keep Pinit HUB running on port 4000.')}
+                  onError={() => setMediaError('Preview unavailable')}
                 />
               )}
+              {/* A missing preview is cosmetic — licensing, cart and wishlist all
+                  still work, so show a calm placeholder rather than an error banner. */}
               {mediaError && (
                 <div style={{
-                  position: 'absolute', left: 12, right: 12, bottom: 48, zIndex: 4,
-                  background: 'rgba(0,0,0,0.75)', color: '#fbbf24', padding: '10px 12px',
-                  borderRadius: 8, fontSize: '0.82rem',
+                  position: 'absolute', inset: 0, zIndex: 1,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  gap: 10, color: 'var(--text-muted, #94a3b8)', background: '#0b0f19',
+                  pointerEvents: 'none',
                 }}>
-                  {mediaError}
+                  <ImageOff size={34} strokeWidth={1.5} />
+                  <span style={{ fontSize: '0.85rem' }}>{mediaError}</span>
                 </div>
               )}
               <div className="card-badge-container" style={{ zIndex: 3, pointerEvents: 'none' }}>
