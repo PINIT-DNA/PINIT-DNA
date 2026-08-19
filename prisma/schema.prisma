@@ -1166,6 +1166,17 @@ model ShareLink {
   torBlock                  Boolean            @default(true)
   vpnBlock                  Boolean            @default(false)
   watermarkCode             String?
+  /// Canonical Asset.id. ShareLink is otherwise keyed on vaultId/dnaRecordId;
+  /// this is the identity that crosses the Hub↔Exchange boundary and makes an
+  /// asset's full history answerable from one id.
+  assetId                   String?
+  /// "hub" (owner sharing their own vault file) | "exchange_license" (buyer
+  /// sharing a file they licensed on Exchange). Licensed shares are exempt from
+  /// the FEATURE_SMART_SHARE / FEATURE_TRACKING plan gates — the purchase paid for it.
+  sourceContext             String             @default("hub")
+  exchangeOrderId           String?
+  exchangeSealId            String?
+  licenseTier               String?
   forwardEvents             LinkForwardEvent[]
   accessLogs                ShareAccessLog[]
   blockedViewers            BlockedShareViewer[]
@@ -1182,6 +1193,8 @@ model ShareLink {
   @@index([parentLinkId])
   @@index([shareRecipientId])
   @@index([forwardStatus])
+  @@index([assetId])
+  @@index([exchangeSealId])
   @@map("share_links")
 }
 
@@ -1955,6 +1968,13 @@ enum AssetTimelineType {
   STATUS_CHANGE
   NOTE
   EXPORT_CAPTURE
+  /// Exchange lifecycle — keyed on Asset.id so an asset's commercial history
+  /// (listed → sold → shared → viewed) lives alongside its protection history.
+  LISTED
+  SOLD
+  SHARED
+  SHARE_VIEWED
+  SHARE_DOWNLOADED
 }
 
 /// Central aggregate for digital asset protection (image/video/document/audio).

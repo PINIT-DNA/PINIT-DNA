@@ -142,8 +142,55 @@ export async function sealExchangeSale(req: Request, res: Response, next: NextFu
       listingId: req.body?.listingId || req.body?.listing_id,
       buyerPinitId: req.body?.buyerPinitId || req.body?.buyer_pinit_id,
       licenseTier: req.body?.licenseTier || req.body?.license_tier,
+      sealId: req.body?.sealId || req.body?.seal_id,
     });
     res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /exchange/licensed-shares — creator visibility.
+ * Auth: Hub JWT. Returns shares of assets THIS owner owns, created by licensees.
+ */
+export async function listLicensedSharesForOwner(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const result = await exchangeBridgeService.getLicensedSharesForOwner(userId(req));
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /exchange/share/create — buyer shares a file they licensed on Exchange.
+ * Auth: X-PinIT-Bridge-Secret. Exchange verifies the caller owns the seal before
+ * calling; Hub creates the ShareLink so all access flows through Hub's existing
+ * share viewer and ShareAccessLog tracking.
+ */
+export async function createLicensedShareBridge(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    verifyServiceBridgeSecret(
+      (req.headers['x-pinit-bridge-secret'] as string | undefined) ||
+      (req.headers['x-exchange-bridge-secret'] as string | undefined),
+    );
+    const assetId = String(req.body?.assetId || req.body?.asset_id || '').trim();
+    const sealId = String(req.body?.sealId || req.body?.seal_id || '').trim();
+    const buyerPinitId = String(req.body?.buyerPinitId || req.body?.buyer_pinit_id || '').trim();
+    if (!assetId || !sealId || !buyerPinitId) {
+      res.status(400).json({ success: false, error: 'assetId, sealId and buyerPinitId are required' });
+      return;
+    }
+    const result = await exchangeBridgeService.createLicensedShare({
+      assetId,
+      sealId,
+      orderId: req.body?.orderId || req.body?.order_id,
+      buyerPinitId,
+      licenseTier: req.body?.licenseTier || req.body?.license_tier,
+      options: req.body?.options || {},
+    });
+    res.status(201).json({ success: true, ...result });
   } catch (err) {
     next(err);
   }

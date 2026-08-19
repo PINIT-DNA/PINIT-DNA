@@ -27,6 +27,36 @@ import { getAuthUserId } from '../../lib/tenant-scope';
 import { isSupabaseStorageConfigured } from '../../lib/supabase-storage';
 import { AppError } from '../middleware/error.middleware';
 
+/**
+ * Tracking gate that exempts Exchange licensed shares.
+ *
+ * A buyer who paid for a license has already paid for the visibility — requiring
+ * a separate Hub subscription to see their own share's activity would double-charge.
+ * Ordinary Hub shares still require FEATURE_TRACKING.
+ */
+export function requireTrackingUnlessLicensedShare(
+  gate: (req: Request, res: Response, next: NextFunction) => void | Promise<void>,
+) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const token = String(req.params['token'] || '').trim();
+      if (token) {
+        const link = await prisma.shareLink.findUnique({
+          where: { token },
+          select: { sourceContext: true },
+        });
+        if (link?.sourceContext === 'exchange_license') {
+          next();
+          return;
+        }
+      }
+      await gate(req, res, next);
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
 /** Parse GPS + address fields from share access POST body. */
 function parseAccessGps(body: Record<string, unknown>) {
   const b = body as {

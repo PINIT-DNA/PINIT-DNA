@@ -312,3 +312,35 @@ export async function fetchPreviewFromHub(vaultId) {
 }
 
 export { hubApiBase as HUB_API_BASE, bridgeSecret as BRIDGE_SECRET };
+
+/**
+ * Ask Hub to create a share link for a file the buyer licensed.
+ *
+ * Hub owns custody and tracking, so the ShareLink lives there and every view or
+ * download flows through Hub's existing share viewer + ShareAccessLog. Exchange
+ * must verify the caller owns the seal BEFORE calling this — the bridge secret
+ * authenticates the service, not the end user.
+ */
+export async function createLicensedShareOnHub({ assetId, sealId, orderId, buyerPinitId, licenseTier, options }) {
+  const secret = bridgeSecret();
+  if (!secret) {
+    const err = new Error('EXCHANGE_BRIDGE_SECRET not configured');
+    err.status = 503;
+    throw err;
+  }
+  const res = await fetch(`${hubApiBase()}/exchange/share/create`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-PinIT-Bridge-Secret': secret,
+    },
+    body: JSON.stringify({ assetId, sealId, orderId, buyerPinitId, licenseTier, options: options || {} }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.error || `Hub share creation failed (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}

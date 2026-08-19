@@ -9,7 +9,9 @@ import {
   toPaise,
 } from '../lib/pricing.js';
 import { createRazorpayOrder, isPaymentMockMode } from '../razorpay.js';
-import { forbidSellerCommerce, requireBuyer, requireSeller } from '../lib/rbac.js';
+import { forbidSellerCommerce, requireBuyer, requireSeller, pinitIdFromReq } from '../lib/rbac.js';
+import { exchangePreviewUrl, PLACEHOLDER_PREVIEW } from '../lib/preview-url.js';
+import { createLicensedShareOnHub } from '../hub-client.js';
 
 const router = express.Router();
 
@@ -17,16 +19,36 @@ function buyerKey(req) {
   return String(req.query.buyer_key || req.body?.buyer_key || req.headers['x-buyer-key'] || '').trim();
 }
 
+/**
+ * Cart/wishlist rows need the same preview the marketplace shows. `listings` has
+ * no preview_url column — it lives in hub_assets — so join it and derive the URL
+ * exactly as routes/listings.js does, otherwise the UI falls back to a stock
+ * placeholder that shows the wrong picture.
+ */
 function enrichListings(listingIds, cb) {
   if (!listingIds.length) return cb(null, []);
   const placeholders = listingIds.map(() => '?').join(',');
   db.all(
-    `SELECT l.*, COALESCE(u.name, 'Creator') as creator_name
+    `SELECT l.*,
+            COALESCE(u.name, 'Creator') as creator_name,
+            COALESCE(ha.preview_url, '') as cached_preview_url
      FROM listings l
      LEFT JOIN users u ON l.pinit_id = u.pinit_id
+     LEFT JOIN hub_assets ha ON l.asset_id = ha.asset_id
      WHERE l.listing_id IN (${placeholders})`,
     listingIds,
-    cb,
+    (err, rows) => {
+      if (err) return cb(err);
+      const enriched = (rows || []).map((row) => {
+        const out = {
+          ...row,
+          preview_url: exchangePreviewUrl(row.asset_id, row.cached_preview_url || PLACEHOLDER_PREVIEW),
+        };
+        delete out.cached_preview_url;
+        return out;
+      });
+      cb(null, enriched);
+    },
   );
 }
 
@@ -387,4 +409,49 @@ router.post('/coupons/validate', (req, res) => {
   });
 });
 
+/**
+ * POST /api/commerce/purchases/:sealId/share
+ *
+ * Buyer shares a file they licensed. Exchange proves the caller owns the seal,
+ * then Hub creates the ShareLink — Hub owns custody and all tracking, so no
+ * share/tracking state is duplicated here.
+ */
+router.post('/purchases/:sealId/share', (req, res) => {
+  const sealId = String(req.params.sealId || '').trim();
+  const callerPinitId = pinitIdFromReq(req);
+  if (!sealId) return res.status(400).json({ error: 'sealId required' });
+  if (!callerPinitId) return res.status(401).json({ error: 'pinit_id required' });
+
+  db.get('SELECT * FROM orders_sealed WHERE seal_id = ?', [sealId], async (err, order) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!order) return res.status(404).json({ error: 'Purchase not found' });
+
+    // Ownership: only the buyer on this seal may share it. Compared on the bare
+    // Pinit code so PINIT-EX-x and PINIT-x forms of the same identity match.
+    const code = (v) => String(v || '').trim().toUpperCase().split('-').pop();
+    if (code(order.buyer_pinit_id) !== code(callerPinitId)) {
+      return res.status(403).json({ error: 'This purchase does not belong to you' });
+    }
+    if (order.license_status && order.license_status !== 'active') {
+      return res.status(403).json({ error: 'License is not active' });
+    }
+
+    try {
+      const result = await createLicensedShareOnHub({
+        assetId: order.asset_id,
+        sealId: order.seal_id,
+        orderId: order.order_id,
+        buyerPinitId: order.buyer_pinit_id,
+        licenseTier: order.license_tier,
+        options: req.body?.options || {},
+      });
+      res.status(201).json({ ok: true, ...result });
+    } catch (e) {
+      console.error('[commerce/share]', e.message);
+      res.status(e.status || 502).json({ error: e.message || 'Could not create share link' });
+    }
+  });
+});
+
 export default router;
+

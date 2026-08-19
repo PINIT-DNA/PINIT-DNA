@@ -113,6 +113,103 @@ export function verifyServiceBridgeSecret(headerValue: string | undefined): void
   }
 }
 
+/**
+ * Resolve whatever identifier Exchange sent into the Hub's internal vault id.
+ *
+ * Asset.id is the canonical identity that crosses the Hub↔Exchange boundary —
+ * Exchange stores it in listings.asset_id and echoes it back on preview, sale
+ * and delivery calls. Hub owns custody, so translating Asset.id → VaultRecord.id
+ * is Hub's job and must not leak into Exchange.
+ *
+ * VaultRecord.id is still accepted because older rows (and the protect-upload
+ * bridge) put a vault id in asset_id. That fallback is transitional: the
+ * `via: 'vault'` log line shows how much legacy data is still in circulation.
+ */
+async function resolveVaultIdFromExchangeId(
+  incomingId: string,
+): Promise<{ vaultId: string; assetId: string | null; via: 'asset' | 'vault' } | null> {
+  const id = String(incomingId || '').trim();
+  if (!id) return null;
+
+  const asset = await prisma.asset.findUnique({
+    where: { id },
+    select: { id: true, vaultId: true },
+  });
+  if (asset?.vaultId) {
+    return { vaultId: asset.vaultId, assetId: asset.id, via: 'asset' };
+  }
+
+  const vault = await prisma.vaultRecord.findUnique({
+    where: { id },
+    select: { id: true },
+  });
+  if (vault) {
+    logger.warn('[Exchange:Bridge] Received a VaultRecord.id where an Asset.id is expected', {
+      vaultId: vault.id,
+      hint: 'legacy listing — Exchange should send Asset.id',
+    });
+    return { vaultId: vault.id, assetId: null, via: 'vault' };
+  }
+
+  // An Asset row with no vaultId (e.g. extension capture never vaulted) lands here too.
+  return null;
+}
+
+/** Hub-hosted share viewer URL. Share links are always served by Hub, never Exchange. */
+function buildHubShareUrl(token: string): string {
+  const base = (process.env['PUBLIC_APP_URL'] || process.env['HUB_APP_URL'] || 'http://localhost:3000')
+    .replace(/\/$/, '');
+  return `${base}/s/${token}`;
+}
+
+/** Resolve any Pinit ID form (PINIT-x / PINIT-USER-x / PINIT-EX-x) to a Hub user. */
+async function resolvePinitIdToUser(pinitIdRaw: string): Promise<{ id: string; shortId: string } | null> {
+  const rootId = toRootPinitId(pinitIdRaw) || String(pinitIdRaw || '').trim().toUpperCase();
+  const code = extractPinitCode(rootId);
+  if (!code) return null;
+  return prisma.user.findFirst({
+    where: {
+      shortId: { in: [`PINIT-${code}`, `PINIT-USER-${code}`, `PINIT-ORG-${code}`, `PINIT-EX-${code}`, rootId] },
+    },
+    select: { id: true, shortId: true },
+  });
+}
+
+/**
+ * Append to the canonical asset history. AssetTimelineEvent has a real FK to
+ * Asset, so this is what makes "everything that happened to this Asset.id"
+ * answerable in one query — previously Exchange wrote only vault-keyed
+ * PlatformEvents, leaving the commercial half unreachable from the asset.
+ *
+ * Best-effort: never fail the caller's business operation over an audit row.
+ */
+async function recordAssetTimelineEvent(input: {
+  assetId: string | null;
+  eventType: 'LISTED' | 'SOLD' | 'SHARED' | 'SHARE_VIEWED' | 'SHARE_DOWNLOADED';
+  title: string;
+  detail?: string;
+  payload?: Record<string, unknown>;
+}): Promise<void> {
+  if (!input.assetId) return;
+  try {
+    await prisma.assetTimelineEvent.create({
+      data: {
+        assetId: input.assetId,
+        eventType: input.eventType,
+        title: input.title,
+        detail: input.detail ?? null,
+        payload: (input.payload ?? undefined) as never,
+      },
+    });
+  } catch (err) {
+    logger.warn('[Exchange:Bridge] Asset timeline event skipped (non-fatal)', {
+      assetId: input.assetId,
+      eventType: input.eventType,
+      error: String(err),
+    });
+  }
+}
+
 async function loadOwnedVault(vaultId: string, ownerUserId: string) {
   const vault = await prisma.vaultRecord.findUnique({
     where: { id: vaultId },
@@ -488,8 +585,12 @@ export const exchangeBridgeService = {
     exchangeUrl?: string;
     status?: string;
   }) {
+    const resolvedListing = await resolveVaultIdFromExchangeId(input.vaultId);
+    if (!resolvedListing) {
+      throw new AppError(404, 'Vault asset not found in Hub');
+    }
     const vault = await prisma.vaultRecord.findUnique({
-      where: { id: input.vaultId },
+      where: { id: resolvedListing.vaultId },
       include: { dnaRecord: { select: { ownerUserId: true, id: true } } },
     });
     if (!vault?.dnaRecord?.ownerUserId) {
@@ -524,6 +625,19 @@ export const exchangeBridgeService = {
       },
     });
 
+    await recordAssetTimelineEvent({
+      assetId: resolvedListing.assetId,
+      eventType: 'LISTED',
+      title: 'Listed on Pinit Exchange',
+      detail: `Listing ${input.listingId}`,
+      payload: {
+        listingId: input.listingId,
+        pinitId: input.pinitId,
+        status: input.status || 'live',
+        listingUrl,
+      },
+    });
+
     return {
       ok: true,
       vaultId: vault.id,
@@ -539,16 +653,26 @@ export const exchangeBridgeService = {
     listingId?: string;
     buyerPinitId?: string;
     licenseTier?: string;
+    /** Exchange's seal id — persisted rather than minting a second, unjoinable one. */
+    sealId?: string;
   }) {
+    const resolvedSale = await resolveVaultIdFromExchangeId(input.vaultId);
+    if (!resolvedSale) {
+      throw new AppError(404, 'Vault asset not found in Hub');
+    }
     const vault = await prisma.vaultRecord.findUnique({
-      where: { id: input.vaultId },
+      where: { id: resolvedSale.vaultId },
       include: { dnaRecord: { select: { ownerUserId: true } } },
     });
     if (!vault?.dnaRecord?.ownerUserId) {
       throw new AppError(404, 'Vault asset not found in Hub');
     }
 
-    const sealId = `SEAL-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+    // Prefer Exchange's seal id. Minting a second one here produced two ids for
+    // one sale (Hub SEAL-0DC71194 vs Exchange SEAL-490522) that could never be
+    // joined; only fall back to minting when Exchange sends none.
+    const sealId = input.sealId?.trim()
+      || `SEAL-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 
     await prisma.platformEvent.create({
       data: {
@@ -570,6 +694,20 @@ export const exchangeBridgeService = {
           licenseTier: input.licenseTier ?? null,
           sealId,
         },
+      },
+    });
+
+    await recordAssetTimelineEvent({
+      assetId: resolvedSale.assetId,
+      eventType: 'SOLD',
+      title: 'Licensed on Pinit Exchange',
+      detail: `Order ${input.orderId}${input.licenseTier ? ` · ${input.licenseTier}` : ''}`,
+      payload: {
+        orderId: input.orderId,
+        sealId,
+        listingId: input.listingId ?? null,
+        buyerPinitId: input.buyerPinitId ?? null,
+        licenseTier: input.licenseTier ?? null,
       },
     });
 
@@ -706,8 +844,22 @@ export const exchangeBridgeService = {
     });
     const badge = badgeFromAnalysis(dna?.fileAnalysis);
 
+    // asset_id must be the canonical Asset.id, never the vault id — Exchange
+    // stores this in listings.asset_id and it becomes the join key for every
+    // order, payment, earning and refund downstream.
+    const protectedAsset = await prisma.asset.findFirst({
+      where: { vaultId: vaultResult.vaultId },
+      select: { id: true },
+    });
+    if (!protectedAsset) {
+      logger.warn('[Exchange:Bridge] protect-upload produced no Asset row', {
+        vaultId: vaultResult.vaultId,
+        hint: 'falling back to vaultId as asset_id — listing will need repair',
+      });
+    }
+
     return {
-      asset_id: vaultResult.vaultId,
+      asset_id: protectedAsset?.id ?? vaultResult.vaultId,
       vault_id: vaultResult.vaultId,
       dna_record_id: vaultResult.dnaRecordId,
       title: vaultResult.originalFileName || input.originalName,
@@ -726,10 +878,161 @@ export const exchangeBridgeService = {
   },
 
   /**
+   * Buyer-initiated share of a file they licensed on Exchange.
+   *
+   * Hub owns custody and tracking, so the ShareLink lives here and every access
+   * flows through the existing share viewer + ShareAccessLog pipeline — no
+   * Exchange-side tracking is built or duplicated.
+   *
+   * Authorisation: Exchange verifies the caller owns the seal before calling and
+   * the bridge secret authenticates the service. Hub additionally requires the
+   * assetId to resolve to real custody. The buyer is intentionally NOT the vault
+   * owner, which is why shareLinkService skips its owner assertion for
+   * sourceContext === 'exchange_license'.
+   */
+  async createLicensedShare(input: {
+    assetId: string;
+    sealId: string;
+    orderId?: string;
+    buyerPinitId: string;
+    licenseTier?: string;
+    options?: {
+      expiresIn?: number | null;
+      maxViews?: number | null;
+      allowDownload?: boolean;
+      requireName?: boolean;
+      note?: string;
+      requireOtp?: boolean;
+      recipientEmail?: string;
+    };
+  }) {
+    const resolved = await resolveVaultIdFromExchangeId(input.assetId);
+    if (!resolved) {
+      throw new AppError(404, 'Asset not found in Hub');
+    }
+
+    const buyer = await resolvePinitIdToUser(input.buyerPinitId);
+    if (!buyer) {
+      throw new AppError(404, 'No Pinit HUB account found for this buyer Pinit ID');
+    }
+
+    const { shareLinkService } = await import('../share/share-link.service');
+    const opts = input.options ?? {};
+    const created = await shareLinkService.create({
+      vaultId: resolved.vaultId,
+      ownerUserId: buyer.id,
+      assetId: resolved.assetId ?? input.assetId,
+      sourceContext: 'exchange_license',
+      exchangeSealId: input.sealId,
+      exchangeOrderId: input.orderId,
+      licenseTier: input.licenseTier,
+      expiresIn: opts.expiresIn ?? null,
+      maxViews: opts.maxViews ?? null,
+      allowDownload: opts.allowDownload ?? false,
+      requireName: opts.requireName ?? false,
+      note: opts.note,
+      requireOtp: opts.requireOtp ?? false,
+      recipientEmail: opts.recipientEmail,
+    });
+
+    await recordAssetTimelineEvent({
+      assetId: resolved.assetId,
+      eventType: 'SHARED',
+      title: 'Shared by licensee',
+      detail: `${input.licenseTier ? `${input.licenseTier} license` : 'Licensed'} · seal ${input.sealId}`,
+      payload: {
+        sealId: input.sealId,
+        orderId: input.orderId ?? null,
+        buyerPinitId: input.buyerPinitId,
+        licenseTier: input.licenseTier ?? null,
+        shareToken: created.token,
+      },
+    });
+
+    logger.info('[Exchange:Bridge] Licensed share created', {
+      assetId: resolved.assetId,
+      sealId: input.sealId,
+      buyerUserId: buyer.id,
+      token: created.token,
+    });
+
+    return {
+      token: created.token,
+      shareUrl: buildHubShareUrl(created.token),
+      expiresAt: created.expiresAt ?? null,
+      allowDownload: created.allowDownload,
+    };
+  },
+
+  /**
+   * Creator visibility: shares of MY assets created by licensees.
+   *
+   * Returns activity (counts, geo, timeline) — never the licensee's personal
+   * data. Scoped by vault ownership, so a creator can only ever see shares of
+   * assets they actually own.
+   */
+  async getLicensedSharesForOwner(ownerUserId: string) {
+    // ShareLink stores a plain vaultId (no FK relation), so scope by the vaults
+    // this owner actually owns rather than trusting any client-supplied id.
+    const ownedVaults = await prisma.vaultRecord.findMany({
+      where: { dnaRecord: { ownerUserId } },
+      select: { id: true },
+    });
+    if (ownedVaults.length === 0) return { shares: [] };
+
+    const links = await prisma.shareLink.findMany({
+      where: {
+        sourceContext: 'exchange_license',
+        vaultId: { in: ownedVaults.map((v) => v.id) },
+      },
+      select: {
+        token: true,
+        assetId: true,
+        filename: true,
+        licenseTier: true,
+        exchangeSealId: true,
+        exchangeOrderId: true,
+        viewCount: true,
+        downloadCount: true,
+        isActive: true,
+        expiresAt: true,
+        createdAt: true,
+        _count: { select: { accessLogs: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+
+    return {
+      shares: links.map((l) => ({
+        token: l.token,
+        assetId: l.assetId,
+        filename: l.filename,
+        licenseTier: l.licenseTier,
+        sealId: l.exchangeSealId,
+        orderId: l.exchangeOrderId,
+        viewCount: l.viewCount,
+        downloadCount: l.downloadCount,
+        accessCount: l._count.accessLogs,
+        isActive: l.isActive,
+        expiresAt: l.expiresAt,
+        createdAt: l.createdAt,
+      })),
+    };
+  },
+
+  /**
    * Marketplace/list preview — decrypt vault as owner for Exchange bridge proxy.
    * Does not re-embed download identity (preview-only).
    */
-  async getMarketplacePreview(vaultId: string) {
+  async getMarketplacePreview(incomingId: string) {
+    // Exchange sends listings.asset_id (canonical Asset.id); resolve to custody.
+    const resolved = await resolveVaultIdFromExchangeId(incomingId);
+    if (!resolved) {
+      throw new AppError(404, 'Vault asset not found in Hub');
+    }
+    const vaultId = resolved.vaultId;
+
     const vault = await prisma.vaultRecord.findUnique({
       where: { id: vaultId },
       include: {
@@ -759,8 +1062,12 @@ export const exchangeBridgeService = {
     buyerEmail?: string;
     licenseTier?: string;
   }) {
+    const resolvedDelivery = await resolveVaultIdFromExchangeId(input.vaultId);
+    if (!resolvedDelivery) {
+      throw new AppError(404, 'Vault asset not found in Hub');
+    }
     const vault = await prisma.vaultRecord.findUnique({
-      where: { id: input.vaultId },
+      where: { id: resolvedDelivery.vaultId },
       include: {
         dnaRecord: {
           select: {

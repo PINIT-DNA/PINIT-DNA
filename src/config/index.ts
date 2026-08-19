@@ -114,11 +114,23 @@ export const config = {
   biometric: {
     encryptionKey: optional('BIOMETRIC_ENCRYPTION_KEY', optional('VAULT_MASTER_SECRET', 'dev_biometric_key_change_in_prod')),
     thresholds: {
-      // face-api.js L2 on normalized 128-d: same person ~0.25–0.45; strangers often ≥0.55.
-      // 0.62 was too loose and caused wrong-face logins with a small registry.
-      faceLogin: parseFloat(optional('BIOMETRIC_FACE_LOGIN_THRESHOLD', '0.48')),
-      // Same as login — 1:N enroll uniqueness. A hit rejects registration (sign in instead).
-      faceDuplicate: parseFloat(optional('BIOMETRIC_FACE_DUPLICATE_THRESHOLD', '0.48')),
+      // face-api.js L2 on normalized 128-d.
+      //
+      // Measured on this deployment (2026-08-19), not theoretical:
+      //   same person, own enrolled face .......... 0.137
+      //   different person vs that same face ...... 0.375, 0.471
+      //
+      // At the previous 0.48 both strangers fell UNDER the threshold, which
+      // (a) blocked real teammates from registering — they were reported as
+      // duplicates of an existing account — and (b) meant a stranger holding
+      // someone's Pinit ID was inside the 1:1 login threshold too.
+      //
+      // 0.33 sits between the observed same-person and different-person bands.
+      // Revisit with more samples across lighting/angles: too tight and a
+      // badly-lit capture of the legitimate owner starts failing login.
+      faceLogin: parseFloat(optional('BIOMETRIC_FACE_LOGIN_THRESHOLD', '0.33')),
+      // Same value — 1:N enroll uniqueness. A hit rejects registration (sign in instead).
+      faceDuplicate: parseFloat(optional('BIOMETRIC_FACE_DUPLICATE_THRESHOLD', '0.33')),
       // Best match must beat 2nd-best by this margin when ≥2 templates exist.
       faceLoginMargin: parseFloat(optional('BIOMETRIC_FACE_LOGIN_MARGIN', '0.08')),
       voiceLogin: parseFloat(optional('BIOMETRIC_VOICE_LOGIN_THRESHOLD', '0.45')),
