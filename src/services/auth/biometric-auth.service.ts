@@ -356,10 +356,13 @@ async function loadAllVoiceTemplates(db: Db = prisma): Promise<Array<{ userId: s
 }
 
 /**
- * 1:N voice enroll search — mirrors findMatchingFace exactly. Voice is a secondary
- * factor (face is the primary identity anchor), but a hit here still rejects the
- * whole registration — see register()'s transaction, which rolls back everything
- * on a voice-duplicate hit, not just the voice template.
+ * 1:N voice enroll search. Its caller in register() logs a hit but no longer
+ * rejects on it — voice-fingerprint.ts derives the template from an averaged
+ * FFT spectrum, not a trained speaker embedding, so it mostly encodes mic/room
+ * acoustics and produced a confirmed false-positive collision between two
+ * different real people in production (2026-08-19). Face is the sole
+ * uniqueness gate until voice capture uses real speaker-discriminative
+ * features.
  */
 async function findMatchingVoice(
   voice: number[],
@@ -679,9 +682,23 @@ export const biometricAuthService = {
       const dupFace = await findMatchingFace(faceNorm, tx);
       if (dupFace) throw new DuplicateFaceError(dupFace);
 
+      // Voice is captured for storage/fusion but no longer blocks registration on
+      // its own. voice-fingerprint.ts derives the template from an averaged FFT
+      // spectrum, not a trained speaker embedding, so it mostly encodes mic/room
+      // acoustics — two different people recorded on the same device can land
+      // well inside the duplicate threshold (confirmed in production: 0.0459
+      // between two different speakers, see incident 2026-08-19). Face is the
+      // proven-reliable signal (real measured separation: 0.137 same person vs
+      // 0.375+ different people) and stays the sole uniqueness gate. A voice
+      // collision is still logged for visibility, not silently dropped.
       if (voiceNorm) {
         const dupVoice = await findMatchingVoice(voiceNorm, tx);
-        if (dupVoice) throw new DuplicateVoiceError(dupVoice);
+        if (dupVoice) {
+          logger.warn('[Auth:Register] Voice collided with an existing account — not blocking (voice is advisory only)', {
+            existingShortId: dupVoice.shortId,
+            distance: Number(dupVoice.distance.toFixed(4)),
+          });
+        }
       }
 
       if (rawCredentialId && await credentialIdOwnedByOtherUser(rawCredentialId, undefined, tx)) {

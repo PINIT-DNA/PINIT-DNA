@@ -2,8 +2,9 @@
  * The orphan-account regression test. attachPendingPasskey used to run AFTER
  * the user-creation transaction committed, so a failed attach left a credential-
  * less account behind. Now the attach is inside the same transaction as
- * everything else, so any failure — duplicate face, duplicate voice, a bad
- * passkey token — must roll back the ENTIRE registration, leaving zero rows.
+ * everything else, so any failure — duplicate face, a bad passkey token — must
+ * roll back the ENTIRE registration, leaving zero rows. Voice is no longer a
+ * blocking factor (see biometric-auth.service.ts's findMatchingVoice caller).
  *
  * Requires DATABASE_URL_TEST. Skips cleanly if unset.
  */
@@ -55,7 +56,13 @@ run('no orphan rows on any registration failure path', () => {
     expect(await countRows('webauthn_credentials')).toBe(1);
   }, 30_000);
 
-  it('voice duplicate: face is new but voice collides — the whole registration is rejected, zero rows', async () => {
+  it('voice collision alone no longer blocks registration — face is the sole uniqueness gate', async () => {
+    // voice-fingerprint.ts derives the template from an averaged FFT spectrum, not
+    // a trained speaker embedding, so it mostly encodes mic/room acoustics rather
+    // than the speaker — confirmed in production, two different people recorded on
+    // the same device landed at 0.0459 apart (incident 2026-08-19). Voice is
+    // captured and stored but must not reject registration on its own; only face
+    // (proven separated: 0.137 same person vs 0.375+ different people) does.
     const first = await biometricAuthService.register({
       faceEmbedding: fakeEmbedding(20),
       voiceFingerprint: fakeEmbedding(21),
@@ -70,12 +77,10 @@ run('no orphan rows on any registration failure path', () => {
       padEvidence: freshLivePadEvidence(),
       passkeyPendingToken: freshPasskeyToken('cred-orphan-voice-2'),
     });
-    expect(second.ok).toBe(false);
-    // Only the first account exists — the voice-duplicate rejection did not
-    // leave behind a face-only/credential-only partial account for the second face.
-    expect(await countRows('users')).toBe(1);
-    expect(await countRows('face_templates')).toBe(1);
-    expect(await countRows('voice_templates')).toBe(1);
+    expect(second.ok).toBe(true);
+    expect(await countRows('users')).toBe(2);
+    expect(await countRows('face_templates')).toBe(2);
+    expect(await countRows('voice_templates')).toBe(2);
   }, 30_000);
 
   it('garbage passkey token fails the pre-tx shape check — throws, zero rows created', async () => {
