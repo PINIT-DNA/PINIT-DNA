@@ -6,7 +6,7 @@ export default function MyLicenses({ user, onViewCertificate }) {
   const [loading, setLoading] = useState(true);
   /** Licence currently being shared (null = modal closed). */
   const [shareFor, setShareFor] = useState(null);
-  const [shareOpts, setShareOpts] = useState({ expiresIn: '', maxViews: '', allowDownload: false, requireName: false });
+  const [shareOpts, setShareOpts] = useState({ expiresIn: '', maxViews: '', allowDownload: false, requireName: false, requestLocation: false });
   const [shareBusy, setShareBusy] = useState(false);
   const [shareResult, setShareResult] = useState(null);
   const [shareError, setShareError] = useState('');
@@ -56,7 +56,7 @@ export default function MyLicenses({ user, onViewCertificate }) {
 
   const openShare = (lic) => {
     setShareFor(lic);
-    setShareOpts({ expiresIn: '', maxViews: '', allowDownload: false, requireName: false });
+    setShareOpts({ expiresIn: '', maxViews: '', allowDownload: false, requireName: false, requestLocation: false });
     setShareResult(null);
     setShareError('');
     setCopied(false);
@@ -80,6 +80,7 @@ export default function MyLicenses({ user, onViewCertificate }) {
             maxViews: shareOpts.maxViews ? Number(shareOpts.maxViews) : null,
             allowDownload: shareOpts.allowDownload,
             requireName: shareOpts.requireName,
+            requestLocation: shareOpts.requestLocation,
           },
         }),
       });
@@ -286,6 +287,16 @@ export default function MyLicenses({ user, onViewCertificate }) {
                     />
                     Ask the recipient for their name
                   </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    <input
+                      type="checkbox" checked={shareOpts.requestLocation}
+                      onChange={(e) => setShareOpts((s) => ({ ...s, requestLocation: e.target.checked }))}
+                    />
+                    Ask the recipient for precise location (GPS)
+                  </label>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '-4px 0 0 26px' }}>
+                    Without this only approximate city/ISP location from the IP address is recorded.
+                  </p>
                 </div>
 
                 {shareError && (

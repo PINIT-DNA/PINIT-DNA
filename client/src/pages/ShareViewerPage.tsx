@@ -12,7 +12,6 @@ import { useParams } from 'react-router-dom';
 import { Shield, Lock, Download, Eye, AlertTriangle, CheckCircle2, Clock, Ban, Share2, Copy } from 'lucide-react';
 import axios from 'axios';
 import { format } from 'date-fns';
-import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../config/api.config';
 import { stripPinitProtectionTailsForDisplay } from '../lib/strip-pinit-tails';
 import { isValidMapCoordinate } from '../lib/geo-coords';
@@ -188,10 +187,6 @@ export function ShareViewerPage() {
   const [unmaskStatus, setUnmaskStatus]       = useState<'NONE'|'PENDING'|'APPROVED'|'REJECTED'>('NONE');
   const [unmaskRequesting, setUnmaskRequesting] = useState(false);
   const [_unmaskRequestId, setUnmaskRequestId] = useState<string | null>(null);
-  const [ownerMsg, setOwnerMsg] = useState('');
-  const [ownerMsgSending, setOwnerMsgSending] = useState(false);
-  const [ownerMsgSent, setOwnerMsgSent] = useState(false);
-  const [ownerReply, setOwnerReply] = useState<string | null>(null);
 
   useEffect(() => { gpsDataRef.current = gpsData; }, [gpsData]);
 
@@ -458,15 +453,17 @@ export function ShareViewerPage() {
         track('COPY_ATTEMPT');
       }
 
-      // Screenshot shortcuts — PrintScreen (often only fires on keyup on
-      // Windows), Win+Shift+S, Win+PrtScn, Mac Cmd+Shift+3/4/5, DevTools
+      // Screenshot shortcuts ONLY — an actual screen-capture key combination.
+      //
+      // Deliberately NOT treated as screenshots (they were, and produced false
+      // "screenshot attempt" entries against viewers who never took one):
+      //   F12 / Ctrl+Shift+I  → DevTools, a different action entirely
+      //   Ctrl+Shift+S        → not a Windows capture shortcut (that is Win+Shift+S,
+      //                         which arrives as metaKey+shift+s and is matched below)
       const isScreenshot =
         e.key === 'PrintScreen' ||
-        (e.metaKey && e.shiftKey && ['3', '4', '5', 's'].includes(key)) || // Mac
-        (e.ctrlKey && e.shiftKey && key === 's') ||                         // Win Snipping (older)
-        (e.metaKey && key === 'printscreen') ||                             // Win+PrtScn
-        (e.key === 'F12') ||                                                // DevTools
-        ((e.ctrlKey || e.metaKey) && e.shiftKey && key === 'i');            // DevTools (Ctrl+Shift+I)
+        (e.metaKey && e.shiftKey && ['3', '4', '5', 's'].includes(key)) || // Mac Cmd+Shift+3/4/5, Win+Shift+S
+        (e.metaKey && key === 'printscreen');                              // Win+PrtScn
       if (isScreenshot && now - screenshotCooldown.last > 1000) {
         screenshotCooldown.last = now;
         track('SCREENSHOT_ATTEMPT');
@@ -493,26 +490,18 @@ export function ShareViewerPage() {
     };
     document.addEventListener('visibilitychange', onVisibility);
 
-    // ── Win+PrtSc heuristic: OS-level screenshot causes a very brief window
-    //    blur (<100 ms). Clipboard operations (Ctrl+C) take longer (>150ms),
-    //    so we use a tight 100ms window to avoid false positives from copy.
-    //    Also skip if a copy was recorded in the last 600ms.
-    let blurAt = 0;
-    const onWinBlur = () => { blurAt = Date.now(); };
-    const onWinFocus = () => {
-      const elapsed = Date.now() - blurAt;
-      const copyJustFired = copyCooldown.last > 0 && (Date.now() - copyCooldown.last) < 600;
-      if (blurAt > 0 && elapsed < 100 && !copyJustFired) {
-        const now = Date.now();
-        if (now - screenshotCooldown.last > 1000) {
-          screenshotCooldown.last = now;
-          track('SCREENSHOT_ATTEMPT');
-        }
-      }
-      blurAt = 0;
-    };
-    window.addEventListener('blur', onWinBlur);
-    window.addEventListener('focus', onWinFocus);
+    // ── Removed: the "brief window blur = OS screenshot" heuristic.
+    //
+    // A sub-100ms blur/focus cycle is produced by far more than screen capture:
+    // alt-tabbing, a notification toast stealing focus, clicking browser chrome,
+    // an OS dialog, even normal focus churn. It cannot distinguish those from a
+    // screenshot, so it reported SCREENSHOT_ATTEMPT against viewers who never
+    // took one — and those false hits then fed "multiple suspicious attempts"
+    // and "high event velocity", inflating the risk score off a single bad signal.
+    //
+    // Only real capture keystrokes are recorded now (see isScreenshot above).
+    // Genuine OS-level captures that emit no key event are simply not detectable
+    // from a web page; claiming otherwise is worse than not reporting it.
 
     // ── Print detection ───────────────────────────────────────────────────
     // `beforeprint` doesn't fire reliably in every browser for Ctrl+P —
@@ -533,8 +522,6 @@ export function ShareViewerPage() {
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('keyup', onKeyUp);
       document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('blur', onWinBlur);
-      window.removeEventListener('focus', onWinFocus);
       window.removeEventListener('beforeprint', onPrint);
       mql?.removeEventListener?.('change', onPrintMql);
       if (idleTimer) clearTimeout(idleTimer);
@@ -737,38 +724,7 @@ export function ShareViewerPage() {
     finally { setUnmaskRequesting(false); }
   };
 
-  const handleSendOwnerMessage = async () => {
-    const text = ownerMsg.trim();
-    if (!text || ownerMsgSending) return;
-    setOwnerMsgSending(true);
-    try {
-      const sid = getSessionId();
-      await axios.post(`${API_BASE_URL}/share/${token}/messages`, {
-        body: text,
-        senderName: name || undefined,
-        sessionId: sid,
-      });
-      setOwnerMsg('');
-      setOwnerMsgSent(true);
-      toast.success('Message sent to the owner');
-    } catch {
-      toast.error('Could not send message — try again');
-    } finally { setOwnerMsgSending(false); }
-  };
 
-  useEffect(() => {
-    if (!token || !info?.isActive) return;
-    const sid = getSessionId();
-    axios
-      .get(`${API_BASE_URL}/share/${token}/messages/mine?sessionId=${encodeURIComponent(sid)}`)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .then(({ data }: { data: any }) => {
-        const msgs = data?.messages ?? [];
-        const withReply = msgs.find((m: { ownerReply?: string | null }) => m.ownerReply);
-        if (withReply?.ownerReply) setOwnerReply(withReply.ownerReply);
-      })
-      .catch(() => undefined);
-  }, [token, info?.isActive, ownerMsgSent]);
 
   // ── Render DOCX inline using docx-preview ─────────────────────────────────
   const docxContainerRef = useRef<HTMLDivElement>(null);
@@ -1385,34 +1341,9 @@ export function ShareViewerPage() {
         </svg>
       </div>
 
-      {/* Message owner */}
-      {info.isActive && (
-        <div className="print-hide border-t border-bg-border bg-bg-card px-4 py-3 space-y-2">
-          <p className="text-xs font-semibold text-white">Message the owner</p>
-          <p className="text-2xs text-gray-500">Ask a question or leave a note about this shared file.</p>
-          {ownerReply && (
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
-              Owner reply: {ownerReply}
-            </div>
-          )}
-          <textarea
-            value={ownerMsg}
-            onChange={(e) => setOwnerMsg(e.target.value)}
-            rows={2}
-            maxLength={2000}
-            placeholder="Write a short message…"
-            className="w-full rounded-xl bg-bg-elevated border border-bg-border px-3 py-2 text-sm text-white placeholder:text-gray-600"
-          />
-          <button
-            type="button"
-            disabled={!ownerMsg.trim() || ownerMsgSending}
-            onClick={() => void handleSendOwnerMessage()}
-            className="btn btn-secondary btn-sm disabled:opacity-50"
-          >
-            {ownerMsgSending ? 'Sending…' : ownerMsgSent ? 'Sent' : 'Send message'}
-          </button>
-        </div>
-      )}
+      {/* Viewer shows the file only — the message-the-owner composer was removed.
+          The server-side messaging endpoints (/share/:token/messages) are untouched,
+          so the feature can be reinstated by re-adding the UI. */}
 
       {/* Footer */}
       <div className="bg-bg-card border-t border-bg-border px-4 py-2 flex items-center justify-between">

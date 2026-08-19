@@ -913,6 +913,8 @@ export const exchangeBridgeService = {
       note?: string;
       requireOtp?: boolean;
       recipientEmail?: string;
+      /** Prompt the viewer for GPS. Without this only IP-approximate geo is captured. */
+      requestLocation?: boolean;
     };
   }) {
     const resolved = await resolveVaultIdFromExchangeId(input.assetId);
@@ -942,6 +944,7 @@ export const exchangeBridgeService = {
       note: opts.note,
       requireOtp: opts.requireOtp ?? false,
       recipientEmail: opts.recipientEmail,
+      requestLocation: opts.requestLocation ?? false,
     });
 
     await recordAssetTimelineEvent({
