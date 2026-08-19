@@ -97,6 +97,18 @@ export const config = {
     rpName: optional('WEBAUTHN_RP_NAME', 'PINIT'),
     rpID: optional('WEBAUTHN_RP_ID', 'localhost'),
     origin: optional('WEBAUTHN_ORIGIN', 'http://localhost:3000'),
+    /**
+     * When false, the "fingerprint" step is a placeholder: no passkey is required
+     * to register or log in, and none is enrolled. Authentication then rests on
+     * face (+ optional voice) alone — the device-possession factor is GONE.
+     *
+     * Passkeys are bound to one domain by design, so a credential enrolled on
+     * localhost cannot be used on the deployed site; this flag exists so the
+     * flow stays usable across environments until per-domain enrollment is built.
+     *
+     * Set WEBAUTHN_REQUIRE_PASSKEY=true to restore real WebAuthn verification.
+     */
+    requirePasskey: optional('WEBAUTHN_REQUIRE_PASSKEY', 'false').toLowerCase() === 'true',
   },
 
   biometric: {

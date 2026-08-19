@@ -19,7 +19,24 @@ interface BiometricStepProps {
   onError?: (msg: string) => void;
 }
 
-/** Real WebAuthn / passkey — platform fingerprint, face, or PIN. No simulated hashes. */
+/**
+ * Passkey step. Two modes:
+ *
+ *  - Real WebAuthn (VITE_REQUIRE_PASSKEY=true): platform fingerprint/face/PIN,
+ *    no simulated hashes. Must be paired with WEBAUTHN_REQUIRE_PASSKEY=true on
+ *    the server, which is what actually enforces it.
+ *
+ *  - Placeholder (default): shows the verification state, then auto-advances
+ *    without touching the authenticator. No fake credential is created or sent —
+ *    the step simply carries no device factor. Exists because passkeys are bound
+ *    to a single domain, so one enrolled on localhost cannot be used on the
+ *    deployed site.
+ */
+const REQUIRE_PASSKEY =
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (((import.meta as any).env as Record<string, string | undefined>)['VITE_REQUIRE_PASSKEY'] ?? '')
+    .trim().toLowerCase() === 'true';
+
 export function BiometricStep({
   mode,
   claimedShortId,
@@ -69,6 +86,20 @@ export function BiometricStep({
     }
   }
 
+  /** Placeholder path — brief verification state, then continue. No credential. */
+  useEffect(() => {
+    if (REQUIRE_PASSKEY) return;
+    setPhase('scanning');
+    setProgress(8);
+    const finish = setTimeout(() => {
+      setProgress(100);
+      setDone(true);
+      setPhase('idle');
+      setTimeout(() => onDoneRef.current({ ok: true, credentialId: '', simulated: false }), 260);
+    }, 900);
+    return () => clearTimeout(finish);
+  }, []);
+
   return (
     <div className="pa-card" style={{ textAlign: 'center' }}>
       <StepHead
@@ -106,7 +137,7 @@ export function BiometricStep({
           </button>
         </div>
       )}
-      {phase === 'idle' && !done && (
+      {REQUIRE_PASSKEY && phase === 'idle' && !done && (
         <button type="button" className="pa-btn" style={{ marginTop: 12 }} onClick={() => void run()}>
           <Fingerprint size={16} /> Continue
         </button>

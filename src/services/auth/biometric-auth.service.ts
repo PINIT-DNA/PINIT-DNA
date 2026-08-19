@@ -614,9 +614,19 @@ export const biometricAuthService = {
       throw new AppError(403, padDenyMessage(pad.verdict, pad.reasons), { pad: pad.verdict });
     }
 
-    const pendingOk = assertPendingPasskey(passkeyPendingToken);
-    if (!pendingOk.ok) {
-      throw new AppError(403, pendingOk.message, { reason: pendingOk.reason });
+    // Passkey (the "fingerprint" step) is a placeholder unless explicitly required.
+    // See config.webauthn.requirePasskey — with it off, no credential is demanded
+    // or enrolled, and identity rests on face (+ optional voice) alone.
+    const passkeyRequired = config.webauthn.requirePasskey;
+    if (passkeyRequired) {
+      const pendingOk = assertPendingPasskey(passkeyPendingToken);
+      if (!pendingOk.ok) {
+        throw new AppError(403, pendingOk.message, { reason: pendingOk.reason });
+      }
+    } else {
+      logger.warn('[Auth:Register] Passkey step is a placeholder — device-possession factor not enforced', {
+        hint: 'set WEBAUTHN_REQUIRE_PASSKEY=true to restore real WebAuthn',
+      });
     }
 
     const faceNorm = normalizeEmbedding(faceEmbedding);
@@ -756,12 +766,18 @@ export const biometricAuthService = {
       // HTTP round trip before register() was ever called — passkeyPendingToken is
       // its already-verified result. Only the DB write is left, and it now runs
       // inside this same transaction: if it fails, everything above rolls back too.
-      const attached = await attachPendingPasskey(passkeyPendingToken, u.id, tx);
-      if (!attached.ok) {
-        throw new PasskeyAttachError(attached.message, attached.reason);
+      // Skipped entirely when the passkey step is a placeholder — nothing fake is
+      // ever written to webauthn_credentials.
+      let attachedCredentialId: string | undefined;
+      if (passkeyRequired) {
+        const attached = await attachPendingPasskey(passkeyPendingToken, u.id, tx);
+        if (!attached.ok) {
+          throw new PasskeyAttachError(attached.message, attached.reason);
+        }
+        attachedCredentialId = attached.credentialId;
       }
 
-      return { user: u, attachedCredentialId: attached.credentialId };
+      return { user: u, attachedCredentialId };
     }, { timeout: 20_000, maxWait: 10_000 });
 
     let result: Awaited<ReturnType<typeof attempt>> | undefined;
@@ -834,10 +850,12 @@ export const biometricAuthService = {
         detail: { shortId: user.shortId, modelVersion: VOICE_MODEL_VERSION },
       });
     }
-    await logSecurityEvent('WEBAUTHN_REGISTERED', {
-      userId: user.id, ip, userAgent,
-      detail: { shortId: user.shortId, credentialId: attachedCredentialId },
-    });
+    if (attachedCredentialId) {
+      await logSecurityEvent('WEBAUTHN_REGISTERED', {
+        userId: user.id, ip, userAgent,
+        detail: { shortId: user.shortId, credentialId: attachedCredentialId },
+      });
+    }
 
     try {
       const { subscriptionService } = await import('../subscription');
@@ -967,13 +985,24 @@ export const biometricAuthService = {
 
     let boundCredentialId: string | undefined;
     const existingPasskeyCount = await countWebAuthnByUserId(verifiedUserId);
-    const passkeyPath = decideLoginPasskeyPath({
-      hasWebauthnSession: Boolean(webauthnSession),
-      hasPendingToken: Boolean(passkeyPendingToken),
-      existingPasskeyCount,
-    });
+    // Placeholder mode: no passkey is demanded. Accounts that DO hold a real
+    // credential still verify it when the client supplies one, so enabling this
+    // never silently downgrades an existing passkey login that would have worked.
+    const passkeyPath = !config.webauthn.requirePasskey && !webauthnSession
+      ? { action: 'skip' as const, reason: 'passkey_placeholder' as const }
+      : decideLoginPasskeyPath({
+          hasWebauthnSession: Boolean(webauthnSession),
+          hasPendingToken: Boolean(passkeyPendingToken),
+          existingPasskeyCount,
+        });
 
-    if (passkeyPath.action === 'consume_session') {
+    if (passkeyPath.action === 'skip') {
+      logger.warn('[Auth:Login] Passkey step is a placeholder — device-possession factor not enforced', {
+        claimedShortId: claimed.shortId,
+        existingPasskeyCount,
+        hint: 'set WEBAUTHN_REQUIRE_PASSKEY=true to restore real WebAuthn',
+      });
+    } else if (passkeyPath.action === 'consume_session') {
       const sess = consumeWebAuthnSession(webauthnSession, verifiedUserId);
       if (!sess.ok) {
         await logSecurityEvent('WEBAUTHN_LOGIN_FAILED', {
