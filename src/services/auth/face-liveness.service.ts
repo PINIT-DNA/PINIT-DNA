@@ -260,6 +260,14 @@ export function evaluatePad(challenge: IssuedPadChallenge | null, evidence: PadE
     return { verdict: 'UNKNOWN', reasons: ['multiple_faces'], scores: { ...emptyScores, durationMs, sampleCount: samples.length }, jti: challenge.jti };
   }
   if (poorQuality) {
+    logger.warn('[PAD] poor_quality diagnostic', {
+      boxRatio: { min: Math.min(...samples.map((s) => s.boxRatio)), max: Math.max(...samples.map((s) => s.boxRatio)) },
+      brightness: { min: Math.min(...samples.map((s) => s.brightness)), max: Math.max(...samples.map((s) => s.brightness)) },
+      limits: {
+        minBoxRatio: PAD_LIMITS.minBoxRatio, maxBoxRatio: PAD_LIMITS.maxBoxRatio,
+        minBrightness: PAD_LIMITS.minBrightness, maxBrightness: PAD_LIMITS.maxBrightness,
+      },
+    });
     return { verdict: 'UNKNOWN', reasons: ['poor_quality'], scores: { ...emptyScores, durationMs, sampleCount: samples.length }, jti: challenge.jti };
   }
 

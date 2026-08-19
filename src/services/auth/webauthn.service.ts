@@ -12,7 +12,10 @@ import {
   type RegistrationResponseJSON,
   type AuthenticationResponseJSON,
 } from '@simplewebauthn/server';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+
+type Db = PrismaClient | Prisma.TransactionClient;
 import { config } from '../../config';
 import { logger } from '../../lib/logger';
 import { toRootPinitId } from '../../lib/pinit-identity';
@@ -503,7 +506,12 @@ export function assertPendingPasskey(pendingToken: string | undefined): { ok: tr
   return { ok: true };
 }
 
-export async function attachPendingPasskey(pendingToken: string | undefined, userId: string): Promise<
+/**
+ * Persists an already-verified pending passkey. The WebAuthn ceremony itself
+ * (crypto attestation) already happened in finishPasskeyRegistration — this is
+ * just the DB write, so it can run inside a caller's transaction via `db`.
+ */
+export async function attachPendingPasskey(pendingToken: string | undefined, userId: string, db: Db = prisma): Promise<
   { ok: true; credentialId: string } | { ok: false; message: string; reason: string }
 > {
   const pending = openSigned<PendingPasskey>(pendingToken);
@@ -517,8 +525,8 @@ export async function attachPendingPasskey(pendingToken: string | undefined, use
   if (isSimulatedCredentialId(pending.credentialId)) {
     return deny('Simulated device hashes are not accepted as passkeys.', 'simulated');
   }
-  const existing = await findWebAuthnByCredentialId(pending.credentialId);
-  const existingCount = await countWebAuthnByUserId(userId);
+  const existing = await findWebAuthnByCredentialId(pending.credentialId, db);
+  const existingCount = await countWebAuthnByUserId(userId, db);
   const gate = gatePendingPasskeyEnroll({
     targetUserId: userId,
     existingPasskeyCount: existingCount,
@@ -542,9 +550,9 @@ export async function attachPendingPasskey(pendingToken: string | undefined, use
       userId,
       signCount: pending.signCount,
       transports: pending.transports ?? [],
-    });
+    }, db);
   }
-  await prisma.user.update({
+  await db.user.update({
     where: { id: userId },
     data: { webauthnCredentialId: pending.credentialId },
   }).catch(() => undefined);

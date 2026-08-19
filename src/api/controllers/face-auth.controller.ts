@@ -54,7 +54,6 @@ export async function faceRegister(req: Request, res: Response, next: NextFuncti
       res.status(result.status).json({
         success: false,
         message: result.message,
-        shortId: result.shortId,
       });
       return;
     }
@@ -112,11 +111,12 @@ export async function faceLogin(req: Request, res: Response, next: NextFunction)
     });
 
     if (!result.ok) {
+      // No similarity distance in the response — it would let an attacker measure
+      // how close a probe face is to an enrolled one and iterate toward a match.
       res.status(200).json({
         success: false,
         matched: false,
         message: result.message,
-        distance: result.distance ?? null,
       });
       return;
     }

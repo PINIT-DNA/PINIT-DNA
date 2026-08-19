@@ -9,6 +9,7 @@
  */
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { config } from '../../config';
@@ -17,6 +18,7 @@ import {
   encryptTemplate,
   decryptTemplate,
   hashSessionToken,
+  CURRENT_ENCRYPTION_KEY_VERSION,
 } from './biometric-crypto.service';
 import {
   THRESHOLDS,
@@ -26,6 +28,7 @@ import {
   fuseBiometricScores,
   isValidTemplate,
   rankFaceMatches,
+  rankVoiceMatches,
   isFaceProbeQualityOk,
   verifyClaimedFace,
   type FusionResult,
@@ -44,9 +47,65 @@ import {
   isSimulatedCredentialId,
 } from './webauthn.service';
 import { decideLoginPasskeyPath } from './webauthn-evaluate';
-import { countWebAuthnByUserId } from './webauthn-store';
+import { countWebAuthnByUserId, findWebAuthnByCredentialId } from './webauthn-store';
 
 const JWT_SECRET = config.jwt.secret;
+
+/** Any db handle a query can run against — the ambient singleton, or a transaction. */
+type Db = PrismaClient | Prisma.TransactionClient;
+
+/** One generic message for every duplicate-registration reason (face or voice) —
+ * never reveals which modality collided, the other account's shortId, or a distance. */
+const DUPLICATE_ACCOUNT_MESSAGE = "You're already registered with PINIT.";
+
+/**
+ * Stamped on templates at enrollment so a future model/algorithm upgrade can
+ * migrate or force re-enrollment deliberately, instead of silently comparing
+ * new probes against templates the old model produced.
+ */
+const FACE_MODEL_VERSION = 'face-api-tiny-v1';
+const VOICE_MODEL_VERSION = 'web-audio-fft-v1';
+const FINGERPRINT_MODEL_VERSION = 'webauthn-device-v1';
+const EMBEDDING_VERSION = '1';
+const ALGORITHM_VERSION = '1';
+
+/** Registration is rolled back for one of these reasons — mapped to a generic
+ * response at the outer catch in register() so nothing about which modality
+ * or which account collided ever reaches the client. Exported for unit testing
+ * the error->response mapping without needing a live Postgres transaction. */
+export class DuplicateFaceError extends Error {
+  constructor(public readonly match: { shortId: string; distance: number; ambiguous?: boolean }) {
+    super('duplicate_face');
+    this.name = 'DuplicateFaceError';
+  }
+}
+export class DuplicateVoiceError extends Error {
+  constructor(public readonly match: { shortId: string; distance: number; ambiguous?: boolean }) {
+    super('duplicate_voice');
+    this.name = 'DuplicateVoiceError';
+  }
+}
+class WebAuthnOwnedError extends Error {
+  constructor() {
+    super('webauthn_owned');
+    this.name = 'WebAuthnOwnedError';
+  }
+}
+class PasskeyAttachError extends Error {
+  constructor(message: string, public readonly reason: string) {
+    super(message);
+    this.name = 'PasskeyAttachError';
+  }
+}
+
+function isShortIdCollision(e: unknown): boolean {
+  return (
+    e instanceof Prisma.PrismaClientKnownRequestError
+    && e.code === 'P2002'
+    && Array.isArray(e.meta?.['target'])
+    && (e.meta!['target'] as string[]).includes('shortId')
+  );
+}
 
 export interface BiometricRegisterInput {
   faceEmbedding: number[];
@@ -107,22 +166,21 @@ async function mintUniqueShortId(): Promise<string> {
   throw new AppError(500, 'Could not allocate a unique PINIT ID. Try again.');
 }
 
-/** Never attach a WebAuthn / device credential that already belongs to another user. */
+/**
+ * Never attach a WebAuthn / device credential that already belongs to another user.
+ * Queries the authoritative WebAuthnCredential table (credentialId is DB-unique there),
+ * not the stale User.webauthnCredentialId pointer — that field only ever reflects the
+ * last-attached credential and is not a uniqueness source of truth.
+ */
 async function credentialIdOwnedByOtherUser(
   credentialId: string | undefined,
   userId?: string,
+  db: Db = prisma,
 ): Promise<boolean> {
   if (!credentialId) return false;
-  const owner = await prisma.user.findFirst({
-    where: {
-      webauthnCredentialId: credentialId,
-      ...(userId ? { NOT: { id: userId } } : {}),
-    },
-    select: { id: true },
-  });
-  if (owner && owner.id !== userId) return true;
-  if (!userId && owner) return true;
-  return false;
+  const row = await findWebAuthnByCredentialId(credentialId, db);
+  if (!row) return false;
+  return row.userId !== userId;
 }
 
 /** JWT.sub is the claimed, verified user id — never a 1:N gallery hit. */
@@ -148,10 +206,10 @@ function createTokens(user: {
   return { accessToken, refreshToken };
 }
 
-async function loadAllFaceTemplates(opts?: {
+async function loadAllFaceTemplates(db: Db = prisma, opts?: {
   activeOnly?: boolean;
 }): Promise<Array<{ userId: string; shortId: string; embedding: number[]; source: string }>> {
-  const users = await prisma.user.findMany({
+  const users = await db.user.findMany({
     where: {
       faceRegistered: true,
       ...(opts?.activeOnly ? { isActive: true } : {}),
@@ -209,15 +267,22 @@ async function loadAllFaceTemplates(opts?: {
 }
 
 /**
- * 1:N enroll search. Face is the only uniqueness gate.
- * A hit means "this person already has an account" — never mint or sign them in here.
- * Device fingerprint / WebAuthn must not decide identity on a shared browser.
+ * 1:N enroll search. Face is the only PRIMARY uniqueness gate (voice mirrors this
+ * as a secondary gate below). A hit means "this person already has an account" —
+ * never mint or sign them in here. Device fingerprint / WebAuthn must not decide
+ * identity on a shared browser.
+ *
+ * Accepts an optional `db` so the AUTHORITATIVE duplicate check in register() can
+ * run against the same locked transaction (`tx`) that also does the insert — see
+ * register()'s advisory-lock section. A caller-side "fast path" check against the
+ * ambient `prisma` (db omitted) is advisory only and must never be trusted alone.
  */
 async function findMatchingFace(
   face: number[],
+  db: Db = prisma,
 ): Promise<{ userId: string; shortId: string; distance: number; ambiguous?: boolean } | null> {
   const faceNorm = normalizeEmbedding(face);
-  const faces = await loadAllFaceTemplates();
+  const faces = await loadAllFaceTemplates(db);
   const { best, secondDistance } = rankFaceMatches(faceNorm, faces);
 
   if (!best) {
@@ -244,6 +309,87 @@ async function findMatchingFace(
     shortId: best.shortId,
     distance: best.distance,
     ambiguous: Number.isFinite(secondDistance) && secondDistance < THRESHOLDS.faceDuplicate,
+  };
+}
+
+async function loadAllVoiceTemplates(db: Db = prisma): Promise<Array<{ userId: string; shortId: string; embedding: number[]; source: string }>> {
+  const users = await db.user.findMany({
+    where: { voiceRegistered: true },
+    select: {
+      id: true,
+      shortId: true,
+      voiceEmbedding: true,
+      biometricIdentity: { include: { voiceTemplate: true } },
+    },
+  });
+
+  const results: Array<{ userId: string; shortId: string; embedding: number[]; source: string }> = [];
+
+  for (const u of users) {
+    let embedding: number[] | null = null;
+    let source = 'none';
+
+    if (u.biometricIdentity?.voiceTemplate) {
+      try {
+        embedding = normalizeEmbedding(decryptTemplate(u.biometricIdentity.voiceTemplate.templateCipher));
+        source = 'enterprise_cipher';
+      } catch (err) {
+        logger.warn('[Auth] Voice cipher decrypt failed — falling back to user.voiceEmbedding', {
+          userId: u.id,
+          shortId: u.shortId,
+          error: String(err),
+        });
+      }
+    }
+
+    if (!embedding && u.voiceEmbedding.length === 128) {
+      embedding = normalizeEmbedding(u.voiceEmbedding);
+      source = u.biometricIdentity?.voiceTemplate ? 'user_fallback' : 'user_plain';
+    }
+
+    if (embedding) {
+      results.push({ userId: u.id, shortId: u.shortId, embedding, source });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * 1:N voice enroll search — mirrors findMatchingFace exactly. Voice is a secondary
+ * factor (face is the primary identity anchor), but a hit here still rejects the
+ * whole registration — see register()'s transaction, which rolls back everything
+ * on a voice-duplicate hit, not just the voice template.
+ */
+async function findMatchingVoice(
+  voice: number[],
+  db: Db = prisma,
+): Promise<{ userId: string; shortId: string; distance: number; ambiguous?: boolean } | null> {
+  const voiceNorm = normalizeEmbedding(voice);
+  const voices = await loadAllVoiceTemplates(db);
+  const { best, secondDistance } = rankVoiceMatches(voiceNorm, voices);
+
+  if (!best) {
+    return null;
+  }
+
+  logger.info('[Auth:Register] Voice uniqueness check', {
+    nearestShortId: best.shortId,
+    nearestDistance: Number(best.distance.toFixed(4)),
+    secondDistance: Number.isFinite(secondDistance) ? Number(secondDistance.toFixed(4)) : null,
+    threshold: THRESHOLDS.voiceDuplicate,
+    compared: voices.length,
+  });
+
+  if (best.distance >= THRESHOLDS.voiceDuplicate) {
+    return null;
+  }
+
+  return {
+    userId: best.userId,
+    shortId: best.shortId,
+    distance: best.distance,
+    ambiguous: Number.isFinite(secondDistance) && secondDistance < THRESHOLDS.voiceDuplicate,
   };
 }
 
@@ -437,7 +583,7 @@ async function createSession(userId: string, refreshToken: string, ip?: string, 
 export const biometricAuthService = {
   async register(input: BiometricRegisterInput): Promise<
     | { ok: true; user: AuthUser; tokens: AuthTokens; linked?: boolean; message?: string }
-    | { ok: false; status: 409; message: string; shortId?: string }
+    | { ok: false; status: 409; message: string }
   > {
     const {
       faceEmbedding,
@@ -477,42 +623,10 @@ export const biometricAuthService = {
     const voiceNorm = voiceFingerprint && isValidTemplate(voiceFingerprint)
       ? normalizeEmbedding(voiceFingerprint)
       : null;
-    let boundCredentialId = isSimulatedCredentialId(webauthnCredentialId) ? undefined : webauthnCredentialId;
-    const fpNorm = deriveFingerprintTemplate(boundCredentialId, deviceFingerprint);
-
-    // 1:N duplicate search FIRST. Never create a user, then attach this face.
-    const existingFace = await findMatchingFace(faceNorm);
-    if (existingFace) {
-      await logSecurityEvent('DUPLICATE_REGISTRATION', {
-        ip, userAgent, success: false,
-        detail: {
-          modality: 'face',
-          existingShortId: existingFace.shortId,
-          distance: existingFace.distance,
-          ambiguous: Boolean(existingFace.ambiguous),
-        },
-      });
-      return {
-        ok: false,
-        status: 409,
-        message: existingFace.ambiguous
-          ? 'This face is too similar to an existing Pinit HUB account to create a new one. Sign in instead.'
-          : `This person already has a Pinit HUB account (${existingFace.shortId}). Sign in instead of creating a new one.`,
-        shortId: existingFace.shortId,
-      };
-    }
-
-    if (boundCredentialId && await credentialIdOwnedByOtherUser(boundCredentialId)) {
-      await logSecurityEvent('DUPLICATE_REGISTRATION', {
-        ip, userAgent, success: false,
-        detail: { modality: 'webauthn', credentialId: boundCredentialId },
-      });
-      return {
-        ok: false,
-        status: 409,
-        message: 'This device authenticator is already registered to another Pinit HUB account. Sign in instead.',
-      };
-    }
+    // Client-claimed credential id, not yet verified as belonging to this registration —
+    // only ever persisted after attachPendingPasskey verifies it inside the transaction below.
+    const rawCredentialId = isSimulatedCredentialId(webauthnCredentialId) ? undefined : webauthnCredentialId;
+    const fpNorm = deriveFingerprintTemplate(rawCredentialId, deviceFingerprint);
 
     const faceEnc = encryptTemplate(faceNorm);
     const voiceEnc = voiceNorm ? encryptTemplate(voiceNorm) : null;
@@ -522,76 +636,49 @@ export const biometricAuthService = {
       .digest('hex');
 
     logger.info('[Auth:Register] ✓ Face template generated', { dimensions: faceNorm.length });
-    logger.info('[Auth:Register] ✓ Device authenticator template generated', { dimensions: fpNorm.length, hasWebAuthn: Boolean(boundCredentialId) });
+    logger.info('[Auth:Register] ✓ Device authenticator template generated', { dimensions: fpNorm.length, hasWebAuthn: Boolean(rawCredentialId) });
     if (voiceNorm) {
       logger.info('[Auth:Register] ✓ Voice template generated', { dimensions: voiceNorm.length });
     } else {
       logger.info('[Auth:Register] ○ Voice skipped (optional signal)');
     }
 
-    const shortId = await mintUniqueShortId();
+    /**
+     * Face + (optional) voice duplicate detection and the entire account creation
+     * happen inside ONE locked transaction. This fixes two real bugs: (1) a TOCTOU
+     * race where two concurrent registrations with the same face could both pass
+     * the duplicate check before either committed, and (2) an orphan-account bug
+     * where WebAuthn credential attachment used to run AFTER this transaction
+     * committed, so a failed attach left a credential-less account behind.
+     *
+     * Deliberately single-path: there is no separate "fast" duplicate pre-check
+     * outside the lock, only this authoritative one — one place for this logic to
+     * live, one place it can be wrong. Registration volume is low, so serializing
+     * registration behind a single global advisory lock is an accepted, explicit
+     * tradeoff over a more granular (and more error-prone) locking scheme.
+     */
+    const attempt = (shortId: string) => prisma.$transaction(async (tx) => {
+      // Transaction-scoped advisory locks — auto-released on commit/rollback.
+      // Fixed order (face, then voice) avoids lock-ordering deadlocks between two
+      // concurrent registrations that both provide voice.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('pinit:biometric:face:register'))`;
+      if (voiceNorm) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('pinit:biometric:voice:register'))`;
+      }
 
-    let user: { id: string; shortId: string; fullName: string; email: string | null; role: string };
-    let usedEnterpriseTables = true;
-    try {
-      user = await prisma.$transaction(async (tx) => {
-        const u = await tx.user.create({
-          data: {
-            shortId,
-            fullName: 'PINIT User',
-            accountType: resolvedAccountType,
-            organization: resolvedAccountType === 'BUSINESS' && organizationName?.trim()
-              ? organizationName.trim()
-              : null,
-            faceEmbedding: faceNorm,
-            faceRegistered: true,
-            faceRegisteredAt: new Date(),
-            voiceEmbedding: voiceNorm ?? [],
-            voiceRegistered: Boolean(voiceNorm),
-            webauthnCredentialId: boundCredentialId ?? null,
-            deviceFingerprint: deviceFingerprint ?? null,
-            authMethod: 'biometric',
-            role: 'USER',
-          },
-        });
+      const dupFace = await findMatchingFace(faceNorm, tx);
+      if (dupFace) throw new DuplicateFaceError(dupFace);
 
-        const identity = await tx.biometricIdentity.create({
-          data: { userId: u.id, identityHash, status: 'ACTIVE' },
-        });
+      if (voiceNorm) {
+        const dupVoice = await findMatchingVoice(voiceNorm, tx);
+        if (dupVoice) throw new DuplicateVoiceError(dupVoice);
+      }
 
-        await tx.faceTemplate.create({
-          data: {
-            biometricIdentityId: identity.id,
-            templateCipher: faceEnc.cipher,
-            templateHash: faceEnc.hash,
-          },
-        });
+      if (rawCredentialId && await credentialIdOwnedByOtherUser(rawCredentialId, undefined, tx)) {
+        throw new WebAuthnOwnedError();
+      }
 
-        if (voiceEnc) {
-          await tx.voiceTemplate.create({
-            data: {
-              biometricIdentityId: identity.id,
-              templateCipher: voiceEnc.cipher,
-              templateHash: voiceEnc.hash,
-            },
-          });
-        }
-
-        await tx.fingerprintTemplate.create({
-          data: {
-            biometricIdentityId: identity.id,
-            templateCipher: fpEnc.cipher,
-            templateHash: fpEnc.hash,
-            credentialId: boundCredentialId ?? null,
-          },
-        });
-
-        return u;
-      });
-    } catch (e) {
-      usedEnterpriseTables = false;
-      logger.warn('[Auth:Register] Enterprise tables unavailable — legacy user registration', { error: String(e) });
-      user = await prisma.user.create({
+      const u = await tx.user.create({
         data: {
           shortId,
           fullName: 'PINIT User',
@@ -604,21 +691,153 @@ export const biometricAuthService = {
           faceRegisteredAt: new Date(),
           voiceEmbedding: voiceNorm ?? [],
           voiceRegistered: Boolean(voiceNorm),
-          webauthnCredentialId: boundCredentialId ?? null,
+          // Not set from the client-claimed rawCredentialId — only ever set below,
+          // after attachPendingPasskey verifies it, so an unverified id is never
+          // persisted even transiently within this transaction.
+          webauthnCredentialId: null,
           deviceFingerprint: deviceFingerprint ?? null,
           authMethod: 'biometric',
           role: 'USER',
         },
       });
+
+      const identity = await tx.biometricIdentity.create({
+        data: { userId: u.id, identityHash, status: 'ACTIVE' },
+      });
+
+      await tx.faceTemplate.create({
+        data: {
+          biometricIdentityId: identity.id,
+          templateCipher: faceEnc.cipher,
+          templateHash: faceEnc.hash,
+          embeddingVersion: EMBEDDING_VERSION,
+          modelVersion: FACE_MODEL_VERSION,
+          algorithmVersion: ALGORITHM_VERSION,
+          // Real signal from the PAD evaluation that already ran above, not a
+          // fabricated score. Null only if PAD reported no usable sharpness.
+          qualityScore: Number.isFinite(pad.scores.sharpness) ? pad.scores.sharpness : null,
+          encryptionKeyVersion: CURRENT_ENCRYPTION_KEY_VERSION,
+        },
+      });
+
+      if (voiceEnc) {
+        await tx.voiceTemplate.create({
+          data: {
+            biometricIdentityId: identity.id,
+            templateCipher: voiceEnc.cipher,
+            templateHash: voiceEnc.hash,
+            embeddingVersion: EMBEDDING_VERSION,
+            modelVersion: VOICE_MODEL_VERSION,
+            algorithmVersion: ALGORITHM_VERSION,
+            // No server-side voice quality metric exists — gating happens
+            // client-side and never reaches us. Left null rather than invented.
+            qualityScore: null,
+            encryptionKeyVersion: CURRENT_ENCRYPTION_KEY_VERSION,
+          },
+        });
+      }
+
+      await tx.fingerprintTemplate.create({
+        data: {
+          biometricIdentityId: identity.id,
+          templateCipher: fpEnc.cipher,
+          templateHash: fpEnc.hash,
+          credentialId: rawCredentialId ?? null,
+          embeddingVersion: EMBEDDING_VERSION,
+          modelVersion: FINGERPRINT_MODEL_VERSION,
+          algorithmVersion: ALGORITHM_VERSION,
+          // Derived device proxy, not a captured biometric sample — no quality.
+          qualityScore: null,
+          encryptionKeyVersion: CURRENT_ENCRYPTION_KEY_VERSION,
+        },
+      });
+
+      // The WebAuthn ceremony (browser attestation) already happened as its own
+      // HTTP round trip before register() was ever called — passkeyPendingToken is
+      // its already-verified result. Only the DB write is left, and it now runs
+      // inside this same transaction: if it fails, everything above rolls back too.
+      const attached = await attachPendingPasskey(passkeyPendingToken, u.id, tx);
+      if (!attached.ok) {
+        throw new PasskeyAttachError(attached.message, attached.reason);
+      }
+
+      return { user: u, attachedCredentialId: attached.credentialId };
+    }, { timeout: 20_000, maxWait: 10_000 });
+
+    let result: Awaited<ReturnType<typeof attempt>> | undefined;
+    let lastError: unknown;
+    for (let n = 0; n < 2 && !result; n++) {
+      try {
+        const shortId = await mintUniqueShortId();
+        result = await attempt(shortId);
+      } catch (e) {
+        lastError = e;
+        // shortId collision on insert is astronomically rare (mintUniqueShortId
+        // already pre-checks) but the @unique constraint is the real guarantee —
+        // retry once with a freshly minted id before giving up.
+        if (isShortIdCollision(e) && n === 0) {
+          logger.warn('[Auth:Register] shortId collision on insert — retrying once');
+          continue;
+        }
+        break;
+      }
     }
 
-    logger.info('[Auth:Register] ✓ User created', { userId: user.id, shortId: user.shortId, pinitId: user.shortId });
-
-    const attached = await attachPendingPasskey(passkeyPendingToken, user.id);
-    if (!attached.ok) {
-      throw new AppError(403, attached.message, { reason: attached.reason });
+    if (!result) {
+      const e = lastError;
+      if (e instanceof DuplicateFaceError) {
+        await logSecurityEvent('FACE_DUPLICATE_REJECTED', {
+          ip, userAgent, success: false,
+          detail: { modality: 'face', existingShortId: e.match.shortId, distance: e.match.distance, ambiguous: Boolean(e.match.ambiguous) },
+        });
+        return { ok: false, status: 409, message: DUPLICATE_ACCOUNT_MESSAGE };
+      }
+      if (e instanceof DuplicateVoiceError) {
+        await logSecurityEvent('VOICE_DUPLICATE_REJECTED', {
+          ip, userAgent, success: false,
+          detail: { modality: 'voice', existingShortId: e.match.shortId, distance: e.match.distance, ambiguous: Boolean(e.match.ambiguous) },
+        });
+        return { ok: false, status: 409, message: DUPLICATE_ACCOUNT_MESSAGE };
+      }
+      if (e instanceof WebAuthnOwnedError) {
+        await logSecurityEvent('DUPLICATE_REGISTRATION', {
+          ip, userAgent, success: false,
+          detail: { modality: 'webauthn', credentialId: rawCredentialId },
+        });
+        return {
+          ok: false,
+          status: 409,
+          message: 'This device authenticator is already registered to another Pinit HUB account. Sign in instead.',
+        };
+      }
+      if (e instanceof PasskeyAttachError) {
+        throw new AppError(403, e.message, { reason: e.reason });
+      }
+      if (isShortIdCollision(e)) {
+        throw new AppError(500, 'Could not allocate a unique PINIT ID. Try again.');
+      }
+      throw e;
     }
-    boundCredentialId = attached.credentialId;
+
+    const { user, attachedCredentialId } = result;
+    logger.info('[Auth:Register] ✓ Registration transaction committed', { userId: user.id, shortId: user.shortId, pinitId: user.shortId });
+
+    // Per-modality enrollment audit. Only fires after the transaction commits,
+    // so an event can never describe an enrollment that was rolled back.
+    await logSecurityEvent('FACE_REGISTERED', {
+      userId: user.id, ip, userAgent,
+      detail: { shortId: user.shortId, modelVersion: FACE_MODEL_VERSION },
+    });
+    if (voiceNorm) {
+      await logSecurityEvent('VOICE_REGISTERED', {
+        userId: user.id, ip, userAgent,
+        detail: { shortId: user.shortId, modelVersion: VOICE_MODEL_VERSION },
+      });
+    }
+    await logSecurityEvent('WEBAUTHN_REGISTERED', {
+      userId: user.id, ip, userAgent,
+      detail: { shortId: user.shortId, credentialId: attachedCredentialId },
+    });
 
     try {
       const { subscriptionService } = await import('../subscription');
@@ -639,7 +858,7 @@ export const biometricAuthService = {
     const session = await issueSessionForUser(
       { ...user, accountType: resolvedAccountType },
       {
-        webauthnCredentialId: boundCredentialId,
+        webauthnCredentialId: attachedCredentialId,
         deviceFingerprint,
         ip,
         userAgent,
@@ -651,7 +870,6 @@ export const biometricAuthService = {
       userId: user.id,
       pinitId: user.shortId,
       accountType: resolvedAccountType,
-      enterpriseTables: usedEnterpriseTables,
     });
 
     return { ok: true, ...session };
@@ -659,23 +877,24 @@ export const biometricAuthService = {
 
   async login(input: BiometricLoginInput): Promise<
     | { ok: true; user: AuthUser; tokens: AuthTokens; confidence: number; fusion: FusionResult }
-    | { ok: false; matched: false; message: string; distance?: string }
+    | { ok: false; matched: false; message: string }
   > {
     const {
       faceEmbedding, voiceFingerprint, deviceFingerprint, ip, userAgent,
       claimedShortId, claimedUserId, padEvidence, webauthnSession, passkeyPendingToken,
     } = input;
 
-    const deny = (message: string, distance?: number) => ({
+    /** Never carries a similarity distance — a caller must not be able to learn
+     * how close a probe was to the enrolled template. */
+    const deny = (message: string) => ({
       ok: false as const,
       matched: false as const,
       message,
-      distance: distance !== undefined && Number.isFinite(distance) ? distance.toFixed(4) : undefined,
     });
     const denyMsg = 'Could not verify this face for the claimed account.';
 
     if (!isValidTemplate(faceEmbedding) || !isFaceProbeQualityOk(faceEmbedding)) {
-      await logSecurityEvent('BIOMETRIC_FAILURE', {
+      await logSecurityEvent('FACE_LOGIN_FAILED', {
         ip, userAgent, success: false,
         detail: { reason: 'probe_quality' },
       });
@@ -685,7 +904,7 @@ export const biometricAuthService = {
     const pad = await consumePadEvidence(padEvidence);
     logger.info('[Auth:Login] PAD', { verdict: pad.verdict, reasons: pad.reasons, scores: pad.scores });
     if (pad.verdict !== 'LIVE') {
-      await logSecurityEvent('BIOMETRIC_FAILURE', {
+      await logSecurityEvent('FACE_LOGIN_FAILED', {
         ip, userAgent, success: false,
         detail: { reason: 'pad_failed', verdict: pad.verdict, reasons: pad.reasons },
       });
@@ -698,7 +917,7 @@ export const biometricAuthService = {
         hasShortId: Boolean(claimedShortId?.trim()),
         hasUserId: Boolean(claimedUserId?.trim()),
       });
-      await logSecurityEvent('BIOMETRIC_FAILURE', {
+      await logSecurityEvent('FACE_LOGIN_FAILED', {
         ip, userAgent, success: false,
         detail: { reason: claimedShortId || claimedUserId ? 'unknown_claim' : 'no_claim' },
       });
@@ -730,16 +949,15 @@ export const biometricAuthService = {
     });
 
     if (!verified.ok) {
-      const mismatchDist = enrolledFace ? euclideanDistance(faceNorm, enrolledFace) : undefined;
       logger.warn('[Auth:Login] ✗ Authentication result: DENY', {
         claimedShortId: claimed.shortId,
         reason: verified.reason,
       });
-      await logSecurityEvent('BIOMETRIC_FAILURE', {
+      await logSecurityEvent('FACE_LOGIN_FAILED', {
         ip, userAgent, success: false,
         detail: { reason: `verify_${verified.reason}`, claimedUserId: verifiedUserId },
       });
-      return deny(denyMsg, mismatchDist);
+      return deny(denyMsg);
     }
 
     const oneToOneDist = verified.distance;
@@ -758,7 +976,7 @@ export const biometricAuthService = {
     if (passkeyPath.action === 'consume_session') {
       const sess = consumeWebAuthnSession(webauthnSession, verifiedUserId);
       if (!sess.ok) {
-        await logSecurityEvent('BIOMETRIC_FAILURE', {
+        await logSecurityEvent('WEBAUTHN_LOGIN_FAILED', {
           ip, userAgent, success: false,
           detail: { reason: 'webauthn_mismatch', webauthn: sess.reason, claimedUserId: verifiedUserId },
         });
@@ -769,7 +987,7 @@ export const biometricAuthService = {
       // First-time only (existingPasskeyCount === 0). Never enroll onto accounts that already have passkeys.
       const attached = await attachPendingPasskey(passkeyPendingToken, verifiedUserId);
       if (!attached.ok) {
-        await logSecurityEvent('BIOMETRIC_FAILURE', {
+        await logSecurityEvent('WEBAUTHN_LOGIN_FAILED', {
           ip, userAgent, success: false,
           detail: { reason: 'webauthn_enroll_failed', webauthn: attached.reason, claimedUserId: verifiedUserId },
         });
@@ -777,7 +995,7 @@ export const biometricAuthService = {
       }
       boundCredentialId = attached.credentialId;
     } else if (passkeyPath.reason === 'existing_passkey_required') {
-      await logSecurityEvent('BIOMETRIC_FAILURE', {
+      await logSecurityEvent('WEBAUTHN_LOGIN_FAILED', {
         ip, userAgent, success: false,
         detail: {
           reason: 'existing_passkey_required',
@@ -841,7 +1059,7 @@ export const biometricAuthService = {
         success: false,
         failReason: 'face_verification_failed',
       });
-      return deny(denyMsg, oneToOneDist);
+      return deny(denyMsg);
     }
 
     const user = await prisma.user.findUnique({
@@ -869,10 +1087,20 @@ export const biometricAuthService = {
     });
     await createSession(user.id, tokens.refreshToken, ip, userAgent, deviceId);
 
-    await logSecurityEvent('BIOMETRIC_MATCH', {
+    // Persisted audit carries no similarity distances — fusion.scores holds
+    // face/voice/fingerprint distances, which must not land in stored events.
+    await logSecurityEvent('FACE_LOGIN_SUCCESS', {
       userId: user.id, ip, userAgent, deviceId,
-      detail: { confidence: fusion.overallConfidence, scores: fusion.scores, claimedUserId: verifiedUserId },
+      detail: { claimedUserId: verifiedUserId, shortId: user.shortId },
     });
+    if (passkeyPath.action === 'consume_session') {
+      // Only when an already-enrolled authenticator was actually verified —
+      // not when a first passkey was just enrolled during this login.
+      await logSecurityEvent('WEBAUTHN_LOGIN_SUCCESS', {
+        userId: user.id, ip, userAgent, deviceId,
+        detail: { claimedUserId: verifiedUserId, credentialId: boundCredentialId },
+      });
+    }
     await logLoginHistory({ userId: user.id, method: 'biometric_login', ip, userAgent, success: true });
 
     logger.info('[Auth:Login] ✓ Authentication result: SUCCESS', {

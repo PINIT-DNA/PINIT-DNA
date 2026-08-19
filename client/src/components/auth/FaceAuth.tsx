@@ -78,6 +78,9 @@ export function FaceAuth({ mode, variant = 'standalone', claimedShortId, onSucce
     }
   }, []);
 
+  // Intentionally reads only success/matched/message/status from the response below —
+  // never a field like shortId/distance that the backend might stop sending on a
+  // contract change (see biometric-auth.service.ts's register()). Keep it that way.
   const submitCapture = useCallback(async (
     embedding: number[],
     padEvidence?: FacePadEvidence,

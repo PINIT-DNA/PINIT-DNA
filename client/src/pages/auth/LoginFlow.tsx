@@ -13,7 +13,6 @@ import {
   getTrustScore, getLastLogin, recordLogin, clearRegistration,
   saveRegistration, generateHoid, getStoredShortId,
 } from '../../lib/hoid';
-import { touchLastLogin } from '../../lib/identity-store';
 import { warmBackend, parseJwt, getAccessToken, hasValidAccessToken } from '../../lib/auth';
 import { toRootPinitId } from '../../lib/pinit-identity';
 import { resolveDefaultHomePath } from '../../lib/subscription/post-upgrade-redirect';
@@ -266,7 +265,6 @@ export function LoginFlow() {
                     webauthnCredentialId: bioCredentialRef.current,
                   });
                   recordLogin();
-                  await touchLastLogin(shortId);
                 }
               }}
               onDone={() => go('success')}

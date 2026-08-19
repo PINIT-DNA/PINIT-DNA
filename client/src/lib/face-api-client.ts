@@ -10,7 +10,6 @@ export interface FaceAuthResponse {
   accessToken?: string;
   refreshToken?: string;
   user?: { id: string; shortId: string; fullName: string; role?: string };
-  shortId?: string;
   token?: string;
   nonce?: string;
   actions?: Array<'yaw_left' | 'yaw_right' | 'pitch_down'>;
@@ -61,12 +60,9 @@ export async function registerFaceIdentity(payload: {
 
   const { status, data } = await postFace('/register', payload);
   if (status === 409) {
-    const msg = data.shortId
-      ? (data.message?.includes(data.shortId)
-          ? data.message
-          : `This face is already registered to ${data.shortId}. Please login instead.`)
-      : (data.message ?? 'This face is already registered. Please login instead.');
-    throw new Error(msg);
+    // The backend never sends which account/modality collided — surface only its
+    // generic message, never construct one from response fields (account-enumeration guard).
+    throw new Error(data.message ?? 'This identity is already registered. Please login instead.');
   }
   if (status >= 400 || data.success === false) {
     const detail =

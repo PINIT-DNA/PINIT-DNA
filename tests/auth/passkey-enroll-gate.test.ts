@@ -136,7 +136,7 @@ describe('attachPendingPasskey + session (mocked store)', () => {
     expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({
       credentialId: CRED_NEW,
       userId: USER_A,
-    }));
+    }), expect.anything());
   });
 
   it('Test 2 — existing passkey + pending → DENY, no insert', async () => {

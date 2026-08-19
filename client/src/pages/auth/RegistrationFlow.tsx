@@ -15,7 +15,6 @@ import { useAuth } from '../../context/AuthContext';
 import { collectFingerprint } from '../../lib/device-fingerprint';
 import { generateHoid, saveRegistration, clearRegistration } from '../../lib/hoid';
 import { type BiometricResult } from '../../lib/webauthn';
-import { storeIdentity } from '../../lib/identity-store';
 import { warmBackend, parseJwt } from '../../lib/auth';
 import { registerFaceIdentity, type FacePadEvidence } from '../../lib/face-api-client';
 import { preloadFaceModels } from '../../lib/face-capture';
@@ -49,7 +48,6 @@ export function RegistrationFlow() {
   const [error, setError] = useState('');
   const deviceFpRef = useRef<string>('');
   const hoidRef = useRef<string>('');
-  const faceImageRef = useRef<string | null>(null);
   const faceEmbeddingRef = useRef<number[] | null>(null);
   const padEvidenceRef = useRef<FacePadEvidence | null>(null);
   const voiceFingerprintRef = useRef<number[] | null>(null);
@@ -101,7 +99,6 @@ export function RegistrationFlow() {
               <FaceRoundScan
                 mode="register"
                 title="Face Enrollment"
-                onCapture={(img) => { faceImageRef.current = img; }}
                 onEmbedding={(emb) => { faceEmbeddingRef.current = emb; }}
                 onPadEvidence={(ev) => { padEvidenceRef.current = ev; }}
                 onNext={afterFace}
@@ -168,18 +165,6 @@ export function RegistrationFlow() {
                   trustScore: 99.8,
                   deviceFp: deviceFpRef.current,
                   webauthnCredentialId: bioRef.current?.credentialId,
-                });
-                await storeIdentity({
-                  hoid,
-                  shortId,
-                  deviceFp: deviceFpRef.current,
-                  faceImage: faceImageRef.current,
-                  faceEnrolled: true,
-                  livenessPassed: Boolean(padEvidenceRef.current),
-                  voiceEnrolled: Boolean(voiceFingerprintRef.current),
-                  webauthnCredentialId: bioRef.current?.credentialId ?? null,
-                  webauthnSimulated: false,
-                  trustScore: 99.8,
                 });
               }}
               onDone={() => go('success')}

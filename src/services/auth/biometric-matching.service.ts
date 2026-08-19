@@ -100,6 +100,26 @@ export function isDuplicateFaceEnrollment(bestDistance: number, secondDistance: 
   return isConfidentFaceMatch(bestDistance, secondDistance, THRESHOLDS.faceDuplicate);
 }
 
+export interface VoiceRankResult {
+  best: { userId: string; shortId: string; distance: number; source?: string } | null;
+  secondDistance: number;
+}
+
+/** Rank probe against all voice templates (ascending distance).
+ * Registration duplicate detection only — never login (mirrors rankFaceMatches).
+ */
+export function rankVoiceMatches(
+  probe: number[],
+  candidates: Array<{ userId: string; shortId: string; embedding: number[]; source?: string }>,
+): VoiceRankResult {
+  return rankFaceMatches(probe, candidates);
+}
+
+/** 1:N voice enroll uniqueness — any confident hit under the voice-duplicate threshold. */
+export function isDuplicateVoiceEnrollment(bestDistance: number, secondDistance: number): boolean {
+  return isConfidentFaceMatch(bestDistance, secondDistance, THRESHOLDS.voiceDuplicate);
+}
+
 export function fuseBiometricScores(
   faceDist: number,
   voiceDist: number | null,

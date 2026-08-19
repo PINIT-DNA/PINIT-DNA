@@ -745,11 +745,21 @@ model BiometricIdentity {
 model FaceTemplate {
   id                  String            @id @default(uuid())
   createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @default(now()) @updatedAt
   biometricIdentityId String            @unique
   templateCipher      String
   templateHash        String            @unique
   dimension           Int               @default(128)
   algorithm           String            @default("face-api-v1")
+  // Versioning so a future face-model upgrade can migrate/re-enroll templates
+  // deliberately instead of silently invalidating every existing one.
+  embeddingVersion     String           @default("1")
+  modelVersion         String           @default("face-api-tiny-v1")
+  algorithmVersion     String           @default("1")
+  /// PAD sharpness at enrollment. Null when no server-side signal was available.
+  qualityScore         Float?
+  status               String           @default("ACTIVE")
+  encryptionKeyVersion String           @default("v1")
   biometricIdentity   BiometricIdentity @relation(fields: [biometricIdentityId], references: [id], onDelete: Cascade)
 
   @@index([templateHash])
@@ -759,26 +769,45 @@ model FaceTemplate {
 model VoiceTemplate {
   id                  String            @id @default(uuid())
   createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @default(now()) @updatedAt
   biometricIdentityId String            @unique
   templateCipher      String
   templateHash        String            @unique
   dimension           Int               @default(128)
   algorithm           String            @default("web-audio-fft-v1")
+  embeddingVersion     String           @default("1")
+  modelVersion         String           @default("web-audio-fft-v1")
+  algorithmVersion     String           @default("1")
+  /// Always null today — voice quality is gated client-side and never sent to the server.
+  qualityScore         Float?
+  status               String           @default("ACTIVE")
+  encryptionKeyVersion String           @default("v1")
   biometricIdentity   BiometricIdentity @relation(fields: [biometricIdentityId], references: [id], onDelete: Cascade)
 
   @@index([templateHash])
   @@map("voice_templates")
 }
 
+/// NOT a fingerprint biometric. This is a derived hash proxy over the WebAuthn
+/// credential id / device fingerprint — PINIT never receives or stores fingerprint
+/// images, minutiae, or any platform-authenticator biometric material.
 model FingerprintTemplate {
   id                  String            @id @default(uuid())
   createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @default(now()) @updatedAt
   biometricIdentityId String            @unique
   templateCipher      String
   templateHash        String            @unique
   dimension           Int               @default(128)
   algorithm           String            @default("webauthn-device-v1")
   credentialId        String?
+  embeddingVersion     String           @default("1")
+  modelVersion         String           @default("webauthn-device-v1")
+  algorithmVersion     String           @default("1")
+  /// Always null — a derived device proxy has no captured-sample quality.
+  qualityScore         Float?
+  status               String           @default("ACTIVE")
+  encryptionKeyVersion String           @default("v1")
   biometricIdentity   BiometricIdentity @relation(fields: [biometricIdentityId], references: [id], onDelete: Cascade)
 
   @@index([templateHash])
