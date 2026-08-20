@@ -8,10 +8,11 @@ Every change — feature, bug fix, UI, API, database, security, forensics, track
 2. Verify backend APIs are functioning correctly
 3. Verify database migrations are applied
 4. Commit code to Git
-5. Push to GitHub (`ashwitha2004/DNA-PINIT-WEB`, branch `main`)
+5. Push to GitHub — remote `org` (`PINIT-DNA/PINIT-DNA`), branch `ashwitha`
+   (this is the remote Render + Vercel deploy from; verified by probing the live backend)
 6. Confirm Render backend deployment succeeds
 7. Confirm Vercel frontend deployment succeeds
-8. Validate the feature on the live Vercel URL (`https://dna-pinit-web.vercel.app`)
+8. Validate the feature on the live Vercel URL (`https://pinit-dna.vercel.app`)
 9. Confirm live production behaves exactly like localhost
 10. Only then mark the task COMPLETE
 
@@ -35,8 +36,9 @@ After every task, report:
 ## Never Mark Complete Until Working On
 
 - Localhost
-- Render Backend (`https://pinit-dna-backend.onrender.com`)
-- Vercel Frontend (`https://dna-pinit-web.vercel.app`)
+- Render Backend (`https://pinit-dna-uf5y.onrender.com`)
+- Vercel Frontend (`https://pinit-dna.vercel.app`)
+- Exchange Marketplace (`https://www.pinitexchange.com`)
 - Production Database (Supabase PostgreSQL)
 
 ## After Every Task, Always Provide
@@ -55,9 +57,25 @@ After every task, report:
 - **Database**: PostgreSQL + Prisma ORM → Supabase
 - **File Storage**: Supabase Storage bucket `vault-files`
 - **Auth**: JWT stored in `localStorage` as `pinit_access_token`
-- **API Base**: `https://pinit-dna-backend.onrender.com/api/v1` (production)
+- **API Base**: `https://pinit-dna-uf5y.onrender.com/api/v1` (production)
+  - Hardcoded as `RENDER_BACKEND` in `client/src/config/api.config.ts`,
+    overridable via `VITE_API_BASE_URL`
+- **Exchange app**: `https://www.pinitexchange.com`
+  - Hub builds the SSO link from `EXCHANGE_APP_URL`; if unset in production the
+    backend falls back to this URL and warns (see `src/config/index.ts`)
 - **Vite proxy**: `/api` → `localhost:4000` (dev only)
 - **Authenticated API calls**: use `api` from `client/src/services/dashboard.api.ts` (has JWT interceptor)
+
+## Deployment URLs — verified 2026-08-20
+
+These were previously documented incorrectly. Both old hosts are dead:
+
+| Wrong (do not use) | Live status | Correct |
+|---|---|---|
+| `pinit-dna-backend.onrender.com` | `x-render-routing: no-server` | `pinit-dna-uf5y.onrender.com` |
+| `dna-pinit-web.vercel.app` | 404 | `pinit-dna.vercel.app` |
+
+Render auto-deploys from the `ashwitha` branch on the `org` remote, not `main`.
 
 ## Key Rules
 
