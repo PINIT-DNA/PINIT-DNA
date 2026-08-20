@@ -104,14 +104,14 @@ const NAV_GROUPS: Array<{
     label: 'Core',
     items: [
       { to: '/',          icon: LayoutDashboard, label: 'Home',     end: true },
-      { to: '/generate',  icon: Dna,             label: 'Protect file'             },
+      { to: '/generate',  icon: Dna,             label: 'Protect asset'             },
     ],
   },
   {
     label: 'Explorer',
     items: [
       { to: '/vault',       icon: Archive,    label: 'Digital Assets' },
-      { to: '/dna-records', icon: FileSearch, label: 'Protected files' },
+      { to: '/dna-records', icon: FileSearch, label: 'Protected assets' },
     ],
   },
   {
@@ -161,7 +161,7 @@ const BUSINESS_NAV_ITEMS: Array<{
   feature?: string;
 }> = [
   { to: '/business', icon: Building2, label: 'Home', end: true },
-  { to: '/generate', icon: Dna, label: 'Protect file' },
+  { to: '/generate', icon: Dna, label: 'Protect asset' },
   { to: '/vault', icon: Archive, label: 'Digital Assets' },
   { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Investigate', feature: FeatureKey.FEATURE_INVESTIGATION },
   { to: '/reports', icon: Shield, label: 'Reports', feature: FeatureKey.FEATURE_INVESTIGATION },

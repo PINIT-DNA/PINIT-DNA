@@ -402,7 +402,7 @@ export function IntegrationsPanel() {
                   )}
                 </div>
                 <p className="text-xs text-slate-500">
-                  Account linked. Folder auto-import into Protect file ships next — test connection anytime.
+                  Account linked. Folder auto-import into Protect asset ships next — test connection anytime.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <EnterpriseButton

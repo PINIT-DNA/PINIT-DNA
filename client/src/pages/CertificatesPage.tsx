@@ -83,7 +83,7 @@ function RevokeDialog({
 
         {/* File being revoked */}
         <div className="bg-bg-elevated rounded-xl p-3 border border-bg-border">
-          <p className="text-2xs text-gray-500 mb-1">Certificate for file</p>
+          <p className="text-2xs text-gray-500 mb-1">Certificate for asset</p>
           <p className="text-sm font-medium text-white truncate">{filename}</p>
           <p className="text-2xs text-gray-500 mono mt-1">{certId}</p>
         </div>
@@ -265,7 +265,7 @@ function CertificateCard({
           <div className="flex items-start gap-2">
             <Dna size={12} className={cn('mt-0.5 shrink-0', isRevoked ? 'text-danger/70' : 'text-dna-400')} />
             <div className="min-w-0">
-              <p className="text-xs text-gray-400">Registered File</p>
+              <p className="text-xs text-gray-400">Registered Asset</p>
               <p className="text-sm font-semibold text-white truncate">{vault.originalFileName}</p>
               <p className="text-2xs text-gray-600 mono mt-0.5">{formatBytes(vault.originalSizeBytes)}</p>
             </div>

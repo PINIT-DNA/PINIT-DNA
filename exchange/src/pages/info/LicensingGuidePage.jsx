@@ -78,7 +78,7 @@ export default function LicensingGuidePage({ onNavigate }) {
       <h2>What buyers receive</h2>
       <ul>
         <li>A sealed license record for that purchase</li>
-        <li>Authorized download or delivery of the licensed files</li>
+        <li>Authorized download or delivery of the licensed assets</li>
         <li>The usage scope shown at checkout (personal, commercial, exclusive, or enterprise)</li>
       </ul>
 

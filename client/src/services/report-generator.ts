@@ -396,7 +396,7 @@ export async function exportCertificatePDF(vault: VaultRecord, user?: AuthUser):
 
   // ── File Section ────────────────────────────────────────────────────────────
   sectionDivider('FILE INFORMATION');
-  field('Registered File',  vault.originalFileName);
+  field('Registered Asset',  vault.originalFileName);
   field('MIME Type',        vault.originalMimeType);
   field('Original Size',    formatBytes(vault.originalSizeBytes));
   field('Encrypted Size',   formatBytes(vault.encryptedSizeBytes));

@@ -35,7 +35,7 @@ export default function ProvenanceDrawer({ open, onClose, listing }) {
               <strong style={{ color: '#fff' }}>{verifiedLabel(listing?.badge_tier)}</strong>
             </div>
             <ul className="hub-trust-card__list">
-              <li><Check size={14} /> File DNA generated</li>
+              <li><Check size={14} /> Asset DNA generated</li>
               <li><Check size={14} /> Vault protected</li>
               <li><Check size={14} /> Provenance verified</li>
               <li><Check size={14} /> Authenticity checked</li>

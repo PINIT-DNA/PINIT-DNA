@@ -9,7 +9,7 @@ import {
 } from '../hub-client.js';
 import { exchangePreviewUrl, isHubVaultId, PLACEHOLDER_PREVIEW } from '../lib/preview-url.js';
 import { verifyPreviewToken } from '../lib/preview-token.js';
-import rateLimit from 'express-rate-limit';
+import { rateLimit } from '../lib/rate-limit.js';
 import { requireSeller, requireActiveSeller } from '../lib/rbac.js';
 import { identityCandidates, sellerMatchClause } from '../lib/pinit-identity.js';
 
@@ -22,9 +22,7 @@ const router = express.Router();
 const previewLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 120,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many preview requests. Slow down.' },
+  message: 'Too many preview requests. Slow down.',
 });
 const HUB_APP_URL = (process.env.HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
 

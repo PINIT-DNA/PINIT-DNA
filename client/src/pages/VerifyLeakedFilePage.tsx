@@ -356,7 +356,7 @@ export function VerifyLeakedFilePage() {
               {result.identity && (
                 <div className="space-y-3">
                   <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                    <User size={14} className="text-dna-400" /> Original File Owner
+                    <User size={14} className="text-dna-400" /> Original Asset Owner
                   </h3>
                   <div className="bg-bg-elevated rounded-xl p-4 border border-bg-border space-y-2">
                     {result.identity.ownerShortId && (
@@ -379,7 +379,7 @@ export function VerifyLeakedFilePage() {
                     )}
                     {result.identity.originalFilename && (
                       <div className="flex justify-between">
-                        <span className="text-xs text-gray-500">Original Filename</span>
+                        <span className="text-xs text-gray-500">Original Assetname</span>
                         <span className="text-xs text-white font-mono truncate max-w-[200px]">{result.identity.originalFilename}</span>
                       </div>
                     )}
@@ -475,7 +475,7 @@ export function VerifyLeakedFilePage() {
                     </div>
                     {result.shareLink.filename && (
                       <div className="flex justify-between">
-                        <span className="text-xs text-gray-500">Shared File</span>
+                        <span className="text-xs text-gray-500">Shared Asset</span>
                         <span className="text-xs text-white font-mono truncate max-w-[200px]">{result.shareLink.filename}</span>
                       </div>
                     )}
@@ -594,10 +594,10 @@ export function VerifyLeakedFilePage() {
         <div className="card mt-6">
           <h3 className="text-sm font-semibold text-white mb-3">How It Works</h3>
           <div className="space-y-2 text-2xs text-gray-500">
-            <p>1. <strong>Downloaded file</strong> — TEP markers, watermarks, exact SHA-256 hash, or embedded identity</p>
-            <p>2. <strong>Tampered file</strong> — damaged HMAC, changed bytes (normalized hash), partial identity, or visual fingerprint</p>
+            <p>1. <strong>Downloaded asset</strong> — TEP markers, watermarks, exact SHA-256 hash, or embedded identity</p>
+            <p>2. <strong>Tampered asset</strong> — damaged HMAC, changed bytes (normalized hash), partial identity, or visual fingerprint</p>
             <p>3. <strong>Screenshot</strong> — OCR reads Link Intelligence (<code className="text-gray-400">/link/token</code>) or Secure Viewer token + filename → owner, recipient, access logs</p>
-            <p>4. <strong>Original vault file</strong> — embedded identity inside the decrypted file (not encrypted .enc storage)</p>
+            <p>4. <strong>Original vault asset</strong> — embedded identity inside the decrypted file (not encrypted .enc storage)</p>
             <p>5. Tampered results show <span className="text-orange-400">Leak Detected</span> with owner details even when content was modified</p>
           </div>
         </div>

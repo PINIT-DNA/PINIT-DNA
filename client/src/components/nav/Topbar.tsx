@@ -8,10 +8,10 @@ import { BRAND } from '../../config/brand.config';
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   '/':                    { title: 'Home',                  subtitle: 'What happened with your files'           },
   '/business':            { title: 'Organization home',     subtitle: 'Team operations overview'                },
-  '/generate':            { title: 'Protect file',          subtitle: 'Create a protected identity for a file'  },
+  '/generate':            { title: 'Protect asset',          subtitle: 'Create a protected identity for an asset'  },
   '/vault':               { title: 'Digital Assets',        subtitle: 'Your protected files — share and track'  },
   '/vault-integrity':     { title: 'Vault check',           subtitle: 'Confirm your files are stored safely'    },
-  '/dna-records':         { title: 'Protected files',       subtitle: 'Files you have protected in Pinit HUB'   },
+  '/dna-records':         { title: 'Protected assets',       subtitle: 'Files you have protected in Pinit HUB'   },
   '/timeline':            { title: 'File activity',         subtitle: 'What happened to your files'             },
   '/reports':             { title: 'Reports',               subtitle: 'Investigation and comparison reports'   },
   '/certificates':        { title: 'Certificates',          subtitle: 'Ownership proof you can share'           },
@@ -81,7 +81,7 @@ export function Topbar({ onMenu }: TopbarProps) {
           className="btn btn-primary btn-sm text-xs hidden lg:flex nav-cta"
         >
           <Plus size={14} />
-          Protect file
+          Protect asset
         </Link>
         <NotificationBell />
         <ProfileDropdown />

@@ -40,7 +40,7 @@ export default function EnterpriseLicensing({ onNavigate }) {
           { icon: ShieldCheck, title: 'Asset protection', body: 'Hub vaults the original. Teams license usage on Exchange.' },
           { icon: FileText, title: 'Licensing', body: 'Personal through enterprise seats, with a sealed record per purchase.' },
           { icon: Building2, title: 'Team collaboration', body: 'Business accounts on Hub; Exchange listings stay tied to the same identity code.' },
-          { icon: DollarSign, title: 'Secure delivery', body: 'Authorized files come from Hub after checkout — not an open file dump.' },
+          { icon: DollarSign, title: 'Secure delivery', body: 'Authorized assets come from Hub after checkout — not an open file dump.' },
         ]}
       />
 
@@ -48,7 +48,7 @@ export default function EnterpriseLicensing({ onNavigate }) {
       <InfoSteps
         steps={[
           { title: 'Create / Import', body: 'Bring work into Pinit HUB.' },
-          { title: 'Protect', body: 'Vault the file and record Asset DNA.' },
+          { title: 'Protect', body: 'Vault the asset and record Asset DNA.' },
           { title: 'Collaborate', body: 'Review inside the team before it is offered for license.' },
           { title: 'Approve', body: 'Decide what can be listed and at which tier.' },
           { title: 'License', body: 'Buyers or internal teams complete Exchange checkout.' },
@@ -137,7 +137,7 @@ export default function EnterpriseLicensing({ onNavigate }) {
             <h4 style={{ fontSize: '1.1rem', color: '#fff', marginBottom: '12px' }}>Enterprise SLA Package Includes</h4>
             <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.88rem', color: 'var(--text-muted)' }}>
               <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={16} color="var(--emerald)" /> Unlimited multi-seat deployment across regional offices</li>
-              <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={16} color="var(--emerald)" /> SHA-256 file DNA audit logs for licensed masters</li>
+              <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={16} color="var(--emerald)" /> SHA-256 asset DNA audit logs for licensed masters</li>
               <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={16} color="var(--emerald)" /> Net 30/60 Invoicing &amp; Corporate PO billing</li>
               <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={16} color="var(--emerald)" /> Dedicated Pinit HUB compliance officer</li>
             </ul>

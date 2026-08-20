@@ -14,7 +14,7 @@ const TOPICS = [
 ];
 
 const FAQS = [
-  { q: 'Why did Exchange open a computer folder?', a: 'That was a local file picker. Listing now shows Hub vault cards only. Protect new files in Hub, then refresh.' },
+  { q: 'Why did Exchange open a computer folder?', a: 'That was a local file picker. Listing now shows Hub vault cards only. Protect new assets in Hub, then refresh.' },
   { q: 'Why is my Exchange ID different from Hub?', a: 'Same person, different prefix. Hub individual is PINIT-USER-CODE. Exchange is PINIT-EX-CODE.' },
   { q: 'Can I read these pages without signing in?', a: 'Yes. Sign-in is only required to list, buy, or open seller tools.' },
   { q: 'Where do I request a refund?', a: 'See the Refund Policy, then contact support from this page or your license record.' },

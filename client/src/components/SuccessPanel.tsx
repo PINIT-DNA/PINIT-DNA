@@ -220,7 +220,7 @@ export function SuccessPanel({ session, onReset }: Props) {
           <ul className="space-y-1.5 text-xs text-gray-400">
             <li className="flex items-start gap-2">
               <CheckCircle2 size={13} className="text-layer-complete mt-0.5 shrink-0" />
-              <span>Unique file identity created and stored</span>
+              <span>Unique asset identity created and stored</span>
             </li>
             <li className="flex items-start gap-2">
               <CheckCircle2 size={13} className="text-layer-complete mt-0.5 shrink-0" />
@@ -244,7 +244,7 @@ export function SuccessPanel({ session, onReset }: Props) {
         <div className="px-5 pb-6 pt-1 flex flex-col sm:flex-row gap-2">
           <button type="button" onClick={onReset} className="btn btn-secondary flex-1 py-3">
             <Plus size={16} />
-            <span>Protect Another File</span>
+            <span>Protect Another Asset</span>
           </button>
         </div>
       </motion.div>

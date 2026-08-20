@@ -84,7 +84,7 @@ export default function CreatorStudio({ user, onNavigate, onSelectListing }) {
           <span>Assets</span>
           <Images size={18} color="var(--primary)" />
           <strong>{listings.length}</strong>
-          <em>Protected files listed</em>
+          <em>Protected assets listed</em>
         </div>
         <div className="glass-panel studio-kpi__card">
           <span>Active listings</span>
@@ -101,7 +101,7 @@ export default function CreatorStudio({ user, onNavigate, onSelectListing }) {
         </div>
         <div className="studio-assets">
           {listings.length === 0 && (
-            <p className="studio-empty">No assets listed yet. Add a protected Hub file to start selling.</p>
+            <p className="studio-empty">No assets listed yet. Add a protected Hub asset to start selling.</p>
           )}
           {listings.slice(0, 8).map((item) => {
             const preview = listingPreviewUrl(item);

@@ -250,7 +250,7 @@ export function InvestigationSideBySideCompare({
                 <Loader2 size={12} className="animate-spin" /> Loading vault original…
               </div>
             ) : loadState === 'error' ? (
-              <p className="text-2xs text-yellow-400">Could not load preview — open Vault Explorer to view file</p>
+              <p className="text-2xs text-yellow-400">Could not load preview — open Vault Explorer to view asset</p>
             ) : (
               <div className="flex items-center gap-1 text-2xs text-green-400">
                 <ShieldCheck size={12} />

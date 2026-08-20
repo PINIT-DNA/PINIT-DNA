@@ -224,7 +224,7 @@ export default function CreatorDesk({ user, onOpenListFromHub, onOpenAuth, onSel
           }}
         >
           <div>
-            <div style={{ color: '#fff', fontWeight: 700, marginBottom: 4 }}>Sell a protected file</div>
+            <div style={{ color: '#fff', fontWeight: 700, marginBottom: 4 }}>Sell a protected asset</div>
             <div style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>
               1) Protect in Hub if needed → 2) Open Digital Assets → 3) List on Exchange → 4) Set price &amp; publish. Monitoring stays in Hub.
             </div>

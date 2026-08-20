@@ -50,7 +50,7 @@ export default function TrustCenter({ onNavigate }) {
         items={[
           { icon: Users, title: 'Verified creators', body: 'Sellers sign in with Hub biometric identity. Exchange IDs share the same core code.' },
           { icon: Lock, title: 'Protected assets', body: 'Masters stay in the Hub vault. Shoppers see previews and license offers.' },
-          { icon: Fingerprint, title: 'Provenance', body: 'Asset DNA and history help show where the protected file came from.' },
+          { icon: Fingerprint, title: 'Provenance', body: 'Asset DNA and history help show where the protected asset came from.' },
           { icon: FileCheck, title: 'Licensing transparency', body: 'Personal, commercial, exclusive, and enterprise tiers are explained before checkout.' },
           { icon: Eye, title: 'Monitoring', body: 'After a sale, Hub can keep watching for copies that look like the original.' },
           { icon: ShieldCheck, title: 'Evidence', body: 'Sealed licenses and Hub records form an audit trail for that asset.' },

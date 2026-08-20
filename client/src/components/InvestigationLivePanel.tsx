@@ -132,7 +132,7 @@ export function InvestigationLivePanel({ snapshot, file, previewUrl }: Props) {
               {snapshot.originalFilename && (
                 <div className="flex items-center gap-2 min-w-0 sm:col-span-2">
                   <Fingerprint size={12} className="text-gray-500 shrink-0" />
-                  <span className="text-gray-500">Original File</span>
+                  <span className="text-gray-500">Original Asset</span>
                   <span className="text-white truncate">{snapshot.originalFilename}</span>
                 </div>
               )}

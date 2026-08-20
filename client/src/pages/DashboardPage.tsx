@@ -237,7 +237,7 @@ export function DashboardPage() {
         <div className="flex items-center gap-2 shrink-0">
           <Link to="/generate" className="btn btn-primary btn-sm gap-2">
             <Plus size={14} />
-            Protect a file
+            Protect an asset
           </Link>
           <button onClick={handleRefresh} disabled={loading} className="btn btn-secondary btn-sm gap-2" title="Refresh">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
@@ -358,7 +358,7 @@ export function DashboardPage() {
             <StatCard
               icon={<Database size={20} className="text-white" />}
               variant="blue"
-              label="Protected files"
+              label="Protected assets"
               value={stats.totalDnaRecords}
               sub={`${stats.completedDna} ready`}
               to="/dna-records"
@@ -401,7 +401,7 @@ export function DashboardPage() {
           </div>
           <div className="grid grid-cols-2 gap-2 mb-4 shrink-0">
             {[
-              { to: '/generate', label: 'Protect a file', icon: <Zap size={15} className="text-white" />, tile: 'action-tile-dna' },
+              { to: '/generate', label: 'Protect an asset', icon: <Zap size={15} className="text-white" />, tile: 'action-tile-dna' },
               { to: BRAND.investigationPath, label: 'Investigate', icon: <Shield size={15} className="text-white" />, tile: 'action-tile-cyan' },
               { to: '/vault', label: 'Digital Assets', icon: <Archive size={15} className="text-white" />, tile: 'action-tile-purple' },
               { to: '/certificates', label: 'Certificates', icon: <Shield size={15} className="text-white" />, tile: 'action-tile-success' },
@@ -422,7 +422,7 @@ export function DashboardPage() {
           <div className="flex-1 flex flex-col min-h-0 border-t border-bg-border pt-4">
             <div className="flex items-center gap-2 mb-2 flex-wrap shrink-0">
               <Globe size={14} className="text-dna-400" />
-              <h3 className="text-xs font-semibold text-white">Where files were opened</h3>
+              <h3 className="text-xs font-semibold text-white">Where assets were opened</h3>
               {trackingMeta.recent > 0 && (
                 <Badge variant="success" dot>{trackingMeta.recent} in last hour</Badge>
               )}
@@ -480,10 +480,10 @@ export function DashboardPage() {
           ) : (
             <div className="flex flex-col items-center justify-center py-10 text-center px-4">
               <FileText size={24} className="text-gray-500 mb-2" />
-              <p className="text-sm text-gray-500">No protected files yet</p>
-              <p className="text-2xs text-gray-500 mt-1 max-w-[220px]">Protect a file to start tracking who opens it</p>
+              <p className="text-sm text-gray-500">No protected assets yet</p>
+              <p className="text-2xs text-gray-500 mt-1 max-w-[220px]">Protect an asset to start tracking who opens it</p>
               <Link to="/generate" className="btn btn-primary btn-sm mt-4">
-                Protect a file
+                Protect an asset
               </Link>
             </div>
           )}
@@ -505,7 +505,7 @@ export function DashboardPage() {
           <div className="stat-grid-3">
             <div className="p-3 rounded-xl bg-bg-elevated border border-bg-border text-center">
               <p className="text-xl font-bold text-purple">{stats.totalVaultRecords}</p>
-              <p className="text-2xs text-gray-500 mt-1">Protected files</p>
+              <p className="text-2xs text-gray-500 mt-1">Protected assets</p>
             </div>
             <div className="p-3 rounded-xl bg-bg-elevated border border-bg-border text-center">
               <p className="text-xl font-bold text-success">{formatBytes(stats.totalEncryptedBytes)}</p>

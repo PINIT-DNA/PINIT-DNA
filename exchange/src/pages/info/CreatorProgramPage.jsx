@@ -27,7 +27,7 @@ export default function CreatorProgramPage({ onNavigate, onOpenAuth }) {
 
       <InfoCards
         items={[
-          { icon: User, title: 'Verification', body: 'Your Exchange seller account is tied to the same Hub identity used to protect files.' },
+          { icon: User, title: 'Verification', body: 'Your Exchange seller account is tied to the same Hub identity used to protect assets.' },
           { icon: ShieldCheck, title: 'HUB protection', body: 'Masters stay in the Hub vault. Exchange lists a license, not an unprotected original.' },
           { icon: ShoppingBag, title: 'Listing', body: 'Choose a protected asset, set license prices, and publish to Discover.' },
           { icon: DollarSign, title: 'Payments', body: 'Buyers complete checkout on Exchange. Delivery and monitoring stay with Hub.' },
@@ -38,7 +38,7 @@ export default function CreatorProgramPage({ onNavigate, onOpenAuth }) {
       <InfoSteps
         steps={[
           { title: 'Create a Hub account', body: 'Sign in with Hub biometric identity. Exchange uses PINIT-EX- plus your shared ID.' },
-          { title: 'Protect the file', body: 'Upload in Pinit HUB so the asset receives vault protection and Asset DNA.' },
+          { title: 'Protect the asset', body: 'Upload in Pinit HUB so the asset receives vault protection and Asset DNA.' },
           { title: 'List on Exchange', body: 'Pick the Hub asset, set personal / commercial / exclusive pricing, and publish.' },
           { title: 'License and deliver', body: 'When a buyer licenses the work, Exchange records the sale and Hub handles protected delivery.' },
           { title: 'Reputation and analytics', body: 'Seller overview shows listings, sealed sales, and Hub monitoring alerts.' },

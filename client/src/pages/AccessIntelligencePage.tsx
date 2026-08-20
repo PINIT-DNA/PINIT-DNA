@@ -378,7 +378,7 @@ export function AccessIntelligencePage() {
           {openFileShares.length === 0 ? (
             <div className="card text-center py-16">
               <Send size={40} className="text-gray-500 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">No shared files tracked yet</p>
+              <p className="text-sm text-gray-500">No shared assets tracked yet</p>
               <p className="text-2xs text-gray-500 mt-1">
                 From Digital Assets, use Share File. When someone opens it in Pinit, activity shows up here.
               </p>

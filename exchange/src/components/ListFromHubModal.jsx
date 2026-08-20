@@ -249,7 +249,7 @@ export default function ListFromHubModal({
               </div>
 
               {fetching && (
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Loading protected files from Pinit HUB…</p>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Loading protected assets from Pinit HUB…</p>
               )}
 
               {!fetching && hubAssets.length > 0 && (
@@ -321,7 +321,7 @@ export default function ListFromHubModal({
                 }}>
                   <div style={{ color: '#fff', fontWeight: 600, marginBottom: 8 }}>No Hub assets yet</div>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', marginBottom: 12 }}>
-                    Protect the file in Pinit HUB first. Then it appears here — do not pick from your computer folders.
+                    Protect the asset in Pinit HUB first. Then it appears here — do not pick from your computer folders.
                   </p>
                   {fetchMessage && (
                     <p style={{ color: 'var(--text-dim)', fontSize: '0.8rem', marginBottom: 12 }}>{fetchMessage}</p>

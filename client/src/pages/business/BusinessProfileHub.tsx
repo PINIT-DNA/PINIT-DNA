@@ -1000,7 +1000,7 @@ function BusinessSettingsTab({ profile }: { profile: ProfileData }) {
             <RefreshCw size={16} className="animate-spin text-slate-500 dark:text-gray-400" />
           </div>
         ) : vaultFiles.length === 0 ? (
-          <p className="text-xs text-slate-500 dark:text-gray-400 text-center py-4">No vault files yet.</p>
+          <p className="text-xs text-slate-500 dark:text-gray-400 text-center py-4">No vault assets yet.</p>
         ) : (
           <ul className="space-y-2 max-h-[320px] overflow-y-auto">
             {vaultFiles.map((file) => (

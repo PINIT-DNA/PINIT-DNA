@@ -1163,7 +1163,7 @@ export async function buildDnaReportPdf(report: InvestigationReportExport): Prom
   y = table(doc, y, [
     ['Classification', report.dnaComparison?.classification ?? '—'],
     ['Overall Confidence', `${report.summary.dnaMatchPercent}%`],
-    ['Original File', report.dnaComparison?.fileA?.filename ?? String(report.owner.originalFilename ?? '—')],
+    ['Original Asset', report.dnaComparison?.fileA?.filename ?? String(report.owner.originalFilename ?? '—')],
     ['Suspected File', report.dnaComparison?.fileB?.filename ?? '—'],
   ]);
 

@@ -142,7 +142,7 @@ function AutoMatchIdentityBanner({ autoResult }: { autoResult: Record<string, an
 
       {/* Original file — prominent */}
       <div className="rounded-xl border border-dna-500/25 bg-dna-500/5 p-4 mb-4">
-        <p className="text-2xs text-dna-400 font-semibold uppercase tracking-wider mb-2">Original Vault File</p>
+        <p className="text-2xs text-dna-400 font-semibold uppercase tracking-wider mb-2">Original Vault Asset</p>
         <p className="text-base font-bold text-white break-all">{originalName}</p>
         <div className="flex flex-wrap gap-2 mt-2">
           {orig.mimeType && <Badge variant="dna">{orig.mimeType}</Badge>}

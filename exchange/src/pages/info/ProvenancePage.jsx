@@ -3,9 +3,9 @@ import { ArrowDown } from 'lucide-react';
 import InfoPage from '../../components/InfoPage.jsx';
 
 const FLOW = [
-  { title: 'Asset', body: 'The original creative file the creator wants to license.' },
+  { title: 'Asset', body: 'The original creative asset the creator wants to license.' },
   { title: 'Pinit HUB', body: 'The file is protected in the Hub vault — not left as an open download.' },
-  { title: 'Asset DNA', body: 'Hub records a digital identity for the file so later copies can be compared.' },
+  { title: 'Asset DNA', body: 'Hub records a digital identity for the asset so later copies can be compared.' },
   { title: 'Protection', body: 'Access, sharing, and delivery stay under Hub controls.' },
   { title: 'Provenance', body: 'A history of who protected it and how it has been handled.' },
   { title: 'Exchange listing', body: 'A public license offer appears on the marketplace.' },
@@ -48,7 +48,7 @@ export default function ProvenancePage({ onNavigate }) {
 
       <h2>Words we use</h2>
       <dl className="info-dl">
-        <div><dt>Asset DNA</dt><dd>A digital fingerprint Hub derives from the protected file.</dd></div>
+        <div><dt>Asset DNA</dt><dd>A digital fingerprint Hub derives from the protected asset.</dd></div>
         <div><dt>Verification</dt><dd>Signals that the listing is tied to a Hub-protected original.</dd></div>
         <div><dt>Ownership evidence</dt><dd>Records that help show who protected the work and when.</dd></div>
         <div><dt>Monitoring</dt><dd>After a sale, Hub can keep watching for copies that look like the original.</dd></div>

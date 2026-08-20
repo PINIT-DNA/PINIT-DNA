@@ -792,7 +792,7 @@ export function MonitoringPage() {
               }
               action={
                 monitoringLive
-                  ? <button onClick={() => setEnrollOpen(true)} className="btn btn-primary btn-sm"><Radio size={14} /> Enroll First File</button>
+                  ? <button onClick={() => setEnrollOpen(true)} className="btn btn-primary btn-sm"><Radio size={14} /> Enroll First Asset</button>
                   : undefined
               }
             />
@@ -855,7 +855,7 @@ export function MonitoringPage() {
           </div>
 
           {(dnaRecords ?? []).length === 0 ? (
-            <p className="text-sm text-gray-500 text-center py-4">No files enrolled yet. Generate a DNA first.</p>
+            <p className="text-sm text-gray-500 text-center py-4">No assets enrolled yet. Generate a DNA first.</p>
           ) : (
             <div className="space-y-2 max-h-52 overflow-y-auto">
               {(dnaRecords ?? []).map(r => {

@@ -691,7 +691,7 @@ function SettingsTab() {
             <RefreshCw size={18} className="animate-spin text-gray-500" />
           </div>
         ) : vaultFiles.length === 0 ? (
-          <p className="text-xs text-gray-500 text-center py-6">No vault files yet.</p>
+          <p className="text-xs text-gray-500 text-center py-6">No vault assets yet.</p>
         ) : (
           <ul className="space-y-2 max-h-[360px] overflow-y-auto">
             {vaultFiles.map((file) => (

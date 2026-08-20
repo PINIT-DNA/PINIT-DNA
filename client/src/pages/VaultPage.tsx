@@ -346,7 +346,7 @@ export function VaultPage() {
         <div className="stat-grid-3 gap-3">
           <div className="card-sm text-center">
             <p className="text-2xl font-bold text-purple tabular-nums">{records.length}</p>
-            <p className="text-2xs text-gray-500 mt-1">Protected files</p>
+            <p className="text-2xs text-gray-500 mt-1">Protected assets</p>
           </div>
           <div className="card-sm text-center">
             <p className="text-2xl font-bold text-success tabular-nums">
@@ -460,8 +460,8 @@ export function VaultPage() {
             ) : filtered.length === 0 ? (
               <EmptyState
                 icon={Archive}
-                title="No protected files yet"
-                description="Protect a file to store it here — then share and track who opens it"
+                title="No protected assets yet"
+                description="Protect an asset to store it here — then share and track who opens it"
               />
             ) : (
               <div className={cn(
@@ -504,8 +504,8 @@ export function VaultPage() {
                   <td colSpan={8}>
                     <EmptyState
                       icon={Archive}
-                      title="No protected files yet"
-                      description="Protect a file to store it here — then share and track who opens it"
+                      title="No protected assets yet"
+                      description="Protect an asset to store it here — then share and track who opens it"
                     />
                   </td>
                 </tr>

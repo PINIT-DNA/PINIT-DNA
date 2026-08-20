@@ -255,7 +255,7 @@ export default function MyLicenses({ user, onViewCertificate }) {
           >
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
               <div>
-                <h2 style={{ fontSize: '1.3rem', color: '#fff', margin: 0 }}>Share licensed file</h2>
+                <h2 style={{ fontSize: '1.3rem', color: '#fff', margin: 0 }}>Share licensed asset</h2>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 6 }}>
                   {shareFor.title || shareFor.asset_id}
                 </p>
