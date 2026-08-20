@@ -46,18 +46,6 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
     });
   }, [isOpen, user, listing?.listing_id]);
 
-  if (!isOpen || !listing) return null;
-
-  const getPriceForTier = (t) => {
-    if (t === 'personal') return listing.price_personal || 49;
-    if (t === 'commercial') return listing.price_commercial || 149;
-    if (t === 'exclusive') return listing.price_exclusive || 899;
-    if (t === 'enterprise') return listing.price_enterprise || 2499;
-    return listing.price_personal || 49;
-  };
-
-  const selectedPrice = getPriceForTier(tier);
-
   const runCheckout = async (name = buyerName, email = buyerEmail, org = buyerOrg) => {
     if (user && !canPurchase(user)) {
       setErrorMsg('Creator accounts cannot purchase marketplace assets.');
@@ -100,6 +88,20 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
     const defaults = defaultBuyer(user);
     void runCheckout(defaults.name, defaults.email, defaults.org);
   }, [isOpen, payMode, listing?.listing_id]);
+
+  // Must come after every hook above — an early return here would change how many
+  // hooks run between the closed and open renders (React error #310).
+  if (!isOpen || !listing) return null;
+
+  const getPriceForTier = (t) => {
+    if (t === 'personal') return listing.price_personal || 49;
+    if (t === 'commercial') return listing.price_commercial || 149;
+    if (t === 'exclusive') return listing.price_exclusive || 899;
+    if (t === 'enterprise') return listing.price_enterprise || 2499;
+    return listing.price_personal || 49;
+  };
+
+  const selectedPrice = getPriceForTier(tier);
 
   const handleProcessCheckout = async (e) => {
     e.preventDefault();
