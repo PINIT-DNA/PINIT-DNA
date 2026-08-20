@@ -81,7 +81,8 @@ function mapCreator(row) {
     rating: Number(row.rating || 5),
     identityVerified: true,
     hubConnected: true,
-    avatar: String(name || 'P')[0].toUpperCase(),
+    // Avatar initial comes from the Pinit code, not the person's name.
+    avatar: String(row.pinit_id || 'P').replace(/^PINIT-(EX-)?/, '')[0]?.toUpperCase() || 'P',
     portfolio,
     listings: row.portfolio || [],
   };
@@ -110,7 +111,7 @@ export default function CreatorPassports({ onNavigate, onOpenAuth, user }) {
     let list = creators.filter((c) => {
       if (category !== 'all' && !(c.categoryIds || []).some((id) => id.includes(category) || category.includes(id))) return false;
       if (!q) return true;
-      const hay = [c.name, c.bio, c.pinit_user_id, c.pinit_id, ...(c.specialties || [])].join(' ').toLowerCase();
+      const hay = [c.bio, c.pinit_user_id, c.pinit_id, ...(c.specialties || [])].join(' ').toLowerCase();
       return hay.includes(q);
     });
 
@@ -222,17 +223,14 @@ export default function CreatorPassports({ onNavigate, onOpenAuth, user }) {
                   <div className="nav-account__avatar creator-card__avatar">{c.avatar}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="creator-card__name-row">
-                      <h3>{c.name}</h3>
+                      {/* Exchange ID is the public creator identity — the real
+                          name is not shown on public marketplace surfaces. */}
+                      <h3>{c.pinit_id}</h3>
                       <span className="creator-card__verified">
                         <CheckCircle2 size={13} /> Verified
                       </span>
                     </div>
                     <div className="creator-card__specs">{c.specialties.join(' · ')}</div>
-                    <div className="creator-card__ids">
-                      {c.pinit_user_id && (
-                        <span><em>Pinit User ID</em> {c.pinit_user_id}</span>
-                      )}
-                    </div>
                   </div>
                 </div>
 
@@ -306,19 +304,14 @@ export default function CreatorPassports({ onNavigate, onOpenAuth, user }) {
 
       {selected && (
         <div className="modal-overlay" onClick={() => setSelected(null)} role="presentation">
-          <div className="modal-content creator-profile" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={`${selected.name} profile`}>
+          <div className="modal-content creator-profile" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={`${selected.pinit_id} profile`}>
             <div className="modal-header">
               <div className="creator-profile__title">
                 <div className="nav-account__avatar" style={{ width: 44, height: 44 }}>{selected.avatar}</div>
                 <div>
-                  <h3 style={{ color: '#fff', margin: 0 }}>{selected.name}</h3>
+                  <h3 style={{ color: '#fff', margin: 0 }}>{selected.pinit_id}</h3>
                   <div className="creator-card__verified" style={{ marginTop: 4 }}>
                     <CheckCircle2 size={13} /> Verified Creator
-                  </div>
-                  <div className="creator-card__ids" style={{ marginTop: 8 }}>
-                    {selected.pinit_user_id && (
-                      <span><em>Pinit User ID</em> {selected.pinit_user_id}</span>
-                    )}
                   </div>
                 </div>
               </div>
@@ -347,7 +340,7 @@ export default function CreatorPassports({ onNavigate, onOpenAuth, user }) {
 
               {hireSent && (
                 <p className="creator-profile__hire-note">
-                  Opening Requirements — post a brief to work with {selected.name}.
+                  Opening Requirements — post a brief to work with {selected.pinit_id}.
                 </p>
               )}
 
