@@ -370,7 +370,7 @@ export async function assemblePortfolio(user, profile, { ownerView = false } = {
       cover_url: cover,
       pinit_id: user.pinit_id,
       pinit_user_id: hub?.pinit_user_id || toUserPinitId(user.pinit_id),
-      user_id: hub?.user_id || '',
+      // user_id (raw Hub User.id) intentionally omitted — public payload.
       creator_since: since || null,
     },
     skills: visible(sections, 'skills') ? profile.skills : [],

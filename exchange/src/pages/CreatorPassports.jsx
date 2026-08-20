@@ -68,7 +68,8 @@ function mapCreator(row) {
   const bio = /connected via pinit/i.test(row.bio || '') ? '' : (row.bio || '');
   return {
     pinit_id: row.pinit_id,
-    user_id: row.user_id || '',
+    // row.user_id (raw Hub User.id) is no longer sent and is not mapped here —
+    // pinit_user_id / pinit_id are the public creator identifiers.
     pinit_user_id: row.pinit_user_id || '',
     name,
     bio,
@@ -109,7 +110,7 @@ export default function CreatorPassports({ onNavigate, onOpenAuth, user }) {
     let list = creators.filter((c) => {
       if (category !== 'all' && !(c.categoryIds || []).some((id) => id.includes(category) || category.includes(id))) return false;
       if (!q) return true;
-      const hay = [c.name, c.bio, c.user_id, c.pinit_user_id, c.pinit_id, ...(c.specialties || [])].join(' ').toLowerCase();
+      const hay = [c.name, c.bio, c.pinit_user_id, c.pinit_id, ...(c.specialties || [])].join(' ').toLowerCase();
       return hay.includes(q);
     });
 
@@ -228,9 +229,6 @@ export default function CreatorPassports({ onNavigate, onOpenAuth, user }) {
                     </div>
                     <div className="creator-card__specs">{c.specialties.join(' · ')}</div>
                     <div className="creator-card__ids">
-                      {c.user_id && (
-                        <span><em>User ID</em> {c.user_id}</span>
-                      )}
                       {c.pinit_user_id && (
                         <span><em>Pinit User ID</em> {c.pinit_user_id}</span>
                       )}
@@ -318,9 +316,6 @@ export default function CreatorPassports({ onNavigate, onOpenAuth, user }) {
                     <CheckCircle2 size={13} /> Verified Creator
                   </div>
                   <div className="creator-card__ids" style={{ marginTop: 8 }}>
-                    {selected.user_id && (
-                      <span><em>User ID</em> {selected.user_id}</span>
-                    )}
                     {selected.pinit_user_id && (
                       <span><em>Pinit User ID</em> {selected.pinit_user_id}</span>
                     )}

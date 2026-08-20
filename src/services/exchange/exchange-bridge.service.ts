@@ -419,8 +419,11 @@ export const exchangeBridgeService = {
       }
     }
 
+    // Deliberately does NOT include User.id. This payload is rendered on a public
+    // creator page, and User.id is the users table primary key and the JWT `sub`
+    // — an internal authorization identifier with no public purpose.
+    // pinit_user_id / pinit_id are the public-facing identifiers.
     const profiles = [...byCode.values()].map((user) => ({
-      user_id: user.id,
       pinit_user_id: toUserPinitId(user.shortId),
       pinit_id: user.shortId,
       name: String(user.fullName || '').trim(),

@@ -18,7 +18,7 @@ function applyHubProfile(base, hub) {
     ...base,
     name: !isPlaceholderName(hubName) ? hubName : (!isPlaceholderName(localName) ? localName : (hubName || localName || 'PINIT Creator')),
     bio: String(hub?.bio || '').trim() || base.bio || '',
-    user_id: hub?.user_id || base.user_id || '',
+    // user_id (raw Hub User.id) intentionally omitted — public payload.
     pinit_user_id: hub?.pinit_user_id || toUserPinitId(code || base.pinit_id),
     avatar_url: hub?.avatar_url || base.avatar_url || '',
   };
@@ -152,7 +152,6 @@ router.get('/directory', (req, res) => {
               verticals: [],
               portfolio: [],
               sales: salesMap[code] || 0,
-              user_id: '',
               pinit_user_id: toUserPinitId(code),
             };
           }
@@ -239,7 +238,6 @@ router.get('/profile/:pinitId', (req, res) => {
                   hub_connected: true,
                   assets: (listings || []).length,
                   sales: (sales || []).length,
-                  user_id: '',
                   pinit_user_id: toUserPinitId(user?.pinit_id || pinitId),
                 }, hub),
                 listings: (listings || []).map(withPreview),
