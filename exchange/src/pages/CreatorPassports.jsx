@@ -230,6 +230,12 @@ export default function CreatorPassports({ onNavigate, onOpenAuth, user }) {
                         <CheckCircle2 size={13} /> Verified
                       </span>
                     </div>
+                    <div className="creator-card__ids">
+                      <span><em>Creator Exchange ID</em></span>
+                      {c.pinit_user_id && (
+                        <span><em>Pinit ID</em> {c.pinit_user_id}</span>
+                      )}
+                    </div>
                     <div className="creator-card__specs">{c.specialties.join(' · ')}</div>
                   </div>
                 </div>
@@ -310,6 +316,12 @@ export default function CreatorPassports({ onNavigate, onOpenAuth, user }) {
                 <div className="nav-account__avatar" style={{ width: 44, height: 44 }}>{selected.avatar}</div>
                 <div>
                   <h3 style={{ color: '#fff', margin: 0 }}>{selected.pinit_id}</h3>
+                  <div className="creator-card__ids" style={{ marginTop: 4 }}>
+                    <span><em>Creator Exchange ID</em></span>
+                    {selected.pinit_user_id && (
+                      <span><em>Pinit ID</em> {selected.pinit_user_id}</span>
+                    )}
+                  </div>
                   <div className="creator-card__verified" style={{ marginTop: 4 }}>
                     <CheckCircle2 size={13} /> Verified Creator
                   </div>
