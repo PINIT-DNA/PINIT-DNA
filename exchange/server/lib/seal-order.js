@@ -3,6 +3,7 @@ import { tierPrice, applyCouponPercent } from './pricing.js';
 import { withImmediateTransaction, runSql, getSql } from './db.js';
 import { LISTING_STATUS, LICENSE_STATUS, ORDER_STATUS, BRIDGE_EVENT, isListingPurchasable } from './lifecycle.js';
 import { recordBridgeEvent, markBridgeEventProcessed, markBridgeEventFailed } from './bridge-events.js';
+import { postAssetActivity } from './asset-activity.js';
 
 /**
  * Seal a paid license sale with exclusive locking + bridge events.
@@ -134,8 +135,8 @@ export async function sealListingSale({
     // Stub earning row for future payouts
     await txRun(
       `INSERT OR IGNORE INTO seller_earnings (
-        id, seller_pinit_id, order_id, seal_id, gross_amount, platform_fee, net_amount, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'accrued')`,
+        id, seller_pinit_id, order_id, seal_id, gross_amount, platform_fee, net_amount, status, asset_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'accrued', ?)`,
       [
         `EAR-${sealId}`,
         fresh.pinit_id,
@@ -144,9 +145,29 @@ export async function sealListingSale({
         pricePaid,
         platformFee,
         creatorNet,
+        fresh.asset_id,
       ],
     );
   });
+
+  // Money settled and the licence row now exists. Amounts are business data the
+  // creator is entitled to; no buyer identity beyond the Pinit ID is included.
+  postAssetActivity([
+    {
+      assetId: listing.asset_id,
+      eventType: 'PAID',
+      title: 'Payment settled',
+      detail: `Order ${orderId}`,
+      payload: { orderId, sealId, gross: pricePaid, platformFee, creatorNet, licenseTier },
+    },
+    {
+      assetId: listing.asset_id,
+      eventType: 'LICENSE_CREATED',
+      title: `License issued (${licenseTier})`,
+      detail: `Seal ${sealId}`,
+      payload: { sealId, orderId, licenseTier, buyerPinitId: buyerId || null },
+    },
+  ]);
 
   let hubSeal = null;
   let delivery = null;
@@ -190,6 +211,14 @@ export async function sealListingSale({
         licenseId: sealId,
       });
       if (!delDup && delEvent?.id) await markBridgeEventProcessed(delEvent.id);
+
+      postAssetActivity({
+        assetId: listing.asset_id,
+        eventType: 'DELIVERED',
+        title: 'Licensed file delivered',
+        detail: `Seal ${sealId}`,
+        payload: { sealId, orderId, licenseTier },
+      });
     }
   } catch (delErr) {
     console.warn('[seal] Hub delivery failed:', delErr.message);

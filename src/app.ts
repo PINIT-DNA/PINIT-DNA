@@ -38,6 +38,7 @@ import { organizationRouter }     from './api/routes/organization.routes';
 import { publishGuardianRouter }  from './api/routes/publish-guardian.routes';
 import { assetRouter }            from './api/routes/asset.routes';
 import { exchangeRouter }         from './api/routes/exchange.routes';
+import { creatorRouter }          from './api/routes/creator.routes';
 import {
   issueExtensionAuthCode,
   exchangeExtensionAuthToken,
@@ -174,6 +175,7 @@ app.use(`${config.apiPrefix}`, publishGuardianRouter);
 app.use(`${config.apiPrefix}`, assetRouter);
 /** Exchange bridge — Hub master identity + list/sale handoff */
 app.use(`${config.apiPrefix}/exchange`, exchangeRouter);
+app.use(`${config.apiPrefix}/creator`, creatorRouter);
 
 /** Extension OAuth (additive — does not change password/biometric login) */
 app.post(`${config.apiPrefix}/auth/extension/issue-code`, requireAuth, issueExtensionAuthCode);

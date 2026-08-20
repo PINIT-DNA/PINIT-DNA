@@ -49,22 +49,24 @@ model DnaRecord {
   verifications         VerificationLog[]
 
   /// Whole-file analysis snapshot (auto-run on DNA generate)
-  fileAnalysis          Json?
-  fileAnalysisLabel     String?
+  fileAnalysis      Json?
+  fileAnalysisLabel String?
 
   // Layers 11-15
-  deepfakeLayer         DeepfakeLayer?
-  dctWatermarkLayer     DctWatermarkLayer?
-  custodyLayer          CustodyLayer?
-  zkProofLayer          ZkProofLayer?
-  biometricBindLayer    BiometricBindLayer?
-  trackedExports        TrackedExportPackage[]
-  localFeatureIndex     LocalFeatureIndex?
-  provenanceEvents      ForensicProvenanceEvent[]
+  deepfakeLayer      DeepfakeLayer?
+  dctWatermarkLayer  DctWatermarkLayer?
+  custodyLayer       CustodyLayer?
+  zkProofLayer       ZkProofLayer?
+  biometricBindLayer BiometricBindLayer?
+  trackedExports     TrackedExportPackage[]
+  localFeatureIndex  LocalFeatureIndex?
+  provenanceEvents   ForensicProvenanceEvent[]
   /// Publish Guardian — posts protected via Chrome extension (additive)
-  protectedPosts        ProtectedPost[]
+  protectedPosts     ProtectedPost[]
   /// Universal assets linked to this DNA (additive)
-  assets                Asset[]
+  assets             Asset[]
+  /// Spatial auth package (schema reconciliation — pre-existing table)
+  spatialAuthPackage SpatialAuthPackage?
 
   @@index([organizationId])
   @@index([ownerUserId])
@@ -74,36 +76,36 @@ model DnaRecord {
 // ── Forensic Provenance (append-only lifecycle events — NEVER mutates DNA) ─────
 // DNA = immutable identity. Location, downloads, tamper, investigations are events.
 model ForensicProvenanceEvent {
-  id            String   @id @default(uuid())
-  createdAt     DateTime @default(now())
+  id              String   @id @default(uuid())
+  createdAt       DateTime @default(now())
   /// Append-only event type (DNA_GENERATED, VAULT_STORED, CERTIFICATE_ISSUED, …)
-  eventType     String
-  dnaRecordId   String?
-  vaultId       String?
-  certificateId String?
-  tepCode       String?
-  shareLinkId   String?
+  eventType       String
+  dnaRecordId     String?
+  vaultId         String?
+  certificateId   String?
+  tepCode         String?
+  shareLinkId     String?
   investigationId String?
-  actorUserId   String?
-  actorLabel    String?
+  actorUserId     String?
+  actorLabel      String?
   /// Human-readable summary for reports
-  summary       String
+  summary         String
   /// Structured payload (geo, device, hashes, tamper flags) — never written into DNA
-  payload       Json     @default("{}")
-  country       String?
-  region        String?
-  city          String?
-  latitude      Float?
-  longitude     Float?
+  payload         Json     @default("{}")
+  country         String?
+  region          String?
+  city            String?
+  latitude        Float?
+  longitude       Float?
   /// ip | gps | none — never fabricate GPS
-  locationSource String?
-  ipAddress     String?
-  userAgent     String?
-  device        String?
+  locationSource  String?
+  ipAddress       String?
+  userAgent       String?
+  device          String?
   /// Optional idempotency key to avoid duplicate appends for the same action
-  dedupeKey     String?  @unique
+  dedupeKey       String?  @unique
 
-  dnaRecord     DnaRecord? @relation(fields: [dnaRecordId], references: [id], onDelete: SetNull)
+  dnaRecord DnaRecord? @relation(fields: [dnaRecordId], references: [id], onDelete: SetNull)
 
   @@index([dnaRecordId, createdAt])
   @@index([vaultId, createdAt])
@@ -114,46 +116,46 @@ model ForensicProvenanceEvent {
 
 // ── Local DNA Feature Index (patch-level fingerprints for crop/screenshot recovery) ──
 model LocalFeatureIndex {
-  id              String          @id @default(uuid())
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  dnaRecordId     String          @unique
-  ownerUserId     String
-  vaultId         String?
-  imageWidth      Int
-  imageHeight     Int
-  patchSize       Int             @default(32)
-  gridCols        Int
-  gridRows        Int
-  patchCount      Int
-  globalPHash     String?
-  orbKeypoints    Int             @default(0)
-  orbDescriptors  Json?
-  indexVersion    String          @default("2.0.0")
-  status          String          @default("COMPLETE")
-  dnaRecord       DnaRecord       @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
-  ownerUser       User            @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
-  patches         LocalDnaPatch[]
+  id             String          @id @default(uuid())
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  dnaRecordId    String          @unique
+  ownerUserId    String
+  vaultId        String?
+  imageWidth     Int
+  imageHeight    Int
+  patchSize      Int             @default(32)
+  gridCols       Int
+  gridRows       Int
+  patchCount     Int
+  globalPHash    String?
+  orbKeypoints   Int             @default(0)
+  orbDescriptors Json?
+  indexVersion   String          @default("2.0.0")
+  status         String          @default("COMPLETE")
+  dnaRecord      DnaRecord       @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+  ownerUser      User            @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  patches        LocalDnaPatch[]
 
   @@index([ownerUserId])
   @@map("local_feature_indexes")
 }
 
 model LocalDnaPatch {
-  id              String            @id @default(uuid())
-  indexId         String
-  patchIndex      Int
-  gridX           Int
-  gridY           Int
-  scale           Int               @default(32)
-  pHash16         String
-  dHash8          String?
-  aHash8          String?
-  edgeSignature   String?
-  colorVector     Json?
-  frequencySig    String?
-  textureSig      String?
-  index           LocalFeatureIndex @relation(fields: [indexId], references: [id], onDelete: Cascade)
+  id            String            @id @default(uuid())
+  indexId       String
+  patchIndex    Int
+  gridX         Int
+  gridY         Int
+  scale         Int               @default(32)
+  pHash16       String
+  dHash8        String?
+  aHash8        String?
+  edgeSignature String?
+  colorVector   Json?
+  frequencySig  String?
+  textureSig    String?
+  index         LocalFeatureIndex @relation(fields: [indexId], references: [id], onDelete: Cascade)
 
   @@unique([indexId, patchIndex])
   @@index([indexId])
@@ -164,81 +166,81 @@ model LocalDnaPatch {
 
 // ── Layer 11: AI Deepfake Detection ──────────────────────────────────────────
 model DeepfakeLayer {
-  id               String    @id @default(uuid())
-  createdAt        DateTime  @default(now())
-  dnaRecordId      String    @unique
-  deepfakeScore    Float     @default(0)
-  isDeepfake       Boolean   @default(false)
-  confidence       Float     @default(0)
-  modelVersion     String    @default("1.0")
-  analysisMethod   String    @default("pixel-noise-analysis")
-  metadata         Json?
-  flagged          Boolean   @default(false)
-  dnaRecord        DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+  id             String    @id @default(uuid())
+  createdAt      DateTime  @default(now())
+  dnaRecordId    String    @unique
+  deepfakeScore  Float     @default(0)
+  isDeepfake     Boolean   @default(false)
+  confidence     Float     @default(0)
+  modelVersion   String    @default("1.0")
+  analysisMethod String    @default("pixel-noise-analysis")
+  metadata       Json?
+  flagged        Boolean   @default(false)
+  dnaRecord      DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
 
   @@map("deepfake_layers")
 }
 
 // ── Layer 12: Invisible DCT Watermark ────────────────────────────────────────
 model DctWatermarkLayer {
-  id               String    @id @default(uuid())
-  createdAt        DateTime  @default(now())
-  dnaRecordId      String    @unique
-  watermarkHash    String
-  ownerIdEncoded   String
-  timestamp        DateTime  @default(now())
-  method           String    @default("dct-frequency")
-  strength         Float     @default(0.85)
-  embedded         Boolean   @default(false)
-  survivalScore    Float     @default(0)
-  dnaRecord        DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+  id             String    @id @default(uuid())
+  createdAt      DateTime  @default(now())
+  dnaRecordId    String    @unique
+  watermarkHash  String
+  ownerIdEncoded String
+  timestamp      DateTime  @default(now())
+  method         String    @default("dct-frequency")
+  strength       Float     @default(0.85)
+  embedded       Boolean   @default(false)
+  survivalScore  Float     @default(0)
+  dnaRecord      DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
 
   @@map("dct_watermark_layers")
 }
 
 // ── Layer 13: Legal Chain of Custody ─────────────────────────────────────────
 model CustodyLayer {
-  id               String    @id @default(uuid())
-  createdAt        DateTime  @default(now())
-  dnaRecordId      String    @unique
-  custodyChain     Json      @default("[]")
-  dmcaReady        Boolean   @default(true)
-  evidenceHash     String?
-  legalTimestamp   DateTime  @default(now())
-  jurisdiction     String    @default("IN")
-  courtAdmissible  Boolean   @default(true)
-  dnaRecord        DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+  id              String    @id @default(uuid())
+  createdAt       DateTime  @default(now())
+  dnaRecordId     String    @unique
+  custodyChain    Json      @default("[]")
+  dmcaReady       Boolean   @default(true)
+  evidenceHash    String?
+  legalTimestamp  DateTime  @default(now())
+  jurisdiction    String    @default("IN")
+  courtAdmissible Boolean   @default(true)
+  dnaRecord       DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
 
   @@map("custody_layers")
 }
 
 // ── Layer 14: Zero-Knowledge Ownership Proof ─────────────────────────────────
 model ZkProofLayer {
-  id               String    @id @default(uuid())
-  createdAt        DateTime  @default(now())
-  dnaRecordId      String    @unique
-  commitmentHash   String
-  proofData        String
-  publicKey        String
-  verified         Boolean   @default(false)
-  proofType        String    @default("hash-commitment")
-  dnaRecord        DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+  id             String    @id @default(uuid())
+  createdAt      DateTime  @default(now())
+  dnaRecordId    String    @unique
+  commitmentHash String
+  proofData      String
+  publicKey      String
+  verified       Boolean   @default(false)
+  proofType      String    @default("hash-commitment")
+  dnaRecord      DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
 
   @@map("zk_proof_layers")
 }
 
 // ── Layer 15: Biometric Identity Bind ────────────────────────────────────────
 model BiometricBindLayer {
-  id               String    @id @default(uuid())
-  createdAt        DateTime  @default(now())
-  dnaRecordId      String    @unique
-  biometricHash    String
-  biometricType    String    @default("face-embedding")
-  bindMethod       String    @default("hmac-sha256")
-  userId           String
-  deviceInfo       String?
-  embeddedInFile   Boolean   @default(false)
-  dnaRecord        DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+  id             String    @id @default(uuid())
+  createdAt      DateTime  @default(now())
+  dnaRecordId    String    @unique
+  biometricHash  String
+  biometricType  String    @default("face-embedding")
+  bindMethod     String    @default("hmac-sha256")
+  userId         String
+  deviceInfo     String?
+  embeddedInFile Boolean   @default(false)
+  dnaRecord      DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
 
   @@map("biometric_bind_layers")
 }
@@ -317,21 +319,21 @@ model MetadataLayer {
 }
 
 model StegoLayer {
-  id                   String    @id @default(uuid())
-  createdAt            DateTime  @default(now())
-  dnaRecordId          String    @unique
-  embedded             Boolean   @default(false)
-  capacityBits         Int?
-  usedBits             Int?
-  payloadHmac          String    @db.Char(64)
-  channel              String    @default("B")
-  carrierPath          String?
+  id                 String    @id @default(uuid())
+  createdAt          DateTime  @default(now())
+  dnaRecordId        String    @unique
+  embedded           Boolean   @default(false)
+  capacityBits       Int?
+  usedBits           Int?
+  payloadHmac        String    @db.Char(64)
+  channel            String    @default("B")
+  carrierPath        String?
   /// Full ownership watermark details (vault/user/upload meta + tile fingerprints)
-  ownershipSignature   Json?
-  ownershipAlgorithm   String?
-  ownershipTileCount   Int?
-  ownershipDnaFp       String?   @db.Char(32)
-  dnaRecord            DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+  ownershipSignature Json?
+  ownershipAlgorithm String?
+  ownershipTileCount Int?
+  ownershipDnaFp     String?   @db.Char(32)
+  dnaRecord          DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
 
   @@index([ownershipDnaFp])
   @@map("stego_layers")
@@ -428,92 +430,94 @@ model VaultRecord {
 }
 
 model User {
-  id                 String           @id @default(uuid())
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
-  shortId            String           @unique
-  email              String?          @unique
-  passwordHash       String?
-  fullName           String           @default("PINIT User")
-  role               UserRole         @default(USER)
-  isActive           Boolean          @default(true)
-  lastLoginAt        DateTime?
-  avatarUrl          String?
-  bio                String?
-  country            String?
-  jobTitle           String?
-  notifyCertificates Boolean          @default(true)
-  notifyMonitoring   Boolean          @default(true)
-  notifyRiskAlerts   Boolean          @default(true)
-  notifyShareAccess  Boolean          @default(true)
-  notifyUpdates      Boolean          @default(false)
-  notifyVault        Boolean          @default(true)
-  notifyDna          Boolean          @default(true)
-  notifyInvestigation Boolean         @default(true)
-  notifyAutomation   Boolean          @default(true)
-  notifySecurity     Boolean          @default(true)
-  notifyReports      Boolean          @default(true)
-  notifySystem       Boolean          @default(true)
-  organization       String?
-  organizationIndustry OrganizationIndustry?
-  organizationSize   OrganizationSize?
-  workspaceName      String?
+  id                       String                @id @default(uuid())
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
+  shortId                  String                @unique
+  email                    String?               @unique
+  passwordHash             String?
+  fullName                 String                @default("PINIT User")
+  role                     UserRole              @default(USER)
+  isActive                 Boolean               @default(true)
+  lastLoginAt              DateTime?
+  avatarUrl                String?
+  bio                      String?
+  country                  String?
+  jobTitle                 String?
+  notifyCertificates       Boolean               @default(true)
+  notifyMonitoring         Boolean               @default(true)
+  notifyRiskAlerts         Boolean               @default(true)
+  notifyShareAccess        Boolean               @default(true)
+  notifyUpdates            Boolean               @default(false)
+  notifyVault              Boolean               @default(true)
+  notifyDna                Boolean               @default(true)
+  notifyInvestigation      Boolean               @default(true)
+  notifyAutomation         Boolean               @default(true)
+  notifySecurity           Boolean               @default(true)
+  notifyReports            Boolean               @default(true)
+  notifySystem             Boolean               @default(true)
+  organization             String?
+  organizationIndustry     OrganizationIndustry?
+  organizationSize         OrganizationSize?
+  workspaceName            String?
   businessSetupCompletedAt DateTime?
-  phone              String?
-  theme              String           @default("light")
-  accountType        AccountType      @default(INDIVIDUAL)
+  phone                    String?
+  theme                    String                @default("light")
+  accountType              AccountType           @default(INDIVIDUAL)
 
   // Face Recognition Auth
-  faceEmbedding      Float[]          @default([])
-  faceRegistered     Boolean          @default(false)
-  faceRegisteredAt   DateTime?
-  voiceEmbedding     Float[]          @default([])
-  voiceRegistered    Boolean          @default(false)
+  faceEmbedding        Float[]   @default([])
+  faceRegistered       Boolean   @default(false)
+  faceRegisteredAt     DateTime?
+  voiceEmbedding       Float[]   @default([])
+  voiceRegistered      Boolean   @default(false)
   webauthnCredentialId String?
-  deviceFingerprint  String?
-  authMethod         String           @default("password")
+  deviceFingerprint    String?
+  authMethod           String    @default("password")
 
   webauthnCredentials WebAuthnCredential[]
 
-  certificates       Certificate[]
-  dnaRecords         DnaRecord[]
+  certificates        Certificate[]
+  dnaRecords          DnaRecord[]
   localFeatureIndexes LocalFeatureIndex[]
-  evidenceRecords    EvidenceRecord[]
-  loginHistory       LoginHistory[]
-  monitorRecords     MonitorRecord[]
-  notifications      Notification[]
-  platformEvents     PlatformEvent[]
-  refreshTokens      RefreshToken[]
-  shareLinks         ShareLink[]
-  shareRecipients    ShareRecipient[]
+  evidenceRecords     EvidenceRecord[]
+  loginHistory        LoginHistory[]
+  monitorRecords      MonitorRecord[]
+  notifications       Notification[]
+  platformEvents      PlatformEvent[]
+  refreshTokens       RefreshToken[]
+  shareLinks          ShareLink[]
+  shareRecipients     ShareRecipient[]
 
   // Enterprise biometric auth (separate from business data)
-  biometricIdentity  BiometricIdentity?
-  userSessions       UserSession[]
-  userDevices        UserDevice[]
-  securityEvents     SecurityEvent[]
+  biometricIdentity BiometricIdentity?
+  userSessions      UserSession[]
+  userDevices       UserDevice[]
+  securityEvents    SecurityEvent[]
 
   // Freemium subscription (additive — does not affect DNA/Vault/auth)
-  subscription       Subscription?
+  subscription Subscription?
 
   // Business organization (owner on Free tier — extensible for Enterprise teams)
-  ownedOrganization     Organization?
+  ownedOrganization       Organization?
   organizationMemberships OrganizationMember[]
 
   /// Publish Guardian (additive — does not affect existing modules)
-  protectedPosts        ProtectedPost[]
-  extensionAuthCodes    ExtensionAuthCode[]
+  protectedPosts      ProtectedPost[]
+  extensionAuthCodes  ExtensionAuthCode[]
   /// Universal Asset Protection (additive — Asset-first layer)
-  assets                Asset[]
+  assets              Asset[]
+  /// Spatial auth packages (schema reconciliation — pre-existing table)
+  spatialAuthPackages SpatialAuthPackage[]
 
   @@map("users")
 }
 
 model Organization {
-  id                 String                @id @default(uuid())
-  createdAt          DateTime              @default(now())
-  updatedAt          DateTime              @updatedAt
-  shortId            String                @unique
+  id                 String                    @id @default(uuid())
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  shortId            String                    @unique
   name               String?
   industry           OrganizationIndustry?
   organizationSize   OrganizationSize?
@@ -531,12 +535,12 @@ model Organization {
   supportPhone       String?
   foundedYear        Int?
   linkedIn           String?
-  aboutDescription   String?               @db.Text
-  services           String?               @db.Text
-  notes              String?               @db.Text
+  aboutDescription   String?                   @db.Text
+  services           String?                   @db.Text
+  notes              String?                   @db.Text
   logoUrl            String?
-  ownerUserId        String                @unique
-  ownerUser          User                  @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  ownerUserId        String                    @unique
+  ownerUser          User                      @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   setupCompletedAt   DateTime?
   setupSkippedAt     DateTime?
   welcomeDismissedAt DateTime?
@@ -570,13 +574,13 @@ model Workspace {
 }
 
 model Department {
-  id             String       @id @default(uuid())
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id             String               @id @default(uuid())
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
   name           String
   description    String?
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   members        OrganizationMember[]
   dnaRecords     DnaRecord[]
 
@@ -586,18 +590,18 @@ model Department {
 }
 
 model OrganizationMember {
-  id             String                 @id @default(uuid())
-  createdAt      DateTime               @default(now())
-  updatedAt      DateTime               @updatedAt
-  organizationId String
-  userId         String
-  role           OrganizationMemberRole @default(MEMBER)
-  departmentId   String?
+  id              String                 @id @default(uuid())
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  organizationId  String
+  userId          String
+  role            OrganizationMemberRole @default(MEMBER)
+  departmentId    String?
   invitedByUserId String?
-  joinedAt       DateTime               @default(now())
-  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  department     Department?            @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  joinedAt        DateTime               @default(now())
+  organization    Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department      Department?            @relation(fields: [departmentId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, userId])
   @@index([userId])
@@ -702,20 +706,20 @@ model OrganizationIntegration {
 }
 
 model LoginHistory {
-  id          String   @id @default(uuid())
-  createdAt   DateTime @default(now())
-  userId      String
-  method      String   @default("face")
-  ip          String?
-  userAgent   String?
-  device      String?
-  browser     String?
-  os          String?
-  city        String?
-  country     String?
-  success     Boolean  @default(true)
-  failReason  String?
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+  userId     String
+  method     String   @default("face")
+  ip         String?
+  userAgent  String?
+  device     String?
+  browser    String?
+  os         String?
+  city       String?
+  country    String?
+  success    Boolean  @default(true)
+  failReason String?
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([createdAt])
@@ -725,64 +729,64 @@ model LoginHistory {
 // ── Enterprise Biometric Authentication ───────────────────────────────────────
 
 model BiometricIdentity {
-  id               String              @id @default(uuid())
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
-  userId           String              @unique
-  identityHash     String              @unique
-  status           String              @default("ACTIVE")
-  enrolledAt       DateTime            @default(now())
-  lastVerifiedAt   DateTime?
-  fusionVersion    String              @default("1.0")
-  user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  faceTemplate     FaceTemplate?
-  voiceTemplate    VoiceTemplate?
+  id                  String               @id @default(uuid())
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  userId              String               @unique
+  identityHash        String               @unique
+  status              String               @default("ACTIVE")
+  enrolledAt          DateTime             @default(now())
+  lastVerifiedAt      DateTime?
+  fusionVersion       String               @default("1.0")
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  faceTemplate        FaceTemplate?
+  voiceTemplate       VoiceTemplate?
   fingerprintTemplate FingerprintTemplate?
 
   @@map("biometric_identities")
 }
 
 model FaceTemplate {
-  id                  String            @id @default(uuid())
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @default(now()) @updatedAt
-  biometricIdentityId String            @unique
-  templateCipher      String
-  templateHash        String            @unique
-  dimension           Int               @default(128)
-  algorithm           String            @default("face-api-v1")
+  id                   String            @id @default(uuid())
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @default(now()) @updatedAt
+  biometricIdentityId  String            @unique
+  templateCipher       String
+  templateHash         String            @unique
+  dimension            Int               @default(128)
+  algorithm            String            @default("face-api-v1")
   // Versioning so a future face-model upgrade can migrate/re-enroll templates
   // deliberately instead of silently invalidating every existing one.
-  embeddingVersion     String           @default("1")
-  modelVersion         String           @default("face-api-tiny-v1")
-  algorithmVersion     String           @default("1")
+  embeddingVersion     String            @default("1")
+  modelVersion         String            @default("face-api-tiny-v1")
+  algorithmVersion     String            @default("1")
   /// PAD sharpness at enrollment. Null when no server-side signal was available.
   qualityScore         Float?
-  status               String           @default("ACTIVE")
-  encryptionKeyVersion String           @default("v1")
-  biometricIdentity   BiometricIdentity @relation(fields: [biometricIdentityId], references: [id], onDelete: Cascade)
+  status               String            @default("ACTIVE")
+  encryptionKeyVersion String            @default("v1")
+  biometricIdentity    BiometricIdentity @relation(fields: [biometricIdentityId], references: [id], onDelete: Cascade)
 
   @@index([templateHash])
   @@map("face_templates")
 }
 
 model VoiceTemplate {
-  id                  String            @id @default(uuid())
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @default(now()) @updatedAt
-  biometricIdentityId String            @unique
-  templateCipher      String
-  templateHash        String            @unique
-  dimension           Int               @default(128)
-  algorithm           String            @default("web-audio-fft-v1")
-  embeddingVersion     String           @default("1")
-  modelVersion         String           @default("web-audio-fft-v1")
-  algorithmVersion     String           @default("1")
+  id                   String            @id @default(uuid())
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @default(now()) @updatedAt
+  biometricIdentityId  String            @unique
+  templateCipher       String
+  templateHash         String            @unique
+  dimension            Int               @default(128)
+  algorithm            String            @default("web-audio-fft-v1")
+  embeddingVersion     String            @default("1")
+  modelVersion         String            @default("web-audio-fft-v1")
+  algorithmVersion     String            @default("1")
   /// Always null today — voice quality is gated client-side and never sent to the server.
   qualityScore         Float?
-  status               String           @default("ACTIVE")
-  encryptionKeyVersion String           @default("v1")
-  biometricIdentity   BiometricIdentity @relation(fields: [biometricIdentityId], references: [id], onDelete: Cascade)
+  status               String            @default("ACTIVE")
+  encryptionKeyVersion String            @default("v1")
+  biometricIdentity    BiometricIdentity @relation(fields: [biometricIdentityId], references: [id], onDelete: Cascade)
 
   @@index([templateHash])
   @@map("voice_templates")
@@ -792,23 +796,23 @@ model VoiceTemplate {
 /// credential id / device fingerprint — PINIT never receives or stores fingerprint
 /// images, minutiae, or any platform-authenticator biometric material.
 model FingerprintTemplate {
-  id                  String            @id @default(uuid())
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @default(now()) @updatedAt
-  biometricIdentityId String            @unique
-  templateCipher      String
-  templateHash        String            @unique
-  dimension           Int               @default(128)
-  algorithm           String            @default("webauthn-device-v1")
-  credentialId        String?
-  embeddingVersion     String           @default("1")
-  modelVersion         String           @default("webauthn-device-v1")
-  algorithmVersion     String           @default("1")
+  id                   String            @id @default(uuid())
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @default(now()) @updatedAt
+  biometricIdentityId  String            @unique
+  templateCipher       String
+  templateHash         String            @unique
+  dimension            Int               @default(128)
+  algorithm            String            @default("webauthn-device-v1")
+  credentialId         String?
+  embeddingVersion     String            @default("1")
+  modelVersion         String            @default("webauthn-device-v1")
+  algorithmVersion     String            @default("1")
   /// Always null — a derived device proxy has no captured-sample quality.
   qualityScore         Float?
-  status               String           @default("ACTIVE")
-  encryptionKeyVersion String           @default("v1")
-  biometricIdentity   BiometricIdentity @relation(fields: [biometricIdentityId], references: [id], onDelete: Cascade)
+  status               String            @default("ACTIVE")
+  encryptionKeyVersion String            @default("v1")
+  biometricIdentity    BiometricIdentity @relation(fields: [biometricIdentityId], references: [id], onDelete: Cascade)
 
   @@index([templateHash])
   @@map("fingerprint_templates")
@@ -962,10 +966,13 @@ model Certificate {
   revocationReason String?
   issuedByUserId   String?
   ownerUserId      String?
+  /// Canonical Asset.id — the only identifier that crosses the Hub<->Exchange boundary
+  assetId          String?
   ownerUser        User?      @relation(fields: [ownerUserId], references: [id])
 
   @@index([dnaRecordId])
   @@index([vaultId])
+  @@index([assetId])
   @@map("certificates")
 }
 
@@ -1040,6 +1047,8 @@ model MonitorRecord {
   scanType       String          @default("DAILY")
   totalFailures  Int             @default(0)
   ownerUserId    String?
+  /// Canonical Asset.id — the only identifier that crosses the Hub<->Exchange boundary
+  assetId        String?
   crawlResults   CrawlResult[]
   dnaRecord      DnaRecord       @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
   ownerUser      User?           @relation(fields: [ownerUserId], references: [id])
@@ -1049,6 +1058,7 @@ model MonitorRecord {
 
   @@index([status])
   @@index([nextCheckAt])
+  @@index([assetId])
   @@map("monitor_records")
 }
 
@@ -1110,61 +1120,61 @@ model MonitoringFailure {
 }
 
 model ShareLink {
-  id                        String             @id @default(uuid())
-  createdAt                 DateTime           @default(now())
-  updatedAt                 DateTime           @updatedAt
+  id                        String               @id @default(uuid())
+  createdAt                 DateTime             @default(now())
+  updatedAt                 DateTime             @updatedAt
   vaultId                   String
   dnaRecordId               String
   filename                  String
-  mimeType                  String             @default("application/octet-stream")
-  token                     String             @unique
+  mimeType                  String               @default("application/octet-stream")
+  token                     String               @unique
   expiresAt                 DateTime?
   maxViews                  Int?
-  viewCount                 Int                @default(0)
-  isActive                  Boolean            @default(true)
-  allowDownload             Boolean            @default(false)
-  requireName               Boolean            @default(false)
+  viewCount                 Int                  @default(0)
+  isActive                  Boolean              @default(true)
+  allowDownload             Boolean              @default(false)
+  requireName               Boolean              @default(false)
   note                      String?
-  oneTimeUse                Boolean            @default(false)
+  oneTimeUse                Boolean              @default(false)
   maxDownloads              Int?
-  downloadCount             Int                @default(0)
-  allowedCountries          String[]           @default([])
-  allowedDeviceTypes        String[]           @default([])
-  allowedIpPrefixes         String[]           @default([])
-  requireOtp                Boolean            @default(false)
+  downloadCount             Int                  @default(0)
+  allowedCountries          String[]             @default([])
+  allowedDeviceTypes        String[]             @default([])
+  allowedIpPrefixes         String[]             @default([])
+  requireOtp                Boolean              @default(false)
   recipientEmail            String?
   otpCodeHash               String?
   otpExpiresAt              DateTime?
-  otpVerified               Boolean            @default(false)
+  otpVerified               Boolean              @default(false)
   tokenSignature            String?
-  privacyMaskingEnabled     Boolean            @default(false)
-  maskEmail                 Boolean            @default(false)
-  maskPhone                 Boolean            @default(false)
-  maskAadhaar               Boolean            @default(false)
-  maskPan                   Boolean            @default(false)
-  maskAddress               Boolean            @default(false)
+  privacyMaskingEnabled     Boolean              @default(false)
+  maskEmail                 Boolean              @default(false)
+  maskPhone                 Boolean              @default(false)
+  maskAadhaar               Boolean              @default(false)
+  maskPan                   Boolean              @default(false)
+  maskAddress               Boolean              @default(false)
   maskCustomPatterns        String?
-  requestLocation           Boolean            @default(false)
+  requestLocation           Boolean              @default(false)
   ownerUserId               String?
-  depth                     Int                @default(0)
+  depth                     Int                  @default(0)
   forwardedByLabel          String?
-  forwardingDetected        Boolean            @default(false)
+  forwardingDetected        Boolean              @default(false)
   intendedDeviceFingerprint String?
   intendedIpAddress         String?
-  linkType                  String             @default("PARENT")
+  linkType                  String               @default("PARENT")
   parentLinkId              String?
   recipientLabel            String?
-  corporateIpRanges         String[]           @default([])
-  domainRestrictions        String[]           @default([])
+  corporateIpRanges         String[]             @default([])
+  domainRestrictions        String[]             @default([])
   firstViewExpiresAfter     Int?
-  forwardConfidence         Int                @default(0)
-  forwardRiskScore          Int                @default(0)
-  forwardStatus             String             @default("CLEAN")
-  oneDeviceOnly             Boolean            @default(false)
-  oneIpOnly                 Boolean            @default(false)
+  forwardConfidence         Int                  @default(0)
+  forwardRiskScore          Int                  @default(0)
+  forwardStatus             String               @default("CLEAN")
+  oneDeviceOnly             Boolean              @default(false)
+  oneIpOnly                 Boolean              @default(false)
   shareRecipientId          String?
-  torBlock                  Boolean            @default(true)
-  vpnBlock                  Boolean            @default(false)
+  torBlock                  Boolean              @default(true)
+  vpnBlock                  Boolean              @default(false)
   watermarkCode             String?
   /// Canonical Asset.id. ShareLink is otherwise keyed on vaultId/dnaRecordId;
   /// this is the identity that crosses the Hub↔Exchange boundary and makes an
@@ -1173,17 +1183,17 @@ model ShareLink {
   /// "hub" (owner sharing their own vault file) | "exchange_license" (buyer
   /// sharing a file they licensed on Exchange). Licensed shares are exempt from
   /// the FEATURE_SMART_SHARE / FEATURE_TRACKING plan gates — the purchase paid for it.
-  sourceContext             String             @default("hub")
+  sourceContext             String               @default("hub")
   exchangeOrderId           String?
   exchangeSealId            String?
   licenseTier               String?
   forwardEvents             LinkForwardEvent[]
   accessLogs                ShareAccessLog[]
   blockedViewers            BlockedShareViewer[]
-  ownerUser                 User?              @relation(fields: [ownerUserId], references: [id])
-  parentLink                ShareLink?         @relation("LinkHierarchy", fields: [parentLinkId], references: [id])
-  childLinks                ShareLink[]        @relation("LinkHierarchy")
-  shareRecipient            ShareRecipient?    @relation(fields: [shareRecipientId], references: [id])
+  ownerUser                 User?                @relation(fields: [ownerUserId], references: [id])
+  parentLink                ShareLink?           @relation("LinkHierarchy", fields: [parentLinkId], references: [id])
+  childLinks                ShareLink[]          @relation("LinkHierarchy")
+  shareRecipient            ShareRecipient?      @relation(fields: [shareRecipientId], references: [id])
   unmaskRequests            UnmaskRequest[]
   viewerMessages            ShareViewerMessage[]
 
@@ -1199,19 +1209,19 @@ model ShareLink {
 }
 
 model ShareViewerMessage {
-  id            String    @id @default(uuid())
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  shareToken    String
-  senderName    String?
-  sessionId     String?
-  ipAddress     String?
-  device        String?
-  body          String
-  status        String    @default("PENDING")
-  ownerReply    String?
-  repliedAt     DateTime?
-  shareLink     ShareLink @relation(fields: [shareToken], references: [token], onDelete: Cascade)
+  id         String    @id @default(uuid())
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  shareToken String
+  senderName String?
+  sessionId  String?
+  ipAddress  String?
+  device     String?
+  body       String
+  status     String    @default("PENDING")
+  ownerReply String?
+  repliedAt  DateTime?
+  shareLink  ShareLink @relation(fields: [shareToken], references: [token], onDelete: Cascade)
 
   @@index([shareToken])
   @@index([status])
@@ -1648,40 +1658,40 @@ enum UsageMetric {
 
 /// Catalog of plans (FREE / PRO / ENTERPRISE). Limits live here + constants.
 model Plan {
-  id                 String         @id @default(uuid())
-  createdAt          DateTime       @default(now())
-  updatedAt          DateTime       @updatedAt
-  code               String         @unique
-  name               String
-  description        String?
+  id                String         @id @default(uuid())
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  code              String         @unique
+  name              String
+  description       String?
   /// null = unlimited
-  storageLimitBytes  BigInt?
+  storageLimitBytes BigInt?
   /// Feature keys enabled for this plan (string[])
-  features           Json           @default("[]")
-  isActive           Boolean        @default(true)
-  sortOrder          Int            @default(0)
-  subscriptions      Subscription[]
+  features          Json           @default("[]")
+  isActive          Boolean        @default(true)
+  sortOrder         Int            @default(0)
+  subscriptions     Subscription[]
 
   @@map("plans")
 }
 
 model Subscription {
-  id                   String             @id @default(uuid())
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
-  userId               String             @unique
-  planId               String
-  status               SubscriptionStatus @default(ACTIVE)
-  currentPeriodStart   DateTime           @default(now())
-  currentPeriodEnd     DateTime?
-  cancelAtPeriodEnd    Boolean            @default(false)
+  id                     String             @id @default(uuid())
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  userId                 String             @unique
+  planId                 String
+  status                 SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart     DateTime           @default(now())
+  currentPeriodEnd       DateTime?
+  cancelAtPeriodEnd      Boolean            @default(false)
   /// Future gateway customer id (Stripe/Razorpay/PayPal)
-  externalCustomerId   String?
+  externalCustomerId     String?
   externalSubscriptionId String?
-  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  plan                 Plan               @relation(fields: [planId], references: [id])
-  billingHistory       BillingHistory[]
-  usageRecords         UsageRecord[]
+  user                   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                   Plan               @relation(fields: [planId], references: [id])
+  billingHistory         BillingHistory[]
+  usageRecords           UsageRecord[]
 
   @@index([planId])
   @@index([status])
@@ -1690,13 +1700,13 @@ model Subscription {
 
 /// Per-user or org feature overrides (enterprise custom deals)
 model FeatureEntitlement {
-  id          String   @id @default(uuid())
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  userId      String
-  featureKey  String
-  enabled     Boolean  @default(true)
-  note        String?
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  userId     String
+  featureKey String
+  enabled    Boolean  @default(true)
+  note       String?
 
   @@unique([userId, featureKey])
   @@index([userId])
@@ -1831,10 +1841,10 @@ model ProtectedPost {
   clientRequestId  String?
   metadata         Json?
 
-  ownerUser  User                        @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
-  dnaRecord  DnaRecord?                  @relation(fields: [dnaRecordId], references: [id], onDelete: SetNull)
-  asset      Asset?                      @relation(fields: [assetId], references: [id], onDelete: SetNull)
-  timeline   ProtectedPostTimelineEvent[]
+  ownerUser   User                         @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  dnaRecord   DnaRecord?                   @relation(fields: [dnaRecordId], references: [id], onDelete: SetNull)
+  asset       Asset?                       @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  timeline    ProtectedPostTimelineEvent[]
   discoveries ProtectedPostDiscovery[]
 
   @@unique([ownerUserId, clientRequestId])
@@ -1877,35 +1887,35 @@ model ProtectedPostTimelineEvent {
 }
 
 model ProtectedPostDiscovery {
-  id                String   @id @default(uuid())
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  protectedPostId   String
-  platform          String?
-  sourcePlatform    String?
-  discoveryUrl      String
-  pageTitle         String?
-  matchType         String   @default("POSSIBLE")
-  dnaMatchPercent   Float    @default(0)
-  similarity        Float    @default(0)
-  similarityScore   Float    @default(0)
-  tampered          Boolean  @default(false)
-  tamperingStatus   String   @default("UNKNOWN")
-  tamperSummary     String?
-  confidence        Float    @default(0)
-  riskScore         Int      @default(0)
-  severity          String   @default("LOW")
-  matchedVaultId    String?
+  id                 String   @id @default(uuid())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  protectedPostId    String
+  platform           String?
+  sourcePlatform     String?
+  discoveryUrl       String
+  pageTitle          String?
+  matchType          String   @default("POSSIBLE")
+  dnaMatchPercent    Float    @default(0)
+  similarity         Float    @default(0)
+  similarityScore    Float    @default(0)
+  tampered           Boolean  @default(false)
+  tamperingStatus    String   @default("UNKNOWN")
+  tamperSummary      String?
+  confidence         Float    @default(0)
+  riskScore          Int      @default(0)
+  severity           String   @default("LOW")
+  matchedVaultId     String?
   matchedDnaRecordId String?
-  investigationId   String?
-  evidenceId        String?
-  crawlResultId     String?
-  alertStatus       String   @default("PENDING")
-  evidenceReady     Boolean  @default(false)
-  thumbnailUrl      String?
-  firstSeenAt       DateTime @default(now())
-  lastSeenAt        DateTime @default(now())
-  payload           Json?
+  investigationId    String?
+  evidenceId         String?
+  crawlResultId      String?
+  alertStatus        String   @default("PENDING")
+  evidenceReady      Boolean  @default(false)
+  thumbnailUrl       String?
+  firstSeenAt        DateTime @default(now())
+  lastSeenAt         DateTime @default(now())
+  payload            Json?
 
   protectedPost ProtectedPost @relation(fields: [protectedPostId], references: [id], onDelete: Cascade)
 
@@ -1918,14 +1928,14 @@ model ProtectedPostDiscovery {
 
 /// Short-lived codes for Chrome extension OAuth (Hub → extension)
 model ExtensionAuthCode {
-  id          String   @id @default(uuid())
-  createdAt   DateTime @default(now())
-  code        String   @unique
+  id          String    @id @default(uuid())
+  createdAt   DateTime  @default(now())
+  code        String    @unique
   ownerUserId String
   extensionId String
   expiresAt   DateTime
   usedAt      DateTime?
-  ownerUser   User     @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  ownerUser   User      @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
 
   @@index([code])
   @@index([expiresAt])
@@ -1975,46 +1985,65 @@ enum AssetTimelineType {
   SHARED
   SHARE_VIEWED
   SHARE_DOWNLOADED
+  /// Commerce provenance (Phase 1) — emitted going forward only.
+  /// No historical events are fabricated for pre-existing rows.
+  PAID
+  DELIVERED
+  DOWNLOADED
+  REVIEWED
+  REFUNDED
+  /// Phase 2 — marketplace engagement + license lifecycle.
+  /// Emitted from the real user action only; never backfilled from counters.
+  VIEWED
+  LIKED
+  WISHLIST_ADDED
+  WISHLIST_REMOVED
+  CART_ADDED
+  CART_REMOVED
+  LISTING_UPDATED
+  PRICE_CHANGED
+  LICENSE_CREATED
+  DISPUTED
 }
 
 /// Central aggregate for digital asset protection (image/video/document/audio).
 model Asset {
-  id                String      @id @default(uuid())
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
-  ownerUserId       String
-  assetType         AssetType   @default(IMAGE)
-  status            AssetStatus @default(DRAFT)
-  originalFilename  String
-  mimeType          String
-  sizeBytes         Int         @default(0)
-  contentHash       String?
-  vaultId           String?
-  dnaId             String?
-  certificateId     String?
-  monitorRecordId   String?
+  id               String      @id @default(uuid())
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  ownerUserId      String
+  assetType        AssetType   @default(IMAGE)
+  status           AssetStatus @default(DRAFT)
+  originalFilename String
+  mimeType         String
+  sizeBytes        Int         @default(0)
+  contentHash      String?
+  vaultId          String?
+  dnaId            String?
+  certificateId    String?
+  monitorRecordId  String?
   /// Monitoring profile: PENDING | RUNNING | PAUSED | FAILED | DISABLED
-  monitorStatus     String      @default("PENDING")
-  monitorJobId      String?
-  sourcePlatform    String?
-  sourceUrl         String?
-  capturedVia       String      @default("extension_publish_guardian")
-  clientRequestId   String?
-  riskScore         Int         @default(0)
-  riskSeverity      String      @default("LOW")
-  discoveriesCount  Int         @default(0)
-  lastScanAt        DateTime?
-  lastDiscoveryAt   DateTime?
+  monitorStatus    String      @default("PENDING")
+  monitorJobId     String?
+  sourcePlatform   String?
+  sourceUrl        String?
+  capturedVia      String      @default("extension_publish_guardian")
+  clientRequestId  String?
+  riskScore        Int         @default(0)
+  riskSeverity     String      @default("LOW")
+  discoveriesCount Int         @default(0)
+  lastScanAt       DateTime?
+  lastDiscoveryAt  DateTime?
   /// Video/document DNA fingerprints and adapter metadata (additive JSON)
-  fingerprints      Json?
-  metadata          Json?
+  fingerprints     Json?
+  metadata         Json?
 
-  ownerUser     User                 @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
-  dnaRecord     DnaRecord?           @relation(fields: [dnaId], references: [id], onDelete: SetNull)
+  ownerUser      User                 @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  dnaRecord      DnaRecord?           @relation(fields: [dnaId], references: [id], onDelete: SetNull)
   protectedPosts ProtectedPost[]
-  timeline      AssetTimelineEvent[]
-  discoveries   AssetDiscovery[]
-  platformLinks AssetPlatformLink[]
+  timeline       AssetTimelineEvent[]
+  discoveries    AssetDiscovery[]
+  platformLinks  AssetPlatformLink[]
 
   @@unique([ownerUserId, clientRequestId])
   @@index([ownerUserId, createdAt])
@@ -2111,3 +2140,44 @@ model AssetDiscovery {
   @@map("asset_discoveries")
 }
 
+/// Schema reconciliation only — this table already exists in production with 0 rows.
+/// Declared here so `prisma migrate` stops proposing to DROP it. Nothing is created,
+/// renamed or altered by adding this model.
+model SpatialAuthPackage {
+  id                String   @id
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  dnaRecordId       String   @unique
+  ownerUserId       String
+  width             Int
+  height            Int
+  orientationPolicy String   @default("file-pixel-order-v1")
+  globalDnaRef      String
+  keyId             String
+  algorithmVersion  String
+  primaryScale      Int
+  scales            Int[]
+  merkleRoot        String   @db.Char(64)
+  rootMac           String   @db.Char(64)
+  blockBlob         Bytes
+  pixelAlgoVersion  String?
+  pixelScheme       String?
+  pixelKeyId        String?
+  pixelCellSize     Int?
+  pixelTagBytes     Int?
+  pixelAuthBlob     Bytes?
+  pixelAuthRoot     String?  @db.Char(64)
+  pixelRootMac      String?  @db.Char(64)
+  pixel1AlgoVersion String?
+  pixel1KeyId       String?
+  pixel1TagBytes    Int?
+  pixel1AuthBlob    Bytes?
+  pixel1AuthRoot    String?  @db.Char(64)
+  pixel1RootMac     String?  @db.Char(64)
+
+  dnaRecord DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+  ownerUser User      @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@index([ownerUserId])
+  @@map("spatial_auth_packages")
+}

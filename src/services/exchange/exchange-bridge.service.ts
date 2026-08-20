@@ -144,11 +144,21 @@ async function resolveVaultIdFromExchangeId(
     select: { id: true },
   });
   if (vault) {
+    // Recover the canonical Asset.id for legacy callers so downstream writes
+    // (timeline events, linkage columns) still key on Asset.id rather than a
+    // vault id. A vaultId maps to at most one Asset, so this is deterministic;
+    // findFirst returns null rather than guessing when no Asset exists yet.
+    const linked = await prisma.asset.findFirst({
+      where: { vaultId: vault.id },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
     logger.warn('[Exchange:Bridge] Received a VaultRecord.id where an Asset.id is expected', {
       vaultId: vault.id,
+      recoveredAssetId: linked?.id ?? null,
       hint: 'legacy listing — Exchange should send Asset.id',
     });
-    return { vaultId: vault.id, assetId: null, via: 'vault' };
+    return { vaultId: vault.id, assetId: linked?.id ?? null, via: 'vault' };
   }
 
   // An Asset row with no vaultId (e.g. extension capture never vaulted) lands here too.
@@ -1217,3 +1227,10 @@ export const exchangeBridgeService = {
     };
   },
 };
+
+/**
+ * Test-only surface for the canonical id resolver. The resolver stays private so
+ * callers cannot bypass it; this export exists purely so Phase 1's linkage rules
+ * are regression-tested. Not referenced by any runtime code path.
+ */
+export const __resolveVaultIdFromExchangeIdForTests = resolveVaultIdFromExchangeId;

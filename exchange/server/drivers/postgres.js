@@ -141,6 +141,15 @@ export async function initPostgresSchema(db) {
     console.warn('[exchange-pg] seller onboarding columns:', err.message);
   }
 
+  // ---------------------------------------------------------------------------
+  // Phase 1 — canonical Asset.id linkage on commerce tables.
+  // Additive and idempotent: nullable columns only, backfill guarded by
+  // `asset_id IS NULL`, and mapping aborted rather than guessed if ambiguous.
+  // Cart-level payment_intents (no listing_id) are deliberately left NULL —
+  // one payment can span multiple assets, so a single asset_id would be wrong.
+  // ---------------------------------------------------------------------------
+  await ensureAssetLinkage(db);
+
   // Optional RLS (non-fatal if policies conflict)
   const rlsPath = path.join(__dirname, '..', 'schema', 'exchange.rls.sql');
   if (fs.existsSync(rlsPath)) {
@@ -168,4 +177,81 @@ function splitSqlStatements(sql) {
         .trim()
     )
     .filter(Boolean);
+}
+
+/**
+ * Phase 1: link Exchange commerce rows to the canonical Hub `Asset.id`.
+ *
+ * `Asset.id` is the ONLY identifier that crosses the Hub<->Exchange boundary.
+ * VaultRecord.id and DnaRecord.id are never used as asset_id.
+ *
+ * Safe to run on every boot: additive DDL, `IS NULL`-guarded backfill.
+ */
+export async function ensureAssetLinkage(db) {
+  const TABLES = ['cart_items', 'wishlist', 'reviews', 'payment_intents', 'refunds', 'seller_earnings'];
+
+  try {
+    for (const t of TABLES) {
+      await db.query(`ALTER TABLE exchange.${t} ADD COLUMN IF NOT EXISTS asset_id TEXT`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ex_${t}_asset ON exchange.${t} (asset_id)`);
+    }
+  } catch (err) {
+    console.warn('[exchange-pg] asset linkage columns:', err.message);
+    return;
+  }
+
+  // A listing or order resolving to more than one asset would make the backfill
+  // ambiguous. Abort rather than write a guess.
+  try {
+    const amb = await db.query(`
+      SELECT
+        (SELECT COUNT(*) FROM (SELECT listing_id FROM exchange.listings
+           GROUP BY listing_id HAVING COUNT(DISTINCT asset_id) > 1) a) AS listing_amb,
+        (SELECT COUNT(*) FROM (SELECT order_id FROM exchange.orders_sealed
+           GROUP BY order_id HAVING COUNT(DISTINCT asset_id) > 1) b) AS order_amb
+    `);
+    const row = amb.rows ? amb.rows[0] : amb[0];
+    if (Number(row.listing_amb) > 0 || Number(row.order_amb) > 0) {
+      console.warn('[exchange-pg] asset linkage backfill ABORTED — ambiguous mapping detected');
+      return;
+    }
+  } catch (err) {
+    console.warn('[exchange-pg] asset linkage ambiguity check:', err.message);
+    return;
+  }
+
+  // Resolve through listings for listing-scoped rows...
+  const VIA_LISTING = ['cart_items', 'wishlist', 'reviews', 'payment_intents'];
+  // ...and through the sealed order for order-scoped rows.
+  const VIA_ORDER = ['refunds', 'seller_earnings'];
+
+  for (const t of VIA_LISTING) {
+    try {
+      const r = await db.query(`
+        UPDATE exchange.${t} t SET asset_id = l.asset_id
+          FROM exchange.listings l
+         WHERE t.listing_id = l.listing_id
+           AND t.asset_id IS NULL
+           AND l.asset_id IS NOT NULL
+      `);
+      if (r && r.rowCount) console.log(`[exchange-pg] ${t}.asset_id backfilled: ${r.rowCount}`);
+    } catch (err) {
+      console.warn(`[exchange-pg] ${t} asset backfill:`, err.message);
+    }
+  }
+
+  for (const t of VIA_ORDER) {
+    try {
+      const r = await db.query(`
+        UPDATE exchange.${t} t SET asset_id = o.asset_id
+          FROM exchange.orders_sealed o
+         WHERE (t.order_id = o.order_id OR t.seal_id = o.seal_id)
+           AND t.asset_id IS NULL
+           AND o.asset_id IS NOT NULL
+      `);
+      if (r && r.rowCount) console.log(`[exchange-pg] ${t}.asset_id backfilled: ${r.rowCount}`);
+    } catch (err) {
+      console.warn(`[exchange-pg] ${t} asset backfill:`, err.message);
+    }
+  }
 }

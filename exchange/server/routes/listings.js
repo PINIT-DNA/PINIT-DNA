@@ -2,6 +2,7 @@ import express from 'express';
 import db from '../database.js';
 import { verifyHubBridgeToken, confirmListingWithHub } from '../hub-client.js';
 import { exchangePreviewUrl, PLACEHOLDER_PREVIEW } from '../lib/preview-url.js';
+import { postAssetActivity } from '../lib/asset-activity.js';
 import { LISTING_STATUS, publicListingSql, BRIDGE_EVENT } from '../lib/lifecycle.js';
 import { recordBridgeEvent, markBridgeEventProcessed } from '../lib/bridge-events.js';
 import { getSql, runSql } from '../lib/db.js';
@@ -174,6 +175,19 @@ router.get('/:id', (req, res) => {
     db.run("UPDATE listings SET views = views + 1 WHERE listing_id = ?", [listingId]);
 
     res.json(row);
+
+    // Record the real view on the canonical asset timeline. The pre-existing
+    // `views` counter is NOT replayed into the timeline — only views that
+    // actually happen from here on are captured as events.
+    if (row.asset_id) {
+      postAssetActivity({
+        assetId: row.asset_id,
+        eventType: 'VIEWED',
+        title: 'Listing viewed',
+        detail: `Listing ${listingId}`,
+        payload: { listingId },
+      });
+    }
   });
 });
 
@@ -407,6 +421,36 @@ router.post('/', requireActiveSeller, (req, res) => {
           ], (updErr) => {
             if (updErr) return res.status(500).json({ error: updErr.message });
             finishPublish(existing.listing_id);
+
+            // Compare the prices actually stored before the update against the
+            // ones just written, so PRICE_CHANGED reflects a real change only.
+            const before = [
+              existing.price_personal, existing.price_commercial,
+              existing.price_exclusive, existing.price_enterprise,
+            ];
+            const changed = prices.some((v, i) => Number(v) !== Number(before[i]));
+
+            postAssetActivity({
+              assetId: asset_id,
+              eventType: 'LISTING_UPDATED',
+              title: 'Listing updated',
+              detail: `Listing ${existing.listing_id}`,
+              payload: { listingId: existing.listing_id, status: LISTING_STATUS.PUBLISHED },
+            });
+
+            if (changed) {
+              postAssetActivity({
+                assetId: asset_id,
+                eventType: 'PRICE_CHANGED',
+                title: 'Price changed',
+                detail: `Listing ${existing.listing_id}`,
+                payload: {
+                  listingId: existing.listing_id,
+                  from: { personal: before[0], commercial: before[1], exclusive: before[2], enterprise: before[3] },
+                  to: { personal: prices[0], commercial: prices[1], exclusive: prices[2], enterprise: prices[3] },
+                },
+              });
+            }
           });
           return;
         }

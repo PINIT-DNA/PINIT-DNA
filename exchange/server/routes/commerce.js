@@ -12,6 +12,7 @@ import { createRazorpayOrder, isPaymentMockMode } from '../razorpay.js';
 import { forbidSellerCommerce, requireBuyer, requireSeller, pinitIdFromReq } from '../lib/rbac.js';
 import { exchangePreviewUrl, PLACEHOLDER_PREVIEW } from '../lib/preview-url.js';
 import { createLicensedShareOnHub } from '../hub-client.js';
+import { emitForListing, emitForSeal } from '../lib/asset-activity.js';
 
 const router = express.Router();
 
@@ -83,14 +84,22 @@ router.post('/cart', forbidSellerCommerce, (req, res) => {
   const tier = String(req.body?.license_tier || 'commercial').trim();
   if (!key || !listingId) return res.status(400).json({ error: 'buyer_key and listing_id required' });
 
+  // asset_id is resolved from the listing so the row carries the canonical
+  // Asset.id from the moment it is created (Phase 1 columns, Phase 2 events).
   db.run(
-    `INSERT INTO cart_items (buyer_key, listing_id, license_tier)
-     VALUES (?, ?, ?)
+    `INSERT INTO cart_items (buyer_key, listing_id, license_tier, asset_id)
+     VALUES (?, ?, ?, (SELECT asset_id FROM listings WHERE listing_id = ?))
      ON CONFLICT(buyer_key, listing_id, license_tier) DO UPDATE SET license_tier = excluded.license_tier`,
-    [key, listingId, tier],
+    [key, listingId, tier, listingId],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
       res.status(201).json({ ok: true, id: this.lastID });
+      emitForListing(db, listingId, {
+        eventType: 'CART_ADDED',
+        title: 'Added to cart',
+        detail: `Listing ${listingId}`,
+        payload: { listingId, licenseTier: tier },
+      });
     },
   );
 });
@@ -99,9 +108,22 @@ router.post('/cart', forbidSellerCommerce, (req, res) => {
 router.delete('/cart/:id', (req, res) => {
   const key = buyerKey(req);
   if (!key) return res.status(400).json({ error: 'buyer_key required' });
-  db.run('DELETE FROM cart_items WHERE id = ? AND buyer_key = ?', [req.params.id, key], function (err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ ok: true, removed: this.changes });
+  // Capture the listing before the row disappears so the event can be keyed.
+  db.get('SELECT listing_id FROM cart_items WHERE id = ? AND buyer_key = ?', [req.params.id, key], (_e, row) => {
+    const listingId = row && row.listing_id;
+    db.run('DELETE FROM cart_items WHERE id = ? AND buyer_key = ?', [req.params.id, key], function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      const removed = this.changes;
+      res.json({ ok: true, removed });
+      if (removed > 0 && listingId) {
+        emitForListing(db, listingId, {
+          eventType: 'CART_REMOVED',
+          title: 'Removed from cart',
+          detail: `Listing ${listingId}`,
+          payload: { listingId },
+        });
+      }
+    });
   });
 });
 
@@ -265,12 +287,24 @@ router.post('/wishlist', (req, res) => {
   const listingId = String(req.body?.listing_id || '').trim();
   if (!key || !listingId) return res.status(400).json({ error: 'buyer_key and listing_id required' });
   db.run(
-    'INSERT OR IGNORE INTO wishlist (buyer_key, listing_id) VALUES (?, ?)',
-    [key, listingId],
+    `INSERT OR IGNORE INTO wishlist (buyer_key, listing_id, asset_id)
+     VALUES (?, ?, (SELECT asset_id FROM listings WHERE listing_id = ?))`,
+    [key, listingId, listingId],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
+      const added = this.changes;
       db.run('UPDATE listings SET saves = COALESCE(saves, 0) + 1 WHERE listing_id = ?', [listingId]);
       res.status(201).json({ ok: true });
+      // Only emit when a row was actually inserted — a repeat save is not a
+      // new activity event.
+      if (added > 0) {
+        emitForListing(db, listingId, {
+          eventType: 'WISHLIST_ADDED',
+          title: 'Saved to wishlist',
+          detail: `Listing ${listingId}`,
+          payload: { listingId },
+        });
+      }
     },
   );
 });
@@ -278,12 +312,22 @@ router.post('/wishlist', (req, res) => {
 router.delete('/wishlist/:listingId', (req, res) => {
   const key = buyerKey(req);
   if (!key) return res.status(400).json({ error: 'buyer_key required' });
+  const listingId = req.params.listingId;
   db.run(
     'DELETE FROM wishlist WHERE buyer_key = ? AND listing_id = ?',
-    [key, req.params.listingId],
+    [key, listingId],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ ok: true, removed: this.changes });
+      const removed = this.changes;
+      res.json({ ok: true, removed });
+      if (removed > 0) {
+        emitForListing(db, listingId, {
+          eventType: 'WISHLIST_REMOVED',
+          title: 'Removed from wishlist',
+          detail: `Listing ${listingId}`,
+          payload: { listingId },
+        });
+      }
     },
   );
 });
@@ -359,12 +403,20 @@ router.post('/reviews', (req, res) => {
   if (!listingId) return res.status(400).json({ error: 'listing_id required' });
 
   db.run(
-    `INSERT INTO reviews (listing_id, buyer_pinit_id, buyer_name, rating, comment)
-     VALUES (?, ?, ?, ?, ?)`,
-    [listingId, buyerPinitId || null, buyerName, rating, comment],
+    `INSERT INTO reviews (listing_id, buyer_pinit_id, buyer_name, rating, comment, asset_id)
+     VALUES (?, ?, ?, ?, ?, (SELECT asset_id FROM listings WHERE listing_id = ?))`,
+    [listingId, buyerPinitId || null, buyerName, rating, comment, listingId],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
       res.status(201).json({ ok: true, id: this.lastID });
+      // Rating and the buyer's Pinit ID are business data the creator may see.
+      // buyer_name and the comment body are not sent — Hub scrubs names anyway.
+      emitForListing(db, listingId, {
+        eventType: 'REVIEWED',
+        title: `Reviewed ${rating}/5`,
+        detail: `Listing ${listingId}`,
+        payload: { listingId, rating, buyerPinitId: buyerPinitId || null },
+      });
     },
   );
 });

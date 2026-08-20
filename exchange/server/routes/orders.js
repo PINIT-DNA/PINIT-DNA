@@ -21,6 +21,7 @@ import { recordBridgeEvent, markBridgeEventProcessed, retryDueBridgeEvents } fro
 import { getSql, runSql } from '../lib/db.js';
 import { requireBuyer, findUserByPinitId } from '../lib/rbac.js';
 import { canPurchase, sellerDeniedPurchase } from '../lib/roles.js';
+import { postAssetActivity, emitForSeal } from '../lib/asset-activity.js';
 
 const router = express.Router();
 
@@ -79,11 +80,15 @@ router.post('/create-payment', requireBuyer, async (req, res) => {
     });
 
     await runSql(
+      // A single-listing intent maps to exactly one asset, so asset_id is
+      // deterministic here. Cart intents deliberately leave it NULL — one
+      // payment can span several assets and must be resolved per order line.
       `INSERT INTO payment_intents (
         id, kind, buyer_key, buyer_name, buyer_email, buyer_org, buyer_pinit_id,
         listing_id, license_tier, coupon_code, amount_paise, currency,
-        razorpay_order_id, status
-      ) VALUES (?, 'single', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?, 'pending')`,
+        razorpay_order_id, status, asset_id
+      ) VALUES (?, 'single', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?, 'pending',
+                (SELECT asset_id FROM listings WHERE listing_id = ?))`,
       [
         intentId,
         buyer_key || buyer_pinit_id || buyer_email,
@@ -96,6 +101,7 @@ router.post('/create-payment', requireBuyer, async (req, res) => {
         String(coupon_code || '').trim().toUpperCase() || null,
         amountPaise,
         rz.orderId,
+        listing_id,
       ],
     );
 
@@ -459,6 +465,16 @@ router.post('/download/authorize', async (req, res) => {
       delivery_expires_at: order.delivery_expires_at,
       download_url: order.delivery_url,
     });
+
+    // Authorised download of a licensed asset. buyer_email is intentionally not
+    // forwarded — only the Pinit ID, which the creator is permitted to see.
+    postAssetActivity({
+      assetId: order.asset_id,
+      eventType: 'DOWNLOADED',
+      title: 'Licensed asset downloaded',
+      detail: `Seal ${order.seal_id}`,
+      payload: { sealId: order.seal_id, buyerPinitId: buyerPinitId || null },
+    });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -487,9 +503,9 @@ router.post('/:sealId/refund', async (req, res) => {
 
     const refundId = `REF-${sealId}`;
     await runSql(
-      `INSERT OR IGNORE INTO refunds (id, order_id, seal_id, amount, reason, status)
-       VALUES (?, ?, ?, ?, ?, 'completed')`,
-      [refundId, order.order_id, sealId, order.price_paid, reason],
+      `INSERT OR IGNORE INTO refunds (id, order_id, seal_id, amount, reason, status, asset_id)
+       VALUES (?, ?, ?, ?, ?, 'completed', ?)`,
+      [refundId, order.order_id, sealId, order.price_paid, reason, order.asset_id || null],
     );
     await runSql(
       `UPDATE orders_sealed
@@ -518,6 +534,14 @@ router.post('/:sealId/refund', async (req, res) => {
       message: 'Order refunded — license and delivery blocked',
       order: updated,
       refund_id: refundId,
+    });
+
+    postAssetActivity({
+      assetId: order.asset_id,
+      eventType: 'REFUNDED',
+      title: 'Order refunded',
+      detail: `Seal ${sealId}`,
+      payload: { sealId, orderId: order.order_id, reason, refundId },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

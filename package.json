@@ -16,7 +16,7 @@
     "build:client": "cd client && npm run build",
     "build:all": "npm run build:client && npm run build",
     "start": "node dist/server.js",
-    "start:prod": "node scripts/normalize-db-env.cjs && node scripts/ensure-provenance-table.cjs && node scripts/ensure-platform-events.cjs && node scripts/ensure-notification-prefs.cjs && node scripts/ensure-crawler-tables.cjs && node scripts/ensure-extension-auth-codes.cjs && node scripts/ensure-webauthn-credentials.cjs && mkdir -p ./vault/encrypted ./tmp/uploads && NODE_ENV=production node dist/server.js",
+    "start:prod": "node scripts/normalize-db-env.cjs && node scripts/ensure-provenance-table.cjs && node scripts/ensure-platform-events.cjs && node scripts/ensure-notification-prefs.cjs && node scripts/ensure-crawler-tables.cjs && node scripts/ensure-extension-auth-codes.cjs && node scripts/ensure-webauthn-credentials.cjs && node scripts/ensure-asset-linkage.cjs && mkdir -p ./vault/encrypted ./tmp/uploads && NODE_ENV=production node dist/server.js",
     "render:start": "npm run start:prod",
     "db:baseline": "node scripts/baseline-migrations.cjs",
     "db:ensure-provenance": "node scripts/ensure-provenance-table.cjs",

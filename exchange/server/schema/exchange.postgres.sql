@@ -169,6 +169,7 @@ CREATE TABLE IF NOT EXISTS exchange.cart_items (
   listing_id TEXT NOT NULL,
   license_tier TEXT DEFAULT 'commercial',
   created_at TIMESTAMPTZ DEFAULT NOW(),
+  asset_id TEXT,
   UNIQUE (buyer_key, listing_id, license_tier)
 );
 
@@ -177,6 +178,7 @@ CREATE TABLE IF NOT EXISTS exchange.wishlist (
   buyer_key TEXT NOT NULL,
   listing_id TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
+  asset_id TEXT,
   UNIQUE (buyer_key, listing_id)
 );
 
@@ -187,7 +189,8 @@ CREATE TABLE IF NOT EXISTS exchange.reviews (
   buyer_name TEXT NOT NULL,
   rating INTEGER NOT NULL,
   comment TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  asset_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS exchange.coupons (
@@ -215,7 +218,8 @@ CREATE TABLE IF NOT EXISTS exchange.payment_intents (
   razorpay_order_id TEXT,
   razorpay_payment_id TEXT,
   status TEXT DEFAULT 'pending',
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  asset_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS exchange.asset_commerce_locks (
@@ -252,7 +256,8 @@ CREATE TABLE IF NOT EXISTS exchange.refunds (
   amount DOUBLE PRECISION NOT NULL,
   reason TEXT,
   status TEXT DEFAULT 'completed',
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  asset_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS exchange.seller_earnings (
@@ -264,7 +269,8 @@ CREATE TABLE IF NOT EXISTS exchange.seller_earnings (
   platform_fee DOUBLE PRECISION NOT NULL,
   net_amount DOUBLE PRECISION NOT NULL,
   status TEXT DEFAULT 'accrued',
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  asset_id TEXT
 );
 
 -- Public creator portfolio (professional identity). Not vault assets and not marketplace listings.
@@ -300,6 +306,13 @@ CREATE INDEX IF NOT EXISTS idx_ex_listings_asset ON exchange.listings (asset_id)
 CREATE INDEX IF NOT EXISTS idx_ex_listings_seller_status ON exchange.listings (pinit_id, status);
 CREATE INDEX IF NOT EXISTS idx_ex_orders_buyer ON exchange.orders_sealed (buyer_pinit_id);
 CREATE INDEX IF NOT EXISTS idx_ex_orders_asset ON exchange.orders_sealed (asset_id);
+-- Phase 1: canonical Asset.id linkage on commerce tables
+CREATE INDEX IF NOT EXISTS idx_ex_cart_items_asset ON exchange.cart_items (asset_id);
+CREATE INDEX IF NOT EXISTS idx_ex_wishlist_asset ON exchange.wishlist (asset_id);
+CREATE INDEX IF NOT EXISTS idx_ex_reviews_asset ON exchange.reviews (asset_id);
+CREATE INDEX IF NOT EXISTS idx_ex_payment_intents_asset ON exchange.payment_intents (asset_id);
+CREATE INDEX IF NOT EXISTS idx_ex_refunds_asset ON exchange.refunds (asset_id);
+CREATE INDEX IF NOT EXISTS idx_ex_seller_earnings_asset ON exchange.seller_earnings (asset_id);
 CREATE INDEX IF NOT EXISTS idx_ex_orders_license_status ON exchange.orders_sealed (license_status);
 CREATE INDEX IF NOT EXISTS idx_ex_bridge_events_status ON exchange.hub_bridge_events (status, next_retry_at);
 CREATE INDEX IF NOT EXISTS idx_ex_hub_assets_pinit ON exchange.hub_assets (pinit_id);

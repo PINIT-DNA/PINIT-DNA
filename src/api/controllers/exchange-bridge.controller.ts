@@ -10,6 +10,10 @@ import {
 } from '../../services/exchange/exchange-bridge.service';
 import { config } from '../../config';
 import { resolvePublicBaseUrl } from '../../lib/request-utils';
+import {
+  recordAssetActivityBatch,
+  type AssetActivityInput,
+} from '../../services/assets/asset-activity.service';
 
 function userId(req: Request): string {
   return (req as any).user?.sub as string;
@@ -359,6 +363,57 @@ export async function marketplacePreviewBridge(req: Request, res: Response, next
       'X-Vault-Id': result.vaultId,
     });
     res.status(200).send(result.originalBuffer);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /exchange/activity — Exchange service callback recording asset activity.
+ * Auth: X-PinIT-Bridge-Secret
+ *
+ * Accepts one event or a batch. Every event must carry a canonical Asset.id;
+ * events whose asset cannot be resolved are counted as skipped rather than
+ * failing the request, so a marketplace action is never blocked by its own
+ * audit trail.
+ */
+export async function recordAssetActivityBridge(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    verifyServiceBridgeSecret(
+      (req.headers['x-pinit-bridge-secret'] as string | undefined) ||
+      (req.headers['x-exchange-bridge-secret'] as string | undefined),
+    );
+
+    const raw = Array.isArray(req.body?.events) ? req.body.events : [req.body];
+    const events: AssetActivityInput[] = [];
+
+    for (const e of raw) {
+      const assetId = String(e?.assetId || e?.asset_id || '').trim();
+      const eventType = String(e?.eventType || e?.event_type || '').trim().toUpperCase();
+      const title = String(e?.title || '').trim();
+      if (!assetId || !eventType || !title) continue;
+      events.push({
+        assetId,
+        eventType: eventType as AssetActivityInput['eventType'],
+        title,
+        detail: e?.detail ?? null,
+        payload: e?.payload ?? null,
+        platform: e?.platform ?? 'exchange',
+        url: e?.url ?? null,
+      });
+    }
+
+    if (events.length === 0) {
+      res.status(400).json({ success: false, error: 'at least one event with assetId, eventType and title is required' });
+      return;
+    }
+    if (events.length > 100) {
+      res.status(400).json({ success: false, error: 'at most 100 events per request' });
+      return;
+    }
+
+    const result = await recordAssetActivityBatch(events);
+    res.json({ success: true, ...result });
   } catch (err) {
     next(err);
   }

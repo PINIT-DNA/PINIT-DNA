@@ -179,7 +179,8 @@ function initSqliteDatabase() {
                   listing_id TEXT NOT NULL,
                   license_tier TEXT DEFAULT 'commercial',
                   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                  UNIQUE(buyer_key, listing_id, license_tier)
+                  UNIQUE(buyer_key, listing_id, license_tier),
+                  asset_id TEXT
                 )
               `, () => {
                 db.run(`
@@ -188,7 +189,8 @@ function initSqliteDatabase() {
                     buyer_key TEXT NOT NULL,
                     listing_id TEXT NOT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(buyer_key, listing_id)
+                    UNIQUE(buyer_key, listing_id),
+                    asset_id TEXT
                   )
                 `, () => {
                   db.run(`
@@ -311,7 +313,8 @@ function applyTrustHardeningSchema() {
       amount REAL NOT NULL,
       reason TEXT,
       status TEXT DEFAULT 'completed',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      asset_id TEXT
     )`,
     `CREATE TABLE IF NOT EXISTS portfolio_profiles (
       pinit_id TEXT PRIMARY KEY,
@@ -347,7 +350,8 @@ function applyTrustHardeningSchema() {
       platform_fee REAL NOT NULL,
       net_amount REAL NOT NULL,
       status TEXT DEFAULT 'accrued',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      asset_id TEXT
     )`,
     `CREATE TABLE IF NOT EXISTS seller_payment_methods (
       id TEXT PRIMARY KEY,
@@ -387,8 +391,15 @@ function applyTrustHardeningSchema() {
       if (i >= list.length) return done();
       db.run(list[i], () => runNext(list, i + 1, done));
     };
+    // Phase 1/2: canonical Asset.id linkage. Run AFTER creates so the tables
+    // exist; each ALTER is a no-op error on a database that already has it.
+    const assetLinkageAlters = [
+      'cart_items', 'wishlist', 'reviews', 'payment_intents', 'refunds', 'seller_earnings',
+    ].map((t) => `ALTER TABLE ${t} ADD COLUMN asset_id TEXT`);
+
     runNext(alters, 0, () => {
       runNext(creates, 0, () => {
+       runNext(assetLinkageAlters, 0, () => {
         db.run(`UPDATE listings SET status = 'published' WHERE status = 'live'`, () => {
           db.run(
             `UPDATE users SET seller_onboarding_status = 'SELLER_ACTIVE'
@@ -397,6 +408,7 @@ function applyTrustHardeningSchema() {
             () => resolve(),
           );
         });
+       });
       });
     });
   });

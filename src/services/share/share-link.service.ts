@@ -1259,6 +1259,32 @@ export class ShareLinkService {
       },
     });
 
+    // ── Canonical asset timeline (Phase 2) ────────────────────────────────
+    // A share view/download is asset activity, so it belongs on the Asset.id
+    // timeline alongside listing and sale events. Only VIEWED and DOWNLOADED
+    // map to timeline types; the attempt/forwarding actions stay in
+    // ShareAccessLog, which is where the security detail lives.
+    //
+    // Location, IP, device fingerprint and risk data are deliberately NOT
+    // forwarded — the creator reads this timeline in Asset 360 and must not
+    // see a viewer's precise location or network identity.
+    if (link.assetId && (input.action === 'VIEWED' || input.action === 'DOWNLOADED')) {
+      import('../assets/asset-activity.service').then(({ recordAssetActivity }) => {
+        recordAssetActivity({
+          assetId: link.assetId,
+          eventType: input.action === 'VIEWED' ? 'SHARE_VIEWED' : 'SHARE_DOWNLOADED',
+          title: input.action === 'VIEWED' ? 'Shared link viewed' : 'Shared file downloaded',
+          detail: link.filename ?? undefined,
+          payload: {
+            shareToken: link.token,
+            linkType: link.linkType,
+            sourceContext: link.sourceContext,
+            country: country ?? null,
+          },
+        });
+      }).catch(() => {});
+    }
+
     // ── Platform events (notifications via Unified Event Engine) ───────────
     const NOTIFY_ACTIONS = new Set([
       'VIEWED', 'DOWNLOADED', 'FORWARDING_DETECTED',

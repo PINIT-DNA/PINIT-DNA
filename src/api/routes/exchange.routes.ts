@@ -13,6 +13,7 @@
  *   POST /exchange/listings/confirm
  *   POST /exchange/sales/seal
  *   POST /exchange/delivery/prepare
+ *   POST /exchange/activity
  *   GET  /exchange/profiles-bridge?pinitIds=
  *   GET  /exchange/monitoring-summaries-bridge?pinitId=
  *
@@ -38,6 +39,7 @@ import {
   monitoringSummariesBridge,
   marketplacePreviewBridge,
   createLicensedShareBridge,
+  recordAssetActivityBridge,
   listLicensedSharesForOwner,
   profilesBridge,
 } from '../controllers/exchange-bridge.controller';
@@ -63,6 +65,7 @@ router.post('/protect-upload', uploadProtect, protectUploadBridge);
 router.post('/listings/confirm', confirmExchangeListing);
 router.post('/sales/seal', sealExchangeSale);
 router.post('/share/create',      createLicensedShareBridge);
+router.post('/activity',          recordAssetActivityBridge);
 router.post('/delivery/prepare', prepareDeliveryBridge);
 router.get('/delivery/:token', redeemDeliveryBridge);
 router.get('/profiles-bridge', profilesBridge);
