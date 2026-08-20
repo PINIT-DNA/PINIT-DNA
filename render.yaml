@@ -44,6 +44,10 @@ services:
         value: 524288000
       - key: LOG_LEVEL
         value: info
+      # Hub -> Exchange SSO target. Without this the backend emits a localhost
+      # link and the Exchange tab breaks for every deployed user.
+      - key: EXCHANGE_APP_URL
+        value: https://www.pinitexchange.com
       - key: MONITORING_CRAWLER_ENABLED
         value: "true"
       - key: CRAWLER_ENGINE_ENABLED

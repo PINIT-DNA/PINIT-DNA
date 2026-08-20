@@ -45,6 +45,32 @@ function optionalInt(key: string, fallback: number): number {
   return parsed;
 }
 
+
+/** Public marketplace origin used when EXCHANGE_APP_URL is not configured in production. */
+const PRODUCTION_EXCHANGE_URL = 'https://www.pinitexchange.com';
+
+/**
+ * Resolve the Exchange app origin.
+ *
+ * Local dev keeps the localhost default. Production must never emit a
+ * localhost SSO link, so an unset value falls back to the public marketplace
+ * and logs loudly rather than failing silently.
+ */
+function resolveExchangeAppUrl(): string {
+  const explicit = process.env.EXCHANGE_APP_URL?.trim();
+  if (explicit) return explicit.replace(/\/$/, '');
+
+  const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+  if (!isProd) return 'http://localhost:5174';
+
+  // eslint-disable-next-line no-console
+  console.warn(
+    '[config] EXCHANGE_APP_URL is not set in production — falling back to ' +
+      `${PRODUCTION_EXCHANGE_URL}. Set EXCHANGE_APP_URL explicitly on the backend service.`,
+  );
+  return PRODUCTION_EXCHANGE_URL;
+}
+
 export const config = {
   env: optional('NODE_ENV', 'development') as 'development' | 'production' | 'test',
   port: optionalInt('PORT', 4000),
@@ -174,7 +200,11 @@ export const config = {
    * Hub owns identity / vault / DNA; Exchange only receives public-safe listing payloads.
    */
   exchange: {
-    appUrl: optional('EXCHANGE_APP_URL', 'http://localhost:5174').replace(/\/$/, ''),
+    // The localhost defaults are for local development only. In production an
+    // unset EXCHANGE_APP_URL used to silently produce a localhost SSO link,
+    // which sent every "Exchange" click to a machine the user does not have —
+    // so production falls back to the real marketplace instead, and warns.
+    appUrl: resolveExchangeAppUrl(),
     apiUrl: optional('EXCHANGE_API_URL', 'http://localhost:5000').replace(/\/$/, ''),
     bridgeSecret: optional(
       'EXCHANGE_BRIDGE_SECRET',
