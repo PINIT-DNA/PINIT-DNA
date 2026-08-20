@@ -2555,3 +2555,124 @@ input[type="range"]::-webkit-slider-thumb {
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
+
+/* ===========================================================================
+   Gallery tiles — image-first browsing
+   The grid shows the work; title, price, creator, licence tiers and
+   provenance all live on the asset page. A caption reveals on hover or
+   keyboard focus, and stays permanently visible on touch where hover
+   does not exist.
+   =========================================================================== */
+.listing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.listing-tile {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: #0a0e16;
+  cursor: pointer;
+  border: 1px solid var(--border-subtle);
+  transition: transform .22s ease, border-color .22s ease, box-shadow .22s ease;
+}
+.listing-tile:hover,
+.listing-tile:focus-visible {
+  transform: translateY(-3px);
+  border-color: var(--border-glow);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, .45);
+  outline: none;
+}
+.listing-tile:focus-visible { outline: 2px solid var(--emerald); outline-offset: 2px; }
+
+.listing-tile .card-media,
+.listing-tile .listing-card__video-ph {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+  transition: transform .5s ease;
+}
+.listing-tile:hover .card-media { transform: scale(1.045); }
+
+/* Verified mark — the one trust signal worth carrying into the grid. */
+.listing-tile__verified {
+  position: absolute; top: 10px; left: 10px; z-index: 2;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: .68rem; font-weight: 600; letter-spacing: .01em;
+  padding: 3px 8px; border-radius: 99px;
+  color: #d1fae5; background: rgba(6, 30, 22, .74);
+  border: 1px solid rgba(52, 211, 153, .34);
+  backdrop-filter: blur(6px);
+  opacity: 0; transition: opacity .22s ease;
+}
+.listing-tile:hover .listing-tile__verified,
+.listing-tile:focus-within .listing-tile__verified { opacity: 1; }
+
+.listing-tile__wish {
+  position: absolute; top: 8px; right: 8px; z-index: 3;
+  width: 32px; height: 32px; border-radius: 99px;
+  display: grid; place-items: center;
+  color: #fff; background: rgba(10, 14, 22, .58);
+  border: 1px solid rgba(255, 255, 255, .16);
+  backdrop-filter: blur(6px); cursor: pointer;
+  opacity: 0; transition: opacity .22s ease, color .18s ease, background .18s ease;
+}
+.listing-tile:hover .listing-tile__wish,
+.listing-tile:focus-within .listing-tile__wish { opacity: 1; }
+.listing-tile__wish:hover { background: rgba(10, 14, 22, .85); }
+.listing-tile__wish.active { color: #f472b6; opacity: 1; }
+
+/* Caption scrim */
+.listing-tile__caption {
+  position: absolute; inset: auto 0 0 0; z-index: 2;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 10px;
+  padding: 30px 12px 11px;
+  background: linear-gradient(to top, rgba(4, 8, 14, .93) 12%, rgba(4, 8, 14, .58) 55%, transparent);
+  opacity: 0; transform: translateY(8px);
+  transition: opacity .24s ease, transform .24s ease;
+}
+.listing-tile:hover .listing-tile__caption,
+.listing-tile:focus-within .listing-tile__caption { opacity: 1; transform: translateY(0); }
+
+.listing-tile__text { min-width: 0; }
+.listing-tile__title {
+  margin: 0; font-size: .86rem; font-weight: 600; color: #fff; line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.listing-tile__by {
+  margin: 3px 0 0; font-size: .72rem; color: rgba(255, 255, 255, .66);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.listing-tile__tier { color: #fbbf24; }
+
+.listing-tile__right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.listing-tile__price {
+  font-size: .84rem; font-weight: 700; color: var(--emerald);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.listing-tile__cart {
+  width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
+  color: #fff; background: var(--primary, #2563eb); border: 0; cursor: pointer;
+  transition: filter .18s ease;
+}
+.listing-tile__cart:hover { filter: brightness(1.14); }
+
+.listing-tile__owner {
+  position: absolute; bottom: 10px; left: 12px; z-index: 3;
+  font-size: .64rem; letter-spacing: .04em; text-transform: uppercase;
+  color: rgba(255, 255, 255, .74);
+}
+.listing-tile:hover .listing-tile__owner,
+.listing-tile:focus-within .listing-tile__owner { display: none; }
+
+/* Touch devices have no hover — keep the caption and controls visible. */
+@media (hover: none) {
+  .listing-tile__caption { opacity: 1; transform: none; }
+  .listing-tile__wish,
+  .listing-tile__verified { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .listing-tile, .listing-tile .card-media, .listing-tile__caption { transition: none; }
+  .listing-tile:hover .card-media { transform: none; }
+}

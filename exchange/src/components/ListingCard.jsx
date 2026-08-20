@@ -1,10 +1,7 @@
-import { formatFrom } from '../lib/money.js';
+import { formatFrom, formatMoney } from '../lib/money.js';
 import React, { useState } from 'react';
-import { CheckCircle2, Heart, Play, ArrowRight, ShoppingCart } from 'lucide-react';
+import { CheckCircle2, Heart, Play, ShoppingCart } from 'lucide-react';
 import { canPurchase, isSeller } from '../lib/roles.js';
-import HubTrustBadge from './HubTrustBadge.jsx';
-import ProvenanceDrawer from './ProvenanceDrawer.jsx';
-import { verticalLabel } from '../lib/api.js';
 import {
   isVideoListing,
   hasPlayableVideoPreview,
@@ -109,101 +106,77 @@ export default function ListingCard({
   user = null,
   wishlisted = false,
 }) {
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const isVideo = isVideoListing(item);
   const fromPrice = item.price_personal ?? item.price_commercial ?? 0;
   const tierLabel = goldBadgeLabel(item.badge_tier);
+  const open = () => onSelect?.(item.listing_id);
 
+  // Gallery cards are the picture. Title, price, creator and provenance all
+  // live on the asset page — a browsing grid reads faster when the work is the
+  // only thing competing for attention.
+  //
+  // The caption is always in the DOM (screen readers get it regardless) and
+  // reveals visually on hover or keyboard focus.
   return (
-    <>
-      <article
-        id={item.listing_id ? `listing-${item.listing_id}` : undefined}
-        className="listing-card listing-card--pro"
-        onClick={() => onSelect?.(item.listing_id)}
-      >
-        <div className="listing-card__media">
-          <CardMedia item={item} isVideo={isVideo} />
+    <article
+      id={item.listing_id ? `listing-${item.listing_id}` : undefined}
+      className="listing-tile"
+      tabIndex={0}
+      role="link"
+      aria-label={`${item.title} by ${item.creator_name || 'verified creator'}, from ${formatMoney(fromPrice)}`}
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+      }}
+    >
+      <CardMedia item={item} isVideo={isVideo} />
 
-          <div className={`card-badge-container listing-card__badges${onWishlist ? ' listing-card__badges--under-wish' : ''}`}>
-            <span className="badge-verified listing-card__verified-pill">
-              <CheckCircle2 size={12} /> Verified
-            </span>
-            {tierLabel && (
-              <span className={`badge-${String(item.badge_tier).toLowerCase()} listing-card__tier-pill`}>
-                {tierLabel}
-              </span>
-            )}
-          </div>
+      <span className="listing-tile__verified" title="Hub verified & protected">
+        <CheckCircle2 size={12} /> Verified
+      </span>
 
-          {onWishlist && (
+      {onWishlist && (
+        <button
+          type="button"
+          className={`listing-tile__wish ${wishlisted ? 'active' : ''}`}
+          title={wishlisted ? 'Saved' : 'Save to wishlist'}
+          aria-label={wishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
+          onClick={(e) => { e.stopPropagation(); onWishlist(item); }}
+        >
+          <Heart size={15} fill={wishlisted ? 'currentColor' : 'none'} />
+        </button>
+      )}
+
+      <div className="listing-tile__caption">
+        <div className="listing-tile__text">
+          <h3 className="listing-tile__title">{item.title}</h3>
+          <p className="listing-tile__by">
+            {item.creator_name || 'Verified creator'}
+            {tierLabel ? <span className="listing-tile__tier"> · {tierLabel}</span> : null}
+          </p>
+        </div>
+
+        <div className="listing-tile__right">
+          <span className="listing-tile__price">{formatFrom(fromPrice)}</span>
+          {(!user || canPurchase(user)) && (
             <button
               type="button"
-              className={`listing-card__wish ${wishlisted ? 'active' : ''}`}
-              title={wishlisted ? 'Saved' : 'Add to wishlist'}
+              className="listing-tile__cart"
+              title="Add to cart"
+              aria-label={`Add ${item.title} to cart`}
               onClick={(e) => {
                 e.stopPropagation();
-                onWishlist(item);
+                if (onAddToCart) onAddToCart(item);
+                else open();
               }}
             >
-              <Heart size={14} fill={wishlisted ? 'currentColor' : 'none'} />
+              <ShoppingCart size={15} />
             </button>
           )}
         </div>
+      </div>
 
-        <div className="listing-card__body">
-          <h3 className="listing-card__title">{item.title}</h3>
-
-          <div className="listing-card__meta">
-            {verticalLabel(item.vertical)}
-            {' · '}
-            Commercial
-          </div>
-
-          <div className="listing-card__by">
-            by {item.creator_name || 'Verified creator'}
-          </div>
-
-          <div className="listing-card__price-row">
-            <div className="listing-card__from">{formatFrom(fromPrice)}</div>
-            <div className="listing-card__tiers">Personal • Commercial • Exclusive</div>
-          </div>
-
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="listing-card__hub"
-          >
-            <HubTrustBadge compact onOpenProvenance={() => setDrawerOpen(true)} />
-          </div>
-
-          {isSeller(user) && (
-            <div className="listing-card__creator-view">Creator view</div>
-          )}
-
-          <div className="listing-card__actions" onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              className="btn-secondary listing-card__cta"
-              onClick={() => onSelect?.(item.listing_id)}
-            >
-              View Asset <ArrowRight size={14} />
-            </button>
-            {(!user || canPurchase(user)) && (
-              <button
-                type="button"
-                className="btn-primary listing-card__cta"
-                onClick={() => {
-                  if (onAddToCart) onAddToCart(item);
-                  else onSelect?.(item.listing_id);
-                }}
-              >
-                <ShoppingCart size={14} /> Add to Cart
-              </button>
-            )}
-          </div>
-        </div>
-      </article>
-
-      <ProvenanceDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} listing={item} />
-    </>
+      {isSeller(user) && <span className="listing-tile__owner">Your listing</span>}
+    </article>
   );
 }
