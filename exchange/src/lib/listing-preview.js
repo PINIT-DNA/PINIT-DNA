@@ -5,8 +5,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 export function listingPreviewUrl(item) {
   const url = String(item?.preview_url || '');
   if (url && !url.includes('unsplash.com')) return url;
-  const id = String(item?.asset_id || '');
-  if (UUID_RE.test(id)) return `/api/hub/preview/${id}`;
+  // Preview URLs are signed server-side and arrive on the payload. Building
+  // a bare /api/hub/preview/<id> here would produce an unsigned URL that the
+  // server now rejects, so return nothing and let the placeholder show.
   return '';
 }
 

@@ -8,7 +8,8 @@ function listingPreviewUrl(item) {
   if (url && !url.includes('unsplash.com')) return url;
   const id = String(item?.asset_id || '');
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
-    return `/api/hub/preview/${id}`;
+    // Signed server-side; an unsigned URL is rejected by the preview route.
+    return '';
   }
   return '';
 }

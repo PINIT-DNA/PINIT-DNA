@@ -8,10 +8,24 @@ import {
   fetchPreviewFromHub,
 } from '../hub-client.js';
 import { exchangePreviewUrl, isHubVaultId, PLACEHOLDER_PREVIEW } from '../lib/preview-url.js';
+import { verifyPreviewToken } from '../lib/preview-token.js';
+import rateLimit from 'express-rate-limit';
 import { requireSeller, requireActiveSeller } from '../lib/rbac.js';
 import { identityCandidates, sellerMatchClause } from '../lib/pinit-identity.js';
 
 const router = express.Router();
+
+/**
+ * Preview requests are cheap per call but decrypt a vault object on a cache
+ * miss, so an unthrottled scraper is both a cost and a bulk-download vector.
+ */
+const previewLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many preview requests. Slow down.' },
+});
 const HUB_APP_URL = (process.env.HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
 
 const IMAGE_EXTS = new Set([
@@ -264,16 +278,33 @@ router.post('/protect-upload', requireActiveSeller, (req, res) => {
 });
 
 /** Stream Hub vault preview for marketplace (video/image playable in browser) */
-router.get('/preview/:assetId', async (req, res) => {
+router.get('/preview/:assetId', previewLimiter, async (req, res) => {
   const assetId = String(req.params.assetId || '').trim();
   if (!assetId) return res.status(400).json({ error: 'assetId required' });
 
+  // The URL must carry a signature minted by this server. Without this, the
+  // path is guessable from the public listings API, which returns asset_id in
+  // plaintext — anyone could fetch, hotlink, or address-bar the preview.
+  const signature = verifyPreviewToken(assetId, req.query.t, req.query.e);
+  if (!signature.ok) {
+    return res.status(403).json({ error: 'Preview link is invalid or has expired' });
+  }
+
+  // Only a PUBLISHED listing may be previewed.
+  //
+  // This previously read `Boolean(row) || isHubVaultId(assetId)`. isHubVaultId
+  // only checks UUID *format*, so the `||` defeated the allow-list entirely:
+  // any well-formed UUID passed, including assets belonging to other users
+  // that were never listed on Exchange. Verified before the fix — anonymous
+  // requests returned previews for two unlisted assets owned by a different
+  // account.
   const allow = await new Promise((resolve) => {
     db.get(
-      `SELECT asset_id FROM hub_assets WHERE asset_id = ?
-       UNION SELECT asset_id FROM listings WHERE asset_id = ? LIMIT 1`,
-      [assetId, assetId],
-      (err, row) => resolve(Boolean(row) || isHubVaultId(assetId)),
+      `SELECT asset_id FROM listings
+        WHERE asset_id = ? AND status IN ('published', 'live', 'sold_exclusive')
+        LIMIT 1`,
+      [assetId],
+      (err, row) => resolve(Boolean(row)),
     );
   });
   if (!allow) return res.status(404).json({ error: 'Asset not found on Exchange' });
@@ -284,10 +315,20 @@ router.get('/preview/:assetId', async (req, res) => {
       'Content-Type': preview.contentType,
       'Content-Length': String(preview.buffer.length),
       'Accept-Ranges': 'bytes',
-      'Cache-Control': 'private, max-age=120',
+      // Signed URLs expire, so a long-lived cached copy would outlive its
+      // grant. no-store also stops a full-page save pulling it from cache.
+      'Cache-Control': 'private, no-store, max-age=0',
+      'Pragma': 'no-cache',
       'X-Content-Type-Options': 'nosniff',
+      // No filename — the original name is the creator's, not the viewer's.
       'Content-Disposition': 'inline',
+      'Cross-Origin-Resource-Policy': 'same-origin',
+      'Referrer-Policy': 'no-referrer',
     });
+    // The app mounts a global cors() which emits `Access-Control-Allow-Origin: *`.
+    // That is fine for JSON APIs but turns previews into hotlinkable assets any
+    // site can embed, so it is stripped on this route specifically.
+    res.removeHeader('Access-Control-Allow-Origin');
     res.status(200).send(preview.buffer);
   } catch (err) {
     console.error('[hub/preview]', err.message);

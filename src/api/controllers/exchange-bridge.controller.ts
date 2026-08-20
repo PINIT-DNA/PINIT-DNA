@@ -354,13 +354,21 @@ export async function marketplacePreviewBridge(req: Request, res: Response, next
       return;
     }
     const result = await exchangeBridgeService.getMarketplacePreview(vaultId);
+    // The body is a derived, watermarked preview — never the vault master.
+    // Headers deliberately carry nothing about the underlying asset:
+    //  - no X-Vault-Id, which leaked the internal VaultRecord UUID
+    //  - no filename, which leaked the creator's original file name
+    //  - no-store, so an expired signed URL cannot be replayed from cache
     res.set({
       'Content-Type': result.originalMimeType || 'application/octet-stream',
       'Content-Length': String(result.originalBuffer.length),
-      'Content-Disposition': `inline; filename="${result.originalFileName || 'preview'}"`,
+      'Content-Disposition': 'inline',
       'Accept-Ranges': 'bytes',
-      'Cache-Control': 'private, max-age=120',
-      'X-Vault-Id': result.vaultId,
+      'Cache-Control': 'private, no-store, max-age=0',
+      'Pragma': 'no-cache',
+      'Cross-Origin-Resource-Policy': 'same-origin',
+      'Referrer-Policy': 'no-referrer',
+      'X-Content-Type-Options': 'nosniff',
     });
     res.status(200).send(result.originalBuffer);
   } catch (err) {
