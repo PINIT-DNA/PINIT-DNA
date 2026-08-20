@@ -39,6 +39,36 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
   try {
     const uid = userId(req);
     const { fullName, phone, organization, jobTitle, country, bio, theme } = req.body;
+
+    // Email was previously not accepted here at all, so the profile form could
+    // never save one — biometric accounts are created without an email and had
+    // no way to add it afterwards.
+    let email: string | null | undefined;
+    if (req.body.email !== undefined) {
+      const raw = String(req.body.email ?? '').trim().toLowerCase();
+      if (raw === '') {
+        email = null; // Clearing an email is allowed.
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(raw)) {
+        res.status(400).json({ success: false, error: 'Enter a valid email address.' });
+        return;
+      } else {
+        // User.email is unique. Check before writing so a collision returns a
+        // clear message rather than a raw constraint error.
+        const taken = await prisma.user.findFirst({
+          where: { email: raw, NOT: { id: uid } },
+          select: { id: true },
+        });
+        if (taken) {
+          res.status(409).json({
+            success: false,
+            error: 'That email is already used by another PINIT account.',
+          });
+          return;
+        }
+        email = raw;
+      }
+    }
+
     const prev = phone !== undefined
       ? await prisma.user.findUnique({ where: { id: uid }, select: { phone: true } })
       : null;
@@ -46,6 +76,7 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
       where: { id: uid },
       data: {
         ...(fullName !== undefined && { fullName }),
+        ...(email !== undefined && { email }),
         ...(phone !== undefined && { phone }),
         ...(organization !== undefined && { organization }),
         ...(jobTitle !== undefined && { jobTitle }),

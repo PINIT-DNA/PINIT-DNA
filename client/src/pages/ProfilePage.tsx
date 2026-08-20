@@ -178,6 +178,7 @@ export function ProfilePage() {
 function ProfileTab({ profile, onUpdate }: { profile: any; onUpdate: (p: any) => void }) {
   const [form, setForm] = useState({
     fullName: profile?.fullName ?? '',
+    email: profile?.email ?? '',
     phone: profile?.phone ?? '',
     organization: profile?.organization ?? '',
     jobTitle: profile?.jobTitle ?? '',
@@ -186,15 +187,23 @@ function ProfileTab({ profile, onUpdate }: { profile: any; onUpdate: (p: any) =>
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Email is unique across PINIT, so a save can legitimately fail. Show why
+  // instead of the form appearing to succeed.
+  const [saveError, setSaveError] = useState('');
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveError('');
     try {
       const { data } = await api.put(`${API_BASE_URL}/profile`, form);
       onUpdate({ ...profile, ...(data as any).profile });
       notifyProfileUpdated();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+    } catch (err: any) {
+      setSaveError(
+        err?.response?.data?.error || 'Could not save your profile. Please try again.',
+      );
     } finally { setSaving(false); }
   };
 
@@ -205,7 +214,12 @@ function ProfileTab({ profile, onUpdate }: { profile: any; onUpdate: (p: any) =>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Field label="Full Name" value={form.fullName} onChange={v => setForm({ ...form, fullName: v })} />
         <Field label="PINIT ID" value={profile?.shortId} disabled />
-        <Field label="Email" value={profile?.email ?? ''} disabled />
+        <Field
+          label="Email"
+          value={form.email}
+          onChange={v => { setForm({ ...form, email: v }); setSaveError(''); }}
+          placeholder="you@example.com"
+        />
         <Field label="Phone" value={form.phone} onChange={v => setForm({ ...form, phone: v })} placeholder="+91 9876543210" />
         <Field label="Organization" value={form.organization} onChange={v => setForm({ ...form, organization: v })} placeholder="Company name" />
         <Field label="Job Title" value={form.jobTitle} onChange={v => setForm({ ...form, jobTitle: v })} placeholder="Software Engineer" />
@@ -221,6 +235,10 @@ function ProfileTab({ profile, onUpdate }: { profile: any; onUpdate: (p: any) =>
           placeholder="Tell us about yourself..."
         />
       </div>
+
+      {saveError && (
+        <p role="alert" className="text-xs text-red-400 mb-2">{saveError}</p>
+      )}
 
       <button onClick={handleSave} disabled={saving} className="btn btn-primary btn-sm text-xs">
         {saving ? <RefreshCw size={12} className="animate-spin" /> : saved ? '✓ Saved' : <><Save size={12} /> Save Changes</>}
