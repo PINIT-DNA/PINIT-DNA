@@ -1,3 +1,4 @@
+import { formatFrom, formatMoney } from '../lib/money.js';
 import React, { useState, useEffect } from 'react';
 import { Award, ArrowLeft, Heart, ImageOff, ShoppingCart, Star } from 'lucide-react';
 import { buyerKey } from '../lib/buyer.js';
@@ -175,7 +176,10 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
                 <img
                   src={listing.preview_url}
                   alt={listing.title}
+                  className="pinit-protected-media"
                   draggable={false}
+                  onDragStart={(e) => e.preventDefault()}
+                  onContextMenu={(e) => e.preventDefault()}
                   style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                   onError={() => setMediaError('Preview unavailable')}
                 />
@@ -269,7 +273,7 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
                   {account.uiLabel}. Creators cannot purchase marketplace assets.
                 </p>
                 <div style={{ color: 'var(--text-dim)', fontSize: '0.85rem', marginBottom: 16 }}>
-                  From ${listing.price_personal || 49} · Personal · Commercial · Exclusive
+                  {formatFrom(listing.price_personal || 49)} · Personal · Commercial · Exclusive
                 </div>
                 {ownsListing && (
                   <button type="button" className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={onManageListing}>

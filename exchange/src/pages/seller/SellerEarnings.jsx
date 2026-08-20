@@ -13,7 +13,7 @@ export default function SellerEarnings({ user, onNavigate }) {
   return (
     <StudioPage
       title="Earnings"
-      subtitle="Creator net after Exchange fees. Payouts are processed by the payment provider — Exchange does not store raw cards."
+      subtitle="Creator net after Exchange fees. Withdrawals are not enabled yet — these balances are accrued and will be payable once payouts go live."
     >
       <div className="studio-kpi">
         <div className="glass-panel studio-kpi__card">

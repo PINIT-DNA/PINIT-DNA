@@ -1,3 +1,4 @@
+import { formatMoney, setPlatformCurrency } from '../lib/money.js';
 import React, { useState, useEffect, useRef } from 'react';
 import { X, ShieldCheck, Award, Download } from 'lucide-react';
 import { payAndSeal } from '../lib/razorpay-checkout.js';
@@ -23,6 +24,10 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
   const [loading, setLoading] = useState(false);
   const [completedOrder, setCompletedOrder] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
+  // Licence terms must be accepted before payment is taken. Unchecked by
+  // default and reset on every open — never pre-consented.
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [testMode, setTestMode] = useState(false);
   const [payMode, setPayMode] = useState(null);
   const autoPayRef = useRef(false);
 
@@ -33,12 +38,17 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
     }
     setCompletedOrder(null);
     setErrorMsg('');
+    setAcceptedTerms(false);
     const defaults = defaultBuyer(user);
     setBuyerName(defaults.name);
     setBuyerEmail(defaults.email);
     setBuyerOrg(defaults.org);
     apiFetch('/api/orders/billing/config').then((parsed) => {
       if (parsed.ok && parsed.data) {
+        // The client formats prices in whatever currency the gateway charges,
+        // so the browse price and the receipt can never disagree.
+        setPlatformCurrency(parsed.data.currency);
+        setTestMode(Boolean(parsed.data.testMode));
         setPayMode(parsed.data.mock ? 'mock' : 'razorpay');
         return;
       }
@@ -47,6 +57,10 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
   }, [isOpen, user, listing?.listing_id]);
 
   const runCheckout = async (name = buyerName, email = buyerEmail, org = buyerOrg) => {
+    if (!acceptedTerms) {
+      setErrorMsg('Please accept the licence terms before continuing.');
+      return;
+    }
     if (user && !canPurchase(user)) {
       setErrorMsg('Creator accounts cannot purchase marketplace assets.');
       return;
@@ -66,6 +80,7 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
           buyer_email,
           buyer_org: org || '',
           buyer_pinit_id: user?.pinit_id,
+          accept_terms: true,
         },
         description: `${listing.title} · ${tier} license`,
         userName: buyer_name,
@@ -83,11 +98,14 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
   };
 
   useEffect(() => {
+    // Auto-success in mock mode still requires the buyer to accept terms,
+    // otherwise the consent record would be silently skipped in dev.
     if (!isOpen || payMode !== 'mock' || !listing || completedOrder || autoPayRef.current) return;
+    if (!acceptedTerms) return;
     autoPayRef.current = true;
     const defaults = defaultBuyer(user);
     void runCheckout(defaults.name, defaults.email, defaults.org);
-  }, [isOpen, payMode, listing?.listing_id]);
+  }, [isOpen, payMode, listing?.listing_id, acceptedTerms]);
 
   // Must come after every hook above — an early return here would change how many
   // hooks run between the closed and open renders (React error #310).
@@ -145,7 +163,9 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
                 <div>Order ID: <strong style={{ color: '#fff' }}>{completedOrder.order_id}</strong></div>
                 <div>Seal ID: <strong style={{ color: 'var(--primary)' }}>{completedOrder.seal_id}</strong></div>
                 <div>License Tier: <strong style={{ color: 'var(--emerald)' }}>{String(completedOrder.license_tier).toUpperCase()}</strong></div>
-                <div>Amount Paid: <strong style={{ color: '#fff' }}>₹{completedOrder.price_paid}</strong></div>
+                <div>Amount Paid: <strong style={{ color: '#fff' }}>
+                  {formatMoney(completedOrder.price_paid, completedOrder.currency)}
+                </strong></div>
                 <div>Payment: <strong style={{ color: '#fff' }}>{completedOrder.payment_status || 'paid'}</strong></div>
                 <div>Buyer: <strong style={{ color: '#fff' }}>{completedOrder.buyer_name}</strong></div>
               </div>
@@ -190,7 +210,7 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
                   type="button"
                   className="btn-primary"
                   style={{ flex: 1, justifyContent: 'center' }}
-                  onClick={() => alert('Delivery token pending — open My Licenses after Hub prepares the download.')}
+                  onClick={() => setErrorMsg('Delivery is still being prepared by Pinit Hub. Open Purchases in a moment to download.')}
                 >
                   <Download size={16} /> Delivery pending
                 </button>
@@ -249,7 +269,7 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, fontSize: '0.9rem', color: '#fff' }}>
                         <span>{t.name}</span>
-                        <span style={{ color: 'var(--emerald)' }}>₹{t.price}</span>
+                        <span style={{ color: 'var(--emerald)' }}>{formatMoney(t.price)}</span>
                       </div>
                       <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>{t.desc}</p>
                     </div>
@@ -282,7 +302,7 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', marginBottom: '6px' }}>
                   <span style={{ color: 'var(--text-muted)' }}>License Subtotal:</span>
-                  <span style={{ color: '#fff' }}>₹{selectedPrice.toFixed(2)}</span>
+                  <span style={{ color: '#fff' }}>{formatMoney(selectedPrice)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', marginBottom: '6px' }}>
                   <span style={{ color: 'var(--text-muted)' }}>Payment rail:</span>
@@ -298,23 +318,50 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.1rem', fontWeight: 800, color: '#fff', paddingTop: '8px', borderTop: '1px solid var(--border-subtle)' }}>
                   <span>Total Due:</span>
-                  <span style={{ color: 'var(--emerald)' }}>₹{selectedPrice.toFixed(2)}</span>
+                  <span style={{ color: 'var(--emerald)' }}>{formatMoney(selectedPrice)}</span>
                 </div>
               </div>
+
+              {testMode && (
+                <p role="status" style={{
+                  fontSize: '0.78rem', color: 'var(--amber, #d99a2b)', lineHeight: 1.5,
+                  border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)',
+                  padding: '8px 10px', margin: '0 0 10px',
+                }}>
+                  Test mode — this checkout uses a Razorpay test key. No real payment is taken.
+                </p>
+              )}
+
+              <label style={{
+                display: 'flex', alignItems: 'flex-start', gap: 9,
+                fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5,
+                cursor: 'pointer', marginBottom: 4,
+              }}>
+                <input
+                  type="checkbox"
+                  checked={acceptedTerms}
+                  onChange={(e) => { setAcceptedTerms(e.target.checked); setErrorMsg(''); }}
+                  style={{ marginTop: 3, flexShrink: 0 }}
+                />
+                <span>
+                  I accept the <strong style={{ color: '#fff' }}>{String(tier).toLowerCase()} licence terms</strong> for this
+                  asset, and understand the licence is issued to my PINIT ID and is non-transferable.
+                </span>
+              </label>
             </div>
 
             <div className="modal-footer">
               <button type="button" className="btn-secondary" onClick={onClose}>
                 Cancel
               </button>
-              <button type="submit" className="btn-primary" disabled={loading}>
+              <button type="submit" className="btn-primary" disabled={loading || !acceptedTerms}>
                 {loading
                   ? payMode === 'mock'
                     ? 'Auto-completing payment…'
                     : 'Processing…'
                   : payMode === 'razorpay'
-                    ? `Pay ₹${selectedPrice} with Razorpay`
-                    : `Confirm ₹${selectedPrice} · auto-success`}
+                    ? `Pay ${formatMoney(selectedPrice)} with Razorpay`
+                    : `Confirm ${formatMoney(selectedPrice)} · auto-success`}
               </button>
             </div>
           </form>

@@ -107,3 +107,25 @@ export function verifiedLabel(badge) {
   if (b === 'bronze') return 'Bronze — Pinit Verified';
   return 'Pinit Verified';
 }
+
+/**
+ * Normalise a list response.
+ *
+ * Paginated endpoints return { items, total, limit, offset, has_more };
+ * older ones returned a bare array. Callers should not care which.
+ */
+export function unwrapList(data) {
+  if (Array.isArray(data)) {
+    return { items: data, total: data.length, limit: data.length, offset: 0, hasMore: false };
+  }
+  if (data && Array.isArray(data.items)) {
+    return {
+      items: data.items,
+      total: typeof data.total === 'number' ? data.total : data.items.length,
+      limit: data.limit ?? data.items.length,
+      offset: data.offset ?? 0,
+      hasMore: Boolean(data.has_more),
+    };
+  }
+  return { items: [], total: 0, limit: 0, offset: 0, hasMore: false };
+}

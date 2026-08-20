@@ -180,6 +180,7 @@ export default function ExchangeHeader({
                     <>
                       <button type="button" onClick={() => closeGo('settings')}>Account</button>
                       <button type="button" onClick={() => closeGo('my_licenses')}>Purchases</button>
+                      <button type="button" onClick={() => closeGo('buyer_orders')}>Orders &amp; receipts</button>
                       <button type="button" onClick={() => closeGo('buyer_payments')}>Payment methods</button>
                       <button type="button" onClick={() => closeGo('buyer_notifications')}>Notifications</button>
                       <button type="button" onClick={() => { setMenu(false); onBecomeCreator?.(); }}>Sell on Exchange</button>

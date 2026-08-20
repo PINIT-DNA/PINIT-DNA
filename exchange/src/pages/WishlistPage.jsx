@@ -1,3 +1,4 @@
+import { formatFrom } from '../lib/money.js';
 import React, { useEffect, useState } from 'react';
 import { Heart, Trash2 } from 'lucide-react';
 import { buyerKey } from '../lib/buyer.js';
@@ -79,7 +80,7 @@ export default function WishlistPage({ user, onOpenAuth, onSelectListing, onAddT
               <div style={{ padding: 16 }}>
                 <h3 style={{ color: '#fff', marginBottom: 8 }}>{item.listing?.title}</h3>
                 <div style={{ color: 'var(--emerald)', fontWeight: 700, marginBottom: 10 }}>
-                  From ${item.listing?.price_personal}
+                  {formatFrom(item.listing?.price_personal)}
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button type="button" className="btn-primary" style={{ flex: 1, fontSize: '0.8rem' }} onClick={() => onAddToCart?.(item.listing)}>

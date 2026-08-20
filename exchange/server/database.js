@@ -393,6 +393,17 @@ function applyTrustHardeningSchema() {
     };
     // Phase 1/2: canonical Asset.id linkage. Run AFTER creates so the tables
     // exist; each ALTER is a no-op error on a database that already has it.
+    // Production-readiness columns (currency, licence terms, downloads, invoice).
+    const commerceReadinessAlters = [
+      'ALTER TABLE orders_sealed ADD COLUMN currency TEXT',
+      'ALTER TABLE orders_sealed ADD COLUMN terms_accepted_at DATETIME',
+      'ALTER TABLE orders_sealed ADD COLUMN terms_version TEXT',
+      'ALTER TABLE orders_sealed ADD COLUMN download_count INTEGER DEFAULT 0',
+      'ALTER TABLE orders_sealed ADD COLUMN download_limit INTEGER',
+      'ALTER TABLE orders_sealed ADD COLUMN invoice_number TEXT',
+      'ALTER TABLE payment_intents ADD COLUMN terms_accepted_at DATETIME',
+    ];
+
     const assetLinkageAlters = [
       'cart_items', 'wishlist', 'reviews', 'payment_intents', 'refunds', 'seller_earnings',
     ].map((t) => `ALTER TABLE ${t} ADD COLUMN asset_id TEXT`);
@@ -400,6 +411,7 @@ function applyTrustHardeningSchema() {
     runNext(alters, 0, () => {
       runNext(creates, 0, () => {
        runNext(assetLinkageAlters, 0, () => {
+        runNext(commerceReadinessAlters, 0, () => {
         db.run(`UPDATE listings SET status = 'published' WHERE status = 'live'`, () => {
           db.run(
             `UPDATE users SET seller_onboarding_status = 'SELLER_ACTIVE'
@@ -407,6 +419,7 @@ function applyTrustHardeningSchema() {
                AND (seller_onboarding_status IS NULL OR seller_onboarding_status = '')`,
             () => resolve(),
           );
+        });
         });
        });
       });

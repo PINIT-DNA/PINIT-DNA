@@ -18,10 +18,12 @@ import {
 import { isListingPurchasable, LICENSE_STATUS, ORDER_STATUS, BRIDGE_EVENT } from '../lib/lifecycle.js';
 import { authorizeLicenseDownload } from '../lib/license-auth.js';
 import { recordBridgeEvent, markBridgeEventProcessed, retryDueBridgeEvents } from '../lib/bridge-events.js';
-import { getSql, runSql } from '../lib/db.js';
+import { getSql, runSql, allSql } from '../lib/db.js';
 import { requireBuyer, findUserByPinitId } from '../lib/rbac.js';
 import { canPurchase, sellerDeniedPurchase } from '../lib/roles.js';
 import { postAssetActivity, emitForSeal } from '../lib/asset-activity.js';
+import { downloadsRemaining, describeEntitlement, LICENSE_TERMS_VERSION } from '../lib/licensing.js';
+import { formatMoney, activeCurrency } from '../lib/money.js';
 
 const router = express.Router();
 
@@ -79,6 +81,16 @@ router.post('/create-payment', requireBuyer, async (req, res) => {
       },
     });
 
+    // Licence terms must be accepted before money is taken. Recorded on the
+    // intent so the acceptance timestamp is the moment of purchase.
+    const acceptedTerms = req.body?.accept_terms === true || req.body?.accept_terms === 'true';
+    if (!acceptedTerms) {
+      return res.status(400).json({
+        error: 'Licence terms must be accepted before checkout',
+        terms_version: LICENSE_TERMS_VERSION,
+      });
+    }
+
     await runSql(
       // A single-listing intent maps to exactly one asset, so asset_id is
       // deterministic here. Cart intents deliberately leave it NULL — one
@@ -86,9 +98,9 @@ router.post('/create-payment', requireBuyer, async (req, res) => {
       `INSERT INTO payment_intents (
         id, kind, buyer_key, buyer_name, buyer_email, buyer_org, buyer_pinit_id,
         listing_id, license_tier, coupon_code, amount_paise, currency,
-        razorpay_order_id, status, asset_id
-      ) VALUES (?, 'single', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?, 'pending',
-                (SELECT asset_id FROM listings WHERE listing_id = ?))`,
+        razorpay_order_id, status, asset_id, terms_accepted_at
+      ) VALUES (?, 'single', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending',
+                (SELECT asset_id FROM listings WHERE listing_id = ?), CURRENT_TIMESTAMP)`,
       [
         intentId,
         buyer_key || buyer_pinit_id || buyer_email,
@@ -100,6 +112,7 @@ router.post('/create-payment', requireBuyer, async (req, res) => {
         license_tier,
         String(coupon_code || '').trim().toUpperCase() || null,
         amountPaise,
+        rz.currency || activeCurrency(),
         rz.orderId,
         listing_id,
       ],
@@ -191,6 +204,7 @@ router.post('/verify-payment', async (req, res) => {
             buyerOrg: intent.buyer_org,
             buyerPinitId: intent.buyer_pinit_id,
             couponPercent,
+            termsAcceptedAt: intent.terms_accepted_at || null,
             payment: {
               paymentStatus: isPaymentMockMode() ? 'mock_paid' : 'paid',
               razorpayOrderId: orderId,
@@ -235,6 +249,7 @@ router.post('/verify-payment', async (req, res) => {
       buyerOrg: intent.buyer_org,
       buyerPinitId: intent.buyer_pinit_id,
       couponPercent,
+      termsAcceptedAt: intent.terms_accepted_at || null,
       payment: {
         paymentStatus: isPaymentMockMode() ? 'mock_paid' : 'paid',
         razorpayOrderId: orderId,
@@ -330,6 +345,7 @@ router.post('/checkout', requireBuyer, async (req, res) => {
       buyerOrg: body.buyer_org,
       buyerPinitId: body.buyer_pinit_id,
       couponPercent,
+      termsAcceptedAt: intent.terms_accepted_at || null,
       payment: {
         paymentStatus: 'mock_paid',
         razorpayOrderId: rz.orderId,
@@ -456,6 +472,16 @@ router.post('/download/authorize', async (req, res) => {
       });
     }
 
+    // Authorisation passed, so this download counts against the tier
+    // entitlement. Incremented before responding so a client that never
+    // finishes the transfer cannot replay the allowance indefinitely.
+    await runSql(
+      'UPDATE orders_sealed SET download_count = COALESCE(download_count, 0) + 1 WHERE seal_id = ?',
+      [order.seal_id],
+    );
+    const used = Number(order.download_count || 0) + 1;
+    const remaining = downloadsRemaining({ ...order, download_count: used });
+
     res.json({
       ok: true,
       seal_id: order.seal_id,
@@ -464,6 +490,9 @@ router.post('/download/authorize', async (req, res) => {
       delivery_status: order.delivery_status || 'active',
       delivery_expires_at: order.delivery_expires_at,
       download_url: order.delivery_url,
+      downloads_used: used,
+      downloads_remaining: remaining,
+      download_limit: order.download_limit ?? null,
     });
 
     // Authorised download of a licensed asset. buyer_email is intentionally not
@@ -477,6 +506,109 @@ router.post('/download/authorize', async (req, res) => {
     });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/orders/my-orders — buyer purchase history.
+ *
+ * Distinct from /my-licenses: this is the commercial record (what was paid,
+ * in which currency, and its payment state), not the licence entitlement.
+ * Scoped to the caller's own Pinit ID — never a client-supplied buyer id.
+ */
+router.get('/my-orders', requireBuyer, async (req, res) => {
+  try {
+    const buyerPinitId = pinitIdFromReq(req);
+    if (!buyerPinitId) return res.status(400).json({ error: 'buyer identity required' });
+
+    const rows = await allSql(
+      `SELECT o.seal_id, o.order_id, o.invoice_number, o.listing_id, o.asset_id,
+              o.license_tier, o.price_paid, o.platform_fee, o.currency,
+              o.status, o.payment_status, o.license_status, o.delivery_status,
+              o.sealed_at, o.download_count, o.download_limit,
+              o.terms_version, o.terms_accepted_at,
+              l.title
+         FROM orders_sealed o
+         LEFT JOIN listings l ON l.listing_id = o.listing_id
+        WHERE o.buyer_pinit_id = ?
+        ORDER BY o.sealed_at DESC`,
+      [buyerPinitId],
+    );
+
+    res.json(rows.map((o) => ({
+      ...o,
+      currency: o.currency || activeCurrency(),
+      amount_display: formatMoney(o.price_paid, o.currency || activeCurrency()),
+      entitlement: describeEntitlement(o.license_tier),
+      downloads_remaining: downloadsRemaining(o),
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/orders/invoice/:sealId — invoice payload for one order.
+ *
+ * Returns only the buyer's own order. Amounts are formatted server-side in the
+ * currency the order was actually charged in, so a historical INR order never
+ * renders as USD after the platform currency changes.
+ */
+router.get('/invoice/:sealId', requireBuyer, async (req, res) => {
+  try {
+    const buyerPinitId = pinitIdFromReq(req);
+    const order = await getSql(
+      `SELECT o.*, l.title
+         FROM orders_sealed o
+         LEFT JOIN listings l ON l.listing_id = o.listing_id
+        WHERE o.seal_id = ?`,
+      [req.params.sealId],
+    );
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    if (!buyerPinitId || order.buyer_pinit_id !== buyerPinitId) {
+      // Same response as missing, so invoices cannot be enumerated.
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const cur = order.currency || activeCurrency();
+    const gross = Number(order.price_paid || 0);
+    const fee = Number(order.platform_fee || 0);
+
+    res.json({
+      invoice_number: order.invoice_number || `INV-${String(order.seal_id).replace('SEAL-', '')}`,
+      issued_at: order.sealed_at,
+      seal_id: order.seal_id,
+      order_id: order.order_id,
+      status: order.status,
+      payment_status: order.payment_status,
+      seller: { pinit_id: order.seller_pinit_id, exchange_id: order.seller_exchange_id },
+      buyer: { pinit_id: order.buyer_pinit_id },
+      item: {
+        title: order.title || order.asset_id,
+        asset_id: order.asset_id,
+        listing_id: order.listing_id,
+        license_tier: order.license_tier,
+        entitlement: describeEntitlement(order.license_tier),
+      },
+      terms: {
+        version: order.terms_version || LICENSE_TERMS_VERSION,
+        accepted_at: order.terms_accepted_at || null,
+      },
+      currency: cur,
+      totals: {
+        gross,
+        platform_fee: fee,
+        total: gross,
+        gross_display: formatMoney(gross, cur),
+        platform_fee_display: formatMoney(fee, cur),
+        total_display: formatMoney(gross, cur),
+      },
+      // No tax is computed. Stated explicitly so an invoice is never mistaken
+      // for a tax document until GST handling is implemented.
+      tax: { applied: false, note: 'Tax not applied. This document is not a tax invoice.' },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -499,6 +631,25 @@ router.post('/:sealId/refund', async (req, res) => {
 
     if (String(order.status).toLowerCase() === ORDER_STATUS.REFUNDED) {
       return res.json({ message: 'Already refunded', order });
+    }
+
+    // Return the money before revoking anything. A refund that only flips
+    // database state leaves the buyer without the asset AND without the funds.
+    let gatewayRefund = null;
+    if (order.razorpay_payment_id && !isPaymentMockMode()) {
+      try {
+        gatewayRefund = await refundRazorpayPayment(
+          order.razorpay_payment_id,
+          toPaise(order.price_paid, order.currency),
+        );
+      } catch (refundErr) {
+        // Do not revoke the licence if the money could not be returned.
+        return res.status(502).json({
+          error: 'Refund failed at the payment provider',
+          message: refundErr.message,
+          hint: 'The licence has not been revoked. Retry, or refund manually in the Razorpay dashboard.',
+        });
+      }
     }
 
     const refundId = `REF-${sealId}`;
@@ -534,6 +685,8 @@ router.post('/:sealId/refund', async (req, res) => {
       message: 'Order refunded — license and delivery blocked',
       order: updated,
       refund_id: refundId,
+      gateway_refund_id: gatewayRefund?.id || null,
+      gateway_refunded: Boolean(gatewayRefund),
     });
 
     postAssetActivity({

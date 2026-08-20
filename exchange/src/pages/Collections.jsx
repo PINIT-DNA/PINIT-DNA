@@ -1,8 +1,9 @@
+import { formatFrom } from '../lib/money.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Layers } from 'lucide-react';
 import HubTrustBadge from '../components/HubTrustBadge.jsx';
 import EmptyState from '../components/EmptyState.jsx';
-import { apiFetch, verticalLabel } from '../lib/api.js';
+import { apiFetch, verticalLabel, unwrapList } from '../lib/api.js';
 
 export default function Collections({ onSelectListing, onNavigateMarketplace }) {
   const [listings, setListings] = useState([]);
@@ -10,8 +11,9 @@ export default function Collections({ onSelectListing, onNavigateMarketplace }) 
 
   useEffect(() => {
     (async () => {
-      const { ok, data } = await apiFetch('/api/listings?vertical=all&badge=all&sort=newest');
-      setListings(ok && Array.isArray(data) ? data : []);
+      // Collections group the whole catalogue, so ask for the maximum page.
+      const { ok, data } = await apiFetch('/api/listings?vertical=all&badge=all&sort=newest&limit=60');
+      setListings(ok ? unwrapList(data).items : []);
       setLoading(false);
     })();
   }, []);
@@ -68,7 +70,7 @@ export default function Collections({ onSelectListing, onNavigateMarketplace }) 
                   <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>{c.count} verified asset{c.count === 1 ? '' : 's'}</span>
                 </div>
                 <h3 style={{ color: '#fff', marginBottom: 6 }}>{c.title}</h3>
-                <div style={{ color: 'var(--emerald)', fontWeight: 700, marginBottom: 12 }}>From ${c.from}</div>
+                <div style={{ color: 'var(--emerald)', fontWeight: 700, marginBottom: 12 }}>{formatFrom(c.from)}</div>
                 <HubTrustBadge compact />
                 <button
                   type="button"

@@ -33,6 +33,7 @@ import SellerPromotions from './pages/seller/SellerPromotions.jsx';
 import SellerAlerts from './pages/seller/SellerAlerts.jsx';
 import SellerPaymentOnboarding from './pages/SellerPaymentOnboarding.jsx';
 import BuyerPayments from './pages/buyer/BuyerPayments.jsx';
+import BuyerOrders from './pages/buyer/BuyerOrders.jsx';
 import BuyerNotifications from './pages/buyer/BuyerNotifications.jsx';
 import CartPage from './pages/CartPage.jsx';
 import WishlistPage from './pages/WishlistPage.jsx';
@@ -498,7 +499,10 @@ export default function App() {
         {activePage === 'my_licenses' && (
           <MyLicenses
             user={user}
-            onViewCertificate={(sealId) => alert(`Certificate ${sealId} verified tamper-proof.`)}
+            // Certificates live on the Purchases page. This previously popped an
+            // alert claiming the certificate was "verified tamper-proof" — no
+            // verification had run, so the claim was fabricated.
+            onViewCertificate={() => navigate('my_licenses')}
           />
         )}
 
@@ -560,6 +564,7 @@ export default function App() {
             }}
           />
         )}
+        {activePage === 'buyer_orders' && <BuyerOrders user={user} onNavigate={navigate} />}
         {activePage === 'buyer_payments' && <BuyerPayments onNavigate={navigate} />}
         {activePage === 'buyer_notifications' && (
           <BuyerNotifications user={user} onNavigate={navigate} />

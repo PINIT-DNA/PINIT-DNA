@@ -1068,3 +1068,18 @@
   }
   .pinit-auth .pa-shell { margin: 0 auto; }
 }
+
+/* ---- Protected media -------------------------------------------------------
+   Deterrents only: they stop casual right-click-save and drag-to-desktop.
+   They are NOT the control — a direct request to the image URL ignores all of
+   this. The real protection is server-side: the preview endpoint serves a
+   downscaled, watermarked derivative and never the vault master. */
+.pinit-protected-media {
+  -webkit-user-drag: none;
+  -khtml-user-drag: none;
+  -moz-user-drag: none;
+  -o-user-drag: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}

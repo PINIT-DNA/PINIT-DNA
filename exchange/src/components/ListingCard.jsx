@@ -1,3 +1,4 @@
+import { formatFrom } from '../lib/money.js';
 import React, { useState } from 'react';
 import { CheckCircle2, Heart, Play, ArrowRight, ShoppingCart } from 'lucide-react';
 import { canPurchase, isSeller } from '../lib/roles.js';
@@ -91,8 +92,10 @@ function CardMedia({ item, isVideo }) {
     <img
       src={item.preview_url}
       alt={item.title || 'Asset preview'}
-      className="card-media"
+      className="card-media pinit-protected-media"
       draggable={false}
+      onDragStart={(e) => e.preventDefault()}
+      onContextMenu={(e) => e.preventDefault()}
       onError={() => setMediaFailed(true)}
     />
   );
@@ -161,7 +164,7 @@ export default function ListingCard({
           </div>
 
           <div className="listing-card__price-row">
-            <div className="listing-card__from">From ${Number(fromPrice).toFixed(0)}</div>
+            <div className="listing-card__from">{formatFrom(fromPrice)}</div>
             <div className="listing-card__tiers">Personal • Commercial • Exclusive</div>
           </div>
 

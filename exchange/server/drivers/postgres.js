@@ -150,6 +150,10 @@ export async function initPostgresSchema(db) {
   // ---------------------------------------------------------------------------
   await ensureAssetLinkage(db);
 
+  // Production-readiness columns: currency on the order, licence-terms
+  // acceptance, download entitlement tracking and invoice numbering.
+  await ensureCommerceReadiness(db);
+
   // Optional RLS (non-fatal if policies conflict)
   const rlsPath = path.join(__dirname, '..', 'schema', 'exchange.rls.sql');
   if (fs.existsSync(rlsPath)) {
@@ -253,5 +257,43 @@ export async function ensureAssetLinkage(db) {
     } catch (err) {
       console.warn(`[exchange-pg] ${t} asset backfill:`, err.message);
     }
+  }
+}
+
+
+/**
+ * Additive columns required for production commerce: per-order currency,
+ * licence-terms acceptance, download entitlement counters and invoice numbers.
+ * Idempotent — safe on every boot.
+ */
+export async function ensureCommerceReadiness(db) {
+  const COLUMNS = [
+    ['orders_sealed', 'currency', 'TEXT'],
+    ['orders_sealed', 'terms_accepted_at', 'TIMESTAMPTZ'],
+    ['orders_sealed', 'terms_version', 'TEXT'],
+    ['orders_sealed', 'download_count', 'INTEGER DEFAULT 0'],
+    ['orders_sealed', 'download_limit', 'INTEGER'],
+    ['orders_sealed', 'invoice_number', 'TEXT'],
+    ['payment_intents', 'terms_accepted_at', 'TIMESTAMPTZ'],
+  ];
+  for (const [table, col, type] of COLUMNS) {
+    try {
+      await db.query(`ALTER TABLE exchange.${table} ADD COLUMN IF NOT EXISTS ${col} ${type}`);
+    } catch (err) {
+      console.warn(`[exchange-pg] ${table}.${col}:`, err.message);
+    }
+  }
+  try {
+    // Existing orders predate multi-currency and were charged in INR.
+    // Stamp them so historical receipts stay truthful rather than being
+    // relabelled as USD by the new default.
+    const r = await db.query(
+      `UPDATE exchange.orders_sealed SET currency = 'INR' WHERE currency IS NULL`,
+    );
+    if (r && r.rowCount) {
+      console.log(`[exchange-pg] stamped ${r.rowCount} legacy order(s) as INR`);
+    }
+  } catch (err) {
+    console.warn('[exchange-pg] legacy currency stamp:', err.message);
   }
 }

@@ -5,7 +5,7 @@ import {
 import ListingCard from '../components/ListingCard.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import DiscoverHeroArt from '../components/DiscoverHeroArt.jsx';
-import { apiFetch } from '../lib/api.js';
+import { apiFetch, unwrapList } from '../lib/api.js';
 import { buyerKey } from '../lib/buyer.js';
 import { canList, canPurchase } from '../lib/roles.js';
 import { isImageListing, isVideoListing } from '../lib/media.js';
@@ -35,6 +35,12 @@ export default function Marketplace({
 }) {
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
+  // A failed request and an empty catalogue are different things. Conflating
+  // them told customers the shop was empty when the backend was simply down.
+  const [loadError, setLoadError] = useState('');
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [selectedVertical, setSelectedVertical] = useState('all');
   const [selectedBadge, setSelectedBadge] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -67,22 +73,52 @@ export default function Marketplace({
     }
   }, [focusListingId, listings]);
 
+  const PAGE_SIZE = 24;
+
+  const buildUrl = (offset) => {
+    const verticalParam = selectedVertical === 'mine' ? 'all' : selectedVertical;
+    let url = `/api/listings?vertical=${verticalParam}&badge=${selectedBadge}&sort=${sortOption}`
+      + `&limit=${PAGE_SIZE}&offset=${offset}`;
+    if (selectedVertical === 'mine' && user?.pinit_id) {
+      url += `&seller=${encodeURIComponent(user.pinit_id)}`;
+    }
+    if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
+    return url;
+  };
+
   const fetchListings = async () => {
     setLoading(true);
-    try {
-      const verticalParam = selectedVertical === 'mine' ? 'all' : selectedVertical;
-      let url = `/api/listings?vertical=${verticalParam}&badge=${selectedBadge}&sort=${sortOption}`;
-      if (selectedVertical === 'mine' && user?.pinit_id) {
-        url += `&seller=${encodeURIComponent(user.pinit_id)}`;
-      }
-      if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
-      const res = await fetch(url);
-      if (res.ok) setListings(await res.json());
-    } catch (err) {
-      console.error('Error fetching listings:', err);
-    } finally {
+    setLoadError('');
+    const { ok, data, error } = await apiFetch(buildUrl(0));
+    if (!ok) {
+      // Surface the failure instead of rendering an empty marketplace.
+      setLoadError(error || 'Could not load the marketplace.');
+      setListings([]);
+      setTotal(0);
+      setHasMore(false);
       setLoading(false);
+      return;
     }
+    const page = unwrapList(data);
+    setListings(page.items);
+    setTotal(page.total);
+    setHasMore(page.hasMore);
+    setLoading(false);
+  };
+
+  const loadMore = async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    const { ok, data, error } = await apiFetch(buildUrl(listings.length));
+    if (ok) {
+      const page = unwrapList(data);
+      setListings((prev) => [...prev, ...page.items]);
+      setTotal(page.total);
+      setHasMore(page.hasMore);
+    } else {
+      setLoadError(error || 'Could not load more listings.');
+    }
+    setLoadingMore(false);
   };
 
   const handleSearchSubmit = (e) => {
@@ -251,7 +287,24 @@ export default function Marketplace({
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>Loading marketplace…</div>
+        <div className="listing-grid" aria-busy="true" aria-label="Loading listings">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="listing-card listing-card--skeleton" aria-hidden="true">
+              <div className="sk sk-media" />
+              <div className="sk sk-line sk-line--title" />
+              <div className="sk sk-line sk-line--meta" />
+              <div className="sk sk-line sk-line--price" />
+            </div>
+          ))}
+        </div>
+      ) : loadError ? (
+        <EmptyState
+          icon={<ShieldCheck size={36} color="var(--danger, #c0392b)" />}
+          title="Couldn't load the marketplace"
+          description={`${loadError} This is a connection problem, not an empty catalogue.`}
+          primaryLabel="Try again"
+          onPrimary={fetchListings}
+        />
       ) : visibleListings.length === 0 ? (
         <EmptyState
           icon={<ShieldCheck size={36} color="var(--primary)" />}
@@ -319,6 +372,24 @@ export default function Marketplace({
               />
             </div>
           ))}
+        </div>
+      )}
+
+      {!loading && !loadError && visibleListings.length > 0 && (
+        <div className="marketplace-more">
+          <p className="marketplace-more__count">
+            Showing {visibleListings.length}{total ? ` of ${total}` : ''} listing{total === 1 ? '' : 's'}
+          </p>
+          {hasMore && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={loadMore}
+              disabled={loadingMore}
+            >
+              {loadingMore ? 'Loading…' : 'Load more'}
+            </button>
+          )}
         </div>
       )}
 

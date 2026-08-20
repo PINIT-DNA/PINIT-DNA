@@ -12,6 +12,7 @@ import jwt from 'jsonwebtoken';
 import { config } from '../../config';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
+import { deriveMarketplacePreview } from './marketplace-preview.service';
 import { extractPinitCode, toExchangePinitId, toRootPinitId, toUserPinitId } from '../../lib/pinit-identity';
 import { AppError } from '../../api/middleware/error.middleware';
 import { VaultService } from '../vault/vault.service';
@@ -1070,11 +1071,32 @@ export const exchangeBridgeService = {
 
     const vaultService = new VaultService();
     const result = await vaultService.retrieve(vaultId, vault.dnaRecord.ownerUserId);
+
+    // This route is public. Returning result.originalBuffer here served the
+    // decrypted master file to anyone with the URL — no purchase, no login —
+    // which made every licence tier unenforceable. The master never leaves
+    // this function; only a downscaled, watermarked derivative does.
+    const owner = await prisma.user.findUnique({
+      where: { id: vault.dnaRecord.ownerUserId },
+      select: { shortId: true },
+    });
+
+    const preview = await deriveMarketplacePreview({
+      cacheKey: `mp:${resolved.assetId || vaultId}`,
+      originalBuffer: result.originalBuffer,
+      originalMimeType: result.originalMimeType,
+      // Public PINIT ID, never the internal User.id.
+      watermarkLabel: `PINIT PREVIEW · ${owner?.shortId || 'PINIT'}`,
+    });
+
     return {
       vaultId: result.vaultId,
       originalFileName: result.originalFileName,
-      originalMimeType: result.originalMimeType,
-      originalBuffer: result.originalBuffer,
+      // Deliberately reports the DERIVED type/bytes. Callers must not be able
+      // to reach the master through this shape.
+      originalMimeType: preview.mimeType,
+      originalBuffer: preview.buffer,
+      isDerivedPreview: preview.derived,
     };
   },
 

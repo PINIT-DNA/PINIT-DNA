@@ -2469,3 +2469,89 @@ input[type="range"]::-webkit-slider-thumb {
   .pf-mosaic { grid-template-columns: 1fr 1fr; grid-auto-rows: 140px; }
   .pf-tile--lg { grid-column: 1 / -1; }
 }
+
+/* ---- Marketplace loading skeletons ----------------------------------------
+   Replaces the bare "Loading marketplace…" label. A cold backend can take
+   tens of seconds, and a text line reads as a hung page where a skeleton
+   reads as work in progress. */
+.listing-card--skeleton { pointer-events: none; }
+.sk {
+  background: linear-gradient(90deg,
+    var(--surface-2, rgba(128,128,128,.10)) 25%,
+    var(--surface-3, rgba(128,128,128,.18)) 37%,
+    var(--surface-2, rgba(128,128,128,.10)) 63%);
+  background-size: 400% 100%;
+  animation: sk-shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
+}
+.sk-media { aspect-ratio: 4 / 3; width: 100%; margin-bottom: 14px; }
+.sk-line { height: 12px; margin: 0 0 10px; }
+.sk-line--title { width: 72%; height: 15px; }
+.sk-line--meta  { width: 48%; }
+.sk-line--price { width: 32%; margin-bottom: 0; }
+@keyframes sk-shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+@media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+
+/* ---- Pagination footer ---- */
+.marketplace-more {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 34px 0 8px;
+}
+.marketplace-more__count {
+  margin: 0; font-size: .85rem; color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Buyer orders & receipts --------------------------------------------- */
+.orders-page__head h1 { margin: 0 0 6px; font-size: 1.6rem; }
+.orders-page__head p { margin: 0 0 22px; color: var(--text-muted); font-size: .9rem; }
+.orders-table-wrap { overflow-x: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); }
+.orders-table { width: 100%; border-collapse: collapse; font-size: .875rem; min-width: 760px; }
+.orders-table th, .orders-table td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--border-subtle); vertical-align: top; }
+.orders-table thead th { font-size: .72rem; letter-spacing: .07em; text-transform: uppercase; color: var(--text-dim); font-weight: 600; }
+.orders-table tbody tr:last-child td { border-bottom: 0; }
+.orders-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.orders-table .cap { text-transform: capitalize; }
+.orders-table .mono, .invoice-body .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .8em; }
+.orders-table__title { display: block; font-weight: 600; }
+.orders-table__sub { display: block; color: var(--text-dim); font-size: .75rem; margin-top: 2px; }
+.btn-sm { padding: 5px 10px; font-size: .78rem; }
+.ostatus { text-transform: capitalize; font-size: .78rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border-subtle); }
+.ostatus--sealed { color: var(--emerald); }
+.ostatus--refunded { color: var(--danger, #c0392b); }
+.orders-error { color: var(--danger, #c0392b); font-size: .85rem; margin-top: 12px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+.invoice-modal { max-width: 620px; }
+.invoice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px 20px; margin-bottom: 20px; }
+.invoice-grid dt { font-size: .7rem; letter-spacing: .07em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 3px; }
+.invoice-grid dd { margin: 0; font-size: .87rem; }
+.invoice-lines { width: 100%; border-collapse: collapse; font-size: .87rem; }
+.invoice-lines th, .invoice-lines td { padding: 10px 0; border-bottom: 1px solid var(--border-subtle); text-align: left; vertical-align: top; }
+.invoice-lines thead th { font-size: .7rem; letter-spacing: .07em; text-transform: uppercase; color: var(--text-dim); }
+.invoice-lines .num { text-align: right; font-variant-numeric: tabular-nums; }
+.invoice-lines .strong { font-weight: 700; }
+.invoice-lines tfoot th { font-weight: 600; }
+.invoice-note { font-size: .76rem; color: var(--text-dim); margin: 14px 0 0; line-height: 1.5; }
+.invoice-note--warn { color: var(--amber, #d99a2b); }
+@media print {
+  body * { visibility: hidden; }
+  .invoice-modal, .invoice-modal * { visibility: visible; }
+  .invoice-modal { position: absolute; inset: 0; max-width: none; border: 0; box-shadow: none; }
+  .modal-footer, .modal-close { display: none !important; }
+}
+
+/* ---- Protected media -------------------------------------------------------
+   Deterrents only: they stop casual right-click-save and drag-to-desktop.
+   They are NOT the control — a direct request to the image URL ignores all of
+   this. The real protection is server-side: /api/hub/preview serves a
+   downscaled, watermarked derivative and never the vault master. */
+.pinit-protected-media {
+  -webkit-user-drag: none;
+  -khtml-user-drag: none;
+  -moz-user-drag: none;
+  -o-user-drag: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}

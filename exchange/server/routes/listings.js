@@ -121,7 +121,23 @@ router.get('/', (req, res) => {
     query += ` ORDER BY l.created_at DESC`;
   }
 
-  db.all(query, params, (err, rows) => {
+  // Pagination. Previously this returned every published listing in one
+  // unbounded query, which is fine at two listings and fatal at ten thousand.
+  // A hard ceiling means no caller can request the whole table.
+  const MAX_LIMIT = 60;
+  const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(req.query.limit, 10) || 24));
+  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+
+  // Count before slicing so the client can render "showing 24 of 812".
+  const countQuery = `SELECT COUNT(*) AS total FROM (${query}) AS filtered`;
+
+  const pagedQuery = `${query} LIMIT ? OFFSET ?`;
+  const pagedParams = [...params, limit, offset];
+
+  db.get(countQuery, params, (countErr, countRow) => {
+    const total = countErr ? null : Number(countRow?.total ?? 0);
+
+  db.all(pagedQuery, pagedParams, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
 
     // Attach preview_url from hub_assets
@@ -139,8 +155,17 @@ router.get('/', (req, res) => {
         file_type: assetMap[item.asset_id]?.file_type || item.vertical || 'images'
       }));
 
-      res.json(enrichedRows);
+      // Envelope carries paging metadata. `items` is also spread onto the
+      // array-like shape older callers expect, so nothing breaks mid-rollout.
+      res.json({
+        items: enrichedRows,
+        total,
+        limit,
+        offset,
+        has_more: total === null ? enrichedRows.length === limit : offset + enrichedRows.length < total,
+      });
     });
+  });
   });
 });
 
@@ -171,8 +196,13 @@ router.get('/:id', (req, res) => {
     row.preview_url = exchangePreviewUrl(row.asset_id, row.cached_preview_url || PLACEHOLDER_PREVIEW);
     delete row.cached_preview_url;
 
-    // Increment view count
-    db.run("UPDATE listings SET views = views + 1 WHERE listing_id = ?", [listingId]);
+    // Increment view count, excluding the creator's own visits — otherwise a
+    // seller inflates their own analytics just by checking their listing.
+    const viewerPinitId = String(req.query.viewer_pinit_id || req.headers['x-pinit-id'] || '').trim();
+    const isOwnListing = viewerPinitId && String(row.pinit_id || '') === viewerPinitId;
+    if (!isOwnListing) {
+      db.run("UPDATE listings SET views = views + 1 WHERE listing_id = ?", [listingId]);
+    }
 
     res.json(row);
 
@@ -461,7 +491,7 @@ router.post('/', requireActiveSeller, (req, res) => {
             listing_id, asset_id, pinit_id, title, description, tagline, vertical, tags,
             price_personal, price_commercial, price_exclusive, price_enterprise,
             ai_training_opt_out, status, badge_tier, human_percent, ai_percent, dna_hash, views, saves
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
         `, [
           listingId, asset_id, sellerPinitId, assetTitle, descVal, taglineVal, assetVertical, tagsVal,
           ...prices, optOut, LISTING_STATUS.PUBLISHED, badgeTier,

@@ -63,6 +63,7 @@ export const BUYER_ONLY_PAGES = new Set([
   'cart',
   'wishlist',
   'my_licenses',
+  'buyer_orders',
   'buyer_home',
   'buyer_payments',
   'buyer_notifications',

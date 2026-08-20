@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
 import ListingCard from '../components/ListingCard.jsx';
 import HubTrustBadge from '../components/HubTrustBadge.jsx';
-import { apiFetch } from '../lib/api.js';
+import { apiFetch, unwrapList } from '../lib/api.js';
 
 const CATEGORIES = [
   { id: 'images', label: 'Photography' },
@@ -22,8 +22,9 @@ export default function HomePage({ onNavigate, onOpenAuth, user, onSelectListing
 
   useEffect(() => {
     (async () => {
-      const { ok, data } = await apiFetch('/api/listings?vertical=all&badge=all&sort=popular');
-      if (ok && Array.isArray(data)) setFeatured(data.slice(0, 8));
+      // Featured strip needs 8; ask for exactly that rather than the catalogue.
+      const { ok, data } = await apiFetch('/api/listings?vertical=all&badge=all&sort=popular&limit=8');
+      if (ok) setFeatured(unwrapList(data).items);
     })();
   }, []);
 

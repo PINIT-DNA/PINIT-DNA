@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import Razorpay from 'razorpay';
+import { activeCurrency } from './lib/money.js';
 
 export function isRazorpayConfigured() {
   return Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
@@ -17,7 +18,10 @@ export function getBillingPublicConfig() {
     configured: isRazorpayConfigured(),
     mock: isPaymentMockMode(),
     keyId: isRazorpayConfigured() ? process.env.RAZORPAY_KEY_ID : null,
-    currency: 'INR',
+    currency: activeCurrency(),
+    // Surfaced so the storefront can warn that checkout will not capture a
+    // real card while a test key is in use.
+    testMode: String(process.env.RAZORPAY_KEY_ID || '').startsWith('rzp_test_'),
     provider: isPaymentMockMode() ? 'mock' : 'razorpay',
   };
 }
@@ -32,8 +36,8 @@ function getClient() {
   });
 }
 
-export async function createRazorpayOrder({ amountPaise, receipt, notes = {}, currency = 'INR' }) {
-  const payCurrency = String(currency || 'INR').toUpperCase();
+export async function createRazorpayOrder({ amountPaise, receipt, notes = {}, currency }) {
+  const payCurrency = String(currency || activeCurrency()).toUpperCase();
   if (isPaymentMockMode()) {
     const mockId = `order_mock_${Date.now()}`;
     return {
@@ -56,7 +60,7 @@ export async function createRazorpayOrder({ amountPaise, receipt, notes = {}, cu
   return {
     orderId: order.id,
     amount: Number(order.amount),
-    currency: order.currency || 'INR',
+    currency: order.currency || payCurrency,
     keyId: process.env.RAZORPAY_KEY_ID,
     mock: false,
   };

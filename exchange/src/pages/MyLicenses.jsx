@@ -4,6 +4,8 @@ import { ShieldCheck, Download, Award, FileText, ExternalLink, Share2, Copy, X }
 export default function MyLicenses({ user, onViewCertificate }) {
   const [licenses, setLicenses] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Surfaces download/authorisation failures inline instead of an OS alert.
+  const [actionError, setActionError] = useState('');
   /** Licence currently being shared (null = modal closed). */
   const [shareFor, setShareFor] = useState(null);
   const [shareOpts, setShareOpts] = useState({ expiresIn: '', maxViews: '', allowDownload: false, requireName: false, requestLocation: false });
@@ -50,7 +52,7 @@ export default function MyLicenses({ user, onViewCertificate }) {
       if (!res.ok) throw new Error(data.error || 'Download not allowed');
       window.open(data.download_url, '_blank', 'noopener,noreferrer');
     } catch (err) {
-      alert(err.message);
+      setActionError(err.message);
     }
   };
 
@@ -113,6 +115,27 @@ export default function MyLicenses({ user, onViewCertificate }) {
           Download licensed exports from Pinit HUB. Master files never leave the Hub vault.
         </p>
       </div>
+
+      {actionError && (
+        <div
+          role="alert"
+          style={{
+            border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)',
+            padding: '10px 14px', marginBottom: 20,
+            color: 'var(--danger, #c0392b)', fontSize: '0.875rem',
+            display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center',
+          }}
+        >
+          <span>{actionError}</span>
+          <button
+            type="button"
+            className="btn-secondary btn-sm"
+            onClick={() => setActionError('')}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>Loading My Licenses...</div>

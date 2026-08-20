@@ -199,9 +199,12 @@ export function VaultFileThumbnail({
         <img
           src={url}
           alt=""
-          className="w-full h-full object-cover"
+          className="w-full h-full object-cover pinit-protected-media"
           loading="lazy"
           decoding="async"
+          draggable={false}
+          onDragStart={(e) => e.preventDefault()}
+          onContextMenu={(e) => e.preventDefault()}
           onError={() => setImgError(true)}
         />
         {lockBadge}
