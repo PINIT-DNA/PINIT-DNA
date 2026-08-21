@@ -194,7 +194,11 @@ export default function Marketplace({
               ? 'Create, protect, list and earn from creative assets.'
               : 'Discover, license and manage creative assets.'}
           </p>
-          <div style={{ display: 'flex', gap: '16px' }}>
+          {/* A signed-in buyer gets no hero CTA at all — they are already in the
+              marketplace, and the listings below are the call to action. Skip the
+              row entirely rather than rendering an empty flex container, which
+              would leave stray gap spacing under the subtitle. */}
+          <div style={{ display: 'flex', gap: '16px' }} hidden={Boolean(user) && !canList(user)}>
             {canList(user) ? (
               <button className="btn-primary" onClick={onOpenListFromHub} style={{ padding: '12px 24px', fontSize: '1rem' }}>
                 List from Pinit Hub <ArrowRight size={18} />
@@ -212,11 +216,10 @@ export default function Marketplace({
                 Browse Pinit Hub
               </a>
             ) : null}
-            {canPurchase(user) && (
-              <button type="button" className="btn-secondary" style={{ padding: '12px 24px', fontSize: '1rem' }} onClick={onBecomeCreator}>
-                Become a Creator
-              </button>
-            )}
+            {/* No "Become a Creator" here. canPurchase() is false for guests, so
+                this only ever showed to a signed-in buyer — pushing them to switch
+                account type on the page they came to shop on. Buyers who do want
+                to sell still have "Sell on Exchange" in the account menu. */}
             {!user && (
               <button type="button" className="btn-secondary" style={{ padding: '12px 24px', fontSize: '1rem' }} onClick={onOpenListFromHub}>
                 Sell on Exchange
