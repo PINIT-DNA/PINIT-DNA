@@ -103,9 +103,17 @@ router.get('/', (req, res) => {
   }
 
   if (search) {
+    // LOWER(...) LIKE LOWER(?) rather than IFNULL/ILIKE.
+    //
+    // This clause used IFNULL, which is SQLite/MySQL only — on Postgres it
+    // raised "function ifnull(text, unknown) does not exist" and every search
+    // returned HTTP 500. ILIKE would fix Postgres but break SQLite, so both
+    // sides use LOWER()+LIKE, which is standard SQL and gives case-insensitive
+    // matching on either driver (Postgres LIKE is case-sensitive by default).
     query += ` AND (
-      l.title LIKE ? OR l.description LIKE ? OR l.tags LIKE ? OR IFNULL(l.tagline,'') LIKE ?
-      OR l.asset_id LIKE ? OR l.listing_id LIKE ?
+      LOWER(l.title) LIKE LOWER(?) OR LOWER(l.description) LIKE LOWER(?)
+      OR LOWER(l.tags) LIKE LOWER(?) OR LOWER(COALESCE(l.tagline,'')) LIKE LOWER(?)
+      OR LOWER(l.asset_id) LIKE LOWER(?) OR LOWER(l.listing_id) LIKE LOWER(?)
     )`;
     const searchPattern = `%${search}%`;
     params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);

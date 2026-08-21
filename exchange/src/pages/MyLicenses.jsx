@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldCheck, Download, Award, FileText, ExternalLink, Share2, Copy, X } from 'lucide-react';
+import { formatMoney } from '../lib/money.js';
 
 export default function MyLicenses({ user, onViewCertificate }) {
   const [licenses, setLicenses] = useState([]);
@@ -138,12 +139,23 @@ export default function MyLicenses({ user, onViewCertificate }) {
       )}
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>Loading My Licenses...</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }} aria-busy="true" aria-label="Loading licences">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div key={i} className="ex-card" style={{ padding: 16, display: 'flex', gap: 18 }} aria-hidden="true">
+              <div className="ex-skel" style={{ width: 150, height: 104, flexShrink: 0 }} />
+              <div style={{ flexGrow: 1 }}>
+                <div className="ex-skel ex-skel--line" style={{ width: '40%', marginTop: 4 }} />
+                <div className="ex-skel ex-skel--line" style={{ width: '26%' }} />
+                <div className="ex-skel ex-skel--line" style={{ width: '58%' }} />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : licenses.length === 0 ? (
-        <div className="glass-panel" style={{ textAlign: 'center', padding: '60px' }}>
-          <ShieldCheck size={48} color="var(--text-muted)" style={{ marginBottom: '16px' }} />
-          <h3 style={{ color: '#fff' }}>No Purchased Licenses Yet</h3>
-          <p style={{ color: 'var(--text-muted)' }}>Explore the marketplace to buy verified provenance licenses.</p>
+        <div className="ex-card ex-empty">
+          <div className="ex-empty__icon"><ShieldCheck size={24} /></div>
+          <div className="ex-empty__title">No licences yet</div>
+          <p className="ex-empty__body">Assets you licence will appear here with their certificates and downloads.</p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -151,51 +163,54 @@ export default function MyLicenses({ user, onViewCertificate }) {
             const licenseStatus = String(lic.license_status || 'active').toLowerCase();
             const canDownload = licenseStatus === 'active' && lic.delivery_url;
             return (
-            <div key={lic.seal_id} className="glass-panel" style={{ padding: '24px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                    <span className="brand-badge" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--emerald)', borderColor: 'rgba(16, 185, 129, 0.3)' }}>
-                      VERIFIED SEAL: {lic.seal_id}
+            <div key={lic.seal_id} className="ex-card" style={{ padding: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 20, marginBottom: '16px' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '9px', marginBottom: '9px', flexWrap: 'wrap' }}>
+                    <span className="ex-verified" style={licenseStatus === 'active' ? {} : { background: 'rgba(244,63,94,.1)', borderColor: 'rgba(244,63,94,.3)', color: '#fda4af' }}>
+                      Licence {licenseStatus}
                     </span>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Order: {lic.order_id}</span>
-                    <span style={{ fontSize: '0.75rem', color: licenseStatus === 'active' ? 'var(--emerald)' : '#f87171', fontWeight: 700, textTransform: 'uppercase' }}>
-                      License {licenseStatus}
-                    </span>
-                  </div>
-                  <h3 style={{ fontSize: '1.2rem', color: '#fff' }}>{lic.asset_title || lic.title || `License #${lic.listing_id}`}</h3>
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    License Tier: <strong style={{ color: 'var(--emerald)', textTransform: 'uppercase' }}>{lic.license_tier}</strong>
-                    {lic.asset_id && (
-                      <span style={{ marginLeft: 10, fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                        Asset: {lic.asset_id}
+                    {lic.badge_tier && (
+                      <span className={`badge-${String(lic.badge_tier).toLowerCase()}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <Award size={13} /> {lic.badge_tier}
                       </span>
                     )}
                   </div>
+
+                  <h3 style={{ fontSize: '1.15rem', color: '#fff', margin: 0, fontFamily: 'var(--font-heading)' }}>
+                    {lic.asset_title || lic.title || `License #${lic.listing_id}`}
+                  </h3>
+
+                  {/* Business references the buyer may quote to support are kept.
+                      The raw asset UUID and the full SHA-256 dump are not:
+                      they are internal identifiers, not customer information. */}
+                  <div style={{ display: 'flex', gap: 26, marginTop: 15, flexWrap: 'wrap' }}>
+                    <div>
+                      <div className="ex-label">Licence</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginTop: 3, textTransform: 'capitalize' }}>{lic.license_tier}</div>
+                    </div>
+                    <div>
+                      <div className="ex-label">Seal</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginTop: 3 }}>{lic.seal_id}</div>
+                    </div>
+                    <div>
+                      <div className="ex-label">Order</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginTop: 3 }}>{lic.order_id}</div>
+                    </div>
+                  </div>
                 </div>
 
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#fff' }}>${lic.price_paid} USD</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--emerald)', fontWeight: 600 }}>
-                    {String(lic.status || '').toUpperCase() || 'SEALED'}
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#fff', fontFamily: 'var(--font-heading)' }}>
+                    {formatMoney(lic.price_paid, lic.currency)}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--emerald)', fontWeight: 600, marginTop: 2, textTransform: 'capitalize' }}>
+                    {String(lic.status || 'sealed').toLowerCase()}
                   </div>
                 </div>
               </div>
 
-              <div style={{
-                background: 'rgba(0,0,0,0.3)',
-                padding: '12px 16px',
-                borderRadius: '8px',
-                fontSize: '0.78rem',
-                color: 'var(--text-dim)',
-                fontFamily: 'monospace',
-                marginBottom: '16px',
-                wordBreak: 'break-all',
-              }}>
-                SHA256 Fingerprint: {lic.dna_hash_summary}
-              </div>
-
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                 {canDownload ? (
                   <button
                     type="button"
@@ -226,9 +241,13 @@ export default function MyLicenses({ user, onViewCertificate }) {
                 >
                   <Share2 size={16} /> Share
                 </button>
-                {lic.badge_tier && (
-                  <span className={`badge-${String(lic.badge_tier).toLowerCase()}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <Award size={14} /> {lic.badge_tier}
+                {lic.dna_hash_summary && (
+                  <span
+                    title={`Digital DNA fingerprint: ${lic.dna_hash_summary}`}
+                    style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-dim)', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  >
+                    <ShieldCheck size={13} color="var(--emerald)" />
+                    DNA {String(lic.dna_hash_summary).slice(0, 10)}…
                   </span>
                 )}
               </div>
@@ -257,7 +276,7 @@ export default function MyLicenses({ user, onViewCertificate }) {
               <div>
                 <h2 style={{ fontSize: '1.3rem', color: '#fff', margin: 0 }}>Share licensed asset</h2>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 6 }}>
-                  {shareFor.title || shareFor.asset_id}
+                  {shareFor.title || "Protected asset"}
                 </p>
               </div>
               <button

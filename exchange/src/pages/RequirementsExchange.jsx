@@ -1,9 +1,10 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
   Briefcase, PlusCircle, Users, ArrowRight, Search,
-  ShieldCheck, CheckCircle2, FileText, Lock,
+  CheckCircle2, FileText,
 } from 'lucide-react';
 import { apiFetch, verticalLabel } from '../lib/api.js';
+import { formatMoney } from '../lib/money.js';
 import EmptyState from '../components/EmptyState.jsx';
 import { canList, canPurchase } from '../lib/roles.js';
 
@@ -80,7 +81,23 @@ function formatDeadline(deadline) {
 function formatBudget(budget) {
   const n = Number(budget);
   if (!Number.isFinite(n)) return '—';
-  return `$${n.toLocaleString()}`;
+  // Goes through the shared formatter so a brief budget and a listing price
+  // can never disagree about the platform currency.
+  return formatMoney(n);
+}
+
+function formatPosted(createdAt) {
+  if (!createdAt) return null;
+  const d = new Date(createdAt);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** Default deadline: four weeks out, rather than a date hardcoded at build time. */
+function defaultDeadline() {
+  const d = new Date();
+  d.setDate(d.getDate() + 28);
+  return d.toISOString().slice(0, 10);
 }
 
 export default function RequirementsExchange({
@@ -100,7 +117,8 @@ export default function RequirementsExchange({
   const [description, setDescription] = useState('');
   const [vertical, setVertical] = useState('concepts');
   const [budget, setBudget] = useState(2500);
-  const [deadline, setDeadline] = useState('2026-09-15');
+  const [deadline, setDeadline] = useState(defaultDeadline);
+  const [notice, setNotice] = useState(null);
 
   const fetchRequirements = async () => {
     setLoading(true);
@@ -152,9 +170,12 @@ export default function RequirementsExchange({
       return;
     }
     if (!canPurchase(user)) {
+      // Silently doing nothing left the buyer clicking Publish with no
+      // explanation of why the brief never appeared.
+      setNotice({ kind: 'error', text: 'Creator accounts cannot post buyer briefs.' });
       return;
     }
-    const { ok } = await apiFetch('/api/requirements', {
+    const { ok, error } = await apiFetch('/api/requirements', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -174,6 +195,9 @@ export default function RequirementsExchange({
       fetchRequirements();
       setTitle('');
       setDescription('');
+      setNotice({ kind: 'ok', text: 'Your brief is live. Creators can now submit proposals.' });
+    } else {
+      setNotice({ kind: 'error', text: error || 'Could not publish your brief. Please try again.' });
     }
   };
 
@@ -186,18 +210,31 @@ export default function RequirementsExchange({
       onBecomeCreator?.();
       return;
     }
-    await apiFetch(`/api/requirements/${reqId}/propose`, {
+    const { ok, error } = await apiFetch(`/api/requirements/${reqId}/propose`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pinit_id: user.pinit_id }),
     });
-    fetchRequirements();
+    setNotice(ok
+      ? { kind: 'ok', text: 'Proposal submitted. The buyer can see your protected work.' }
+      : { kind: 'error', text: error || 'Could not submit your proposal. Please try again.' });
+    if (ok) fetchRequirements();
   };
 
   return (
     <div className="req-page">
+      {notice && (
+        <div
+          className={`ex-alert ${notice.kind === 'ok' ? 'ex-alert--ok' : 'ex-alert--error'} req-notice`}
+          role={notice.kind === 'ok' ? 'status' : 'alert'}
+        >
+          <span>{notice.text}</span>
+          <button type="button" className="req-notice__x" onClick={() => setNotice(null)} aria-label="Dismiss">×</button>
+        </div>
+      )}
+
       {/* Hero */}
-      <section className="glass-panel req-hero">
+      <section className="ex-card req-hero">
         <div className="req-hero__eyebrow">
           <Briefcase size={14} /> {sellerMode ? 'Opportunities' : 'Requirements'}
         </div>
@@ -211,7 +248,7 @@ export default function RequirementsExchange({
         </p>
         <div className="req-hero__cta">
           {!sellerMode && (!user || canPurchase(user)) && (
-          <button type="button" className="btn-primary" onClick={() => {
+          <button type="button" className="ex-btn ex-btn--primary" onClick={() => {
             if (!user) onOpenAuth?.({ mode: 'signup', intent: 'buyer' });
             else setIsModalOpen(true);
           }}>
@@ -224,7 +261,7 @@ export default function RequirementsExchange({
             </p>
           )}
           {onNavigate && (
-            <button type="button" className="btn-secondary" onClick={() => onNavigate(sellerMode ? 'seller_assets' : 'marketplace')}>
+            <button type="button" className="ex-btn ex-btn--secondary" onClick={() => onNavigate(sellerMode ? 'seller_assets' : 'marketplace')}>
               {sellerMode ? 'My Assets' : 'Browse marketplace'} <ArrowRight size={14} />
             </button>
           )}
@@ -312,7 +349,7 @@ export default function RequirementsExchange({
               const days = daysUntil(req.deadline);
               const open = expandedId === req.req_id;
               return (
-                <article key={req.req_id} className="glass-panel req-card">
+                <article key={req.req_id} className="ex-card req-card">
                   <div className="req-card__top">
                     <span className="brand-badge">{verticalLabel(req.vertical)}</span>
                     <span className="req-card__status">Open</span>
@@ -340,30 +377,33 @@ export default function RequirementsExchange({
                       </strong>
                     </div>
                     <div>
-                      <span className="req-card__metric-label">License</span>
-                      <strong>Commercial</strong>
-                    </div>
-                    <div>
                       <span className="req-card__metric-label">Submissions</span>
                       <strong>{req.proposals_count || 0}</strong>
                     </div>
+                    {formatPosted(req.created_at) && (
+                      <div>
+                        <span className="req-card__metric-label">Posted</span>
+                        <strong>{formatPosted(req.created_at)}</strong>
+                      </div>
+                    )}
                   </div>
 
-                  <div className="req-card__trust">
-                    <span><CheckCircle2 size={13} /> Verified buyer</span>
-                    <span><ShieldCheck size={13} /> Protected submissions</span>
-                    <span><Lock size={13} /> License terms defined</span>
-                  </div>
+                  {/* The per-brief row that used to sit here claimed "Verified
+                      buyer" and "License terms defined" on every card. Neither
+                      is a field on a requirement — they were asserted for all
+                      briefs regardless. Platform guarantees are stated once,
+                      below, where they are true of the process rather than of
+                      any particular buyer. */}
 
                   <div className="req-card__meta">
-                    Posted by {req.buyer_org || req.buyer_name || 'Verified Business'}
+                    Posted by {req.buyer_org || req.buyer_name || 'A buyer on Exchange'}
                     {req.buyer_name && req.buyer_org ? ` · ${req.buyer_name}` : ''}
                   </div>
 
                   <div className="req-card__actions">
                     <button
                       type="button"
-                      className="btn-secondary"
+                      className="ex-btn ex-btn--secondary"
                       onClick={() => setExpandedId(open ? null : req.req_id)}
                     >
                       <FileText size={14} /> {open ? 'Hide details' : 'View Brief'}
@@ -371,7 +411,7 @@ export default function RequirementsExchange({
                     {canList(user) && (
                     <button
                       type="button"
-                      className="btn-primary"
+                      className="ex-btn ex-btn--primary"
                       onClick={() => handleSubmitWork(req.req_id)}
                     >
                       <Users size={14} /> Submit proposal
@@ -386,7 +426,7 @@ export default function RequirementsExchange({
       </section>
 
       {/* Why Exchange */}
-      <section className="glass-panel req-why">
+      <section className="ex-card req-why">
         <h2>{sellerMode ? 'Why submit to a brief?' : 'Why post a brief on Pinit Exchange?'}</h2>
         <p className="req-why__sub">
           {sellerMode
@@ -408,7 +448,7 @@ export default function RequirementsExchange({
           <div className="modal-content" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()} role="dialog">
             <div className="modal-header">
               <h3 style={{ color: '#fff' }}>Post a Buyer Brief</h3>
-              <button type="button" className="btn-secondary" style={{ padding: 8 }} onClick={() => setIsModalOpen(false)}>×</button>
+              <button type="button" className="ex-btn ex-btn--secondary" style={{ padding: 8 }} onClick={() => setIsModalOpen(false)}>×</button>
             </div>
             <form onSubmit={handleCreateRequirement} className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <input className="form-input" placeholder="Your name" value={buyerName} onChange={(e) => setBuyerName(e.target.value)} required />
@@ -428,7 +468,7 @@ export default function RequirementsExchange({
               <input type="number" className="form-input" value={budget} onChange={(e) => setBudget(Number(e.target.value))} />
               <label style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Deadline</label>
               <input type="date" className="form-input" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
-              <button type="submit" className="btn-primary">Publish brief</button>
+              <button type="submit" className="ex-btn ex-btn--primary">Publish brief</button>
             </form>
           </div>
         </div>

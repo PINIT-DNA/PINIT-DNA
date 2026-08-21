@@ -107,7 +107,7 @@ export default function BuyerOrders({ user, onNavigate }) {
               <tr key={o.seal_id}>
                 <td className="mono">{o.invoice_number || '—'}</td>
                 <td>
-                  <span className="orders-table__title">{o.title || o.asset_id}</span>
+                  <span className="orders-table__title">{o.title || "Protected asset"}</span>
                   <span className="orders-table__sub mono">{o.seal_id}</span>
                 </td>
                 <td className="cap">{o.license_tier}</td>
@@ -162,7 +162,7 @@ export default function BuyerOrders({ user, onNavigate }) {
                   <tr>
                     <td>
                       {invoice.item?.title}
-                      <span className="orders-table__sub mono">{invoice.item?.asset_id}</span>
+                      <span className="orders-table__sub">{invoice.seal_id}</span>
                     </td>
                     <td className="cap">
                       {invoice.item?.license_tier}

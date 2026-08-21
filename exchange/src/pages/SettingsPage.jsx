@@ -1,25 +1,73 @@
 import React, { useState } from 'react';
-import { User, Store, ShieldCheck, CreditCard, Bell, Lock, Sliders, CheckCircle } from 'lucide-react';
+import {
+  User, Store, ShieldCheck, ShieldAlert, CreditCard, Bell, Lock,
+  CheckCircle, AlertCircle,
+} from 'lucide-react';
 import { canList, canPurchase, roleLabel, rolePositioning } from '../lib/roles.js';
 import { apiFetch } from '../lib/api.js';
+
+/**
+ * Notification preferences are kept on the device.
+ *
+ * There is no notifications endpoint yet, and the previous version of this page
+ * rendered three `defaultChecked` boxes that were never read, never sent and
+ * never stored — the user could untick "email me when a sale is sealed" and
+ * still be emailed. Storing them locally is a smaller promise, but it is one
+ * the app actually keeps, and the label says so.
+ */
+const NOTIFY_KEY = 'pinit_notify_prefs';
+const NOTIFY_DEFAULTS = { sale_sealed: true, brief_match: true, hub_tracking: true };
+
+function loadNotifyPrefs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(NOTIFY_KEY) || '{}');
+    return { ...NOTIFY_DEFAULTS, ...raw };
+  } catch {
+    return { ...NOTIFY_DEFAULTS };
+  }
+}
+
+const NOTIFY_ROWS = [
+  { id: 'sale_sealed', label: 'Sale sealed', hint: 'When a licence of your work completes.' },
+  { id: 'brief_match', label: 'Brief matches', hint: 'When a buyer brief matches your verticals.' },
+  { id: 'hub_tracking', label: 'Hub tracking alerts', hint: 'Post-sale activity on a protected asset.' },
+];
 
 export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
   const seller = canList(user);
   const [activeTab, setActiveTab] = useState('account');
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const [name, setName] = useState(user?.name || user?.display_name || '');
   const [email, setEmail] = useState(user?.email || '');
   const [bio, setBio] = useState(user?.bio || '');
   const [sellerPlan, setSellerPlan] = useState(user?.seller_plan || 'pro');
-  const [exchangeId, setExchangeId] = useState(user?.exchange_id || '');
-  const [biometricVerified, setBiometricVerified] = useState(Boolean(user?.biometric_verified));
+  const [exchangeId] = useState(user?.exchange_id || '');
+  const [notify, setNotify] = useState(loadNotifyPrefs);
+
+  const biometricVerified = Boolean(user?.biometric_verified);
+
+  const toggleNotify = (id) => {
+    setNotify((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      try {
+        localStorage.setItem(NOTIFY_KEY, JSON.stringify(next));
+      } catch {
+        /* private mode — the toggle still reflects this session */
+      }
+      return next;
+    });
+  };
 
   const handleSaveSettings = async (e) => {
     e.preventDefault();
+    setSaveError('');
+    setSaving(true);
     try {
       const endpoint = canList(user) ? '/api/auth/onboard-seller' : '/api/auth/profile';
-      const { ok, data } = await apiFetch(endpoint, {
+      const { ok, data, error } = await apiFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -36,235 +84,232 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
         setSaveSuccessMsg('Settings updated successfully!');
         if (onUserUpdated) onUserUpdated(data.user);
         setTimeout(() => setSaveSuccessMsg(''), 3000);
+      } else {
+        // A silent failure used to look identical to a successful save.
+        setSaveError(error || 'Could not save your settings. Please try again.');
       }
     } catch (err) {
-      console.error("Error updating settings:", err);
+      console.error('Error updating settings:', err);
+      setSaveError('Could not reach the server. Your changes were not saved.');
+    } finally {
+      setSaving(false);
     }
   };
 
   const tabs = seller
     ? [
-      { id: 'account', label: 'Account Profile', icon: User },
-      { id: 'storefront', label: 'Public Storefront', icon: Store },
-      { id: 'verification', label: 'Seller Verification', icon: ShieldCheck },
-      { id: 'billing', label: 'Billing & Payouts', icon: CreditCard },
+      { id: 'account', label: 'Account profile', icon: User },
+      { id: 'storefront', label: 'Public storefront', icon: Store },
+      { id: 'verification', label: 'Seller verification', icon: ShieldCheck },
+      { id: 'billing', label: 'Billing & payouts', icon: CreditCard },
       { id: 'notifications', label: 'Notifications', icon: Bell },
-      { id: 'security', label: 'Security & Sessions', icon: Lock },
-      { id: 'preferences', label: 'Default Presets', icon: Sliders },
+      { id: 'security', label: 'Security & sessions', icon: Lock },
     ]
     : [
-      { id: 'account', label: 'Account Profile', icon: User },
+      { id: 'account', label: 'Account profile', icon: User },
       { id: 'payments', label: 'Payment methods', icon: CreditCard },
       { id: 'notifications', label: 'Notifications', icon: Bell },
-      { id: 'security', label: 'Security & Sessions', icon: Lock },
+      { id: 'security', label: 'Security & sessions', icon: Lock },
     ];
 
+  // Only these tabs contain fields the save endpoint accepts. Showing "Save
+  // settings" under a read-only panel implies there is something to save.
+  const SAVABLE_TABS = ['account', 'storefront', 'billing'];
+  const showSave = SAVABLE_TABS.includes(activeTab);
+
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '32px 24px' }}>
-      <div style={{ marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '2.2rem', color: '#fff' }}>
-          {canList(user) ? 'Creator settings' : 'Account settings'}
-        </h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>
-          {roleLabel(user)} · {rolePositioning(user)}
-        </p>
-        {canPurchase(user) && !canList(user) && (
-          <p style={{ color: 'var(--text-dim)', fontSize: '0.85rem', marginTop: 8 }}>
+    <div className="ex-page settings-page">
+      <header className="settings-head">
+        <h1 className="ex-h1">{seller ? 'Creator settings' : 'Account settings'}</h1>
+        <p className="settings-head__role">{roleLabel(user)} · {rolePositioning(user)}</p>
+        {canPurchase(user) && !seller && (
+          <p className="settings-head__hint">
             Pinit HUB is your private workspace. Listing on Exchange requires becoming a Creator.
           </p>
         )}
-      </div>
+      </header>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: '32px' }}>
-        {/* Sidebar Tabs */}
-        <div className="glass-panel" style={{ padding: '16px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {tabs.map(tab => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    padding: '12px 16px',
-                    borderRadius: 'var(--radius-sm)',
-                    border: 'none',
-                    background: activeTab === tab.id ? 'var(--primary)' : 'transparent',
-                    color: activeTab === tab.id ? '#fff' : 'var(--text-muted)',
-                    fontWeight: 600,
-                    fontSize: '0.9rem',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    transition: 'all 0.2s ease'
-                  }}
-                >
-                  <Icon size={18} /> {tab.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+      <div className="settings-grid">
+        <nav className="ex-card settings-nav" aria-label="Settings sections">
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                aria-current={activeTab === tab.id ? 'page' : undefined}
+                className={`settings-nav__item ${activeTab === tab.id ? 'is-active' : ''}`}
+              >
+                <Icon size={17} /> {tab.label}
+              </button>
+            );
+          })}
+        </nav>
 
-        {/* Tab Content Panel */}
-        <div className="glass-panel" style={{ padding: '32px' }}>
+        <div className="ex-card ex-card--pad settings-panel">
           {saveSuccessMsg && (
-            <div style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '12px 16px', borderRadius: '8px', marginBottom: '20px', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <CheckCircle size={18} /> {saveSuccessMsg}
+            <div className="ex-alert ex-alert--ok settings-alert">
+              <CheckCircle size={18} /> <span>{saveSuccessMsg}</span>
+            </div>
+          )}
+          {saveError && (
+            <div className="ex-alert ex-alert--error settings-alert" role="alert">
+              <AlertCircle size={18} /> <span>{saveError}</span>
             </div>
           )}
 
           <form onSubmit={handleSaveSettings}>
             {activeTab === 'account' && (
-              <div>
-                <h3 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: '20px' }}>Account Profile</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              <section>
+                <h2 className="ex-h2 settings-h">Account profile</h2>
+                <div className="settings-pair">
                   <div className="form-group">
-                    <label className="form-label">Full Name</label>
-                    <input type="text" className="form-input" value={name} onChange={e => setName(e.target.value)} required />
+                    <label className="form-label" htmlFor="set-name">Full name</label>
+                    <input id="set-name" type="text" className="form-input" value={name} onChange={(e) => setName(e.target.value)} required />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Email Address</label>
-                    <input type="email" className="form-input" value={email} onChange={e => setEmail(e.target.value)} required />
+                    <label className="form-label" htmlFor="set-email">Email address</label>
+                    <input id="set-email" type="email" className="form-input" value={email} onChange={(e) => setEmail(e.target.value)} required />
                   </div>
-
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Main Platform Pinit ID</label>
-                  <input type="text" className="form-input" value={user?.pinit_id || ''} disabled style={{ opacity: 0.6, cursor: 'not-allowed' }} />
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '4px', display: 'block' }}>Shared identity between Pinit HUB Vault &amp; Pinit Exchange.</span>
+                  <label className="form-label" htmlFor="set-pid">Pinit ID</label>
+                  <input id="set-pid" type="text" className="form-input settings-readonly" value={user?.pinit_id || ''} readOnly />
+                  <span className="settings-fine">Shared identity between Pinit HUB Vault and Pinit Exchange.</span>
                 </div>
-              </div>
+              </section>
             )}
 
             {activeTab === 'payments' && (
-              <div>
-                <h3 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: '20px' }}>Payment methods</h3>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.55, marginBottom: 16 }}>
+              <section>
+                <h2 className="ex-h2 settings-h">Payment methods</h2>
+                <p className="settings-body">
                   Cards are tokenized by the payment provider. Exchange never stores raw card numbers.
                 </p>
-                <button type="button" className="btn-primary" onClick={() => onNavigate?.('buyer_payments')}>
+                <button type="button" className="ex-btn ex-btn--primary" onClick={() => onNavigate?.('buyer_payments')}>
                   Open payment methods
                 </button>
-              </div>
+              </section>
             )}
 
             {activeTab === 'storefront' && (
-              <div>
-                <h3 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: '20px' }}>Public Storefront</h3>
+              <section>
+                <h2 className="ex-h2 settings-h">Public storefront</h2>
                 <div className="form-group">
-                  <label className="form-label">Creator Biography &amp; Provenance Story</label>
-                  <textarea className="form-textarea" rows="4" value={bio} onChange={e => setBio(e.target.value)} />
+                  <label className="form-label" htmlFor="set-bio">Creator biography and provenance story</label>
+                  <textarea id="set-bio" className="form-textarea" rows="5" value={bio} onChange={(e) => setBio(e.target.value)} />
+                  <span className="settings-fine">Shown on your public portfolio and creator passport.</span>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Primary Creative Vertical</label>
-                  <select className="form-select">
-                    <option value="images">Architectural &amp; Landscape Photography</option>
-                    <option value="video">8K RED / Drone Cinema Video</option>
-                    <option value="ui_ux">UI/UX Systems &amp; Frameworks</option>
-                    <option value="3d">3D Models &amp; PBR Textures</option>
-                    <option value="audio">Audio Stems &amp; Soundscapes</option>
-                  </select>
-                </div>
-              </div>
+              </section>
             )}
 
             {activeTab === 'verification' && (
-              <div>
-                <h3 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: '20px' }}>Seller Onboarding &amp; Verification</h3>
-                <div style={{ background: 'rgba(0,0,0,0.3)', padding: '20px', borderRadius: '8px', marginBottom: '20px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                    <div>
-                      <div style={{ fontWeight: 700, color: '#fff', fontSize: '1rem' }}>Exchange Seller ID</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Unique commerce identity minted upon seller onboarding.</div>
-                    </div>
-                    <span style={{ background: 'rgba(59, 130, 246, 0.15)', color: 'var(--primary)', padding: '4px 12px', borderRadius: '99px', fontWeight: 700, fontSize: '0.9rem' }}>
-                      {exchangeId}
-                    </span>
-                  </div>
+              <section>
+                <h2 className="ex-h2 settings-h">Seller verification</h2>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)' }}>
-                    <div>
-                      <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.9rem' }}>Biometric ID Check</div>
-                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Pinit HUB biometric match verification.</div>
-                    </div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={biometricVerified} onChange={e => setBiometricVerified(e.target.checked)} style={{ accentColor: 'var(--emerald)' }} />
-                      <span style={{ color: 'var(--emerald)', fontWeight: 600, fontSize: '0.85rem' }}>Matched</span>
-                    </label>
+                <div className="settings-row">
+                  <div>
+                    <span className="settings-row__name">Exchange seller ID</span>
+                    <span className="settings-row__hint">Commerce identity minted at seller onboarding.</span>
                   </div>
+                  <span className="settings-pill">{exchangeId || 'Not issued'}</span>
                 </div>
-              </div>
+
+                {/* Read-only. This was previously an editable checkbox, which
+                    implied a seller could attest to their own biometric match —
+                    the value was never sent anywhere, and self-certification is
+                    not something this control should ever offer. Verification
+                    happens in Pinit HUB. */}
+                <div className="settings-row">
+                  <div>
+                    <span className="settings-row__name">Biometric ID check</span>
+                    <span className="settings-row__hint">Verified in Pinit HUB — not editable here.</span>
+                  </div>
+                  {biometricVerified ? (
+                    <span className="settings-status settings-status--ok">
+                      <ShieldCheck size={15} /> Verified
+                    </span>
+                  ) : (
+                    <span className="settings-status settings-status--wait">
+                      <ShieldAlert size={15} /> Not verified
+                    </span>
+                  )}
+                </div>
+              </section>
             )}
 
             {activeTab === 'billing' && (
-              <div>
-                <h3 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: '20px' }}>Seller Subscriptions &amp; Payout Bank</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-                  {['pro', 'enterprise_pro'].map(plan => (
-                    <div 
-                      key={plan}
-                      onClick={() => setSellerPlan(plan)}
-                      style={{
-                        border: sellerPlan === plan ? '2px solid var(--primary)' : '1px solid var(--border-subtle)',
-                        background: sellerPlan === plan ? 'rgba(59, 130, 246, 0.1)' : 'rgba(0,0,0,0.2)',
-                        padding: '16px',
-                        borderRadius: '8px',
-                        cursor: 'pointer'
-                      }}
+              <section>
+                <h2 className="ex-h2 settings-h">Seller plan</h2>
+                <div className="settings-plans" role="radiogroup" aria-label="Seller plan">
+                  {[
+                    { id: 'pro', name: 'Pro', price: '$29 / mo', blurb: 'Unlimited listings, 85% creator net payout.' },
+                    { id: 'enterprise_pro', name: 'Enterprise Pro', price: '$99 / mo', blurb: 'Unlimited listings, priority SLA, 90% net payout.' },
+                  ].map((plan) => (
+                    <button
+                      key={plan.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={sellerPlan === plan.id}
+                      onClick={() => setSellerPlan(plan.id)}
+                      className={`settings-plan ${sellerPlan === plan.id ? 'is-on' : ''}`}
                     >
-                      <div style={{ fontWeight: 700, color: '#fff', fontSize: '1rem', textTransform: 'uppercase' }}>{plan.replace('_', ' ')} PLAN</div>
-                      <div style={{ color: 'var(--emerald)', fontWeight: 800, fontSize: '1.2rem', margin: '4px 0' }}>
-                        {plan === 'pro' ? '$29 / mo' : '$99 / mo'}
-                      </div>
-                      <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                        {plan === 'pro' ? 'Unlimited listings + 85% creator net payout' : 'Unlimited listings + Priority SLA + 90% net payout'}
-                      </p>
-                    </div>
+                      <span className="settings-plan__name">{plan.name}</span>
+                      <span className="settings-plan__price">{plan.price}</span>
+                      <span className="settings-plan__blurb">{plan.blurb}</span>
+                    </button>
                   ))}
                 </div>
-              </div>
+              </section>
             )}
 
             {activeTab === 'notifications' && (
-              <div>
-                <h3 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: '20px' }}>Notification Preferences</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '12px', color: '#fff', fontSize: '0.9rem' }}>
-                    <input type="checkbox" defaultChecked style={{ accentColor: 'var(--primary)' }} /> Instant Sale Sealed Email Notifications
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '12px', color: '#fff', fontSize: '0.9rem' }}>
-                    <input type="checkbox" defaultChecked style={{ accentColor: 'var(--primary)' }} /> New Buyer Brief Match Alerts
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '12px', color: '#fff', fontSize: '0.9rem' }}>
-                    <input type="checkbox" defaultChecked style={{ accentColor: 'var(--primary)' }} /> Hub Post-Sale Tracking Alerts
-                  </label>
+              <section>
+                <h2 className="ex-h2 settings-h">Notifications</h2>
+                <p className="settings-body">
+                  These preferences are stored on this device. Account-wide delivery settings
+                  are not available yet.
+                </p>
+                <div className="settings-toggles">
+                  {NOTIFY_ROWS.map((row) => (
+                    <label key={row.id} className="settings-toggle">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(notify[row.id])}
+                        onChange={() => toggleNotify(row.id)}
+                      />
+                      <span>
+                        <span className="settings-row__name">{row.label}</span>
+                        <span className="settings-row__hint">{row.hint}</span>
+                      </span>
+                    </label>
+                  ))}
                 </div>
-              </div>
+              </section>
             )}
 
             {activeTab === 'security' && (
-              <div>
-                <h3 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: '20px' }}>Security &amp; Linked Hub Account</h3>
-                <div style={{ background: 'rgba(0,0,0,0.3)', padding: '16px', borderRadius: '8px', fontSize: '0.88rem' }}>
-                  Linked Pinit HUB identity: <strong style={{ color: 'var(--primary)' }}>{user?.pinit_id || 'Sign in with Hub'}</strong>
+              <section>
+                <h2 className="ex-h2 settings-h">Security and linked Hub account</h2>
+                <div className="settings-row">
+                  <div>
+                    <span className="settings-row__name">Linked Pinit HUB identity</span>
+                    <span className="settings-row__hint">Sign-in and biometrics are managed in Hub.</span>
+                  </div>
+                  <span className="settings-pill">{user?.pinit_id || 'Sign in with Hub'}</span>
                 </div>
-              </div>
+              </section>
             )}
 
-            {activeTab === 'preferences' && (
-              <div>
-                <h3 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: '20px' }}>Default License Pricing Presets</h3>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>Default prices applied when listing new assets from Pinit HUB.</p>
+            {showSave && (
+              <div className="settings-save">
+                <button type="submit" className="ex-btn ex-btn--primary" disabled={saving}>
+                  {saving ? 'Saving…' : 'Save settings'}
+                </button>
               </div>
             )}
-
-            <div style={{ marginTop: '28px', paddingTop: '16px', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'flex-end' }}>
-              <button type="submit" className="btn-primary">Save Settings</button>
-            </div>
           </form>
         </div>
       </div>

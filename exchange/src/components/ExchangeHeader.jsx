@@ -31,6 +31,7 @@ export default function ExchangeHeader({
   onBecomeCreator,
   onOpenListFromHub,
   onSignOut,
+  onSearch,
   user,
   cartCount = 0,
 }) {
@@ -67,6 +68,10 @@ export default function ExchangeHeader({
 
   const search = (e) => {
     e?.preventDefault?.();
+    // This used to navigate to the marketplace and silently drop the query, so
+    // typing a search and pressing enter looked like it worked and did nothing.
+    // The term now travels to the marketplace, which runs the real search.
+    onSearch?.(query.trim());
     setActivePage('marketplace');
   };
 

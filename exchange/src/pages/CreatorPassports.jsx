@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  CheckCircle2, Mail, Search, ShieldCheck, Star, ArrowRight, Briefcase,
+  CheckCircle2, Mail, Search, ShieldCheck, Star, ArrowRight, Briefcase, Users,
 } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
 import { listingPreviewUrl } from '../lib/listing-preview.js';
@@ -77,8 +77,12 @@ function mapCreator(row) {
     categoryIds: verticals,
     sales: Number(row.sales || 0),
     assets: Number(row.assets || 0),
-    reviews: Number(row.reviews || 0),
-    rating: Number(row.rating || 5),
+    // /creator/directory returns no rating or review count. These were
+    // previously defaulted to 5 stars / 0 reviews, which showed every creator
+    // a perfect score they had not earned. Left null so the UI can omit the
+    // stat rather than invent it.
+    reviews: row.reviews == null ? null : Number(row.reviews),
+    rating: row.rating == null ? null : Number(row.rating),
     identityVerified: true,
     hubConnected: true,
     avatar: String(name || 'P')[0].toUpperCase(),
@@ -115,11 +119,12 @@ export default function CreatorPassports({ onNavigate, onOpenAuth, user }) {
     });
 
     list = [...list].sort((a, b) => {
-      if (sort === 'rating') return (b.rating || 0) - (a.rating || 0);
+      if (sort === 'assets') return (b.assets || 0) - (a.assets || 0);
       if (sort === 'sales') return (b.sales || 0) - (a.sales || 0);
       if (sort === 'provenance') return provenanceScore(b) - provenanceScore(a);
-      // recommended: blend rating + sales + provenance
-      const score = (c) => (c.rating || 0) * 20 + (c.sales || 0) + provenanceScore(c);
+      // Recommended blends real signals only — sales, assets and provenance.
+      // Rating is excluded because the directory does not return one.
+      const score = (c) => (c.sales || 0) * 2 + (c.assets || 0) + provenanceScore(c);
       return score(b) - score(a);
     });
     return list;
@@ -195,22 +200,39 @@ export default function CreatorPassports({ onNavigate, onOpenAuth, user }) {
           aria-label="Sort creators"
           style={{ width: 'auto', minWidth: 180 }}
         >
+          {/* No "Sort: Rating" — the directory returns no rating, so the option
+              would silently do nothing. */}
           <option value="recommended">Sort: Recommended</option>
-          <option value="rating">Sort: Rating</option>
           <option value="sales">Sort: Licensed sales</option>
+          <option value="assets">Sort: Most assets</option>
           <option value="provenance">Sort: Provenance score</option>
         </select>
       </div>
 
       {loading ? (
-        <div className="glass-panel" style={{ padding: 36, textAlign: 'center', color: 'var(--text-muted)' }}>
-          Loading verified creators…
+        <div className="creators-grid" aria-busy="true" aria-label="Loading creators">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <article key={i} className="ex-card" style={{ overflow: 'hidden' }} aria-hidden="true">
+              <div className="ex-skel" style={{ height: 112, borderRadius: 0 }} />
+              <div style={{ padding: 16 }}>
+                <div className="ex-skel" style={{ width: 52, height: 52, borderRadius: 999, marginTop: -38 }} />
+                <div className="ex-skel ex-skel--line" style={{ width: '54%', marginTop: 12 }} />
+                <div className="ex-skel ex-skel--line" style={{ width: '36%' }} />
+              </div>
+            </article>
+          ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="glass-panel" style={{ padding: 36, textAlign: 'center', color: 'var(--text-muted)' }}>
-          {creators.length === 0
-            ? 'No live creator storefronts yet. Listed Hub-protected assets appear here.'
-            : 'No creators match your filters. Try another specialty or clear search.'}
+        <div className="ex-card ex-empty">
+          <div className="ex-empty__icon"><Users size={24} /></div>
+          <div className="ex-empty__title">
+            {creators.length === 0 ? 'No creators yet' : 'No creators match those filters'}
+          </div>
+          <p className="ex-empty__body">
+            {creators.length === 0
+              ? 'Creators appear here once they list a Hub-protected asset on Exchange.'
+              : 'Try another specialty, or clear the search to see everyone.'}
+          </p>
         </div>
       ) : (
         <div className="creators-grid">
@@ -239,12 +261,20 @@ export default function CreatorPassports({ onNavigate, onOpenAuth, user }) {
 
                 {c.bio ? <p className="creator-card__bio">{c.bio}</p> : null}
 
+                {/* Rating shows only when the directory actually returns one.
+                    Assets and licensed sales are real counts and always shown. */}
                 <div className="creator-card__decision">
-                  <span className="creator-card__rating">
-                    <Star size={14} fill="currentColor" /> {starsLabel(c.rating)}
-                    <em>({c.reviews} reviews)</em>
+                  {c.rating != null ? (
+                    <span className="creator-card__rating">
+                      <Star size={14} fill="currentColor" /> {starsLabel(c.rating)}
+                      {c.reviews != null ? <em>({c.reviews} reviews)</em> : null}
+                    </span>
+                  ) : (
+                    <span className="creator-card__sales">{c.assets} asset{c.assets === 1 ? '' : 's'}</span>
+                  )}
+                  <span className="creator-card__sales">
+                    {c.sales} licensed sale{c.sales === 1 ? '' : 's'}
                   </span>
-                  <span className="creator-card__sales">{c.sales} licensed sales</span>
                 </div>
 
                 <div className="creator-card__portfolio">

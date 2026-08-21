@@ -6,11 +6,37 @@ import ListingCard from '../components/ListingCard.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import DiscoverHeroArt from '../components/DiscoverHeroArt.jsx';
 import { apiFetch, unwrapList } from '../lib/api.js';
+import { formatFrom } from '../lib/money.js';
 import { buyerKey } from '../lib/buyer.js';
 import { canList, canPurchase } from '../lib/roles.js';
 import { isImageListing, isVideoListing } from '../lib/media.js';
 import { samePinitIdentity } from '../lib/pinit-identity.js';
 import { resolveHubAppUrl } from '../lib/exchange-routes.js';
+
+// One hue per vertical. Colour is information here, not decoration — it
+// identifies the category on the filter pill and tints the hover glow of
+// tiles belonging to it.
+const VERTICAL_HUE = {
+  all: 'var(--v-all)',
+  mine: 'var(--v-mine)',
+  images: 'var(--v-images)',
+  video: 'var(--v-video)',
+  ui_ux: 'var(--v-ui_ux)',
+  '3d': 'var(--v-3d)',
+  audio: 'var(--v-audio)',
+  concepts: 'var(--v-concepts)',
+};
+
+// Foreground for the active pill, chosen per hue rather than defaulting to
+// white. Amber, cyan, emerald and orange are light enough that white text on
+// them measures 3.3-4.2:1 — below the 4.5:1 WCAG AA threshold. Dark ink on
+// those clears 8:1. The darker hues keep white.
+const VERTICAL_INK = {
+  images: '#1a1204',
+  ui_ux: '#04171c',
+  '3d': '#04160f',
+  concepts: '#0f0600',
+};
 
 const VERTICALS = [
   { id: 'all', name: 'All Verticals' },
@@ -31,6 +57,7 @@ export default function Marketplace({
   user = null,
   focusListingId = null,
   resetFiltersToken = 0,
+  externalSearch = null,
   onCartChanged,
 }) {
   const [listings, setListings] = useState([]);
@@ -44,6 +71,12 @@ export default function Marketplace({
   const [selectedVertical, setSelectedVertical] = useState('all');
   const [selectedBadge, setSelectedBadge] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  // Incremented to request a re-fetch for the current search term, from either
+  // the page form or the header. searchQuery itself is not a fetch dependency —
+  // that would fire a request on every keystroke.
+  const [searchToken, setSearchToken] = useState(0);
+  // The term the currently displayed results were fetched with.
+  const [appliedSearch, setAppliedSearch] = useState('');
   const [sortOption, setSortOption] = useState('newest');
   const [editing, setEditing] = useState(null);
   const [editForm, setEditForm] = useState({});
@@ -59,9 +92,22 @@ export default function Marketplace({
     }
   }, [resetFiltersToken, user?.pinit_id]);
 
+  // A search run from the header lands here. Widen the vertical filter to
+  // 'all' first — searching from the header while a category pill is active
+  // would otherwise appear to return nothing.
+  useEffect(() => {
+    if (!externalSearch) return;
+    setSearchQuery(externalSearch.term || '');
+    setSelectedVertical('all');
+    // Bump the token explicitly. Relying on selectedVertical alone would miss
+    // the case where 'all' is already selected — the term would land in the
+    // input but no fetch would run.
+    setSearchToken((t) => t + 1);
+  }, [externalSearch]);
+
   useEffect(() => {
     fetchListings();
-  }, [selectedVertical, selectedBadge, sortOption, resetFiltersToken, user?.pinit_id]);
+  }, [selectedVertical, selectedBadge, sortOption, searchToken, resetFiltersToken, user?.pinit_id]);
 
   useEffect(() => {
     if (!focusListingId || !listings.length) return;
@@ -89,6 +135,10 @@ export default function Marketplace({
   const fetchListings = async () => {
     setLoading(true);
     setLoadError('');
+    // Remember the term these results actually came from. Reading the live
+    // input instead would relabel the results header on every keystroke,
+    // before the matching request had run.
+    setAppliedSearch(searchQuery.trim());
     const { ok, data, error, headers } = await apiFetch(buildUrl(0));
     if (!ok) {
       // Surface the failure instead of rendering an empty marketplace.
@@ -173,23 +223,86 @@ export default function Marketplace({
     return true;
   });
 
+  // ---- Search-results mode ------------------------------------------------
+  // Someone who has searched or filtered is no longer browsing: they have a
+  // question and want the answer. In that mode the marketing hero and the
+  // editorial rails step aside for a plain result count, the filters that
+  // produced it, and a way to undo each one.
+  const badgeActive = selectedBadge !== 'all';
+  const verticalActive = selectedVertical !== 'all';
+  const resultsMode = Boolean(appliedSearch) || badgeActive || verticalActive;
+
+  // Section rails only earn their place once the catalogue is bigger than the
+  // grid can show at a glance. Below that, Featured and Recently listed would
+  // repeat the very tiles sitting directly above them — the same asset three
+  // times on one screen. Redundancy reads as padding, so the rails stay hidden
+  // until there is genuinely more to surface.
+  const RAIL_MIN_CATALOGUE = 8;
+  const railsWorthShowing = !resultsMode && listings.length >= RAIL_MIN_CATALOGUE;
+
+  // "Featured" is Gold-badged work — a real signal from the listing record,
+  // not a hand-picked or invented set.
+  const featured = railsWorthShowing
+    ? listings.filter((l) => String(l.badge_tier || '').toLowerCase() === 'gold').slice(0, 4)
+    : [];
+
+  // Newest first is how the default query already sorts, so this needs no
+  // extra request and no fabricated "trending" metric.
+  const recentlyListed = railsWorthShowing ? listings.slice(0, 6) : [];
+
+  const activeFilters = [];
+  if (appliedSearch) {
+    activeFilters.push({
+      key: 'q',
+      label: `“${appliedSearch}”`,
+      clear: () => { setSearchQuery(''); setSearchToken((t) => t + 1); },
+    });
+  }
+  if (verticalActive) {
+    activeFilters.push({
+      key: 'vertical',
+      label: VERTICALS.find((v) => v.id === selectedVertical)?.name || selectedVertical,
+      clear: () => setSelectedVertical('all'),
+    });
+  }
+  if (badgeActive) {
+    activeFilters.push({
+      key: 'badge',
+      label: `${selectedBadge} badge`,
+      clear: () => setSelectedBadge('all'),
+    });
+  }
+
+  const clearAllFilters = () => {
+    setSearchQuery('');
+    setSelectedVertical('all');
+    setSelectedBadge('all');
+    setSearchToken((t) => t + 1);
+  };
+
   return (
     <div style={{ maxWidth: '1320px', margin: '0 auto', padding: '32px 24px' }}>
-      <div className="glass-panel market-hero">
+      {/* A returning shopper does not need the pitch again — they need the
+          catalogue. Signed-in users get a compact band so tiles sit near the
+          top; logged-out visitors keep the full hero, where selling the idea
+          is the job. */}
+      <div className={`glass-panel market-hero${user ? ' market-hero--compact' : ''}`}>
         <div className="market-hero__copy">
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: '8px',
             background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)',
             padding: '6px 14px', borderRadius: 'var(--radius-full)', fontSize: '0.8rem',
             color: 'var(--primary)', fontWeight: 600, marginBottom: '20px',
-          }}>
+          }} className="market-hero__badge">
             <ShieldCheck size={16} />
             <span>Pinit HUB DNA &amp; Vault Protection Powered</span>
           </div>
-          <h1 style={{ fontSize: '2.8rem', lineHeight: '1.15', marginBottom: '16px', color: '#fff' }}>
+          {/* Sizing lives in CSS, not inline styles — the compact variant needs
+              to override it, and an inline style would always win. */}
+          <h1 className="market-hero__title">
             The verified marketplace for creative licenses
           </h1>
-          <p style={{ fontSize: '1.1rem', color: 'var(--text-muted)', marginBottom: '28px', lineHeight: '1.6' }}>
+          <p className="market-hero__sub">
             {canList(user)
               ? 'Create, protect, list and earn from creative assets.'
               : 'Discover, license and manage creative assets.'}
@@ -239,13 +352,12 @@ export default function Marketplace({
             <button
               key={v.id}
               type="button"
+              className="vpill"
+              aria-pressed={selectedVertical === v.id}
               onClick={() => setSelectedVertical(v.id)}
               style={{
-                padding: '8px 18px', borderRadius: 'var(--radius-full)', fontSize: '0.88rem', fontWeight: 600,
-                border: selectedVertical === v.id ? '1px solid var(--primary)' : '1px solid var(--border-subtle)',
-                background: selectedVertical === v.id ? 'var(--primary)' : 'rgba(255,255,255,0.03)',
-                color: selectedVertical === v.id ? '#fff' : 'var(--text-muted)',
-                cursor: 'pointer', whiteSpace: 'nowrap',
+                '--vpill-hue': VERTICAL_HUE[v.id] || 'var(--v-all)',
+                '--vpill-ink': VERTICAL_INK[v.id] || '#fff',
               }}
             >
               {v.name}
@@ -289,6 +401,34 @@ export default function Marketplace({
         </div>
       </div>
 
+      {resultsMode && !loading && !loadError && (
+        <div className="results-bar">
+          <div className="results-bar__count" role="status" aria-live="polite">
+            <strong>{visibleListings.length}</strong>
+            {visibleListings.length === 1 ? ' asset' : ' assets'}
+            {appliedSearch ? <> matching <span className="results-bar__term">“{appliedSearch}”</span></> : ' in this view'}
+          </div>
+          <div className="results-bar__chips">
+            {activeFilters.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                className="results-chip"
+                onClick={f.clear}
+                aria-label={`Remove filter ${f.label}`}
+              >
+                {f.label} <X size={13} />
+              </button>
+            ))}
+            {activeFilters.length > 1 && (
+              <button type="button" className="results-bar__clear" onClick={clearAllFilters}>
+                Clear all
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div className="listing-grid" aria-busy="true" aria-label="Loading listings">
           {Array.from({ length: 8 }).map((_, i) => (
@@ -309,26 +449,51 @@ export default function Marketplace({
           onPrimary={fetchListings}
         />
       ) : visibleListings.length === 0 ? (
-        <EmptyState
-          icon={<ShieldCheck size={36} color="var(--primary)" />}
-          title="No listings in this view"
-          description={
-            selectedVertical === 'mine'
-              ? 'Your protected assets can become licenses on Pinit Exchange.'
-              : 'Try another category, clear filters, or list a protected asset.'
-          }
-          primaryLabel={selectedVertical === 'mine' && canList(user) ? 'List an asset' : 'Show all categories'}
-          onPrimary={() => {
-            if (selectedVertical === 'mine' && canList(user)) onOpenListFromHub?.();
-            else setSelectedVertical('all');
-          }}
-          secondaryLabel="Open Pinit HUB"
-          onSecondary={() => window.open((import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3000'), '_blank')}
-        />
+        // A search that found nothing is a different dead end from an empty
+        // category, and both differ from a creator with no listings yet. Each
+        // gets the way out that actually applies to it.
+        appliedSearch ? (
+          <EmptyState
+            icon={<Search size={36} color="var(--primary)" />}
+            title={`No assets match “${appliedSearch}”`}
+            description={
+              activeFilters.length > 1
+                ? 'Other filters are still narrowing these results. Try clearing them, or search a different term.'
+                : 'Try a different term, or browse the full catalogue.'
+            }
+            primaryLabel={activeFilters.length > 1 ? 'Clear all filters' : 'Browse everything'}
+            onPrimary={clearAllFilters}
+            secondaryLabel="Open Pinit HUB"
+            onSecondary={() => window.open(resolveHubAppUrl(), '_blank')}
+          />
+        ) : (
+          <EmptyState
+            icon={<ShieldCheck size={36} color="var(--primary)" />}
+            title="No listings in this view"
+            description={
+              selectedVertical === 'mine'
+                ? 'Your protected assets can become licenses on Pinit Exchange.'
+                : 'Try another category, clear filters, or list a protected asset.'
+            }
+            primaryLabel={selectedVertical === 'mine' && canList(user) ? 'List an asset' : 'Show all categories'}
+            onPrimary={() => {
+              if (selectedVertical === 'mine' && canList(user)) onOpenListFromHub?.();
+              else setSelectedVertical('all');
+            }}
+            secondaryLabel="Open Pinit HUB"
+            onSecondary={() => window.open(resolveHubAppUrl(), '_blank')}
+          />
+        )
       ) : (
-        <div className="listing-grid">
+        // A four-up grid holding two items reads as an empty shop. Under six
+        // listings the tiles grow to fill the row instead of stranding
+        // whitespace to the right.
+        <div className={`listing-grid${visibleListings.length < 6 ? ' listing-grid--sparse' : ''}`}>
           {visibleListings.map((item) => (
-            <div key={item.listing_id} style={{ position: 'relative' }}>
+            <div
+              key={item.listing_id}
+              style={{ position: 'relative', '--tile-hue': VERTICAL_HUE[item.vertical] || 'var(--v-all)' }}
+            >
               {isOwner(item) && canList(user) && (
                 <button
                   type="button"
@@ -376,6 +541,71 @@ export default function Marketplace({
             </div>
           ))}
         </div>
+      )}
+
+      {/* Section rails. Both read from the listings already loaded above, so
+          they add no request and can never disagree with the grid. Each is
+          hidden unless there is genuinely something to show. */}
+      {!loading && !loadError && featured.length > 0 && (
+        <section className="ex-section">
+          <div className="ex-section-head">
+            <div>
+              <h2 className="ex-h2">Featured</h2>
+              <div className="ex-h2-sub">Gold-verified, human-authenticated work</div>
+            </div>
+          </div>
+          <div className="rail">
+            {featured.map((item) => (
+              <button
+                key={`f-${item.listing_id}`}
+                type="button"
+                className="rail-card"
+                onClick={() => onSelectListing?.(item.listing_id)}
+              >
+                <div className="rail-card__art">
+                  {item.preview_url ? (
+                    <img src={item.preview_url} alt="" className="pinit-protected-media" draggable={false} />
+                  ) : null}
+                </div>
+                <div className="rail-card__body">
+                  <span className="rail-card__title">{item.title}</span>
+                  <span className="rail-card__price">{formatFrom(item.price_personal ?? item.price_commercial ?? 0)}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {!loading && !loadError && recentlyListed.length > 0 && (
+        <section className="ex-section">
+          <div className="ex-section-head">
+            <div>
+              <h2 className="ex-h2">Recently listed</h2>
+              <div className="ex-h2-sub">Newest on the marketplace</div>
+            </div>
+          </div>
+          <div className="rail rail--compact">
+            {recentlyListed.map((item) => (
+              <button
+                key={`r-${item.listing_id}`}
+                type="button"
+                className="rail-card"
+                onClick={() => onSelectListing?.(item.listing_id)}
+              >
+                <div className="rail-card__art">
+                  {item.preview_url ? (
+                    <img src={item.preview_url} alt="" className="pinit-protected-media" draggable={false} />
+                  ) : null}
+                </div>
+                <div className="rail-card__body">
+                  <span className="rail-card__title">{item.title}</span>
+                  <span className="rail-card__price">{formatFrom(item.price_personal ?? item.price_commercial ?? 0)}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
       )}
 
       {!loading && !loadError && visibleListings.length > 0 && (

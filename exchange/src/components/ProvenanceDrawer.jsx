@@ -48,9 +48,12 @@ export default function ProvenanceDrawer({ open, onClose, listing }) {
             <div style={{ color: '#fff', fontSize: '0.9rem', lineHeight: 1.7 }}>
               <div>Category: {verticalLabel(listing?.vertical)}</div>
               <div>Creator: {listing?.creator_name || 'Verified creator'}</div>
-              {listing?.asset_id && (
-                <div style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: 'var(--text-dim)' }}>
-                  Asset ref: {listing.asset_id}
+              {/* The asset UUID is an internal database identifier — it means
+                  nothing to a buyer and is no longer displayed. The listing ID
+                  is the reference a customer can actually quote to support. */}
+              {listing?.listing_id && (
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>
+                  Listing ref: {listing.listing_id}
                 </div>
               )}
             </div>

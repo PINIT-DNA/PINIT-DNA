@@ -2,6 +2,7 @@ import React from 'react';
 import { BadgeCheck, Mail, MapPin, ShieldCheck, Star } from 'lucide-react';
 import { listingPreviewUrl } from '../../lib/listing-preview.js';
 import { isVideoListing } from '../../lib/media.js';
+import { formatFrom } from '../../lib/money.js';
 
 export function WorkMedia({ item, className = '' }) {
   const src = listingPreviewUrl(item) || item?.cover_url || item?.preview_url || '';
@@ -225,13 +226,19 @@ export default function PortfolioSite({
           <p className="ps-label">Available for licensing</p>
           <h2>On Pinit Exchange</h2>
           <div className="ps-license">
-            {portfolio.marketplace.slice(0, 4).map((item) => (
-              <button key={item.listing_id} type="button" onClick={() => onSelectListing?.(item.listing_id)}>
-                <WorkMedia item={item} />
-                <strong>{item.title}</strong>
-                <span>${Number(item.price_personal || item.price_commercial || 0).toFixed(0)}</span>
-              </button>
-            ))}
+            {portfolio.marketplace.slice(0, 4).map((item) => {
+              // Cheapest published tier, through the shared formatter — the
+              // hardcoded "$" here used to disagree with the rest of the
+              // storefront whenever the platform currency changed.
+              const from = Number(item.price_personal || item.price_commercial || 0);
+              return (
+                <button key={item.listing_id} type="button" onClick={() => onSelectListing?.(item.listing_id)}>
+                  <WorkMedia item={item} />
+                  <strong>{item.title}</strong>
+                  <span>{from > 0 ? formatFrom(from) : 'Pricing on request'}</span>
+                </button>
+              );
+            })}
           </div>
           {!compact && (
             <button type="button" className="ps-btn" onClick={() => onNavigate?.('marketplace')}>View all work</button>

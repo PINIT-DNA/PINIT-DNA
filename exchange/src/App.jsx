@@ -78,6 +78,9 @@ export default function App() {
   const [preselectedAssetId, setPreselectedAssetId] = useState(null);
   const [focusListingId, setFocusListingId] = useState(null);
   const [marketplaceResetToken, setMarketplaceResetToken] = useState(0);
+  // Search term handed down from the header. Carries a timestamp so repeating
+  // the same term still re-triggers the search rather than being a no-op.
+  const [headerSearch, setHeaderSearch] = useState(null);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState('welcome');
@@ -392,6 +395,7 @@ export default function App() {
                 user={user}
                 focusListingId={focusListingId}
                 resetFiltersToken={marketplaceResetToken}
+                externalSearch={headerSearch}
                 onCartChanged={refreshCartCount}
               />
             )}
@@ -622,6 +626,7 @@ export default function App() {
         onBecomeCreator={openBecomeCreator}
         onOpenListFromHub={openListFromHub}
         onSignOut={handleSignOut}
+        onSearch={(term) => setHeaderSearch({ term, at: Date.now() })}
         user={user}
         cartCount={cartCount}
       />

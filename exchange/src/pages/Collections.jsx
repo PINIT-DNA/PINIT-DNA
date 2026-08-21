@@ -1,4 +1,4 @@
-import { formatFrom } from '../lib/money.js';
+import { formatMoney } from '../lib/money.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Layers } from 'lucide-react';
 import HubTrustBadge from '../components/HubTrustBadge.jsx';
@@ -39,16 +39,24 @@ export default function Collections({ onSelectListing, onNavigateMarketplace }) 
   }, [listings]);
 
   return (
-    <div style={{ maxWidth: 1200, margin: '0 auto', padding: '32px 24px' }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ color: '#fff', fontSize: '2rem', marginBottom: 8 }}>Collections</h1>
-        <p style={{ color: 'var(--text-muted)' }}>
-          Live marketplace inventory grouped by category. No sample or duplicate catalog.
-        </p>
+    <div className="ex-page">
+      <div className="ex-head">
+        <h1 className="ex-h1">Collections</h1>
+        <p className="ex-sub">Everything listed on Exchange, grouped by category.</p>
       </div>
 
       {loading ? (
-        <div style={{ color: 'var(--text-muted)', padding: 40, textAlign: 'center' }}>Loading collections…</div>
+        <div className="collections-grid" aria-busy="true" aria-label="Loading collections">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <article key={i} className="ex-card" style={{ overflow: 'hidden' }} aria-hidden="true">
+              <div className="ex-skel" style={{ height: 150, borderRadius: 0 }} />
+              <div style={{ padding: 16 }}>
+                <div className="ex-skel ex-skel--line" style={{ width: '44%' }} />
+                <div className="ex-skel ex-skel--line" style={{ width: '30%' }} />
+              </div>
+            </article>
+          ))}
+        </div>
       ) : groups.length === 0 ? (
         <EmptyState
           icon={<Layers size={28} color="var(--primary)" />}
@@ -60,29 +68,47 @@ export default function Collections({ onSelectListing, onNavigateMarketplace }) 
       ) : (
         <div className="collections-grid">
           {groups.map((c) => (
-            <article key={c.id} className="glass-panel collection-card">
-              <div className="collection-card__media">
-                {c.img ? <img src={c.img} alt={c.title} /> : null}
+            <article
+              key={c.id}
+              className="collection-tile"
+              tabIndex={0}
+              role="link"
+              aria-label={`${c.title} — ${c.count} assets, from ${formatMoney(c.from)}`}
+              onClick={() => {
+                if (c.items[0]?.listing_id) onSelectListing?.(c.items[0].listing_id);
+                else onNavigateMarketplace?.();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  if (c.items[0]?.listing_id) onSelectListing?.(c.items[0].listing_id);
+                  else onNavigateMarketplace?.();
+                }
+              }}
+            >
+              {/* Real protected previews, not decorative art: the first asset in
+                  the group stands for the collection. */}
+              <div className="collection-tile__art">
+                {c.img ? (
+                  <img
+                    src={c.img}
+                    alt=""
+                    className="pinit-protected-media"
+                    draggable={false}
+                    onDragStart={(e) => e.preventDefault()}
+                    onContextMenu={(e) => e.preventDefault()}
+                  />
+                ) : (
+                  <div className="collection-tile__art-empty"><Layers size={22} /></div>
+                )}
               </div>
-              <div className="collection-card__body">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--primary)', marginBottom: 8 }}>
-                  <Layers size={16} />
-                  <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>{c.count} verified asset{c.count === 1 ? '' : 's'}</span>
+
+              <div className="collection-tile__caption">
+                <h3 className="collection-tile__title">{c.title}</h3>
+                <div className="collection-tile__meta">
+                  <span>{c.count} asset{c.count === 1 ? '' : 's'}</span>
+                  <span className="collection-tile__price">from {formatMoney(c.from)}</span>
                 </div>
-                <h3 style={{ color: '#fff', marginBottom: 6 }}>{c.title}</h3>
-                <div style={{ color: 'var(--emerald)', fontWeight: 700, marginBottom: 12 }}>{formatFrom(c.from)}</div>
-                <HubTrustBadge compact />
-                <button
-                  type="button"
-                  className="btn-primary"
-                  style={{ width: '100%', marginTop: 14 }}
-                  onClick={() => {
-                    if (c.items[0]?.listing_id) onSelectListing?.(c.items[0].listing_id);
-                    else onNavigateMarketplace?.();
-                  }}
-                >
-                  View collection <ArrowRight size={14} />
-                </button>
               </div>
             </article>
           ))}
