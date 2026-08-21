@@ -155,15 +155,27 @@ router.get('/', (req, res) => {
         file_type: assetMap[item.asset_id]?.file_type || item.vertical || 'images'
       }));
 
-      // Envelope carries paging metadata. `items` is also spread onto the
-      // array-like shape older callers expect, so nothing breaks mid-rollout.
-      res.json({
-        items: enrichedRows,
-        total,
-        limit,
-        offset,
-        has_more: total === null ? enrichedRows.length === limit : offset + enrichedRows.length < total,
+      // The body stays a plain ARRAY and paging travels in headers.
+      //
+      // This endpoint briefly returned an { items, total, ... } envelope. The
+      // Exchange frontend and backend deploy independently, so the backend
+      // shipped first and every already-deployed client called .filter() on an
+      // object - the whole marketplace crashed with "o.filter is not a
+      // function" until the frontend caught up. Keeping the body shape stable
+      // means neither side can break the other by deploying first.
+      const hasMore = total === null
+        ? enrichedRows.length === limit
+        : offset + enrichedRows.length < total;
+
+      res.set({
+        'X-Total-Count': total === null ? '' : String(total),
+        'X-Limit': String(limit),
+        'X-Offset': String(offset),
+        'X-Has-More': hasMore ? 'true' : 'false',
+        // Needed for a cross-origin frontend to read the paging headers.
+        'Access-Control-Expose-Headers': 'X-Total-Count, X-Limit, X-Offset, X-Has-More',
       });
+      res.json(enrichedRows);
     });
   });
   });

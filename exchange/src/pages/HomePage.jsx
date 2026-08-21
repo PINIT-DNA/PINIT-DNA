@@ -23,8 +23,8 @@ export default function HomePage({ onNavigate, onOpenAuth, user, onSelectListing
   useEffect(() => {
     (async () => {
       // Featured strip needs 8; ask for exactly that rather than the catalogue.
-      const { ok, data } = await apiFetch('/api/listings?vertical=all&badge=all&sort=popular&limit=8');
-      if (ok) setFeatured(unwrapList(data).items);
+      const { ok, data, headers } = await apiFetch('/api/listings?vertical=all&badge=all&sort=popular&limit=8');
+      if (ok) setFeatured(unwrapList(data, headers).items);
     })();
   }, []);
 

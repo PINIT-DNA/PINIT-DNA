@@ -89,7 +89,7 @@ export default function Marketplace({
   const fetchListings = async () => {
     setLoading(true);
     setLoadError('');
-    const { ok, data, error } = await apiFetch(buildUrl(0));
+    const { ok, data, error, headers } = await apiFetch(buildUrl(0));
     if (!ok) {
       // Surface the failure instead of rendering an empty marketplace.
       setLoadError(error || 'Could not load the marketplace.');
@@ -99,7 +99,7 @@ export default function Marketplace({
       setLoading(false);
       return;
     }
-    const page = unwrapList(data);
+    const page = unwrapList(data, headers);
     setListings(page.items);
     setTotal(page.total);
     setHasMore(page.hasMore);
@@ -109,9 +109,9 @@ export default function Marketplace({
   const loadMore = async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
-    const { ok, data, error } = await apiFetch(buildUrl(listings.length));
+    const { ok, data, error, headers } = await apiFetch(buildUrl(listings.length));
     if (ok) {
-      const page = unwrapList(data);
+      const page = unwrapList(data, headers);
       setListings((prev) => [...prev, ...page.items]);
       setTotal(page.total);
       setHasMore(page.hasMore);

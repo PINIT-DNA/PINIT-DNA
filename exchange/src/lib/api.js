@@ -71,9 +71,9 @@ export async function apiFetch(url, options = {}) {
         (code && !/^[A-Z][A-Z0-9_]+$/.test(String(code)) ? String(code) : null) ||
         parsed.error ||
         statusMessage(parsed.status, 'Something went wrong');
-      return { ok: false, status: parsed.status, data: parsed.data, error: msg };
+      return { ok: false, status: parsed.status, data: parsed.data, error: msg, headers: res.headers };
     }
-    return { ok: true, status: parsed.status, data: parsed.data, error: null };
+    return { ok: true, status: parsed.status, data: parsed.data, error: null, headers: res.headers };
   } catch (err) {
     return {
       ok: false,
@@ -114,9 +114,25 @@ export function verifiedLabel(badge) {
  * Paginated endpoints return { items, total, limit, offset, has_more };
  * older ones returned a bare array. Callers should not care which.
  */
-export function unwrapList(data) {
+export function unwrapList(data, headers) {
   if (Array.isArray(data)) {
-    return { items: data, total: data.length, limit: data.length, offset: 0, hasMore: false };
+    // Paging travels in headers so the array body stays backward compatible
+    // with clients deployed before pagination existed.
+    const num = (h, fallback) => {
+      const v = headers && typeof headers.get === 'function' ? headers.get(h) : null;
+      const n = Number(v);
+      return v !== null && v !== '' && Number.isFinite(n) ? n : fallback;
+    };
+    const hasMoreHeader = headers && typeof headers.get === 'function'
+      ? headers.get('X-Has-More')
+      : null;
+    return {
+      items: data,
+      total: num('X-Total-Count', data.length),
+      limit: num('X-Limit', data.length),
+      offset: num('X-Offset', 0),
+      hasMore: hasMoreHeader === 'true',
+    };
   }
   if (data && Array.isArray(data.items)) {
     return {

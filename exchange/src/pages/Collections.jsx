@@ -12,8 +12,8 @@ export default function Collections({ onSelectListing, onNavigateMarketplace }) 
   useEffect(() => {
     (async () => {
       // Collections group the whole catalogue, so ask for the maximum page.
-      const { ok, data } = await apiFetch('/api/listings?vertical=all&badge=all&sort=newest&limit=60');
-      setListings(ok ? unwrapList(data).items : []);
+      const { ok, data, headers } = await apiFetch('/api/listings?vertical=all&badge=all&sort=newest&limit=60');
+      setListings(ok ? unwrapList(data, headers).items : []);
       setLoading(false);
     })();
   }, []);
