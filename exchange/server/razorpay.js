@@ -120,10 +120,27 @@ export async function refundRazorpayPayment(paymentId, amountPaise) {
   return client.payments.refund(paymentId, { amount: amountPaise });
 }
 
+/**
+ * Verify a Razorpay webhook signature.
+ *
+ * Mock mode no longer short-circuits this whenever a secret is configured.
+ * `isPaymentMockMode()` is true if PAYMENT_MOCK is set OR if keys are simply
+ * missing, so the old unconditional `return true` meant a single stray env var
+ * in production turned every webhook into an unauthenticated write endpoint —
+ * anyone could POST a "payment refunded" or "dispute lost" event.
+ *
+ * The bypass now applies only when there is genuinely no secret to check
+ * against, which is the local-development case it was written for.
+ */
 export function verifyRazorpayWebhookSignature(rawBody, signature) {
-  if (isPaymentMockMode()) return true;
   const secret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET;
-  if (!secret || !signature) return false;
+  if (!secret) return isPaymentMockMode();
+  if (!signature || !rawBody) return false;
   const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
-  return expected === signature;
+  // Constant-time compare; length guard first because timingSafeEqual throws
+  // on mismatched buffer lengths.
+  const a = Buffer.from(expected, 'utf8');
+  const b = Buffer.from(String(signature), 'utf8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }

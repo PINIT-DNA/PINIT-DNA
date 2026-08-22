@@ -19,6 +19,7 @@ import requirementsRoutes from './routes/requirements.js';
 import commerceRoutes from './routes/commerce.js';
 import portfolioRoutes from './routes/portfolio.js'; // public /p/:slug + seller builder API
 import sellerOnboardingRoutes from './routes/seller-onboarding.js';
+import webhookRoutes from './routes/webhooks.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -60,7 +61,14 @@ app.use(cors({
   },
   credentials: true,
 }));
-app.use(express.json({ limit: '1mb' }));
+// The raw body is kept alongside the parsed one so webhook signatures can be
+// verified. A gateway signs the exact bytes it sent; re-serialising the parsed
+// object produces different bytes (key order, whitespace, number formatting)
+// and the signature would never match.
+app.use(express.json({
+  limit: '1mb',
+  verify: (req, _res, buf) => { req.rawBody = buf; },
+}));
 app.use((err, req, res, next) => {
   if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
     return res.status(400).json({
@@ -91,6 +99,8 @@ app.use('/api/requirements', requirementsRoutes);
 app.use('/api/commerce', commerceRoutes);
 app.use('/api/portfolio', portfolioRoutes);
 app.use('/api/seller/onboarding', sellerOnboardingRoutes);
+// Inbound gateway callbacks. Authenticated by HMAC signature, not by session.
+app.use('/api/webhooks', webhookRoutes);
 
 app.get('/api/health', (req, res) => {
   const billing = getBillingPublicConfig();

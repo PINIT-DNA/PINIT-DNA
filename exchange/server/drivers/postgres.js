@@ -141,6 +141,14 @@ export async function initPostgresSchema(db) {
     console.warn('[exchange-pg] seller onboarding columns:', err.message);
   }
 
+  // Links an accrued earning to the payout batch that settles it. Additive:
+  // existing rows keep a NULL payout_id, meaning "not yet settled".
+  try {
+    await db.query('ALTER TABLE exchange.seller_earnings ADD COLUMN IF NOT EXISTS payout_id TEXT');
+  } catch (err) {
+    console.warn('[exchange-pg] payout linkage column:', err.message);
+  }
+
   // ---------------------------------------------------------------------------
   // Phase 1 — canonical Asset.id linkage on commerce tables.
   // Additive and idempotent: nullable columns only, backfill guarded by

@@ -408,10 +408,65 @@ function applyTrustHardeningSchema() {
       'cart_items', 'wishlist', 'reviews', 'payment_intents', 'refunds', 'seller_earnings',
     ].map((t) => `ALTER TABLE ${t} ADD COLUMN asset_id TEXT`);
 
+    // ---- Disputes and payouts (additive) ---------------------------------
+    //
+    // Both are keyed on the canonical asset_id as well as the order, so an
+    // asset's full financial history stays answerable from one identifier.
+    //
+    // `disputes` records what the gateway tells us. A chargeback is an inbound
+    // event — we never create one ourselves — so this table is written only by
+    // the verified webhook, and `provider_dispute_id` is unique so a webhook
+    // delivered twice cannot produce two rows.
+    const financeCreates = [
+      `CREATE TABLE IF NOT EXISTS disputes (
+        id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL DEFAULT 'razorpay',
+        provider_dispute_id TEXT UNIQUE,
+        provider_payment_id TEXT,
+        order_id TEXT,
+        seal_id TEXT,
+        asset_id TEXT,
+        seller_pinit_id TEXT,
+        buyer_pinit_id TEXT,
+        amount REAL DEFAULT 0,
+        currency TEXT,
+        reason TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        phase TEXT,
+        respond_by DATETIME,
+        raw_event TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME
+      )`,
+      // `payouts` is the settlement ledger. Exchange owns the state machine
+      // (requested -> processing -> paid | failed); the actual transfer is the
+      // payment provider's job and requires provider-side onboarding before a
+      // row can ever reach 'paid'.
+      `CREATE TABLE IF NOT EXISTS payouts (
+        id TEXT PRIMARY KEY,
+        seller_pinit_id TEXT NOT NULL,
+        amount REAL NOT NULL,
+        currency TEXT,
+        status TEXT NOT NULL DEFAULT 'requested',
+        provider TEXT DEFAULT 'razorpay',
+        provider_payout_id TEXT,
+        failure_reason TEXT,
+        earnings_count INTEGER DEFAULT 0,
+        requested_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        settled_at DATETIME
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_disputes_seal ON disputes(seal_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_disputes_asset ON disputes(asset_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_payouts_seller ON payouts(seller_pinit_id, status)`,
+      // Links an accrued earning to the payout batch that settles it.
+      `ALTER TABLE seller_earnings ADD COLUMN payout_id TEXT`,
+    ];
+
     runNext(alters, 0, () => {
       runNext(creates, 0, () => {
        runNext(assetLinkageAlters, 0, () => {
         runNext(commerceReadinessAlters, 0, () => {
+        runNext(financeCreates, 0, () => {
         db.run(`UPDATE listings SET status = 'published' WHERE status = 'live'`, () => {
           db.run(
             `UPDATE users SET seller_onboarding_status = 'SELLER_ACTIVE'
@@ -419,6 +474,7 @@ function applyTrustHardeningSchema() {
                AND (seller_onboarding_status IS NULL OR seller_onboarding_status = '')`,
             () => resolve(),
           );
+        });
         });
         });
        });

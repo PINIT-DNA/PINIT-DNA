@@ -318,3 +318,60 @@ CREATE INDEX IF NOT EXISTS idx_ex_bridge_events_status ON exchange.hub_bridge_ev
 CREATE INDEX IF NOT EXISTS idx_ex_hub_assets_pinit ON exchange.hub_assets (pinit_id);
 CREATE INDEX IF NOT EXISTS idx_ex_cart_buyer ON exchange.cart_items (buyer_key);
 CREATE INDEX IF NOT EXISTS idx_ex_wishlist_buyer ON exchange.wishlist (buyer_key);
+
+-- ---------------------------------------------------------------------------
+-- Disputes and payouts (additive).
+--
+-- Both carry asset_id as well as the order reference, so an asset's financial
+-- history stays answerable from the canonical identifier alone.
+--
+-- disputes is written only by the signature-verified gateway webhook — a
+-- chargeback originates at the card network, never here. provider_dispute_id
+-- is unique so an at-least-once webhook delivery cannot create two rows.
+CREATE TABLE IF NOT EXISTS exchange.disputes (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL DEFAULT 'razorpay',
+  provider_dispute_id TEXT UNIQUE,
+  provider_payment_id TEXT,
+  order_id TEXT,
+  seal_id TEXT,
+  asset_id TEXT,
+  seller_pinit_id TEXT,
+  buyer_pinit_id TEXT,
+  amount DOUBLE PRECISION DEFAULT 0,
+  currency TEXT,
+  reason TEXT,
+  status TEXT NOT NULL DEFAULT 'open',
+  phase TEXT,
+  respond_by TIMESTAMPTZ,
+  raw_event TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ
+);
+
+-- payouts is the settlement ledger. Exchange owns the state machine
+-- requested to processing to paid or failed. The transfer itself is the
+-- provider's job and needs provider-side onboarding before a row can reach
+-- the paid state.
+--
+-- NOTE: no semicolons in comments in this file. The statement splitter that
+-- reads it does not strip comments, so a semicolon here would cut the next
+-- CREATE TABLE in half.
+CREATE TABLE IF NOT EXISTS exchange.payouts (
+  id TEXT PRIMARY KEY,
+  seller_pinit_id TEXT NOT NULL,
+  amount DOUBLE PRECISION NOT NULL,
+  currency TEXT,
+  status TEXT NOT NULL DEFAULT 'requested',
+  provider TEXT DEFAULT 'razorpay',
+  provider_payout_id TEXT,
+  failure_reason TEXT,
+  earnings_count INTEGER DEFAULT 0,
+  requested_at TIMESTAMPTZ DEFAULT NOW(),
+  settled_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_ex_disputes_seal ON exchange.disputes (seal_id);
+CREATE INDEX IF NOT EXISTS idx_ex_disputes_asset ON exchange.disputes (asset_id);
+CREATE INDEX IF NOT EXISTS idx_ex_disputes_status ON exchange.disputes (status);
+CREATE INDEX IF NOT EXISTS idx_ex_payouts_seller ON exchange.payouts (seller_pinit_id, status);
