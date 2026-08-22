@@ -3,6 +3,7 @@ import { ShieldCheck, CreditCard, ArrowRight, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
 import { loadRazorpayScript, openRazorpayCheckout } from '../lib/razorpay-checkout.js';
 import { sellerNeedsPaymentVerification } from '../lib/seller-onboarding.js';
+import TestPaymentHint from '../components/TestPaymentHint.jsx';
 
 export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }) {
   const [status, setStatus] = useState(null);
@@ -169,11 +170,11 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
           <span style={{ color: '#e2e8f0', fontSize: '0.9rem' }}>Seller subscription</span>
           <strong style={{ color: '#fff', fontSize: '1.35rem' }}>$25</strong>
         </div>
-        {status?.billing?.mock && (
-          <p style={{ color: 'var(--amber)', fontSize: '0.82rem', marginBottom: 12 }}>
-            Test mode: payment is simulated — $25 is recorded, no live charge.
-          </p>
-        )}
+        {/* Which sandbox method actually works. This screen previously showed
+            a note only when payments were simulated, so once real Razorpay
+            test mode was switched on it went silent — leaving a creator to
+            guess, and the obvious card is the one that fails. */}
+        <TestPaymentHint billing={status?.billing} className="pay-hint--stack" />
         {error && (
           <div style={{ color: '#f87171', fontSize: '0.9rem', marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
             <RefreshCw size={14} /> {error}

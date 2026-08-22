@@ -4,6 +4,7 @@ import { X, ShieldCheck, Award, Download } from 'lucide-react';
 import { payAndSeal } from '../lib/razorpay-checkout.js';
 import { apiFetch } from '../lib/api.js';
 import { canPurchase } from '../lib/roles.js';
+import TestPaymentHint from './TestPaymentHint.jsx';
 
 function defaultBuyer(user) {
   const name = user?.display_name || user?.name || 'Pinit Buyer';
@@ -308,13 +309,11 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
                   <span style={{ color: 'var(--text-muted)' }}>Payment rail:</span>
                   <span style={{ color: 'var(--emerald)' }}>{payMode === 'razorpay' ? 'Razorpay test' : 'Auto-success (demo)'}</span>
                 </div>
+                {/* Shared with the seller activation screen, so the working
+                    sandbox method is stated in one place rather than being
+                    copied — and cannot drift between the two. */}
                 {payMode === 'razorpay' && (
-                  <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: 8, lineHeight: 1.45 }}>
-                    Your Razorpay account blocks international cards. Prefer <strong style={{ color: '#fff' }}>UPI</strong> and pay with
-                    {' '}<strong style={{ color: '#fff' }}>success@razorpay</strong>.
-                    Or use domestic Mastercard <strong style={{ color: '#fff' }}>5267 3181 8797 5449</strong>, any future MM/YY, any CVV.
-                    Do not use 4111… — Razorpay treats that as international.
-                  </p>
+                  <TestPaymentHint billing={{ testMode: true, mock: false }} className="pay-hint--tight" />
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.1rem', fontWeight: 800, color: '#fff', paddingTop: '8px', borderTop: '1px solid var(--border-subtle)' }}>
                   <span>Total Due:</span>

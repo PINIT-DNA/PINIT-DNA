@@ -3807,3 +3807,45 @@ input[type="range"]::-webkit-slider-thumb {
   .buyer-stat, .buyer-link { transition: none; }
   .buyer-stat:hover { transform: none; }
 }
+
+/* ==========================================================================
+   Test-mode payment hint — which sandbox method actually works
+   ========================================================================== */
+.pay-hint {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 11px 13px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(245, 158, 11, .28);
+  background: rgba(245, 158, 11, .09);
+  font-size: .8rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.pay-hint > svg { color: var(--badge-gold, #f59e0b); flex-shrink: 0; margin-top: 2px; }
+.pay-hint strong { display: block; color: var(--text-main); font-size: .82rem; margin-bottom: 5px; }
+.pay-hint ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.pay-hint li { color: var(--text-muted); }
+.pay-hint code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: .78rem;
+  color: var(--text-main);
+  background: rgba(0, 0, 0, .3);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 1px 6px;
+  overflow-wrap: anywhere;
+}
+.pay-hint em {
+  display: block;
+  margin-top: 7px;
+  font-style: normal;
+  font-size: .74rem;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+.pay-hint--stack { margin-bottom: 14px; }
+.pay-hint--tight { margin-top: 10px; font-size: .76rem; }
+.pay-hint--mock { align-items: center; }
+.pay-hint--mock span { color: var(--text-muted); }
