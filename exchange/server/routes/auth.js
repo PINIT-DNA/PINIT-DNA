@@ -306,6 +306,30 @@ router.post('/become-creator', async (req, res) => {
       });
     }
 
+    /**
+     * Never charge someone twice for an activation they already completed.
+     *
+     * This used to set PAYMENT_METHOD_REQUIRED unconditionally, guarding only
+     * on the caller's *current* role. Anyone who had activated before and was
+     * not a creator at this moment — a role switched back and forth, an account
+     * restored — was silently downgraded: their verified payment method stayed
+     * in the table while their user row went back to "must pay", which hides
+     * the listing tools and pushes every seller page to the payment screen.
+     *
+     * The payment method table is the record of what was actually paid, so it
+     * decides. A returning creator resumes as active; a genuinely new one still
+     * has to pay.
+     */
+    const paid = await new Promise((resolve) => {
+      db.get(
+        `SELECT id FROM seller_payment_methods
+          WHERE pinit_id = ? AND status = 'verified' LIMIT 1`,
+        [existing.pinit_id],
+        (err, row) => resolve(err ? null : row),
+      );
+    });
+    const nextStatus = paid ? ONBOARDING.SELLER_ACTIVE : ONBOARDING.PAYMENT_METHOD_REQUIRED;
+
     db.run(
       `UPDATE users SET
         role = 'creator',
@@ -315,15 +339,22 @@ router.post('/become-creator', async (req, res) => {
         onboarding_step = 'protect_in_hub',
         seller_onboarding_status = ?
        WHERE pinit_id = ?`,
-      [ONBOARDING.PAYMENT_METHOD_REQUIRED, existing.pinit_id],
+      [nextStatus, existing.pinit_id],
       (err) => {
         if (err) return res.status(500).json({ error: err.message });
         db.get('SELECT * FROM users WHERE pinit_id = ?', [existing.pinit_id], (err2, updated) => {
           if (err2) return res.status(500).json({ error: err2.message });
+          // The next step follows the status decided above, so a returning
+          // creator is not sent to a payment screen for an activation they
+          // have already paid for.
           res.json({
-            message: 'Seller account created. Pay the ₹2,500 subscription to start listing.',
+            message: paid
+              ? 'Creator account restored. Your activation is already paid — you can list straight away.'
+              : 'Seller account created. Pay the ₹2,500 subscription to start listing.',
             user: publicUser(updated),
-            next_step: { action: 'verify_payment_method', path: '/exchange/seller/onboarding/payment' },
+            next_step: paid
+              ? { action: 'start_listing', path: '/exchange/seller/listings' }
+              : { action: 'verify_payment_method', path: '/exchange/seller/onboarding/payment' },
           });
         });
       },
