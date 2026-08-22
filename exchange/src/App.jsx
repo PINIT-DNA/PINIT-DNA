@@ -722,7 +722,7 @@ export default function App() {
         onConverted={(updated) => {
           setUser(updated);
           saveSession(updated);
-          setRoleNotice('Seller account created. Pay $25 to activate listing.');
+          setRoleNotice('Seller account created. Complete the activation payment to start listing.');
           navigate('seller_onboarding_payment');
         }}
       />

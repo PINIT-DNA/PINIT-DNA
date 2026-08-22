@@ -65,7 +65,7 @@ async function buildStatusResponse(user) {
     billing: getBillingPublicConfig(),
     message: complete
       ? 'Seller account verified.'
-      : 'Pay the $25 seller subscription to activate your seller account.',
+      : 'Pay the ₹2,500 seller subscription to activate your seller account.',
   };
 }
 
@@ -109,7 +109,7 @@ router.post('/payment-method', requireSeller, async (req, res) => {
         currency: SELLER_SUBSCRIPTION_CURRENCY,
         keyId: billing.keyId,
         mock: billing.mock,
-        description: 'Seller subscription — $25',
+        description: 'Seller subscription — ₹2,500',
         subscription_amount_cents: SELLER_SUBSCRIPTION_AMOUNT_CENTS,
       });
     }
@@ -137,7 +137,7 @@ router.post('/payment-method', requireSeller, async (req, res) => {
       notes: {
         purpose: 'seller_subscription',
         pinit_id: user.pinit_id,
-        amount_usd: '25',
+        amount_inr: '2500',
       },
     });
 
@@ -160,7 +160,7 @@ router.post('/payment-method', requireSeller, async (req, res) => {
       keyId: order.keyId,
       mock: order.mock,
       customerId,
-      description: 'Seller subscription — $25',
+      description: 'Seller subscription — ₹2,500',
       subscription_amount_cents: SELLER_SUBSCRIPTION_AMOUNT_CENTS,
     });
   } catch (err) {

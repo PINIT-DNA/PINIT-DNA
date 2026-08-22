@@ -3849,3 +3849,13 @@ input[type="range"]::-webkit-slider-thumb {
 .pay-hint--tight { margin-top: 10px; font-size: .76rem; }
 .pay-hint--mock { align-items: center; }
 .pay-hint--mock span { color: var(--text-muted); }
+
+/* Demo payment — deliberately the loudest banner in the checkout. A payment
+   that succeeds with no gateway looks identical to a real one, so the label
+   is the only thing distinguishing them. */
+.pay-hint--demo {
+  border-color: rgba(244, 63, 94, .40);
+  background: rgba(244, 63, 94, .12);
+}
+.pay-hint--demo > svg { color: #f0796d; }
+.pay-hint--demo strong { color: #f0796d; }

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Sparkles, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
+import { sellerSubscriptionLabel } from '../lib/money.js';
 
 export default function BecomeCreatorModal({ isOpen, onClose, user, onConverted }) {
   const [loading, setLoading] = useState(false);
@@ -56,7 +57,7 @@ export default function BecomeCreatorModal({ isOpen, onClose, user, onConverted 
             }}
           >
             <span style={{ color: '#e2e8f0', fontSize: '0.9rem' }}>Seller subscription</span>
-            <strong style={{ color: '#fff', fontSize: '1.25rem' }}>$25</strong>
+            <strong style={{ color: '#fff', fontSize: '1.25rem' }}>{sellerSubscriptionLabel()}</strong>
           </div>
           <div style={{ display: 'flex', gap: 8, color: 'var(--emerald)', fontSize: '0.82rem' }}>
             <Sparkles size={15} /> Create, protect, list and earn from creative assets.

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { canList, canPurchase, roleLabel, rolePositioning } from '../lib/roles.js';
 import { apiFetch } from '../lib/api.js';
+import { sellerSubscriptionLabel } from '../lib/money.js';
 
 /**
  * Notification preferences are kept on the device.
@@ -224,7 +225,7 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
 
                 <div className="creator-upgrade">
                   <div className="creator-upgrade__price">
-                    <span className="creator-upgrade__amount">$25</span>
+                    <span className="creator-upgrade__amount">{sellerSubscriptionLabel()}</span>
                     <span className="creator-upgrade__term">one-time activation</span>
                   </div>
                   <ul className="creator-upgrade__list">
@@ -250,7 +251,7 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
                   {upgrading ? 'Creating your Creator account…' : 'Continue to payment'}
                 </button>
                 <span className="settings-fine">
-                  Your account converts to a Creator account, then you complete the $25
+                  Your account converts to a Creator account, then you complete the {sellerSubscriptionLabel()}
                   activation. Listing stays disabled until that payment is verified.
                 </span>
               </section>

@@ -35,7 +35,29 @@ export function formatMoney(amount, code) {
   const n = Number(amount);
   if (!Number.isFinite(n)) return `${currencySymbol(code)}0`;
   const hasFraction = Math.abs(n % 1) > 0.005;
-  return `${currencySymbol(code)}${hasFraction ? n.toFixed(2) : String(Math.round(n))}`;
+  // Grouped thousands. A four-figure price rendered as ₹2500 or $2499 reads as
+  // a reference number rather than money, and the larger licence tiers are all
+  // four figures.
+  const body = hasFraction
+    ? n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : Math.round(n).toLocaleString();
+  return `${currencySymbol(code)}${body}`;
+}
+
+/**
+ * Seller subscription, in major units.
+ *
+ * Kept beside the formatter so every screen that quotes the activation fee
+ * reads the same number. It mirrors SELLER_SUBSCRIPTION_AMOUNT_PAISE on the
+ * server (250000 paise = ₹2,500); the server remains the authority for what is
+ * actually charged, this is only what is displayed before checkout opens.
+ */
+export const SELLER_SUBSCRIPTION_AMOUNT = 2500;
+export const SELLER_SUBSCRIPTION_CURRENCY = 'INR';
+
+/** "₹2,500" — the activation fee as shown to a creator. */
+export function sellerSubscriptionLabel() {
+  return formatMoney(SELLER_SUBSCRIPTION_AMOUNT, SELLER_SUBSCRIPTION_CURRENCY);
 }
 
 /** "From $49" style price teaser used on cards and detail pages. */

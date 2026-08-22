@@ -4,6 +4,7 @@ import { apiFetch } from '../lib/api.js';
 import { loadRazorpayScript, openRazorpayCheckout, CHECKOUT_CANCELLED } from '../lib/razorpay-checkout.js';
 import { sellerNeedsPaymentVerification } from '../lib/seller-onboarding.js';
 import TestPaymentHint from '../components/TestPaymentHint.jsx';
+import { sellerSubscriptionLabel } from '../lib/money.js';
 
 export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }) {
   const [status, setStatus] = useState(null);
@@ -68,8 +69,11 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
           keyId: created.keyId,
           orderId: created.orderId,
           amount: created.amount,
-          currency: created.currency || 'USD',
-          description: created.description || 'Seller subscription — $25',
+          // Fall back to the server's currency, not a hardcoded one. This said
+          // 'USD', which on an Indian Razorpay account drops UPI from the sheet
+          // and makes the charge an international transaction.
+          currency: created.currency || 'INR',
+          description: created.description || `Seller subscription — ${sellerSubscriptionLabel()}`,
           userName: user.display_name || user.name,
           userEmail: user.email,
           userContact: user.phone || user.contact || '',
@@ -179,7 +183,7 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
           }}
         >
           <span style={{ color: '#e2e8f0', fontSize: '0.9rem' }}>Seller subscription</span>
-          <strong style={{ color: '#fff', fontSize: '1.35rem' }}>$25</strong>
+          <strong style={{ color: '#fff', fontSize: '1.35rem' }}>{sellerSubscriptionLabel()}</strong>
         </div>
         {/* Which sandbox method actually works. This screen previously showed
             a note only when payments were simulated, so once real Razorpay
@@ -202,7 +206,7 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
           disabled={verifying}
           onClick={startVerification}
         >
-          {verifying ? 'Processing payment…' : 'Pay $25'}
+          {verifying ? 'Processing payment…' : `Pay ${sellerSubscriptionLabel()}`}
         </button>
       </div>
     </div>

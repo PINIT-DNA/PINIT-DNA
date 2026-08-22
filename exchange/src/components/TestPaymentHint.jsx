@@ -1,5 +1,5 @@
 import React from 'react';
-import { Info } from 'lucide-react';
+import { Info, AlertTriangle } from 'lucide-react';
 
 /**
  * What to pay with while Razorpay is in test mode.
@@ -22,6 +22,26 @@ import { Info } from 'lucide-react';
  */
 export default function TestPaymentHint({ billing, className = '' }) {
   if (!billing) return null;
+
+  /**
+   * Demo mode must be unmistakable.
+   *
+   * A payment that succeeds without a gateway looks identical to one that
+   * succeeded properly, so the only thing separating a demo from a real sale
+   * is what the screen says. This is deliberately the loudest state here.
+   */
+  if (billing.demo) {
+    return (
+      <p className={`pay-hint pay-hint--demo ${className}`}>
+        <AlertTriangle size={15} />
+        <span>
+          <strong>Demo payment — not a real transaction.</strong>
+          No card is entered and no gateway is contacted. The order, licence and
+          access below are created exactly as a paid one would be.
+        </span>
+      </p>
+    );
+  }
 
   // Simulated payments take no card at all, so card guidance would confuse.
   if (billing.mock) {

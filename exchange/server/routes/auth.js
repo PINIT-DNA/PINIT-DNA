@@ -321,7 +321,7 @@ router.post('/become-creator', async (req, res) => {
         db.get('SELECT * FROM users WHERE pinit_id = ?', [existing.pinit_id], (err2, updated) => {
           if (err2) return res.status(500).json({ error: err2.message });
           res.json({
-            message: 'Seller account created. Pay the $25 subscription to start listing.',
+            message: 'Seller account created. Pay the ₹2,500 subscription to start listing.',
             user: publicUser(updated),
             next_step: { action: 'verify_payment_method', path: '/exchange/seller/onboarding/payment' },
           });
