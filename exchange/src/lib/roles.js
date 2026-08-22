@@ -49,6 +49,7 @@ export const SELLER_ONLY_PAGES = new Set([
   'seller_assets',
   'seller_portfolio',
   'seller_listings',
+  'seller_asset_activity',
   'seller_sales',
   'seller_orders',
   'seller_earnings',

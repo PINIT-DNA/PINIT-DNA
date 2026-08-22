@@ -99,6 +99,7 @@ export const ROUTES = {
   seller_assets: { path: '/exchange/seller/assets', title: 'Pinit Exchange | My Assets', description: 'Your protected assets on Pinit Exchange.' },
   seller_portfolio: { path: '/exchange/seller/portfolio', title: 'Pinit Exchange | Portfolio', description: 'Your published creative portfolio on Pinit Exchange.' },
   seller_listings: { path: '/exchange/seller/listings', title: 'Pinit Exchange | Listings', description: 'Manage published listings on Pinit Exchange.' },
+  seller_asset_activity: { path: '/exchange/seller/asset-activity', title: 'Pinit Exchange | Asset activity', description: 'Full commercial activity for one protected asset.' },
   seller_sales: { path: '/exchange/seller/sales', title: 'Pinit Exchange | Sales', description: 'Sealed sales on Pinit Exchange.' },
   seller_orders: { path: '/exchange/seller/orders', title: 'Pinit Exchange | Orders', description: 'Seller orders on Pinit Exchange.' },
   seller_earnings: { path: '/exchange/seller/earnings', title: 'Pinit Exchange | Earnings', description: 'Creator earnings and payouts.' },

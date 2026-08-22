@@ -6,8 +6,9 @@ import { apiFetch } from '../../lib/api.js';
 import { listingPreviewUrl, listingStatusLabel, isListed } from '../../lib/listing-preview.js';
 import { isVideoListing } from '../../lib/media.js';
 import useSellerDesk from '../../hooks/useSellerDesk.js';
+import { formatMoney } from '../../lib/money.js';
 
-export default function SellerListings({ user, onOpenListFromHub, onSelectListing, onNavigate }) {
+export default function SellerListings({ user, onOpenListFromHub, onSelectListing, onNavigate, onOpenAssetActivity }) {
   const { listings, loading, refresh } = useSellerDesk(user);
   const [busyId, setBusyId] = useState('');
   const [filter, setFilter] = useState('all');
@@ -87,13 +88,16 @@ export default function SellerListings({ user, onOpenListFromHub, onSelectListin
                   <strong>{item.title}</strong>
                   <span>{item.listing_id} · {listingStatusLabel(item)} · {item.views || 0} views</span>
                 </div>
-                <div className="studio-list__price">${Number(item.price_personal || item.price_commercial || 0).toFixed(0)}</div>
+                <div className="studio-list__price">{formatMoney(Number(item.price_personal || item.price_commercial || 0))}</div>
                 <div className="studio-list__actions">
                   <button type="button" className="btn-secondary" onClick={() => onSelectListing?.(item.listing_id)}>
                     View
                   </button>
-                  <button type="button" className="btn-secondary" onClick={() => onNavigate?.('seller_analytics')}>
-                    Analytics
+                  {/* Opens Asset 360 for THIS asset. It previously went to the
+                      generic analytics page, which showed portfolio-wide
+                      numbers regardless of which listing you clicked. */}
+                  <button type="button" className="btn-secondary" onClick={() => onOpenAssetActivity?.(item.asset_id)}>
+                    Activity
                   </button>
                   {listed ? (
                     <button

@@ -295,4 +295,129 @@ router.get('/profile/:pinitId', (req, res) => {
   );
 });
 
+/**
+ * GET /api/creator/assets/:assetId/activity — Asset 360, Exchange side.
+ *
+ * The engagement events Exchange emits (CART_ADDED, WISHLIST_ADDED, REVIEWED,
+ * DOWNLOADED, PRICE_CHANGED…) are recorded on Hub's canonical timeline, but a
+ * creator standing in Exchange had no way to see any of it. This assembles the
+ * commercial picture from Exchange's own rows, all keyed on the canonical
+ * Asset.id, so it needs no Hub round-trip and no new tables.
+ *
+ * Two rules it does not bend:
+ *  - Ownership is proved by the listing, not by the caller. A creator can only
+ *    read an asset they publish.
+ *  - Counts are counts. Every figure below is a COUNT or SUM over real rows —
+ *    nothing is seeded, defaulted or estimated. An asset with no activity
+ *    reports zeroes, which is the honest answer.
+ *  - No buyer PII. Purchases are represented by public Pinit IDs only; buyer
+ *    name, email and organisation never leave the server here.
+ */
+router.get('/assets/:assetId/activity', requireSeller, (req, res) => {
+  const assetId = String(req.params.assetId || '').trim();
+  if (!assetId) return res.status(400).json({ error: 'assetId required' });
+
+  const pinitId = req.exchangeUser?.pinit_id;
+  const ownerScope = sellerMatchClause('l.pinit_id', pinitId);
+
+  // Ownership first. A non-owner and a non-existent asset are deliberately
+  // indistinguishable — 404 either way, so this cannot be used to probe which
+  // asset ids exist.
+  // sellerMatchClause returns a leading " AND ...", so it appends directly to
+  // a WHERE that already has a condition. Stripping the AND by hand would
+  // break silently if that helper ever changed shape.
+  db.get(
+    `SELECT l.* FROM listings l WHERE l.asset_id = ?${ownerScope.sql}`,
+    [assetId, ...ownerScope.params],
+    (err, listing) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!listing) return res.status(404).json({ error: 'Asset not found' });
+
+      const one = (sql, params) => new Promise((resolve) => {
+        db.get(sql, params, (e, row) => resolve(e ? {} : (row || {})));
+      });
+      const many = (sql, params) => new Promise((resolve) => {
+        db.all(sql, params, (e, rows) => resolve(e ? [] : (rows || [])));
+      });
+
+      Promise.all([
+        one(`SELECT COUNT(*) AS n,
+                    COALESCE(SUM(price_paid), 0)  AS gross,
+                    COALESCE(SUM(platform_fee), 0) AS fees,
+                    COALESCE(SUM(creator_net), 0)  AS net,
+                    COALESCE(SUM(download_count), 0) AS downloads
+               FROM orders_sealed WHERE asset_id = ?`, [assetId]),
+        one(`SELECT COUNT(*) AS n FROM wishlist   WHERE asset_id = ?`, [assetId]),
+        one(`SELECT COUNT(*) AS n FROM cart_items WHERE asset_id = ?`, [assetId]),
+        one(`SELECT COUNT(*) AS n, AVG(rating) AS avg FROM reviews WHERE asset_id = ?`, [assetId]),
+        one(`SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amount FROM refunds WHERE asset_id = ?`, [assetId]),
+        many(`SELECT seal_id, license_tier, price_paid, creator_net, currency,
+                     status, payment_status, license_status, delivery_status,
+                     download_count, download_limit, sealed_at, buyer_pinit_id
+                FROM orders_sealed WHERE asset_id = ?
+               ORDER BY sealed_at DESC LIMIT 20`, [assetId]),
+        many(`SELECT rating, comment, buyer_pinit_id, created_at
+                FROM reviews WHERE asset_id = ? ORDER BY created_at DESC LIMIT 10`, [assetId]),
+      ]).then(([sales, wish, cart, rev, refund, recentSales, recentReviews]) => {
+        // Every aggregate is coerced with Number() before use. The Postgres
+        // driver returns COUNT/SUM as strings, so comparisons and arithmetic
+        // on the raw values are unreliable.
+        const grossNum = Number(sales.gross || 0);
+        const salesCount = Number(sales.n || 0);
+        const viewsNum = Number(listing.views || 0);
+        const reviewCount = Number(rev.n || 0);
+
+        res.json({
+          asset_id: assetId,
+          listing: {
+            listing_id: listing.listing_id,
+            title: listing.title,
+            vertical: listing.vertical,
+            status: listing.status,
+            badge_tier: listing.badge_tier,
+            created_at: listing.created_at,
+            price_personal: listing.price_personal,
+            price_commercial: listing.price_commercial,
+            price_exclusive: listing.price_exclusive,
+            price_enterprise: listing.price_enterprise,
+          },
+          engagement: {
+            views: viewsNum,
+            saves: Number(listing.saves || 0),
+            wishlisted_now: Number(wish.n || 0),
+            in_carts_now: Number(cart.n || 0),
+            // Real ratio of sales to views. Null rather than 0 when there is
+            // nothing to divide by — "no data yet" is not "0% conversion".
+            conversion_rate: viewsNum > 0 ? Number(((salesCount / viewsNum) * 100).toFixed(2)) : null,
+          },
+          commerce: {
+            sales_count: salesCount,
+            gross_revenue: Math.round(grossNum * 100) / 100,
+            platform_fees: Math.round(Number(sales.fees || 0) * 100) / 100,
+            creator_net: Math.round(Number(sales.net || 0) * 100) / 100,
+            refunds_count: Number(refund.n || 0),
+            refunds_amount: Math.round(Number(refund.amount || 0) * 100) / 100,
+          },
+          delivery: {
+            total_downloads: Number(sales.downloads || 0),
+          },
+          reviews: {
+            count: reviewCount,
+            // Null when there are no reviews — never a defaulted score.
+            //
+            // Guarded on Number(), not on the raw value: the Postgres driver
+            // returns COUNT(*) as the string "0", which is truthy, so a
+            // truthiness check reported an average of 0 stars for an asset
+            // with no reviews at all.
+            average: reviewCount > 0 ? Number(Number(rev.avg || 0).toFixed(2)) : null,
+            recent: recentReviews,
+          },
+          // Buyer identity limited to the public Pinit ID.
+          recent_sales: recentSales,
+        });
+      });
+    },
+  );
+});
+
 export default router;

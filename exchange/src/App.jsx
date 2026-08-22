@@ -25,6 +25,7 @@ import SellerAccountNav, { isSellerAccountPage } from './components/SellerAccoun
 import SellerAssets from './pages/seller/SellerAssets.jsx';
 import SellerPortfolio from './pages/seller/SellerPortfolio.jsx';
 import SellerListings from './pages/seller/SellerListings.jsx';
+import SellerAssetActivity from './pages/seller/SellerAssetActivity.jsx';
 import SellerSales from './pages/seller/SellerSales.jsx';
 import SellerEarnings from './pages/seller/SellerEarnings.jsx';
 import SellerReviews from './pages/seller/SellerReviews.jsx';
@@ -82,6 +83,8 @@ export default function App() {
   // filtered to that vertical. Carries a timestamp so selecting the same
   // category twice still re-applies it.
   const [collectionVertical, setCollectionVertical] = useState(null);
+  // Which asset the creator opened Asset 360 for.
+  const [activityAssetId, setActivityAssetId] = useState(null);
   // Search term handed down from the header. Carries a timestamp so repeating
   // the same term still re-triggers the search rather than being a no-op.
   const [headerSearch, setHeaderSearch] = useState(null);
@@ -540,6 +543,18 @@ export default function App() {
             onOpenListFromHub={openListFromHub}
             onSelectListing={handleSelectListing}
             onNavigate={navigate}
+            onOpenAssetActivity={(assetId) => {
+              setActivityAssetId(assetId);
+              navigate('seller_asset_activity');
+            }}
+          />
+        )}
+        {activePage === 'seller_asset_activity' && (
+          <SellerAssetActivity
+            user={user}
+            assetId={activityAssetId}
+            onBack={() => navigate('seller_listings')}
+            onSelectListing={handleSelectListing}
           />
         )}
         {activePage === 'seller_assets' && (
