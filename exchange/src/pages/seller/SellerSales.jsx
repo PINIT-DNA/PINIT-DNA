@@ -3,6 +3,7 @@ import { BadgeDollarSign, Receipt } from 'lucide-react';
 import StudioPage from '../../components/workspace/StudioPage.jsx';
 import EmptyState from '../../components/EmptyState.jsx';
 import useSellerDesk from '../../hooks/useSellerDesk.js';
+import { formatMoney } from '../../lib/money.js';
 
 export default function SellerSales({ user, mode = 'sales' }) {
   const { sales, loading } = useSellerDesk(user);
@@ -44,8 +45,10 @@ export default function SellerSales({ user, mode = 'sales' }) {
                   <td>{row.seal_id || '—'}</td>
                   <td>{row.listing_id || row.asset_id || '—'}</td>
                   <td>{row.license_tier || 'commercial'}</td>
-                  <td>${Number(row.price_paid || 0).toFixed(2)}</td>
-                  <td>${Number(row.creator_net || 0).toFixed(2)}</td>
+                  {/* Formatted in the currency the order was actually charged
+                      in. A hardcoded "$" showed INR takings as dollars. */}
+                  <td>{formatMoney(row.price_paid || 0, row.currency)}</td>
+                  <td>{formatMoney(row.creator_net || 0, row.currency)}</td>
                   <td>{row.sealed_at ? new Date(row.sealed_at).toLocaleDateString() : '—'}</td>
                 </tr>
               ))}
