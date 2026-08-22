@@ -35,6 +35,25 @@ export default function TestPaymentHint({ billing, className = '' }) {
 
   if (!billing.testMode) return null;
 
+  /**
+   * Sandbox credentials are a development aid, not product copy.
+   *
+   * Even on a test key, a deployed build is something customers and reviewers
+   * look at, and printing card numbers on a payment screen there reads as
+   * either a real instruction or a mistake. The panel is therefore limited to
+   * local development builds; a deployed test-mode build shows the neutral
+   * banner below instead, which states the fact without handing out
+   * credentials to copy.
+   */
+  if (!import.meta.env.DEV) {
+    return (
+      <p className={`pay-hint pay-hint--mock ${className}`}>
+        <Info size={14} />
+        <span>Test mode — this is a sandbox payment and no live charge is made.</span>
+      </p>
+    );
+  }
+
   return (
     <div className={`pay-hint ${className}`}>
       <Info size={14} />

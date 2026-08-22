@@ -1,7 +1,7 @@
 import { formatMoney, setPlatformCurrency } from '../lib/money.js';
 import React, { useState, useEffect, useRef } from 'react';
 import { X, ShieldCheck, Award, Download } from 'lucide-react';
-import { payAndSeal } from '../lib/razorpay-checkout.js';
+import { payAndSeal, CHECKOUT_CANCELLED } from '../lib/razorpay-checkout.js';
 import { apiFetch } from '../lib/api.js';
 import { canPurchase } from '../lib/roles.js';
 import TestPaymentHint from './TestPaymentHint.jsx';
@@ -25,6 +25,7 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
   const [loading, setLoading] = useState(false);
   const [completedOrder, setCompletedOrder] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [cancelMsg, setCancelMsg] = useState('');
   // Licence terms must be accepted before payment is taken. Unchecked by
   // default and reset on every open — never pre-consented.
   const [acceptedTerms, setAcceptedTerms] = useState(false);
@@ -39,6 +40,7 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
     }
     setCompletedOrder(null);
     setErrorMsg('');
+    setCancelMsg('');
     setAcceptedTerms(false);
     const defaults = defaultBuyer(user);
     setBuyerName(defaults.name);
@@ -86,12 +88,22 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
         description: `${listing.title} · ${tier} license`,
         userName: buyer_name,
         userEmail: buyer_email,
+        userContact: user?.phone || user?.contact || '',
       });
 
       setCompletedOrder(verified.order);
       onOrderCompleted?.(verified.order);
     } catch (err) {
-      setErrorMsg(err.message);
+      // A buyer who closed the sheet has not failed at anything, and nothing
+      // was charged. Saying "Payment cancelled" in red implied a problem with
+      // their card and left them unsure whether they had been billed.
+      if (err.code === CHECKOUT_CANCELLED) {
+        setErrorMsg('');
+        setCancelMsg('Payment cancelled — nothing was charged. Your selection is still here.');
+      } else {
+        setCancelMsg('');
+        setErrorMsg(err.message);
+      }
       autoPayRef.current = false;
     } finally {
       setLoading(false);
@@ -224,6 +236,11 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
         ) : (
           <form onSubmit={handleProcessCheckout} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
             <div className="modal-body">
+              {cancelMsg && (
+                <div style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)', padding: '10px', borderRadius: '6px', marginBottom: '14px', fontSize: '0.85rem' }}>
+                  {cancelMsg}
+                </div>
+              )}
               {errorMsg && (
                 <div style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', padding: '10px', borderRadius: '6px', marginBottom: '14px', fontSize: '0.85rem' }}>
                   {errorMsg}

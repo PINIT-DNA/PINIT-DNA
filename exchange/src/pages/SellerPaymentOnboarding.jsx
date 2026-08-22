@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ShieldCheck, CreditCard, ArrowRight, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
-import { loadRazorpayScript, openRazorpayCheckout } from '../lib/razorpay-checkout.js';
+import { loadRazorpayScript, openRazorpayCheckout, CHECKOUT_CANCELLED } from '../lib/razorpay-checkout.js';
 import { sellerNeedsPaymentVerification } from '../lib/seller-onboarding.js';
 import TestPaymentHint from '../components/TestPaymentHint.jsx';
 
@@ -10,6 +10,7 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
   const [loading, setLoading] = useState(true);
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
   const loadStatus = async () => {
     if (!user?.pinit_id) return;
@@ -71,6 +72,7 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
           description: created.description || 'Seller subscription — $25',
           userName: user.display_name || user.name,
           userEmail: user.email,
+          userContact: user.phone || user.contact || '',
         });
         razorpay_order_id = paid.razorpay_order_id;
         razorpay_payment_id = paid.razorpay_payment_id;
@@ -95,7 +97,16 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
       onVerified?.(verify.data?.user);
       setStatus(verify.data);
     } catch (e) {
-      setError(e.message || 'Payment verification failed');
+      // Closing the Razorpay sheet is a decision, not a fault. Reporting it in
+      // red next to "Verification failed" made a deliberate exit look like
+      // something had gone wrong with the payment.
+      if (e.code === CHECKOUT_CANCELLED) {
+        setError('');
+        setNotice('Payment cancelled — your account is unchanged. You can pay whenever you are ready.');
+      } else {
+        setNotice('');
+        setError(e.message || 'Payment verification failed');
+      }
       await loadStatus();
     } finally {
       setVerifying(false);
@@ -175,6 +186,11 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
             test mode was switched on it went silent — leaving a creator to
             guess, and the obvious card is the one that fails. */}
         <TestPaymentHint billing={status?.billing} className="pay-hint--stack" />
+        {notice && (
+          <div style={{ color: 'var(--text-muted)', fontSize: '0.88rem', marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
+            <RefreshCw size={14} /> {notice}
+          </div>
+        )}
         {error && (
           <div style={{ color: '#f87171', fontSize: '0.9rem', marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
             <RefreshCw size={14} /> {error}
