@@ -255,9 +255,8 @@ export default function App() {
           body: JSON.stringify({ hub_list_token: hubList }),
         });
         if (res.status === 403) {
-          setRoleNotice('Buyer Hub assets stay private. Become a Creator to list on Exchange.');
-          setBecomeCreatorOpen(true);
-          navigate('marketplace', { replace: true });
+          setRoleNotice('Buyer Hub assets stay private. Set up a Creator account in Account settings to list.');
+          navigate('settings', { replace: true });
         } else if (res.ok) {
           const data = await res.json();
           sessionStorage.setItem('pinit_hub_list_token', hubList);
@@ -298,12 +297,23 @@ export default function App() {
     }
   };
 
+  /**
+   * Becoming a Creator is a deliberate, paid decision, so it starts in one
+   * place: Account settings.
+   *
+   * This used to open an upgrade modal on top of whatever the buyer was doing —
+   * clicking Sell, opening a listing page, or hitting a 403 from Hub. Being
+   * asked to buy a subscription because you clicked the wrong nav item reads as
+   * a sales prompt, not an account setting. A buyer is now told where the
+   * option lives and taken there.
+   */
   const openBecomeCreator = () => {
     if (!user) {
       openAuth({ mode: 'signup', intent: 'creator' });
       return;
     }
-    setBecomeCreatorOpen(true);
+    setRoleNotice('Creator accounts are set up in Account settings.');
+    navigate('settings');
   };
 
   const openListFromHub = (assetId) => {
@@ -312,8 +322,8 @@ export default function App() {
       return;
     }
     if (!canList(user)) {
-      setRoleNotice('Buyer accounts keep Hub assets private. Become a Creator to list.');
-      setBecomeCreatorOpen(true);
+      setRoleNotice('Buyer accounts keep Hub assets private. Set up a Creator account in Account settings to list.');
+      navigate('settings');
       return;
     }
     setPreselectedAssetId(assetId || null);
@@ -368,9 +378,8 @@ export default function App() {
         setRoleNotice('Verify a payment method to access seller tools.');
         navigate('seller_onboarding_payment', { replace: true });
       } else {
-        setRoleNotice('Listing pages are for creator accounts.');
-        setBecomeCreatorOpen(true);
-        navigate('home', { replace: true });
+        setRoleNotice('Listing pages are for Creator accounts. You can set one up in Account settings.');
+        navigate('settings', { replace: true });
       }
     }
   }, [activePage, user, sessionReady]);

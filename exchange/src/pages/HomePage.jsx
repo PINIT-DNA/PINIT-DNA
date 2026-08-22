@@ -19,6 +19,7 @@ export default function HomePage({ onNavigate, onOpenAuth, user, onSelectListing
   const [query, setQuery] = useState('');
   const [savedCount, setSavedCount] = useState(0);
   const [purchaseCount, setPurchaseCount] = useState(0);
+  const [cartCount, setCartCount] = useState(0);
 
   useEffect(() => {
     (async () => {
@@ -34,6 +35,10 @@ export default function HomePage({ onNavigate, onOpenAuth, user, onSelectListing
       const key = user.pinit_id;
       const wish = await apiFetch(`/api/commerce/wishlist?buyer_key=${encodeURIComponent(key)}`);
       if (wish.ok) setSavedCount((wish.data.items || []).length);
+      // Real cart count. The tile that sat here previously showed the word
+      // "Open" regardless of whether the cart had anything in it.
+      const cart = await apiFetch(`/api/commerce/cart?buyer_key=${encodeURIComponent(key)}`);
+      if (cart.ok) setCartCount(Number(cart.data?.count || 0));
       // Scoped to the signed-in session server-side; no identity in the query.
       const lic = await apiFetch('/api/orders/my-licenses');
       if (lic.ok) setPurchaseCount((lic.data.licenses || []).length);
@@ -107,38 +112,48 @@ export default function HomePage({ onNavigate, onOpenAuth, user, onSelectListing
         <HubTrustBadge compact onOpenProvenance={() => onNavigate('trust')} />
       </section>
 
+      {/*
+        Only real counts get a figure.
+
+        This block previously rendered six identical KPI cards, four of which
+        put a word where the number goes — "Cart: Open", "Requirements: Briefs",
+        "Payment methods: Secure", "Notifications: Inbox". A large bold value in
+        a stat card reads as a measurement, so those four looked like metrics
+        while measuring nothing. Purchases and saves are genuine counts and keep
+        their figure; the rest are navigation, and now look like navigation.
+      */}
       {user && (
-        <section className="studio-kpi" style={{ marginBottom: 32 }}>
-          <button type="button" className="glass-panel studio-kpi__card" onClick={() => onNavigate('my_licenses')}>
-            <span>My Purchases</span>
-            <strong>{purchaseCount}</strong>
-            <em>Licensed assets</em>
-          </button>
-          <button type="button" className="glass-panel studio-kpi__card" onClick={() => onNavigate('wishlist')}>
-            <span>Wishlist</span>
-            <strong>{savedCount}</strong>
-            <em>Saved items</em>
-          </button>
-          <button type="button" className="glass-panel studio-kpi__card" onClick={() => onNavigate('cart')}>
-            <span>Cart</span>
-            <strong>Open</strong>
-            <em>Checkout when ready</em>
-          </button>
-          <button type="button" className="glass-panel studio-kpi__card" onClick={() => onNavigate('requirements')}>
-            <span>Requirements</span>
-            <strong>Briefs</strong>
-            <em>Post a project</em>
-          </button>
-          <button type="button" className="glass-panel studio-kpi__card" onClick={() => onNavigate('buyer_payments')}>
-            <span>Payment methods</span>
-            <strong>Secure</strong>
-            <em>Provider-tokenized only</em>
-          </button>
-          <button type="button" className="glass-panel studio-kpi__card" onClick={() => onNavigate('buyer_notifications')}>
-            <span>Notifications</span>
-            <strong>Inbox</strong>
-            <em>Purchases and saves</em>
-          </button>
+        <section className="buyer-summary" aria-label="Your account">
+          <div className="buyer-stats">
+            <button type="button" className="ex-card buyer-stat" onClick={() => onNavigate('my_licenses')}>
+              <span className="buyer-stat__label">Purchases</span>
+              <strong className="buyer-stat__value">{purchaseCount}</strong>
+              <em className="buyer-stat__hint">Licensed assets</em>
+            </button>
+            <button type="button" className="ex-card buyer-stat" onClick={() => onNavigate('wishlist')}>
+              <span className="buyer-stat__label">Saved</span>
+              <strong className="buyer-stat__value">{savedCount}</strong>
+              <em className="buyer-stat__hint">On your wishlist</em>
+            </button>
+            <button type="button" className="ex-card buyer-stat" onClick={() => onNavigate('cart')}>
+              <span className="buyer-stat__label">In cart</span>
+              <strong className="buyer-stat__value">{cartCount ?? 0}</strong>
+              <em className="buyer-stat__hint">Ready to checkout</em>
+            </button>
+          </div>
+
+          <nav className="buyer-links" aria-label="Account shortcuts">
+            {[
+              ['requirements', 'Post a brief'],
+              ['buyer_payments', 'Payment methods'],
+              ['buyer_notifications', 'Notifications'],
+              ['settings', 'Account settings'],
+            ].map(([page, label]) => (
+              <button key={page} type="button" className="buyer-link" onClick={() => onNavigate(page)}>
+                {label} <ArrowRight size={14} />
+              </button>
+            ))}
+          </nav>
         </section>
       )}
 

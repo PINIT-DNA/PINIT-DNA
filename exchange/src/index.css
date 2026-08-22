@@ -3731,3 +3731,79 @@ input[type="range"]::-webkit-slider-thumb {
 .twrap-scroll { overflow-x: auto; }
 .a360-foot { margin-top: 22px; }
 @media (max-width: 640px) { .a360-kpis { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); } }
+
+/* ==========================================================================
+   Buyer account summary — real counts, then plain shortcuts
+   Only measurable things get a figure. Navigation looks like navigation.
+   ========================================================================== */
+.buyer-summary { margin-bottom: 34px; }
+.buyer-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.buyer-stat {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 16px 18px; text-align: left; font: inherit; cursor: pointer;
+  transition: border-color .16s ease, transform .16s ease;
+}
+.buyer-stat:hover { border-color: color-mix(in srgb, var(--primary) 45%, transparent); transform: translateY(-1px); }
+.buyer-stat:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.buyer-stat__label {
+  font-size: 11px; font-weight: 600; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.buyer-stat__value {
+  font-size: 1.85rem; font-weight: 800; line-height: 1;
+  color: var(--text-main); font-variant-numeric: tabular-nums;
+}
+.buyer-stat__hint { font-style: normal; font-size: 11.5px; color: var(--text-dim); }
+
+.buyer-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.buyer-link {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 14px; border-radius: var(--radius-full);
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, .03);
+  color: var(--text-muted);
+  font: inherit; font-size: .85rem; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+  transition: color .16s ease, border-color .16s ease, background .16s ease;
+}
+.buyer-link:hover {
+  color: var(--text-main);
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  background: rgba(255, 255, 255, .06);
+}
+.buyer-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.buyer-link > svg { opacity: .6; }
+
+/* ---- Become a Creator, in Account settings ------------------------------- */
+.creator-upgrade {
+  display: flex; flex-wrap: wrap; gap: 22px; align-items: flex-start;
+  padding: 20px 22px; margin-bottom: 20px;
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, .2);
+}
+.creator-upgrade__price { display: flex; flex-direction: column; gap: 2px; flex: none; }
+.creator-upgrade__amount { font-size: 2rem; font-weight: 800; color: var(--emerald); line-height: 1; }
+.creator-upgrade__term { font-size: 11.5px; color: var(--text-dim); }
+.creator-upgrade__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; min-width: 240px; flex: 1; }
+.creator-upgrade__list li {
+  position: relative; padding-left: 20px;
+  font-size: .875rem; color: var(--text-muted); line-height: 1.45;
+}
+.creator-upgrade__list li::before {
+  content: ''; position: absolute; left: 3px; top: .55em;
+  width: 7px; height: 7px; border-radius: 2px;
+  background: var(--emerald); transform: rotate(45deg);
+}
+
+@supports not (color: color-mix(in srgb, red 50%, transparent)) {
+  .buyer-stat:hover, .buyer-link:hover { border-color: var(--primary); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .buyer-stat, .buyer-link { transition: none; }
+  .buyer-stat:hover { transform: none; }
+}

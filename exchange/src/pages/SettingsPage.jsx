@@ -49,6 +49,36 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
 
   const biometricVerified = Boolean(user?.biometric_verified);
 
+  const [upgrading, setUpgrading] = useState(false);
+  const [upgradeError, setUpgradeError] = useState('');
+
+  /**
+   * Buyer -> Creator, started deliberately from here.
+   *
+   * The conversion itself only changes the role; it does NOT grant listing
+   * rights. The server sets seller_onboarding_status to PAYMENT_METHOD_REQUIRED,
+   * and every seller route stays blocked until the $25 activation is verified.
+   * So this button creates the account and hands off to payment — it never
+   * short-circuits the gate.
+   */
+  const startCreatorUpgrade = async () => {
+    if (!user?.pinit_id) return;
+    setUpgrading(true);
+    setUpgradeError('');
+    const { ok, data, error } = await apiFetch('/api/auth/become-creator', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pinit_id: user.pinit_id }),
+    });
+    setUpgrading(false);
+    if (!ok) {
+      setUpgradeError(error || 'Could not start the Creator upgrade. Please try again.');
+      return;
+    }
+    onUserUpdated?.(data.user);
+    onNavigate?.('seller_onboarding_payment');
+  };
+
   const toggleNotify = (id) => {
     setNotify((prev) => {
       const next = { ...prev, [id]: !prev[id] };
@@ -108,6 +138,7 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
     : [
       { id: 'account', label: 'Account profile', icon: User },
       { id: 'payments', label: 'Payment methods', icon: CreditCard },
+      { id: 'creator', label: 'Become a Creator', icon: Store },
       { id: 'notifications', label: 'Notifications', icon: Bell },
       { id: 'security', label: 'Security & sessions', icon: Lock },
     ];
@@ -179,6 +210,49 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
                   <input id="set-pid" type="text" className="form-input settings-readonly" value={user?.pinit_id || ''} readOnly />
                   <span className="settings-fine">Shared identity between Pinit HUB Vault and Pinit Exchange.</span>
                 </div>
+              </section>
+            )}
+
+            {activeTab === 'creator' && (
+              <section>
+                <h2 className="ex-h2 settings-h">Become a Creator</h2>
+                <p className="settings-body">
+                  A Creator account lets you list assets you have protected in Pinit HUB and
+                  earn from licences. Buying and selling stay separate — a Creator account
+                  cannot purchase on Exchange.
+                </p>
+
+                <div className="creator-upgrade">
+                  <div className="creator-upgrade__price">
+                    <span className="creator-upgrade__amount">$25</span>
+                    <span className="creator-upgrade__term">one-time activation</span>
+                  </div>
+                  <ul className="creator-upgrade__list">
+                    <li>List Hub-protected assets on the marketplace</li>
+                    <li>Set your own Personal, Commercial, Exclusive and Enterprise pricing</li>
+                    <li>Keep 85% of every licence as creator net</li>
+                    <li>Per-asset activity, sales and earnings reporting</li>
+                  </ul>
+                </div>
+
+                {upgradeError && (
+                  <div className="ex-alert ex-alert--error settings-alert" role="alert">
+                    <AlertCircle size={18} /> <span>{upgradeError}</span>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  className="ex-btn ex-btn--primary"
+                  disabled={upgrading}
+                  onClick={startCreatorUpgrade}
+                >
+                  {upgrading ? 'Creating your Creator account…' : 'Continue to payment'}
+                </button>
+                <span className="settings-fine">
+                  Your account converts to a Creator account, then you complete the $25
+                  activation. Listing stays disabled until that payment is verified.
+                </span>
               </section>
             )}
 
