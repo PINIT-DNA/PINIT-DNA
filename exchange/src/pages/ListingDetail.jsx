@@ -10,6 +10,7 @@ import { isVideoListing } from '../lib/media.js';
 import HubTrustBadge from '../components/HubTrustBadge.jsx';
 import ProvenanceDrawer from '../components/ProvenanceDrawer.jsx';
 import { apiFetch, verifiedLabel } from '../lib/api.js';
+import { recordListingView } from '../lib/recently-viewed.js';
 import { canPurchase, resolveExchangeAccount } from '../lib/roles.js';
 import { samePinitIdentity } from '../lib/pinit-identity.js';
 
@@ -33,6 +34,10 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
       fetchReviews();
       setMediaError('');
       setTab('overview');
+      // Device-local history for the Collections "Recently viewed" tab. The
+      // server-side view counter is an aggregate and cannot answer "what did
+      // I look at", so this is kept per-device and labelled as such.
+      recordListingView(listingId);
     }
   }, [listingId]);
 

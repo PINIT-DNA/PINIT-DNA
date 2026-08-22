@@ -15,9 +15,9 @@ export default function BuyerNotifications({ user, onNavigate }) {
       const notes = [];
       const key = buyerKey(user) || localStorage.getItem('pinit_guest_buyer');
       if (user?.pinit_id) {
-        const params = new URLSearchParams({ pinit_id: user.pinit_id });
-        if (user.email) params.set('email', user.email);
-        const licenses = await fetch(`/api/orders/my-licenses?${params}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+        // Scoped to the signed-in session server-side; no identity in the query.
+        const licRes = await apiFetch('/api/orders/my-licenses');
+        const licenses = licRes.ok ? licRes.data : null;
         (licenses?.licenses || []).slice(0, 8).forEach((row) => {
           notes.push({
             id: row.seal_id || row.listing_id,

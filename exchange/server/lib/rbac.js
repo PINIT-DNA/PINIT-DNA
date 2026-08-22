@@ -8,6 +8,24 @@ import {
   buyerDeniedSellerAction,
 } from './roles.js';
 import { sellerOnboardingBlocked } from './seller-onboarding.js';
+import { verifiedPinitIdFromReq, isSessionSigningEnabled } from './session-token.js';
+
+/**
+ * Strict mode rejects any request that has not proven its identity with a
+ * signed session token.
+ *
+ * It is off by default on purpose. The frontend and the API deploy separately,
+ * so a backend that demanded tokens before the new frontend shipped would sign
+ * every existing user out mid-session. The rollout is: deploy both halves with
+ * this off (tokens get minted and sent), then set EXCHANGE_STRICT_AUTH=1 to
+ * close the legacy path for good.
+ *
+ * Endpoints that return personal data do NOT wait for this flag — see
+ * requireVerifiedIdentity below. Those are strict from today.
+ */
+function strictAuthEnabled() {
+  return String(process.env.EXCHANGE_STRICT_AUTH || '').trim() === '1';
+}
 
 export async function findUserByPinitId(pinitId) {
   const id = String(pinitId || '').trim();
@@ -23,7 +41,8 @@ export async function findUserByPinitId(pinitId) {
   );
 }
 
-export function pinitIdFromReq(req) {
+/** The Pinit ID the client merely *claims*, from body, query or header. */
+function claimedPinitIdFromReq(req) {
   return String(
     req.body?.pinit_id ||
       req.body?.buyer_pinit_id ||
@@ -33,6 +52,51 @@ export function pinitIdFromReq(req) {
       req.headers['x-pinit-id'] ||
       '',
   ).trim();
+}
+
+/**
+ * Resolve who this request is, and how much that is worth.
+ *
+ * `verified` is true only when a signed session token proved it. A claimed id
+ * is still returned during the transition so existing sessions keep working,
+ * but callers that expose personal data must check `verified` themselves.
+ */
+export function resolveIdentity(req) {
+  const verified = verifiedPinitIdFromReq(req);
+  if (verified) return { pinitId: verified, verified: true };
+  return { pinitId: claimedPinitIdFromReq(req), verified: false };
+}
+
+/**
+ * Back-compatible accessor used by existing call sites.
+ *
+ * Prefers the identity proven by a session token and falls back to the claimed
+ * one. In strict mode the claimed value is discarded entirely.
+ */
+export function pinitIdFromReq(req) {
+  const { pinitId, verified } = resolveIdentity(req);
+  if (verified) return pinitId;
+  return strictAuthEnabled() ? '' : pinitId;
+}
+
+/**
+ * Guard for endpoints that return or act on personal data — orders, licences,
+ * invoices, profiles. These never accept a claimed id, regardless of the
+ * transition flag, because reading someone's purchase history by typing their
+ * public Pinit ID into a query string was the actual leak.
+ */
+export function requireVerifiedIdentity(req, res, next) {
+  const { pinitId, verified } = resolveIdentity(req);
+  if (verified && pinitId) {
+    req.verifiedPinitId = pinitId;
+    return next();
+  }
+  return res.status(401).json({
+    error: 'SESSION_REQUIRED',
+    message: isSessionSigningEnabled()
+      ? 'Sign in again to view this. Your session has expired or is missing.'
+      : 'Session signing is not configured on this server.',
+  });
 }
 
 function maybePinitFromBuyerKey(req) {

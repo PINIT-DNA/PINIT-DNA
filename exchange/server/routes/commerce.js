@@ -9,7 +9,7 @@ import {
   toPaise,
 } from '../lib/pricing.js';
 import { createRazorpayOrder, isPaymentMockMode } from '../razorpay.js';
-import { forbidSellerCommerce, requireBuyer, requireSeller, pinitIdFromReq } from '../lib/rbac.js';
+import { forbidSellerCommerce, requireBuyer, requireSeller, requireVerifiedIdentity, pinitIdFromReq } from '../lib/rbac.js';
 import { exchangePreviewUrl, PLACEHOLDER_PREVIEW } from '../lib/preview-url.js';
 import { createLicensedShareOnHub } from '../hub-client.js';
 import { emitForListing, emitForSeal } from '../lib/asset-activity.js';
@@ -468,11 +468,14 @@ router.post('/coupons/validate', (req, res) => {
  * then Hub creates the ShareLink — Hub owns custody and all tracking, so no
  * share/tracking state is duplicated here.
  */
-router.post('/purchases/:sealId/share', (req, res) => {
+router.post('/purchases/:sealId/share', requireVerifiedIdentity, (req, res) => {
   const sealId = String(req.params.sealId || '').trim();
-  const callerPinitId = pinitIdFromReq(req);
+  // From the signed session, not the X-PinIT-Id header. The ownership check
+  // below compares this against the seal's buyer — if the caller supplied both
+  // sides, anyone could mint a Hub share link for a purchase that is not
+  // theirs, which would hand out the licensed file.
+  const callerPinitId = req.verifiedPinitId;
   if (!sealId) return res.status(400).json({ error: 'sealId required' });
-  if (!callerPinitId) return res.status(401).json({ error: 'pinit_id required' });
 
   db.get('SELECT * FROM orders_sealed WHERE seal_id = ?', [sealId], async (err, order) => {
     if (err) return res.status(500).json({ error: err.message });

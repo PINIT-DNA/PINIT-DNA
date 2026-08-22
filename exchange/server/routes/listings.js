@@ -102,6 +102,55 @@ router.get('/', (req, res) => {
     params.push(badge);
   }
 
+  // ---- Additive filters -------------------------------------------------
+  // All four are optional. Omitting them reproduces the previous behaviour
+  // exactly, so existing callers are unaffected.
+
+  // Licence tier: only offer listings the creator actually priced for that
+  // tier. A tier with no price is not on sale, so `> 0` is the real test —
+  // the same rule the storefront uses when building the tier rail.
+  const LICENCE_TIERS = ['personal', 'commercial', 'exclusive', 'enterprise'];
+  const licence = String(req.query.licence || req.query.license || '').trim().toLowerCase();
+  if (licence && licence !== 'all' && LICENCE_TIERS.includes(licence)) {
+    query += ` AND COALESCE(l.price_${licence}, 0) > 0`;
+  }
+
+  // Price range. Compared against the tier being filtered on when one is
+  // given, otherwise against the cheapest published tier — which is the
+  // "From $X" figure the buyer sees on the card, so the filter matches what
+  // they are looking at rather than some hidden column.
+  const priceCol = licence && LICENCE_TIERS.includes(licence)
+    ? `l.price_${licence}`
+    : `COALESCE(NULLIF(l.price_personal, 0), NULLIF(l.price_commercial, 0), NULLIF(l.price_exclusive, 0), NULLIF(l.price_enterprise, 0))`;
+  const priceMin = Number(req.query.price_min);
+  const priceMax = Number(req.query.price_max);
+  if (Number.isFinite(priceMin) && priceMin > 0) {
+    query += ` AND ${priceCol} >= ?`;
+    params.push(priceMin);
+  }
+  if (Number.isFinite(priceMax) && priceMax > 0) {
+    query += ` AND ${priceCol} <= ?`;
+    params.push(priceMax);
+  }
+
+  // Media type. `vertical` is a marketing category (Photography, Concepts,
+  // UI/UX…) and does not answer "is this a still or a moving image". The
+  // authoritative answer is hub_assets.file_type, mirrored from Hub at list
+  // time. Matched with a correlated EXISTS so the main query keeps returning
+  // one row per listing — a JOIN here would duplicate rows if an asset ever
+  // gained a second hub_assets entry.
+  const media = String(req.query.media || '').trim().toLowerCase();
+  if (media === 'image' || media === 'video') {
+    const like = media === 'video' ? 'video%' : 'image%';
+    query += ` AND EXISTS (
+      SELECT 1 FROM hub_assets ha2
+       WHERE ha2.asset_id = l.asset_id
+         AND (LOWER(COALESCE(ha2.file_type,'')) LIKE ?
+              OR LOWER(COALESCE(l.vertical,'')) = ?)
+    )`;
+    params.push(like, media === 'video' ? 'video' : 'images');
+  }
+
   if (search) {
     // LOWER(...) LIKE LOWER(?) rather than IFNULL/ILIKE.
     //

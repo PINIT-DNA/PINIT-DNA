@@ -78,6 +78,10 @@ export default function App() {
   const [preselectedAssetId, setPreselectedAssetId] = useState(null);
   const [focusListingId, setFocusListingId] = useState(null);
   const [marketplaceResetToken, setMarketplaceResetToken] = useState(0);
+  // Set when a Collections category tile is opened, so Discover lands already
+  // filtered to that vertical. Carries a timestamp so selecting the same
+  // category twice still re-applies it.
+  const [collectionVertical, setCollectionVertical] = useState(null);
   // Search term handed down from the header. Carries a timestamp so repeating
   // the same term still re-triggers the search rather than being a no-op.
   const [headerSearch, setHeaderSearch] = useState(null);
@@ -149,8 +153,8 @@ export default function App() {
     navigate('marketplace');
   };
 
-  const saveSession = (u) => {
-    writeSession(u);
+  const saveSession = (u, token) => {
+    writeSession(u, token);
   };
 
   const restoreSession = async () => {
@@ -159,9 +163,11 @@ export default function App() {
       if (session?.user) setUser(session.user);
       const pinitId = session?.pinit_id;
       if (!pinitId) return;
-      const res = await fetch(`/api/auth/me?pinit_id=${encodeURIComponent(pinitId)}`);
+      // apiFetch attaches the session token, so the server can resolve "me"
+      // from the session rather than trusting the id in the query string.
+      const res = await apiFetch(`/api/auth/me?pinit_id=${encodeURIComponent(pinitId)}`);
       if (res.ok) {
-        const fresh = await res.json();
+        const fresh = res.data;
         if (fresh?.pinit_id) {
           setUser(fresh);
           writeSession(fresh);
@@ -209,7 +215,9 @@ export default function App() {
           const data = await res.json();
           if (data.user) {
             setUser(data.user);
-            saveSession(data.user);
+            // Keep the signed token — it is what proves this browser's
+            // identity on every later request.
+            saveSession(data.user, data.session_token);
             setAuthOpen(false);
             setRoleNotice('');
             navigate(homePageForUser(data.user), { replace: true });
@@ -396,6 +404,7 @@ export default function App() {
                 focusListingId={focusListingId}
                 resetFiltersToken={marketplaceResetToken}
                 externalSearch={headerSearch}
+                externalVertical={collectionVertical}
                 onCartChanged={refreshCartCount}
               />
             )}
@@ -456,7 +465,14 @@ export default function App() {
 
         {activePage === 'collections' && (
           <Collections
+            user={user}
             onSelectListing={handleSelectListing}
+            onBrowseVertical={(verticalId) => {
+              // Open Discover already filtered to that category, rather than
+              // jumping into whichever asset happened to be first in it.
+              setCollectionVertical({ vertical: verticalId, at: Date.now() });
+              navigate('marketplace');
+            }}
             onNavigateMarketplace={() => navigate('marketplace')}
           />
         )}

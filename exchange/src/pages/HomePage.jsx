@@ -34,15 +34,9 @@ export default function HomePage({ onNavigate, onOpenAuth, user, onSelectListing
       const key = user.pinit_id;
       const wish = await apiFetch(`/api/commerce/wishlist?buyer_key=${encodeURIComponent(key)}`);
       if (wish.ok) setSavedCount((wish.data.items || []).length);
-      try {
-        const params = new URLSearchParams({ pinit_id: user.pinit_id });
-        if (user.email) params.set('email', user.email);
-        const res = await fetch(`/api/orders/my-licenses?${params}`);
-        if (res.ok) {
-          const data = await res.json();
-          setPurchaseCount((data.licenses || []).length);
-        }
-      } catch { /* ignore */ }
+      // Scoped to the signed-in session server-side; no identity in the query.
+      const lic = await apiFetch('/api/orders/my-licenses');
+      if (lic.ok) setPurchaseCount((lic.data.licenses || []).length);
     })();
   }, [user?.pinit_id, user?.email]);
 

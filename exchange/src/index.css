@@ -3419,3 +3419,259 @@ input[type="range"]::-webkit-slider-thumb {
   }
   .market-hero--compact .market-hero__sub { max-width: none; }
 }
+
+/* ==========================================================================
+   Marketplace filter panel — licence / media / price
+   Collapsed by default so the browse view stays uncluttered; the toggle
+   carries a count so an active filter is visible without opening it.
+   ========================================================================== */
+.filter-toggle { position: relative; }
+.filter-toggle.has-active {
+  border-color: color-mix(in srgb, var(--primary) 55%, transparent);
+  color: var(--text-main);
+}
+.filter-toggle__count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 6px;
+  border-radius: var(--radius-full);
+  background: var(--primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.market-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px 28px;
+  align-items: start;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-subtle);
+}
+.market-filters__group { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.market-filters__opts { display: flex; flex-wrap: wrap; gap: 7px; }
+.market-filters__hint { font-size: 11.5px; color: var(--text-dim); line-height: 1.45; }
+
+/* Filter chip — quieter than a vertical pill so the two rows don't compete. */
+.fchip {
+  padding: 6px 13px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, .03);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .16s ease, border-color .16s ease, background .16s ease;
+}
+.fchip:hover { color: var(--text-main); border-color: color-mix(in srgb, var(--primary) 45%, transparent); }
+.fchip.is-on {
+  color: #fff;
+  background: var(--primary);
+  border-color: var(--primary);
+}
+.fchip:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.market-filters__price { display: flex; align-items: center; gap: 8px; }
+.market-filters__price .form-input { width: 100%; min-width: 0; }
+.market-filters__price > span { color: var(--text-dim); flex: none; }
+
+.market-filters__reset {
+  align-self: end;
+  justify-self: start;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font: inherit;
+  font-size: .84rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 6px 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.market-filters__reset:hover { color: var(--text-main); }
+.market-filters__reset:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
+
+@supports not (color: color-mix(in srgb, red 50%, transparent)) {
+  .fchip:hover { border-color: var(--primary); }
+  .filter-toggle.has-active { border-color: var(--primary); }
+}
+@media (prefers-reduced-motion: reduce) { .fchip { transition: none; } }
+@media (max-width: 640px) {
+  .market-filters { grid-template-columns: 1fr; gap: 16px; }
+}
+
+/* ==========================================================================
+   Collections — tabbed views (Categories / Curated / Saved / Recently viewed)
+   ========================================================================== */
+.asset-tab__count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  margin-left: 7px;
+  border-radius: var(--radius-full);
+  background: var(--surface-3, rgba(255,255,255,.09));
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.asset-tab.is-active .asset-tab__count { background: var(--primary); color: #fff; }
+.asset-tab { display: inline-flex; align-items: center; gap: 7px; }
+
+.collections-assets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+.collection-asset {
+  display: block;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  border: 1px solid var(--border-subtle);
+}
+.collection-asset .card-media {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.collection-asset__noimg {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(140deg, #131a26, #0b1018);
+}
+.collection-asset__meta {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 22px 12px 11px;
+  background: linear-gradient(180deg, transparent, rgba(6, 9, 14, .92) 62%);
+  pointer-events: none;
+}
+.collection-asset__meta strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.collection-asset__meta em {
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--emerald);
+  font-weight: 600;
+}
+
+.collections-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.collections-note__clear {
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.collections-note__clear:hover { color: var(--text-main); }
+.collections-note__clear:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
+
+.collections-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 32px;
+  padding-top: 22px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.collection-tile__img--empty {
+  display: block;
+  background: linear-gradient(140deg, #141c29, #0a0f18);
+}
+.collection-tile__price { color: var(--emerald); font-weight: 600; }
+.collection-tile__body p { display: flex; gap: 10px; flex-wrap: wrap; }
+.collection-tile { cursor: pointer; }
+.collection-tile:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+@media (max-width: 640px) {
+  .collections-assets { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .collections-foot { flex-direction: column; align-items: stretch; }
+}
+
+/* ==========================================================================
+   Digital licence certificate — the record behind a purchase
+   ========================================================================== */
+.cert-modal { max-width: 600px; width: 100%; }
+.cert-body { padding: 4px 0 8px; }
+.cert-loading { color: var(--text-muted); font-size: .9rem; margin: 8px 0; }
+
+.cert-seal {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px; margin-bottom: 18px;
+  border: 1px solid color-mix(in srgb, var(--emerald) 35%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--emerald) 9%, transparent);
+}
+.cert-seal > svg { color: var(--emerald); flex-shrink: 0; }
+.cert-seal > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cert-seal strong { font-size: .92rem; color: var(--text-main); }
+.cert-seal__id { font-family: var(--font-mono, ui-monospace, monospace); font-size: 11.5px; color: var(--text-dim); }
+.cert-status {
+  margin-left: auto; flex-shrink: 0;
+  padding: 3px 11px; border-radius: var(--radius-full);
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  background: rgba(255,255,255,.06); color: var(--text-muted);
+}
+.cert-status--active { background: color-mix(in srgb, var(--emerald) 18%, transparent); color: var(--emerald); }
+
+.cert-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px 20px; margin: 0 0 18px; }
+.cert-grid > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cert-grid dt { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); font-weight: 600; }
+.cert-grid dd { margin: 0; font-size: .89rem; color: var(--text-main); overflow-wrap: anywhere; }
+.cert-grid dd.mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .8rem; }
+.cert-grid dd.cap { text-transform: capitalize; }
+
+.cert-dna { display: flex; flex-direction: column; gap: 5px; padding-top: 14px; border-top: 1px solid var(--border-subtle); }
+.cert-dna code {
+  font-size: .78rem; color: var(--text-muted);
+  background: rgba(0,0,0,.25); border: 1px solid var(--border-subtle);
+  border-radius: 6px; padding: 7px 10px; overflow-wrap: anywhere;
+}
+.cert-note { margin: 14px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--text-dim); }
+
+/* Printing a certificate should print the certificate, not the whole app. */
+@media print {
+  body * { visibility: hidden !important; }
+  .cert-modal, .cert-modal * { visibility: visible !important; }
+  .modal-overlay { position: static !important; background: none !important; }
+  .cert-modal { position: absolute; left: 0; top: 0; max-width: 100%; box-shadow: none; border: 0; }
+  .modal-header button, .modal-footer { display: none !important; }
+}

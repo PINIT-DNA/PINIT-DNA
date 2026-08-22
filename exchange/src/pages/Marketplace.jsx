@@ -6,7 +6,7 @@ import ListingCard from '../components/ListingCard.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import DiscoverHeroArt from '../components/DiscoverHeroArt.jsx';
 import { apiFetch, unwrapList } from '../lib/api.js';
-import { formatFrom } from '../lib/money.js';
+import { formatFrom, formatMoney } from '../lib/money.js';
 import { buyerKey } from '../lib/buyer.js';
 import { canList, canPurchase } from '../lib/roles.js';
 import { isImageListing, isVideoListing } from '../lib/media.js';
@@ -58,6 +58,7 @@ export default function Marketplace({
   focusListingId = null,
   resetFiltersToken = 0,
   externalSearch = null,
+  externalVertical = null,
   onCartChanged,
 }) {
   const [listings, setListings] = useState([]);
@@ -78,6 +79,16 @@ export default function Marketplace({
   // The term the currently displayed results were fetched with.
   const [appliedSearch, setAppliedSearch] = useState('');
   const [sortOption, setSortOption] = useState('newest');
+  // Additive server-side filters. Empty string means "not applied" — the
+  // param is omitted entirely rather than sent as 0, which would filter.
+  const [licence, setLicence] = useState('');
+  const [media, setMedia] = useState('');
+  const [priceMin, setPriceMin] = useState('');
+  const [priceMax, setPriceMax] = useState('');
+  // Incremented when a filter is committed, so the fetch runs on apply rather
+  // than on every keystroke in the price boxes.
+  const [filterToken, setFilterToken] = useState(0);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [saving, setSaving] = useState(false);
@@ -89,6 +100,10 @@ export default function Marketplace({
       setSelectedBadge('all');
       setSearchQuery('');
       setSortOption('newest');
+      setLicence('');
+      setMedia('');
+      setPriceMin('');
+      setPriceMax('');
     }
   }, [resetFiltersToken, user?.pinit_id]);
 
@@ -105,9 +120,24 @@ export default function Marketplace({
     setSearchToken((t) => t + 1);
   }, [externalSearch]);
 
+  // A category opened from Collections lands here. Other filters are cleared
+  // so the buyer sees that whole category, not the intersection of it with
+  // whatever was left applied from an earlier visit.
+  useEffect(() => {
+    if (!externalVertical?.vertical) return;
+    setSelectedVertical(externalVertical.vertical);
+    setSelectedBadge('all');
+    setSearchQuery('');
+    setLicence('');
+    setMedia('');
+    setPriceMin('');
+    setPriceMax('');
+    setSearchToken((t) => t + 1);
+  }, [externalVertical]);
+
   useEffect(() => {
     fetchListings();
-  }, [selectedVertical, selectedBadge, sortOption, searchToken, resetFiltersToken, user?.pinit_id]);
+  }, [selectedVertical, selectedBadge, sortOption, searchToken, filterToken, resetFiltersToken, user?.pinit_id]);
 
   useEffect(() => {
     if (!focusListingId || !listings.length) return;
@@ -129,6 +159,10 @@ export default function Marketplace({
       url += `&seller=${encodeURIComponent(user.pinit_id)}`;
     }
     if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
+    if (licence) url += `&licence=${encodeURIComponent(licence)}`;
+    if (media) url += `&media=${encodeURIComponent(media)}`;
+    if (priceMin !== '' && Number(priceMin) > 0) url += `&price_min=${encodeURIComponent(priceMin)}`;
+    if (priceMax !== '' && Number(priceMax) > 0) url += `&price_max=${encodeURIComponent(priceMax)}`;
     return url;
   };
 
@@ -230,7 +264,9 @@ export default function Marketplace({
   // produced it, and a way to undo each one.
   const badgeActive = selectedBadge !== 'all';
   const verticalActive = selectedVertical !== 'all';
-  const resultsMode = Boolean(appliedSearch) || badgeActive || verticalActive;
+  const priceActive = (priceMin !== '' && Number(priceMin) > 0) || (priceMax !== '' && Number(priceMax) > 0);
+  const resultsMode = Boolean(appliedSearch) || badgeActive || verticalActive
+    || Boolean(licence) || Boolean(media) || priceActive;
 
   // Section rails only earn their place once the catalogue is bigger than the
   // grid can show at a glance. Below that, Featured and Recently listed would
@@ -272,11 +308,38 @@ export default function Marketplace({
       clear: () => setSelectedBadge('all'),
     });
   }
+  if (licence) {
+    activeFilters.push({
+      key: 'licence',
+      label: `${licence.charAt(0).toUpperCase()}${licence.slice(1)} licence`,
+      clear: () => { setLicence(''); setFilterToken((t) => t + 1); },
+    });
+  }
+  if (media) {
+    activeFilters.push({
+      key: 'media',
+      label: media === 'video' ? 'Video' : 'Images',
+      clear: () => { setMedia(''); setFilterToken((t) => t + 1); },
+    });
+  }
+  if (priceActive) {
+    const lo = priceMin !== '' && Number(priceMin) > 0 ? formatMoney(Number(priceMin)) : null;
+    const hi = priceMax !== '' && Number(priceMax) > 0 ? formatMoney(Number(priceMax)) : null;
+    activeFilters.push({
+      key: 'price',
+      label: lo && hi ? `${lo}–${hi}` : (lo ? `${lo}+` : `Under ${hi}`),
+      clear: () => { setPriceMin(''); setPriceMax(''); setFilterToken((t) => t + 1); },
+    });
+  }
 
   const clearAllFilters = () => {
     setSearchQuery('');
     setSelectedVertical('all');
     setSelectedBadge('all');
+    setLicence('');
+    setMedia('');
+    setPriceMin('');
+    setPriceMax('');
     setSearchToken((t) => t + 1);
   };
 
@@ -382,6 +445,16 @@ export default function Marketplace({
           </form>
 
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <button
+              type="button"
+              className={`ex-btn ex-btn--secondary ex-btn--sm filter-toggle${activeFilters.length ? ' has-active' : ''}`}
+              aria-expanded={filtersOpen}
+              aria-controls="market-filters"
+              onClick={() => setFiltersOpen((o) => !o)}
+            >
+              <Filter size={15} /> Filters
+              {activeFilters.length > 0 && <span className="filter-toggle__count">{activeFilters.length}</span>}
+            </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Filter size={16} color="var(--text-muted)" />
               <select className="form-select" value={selectedBadge} onChange={(e) => setSelectedBadge(e.target.value)} style={{ width: 'auto', minWidth: '180px' }}>
@@ -399,6 +472,100 @@ export default function Marketplace({
             </select>
           </div>
         </div>
+
+        {filtersOpen && (
+          <form
+            id="market-filters"
+            className="market-filters"
+            onSubmit={(e) => { e.preventDefault(); setFilterToken((t) => t + 1); }}
+          >
+            <div className="market-filters__group">
+              <span className="ex-label" id="lbl-licence">Licence</span>
+              <div className="market-filters__opts" role="group" aria-labelledby="lbl-licence">
+                {[
+                  { id: '', label: 'Any' },
+                  { id: 'personal', label: 'Personal' },
+                  { id: 'commercial', label: 'Commercial' },
+                  { id: 'exclusive', label: 'Exclusive' },
+                  { id: 'enterprise', label: 'Enterprise' },
+                ].map((o) => (
+                  <button
+                    key={o.id || 'any'}
+                    type="button"
+                    className={`fchip${licence === o.id ? ' is-on' : ''}`}
+                    aria-pressed={licence === o.id}
+                    onClick={() => { setLicence(o.id); setFilterToken((t) => t + 1); }}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+              <span className="market-filters__hint">Only assets the creator priced for that licence.</span>
+            </div>
+
+            <div className="market-filters__group">
+              <span className="ex-label" id="lbl-media">Media type</span>
+              <div className="market-filters__opts" role="group" aria-labelledby="lbl-media">
+                {[
+                  { id: '', label: 'Any' },
+                  { id: 'image', label: 'Images' },
+                  { id: 'video', label: 'Video' },
+                ].map((o) => (
+                  <button
+                    key={o.id || 'any'}
+                    type="button"
+                    className={`fchip${media === o.id ? ' is-on' : ''}`}
+                    aria-pressed={media === o.id}
+                    onClick={() => { setMedia(o.id); setFilterToken((t) => t + 1); }}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="market-filters__group">
+              <label className="ex-label" htmlFor="price-min">Price range</label>
+              <div className="market-filters__price">
+                <input
+                  id="price-min"
+                  type="number"
+                  min="0"
+                  inputMode="numeric"
+                  className="form-input"
+                  placeholder="Min"
+                  value={priceMin}
+                  onChange={(e) => setPriceMin(e.target.value)}
+                  aria-label="Minimum price"
+                />
+                <span aria-hidden="true">–</span>
+                <input
+                  id="price-max"
+                  type="number"
+                  min="0"
+                  inputMode="numeric"
+                  className="form-input"
+                  placeholder="Max"
+                  value={priceMax}
+                  onChange={(e) => setPriceMax(e.target.value)}
+                  aria-label="Maximum price"
+                />
+                <button type="submit" className="ex-btn ex-btn--secondary ex-btn--sm">Apply</button>
+              </div>
+              <span className="market-filters__hint">
+                {licence
+                  ? `Compared against the ${licence} price.`
+                  : 'Compared against each asset’s lowest published price.'}
+              </span>
+            </div>
+
+            {activeFilters.length > 0 && (
+              <button type="button" className="market-filters__reset" onClick={clearAllFilters}>
+                Reset all filters
+              </button>
+            )}
+          </form>
+        )}
       </div>
 
       {resultsMode && !loading && !loadError && (

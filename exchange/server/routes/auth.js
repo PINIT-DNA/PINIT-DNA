@@ -3,7 +3,8 @@ import db from '../database.js';
 import { verifyHubBridgeToken } from '../hub-client.js';
 import { extractPinitCode, identityCandidates, toExchangePinitId } from '../lib/pinit-identity.js';
 import { enrichPublicUser, isSellerRole } from '../lib/roles.js';
-import { findUserByPinitId } from '../lib/rbac.js';
+import { findUserByPinitId, resolveIdentity } from '../lib/rbac.js';
+import { mintSessionToken } from '../lib/session-token.js';
 import { initialCreatorOnboardingStatus, ONBOARDING } from '../lib/seller-onboarding.js';
 
 const router = express.Router();
@@ -45,9 +46,32 @@ function ensureUserColumns(cb) {
   next();
 }
 
-// Get current logged-in user profile
+/**
+ * Get the caller's own profile.
+ *
+ * This returned a full user row — email, onboarding state, payment customer id
+ * — for whatever pinit_id was passed in the query string, with no auth at all.
+ * Pinit IDs are public, so that was an open profile lookup for any account.
+ *
+ * A verified session now takes precedence and can only ever read itself. The
+ * query parameter is still honoured while sessions are being rolled out, but
+ * once a token is present it decides, and a token may not read a different id.
+ */
 router.get('/me', (req, res) => {
-  const pinitId = req.query.pinit_id;
+  const { pinitId: identityId, verified } = resolveIdentity(req);
+  const requested = String(req.query.pinit_id || '').trim();
+
+  if (verified && requested) {
+    const code = (v) => String(v || '').toUpperCase().split('-').pop();
+    if (code(requested) !== code(identityId)) {
+      return res.status(403).json({
+        error: 'FORBIDDEN',
+        message: 'You can only read your own profile.',
+      });
+    }
+  }
+
+  const pinitId = verified ? identityId : requested;
   if (!pinitId) return res.status(400).json({ error: 'pinit_id is required' });
   ensureUserColumns(() => {
     const candidates = identityCandidates(pinitId);
@@ -59,6 +83,29 @@ router.get('/me', (req, res) => {
       (err, user) => {
       if (err) return res.status(500).json({ error: err.message });
       if (!user) return res.status(404).json({ error: 'User not found' });
+
+      // Without a proven session this is an unauthenticated lookup by a public
+      // Pinit ID, so it may only return what the marketplace already shows
+      // publicly. The full row — email, KYC state, payment customer id —
+      // requires a verified session.
+      if (!verified) {
+        const safe = publicUser(user);
+        return res.json({
+          pinit_id: safe.pinit_id,
+          exchange_id: safe.exchange_id,
+          name: safe.name,
+          display_name: safe.display_name,
+          role: safe.role,
+          exchange_role: safe.exchange_role,
+          account_type: safe.account_type,
+          can_list: safe.can_list,
+          can_purchase: safe.can_purchase,
+          positioning: safe.positioning,
+          seller_onboarding_complete: safe.seller_onboarding_complete,
+          session_required: true,
+        });
+      }
+
       res.json(publicUser(user));
     });
   });
@@ -120,11 +167,16 @@ router.post('/hub-sso', (req, res) => {
 
     const respondWithUser = (user) => {
       const isCreator = user?.role === 'creator';
+      // This is the only place identity is genuinely proven — the Hub token
+      // above was signature-checked — so it is the only place a session token
+      // is minted. Nothing that merely takes a Pinit ID may issue one.
+      const sessionToken = mintSessionToken(user?.pinit_id);
       res.json({
         message: isCreator
           ? 'Signed in with Pinit HUB biometric — protect vault assets, then list them on Exchange.'
           : 'Signed in with Pinit HUB biometric. You can browse and purchase licenses.',
         user: publicUser(user),
+        session_token: sessionToken,
         hub_linked: true,
         biometric_verified: true,
         next_step: isCreator

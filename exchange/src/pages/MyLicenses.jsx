@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldCheck, Download, Award, FileText, ExternalLink, Share2, Copy, X } from 'lucide-react';
 import { formatMoney } from '../lib/money.js';
+import { apiFetch } from '../lib/api.js';
 
 export default function MyLicenses({ user, onViewCertificate }) {
   const [licenses, setLicenses] = useState([]);
@@ -14,6 +15,10 @@ export default function MyLicenses({ user, onViewCertificate }) {
   const [shareResult, setShareResult] = useState(null);
   const [shareError, setShareError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [certFor, setCertFor] = useState(null);
+  const [certData, setCertData] = useState(null);
+  const [certBusy, setCertBusy] = useState(false);
+  const [certError, setCertError] = useState('');
 
   useEffect(() => {
     fetchMyLicenses();
@@ -22,14 +27,10 @@ export default function MyLicenses({ user, onViewCertificate }) {
   const fetchMyLicenses = async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (user?.email) params.set('email', user.email);
-      if (user?.pinit_id) params.set('pinit_id', user.pinit_id);
-      const res = await fetch(`/api/orders/my-licenses?${params.toString()}`);
-      if (res.ok) {
-        const data = await res.json();
-        setLicenses(data.licenses || []);
-      }
+      // Scoped server-side to the signed-in session, so no identity is passed
+      // in the query string. apiFetch attaches the session token.
+      const { ok, data } = await apiFetch('/api/orders/my-licenses');
+      if (ok) setLicenses(data.licenses || []);
     } catch (err) {
       console.error('Error fetching licenses:', err);
     } finally {
@@ -38,23 +39,29 @@ export default function MyLicenses({ user, onViewCertificate }) {
   };
 
   const authorizeDownload = async (lic) => {
-    try {
-      const res = await fetch('/api/orders/download/authorize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          seal_id: lic.seal_id,
-          buyer_pinit_id: user?.pinit_id,
-          buyer_email: user?.email,
-          asset_id: lic.asset_id,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Download not allowed');
-      window.open(data.download_url, '_blank', 'noopener,noreferrer');
-    } catch (err) {
-      setActionError(err.message);
+    setActionError('');
+    // apiFetch, not bare fetch — the server now identifies the buyer from the
+    // signed session token, which only apiFetch attaches. The buyer id and
+    // email are no longer sent: the server reads them from the session, and
+    // accepting them from the body was how someone else's licence could be
+    // downloaded by supplying a public Pinit ID.
+    const { ok, data, error } = await apiFetch('/api/orders/download/authorize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        seal_id: lic.seal_id,
+        asset_id: lic.asset_id,
+      }),
+    });
+    if (!ok) {
+      setActionError(error || 'Download not allowed.');
+      return;
     }
+    if (!data?.download_url) {
+      setActionError('Delivery is not ready yet. Please try again shortly.');
+      return;
+    }
+    window.open(data.download_url, '_blank', 'noopener,noreferrer');
   };
 
   const openShare = (lic) => {
@@ -73,29 +80,49 @@ export default function MyLicenses({ user, onViewCertificate }) {
     if (!shareFor) return;
     setShareBusy(true);
     setShareError('');
-    try {
-      const res = await fetch(`/api/commerce/purchases/${encodeURIComponent(shareFor.seal_id)}/share`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-PinIT-Id': user?.pinit_id || '' },
-        body: JSON.stringify({
-          options: {
-            expiresIn: shareOpts.expiresIn ? Number(shareOpts.expiresIn) : null,
-            maxViews: shareOpts.maxViews ? Number(shareOpts.maxViews) : null,
-            allowDownload: shareOpts.allowDownload,
-            requireName: shareOpts.requireName,
-            requestLocation: shareOpts.requestLocation,
-          },
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Could not create share link');
-      setShareResult(data);
-    } catch (err) {
-      setShareError(err.message);
-    } finally {
-      setShareBusy(false);
-    }
+    // apiFetch attaches the signed session token. The server identifies the
+    // sharer from that token now, so the X-PinIT-Id header this used to set by
+    // hand is neither needed nor trusted.
+    const { ok, data, error } = await apiFetch(`/api/commerce/purchases/${encodeURIComponent(shareFor.seal_id)}/share`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        options: {
+          expiresIn: shareOpts.expiresIn ? Number(shareOpts.expiresIn) : null,
+          maxViews: shareOpts.maxViews ? Number(shareOpts.maxViews) : null,
+          allowDownload: shareOpts.allowDownload,
+          requireName: shareOpts.requireName,
+          requestLocation: shareOpts.requestLocation,
+        },
+      }),
+    });
+    if (ok) setShareResult(data);
+    else setShareError(error || 'Could not create share link.');
+    setShareBusy(false);
   };
+
+  /**
+   * Digital licence certificate.
+   *
+   * The certificate endpoint has existed since the commerce work landed but
+   * nothing ever called it — buyers saw a decorative "VERIFIED SEAL" graphic at
+   * checkout and had no way to retrieve the actual record afterwards. This
+   * fetches the real seal: tier, status, DNA hash summary, and the parties.
+   */
+  const openCertificate = async (lic) => {
+    setCertFor(lic);
+    setCertData(null);
+    setCertError('');
+    setCertBusy(true);
+    const { ok, data, error } = await apiFetch(
+      `/api/orders/certificate/${encodeURIComponent(lic.seal_id)}`,
+    );
+    if (ok) setCertData(data);
+    else setCertError(error || 'Could not load this certificate.');
+    setCertBusy(false);
+  };
+
+  const printCertificate = () => window.print();
 
   const copyShareUrl = async () => {
     if (!shareResult?.shareUrl) return;
@@ -225,10 +252,13 @@ export default function MyLicenses({ user, onViewCertificate }) {
                     <Download size={16} /> {licenseStatus === 'active' ? 'Delivery pending' : `Blocked (${licenseStatus})`}
                   </button>
                 )}
+                {/* Opens the real certificate record. This used to call
+                    onViewCertificate, which App wired to navigate('my_licenses')
+                    — the page the button already sits on, so it did nothing. */}
                 <button
                   type="button"
                   className="btn-secondary"
-                  onClick={() => onViewCertificate?.(lic.seal_id)}
+                  onClick={() => openCertificate(lic)}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
                 >
                   <FileText size={16} /> Certificate
@@ -383,6 +413,79 @@ export default function MyLicenses({ user, onViewCertificate }) {
                 </p>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {certFor && (
+        <div className="modal-overlay" role="presentation" onClick={() => setCertFor(null)}>
+          <div
+            className="modal cert-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Digital licence certificate"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2>Licence certificate</h2>
+              <button type="button" className="modal-close" onClick={() => setCertFor(null)} aria-label="Close certificate">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="cert-body">
+              {certBusy && <p className="cert-loading">Loading certificate…</p>}
+
+              {!certBusy && certError && (
+                <div className="ex-alert ex-alert--error" role="alert">
+                  <span>{certError}</span>
+                </div>
+              )}
+
+              {!certBusy && !certError && certData && (
+                <>
+                  <div className="cert-seal">
+                    <ShieldCheck size={20} />
+                    <div>
+                      <strong>{certData.certificate_type}</strong>
+                      <span className="cert-seal__id">{certData.seal_id}</span>
+                    </div>
+                    <span className={`cert-status cert-status--${String(certData.license_status || '').toLowerCase()}`}>
+                      {certData.license_status}
+                    </span>
+                  </div>
+
+                  <dl className="cert-grid">
+                    <div><dt>Asset</dt><dd>{certData.asset_title || '—'}</dd></div>
+                    <div><dt>Licence</dt><dd>{certData.license_tier}</dd></div>
+                    <div><dt>Order</dt><dd className="mono">{certData.order_id}</dd></div>
+                    <div><dt>Paid</dt><dd>{formatMoney(certData.price_paid, certData.currency)}</dd></div>
+                    <div><dt>Payment</dt><dd className="cap">{certData.payment_status || '—'}</dd></div>
+                    <div><dt>Creator</dt><dd>{certData.seller?.name}</dd></div>
+                    <div><dt>Creator ID</dt><dd className="mono">{certData.seller?.pinit_id}</dd></div>
+                    <div><dt>Licensed to</dt><dd>{certData.buyer?.name}{certData.buyer?.org ? ` · ${certData.buyer.org}` : ''}</dd></div>
+                  </dl>
+
+                  {certData.dna_hash_summary && (
+                    <div className="cert-dna">
+                      <span className="ex-label">Pinit DNA fingerprint</span>
+                      <code>{certData.dna_hash_summary}</code>
+                    </div>
+                  )}
+
+                  <p className="cert-note">{certData.note}</p>
+                </>
+              )}
+            </div>
+
+            <div className="modal-footer">
+              <button type="button" className="ex-btn ex-btn--secondary" onClick={() => setCertFor(null)}>Close</button>
+              {certData && (
+                <button type="button" className="ex-btn ex-btn--primary" onClick={printCertificate}>
+                  <FileText size={16} /> Print / save PDF
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

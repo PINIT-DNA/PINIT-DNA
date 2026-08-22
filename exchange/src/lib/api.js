@@ -43,19 +43,33 @@ export async function parseJsonSafe(res) {
   }
 }
 
-function sessionPinitId() {
+function readStoredSession() {
   try {
     const raw = localStorage.getItem('pinit_exchange_session');
-    if (!raw) return '';
-    return JSON.parse(raw)?.pinit_id || '';
+    return raw ? JSON.parse(raw) : null;
   } catch {
-    return '';
+    return null;
   }
+}
+
+function sessionPinitId() {
+  return readStoredSession()?.pinit_id || '';
+}
+
+/** Signed token proving this browser's identity. Empty until Hub SSO runs. */
+function sessionToken() {
+  return readStoredSession()?.token || '';
 }
 
 export async function apiFetch(url, options = {}) {
   try {
     const headers = { ...(options.headers || {}) };
+    // The token is the credential; X-Pinit-Id is kept only so the API still
+    // works during the rollout, before every session has been re-minted.
+    const token = sessionToken();
+    if (token && !headers.Authorization && !headers.authorization) {
+      headers.Authorization = `Bearer ${token}`;
+    }
     const pid = sessionPinitId();
     if (pid && !headers['X-Pinit-Id'] && !headers['x-pinit-id']) {
       headers['X-Pinit-Id'] = pid;

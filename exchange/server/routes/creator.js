@@ -6,6 +6,50 @@ import { exchangePreviewUrl } from '../lib/preview-url.js';
 import { publicListingSql } from '../lib/lifecycle.js';
 import { fetchHubProfiles } from '../hub-client.js';
 
+/**
+ * What a creator is allowed to see about a sale of their own work.
+ *
+ * The desk previously returned `SELECT * FROM orders_sealed` straight to the
+ * client, which handed every creator their buyers' email, name and
+ * organisation, the Razorpay payment ids, and — worst — the live
+ * `delivery_token` for the buyer's copy. None of it was used by the UI.
+ *
+ * This is an allow-list rather than a deny-list on purpose: a column added to
+ * orders_sealed later cannot leak by default, it has to be named here.
+ *
+ * Buyer identity is represented by the public Pinit ID only. That is what the
+ * creator legitimately needs to reconcile a sale, and it is already public.
+ */
+const CREATOR_VISIBLE_SALE_FIELDS = [
+  'seal_id',
+  'order_id',
+  'listing_id',
+  'asset_id',
+  'license_tier',
+  'price_paid',
+  'platform_fee',
+  'creator_net',
+  'currency',
+  'status',
+  'payment_status',
+  'license_status',
+  'delivery_status',
+  'sealed_at',
+  'download_count',
+  'download_limit',
+  'invoice_number',
+  'buyer_pinit_id',
+];
+
+function creatorVisibleSale(row) {
+  if (!row) return null;
+  const out = {};
+  for (const key of CREATOR_VISIBLE_SALE_FIELDS) {
+    if (row[key] !== undefined) out[key] = row[key];
+  }
+  return out;
+}
+
 function isPlaceholderName(name) {
   return !name || /^pinit(\s+|-)(user|creator|buyer)$/i.test(String(name).trim());
 }
@@ -87,7 +131,8 @@ router.get('/desk', requireSeller, (req, res) => {
                     payout_pending: Math.round(totalNetRevenue * 100) / 100,
                   },
                   listings: (listings || []).map(withPreview),
-                  sealed_sales: sales,
+                  // Allow-listed: see CREATOR_VISIBLE_SALE_FIELDS above.
+                  sealed_sales: (sales || []).map(creatorVisibleSale),
                   tracking_jobs: trackingJobs,
                   requirements,
                 });
