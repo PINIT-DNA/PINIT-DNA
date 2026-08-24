@@ -34,6 +34,15 @@ export function vaultSourceCaption(record: {
   fromExtension?: boolean;
   capturedVia?: string | null;
 }): string | null {
+  // Every vault record is a Hub-protected file by definition — this badge exists
+  // to flag where a file came from *before* Hub, not to restate the obvious.
+  // Files protected via Hub's own upload flow are tagged sourcePlatform: 'hub'
+  // (vault.service.ts), which made this badge show on every single card with
+  // no differentiating value. Only genuine external captures (extension, social
+  // platforms) are worth a caption.
+  const key = record.sourcePlatform?.trim().toLowerCase();
+  if (key === 'hub' || key === 'upload') return null;
+
   const platform = formatSourcePlatform(record.sourcePlatform);
   if (platform) return `From ${platform}`;
   if (record.fromExtension || record.capturedVia?.toLowerCase().includes('extension')) {

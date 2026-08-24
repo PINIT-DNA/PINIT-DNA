@@ -199,9 +199,6 @@ function VaultGalleryCard({
             {source}
           </span>
         )}
-        <span className="absolute bottom-2 right-2 text-2xs font-semibold px-1.5 py-0.5 rounded-md bg-emerald-600/90 text-white">
-          Protected
-        </span>
       </div>
       <div className="p-3 space-y-1">
         <p className="text-sm font-semibold text-white truncate">{record.originalFileName}</p>
