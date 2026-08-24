@@ -611,7 +611,43 @@ export async function createExchangeListIntent(vaultId: string): Promise<{
     pinit_id: string;
   };
 }> {
-  const { data } = await api.post(`${API_BASE_URL}/exchange/list-intent`, { vaultId });
+  const { data } = await api.post<{
+    success: boolean;
+    token: string;
+    listUrl: string;
+    expiresIn: string;
+    asset: {
+      asset_id: string;
+      vault_id: string;
+      dna_record_id: string;
+      title: string;
+      badge_tier: string;
+      pinit_id: string;
+    };
+  }>(`${API_BASE_URL}/exchange/list-intent`, { vaultId });
+  return data;
+}
+
+export async function getExchangeRole(): Promise<{
+  success: boolean;
+  pinitId: string;
+  registered: boolean;
+  role: string | null;
+  exchange_role: string | null;
+  can_list: boolean;
+  can_purchase: boolean;
+  unavailable?: boolean;
+}> {
+  const { data } = await api.get<{
+    success: boolean;
+    pinitId: string;
+    registered: boolean;
+    role: string | null;
+    exchange_role: string | null;
+    can_list: boolean;
+    can_purchase: boolean;
+    unavailable?: boolean;
+  }>(`${API_BASE_URL}/exchange/role`);
   return data;
 }
 
@@ -621,7 +657,12 @@ export async function createExchangeSso(): Promise<{
   exchangeUrl: string;
   pinitId: string;
 }> {
-  const { data } = await api.post(`${API_BASE_URL}/exchange/sso`);
+  const { data } = await api.post<{
+    success: boolean;
+    token: string;
+    exchangeUrl: string;
+    pinitId: string;
+  }>(`${API_BASE_URL}/exchange/sso`);
   return data;
 }
 

@@ -1,23 +1,21 @@
 import { motion } from 'framer-motion';
-import { CheckCircle2, Shield, Lock, Archive, Plus, Copy, Check, Download, Loader2 } from 'lucide-react';
+import { CheckCircle2, Shield, Lock, Archive, Plus, Copy, Check, Download, Loader2, ArrowLeft } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import type { DnaSession } from '../types';
 import { formatBytes } from '../lib/file-type-utils';
 import { protectedDownloadFromVault } from '../services/dashboard.api';
-import { AuthenticityReportCard } from './AuthenticityReportCard';
 import { formatTrackId, formatVaultId } from '../lib/lifecycle-ids';
-import {
-  openEditorOrCloud,
-  type EditorCloudTarget,
-} from '../lib/platform-share';
 
 interface Props {
   session: DnaSession;
   onReset: () => void;
+  /** Business Account — present when protecting into a Campaign; shows a way back. */
+  campaignId?: string | null;
 }
 
-export function SuccessPanel({ session, onReset }: Props) {
+export function SuccessPanel({ session, onReset, campaignId }: Props) {
   const [copied, setCopied] = useState(false);
   const [copiedTep, setCopiedTep] = useState(false);
   const [copiedVault, setCopiedVault] = useState(false);
@@ -73,19 +71,12 @@ export function SuccessPanel({ session, onReset }: Props) {
       a.click();
       if (url !== session.protectedBlobUrl) URL.revokeObjectURL(url);
       setDownloadDone(true);
-      toast.success('Downloaded — open Canva, Adobe, Drive, or Dropbox next, then re-protect after edits');
+      toast.success('Protected file downloaded');
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : 'Download failed. Try again from Vault.');
     } finally {
       setDownloading(false);
     }
-  };
-
-  const openWorkflow = (target: EditorCloudTarget) => {
-    if (!downloadDone) {
-      toast('Download the protected file first, then continue');
-    }
-    openEditorOrCloud(target, (msg) => toast(msg, { duration: 4500 }));
   };
 
   return (
@@ -116,14 +107,6 @@ export function SuccessPanel({ session, onReset }: Props) {
               )}
             </div>
           </div>
-
-          {imageAnalysis && (
-            <AuthenticityReportCard
-              analysis={imageAnalysis}
-              compact
-              title="Image analysis"
-            />
-          )}
 
           <div className="rounded-xl bg-bg-elevated border border-bg-border p-3.5">
             <div className="flex items-center justify-between gap-2 mb-1">
@@ -218,35 +201,11 @@ export function SuccessPanel({ session, onReset }: Props) {
                   {downloading ? 'Preparing file…' : downloadDone ? 'Downloaded' : 'Download protected file'}
                 </span>
                 <span className="block text-2xs text-gray-400 mt-0.5">
-                  Then continue in Canva, Adobe, Drive, or Dropbox if needed
+                  Save the protected file to this device
                 </span>
               </span>
             </button>
           )}
-
-          <div className="grid grid-cols-2 gap-2">
-            {([
-              { label: 'Open Canva', target: 'canva' as const },
-              { label: 'Adobe Express', target: 'adobe' as const },
-              { label: 'Google Drive', target: 'drive' as const },
-              { label: 'Dropbox', target: 'dropbox' as const },
-            ]).map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                onClick={() => openWorkflow(item.target)}
-                className="rounded-xl border border-bg-border bg-bg-elevated px-3 py-2 text-2xs font-semibold text-gray-300 hover:text-white hover:border-dna-500/40"
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-          <p className="text-2xs text-gray-500 text-center">
-            Complete workflow: download → open editor/cloud → upload the file there → re-protect in Hub when done.
-          </p>
-          <p className="text-2xs text-gray-500 text-center">
-            Multi-platform share (WhatsApp, Email, X, LinkedIn, Telegram) is available from Vault → Share File.
-          </p>
 
           {downloadError && (
             <p className="text-xs text-danger text-center">{downloadError}</p>
@@ -255,7 +214,7 @@ export function SuccessPanel({ session, onReset }: Props) {
           <ul className="space-y-1.5 text-xs text-gray-400">
             <li className="flex items-start gap-2">
               <CheckCircle2 size={13} className="text-layer-complete mt-0.5 shrink-0" />
-              <span>Unique file identity created and stored</span>
+              <span>Unique asset identity created and stored</span>
             </li>
             <li className="flex items-start gap-2">
               <CheckCircle2 size={13} className="text-layer-complete mt-0.5 shrink-0" />
@@ -277,9 +236,15 @@ export function SuccessPanel({ session, onReset }: Props) {
         </div>
 
         <div className="px-5 pb-6 pt-1 flex flex-col sm:flex-row gap-2">
+          {campaignId && (
+            <Link to={`/business/campaigns/${campaignId}`} className="btn btn-primary flex-1 py-3">
+              <ArrowLeft size={16} />
+              <span>Back to Campaign</span>
+            </Link>
+          )}
           <button type="button" onClick={onReset} className="btn btn-secondary flex-1 py-3">
             <Plus size={16} />
-            <span>Protect Another File</span>
+            <span>Protect Another Asset</span>
           </button>
         </div>
       </motion.div>

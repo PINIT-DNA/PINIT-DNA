@@ -35,9 +35,11 @@ import { superAdminRouter }       from './api/routes/super-admin.routes';
 import { tepRouter }              from './api/routes/tep.routes';
 import { subscriptionRouter }     from './api/routes/subscription.routes';
 import { organizationRouter }     from './api/routes/organization.routes';
+import { businessRouter }         from './api/routes/business.routes';
 import { publishGuardianRouter }  from './api/routes/publish-guardian.routes';
 import { assetRouter }            from './api/routes/asset.routes';
 import { exchangeRouter }         from './api/routes/exchange.routes';
+import { creatorRouter }          from './api/routes/creator.routes';
 import {
   issueExtensionAuthCode,
   exchangeExtensionAuthToken,
@@ -169,11 +171,13 @@ app.use(`${config.apiPrefix}/super-admin`,   superAdminRouter);
 app.use(`${config.apiPrefix}/tep`,           tepRouter);
 app.use(`${config.apiPrefix}/subscription`,  subscriptionRouter);
 app.use(`${config.apiPrefix}/organization`,   organizationRouter);
+app.use(`${config.apiPrefix}/business`,       businessRouter);
 /** Publish Guardian — /api/v1/extension/* and /api/v1/posts* (additive) */
 app.use(`${config.apiPrefix}`, publishGuardianRouter);
 app.use(`${config.apiPrefix}`, assetRouter);
 /** Exchange bridge — Hub master identity + list/sale handoff */
 app.use(`${config.apiPrefix}/exchange`, exchangeRouter);
+app.use(`${config.apiPrefix}/creator`, creatorRouter);
 
 /** Extension OAuth (additive — does not change password/biometric login) */
 app.post(`${config.apiPrefix}/auth/extension/issue-code`, requireAuth, issueExtensionAuthCode);
@@ -225,7 +229,11 @@ app.get('/s/:token', async (req, res) => {
 
 // ─── React SPA catch-all ─────────────────────────────────────────────────────
 // Serves index.html for /dashboard, /compare, /vault etc. (client-side routing)
-app.get('*', (_req, res) => {
+app.get('*', (req, res) => {
+  if (req.path.startsWith('/api/')) {
+    res.status(404).json({ success: false, error: 'Route not found' });
+    return;
+  }
   const reactIndex = path.join(__dirname, '..', 'client', 'dist', 'index.html');
   if (fs.existsSync(reactIndex)) {
     res.sendFile(reactIndex);

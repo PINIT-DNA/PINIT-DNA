@@ -1,16 +1,22 @@
+import { formatFrom, formatMoney } from '../lib/money.js';
 import React, { useState } from 'react';
-import { CheckCircle2, Heart, Play, ArrowRight } from 'lucide-react';
-import HubTrustBadge from './HubTrustBadge.jsx';
-import ProvenanceDrawer from './ProvenanceDrawer.jsx';
-import { verticalLabel } from '../lib/api.js';
+import { CheckCircle2, Heart, Play, ShoppingCart } from 'lucide-react';
+import { canPurchase, isSeller } from '../lib/roles.js';
 import {
   isVideoListing,
   hasPlayableVideoPreview,
   formatMediaDuration,
 } from '../lib/media.js';
 
-const FALLBACK_IMAGE =
-  'https://images.unsplash.com/photo-1514565131-fce0801e5785?auto=format&fit=crop&w=800&q=80';
+function PreviewPlaceholder({ label = 'Preview' }) {
+  return (
+    <div className="listing-card__video-ph" aria-hidden>
+      <div className="listing-card__video-ph-inner">
+        <span>{label}</span>
+      </div>
+    </div>
+  );
+}
 
 function goldBadgeLabel(tier) {
   const t = String(tier || '').toLowerCase();
@@ -75,11 +81,18 @@ function CardMedia({ item, isVideo }) {
     );
   }
 
+  if (mediaFailed || !item.preview_url) {
+    return <PreviewPlaceholder label="Image preview" />;
+  }
+
   return (
     <img
-      src={!mediaFailed && item.preview_url ? item.preview_url : FALLBACK_IMAGE}
+      src={item.preview_url}
       alt={item.title || 'Asset preview'}
-      className="card-media"
+      className="card-media pinit-protected-media"
+      draggable={false}
+      onDragStart={(e) => e.preventDefault()}
+      onContextMenu={(e) => e.preventDefault()}
       onError={() => setMediaFailed(true)}
     />
   );
@@ -89,92 +102,81 @@ export default function ListingCard({
   item,
   onSelect,
   onWishlist,
+  onAddToCart,
+  user = null,
   wishlisted = false,
 }) {
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const isVideo = isVideoListing(item);
   const fromPrice = item.price_personal ?? item.price_commercial ?? 0;
   const tierLabel = goldBadgeLabel(item.badge_tier);
+  const open = () => onSelect?.(item.listing_id);
 
+  // Gallery cards are the picture. Title, price, creator and provenance all
+  // live on the asset page — a browsing grid reads faster when the work is the
+  // only thing competing for attention.
+  //
+  // The caption is always in the DOM (screen readers get it regardless) and
+  // reveals visually on hover or keyboard focus.
   return (
-    <>
-      <article
-        id={item.listing_id ? `listing-${item.listing_id}` : undefined}
-        className="listing-card listing-card--pro"
-        onClick={() => onSelect?.(item.listing_id)}
-      >
-        <div className="listing-card__media">
-          <CardMedia item={item} isVideo={isVideo} />
+    <article
+      id={item.listing_id ? `listing-${item.listing_id}` : undefined}
+      className="listing-tile"
+      tabIndex={0}
+      role="link"
+      aria-label={`${item.title} by ${item.creator_name || 'verified creator'}, from ${formatMoney(fromPrice)}`}
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+      }}
+    >
+      <CardMedia item={item} isVideo={isVideo} />
 
-          <div className="watermark-overlay" style={{ pointerEvents: 'none' }}>
-            <div className="watermark-text">Pinit PROVENANCE</div>
-          </div>
+      <span className="listing-tile__verified" title="Hub verified & protected">
+        <CheckCircle2 size={12} /> Verified
+      </span>
 
-          <div className={`card-badge-container listing-card__badges${onWishlist ? ' listing-card__badges--under-wish' : ''}`}>
-            <span className="badge-verified listing-card__verified-pill">
-              <CheckCircle2 size={12} /> Verified
-            </span>
-            {tierLabel && (
-              <span className={`badge-${String(item.badge_tier).toLowerCase()} listing-card__tier-pill`}>
-                {tierLabel}
-              </span>
-            )}
-          </div>
+      {onWishlist && (
+        <button
+          type="button"
+          className={`listing-tile__wish ${wishlisted ? 'active' : ''}`}
+          title={wishlisted ? 'Saved' : 'Save to wishlist'}
+          aria-label={wishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
+          onClick={(e) => { e.stopPropagation(); onWishlist(item); }}
+        >
+          <Heart size={15} fill={wishlisted ? 'currentColor' : 'none'} />
+        </button>
+      )}
 
-          {onWishlist && (
+      <div className="listing-tile__caption">
+        <div className="listing-tile__text">
+          <h3 className="listing-tile__title">{item.title}</h3>
+          <p className="listing-tile__by">
+            {item.creator_name || 'Verified creator'}
+            {tierLabel ? <span className="listing-tile__tier"> · {tierLabel}</span> : null}
+          </p>
+        </div>
+
+        <div className="listing-tile__right">
+          <span className="listing-tile__price">{formatFrom(fromPrice)}</span>
+          {(!user || canPurchase(user)) && (
             <button
               type="button"
-              className={`listing-card__wish ${wishlisted ? 'active' : ''}`}
-              title={wishlisted ? 'Saved' : 'Add to wishlist'}
+              className="listing-tile__cart"
+              title="Add to cart"
+              aria-label={`Add ${item.title} to cart`}
               onClick={(e) => {
                 e.stopPropagation();
-                onWishlist(item);
+                if (onAddToCart) onAddToCart(item);
+                else open();
               }}
             >
-              <Heart size={14} fill={wishlisted ? 'currentColor' : 'none'} />
+              <ShoppingCart size={15} />
             </button>
           )}
         </div>
+      </div>
 
-        <div className="listing-card__body">
-          <h3 className="listing-card__title">{item.title}</h3>
-
-          <div className="listing-card__meta">
-            {verticalLabel(item.vertical)}
-            {' · '}
-            Commercial
-          </div>
-
-          <div className="listing-card__by">
-            by {item.creator_name || 'Verified creator'}
-          </div>
-
-          <div className="listing-card__price-row">
-            <div className="listing-card__from">From ${Number(fromPrice).toFixed(0)}</div>
-            <div className="listing-card__tiers">Personal • Commercial • Exclusive</div>
-          </div>
-
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="listing-card__hub"
-          >
-            <HubTrustBadge compact onOpenProvenance={() => setDrawerOpen(true)} />
-          </div>
-
-          <button
-            type="button"
-            className="btn-primary listing-card__cta"
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelect?.(item.listing_id);
-            }}
-          >
-            View &amp; License <ArrowRight size={14} />
-          </button>
-        </div>
-      </article>
-
-      <ProvenanceDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} listing={item} />
-    </>
+      {isSeller(user) && <span className="listing-tile__owner">Your listing</span>}
+    </article>
   );
 }

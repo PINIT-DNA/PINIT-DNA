@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PinIT Exchange — Creator Journey Web Screens (2027 Plan)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;800&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #121a17;
+      --moss: #1b4a38;
+      --sand: #f2ebe0;
+      --paper: #faf6ef;
+      --line: #ddd2c2;
+      --muted: #6d655c;
+      --copper: #b56a2c;
+      --ok: #0f7a62;
+      --card: #fff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Outfit, system-ui, sans-serif;
+      background: var(--sand);
+      color: var(--ink);
+    }
+    .page { max-width: 1280px; margin: 0 auto; padding: 36px 18px 72px; }
+    h1 {
+      font-family: Fraunces, Georgia, serif;
+      font-size: clamp(2rem, 4vw, 3rem);
+      letter-spacing: -0.03em;
+    }
+    .lede { color: var(--muted); max-width: 46rem; margin: 10px 0 28px; }
+    .doc-link {
+      display: inline-block;
+      margin-bottom: 28px;
+      font-size: 0.9rem;
+      color: var(--moss);
+      font-weight: 600;
+    }
+    .section-title {
+      font-family: Fraunces, Georgia, serif;
+      font-size: 1.45rem;
+      margin: 36px 0 14px;
+    }
+    .screens { display: flex; flex-wrap: wrap; gap: 22px; }
+    .wrap { width: 292px; }
+    .label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--moss);
+      margin-bottom: 8px;
+    }
+    .phone {
+      background: #0e1512;
+      border-radius: 26px;
+      padding: 9px;
+      box-shadow: 0 16px 40px rgba(18, 26, 23, 0.18);
+    }
+    .inner {
+      background: var(--paper);
+      border-radius: 18px;
+      height: 540px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .bar {
+      display: flex;
+      justify-content: space-between;
+      padding: 7px 12px 0;
+      font-size: 0.62rem;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .hdr {
+      background: #fff;
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+    }
+    .hdr h3 {
+      font-family: Fraunces, Georgia, serif;
+      font-size: 1rem;
+    }
+    .hdr p { font-size: 0.68rem; color: var(--muted); }
+    .body { padding: 11px; overflow: auto; flex: 1; }
+    .chip {
+      display: inline-flex;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 0.62rem;
+      font-weight: 700;
+      background: #e7f2ec;
+      color: var(--ok);
+      margin-bottom: 8px;
+    }
+    .chip.warn { background: #f8eadb; color: var(--copper); }
+    .field {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      margin-bottom: 8px;
+    }
+    .field label {
+      display: block;
+      font-size: 0.62rem;
+      color: var(--muted);
+      font-weight: 600;
+      margin-bottom: 3px;
+    }
+    .field .val { font-size: 0.8rem; font-weight: 600; }
+    .btn {
+      width: 100%;
+      border: 0;
+      border-radius: 12px;
+      padding: 11px;
+      font-weight: 700;
+      font-size: 0.78rem;
+      background: var(--moss);
+      color: #f7f3ea;
+      margin-top: 6px;
+    }
+    .btn.sec {
+      background: #fff;
+      color: var(--ink);
+      border: 1px solid var(--line);
+    }
+    .scan {
+      height: 120px;
+      border-radius: 14px;
+      border: 1.5px dashed var(--line);
+      background:
+        radial-gradient(circle at 50% 45%, #c9d9cf 0%, #e8dfd0 55%, #f3ebe0 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--moss);
+      margin-bottom: 10px;
+    }
+    .card-ui {
+      border-radius: 14px;
+      padding: 14px;
+      background: linear-gradient(145deg, #1b4a38, #0f2a20);
+      color: #f4eee4;
+      margin-bottom: 10px;
+      min-height: 96px;
+    }
+    .card-ui .num { letter-spacing: 0.14em; font-size: 0.85rem; margin-top: 18px; }
+    .card-ui .row2 { display: flex; justify-content: space-between; font-size: 0.65rem; margin-top: 10px; opacity: 0.85; }
+    .id-box {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      margin-bottom: 8px;
+    }
+    .id-box strong { display: block; font-family: Fraunces, Georgia, serif; font-size: 0.95rem; }
+    .id-box span { font-size: 0.68rem; color: var(--muted); }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stat {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+    }
+    .stat b { display: block; font-size: 1.15rem; }
+    .stat span { font-size: 0.62rem; color: var(--muted); }
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 8px;
+      margin-bottom: 7px;
+    }
+    .thumb {
+      width: 42px; height: 42px; border-radius: 9px; flex-shrink: 0;
+      background: linear-gradient(135deg, #c9d9cf, #e6d5b7);
+    }
+    .row strong { display: block; font-size: 0.72rem; }
+    .row span { font-size: 0.62rem; color: var(--muted); }
+    .nav {
+      display: flex;
+      border-top: 1px solid var(--line);
+      background: #fff;
+    }
+    .nav div {
+      flex: 1;
+      text-align: center;
+      padding: 8px 2px;
+      font-size: 0.56rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .nav .on { color: var(--moss); }
+    .compare {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: hidden;
+      margin: 10px 0 28px;
+    }
+    .compare th, .compare td {
+      text-align: left;
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--line);
+    }
+    .compare th { background: #efe7da; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .compare tr:last-child td { border-bottom: 0; }
+    .hi { background: #e8f3ec; font-weight: 700; }
+    .note {
+      background: #fff;
+      border: 1px dashed var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      color: var(--muted);
+      font-size: 0.88rem;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>PinIT Exchange — Creator journey screens</h1>
+    <p class="lede">
+      Visual planning mockups for 2027: biometric seller onboarding, billing card, identity proof,
+      PinIT ID + Exchange ID, adaptive dashboards, Hub→Exchange listing, buyer capture, sealed sales, and post-sale tracking.
+    </p>
+    <a class="doc-link" href="../docs/PINIT_EXCHANGE_2027_PRODUCT_ARCHITECTURE.md">Open full architecture document →</a>
+
+    <h2 class="section-title">A. Onboarding → identity → IDs</h2>
+    <div class="screens">
+      <div class="wrap">
+        <div class="label">01 · Intent</div>
+        <div class="phone"><div class="inner">
+          <div class="bar"><span>9:41</span><span>PinIT</span></div>
+          <div class="hdr"><h3>Sell on Exchange</h3><p>Creators only · paid biometric seller plan</p></div>
+          <div class="body">
+            <span class="chip warn">Requires biometric + billing</span>
+            <p style="font-size:0.75rem;color:var(--muted);margin-bottom:10px">Photographers, designers, studios, agencies — protect in Hub, sell on Exchange.</p>
+            <div class="field"><label>I create</label><div class="val">Photography · Commercial</div></div>
+            <div class="field"><label>I sell to</label><div class="val">Brands · Agencies · Media</div></div>
+            <button class="btn">Continue to biometric</button>
+          </div>
+        </div></div>
+      </div>
+
+      <div class="wrap">
+        <div class="label">02 · Biometric</div>
+        <div class="phone"><div class="inner">
+          <div class="bar"><span>9:41</span><span>Secure</span></div>
+          <div class="hdr"><h3>Verify presence</h3><p>Face · fingerprint · voice</p></div>
+          <div class="body">
+            <div class="scan">Hold still · Face scan</div>
+            <div class="field"><label>Status</label><div class="val">Match ready · anti-spoof OK</div></div>
+            <button class="btn">Bind biometric to account</button>
+            <button class="btn sec">Use fingerprint instead</button>
+          </div>
+        </div></div>
+      </div>
+
+      <div class="wrap">
+        <div class="label">03 · Billing card</div>
+        <div class="phone"><div class="inner">
+          <div class="bar"><span>9:41</span><span>Seller plan</span></div>
+          <div class="hdr"><h3>Activate seller billing</h3><p>Required before Exchange ID</p></div>
+          <div class="body">
+            <div class="card-ui">
+              <div style="font-size:0.7rem;opacity:.8">PinIT Exchange Seller</div>
+              <div class="num">•••• •••• •••• 4242</div>
+              <div class="row2"><span>ASHWITHA R</span><span>12/28</span></div>
+            </div>
+            <div class="field"><label>Plan</label><div class="val">Creator Pro · monthly</div></div>
+            <div class="field"><label>Includes</label><div class="val">Listings · payouts · DNA badge</div></div>
+            <button class="btn">Pay &amp; continue</button>
+          </div>
+        </div></div>
+      </div>
+
+      <div class="wrap">
+        <div class="label">04 · Identity proof</div>
+        <div class="phone"><div class="inner">
+          <div class="bar"><span>9:41</span><span>KYC</span></div>
+          <div class="hdr"><h3>Prove who you are</h3><p>Builds buyer trust</p></div>
+          <div class="body">
+            <div class="field"><label>Government ID</label><div class="val">Upload passport / Aadhaar / DL</div></div>
+            <div class="field"><label>Portfolio</label><div class="val">behance.net/you</div></div>
+            <div class="field"><label>Tax / business ID</label><div class="val">Optional for freelancers</div></div>
+            <div class="field"><label>Studio name</label><div class="val">Northlight Studio</div></div>
+            <button class="btn">Submit for verification</button>
+          </div>
+        </div></div>
+      </div>
+
+      <div class="wrap">
+        <div class="label">05 · IDs issued</div>
+        <div class="phone"><div class="inner">
+          <div class="bar"><span>9:41</span><span>Identity</span></div>
+          <div class="hdr"><h3>You’re verified</h3><p>Biometric bound · seller active</p></div>
+          <div class="body">
+            <span class="chip">Automatic from biometric</span>
+            <div class="id-box"><strong>PINIT-324BMMSL</strong><span>PinIT ID · platform citizen</span></div>
+            <div class="id-box"><strong>PX-9F2C-88AQ</strong><span>PinIT Exchange ID · storefront &amp; payouts</span></div>
+            <button class="btn">Build public profile</button>
+          </div>
+        </div></div>
+      </div>
+
+      <div class="wrap">
+        <div class="label">06 · Public profile</div>
+        <div class="phone"><div class="inner">
+          <div class="bar"><span>9:41</span><span>Profile</span></div>
+          <div class="hdr"><h3>Northlight Studio</h3><p>PX-9F2C-88AQ · Photography</p></div>
+          <div class="body">
+            <span class="chip">DNA-ready seller</span>
+            <div class="grid2" style="margin-bottom:8px">
+              <div class="thumb" style="width:100%;height:70px;border-radius:10px"></div>
+              <div class="thumb" style="width:100%;height:70px;border-radius:10px;background:linear-gradient(135deg,#b7c7d8,#d9c4b0)"></div>
+            </div>
+            <div class="field"><label>About</label><div class="val">Commercial &amp; editorial photography · India / remote</div></div>
+            <div class="field"><label>License styles</label><div class="val">Standard · Extended · Exclusive</div></div>
+            <button class="btn">Open creator desk</button>
+          </div>
+        </div></div>
+      </div>
+    </div>
+
+    <h2 class="section-title">B. Adaptive dashboard (photographer example)</h2>
+    <div class="screens">
+      <div class="wrap">
+        <div class="label">07 · Desk home</div>
+        <div class="phone"><div class="inner">
+          <div class="bar"><span>9:41</span><span>Desk</span></div>
+          <div class="hdr"><h3>Creator desk</h3><p>Photography template</p></div>
+          <div class="body">
+            <div class="grid2">
+              <div class="stat"><b>₹54.2k</b><span>Month earnings</span></div>
+              <div class="stat"><b>18</b><span>Orders</span></div>
+              <div class="stat"><b>12</b><span>Live listings</span></div>
+              <div class="stat"><b>3</b><span>Track alerts</span></div>
+            </div>
+            <div style="margin-top:10px;font-size:0.7rem;color:var(--muted)">Modules weighted for photo: galleries, editorial vs commercial, geo buyers.</div>
+            <button class="btn">List from Hub</button>
+          </div>
+          <div class="nav"><div class="on">Desk</div><div>List</div><div>Sold</div><div>Track</div></div>
+        </div></div>
+      </div>
+
+      <div class="wrap">
+        <div class="label">08 · Designer desk variant</div>
+        <div class="phone"><div class="inner">
+          <div class="bar"><span>9:41</span><span>Desk</span></div>
+          <div class="hdr"><h3>Creator desk</h3><p>UI / Graphic template</p></div>
+          <div class="body">
+            <div class="grid2">
+              <div class="stat"><b>42</b><span>Kit downloads</span></div>
+              <div class="stat"><b>6</b><span>Team seats sold</span></div>
+              <div class="stat"><b>₹81k</b><span>Month earnings</span></div>
+              <div class="stat"><b>2</b><span>License disputes</span></div>
+            </div>
+            <div style="margin-top:10px;font-size:0.7rem;color:var(--muted)">Modules: component kits, seat licenses, Figma/export packs.</div>
+            <button class="btn">New kit listing</button>
+          </div>
+          <div class="nav"><div class="on">Desk</div><div>Kits</div><div>Sold</div><div>Track</div></div>
+        </div></div>
+      </div>
+    </div>
+
+    <h2 class="section-title">C. Hub → Exchange → Buy → Seal → Track</h2>
+    <div class="screens">
+      <div class="wrap">
+        <div class="label">09 · Post from Hub</div>
+        <div class="phone"><div class="inner">
+          <div class="bar"><span>9:41</span><span>List</span></div>
+          <div class="hdr"><h3>From PinIT Hub</h3><p>Only protected assets</p></div>
+          <div class="body">
+            <span class="chip">Private vault → public listing</span>
+            <div class="row"><div class="thumb"></div><div><strong>coastal-dawn.jpg</strong><span>DNA ready · not listed</span></div></div>
+            <div class="row"><div class="thumb" style="background:linear-gradient(135deg,#b7c7d8,#d9c4b0)"></div><div><strong>brand-kit.zip</strong><span>DNA ready · draft</span></div></div>
+            <button class="btn">Showcase &amp; price selected</button>
+          </div>
+        </div></div>
+      </div>
+
+      <div class="wrap">
+        <div class="label">10 · Showcase + price</div>
+        <div class="phone"><div class="inner">
+          <div class="bar"><span>9:41</span><span>Publish</span></div>
+          <div class="hdr"><h3>coastal-dawn.jpg</h3><p>Set commerce terms</p></div>
+          <div class="body">
+            <div class="field"><label>Title</label><div class="val">Coastal dawn</div></div>
+            <div class="field"><label>Standard license</label><div class="val">₹2,499</div></div>
+            <div class="field"><label>Extended license</label><div class="val">₹7,999</div></div>
+            <div class="field"><label>DNA badge</label><div class="val">On · recommended</div></div>
+            <button class="btn">Publish to Exchange</button>
+          </div>
+        </div></div>
+      </div>
+
+      <div class="wrap">
+        <div class="label">11 · Buyer details</div>
+        <div class="phone"><div class="inner">
+          <div class="bar"><span>9:41</span><span>Buy</span></div>
+          <div class="hdr"><h3>Buyer details</h3><p>Captured on every purchase</p></div>
+          <div class="body">
+            <div class="field"><label>Name</label><div class="val">Ananya Mehta</div></div>
+            <div class="field"><label>Organization</label><div class="val">Acme Marketing</div></div>
+            <div class="field"><label>Use case</label><div class="val">Social ads · Q3 campaign</div></div>
+            <div class="field"><label>License accepted</label><div class="val">Standard · yes</div></div>
+            <button class="btn">Continue to payment</button>
+          </div>
+        </div></div>
+      </div>
+
+      <div class="wrap">
+        <div class="label">12 · Sold / sealed</div>
+        <div class="phone"><div class="inner">
+          <div class="bar"><span>9:41</span><span>Sealed</span></div>
+          <div class="hdr"><h3>Sale ledger</h3><p>Append-only · audit ready</p></div>
+          <div class="body">
+            <span class="chip">Sealed record</span>
+            <div class="field"><label>Order</label><div class="val">ORD-88421</div></div>
+            <div class="field"><label>Buyer</label><div class="val">Acme Marketing · Ananya</div></div>
+            <div class="field"><label>Asset DNA</label><div class="val">sha256:9f2c…88aq</div></div>
+            <div class="field"><label>Delivery</label><div class="val">Master + license PDF issued</div></div>
+            <div class="field"><label>Payout</label><div class="val">Pending → PX-9F2C-88AQ</div></div>
+          </div>
+          <div class="nav"><div>Desk</div><div>List</div><div class="on">Sold</div><div>Track</div></div>
+        </div></div>
+      </div>
+
+      <div class="wrap">
+        <div class="label">13 · Continuous track</div>
+        <div class="phone"><div class="inner">
+          <div class="bar"><span>9:41</span><span>Track</span></div>
+          <div class="hdr"><h3>Post-sale tracking</h3><p>Sold assets stay watched</p></div>
+          <div class="body">
+            <div class="row"><div><strong>License active</strong><span>Acme · standard · OK</span></div></div>
+            <div class="row"><div><strong>Possible web copy</strong><span>Risk 61 · review</span></div></div>
+            <div class="row"><div><strong>Training crawl attempt</strong><span>Blocked / logged</span></div></div>
+            <button class="btn">Open investigation</button>
+            <p style="font-size:0.65rem;color:var(--muted);margin-top:8px">Buyers see certificate only. Full tracking stays with creator.</p>
+          </div>
+          <div class="nav"><div>Desk</div><div>List</div><div>Sold</div><div class="on">Track</div></div>
+        </div></div>
+      </div>
+    </div>
+
+    <h2 class="section-title">D. Quick comparison — where photographers sell (2026 research)</h2>
+    <table class="compare">
+      <thead>
+        <tr>
+          <th>Platform</th>
+          <th>Type</th>
+          <th>Creator cut</th>
+          <th>Best for</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Adobe Stock</td><td>Stock</td><td>~33% flat</td><td>Inside Photoshop / Lightroom</td></tr>
+        <tr><td>Shutterstock</td><td>Stock</td><td>~15–40%</td><td>Highest volume</td></tr>
+        <tr><td>Alamy</td><td>Stock</td><td>~40–50%</td><td>Editorial / news</td></tr>
+        <tr><td>iStock / Getty</td><td>Stock</td><td>~15–45%</td><td>Big agency buyers</td></tr>
+        <tr><td>Dreamstime</td><td>Stock</td><td>~25–60%</td><td>Beginners</td></tr>
+        <tr><td>123RF</td><td>Stock</td><td>~30–60%</td><td>Easier approvals</td></tr>
+        <tr><td>Stocksy</td><td>Exclusive</td><td>~50–75%</td><td>Premium curated</td></tr>
+        <tr><td>Picfair / Etsy / SmugMug</td><td>Own price</td><td>You set</td><td>Direct control</td></tr>
+        <tr class="hi"><td>PinIT Exchange (target)</td><td>Provenance marketplace</td><td>Creator-set + transparent fee</td><td>DNA + Hub privacy + post-sale track</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note">
+      These screens are planning mockups only. Full written architecture:
+      <strong>docs/PINIT_EXCHANGE_2027_PRODUCT_ARCHITECTURE.md</strong>.
+      Hub vault remains owner-only; Exchange never exposes private files unless the creator lists them.
+    </div>
+  </div>
+</body>
+</html>

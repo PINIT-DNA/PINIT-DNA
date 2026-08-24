@@ -808,7 +808,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                   'Vault ID': resolvedOwner.vaultId,
                   'DNA ID': resolvedOwner.dnaRecordId,
                   'Certificate ID': resolvedOwner.certificateId,
-                  'Original Filename': resolvedOwner.originalFilename,
+                  'Original Assetname': resolvedOwner.originalFilename,
                   'Original Hash': report.identityRecoveryReport?.originalHash,
                   'Current Hash': report.identityRecoveryReport?.currentHash ?? report.currentFileHash,
                   'Evidence Confidence': report.identityRecoveryReport?.evidenceConfidence != null
@@ -872,7 +872,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                 'DNA Record ID': resolvedOwner.dnaRecordId,
                 'Certificate ID': resolvedOwner.certificateId,
                 'TEP Code': report.identityRecoveryReport?.tepCode ?? 'Not embedded on this file',
-                'Original Filename': resolvedOwner.originalFilename,
+                'Original Assetname': resolvedOwner.originalFilename,
                 'Created': report.owner.createdAt
                   ?? report.identityRecoveryReport?.registrationTimestamp
                   ?? null,

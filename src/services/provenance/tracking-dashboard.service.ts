@@ -107,7 +107,7 @@ export type ProtectedFileShareItem = {
 
 /**
  * Owner-wide Share File tracking:
- * - FILE open links (open on PinIT page → VIEWED logs)
+ * - FILE open links (open on Pinit page → VIEWED logs)
  * - protected-download TEPs (raw export packages)
  */
 export async function listOwnerProtectedFileShares(ownerUserId: string): Promise<ProtectedFileShareItem[]> {

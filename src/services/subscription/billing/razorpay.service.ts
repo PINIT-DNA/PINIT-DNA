@@ -15,6 +15,22 @@ export function isRazorpayConfigured(): boolean {
   return Boolean(config.razorpay.keyId && config.razorpay.keySecret);
 }
 
+/** True when the configured key is a live (real money) key. */
+export function isLiveRazorpayKey(): boolean {
+  return String(config.razorpay.keyId || '').startsWith('rzp_live_');
+}
+
+/**
+ * Simulated checkout — skips Razorpay's mobile/OTP/card flow entirely so
+ * local/dev testing of the subscription flow doesn't need real payment
+ * details. Hard-blocked in production and whenever a live key is configured,
+ * regardless of any other setting — mirrors the Exchange app's
+ * PAYMENT_DEMO_MODE guard (isPaymentDemoMode in exchange/server/razorpay.js).
+ */
+export function isMockBillingAllowed(): boolean {
+  return config.env !== 'production' && !isLiveRazorpayKey();
+}
+
 function getClient(): Razorpay {
   if (!isRazorpayConfigured()) {
     throw new AppError(503, 'Razorpay is not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.');
@@ -31,6 +47,7 @@ export class RazorpayBillingService {
       configured: isRazorpayConfigured(),
       keyId: config.razorpay.keyId || null,
       currency: 'INR',
+      mockAllowed: isMockBillingAllowed(),
     };
   }
 

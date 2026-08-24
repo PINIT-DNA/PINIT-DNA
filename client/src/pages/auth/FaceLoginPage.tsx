@@ -30,7 +30,7 @@ export function FaceLoginPage() {
           <h1 className="text-xl font-black text-white tracking-tight">
             PINIT<span className="text-dna-400">-DNA</span>
           </h1>
-          <p className="text-[9px] text-gray-500 font-bold tracking-[3px] uppercase">Digital File Security</p>
+          <p className="text-[9px] text-gray-500 font-bold tracking-[3px] uppercase">Digital Asset Security</p>
         </div>
       </div>
 
@@ -41,7 +41,7 @@ export function FaceLoginPage() {
         </h2>
         <p className="text-xs text-gray-500 mt-1">
           {mode === 'login'
-            ? 'Look at the camera to sign in'
+            ? 'Enter your Pinit ID, then look at the camera to verify'
             : 'Register your face — no passwords, no manual entry'}
         </p>
       </div>

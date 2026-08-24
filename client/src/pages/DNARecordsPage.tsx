@@ -46,7 +46,7 @@ function DnaDetailModal({ record, onClose }: { record: DnaRecord; onClose: () =>
         <div className="rounded-xl bg-dna-500/5 border border-dna-500/20 p-4">
           <p className="text-xs font-semibold text-dna-400 mb-1">Protected identity</p>
           <p className="text-2xs text-gray-400">
-            This file has a unique PinIT identity so you can prove ownership, detect copies, and stay in control after sharing.
+            This file has a unique Pinit identity so you can prove ownership, detect copies, and stay in control after sharing.
           </p>
         </div>
       </div>
@@ -136,7 +136,7 @@ export function DnaRecordsPage() {
     <div className="page-shell space-y-5 animate-fade-in">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold text-white">Protected files</h1>
+          <h1 className="text-xl font-bold text-white">Protected assets</h1>
           <p className="text-sm text-gray-500 mt-0.5">Files you have protected in Pinit HUB</p>
         </div>
         <div className="flex items-center gap-2">
@@ -245,7 +245,7 @@ export function DnaRecordsPage() {
                   <EmptyState
                     icon={Database}
                     title="No DNA records"
-                    description="Protect a file to see records here"
+                    description="Protect an asset to see records here"
                   />
                 </td></tr>
               ) : (

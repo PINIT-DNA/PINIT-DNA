@@ -5,6 +5,7 @@ const config: Config = {
   testEnvironment: 'node',
   roots: ['<rootDir>/tests'],
   testMatch: ['**/*.test.ts'],
+  setupFiles: ['<rootDir>/tests/jest.env.setup.ts'],
   transformIgnorePatterns: ['/node_modules/(?!@noble/)'],
   collectCoverageFrom: [
     'src/**/*.ts',

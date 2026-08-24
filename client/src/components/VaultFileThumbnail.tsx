@@ -161,13 +161,14 @@ export function VaultFileThumbnail({
 
   const fallback = (
     <div
-      className={`${frameClass} bg-bg-elevated border border-bg-border flex flex-col items-center justify-center gap-1 ${variant === 'gallery' ? 'p-4' : ''}`}
+      className={`relative ${frameClass} bg-bg-elevated border border-bg-border flex flex-col items-center justify-center gap-1 ${variant === 'gallery' ? 'p-4' : ''}`}
       title={fileName}
     >
       <span className={variant === 'gallery' ? 'text-4xl' : 'text-lg'} aria-hidden>{icon}</span>
       {variant === 'gallery' && (
         <p className="text-2xs text-gray-500 text-center line-clamp-2 px-2">{fileName}</p>
       )}
+      {lockBadge}
     </div>
   );
 
@@ -179,7 +180,7 @@ export function VaultFileThumbnail({
     return (
       <div
         ref={rootRef}
-        className={`${frameClass} bg-bg-elevated border border-bg-border flex items-center justify-center overflow-hidden`}
+        className={`relative ${frameClass} bg-bg-elevated border border-bg-border flex items-center justify-center overflow-hidden`}
         title={fileName}
       >
         {loading ? (
@@ -187,6 +188,7 @@ export function VaultFileThumbnail({
         ) : (
           <span className={`${variant === 'gallery' ? 'text-3xl' : 'text-lg'} opacity-60`} aria-hidden>{icon}</span>
         )}
+        {lockBadge}
       </div>
     );
   }
@@ -199,9 +201,12 @@ export function VaultFileThumbnail({
         <img
           src={url}
           alt=""
-          className="w-full h-full object-cover"
+          className="w-full h-full object-cover pinit-protected-media"
           loading="lazy"
           decoding="async"
+          draggable={false}
+          onDragStart={(e) => e.preventDefault()}
+          onContextMenu={(e) => e.preventDefault()}
           onError={() => setImgError(true)}
         />
         {lockBadge}
@@ -213,12 +218,20 @@ export function VaultFileThumbnail({
     return (
       <div ref={rootRef} className={`relative ${frameClass} overflow-hidden border border-bg-border bg-black`} title={fileName}>
         <video
-          src={`${url}#t=0.5`}
+          src={url}
           className="w-full h-full object-cover"
           muted
           playsInline
-          preload="auto"
+          preload="metadata"
           onError={() => setVideoError(true)}
+          onLoadedMetadata={(e) => {
+            // A #t= URL fragment only seeks on network-served video, not on
+            // blob: URLs, so the thumbnail always showed frame 0 (often a
+            // black flash-frame). Seeking here after metadata loads works
+            // for blob: URLs and gives a real mid-clip preview frame.
+            const el = e.currentTarget;
+            el.currentTime = Math.min(0.5, (el.duration || 1) / 2);
+          }}
         />
         {lockBadge}
       </div>

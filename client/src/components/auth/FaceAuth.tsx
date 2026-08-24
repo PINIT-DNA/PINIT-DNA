@@ -1,49 +1,22 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import * as faceapi from 'face-api.js';
 import { RefreshCw, CheckCircle, AlertTriangle, UserPlus, LogIn } from 'lucide-react';
 import { API_BASE_URL } from '../../config/api.config';
+import { getStoredShortId } from '../../lib/hoid';
+import { toRootPinitId } from '../../lib/pinit-identity';
+import { ensureFaceModels } from '../../lib/face-capture';
+import { runPadCapture } from '../../lib/face-liveness';
+import type { FacePadEvidence } from '../../lib/face-api-client';
+import { assertDeviceCredential, registerDeviceCredential } from '../../lib/webauthn';
 
 interface FaceAuthProps {
   mode: 'login' | 'register' | 'capture';
   variant?: 'standalone' | 'embedded';
+  claimedShortId?: string;
   onSuccess: (data: Record<string, unknown>) => void;
   onSwitchMode?: () => void;
 }
 
-type LivenessStep = 'init' | 'detecting' | 'blink' | 'smile' | 'capture' | 'processing' | 'done' | 'error';
-
-const LIVENESS_MESSAGES: Record<LivenessStep, string> = {
-  init: 'Initializing camera...',
-  detecting: 'Position your face in the frame',
-  blink: 'Blink your eyes slowly',
-  smile: 'Now smile naturally',
-  capture: 'Hold still — capturing face',
-  processing: 'Processing face data...',
-  done: '',
-  error: '',
-};
-
-function normalizeEmbedding(values: Float32Array): number[] {
-  const out = new Float32Array(128);
-  let norm = 0;
-  for (let i = 0; i < 128; i++) {
-    norm += values[i]! * values[i]!;
-  }
-  norm = Math.sqrt(norm) || 1;
-  for (let i = 0; i < 128; i++) out[i] = values[i]! / norm;
-  return Array.from(out);
-}
-
-function distPoints(a: faceapi.Point, b: faceapi.Point): number {
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-function eyeAspectRatio(eye: faceapi.Point[]): number {
-  const v1 = distPoints(eye[1]!, eye[5]!);
-  const v2 = distPoints(eye[2]!, eye[4]!);
-  const h = distPoints(eye[0]!, eye[3]!);
-  return (v1 + v2) / (2 * h);
-}
+type LivenessStep = 'init' | 'detecting' | 'liveness' | 'passkey' | 'processing' | 'done' | 'error';
 
 async function postFaceApi(path: string, body: unknown): Promise<{ ok: boolean; status: number; data: Record<string, unknown> }> {
   const url = `${API_BASE_URL}${path}`;
@@ -72,169 +45,143 @@ async function postFaceApi(path: string, body: unknown): Promise<{ ok: boolean; 
   throw lastErr ?? new Error('Face API unreachable');
 }
 
-export function FaceAuth({ mode, variant = 'standalone', onSuccess, onSwitchMode }: FaceAuthProps) {
+export function FaceAuth({ mode, variant = 'standalone', claimedShortId, onSuccess, onSwitchMode }: FaceAuthProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const [step, setStep] = useState<LivenessStep>('init');
-  const stepRef = useRef<LivenessStep>('init');
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
-  const detectionRef = useRef<number | null>(null);
-  const blinkCountRef = useRef(0);
-  const wasEyesClosedRef = useRef(false);
-  const embeddingsRef = useRef<Float32Array[]>([]);
-
-  const updateStep = (next: LivenessStep) => {
-    stepRef.current = next;
-    setStep(next);
-  };
+  const [hint, setHint] = useState('Initializing camera...');
+  const [claimInput, setClaimInput] = useState(
+    () => claimedShortId || getStoredShortId() || '',
+  );
+  const runningRef = useRef(false);
+  const pendingCaptureRef = useRef<{ embedding: number[]; padEvidence?: FacePadEvidence } | null>(null);
 
   useEffect(() => {
     async function loadModels() {
       try {
-        await Promise.all([
-          faceapi.nets.tinyFaceDetector.loadFromUri('/models'),
-          faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
-          faceapi.nets.faceRecognitionNet.loadFromUri('/models'),
-          faceapi.nets.faceExpressionNet.loadFromUri('/models'),
-        ]);
+        await ensureFaceModels();
         setModelsLoaded(true);
       } catch {
         setError('Failed to load face detection models. Refresh the page.');
-        updateStep('error');
+        setStep('error');
       }
     }
-    loadModels();
-    return () => {
-      if (detectionRef.current) cancelAnimationFrame(detectionRef.current);
-    };
+    void loadModels();
   }, []);
 
   const stopCamera = useCallback(() => {
-    if (detectionRef.current) cancelAnimationFrame(detectionRef.current);
     if (videoRef.current?.srcObject) {
       (videoRef.current.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
     }
   }, []);
 
-  const processEmbeddings = useCallback(async () => {
+  // Intentionally reads only success/matched/message/status from the response below —
+  // never a field like shortId/distance that the backend might stop sending on a
+  // contract change (see biometric-auth.service.ts's register()). Keep it that way.
+  const submitCapture = useCallback(async (
+    embedding: number[],
+    padEvidence?: FacePadEvidence,
+    passkey?: { webauthnSession?: string; passkeyPendingToken?: string },
+  ) => {
+    if (mode === 'capture') {
+      setStep('done');
+      setProgress(100);
+      stopCamera();
+      onSuccess({ embedding, success: true, padEvidence });
+      return;
+    }
+
+    const path = mode === 'register' ? '/auth/face/register' : '/auth/face/login';
+    const claim = (toRootPinitId(claimInput) || claimInput).trim();
+    if (mode === 'login' && !claim) {
+      setStep('error');
+      setError('Enter your Pinit ID, then verify your face against that account.');
+      return;
+    }
     try {
-      const avg = new Float32Array(128);
-      for (const emb of embeddingsRef.current) {
-        for (let i = 0; i < 128; i++) avg[i] += emb[i]! / embeddingsRef.current.length;
-      }
-      const embedding = normalizeEmbedding(avg);
-
-      if (mode === 'capture') {
-        updateStep('done');
-        setProgress(100);
-        stopCamera();
-        onSuccess({ embedding, success: true });
-        return;
-      }
-
-      const path = mode === 'register' ? '/auth/face/register' : '/auth/face/login';
-      const { status, data } = await postFaceApi(path, { embedding });
+      const { status, data } = await postFaceApi(path, {
+        embedding,
+        padEvidence,
+        webauthnSession: passkey?.webauthnSession,
+        passkeyPendingToken: passkey?.passkeyPendingToken,
+        ...(mode === 'login' ? { claimedShortId: claim } : {}),
+      });
 
       if (data.success === true && data.matched !== false) {
-        updateStep('done');
+        setStep('done');
         setProgress(100);
         stopCamera();
         onSuccess(data);
         return;
       }
 
-      updateStep('error');
+      setStep('error');
       setError(
         (typeof data.message === 'string' && data.message) ||
         (status === 409 ? 'This face is already registered. Please login.' : null) ||
-        (mode === 'login' ? 'Face not recognized. Register first or try again.' : 'Registration failed. Please try again.'),
+        (mode === 'login' ? 'Could not verify this face for the claimed account.' : 'Registration failed. Please try again.'),
       );
     } catch {
-      updateStep('error');
+      setStep('error');
       setError(`Cannot reach server. Check connection to ${API_BASE_URL.replace('/api/v1', '')}`);
     }
-  }, [mode, onSuccess, stopCamera]);
+  }, [mode, onSuccess, stopCamera, claimInput]);
 
-  const runDetection = useCallback(() => {
-    const detect = async () => {
-      if (!videoRef.current || !canvasRef.current) return;
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      const currentStep = stepRef.current;
-
-      if (video.readyState < 2) {
-        detectionRef.current = requestAnimationFrame(detect);
+  const runPadSession = useCallback(async () => {
+    if (!videoRef.current || runningRef.current) return;
+    runningRef.current = true;
+    setStep('liveness');
+    setHint('Follow the live motion prompts');
+    try {
+      const result = await runPadCapture(videoRef.current, {
+        onProgress: setProgress,
+        onHint: (h) => { setHint(h); setStep('liveness'); },
+      });
+      if (mode === 'capture') {
+        await submitCapture(result.embedding, result.padEvidence);
         return;
       }
+      pendingCaptureRef.current = { embedding: result.embedding, padEvidence: result.padEvidence };
+      runningRef.current = false;
+      setProgress(90);
+      setStep('passkey');
+      setHint('Confirm with this device passkey');
+    } catch (e) {
+      runningRef.current = false;
+      setStep('error');
+      setError(e instanceof Error ? e.message : 'Liveness check failed. Retry.');
+    }
+  }, [mode, submitCapture]);
 
-      const detection = await faceapi
-        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 }))
-        .withFaceLandmarks()
-        .withFaceExpressions()
-        .withFaceDescriptor();
-
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const continueWithPasskey = useCallback(async () => {
+    const pending = pendingCaptureRef.current;
+    if (!pending) {
+      setStep('error');
+      setError('Face capture missing. Retry.');
+      return;
+    }
+    setStep('processing');
+    setHint('Verifying device passkey…');
+    try {
+      const claim = (toRootPinitId(claimInput) || claimInput).trim();
+      const passkey = mode === 'register'
+        ? await registerDeviceCredential()
+        : await assertDeviceCredential(claim);
+      if (passkey.simulated) {
+        throw new Error('Simulated device hashes are not accepted. Use a real passkey.');
       }
-
-      if (detection) {
-        if (ctx) {
-          const box = detection.detection.box;
-          ctx.strokeStyle = '#818cf8';
-          ctx.lineWidth = 3;
-          ctx.strokeRect(box.x, box.y, box.width, box.height);
-        }
-
-        const expressions = detection.expressions;
-        const landmarks = detection.landmarks;
-        const leftEar = eyeAspectRatio(landmarks.getLeftEye());
-        const rightEar = eyeAspectRatio(landmarks.getRightEye());
-        const eyesClosed = leftEar < 0.22 && rightEar < 0.22;
-
-        if (currentStep === 'detecting') {
-          updateStep('blink');
-          setProgress(25);
-        }
-
-        if (currentStep === 'blink') {
-          if (eyesClosed) wasEyesClosedRef.current = true;
-          if (wasEyesClosedRef.current && !eyesClosed) {
-            blinkCountRef.current++;
-            wasEyesClosedRef.current = false;
-          }
-          if (blinkCountRef.current >= 1) {
-            updateStep('smile');
-            setProgress(50);
-          }
-        }
-
-        if (currentStep === 'smile') {
-          if (expressions.happy > 0.45 || expressions.surprised > 0.35) {
-            updateStep('capture');
-            setProgress(75);
-          }
-        }
-
-        if (currentStep === 'capture') {
-          embeddingsRef.current.push(detection.descriptor);
-          if (embeddingsRef.current.length >= 3) {
-            updateStep('processing');
-            setProgress(90);
-            await processEmbeddings();
-            return;
-          }
-        }
-      }
-
-      detectionRef.current = requestAnimationFrame(detect);
-    };
-    detect();
-  }, [processEmbeddings]);
+      await submitCapture(pending.embedding, pending.padEvidence, {
+        webauthnSession: passkey.webauthnSession,
+        passkeyPendingToken: passkey.passkeyPendingToken,
+      });
+    } catch (e) {
+      setStep('error');
+      setError(e instanceof Error ? e.message : 'Passkey verification failed.');
+    }
+  }, [claimInput, mode, submitCapture]);
 
   const startCamera = useCallback(async () => {
     try {
@@ -244,33 +191,44 @@ export function FaceAuth({ mode, variant = 'standalone', onSuccess, onSwitchMode
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
-        updateStep('detecting');
-        runDetection();
+        setStep('detecting');
+        setHint('Position your face in the frame');
+        void runPadSession();
       }
     } catch {
       setError('Camera access denied. Please allow camera permission.');
-      updateStep('error');
+      setStep('error');
     }
-  }, [runDetection]);
+  }, [runPadSession]);
 
   useEffect(() => {
     if (!modelsLoaded) return;
-    startCamera();
+    void startCamera();
     return () => stopCamera();
   }, [modelsLoaded, startCamera, stopCamera]);
 
   const retry = () => {
-    updateStep('detecting');
+    runningRef.current = false;
     setError(null);
-    blinkCountRef.current = 0;
-    wasEyesClosedRef.current = false;
-    embeddingsRef.current = [];
     setProgress(0);
-    runDetection();
+    setStep('detecting');
+    void runPadSession();
   };
 
   return (
     <div className={variant === 'embedded' ? 'w-full' : 'w-full max-w-md mx-auto'}>
+      {mode === 'login' && (
+        <label className="block mb-3">
+          <span className="text-[10px] font-bold tracking-wider uppercase text-gray-500">Pinit ID</span>
+          <input
+            value={claimInput}
+            onChange={(e) => setClaimInput(e.target.value.toUpperCase())}
+            placeholder="PINIT-XXXXXX"
+            autoComplete="username"
+            className="mt-1 w-full rounded-xl bg-bg-elevated border border-bg-border px-3 py-2 text-sm font-bold text-white tracking-wide"
+          />
+        </label>
+      )}
       <div className="relative rounded-2xl overflow-hidden bg-black aspect-[4/3] mb-4">
         <video
           ref={videoRef}
@@ -301,7 +259,7 @@ export function FaceAuth({ mode, variant = 'standalone', onSuccess, onSwitchMode
           }`}>
             {step === 'done' ? 'Verified' :
              step === 'error' ? error :
-             LIVENESS_MESSAGES[step]}
+             hint}
           </div>
         </div>
       </div>
@@ -315,9 +273,9 @@ export function FaceAuth({ mode, variant = 'standalone', onSuccess, onSwitchMode
 
       <div className="flex justify-between mb-6 px-2">
         {[
-          { label: 'Detect', done: progress >= 25 },
-          { label: 'Blink', done: progress >= 50 },
-          { label: 'Smile', done: progress >= 75 },
+          { label: 'Detect', done: progress >= 20 },
+          { label: 'Motion', done: progress >= 50 },
+          { label: 'Liveness', done: progress >= 80 },
           { label: 'Verify', done: progress >= 100 },
         ].map((s, i) => (
           <div key={i} className="flex items-center gap-1.5">
@@ -331,9 +289,19 @@ export function FaceAuth({ mode, variant = 'standalone', onSuccess, onSwitchMode
         ))}
       </div>
 
+      {step === 'passkey' && (
+        <button
+          type="button"
+          onClick={() => void continueWithPasskey()}
+          className={variant === 'embedded' ? 'pa-btn w-full mb-3' : 'btn btn-primary w-full mb-3'}
+        >
+          Continue with device passkey
+        </button>
+      )}
+
       {step === 'error' && (
         <div className="space-y-3">
-          <div className={`flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-xl ${variant === 'embedded' ? '' : ''}`}>
+          <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-xl">
             <AlertTriangle size={20} className="text-red-400 shrink-0" />
             <p className="text-sm text-red-400 font-semibold">{error}</p>
           </div>

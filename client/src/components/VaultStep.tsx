@@ -8,39 +8,36 @@ interface Props {
   file: File;
   dnaRecordId: string;
   custodyLocation?: { latitude: number; longitude: number } | null;
+  /** Business Account — when protecting an asset from inside a Campaign workspace. */
+  campaignId?: string | null;
   onComplete: (result: VaultStoreResponse) => void;
   onError: (msg: string) => void;
 }
 
 type VaultStage = 'working' | 'complete' | 'error';
 
-export function VaultStep({ file, dnaRecordId, custodyLocation, onComplete, onError }: Props) {
+export function VaultStep({ file, dnaRecordId, custodyLocation, campaignId, onComplete, onError }: Props) {
   const [stage, setStage] = useState<VaultStage>('working');
 
   useEffect(() => {
     let cancelled = false;
 
     const run = async () => {
-      await delay(1100);
-      if (cancelled) return;
-
       try {
         const result = await storeInVault(
           file,
           dnaRecordId,
-          custodyLocation
-            ? {
-                locationShared: true,
-                latitude: custodyLocation.latitude,
-                longitude: custodyLocation.longitude,
-              }
-            : undefined,
+          {
+            ...(custodyLocation
+              ? { locationShared: true, latitude: custodyLocation.latitude, longitude: custodyLocation.longitude }
+              : {}),
+            ...(campaignId ? { campaignId } : {}),
+          },
         );
         if (cancelled) return;
         setStage('complete');
-        await delay(600);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if (!cancelled) onComplete(result as any);
+        onComplete(result as any);
       } catch (err: unknown) {
         if (cancelled) return;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -55,9 +52,9 @@ export function VaultStep({ file, dnaRecordId, custodyLocation, onComplete, onEr
       }
     };
 
-    run();
+    void run();
     return () => { cancelled = true; };
-  }, [file, dnaRecordId, custodyLocation, onComplete, onError]);
+  }, [file, dnaRecordId, custodyLocation, campaignId, onComplete, onError]);
 
   return (
     <motion.div
@@ -78,8 +75,4 @@ export function VaultStep({ file, dnaRecordId, custodyLocation, onComplete, onEr
       )}
     </motion.div>
   );
-}
-
-function delay(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
 }

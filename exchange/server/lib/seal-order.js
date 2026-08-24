@@ -3,6 +3,9 @@ import { tierPrice, applyCouponPercent } from './pricing.js';
 import { withImmediateTransaction, runSql, getSql } from './db.js';
 import { LISTING_STATUS, LICENSE_STATUS, ORDER_STATUS, BRIDGE_EVENT, isListingPurchasable } from './lifecycle.js';
 import { recordBridgeEvent, markBridgeEventProcessed, markBridgeEventFailed } from './bridge-events.js';
+import { postAssetActivity } from './asset-activity.js';
+import { activeCurrency } from './money.js';
+import { downloadLimitForTier, LICENSE_TERMS_VERSION } from './licensing.js';
 
 /**
  * Seal a paid license sale with exclusive locking + bridge events.
@@ -16,6 +19,7 @@ export async function sealListingSale({
   buyerPinitId,
   couponPercent = 0,
   payment = {},
+  termsAcceptedAt = null,
 }) {
   let pricePaid = applyCouponPercent(tierPrice(listing, licenseTier), couponPercent);
   const platformFee = Math.round(pricePaid * 0.15 * 100) / 100;
@@ -23,6 +27,11 @@ export async function sealListingSale({
 
   const sealId = 'SEAL-' + Math.floor(100000 + Math.random() * 900000);
   const orderId = 'ORD-' + Math.floor(10000 + Math.random() * 90000);
+  // Currency is stamped per order so a receipt always reflects what was
+  // actually charged, even after the platform currency changes.
+  const currency = payment.currency || activeCurrency();
+  const downloadLimit = downloadLimitForTier(licenseTier);
+  const invoiceNumber = `INV-${new Date().getFullYear()}-${sealId.replace('SEAL-', '')}`;
   const buyerId = buyerPinitId || `PINIT-BUYER-${Math.floor(100 + Math.random() * 900)}`;
   const dnaSummary =
     listing.dna_hash ||
@@ -85,8 +94,10 @@ export async function sealListingSale({
         buyer_pinit_id, buyer_name, buyer_email, buyer_org, license_tier,
         price_paid, platform_fee, creator_net, dna_hash_summary, license_terms_version, status,
         payment_status, razorpay_order_id, razorpay_payment_id, payment_intent_id,
-        license_status, delivery_status, delivery_expires_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'v2.1-provenance', ?, ?, ?, ?, ?, ?, 'active', ?)`,
+        license_status, delivery_status, delivery_expires_at,
+        currency, download_limit, download_count, invoice_number,
+        terms_version, terms_accepted_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'v2.1-provenance', ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, 0, ?, ?, ?)`,
       [
         sealId,
         orderId,
@@ -110,6 +121,11 @@ export async function sealListingSale({
         paymentIntentId,
         LICENSE_STATUS.ACTIVE,
         deliveryExpires,
+        currency,
+        downloadLimit,
+        invoiceNumber,
+        LICENSE_TERMS_VERSION,
+        termsAcceptedAt,
       ],
     );
 
@@ -134,8 +150,8 @@ export async function sealListingSale({
     // Stub earning row for future payouts
     await txRun(
       `INSERT OR IGNORE INTO seller_earnings (
-        id, seller_pinit_id, order_id, seal_id, gross_amount, platform_fee, net_amount, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'accrued')`,
+        id, seller_pinit_id, order_id, seal_id, gross_amount, platform_fee, net_amount, status, asset_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'accrued', ?)`,
       [
         `EAR-${sealId}`,
         fresh.pinit_id,
@@ -144,9 +160,29 @@ export async function sealListingSale({
         pricePaid,
         platformFee,
         creatorNet,
+        fresh.asset_id,
       ],
     );
   });
+
+  // Money settled and the licence row now exists. Amounts are business data the
+  // creator is entitled to; no buyer identity beyond the Pinit ID is included.
+  postAssetActivity([
+    {
+      assetId: listing.asset_id,
+      eventType: 'PAID',
+      title: 'Payment settled',
+      detail: `Order ${orderId}`,
+      payload: { orderId, sealId, gross: pricePaid, platformFee, creatorNet, licenseTier, currency },
+    },
+    {
+      assetId: listing.asset_id,
+      eventType: 'LICENSE_CREATED',
+      title: `License issued (${licenseTier})`,
+      detail: `Seal ${sealId}`,
+      payload: { sealId, orderId, licenseTier, buyerPinitId: buyerId || null },
+    },
+  ]);
 
   let hubSeal = null;
   let delivery = null;
@@ -190,6 +226,14 @@ export async function sealListingSale({
         licenseId: sealId,
       });
       if (!delDup && delEvent?.id) await markBridgeEventProcessed(delEvent.id);
+
+      postAssetActivity({
+        assetId: listing.asset_id,
+        eventType: 'DELIVERED',
+        title: 'Licensed file delivered',
+        detail: `Seal ${sealId}`,
+        payload: { sealId, orderId, licenseTier },
+      });
     }
   } catch (delErr) {
     console.warn('[seal] Hub delivery failed:', delErr.message);

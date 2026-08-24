@@ -123,7 +123,7 @@ export function DuplicateAttemptsPage() {
       ) : !attempts || attempts.length === 0 ? (
         <EmptyState
           icon={CheckCircle2}
-          title="No Duplicate Attempts"
+          title="No duplicate attempts"
           description="No duplicate upload attempts have been detected. The registry is clean."
         />
       ) : (
@@ -193,7 +193,7 @@ export function DuplicateAttemptsPage() {
                 <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
                   {a.existingFilename && (
                     <div className="bg-bg-elevated rounded-lg px-3 py-2">
-                      <p className="text-2xs text-gray-500 uppercase tracking-wide">Existing File in Registry</p>
+                      <p className="text-2xs text-gray-500 uppercase tracking-wide">Existing Asset in Registry</p>
                       <p className="text-xs text-white mono mt-0.5 truncate">{a.existingFilename}</p>
                     </div>
                   )}

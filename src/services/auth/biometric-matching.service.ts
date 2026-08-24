@@ -56,7 +56,9 @@ export interface FaceRankResult {
   secondDistance: number;
 }
 
-/** Rank probe against all face templates (ascending distance). */
+/** Rank probe against all face templates (ascending distance).
+ * Registration duplicate detection / explicit identify only — never login.
+ */
 export function rankFaceMatches(
   probe: number[],
   candidates: Array<{ userId: string; shortId: string; embedding: number[]; source?: string }>,
@@ -66,9 +68,9 @@ export function rankFaceMatches(
   for (const c of candidates) {
     const d = euclideanDistance(probe, c.embedding);
     if (!best || d < best.distance) {
-      if (best) secondDistance = best.distance;
+      if (best && best.userId !== c.userId) secondDistance = best.distance;
       best = { userId: c.userId, shortId: c.shortId, distance: d, source: c.source };
-    } else if (d < secondDistance) {
+    } else if (c.userId !== best.userId && d < secondDistance) {
       secondDistance = d;
     }
   }
@@ -76,16 +78,46 @@ export function rankFaceMatches(
 }
 
 /**
- * Accept login only when:
- * 1) nearest distance < faceLogin threshold, AND
- * 2) if another template exists, nearest beats 2nd-best by faceLoginMargin
- *    (prevents "closest stranger" false accepts in small registries).
+ * 1:N identification uniqueness (registration / explicit identify only).
+ * A unique nearest neighbor is NOT an automatic accept — login must never
+ * use this. Empty second-best (Infinity) means the gallery has one user,
+ * which is not sufficient to identify the probe as that user.
  */
-export function isConfidentFaceMatch(bestDistance: number, secondDistance: number): boolean {
-  if (!Number.isFinite(bestDistance) || bestDistance >= THRESHOLDS.faceLogin) return false;
-  if (!Number.isFinite(secondDistance) || secondDistance === Infinity) return true;
+export function isConfidentFaceMatch(
+  bestDistance: number,
+  secondDistance: number,
+  threshold = THRESHOLDS.faceLogin,
+): boolean {
+  if (!Number.isFinite(bestDistance) || bestDistance >= threshold) return false;
+  if (!Number.isFinite(secondDistance) || secondDistance === Infinity) return false;
+  if (secondDistance < threshold) return false;
   const margin = THRESHOLDS.faceLoginMargin ?? 0.08;
   return secondDistance - bestDistance >= margin;
+}
+
+/** 1:N enroll uniqueness — any confident hit under the duplicate threshold. */
+export function isDuplicateFaceEnrollment(bestDistance: number, secondDistance: number): boolean {
+  return isConfidentFaceMatch(bestDistance, secondDistance, THRESHOLDS.faceDuplicate);
+}
+
+export interface VoiceRankResult {
+  best: { userId: string; shortId: string; distance: number; source?: string } | null;
+  secondDistance: number;
+}
+
+/** Rank probe against all voice templates (ascending distance).
+ * Registration duplicate detection only — never login (mirrors rankFaceMatches).
+ */
+export function rankVoiceMatches(
+  probe: number[],
+  candidates: Array<{ userId: string; shortId: string; embedding: number[]; source?: string }>,
+): VoiceRankResult {
+  return rankFaceMatches(probe, candidates);
+}
+
+/** 1:N voice enroll uniqueness — any confident hit under the voice-duplicate threshold. */
+export function isDuplicateVoiceEnrollment(bestDistance: number, secondDistance: number): boolean {
+  return isConfidentFaceMatch(bestDistance, secondDistance, THRESHOLDS.voiceDuplicate);
 }
 
 export function fuseBiometricScores(
@@ -115,8 +147,7 @@ export function fuseBiometricScores(
     weighted += fpConf * w.fingerprint;
   }
 
-  // Face-primary authentication — Face is the primary lock + margin gate.
-  const faceOk = isConfidentFaceMatch(faceDist, opts.secondFaceDistance ?? Infinity);
+  const faceOk = isFaceVerified1to1(faceDist);
   const verified = faceOk;
 
   const overallConfidence = totalWeight > 0 ? weighted / totalWeight : 0;
@@ -137,4 +168,64 @@ export function fuseBiometricScores(
 
 export function isValidTemplate(arr: unknown, dim = 128): arr is number[] {
   return Array.isArray(arr) && arr.length === dim && arr.every((v) => typeof v === 'number' && Number.isFinite(v));
+}
+
+/** Reject degenerate probes (all zeros / no variance) before comparison. */
+export function isFaceProbeQualityOk(embedding: number[]): boolean {
+  if (!isValidTemplate(embedding)) return false;
+  let min = embedding[0]!;
+  let max = embedding[0]!;
+  let absSum = 0;
+  for (const v of embedding) {
+    if (v < min) min = v;
+    if (v > max) max = v;
+    absSum += Math.abs(v);
+  }
+  return absSum > 1e-6 && max - min > 1e-6;
+}
+
+/**
+ * 1:1 verification — claimed account only.
+ * Distance must be finite and strictly below threshold.
+ * An empty template or missing claim is always a deny.
+ */
+export function isFaceVerified1to1(
+  distance: number,
+  threshold = THRESHOLDS.faceLogin,
+): boolean {
+  return Number.isFinite(distance) && distance < threshold;
+}
+
+export type ClaimedFaceVerifyResult =
+  | { ok: true; claimedUserId: string; distance: number }
+  | { ok: false; claimedUserId: string | null; reason: 'no_claim' | 'quality' | 'no_template' | 'mismatch' };
+
+/**
+ * Verify probe against ONE enrolled template. Never ranks a gallery.
+ * On success, identity is always the claimed user — never a nearest neighbor.
+ */
+export function verifyClaimedFace(params: {
+  claimedUserId: string | null | undefined;
+  probe: number[];
+  enrolled: number[] | null;
+  threshold?: number;
+}): ClaimedFaceVerifyResult {
+  const claimedUserId = typeof params.claimedUserId === 'string' ? params.claimedUserId.trim() : '';
+  if (!claimedUserId) {
+    return { ok: false, claimedUserId: null, reason: 'no_claim' };
+  }
+  if (!isFaceProbeQualityOk(params.probe)) {
+    return { ok: false, claimedUserId, reason: 'quality' };
+  }
+  if (!params.enrolled || !isValidTemplate(params.enrolled)) {
+    return { ok: false, claimedUserId, reason: 'no_template' };
+  }
+  const distance = euclideanDistance(
+    normalizeEmbedding(params.probe),
+    normalizeEmbedding(params.enrolled),
+  );
+  if (!isFaceVerified1to1(distance, params.threshold ?? THRESHOLDS.faceLogin)) {
+    return { ok: false, claimedUserId, reason: 'mismatch' };
+  }
+  return { ok: true, claimedUserId, distance };
 }

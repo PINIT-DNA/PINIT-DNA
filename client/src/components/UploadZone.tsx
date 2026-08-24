@@ -165,7 +165,7 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
         className="text-center mb-8"
       >
         <div className="text-6xl mb-4 dna-float">🧬</div>
-        <h2 className="text-3xl font-bold text-white">Protect file</h2>
+        <h2 className="text-3xl font-bold text-white">Protect asset</h2>
       </motion.div>
 
       {!selectedFile && (
@@ -247,9 +247,8 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
                   <div className="w-16 h-16 rounded-2xl bg-dna-500/10 flex items-center justify-center mb-4">
                     <Upload size={28} className="text-dna-400" />
                   </div>
-                  <p className="text-white font-semibold text-lg mb-1">Drag & drop any file</p>
-                  <p className="text-gray-500 text-sm mb-4">or click here to browse</p>
-                  <p className="text-gray-600 text-xs">Max 500 MB</p>
+                  <p className="text-white font-semibold text-lg mb-1">Drag & drop any asset</p>
+                  <p className="text-gray-500 text-sm">or click here to browse</p>
                 </>
               )}
             </div>
@@ -363,7 +362,7 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
           className="mt-6 flex justify-center"
         >
           <button type="button" onClick={onGenerate} className="btn-primary text-base px-10 py-4">
-            <span>Protect This File</span>
+            <span>Protect This Asset</span>
             <span className="text-lg">→</span>
           </button>
         </motion.div>

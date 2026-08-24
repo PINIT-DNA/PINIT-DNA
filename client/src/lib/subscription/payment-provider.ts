@@ -31,6 +31,8 @@ export interface BillingConfig {
   configured: boolean;
   keyId: string | null;
   currency: string;
+  /** Dev/test-only simulated checkout — server refuses it outside development, this just drives the UI. */
+  mockAllowed: boolean;
 }
 
 let cachedProviderId: 'mock' | 'razorpay' | null = null;
@@ -138,9 +140,10 @@ export async function fetchBillingConfig(): Promise<BillingConfig> {
       configured: Boolean(data?.razorpay?.configured && data.razorpay.keyId),
       keyId: data?.razorpay?.keyId ?? null,
       currency: data?.razorpay?.currency ?? 'INR',
+      mockAllowed: Boolean(data?.razorpay?.mockAllowed),
     };
   } catch {
-    billingConfigCache = { configured: false, keyId: null, currency: 'INR' };
+    billingConfigCache = { configured: false, keyId: null, currency: 'INR', mockAllowed: false };
   }
 
   return billingConfigCache;

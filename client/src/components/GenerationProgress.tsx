@@ -141,9 +141,9 @@ export function GenerationProgress({
     if (phase !== 'processing') return;
 
     const timers = [
-      window.setTimeout(() => setSubStep(1), 450),
-      window.setTimeout(() => setSubStep(2), 1100),
-      window.setTimeout(() => setSubStep(3), 1900),
+      window.setTimeout(() => setSubStep(1), 120),
+      window.setTimeout(() => setSubStep(2), 280),
+      window.setTimeout(() => setSubStep(3), 450),
     ];
     return () => timers.forEach((t) => window.clearTimeout(t));
   }, [phase, checklistFloor]);
@@ -342,7 +342,7 @@ export function GenerationProgress({
             <dl className="mt-3 space-y-1.5 text-2xs">
               <div className="flex justify-between gap-2">
                 <dt className="text-gray-500">Protection</dt>
-                <dd className="text-white font-medium">PinIT identity</dd>
+                <dd className="text-white font-medium">Pinit identity</dd>
               </div>
               <div className="flex justify-between gap-2">
                 <dt className="text-gray-500">Status</dt>

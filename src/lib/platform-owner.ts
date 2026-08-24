@@ -1,5 +1,5 @@
 /**
- * Backend platform-owner allowlist (PinIT short IDs).
+ * Backend platform-owner allowlist (Pinit short IDs).
  * Must stay aligned with client/src/lib/platform-owner.ts defaults.
  */
 const DEFAULT_OWNER_SHORT_IDS = ['PINIT-324BMMSL'];

@@ -45,12 +45,12 @@ const fileFilter = (
   file: Express.Multer.File,
   cb: FileFilterCallback
 ): void => {
-  if (mimeMatchesAllowed(file.mimetype, config.upload.allowedMimeTypes)) {
+  if (mimeMatchesAllowed(file.mimetype, config.upload.allowedMimeTypes, file.originalname)) {
     cb(null, true);
   } else {
     cb(
       new Error(
-        `Unsupported file type: "${file.mimetype}". ` +
+        `Unsupported file type: "${file.mimetype}" (${file.originalname}). ` +
         `Supported: IMAGE, PDF, DOCX, PPTX, TXT, HTML, CSV, JSON, ZIP, VIDEO, AUDIO. ` +
         `Check GET /api/v1/dna/supported-types for the full MIME list.`
       )

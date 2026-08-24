@@ -175,7 +175,7 @@ export function AccessIntelligencePage() {
       navigate(`/access-intelligence/${encodeURIComponent(related.token)}`);
       return;
     }
-    toast.error('No Access Intelligence view for this item — use a PinIT open Share File row');
+    toast.error('No Access Intelligence view for this item — use a Pinit open Share File row');
   };
 
   const busy = tab === 'links' ? loading : loadingFiles;
@@ -378,9 +378,9 @@ export function AccessIntelligencePage() {
           {openFileShares.length === 0 ? (
             <div className="card text-center py-16">
               <Send size={40} className="text-gray-500 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">No shared files tracked yet</p>
+              <p className="text-sm text-gray-500">No shared assets tracked yet</p>
               <p className="text-2xs text-gray-500 mt-1">
-                From Digital Assets, use Share File. When someone opens it in PinIT, activity shows up here.
+                From Digital Assets, use Share File. When someone opens it in Pinit, activity shows up here.
               </p>
             </div>
           ) : (

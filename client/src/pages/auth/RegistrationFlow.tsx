@@ -13,11 +13,10 @@ import { VoiceCaptureStep } from '../../components/auth/VoiceCaptureStep';
 import { StepHead, Checklist, SystemTrace, TrustBadge, type CheckItem } from '../../components/auth/parts';
 import { useAuth } from '../../context/AuthContext';
 import { collectFingerprint } from '../../lib/device-fingerprint';
-import { generateHoid, saveRegistration } from '../../lib/hoid';
+import { generateHoid, saveRegistration, clearRegistration } from '../../lib/hoid';
 import { type BiometricResult } from '../../lib/webauthn';
-import { storeIdentity } from '../../lib/identity-store';
 import { warmBackend, parseJwt } from '../../lib/auth';
-import { registerFaceIdentity } from '../../lib/face-api-client';
+import { registerFaceIdentity, type FacePadEvidence } from '../../lib/face-api-client';
 import { preloadFaceModels } from '../../lib/face-capture';
 import {
   clearBusinessSetup,
@@ -31,7 +30,7 @@ import {
 } from '../../lib/pre-register';
 
 type Step = 'welcome' | 'permissions' | 'face' | 'fingerprint' | 'voice' | 'creating' | 'success';
-/** Face (real) → fingerprint (auto) → voice (real). */
+/** Face (PAD) → device passkey (WebAuthn) → voice (optional). */
 const ORDER: Step[] = ['welcome', 'permissions', 'face', 'fingerprint', 'voice', 'creating', 'success'];
 
 const fade = {
@@ -49,8 +48,8 @@ export function RegistrationFlow() {
   const [error, setError] = useState('');
   const deviceFpRef = useRef<string>('');
   const hoidRef = useRef<string>('');
-  const faceImageRef = useRef<string | null>(null);
   const faceEmbeddingRef = useRef<number[] | null>(null);
+  const padEvidenceRef = useRef<FacePadEvidence | null>(null);
   const voiceFingerprintRef = useRef<number[] | null>(null);
   const bioRef = useRef<BiometricResult | null>(null);
   const accountTypeRef = useRef<'INDIVIDUAL' | 'BUSINESS'>(
@@ -60,7 +59,12 @@ export function RegistrationFlow() {
   const go = (s: Step) => { setError(''); setStep(s); };
   const idx = ORDER.indexOf(step);
 
+  const sessionResetRef = useRef(false);
   useEffect(() => {
+    if (!sessionResetRef.current) {
+      sessionResetRef.current = true;
+      clearRegistration();
+    }
     const chosen = getPreRegisterAccountType();
     if (!chosen) {
       navigate('/register/account-type', { replace: true });
@@ -73,7 +77,7 @@ export function RegistrationFlow() {
     go('fingerprint');
   }
 
-  function afterVoice(fp: number[]) {
+  function afterVoice(fp: number[] | null) {
     voiceFingerprintRef.current = fp;
     hoidRef.current = generateHoid(deviceFpRef.current);
     go('creating');
@@ -95,8 +99,8 @@ export function RegistrationFlow() {
               <FaceRoundScan
                 mode="register"
                 title="Face Enrollment"
-                onCapture={(img) => { faceImageRef.current = img; }}
                 onEmbedding={(emb) => { faceEmbeddingRef.current = emb; }}
+                onPadEvidence={(ev) => { padEvidenceRef.current = ev; }}
                 onNext={afterFace}
                 onError={(m) => setError(m)}
               />
@@ -116,7 +120,13 @@ export function RegistrationFlow() {
             />
           )}
           {step === 'voice'       && (
-            <VoiceCaptureStep randomPhrase onDone={afterVoice} onError={(m) => setError(m)} />
+            <VoiceCaptureStep
+              randomPhrase
+              optional
+              onDone={afterVoice}
+              onSkip={() => afterVoice(null)}
+              onError={(m) => setError(m)}
+            />
           )}
           {step === 'creating'    && (
             <Creating
@@ -125,14 +135,13 @@ export function RegistrationFlow() {
                 const embedding = faceEmbeddingRef.current;
                 const voiceFp = voiceFingerprintRef.current;
                 if (!embedding) throw new Error('Face data missing. Go back and scan again.');
-                if (!voiceFp || voiceFp.length !== 128 || voiceFp.some((v) => !Number.isFinite(v))) {
-                  throw new Error('Voice data missing or invalid. Go back and complete voice verification.');
-                }
 
                 const result = await registerFaceIdentity({
                   embedding,
-                  voiceFingerprint: voiceFp,
-                  webauthnCredentialId: bioRef.current?.credentialId,
+                  padEvidence: padEvidenceRef.current ?? undefined,
+                  passkeyPendingToken: bioRef.current?.passkeyPendingToken,
+                  voiceFingerprint: voiceFp ?? undefined,
+                  webauthnCredentialId: bioRef.current?.simulated ? undefined : bioRef.current?.credentialId,
                   deviceFingerprint: deviceFpRef.current || undefined,
                   accountType: accountTypeRef.current,
                 });
@@ -156,18 +165,6 @@ export function RegistrationFlow() {
                   trustScore: 99.8,
                   deviceFp: deviceFpRef.current,
                   webauthnCredentialId: bioRef.current?.credentialId,
-                });
-                await storeIdentity({
-                  hoid,
-                  shortId,
-                  deviceFp: deviceFpRef.current,
-                  faceImage: faceImageRef.current,
-                  faceEnrolled: true,
-                  livenessPassed: true,
-                  voiceEnrolled: Boolean(voiceFingerprintRef.current),
-                  webauthnCredentialId: bioRef.current?.credentialId ?? null,
-                  webauthnSimulated: bioRef.current?.simulated ?? false,
-                  trustScore: 99.8,
                 });
               }}
               onDone={() => go('success')}
@@ -212,8 +209,8 @@ function Welcome({
         title="Create your Pinit HUB identity"
         subtitle={
           isBusiness
-            ? 'Business mode · Free plan. One face = one PINIT ID. You can also use Individual on the same ID.'
-            : 'Individual mode · Free plan. One face = one PINIT ID. You can also enable Business on the same ID later.'
+            ? 'Business mode · Free plan. Your face identifies you. Device authentication is bound to this account only.'
+            : 'Individual mode · Free plan. Your face identifies you. Device authentication is bound to this account only.'
         }
       />
       <div className="pa-bio-steps">
@@ -224,13 +221,13 @@ function Welcome({
         </div>
         <div className="pa-bio-step">
           <ShieldCheck size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
-          <span>Fingerprint</span>
-          <em>Auto</em>
+          <span>Device</span>
+          <em>Bind</em>
         </div>
         <div className="pa-bio-step">
           <Mic size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
           <span>Voice</span>
-          <em>Seal</em>
+          <em>Optional</em>
         </div>
       </div>
       <button className="pa-btn" onClick={onNext}>Start biometric setup <ArrowRight size={17} /></button>
@@ -255,12 +252,18 @@ function Permissions({ deviceFpRef, onNext }: { deviceFpRef: React.MutableRefObj
     warmBackend();
     preloadFaceModels();
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const s = await navigator.mediaDevices.getUserMedia({ video: true });
       s.getTracks().forEach((t) => t.stop());
     } catch {
-      setErr('Camera and microphone access are required.');
+      setErr('Camera access is required for face enrollment.');
       setBusy(false);
       return;
+    }
+    try {
+      const a = await navigator.mediaDevices.getUserMedia({ audio: true });
+      a.getTracks().forEach((t) => t.stop());
+    } catch {
+      // Voice is optional — continue without mic.
     }
     try { deviceFpRef.current = (await collectFingerprint()).hash; } catch { /* noop */ }
     setBusy(false);
@@ -269,11 +272,11 @@ function Permissions({ deviceFpRef, onNext }: { deviceFpRef: React.MutableRefObj
 
   return (
     <div className="pa-card">
-      <StepHead icon={<ShieldCheck size={26} color="#3b9eff" />} title="Permissions" subtitle="Camera and mic — one-time setup." />
+      <StepHead icon={<ShieldCheck size={26} color="#3b9eff" />} title="Permissions" subtitle="Camera is required. Microphone is optional." />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginBottom: 20 }}>
         {[
           { icon: <Camera size={18} />, label: 'Camera', sub: 'Round face scan' },
-          { icon: <Mic size={18} />, label: 'Microphone', sub: 'Quick voiceprint' },
+          { icon: <Mic size={18} />, label: 'Microphone', sub: 'Optional voice check' },
         ].map((p) => (
           <div key={p.label} className="pa-check">
             <span style={{ color: '#3b9eff', display: 'flex' }}>{p.icon}</span>
@@ -301,8 +304,8 @@ function Creating({
 }) {
   const INITIAL: CheckItem[] = [
     { label: 'Face Captured', done: false },
-    { label: 'Fingerprint Verified', done: false },
-    { label: 'Voice Captured', done: false },
+    { label: 'Device Bound', done: false },
+    { label: 'Voice (optional)', done: false },
     { label: 'Saved to Database', done: false },
   ];
   const [items, setItems] = useState<CheckItem[]>(INITIAL);
@@ -336,7 +339,7 @@ function Creating({
     <div className="pa-card">
       <StepHead icon={<Sparkles size={26} color="#3b9eff" />} title="Saving to Database" subtitle="Checking you are not already registered…" />
       <Checklist items={items} />
-      <SystemTrace lines={['Check duplicates', 'Store biometrics', 'Issue certificate']} />
+      <SystemTrace lines={['Check face duplicates', 'Create account', 'Bind device authenticator']} />
       {error && (
         <div style={{ marginTop: 14, textAlign: 'center' }}>
           <p style={{ color: duplicate ? '#b45309' : '#fca5a5', fontSize: 13 }}>{error}</p>

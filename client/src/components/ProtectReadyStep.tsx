@@ -31,20 +31,15 @@ export function ProtectReadyStep({ vaultId, onComplete, onError }: Props) {
         });
         if (cancelled) return;
         setDone(true);
-        await delay(400);
-        if (!cancelled) onComplete({ blob, tepCode });
+        onComplete({ blob, tepCode });
       } catch {
         if (!cancelled) onError();
       }
     };
 
-    run();
+    void run();
     return () => { cancelled = true; };
   }, [vaultId, onComplete, onError]);
 
   return <span className="sr-only">{done ? 'ready' : 'preparing'}</span>;
-}
-
-function delay(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
 }

@@ -1,6 +1,6 @@
 /**
  * Build a shareable file that opens on Pinit HUB when the recipient opens it.
- * WhatsApp/Email get a file attachment (not a pasted link). Opening routes to PinIT.
+ * WhatsApp/Email get a file attachment (not a pasted link). Opening routes to Pinit.
  */
 
 function isHtmlFile(fileName: string, mimeType?: string | null): boolean {
@@ -14,7 +14,7 @@ function isHtmlFile(fileName: string, mimeType?: string | null): boolean {
   );
 }
 
-/** Inject an immediate redirect to the PinIT open page (tracked VIEWED). */
+/** Inject an immediate redirect to the Pinit open page (tracked VIEWED). */
 export function injectPinitOpenRedirect(html: string, openUrl: string): string {
   const safeUrl = JSON.stringify(openUrl);
   const bridge = [
@@ -59,8 +59,8 @@ function htmlShareFileName(originalName: string): string {
 
 /**
  * Prepare the attachment for Share File:
- * - HTML → same filename, redirect injected so open → PinIT page
- * - Other → HTML launcher file (still a file, not a chat link) that opens PinIT
+ * - HTML → same filename, redirect injected so open → Pinit page
+ * - Other → HTML launcher file (still a file, not a chat link) that opens Pinit
  */
 export async function buildShareFileAttachment(params: {
   source: Blob;

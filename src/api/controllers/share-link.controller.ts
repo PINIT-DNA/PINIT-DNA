@@ -27,6 +27,36 @@ import { getAuthUserId } from '../../lib/tenant-scope';
 import { isSupabaseStorageConfigured } from '../../lib/supabase-storage';
 import { AppError } from '../middleware/error.middleware';
 
+/**
+ * Tracking gate that exempts Exchange licensed shares.
+ *
+ * A buyer who paid for a license has already paid for the visibility — requiring
+ * a separate Hub subscription to see their own share's activity would double-charge.
+ * Ordinary Hub shares still require FEATURE_TRACKING.
+ */
+export function requireTrackingUnlessLicensedShare(
+  gate: (req: Request, res: Response, next: NextFunction) => void | Promise<void>,
+) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const token = String(req.params['token'] || '').trim();
+      if (token) {
+        const link = await prisma.shareLink.findUnique({
+          where: { token },
+          select: { sourceContext: true },
+        });
+        if (link?.sourceContext === 'exchange_license') {
+          next();
+          return;
+        }
+      }
+      await gate(req, res, next);
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
 /** Parse GPS + address fields from share access POST body. */
 function parseAccessGps(body: Record<string, unknown>) {
   const b = body as {
@@ -160,7 +190,7 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
   } catch (err) { next(err); }
 }
 
-// ── Create / reuse Share File open link (tracked via PinIT page, not PARENT list) ─
+// ── Create / reuse Share File open link (tracked via Pinit page, not PARENT list) ─
 
 export async function createFileShare(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -657,8 +687,12 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
       );
     }
 
-    // Retrieve decrypted file from vault and stream it (public — no owner auth gate)
-    const result = await vaultService.retrieve(fullLink.vaultId);
+    if (!fullLink.ownerUserId) {
+      throw new AppError(403, 'This share is not bound to an owner.');
+    }
+
+    // Retrieve after explicit share validation — owner comes from the share record, never the client.
+    const result = await vaultService.retrieve(fullLink.vaultId, fullLink.ownerUserId);
 
     await shareLinkService.recordAccess({
       shareLinkId: fullLink.id,
@@ -824,6 +858,7 @@ export async function debugReport(req: Request, res: Response, next: NextFunctio
 
     // Fetch last 3 access log IPs from DB for comparison
     const lastLogs = await prisma.shareAccessLog.findMany({
+      where: { shareLink: { ownerUserId: getAuthUserId(req) } },
       orderBy: { createdAt: 'desc' },
       take: 3,
       select: { ipAddress: true, action: true, createdAt: true, shareLink: { select: { token: true } } },
@@ -875,8 +910,13 @@ export async function getMaskedText(req: Request, res: Response, next: NextFunct
       isUnmasked = !!approved;
     }
 
-    // Decrypt the vault file (read-only — original never modified)
-    const vaultResult = await vaultService.retrieve(fullLink.vaultId);
+    if (!fullLink.ownerUserId) {
+      res.status(403).json({ success: false, error: 'This share is not bound to an owner.' });
+      return;
+    }
+
+    // Decrypt the vault file (read-only — original never modified). Owner from share record.
+    const vaultResult = await vaultService.retrieve(fullLink.vaultId, fullLink.ownerUserId);
     const buffer = vaultResult.originalBuffer;
     const mime   = fullLink.mimeType;
 

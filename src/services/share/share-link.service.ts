@@ -107,8 +107,22 @@ export interface CreateShareLinkInput {
   // ── Multi-recipient child links ───────────────────────────────────────
   recipients?: Array<{ label: string; email?: string }>;
 
-  /** PARENT (default), FILE (Share File open-on-PinIT page), CHILD/GRANDCHILD (hops) */
+  /** PARENT (default), FILE (Share File open-on-Pinit page), CHILD/GRANDCHILD (hops) */
   linkType?: string;
+
+  // ── Exchange licensed share ───────────────────────────────────────────
+  /** Canonical Asset.id — the identity that crosses the Hub↔Exchange boundary. */
+  assetId?:        string;
+  /**
+   * "hub" (default) = owner sharing their own vault file.
+   * "exchange_license" = a BUYER sharing a file they licensed on Exchange. The
+   * buyer is deliberately not the vault owner, so the ownership assertion is
+   * skipped — the Exchange bridge verifies seal ownership before calling.
+   */
+  sourceContext?:   string;
+  exchangeOrderId?: string;
+  exchangeSealId?:  string;
+  licenseTier?:     string;
 }
 
 export interface ChildLinkResult {
@@ -253,7 +267,20 @@ export class ShareLinkService {
       include: { dnaRecord: { select: { id: true, imageFilename: true, imageMimeType: true, ownerUserId: true } } },
     });
     if (!vault) throw new Error(`Vault record not found: ${input.vaultId}`);
-    assertRecordOwner(vault.dnaRecord?.ownerUserId, input.ownerUserId, 'Vault');
+
+    // A licensed Exchange share is created BY THE BUYER, who is not the vault
+    // owner — so the ownership assertion cannot apply. Authorisation for that
+    // path is the seal check the Exchange bridge performs before calling
+    // (buyer_pinit_id on orders_sealed), plus the bridge secret itself.
+    // Ordinary Hub shares keep the owner assertion unconditionally.
+    const isLicensedShare = input.sourceContext === 'exchange_license';
+    if (isLicensedShare) {
+      if (!input.exchangeSealId) {
+        throw new Error('exchangeSealId is required for an exchange_license share');
+      }
+    } else {
+      assertRecordOwner(vault.dnaRecord?.ownerUserId, input.ownerUserId, 'Vault');
+    }
 
     // Generate unique token
     let token = generateToken();
@@ -291,6 +318,11 @@ export class ShareLinkService {
         dnaRecordId:  vault.dnaRecordId,
         filename:     vault.originalFileName,
         mimeType:     vault.originalMimeType,
+        assetId:         input.assetId ?? null,
+        sourceContext:   input.sourceContext ?? 'hub',
+        exchangeOrderId: input.exchangeOrderId ?? null,
+        exchangeSealId:  input.exchangeSealId ?? null,
+        licenseTier:     input.licenseTier ?? null,
         expiresAt,
         maxViews:     input.maxViews ?? null,
         allowDownload: input.allowDownload ?? false,
@@ -329,7 +361,7 @@ export class ShareLinkService {
         // Tenant isolation
         ownerUserId: input.ownerUserId,
 
-        // PARENT (Share Secure Link) vs FILE (Share File → open on PinIT page)
+        // PARENT (Share Secure Link) vs FILE (Share File → open on Pinit page)
         linkType: input.linkType ?? 'PARENT',
       },
     });
@@ -357,7 +389,7 @@ export class ShareLinkService {
   }
 
   /**
-   * Share File channel: open on PinIT `/s/:token` page so views are tracked.
+   * Share File channel: open on Pinit `/s/:token` page so views are tracked.
    * Reuses the latest active FILE link for the vault when available.
    */
   async createOrGetFileShare(input: {
@@ -1226,6 +1258,32 @@ export class ShareLinkService {
         audioFp:       input.audioFp       ?? null,
       },
     });
+
+    // ── Canonical asset timeline (Phase 2) ────────────────────────────────
+    // A share view/download is asset activity, so it belongs on the Asset.id
+    // timeline alongside listing and sale events. Only VIEWED and DOWNLOADED
+    // map to timeline types; the attempt/forwarding actions stay in
+    // ShareAccessLog, which is where the security detail lives.
+    //
+    // Location, IP, device fingerprint and risk data are deliberately NOT
+    // forwarded — the creator reads this timeline in Asset 360 and must not
+    // see a viewer's precise location or network identity.
+    if (link.assetId && (input.action === 'VIEWED' || input.action === 'DOWNLOADED')) {
+      import('../assets/asset-activity.service').then(({ recordAssetActivity }) => {
+        recordAssetActivity({
+          assetId: link.assetId,
+          eventType: input.action === 'VIEWED' ? 'SHARE_VIEWED' : 'SHARE_DOWNLOADED',
+          title: input.action === 'VIEWED' ? 'Shared link viewed' : 'Shared file downloaded',
+          detail: link.filename ?? undefined,
+          payload: {
+            shareToken: link.token,
+            linkType: link.linkType,
+            sourceContext: link.sourceContext,
+            country: country ?? null,
+          },
+        });
+      }).catch(() => {});
+    }
 
     // ── Platform events (notifications via Unified Event Engine) ───────────
     const NOTIFY_ACTIONS = new Set([

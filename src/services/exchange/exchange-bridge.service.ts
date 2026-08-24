@@ -5,13 +5,15 @@
  * Exchange receives only public-safe listing payloads + short-lived SSO tokens.
  * Vault encryption keys and full forensic DNA never leave Hub.
  */
-// bridge-env-reload: force Hub ts-node-dev to pick up EXCHANGE_BRIDGE_SECRET
+// bridge-env-reload: force Hub ts-node-dev to pick up EXCHANGE_BRIDGE_SECRET + role gate
 
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { config } from '../../config';
 import { prisma } from '../../lib/prisma';
-import { extractPinitCode, toRootPinitId } from '../../lib/pinit-identity';
+import { logger } from '../../lib/logger';
+import { deriveMarketplacePreview } from './marketplace-preview.service';
+import { extractPinitCode, toExchangePinitId, toRootPinitId, toUserPinitId } from '../../lib/pinit-identity';
 import { AppError } from '../../api/middleware/error.middleware';
 import { VaultService } from '../vault/vault.service';
 
@@ -39,6 +41,7 @@ export type ExchangeSsoPayload = {
   purpose: 'exchange_sso';
   ownerUserId: string;
   pinitId: string;
+  rootPinitId: string;
   name: string;
   email: string | null;
 };
@@ -111,6 +114,120 @@ export function verifyServiceBridgeSecret(headerValue: string | undefined): void
   }
 }
 
+/**
+ * Resolve whatever identifier Exchange sent into the Hub's internal vault id.
+ *
+ * Asset.id is the canonical identity that crosses the Hub↔Exchange boundary —
+ * Exchange stores it in listings.asset_id and echoes it back on preview, sale
+ * and delivery calls. Hub owns custody, so translating Asset.id → VaultRecord.id
+ * is Hub's job and must not leak into Exchange.
+ *
+ * VaultRecord.id is still accepted because older rows (and the protect-upload
+ * bridge) put a vault id in asset_id. That fallback is transitional: the
+ * `via: 'vault'` log line shows how much legacy data is still in circulation.
+ */
+async function resolveVaultIdFromExchangeId(
+  incomingId: string,
+): Promise<{ vaultId: string; assetId: string | null; via: 'asset' | 'vault' } | null> {
+  const id = String(incomingId || '').trim();
+  if (!id) return null;
+
+  const asset = await prisma.asset.findUnique({
+    where: { id },
+    select: { id: true, vaultId: true },
+  });
+  if (asset?.vaultId) {
+    return { vaultId: asset.vaultId, assetId: asset.id, via: 'asset' };
+  }
+
+  const vault = await prisma.vaultRecord.findUnique({
+    where: { id },
+    select: { id: true },
+  });
+  if (vault) {
+    // Recover the canonical Asset.id for legacy callers so downstream writes
+    // (timeline events, linkage columns) still key on Asset.id rather than a
+    // vault id. A vaultId maps to at most one Asset, so this is deterministic;
+    // findFirst returns null rather than guessing when no Asset exists yet.
+    const linked = await prisma.asset.findFirst({
+      where: { vaultId: vault.id },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    logger.warn('[Exchange:Bridge] Received a VaultRecord.id where an Asset.id is expected', {
+      vaultId: vault.id,
+      recoveredAssetId: linked?.id ?? null,
+      hint: 'legacy listing — Exchange should send Asset.id',
+    });
+    return { vaultId: vault.id, assetId: linked?.id ?? null, via: 'vault' };
+  }
+
+  // An Asset row with no vaultId (e.g. extension capture never vaulted) lands here too.
+  return null;
+}
+
+/**
+ * Hub-hosted share viewer URL. Share links are always served by Hub, never Exchange.
+ *
+ * `baseUrl` comes from the caller, which passes the same resolvePublicBaseUrl()
+ * result the normal Hub share flow uses — so a licensed share and an owner share
+ * produce identical URLs in every environment. Falls back to env only when there
+ * is no request context (the bridge is service-to-service).
+ */
+function buildHubShareUrl(token: string, baseUrl?: string): string {
+  const base = (baseUrl || process.env['PUBLIC_APP_URL'] || process.env['HUB_APP_URL'] || 'http://localhost:3000')
+    .replace(/\/$/, '');
+  return `${base}/s/${token}`;
+}
+
+/** Resolve any Pinit ID form (PINIT-x / PINIT-USER-x / PINIT-EX-x) to a Hub user. */
+async function resolvePinitIdToUser(pinitIdRaw: string): Promise<{ id: string; shortId: string } | null> {
+  const rootId = toRootPinitId(pinitIdRaw) || String(pinitIdRaw || '').trim().toUpperCase();
+  const code = extractPinitCode(rootId);
+  if (!code) return null;
+  return prisma.user.findFirst({
+    where: {
+      shortId: { in: [`PINIT-${code}`, `PINIT-USER-${code}`, `PINIT-ORG-${code}`, `PINIT-EX-${code}`, rootId] },
+    },
+    select: { id: true, shortId: true },
+  });
+}
+
+/**
+ * Append to the canonical asset history. AssetTimelineEvent has a real FK to
+ * Asset, so this is what makes "everything that happened to this Asset.id"
+ * answerable in one query — previously Exchange wrote only vault-keyed
+ * PlatformEvents, leaving the commercial half unreachable from the asset.
+ *
+ * Best-effort: never fail the caller's business operation over an audit row.
+ */
+async function recordAssetTimelineEvent(input: {
+  assetId: string | null;
+  eventType: 'LISTED' | 'SOLD' | 'SHARED' | 'SHARE_VIEWED' | 'SHARE_DOWNLOADED';
+  title: string;
+  detail?: string;
+  payload?: Record<string, unknown>;
+}): Promise<void> {
+  if (!input.assetId) return;
+  try {
+    await prisma.assetTimelineEvent.create({
+      data: {
+        assetId: input.assetId,
+        eventType: input.eventType,
+        title: input.title,
+        detail: input.detail ?? null,
+        payload: (input.payload ?? undefined) as never,
+      },
+    });
+  } catch (err) {
+    logger.warn('[Exchange:Bridge] Asset timeline event skipped (non-fatal)', {
+      assetId: input.assetId,
+      eventType: input.eventType,
+      error: String(err),
+    });
+  }
+}
+
 async function loadOwnedVault(vaultId: string, ownerUserId: string) {
   const vault = await prisma.vaultRecord.findUnique({
     where: { id: vaultId },
@@ -148,11 +265,13 @@ export const exchangeBridgeService = {
     });
     if (!user) throw new AppError(404, 'User not found');
 
-    const pinitId = toRootPinitId(user.shortId) || user.shortId;
+    const rootPinitId = toRootPinitId(user.shortId) || user.shortId;
+    const pinitId = toExchangePinitId(user.shortId) || rootPinitId;
     const payload: ExchangeSsoPayload = {
       purpose: 'exchange_sso',
       ownerUserId: user.id,
       pinitId,
+      rootPinitId,
       name: user.fullName,
       email: user.email,
     };
@@ -163,7 +282,7 @@ export const exchangeBridgeService = {
       expiresIn: SSO_EXPIRES,
       pinitId,
       exchangeUrl: `${config.exchange.appUrl}/?hub_sso=${encodeURIComponent(token)}`,
-      hubContinueUrl: `${config.exchange.appUrl}/creator-desk?hub_sso=${encodeURIComponent(token)}`,
+      hubContinueUrl: `${config.exchange.appUrl}/marketplace?hub_sso=${encodeURIComponent(token)}`,
     };
   },
 
@@ -186,24 +305,43 @@ export const exchangeBridgeService = {
       },
     });
 
-    return vaults.map((v) => {
-      const badge = badgeFromAnalysis(v.contentAnalysis ?? v.dnaRecord.fileAnalysis);
-      return {
-        asset_id: v.id,
-        vault_id: v.id,
-        dna_record_id: v.dnaRecordId,
-        title: v.originalFileName || v.dnaRecord.imageFilename,
-        file_type: verticalFromMime(v.originalMimeType, v.dnaRecord.fileType),
-        mime_type: v.originalMimeType,
-        preview_path: `/api/v1/vault/${v.id}/preview`,
-        vault_encrypted: true,
-        dna_status: v.dnaRecord.status,
-        human_percent: badge.humanPercent,
-        ai_percent: badge.aiPercent,
-        badge_tier: badge.badgeTier,
-        created_at: v.createdAt.toISOString(),
-      };
+    // Canonical assetId lookup — Asset.vaultId is the real link (indexed).
+    // A vault without an Asset row means it predates the Hub Asset-identity fix
+    // and hasn't been backfilled yet; it's excluded rather than faking assetId = vaultId.
+    const assets = await prisma.asset.findMany({
+      where: { vaultId: { in: vaults.map((v) => v.id) } },
+      select: { id: true, vaultId: true },
     });
+    const assetIdByVaultId = new Map(assets.map((a) => [a.vaultId, a.id]));
+
+    return vaults
+      .filter((v) => {
+        const hasAsset = assetIdByVaultId.has(v.id);
+        if (!hasAsset) {
+          logger.warn('Exchange bridge — vault has no Asset identity yet, excluding from listable assets', {
+            vaultId: v.id,
+          });
+        }
+        return hasAsset;
+      })
+      .map((v) => {
+        const badge = badgeFromAnalysis(v.contentAnalysis ?? v.dnaRecord.fileAnalysis);
+        return {
+          asset_id: assetIdByVaultId.get(v.id) as string,
+          vault_id: v.id,
+          dna_record_id: v.dnaRecordId,
+          title: v.dnaRecord.imageFilename || v.originalFileName,
+          file_type: verticalFromMime(v.originalMimeType, v.dnaRecord.fileType),
+          mime_type: v.originalMimeType,
+          preview_path: `/api/v1/vault/${v.id}/preview`,
+          vault_encrypted: true,
+          dna_status: v.dnaRecord.status,
+          human_percent: badge.humanPercent,
+          ai_percent: badge.aiPercent,
+          badge_tier: badge.badgeTier,
+          created_at: v.createdAt.toISOString(),
+        };
+      });
   },
 
   /** Exchange service: resolve Hub owner by Pinit ID, return listable vault assets */
@@ -218,6 +356,7 @@ export const exchangeBridgeService = {
       `PINIT-${code}`,
       `PINIT-USER-${code}`,
       `PINIT-ORG-${code}`,
+      `PINIT-EX-${code}`,
       rootId,
     ];
 
@@ -237,6 +376,138 @@ export const exchangeBridgeService = {
     };
   },
 
+  /** Public-safe Hub profile for Exchange creator cards (name + IDs only). */
+  async getPublicProfilesByPinitIds(pinitIdsRaw: string[]) {
+    const codes = [...new Set(
+      (pinitIdsRaw || [])
+        .map((id) => extractPinitCode(String(id || '')))
+        .filter(Boolean),
+    )];
+    if (!codes.length) return { profiles: [] as Array<Record<string, string>> };
+
+    const placeholderName = (name: string) => {
+      const n = String(name || '').trim().toLowerCase();
+      return !n || n === 'pinit user' || n === 'pinit creator' || n === 'pinit buyer' || n === 'pinit';
+    };
+
+    const users = await prisma.user.findMany({
+      where: {
+        OR: codes.flatMap((code) => [
+          { shortId: `PINIT-${code}` },
+          { shortId: `PINIT-USER-${code}` },
+          { shortId: `PINIT-ORG-${code}` },
+          { shortId: `PINIT-EX-${code}` },
+          { shortId: { endsWith: `-${code}` } },
+          { shortId: { contains: code } },
+        ]),
+      },
+      select: {
+        id: true,
+        shortId: true,
+        fullName: true,
+        bio: true,
+        avatarUrl: true,
+        accountType: true,
+        updatedAt: true,
+      },
+    });
+
+    const rank = (user: (typeof users)[number]) => {
+      let score = 0;
+      if (!placeholderName(user.fullName)) score += 100;
+      if (user.shortId.includes('-USER-')) score += 20;
+      else if (user.shortId.includes('-ORG-')) score += 10;
+      return score;
+    };
+
+    const byCode = new Map<string, (typeof users)[number]>();
+    for (const user of users) {
+      const code = extractPinitCode(user.shortId);
+      if (!code || !codes.includes(code)) continue;
+      const existing = byCode.get(code);
+      if (!existing || rank(user) > rank(existing) || (rank(user) === rank(existing) && user.updatedAt > existing.updatedAt)) {
+        byCode.set(code, user);
+      }
+    }
+
+    // Deliberately does NOT include User.id. This payload is rendered on a public
+    // creator page, and User.id is the users table primary key and the JWT `sub`
+    // — an internal authorization identifier with no public purpose.
+    // pinit_user_id / pinit_id are the public-facing identifiers.
+    const profiles = [...byCode.values()].map((user) => ({
+      pinit_user_id: toUserPinitId(user.shortId),
+      pinit_id: user.shortId,
+      name: String(user.fullName || '').trim(),
+      bio: String(user.bio || '').trim(),
+      avatar_url: String(user.avatarUrl || '').trim(),
+      account_type: String(user.accountType || 'INDIVIDUAL'),
+    }));
+
+    return { profiles };
+  },
+
+  async getExchangeMarketplaceRole(ownerUserId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: ownerUserId },
+      select: { id: true, shortId: true },
+    });
+    if (!user) throw new AppError(404, 'User not found');
+    const pinitId = toExchangePinitId(user.shortId) || toRootPinitId(user.shortId) || user.shortId;
+    try {
+      const res = await fetch(
+        `${config.exchange.apiUrl}/api/auth/me?pinit_id=${encodeURIComponent(pinitId)}`,
+      );
+      if (res.status === 404) {
+        return {
+          pinitId,
+          registered: false,
+          role: null,
+          exchange_role: null,
+          can_list: false,
+          can_purchase: false,
+        };
+      }
+      if (!res.ok) {
+        return {
+          pinitId,
+          registered: false,
+          role: null,
+          exchange_role: null,
+          can_list: false,
+          can_purchase: false,
+          unavailable: true,
+        };
+      }
+      const data = (await res.json()) as {
+        role?: string;
+        exchange_role?: string;
+        can_list?: boolean;
+        can_purchase?: boolean;
+      };
+      const exchangeRole = String(data.exchange_role || data.role || '').toLowerCase();
+      const canList =
+        Boolean(data.can_list) || exchangeRole === 'creator' || exchangeRole === 'seller' || exchangeRole === 'admin';
+      return {
+        pinitId,
+        registered: true,
+        role: data.role || null,
+        exchange_role: data.exchange_role || data.role || null,
+        can_list: canList,
+        can_purchase: Boolean(data.can_purchase) || exchangeRole === 'buyer' || exchangeRole === 'admin',
+      };
+    } catch {
+      return {
+        pinitId,
+        registered: false,
+        role: null,
+        exchange_role: null,
+        can_list: false,
+        can_purchase: false,
+        unavailable: true,
+      };
+    }
+  },
+
   async createListIntent(ownerUserId: string, vaultId: string) {
     const user = await prisma.user.findUnique({
       where: { id: ownerUserId },
@@ -244,18 +515,33 @@ export const exchangeBridgeService = {
     });
     if (!user) throw new AppError(404, 'User not found');
 
+    const marketplace = await this.getExchangeMarketplaceRole(ownerUserId);
+    if (!marketplace.can_list) {
+      throw new AppError(
+        403,
+        'Buyer Hub assets stay private. Become a Creator on Pinit Exchange to list.',
+      );
+    }
+
     const vault = await loadOwnedVault(vaultId, ownerUserId);
+    const asset = await prisma.asset.findFirst({ where: { vaultId: vault.id, ownerUserId } });
+    if (!asset) {
+      throw new AppError(
+        409,
+        'This protected file is missing its Asset identity. Re-protect the file, or contact support to backfill it.',
+      );
+    }
     const badge = badgeFromAnalysis(vault.contentAnalysis ?? vault.dnaRecord.fileAnalysis);
-    const pinitId = toRootPinitId(user.shortId) || user.shortId;
+    const pinitId = toExchangePinitId(user.shortId) || toRootPinitId(user.shortId) || user.shortId;
 
     const payload: ExchangeListIntentPayload = {
       purpose: 'exchange_list_intent',
       vaultId: vault.id,
       dnaRecordId: vault.dnaRecordId,
-      assetId: vault.id,
+      assetId: asset.id,
       pinitId,
       ownerUserId: user.id,
-      title: vault.originalFileName || vault.dnaRecord.imageFilename,
+      title: vault.dnaRecord.imageFilename || vault.originalFileName,
       mimeType: vault.originalMimeType,
       fileType: verticalFromMime(vault.originalMimeType, vault.dnaRecord.fileType),
       previewPath: `/api/v1/vault/${vault.id}/preview`,
@@ -297,7 +583,7 @@ export const exchangeBridgeService = {
       expiresIn: LIST_INTENT_EXPIRES,
       listUrl,
       asset: {
-        asset_id: vault.id,
+        asset_id: asset.id,
         vault_id: vault.id,
         dna_record_id: vault.dnaRecordId,
         title: payload.title,
@@ -320,8 +606,12 @@ export const exchangeBridgeService = {
     exchangeUrl?: string;
     status?: string;
   }) {
+    const resolvedListing = await resolveVaultIdFromExchangeId(input.vaultId);
+    if (!resolvedListing) {
+      throw new AppError(404, 'Vault asset not found in Hub');
+    }
     const vault = await prisma.vaultRecord.findUnique({
-      where: { id: input.vaultId },
+      where: { id: resolvedListing.vaultId },
       include: { dnaRecord: { select: { ownerUserId: true, id: true } } },
     });
     if (!vault?.dnaRecord?.ownerUserId) {
@@ -356,6 +646,19 @@ export const exchangeBridgeService = {
       },
     });
 
+    await recordAssetTimelineEvent({
+      assetId: resolvedListing.assetId,
+      eventType: 'LISTED',
+      title: 'Listed on Pinit Exchange',
+      detail: `Listing ${input.listingId}`,
+      payload: {
+        listingId: input.listingId,
+        pinitId: input.pinitId,
+        status: input.status || 'live',
+        listingUrl,
+      },
+    });
+
     return {
       ok: true,
       vaultId: vault.id,
@@ -371,16 +674,26 @@ export const exchangeBridgeService = {
     listingId?: string;
     buyerPinitId?: string;
     licenseTier?: string;
+    /** Exchange's seal id — persisted rather than minting a second, unjoinable one. */
+    sealId?: string;
   }) {
+    const resolvedSale = await resolveVaultIdFromExchangeId(input.vaultId);
+    if (!resolvedSale) {
+      throw new AppError(404, 'Vault asset not found in Hub');
+    }
     const vault = await prisma.vaultRecord.findUnique({
-      where: { id: input.vaultId },
+      where: { id: resolvedSale.vaultId },
       include: { dnaRecord: { select: { ownerUserId: true } } },
     });
     if (!vault?.dnaRecord?.ownerUserId) {
       throw new AppError(404, 'Vault asset not found in Hub');
     }
 
-    const sealId = `SEAL-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+    // Prefer Exchange's seal id. Minting a second one here produced two ids for
+    // one sale (Hub SEAL-0DC71194 vs Exchange SEAL-490522) that could never be
+    // joined; only fall back to minting when Exchange sends none.
+    const sealId = input.sealId?.trim()
+      || `SEAL-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 
     await prisma.platformEvent.create({
       data: {
@@ -402,6 +715,20 @@ export const exchangeBridgeService = {
           licenseTier: input.licenseTier ?? null,
           sealId,
         },
+      },
+    });
+
+    await recordAssetTimelineEvent({
+      assetId: resolvedSale.assetId,
+      eventType: 'SOLD',
+      title: 'Licensed on Pinit Exchange',
+      detail: `Order ${input.orderId}${input.licenseTier ? ` · ${input.licenseTier}` : ''}`,
+      payload: {
+        orderId: input.orderId,
+        sealId,
+        listingId: input.listingId ?? null,
+        buyerPinitId: input.buyerPinitId ?? null,
+        licenseTier: input.licenseTier ?? null,
       },
     });
 
@@ -538,8 +865,22 @@ export const exchangeBridgeService = {
     });
     const badge = badgeFromAnalysis(dna?.fileAnalysis);
 
+    // asset_id must be the canonical Asset.id, never the vault id — Exchange
+    // stores this in listings.asset_id and it becomes the join key for every
+    // order, payment, earning and refund downstream.
+    const protectedAsset = await prisma.asset.findFirst({
+      where: { vaultId: vaultResult.vaultId },
+      select: { id: true },
+    });
+    if (!protectedAsset) {
+      logger.warn('[Exchange:Bridge] protect-upload produced no Asset row', {
+        vaultId: vaultResult.vaultId,
+        hint: 'falling back to vaultId as asset_id — listing will need repair',
+      });
+    }
+
     return {
-      asset_id: vaultResult.vaultId,
+      asset_id: protectedAsset?.id ?? vaultResult.vaultId,
       vault_id: vaultResult.vaultId,
       dna_record_id: vaultResult.dnaRecordId,
       title: vaultResult.originalFileName || input.originalName,
@@ -558,10 +899,166 @@ export const exchangeBridgeService = {
   },
 
   /**
+   * Buyer-initiated share of a file they licensed on Exchange.
+   *
+   * Hub owns custody and tracking, so the ShareLink lives here and every access
+   * flows through the existing share viewer + ShareAccessLog pipeline — no
+   * Exchange-side tracking is built or duplicated.
+   *
+   * Authorisation: Exchange verifies the caller owns the seal before calling and
+   * the bridge secret authenticates the service. Hub additionally requires the
+   * assetId to resolve to real custody. The buyer is intentionally NOT the vault
+   * owner, which is why shareLinkService skips its owner assertion for
+   * sourceContext === 'exchange_license'.
+   */
+  async createLicensedShare(input: {
+    assetId: string;
+    sealId: string;
+    orderId?: string;
+    buyerPinitId: string;
+    licenseTier?: string;
+    /** Public base URL resolved from the incoming request (same source the Hub share flow uses). */
+    baseUrl?: string;
+    options?: {
+      expiresIn?: number | null;
+      maxViews?: number | null;
+      allowDownload?: boolean;
+      requireName?: boolean;
+      note?: string;
+      requireOtp?: boolean;
+      recipientEmail?: string;
+      /** Prompt the viewer for GPS. Without this only IP-approximate geo is captured. */
+      requestLocation?: boolean;
+    };
+  }) {
+    const resolved = await resolveVaultIdFromExchangeId(input.assetId);
+    if (!resolved) {
+      throw new AppError(404, 'Asset not found in Hub');
+    }
+
+    const buyer = await resolvePinitIdToUser(input.buyerPinitId);
+    if (!buyer) {
+      throw new AppError(404, 'No Pinit HUB account found for this buyer Pinit ID');
+    }
+
+    const { shareLinkService } = await import('../share/share-link.service');
+    const opts = input.options ?? {};
+    const created = await shareLinkService.create({
+      vaultId: resolved.vaultId,
+      ownerUserId: buyer.id,
+      assetId: resolved.assetId ?? input.assetId,
+      sourceContext: 'exchange_license',
+      exchangeSealId: input.sealId,
+      exchangeOrderId: input.orderId,
+      licenseTier: input.licenseTier,
+      expiresIn: opts.expiresIn ?? null,
+      maxViews: opts.maxViews ?? null,
+      allowDownload: opts.allowDownload ?? false,
+      requireName: opts.requireName ?? false,
+      note: opts.note,
+      requireOtp: opts.requireOtp ?? false,
+      recipientEmail: opts.recipientEmail,
+      requestLocation: opts.requestLocation ?? false,
+    });
+
+    await recordAssetTimelineEvent({
+      assetId: resolved.assetId,
+      eventType: 'SHARED',
+      title: 'Shared by licensee',
+      detail: `${input.licenseTier ? `${input.licenseTier} license` : 'Licensed'} · seal ${input.sealId}`,
+      payload: {
+        sealId: input.sealId,
+        orderId: input.orderId ?? null,
+        buyerPinitId: input.buyerPinitId,
+        licenseTier: input.licenseTier ?? null,
+        shareToken: created.token,
+      },
+    });
+
+    logger.info('[Exchange:Bridge] Licensed share created', {
+      assetId: resolved.assetId,
+      sealId: input.sealId,
+      buyerUserId: buyer.id,
+      token: created.token,
+    });
+
+    return {
+      token: created.token,
+      shareUrl: buildHubShareUrl(created.token, input.baseUrl),
+      expiresAt: created.expiresAt ?? null,
+      allowDownload: created.allowDownload,
+    };
+  },
+
+  /**
+   * Creator visibility: shares of MY assets created by licensees.
+   *
+   * Returns activity (counts, geo, timeline) — never the licensee's personal
+   * data. Scoped by vault ownership, so a creator can only ever see shares of
+   * assets they actually own.
+   */
+  async getLicensedSharesForOwner(ownerUserId: string) {
+    // ShareLink stores a plain vaultId (no FK relation), so scope by the vaults
+    // this owner actually owns rather than trusting any client-supplied id.
+    const ownedVaults = await prisma.vaultRecord.findMany({
+      where: { dnaRecord: { ownerUserId } },
+      select: { id: true },
+    });
+    if (ownedVaults.length === 0) return { shares: [] };
+
+    const links = await prisma.shareLink.findMany({
+      where: {
+        sourceContext: 'exchange_license',
+        vaultId: { in: ownedVaults.map((v) => v.id) },
+      },
+      select: {
+        token: true,
+        assetId: true,
+        filename: true,
+        licenseTier: true,
+        exchangeSealId: true,
+        exchangeOrderId: true,
+        viewCount: true,
+        downloadCount: true,
+        isActive: true,
+        expiresAt: true,
+        createdAt: true,
+        _count: { select: { accessLogs: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+
+    return {
+      shares: links.map((l) => ({
+        token: l.token,
+        assetId: l.assetId,
+        filename: l.filename,
+        licenseTier: l.licenseTier,
+        sealId: l.exchangeSealId,
+        orderId: l.exchangeOrderId,
+        viewCount: l.viewCount,
+        downloadCount: l.downloadCount,
+        accessCount: l._count.accessLogs,
+        isActive: l.isActive,
+        expiresAt: l.expiresAt,
+        createdAt: l.createdAt,
+      })),
+    };
+  },
+
+  /**
    * Marketplace/list preview — decrypt vault as owner for Exchange bridge proxy.
    * Does not re-embed download identity (preview-only).
    */
-  async getMarketplacePreview(vaultId: string) {
+  async getMarketplacePreview(incomingId: string) {
+    // Exchange sends listings.asset_id (canonical Asset.id); resolve to custody.
+    const resolved = await resolveVaultIdFromExchangeId(incomingId);
+    if (!resolved) {
+      throw new AppError(404, 'Vault asset not found in Hub');
+    }
+    const vaultId = resolved.vaultId;
+
     const vault = await prisma.vaultRecord.findUnique({
       where: { id: vaultId },
       include: {
@@ -574,11 +1071,32 @@ export const exchangeBridgeService = {
 
     const vaultService = new VaultService();
     const result = await vaultService.retrieve(vaultId, vault.dnaRecord.ownerUserId);
+
+    // This route is public. Returning result.originalBuffer here served the
+    // decrypted master file to anyone with the URL — no purchase, no login —
+    // which made every licence tier unenforceable. The master never leaves
+    // this function; only a downscaled, watermarked derivative does.
+    const owner = await prisma.user.findUnique({
+      where: { id: vault.dnaRecord.ownerUserId },
+      select: { shortId: true },
+    });
+
+    const preview = await deriveMarketplacePreview({
+      cacheKey: `mp:${resolved.assetId || vaultId}`,
+      originalBuffer: result.originalBuffer,
+      originalMimeType: result.originalMimeType,
+      // Public PINIT ID, never the internal User.id.
+      watermarkLabel: `PINIT PREVIEW · ${owner?.shortId || 'PINIT'}`,
+    });
+
     return {
       vaultId: result.vaultId,
       originalFileName: result.originalFileName,
-      originalMimeType: result.originalMimeType,
-      originalBuffer: result.originalBuffer,
+      // Deliberately reports the DERIVED type/bytes. Callers must not be able
+      // to reach the master through this shape.
+      originalMimeType: preview.mimeType,
+      originalBuffer: preview.buffer,
+      isDerivedPreview: preview.derived,
     };
   },
 
@@ -591,8 +1109,12 @@ export const exchangeBridgeService = {
     buyerEmail?: string;
     licenseTier?: string;
   }) {
+    const resolvedDelivery = await resolveVaultIdFromExchangeId(input.vaultId);
+    if (!resolvedDelivery) {
+      throw new AppError(404, 'Vault asset not found in Hub');
+    }
     const vault = await prisma.vaultRecord.findUnique({
-      where: { id: input.vaultId },
+      where: { id: resolvedDelivery.vaultId },
       include: {
         dnaRecord: {
           select: {
@@ -727,3 +1249,10 @@ export const exchangeBridgeService = {
     };
   },
 };
+
+/**
+ * Test-only surface for the canonical id resolver. The resolver stays private so
+ * callers cannot bypass it; this export exists purely so Phase 1's linkage rules
+ * are regression-tested. Not referenced by any runtime code path.
+ */
+export const __resolveVaultIdFromExchangeIdForTests = resolveVaultIdFromExchangeId;

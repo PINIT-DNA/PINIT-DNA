@@ -6,7 +6,7 @@ import { API_BASE_URL } from '../../config/api.config';
 import { isPlatformOwnerShortId } from '../../lib/platform-owner';
 
 /**
- * Only the platform-owner PinIT ID may access /admin/*.
+ * Only the platform-owner Pinit ID may access /admin/*.
  * Role SUPER_ADMIN alone is not enough — shortId must be allowlisted.
  */
 export function RequireSuperAdmin({ children }: { children: React.ReactNode }) {

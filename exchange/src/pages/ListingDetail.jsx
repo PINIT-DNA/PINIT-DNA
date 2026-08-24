@@ -1,15 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { Award, ArrowLeft, Heart, ShoppingCart, Star } from 'lucide-react';
+import {
+  Award, ArrowLeft, Check, Download, Heart, ImageOff, Minus,
+  ShieldCheck, ShoppingCart, Star,
+} from 'lucide-react';
+import { formatMoney } from '../lib/money.js';
+import { availableTiers } from '../lib/licensing.js';
 import { buyerKey } from '../lib/buyer.js';
 import { isVideoListing } from '../lib/media.js';
 import HubTrustBadge from '../components/HubTrustBadge.jsx';
 import ProvenanceDrawer from '../components/ProvenanceDrawer.jsx';
 import { apiFetch, verifiedLabel } from '../lib/api.js';
+import { recordListingView } from '../lib/recently-viewed.js';
+import { canPurchase, resolveExchangeAccount } from '../lib/roles.js';
+import { samePinitIdentity } from '../lib/pinit-identity.js';
 
-export default function ListingDetail({ listingId, onBack, onOpenCheckout, user, onCartChanged }) {
+export default function ListingDetail({ listingId, onBack, onOpenCheckout, onManageListing, user, onCartChanged }) {
   const [listing, setListing] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [selectedTier, setSelectedTier] = useState('commercial');
+  const [selectedTier, setSelectedTier] = useState('');
+  const [tab, setTab] = useState('overview');
   const [reviews, setReviews] = useState([]);
   const [avgRating, setAvgRating] = useState(0);
   const [reviewCount, setReviewCount] = useState(0);
@@ -24,13 +33,25 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, user,
       fetchListingDetail();
       fetchReviews();
       setMediaError('');
+      setTab('overview');
+      // Device-local history for the Collections "Recently viewed" tab. The
+      // server-side view counter is an aggregate and cannot answer "what did
+      // I look at", so this is kept per-device and labelled as such.
+      recordListingView(listingId);
     }
   }, [listingId]);
 
   const fetchListingDetail = async () => {
     setLoading(true);
     const { ok, data } = await apiFetch(`/api/listings/${listingId}`);
-    if (ok) setListing(data);
+    if (ok) {
+      setListing(data);
+      // Preselect a tier this listing is genuinely sold under — Commercial
+      // when the creator priced it, otherwise the cheapest one that exists.
+      const offered = availableTiers(data);
+      const preferred = offered.find((t) => t.id === 'commercial') || offered[0];
+      setSelectedTier(preferred ? preferred.id : '');
+    }
     setLoading(false);
   };
 
@@ -58,7 +79,11 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, user,
   };
 
   const addToCart = async () => {
-    const res = await fetch('/api/commerce/cart', {
+    if (user && !canPurchase(user)) {
+      setToast('Creator accounts cannot purchase marketplace assets.');
+      return;
+    }
+    const { ok, error } = await apiFetch('/api/commerce/cart', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -67,17 +92,19 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, user,
         license_tier: selectedTier,
       }),
     });
-    setToast(res.ok ? 'Added to cart' : 'Could not add to cart');
-    if (res.ok) onCartChanged?.();
+    setToast(ok ? 'Added to cart' : (error || 'Could not add to cart'));
+    if (ok) onCartChanged?.();
   };
 
   const addWishlist = async () => {
-    const res = await fetch('/api/commerce/wishlist', {
+    // Uses apiFetch (like addToCart) so a server-side failure surfaces its real
+    // message instead of a blanket "Could not save".
+    const { ok, error } = await apiFetch('/api/commerce/wishlist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ buyer_key: ensureBuyerKey(), listing_id: listing.listing_id }),
     });
-    setToast(res.ok ? 'Saved to wishlist' : 'Could not save');
+    setToast(ok ? 'Saved to wishlist' : (error || 'Could not save'));
   };
 
   const submitReview = async (e) => {
@@ -102,175 +129,336 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, user,
 
   if (loading) {
     return (
-      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '60px 24px', color: 'var(--text-muted)', textAlign: 'center' }}>
-        Loading Provenance Record...
+      <div className="ex-page">
+        <div className="detail-layout" aria-busy="true" aria-label="Loading asset">
+          <div>
+            <div className="ex-skel" style={{ height: 420, borderRadius: 'var(--radius-md)' }} />
+            <div className="ex-skel ex-skel--line" style={{ width: '46%', height: 22, marginTop: 20 }} />
+            <div className="ex-skel ex-skel--line" style={{ width: '72%' }} />
+          </div>
+          <div>
+            <div className="ex-skel" style={{ height: 300, borderRadius: 'var(--radius-md)' }} />
+          </div>
+        </div>
       </div>
     );
   }
 
   if (!listing) {
     return (
-      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '60px 24px', textAlign: 'center' }}>
-        <h3 style={{ color: '#fff' }}>Listing Not Found</h3>
-        <button className="btn-secondary" onClick={onBack} style={{ marginTop: '16px' }}>
-          <ArrowLeft size={16} /> Back to Exchange
-        </button>
+      <div className="ex-page">
+        <div className="ex-card ex-empty">
+          <div className="ex-empty__icon"><ImageOff size={24} /></div>
+          <div className="ex-empty__title">Asset not found</div>
+          <p className="ex-empty__body">This listing may have been delisted, or sold under an exclusive licence.</p>
+          <button type="button" className="ex-btn ex-btn--primary" onClick={onBack}>
+            <ArrowLeft size={16} /> Back to Exchange
+          </button>
+        </div>
       </div>
     );
   }
 
-  const tiers = [
-    { id: 'personal', name: 'Personal', price: listing.price_personal || 49, desc: 'Single user, non-commercial portfolio & education' },
-    { id: 'commercial', name: 'Commercial', price: listing.price_commercial || 149, desc: 'Client deliverables, campaigns & digital ads' },
-    { id: 'exclusive', name: 'Exclusive', price: listing.price_exclusive || 899, desc: 'Exclusive rights — asset is delisted from Exchange' },
-    { id: 'enterprise', name: 'Enterprise', price: listing.price_enterprise || 2499, desc: 'Multi-seat org license with protected delivery' },
+  // Only tiers the creator actually priced are offered. The page previously
+  // fell back to invented figures (49 / 149 / 899 / 2499), which advertised a
+  // price the creator never set and let a buyer open checkout on a tier that
+  // was never on sale.
+  const tiers = availableTiers(listing);
+  const activeTier = tiers.find((t) => t.id === selectedTier)
+    || tiers.find((t) => t.id === 'commercial')
+    || tiers[0]
+    || null;
+
+  const account = resolveExchangeAccount(user);
+  const seller = account.role === 'SELLER';
+  const ownsListing = seller && samePinitIdentity(account.pinitId, listing.pinit_id);
+
+  const tabs = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'licence', label: 'Licence' },
+    { id: 'reviews', label: reviewCount ? `Reviews (${reviewCount})` : 'Reviews' },
   ];
 
-  const currentPrice = listing[`price_${selectedTier}`] || listing.price_personal;
+  const tagList = String(listing.tags || '').split(',').map((raw) => raw.trim()).filter(Boolean);
 
   return (
-    <div style={{ maxWidth: '1320px', margin: '0 auto', padding: '32px 24px' }}>
-      <button className="btn-secondary" onClick={onBack} style={{ marginBottom: '24px' }}>
+    <div className="ex-page">
+      <button className="ex-btn ex-btn--ghost ex-btn--sm" onClick={onBack} style={{ marginBottom: 18, paddingLeft: 0 }}>
         <ArrowLeft size={16} /> Back to Exchange
       </button>
-      {toast && <div style={{ color: 'var(--emerald)', marginBottom: 12 }}>{toast}</div>}
+      {toast && <div className="ex-alert ex-alert--ok" style={{ marginBottom: 14 }}><span>{toast}</span></div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '32px' }}>
+      <div className="detail-layout">
         <div>
-          <div className="glass-panel" style={{ overflow: 'hidden', marginBottom: '24px', padding: 0 }}>
-            <div style={{ position: 'relative', width: '100%', height: '420px', background: '#000' }}>
+          <div className="asset-stage">
+            <div className="asset-stage__frame" onContextMenu={(e) => e.preventDefault()}>
               {isVideoListing(listing) ? (
                 <video
                   key={listing.preview_url || listing.asset_id}
                   src={listing.preview_url}
                   controls
-                  controlsList="nodownload"
+                  controlsList="nodownload noremoteplayback"
+                  disablePictureInPicture
                   playsInline
                   preload="metadata"
-                  onError={() => setMediaError('Preview unavailable — start Pinit HUB API (port 4000) so Exchange can stream the vault file.')}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'contain',
-                    position: 'relative',
-                    zIndex: 2,
-                  }}
+                  onError={() => setMediaError('Preview unavailable')}
+                  className="asset-stage__media"
                 />
               ) : (
                 <img
                   src={listing.preview_url}
                   alt={listing.title}
-                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                  onError={() => setMediaError('Preview image failed to load.')}
+                  className="asset-stage__media pinit-protected-media"
+                  draggable={false}
+                  onDragStart={(e) => e.preventDefault()}
+                  onContextMenu={(e) => e.preventDefault()}
+                  onError={() => setMediaError('Preview unavailable')}
                 />
               )}
+              {/* A missing preview is cosmetic — licensing, cart and wishlist all
+                  still work, so show a calm placeholder rather than an error banner. */}
               {mediaError && (
-                <div style={{
-                  position: 'absolute', left: 12, right: 12, bottom: 48, zIndex: 4,
-                  background: 'rgba(0,0,0,0.75)', color: '#fbbf24', padding: '10px 12px',
-                  borderRadius: 8, fontSize: '0.82rem',
-                }}>
-                  {mediaError}
+                <div className="asset-stage__fallback">
+                  <ImageOff size={34} strokeWidth={1.5} />
+                  <span>{mediaError}</span>
                 </div>
               )}
-              <div className="watermark-overlay" style={{ zIndex: 1, pointerEvents: 'none' }}>
-                <div className="watermark-text">Pinit PROVENANCE SEAL</div>
-              </div>
-              <div className="card-badge-container" style={{ zIndex: 3, pointerEvents: 'none' }}>
+              <div className="asset-stage__badges">
                 <span className="badge-verified"><Award size={14} /> VERIFIED</span>
-                <span className={`badge-${String(listing.badge_tier || 'bronze').toLowerCase()}`} style={{ marginLeft: 8 }}>
+                <span className={`badge-${String(listing.badge_tier || 'bronze').toLowerCase()}`}>
                   {verifiedLabel(listing.badge_tier)}
                 </span>
               </div>
             </div>
-            <div style={{ padding: '24px' }}>
-              <h1 style={{ fontSize: '1.8rem', color: '#fff', marginBottom: '8px' }}>{listing.title}</h1>
-              {listing.tagline && <p style={{ color: 'var(--text-muted)', marginBottom: 10 }}>{listing.tagline}</p>}
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, color: 'var(--badge-gold)' }}>
-                <Star size={16} /> {avgRating || '—'} ({reviewCount} reviews)
-              </div>
-              <p style={{ color: 'var(--text-muted)', lineHeight: 1.6 }}>{listing.description}</p>
-            </div>
+            <p className="asset-stage__note">
+              Preview only — buyers can view this asset. Download and share unlock after a licence is purchased.
+            </p>
           </div>
 
-          <HubTrustBadge onOpenProvenance={() => setDrawerOpen(true)} style={{ marginBottom: 24 }} />
-
-          <div className="glass-panel" style={{ padding: 24 }}>
-            <h3 style={{ color: '#fff', marginBottom: 14 }}>Reviews</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 18 }}>
-              {reviews.length === 0 && <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>No reviews yet.</p>}
-              {reviews.map((r) => (
-                <div key={r.id} style={{ background: 'rgba(0,0,0,0.25)', padding: 12, borderRadius: 8 }}>
-                  <div style={{ color: 'var(--badge-gold)', fontSize: '0.85rem' }}>
-                    {'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)} · {r.buyer_name}
-                  </div>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', marginTop: 4 }}>{r.comment}</p>
-                </div>
-              ))}
+          <header className="asset-head">
+            <h1 className="ex-h1 asset-head__title">{listing.title}</h1>
+            {listing.tagline && <p className="asset-head__tagline">{listing.tagline}</p>}
+            <div className="asset-head__meta">
+              <span className="asset-head__rating">
+                <Star size={15} /> {avgRating || '—'}
+                <em>{reviewCount === 1 ? '1 review' : `${reviewCount} reviews`}</em>
+              </span>
+              {listing.vertical && <span className="asset-head__chip">{listing.vertical}</span>}
             </div>
-            <form onSubmit={submitReview} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <label className="form-label">Your rating
-                <select className="form-select" value={reviewRating} onChange={(e) => setReviewRating(Number(e.target.value))}>
-                  {[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{n} stars</option>)}
-                </select>
-              </label>
-              <textarea className="form-textarea" rows={2} placeholder="Share how this license worked for you…" value={reviewText} onChange={(e) => setReviewText(e.target.value)} />
-              <button type="submit" className="btn-secondary" style={{ alignSelf: 'flex-start' }}>Post review</button>
-            </form>
-          </div>
-        </div>
+          </header>
 
-        <div>
-          <div className="glass-panel" style={{ padding: 20, marginBottom: 24 }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 700, textTransform: 'uppercase', marginBottom: 10 }}>
-              Verified Creator Passport
-            </div>
-            <div style={{ fontSize: '0.9rem', color: '#fff' }}>{listing.creator_name || 'Creator'}</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Pinit ID: {listing.pinit_id}</div>
-          </div>
-
-          <div className="glass-panel" style={{ padding: 24 }}>
-            <h3 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: 16 }}>Select License Tier</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
-              {tiers.map((t) => (
-                <div
-                  key={t.id}
-                  onClick={() => setSelectedTier(t.id)}
-                  style={{
-                    border: selectedTier === t.id ? '2px solid var(--primary)' : '1px solid var(--border-subtle)',
-                    background: selectedTier === t.id ? 'rgba(59, 130, 246, 0.12)' : 'rgba(0,0,0,0.2)',
-                    padding: '14px 18px',
-                    borderRadius: 'var(--radius-sm)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <strong style={{ color: '#fff' }}>{t.name}</strong>
-                    <span style={{ color: 'var(--emerald)', fontWeight: 800 }}>${t.price}</span>
-                  </div>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 4 }}>{t.desc}</p>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="asset-tabs" role="tablist" aria-label="Asset details">
+            {tabs.map((t) => (
               <button
+                key={t.id}
                 type="button"
-                className="btn-primary"
-                style={{ width: '100%', justifyContent: 'center' }}
-                onClick={() => onOpenCheckout({ ...listing, preferredTier: selectedTier })}
+                role="tab"
+                id={`asset-tab-${t.id}`}
+                aria-selected={tab === t.id}
+                aria-controls={`asset-panel-${t.id}`}
+                className={`asset-tab ${tab === t.id ? 'is-active' : ''}`}
+                onClick={() => setTab(t.id)}
               >
-                Buy now — {selectedTier} (${currentPrice})
+                {t.label}
               </button>
-              <button type="button" className="btn-secondary" style={{ width: '100%', justifyContent: 'center' }} onClick={addToCart}>
-                <ShoppingCart size={16} /> Add to cart
-              </button>
-              <button type="button" className="btn-secondary" style={{ width: '100%', justifyContent: 'center' }} onClick={addWishlist}>
-                <Heart size={16} /> Add to wishlist
-              </button>
+            ))}
+          </div>
+
+          {tab === 'overview' && (
+            <section className="ex-card ex-card--pad" role="tabpanel" id="asset-panel-overview" aria-labelledby="asset-tab-overview">
+              <p className="asset-prose">
+                {listing.description || 'The creator has not added a description for this asset yet.'}
+              </p>
+              {tagList.length > 0 && (
+                <div className="asset-tags">
+                  {tagList.map((tagValue) => (
+                    <span key={tagValue} className="ex-chip">{tagValue}</span>
+                  ))}
+                </div>
+              )}
+              <HubTrustBadge onOpenProvenance={() => setDrawerOpen(true)} style={{ marginTop: 20 }} />
+            </section>
+          )}
+
+          {tab === 'licence' && (
+            <section className="ex-card ex-card--pad" role="tabpanel" id="asset-panel-licence" aria-labelledby="asset-tab-licence">
+              {!activeTier ? (
+                <p className="asset-prose">
+                  The creator has not published pricing for this asset, so no licence is on sale yet.
+                </p>
+              ) : (
+                <>
+                  <div className="licence-head">
+                    <h3 className="ex-h2 licence-head__name">{activeTier.name} licence</h3>
+                    <span className="licence-head__price">{formatMoney(activeTier.price)}</span>
+                  </div>
+                  <p className="asset-prose">{activeTier.summary}</p>
+
+                  <div className="licence-rights">
+                    <div>
+                      <p className="ex-label">What this covers</p>
+                      <ul className="licence-list licence-list--yes">
+                        {activeTier.rights.allowed.map((line) => (
+                          <li key={line}><Check size={15} /> {line}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="ex-label">Not included</p>
+                      <ul className="licence-list licence-list--no">
+                        {activeTier.rights.excluded.map((line) => (
+                          <li key={line}><Minus size={15} /> {line}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+
+                  <p className="licence-entitlement">
+                    <Download size={15} /> {activeTier.entitlement} of the protected original after purchase.
+                  </p>
+                </>
+              )}
+            </section>
+          )}
+
+          {tab === 'reviews' && (
+            <section className="ex-card ex-card--pad" role="tabpanel" id="asset-panel-reviews" aria-labelledby="asset-tab-reviews">
+              <div className="review-list">
+                {reviews.length === 0 && (
+                  <p className="asset-prose asset-prose--dim">
+                    No reviews yet — the first buyer to license this can leave one.
+                  </p>
+                )}
+                {reviews.map((r) => (
+                  <article key={r.id} className="review">
+                    <div className="review__head">
+                      <span className="review__stars" aria-label={`${r.rating} out of 5`}>
+                        {'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}
+                      </span>
+                      {/* Reviewer shown by public Pinit ID where available — a
+                          display name is not an identifier we need to expose. */}
+                      <span className="review__who">{r.buyer_pinit_id || r.buyer_name}</span>
+                    </div>
+                    <p className="review__body">{r.comment}</p>
+                  </article>
+                ))}
+              </div>
+              <form onSubmit={submitReview} className="review-form">
+                <label className="form-label">Your rating
+                  <select className="form-select" value={reviewRating} onChange={(e) => setReviewRating(Number(e.target.value))}>
+                    {[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{n} stars</option>)}
+                  </select>
+                </label>
+                <textarea className="form-textarea" rows={2} placeholder="Share how this licence worked for you…" value={reviewText} onChange={(e) => setReviewText(e.target.value)} />
+                <button type="submit" className="ex-btn ex-btn--secondary" style={{ alignSelf: 'flex-start' }}>Post review</button>
+              </form>
+            </section>
+          )}
+        </div>
+
+        <aside className="asset-rail">
+          {/* Creator identity. The public Exchange ID is shown; the raw
+              Asset UUID that used to sit here is an internal database
+              identifier and is no longer surfaced to buyers. */}
+          <div className="ex-card ex-card--pad creator-chip">
+            <div className="creator-chip__avatar" aria-hidden="true">
+              {String(listing.creator_name || 'C').trim().charAt(0).toUpperCase()}
+            </div>
+            <div className="creator-chip__id">
+              <span className="creator-chip__name">
+                {listing.creator_name || 'Creator'}
+                <ShieldCheck size={13} />
+              </span>
+              <span className="creator-chip__pid">{listing.pinit_id}</span>
             </div>
           </div>
-        </div>
+
+          <div className="ex-card ex-card--pad buy-panel">
+            {seller ? (
+              <>
+                <h3 className="ex-h2 buy-panel__title">
+                  {ownsListing ? 'Your listing' : 'Creator catalogue'}
+                </h3>
+                <p className="buy-panel__note">
+                  {account.uiLabel}. Creators cannot purchase marketplace assets.
+                </p>
+                <ul className="buy-panel__tiers">
+                  {tiers.length === 0 && <li className="buy-panel__none">No pricing published</li>}
+                  {tiers.map((t) => (
+                    <li key={t.id}>
+                      <span>{t.name}</span>
+                      <strong>{formatMoney(t.price)}</strong>
+                    </li>
+                  ))}
+                </ul>
+                {ownsListing && (
+                  <button type="button" className="ex-btn ex-btn--primary ex-btn--block" onClick={onManageListing}>
+                    Back to My Listings
+                  </button>
+                )}
+                <button type="button" className="ex-btn ex-btn--secondary ex-btn--block" onClick={() => onBack?.()}>
+                  Browse Exchange
+                </button>
+              </>
+            ) : tiers.length === 0 ? (
+              <>
+                <h3 className="ex-h2 buy-panel__title">Not yet on sale</h3>
+                <p className="buy-panel__note">
+                  The creator has not published pricing for this asset. You can still save it and
+                  come back once a licence is available.
+                </p>
+                <button type="button" className="ex-btn ex-btn--secondary ex-btn--block" onClick={addWishlist}>
+                  <Heart size={16} /> Add to wishlist
+                </button>
+              </>
+            ) : (
+              <>
+                <h3 className="ex-h2 buy-panel__title">Choose a licence</h3>
+                <div className="tier-rail" role="radiogroup" aria-label="Licence tier">
+                  {tiers.map((t) => {
+                    const on = activeTier?.id === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        className={`tier-opt ${on ? 'is-on' : ''}`}
+                        onClick={() => setSelectedTier(t.id)}
+                      >
+                        <span className="tier-opt__top">
+                          <strong>{t.name}</strong>
+                          <span className="tier-opt__price">{formatMoney(t.price)}</span>
+                        </span>
+                        <span className="tier-opt__desc">{t.summary}</span>
+                        <span className="tier-opt__ent">{t.entitlement}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="buy-panel__actions">
+                  <button
+                    type="button"
+                    className="ex-btn ex-btn--primary ex-btn--block"
+                    onClick={() => onOpenCheckout({ ...listing, preferredTier: activeTier.id })}
+                  >
+                    License now — {formatMoney(activeTier.price)}
+                  </button>
+                  <button type="button" className="ex-btn ex-btn--secondary ex-btn--block" onClick={addToCart}>
+                    <ShoppingCart size={16} /> Add to cart
+                  </button>
+                  <button type="button" className="ex-btn ex-btn--secondary ex-btn--block" onClick={addWishlist}>
+                    <Heart size={16} /> Add to wishlist
+                  </button>
+                </div>
+                <p className="buy-panel__fine">
+                  Protected delivery. Licence terms are recorded against your order.
+                </p>
+              </>
+            )}
+          </div>
+        </aside>
       </div>
 
       <ProvenanceDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} listing={listing} />

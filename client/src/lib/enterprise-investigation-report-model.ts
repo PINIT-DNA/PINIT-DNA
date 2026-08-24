@@ -113,7 +113,7 @@ export interface EnterpriseInvestigationViewModel {
     detail?: string;
     elapsedMs?: number;
   }>;
-  /** PinIT Sentinel-style forensic evidence cards (Section 3) */
+  /** Pinit Sentinel-style forensic evidence cards (Section 3) */
   evidenceCards: Array<{
     id: string;
     title: string;
@@ -216,7 +216,7 @@ function buildEvidenceCards(
     {
       id: 'watermark',
       title: 'Watermark Detection',
-      subtitle: 'PinIT DNA watermark',
+      subtitle: 'Pinit DNA watermark',
       statusLabel: wmStatus ?? 'Unavailable',
       confidence: wmConf ?? (wmMatched ? 100 : wmStatus ? 0 : null),
       matched: wmMatched,

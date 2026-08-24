@@ -35,7 +35,7 @@ async function loadRoleAndShortId(
   return { role: user.role, shortId: user.shortId };
 }
 
-/** Platform owner only — SUPER_ADMIN + allowlisted PinIT shortId */
+/** Platform owner only — SUPER_ADMIN + allowlisted Pinit shortId */
 export function requireSuperAdmin(req: Request, _res: Response, next: NextFunction): void {
   const userId = getUserId(req);
   if (!userId) {

@@ -81,7 +81,7 @@ export function AdminPortalPage() {
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
             <Shield size={20} className="text-dna-400" /> Admin Portal
           </h1>
-          <p className="text-sm text-gray-500 mt-0.5">Platform-wide visibility across all users and files</p>
+          <p className="text-sm text-gray-500 mt-0.5">Platform-wide visibility across all users and assets</p>
         </div>
         <button onClick={loadData} className="btn btn-secondary btn-sm">
           <RefreshCw size={13} /> Refresh
@@ -93,7 +93,7 @@ export function AdminPortalPage() {
         {([
           ['overview', 'Overview', BarChart3],
           ['users', 'Users', Users],
-          ['vault', 'Vault Files', Database],
+          ['vault', 'Vault Assets', Database],
           ['activity', 'Activity', Activity],
         ] as const).map(([id, label, Icon]) => (
           <button
@@ -124,7 +124,7 @@ export function AdminPortalPage() {
                   { label: 'Face Auth Users', value: stats.faceUsers, icon: Eye, color: 'text-info' },
                   { label: 'Logins (24h)', value: stats.recentLogins, icon: Activity, color: 'text-warning' },
                   { label: 'DNA Records', value: stats.totalDna, icon: FileText, color: 'text-violet-400' },
-                  { label: 'Vault Files', value: stats.totalVault, icon: Lock, color: 'text-success' },
+                  { label: 'Vault Assets', value: stats.totalVault, icon: Lock, color: 'text-success' },
                   { label: 'Share Links', value: stats.totalLinks, icon: Eye, color: 'text-info' },
                   { label: 'Total Views', value: stats.totalViews, icon: BarChart3, color: 'text-amber-400' },
                   { label: 'Certificates', value: stats.totalCerts, icon: Shield, color: 'text-emerald-400' },
@@ -222,7 +222,7 @@ export function AdminPortalPage() {
                     {/* Files */}
                     {selectedUser.dnaRecords?.length > 0 && (
                       <div>
-                        <p className="text-xs font-bold text-gray-400 mb-2">Vault Files</p>
+                        <p className="text-xs font-bold text-gray-400 mb-2">Vault Assets</p>
                         <div className="space-y-1 max-h-48 overflow-y-auto">
                           {selectedUser.dnaRecords.map((d: any) => (
                             <div key={d.id} className="flex items-center gap-2 bg-bg-elevated rounded-lg px-3 py-2">
@@ -268,7 +268,7 @@ export function AdminPortalPage() {
               <div className="stat-grid-3 gap-3 mb-4">
                 <div className="card-sm text-center">
                   <p className="text-xl font-black text-dna-400">{vaultFiles.total}</p>
-                  <p className="text-2xs text-gray-500 font-bold uppercase">Total Files</p>
+                  <p className="text-2xs text-gray-500 font-bold uppercase">Total Assets</p>
                 </div>
                 <div className="card-sm text-center">
                   <p className="text-xl font-black text-success">{formatBytes(vaultFiles.totalSize)}</p>

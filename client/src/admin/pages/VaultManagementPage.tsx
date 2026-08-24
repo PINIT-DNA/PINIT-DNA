@@ -47,7 +47,7 @@ export function VaultManagementPage() {
       <PageHeader title="Vault Management" description="All encrypted vault files across tenants" />
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
-        <StatCard label="Vault Files" value={files.length} icon={Database} />
+        <StatCard label="Vault Assets" value={files.length} icon={Database} />
         <StatCard label="Total Storage" value={formatBytes(totalSize)} icon={Database} />
       </div>
 

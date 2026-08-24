@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Archive, Search, Lock, RefreshCw, Eye, Share2, Copy, Check, Clock, Ban, GitBranch, ShieldCheck, MapPin, LayoutGrid, List, Cpu } from 'lucide-react';
+import { useState } from 'react';
+import { Archive, Search, RefreshCw, Eye, Check, Clock, ShieldCheck, MapPin, LayoutGrid, List, Cpu } from 'lucide-react';
 import { VaultFileThumbnail } from '../components/VaultFileThumbnail';
 import { VaultDetailSidePanel } from '../components/VaultDetailSidePanel';
 import { useNavigate } from 'react-router-dom';
@@ -19,7 +19,6 @@ import { Modal } from '../components/ui/Modal';
 import { cn } from '../components/ui/utils';
 import { FILE_TYPES, getVaultFileTypeLabel, getVaultFileTypeDisplay } from '../lib/file-type-utils';
 import { API_BASE_URL } from '../config/api.config';
-import { ShareQrBlock } from '../components/ShareQrBlock';
 import type { VaultRecord } from '../types/dashboard.types';
 import { vaultSourceCaption } from '../lib/source-platform';
 
@@ -84,17 +83,17 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
 
   return (
     <Modal open title="Protected download" onClose={onClose} size="md">
-      <div className="p-6 space-y-4">
+      <div className="space-y-4">
         <div className="rounded-xl bg-dna-500/10 border border-dna-500/30 p-4">
           <div className="flex items-center gap-2 mb-2">
             <ShieldCheck size={16} className="text-dna-400" />
             <p className="text-sm font-semibold text-white">{record.originalFileName}</p>
           </div>
-          <p className="text-2xs text-gray-400 mb-2">
-            Download with tracking so you can see who received the file. Opening outside PinIT may still
+          <p className="text-xs text-gray-400 mb-2">
+            Download with tracking so you can see who received the file. Opening outside Pinit may still
             be identified later through Investigate.
           </p>
-          <ul className="text-2xs text-dna-300 space-y-0.5">
+          <ul className="text-xs text-dna-300 space-y-0.5">
             <li>✓ Tracked delivery</li>
             <li>✓ Visible watermark</li>
             <li>✓ Download log (time / device)</li>
@@ -106,7 +105,7 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
         {phase === 'idle' && (
           <div className="space-y-3">
             <div>
-              <label className="text-2xs text-gray-500">Recipient (optional label)</label>
+              <label className="text-xs text-gray-500">Recipient (optional label)</label>
               <input
                 className="input text-sm mt-1"
                 placeholder="e.g. HR team / self"
@@ -136,7 +135,7 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
         </ul>
 
         {phase === 'done' && forensicPreserved && (
-          <div className="text-2xs text-success text-center space-y-1">
+          <div className="text-xs text-success text-center space-y-1">
             <p>Protected download recorded in chain of custody.</p>
             {lastTep && <p className="text-dna-300 text-xs">Tracking code {lastTep}</p>}
           </div>
@@ -162,689 +161,6 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
             <button onClick={onClose} className="btn btn-secondary">Close</button>
           )}
         </div>
-      </div>
-    </Modal>
-  );
-}
-
-// ─── Share Modal ─────────────────────────────────────────────────────────────
-
-interface ShareCreated {
-  shareUrl: string;
-  token: string;
-  devOtp?: string;
-  devOtpNote?: string;
-}
-
-function ShareModal({ record, onClose }: { record: VaultRecord; onClose: () => void }) {
-  const navigate = useNavigate();
-  const [expiresIn, setExpiresIn]       = useState<string>('168');  // 7 days
-  const [maxViews, setMaxViews]         = useState<string>('');
-  const [allowDownload, setAllowDownload] = useState(false);
-  const [requireName, setRequireName]   = useState(false);
-  const [note, setNote]                 = useState('');
-  const [creating, setCreating]         = useState(false);
-  const [created, setCreated]           = useState<ShareCreated | null>(null);
-  const [copied, setCopied]             = useState(false);
-
-  // ── Advanced policy controls (Smart Links audit additions) ────────────────
-  const [showAdvanced, setShowAdvanced]   = useState(false);
-  const [oneTimeUse, setOneTimeUse]       = useState(false);
-  const [maxDownloads, setMaxDownloads]   = useState<string>('');
-  const [allowedCountries, setAllowedCountries]     = useState<string>('');
-  const [allowedDeviceTypes, setAllowedDeviceTypes] = useState<string>('');
-  const [allowedIpPrefixes, setAllowedIpPrefixes]   = useState<string>('');
-  const [requireOtp, setRequireOtp]       = useState(false);
-  const [recipientEmail, setRecipientEmail] = useState('');
-
-  // ── Privacy Masking controls ───────────────────────────────────────────────
-  const [privacyMaskingEnabled, setPrivacyMaskingEnabled] = useState(false);
-  const [maskEmail,   setMaskEmail]   = useState(false);
-  const [maskPhone,   setMaskPhone]   = useState(false);
-  const [maskAadhaar, setMaskAadhaar] = useState(false);
-  const [maskPan,     setMaskPan]     = useState(false);
-  const [maskAddress, setMaskAddress] = useState(false);
-  // Auto-detection state
-  const [scanning,       setScanning]      = useState(false);
-  const [scanDone,       setScanDone]      = useState(false);
-  const [scanSupported,  setScanSupported] = useState(true);
-  const [scanMsg,        setScanMsg]       = useState('');
-  const [detected, setDetected] = useState({ email: false, phone: false, aadhaar: false, pan: false, address: false });
-
-  // ── GPS Location — optional (owner chooses at share time)
-  const [requestLocation, setRequestLocation] = useState(true);
-
-  // ── Enterprise Security Controls ──────────────────────────────────────────
-  const [vpnBlock,       setVpnBlock]       = useState(false);
-  const [torBlock,       setTorBlock]       = useState(false);
-  const [oneDeviceOnly,  setOneDeviceOnly]  = useState(false);
-
-  // ── Child links (kept for API compatibility) ──────────────────────────────
-  const [childLinks, setChildLinks] = useState<Array<{ token: string; url: string; recipientLabel: string }>>([]);
-
-  // ── Manage existing links — list + revoke (Smart Links audit: link revocation UI) ──
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [existingLinks, setExistingLinks] = useState<any[]>([]);
-  const [loadingLinks, setLoadingLinks]   = useState(true);
-
-  const fetchLinks = async () => {
-    setLoadingLinks(true);
-    try {
-      const { data } = await api.get(`${API_BASE_URL}/share/vault/${record.id}`);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setExistingLinks((data as any).links ?? []);
-    } catch (err) {
-      console.error('[ShareModal] fetchLinks failed:', err);
-      setExistingLinks([]);
-    }
-    finally { setLoadingLinks(false); }
-  };
-
-  useEffect(() => { fetchLinks(); }, [record.id]);
-
-
-
-  // Country name → ISO code lookup for common countries
-  const COUNTRY_ISO: Record<string, string> = {
-    'india': 'IN', 'united states': 'US', 'usa': 'US', 'america': 'US',
-    'united kingdom': 'GB', 'uk': 'GB', 'england': 'GB',
-    'australia': 'AU', 'canada': 'CA', 'germany': 'DE', 'france': 'FR',
-    'japan': 'JP', 'china': 'CN', 'singapore': 'SG', 'uae': 'AE',
-    'united arab emirates': 'AE', 'russia': 'RU', 'brazil': 'BR',
-    'south africa': 'ZA', 'italy': 'IT', 'spain': 'ES', 'netherlands': 'NL',
-    'new zealand': 'NZ', 'pakistan': 'PK', 'bangladesh': 'BD', 'sri lanka': 'LK',
-  };
-  // Country list: converts full names to ISO codes (e.g. "India" → "IN")
-  const splitCountryList = (v: string) => v.split(',').map(s => {
-    const trimmed = s.trim();
-    if (!trimmed) return '';
-    if (/^[A-Z]{2,3}$/.test(trimmed)) return trimmed;
-    const iso = COUNTRY_ISO[trimmed.toLowerCase()];
-    return iso ?? trimmed.toUpperCase().slice(0, 2);
-  }).filter(Boolean);
-
-  // Device/IP list: simple split + lowercase (no ISO conversion)
-  const splitSimpleList = (v: string) => v.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-
-  const handleCreate = async () => {
-    setCreating(true);
-    try {
-      const { data } = await api.post(`${API_BASE_URL}/share`, {
-        vaultId:      record.id,
-        expiresIn:    expiresIn ? Number(expiresIn) : null,
-        maxViews:     maxViews  ? Number(maxViews)  : null,
-        allowDownload,
-        requireName,
-        note: note.trim() || undefined,
-        oneTimeUse,
-        maxDownloads:       maxDownloads ? Number(maxDownloads) : null,
-        allowedCountries:   splitCountryList(allowedCountries),
-        allowedDeviceTypes: splitSimpleList(allowedDeviceTypes),
-        allowedIpPrefixes:  splitSimpleList(allowedIpPrefixes),
-        requireOtp,
-        recipientEmail: recipientEmail.trim() || undefined,
-        privacyMaskingEnabled,
-        maskEmail:   privacyMaskingEnabled && maskEmail,
-        maskPhone:   privacyMaskingEnabled && maskPhone,
-        maskAadhaar: privacyMaskingEnabled && maskAadhaar,
-        maskPan:     privacyMaskingEnabled && maskPan,
-        maskAddress: privacyMaskingEnabled && maskAddress,
-        requestLocation,
-        vpnBlock,
-        torBlock,
-        oneDeviceOnly,
-      });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const d = data as any;
-      setCreated({ shareUrl: d.shareUrl, token: d.token, devOtp: d.devOtp, devOtpNote: d.devOtpNote });
-      if (d.childLinks?.length) setChildLinks(d.childLinks);
-      toast.success(d.childLinks?.length ? `Share link + ${d.childLinks.length} recipient links created!` : 'Share link created!');
-      fetchLinks();
-    } catch {
-      toast.error('Failed to create share link');
-    } finally { setCreating(false); }
-  };
-
-  const handleCopy = async () => {
-    if (!created) return;
-    await navigator.clipboard.writeText(created.shareUrl);
-    setCopied(true);
-    // Track copy event
-    api.post(`${API_BASE_URL}/share/${created.token}/access`, { action: 'COPIED' }).catch(() => {});
-    setTimeout(() => setCopied(false), 2000);
-    toast.success('Link copied to clipboard!');
-  };
-
-  /** Open OS share sheet (WhatsApp, Email, etc.) — close app modal first so they don't overlap. */
-  const handleNativeShareLink = async () => {
-    if (!created) return;
-    const { shareUrl, token } = created;
-    const shareData: ShareData = {
-      title: record.originalFileName,
-      text: `Secure file via Pinit HUB\n${shareUrl}`,
-      url: shareUrl,
-    };
-
-    const canShare =
-      typeof navigator !== 'undefined'
-      && typeof navigator.share === 'function'
-      && (typeof navigator.canShare !== 'function' || navigator.canShare(shareData));
-
-    if (canShare) {
-      // Close PinIT modal first — only the OS share card should show
-      onClose();
-      try {
-        await navigator.share(shareData);
-        toast.success('Smart link shared');
-        return;
-      } catch (err) {
-        const name = (err as { name?: string })?.name ?? '';
-        const msg = err instanceof Error ? err.message : String(err);
-        if (name === 'AbortError' || /canceled|cancelled/i.test(msg)) return;
-        // Share sheet failed — copy so user can still paste
-      }
-      try {
-        await navigator.clipboard.writeText(shareUrl);
-        api.post(`${API_BASE_URL}/share/${token}/access`, { action: 'COPIED' }).catch(() => {});
-        toast.success('Link copied — paste it in WhatsApp, Email, or any app', { duration: 4500 });
-      } catch {
-        toast.error('Could not share or copy the link');
-      }
-      return;
-    }
-
-    await navigator.clipboard.writeText(shareUrl);
-    setCopied(true);
-    api.post(`${API_BASE_URL}/share/${token}/access`, { action: 'COPIED' }).catch(() => {});
-    setTimeout(() => setCopied(false), 2000);
-    toast.success('Link copied — paste it in WhatsApp, Email, or any app', { duration: 4500 });
-  };
-
-  return (
-    <Modal open title="Share this file" onClose={onClose} size="md">
-      <div className="p-5 space-y-4">
-
-        {/* File info */}
-        <div className="flex items-center gap-3 p-3 bg-bg-elevated rounded-xl border border-bg-border">
-          <div className="w-8 h-8 bg-success/15 rounded-lg flex items-center justify-center shrink-0">
-            <Lock size={14} className="text-success" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-white truncate">{record.originalFileName}</p>
-            <p className="text-2xs text-gray-500">{formatBytes(record.originalSizeBytes)} · Protected</p>
-          </div>
-          <Badge variant="success">Only you control access</Badge>
-        </div>
-
-        {/* Active links — manage / revoke (Smart Links audit: link revocation UI) */}
-        {!created && (
-          <div className="border border-bg-border rounded-xl overflow-hidden">
-            <div className="px-3 py-2 bg-bg-elevated text-xs font-semibold text-gray-300 flex items-center justify-between">
-              <span>Links for this file ({existingLinks.filter(l => l.isActive).length} active)</span>
-              {loadingLinks && <RefreshCw size={11} className="animate-spin text-gray-500" />}
-            </div>
-            <div className="divide-y divide-bg-border max-h-44 overflow-y-auto">
-              {!loadingLinks && existingLinks.length === 0 && (
-                <p className="text-xs text-gray-500 px-3 py-3 text-center">No links yet — create one below</p>
-              )}
-              {existingLinks.map(link => (
-                <div key={link.id} className="flex items-center justify-between gap-2 px-3 py-2">
-                  <div className="min-w-0">
-                    <p className="text-xs text-dna-400 mono truncate">{link.token}</p>
-                    <p className="text-2xs text-gray-500">
-                      {link.isActive ? 'Active' : 'Revoked'}
-                      {typeof link.viewCount === 'number' ? ` · ${link.viewCount} views` : ''}
-                      {link.expiresAt ? ` · expires ${new Date(link.expiresAt).toLocaleDateString()}` : ' · no expiry'}
-                    </p>
-                  </div>
-                  {link.isActive ? (
-                    <Badge variant="success">Active</Badge>
-                  ) : (
-                    <Badge variant="danger">Revoked</Badge>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {!created ? (
-          <>
-            <p className="text-2xs text-gray-400 -mt-1">
-              Choose a few options, create the link, and send it — usually under 20 seconds.
-            </p>
-            {/* Expiry */}
-            <div>
-              <label className="text-xs font-semibold text-gray-300 block mb-2">Access expires after</label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {[
-                  { label: '1 Hour',   value: '1'    },
-                  { label: '24 Hours', value: '24'   },
-                  { label: '7 Days',   value: '168'  },
-                  { label: '30 Days',  value: '720'  },
-                  { label: 'Never',    value: ''     },
-                ].map(opt => (
-                  <button key={opt.label}
-                    onClick={() => setExpiresIn(opt.value)}
-                    className={`text-xs py-2 rounded-lg border transition-all ${
-                      expiresIn === opt.value
-                        ? 'bg-dna-500/20 border-dna-500/40 text-dna-400'
-                        : 'border-bg-border text-gray-500 hover:text-white'
-                    }`}>
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Max views */}
-            <div>
-              <label className="text-xs font-semibold text-gray-300 block mb-1.5">
-                Max views <span className="text-gray-500 font-normal">(empty = unlimited)</span>
-              </label>
-              <input type="number" min="1" value={maxViews}
-                onChange={e => setMaxViews(e.target.value)}
-                placeholder="e.g. 5"
-                className="input text-sm w-full"
-              />
-            </div>
-
-            {/* Toggles */}
-            <div className="space-y-2">
-              {[
-                { label: 'Allow download',       desc: 'Recipient can save a copy',           value: allowDownload, set: setAllowDownload },
-                { label: 'Ask for their name',   desc: 'Recipient enters a name before opening', value: requireName,   set: setRequireName   },
-              ].map(opt => (
-                <div key={opt.label} className="flex items-center justify-between p-3 bg-bg-elevated rounded-xl border border-bg-border">
-                  <div>
-                    <p className="text-xs font-semibold text-white">{opt.label}</p>
-                    <p className="text-2xs text-gray-500">{opt.desc}</p>
-                  </div>
-                  <button onClick={() => opt.set(!opt.value)}
-                    className={`w-10 h-5 rounded-full transition-all relative ${opt.value ? 'bg-dna-500' : 'bg-bg-border'}`}>
-                    <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all ${opt.value ? 'left-5' : 'left-0.5'}`} />
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            {/* Advanced policy controls */}
-            <div className="border border-bg-border rounded-xl overflow-hidden">
-              <button type="button" onClick={() => setShowAdvanced(v => !v)}
-                className="w-full flex items-center justify-between px-3 py-2.5 text-xs font-semibold text-gray-300 hover:text-white bg-bg-elevated">
-                <span>More protection options</span>
-                <span className="text-gray-500">{showAdvanced ? '−' : '+'}</span>
-              </button>
-              {showAdvanced && (
-                <div className="p-3 space-y-3 bg-bg-card">
-                  {/* One-time use / max downloads */}
-                  <div className="space-y-2">
-                    {[
-                      { label: 'One-time link',  desc: 'Stops working after the first successful open', value: oneTimeUse, set: setOneTimeUse },
-                      { label: 'Require a code (OTP)', desc: 'Recipient enters a 6-digit code before viewing', value: requireOtp, set: setRequireOtp },
-                    ].map(opt => (
-                      <div key={opt.label} className="flex items-center justify-between p-3 bg-bg-elevated rounded-xl border border-bg-border">
-                        <div>
-                          <p className="text-xs font-semibold text-white">{opt.label}</p>
-                          <p className="text-2xs text-gray-500">{opt.desc}</p>
-                        </div>
-                        <button onClick={() => opt.set(!opt.value)}
-                          className={`w-10 h-5 rounded-full transition-all relative ${opt.value ? 'bg-dna-500' : 'bg-bg-border'}`}>
-                          <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all ${opt.value ? 'left-5' : 'left-0.5'}`} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-
-                  {requireOtp && (
-                    <div className="p-3 bg-dna-500/5 border border-dna-500/20 rounded-xl">
-                      <p className="text-xs font-semibold text-dna-400 mb-1">How the code works</p>
-                      <p className="text-2xs text-gray-400 leading-relaxed">
-                        After you click <strong>"Create share link"</strong>, a 6-digit code appears here. Send it to your recipient (WhatsApp / email / message). They enter it before viewing.
-                      </p>
-                      <label className="text-xs font-semibold text-gray-300 block mt-3 mb-1.5">
-                        Recipient Email <span className="text-gray-500 font-normal">(optional — for your own records)</span>
-                      </label>
-                      <input type="email" value={recipientEmail} onChange={e => setRecipientEmail(e.target.value)}
-                        placeholder="recipient@example.com" className="input text-sm w-full" />
-                    </div>
-                  )}
-
-                  {/* Enterprise security controls */}
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold text-dna-400 uppercase tracking-wide">Extra security</p>
-                    {[
-                      { label: 'Block TOR', desc: 'Block openings from TOR networks', value: torBlock, set: setTorBlock },
-                      { label: 'Block VPN', desc: 'Block openings from VPN providers', value: vpnBlock, set: setVpnBlock },
-                      { label: 'One device only', desc: 'Lock the link to the first device that opens it', value: oneDeviceOnly, set: setOneDeviceOnly },
-                    ].map(opt => (
-                      <div key={opt.label} className="flex items-center justify-between p-3 bg-bg-elevated rounded-xl border border-dna-500/20">
-                        <div>
-                          <p className="text-xs font-semibold text-white">{opt.label}</p>
-                          <p className="text-2xs text-gray-500">{opt.desc}</p>
-                        </div>
-                        <button onClick={() => opt.set(!opt.value)}
-                          className={`w-10 h-5 rounded-full transition-all relative ${opt.value ? 'bg-dna-500' : 'bg-bg-border'}`}>
-                          <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all ${opt.value ? 'left-5' : 'left-0.5'}`} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-gray-300 block mb-1.5">
-                      Max Downloads <span className="text-gray-500 font-normal">(leave empty for unlimited)</span>
-                    </label>
-                    <input type="number" min="1" value={maxDownloads}
-                      onChange={e => setMaxDownloads(e.target.value)}
-                      placeholder="e.g. 3" className="input text-sm w-full" />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-gray-300 block mb-1.5">
-                      Allowed Countries <span className="text-gray-500 font-normal">(e.g. India, US, UK — empty = any country allowed)</span>
-                    </label>
-                    <input type="text" value={allowedCountries} onChange={e => setAllowedCountries(e.target.value)}
-                      placeholder="India, US, UK" className="input text-sm w-full" />
-                    <p className="text-2xs text-gray-500 mt-1">
-                      Enforced on real internet IPs. Localhost / LAN opens are not geo-tagged as India — they are allowed for testing.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-gray-300 block mb-1.5">
-                      Allowed Device Types <span className="text-gray-500 font-normal">(comma-separated: desktop, mobile, tablet)</span>
-                    </label>
-                    <input type="text" value={allowedDeviceTypes} onChange={e => setAllowedDeviceTypes(e.target.value)}
-                      placeholder="desktop, mobile" className="input text-sm w-full" />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-gray-300 block mb-1.5">
-                      Allowed IP Prefixes <span className="text-gray-500 font-normal">(comma-separated, e.g. 10.0., 192.168.)</span>
-                    </label>
-                    <input type="text" value={allowedIpPrefixes} onChange={e => setAllowedIpPrefixes(e.target.value)}
-                      placeholder="10.0., 192.168." className="input text-sm w-full" />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Note */}
-            <div>
-              <label className="text-xs font-semibold text-gray-300 block mb-1.5">
-                Note for recipient <span className="text-gray-500 font-normal">(optional)</span>
-              </label>
-              <textarea value={note} onChange={e => setNote(e.target.value)}
-                placeholder="Please review this document carefully…"
-                rows={2} className="input w-full text-sm resize-none"
-              />
-            </div>
-
-            {/* ── Privacy Masking ───────────────────────────────────────── */}
-            <div className="border border-bg-border rounded-xl overflow-hidden">
-              <button type="button"
-                onClick={async () => {
-                  const next = !privacyMaskingEnabled;
-                  setPrivacyMaskingEnabled(next);
-                  if (next && !scanDone) {
-                    // Auto-scan the file for sensitive data
-                    setScanning(true);
-                    setScanMsg('');
-                    try {
-                      const { data } = await api.post(`${API_BASE_URL}/vault/${record.id}/scan-sensitive`);
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      const d = data as any;
-                      setScanSupported(d.supported !== false);
-                      if (d.supported === false) {
-                        setScanMsg(d.reason ?? 'Masking not supported for this file type.');
-                        setPrivacyMaskingEnabled(false);
-                      } else {
-                        setDetected({ email: !!d.email, phone: !!d.phone, aadhaar: !!d.aadhaar, pan: !!d.pan, address: !!d.address });
-                        // Auto-enable only the types that were actually found
-                        setMaskEmail(!!d.email);
-                        setMaskPhone(!!d.phone);
-                        setMaskAadhaar(!!d.aadhaar);
-                        setMaskPan(!!d.pan);
-                        setMaskAddress(!!d.address);
-                        if (!d.hasAnyMatch) setScanMsg('No sensitive data detected in this file. You can still enable types manually if needed.');
-                      }
-                      setScanDone(true);
-                    } catch {
-                      setScanMsg('Could not scan file — you can enable masks manually.');
-                      setScanDone(true);
-                    } finally {
-                      setScanning(false);
-                    }
-                  }
-                }}
-                className="w-full flex items-center justify-between px-3 py-2.5 text-xs font-semibold text-gray-300 hover:text-white bg-bg-elevated">
-                <span className="flex items-center gap-2">
-                  Hide sensitive details
-                  <span className="text-gray-500 font-normal">(auto-detect &amp; hide)</span>
-                </span>
-                {scanning
-                  ? <span className="text-xs text-dna-400 flex items-center gap-1"><div className="w-3 h-3 border border-dna-400 border-t-transparent rounded-full animate-spin" /> Scanning…</span>
-                  : <span className={`text-xs px-2 py-0.5 rounded font-semibold ${privacyMaskingEnabled ? 'bg-dna-500/20 text-dna-400' : 'text-gray-500'}`}>
-                      {privacyMaskingEnabled ? 'ON' : 'OFF'}
-                    </span>
-                }
-              </button>
-
-              {privacyMaskingEnabled && !scanning && (
-                <div className="px-3 py-3 space-y-2 bg-bg-base">
-                  <p className="text-2xs text-gray-500 mb-1">
-                    Original file is <strong className="text-white">never modified</strong>. Masking applies only to the recipient's view.
-                  </p>
-                  {scanMsg && (
-                    <p className={`text-2xs px-2 py-1.5 rounded ${detected.email || detected.phone || detected.aadhaar || detected.pan || detected.address ? 'text-green-400 bg-green-500/10' : 'text-yellow-400 bg-yellow-500/10'}`}>
-                      {scanMsg}
-                    </p>
-                  )}
-                  {scanSupported && (
-                    <>
-                      {[
-                        { key: 'email',   label: 'Email Addresses',  desc: 'john@*** → ****@gmail.com',           val: maskEmail,   set: setMaskEmail,   found: detected.email   },
-                        { key: 'phone',   label: 'Phone Numbers',    desc: '9876543210 → 98******10',              val: maskPhone,   set: setMaskPhone,   found: detected.phone   },
-                        { key: 'aadhaar', label: 'Aadhaar Numbers',  desc: '1234 5678 9012 → XXXX XXXX 9012',     val: maskAadhaar, set: setMaskAadhaar, found: detected.aadhaar },
-                        { key: 'pan',     label: 'PAN Numbers',      desc: 'ABCDE1234F → *****1234F',              val: maskPan,     set: setMaskPan,     found: detected.pan     },
-                        { key: 'address', label: 'Addresses',        desc: 'Street/area info → [ADDRESS MASKED]', val: maskAddress, set: setMaskAddress, found: detected.address },
-                      ].map(({ key, label, desc, val, set, found }) => (
-                        <label key={key} className={`flex items-center justify-between cursor-pointer p-2 rounded-lg hover:bg-bg-elevated ${!found && scanDone ? 'opacity-50' : ''}`}>
-                          <div className="flex items-center gap-2 flex-1">
-                            <div>
-                              <p className="text-xs text-gray-300 font-medium flex items-center gap-1.5">
-                                {label}
-                                {scanDone && (
-                                  found
-                                    ? <span className="text-2xs bg-green-500/20 text-green-400 border border-green-500/30 rounded px-1">Found ✓</span>
-                                    : <span className="text-2xs bg-gray-500/10 text-gray-600 border border-gray-600/20 rounded px-1">Not found</span>
-                                )}
-                              </p>
-                              <p className="text-2xs text-gray-500">{desc}</p>
-                            </div>
-                          </div>
-                          <div
-                            onClick={() => set((v: boolean) => !v)}
-                            className={`w-8 h-4 rounded-full transition-colors relative cursor-pointer ${val ? 'bg-dna-500' : 'bg-bg-border'}`}
-                          >
-                            <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${val ? 'left-4' : 'left-0.5'}`} />
-                          </div>
-                        </label>
-                      ))}
-                      {scanDone && !detected.email && !detected.phone && !detected.aadhaar && !detected.pan && !detected.address && (
-                        <p className="text-2xs text-gray-600 text-center py-1">No sensitive data auto-detected — toggle manually if needed</p>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* Image / unsupported file warning */}
-              {!scanning && scanDone && !scanSupported && (
-                <div className="px-3 py-3 bg-bg-base">
-                  <p className="text-2xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 rounded px-2 py-1.5">
-                    {scanMsg}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* ── GPS Location — optional toggle ──────────────────── */}
-            <button
-              type="button"
-              onClick={() => setRequestLocation((v) => !v)}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-left transition-colors ${
-                requestLocation
-                  ? 'border-green-500/40 bg-green-500/10'
-                  : 'border-bg-border bg-bg-elevated hover:border-green-500/25'
-              }`}
-            >
-              <div>
-                <p className={`text-xs font-semibold flex items-center gap-2 ${requestLocation ? 'text-green-400' : 'text-gray-300'}`}>
-                  Ask for location
-                  <span className={`text-2xs px-1.5 py-0.5 rounded font-bold ${
-                    requestLocation
-                      ? 'bg-green-500/20 text-green-400'
-                      : 'bg-bg-border text-gray-500'
-                  }`}>
-                    {requestLocation ? 'ON' : 'OFF'}
-                  </span>
-                </p>
-                <p className="text-2xs text-gray-500 mt-0.5">
-                  {requestLocation
-                    ? 'Viewer must allow location to open the file.'
-                    : 'Off — open without location prompt (approximate place via network still may be logged).'}
-                </p>
-              </div>
-              <div className={`w-8 h-4 rounded-full transition-colors relative shrink-0 ml-3 ${requestLocation ? 'bg-green-500' : 'bg-bg-border'}`}>
-                <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${requestLocation ? 'left-4' : 'left-0.5'}`} />
-              </div>
-            </button>
-
-            <button onClick={handleCreate} disabled={creating} className="btn btn-primary w-full">
-              {creating
-                ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Creating link…</>
-                : <><Share2 size={14} /> Create share link</>}
-            </button>
-          </>
-        ) : (
-          /* Link created state */
-          <div className="space-y-4">
-            <div className="rounded-xl bg-success/5 border border-success/20 p-4 flex items-center gap-3">
-              <Check size={18} className="text-success shrink-0" />
-              <div>
-                <p className="text-sm font-semibold text-success">Link ready — send it anytime</p>
-                <p className="text-2xs text-gray-400 mt-0.5">Every open is tracked. Check Tracking anytime to see who viewed it.</p>
-              </div>
-            </div>
-
-            {/* Dev OTP — surfaced because no SMTP provider is configured */}
-            {created.devOtp && (
-              <div className="rounded-xl bg-warning/5 border border-warning/20 p-3">
-                <p className="text-2xs text-warning font-semibold mb-1">Verification code (share this manually)</p>
-                <p className="text-lg font-mono tracking-[0.4em] text-white">{created.devOtp}</p>
-                {created.devOtpNote && <p className="text-2xs text-gray-500 mt-1">{created.devOtpNote}</p>}
-              </div>
-            )}
-
-            {/* URL box */}
-            <div className="bg-bg-elevated rounded-xl border border-bg-border p-3">
-              <p className="text-2xs text-gray-500 mb-1.5 font-semibold">Your link</p>
-              <div className="flex items-center gap-2">
-                <p className="text-xs text-dna-400 mono flex-1 truncate">{created.shareUrl}</p>
-                <button onClick={handleCopy}
-                  className={`btn btn-sm shrink-0 ${copied ? 'btn-secondary' : 'btn-primary'}`}>
-                  {copied ? <><Check size={12} /> Copied!</> : <><Copy size={12} /> Copy</>}
-                </button>
-              </div>
-            </div>
-
-            <ShareQrBlock url={created.shareUrl} />
-
-            {/* Native share — opens WhatsApp / Email / etc. like Share File */}
-            <button
-              type="button"
-              onClick={() => void handleNativeShareLink()}
-              className="btn btn-primary w-full"
-            >
-              <Share2 size={14} /> Share Link
-            </button>
-            <p className="text-2xs text-gray-500 text-center -mt-2">
-              Opens your device share menu — pick WhatsApp, Email, or any app
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <a href={`https://wa.me/?text=${encodeURIComponent('Secure file: ' + created.shareUrl)}`}
-                target="_blank" rel="noreferrer"
-                className="btn btn-secondary btn-sm text-xs justify-center">
-                WhatsApp
-              </a>
-              <a href={`mailto:?subject=Shared+File&body=${encodeURIComponent('Access this secure file: ' + created.shareUrl)}`}
-                className="btn btn-secondary btn-sm text-xs justify-center">
-                Email
-              </a>
-              <button type="button" onClick={() => void handleCopy()} className="btn btn-secondary btn-sm text-xs">
-                <Copy size={11} /> Copy Link
-              </button>
-            </div>
-
-            <div className="flex gap-2">
-              <div className="flex items-center gap-1.5 text-2xs text-gray-500 bg-bg-elevated rounded-lg px-2 py-1.5">
-                <Clock size={10} />
-                {expiresIn ? `Expires in ${expiresIn}h` : 'Never expires'}
-              </div>
-              {maxViews && (
-                <div className="flex items-center gap-1.5 text-2xs text-gray-500 bg-bg-elevated rounded-lg px-2 py-1.5">
-                  <Eye size={10} /> Max {maxViews} views
-                </div>
-              )}
-              {!allowDownload && (
-                <div className="flex items-center gap-1.5 text-2xs text-gray-500 bg-bg-elevated rounded-lg px-2 py-1.5">
-                  <Ban size={10} /> No download
-                </div>
-              )}
-            </div>
-
-            {/* Child recipient links */}
-            {childLinks.length > 0 && (
-              <div className="border border-dna-500/30 rounded-xl overflow-hidden">
-                <div className="px-3 py-2 bg-dna-500/10 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <GitBranch size={13} className="text-dna-400" />
-                    <span className="text-xs font-semibold text-dna-300">Recipient Links ({childLinks.length})</span>
-                  </div>
-                  <button
-                    onClick={() => navigate(`/link-tree/${created?.token}`)}
-                    className="flex items-center gap-1 text-2xs text-dna-400 hover:text-white transition-colors"
-                  >
-                    <GitBranch size={11} /> View Tree
-                  </button>
-                </div>
-                <div className="divide-y divide-bg-border max-h-48 overflow-y-auto">
-                  {childLinks.map((cl, i) => (
-                    <div key={i} className="flex items-center gap-2 px-3 py-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-white truncate">{cl.recipientLabel}</p>
-                        <p className="text-2xs text-dna-400 mono truncate">{cl.url}</p>
-                      </div>
-                      <button
-                        onClick={() => { navigator.clipboard.writeText(cl.url); toast.success(`Copied link for ${cl.recipientLabel}`); }}
-                        className="btn btn-secondary btn-sm text-2xs shrink-0"
-                      >
-                        <Copy size={11} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <p className="text-2xs text-gray-600 text-center">
-              All access events appear in View in Timeline with IP, browser, and location
-            </p>
-          </div>
-        )}
       </div>
     </Modal>
   );
@@ -883,9 +199,6 @@ function VaultGalleryCard({
             {source}
           </span>
         )}
-        <span className="absolute bottom-2 right-2 text-2xs font-semibold px-1.5 py-0.5 rounded-md bg-emerald-600/90 text-white">
-          Protected
-        </span>
       </div>
       <div className="p-3 space-y-1">
         <p className="text-sm font-semibold text-white truncate">{record.originalFileName}</p>
@@ -893,7 +206,7 @@ function VaultGalleryCard({
           {getVaultFileTypeDisplay(record.originalMimeType, record.originalFileName)}
           {source ? ` · ${source}` : ''}
         </p>
-        <p className="text-2xs text-gray-500">
+        <p className="text-xs text-gray-500">
           {format(new Date(record.createdAt), 'MMM d, yyyy')}
         </p>
       </div>
@@ -902,10 +215,10 @@ function VaultGalleryCard({
 }
 
 export function VaultPage() {
+  const navigate = useNavigate();
   const { data: records, loading, error, refetch, setData: setRecords } = useApi(listVaultRecords, [], { cacheKey: 'vault-records' });
   const [search, setSearch]     = useState('');
   const [selected, setSelected] = useState<VaultRecord | null>(null);
-  const [sharing, setSharing]   = useState<VaultRecord | null>(null);
   const [protecting, setProtecting] = useState<VaultRecord | null>(null);
   const [aiMode, setAiMode]     = useState(false);
   const [aiResults, setAiResults] = useState<string[]>([]); // dnaRecordIds matching AI search
@@ -913,8 +226,11 @@ export function VaultPage() {
   const [viewMode, setViewMode] = useState<'gallery' | 'list'>('gallery');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
   const handleShare = (record: VaultRecord) => {
-    setSharing(record);
+    setSelected(null);
+    setProtecting(null);
+    navigate(`/vault/assets/${record.id}/share`);
   };
 
   const handleRenamed = (vaultId: string, originalFileName: string) => {
@@ -931,7 +247,6 @@ export function VaultPage() {
     // Optimistic UI — remove card + close panel immediately
     setRecords((prev) => (prev ?? []).filter((r) => r.id !== record.id));
     if (selected?.id === record.id) setSelected(null);
-    if (sharing?.id === record.id) setSharing(null);
     if (protecting?.id === record.id) setProtecting(null);
     try {
       await deleteVaultRecord(record.id);
@@ -1028,17 +343,17 @@ export function VaultPage() {
         <div className="stat-grid-3 gap-3">
           <div className="card-sm text-center">
             <p className="text-2xl font-bold text-purple tabular-nums">{records.length}</p>
-            <p className="text-2xs text-gray-500 mt-1">Protected files</p>
+            <p className="text-xs text-gray-500 mt-1">Protected assets</p>
           </div>
           <div className="card-sm text-center">
             <p className="text-2xl font-bold text-success tabular-nums">
               {formatBytes(records.reduce((s, r) => s + r.encryptedSizeBytes, 0))}
             </p>
-            <p className="text-2xs text-gray-500 mt-1">Storage used</p>
+            <p className="text-xs text-gray-500 mt-1">Storage used</p>
           </div>
           <div className="card-sm text-center">
             <p className="text-2xl font-bold text-dna-400">Protected</p>
-            <p className="text-2xs text-gray-500 mt-1">Only you control access</p>
+            <p className="text-xs text-gray-500 mt-1">Only you control access</p>
           </div>
         </div>
       )}
@@ -1142,8 +457,8 @@ export function VaultPage() {
             ) : filtered.length === 0 ? (
               <EmptyState
                 icon={Archive}
-                title="No protected files yet"
-                description="Protect a file to store it here — then share and track who opens it"
+                title="No protected assets yet"
+                description="Protect an asset to store it here — then share and track who opens it"
               />
             ) : (
               <div className={cn(
@@ -1186,8 +501,8 @@ export function VaultPage() {
                   <td colSpan={8}>
                     <EmptyState
                       icon={Archive}
-                      title="No protected files yet"
-                      description="Protect a file to store it here — then share and track who opens it"
+                      title="No protected assets yet"
+                      description="Protect an asset to store it here — then share and track who opens it"
                     />
                   </td>
                 </tr>
@@ -1212,14 +527,14 @@ export function VaultPage() {
                           <p className="text-sm font-medium text-white truncate max-w-[200px]">
                             {r.originalFileName}
                           </p>
-                          <p className="text-2xs text-gray-500">
+                          <p className="text-xs text-gray-500">
                             {getVaultFileTypeDisplay(r.originalMimeType, r.originalFileName)}
                           </p>
                         </div>
                       </div>
                     </td>
                     <td>
-                      <span className="text-2xs text-gray-300">
+                      <span className="text-xs text-gray-300">
                         {vaultSourceCaption(r) ?? 'Pinit HUB'}
                       </span>
                     </td>
@@ -1231,7 +546,7 @@ export function VaultPage() {
                         <div className="flex items-start gap-1 max-w-[160px]">
                           <MapPin size={12} className="text-dna-400 shrink-0 mt-0.5" />
                           <span
-                            className="text-2xs text-gray-300 truncate"
+                            className="text-xs text-gray-300 truncate"
                             title={[
                               r.location.creationLabel && `Created: ${r.location.creationLabel}`,
                               r.location.sharedLabel && `Shared: ${r.location.sharedLabel}`,
@@ -1245,7 +560,7 @@ export function VaultPage() {
                           </span>
                         </div>
                       ) : (
-                        <span className="text-2xs text-gray-500">Unavailable</span>
+                        <span className="text-xs text-gray-500">Unavailable</span>
                       )}
                     </td>
                     <td>
@@ -1289,9 +604,6 @@ export function VaultPage() {
           />
         )}
 
-      {sharing && (
-        <ShareModal record={sharing} onClose={() => setSharing(null)} />
-      )}
       {protecting && (
         <ProtectedDownloadModal record={protecting} onClose={() => setProtecting(null)} />
       )}

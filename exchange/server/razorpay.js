@@ -1,14 +1,63 @@
 import crypto from 'crypto';
 import Razorpay from 'razorpay';
+import { activeCurrency } from './lib/money.js';
 
 export function isRazorpayConfigured() {
   return Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
 }
 
-/** Mock payments when keys missing, or PAYMENT_MOCK=1 */
+/** True when the configured key is a live (real money) key. */
+export function isLiveKey() {
+  return String(process.env.RAZORPAY_KEY_ID || '').startsWith('rzp_live_');
+}
+
+function flagOn(name) {
+  const v = String(process.env[name] || '').trim().toLowerCase();
+  return v === '1' || v === 'true';
+}
+
+/**
+ * Demo mode: payments are marked successful without contacting a gateway.
+ *
+ * Off unless explicitly switched on, and it cannot be switched on against a
+ * live key — a demo flag left set on a production deploy would hand out paid
+ * accounts and licences for nothing, so the live key wins the argument every
+ * time and the attempt is logged rather than honoured.
+ *
+ * PAYMENT_DEMO_MODE is the flag to use. PAYMENT_MOCK is the older spelling and
+ * still works so existing environments keep behaving as they do today.
+ */
+let demoRefusalLogged = false;
+export function isPaymentDemoMode() {
+  const requested = flagOn('PAYMENT_DEMO_MODE') || flagOn('PAYMENT_MOCK');
+  if (requested && isLiveKey()) {
+    if (!demoRefusalLogged) {
+      demoRefusalLogged = true;
+      console.error(
+        '[payments] REFUSED: demo mode requested while a live Razorpay key is configured. '
+        + 'Real checkout will be used. Unset PAYMENT_DEMO_MODE / PAYMENT_MOCK on this environment.',
+      );
+    }
+    return false;
+  }
+  return requested;
+}
+
+/**
+ * Payments are simulated.
+ *
+ * This previously ended with `return !isRazorpayConfigured()`, so a deployment
+ * that simply lacked its keys — a typo, a missing variable after a migration —
+ * silently began accepting every payment as successful and activating accounts
+ * for free. Missing configuration is now an error surfaced at the call site,
+ * not an invitation to give the product away. Absent keys still simulate when
+ * NODE_ENV is not production, which is the local-development case that
+ * behaviour was written for.
+ */
 export function isPaymentMockMode() {
-  if (String(process.env.PAYMENT_MOCK || '').trim() === '1') return true;
-  if (String(process.env.PAYMENT_MOCK || '').toLowerCase() === 'true') return true;
+  if (isPaymentDemoMode()) return true;
+  if (isLiveKey()) return false;
+  if (process.env.NODE_ENV === 'production') return false;
   return !isRazorpayConfigured();
 }
 
@@ -17,7 +66,14 @@ export function getBillingPublicConfig() {
     configured: isRazorpayConfigured(),
     mock: isPaymentMockMode(),
     keyId: isRazorpayConfigured() ? process.env.RAZORPAY_KEY_ID : null,
-    currency: 'INR',
+    currency: activeCurrency(),
+    // Surfaced so the storefront can warn that checkout will not capture a
+    // real card while a test key is in use.
+    testMode: String(process.env.RAZORPAY_KEY_ID || '').startsWith('rzp_test_'),
+    // Explicit demo mode, so the UI can label the payment plainly rather than
+    // letting a simulated success look like a real one.
+    demo: isPaymentDemoMode(),
+    live: isLiveKey(),
     provider: isPaymentMockMode() ? 'mock' : 'razorpay',
   };
 }
@@ -32,13 +88,14 @@ function getClient() {
   });
 }
 
-export async function createRazorpayOrder({ amountPaise, receipt, notes = {} }) {
+export async function createRazorpayOrder({ amountPaise, receipt, notes = {}, currency }) {
+  const payCurrency = String(currency || activeCurrency()).toUpperCase();
   if (isPaymentMockMode()) {
     const mockId = `order_mock_${Date.now()}`;
     return {
       orderId: mockId,
       amount: amountPaise,
-      currency: 'INR',
+      currency: payCurrency,
       keyId: null,
       mock: true,
     };
@@ -47,7 +104,7 @@ export async function createRazorpayOrder({ amountPaise, receipt, notes = {} }) 
   const client = getClient();
   const order = await client.orders.create({
     amount: amountPaise,
-    currency: 'INR',
+    currency: payCurrency,
     receipt: String(receipt || `ex_${Date.now()}`).slice(0, 40),
     notes,
   });
@@ -55,7 +112,7 @@ export async function createRazorpayOrder({ amountPaise, receipt, notes = {} }) 
   return {
     orderId: order.id,
     amount: Number(order.amount),
-    currency: order.currency || 'INR',
+    currency: order.currency || payCurrency,
     keyId: process.env.RAZORPAY_KEY_ID,
     mock: false,
   };
@@ -71,4 +128,85 @@ export function verifyRazorpaySignature({ orderId, paymentId, signature }) {
     .update(body)
     .digest('hex');
   return expected === signature;
+}
+
+/**
+ * Seller subscription: ₹2,500.00, expressed in paise as Razorpay requires.
+ *
+ * This was 2500 minor units of USD — $25 — which could not actually be paid.
+ * Razorpay only offers UPI on INR orders, so a USD order dropped UPI from the
+ * sheet entirely, and a USD charge on an Indian account is an international
+ * transaction, which this account has disabled. That left card-only checkout
+ * where every available card was refused: domestic cards cannot settle USD,
+ * and international cards are blocked. The activation step was unpayable.
+ *
+ * Charging in INR restores UPI and domestic cards, and matches the currency
+ * buyer orders are already charged in.
+ */
+export const SELLER_SUBSCRIPTION_AMOUNT_PAISE = 250000;
+export const SELLER_SUBSCRIPTION_CURRENCY = 'INR';
+/** @deprecated retained so existing imports keep resolving. */
+export const SELLER_SUBSCRIPTION_AMOUNT_CENTS = SELLER_SUBSCRIPTION_AMOUNT_PAISE;
+/** @deprecated use SELLER_SUBSCRIPTION_AMOUNT_PAISE */
+export const SELLER_VERIFICATION_AMOUNT_PAISE = SELLER_SUBSCRIPTION_AMOUNT_PAISE;
+
+export async function createRazorpayCustomer({ name, email, contact, notes = {} }) {
+  if (isPaymentMockMode()) {
+    return { id: `cust_mock_${Date.now()}`, mock: true };
+  }
+  const client = getClient();
+  const customer = await client.customers.create({
+    name: String(name || 'Pinit Seller').slice(0, 120),
+    email: String(email || '').slice(0, 120) || undefined,
+    contact: contact ? String(contact).slice(0, 15) : undefined,
+    notes,
+  });
+  return { id: customer.id, mock: false };
+}
+
+export async function fetchRazorpayPayment(paymentId) {
+  if (isPaymentMockMode()) {
+    return {
+      id: paymentId,
+      method: 'card',
+      card: { last4: '4242', network: 'Visa' },
+      token_id: `token_mock_${Date.now()}`,
+      mock: true,
+    };
+  }
+  const client = getClient();
+  return client.payments.fetch(paymentId);
+}
+
+export async function refundRazorpayPayment(paymentId, amountPaise) {
+  if (isPaymentMockMode()) {
+    return { id: `rfnd_mock_${Date.now()}`, mock: true };
+  }
+  const client = getClient();
+  return client.payments.refund(paymentId, { amount: amountPaise });
+}
+
+/**
+ * Verify a Razorpay webhook signature.
+ *
+ * Mock mode no longer short-circuits this whenever a secret is configured.
+ * `isPaymentMockMode()` is true if PAYMENT_MOCK is set OR if keys are simply
+ * missing, so the old unconditional `return true` meant a single stray env var
+ * in production turned every webhook into an unauthenticated write endpoint —
+ * anyone could POST a "payment refunded" or "dispute lost" event.
+ *
+ * The bypass now applies only when there is genuinely no secret to check
+ * against, which is the local-development case it was written for.
+ */
+export function verifyRazorpayWebhookSignature(rawBody, signature) {
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET;
+  if (!secret) return isPaymentMockMode();
+  if (!signature || !rawBody) return false;
+  const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+  // Constant-time compare; length guard first because timingSafeEqual throws
+  // on mismatched buffer lengths.
+  const a = Buffer.from(expected, 'utf8');
+  const b = Buffer.from(String(signature), 'utf8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }

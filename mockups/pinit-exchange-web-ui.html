@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PinIT Exchange — Desktop Web UI/UX Mockups</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;700;800&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #0e1613;
+      --moss: #1a4736;
+      --leaf: #2a6b50;
+      --sand: #efe7da;
+      --paper: #f7f2ea;
+      --card: #ffffff;
+      --line: #d9d0c2;
+      --muted: #6a635a;
+      --copper: #b56a2c;
+      --ok: #0e7a61;
+      --sidebar: #101a16;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Outfit, system-ui, sans-serif;
+      background: #e5ddd0;
+      color: var(--ink);
+      line-height: 1.45;
+    }
+    .page { max-width: 1320px; margin: 0 auto; padding: 40px 20px 80px; }
+    .brand-title {
+      font-family: Fraunces, Georgia, serif;
+      font-size: clamp(2.2rem, 4vw, 3.2rem);
+      letter-spacing: -0.03em;
+    }
+    .lede { color: var(--muted); max-width: 48rem; margin: 10px 0 8px; font-size: 1.05rem; }
+    .meta {
+      display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 32px;
+    }
+    .pill {
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+      padding: 6px 10px; border-radius: 999px; background: #fff; border: 1px solid var(--line); color: var(--moss);
+    }
+    .section {
+      font-family: Fraunces, Georgia, serif;
+      font-size: 1.5rem;
+      margin: 42px 0 14px;
+    }
+    .hint { color: var(--muted); font-size: 0.92rem; margin-bottom: 16px; }
+
+    /* Desktop browser frame */
+    .artboard {
+      background: #2a2f2c;
+      border-radius: 14px;
+      padding: 10px 10px 14px;
+      margin-bottom: 28px;
+      box-shadow: 0 18px 50px rgba(14, 22, 19, 0.18);
+    }
+    .chrome {
+      display: flex; align-items: center; gap: 8px; padding: 4px 6px 10px;
+    }
+    .dots { display: flex; gap: 5px; }
+    .dots i { width: 9px; height: 9px; border-radius: 50%; background: #666; display: block; }
+    .dots i:nth-child(1) { background: #c97868; }
+    .dots i:nth-child(2) { background: #c9a868; }
+    .dots i:nth-child(3) { background: #6aa88a; }
+    .urlbar {
+      flex: 1; background: #1b211e; color: #c9c2b6; border-radius: 8px;
+      padding: 7px 12px; font-size: 0.75rem;
+    }
+    .screen-caption {
+      color: #b7b0a4; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; margin: 0 4px 8px;
+    }
+
+    .web {
+      background: var(--paper);
+      border-radius: 8px;
+      overflow: hidden;
+      min-height: 560px;
+    }
+
+    /* Shared web chrome */
+    .topnav {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 28px; background: #fff; border-bottom: 1px solid var(--line);
+    }
+    .logo {
+      font-family: Fraunces, Georgia, serif; font-weight: 800; font-size: 1.25rem;
+    }
+    .logo span { color: var(--leaf); font-weight: 500; font-size: 0.85rem; margin-left: 6px; }
+    .navlinks { display: flex; gap: 18px; align-items: center; font-size: 0.88rem; font-weight: 600; color: var(--muted); }
+    .navlinks .active { color: var(--ink); }
+    .nav-cta {
+      background: var(--moss); color: #f6f1e8; border: 0; border-radius: 999px;
+      padding: 9px 14px; font-weight: 700; font-size: 0.8rem;
+    }
+
+    .hero {
+      position: relative;
+      min-height: 420px;
+      padding: 64px 48px;
+      background:
+        linear-gradient(105deg, rgba(14,22,19,.88) 0%, rgba(26,71,54,.55) 48%, rgba(14,22,19,.35) 100%),
+        radial-gradient(800px 320px at 70% 40%, #c4b08f 0%, #6d8f78 45%, #1a4736 100%);
+      color: #f7f2ea;
+    }
+    .hero .eyebrow { font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase; opacity: .8; margin-bottom: 12px; font-weight: 700; }
+    .hero h2 {
+      font-family: Fraunces, Georgia, serif;
+      font-size: clamp(2.2rem, 4vw, 3.4rem);
+      line-height: 1.05; letter-spacing: -0.03em; max-width: 14ch;
+    }
+    .hero p { max-width: 34rem; margin-top: 14px; opacity: .88; font-size: 1.02rem; }
+    .hero-actions { display: flex; gap: 10px; margin-top: 22px; }
+    .btn-light {
+      background: #f4ebe0; color: var(--ink); border: 0; border-radius: 999px;
+      padding: 12px 18px; font-weight: 700; font-size: 0.88rem;
+    }
+    .btn-ghost-light {
+      background: transparent; color: #f4ebe0; border: 1px solid rgba(244,235,224,.45);
+      border-radius: 999px; padding: 12px 18px; font-weight: 700; font-size: 0.88rem;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      min-height: 560px;
+    }
+    .side {
+      background: var(--sidebar); color: #d8d2c7; padding: 22px 16px;
+    }
+    .side .brand {
+      font-family: Fraunces, Georgia, serif; color: #f4ebe0; font-size: 1.1rem; margin-bottom: 22px;
+    }
+    .side a {
+      display: block; color: #a9a297; text-decoration: none; font-size: 0.86rem;
+      font-weight: 600; padding: 10px 12px; border-radius: 10px; margin-bottom: 4px;
+    }
+    .side a.on { background: #1c2a24; color: #f4ebe0; }
+    .main { padding: 24px 28px; background: var(--paper); }
+    .main h3 {
+      font-family: Fraunces, Georgia, serif; font-size: 1.45rem; margin-bottom: 4px;
+    }
+    .sub { color: var(--muted); font-size: 0.88rem; margin-bottom: 18px; }
+
+    .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px;
+    }
+    .card b { display: block; font-size: 1.4rem; font-family: Fraunces, Georgia, serif; }
+    .card span { font-size: 0.75rem; color: var(--muted); }
+
+    .panel {
+      background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px;
+    }
+    .panel + .panel { margin-top: 12px; }
+    .panel h4 { font-size: 0.95rem; margin-bottom: 10px; }
+
+    .grid-list {
+      display: grid; grid-template-columns: 1.1fr 1fr; gap: 14px;
+    }
+    .asset {
+      display: flex; gap: 12px; align-items: center;
+      padding: 10px; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 8px;
+      background: #fff;
+    }
+    .thumb {
+      width: 56px; height: 56px; border-radius: 10px; flex-shrink: 0;
+      background: linear-gradient(135deg, #c9d9cf, #e6d5b7);
+    }
+    .asset strong { display: block; font-size: 0.88rem; }
+    .asset span { font-size: 0.75rem; color: var(--muted); }
+
+    .field {
+      margin-bottom: 12px;
+    }
+    .field label {
+      display: block; font-size: 0.72rem; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px;
+    }
+    .field .box {
+      background: #fff; border: 1px solid var(--line); border-radius: 10px;
+      padding: 11px 12px; font-weight: 600; font-size: 0.9rem;
+    }
+
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .three { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 14px; }
+
+    .btn {
+      background: var(--moss); color: #f6f1e8; border: 0; border-radius: 10px;
+      padding: 11px 16px; font-weight: 700; font-size: 0.86rem;
+    }
+    .btn.sec { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 9px; border-radius: 999px; font-size: 0.7rem; font-weight: 700;
+      background: #e6f4ee; color: var(--ok);
+    }
+    .badge.warn { background: #f7eadb; color: var(--copper); }
+
+    .split-onboard {
+      display: grid; grid-template-columns: 1fr 1.05fr; min-height: 560px;
+    }
+    .onboard-visual {
+      background:
+        linear-gradient(160deg, rgba(14,22,19,.82), rgba(26,71,54,.7)),
+        radial-gradient(circle at 30% 40%, #d2c3a6, #4e7a63 60%, #12241c);
+      color: #f4ebe0; padding: 48px 40px; display: flex; flex-direction: column; justify-content: flex-end;
+    }
+    .onboard-visual h2 {
+      font-family: Fraunces, Georgia, serif; font-size: 2.2rem; line-height: 1.1; max-width: 10ch;
+    }
+    .onboard-form { padding: 36px 40px; background: var(--paper); }
+    .steps { display: flex; gap: 8px; margin-bottom: 22px; }
+    .steps span {
+      flex: 1; height: 4px; border-radius: 99px; background: #ddd4c6;
+    }
+    .steps span.on { background: var(--moss); }
+
+    .pay-card {
+      background: linear-gradient(145deg, #1a4736, #0f2a20);
+      color: #f4ebe0; border-radius: 16px; padding: 20px; margin: 12px 0 16px;
+    }
+    .pay-card .num { letter-spacing: 0.16em; margin-top: 28px; font-size: 1.05rem; }
+    .pay-card .meta { display: flex; justify-content: space-between; margin-top: 14px; font-size: 0.78rem; opacity: .85; }
+
+    .id-tile {
+      border: 1px solid var(--line); background: #fff; border-radius: 14px; padding: 16px; margin-bottom: 10px;
+    }
+    .id-tile b { font-family: Fraunces, Georgia, serif; font-size: 1.2rem; display: block; }
+
+    .marketplace {
+      padding: 24px 28px 32px;
+    }
+    .filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .filters span {
+      padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line);
+      background: #fff; font-size: 0.78rem; font-weight: 600; color: var(--muted);
+    }
+    .filters .on { background: var(--ink); color: #f4ebe0; border-color: var(--ink); }
+    .gallery {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    }
+    .tile {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+    }
+    .tile .art { height: 130px; background: linear-gradient(135deg, #c9d9cf, #e6d5b7); }
+    .tile .art.a2 { background: linear-gradient(135deg, #b7c7d8, #d9c4b0); }
+    .tile .art.a3 { background: linear-gradient(135deg, #d8c3b0, #cfd8c4); }
+    .tile .art.a4 { background: linear-gradient(135deg, #c4b7d0, #d7d0c2); }
+    .tile .meta { padding: 10px 12px; }
+    .tile strong { display: block; font-size: 0.86rem; }
+    .tile span { font-size: 0.74rem; color: var(--muted); }
+
+    .detail {
+      display: grid; grid-template-columns: 1.3fr 0.9fr; gap: 20px; padding: 24px 28px;
+    }
+    .preview {
+      border-radius: 16px; min-height: 360px;
+      background: linear-gradient(145deg, #c9d9cf, #e6d5b7 50%, #b7c7d8);
+      border: 1px solid var(--line);
+    }
+    .buy-box { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 18px; }
+
+    .table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+    .table th, .table td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); }
+    .table th { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+
+    .note {
+      margin-top: 12px; padding: 16px 18px; background: #fff; border: 1px dashed var(--line);
+      border-radius: 12px; color: var(--muted); font-size: 0.9rem;
+    }
+
+    @media (max-width: 980px) {
+      .cards, .gallery { grid-template-columns: 1fr 1fr; }
+      .layout, .split-onboard, .detail, .grid-list, .two, .three { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1 class="brand-title">PinIT Exchange</h1>
+    <p class="lede">
+      Desktop <strong>web application</strong> UI/UX mockups — not mobile. Primary surface: browser.
+      Hub stays private; Exchange is the public sell/buy web experience with biometric seller onboarding,
+      billing, identity, adaptive creator desk, and sealed sales.
+    </p>
+    <div class="meta">
+      <span class="pill">Web-first</span>
+      <span class="pill">Desktop layouts</span>
+      <span class="pill">UI / UX focused</span>
+      <span class="pill">2027 product plan</span>
+    </div>
+
+    <!-- 1 LANDING -->
+    <h2 class="section">01 · Public landing (web)</h2>
+    <p class="hint">Brand-first hero, one CTA group, full-bleed visual plane — marketplace for creators &amp; buyers.</p>
+    <div class="artboard">
+      <div class="screen-caption">exchange.pinithub.com</div>
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="urlbar">https://exchange.pinithub.com</div></div>
+      <div class="web">
+        <div class="topnav">
+          <div class="logo">PinIT <span>Exchange</span></div>
+          <div class="navlinks">
+            <span class="active">Discover</span>
+            <span>Creators</span>
+            <span>Licenses</span>
+            <span>Why PinIT</span>
+          </div>
+          <button class="nav-cta">Start selling</button>
+        </div>
+        <div class="hero">
+          <div class="eyebrow">Provenance marketplace</div>
+          <h2>Sell work with proof. Buy with trust.</h2>
+          <p>Creators protect originals in PinIT Hub, then list on Exchange. Buyers get licenses backed by DNA — not anonymous stock dumps.</p>
+          <div class="hero-actions">
+            <button class="btn-light">Browse marketplace</button>
+            <button class="btn-ghost-light">I’m a creator</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2 ONBOARD BIOMETRIC -->
+    <h2 class="section">02 · Seller onboarding · biometric (web)</h2>
+    <p class="hint">Wide split layout: trust story left, enrollment form right.</p>
+    <div class="artboard">
+      <div class="screen-caption">exchange.pinithub.com/onboarding/biometric</div>
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="urlbar">https://exchange.pinithub.com/onboarding/biometric</div></div>
+      <div class="web">
+        <div class="split-onboard">
+          <div class="onboard-visual">
+            <div class="eyebrow" style="letter-spacing:.12em;font-size:.72rem;text-transform:uppercase;opacity:.8;margin-bottom:10px;font-weight:700">Step 1 of 4</div>
+            <h2>Prove you are the creator</h2>
+            <p style="margin-top:12px;opacity:.85;max-width:28rem">Biometric presence binds your seller identity before any listing goes public.</p>
+          </div>
+          <div class="onboard-form">
+            <div class="steps"><span class="on"></span><span></span><span></span><span></span></div>
+            <h3 style="font-family:Fraunces,Georgia,serif;font-size:1.5rem;margin-bottom:6px">Biometric enrollment</h3>
+            <p class="sub">Face, fingerprint, or voice — same Hub-grade verification.</p>
+            <div class="panel" style="min-height:160px;display:flex;align-items:center;justify-content:center;color:var(--moss);font-weight:700">
+              Camera frame · liveness check
+            </div>
+            <div style="display:flex;gap:10px;margin-top:14px">
+              <button class="btn">Capture &amp; continue</button>
+              <button class="btn sec">Use fingerprint</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3 BILLING -->
+    <h2 class="section">03 · Seller billing card (web)</h2>
+    <div class="artboard">
+      <div class="screen-caption">exchange.pinithub.com/onboarding/billing</div>
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="urlbar">https://exchange.pinithub.com/onboarding/billing</div></div>
+      <div class="web">
+        <div class="split-onboard">
+          <div class="onboard-visual">
+            <div class="eyebrow" style="letter-spacing:.12em;font-size:.72rem;text-transform:uppercase;opacity:.8;margin-bottom:10px;font-weight:700">Step 2 of 4</div>
+            <h2>Activate seller plan</h2>
+            <p style="margin-top:12px;opacity:.85">Billing unlocks Exchange ID, payouts, and public listings.</p>
+          </div>
+          <div class="onboard-form">
+            <div class="steps"><span class="on"></span><span class="on"></span><span></span><span></span></div>
+            <h3 style="font-family:Fraunces,Georgia,serif;font-size:1.5rem;margin-bottom:6px">Payment method</h3>
+            <p class="sub">Creator Pro · transparent platform fee on sales</p>
+            <div class="pay-card">
+              <div style="font-size:.75rem;opacity:.8">PinIT Exchange Seller</div>
+              <div class="num">•••• •••• •••• 4242</div>
+              <div class="meta"><span>ASHWITHA R</span><span>EXP 12/28</span></div>
+            </div>
+            <div class="two">
+              <div class="field"><label>Name on card</label><div class="box">Ashwitha Reddy</div></div>
+              <div class="field"><label>Country</label><div class="box">India</div></div>
+            </div>
+            <button class="btn">Save card &amp; continue</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4 KYC + IDS -->
+    <h2 class="section">04 · Identity proof → PinIT ID + Exchange ID</h2>
+    <div class="artboard">
+      <div class="screen-caption">exchange.pinithub.com/onboarding/identity</div>
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="urlbar">https://exchange.pinithub.com/onboarding/identity</div></div>
+      <div class="web">
+        <div class="topnav">
+          <div class="logo">PinIT <span>Exchange</span></div>
+          <div class="navlinks"><span>Onboarding</span></div>
+          <span class="badge">Biometric verified</span>
+        </div>
+        <div class="main" style="min-height:480px">
+          <h3>Finish verification</h3>
+          <p class="sub">Government ID + portfolio. PinIT ID is minted from biometric binding; Exchange ID follows.</p>
+          <div class="three">
+            <div class="panel">
+              <h4>Identity documents</h4>
+              <div class="field"><label>ID document</label><div class="box">passport_scan.pdf</div></div>
+              <div class="field"><label>Portfolio URL</label><div class="box">behance.net/northlight</div></div>
+              <div class="field"><label>Tax / GST (optional)</label><div class="box">—</div></div>
+            </div>
+            <div class="panel">
+              <h4>Issued identities</h4>
+              <div class="id-tile"><span class="badge">Auto from biometric</span><b>PINIT-324BMMSL</b><span style="color:var(--muted);font-size:.8rem">PinIT ID</span></div>
+              <div class="id-tile"><span class="badge warn">Seller</span><b>PX-9F2C-88AQ</b><span style="color:var(--muted);font-size:.8rem">Exchange ID · payouts</span></div>
+            </div>
+            <div class="panel">
+              <h4>Creator type</h4>
+              <div class="field"><label>Primary</label><div class="box">Photographer</div></div>
+              <div class="field"><label>Dashboard template</label><div class="box">Photo desk</div></div>
+              <button class="btn" style="width:100%;margin-top:8px">Create public profile</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5 CREATOR DESK -->
+    <h2 class="section">05 · Creator dashboard (web app shell)</h2>
+    <p class="hint">Sidebar + workspace. Modules adapt by creator profile (photo shown).</p>
+    <div class="artboard">
+      <div class="screen-caption">exchange.pinithub.com/desk</div>
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="urlbar">https://exchange.pinithub.com/desk</div></div>
+      <div class="web">
+        <div class="layout">
+          <aside class="side">
+            <div class="brand">PinIT Exchange</div>
+            <a class="on" href="#">Desk</a>
+            <a href="#">List from Hub</a>
+            <a href="#">Listings</a>
+            <a href="#">Orders</a>
+            <a href="#">Sold / Sealed</a>
+            <a href="#">Tracking</a>
+            <a href="#">Payouts</a>
+            <a href="#">Profile</a>
+          </aside>
+          <div class="main">
+            <h3>Northlight Studio</h3>
+            <p class="sub">PX-9F2C-88AQ · Photography template · DNA-ready seller</p>
+            <div class="cards">
+              <div class="card"><b>₹54.2k</b><span>Earnings this month</span></div>
+              <div class="card"><b>18</b><span>Orders</span></div>
+              <div class="card"><b>12</b><span>Live listings</span></div>
+              <div class="card"><b>3</b><span>Track alerts</span></div>
+            </div>
+            <div class="grid-list">
+              <div class="panel">
+                <h4>Recent sales</h4>
+                <div class="asset"><div class="thumb"></div><div><strong>Coastal dawn · Acme Marketing</strong><span>Standard license · ₹2,499 · sealed</span></div></div>
+                <div class="asset"><div class="thumb" style="background:linear-gradient(135deg,#b7c7d8,#d9c4b0)"></div><div><strong>Brand kit · Nova Ads</strong><span>Extended · ₹7,999 · payout pending</span></div></div>
+              </div>
+              <div class="panel">
+                <h4>Photo desk shortcuts</h4>
+                <p style="font-size:.85rem;color:var(--muted);margin-bottom:12px">Galleries, editorial vs commercial licenses, geo buyer insights.</p>
+                <button class="btn">List asset from Hub</button>
+                <button class="btn sec" style="margin-left:8px">View sealed ledger</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6 LIST FROM HUB -->
+    <h2 class="section">06 · Post Hub assets → Exchange showcase</h2>
+    <div class="artboard">
+      <div class="screen-caption">exchange.pinithub.com/desk/list-from-hub</div>
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="urlbar">https://exchange.pinithub.com/desk/list-from-hub</div></div>
+      <div class="web">
+        <div class="layout">
+          <aside class="side">
+            <div class="brand">PinIT Exchange</div>
+            <a href="#">Desk</a>
+            <a class="on" href="#">List from Hub</a>
+            <a href="#">Listings</a>
+            <a href="#">Sold / Sealed</a>
+          </aside>
+          <div class="main">
+            <h3>Select protected Hub assets</h3>
+            <p class="sub">Only DNA-ready vault items. Listing never opens vault encryption to the public web.</p>
+            <div class="two">
+              <div class="panel">
+                <h4>From your Hub (private)</h4>
+                <div class="asset"><div class="thumb"></div><div><strong>coastal-dawn.jpg</strong><span>Protected · ready</span></div></div>
+                <div class="asset"><div class="thumb" style="background:linear-gradient(135deg,#b7c7d8,#d9c4b0)"></div><div><strong>client-contract.pdf</strong><span>Protected · keep private</span></div></div>
+                <div class="asset"><div class="thumb" style="background:linear-gradient(135deg,#d8c3b0,#cfd8c4)"></div><div><strong>wedding-reel-01.mp4</strong><span>Protected · ready</span></div></div>
+              </div>
+              <div class="panel">
+                <h4>Showcase &amp; price</h4>
+                <div class="field"><label>Title</label><div class="box">Coastal dawn</div></div>
+                <div class="field"><label>Standard license</label><div class="box">₹2,499</div></div>
+                <div class="field"><label>Extended license</label><div class="box">₹7,999</div></div>
+                <div class="field"><label>DNA badge</label><div class="box">On</div></div>
+                <button class="btn">Publish listing</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7 MARKETPLACE -->
+    <h2 class="section">07 · Buyer marketplace browse (web)</h2>
+    <div class="artboard">
+      <div class="screen-caption">exchange.pinithub.com/browse</div>
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="urlbar">https://exchange.pinithub.com/browse?type=photo</div></div>
+      <div class="web">
+        <div class="topnav">
+          <div class="logo">PinIT <span>Exchange</span></div>
+          <div class="navlinks"><span class="active">Browse</span><span>Creators</span><span>Licenses</span></div>
+          <button class="nav-cta">Sign in to buy</button>
+        </div>
+        <div class="marketplace">
+          <div class="filters">
+            <span class="on">Photos</span><span>Video</span><span>Design</span><span>Audio</span><span>DNA verified</span><span>Under ₹5,000</span>
+          </div>
+          <div class="gallery">
+            <div class="tile"><div class="art"></div><div class="meta"><strong>Coastal dawn</strong><span>₹2,499 · Northlight</span></div></div>
+            <div class="tile"><div class="art a2"></div><div class="meta"><strong>Urban glass</strong><span>₹3,200 · Lens &amp; Co</span></div></div>
+            <div class="tile"><div class="art a3"></div><div class="meta"><strong>Studio portrait</strong><span>₹4,100 · Mira</span></div></div>
+            <div class="tile"><div class="art a4"></div><div class="meta"><strong>Product set</strong><span>₹5,500 · Frame Lab</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 8 DETAIL + BUYER -->
+    <h2 class="section">08 · Listing detail + buyer details (web)</h2>
+    <div class="artboard">
+      <div class="screen-caption">exchange.pinithub.com/l/coastal-dawn</div>
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="urlbar">https://exchange.pinithub.com/l/coastal-dawn</div></div>
+      <div class="web">
+        <div class="topnav">
+          <div class="logo">PinIT <span>Exchange</span></div>
+          <div class="navlinks"><span>Browse</span><span class="active">Listing</span></div>
+          <span class="badge">DNA verified</span>
+        </div>
+        <div class="detail">
+          <div class="preview"></div>
+          <div class="buy-box">
+            <h3 style="font-family:Fraunces,Georgia,serif;font-size:1.4rem;margin-bottom:4px">Coastal dawn</h3>
+            <p class="sub">Northlight Studio · PX-9F2C-88AQ</p>
+            <div class="field"><label>Buyer name</label><div class="box">Ananya Mehta</div></div>
+            <div class="field"><label>Organization</label><div class="box">Acme Marketing</div></div>
+            <div class="field"><label>Use case</label><div class="box">Social ads · Q3</div></div>
+            <div class="field"><label>License</label><div class="box">Standard · ₹2,499</div></div>
+            <button class="btn" style="width:100%">Pay &amp; receive license</button>
+            <p style="font-size:.75rem;color:var(--muted);margin-top:10px">Creator vault stays private. You receive deliverable + certificate reference.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 9 SEALED + TRACK -->
+    <h2 class="section">09 · Sold / sealed ledger + continuous tracking</h2>
+    <div class="artboard">
+      <div class="screen-caption">exchange.pinithub.com/desk/sealed</div>
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="urlbar">https://exchange.pinithub.com/desk/sealed</div></div>
+      <div class="web">
+        <div class="layout">
+          <aside class="side">
+            <div class="brand">PinIT Exchange</div>
+            <a href="#">Desk</a>
+            <a class="on" href="#">Sold / Sealed</a>
+            <a href="#">Tracking</a>
+          </aside>
+          <div class="main">
+            <h3>Sealed sales</h3>
+            <p class="sub">Append-only commerce ledger. Feeds post-sale monitoring.</p>
+            <div class="panel">
+              <table class="table">
+                <thead>
+                  <tr><th>Order</th><th>Buyer</th><th>Asset</th><th>License</th><th>Track</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>ORD-88421</td><td>Acme Marketing</td><td>Coastal dawn</td><td>Standard</td><td>Active</td></tr>
+                  <tr><td>ORD-88390</td><td>Nova Ads</td><td>Brand kit</td><td>Extended</td><td>Alert</td></tr>
+                  <tr><td>ORD-88211</td><td>Indie Studio</td><td>Urban glass</td><td>Standard</td><td>Active</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="panel" style="margin-top:12px">
+              <h4>Tracking on ORD-88390</h4>
+              <div class="asset"><div><strong>Possible web copy detected</strong><span>Risk 61 · investigate without exposing vault</span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <strong style="color:var(--ink)">UI/UX direction:</strong> desktop web app (sidebar desks, wide marketplace, split onboarding).
+      Mobile can come later as responsive — these mockups intentionally prioritize web.
+      Architecture: <code>docs/PINIT_EXCHANGE_2027_PRODUCT_ARCHITECTURE.md</code>
+    </div>
+  </div>
+</body>
+</html>

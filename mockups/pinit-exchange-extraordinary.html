@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PinIT Exchange</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f3f0ea;
+      --paper: #ffffff;
+      --ink: #121417;
+      --muted: #5c636b;
+      --line: #e3ddd3;
+      --moss: #16382c;
+      --moss-2: #1f5a43;
+      --accent: #c45c26;
+      --ok: #0f7a5a;
+      --soft: #eef6f1;
+      --warn: #8a5a18;
+      --sidebar: #0f1714;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Manrope, system-ui, sans-serif;
+      background:
+        radial-gradient(900px 420px at 10% -10%, #d9e7df 0%, transparent 55%),
+        radial-gradient(700px 380px at 100% 0%, #ead9c8 0%, transparent 50%),
+        var(--bg);
+      color: var(--ink);
+      line-height: 1.45;
+    }
+    a { color: var(--moss-2); }
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 36px 20px 90px; }
+    .hero-doc h1 {
+      font-family: "Instrument Serif", Georgia, serif;
+      font-size: clamp(2.4rem, 5vw, 3.6rem);
+      letter-spacing: -0.03em;
+      line-height: 1.05;
+      max-width: 16ch;
+    }
+    .hero-doc p { max-width: 52rem; margin-top: 12px; color: var(--muted); font-size: 1.05rem; }
+    .pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 28px; }
+    .pill {
+      font-size: 0.72rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+      padding: 7px 11px; border-radius: 999px; background: #fff; border: 1px solid var(--line);
+    }
+    .section-label {
+      font-family: "Instrument Serif", Georgia, serif;
+      font-size: 1.55rem; margin: 42px 0 8px;
+    }
+    .section-hint { color: var(--muted); margin-bottom: 14px; font-size: 0.95rem; }
+
+    /* Browser chrome */
+    .board {
+      background: #1c2220;
+      border-radius: 16px;
+      padding: 10px 10px 14px;
+      margin-bottom: 28px;
+      box-shadow: 0 24px 60px rgba(18, 20, 23, 0.18);
+    }
+    .cap {
+      color: #b8b2a7; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; margin: 0 6px 8px;
+    }
+    .chrome { display: flex; align-items: center; gap: 8px; padding: 2px 4px 10px; }
+    .dots { display: flex; gap: 5px; }
+    .dots i { width: 9px; height: 9px; border-radius: 50%; display: block; background: #666; }
+    .dots i:nth-child(1) { background: #c97868; }
+    .dots i:nth-child(2) { background: #c9a868; }
+    .dots i:nth-child(3) { background: #6aa88a; }
+    .url {
+      flex: 1; background: #121816; color: #cfc8bc; border-radius: 8px;
+      padding: 8px 12px; font-size: 0.74rem;
+    }
+    .app {
+      background: var(--paper);
+      border-radius: 10px;
+      overflow: hidden;
+      min-height: 620px;
+    }
+
+    /* Shared app chrome */
+    .top {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 22px; height: 56px; border-bottom: 1px solid var(--line); background: #fff;
+    }
+    .brand {
+      display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 0.95rem;
+    }
+    .mark {
+      width: 28px; height: 28px; border-radius: 8px; background: var(--moss);
+      color: #f4ebe0; display: grid; place-items: center; font-family: "Instrument Serif", serif; font-size: 1rem;
+    }
+    .topnav { display: flex; gap: 22px; font-size: 0.88rem; font-weight: 600; color: var(--muted); }
+    .topnav .on { color: var(--ink); border-bottom: 2px solid var(--ink); padding-bottom: 16px; margin-bottom: -17px; }
+    .top-right { display: flex; align-items: center; gap: 12px; }
+    .iconbtn {
+      width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line);
+      display: grid; place-items: center; background: #fff; font-size: 0.85rem; color: var(--muted);
+    }
+    .avatar {
+      width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg, #1f5a43, #c45c26);
+      color: #fff; display: grid; place-items: center; font-weight: 800; font-size: 0.8rem;
+    }
+
+    .shell { display: grid; grid-template-columns: 220px 1fr; min-height: 564px; }
+    .side {
+      border-right: 1px solid var(--line); padding: 22px 14px; background: #faf8f4;
+    }
+    .side h5 {
+      font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--muted); margin: 0 10px 10px;
+    }
+    .side a {
+      display: block; text-decoration: none; color: var(--muted); font-weight: 650;
+      font-size: 0.9rem; padding: 10px 12px; border-radius: 8px; margin-bottom: 2px;
+      border-left: 3px solid transparent;
+    }
+    .side a.on { color: var(--ink); background: #fff; border-left-color: var(--ink); box-shadow: 0 1px 0 var(--line); }
+    .main { padding: 28px 32px 36px; }
+    .main h2 { font-size: 1.85rem; font-weight: 800; letter-spacing: -0.02em; }
+    .main .lede { color: var(--muted); margin: 8px 0 22px; max-width: 46rem; font-size: 0.95rem; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      border: 0; border-radius: 999px; padding: 11px 16px; font-weight: 700; font-size: 0.86rem;
+      background: var(--moss); color: #f6f1e8; cursor: default;
+    }
+    .btn.sec { background: #fff; color: var(--ink); border: 1px solid #111; }
+    .btn.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+    .btn.sm { padding: 7px 12px; font-size: 0.78rem; }
+
+    .row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 0; border-bottom: 1px solid var(--line); gap: 16px;
+    }
+    .row:last-child { border-bottom: 0; }
+    .row strong { display: block; font-size: 0.95rem; }
+    .row span { color: var(--muted); font-size: 0.84rem; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 3px 9px; border-radius: 999px; font-size: 0.7rem; font-weight: 800;
+      background: var(--soft); color: var(--ok);
+    }
+    .badge.warn { background: #f7eadb; color: var(--warn); }
+    .badge.dark { background: var(--ink); color: #fff; }
+
+    .toggle {
+      width: 44px; height: 24px; border-radius: 999px; background: #cfc8bc; position: relative;
+    }
+    .toggle.on { background: #1473e6; }
+    .toggle i {
+      position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
+      border-radius: 50%; background: #fff; transition: .2s;
+    }
+    .toggle.on i { left: 22px; }
+
+    /* Landing */
+    .landing-hero {
+      min-height: 440px; padding: 56px 48px 48px; color: #f6f1e8;
+      background:
+        linear-gradient(115deg, rgba(15,23,20,.92) 0%, rgba(22,56,44,.72) 42%, rgba(15,23,20,.4) 100%),
+        radial-gradient(700px 340px at 72% 40%, #d7c3a4, #4f7a62 55%, #12241c);
+    }
+    .landing-hero .eye {
+      font-size: 0.72rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; opacity: .8; margin-bottom: 14px;
+    }
+    .landing-hero h2 {
+      font-family: "Instrument Serif", Georgia, serif;
+      font-size: clamp(2.4rem, 4.5vw, 3.8rem); line-height: 1.02; max-width: 14ch; letter-spacing: -0.03em;
+    }
+    .landing-hero p { max-width: 34rem; margin-top: 14px; opacity: .9; font-size: 1.05rem; }
+    .cta-row { display: flex; gap: 10px; margin-top: 24px; flex-wrap: wrap; }
+    .btn-light { background: #f4ebe0; color: var(--ink); border: 0; border-radius: 999px; padding: 12px 18px; font-weight: 800; }
+    .btn-outline { background: transparent; color: #f4ebe0; border: 1px solid rgba(244,235,224,.45); border-radius: 999px; padding: 12px 18px; font-weight: 800; }
+
+    .diff {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 22px 28px 28px; background: #faf8f4;
+    }
+    .diff .card {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 16px;
+    }
+    .diff b { display: block; font-family: "Instrument Serif", serif; font-size: 1.2rem; margin-bottom: 6px; }
+    .diff span { font-size: 0.82rem; color: var(--muted); }
+
+    /* Overview welcome */
+    .welcome {
+      background: linear-gradient(120deg, #efe7da, #dce8e1 55%, #ead9c8);
+      border-radius: 16px; padding: 28px 28px 24px; margin-bottom: 18px;
+    }
+    .welcome h3 {
+      font-family: "Instrument Serif", Georgia, serif; font-size: 2rem; letter-spacing: -0.02em;
+    }
+    .plan-card {
+      display: grid; grid-template-columns: 240px 1fr; gap: 0;
+      border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: #fff;
+    }
+    .plan-art {
+      background:
+        linear-gradient(160deg, rgba(22,56,44,.75), rgba(196,92,38,.35)),
+        radial-gradient(circle at 30% 30%, #e7d7bf, #3f6b55);
+      min-height: 200px;
+    }
+    .plan-body { padding: 22px 24px; }
+    .plan-body h4 { font-size: 1.15rem; margin-bottom: 8px; }
+    .plan-body p { color: var(--muted); font-size: 0.9rem; margin-bottom: 14px; }
+
+    /* App switcher overlay */
+    .relative { position: relative; }
+    .switcher {
+      position: absolute; top: 52px; right: 18px; width: 280px; background: #fff;
+      border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.16);
+      padding: 14px; z-index: 5;
+    }
+    .switcher h5 { font-size: 0.72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+    .apps { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .app-tile {
+      border: 1px solid var(--line); border-radius: 12px; padding: 14px 10px; text-align: center;
+      background: #faf8f4;
+    }
+    .app-tile .ic {
+      width: 40px; height: 40px; border-radius: 10px; margin: 0 auto 8px; display: grid; place-items: center;
+      color: #fff; font-weight: 800;
+    }
+    .app-tile .ic.hub { background: #16382c; }
+    .app-tile .ic.ex { background: #c45c26; }
+    .app-tile .ic.desk { background: #1f5a43; }
+    .app-tile .ic.track { background: #2b4558; }
+    .app-tile small { display: block; font-size: 0.72rem; font-weight: 700; }
+
+    /* Marketplace */
+    .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .chip {
+      padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line);
+      background: #fff; font-size: 0.78rem; font-weight: 700; color: var(--muted);
+    }
+    .chip.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+    .gallery { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .tile { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #fff; }
+    .tile .art { height: 140px; }
+    .a1 { background: linear-gradient(135deg, #c9d9cf, #e6d5b7); }
+    .a2 { background: linear-gradient(135deg, #b7c7d8, #d9c4b0); }
+    .a3 { background: linear-gradient(135deg, #d8c3b0, #cfd8c4); }
+    .a4 { background: linear-gradient(135deg, #c4b7d0, #d7d0c2); }
+    .tile .meta { padding: 11px 12px; }
+    .tile strong { display: block; font-size: 0.86rem; }
+    .tile span { font-size: 0.74rem; color: var(--muted); }
+
+    /* Desk */
+    .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+    .kpi {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px;
+    }
+    .kpi b { display: block; font-family: "Instrument Serif", serif; font-size: 1.55rem; }
+    .kpi span { font-size: 0.75rem; color: var(--muted); }
+    .two { display: grid; grid-template-columns: 1.15fr .85fr; gap: 14px; }
+    .panel {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px;
+    }
+    .panel h4 { font-size: 0.95rem; margin-bottom: 12px; }
+    .asset {
+      display: flex; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line);
+    }
+    .asset:last-child { border-bottom: 0; }
+    .thumb { width: 52px; height: 52px; border-radius: 10px; flex-shrink: 0; background: linear-gradient(135deg,#c9d9cf,#e6d5b7); }
+
+    .split { display: grid; grid-template-columns: 1fr 1.05fr; min-height: 620px; }
+    .split-visual {
+      color: #f4ebe0; padding: 48px 40px; display: flex; flex-direction: column; justify-content: flex-end;
+      background:
+        linear-gradient(160deg, rgba(15,23,20,.88), rgba(22,56,44,.7)),
+        radial-gradient(circle at 35% 35%, #d2c3a6, #3f6b55 60%, #101a16);
+    }
+    .split-visual h2 {
+      font-family: "Instrument Serif", Georgia, serif; font-size: 2.4rem; line-height: 1.08; max-width: 10ch;
+    }
+    .split-form { padding: 36px 40px; background: #faf8f4; }
+    .steps { display: flex; gap: 8px; margin-bottom: 20px; }
+    .steps i { flex: 1; height: 4px; border-radius: 99px; background: #ddd4c6; }
+    .steps i.on { background: var(--moss); }
+    .field { margin-bottom: 12px; }
+    .field label {
+      display: block; font-size: 0.7rem; font-weight: 800; letter-spacing: .05em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: 6px;
+    }
+    .box {
+      background: #fff; border: 1px solid var(--line); border-radius: 10px;
+      padding: 12px; font-weight: 650; font-size: 0.9rem;
+    }
+    .cam {
+      height: 170px; border-radius: 14px; border: 1px dashed #b7c7b8; background: #fff;
+      display: grid; place-items: center; color: var(--moss); font-weight: 800; margin-bottom: 14px;
+    }
+    .pay {
+      background: linear-gradient(145deg, #16382c, #0f2a20); color: #f4ebe0;
+      border-radius: 16px; padding: 18px; margin: 8px 0 14px;
+    }
+    .pay .num { letter-spacing: .16em; margin-top: 26px; font-size: 1.05rem; }
+
+    table.comp { width: 100%; border-collapse: collapse; font-size: 0.84rem; background: #fff; }
+    table.comp th, table.comp td { text-align: left; padding: 11px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    table.comp th {
+      font-size: 0.7rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); background: #faf8f4;
+    }
+    table.comp tr.pinit td { background: #eef6f1; font-weight: 650; }
+    .doc-table-wrap {
+      background: #fff; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; margin-top: 10px;
+    }
+    .note {
+      margin-top: 18px; padding: 16px 18px; background: #fff; border: 1px dashed var(--line);
+      border-radius: 12px; color: var(--muted); font-size: 0.9rem;
+    }
+    .why {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 16px 0 24px;
+    }
+    .why .boxy {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 16px;
+    }
+    .why h4 { font-family: "Instrument Serif", serif; font-size: 1.15rem; margin-bottom: 6px; }
+
+    @media (max-width: 980px) {
+      .shell, .split, .two, .plan-card, .diff, .gallery, .kpis, .why { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero-doc">
+      <h1>PinIT Exchange</h1>
+      <p>
+        Desktop-first UI/UX mockups for PinIT Exchange — the public marketplace where creators sell
+        and buyers purchase with provenance. Showcase of what we can do: biometric sellers, DNA listings,
+        sealed sales, continuous tracking, and private Hub vault until you choose to list.
+      </p>
+      <div class="pills">
+        <span class="pill">Web application</span>
+        <span class="pill">Creators sell · buyers buy</span>
+        <span class="pill">Biometric identity</span>
+        <span class="pill">DNA on listings</span>
+        <span class="pill">Sealed ledger · tracking</span>
+      </div>
+    </div>
+
+    <!-- FEATURES ONLY -->
+    <h2 class="section-label">What PinIT Exchange can do</h2>
+    <p class="section-hint">Our capabilities for creators and buyers — no other platforms mentioned.</p>
+    <div class="why">
+      <div class="boxy">
+        <h4>For creators</h4>
+        <p style="color:var(--muted);font-size:.9rem">Seller plan · biometric enrollment · billing · identity proof · PinIT ID → Exchange ID · public profile · adaptive desk · list from Hub · set your price · sealed sales · post-sale tracking · payouts.</p>
+      </div>
+      <div class="boxy">
+        <h4>For buyers</h4>
+        <p style="color:var(--muted);font-size:.9rem">Browse DNA-verified work · capture buyer details · pay for a license · receive deliverable + certificate · rights tied to a real seller identity.</p>
+      </div>
+      <div class="boxy">
+        <h4>Identity &amp; trust</h4>
+        <p style="color:var(--muted);font-size:.9rem">Biometric binding · PinIT ID · Exchange ID (PX-…) · DNA badge on listings · AI training opt-out · Hub vault stays private.</p>
+      </div>
+      <div class="boxy">
+        <h4>After the sale</h4>
+        <p style="color:var(--muted);font-size:.9rem">Append-only sealed ledger · misuse / copy alerts · continuous tracking desk · dispute-ready commerce history.</p>
+      </div>
+    </div>
+
+    <!-- 01 LANDING -->
+    <h2 class="section-label">01 · Public landing (brand-first web)</h2>
+    <p class="section-hint">One composition: brand, promise, CTA — then difference cards.</p>
+    <div class="board">
+      <div class="cap">exchange.pinithub.com</div>
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="url">https://exchange.pinithub.com</div></div>
+      <div class="app">
+        <div class="top">
+          <div class="brand"><div class="mark">P</div> PinIT Exchange</div>
+          <div class="topnav"><span class="on">Discover</span><span>Creators</span><span>Licenses</span><span>Why PinIT</span></div>
+          <button class="btn sm">Start selling</button>
+        </div>
+        <div class="landing-hero">
+          <div class="eye">Provenance marketplace · 2027</div>
+          <h2>Sell work with proof. Buy with trust.</h2>
+          <p>PinIT sells provenance-backed rights — biometric creators, DNA on every listing, sealed sales, continuous tracking. Hub stays private until you choose to list.</p>
+          <div class="cta-row">
+            <button class="btn-light">Browse marketplace</button>
+            <button class="btn-outline">I’m a creator — sell</button>
+          </div>
+        </div>
+        <div class="diff">
+          <div class="card"><b>Biometric sellers</b><span>No anonymous dump accounts</span></div>
+          <div class="card"><b>DNA on listings</b><span>Hub-protected originals only</span></div>
+          <div class="card"><b>You set price</b><span>Transparent platform fee</span></div>
+          <div class="card"><b>After-sale track</b><span>Misuse alerts to creator desk</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 02 ACCOUNT OVERVIEW + APP SWITCHER -->
+    <h2 class="section-label">02 · Account overview + Hub / Exchange switcher</h2>
+    <p class="section-hint">Account home + app grid: Hub (private) ↔ Exchange (public).</p>
+    <div class="board">
+      <div class="cap">account.pinithub.com</div>
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="url">https://account.pinithub.com</div></div>
+      <div class="app relative">
+        <div class="top">
+          <div class="brand"><div class="mark">P</div> PinIT Account</div>
+          <div class="topnav"><span class="on">Overview</span><span>Account &amp; security</span><span>Plans &amp; payment</span><span>Preferences</span></div>
+          <div class="top-right">
+            <div class="iconbtn">🔔</div>
+            <div class="iconbtn">▦</div>
+            <div class="avatar">A</div>
+          </div>
+        </div>
+        <div class="switcher">
+          <h5>PinIT apps</h5>
+          <div class="apps">
+            <div class="app-tile"><div class="ic hub">H</div><small>Hub</small><span style="font-size:.65rem;color:var(--muted)">Private vault</span></div>
+            <div class="app-tile"><div class="ic ex">X</div><small>Exchange</small><span style="font-size:.65rem;color:var(--muted)">Sell &amp; buy</span></div>
+            <div class="app-tile"><div class="ic desk">D</div><small>Creator desk</small><span style="font-size:.65rem;color:var(--muted)">Orders</span></div>
+            <div class="app-tile"><div class="ic track">T</div><small>Tracking</small><span style="font-size:.65rem;color:var(--muted)">Post-sale</span></div>
+          </div>
+        </div>
+        <div class="main">
+          <div class="welcome">
+            <h3>Welcome to your account, Ashwitha</h3>
+            <p style="color:var(--muted);margin:8px 0 14px">PinIT ID · PINIT-324BMMSL · Exchange ID · PX-9F2C-88AQ</p>
+            <button class="btn">Open Exchange desk</button>
+            <button class="btn ghost" style="margin-left:8px">Edit public profile</button>
+          </div>
+          <div class="plan-card">
+            <div class="plan-art"></div>
+            <div class="plan-body">
+              <span class="badge">Seller plan active</span>
+              <h4 style="margin-top:10px">Creator Pro — list Hub assets on Exchange</h4>
+              <p>Biometric verified · billing on file · transparent fee on each sale. Upgrade unlocks agency collections &amp; multi-seat buyer orgs.</p>
+              <button class="btn">Manage seller plan</button>
+              <button class="btn sec" style="margin-left:8px">View fee calculator</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 03 SECURITY / BIOMETRIC -->
+    <h2 class="section-label">03 · Account &amp; security — biometric / passkeys</h2>
+    <p class="section-hint">Clear security settings; biometric required before seller listing.</p>
+    <div class="board">
+      <div class="cap">account.pinithub.com/security</div>
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="url">https://account.pinithub.com/security</div></div>
+      <div class="app">
+        <div class="top">
+          <div class="brand"><div class="mark">P</div> PinIT Account</div>
+          <div class="topnav"><span>Overview</span><span class="on">Account &amp; security</span><span>Plans &amp; payment</span><span>Preferences</span></div>
+          <div class="avatar">A</div>
+        </div>
+        <div class="shell">
+          <aside class="side">
+            <h5>Account</h5>
+            <a href="#">Account</a>
+            <a class="on" href="#">Sign-in and security</a>
+            <a href="#">Data and privacy</a>
+          </aside>
+          <div class="main">
+            <h2>Sign-in and security</h2>
+            <p class="lede">Biometric presence binds your PinIT ID. Required before Exchange selling.</p>
+            <div class="row">
+              <div><strong>Biometric enrollment</strong><span>Face / fingerprint / voice — Hub-grade liveness</span></div>
+              <span class="badge">Verified</span>
+            </div>
+            <div class="row">
+              <div><strong>Passkeys</strong><span>Sign in with the same biometric or PIN used to unlock your device</span></div>
+              <button class="btn ghost sm">Manage</button>
+            </div>
+            <div class="row">
+              <div><strong>Two-step verification</strong><span>Email always available · SMS optional</span></div>
+              <div class="toggle on"><i></i></div>
+            </div>
+            <div class="row">
+              <div><strong>Active sessions</strong><span>Windows · Chrome · India · Current</span></div>
+              <button class="btn ghost sm">End others</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 04 SELLER ONBOARDING -->
+    <h2 class="section-label">04 · Seller onboarding — biometric → billing</h2>
+    <div class="board">
+      <div class="cap">exchange.pinithub.com/onboarding</div>
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="url">https://exchange.pinithub.com/onboarding/billing</div></div>
+      <div class="app">
+        <div class="split">
+          <div class="split-visual">
+            <div class="eye" style="font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;opacity:.8;font-weight:800;margin-bottom:12px">Step 2 of 4</div>
+            <h2>Activate seller plan</h2>
+            <p style="margin-top:12px;opacity:.88;max-width:28rem">Card on file unlocks Exchange ID, payouts, and public listings. Biometric already verified.</p>
+          </div>
+          <div class="split-form">
+            <div class="steps"><i class="on"></i><i class="on"></i><i></i><i></i></div>
+            <h2 style="font-size:1.6rem;margin-bottom:6px">Payment method</h2>
+            <p class="lede">Creator Pro · fee shown before every publish</p>
+            <div class="pay">
+              <div style="font-size:.75rem;opacity:.8">PinIT Exchange Seller</div>
+              <div class="num">•••• •••• •••• 4242</div>
+              <div style="display:flex;justify-content:space-between;margin-top:14px;font-size:.78rem;opacity:.85"><span>ASHWITHA R</span><span>12/28</span></div>
+            </div>
+            <div class="field"><label>Identity proof</label><div class="box">passport_scan.pdf · portfolio linked</div></div>
+            <button class="btn">Continue → mint PinIT ID + Exchange ID</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 05 PRIVACY / AI OPT-OUT -->
+    <h2 class="section-label">05 · Data &amp; privacy — AI training opt-out</h2>
+    <p class="section-hint">Creators control training rights; PinIT defaults protect listed work.</p>
+    <div class="board">
+      <div class="cap">account.pinithub.com/privacy</div>
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="url">https://account.pinithub.com/privacy</div></div>
+      <div class="app">
+        <div class="top">
+          <div class="brand"><div class="mark">P</div> PinIT Account</div>
+          <div class="topnav"><span>Overview</span><span class="on">Account &amp; security</span><span>Plans &amp; payment</span><span>Preferences</span></div>
+          <div class="avatar">A</div>
+        </div>
+        <div class="shell">
+          <aside class="side">
+            <h5>Account</h5>
+            <a href="#">Account</a>
+            <a href="#">Sign-in and security</a>
+            <a class="on" href="#">Data and privacy</a>
+          </aside>
+          <div class="main">
+            <h2>Data and privacy</h2>
+            <p class="lede">Hub vault stays private. Exchange listings inherit your AI / training preferences.</p>
+            <div class="row">
+              <div><strong>Allow training on my listed work</strong><span>Default OFF for Exchange listings — buyers get license, models don’t get free training rights</span></div>
+              <div class="toggle"><i></i></div>
+            </div>
+            <div class="row">
+              <div><strong>DNA monitoring after sale</strong><span>Detect unauthorized copies &amp; scrape patterns</span></div>
+              <div class="toggle on"><i></i></div>
+            </div>
+            <div class="row">
+              <div><strong>Public Hub vault browsing</strong><span>Never allowed — only listings you publish</span></div>
+              <span class="badge dark">Locked private</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 06 CREATOR DESK -->
+    <h2 class="section-label">06 · Creator desk (adaptive web app)</h2>
+    <div class="board">
+      <div class="cap">exchange.pinithub.com/desk</div>
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="url">https://exchange.pinithub.com/desk</div></div>
+      <div class="app">
+        <div class="shell">
+          <aside class="side" style="background:var(--sidebar);border:0">
+            <div style="color:#f4ebe0;font-family:'Instrument Serif',serif;font-size:1.15rem;margin:4px 10px 18px">PinIT Exchange</div>
+            <a class="on" href="#" style="color:#f4ebe0;background:#1c2a24;border-left-color:#c45c26">Desk</a>
+            <a href="#" style="color:#a9a297">List from Hub</a>
+            <a href="#" style="color:#a9a297">Listings</a>
+            <a href="#" style="color:#a9a297">Orders</a>
+            <a href="#" style="color:#a9a297">Sold / Sealed</a>
+            <a href="#" style="color:#a9a297">Tracking</a>
+            <a href="#" style="color:#a9a297">Payouts</a>
+            <a href="#" style="color:#a9a297">Profile</a>
+          </aside>
+          <div class="main">
+            <h2>Northlight Studio</h2>
+            <p class="lede">PX-9F2C-88AQ · Photographer template · DNA-ready seller</p>
+            <div class="kpis">
+              <div class="kpi"><b>₹54.2k</b><span>Earnings this month</span></div>
+              <div class="kpi"><b>18</b><span>Orders</span></div>
+              <div class="kpi"><b>12</b><span>Live listings</span></div>
+              <div class="kpi"><b>3</b><span>Track alerts</span></div>
+            </div>
+            <div class="two">
+              <div class="panel">
+                <h4>Recent sealed sales</h4>
+                <div class="asset"><div class="thumb"></div><div><strong>Coastal dawn · Acme Marketing</strong><span style="color:var(--muted);font-size:.78rem">Standard · ₹2,499 · sealed</span></div></div>
+                <div class="asset"><div class="thumb" style="background:linear-gradient(135deg,#b7c7d8,#d9c4b0)"></div><div><strong>Brand kit · Nova Ads</strong><span style="color:var(--muted);font-size:.78rem">Extended · ₹7,999 · alert</span></div></div>
+              </div>
+              <div class="panel">
+                <h4>Creator actions</h4>
+                <p style="font-size:.85rem;color:var(--muted);margin-bottom:12px">Set your price, publish DNA-ready Hub assets, and open sealed sales with post-sale tracking.</p>
+                <button class="btn">List asset from Hub</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 07 LIST FROM HUB -->
+    <h2 class="section-label">07 · List from Hub → priced showcase</h2>
+    <div class="board">
+      <div class="cap">exchange.pinithub.com/desk/list-from-hub</div>
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="url">https://exchange.pinithub.com/desk/list-from-hub</div></div>
+      <div class="app">
+        <div class="shell">
+          <aside class="side">
+            <h5>Creator</h5>
+            <a href="#">Desk</a>
+            <a class="on" href="#">List from Hub</a>
+            <a href="#">Listings</a>
+          </aside>
+          <div class="main">
+            <h2>Select protected Hub assets</h2>
+            <p class="lede">Only DNA-ready vault items. Listing never opens vault encryption to the public web.</p>
+            <div class="two">
+              <div class="panel">
+                <h4>Private Hub</h4>
+                <div class="asset"><div class="thumb"></div><div><strong>coastal-dawn.jpg</strong><span style="color:var(--muted);font-size:.78rem">Protected · ready</span></div></div>
+                <div class="asset"><div class="thumb" style="background:linear-gradient(135deg,#d8c3b0,#cfd8c4)"></div><div><strong>wedding-reel-01.mp4</strong><span style="color:var(--muted);font-size:.78rem">Protected · ready</span></div></div>
+                <div class="asset"><div class="thumb" style="background:linear-gradient(135deg,#b7c7d8,#d9c4b0)"></div><div><strong>client-contract.pdf</strong><span style="color:var(--muted);font-size:.78rem">Keep private</span></div></div>
+              </div>
+              <div class="panel">
+                <h4>Showcase &amp; price</h4>
+                <div class="field"><label>Title</label><div class="box">Coastal dawn</div></div>
+                <div class="field"><label>Standard license</label><div class="box">₹2,499 · you set</div></div>
+                <div class="field"><label>Extended</label><div class="box">₹7,999</div></div>
+                <div class="field"><label>DNA badge · AI train opt-out</label><div class="box">On · On</div></div>
+                <div class="field"><label>Est. your net after fee</label><div class="box">₹2,124 (transparent)</div></div>
+                <button class="btn">Publish listing</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 08 MARKETPLACE + BUY -->
+    <h2 class="section-label">08 · Buyer marketplace + purchase panel</h2>
+    <div class="board">
+      <div class="cap">exchange.pinithub.com/browse</div>
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="url">https://exchange.pinithub.com/browse?dna=1</div></div>
+      <div class="app">
+        <div class="top">
+          <div class="brand"><div class="mark">P</div> PinIT Exchange</div>
+          <div class="topnav"><span class="on">Browse</span><span>Creators</span><span>Licenses</span></div>
+          <button class="btn sm">Sign in to buy</button>
+        </div>
+        <div class="main">
+          <div class="filters">
+            <span class="chip on">Photos</span><span class="chip">Video</span><span class="chip">Design</span><span class="chip">Audio</span>
+            <span class="chip on">DNA verified</span><span class="chip">Under ₹5,000</span>
+          </div>
+          <div class="gallery">
+            <div class="tile"><div class="art a1"></div><div class="meta"><strong>Coastal dawn</strong><span>₹2,499 · Northlight · DNA</span></div></div>
+            <div class="tile"><div class="art a2"></div><div class="meta"><strong>Urban glass</strong><span>₹3,200 · Lens &amp; Co · DNA</span></div></div>
+            <div class="tile"><div class="art a3"></div><div class="meta"><strong>Studio portrait</strong><span>₹4,100 · Mira · DNA</span></div></div>
+            <div class="tile"><div class="art a4"></div><div class="meta"><strong>Product set</strong><span>₹5,500 · Frame Lab · DNA</span></div></div>
+          </div>
+          <div class="two" style="margin-top:16px">
+            <div class="panel" style="min-height:180px;background:linear-gradient(145deg,#c9d9cf,#e6d5b7 50%,#b7c7d8)"></div>
+            <div class="panel">
+              <h4>Coastal dawn · buy</h4>
+              <div class="field"><label>Buyer name</label><div class="box">Ananya Mehta</div></div>
+              <div class="field"><label>Organization</label><div class="box">Acme Marketing</div></div>
+              <div class="field"><label>Use case</label><div class="box">Social ads · Q3</div></div>
+              <button class="btn" style="width:100%">Pay &amp; receive license</button>
+              <p style="font-size:.75rem;color:var(--muted);margin-top:10px">Sale seals to ledger. Creator vault stays private.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 09 SEALED + TRACK -->
+    <h2 class="section-label">09 · Sealed sales + continuous tracking</h2>
+    <div class="board">
+      <div class="cap">exchange.pinithub.com/desk/sealed</div>
+      <div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="url">https://exchange.pinithub.com/desk/sealed</div></div>
+      <div class="app">
+        <div class="shell">
+          <aside class="side">
+            <h5>Creator</h5>
+            <a href="#">Desk</a>
+            <a class="on" href="#">Sold / Sealed</a>
+            <a href="#">Tracking</a>
+          </aside>
+          <div class="main">
+            <h2>Sealed sales ledger</h2>
+            <p class="lede">Append-only commerce events for every sale — audit-ready history for creators.</p>
+            <div class="panel">
+              <table class="comp">
+                <thead><tr><th>Order</th><th>Buyer</th><th>Asset</th><th>License</th><th>Track</th></tr></thead>
+                <tbody>
+                  <tr><td>ORD-88421</td><td>Acme Marketing</td><td>Coastal dawn</td><td>Standard</td><td>Active</td></tr>
+                  <tr><td>ORD-88390</td><td>Nova Ads</td><td>Brand kit</td><td>Extended</td><td><span class="badge warn">Alert</span></td></tr>
+                  <tr><td>ORD-88211</td><td>Indie Studio</td><td>Urban glass</td><td>Standard</td><td>Active</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <strong style="color:var(--ink)">Open this file in a browser:</strong>
+      <code>mockups/pinit-exchange-extraordinary.html</code><br />
+      Docs: <code>docs/PinIT_Exchange_2027_Detailed_Report.docx</code> · Architecture:
+      <code>docs/PinIT_Exchange_2027_Product_Architecture.docx</code>
+    </div>
+  </div>
+</body>
+</html>

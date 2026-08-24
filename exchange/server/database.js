@@ -7,6 +7,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { createPostgresDatabase, initPostgresSchema } from './drivers/postgres.js';
 import { ensureExchangeBuckets } from './lib/exchange-storage.js';
+import { toExchangePinitId } from './lib/pinit-identity.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -39,6 +40,8 @@ export function initDatabase() {
 async function initPostgresDatabase() {
   await initPostgresSchema(db);
   await seedInitialDataAsync();
+  await dedupeMarketplaceListings();
+  await normalizeListingIdentities();
   try {
     const buckets = await ensureExchangeBuckets();
     if (!buckets.ok) {
@@ -176,7 +179,8 @@ function initSqliteDatabase() {
                   listing_id TEXT NOT NULL,
                   license_tier TEXT DEFAULT 'commercial',
                   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                  UNIQUE(buyer_key, listing_id, license_tier)
+                  UNIQUE(buyer_key, listing_id, license_tier),
+                  asset_id TEXT
                 )
               `, () => {
                 db.run(`
@@ -185,7 +189,8 @@ function initSqliteDatabase() {
                     buyer_key TEXT NOT NULL,
                     listing_id TEXT NOT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(buyer_key, listing_id)
+                    UNIQUE(buyer_key, listing_id),
+                    asset_id TEXT
                   )
                 `, () => {
                   db.run(`
@@ -235,6 +240,8 @@ function initSqliteDatabase() {
                               `, () => {
                                 applyTrustHardeningSchema()
                                   .then(() => seedInitialDataAsync())
+                                  .then(() => dedupeMarketplaceListings())
+                                  .then(() => normalizeListingIdentities())
                                   .then(() => {
                                     console.log('[exchange] Database driver: sqlite');
                                     resolve();
@@ -258,6 +265,7 @@ function initSqliteDatabase() {
 }
 
 function applyTrustHardeningSchema() {
+  // SQLite/Postgres column hardening — non-fatal if the column already exists.
   const alters = [
     `ALTER TABLE orders_sealed ADD COLUMN license_status TEXT DEFAULT 'active'`,
     `ALTER TABLE orders_sealed ADD COLUMN license_expires_at TEXT`,
@@ -267,6 +275,9 @@ function applyTrustHardeningSchema() {
     `ALTER TABLE listings ADD COLUMN protection_error TEXT`,
     `ALTER TABLE listings ADD COLUMN protection_attempts INTEGER DEFAULT 0`,
     `ALTER TABLE hub_assets ADD COLUMN protection_status TEXT DEFAULT 'protected'`,
+    `ALTER TABLE requirements ADD COLUMN buyer_pinit_id TEXT`,
+    `ALTER TABLE users ADD COLUMN seller_onboarding_status TEXT DEFAULT 'SELLER_ACTIVE'`,
+    `ALTER TABLE users ADD COLUMN razorpay_customer_id TEXT`,
   ];
 
   const creates = [
@@ -302,6 +313,32 @@ function applyTrustHardeningSchema() {
       amount REAL NOT NULL,
       reason TEXT,
       status TEXT DEFAULT 'completed',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      asset_id TEXT
+    )`,
+    `CREATE TABLE IF NOT EXISTS portfolio_profiles (
+      pinit_id TEXT PRIMARY KEY,
+      slug TEXT UNIQUE NOT NULL,
+      visibility TEXT DEFAULT 'private',
+      headline TEXT,
+      about TEXT,
+      location TEXT,
+      cover_url TEXT,
+      photo_url TEXT,
+      skills TEXT,
+      experience TEXT,
+      certifications TEXT,
+      awards TEXT,
+      clients TEXT,
+      services TEXT,
+      available_for TEXT,
+      featured_listing_ids TEXT,
+      project_groups TEXT,
+      section_visibility TEXT,
+      contact_email TEXT,
+      contact_note TEXT,
+      published_at DATETIME,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
     `CREATE TABLE IF NOT EXISTS seller_earnings (
@@ -313,7 +350,33 @@ function applyTrustHardeningSchema() {
       platform_fee REAL NOT NULL,
       net_amount REAL NOT NULL,
       status TEXT DEFAULT 'accrued',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      asset_id TEXT
+    )`,
+    `CREATE TABLE IF NOT EXISTS seller_payment_methods (
+      id TEXT PRIMARY KEY,
+      pinit_id TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'razorpay',
+      provider_customer_id TEXT,
+      provider_method_id TEXT,
+      provider_payment_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      method_type TEXT,
+      last4 TEXT,
+      brand TEXT,
+      idempotency_key TEXT UNIQUE,
+      failure_reason TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      verified_at DATETIME
+    )`,
+    `CREATE TABLE IF NOT EXISTS seller_onboarding_intents (
+      id TEXT PRIMARY KEY,
+      pinit_id TEXT NOT NULL,
+      idempotency_key TEXT UNIQUE NOT NULL,
+      razorpay_order_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      completed_at DATETIME
     )`,
     `CREATE INDEX IF NOT EXISTS idx_listings_asset ON listings(asset_id)`,
     `CREATE INDEX IF NOT EXISTS idx_listings_seller_status ON listings(pinit_id, status)`,
@@ -328,9 +391,93 @@ function applyTrustHardeningSchema() {
       if (i >= list.length) return done();
       db.run(list[i], () => runNext(list, i + 1, done));
     };
+    // Phase 1/2: canonical Asset.id linkage. Run AFTER creates so the tables
+    // exist; each ALTER is a no-op error on a database that already has it.
+    // Production-readiness columns (currency, licence terms, downloads, invoice).
+    const commerceReadinessAlters = [
+      'ALTER TABLE orders_sealed ADD COLUMN currency TEXT',
+      'ALTER TABLE orders_sealed ADD COLUMN terms_accepted_at DATETIME',
+      'ALTER TABLE orders_sealed ADD COLUMN terms_version TEXT',
+      'ALTER TABLE orders_sealed ADD COLUMN download_count INTEGER DEFAULT 0',
+      'ALTER TABLE orders_sealed ADD COLUMN download_limit INTEGER',
+      'ALTER TABLE orders_sealed ADD COLUMN invoice_number TEXT',
+      'ALTER TABLE payment_intents ADD COLUMN terms_accepted_at DATETIME',
+    ];
+
+    const assetLinkageAlters = [
+      'cart_items', 'wishlist', 'reviews', 'payment_intents', 'refunds', 'seller_earnings',
+    ].map((t) => `ALTER TABLE ${t} ADD COLUMN asset_id TEXT`);
+
+    // ---- Disputes and payouts (additive) ---------------------------------
+    //
+    // Both are keyed on the canonical asset_id as well as the order, so an
+    // asset's full financial history stays answerable from one identifier.
+    //
+    // `disputes` records what the gateway tells us. A chargeback is an inbound
+    // event — we never create one ourselves — so this table is written only by
+    // the verified webhook, and `provider_dispute_id` is unique so a webhook
+    // delivered twice cannot produce two rows.
+    const financeCreates = [
+      `CREATE TABLE IF NOT EXISTS disputes (
+        id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL DEFAULT 'razorpay',
+        provider_dispute_id TEXT UNIQUE,
+        provider_payment_id TEXT,
+        order_id TEXT,
+        seal_id TEXT,
+        asset_id TEXT,
+        seller_pinit_id TEXT,
+        buyer_pinit_id TEXT,
+        amount REAL DEFAULT 0,
+        currency TEXT,
+        reason TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        phase TEXT,
+        respond_by DATETIME,
+        raw_event TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME
+      )`,
+      // `payouts` is the settlement ledger. Exchange owns the state machine
+      // (requested -> processing -> paid | failed); the actual transfer is the
+      // payment provider's job and requires provider-side onboarding before a
+      // row can ever reach 'paid'.
+      `CREATE TABLE IF NOT EXISTS payouts (
+        id TEXT PRIMARY KEY,
+        seller_pinit_id TEXT NOT NULL,
+        amount REAL NOT NULL,
+        currency TEXT,
+        status TEXT NOT NULL DEFAULT 'requested',
+        provider TEXT DEFAULT 'razorpay',
+        provider_payout_id TEXT,
+        failure_reason TEXT,
+        earnings_count INTEGER DEFAULT 0,
+        requested_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        settled_at DATETIME
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_disputes_seal ON disputes(seal_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_disputes_asset ON disputes(asset_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_payouts_seller ON payouts(seller_pinit_id, status)`,
+      // Links an accrued earning to the payout batch that settles it.
+      `ALTER TABLE seller_earnings ADD COLUMN payout_id TEXT`,
+    ];
+
     runNext(alters, 0, () => {
       runNext(creates, 0, () => {
-        db.run(`UPDATE listings SET status = 'published' WHERE status = 'live'`, () => resolve());
+       runNext(assetLinkageAlters, 0, () => {
+        runNext(commerceReadinessAlters, 0, () => {
+        runNext(financeCreates, 0, () => {
+        db.run(`UPDATE listings SET status = 'published' WHERE status = 'live'`, () => {
+          db.run(
+            `UPDATE users SET seller_onboarding_status = 'SELLER_ACTIVE'
+             WHERE role IN ('creator', 'admin')
+               AND (seller_onboarding_status IS NULL OR seller_onboarding_status = '')`,
+            () => resolve(),
+          );
+        });
+        });
+        });
+       });
       });
     });
   });
@@ -354,7 +501,78 @@ function getAsync(sql, params = []) {
   });
 }
 
+/** Rewrite older prefix forms (PINIT-M58CDMZU) to PINIT-EX-{code}. */
+async function normalizeListingIdentities() {
+  try {
+    const listings = await allAsync('SELECT listing_id, pinit_id FROM listings');
+    for (const row of listings || []) {
+      const next = toExchangePinitId(row.pinit_id);
+      if (next && next !== row.pinit_id) {
+        await runAsync('UPDATE listings SET pinit_id = ? WHERE listing_id = ?', [next, row.listing_id]);
+      }
+    }
+    const assets = await allAsync('SELECT asset_id, pinit_id FROM hub_assets');
+    for (const row of assets || []) {
+      const next = toExchangePinitId(row.pinit_id);
+      if (next && next !== row.pinit_id) {
+        await runAsync('UPDATE hub_assets SET pinit_id = ? WHERE asset_id = ?', [next, row.asset_id]);
+      }
+    }
+  } catch (err) {
+    console.warn('[exchange] Identity normalize skipped:', err.message);
+  }
+}
+
+/** One listing per Hub asset. Hide original seed catalog from the live marketplace. */
+async function dedupeMarketplaceListings() {
+  try {
+    await runAsync(
+      `UPDATE listings SET status = 'archived'
+       WHERE listing_id IN ('L-101','L-102','L-103','L-104','L-105')
+         AND status IN ('live','published')`,
+    );
+    await runAsync(
+      `UPDATE listings SET status = 'archived'
+       WHERE status IN ('live','published')
+         AND (asset_id LIKE 'HA-%' OR pinit_id IN ('PINIT-90481234','PINIT-33109284'))`,
+    );
+
+    const live = await allAsync(
+      `SELECT listing_id, asset_id, pinit_id, title, created_at
+       FROM listings
+       WHERE status IN ('live','published')
+       ORDER BY created_at DESC`,
+    );
+    const seenAsset = new Set();
+    const seenTitle = new Set();
+    for (const row of live || []) {
+      const assetKey = String(row.asset_id || '').trim();
+      const titleKey = `${String(row.pinit_id || '').trim()}::${String(row.title || '').trim().toLowerCase()}`;
+      const dup = (assetKey && seenAsset.has(assetKey)) || seenTitle.has(titleKey);
+      if (dup) {
+        await runAsync(`UPDATE listings SET status = 'archived' WHERE listing_id = ?`, [row.listing_id]);
+        continue;
+      }
+      if (assetKey) seenAsset.add(assetKey);
+      seenTitle.add(titleKey);
+    }
+  } catch (err) {
+    console.warn('[exchange] Listing dedupe skipped:', err.message);
+  }
+}
+
+function allAsync(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows || []);
+    });
+  });
+}
+
 async function seedInitialDataAsync() {
+  // Do not insert demo catalog. Marketplace inventory comes from Hub listings only.
+  return;
   const row = await getAsync('SELECT COUNT(*) as count FROM users');
   const count = Number(row?.count ?? row?.COUNT ?? 0);
   if (count > 0) return;

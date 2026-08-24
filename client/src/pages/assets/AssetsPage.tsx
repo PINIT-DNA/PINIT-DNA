@@ -168,7 +168,7 @@ export function AssetsPage() {
         <EmptyState
           icon={Package}
           title="No assets yet"
-          description="Protect a file from the extension (publish, export, or right-click Protect) to create an Asset."
+          description="Protect an asset from the extension (publish, export, or right-click Protect) to create an Asset."
         />
       ) : (
         <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800">

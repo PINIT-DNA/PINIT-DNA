@@ -90,7 +90,7 @@ export function ExecutiveDashboardPage() {
         <h2 className="text-xs uppercase tracking-wider text-zinc-500 font-semibold mb-3">Files & Storage</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
           <StatCard label="DNA Generated" value={o.files?.dnaGenerated ?? 0} icon={Dna} />
-          <StatCard label="Vault Files" value={o.files?.vaultFiles ?? 0} icon={Database} />
+          <StatCard label="Vault Assets" value={o.files?.vaultFiles ?? 0} icon={Database} />
           <StatCard label="Storage Used" value={formatBytes(o.files?.storageOriginalBytes ?? 0)} sub={`Encrypted: ${formatBytes(o.files?.storageEncryptedBytes ?? 0)}`} icon={FileText} />
           <StatCard label="Certificates" value={o.certificates?.total ?? 0} sub={`${o.certificates?.active ?? 0} active`} icon={Award} />
           <StatCard label="Investigations" value={o.investigations?.total ?? 0} sub={`${o.investigations?.tampered ?? 0} tampered`} icon={Search} />
@@ -147,7 +147,7 @@ export function ExecutiveDashboardPage() {
       {/* File type breakdown */}
       {analytics?.fileTypes && (
         <section className="bg-[#111113] border border-zinc-800 rounded-lg p-4">
-          <h2 className="text-sm font-medium text-zinc-200 mb-3">DNA by File Type (30d)</h2>
+          <h2 className="text-sm font-medium text-zinc-200 mb-3">DNA by Asset Type (30d)</h2>
           <div className="flex flex-wrap gap-4">
             {Object.entries(analytics.fileTypes as Record<string, number>).map(([type, count]) => (
               <div key={type} className="text-sm">

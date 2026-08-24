@@ -1,5 +1,6 @@
 import { getSql } from './db.js';
 import { isLicenseDownloadable, LICENSE_STATUS } from './lifecycle.js';
+import { downloadQuotaExhausted, downloadsRemaining } from './licensing.js';
 
 /**
  * Authorize a licensed download. Never trust browser assetId alone.
@@ -73,6 +74,17 @@ export async function authorizeLicenseDownload({
 
   if (order.delivery_status && ['revoked', 'expired', 'refunded'].includes(String(order.delivery_status).toLowerCase())) {
     const err = new Error(`Download blocked: delivery is ${order.delivery_status}`);
+    err.status = 403;
+    throw err;
+  }
+
+  // Tier download entitlement. Checked last so a genuinely blocked licence
+  // reports the real reason rather than a quota message.
+  if (downloadQuotaExhausted(order)) {
+    const err = new Error(
+      `Download limit reached for this licence (${order.download_limit} of ${order.download_limit} used). ` +
+      'Upgrade the licence tier for more downloads.',
+    );
     err.status = 403;
     throw err;
   }

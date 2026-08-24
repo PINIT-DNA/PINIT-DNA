@@ -1,4 +1,26 @@
+import { apiFetch } from './api.js';
+
 let scriptPromise = null;
+
+async function postJsonWithRetry(url, body, { attempts = 2 } = {}) {
+  let last = null;
+  for (let i = 0; i < attempts; i += 1) {
+    last = await apiFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (last.ok) return last;
+    const retryable =
+      last.status === 0 ||
+      last.status >= 500 ||
+      String(last.error || '').includes('Empty response') ||
+      String(last.error || '').includes('Cannot reach');
+    if (!retryable || i === attempts - 1) return last;
+    await new Promise((r) => setTimeout(r, 600));
+  }
+  return last;
+}
 
 export function loadRazorpayScript() {
   if (typeof window === 'undefined') return Promise.reject(new Error('No window'));
@@ -17,6 +39,43 @@ export function loadRazorpayScript() {
   return scriptPromise;
 }
 
+/** Closing the sheet is a choice, not a fault. Callers check this code so a
+ *  deliberate exit is not reported to the customer as an error. */
+export const CHECKOUT_CANCELLED = 'CHECKOUT_CANCELLED';
+
+function checkoutError(message, code) {
+  const err = new Error(message);
+  err.code = code;
+  return err;
+}
+
+/**
+ * Only send prefill values we actually hold.
+ *
+ * `contact` was hardcoded to 9876543210 — a made-up number pushed into every
+ * customer's checkout. On a UPI or card flow Razorpay uses that number for the
+ * payment record and any OTP routing, so a real payment could be attached to a
+ * phone belonging to nobody. Omitting the field instead lets Razorpay ask for
+ * it once and keep it, which is both correct and fewer keystrokes than
+ * correcting a wrong value.
+ *
+ * An email that Exchange synthesised for an account (…@pinithub.local,
+ * …@buyer.local) is not a real inbox, so it is not sent either — a receipt
+ * would bounce and Razorpay would show it as the buyer's address.
+ */
+function buildPrefill({ userName, userEmail, userContact }) {
+  const prefill = {};
+  const name = String(userName || '').trim();
+  const email = String(userEmail || '').trim();
+  const contact = String(userContact || '').trim();
+
+  if (name) prefill.name = name;
+  if (email && !/@(pinithub|buyer|pinit)\.local$/i.test(email)) prefill.email = email;
+  if (contact) prefill.contact = contact;
+
+  return prefill;
+}
+
 /**
  * Open Razorpay Checkout.js. Resolves with payment ids on success.
  */
@@ -28,6 +87,7 @@ export async function openRazorpayCheckout({
   description = 'Pinit Exchange license',
   userName,
   userEmail,
+  userContact,
 }) {
   await loadRazorpayScript();
   if (!window.Razorpay) throw new Error('Razorpay checkout is unavailable');
@@ -40,16 +100,32 @@ export async function openRazorpayCheckout({
       name: 'Pinit Exchange',
       description,
       order_id: orderId,
-      prefill: { name: userName, email: userEmail },
+      prefill: buildPrefill({ userName, userEmail, userContact }),
+      // Remembers the payer between the subscription and later purchases, so a
+      // returning customer sees their saved method instead of starting over.
+      remember_customer: true,
+      method: {
+        upi: true,
+        card: true,
+        netbanking: true,
+        wallet: true,
+        emi: false,
+        paylater: false,
+      },
       theme: { color: '#3b82f6' },
       handler: (response) => resolve(response),
       modal: {
-        ondismiss: () => reject(new Error('Payment cancelled')),
+        // Keeps the sheet from closing on a stray background click mid-payment.
+        escape: true,
+        backdropclose: false,
+        ondismiss: () => reject(checkoutError('Payment cancelled', CHECKOUT_CANCELLED)),
       },
     });
 
     rzp.on('payment.failed', (response) => {
-      reject(new Error(response.error?.description || response.error?.reason || 'Payment failed'));
+      reject(new Error(
+        response.error?.description || response.error?.reason || 'Payment failed',
+      ));
     });
 
     rzp.open();
@@ -60,17 +136,17 @@ export async function openRazorpayCheckout({
  * Full pay flow: create-payment → Razorpay or mock verify → sealed order(s).
  * @param {'single'|'cart'} mode
  */
-export async function payAndSeal({ mode = 'single', createBody, description, userName, userEmail }) {
+export async function payAndSeal({
+  mode = 'single', createBody, description, userName, userEmail, userContact,
+}) {
   const createUrl =
     mode === 'cart' ? '/api/commerce/cart/create-payment' : '/api/orders/create-payment';
 
-  const createRes = await fetch(createUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(createBody),
-  });
-  const created = await createRes.json();
-  if (!createRes.ok) throw new Error(created.error || 'Could not create payment');
+  const createParsed = await postJsonWithRetry(createUrl, createBody);
+  if (!createParsed.ok) {
+    throw new Error(createParsed.error || 'Could not create payment. Try again.');
+  }
+  const created = createParsed.data || {};
 
   let razorpay_order_id = created.orderId;
   let razorpay_payment_id = null;
@@ -88,23 +164,21 @@ export async function payAndSeal({ mode = 'single', createBody, description, use
       description,
       userName,
       userEmail,
+      userContact,
     });
     razorpay_order_id = paid.razorpay_order_id;
     razorpay_payment_id = paid.razorpay_payment_id;
     razorpay_signature = paid.razorpay_signature;
   }
 
-  const verifyRes = await fetch('/api/orders/verify-payment', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      payment_intent_id: created.payment_intent_id,
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
-    }),
+  const verifyParsed = await postJsonWithRetry('/api/orders/verify-payment', {
+    payment_intent_id: created.payment_intent_id,
+    razorpay_order_id,
+    razorpay_payment_id,
+    razorpay_signature,
   });
-  const verified = await verifyRes.json();
-  if (!verifyRes.ok) throw new Error(verified.error || 'Payment verification failed');
-  return verified;
+  if (!verifyParsed.ok) {
+    throw new Error(verifyParsed.error || 'Payment verification failed. Try again.');
+  }
+  return verifyParsed.data;
 }

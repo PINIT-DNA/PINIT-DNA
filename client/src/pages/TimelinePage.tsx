@@ -672,7 +672,7 @@ export function TimelinePage() {
           <EmptyState
             icon={Clock}
             title="No timeline events"
-            description="Protect a file to start building its activity history"
+            description="Protect an asset to start building its activity history"
           />
         </div>
       ) : (

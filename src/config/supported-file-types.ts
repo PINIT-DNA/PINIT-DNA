@@ -63,8 +63,16 @@ export const SUPPORTED_FILE_TYPES: SupportedFileTypeConfig[] = [
     fileType:        'IMAGE',
     displayName:     'Image',
     category:        'IMAGE',
-    mimeTypes:       ['image/jpeg', 'image/png', 'image/webp', 'image/tiff', 'image/gif', 'image/bmp', 'image/heic', 'image/heif', 'image/avif', 'image/svg+xml', 'application/octet-stream'],
-    extensions:      ['.jpg', '.jpeg', '.png', '.webp', '.tiff', '.tif', '.gif', '.bmp', '.heic', '.heif', '.avif', '.svg'],
+    mimeTypes:       [
+      'image/jpeg', 'image/jpg', 'image/pjpeg', 'image/png', 'image/webp', 'image/tiff', 'image/tif',
+      'image/gif', 'image/bmp', 'image/x-ms-bmp', 'image/heic', 'image/heif', 'image/avif',
+      'image/svg+xml', 'image/x-icon', 'image/vnd.microsoft.icon', 'image/jxl', 'image/apng',
+      'application/octet-stream',
+    ],
+    extensions:      [
+      '.jpg', '.jpeg', '.jpe', '.jfif', '.png', '.webp', '.tiff', '.tif', '.gif', '.bmp',
+      '.heic', '.heif', '.avif', '.svg', '.ico', '.jxl', '.apng',
+    ],
     engineStatus:    'LIVE',
     plannedPhase:    0,
     l2Implementation: 'sobel_edge_detection',
@@ -72,7 +80,7 @@ export const SUPPORTED_FILE_TYPES: SupportedFileTypeConfig[] = [
     l4Implementation: 'rgb_hsv_histogram',
     l5Implementation: 'exif_metadata_provenance',
     l6Implementation: 'lsb_steganography_hmac',
-    maxFileSizeBytes: 20 * 1024 * 1024, // 20 MB
+    maxFileSizeBytes: 50 * 1024 * 1024, // 50 MB — large photos / HEIC
   },
 
   // ── Phase 1: Text-based files (LIVE) ───────────────────────────────────────
@@ -206,8 +214,15 @@ export const SUPPORTED_FILE_TYPES: SupportedFileTypeConfig[] = [
     fileType:        'VIDEO',
     displayName:     'Video',
     category:        'VIDEO',
-    mimeTypes:       ['video/mp4', 'video/mpeg', 'video/quicktime', 'video/x-msvideo', 'video/webm'],
-    extensions:      ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.mpeg', '.mpg'],
+    mimeTypes:       [
+      'video/mp4', 'video/mpeg', 'video/mpg', 'video/quicktime', 'video/x-msvideo', 'video/avi',
+      'video/webm', 'video/x-matroska', 'video/mkv', 'video/x-m4v', 'video/m4v', 'video/3gpp',
+      'video/3gpp2', 'video/ogg', 'video/x-flv', 'video/x-ms-wmv', 'video/mp2t', 'video/iso.segment',
+    ],
+    extensions:      [
+      '.mp4', '.m4v', '.mov', '.qt', '.avi', '.mkv', '.webm', '.mpeg', '.mpg', '.mpe',
+      '.3gp', '.3g2', '.ogv', '.ogg', '.flv', '.wmv', '.ts', '.mts', '.m2ts',
+    ],
     engineStatus:    'LIVE',
     plannedPhase:    4,
     l2Implementation: 'frame_count_keyframe_positions',

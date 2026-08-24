@@ -41,6 +41,7 @@ import {
   getLinkTree,
   shareFurther,
   previewImage,
+  requireTrackingUnlessLicensedShare,
 } from '../controllers/share-link.controller';
 
 export const shareRouter = Router();
@@ -76,7 +77,7 @@ shareRouter.get('/:token/unmask-status',       getUnmaskStatus);          // ─
 shareRouter.post('/:token/messages',           postShareViewerMessage);
 shareRouter.get('/:token/messages/mine',       getMyShareViewerMessages);
 // Owner-only routes (require auth)
-shareRouter.get('/:token/logs',                requireAuth, requireFeature(FeatureKey.FEATURE_TRACKING), requireShareLinkOwnership, getShareLinkLogs);
+shareRouter.get('/:token/logs',                requireAuth, requireTrackingUnlessLicensedShare(requireFeature(FeatureKey.FEATURE_TRACKING)), requireShareLinkOwnership, getShareLinkLogs);
 shareRouter.get('/:token/export',              requireAuth, requireShareLinkOwnership, exportShareLogsCsv);
 shareRouter.delete('/:token',                  requireAuth, requireShareLinkOwnership, revokeShareLink);
 shareRouter.post('/:token/block-viewer',       requireAuth, requireShareLinkOwnership, blockShareViewer);

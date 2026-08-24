@@ -1,5 +1,6 @@
+import { formatFrom } from '../lib/money.js';
 import React, { useEffect, useState } from 'react';
-import { Heart, Trash2 } from 'lucide-react';
+import { Heart, Trash2, ShoppingCart } from 'lucide-react';
 import { buyerKey } from '../lib/buyer.js';
 import { apiFetch } from '../lib/api.js';
 import EmptyState from '../components/EmptyState.jsx';
@@ -37,24 +38,44 @@ export default function WishlistPage({ user, onOpenAuth, onSelectListing, onAddT
 
   if (!key) {
     return (
-      <div style={{ maxWidth: 720, margin: '40px auto', padding: 24, textAlign: 'center' }}>
-        <h2 style={{ color: '#fff' }}>Wishlist</h2>
-        <button className="btn-primary" onClick={() => onOpenAuth?.({ mode: 'signup', intent: 'buyer' })}>
-          Sign in as buyer
-        </button>
+      <div className="ex-page ex-page--narrow">
+        <div className="ex-card ex-empty">
+          <div className="ex-empty__icon"><Heart size={24} /></div>
+          <div className="ex-empty__title">Sign in to save assets</div>
+          <p className="ex-empty__body">Your wishlist follows your PINIT identity, so it is there on any device you sign in from.</p>
+          <button
+            type="button"
+            className="ex-btn ex-btn--primary"
+            onClick={() => onOpenAuth?.({ mode: 'signup', intent: 'buyer' })}
+          >
+            Sign in with Hub biometric
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{ maxWidth: 1100, margin: '0 auto', padding: '32px 24px' }}>
-      <h1 style={{ color: '#fff', fontSize: '2rem', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
-        <Heart size={26} /> Wishlist
-      </h1>
-      <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>Saved listings — return when you are ready to license.</p>
+    <div className="ex-page ex-page--narrow">
+      <div className="ex-head" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16 }}>
+        <div>
+          <h1 className="ex-h1">Wishlist</h1>
+          <p className="ex-sub">Saved for later — availability is checked live.</p>
+        </div>
+      </div>
 
       {loading ? (
-        <div style={{ color: 'var(--text-muted)' }}>Loading…</div>
+        <div className="listing-grid" aria-busy="true" aria-label="Loading saved assets">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="ex-card" style={{ overflow: 'hidden' }} aria-hidden="true">
+              <div className="ex-skel ex-skel--media" style={{ borderRadius: 0 }} />
+              <div style={{ padding: 14 }}>
+                <div className="ex-skel ex-skel--line" style={{ width: '72%' }} />
+                <div className="ex-skel ex-skel--line" style={{ width: '38%' }} />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : items.length === 0 ? (
         <EmptyState
           icon={<Heart size={28} color="var(--primary)" />}
@@ -67,31 +88,79 @@ export default function WishlistPage({ user, onOpenAuth, onSelectListing, onAddT
         />
       ) : (
         <div className="listing-grid">
-          {items.map((item) => (
-            <div key={item.listing_id} className="glass-panel" style={{ overflow: 'hidden' }}>
-              <div onClick={() => onSelectListing?.(item.listing_id)} style={{ cursor: 'pointer' }}>
-                <img
-                  src={item.listing?.preview_url || 'https://images.unsplash.com/photo-1514565131-fce0801e5785?auto=format&fit=crop&w=800&q=80'}
-                  alt={item.listing?.title}
-                  style={{ width: '100%', height: 160, objectFit: 'cover' }}
-                />
-              </div>
-              <div style={{ padding: 16 }}>
-                <h3 style={{ color: '#fff', marginBottom: 8 }}>{item.listing?.title}</h3>
-                <div style={{ color: 'var(--emerald)', fontWeight: 700, marginBottom: 10 }}>
-                  From ${item.listing?.price_personal}
+          {items.map((item) => {
+            // Availability comes from the listing's own status — never invented.
+            const status = String(item.listing?.status || '').toLowerCase();
+            const sold = status === 'sold_exclusive';
+            return (
+              <div key={item.listing_id} className="ex-card" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                <div
+                  onClick={() => onSelectListing?.(item.listing_id)}
+                  style={{ cursor: 'pointer', position: 'relative', aspectRatio: '4 / 3', background: '#0a0e16' }}
+                >
+                  {item.listing?.preview_url ? (
+                    <img
+                      src={item.listing.preview_url}
+                      alt={item.listing?.title || 'Asset preview'}
+                      className="pinit-protected-media"
+                      draggable={false}
+                      onDragStart={(e) => e.preventDefault()}
+                      onContextMenu={(e) => e.preventDefault()}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                    />
+                  ) : null}
+
+                  <span
+                    className="ex-verified"
+                    style={
+                      sold
+                        ? { position: 'absolute', top: 10, left: 10, background: 'rgba(24,10,12,.8)', borderColor: 'rgba(244,63,94,.36)', color: '#fda4af' }
+                        : { position: 'absolute', top: 10, left: 10 }
+                    }
+                  >
+                    {sold ? 'Sold exclusive' : 'Available'}
+                  </span>
                 </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button type="button" className="btn-primary" style={{ flex: 1, fontSize: '0.8rem' }} onClick={() => onAddToCart?.(item.listing)}>
-                    Add to cart
-                  </button>
-                  <button type="button" className="btn-secondary" style={{ padding: 8 }} onClick={() => remove(item.listing_id)}>
-                    <Trash2 size={14} />
-                  </button>
+
+                <div style={{ padding: '13px 14px 14px', display: 'flex', flexDirection: 'column', gap: 11, flexGrow: 1 }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#fff', lineHeight: 1.35 }}>
+                      {item.listing?.title}
+                    </h3>
+                    {item.listing?.creator_name ? (
+                      <div style={{ fontSize: '11.5px', color: 'var(--text-dim)', marginTop: 3 }}>
+                        {item.listing.creator_name}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 'auto' }}>
+                    <span style={{ fontSize: '16px', fontWeight: 700, color: 'var(--emerald)', fontFamily: 'var(--font-heading)' }}>
+                      {formatFrom(item.listing?.price_personal)}
+                    </span>
+                    <div style={{ display: 'flex', gap: 7 }}>
+                      <button
+                        type="button"
+                        className="ex-btn ex-btn--secondary ex-btn--sm"
+                        title="Remove from wishlist"
+                        aria-label={`Remove ${item.listing?.title || 'asset'} from wishlist`}
+                        onClick={() => remove(item.listing_id)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        className="ex-btn ex-btn--primary ex-btn--sm"
+                        onClick={() => onAddToCart?.(item.listing)}
+                      >
+                        <ShoppingCart size={14} /> Add to cart
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

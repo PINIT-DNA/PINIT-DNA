@@ -1,4 +1,5 @@
 import db from '../database.js';
+import { toMinorUnits, activeCurrency } from './money.js';
 
 export function tierPrice(listing, licenseTier) {
   if (licenseTier === 'commercial') return Number(listing.price_commercial) || 149;
@@ -7,9 +8,13 @@ export function tierPrice(listing, licenseTier) {
   return Number(listing.price_personal) || 49;
 }
 
-/** Listing display amounts map 1:1 to INR for Razorpay (₹). Min 100 paise. */
-export function toPaise(amount) {
-  return Math.max(100, Math.round(Number(amount) * 100));
+/**
+ * Listing display amounts -> the gateway's minor unit for the active currency.
+ * Kept under the old name so existing call sites are unchanged; the INR
+ * assumption it used to encode now lives in lib/money.js.
+ */
+export function toPaise(amount, currency) {
+  return toMinorUnits(amount, currency || activeCurrency());
 }
 
 export function applyCouponPercent(price, percent) {

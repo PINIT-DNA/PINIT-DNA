@@ -154,7 +154,7 @@ export function VaultIntegrityPage() {
           <div className="flex flex-col items-center py-10">
             <RefreshCw size={32} className="text-dna-400 animate-spin mb-4" />
             <p className="text-white font-semibold">Running integrity checks…</p>
-            <p className="text-sm text-gray-500 mt-1">Verifying all vault files on disk</p>
+            <p className="text-sm text-gray-500 mt-1">Verifying all vault assets on disk</p>
           </div>
         </div>
       )}
@@ -188,7 +188,7 @@ export function VaultIntegrityPage() {
           {/* Stat cards */}
           <div className="stat-grid-4 gap-3">
             {[
-              { label: 'Total Files',   value: report.summary.total,   color: 'text-white',   icon: <HardDrive size={16} className="text-gray-400" /> },
+              { label: 'Total Assets',   value: report.summary.total,   color: 'text-white',   icon: <HardDrive size={16} className="text-gray-400" /> },
               { label: 'Healthy',       value: report.summary.healthy,  color: 'text-success', icon: <CheckCircle2 size={16} className="text-success" /> },
               { label: 'Files Missing', value: report.summary.missing,  color: 'text-danger',  icon: <XCircle size={16} className="text-danger" /> },
               { label: 'Size Mismatch', value: report.summary.mismatch, color: 'text-warning', icon: <AlertTriangle size={16} className="text-warning" /> },
@@ -228,7 +228,7 @@ export function VaultIntegrityPage() {
                 <thead>
                   <tr>
                     <th>File</th>
-                    <th>Encrypted File</th>
+                    <th>Encrypted Asset</th>
                     <th>Stored Size</th>
                     <th>Actual Size</th>
                     <th>File Exists</th>

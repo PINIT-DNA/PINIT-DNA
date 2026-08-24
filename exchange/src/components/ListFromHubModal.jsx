@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, ShieldAlert, Award, Lock, Sparkles, AlertCircle, CheckCircle, Info, ExternalLink } from 'lucide-react';
-import { EXCHANGE_MEDIA_ACCEPT, isAllowedExchangeMediaFile } from '../lib/media.js';
+import { canList } from '../lib/roles.js';
 
 export default function ListFromHubModal({
   isOpen,
@@ -32,12 +32,16 @@ export default function ListFromHubModal({
 
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
   useEffect(() => {
     if (isOpen) {
+      if (!canList(user)) {
+        setHubAssets([]);
+        setFetchMessage('Buyer accounts cannot list Hub assets on Exchange.');
+        return;
+      }
       fetchHubAssets();
       setErrorMsg('');
       setSuccessMsg('');
@@ -90,14 +94,6 @@ export default function ListFromHubModal({
     setHumanPercent(asset.human_percent != null ? Number(asset.human_percent) : 90);
     setAiPercent(asset.ai_percent != null ? Number(asset.ai_percent) : 10);
     if (asset.preview_url) setPreviewUrl(asset.preview_url);
-  };
-
-  const handleAssetSelectChange = (e) => {
-    const assetId = e.target.value;
-    setSelectedAssetId(assetId);
-    setErrorMsg('');
-    const found = hubAssets.find((a) => a.asset_id === assetId);
-    if (found) populateAssetDetails(found);
   };
 
   let predictedBadge = 'Bronze';
@@ -177,46 +173,6 @@ export default function ListFromHubModal({
     }
   };
 
-  const handleSilentUpload = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    if (!user?.pinit_id) {
-      setErrorMsg('Sign in with Pinit HUB before uploading.');
-      return;
-    }
-    if (!isAllowedExchangeMediaFile(file)) {
-      setErrorMsg('Please upload an image or video (jpg, png, webp, heic, gif, mp4, mov, mkv, webm, avi, …).');
-      return;
-    }
-    setUploading(true);
-    setErrorMsg('');
-    setSuccessMsg('');
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('pinit_id', user.pinit_id);
-      const res = await fetch('/api/hub/protect-upload', { method: 'POST', body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Silent Hub protect failed');
-      const asset = data.asset;
-      setSuccessMsg('Protected in Pinit HUB. Fill price/tags and publish.');
-      await fetchHubAssets();
-      if (asset?.asset_id) {
-        setSelectedAssetId(asset.asset_id);
-        populateAssetDetails({
-          ...asset,
-          title: asset.title || file.name,
-        });
-        setTitle(asset.title || file.name);
-      }
-    } catch (err) {
-      setErrorMsg(err.message || 'Upload failed');
-    } finally {
-      setUploading(false);
-    }
-  };
-
   if (!isOpen) return null;
 
   return (
@@ -230,7 +186,7 @@ export default function ListFromHubModal({
             <div>
               <h3 style={{ fontSize: '1.25rem', color: '#fff' }}>List on Pinit Exchange</h3>
               <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                Pick a Hub-protected asset, or upload here — Hub silently protects, then you publish.
+                Choose a file already protected in Pinit HUB. Exchange does not open your computer folders.
               </p>
             </div>
           </div>
@@ -277,95 +233,121 @@ export default function ListFromHubModal({
               </div>
             )}
 
-            <div className="form-group" style={{
-              background: 'rgba(15, 23, 42, 0.55)',
-              border: '1px solid var(--border-subtle)',
-              borderRadius: '10px',
-              padding: '14px',
-              marginBottom: '16px',
-            }}>
-              <label className="form-label">Upload new file (Workflow B — silent Hub protect)</label>
-              <input
-                type="file"
-                accept={EXCHANGE_MEDIA_ACCEPT}
-                disabled={uploading || !user?.pinit_id}
-                onChange={handleSilentUpload}
-                style={{ width: '100%', fontSize: '0.85rem', color: 'var(--text-muted)' }}
-              />
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', marginTop: 6, display: 'block' }}>
-                {uploading
-                  ? 'Protecting in Pinit HUB (DNA + vault)…'
-                  : 'Images & videos (jpg, png, webp, heic, gif, mp4, mov, mkv, webm, avi, …) up to 500 MB. Hub runs DNA + vault.'}
-              </span>
-            </div>
-
-            {hubAssets.length === 0 && !fetching && (
-              <div style={{
-                background: 'rgba(99,102,241,0.1)',
-                border: '1px solid rgba(99,102,241,0.35)',
-                borderRadius: 'var(--radius-sm)',
-                padding: '18px',
-                marginBottom: '18px',
-              }}>
-                <div style={{ color: '#fff', fontWeight: 600, marginBottom: 8 }}>How to list a file for sale</div>
-                <ol style={{ color: 'var(--text-muted)', fontSize: '0.88rem', margin: '0 0 14px 18px', lineHeight: 1.55 }}>
-                  <li>In Pinit HUB open <strong style={{ color: '#fff' }}>Digital Assets</strong> (not Protect again).</li>
-                  <li>Click your protected file.</li>
-                  <li>Click <strong style={{ color: '#fff' }}>List on Exchange</strong>.</li>
-                  <li>Set price here and publish.</li>
-                </ol>
-                {fetchMessage && (
-                  <p style={{ color: 'var(--text-dim)', fontSize: '0.8rem', marginBottom: 12 }}>{fetchMessage}</p>
-                )}
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                  <a
-                    className="btn-primary"
-                    href={`${hubAppUrl}/vault`}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
-                  >
-                    Open Digital Assets <ExternalLink size={14} />
-                  </a>
-                  <a
-                    className="btn-secondary"
-                    href={hubProtectUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
-                  >
-                    Protect a new file
-                  </a>
-                </div>
-              </div>
-            )}
-
             <div className="form-group">
-              <label className="form-label">
-                Select Hub Protected Asset {fetching ? '(loading…)' : ''}
-              </label>
-              <select
-                className="form-select"
-                value={selectedAssetId}
-                onChange={handleAssetSelectChange}
-                disabled={!hubAssets.length}
-                required={hubAssets.length > 0}
-              >
-                {!hubAssets.length && <option value="">— Protect assets in Pinit HUB first —</option>}
-                {hubAssets.map((asset) => (
-                  <option key={asset.asset_id} value={asset.asset_id}>
-                    {asset.title} ({asset.badge_tier} · {asset.human_percent ?? '—'}% Human)
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={fetchHubAssets}
-                style={{ marginTop: 8, padding: '6px 12px', fontSize: '0.8rem' }}
-              >
-                Refresh from Hub
-              </button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <label className="form-label" style={{ marginBottom: 0 }}>
+                  Your Hub vault {fetching ? '(loading…)' : hubAssets.length ? `(${hubAssets.length})` : ''}
+                </label>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={fetchHubAssets}
+                  style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                >
+                  Refresh from Hub
+                </button>
+              </div>
+
+              {fetching && (
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Loading protected assets from Pinit HUB…</p>
+              )}
+
+              {!fetching && hubAssets.length > 0 && (
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+                    gap: 10,
+                    maxHeight: 280,
+                    overflowY: 'auto',
+                    padding: 2,
+                  }}
+                >
+                  {hubAssets.map((asset) => {
+                    const selected = selectedAssetId === asset.asset_id;
+                    return (
+                      <button
+                        key={asset.asset_id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedAssetId(asset.asset_id);
+                          setErrorMsg('');
+                          populateAssetDetails(asset);
+                        }}
+                        style={{
+                          textAlign: 'left',
+                          border: selected ? '2px solid var(--primary)' : '1px solid var(--border-subtle)',
+                          background: selected ? 'rgba(59, 130, 246, 0.14)' : 'rgba(15, 23, 42, 0.7)',
+                          borderRadius: 10,
+                          padding: 0,
+                          overflow: 'hidden',
+                          cursor: 'pointer',
+                          color: '#fff',
+                        }}
+                      >
+                        <div style={{ height: 88, background: '#0b1220', overflow: 'hidden' }}>
+                          {asset.preview_url ? (
+                            <img
+                              src={asset.preview_url}
+                              alt=""
+                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            />
+                          ) : (
+                            <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-dim)' }}>
+                              <Lock size={18} />
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ padding: '8px 10px' }}>
+                          <div style={{ fontSize: '0.8rem', fontWeight: 600, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {asset.title}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>
+                            {asset.badge_tier} · {asset.human_percent ?? '—'}% human
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {!fetching && hubAssets.length === 0 && (
+                <div style={{
+                  background: 'rgba(99,102,241,0.1)',
+                  border: '1px solid rgba(99,102,241,0.35)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '18px',
+                }}>
+                  <div style={{ color: '#fff', fontWeight: 600, marginBottom: 8 }}>No Hub assets yet</div>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', marginBottom: 12 }}>
+                    Protect the asset in Pinit HUB first. Then it appears here — do not pick from your computer folders.
+                  </p>
+                  {fetchMessage && (
+                    <p style={{ color: 'var(--text-dim)', fontSize: '0.8rem', marginBottom: 12 }}>{fetchMessage}</p>
+                  )}
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <a
+                      className="btn-primary"
+                      href={`${hubAppUrl}/vault`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                    >
+                      Open Digital Assets <ExternalLink size={14} />
+                    </a>
+                    <a
+                      className="btn-secondary"
+                      href={hubProtectUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                    >
+                      Protect a new file
+                    </a>
+                  </div>
+                </div>
+              )}
             </div>
 
             {selectedAssetId && (

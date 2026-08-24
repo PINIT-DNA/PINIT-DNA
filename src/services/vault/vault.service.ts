@@ -27,7 +27,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { encrypt, decrypt } from './encryption.service';
-import { uploadVaultFile, downloadVaultFile, deleteVaultFile, isSupabaseStorageConfigured } from '../../lib/supabase-storage';
+import { uploadVaultFile, downloadVaultFile, deleteVaultFile, isSupabaseStorageConfigured, isSupabaseStorageRestricted } from '../../lib/supabase-storage';
 import { assertRecordOwner } from '../../lib/tenant-scope';
 import { identityEmbeddingPipeline } from '../identity/identity-embedding-pipeline.service';
 import { documentPageProtectionService } from '../documents/document-page-protection.service';
@@ -55,6 +55,8 @@ async function readLocal(vaultId: string): Promise<Buffer> {
 export interface StoreResult {
   vaultId:            string;
   dnaRecordId:        string;
+  /** Canonical Asset.id, when Asset identity creation succeeded (owned uploads only). */
+  assetId?:           string;
   encryptedFilePath:  string;
   originalFileName:   string;
   originalMimeType:   string;
@@ -219,8 +221,21 @@ export class VaultService {
       encryptedFilePath = await writeLocal(vaultId, encResult.encryptedBuffer);
       logger.debug('Vault — stored locally', { vaultId, encryptedFilePath });
     } else {
-      encryptedFilePath = await uploadVaultFile(vaultId, encResult.encryptedBuffer, ownerUserId);
-      logger.debug('Vault — uploaded to Supabase Storage', { vaultId, encryptedFilePath });
+      try {
+        encryptedFilePath = await uploadVaultFile(vaultId, encResult.encryptedBuffer, ownerUserId);
+        logger.debug('Vault — uploaded to Supabase Storage', { vaultId, encryptedFilePath });
+      } catch (uploadErr) {
+        if (process.env['NODE_ENV'] !== 'production' && isSupabaseStorageRestricted(uploadErr)) {
+          encryptedFilePath = await writeLocal(vaultId, encResult.encryptedBuffer);
+          logger.warn('Vault — Supabase storage restricted; stored locally for this session', {
+            vaultId,
+            encryptedFilePath,
+            reason: uploadErr instanceof Error ? uploadErr.message : String(uploadErr),
+          });
+        } else {
+          throw uploadErr;
+        }
+      }
     }
 
     // ── Persist vault record ───────────────────────────────────────────────
@@ -241,6 +256,43 @@ export class VaultService {
     });
 
     logger.info('Vault — storage complete', { vaultId, dnaRecordId });
+
+    // ── Canonical Asset identity (assetId != vaultId != dnaId) ────────────
+    // Skipped for anonymous protections (no ownerUserId) — Asset.ownerUserId is required.
+    let createdAssetId: string | undefined;
+    if (dnaRecord.ownerUserId) {
+      try {
+        const { assetService } = await import('../assets/asset.service');
+        const { inferAssetType, ASSET_STATUS } = await import('../assets/lifecycle');
+        const createdAsset = await assetService.ensureAssetFromProtect({
+          ownerUserId: dnaRecord.ownerUserId,
+          assetType: inferAssetType(originalMimeType, originalFileName),
+          originalFilename: originalFileName,
+          mimeType: originalMimeType,
+          sizeBytes: encResult.originalSizeBytes,
+          contentHash: dnaRecord.sha256Hash || '',
+          vaultId: record.id,
+          dnaId: dnaRecordId,
+          certificateId: certificateId ?? null,
+          monitorRecordId: null,
+          monitorStatus: 'PENDING',
+          sourcePlatform: 'hub',
+          sourceUrl: null,
+          capturedVia: 'hub_protect_file',
+          clientRequestId: `hub:${dnaRecordId}`,
+          status: ASSET_STATUS.PROTECTED,
+          protectedPostId: '',
+        });
+        createdAssetId = createdAsset.id;
+      } catch (assetErr) {
+        // Non-fatal — Vault/DNA are the source of truth; Asset is an additional identity layer.
+        logger.warn('Vault — Asset identity creation failed (non-fatal)', {
+          vaultId,
+          dnaRecordId,
+          error: assetErr instanceof Error ? assetErr.message : String(assetErr),
+        });
+      }
+    }
 
     // ── PDF: upgrade to per-page pixel-protected version in the background ──
     // Fire-and-forget so this multi-minute, multi-page job never blocks the
@@ -302,6 +354,7 @@ export class VaultService {
     return {
       vaultId:            record.id,
       dnaRecordId:        record.dnaRecordId,
+      assetId:            createdAssetId,
       encryptedFilePath:  record.encryptedFilePath,
       originalFileName:   record.originalFileName,
       originalMimeType:   record.originalMimeType,
@@ -415,29 +468,33 @@ export class VaultService {
    * Reads the encrypted file, decrypts it in-memory, returns original bytes.
    * If the auth tag is invalid (file tampered), AES-GCM will throw automatically.
    */
-  async retrieve(vaultId: string, requestingUserId?: string): Promise<RetrieveResult> {
+  async retrieve(vaultId: string, requestingUserId: string): Promise<RetrieveResult> {
     logger.info('Vault — retrieving encrypted image', { vaultId });
+
+    if (!requestingUserId) {
+      throw new Error('Vault retrieval requires an authenticated owner or a validated share.');
+    }
 
     const record = await prisma.vaultRecord.findUnique({
       where: { id: vaultId },
       include: { dnaRecord: { select: { ownerUserId: true } } },
     });
     if (!record) throw new Error(`Vault record not found: ${vaultId}`);
-    if (requestingUserId) {
-      assertRecordOwner(record.dnaRecord?.ownerUserId, requestingUserId, 'Vault');
-    }
-    const ownerUserId = record.dnaRecord?.ownerUserId ?? undefined;
+    assertRecordOwner(record.dnaRecord?.ownerUserId, requestingUserId, 'Vault');
+    const ownerUserId = record.dnaRecord?.ownerUserId ?? requestingUserId;
 
     // ── Download encrypted file (local in dev, Supabase in production) ──
     let encryptedBuffer: Buffer;
+    const storedPath = record.encryptedFilePath || '';
+    const looksLocal = /[/\\]vault[/\\]encrypted[/\\]/i.test(storedPath) || storedPath.includes(':\\');
     try {
-      if (USE_LOCAL) {
-        encryptedBuffer = await readLocal(vaultId);
+      if (USE_LOCAL || looksLocal) {
+        encryptedBuffer = looksLocal ? await fs.readFile(storedPath) : await readLocal(vaultId);
       } else {
         encryptedBuffer = await downloadVaultFile(
           vaultId,
           ownerUserId,
-          record.encryptedFilePath ? [record.encryptedFilePath] : [],
+          storedPath ? [storedPath] : [],
         );
       }
     } catch (err) {

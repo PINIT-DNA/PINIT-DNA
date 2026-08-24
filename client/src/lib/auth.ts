@@ -117,6 +117,29 @@ export function parseJwt(token: string): AuthUser | null {
   }
 }
 
+/** True when a non-expired Hub access JWT is present. Refresh-only is not a session. */
+export function hasValidAccessToken(token: string | null = getAccessToken()): boolean {
+  if (!token || !parseJwt(token)) return false;
+  try {
+    const p = JSON.parse(atob(token.split('.')[1]));
+    if (p.exp && p.exp * 1000 < Date.now()) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * @deprecated Do not use as proof of physical presence for Exchange SSO.
+ * Prefer hasValidAccessToken() for UI hints only. Exchange return must not skip biometrics
+ * based on stored tokens — see maySkipBiometricsForExchangeReturn().
+ */
+export function hasHubSession(): boolean {
+  return hasValidAccessToken();
+}
+
+export { maySkipBiometricsForExchangeReturn } from './exchange-return-session';
+
 export async function apiCreateAccount(): Promise<AuthUser> {
   const res = await postWithRetry(`${BASE}/create`);
   const { accessToken, refreshToken } = (res.data as any).data;

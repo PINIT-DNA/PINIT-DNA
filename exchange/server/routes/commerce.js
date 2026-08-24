@@ -9,6 +9,10 @@ import {
   toPaise,
 } from '../lib/pricing.js';
 import { createRazorpayOrder, isPaymentMockMode } from '../razorpay.js';
+import { forbidSellerCommerce, requireBuyer, requireSeller, requireVerifiedIdentity, pinitIdFromReq } from '../lib/rbac.js';
+import { exchangePreviewUrl, PLACEHOLDER_PREVIEW } from '../lib/preview-url.js';
+import { createLicensedShareOnHub } from '../hub-client.js';
+import { emitForListing, emitForSeal } from '../lib/asset-activity.js';
 
 const router = express.Router();
 
@@ -16,16 +20,36 @@ function buyerKey(req) {
   return String(req.query.buyer_key || req.body?.buyer_key || req.headers['x-buyer-key'] || '').trim();
 }
 
+/**
+ * Cart/wishlist rows need the same preview the marketplace shows. `listings` has
+ * no preview_url column — it lives in hub_assets — so join it and derive the URL
+ * exactly as routes/listings.js does, otherwise the UI falls back to a stock
+ * placeholder that shows the wrong picture.
+ */
 function enrichListings(listingIds, cb) {
   if (!listingIds.length) return cb(null, []);
   const placeholders = listingIds.map(() => '?').join(',');
   db.all(
-    `SELECT l.*, COALESCE(u.name, 'Creator') as creator_name
+    `SELECT l.*,
+            COALESCE(u.name, 'Creator') as creator_name,
+            COALESCE(ha.preview_url, '') as cached_preview_url
      FROM listings l
      LEFT JOIN users u ON l.pinit_id = u.pinit_id
+     LEFT JOIN hub_assets ha ON l.asset_id = ha.asset_id
      WHERE l.listing_id IN (${placeholders})`,
     listingIds,
-    cb,
+    (err, rows) => {
+      if (err) return cb(err);
+      const enriched = (rows || []).map((row) => {
+        const out = {
+          ...row,
+          preview_url: exchangePreviewUrl(row.asset_id, row.cached_preview_url || PLACEHOLDER_PREVIEW),
+        };
+        delete out.cached_preview_url;
+        return out;
+      });
+      cb(null, enriched);
+    },
   );
 }
 
@@ -54,20 +78,28 @@ router.get('/cart', (req, res) => {
 });
 
 /** POST /api/commerce/cart  { buyer_key, listing_id, license_tier } */
-router.post('/cart', (req, res) => {
+router.post('/cart', forbidSellerCommerce, (req, res) => {
   const key = String(req.body?.buyer_key || '').trim();
   const listingId = String(req.body?.listing_id || '').trim();
   const tier = String(req.body?.license_tier || 'commercial').trim();
   if (!key || !listingId) return res.status(400).json({ error: 'buyer_key and listing_id required' });
 
+  // asset_id is resolved from the listing so the row carries the canonical
+  // Asset.id from the moment it is created (Phase 1 columns, Phase 2 events).
   db.run(
-    `INSERT INTO cart_items (buyer_key, listing_id, license_tier)
-     VALUES (?, ?, ?)
+    `INSERT INTO cart_items (buyer_key, listing_id, license_tier, asset_id)
+     VALUES (?, ?, ?, (SELECT asset_id FROM listings WHERE listing_id = ?))
      ON CONFLICT(buyer_key, listing_id, license_tier) DO UPDATE SET license_tier = excluded.license_tier`,
-    [key, listingId, tier],
+    [key, listingId, tier, listingId],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
       res.status(201).json({ ok: true, id: this.lastID });
+      emitForListing(db, listingId, {
+        eventType: 'CART_ADDED',
+        title: 'Added to cart',
+        detail: `Listing ${listingId}`,
+        payload: { listingId, licenseTier: tier },
+      });
     },
   );
 });
@@ -76,14 +108,27 @@ router.post('/cart', (req, res) => {
 router.delete('/cart/:id', (req, res) => {
   const key = buyerKey(req);
   if (!key) return res.status(400).json({ error: 'buyer_key required' });
-  db.run('DELETE FROM cart_items WHERE id = ? AND buyer_key = ?', [req.params.id, key], function (err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ ok: true, removed: this.changes });
+  // Capture the listing before the row disappears so the event can be keyed.
+  db.get('SELECT listing_id FROM cart_items WHERE id = ? AND buyer_key = ?', [req.params.id, key], (_e, row) => {
+    const listingId = row && row.listing_id;
+    db.run('DELETE FROM cart_items WHERE id = ? AND buyer_key = ?', [req.params.id, key], function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      const removed = this.changes;
+      res.json({ ok: true, removed });
+      if (removed > 0 && listingId) {
+        emitForListing(db, listingId, {
+          eventType: 'CART_REMOVED',
+          title: 'Removed from cart',
+          detail: `Listing ${listingId}`,
+          payload: { listingId },
+        });
+      }
+    });
   });
 });
 
 /** POST /api/commerce/cart/create-payment — one Razorpay order for entire cart */
-router.post('/cart/create-payment', async (req, res) => {
+router.post('/cart/create-payment', requireBuyer, async (req, res) => {
   try {
     const key = String(req.body?.buyer_key || '').trim();
     const buyer_name = String(req.body?.buyer_name || '').trim();
@@ -166,7 +211,7 @@ router.post('/cart/create-payment', async (req, res) => {
 });
 
 /** POST /api/commerce/cart/checkout — prefer create-payment; mock auto-seals via verify */
-router.post('/cart/checkout', async (req, res) => {
+router.post('/cart/checkout', requireBuyer, async (req, res) => {
   const key = String(req.body?.buyer_key || '').trim();
   const buyer_name = String(req.body?.buyer_name || '').trim();
   const buyer_email = String(req.body?.buyer_email || '').trim();
@@ -242,12 +287,24 @@ router.post('/wishlist', (req, res) => {
   const listingId = String(req.body?.listing_id || '').trim();
   if (!key || !listingId) return res.status(400).json({ error: 'buyer_key and listing_id required' });
   db.run(
-    'INSERT OR IGNORE INTO wishlist (buyer_key, listing_id) VALUES (?, ?)',
-    [key, listingId],
+    `INSERT OR IGNORE INTO wishlist (buyer_key, listing_id, asset_id)
+     VALUES (?, ?, (SELECT asset_id FROM listings WHERE listing_id = ?))`,
+    [key, listingId, listingId],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
+      const added = this.changes;
       db.run('UPDATE listings SET saves = COALESCE(saves, 0) + 1 WHERE listing_id = ?', [listingId]);
       res.status(201).json({ ok: true });
+      // Only emit when a row was actually inserted — a repeat save is not a
+      // new activity event.
+      if (added > 0) {
+        emitForListing(db, listingId, {
+          eventType: 'WISHLIST_ADDED',
+          title: 'Saved to wishlist',
+          detail: `Listing ${listingId}`,
+          payload: { listingId },
+        });
+      }
     },
   );
 });
@@ -255,12 +312,69 @@ router.post('/wishlist', (req, res) => {
 router.delete('/wishlist/:listingId', (req, res) => {
   const key = buyerKey(req);
   if (!key) return res.status(400).json({ error: 'buyer_key required' });
+  const listingId = req.params.listingId;
   db.run(
     'DELETE FROM wishlist WHERE buyer_key = ? AND listing_id = ?',
-    [key, req.params.listingId],
+    [key, listingId],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ ok: true, removed: this.changes });
+      const removed = this.changes;
+      res.json({ ok: true, removed });
+      if (removed > 0) {
+        emitForListing(db, listingId, {
+          eventType: 'WISHLIST_REMOVED',
+          title: 'Removed from wishlist',
+          detail: `Listing ${listingId}`,
+          payload: { listingId },
+        });
+      }
+    },
+  );
+});
+
+/** Reviews for a seller's listings (must be before /reviews/:listingId) */
+router.get('/reviews/seller', requireSeller, (req, res) => {
+  const pinitId = String(req.query.pinit_id || req.query.seller_pinit_id || '').trim();
+  if (!pinitId) return res.status(400).json({ error: 'pinit_id required' });
+  db.all(
+    `SELECT r.*, l.title AS listing_title, l.asset_id, l.preview_url
+     FROM reviews r
+     INNER JOIN listings l ON l.listing_id = r.listing_id
+     WHERE REPLACE(REPLACE(REPLACE(REPLACE(UPPER(l.pinit_id), 'PINIT-EX-', ''), 'PINIT-USER-', ''), 'PINIT-ORG-', ''), 'PINIT-', '')
+       = REPLACE(REPLACE(REPLACE(REPLACE(UPPER(?), 'PINIT-EX-', ''), 'PINIT-USER-', ''), 'PINIT-ORG-', ''), 'PINIT-', '')
+     ORDER BY r.created_at DESC
+     LIMIT 100`,
+    [pinitId],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      const reviews = rows || [];
+      const avg = reviews.length
+        ? reviews.reduce((s, r) => s + Number(r.rating || 0), 0) / reviews.length
+        : 0;
+      res.json({
+        reviews,
+        average: Math.round(avg * 10) / 10,
+        count: reviews.length,
+      });
+    },
+  );
+});
+
+router.get('/reviews/mine', (req, res) => {
+  const pinitId = String(req.query.pinit_id || req.query.buyer_pinit_id || '').trim();
+  if (!pinitId) return res.status(400).json({ error: 'pinit_id required' });
+  db.all(
+    `SELECT r.*, l.title AS listing_title
+     FROM reviews r
+     LEFT JOIN listings l ON l.listing_id = r.listing_id
+     WHERE REPLACE(REPLACE(REPLACE(REPLACE(UPPER(COALESCE(r.buyer_pinit_id,'')), 'PINIT-EX-', ''), 'PINIT-USER-', ''), 'PINIT-ORG-', ''), 'PINIT-', '')
+       = REPLACE(REPLACE(REPLACE(REPLACE(UPPER(?), 'PINIT-EX-', ''), 'PINIT-USER-', ''), 'PINIT-ORG-', ''), 'PINIT-', '')
+     ORDER BY r.created_at DESC
+     LIMIT 50`,
+    [pinitId],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ reviews: rows || [] });
     },
   );
 });
@@ -289,12 +403,20 @@ router.post('/reviews', (req, res) => {
   if (!listingId) return res.status(400).json({ error: 'listing_id required' });
 
   db.run(
-    `INSERT INTO reviews (listing_id, buyer_pinit_id, buyer_name, rating, comment)
-     VALUES (?, ?, ?, ?, ?)`,
-    [listingId, buyerPinitId || null, buyerName, rating, comment],
+    `INSERT INTO reviews (listing_id, buyer_pinit_id, buyer_name, rating, comment, asset_id)
+     VALUES (?, ?, ?, ?, ?, (SELECT asset_id FROM listings WHERE listing_id = ?))`,
+    [listingId, buyerPinitId || null, buyerName, rating, comment, listingId],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
       res.status(201).json({ ok: true, id: this.lastID });
+      // Rating and the buyer's Pinit ID are business data the creator may see.
+      // buyer_name and the comment body are not sent — Hub scrubs names anyway.
+      emitForListing(db, listingId, {
+        eventType: 'REVIEWED',
+        title: `Reviewed ${rating}/5`,
+        detail: `Listing ${listingId}`,
+        payload: { listingId, rating, buyerPinitId: buyerPinitId || null },
+      });
     },
   );
 });
@@ -313,7 +435,7 @@ router.get('/coupons', (req, res) => {
   );
 });
 
-router.post('/coupons', (req, res) => {
+router.post('/coupons', requireSeller, (req, res) => {
   const code = String(req.body?.code || '').trim().toUpperCase();
   const seller = String(req.body?.seller_pinit_id || '').trim();
   const percent = Math.min(90, Math.max(1, Number(req.body?.percent_off) || 10));
@@ -339,4 +461,52 @@ router.post('/coupons/validate', (req, res) => {
   });
 });
 
+/**
+ * POST /api/commerce/purchases/:sealId/share
+ *
+ * Buyer shares a file they licensed. Exchange proves the caller owns the seal,
+ * then Hub creates the ShareLink — Hub owns custody and all tracking, so no
+ * share/tracking state is duplicated here.
+ */
+router.post('/purchases/:sealId/share', requireVerifiedIdentity, (req, res) => {
+  const sealId = String(req.params.sealId || '').trim();
+  // From the signed session, not the X-PinIT-Id header. The ownership check
+  // below compares this against the seal's buyer — if the caller supplied both
+  // sides, anyone could mint a Hub share link for a purchase that is not
+  // theirs, which would hand out the licensed file.
+  const callerPinitId = req.verifiedPinitId;
+  if (!sealId) return res.status(400).json({ error: 'sealId required' });
+
+  db.get('SELECT * FROM orders_sealed WHERE seal_id = ?', [sealId], async (err, order) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!order) return res.status(404).json({ error: 'Purchase not found' });
+
+    // Ownership: only the buyer on this seal may share it. Compared on the bare
+    // Pinit code so PINIT-EX-x and PINIT-x forms of the same identity match.
+    const code = (v) => String(v || '').trim().toUpperCase().split('-').pop();
+    if (code(order.buyer_pinit_id) !== code(callerPinitId)) {
+      return res.status(403).json({ error: 'This purchase does not belong to you' });
+    }
+    if (order.license_status && order.license_status !== 'active') {
+      return res.status(403).json({ error: 'License is not active' });
+    }
+
+    try {
+      const result = await createLicensedShareOnHub({
+        assetId: order.asset_id,
+        sealId: order.seal_id,
+        orderId: order.order_id,
+        buyerPinitId: order.buyer_pinit_id,
+        licenseTier: order.license_tier,
+        options: req.body?.options || {},
+      });
+      res.status(201).json({ ok: true, ...result });
+    } catch (e) {
+      console.error('[commerce/share]', e.message);
+      res.status(e.status || 502).json({ error: e.message || 'Could not create share link' });
+    }
+  });
+});
+
 export default router;
+

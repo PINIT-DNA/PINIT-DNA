@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 
 const Header = () => null;
@@ -19,6 +19,9 @@ type FlowStage = AppStage | 'vaulting' | 'readying';
 
 export default function App() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Business Account — protecting an asset from inside a Campaign workspace.
+  const campaignId = searchParams.get('campaignId');
   const [stage, setStage] = useState<FlowStage>('idle');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [session, setSession] = useState<DnaSession | null>(null);
@@ -57,11 +60,17 @@ export default function App() {
     setStage('processing');
 
     try {
-      // Optional custody GPS — never blocks protect if denied/unavailable
-      const loc = await requestCustodyLocation();
-      setCustodyLocation(loc);
+      // Optional custody GPS — start in parallel; never block DNA generate
+      const locPromise = requestCustodyLocation();
+      void locPromise.then(setCustodyLocation);
 
       const result = await generateDna(selectedFile);
+      // Prefer GPS if it finished during generate; otherwise continue without waiting
+      const loc = await Promise.race([
+        locPromise,
+        new Promise<CustodyLocation | null>((resolve) => setTimeout(() => resolve(null), 50)),
+      ]);
+      if (loc) setCustodyLocation(loc);
 
       setSession({
         dnaRecordId:      result.dnaRecordId,
@@ -78,7 +87,7 @@ export default function App() {
         fileAnalysis:     result.fileAnalysis ?? null,
       });
 
-      setTimeout(() => setStage('encrypting'), 400);
+      setStage('encrypting');
     } catch (err: unknown) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const anyErr = err as any;
@@ -101,7 +110,7 @@ export default function App() {
 
   const handleEncryptionComplete = useCallback((enc: EncryptionResult) => {
     setSession((prev) => (prev ? { ...prev, encryption: enc } : prev));
-    setTimeout(() => setStage('vaulting'), 400);
+    setStage('vaulting');
   }, []);
 
   const handleVaultComplete = useCallback((vault: VaultStoreResponse) => {
@@ -110,7 +119,7 @@ export default function App() {
       vault,
       fileAnalysis: vault.contentAnalysis ?? prev.fileAnalysis ?? null,
     } : prev));
-    setTimeout(() => setStage('readying'), 400);
+    setStage('readying');
   }, []);
 
   const handleVaultError = useCallback((msg: string) => {
@@ -221,6 +230,7 @@ export default function App() {
                     file={selectedFile}
                     dnaRecordId={session.dnaRecordId}
                     custodyLocation={custodyLocation}
+                    campaignId={campaignId}
                     onComplete={handleVaultComplete}
                     onError={handleVaultError}
                   />
@@ -240,7 +250,7 @@ export default function App() {
 
           {stage === 'success' && session && (
             <motion.div key="success" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <SuccessPanel session={session} onReset={handleReset} />
+              <SuccessPanel session={session} onReset={handleReset} campaignId={session.vault?.campaignId ?? campaignId} />
             </motion.div>
           )}
         </AnimatePresence>

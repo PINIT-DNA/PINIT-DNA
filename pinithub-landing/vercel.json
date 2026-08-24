@@ -1,0 +1,220 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "framework": "nextjs",
+  "installCommand": "npm install",
+  "rewrites": [
+    {
+      "source": "/static/:path*",
+      "destination": "https://pinit-dna.vercel.app/static/:path*"
+    },
+    {
+      "source": "/models/:path*",
+      "destination": "https://pinit-dna.vercel.app/models/:path*"
+    },
+    {
+      "source": "/pinithub-logo.png",
+      "destination": "https://pinit-dna.vercel.app/pinithub-logo.png"
+    },
+    {
+      "source": "/login",
+      "destination": "https://pinit-dna.vercel.app/login"
+    },
+    {
+      "source": "/login/:path*",
+      "destination": "https://pinit-dna.vercel.app/login/:path*"
+    },
+    {
+      "source": "/register",
+      "destination": "https://pinit-dna.vercel.app/register"
+    },
+    {
+      "source": "/register/:path*",
+      "destination": "https://pinit-dna.vercel.app/register/:path*"
+    },
+    {
+      "source": "/face-auth",
+      "destination": "https://pinit-dna.vercel.app/face-auth"
+    },
+    {
+      "source": "/face-auth/:path*",
+      "destination": "https://pinit-dna.vercel.app/face-auth/:path*"
+    },
+    {
+      "source": "/extension/:path*",
+      "destination": "https://pinit-dna.vercel.app/extension/:path*"
+    },
+    {
+      "source": "/s/:path*",
+      "destination": "https://pinit-dna.vercel.app/s/:path*"
+    },
+    {
+      "source": "/team/:path*",
+      "destination": "https://pinit-dna.vercel.app/team/:path*"
+    },
+    {
+      "source": "/onboarding",
+      "destination": "https://pinit-dna.vercel.app/onboarding"
+    },
+    {
+      "source": "/onboarding/:path*",
+      "destination": "https://pinit-dna.vercel.app/onboarding/:path*"
+    },
+    {
+      "source": "/business",
+      "destination": "https://pinit-dna.vercel.app/business"
+    },
+    {
+      "source": "/business/:path*",
+      "destination": "https://pinit-dna.vercel.app/business/:path*"
+    },
+    {
+      "source": "/generate",
+      "destination": "https://pinit-dna.vercel.app/generate"
+    },
+    {
+      "source": "/generate/:path*",
+      "destination": "https://pinit-dna.vercel.app/generate/:path*"
+    },
+    {
+      "source": "/vault",
+      "destination": "https://pinit-dna.vercel.app/vault"
+    },
+    {
+      "source": "/vault/:path*",
+      "destination": "https://pinit-dna.vercel.app/vault/:path*"
+    },
+    {
+      "source": "/vault-integrity",
+      "destination": "https://pinit-dna.vercel.app/vault-integrity"
+    },
+    {
+      "source": "/dna-records",
+      "destination": "https://pinit-dna.vercel.app/dna-records"
+    },
+    {
+      "source": "/dna-records/:path*",
+      "destination": "https://pinit-dna.vercel.app/dna-records/:path*"
+    },
+    {
+      "source": "/reports",
+      "destination": "https://pinit-dna.vercel.app/reports"
+    },
+    {
+      "source": "/reports/:path*",
+      "destination": "https://pinit-dna.vercel.app/reports/:path*"
+    },
+    {
+      "source": "/timeline",
+      "destination": "https://pinit-dna.vercel.app/timeline"
+    },
+    {
+      "source": "/timeline/:path*",
+      "destination": "https://pinit-dna.vercel.app/timeline/:path*"
+    },
+    {
+      "source": "/forensic-diff",
+      "destination": "https://pinit-dna.vercel.app/forensic-diff"
+    },
+    {
+      "source": "/forensic-diff/:path*",
+      "destination": "https://pinit-dna.vercel.app/forensic-diff/:path*"
+    },
+    {
+      "source": "/search",
+      "destination": "https://pinit-dna.vercel.app/search"
+    },
+    {
+      "source": "/search/:path*",
+      "destination": "https://pinit-dna.vercel.app/search/:path*"
+    },
+    {
+      "source": "/monitoring",
+      "destination": "https://pinit-dna.vercel.app/monitoring"
+    },
+    {
+      "source": "/monitoring/:path*",
+      "destination": "https://pinit-dna.vercel.app/monitoring/:path*"
+    },
+    {
+      "source": "/duplicate-attempts",
+      "destination": "https://pinit-dna.vercel.app/duplicate-attempts"
+    },
+    {
+      "source": "/unmask-requests",
+      "destination": "https://pinit-dna.vercel.app/unmask-requests"
+    },
+    {
+      "source": "/chain/:path*",
+      "destination": "https://pinit-dna.vercel.app/chain/:path*"
+    },
+    {
+      "source": "/intelligence/:path*",
+      "destination": "https://pinit-dna.vercel.app/intelligence/:path*"
+    },
+    {
+      "source": "/link-tree/:path*",
+      "destination": "https://pinit-dna.vercel.app/link-tree/:path*"
+    },
+    {
+      "source": "/profile",
+      "destination": "https://pinit-dna.vercel.app/profile"
+    },
+    {
+      "source": "/profile/:path*",
+      "destination": "https://pinit-dna.vercel.app/profile/:path*"
+    },
+    {
+      "source": "/upgrade",
+      "destination": "https://pinit-dna.vercel.app/upgrade"
+    },
+    {
+      "source": "/upgrade/:path*",
+      "destination": "https://pinit-dna.vercel.app/upgrade/:path*"
+    },
+    {
+      "source": "/subscription",
+      "destination": "https://pinit-dna.vercel.app/subscription"
+    },
+    {
+      "source": "/subscription/:path*",
+      "destination": "https://pinit-dna.vercel.app/subscription/:path*"
+    },
+    {
+      "source": "/access-intelligence",
+      "destination": "https://pinit-dna.vercel.app/access-intelligence"
+    },
+    {
+      "source": "/access-intelligence/:path*",
+      "destination": "https://pinit-dna.vercel.app/access-intelligence/:path*"
+    },
+    {
+      "source": "/pinit-hub/:path*",
+      "destination": "https://pinit-dna.vercel.app/pinit-hub/:path*"
+    },
+    {
+      "source": "/unified-investigation",
+      "destination": "https://pinit-dna.vercel.app/unified-investigation"
+    },
+    {
+      "source": "/link/:path*",
+      "destination": "https://pinit-dna.vercel.app/link/:path*"
+    },
+    {
+      "source": "/certificates",
+      "destination": "https://pinit-dna.vercel.app/certificates"
+    },
+    {
+      "source": "/verify-certificate",
+      "destination": "https://pinit-dna.vercel.app/verify-certificate"
+    },
+    {
+      "source": "/admin-portal",
+      "destination": "https://pinit-dna.vercel.app/admin-portal"
+    },
+    {
+      "source": "/admin-portal/:path*",
+      "destination": "https://pinit-dna.vercel.app/admin-portal/:path*"
+    }
+  ]
+}

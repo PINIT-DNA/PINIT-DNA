@@ -142,7 +142,7 @@ function coverHeader(doc: jsPDF, title: string, investigationId: string, submiss
   doc.setTextColor(125, 211, 252);
   doc.setFontSize(8);
   doc.setFont('helvetica', 'bold');
-  doc.text('PinIT SENTINEL', MARGIN, 12);
+  doc.text('Pinit SENTINEL', MARGIN, 12);
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(15);
   doc.text(title, MARGIN, 22);
@@ -179,7 +179,7 @@ function footer(doc: jsPDF) {
     doc.setFontSize(8);
     doc.setTextColor(150);
     doc.text(
-      `PinIT Sentinel · Forensic Investigation · Page ${i}/${pages}`,
+      `Pinit Sentinel · Forensic Investigation · Page ${i}/${pages}`,
       W / 2,
       292,
       { align: 'center' },
@@ -732,7 +732,7 @@ export async function buildInvestigationReportPdf(
   doc.text('OFFICIAL FORENSIC RECORD', m, 4);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...SENTINEL.muted);
-  doc.text('PinIT Sentinel  ·  Chain-of-custody evidence instrument', pageW - m, 4, { align: 'right' });
+  doc.text('Pinit Sentinel  ·  Chain-of-custody evidence instrument', pageW - m, 4, { align: 'right' });
 
   // Header
   drawBrandLogo(doc, pinithubLogo, m, 9, 18, 14);
@@ -748,7 +748,7 @@ export async function buildInvestigationReportPdf(
   doc.setTextColor(...SENTINEL.muted);
   doc.text('Provenance · Ownership · Integrity · Custody', m + 25, 19.5);
   doc.setFontSize(3.6);
-  doc.text('Issued under PinIT Global digital evidence standards', m + 25, 23);
+  doc.text('Issued under Pinit Global digital evidence standards', m + 25, 23);
 
   // Status seal
   doc.setFillColor(...(verified ? SENTINEL.green : SENTINEL.amber));
@@ -839,7 +839,7 @@ export async function buildInvestigationReportPdf(
   darkKeyValue(doc, colA1, assetY + 16.5, 'Asset Title', value(vm.originalAsset.originalFilename.value), rowW);
   darkKeyValue(doc, colA2, assetY + 16.5, 'Owner', value(vm.originalAsset.ownerName.value), rowW);
   darkKeyValue(doc, colA1, assetY + 24, 'Vault ID', short(vm.originalAsset.vaultId.value, 28), rowW);
-  darkKeyValue(doc, colA2, assetY + 24, 'PinIT DNA ID', short(vm.originalAsset.dnaId.value, 28), rowW);
+  darkKeyValue(doc, colA2, assetY + 24, 'Pinit DNA ID', short(vm.originalAsset.dnaId.value, 28), rowW);
   darkKeyValue(
     doc,
     colA1,
@@ -1059,7 +1059,7 @@ export async function buildInvestigationReportPdf(
   darkSectionTitle(doc, x3, bottomY, col3, '09', 'Output Package');
   darkSectionTitle(doc, x4, bottomY, col4, '10', 'Verify');
 
-  const declaration = `This instrument records forensic evidence produced by PinIT Sentinel for the referenced investigation. Verdict: ${vm.summary.finalVerdict}. Policy: ${value(vm.acceptance.policyVersion.value)}.`;
+  const declaration = `This instrument records forensic evidence produced by Pinit Sentinel for the referenced investigation. Verdict: ${vm.summary.finalVerdict}. Policy: ${value(vm.acceptance.policyVersion.value)}.`;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(3.6);
   doc.setTextColor(...SENTINEL.white);
@@ -1118,12 +1118,12 @@ export async function buildInvestigationReportPdf(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(5);
   doc.setTextColor(...SENTINEL.cyan);
-  doc.text('PinIT Sentinel', m + 14, 290);
+  doc.text('Pinit Sentinel', m + 14, 290);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(3.4);
   doc.setTextColor(...SENTINEL.muted);
   doc.text('Authoritative digital provenance record  ·  Protecting rights. Preserving trust.', m + 14, 293.5);
-  doc.text(`© ${new Date().getFullYear()} PinIT Global`, pageW - m, 291.5, { align: 'right' });
+  doc.text(`© ${new Date().getFullYear()} Pinit Global`, pageW - m, 291.5, { align: 'right' });
 
   while (doc.getNumberOfPages() > 1) doc.deletePage(doc.getNumberOfPages());
   return pdfBlobOut(doc);
@@ -1163,7 +1163,7 @@ export async function buildDnaReportPdf(report: InvestigationReportExport): Prom
   y = table(doc, y, [
     ['Classification', report.dnaComparison?.classification ?? '—'],
     ['Overall Confidence', `${report.summary.dnaMatchPercent}%`],
-    ['Original File', report.dnaComparison?.fileA?.filename ?? String(report.owner.originalFilename ?? '—')],
+    ['Original Asset', report.dnaComparison?.fileA?.filename ?? String(report.owner.originalFilename ?? '—')],
     ['Suspected File', report.dnaComparison?.fileB?.filename ?? '—'],
   ]);
 

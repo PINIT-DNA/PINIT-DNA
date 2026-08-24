@@ -12,6 +12,7 @@ import { prisma } from '../../lib/prisma';
 import { AppError } from '../middleware/error.middleware';
 import { resolveClientIp } from '../../lib/request-utils';
 import { biometricAuthService } from '../../services/auth/biometric-auth.service';
+import { issuePadChallenge, type PadEvidence } from '../../services/auth/face-liveness.service';
 
 function clientMeta(req: Request) {
   return {
@@ -22,18 +23,25 @@ function clientMeta(req: Request) {
 
 export async function faceRegister(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { embedding, voiceFingerprint, webauthnCredentialId, deviceFingerprint, accountType, organizationName } = req.body as {
+    const {
+      embedding, voiceFingerprint, webauthnCredentialId, deviceFingerprint,
+      accountType, organizationName, padEvidence, passkeyPendingToken,
+    } = req.body as {
       embedding?: number[];
       voiceFingerprint?: number[];
       webauthnCredentialId?: string;
       deviceFingerprint?: string;
       accountType?: 'INDIVIDUAL' | 'BUSINESS';
       organizationName?: string;
+      padEvidence?: PadEvidence;
+      passkeyPendingToken?: string;
     };
 
     const meta = clientMeta(req);
     const result = await biometricAuthService.register({
       faceEmbedding: embedding ?? [],
+      padEvidence,
+      passkeyPendingToken,
       voiceFingerprint,
       webauthnCredentialId,
       deviceFingerprint,
@@ -46,15 +54,14 @@ export async function faceRegister(req: Request, res: Response, next: NextFuncti
       res.status(result.status).json({
         success: false,
         message: result.message,
-        shortId: result.shortId,
       });
       return;
     }
 
     res.status(201).json({
       success: true,
-      message: result.message ?? (result.linked ? 'Signed into existing face identity' : 'Face registered successfully'),
-      linked: Boolean(result.linked),
+      message: result.message ?? 'Face registered successfully',
+      linked: false,
       user: {
         id: result.user.id,
         shortId: result.user.shortId,
@@ -71,16 +78,32 @@ export async function faceRegister(req: Request, res: Response, next: NextFuncti
 
 export async function faceLogin(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { embedding, voiceFingerprint, webauthnCredentialId, deviceFingerprint } = req.body as {
+    const {
+      embedding, voiceFingerprint, webauthnCredentialId, deviceFingerprint,
+      claimedShortId, claimedUserId, pinitId, shortId, padEvidence,
+      webauthnSession, passkeyPendingToken,
+    } = req.body as {
       embedding?: number[];
       voiceFingerprint?: number[];
       webauthnCredentialId?: string;
       deviceFingerprint?: string;
+      claimedShortId?: string;
+      claimedUserId?: string;
+      pinitId?: string;
+      shortId?: string;
+      padEvidence?: PadEvidence;
+      webauthnSession?: string;
+      passkeyPendingToken?: string;
     };
 
     const meta = clientMeta(req);
     const result = await biometricAuthService.login({
       faceEmbedding: embedding ?? [],
+      padEvidence,
+      webauthnSession,
+      passkeyPendingToken,
+      claimedShortId: (claimedShortId || pinitId || shortId || '').trim() || undefined,
+      claimedUserId: claimedUserId?.trim() || undefined,
       voiceFingerprint,
       webauthnCredentialId,
       deviceFingerprint,
@@ -88,11 +111,12 @@ export async function faceLogin(req: Request, res: Response, next: NextFunction)
     });
 
     if (!result.ok) {
+      // No similarity distance in the response — it would let an attacker measure
+      // how close a probe face is to an enrolled one and iterate toward a match.
       res.status(200).json({
         success: false,
         matched: false,
         message: result.message,
-        distance: result.distance ?? null,
       });
       return;
     }
@@ -138,6 +162,22 @@ export async function faceStatus(req: Request, res: Response, next: NextFunction
       voiceRegistered: user?.voiceRegistered ?? false,
       authMethod: user?.authMethod ?? 'password',
       biometricIdentity: user?.biometricIdentity ?? null,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function faceChallenge(_req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const issued = issuePadChallenge();
+    res.status(200).json({
+      success: true,
+      token: issued.token,
+      nonce: issued.challenge.nonce,
+      actions: issued.challenge.actions,
+      expiresAt: issued.challenge.exp,
+      instructions: issued.instructions,
     });
   } catch (err) {
     next(err);

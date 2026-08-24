@@ -13,6 +13,8 @@
  *   POST /exchange/listings/confirm
  *   POST /exchange/sales/seal
  *   POST /exchange/delivery/prepare
+ *   POST /exchange/activity
+ *   GET  /exchange/profiles-bridge?pinitIds=
  *   GET  /exchange/monitoring-summaries-bridge?pinitId=
  *
  * Public (token in path):
@@ -24,6 +26,7 @@ import { requireAuth } from '../middleware/auth.middleware';
 import { uploadFile, uploadSingle } from '../middleware/upload.middleware';
 import {
   getExchangeConfig,
+  getExchangeRole,
   createExchangeSso,
   listExchangeAssets,
   listExchangeAssetsBridge,
@@ -35,6 +38,10 @@ import {
   redeemDeliveryBridge,
   monitoringSummariesBridge,
   marketplacePreviewBridge,
+  createLicensedShareBridge,
+  recordAssetActivityBridge,
+  listLicensedSharesForOwner,
+  profilesBridge,
 } from '../controllers/exchange-bridge.controller';
 
 const router = Router();
@@ -47,16 +54,21 @@ function uploadProtect(req: any, res: any, next: any) {
 }
 
 router.get('/config', requireAuth, getExchangeConfig);
+router.get('/role', requireAuth, getExchangeRole);
 router.post('/sso', requireAuth, createExchangeSso);
 router.get('/listable-assets', requireAuth, listExchangeAssets);
 router.get('/listable-assets-bridge', listExchangeAssetsBridge);
 router.post('/list-intent', requireAuth, createListIntent);
+router.get('/licensed-shares', requireAuth, listLicensedSharesForOwner);
 
 router.post('/protect-upload', uploadProtect, protectUploadBridge);
 router.post('/listings/confirm', confirmExchangeListing);
 router.post('/sales/seal', sealExchangeSale);
+router.post('/share/create',      createLicensedShareBridge);
+router.post('/activity',          recordAssetActivityBridge);
 router.post('/delivery/prepare', prepareDeliveryBridge);
 router.get('/delivery/:token', redeemDeliveryBridge);
+router.get('/profiles-bridge', profilesBridge);
 router.get('/monitoring-summaries-bridge', monitoringSummariesBridge);
 router.get('/preview/:vaultId', marketplacePreviewBridge);
 

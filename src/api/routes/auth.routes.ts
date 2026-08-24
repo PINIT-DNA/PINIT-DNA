@@ -2,7 +2,13 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { authController } from '../controllers/auth.controller';
 import { requireAuth } from '../middleware/auth.middleware';
-import { faceRegister, faceLogin, faceStatus } from '../controllers/face-auth.controller';
+import { faceRegister, faceLogin, faceStatus, faceChallenge } from '../controllers/face-auth.controller';
+import {
+  passkeyRegisterStart,
+  passkeyRegisterFinish,
+  passkeyLoginStart,
+  passkeyLoginFinish,
+} from '../controllers/passkey.controller';
 
 export const authRouter = Router();
 
@@ -25,6 +31,12 @@ authRouter.post('/business-setup', requireAuth, authController.setupBusinessWork
 authRouter.get('/business-setup/status', requireAuth, authController.businessSetupStatus);
 
 // Enterprise Biometric Auth (UI contract unchanged)
+authRouter.post('/face/challenge', biometricLimiter, faceChallenge);
 authRouter.post('/face/register', biometricLimiter, faceRegister);
 authRouter.post('/face/login',    biometricLimiter, faceLogin);
 authRouter.get('/face/status',    requireAuth, faceStatus);
+
+authRouter.post('/passkey/register/start',  biometricLimiter, passkeyRegisterStart);
+authRouter.post('/passkey/register/finish', biometricLimiter, passkeyRegisterFinish);
+authRouter.post('/passkey/login/start',     biometricLimiter, passkeyLoginStart);
+authRouter.post('/passkey/login/finish',    biometricLimiter, passkeyLoginFinish);

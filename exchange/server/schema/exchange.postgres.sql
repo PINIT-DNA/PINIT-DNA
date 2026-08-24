@@ -22,8 +22,46 @@ CREATE TABLE IF NOT EXISTS exchange.users (
   account_intent TEXT,
   hub_linked SMALLINT DEFAULT 0,
   onboarding_step TEXT DEFAULT 'complete',
+  seller_onboarding_status TEXT DEFAULT 'SELLER_ACTIVE',
+  razorpay_customer_id TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Provider token references only — never store card numbers / CVV / raw credentials.
+CREATE TABLE IF NOT EXISTS exchange.seller_payment_methods (
+  id TEXT PRIMARY KEY,
+  pinit_id TEXT NOT NULL REFERENCES exchange.users(pinit_id) ON DELETE CASCADE,
+  provider TEXT NOT NULL DEFAULT 'razorpay',
+  provider_customer_id TEXT,
+  provider_method_id TEXT,
+  provider_payment_id TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  method_type TEXT,
+  last4 TEXT,
+  brand TEXT,
+  idempotency_key TEXT UNIQUE,
+  failure_reason TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  verified_at TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ex_seller_pm_method
+  ON exchange.seller_payment_methods (provider, provider_method_id)
+  WHERE provider_method_id IS NOT NULL AND provider_method_id <> '';
+
+CREATE INDEX IF NOT EXISTS idx_ex_seller_pm_pinit ON exchange.seller_payment_methods (pinit_id, status);
+
+CREATE TABLE IF NOT EXISTS exchange.seller_onboarding_intents (
+  id TEXT PRIMARY KEY,
+  pinit_id TEXT NOT NULL,
+  idempotency_key TEXT UNIQUE NOT NULL,
+  razorpay_order_id TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  completed_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_ex_seller_intents_pinit ON exchange.seller_onboarding_intents (pinit_id, status);
 
 -- Marketplace-safe Hub asset *references* only (assetId + preview/summary). Not vault masters.
 CREATE TABLE IF NOT EXISTS exchange.hub_assets (
@@ -111,7 +149,8 @@ CREATE TABLE IF NOT EXISTS exchange.requirements (
   deadline TEXT NOT NULL,
   proposals_count INTEGER DEFAULT 0,
   status TEXT DEFAULT 'open',
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  buyer_pinit_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS exchange.tracking_jobs (
@@ -130,6 +169,7 @@ CREATE TABLE IF NOT EXISTS exchange.cart_items (
   listing_id TEXT NOT NULL,
   license_tier TEXT DEFAULT 'commercial',
   created_at TIMESTAMPTZ DEFAULT NOW(),
+  asset_id TEXT,
   UNIQUE (buyer_key, listing_id, license_tier)
 );
 
@@ -138,6 +178,7 @@ CREATE TABLE IF NOT EXISTS exchange.wishlist (
   buyer_key TEXT NOT NULL,
   listing_id TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
+  asset_id TEXT,
   UNIQUE (buyer_key, listing_id)
 );
 
@@ -148,7 +189,8 @@ CREATE TABLE IF NOT EXISTS exchange.reviews (
   buyer_name TEXT NOT NULL,
   rating INTEGER NOT NULL,
   comment TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  asset_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS exchange.coupons (
@@ -176,7 +218,8 @@ CREATE TABLE IF NOT EXISTS exchange.payment_intents (
   razorpay_order_id TEXT,
   razorpay_payment_id TEXT,
   status TEXT DEFAULT 'pending',
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  asset_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS exchange.asset_commerce_locks (
@@ -213,7 +256,8 @@ CREATE TABLE IF NOT EXISTS exchange.refunds (
   amount DOUBLE PRECISION NOT NULL,
   reason TEXT,
   status TEXT DEFAULT 'completed',
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  asset_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS exchange.seller_earnings (
@@ -225,15 +269,109 @@ CREATE TABLE IF NOT EXISTS exchange.seller_earnings (
   platform_fee DOUBLE PRECISION NOT NULL,
   net_amount DOUBLE PRECISION NOT NULL,
   status TEXT DEFAULT 'accrued',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  asset_id TEXT
+);
+
+-- Public creator portfolio (professional identity). Not vault assets and not marketplace listings.
+CREATE TABLE IF NOT EXISTS exchange.portfolio_profiles (
+  pinit_id TEXT PRIMARY KEY,
+  slug TEXT UNIQUE NOT NULL,
+  visibility TEXT DEFAULT 'private',
+  headline TEXT,
+  about TEXT,
+  location TEXT,
+  cover_url TEXT,
+  photo_url TEXT,
+  skills TEXT,
+  experience TEXT,
+  certifications TEXT,
+  awards TEXT,
+  clients TEXT,
+  services TEXT,
+  available_for TEXT,
+  featured_listing_ids TEXT,
+  project_groups TEXT,
+  section_visibility TEXT,
+  contact_email TEXT,
+  contact_note TEXT,
+  published_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ex_portfolio_slug ON exchange.portfolio_profiles (slug);
 
 CREATE INDEX IF NOT EXISTS idx_ex_listings_asset ON exchange.listings (asset_id);
 CREATE INDEX IF NOT EXISTS idx_ex_listings_seller_status ON exchange.listings (pinit_id, status);
 CREATE INDEX IF NOT EXISTS idx_ex_orders_buyer ON exchange.orders_sealed (buyer_pinit_id);
 CREATE INDEX IF NOT EXISTS idx_ex_orders_asset ON exchange.orders_sealed (asset_id);
+-- Phase 1: canonical Asset.id linkage on commerce tables
+CREATE INDEX IF NOT EXISTS idx_ex_cart_items_asset ON exchange.cart_items (asset_id);
+CREATE INDEX IF NOT EXISTS idx_ex_wishlist_asset ON exchange.wishlist (asset_id);
+CREATE INDEX IF NOT EXISTS idx_ex_reviews_asset ON exchange.reviews (asset_id);
+CREATE INDEX IF NOT EXISTS idx_ex_payment_intents_asset ON exchange.payment_intents (asset_id);
+CREATE INDEX IF NOT EXISTS idx_ex_refunds_asset ON exchange.refunds (asset_id);
+CREATE INDEX IF NOT EXISTS idx_ex_seller_earnings_asset ON exchange.seller_earnings (asset_id);
 CREATE INDEX IF NOT EXISTS idx_ex_orders_license_status ON exchange.orders_sealed (license_status);
 CREATE INDEX IF NOT EXISTS idx_ex_bridge_events_status ON exchange.hub_bridge_events (status, next_retry_at);
 CREATE INDEX IF NOT EXISTS idx_ex_hub_assets_pinit ON exchange.hub_assets (pinit_id);
 CREATE INDEX IF NOT EXISTS idx_ex_cart_buyer ON exchange.cart_items (buyer_key);
 CREATE INDEX IF NOT EXISTS idx_ex_wishlist_buyer ON exchange.wishlist (buyer_key);
+
+-- ---------------------------------------------------------------------------
+-- Disputes and payouts (additive).
+--
+-- Both carry asset_id as well as the order reference, so an asset's financial
+-- history stays answerable from the canonical identifier alone.
+--
+-- disputes is written only by the signature-verified gateway webhook — a
+-- chargeback originates at the card network, never here. provider_dispute_id
+-- is unique so an at-least-once webhook delivery cannot create two rows.
+CREATE TABLE IF NOT EXISTS exchange.disputes (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL DEFAULT 'razorpay',
+  provider_dispute_id TEXT UNIQUE,
+  provider_payment_id TEXT,
+  order_id TEXT,
+  seal_id TEXT,
+  asset_id TEXT,
+  seller_pinit_id TEXT,
+  buyer_pinit_id TEXT,
+  amount DOUBLE PRECISION DEFAULT 0,
+  currency TEXT,
+  reason TEXT,
+  status TEXT NOT NULL DEFAULT 'open',
+  phase TEXT,
+  respond_by TIMESTAMPTZ,
+  raw_event TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ
+);
+
+-- payouts is the settlement ledger. Exchange owns the state machine
+-- requested to processing to paid or failed. The transfer itself is the
+-- provider's job and needs provider-side onboarding before a row can reach
+-- the paid state.
+--
+-- NOTE: no semicolons in comments in this file. The statement splitter that
+-- reads it does not strip comments, so a semicolon here would cut the next
+-- CREATE TABLE in half.
+CREATE TABLE IF NOT EXISTS exchange.payouts (
+  id TEXT PRIMARY KEY,
+  seller_pinit_id TEXT NOT NULL,
+  amount DOUBLE PRECISION NOT NULL,
+  currency TEXT,
+  status TEXT NOT NULL DEFAULT 'requested',
+  provider TEXT DEFAULT 'razorpay',
+  provider_payout_id TEXT,
+  failure_reason TEXT,
+  earnings_count INTEGER DEFAULT 0,
+  requested_at TIMESTAMPTZ DEFAULT NOW(),
+  settled_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_ex_disputes_seal ON exchange.disputes (seal_id);
+CREATE INDEX IF NOT EXISTS idx_ex_disputes_asset ON exchange.disputes (asset_id);
+CREATE INDEX IF NOT EXISTS idx_ex_disputes_status ON exchange.disputes (status);
+CREATE INDEX IF NOT EXISTS idx_ex_payouts_seller ON exchange.payouts (seller_pinit_id, status);

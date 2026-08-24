@@ -311,7 +311,7 @@ function InvestigationDetailModal({
         </div>
 
         <div className="bg-bg-elevated rounded-lg p-3">
-          <p className="text-2xs text-gray-500 mb-1">Investigated File</p>
+          <p className="text-2xs text-gray-500 mb-1">Investigated Asset</p>
           <p className="text-sm font-medium text-white truncate">{filename}</p>
           {(ownerFields.ownerPinitId || ownerFields.ownerName) && (
             <p className="text-xs text-gray-400 mt-1 mono">

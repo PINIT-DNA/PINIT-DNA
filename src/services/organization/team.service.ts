@@ -176,7 +176,7 @@ export const teamService = {
         select: { shortId: true },
       });
       if (!user || user.shortId !== invite.inviteeShortId) {
-        throw Object.assign(new Error('This invitation is for a different PinIT account'), { status: 403 });
+        throw Object.assign(new Error('This invitation is for a different Pinit account'), { status: 403 });
       }
     }
 
