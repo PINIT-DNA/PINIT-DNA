@@ -21,6 +21,8 @@ import { Badge } from '../components/ui/Badge';
 import { cn } from '../components/ui/utils';
 import { formatBytes } from '../hooks/useApi';
 import type { ForensicDiffReport } from '../../../src/types/forensic-diff.types';
+import { SpatialAuthInvestigationPanel } from '../components/SpatialAuthInvestigationPanel';
+import type { SpatialInvestigationViewModel } from '../components/SpatialAuthInvestigationPanel';
 
 // ─── Severity helpers ─────────────────────────────────────────────────────────
 
@@ -470,6 +472,17 @@ export function ForensicDiffPage() {
 
               <p className="text-xs text-gray-400 mb-3">{report.imageDiff.visualDescription}</p>
               <ImageHeatmap imageDiff={report.imageDiff} fileB={fileB} />
+              {!!(report.imageDiff as { spatialInvestigation?: SpatialInvestigationViewModel | null }).spatialInvestigation && (
+                <div className="mt-4">
+                  <SpatialAuthInvestigationPanel
+                    investigation={
+                      (report.imageDiff as { spatialInvestigation?: SpatialInvestigationViewModel | null })
+                        .spatialInvestigation
+                    }
+                    imageUrl={null}
+                  />
+                </div>
+              )}
             </CollapsibleSection>
           )}
 

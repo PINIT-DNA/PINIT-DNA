@@ -16,6 +16,7 @@ import {
   previewVaultFile,
   scanVaultFile,
   verifyFileIdentity,
+  verifyDocumentPages,
   prepareProtectedDownload,
   protectedDownloadFromVault,
   backfillLocalDnaIndex,
@@ -117,6 +118,13 @@ router.post('/:id/tep/:tepCode/revoke', requireAuth, requireVaultOwnership, revo
  * Does NOT mask anything — read-only scan for the share modal UI.
  */
 router.post('/:id/scan-sensitive', requireAuth, requireVaultOwnership, scanVaultFile);
+
+/**
+ * POST /vault/:id/verify-changes
+ * Upload a possibly-modified copy of this protected document (PDF) to find
+ * out exactly which page(s) changed.
+ */
+router.post('/:id/verify-changes', requireAuth, requireVaultOwnership, uploadSingle, verifyDocumentPages);
 
 // POST /vault/verify-identity — upload any file to extract & verify embedded PINIT-DNA owner identity
 router.post('/verify-identity', uploadSingle, verifyFileIdentity);

@@ -3,8 +3,13 @@
  */
 export async function captureVoiceFingerprint(
   onProgress?: (pct: number) => void,
+  options?: { durationMs?: number; voicePeakThresholdDb?: number },
 ): Promise<number[]> {
   onProgress?.(2);
+
+  const durationMs = options?.durationMs ?? 4500;
+  /** Float FFT peaks are typically negative dB; silence is near -100. */
+  const voicePeakThresholdDb = options?.voicePeakThresholdDb ?? -72;
 
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: {
@@ -21,20 +26,23 @@ export async function captureVoiceFingerprint(
     const source = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 512;
-    analyser.smoothingTimeConstant = 0.4;
+    analyser.smoothingTimeConstant = 0.35;
     source.connect(analyser);
 
     const bins = new Float32Array(analyser.frequencyBinCount);
+    const time = new Float32Array(analyser.fftSize);
     const samples: number[][] = [];
-    const durationMs = 2200;
     const start = Date.now();
     let heardVoice = false;
     let peakLevel = -Infinity;
+    let peakRms = 0;
 
     await new Promise<void>((resolve, reject) => {
       function tick() {
         try {
           analyser.getFloatFrequencyData(bins);
+          analyser.getFloatTimeDomainData(time);
+
           // Clamp -Infinity / NaN from silent FFT bins — otherwise normalize() yields NaN
           // and the server rejects registration as "voice required".
           const frame = Array.from(bins, (v) => (Number.isFinite(v) ? Math.max(-100, Math.min(0, v)) : -100));
@@ -42,7 +50,14 @@ export async function captureVoiceFingerprint(
 
           const peak = Math.max(...frame);
           if (peak > peakLevel) peakLevel = peak;
-          if (peak > -62) heardVoice = true;
+          if (peak > voicePeakThresholdDb) heardVoice = true;
+
+          let sumSq = 0;
+          for (let i = 0; i < time.length; i++) sumSq += time[i]! * time[i]!;
+          const rms = Math.sqrt(sumSq / time.length);
+          if (rms > peakRms) peakRms = rms;
+          // Time-domain RMS also counts as voice (FFT alone can miss some mics/browsers)
+          if (rms > 0.012) heardVoice = true;
 
           const pct = Math.min(99, ((Date.now() - start) / durationMs) * 100);
           onProgress?.(pct);
@@ -67,7 +82,10 @@ export async function captureVoiceFingerprint(
     }
 
     if (!heardVoice) {
-      throw new Error('No voice detected. Speak the phrase clearly and try again.');
+      throw new Error(
+        `No voice detected (peak ${peakLevel.toFixed(0)} dB, rms ${peakRms.toFixed(3)}). ` +
+          'Allow microphone access, speak louder into the mic, and start speaking as soon as recording begins.',
+      );
     }
 
     onProgress?.(100);

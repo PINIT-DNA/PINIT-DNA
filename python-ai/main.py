@@ -497,6 +497,29 @@ async def cv_forensic_features(image: UploadFile = File(...)):
         "processingMs": round((time.time() - start) * 1000, 1),
     }
 
+# ── Document rasterization (page-level pixel protection) ─────────────────────
+
+@app.post("/document/rasterize")
+async def document_rasterize(
+    file: UploadFile = File(...),
+    dpi: int = 150,
+    max_pages: int = 40,
+):
+    """Render PDF pages to PNG images so each page can go through the same
+    pixel-level DNA/HKCA/local-DNA protection pipeline as a standalone image."""
+    from services.document_rasterizer import document_rasterizer_service
+
+    start = time.time()
+    file_bytes = await file.read()
+    result = document_rasterizer_service.rasterize_pdf(file_bytes, dpi=dpi, max_pages=max_pages)
+    if not result.success:
+        raise HTTPException(503, result.error or "Rasterization failed")
+    return {
+        "success": True,
+        **result.data,
+        "processingMs": round((time.time() - start) * 1000, 1),
+    }
+
 # ── Phase 6: Duplicate detection ─────────────────────────────────────────────
 
 @app.post("/duplicates")

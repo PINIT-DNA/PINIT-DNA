@@ -10,6 +10,7 @@ import { InvestigationScanner } from '../components/InvestigationScanner';
 import { InvestigationProcessingCard } from '../components/InvestigationProcessingCard';
 import { InvestigationLivePanel } from '../components/InvestigationLivePanel';
 import { InvestigationSideBySideCompare } from '../components/InvestigationSideBySideCompare';
+import type { SpatialInvestigationViewModel, SpatialHierarchyViewModel } from '../components/SpatialAuthInvestigationPanel';
 import type { InvestigationLiveSnapshot } from '../services/dashboard.api';
 import {
   downloadInvestigationReportPdf,
@@ -80,6 +81,7 @@ interface InvestigationReport {
     overlayPngBase64?: string;
     modifiedPercent?: number;
     insertedRegions?: number;
+    regions?: Array<{ x: number; y: number; width: number; height: number; type: 'added' | 'removed' | 'modified' }>;
     cropDetection?: {
       sharedRegionPercent?: number;
       visiblePercent?: number;
@@ -87,6 +89,8 @@ interface InvestigationReport {
       missingPercent?: number;
       homographyFound?: boolean;
     };
+    spatialAuthInvestigation?: SpatialInvestigationViewModel | null;
+    spatialHierarchy?: SpatialHierarchyViewModel | null;
   };
   forensicEvidence?: {
     recoveredWatermark?: boolean;
@@ -101,6 +105,26 @@ interface InvestigationReport {
     aiEditReason?: string;
     matchReasons?: Array<{ signal: string; label: string; percent: number; matched: boolean }>;
     overallConfidence?: number;
+  };
+  fragmentReuseAnalysis?: {
+    detected: boolean;
+    summary: string;
+    findings: Array<{
+      vaultId: string;
+      dnaRecordId: string;
+      ownerFilename?: string;
+      patchMatchCount: number;
+      confidence: number;
+      probeRegion: { xPercent: number; yPercent: number; widthPercent: number; heightPercent: number };
+      vaultRegion: { xPercent: number; yPercent: number; widthPercent: number; heightPercent: number };
+    }>;
+  };
+  provenance?: {
+    authorizationStatus: 'AUTHORIZED' | 'UNKNOWN_ORIGIN' | 'NOT_APPLICABLE';
+  };
+  relatedLineage?: {
+    nodes: Array<{ dnaRecordId: string; filename: string; fileType: string; createdAt: string }>;
+    edges: Array<{ fromId: string; toId: string; relation: string; confidence: number; detectedAt: string }>;
   };
   timeline: Array<{ stage: string; timestamp?: string; detail?: string }>;
   evidenceTimeline?: Array<{
@@ -277,6 +301,7 @@ const TAMPER_VECTOR_LABELS: Record<string, string> = {
   RE_ENCODE: 'Re-encode / format shift',
   COPY_PASTE: 'Modified from protected original',
   TEXT_LETTER_MISMATCH: 'Text / letter changes',
+  SPLICED_FRAGMENT: 'Spliced fragment of a protected original',
   UNKNOWN: 'Inconclusive — live recovery only',
 };
 
@@ -704,6 +729,14 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               cropSharedPercent={report.tamperAnalysis.cropDetection?.sharedRegionPercent ?? null}
               cropMissingPercent={report.tamperAnalysis.cropDetection?.cropPercent ?? report.tamperAnalysis.cropDetection?.missingPercent ?? null}
               cropVisiblePercent={report.tamperAnalysis.cropDetection?.visiblePercent ?? null}
+              spatialInvestigation={
+                (report.tamperAnalysis.spatialAuthInvestigation as SpatialInvestigationViewModel | null | undefined)
+                ?? null
+              }
+              spatialHierarchy={
+                ((report.tamperAnalysis as { spatialHierarchy?: SpatialHierarchyViewModel | null })
+                  .spatialHierarchy) ?? null
+              }
             />
           )}
 
@@ -1012,6 +1045,102 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                   className="w-full max-h-64 object-contain bg-black"
                 />
                 <p className="text-2xs text-gray-500 p-2">Red overlay = modified / inserted vs vault original</p>
+              </div>
+            )}
+
+            {(report.tamperAnalysis.regions?.length ?? 0) > 0 && (
+              <div className="mb-3 space-y-1.5">
+                <p className="text-2xs font-semibold text-gray-400 uppercase">Changed regions</p>
+                {report.tamperAnalysis.regions!.map((r, i) => (
+                  <div
+                    key={`region-${i}-${r.x}-${r.y}`}
+                    className={cn(
+                      'text-2xs px-2 py-1 rounded border flex items-center justify-between gap-2',
+                      r.type === 'added' && 'border-red-500/40 bg-red-500/10 text-red-300',
+                      r.type === 'removed' && 'border-amber-500/40 bg-amber-500/10 text-amber-300',
+                      r.type === 'modified' && 'border-gray-500/40 bg-gray-500/10 text-gray-300',
+                    )}
+                  >
+                    <span className="font-semibold uppercase">{r.type}</span>
+                    <span className="mono text-gray-500">
+                      {r.x},{r.y} · {r.width}×{r.height}px
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {report.fragmentReuseAnalysis?.detected && (
+              <div className="mb-4 space-y-2">
+                <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
+                  Fragment reuse detected
+                </p>
+                <p className="text-xs text-white/80 mb-1">{report.fragmentReuseAnalysis.summary}</p>
+                {report.fragmentReuseAnalysis.findings.map((f) => (
+                  <div
+                    key={f.vaultId}
+                    className="p-3 rounded-lg border border-purple-500/40 bg-purple-500/10"
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="text-sm font-semibold text-purple-300">
+                        Matches protected original{f.ownerFilename ? `: ${f.ownerFilename}` : ''}
+                      </span>
+                      <span className="text-2xs mono text-purple-400/80">{f.confidence}% conf.</span>
+                    </div>
+                    <p className="text-xs text-white/90">
+                      {f.patchMatchCount} matching patches in a localized region of the uploaded image
+                    </p>
+                    <div className="relative w-full mt-2 rounded border border-purple-500/30 bg-black/30" style={{ aspectRatio: '4 / 3' }}>
+                      <div
+                        className="absolute border-2 border-purple-400 bg-purple-400/20"
+                        style={{
+                          left: `${f.probeRegion.xPercent}%`,
+                          top: `${f.probeRegion.yPercent}%`,
+                          width: `${f.probeRegion.widthPercent}%`,
+                          height: `${f.probeRegion.heightPercent}%`,
+                        }}
+                      />
+                      <span className="absolute bottom-1 right-1 text-2xs text-gray-500">approx. region in uploaded image</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {(report.provenance || (report.relatedLineage?.edges?.length ?? 0) > 0) && (
+              <div className="mb-4 space-y-2">
+                <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
+                  Provenance &amp; lineage
+                </p>
+                {report.provenance && (
+                  <div
+                    className={cn(
+                      'text-xs px-3 py-2 rounded-lg border inline-flex items-center gap-2',
+                      report.provenance.authorizationStatus === 'AUTHORIZED' && 'border-green-500/40 bg-green-500/10 text-green-300',
+                      report.provenance.authorizationStatus === 'UNKNOWN_ORIGIN' && 'border-amber-500/40 bg-amber-500/10 text-amber-300',
+                      report.provenance.authorizationStatus === 'NOT_APPLICABLE' && 'border-bg-border text-gray-500',
+                    )}
+                  >
+                    {report.provenance.authorizationStatus === 'AUTHORIZED' && 'Traced to a known share/export — Authorized'}
+                    {report.provenance.authorizationStatus === 'UNKNOWN_ORIGIN' && 'No matching share/export record — Unknown origin'}
+                    {report.provenance.authorizationStatus === 'NOT_APPLICABLE' && 'Not applicable'}
+                  </div>
+                )}
+                {(report.relatedLineage?.edges?.length ?? 0) > 0 && (
+                  <div className="space-y-1.5 mt-2">
+                    <p className="text-2xs font-semibold text-gray-400 uppercase">Related files ({report.relatedLineage!.edges.length})</p>
+                    {report.relatedLineage!.edges.slice(0, 8).map((e) => {
+                      const otherId = e.fromId === resolvedOwner.dnaRecordId ? e.toId : e.fromId;
+                      const otherNode = report.relatedLineage!.nodes.find((n) => n.dnaRecordId === otherId);
+                      return (
+                        <div key={`${e.fromId}-${e.toId}`} className="text-2xs px-2 py-1.5 rounded border border-bg-border bg-bg-elevated flex items-center justify-between gap-2">
+                          <span className="text-gray-300 truncate">{otherNode?.filename ?? otherId.slice(0, 8)}</span>
+                          <span className="text-gray-500 shrink-0">{e.relation.replace(/_/g, ' ')} · {Math.round(e.confidence)}%</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 

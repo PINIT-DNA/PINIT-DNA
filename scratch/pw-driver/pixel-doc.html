@@ -1,0 +1,868 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>PINIT-DNA Pixel-Level Protection — Technical Documentation</title>
+<style>
+  @page { size: A4; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    color: #1a1f2b;
+    font-size: 10.5pt;
+    line-height: 1.55;
+  }
+  h1, h2, h3, h4 { font-family: 'Segoe UI', Arial, sans-serif; color: #0f1729; }
+  .cover {
+    height: 250mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    page-break-after: always;
+    background: linear-gradient(160deg, #0b1220 0%, #14213d 55%, #1e3a5f 100%);
+    color: white;
+    margin: -22mm -18mm;
+    padding: 22mm 18mm;
+  }
+  .cover .tag { font-size: 11pt; letter-spacing: 3px; color: #7dd3fc; font-weight: 600; text-transform: uppercase; margin-bottom: 18px; }
+  .cover h1 { color: white; font-size: 30pt; line-height: 1.25; margin: 0 0 14px 0; max-width: 480px; }
+  .cover .sub { font-size: 13pt; color: #cbd5e1; max-width: 460px; line-height: 1.5; }
+  .cover .meta { margin-top: 60px; font-size: 9.5pt; color: #94a3b8; border-top: 1px solid #33415580; padding-top: 14px; width: 100%; max-width: 480px; }
+  .cover .meta div { margin-bottom: 4px; }
+
+  h1.section { font-size: 18pt; border-bottom: 3px solid #2563eb; padding-bottom: 8px; margin-top: 0; page-break-before: always; }
+  h1.section:first-of-type { page-break-before: auto; }
+  h2 { font-size: 13.5pt; color: #1d4ed8; margin-top: 26px; border-left: 4px solid #2563eb; padding-left: 10px; }
+  h3 { font-size: 11.5pt; color: #0f1729; margin-top: 18px; }
+  h4 { font-size: 10.5pt; color: #334155; margin-top: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 6px 0; padding-left: 22px; }
+  li { margin: 3px 0; }
+  code {
+    background: #eef2ff; color: #3730a3; padding: 1px 5px; border-radius: 4px;
+    font-family: 'Consolas', 'SFMono-Regular', monospace; font-size: 9.3pt;
+  }
+  pre {
+    background: #0f172a; color: #e2e8f0; padding: 12px 14px; border-radius: 8px;
+    font-family: 'Consolas', monospace; font-size: 8.6pt; line-height: 1.5;
+    overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+  }
+  .file-ref {
+    display: inline-block; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0;
+    padding: 1px 7px; border-radius: 5px; font-family: 'Consolas', monospace; font-size: 8.8pt;
+  }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 9.3pt; }
+  th { background: #1e3a5f; color: white; text-align: left; padding: 7px 9px; font-weight: 600; }
+  td { padding: 6px 9px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  .callout {
+    background: #eff6ff; border-left: 4px solid #2563eb; padding: 10px 14px; border-radius: 6px; margin: 12px 0; font-size: 9.8pt;
+  }
+  .callout.warn { background: #fffbeb; border-left-color: #d97706; }
+  .callout.key { background: #f0fdf4; border-left-color: #16a34a; }
+  .diagram-wrap { text-align: center; margin: 16px 0; page-break-inside: avoid; }
+  .diagram-wrap svg { max-width: 100%; }
+  .caption { text-align: center; font-size: 8.8pt; color: #64748b; margin-top: 4px; font-style: italic; }
+  .toc { columns: 1; }
+  .toc a { text-decoration: none; color: #1d4ed8; }
+  .toc-item { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dotted #cbd5e1; font-size: 10pt; }
+  .badge { display: inline-block; font-size: 7.8pt; font-weight: 700; padding: 1px 7px; border-radius: 10px; letter-spacing: 0.5px; }
+  .badge.layer { background: #ede9fe; color: #5b21b6; }
+  .badge.phase { background: #fee2e2; color: #991b1b; }
+  .small { font-size: 8.8pt; color: #64748b; }
+  .flow-step { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 12px; margin: 4px 0; font-size: 9.3pt; }
+  .footer-note { font-size: 8.3pt; color: #94a3b8; margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 8px; }
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<div class="cover">
+  <div class="tag">PINIT-DNA · Technical Documentation</div>
+  <h1>Pixel-Level Protection System</h1>
+  <div class="sub">
+    End-to-end implementation reference: how uploaded images, PDFs, and multi-page
+    documents are converted into pixel-authenticated, tamper-detectable digital
+    identities — from upload through rasterization, cryptographic pixel binding,
+    storage, and verification.
+  </div>
+  <div class="meta">
+    <div>Scope: Image DNA pipeline, PDF/document rasterization &amp; per-page protection,
+    pixel HKCA (Phase 3A), dense per-pixel authentication (Phase 4E), local-DNA patch
+    matching, forensic tamper localization, and verification/comparison engine.</div>
+    <div style="margin-top:8px;">Generated from the actual source implementation — every
+    section cites the concrete file, service, and Prisma model involved.</div>
+  </div>
+</div>
+
+<!-- ============ TOC ============ -->
+<h1 class="section" style="page-break-before:auto;">Contents</h1>
+<div class="toc">
+  <div class="toc-item"><span>1. System Overview</span><span>1</span></div>
+  <div class="toc-item"><span>2. Upload &amp; Detection</span><span>—</span></div>
+  <div class="toc-item"><span>3. Image DNA Generation (15-Layer Pipeline)</span><span>—</span></div>
+  <div class="toc-item"><span>4. Pixel-Level Cryptographic Protection (Spatial Auth / HKCA / Pixel1)</span><span>—</span></div>
+  <div class="toc-item"><span>5. Local-DNA Patch &amp; Feature Matching</span><span>—</span></div>
+  <div class="toc-item"><span>6. Identity Embedding (Invisible Watermark)</span><span>—</span></div>
+  <div class="toc-item"><span>7. PDF / Document Rasterization &amp; Multi-Page Protection</span><span>—</span></div>
+  <div class="toc-item"><span>8. Storage Model (Database &amp; File Storage)</span><span>—</span></div>
+  <div class="toc-item"><span>9. Verification &amp; Comparison Engine</span><span>—</span></div>
+  <div class="toc-item"><span>10. Tamper Localization &amp; Region Detection</span><span>—</span></div>
+  <div class="toc-item"><span>11. Crop / Resize Detection (Homography)</span><span>—</span></div>
+  <div class="toc-item"><span>12. Similarity, Confidence &amp; Tamper Scoring</span><span>—</span></div>
+  <div class="toc-item"><span>13. End-to-End Flow Diagrams</span><span>—</span></div>
+  <div class="toc-item"><span>14. File &amp; Service Reference Index</span><span>—</span></div>
+</div>
+
+<!-- ============ 1. SYSTEM OVERVIEW ============ -->
+<h1 class="section">1. System Overview</h1>
+
+<p>PINIT-DNA protects a file (image, PDF, or document) by generating a multi-layer
+cryptographic and perceptual fingerprint — its <strong>DNA</strong> — at upload time,
+then persisting that fingerprint so any later copy of the file can be compared
+against it to prove authenticity or localize exactly what changed.</p>
+
+<p>For <strong>images</strong>, protection operates directly on pixels: cryptographic
+hashes of raw pixel bytes, perceptual hashes tolerant of re-compression, per-region
+keyed HMAC tags (HKCA), an optional dense per-pixel HMAC layer, and a
+patch-level feature index for crop/fragment recovery.</p>
+
+<p>For <strong>PDFs and documents</strong>, the system treats the problem as "protect
+each page like a photo": every page is rasterized to a PNG image and pushed through
+the exact same pixel-protection pipeline a standalone image gets, then the
+protected pages are reassembled into a downloadable protected PDF.</p>
+
+<div class="callout key">
+<strong>Core design principle:</strong> the document-protection code does not duplicate
+the image pipeline — it calls it. A rasterized PDF page is, from the moment it is
+rendered, indistinguishable from any other uploaded PNG as far as the DNA engine is
+concerned. This is why the same tamper-detection and confidence-scoring logic applies
+uniformly to photos and to individual pages of a 50-page report.
+</div>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 900 190" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow0" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#1d4ed8"/>
+    </marker>
+  </defs>
+  <style>
+    .box{fill:#eff6ff;stroke:#2563eb;stroke-width:1.4;rx:8;}
+    .boxlabel{font:600 11px sans-serif;fill:#0f1729;text-anchor:middle;}
+    .boxsub{font:9px sans-serif;fill:#475569;text-anchor:middle;}
+    .lab{font:9px sans-serif;fill:#1d4ed8;text-anchor:middle;}
+  </style>
+  <rect class="box" x="10" y="55" width="120" height="60" rx="8"/>
+  <text class="boxlabel" x="70" y="80">Upload</text>
+  <text class="boxsub" x="70" y="96">image / PDF</text>
+
+  <rect class="box" x="160" y="55" width="120" height="60" rx="8"/>
+  <text class="boxlabel" x="220" y="80">Rasterize</text>
+  <text class="boxsub" x="220" y="96">PDF → page PNGs</text>
+
+  <rect class="box" x="310" y="55" width="130" height="60" rx="8"/>
+  <text class="boxlabel" x="375" y="76">Pixel / Block</text>
+  <text class="boxlabel" x="375" y="90">Protection</text>
+  <text class="boxsub" x="375" y="105">HKCA + Pixel1</text>
+
+  <rect class="box" x="470" y="55" width="140" height="60" rx="8"/>
+  <text class="boxlabel" x="540" y="76">Embedding /</text>
+  <text class="boxlabel" x="540" y="90">Feature Gen</text>
+  <text class="boxsub" x="540" y="105">DCT · patches · LSB</text>
+
+  <rect class="box" x="640" y="55" width="110" height="60" rx="8"/>
+  <text class="boxlabel" x="695" y="80">Storage</text>
+  <text class="boxsub" x="695" y="96">Postgres + files</text>
+
+  <rect class="box" x="780" y="55" width="110" height="60" rx="8"/>
+  <text class="boxlabel" x="835" y="80">Retrieval /</text>
+  <text class="boxsub" x="835" y="96">Verification</text>
+
+  <line x1="130" y1="85" x2="158" y2="85" stroke="#1d4ed8" stroke-width="1.6" marker-end="url(#arrow0)"/>
+  <line x1="280" y1="85" x2="308" y2="85" stroke="#1d4ed8" stroke-width="1.6" marker-end="url(#arrow0)"/>
+  <line x1="440" y1="85" x2="468" y2="85" stroke="#1d4ed8" stroke-width="1.6" marker-end="url(#arrow0)"/>
+  <line x1="610" y1="85" x2="638" y2="85" stroke="#1d4ed8" stroke-width="1.6" marker-end="url(#arrow0)"/>
+  <line x1="750" y1="85" x2="778" y2="85" stroke="#1d4ed8" stroke-width="1.6" marker-end="url(#arrow0)"/>
+</svg>
+</div>
+<p class="caption">Figure 1 — High-level pipeline (images skip the "Rasterize" step)</p>
+
+<!-- ============ 2. UPLOAD & DETECTION ============ -->
+<h1 class="section">2. Upload &amp; Detection</h1>
+
+<p>Every upload enters through a single entry point, the
+<span class="file-ref">UniversalFileRouter</span> —
+<code>src/services/universal-file-router.ts</code>. It:</p>
+<ol>
+<li>Runs <code>FileTypeDetector.detect()</code> (<span class="file-ref">src/services/file-type-detector.ts</span>)
+  to classify the buffer by magic bytes / declared MIME type (IMAGE, PDF, DOCX, TXT, …).</li>
+<li>Routes <code>IMAGE</code> uploads to <code>DnaOrchestrator</code> directly.</li>
+<li>Routes <code>PDF</code> / <code>DOCX</code> / other document types through <code>routeText()</code>,
+  which creates a <code>PENDING</code> <code>DnaRecord</code> row, runs the type-specific
+  text-DNA engine (e.g. <span class="file-ref">src/services/engines/pdf/pdf-dna-engine.ts</span>),
+  then layers L7–L15 on top.</li>
+</ol>
+
+<p>For a PDF specifically, after the text-DNA engine finishes, the router fires the
+page-level pixel-protection job (Section 7) as a background task — it does not block
+the HTTP response:</p>
+<pre>// src/services/universal-file-router.ts
+if (fileType === 'PDF' &amp;&amp; file.ownerUserId) {
+  void documentPageProtectionService
+    .protectPdfPages({ documentDnaRecordId: dnaRecordId, buffer: file.buffer, ... })
+    .catch((err) =&gt; logger.warn('Document page protection skipped (non-fatal)', ...));
+}</pre>
+
+<!-- ============ 3. IMAGE DNA PIPELINE ============ -->
+<h1 class="section">3. Image DNA Generation — the 15-Layer Pipeline</h1>
+
+<p>Every image (including every rasterized PDF page) is pushed through
+<span class="file-ref">DnaOrchestrator.generate()</span> —
+<code>src/services/dna.orchestrator.ts</code>. Layers 1–5 run in parallel; Layer 6 runs
+last because it embeds the record's own ID. Layers 7–10 and 11–15 run afterward.</p>
+
+<table>
+<tr><th>Layer</th><th>Name / File</th><th>What it computes</th><th>Survives</th></tr>
+<tr>
+  <td><span class="badge layer">L1</span></td>
+  <td>Cryptographic<br/><span class="file-ref">layer1.cryptographic.ts</span></td>
+  <td><code>sha256Hash</code> of raw file bytes; <code>normalizedHash</code> = SHA-256 of the
+  raw decoded RGB pixel bytes (via <code>sharp().removeAlpha().raw()</code>) — this is the
+  literal "hash every pixel" fingerprint. Also a BLAKE3 hash.</td>
+  <td>Nothing — any pixel change produces a totally different hash. This is the exact-match layer.</td>
+</tr>
+<tr>
+  <td><span class="badge layer">L2</span></td>
+  <td>Structural<br/><span class="file-ref">layer2.structural.ts</span></td>
+  <td>Canny edge map, edge vectors, a 16-hex edge signature embedded into a "carrier
+  image" via LSB for later structural diffing.</td>
+  <td>Minor recompression; breaks on crop/rotate/structural edits.</td>
+</tr>
+<tr>
+  <td><span class="badge layer">L3</span></td>
+  <td>Perceptual<br/><span class="file-ref">layer3.perceptual.ts</span></td>
+  <td><code>pHash64</code> (32×32 greyscale → 2D DCT-II → top-left 8×8 AC coefficients →
+  threshold at mean → 64 bits), <code>pHash256</code> (64×64 → 16×16 DCT block → 256 bits),
+  <code>aHash64</code> (8×8 average threshold), <code>dHash64</code> (9×8 adjacent-pixel
+  comparison).</td>
+  <td>JPEG recompression, resize, brightness/contrast shifts, PNG↔JPEG conversion.</td>
+</tr>
+<tr>
+  <td><span class="badge layer">L4</span></td>
+  <td>Semantic<br/><span class="file-ref">layer4.semantic.ts</span></td>
+  <td>RGB + HSV colour histograms, dominant colours, a 12-char colour fingerprint.</td>
+  <td>Small edits; breaks on colour grading / filters / palette swap.</td>
+</tr>
+<tr>
+  <td><span class="badge layer">L5</span></td>
+  <td>Metadata<br/><span class="file-ref">layer5.metadata.ts</span></td>
+  <td>EXIF/IPTC/XMP, device make/model, capture time, GPS, a metadata hash.</td>
+  <td>Nothing structural — this is provenance evidence, not content proof.</td>
+</tr>
+<tr>
+  <td><span class="badge layer">L6</span></td>
+  <td>Steganography<br/><span class="file-ref">layer6.steganography.ts</span>, <span class="file-ref">ownership-watermark.ts</span></td>
+  <td>Tiles a compact ownership signature (DNA id, vault id, owner id, upload metadata)
+  across <em>every</em> blue-channel LSB (so ~20% crops can still recover identity), plus
+  <code>contentSealHmac</code> — an HMAC over the L1–L5 digests ("EDS identity seal").</td>
+  <td>Crops down to ~20% of the image; broken by any lossy recompression of the blue channel.</td>
+</tr>
+<tr>
+  <td><span class="badge layer">L7–L10</span></td>
+  <td>Behavioral / Relationship / Origin / Evolution<br/>
+  <span class="file-ref">layer7.behavioral.ts</span> … <span class="file-ref">layer10.evolution.ts</span></td>
+  <td>Upload session/device fingerprint, links to related DNA records, origin bundle,
+  Merkle-chained mutation/version log.</td>
+  <td>Session-specific — weight 0 in content-similarity scoring (see Section 9).</td>
+</tr>
+<tr>
+  <td><span class="badge layer">L11–L15</span></td>
+  <td>Deepfake / DCT Watermark / Custody / ZK Proof / Biometric<br/>
+  <span class="file-ref">layers-11-15.service.ts</span></td>
+  <td>AI-generation heuristics, a second invisible DCT-frequency-domain watermark,
+  legal chain-of-custody record, zero-knowledge ownership commitment, optional
+  biometric bind.</td>
+  <td>Enrichment / evidentiary layers, not used for content-match scoring.</td>
+</tr>
+</table>
+
+<p>Each layer persists to its own Prisma table (<code>crypto_layers</code>,
+<code>structural_layers</code>, <code>perceptual_layers</code>, …) keyed 1:1 by
+<code>dnaRecordId</code> — see Section 8 for the full schema.</p>
+
+<!-- ============ 4. PIXEL-LEVEL PROTECTION ============ -->
+<h1 class="section">4. Pixel-Level Cryptographic Protection</h1>
+
+<p>Layers 1–15 fingerprint the image as a whole. A separate subsystem —
+<strong>Spatial Auth</strong> (<span class="file-ref">src/services/spatial/</span>) —
+authenticates the image <em>region by region</em>, so a probe copy can be compared
+cell-by-cell and any tampered area pinpointed. It has three tiers of increasing
+granularity, all keyed by a per-image HKDF-derived secret so tags cannot be forged
+without the server's master secret.</p>
+
+<h2>4.1 Phase 1 — Block Auth (coarse, ~64–128px blocks)</h2>
+<p>The base tier splits the image into large blocks (primary scale 64px, with 128px
+also enrolled) and produces block-level leaves that are Merkle-rooted into
+<code>spatial_auth_packages.blockBlob</code>. This gives cheap, fast coarse tamper
+detection before the finer tiers are checked.</p>
+
+<h2>4.2 Phase 3A — HKCA: Hierarchical Keyed Cell Authentication (8×8 cells)</h2>
+<p>File: <span class="file-ref">src/services/spatial/pixel-auth/</span>. This is the
+primary pixel-region layer:</p>
+<ol>
+<li><strong>Grid</strong> — <code>buildPixelCellGrid()</code> (<span class="file-ref">cell-grid.ts</span>)
+  divides the image into an 8×8-pixel cell grid (edge cells hold their true, possibly
+  smaller, width/height).</li>
+<li><strong>Per-image key</strong> — <code>deriveSpatialPixelKey()</code>
+  (<span class="file-ref">key-derivation.ts</span>) runs HKDF-SHA256 over the server
+  master secret, salted with <code>dnaRecordId</code> and info bytes built from
+  <code>ownerUserId</code>, <code>globalDnaRef</code>, and a <code>keyId</code>. No key
+  material is ever stored — it is always re-derived.</li>
+<li><strong>Per-cell HMAC tag</strong> — <code>computePixelCellAuthTag()</code>
+  (<span class="file-ref">cell-auth.ts</span>) hashes the raw RGB bytes of that one cell
+  (SHA-256) then HMAC-SHA256s a canonical message —
+  <code>{algoVersion, dnaRecordId, globalDnaRef, cellSize, cellId, x, y, w, h, contentHash}</code>
+  — with the derived key, truncated to <code>tagBytes</code> (8 or 16, default 8).</li>
+<li><strong>Compact blob</strong> — <code>encodePixelAuthBlob()</code>
+  (<span class="file-ref">pixel-blob.ts</span>) packs every cell leaf into one binary
+  blob (magic <code>SPX1</code>), sorted and validated for canonical ascending
+  <code>cellId</code> order — a few hundred KB per image, not one DB row per pixel.</li>
+<li><strong>Merkle root + root MAC</strong> — <code>pixelMerkleRootHex()</code> builds a
+  binary Merkle tree over every cell leaf's hash; <code>computePixelRootMac()</code>
+  then HMACs the root together with image dimensions, owner, and
+  <code>globalDnaRef</code> under a <em>second</em> HKDF-derived key
+  (<span class="file-ref">pixel-merkle.ts</span>). This root MAC is what actually gets
+  compared at verify time — a single 32-byte check proves the entire blob is intact
+  before any per-cell work happens.</li>
+</ol>
+
+<div class="callout">
+<strong>Why HMAC instead of embedding bits in pixels:</strong> HKCA is deliberately
+<em>server-side only</em> — no pixel values are altered to store the tag (the code
+comments call this "no GLPM / no pixel embedding"). The tags live in
+<code>spatial_auth_packages</code>, keyed to the image's own content hash, so the
+original file's pixels are never touched by this layer.
+</div>
+
+<h3>Verification &amp; fine localization</h3>
+<p><span class="file-ref">verify.ts</span> — <code>verifyPixelAuthLayer()</code>:</p>
+<ol>
+<li>Recompute and check the <code>pixelRootMac</code> (fails fast if the stored package was tampered).</li>
+<li>Decode the blob, recompute the Merkle root, and confirm it matches <code>pixelAuthRoot</code>.</li>
+<li>Re-derive the per-image key and recompute the HMAC tag for <em>every</em> 8×8 cell of the candidate image.</li>
+<li>Compare each candidate tag to the stored tag with <code>crypto.timingSafeEqual</code> — any mismatch flags that cell <code>TAMPERED</code>.</li>
+<li><span class="file-ref">fine-map.ts</span> then runs 4-connected-component labelling
+  over the failed cells (<code>findConnectedFineRegions()</code>) to group them into
+  bounding-box regions, and computes <code>tamperedAreaPercentage</code>.</li>
+</ol>
+
+<h2>4.3 Phase 4E — Pixel1: Dense Per-Pixel HMAC (every single pixel)</h2>
+<p>The most granular — and most expensive — tier: <code>buildPixel1AuthPackageFromRgb()</code>
+generates one keyed HMAC tag <em>per pixel</em> (not per 8×8 cell), stored in
+<code>spatial_auth_packages.pixel1AuthBlob</code>. For a 1240×1755 page that is
+~2.18M individually-tagged pixels.</p>
+<div class="callout warn">
+<strong>Cost &amp; where it is skipped:</strong> enrolling Pixel1 for one image measured
+~17–40 seconds and writes a ~17MB blob. <code>DnaOrchestrator.generate()</code> accepts
+a <code>skipSpatialPixel1</code> flag in its <code>universalCtx</code>
+(<span class="file-ref">src/services/dna.orchestrator.ts</span>), and document-page
+protection (Section 7) always passes it — a multi-page PDF would otherwise pay this
+cost once per page, per enrollment pass. Standalone image uploads still get full
+Pixel1 coverage.
+</div>
+
+<!-- ============ 5. LOCAL-DNA PATCH MATCHING ============ -->
+<h1 class="section">5. Local-DNA Patch &amp; Feature Matching</h1>
+
+<p>HKCA proves "this exact image, unmodified." <strong>Local-DNA</strong>
+(<span class="file-ref">src/services/forensics/local-dna-patch-generator.service.ts</span>)
+answers a different question — "does a crop, screenshot, or small fragment of this
+image appear inside another image?" — by fingerprinting the image at patch level.</p>
+
+<h3>Multi-scale patch grid</h3>
+<p><code>generateMultiScaleGrid()</code> tiles the image at four fixed scales
+(16/32/64/128px, configurable via <code>src/config/local-dna.ts</code>), plus
+overlapping pyramid tiles (64→512px, 50% stride) so a 20–30% crop can still be
+recovered. Each patch gets:</p>
+<ul>
+<li><code>pHash16</code>, <code>dHash8</code>, <code>aHash8</code> — patch-local perceptual hashes.</li>
+<li><code>edgeSignature</code> — Canny-style edge fingerprint.</li>
+<li><code>colorVector</code> — mean RGB.</li>
+<li><code>frequencySig</code>, <code>textureSig</code> — frequency/texture descriptors.</li>
+</ul>
+<p>Matching (<code>patchFingerprintsMatch</code> / <code>patchDenseMatch</code> in the
+same file) first checks Hamming distance on <code>pHash16</code> (threshold from
+<code>PINIT_LOCAL_DNA_HAMMING_THRESHOLD</code>, default 14), then, for borderline
+cases, requires 3-of-6 secondary signals (dHash, aHash, edge, colour distance &lt; 45,
+frequency, texture) to agree — a voting scheme rather than a single brittle threshold.</p>
+
+<h3>Fragment-splice detection</h3>
+<p><span class="file-ref">src/services/forensics/fragment-splice-detector.service.ts</span>
+answers "is a small piece of a protected original pasted into an unrelated image?" It
+clusters matched patches into spatially-coherent islands (pixel-proximity BFS), then
+gates each island on: minimum patch count, the island's probe bounding-box staying
+small relative to the whole probe canvas (a large matched region is a crop, not a
+splice — left to whole-image search instead), and internal spatial offset consistency.</p>
+
+<h3>ORB features &amp; crop-resistant tile search (Python side)</h3>
+<p><span class="file-ref">python-ai/services/forensic_scanner/service.py</span> extracts
+ORB keypoints/descriptors (<code>cv2.ORB_create</code>) and indexes overlapping tiles
+into a FAISS index (<code>search_tiles()</code>) so a crop-resistant candidate search
+can run without brute-forcing every stored image — this is what
+<code>forensicScannerService.indexVaultTiles()</code> populates from Node
+(<span class="file-ref">src/services/forensics/local-dna-index.service.ts</span>).</p>
+
+<!-- ============ 6. IDENTITY EMBEDDING ============ -->
+<h1 class="section">6. Identity Embedding — Invisible Watermark</h1>
+
+<p>Everything above is <em>read-only</em> fingerprinting — it never changes the file's
+pixels. A separate step, run at <strong>vault-store time</strong>
+(<span class="file-ref">src/services/identity/identity-embedding.service.ts</span>,
+orchestrated by <span class="file-ref">identity-embedding-pipeline.service.ts</span>),
+actually writes a recoverable identity into the file:</p>
+
+<h3>Signature format</h3>
+<pre>PINIT-DNA:v1:{dnaId}:{vaultId}:{ownerUserId}:{hmacHex}
+hmac = HMAC-SHA256(dnaId + ":" + vaultId + ":" + ownerUserId, LSB_SIGNATURE_SECRET)</pre>
+
+<h3>Per-type embedding method</h3>
+<table>
+<tr><th>File type</th><th>Method</th></tr>
+<tr><td>PNG / JPG / WEBP</td><td><code>embedImageLSB()</code> — payload
+  (<code>"PDNA"</code> magic + 4-byte length + signature bytes) is written one bit per
+  pixel into the <strong>blue-channel LSB</strong>, left-to-right / top-to-bottom, plus
+  an appended binary tail marker as a fallback extraction path.</td></tr>
+<tr><td>PDF</td><td>PDF <code>Keywords</code>/<code>Subject</code> metadata property +
+  the same binary tail marker appended after the PDF trailer.</td></tr>
+<tr><td>DOCX / XLSX / PPTX</td><td>A custom XML property injected into the OOXML ZIP
+  container (<code>docProps/custom.xml</code>).</td></tr>
+</table>
+
+<p>The full vault pipeline (<span class="file-ref">identity-embedding-pipeline.service.ts</span>)
+layers several protections on top of the raw signature: an identity token, a recovery
+token, an invisible watermark (<code>vaultWatermarkEngine</code>), the cryptographic
+signature above, and a signed integrity manifest appended as a tail block — each
+verified with <code>extractAndVerify()</code> before the pipeline reports success.</p>
+
+<!-- ============ 7. DOCUMENT RASTERIZATION ============ -->
+<h1 class="section">7. PDF / Document Rasterization &amp; Multi-Page Protection</h1>
+
+<p>This is the layer that makes "protect every page like a photo" real. Two services
+work together:</p>
+
+<h2>7.1 Rasterization</h2>
+<p><span class="file-ref">python-ai/services/document_rasterizer/service.py</span> uses
+PyMuPDF (<code>pymupdf</code>) to render each PDF page to a PNG at a configurable DPI
+(default 150, capped at a configurable max page count — see
+<span class="file-ref">src/config/document-pixel-protection.ts</span>):</p>
+<pre>matrix = fitz.Matrix(dpi/72, dpi/72)
+doc = fitz.open(stream=buffer, filetype="pdf")
+for i in range(min(doc.page_count, max_pages)):
+    pix = doc.load_page(i).get_pixmap(matrix=matrix, alpha=False)
+    pages.append({ pageNumber: i+1, width: pix.width, height: pix.height,
+                    imageBase64: base64(pix.tobytes("png")) })</pre>
+<p>Exposed as <code>POST /document/rasterize</code> in
+<span class="file-ref">python-ai/main.py</span>, called from Node via
+<code>aiService.rasterizeDocument()</code>
+(<span class="file-ref">src/services/ai/ai-embeddings.service.ts</span>).</p>
+
+<h2>7.2 Per-page protection — two phases</h2>
+<p><span class="file-ref">src/services/documents/document-page-protection.service.ts</span>
+runs the actual per-image pipeline (Sections 3–4) once per rendered page, in two
+distinct phases:</p>
+
+<h3>Phase A — DNA-generate time (fast, fire-and-forget): <code>protectPdfPages()</code></h3>
+<p>For each page: run <code>DnaOrchestrator.generate()</code> on the raw page PNG
+(full 15-layer DNA, HKCA enrolled on raw bytes, Pixel1 skipped), then link the new
+page's own <code>DnaRecord</code> back to the parent document via two self-relation
+fields added to <code>dna_records</code>:</p>
+<pre>documentDnaRecordId  String?   // parent document's DnaRecord.id
+pageNumber           Int?</pre>
+<p>Then <code>localDnaIndexService.buildIndex()</code> builds the patch grid
+(Section 5) for that page. This phase is idempotent — it checks for an existing
+<code>(documentDnaRecordId, pageNumber)</code> row before creating a new one, so
+re-triggering the same document never duplicates page records.</p>
+
+<h3>Phase B — vault-store time (background): <code>protectAndAssembleForVault()</code></h3>
+<p>Called from <span class="file-ref">src/services/vault/vault.service.ts</span> after
+the raw PDF is already safely encrypted and vaulted (so this never blocks the upload
+response — see the callout below). For each page it:</p>
+<ol>
+<li>Reuses the Phase-A page <code>DnaRecord</code> if present, else creates it.</li>
+<li>Embeds a per-page identity signature into the page's raw pixels via
+  <code>identityEmbeddingService.embed()</code> (Section 6) — <code>dnaId</code> =
+  that page's own record, <code>vaultId</code> = the parent document's record, so a
+  leaked page can be traced back to its source document.</li>
+<li>Re-enrolls HKCA and rebuilds the local-DNA patch index on the <em>post-embed</em>
+  bytes (embedding changes pixel values, so the stored tags must match what actually
+  ships) — mirroring exactly how standalone image vault-store re-enrolls on post-embed bytes.</li>
+</ol>
+<p>The protected pages are then reassembled into one PDF with <code>pdf-lib</code>
+(<code>PDFDocument.create()</code>, one page per protected PNG, sized in points at
+<code>pixelWidth × 72 / dpi</code>), re-encrypted under the <em>same</em>
+<code>vaultId</code>, and swapped in for the raw file already in storage — updating
+<code>vault_records.encryptedFilePath</code>/<code>ivHex</code>/<code>authTagHex</code>
+in place. The existing protected-download endpoint then transparently serves the
+pixel-protected pages with no separate download path.</p>
+
+<div class="callout warn">
+<strong>Why Phase B is background, not synchronous:</strong> the full per-page pipeline
+(DNA + HKCA + patch index) took ~55–110 seconds per page in measurement. A 5-page
+document would exceed the frontend's request timeout if <code>vault.service.ts</code>
+awaited it inline — this was fixed by making the PDF upgrade fire-and-forget
+(<code>upgradePdfInBackground()</code>) after the fast raw-file store returns.
+</div>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 880 300" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="a2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#1d4ed8"/></marker></defs>
+<style>.b{fill:#eff6ff;stroke:#2563eb;stroke-width:1.3;rx:7;} .t{font:600 10px sans-serif;fill:#0f1729;text-anchor:middle;} .s{font:8px sans-serif;fill:#475569;text-anchor:middle;} .g{fill:#f0fdf4;stroke:#16a34a;stroke-width:1.3;rx:7;}</style>
+
+<rect class="b" x="10" y="10" width="140" height="50" rx="7"/>
+<text class="t" x="80" y="30">PDF Upload</text>
+<text class="s" x="80" y="45">multer/upload.middleware</text>
+
+<rect class="b" x="190" y="10" width="150" height="50" rx="7"/>
+<text class="t" x="265" y="30">PdfDnaEngine</text>
+<text class="s" x="265" y="45">text/metadata DNA (fast)</text>
+
+<rect class="b" x="380" y="10" width="180" height="50" rx="7"/>
+<text class="t" x="470" y="30">PyMuPDF rasterize</text>
+<text class="s" x="470" y="45">page → PNG @ 150dpi</text>
+
+<line x1="150" y1="35" x2="188" y2="35" stroke="#1d4ed8" marker-end="url(#a2)"/>
+<line x1="340" y1="35" x2="378" y2="35" stroke="#1d4ed8" marker-end="url(#a2)"/>
+
+<rect class="g" x="380" y="100" width="180" height="60" rx="7"/>
+<text class="t" x="470" y="122">Phase A (fast, async)</text>
+<text class="s" x="470" y="138">DnaOrchestrator per page</text>
+<text class="s" x="470" y="150">HKCA on raw bytes</text>
+
+<rect class="g" x="380" y="190" width="180" height="70" rx="7"/>
+<text class="t" x="470" y="212">Phase B (background)</text>
+<text class="s" x="470" y="228">embed identity → re-enroll HKCA</text>
+<text class="s" x="470" y="240">reassemble protected PDF</text>
+<text class="s" x="470" y="252">swap into vault storage</text>
+
+<line x1="470" y1="60" x2="470" y2="98" stroke="#16a34a" marker-end="url(#a2)"/>
+<line x1="470" y1="160" x2="470" y2="188" stroke="#16a34a" marker-end="url(#a2)"/>
+
+<rect class="b" x="620" y="100" width="230" height="60" rx="7"/>
+<text class="t" x="735" y="122">dna_records</text>
+<text class="s" x="735" y="138">documentDnaRecordId + pageNumber</text>
+<text class="s" x="735" y="150">links page → parent</text>
+
+<line x1="560" y1="130" x2="618" y2="130" stroke="#16a34a" marker-end="url(#a2)"/>
+
+<rect class="b" x="620" y="190" width="230" height="70" rx="7"/>
+<text class="t" x="735" y="212">vault_records</text>
+<text class="s" x="735" y="228">encryptedFilePath swapped</text>
+<text class="s" x="735" y="240">to the protected PDF</text>
+<text class="s" x="735" y="252">same vaultId, re-encrypted</text>
+
+<line x1="560" y1="225" x2="618" y2="225" stroke="#16a34a" marker-end="url(#a2)"/>
+</svg>
+</div>
+<p class="caption">Figure 4 — PDF multi-page protection: text-DNA is fast and synchronous; per-page
+pixel protection runs in two background phases so the upload/store requests stay fast.</p>
+
+<!-- ============ 8. STORAGE MODEL ============ -->
+<h1 class="section">8. Storage Model</h1>
+
+<p>All protection data lives in PostgreSQL via Prisma (<span class="file-ref">prisma/schema.prisma</span>).
+Encrypted originals live in Supabase Storage (production) or local disk under
+<code>./vault/encrypted</code> (dev) — never inside the database.</p>
+
+<table>
+<tr><th>Table</th><th>Key fields</th><th>Purpose</th></tr>
+<tr><td><code>dna_records</code></td>
+  <td><code>id</code>, <code>sha256Hash</code>, <code>status</code>, <code>fileType</code>,
+  <code>ownerUserId</code>, <code>universalFingerprints</code> (JSON), <code>documentDnaRecordId</code>,
+  <code>pageNumber</code></td>
+  <td>One row per protected image <em>or</em> per document page. Self-referential for document pages.</td></tr>
+<tr><td><code>crypto_layers</code></td><td><code>sha256Hash</code>, <code>normalizedHash</code>, <code>blake3Hash</code></td><td>L1</td></tr>
+<tr><td><code>structural_layers</code></td><td><code>edgeMapB64</code>, <code>edgeSignature64</code></td><td>L2</td></tr>
+<tr><td><code>perceptual_layers</code></td><td><code>pHash64</code>, <code>pHash256</code>, <code>aHash64</code>, <code>dHash64</code></td><td>L3</td></tr>
+<tr><td><code>semantic_layers</code></td><td>histograms, <code>colorFingerprint</code></td><td>L4</td></tr>
+<tr><td><code>metadata_layers</code></td><td>EXIF/IPTC/XMP, <code>metadataHash</code></td><td>L5</td></tr>
+<tr><td><code>stego_layers</code></td><td><code>payloadHmac</code>, <code>ownershipSignature</code> (JSON), <code>ownershipTileCount</code></td><td>L6</td></tr>
+<tr><td><code>spatial_auth_packages</code></td>
+  <td><code>blockBlob</code> (Phase 1), <code>pixelAuthBlob</code>/<code>pixelAuthRoot</code>/<code>pixelRootMac</code> (Phase 3A HKCA),
+  <code>pixel1AuthBlob</code>/<code>pixel1AuthRoot</code> (Phase 4E), <code>globalDnaRef</code>, <code>keyId</code></td>
+  <td>One compact row per protected image/page — <em>not</em> one row per pixel.</td></tr>
+<tr><td><code>local_feature_indexes</code> + <code>local_dna_patches</code></td>
+  <td><code>patchSize</code>, <code>gridCols/Rows</code>, <code>globalPHash</code>, <code>orbDescriptors</code>;
+  per-patch <code>pHash16</code>, <code>dHash8</code>, <code>aHash8</code>, <code>edgeSignature</code>, <code>colorVector</code></td>
+  <td>Section 5 patch grid, indexed for crop/fragment search.</td></tr>
+<tr><td><code>vault_records</code></td>
+  <td><code>encryptedFilePath</code>, <code>encryptionAlgorithm</code> (AES-256-GCM), <code>ivHex</code>, <code>authTagHex</code>, <code>originalSizeBytes</code></td>
+  <td>The encrypted file itself (or its storage pointer) plus decrypt parameters.</td></tr>
+<tr><td><code>document_lineage</code></td><td><code>fromDnaRecordId</code>, <code>toDnaRecordId</code>, <code>relation</code>, <code>confidence</code></td>
+  <td>Recorded DUPLICATE/SIMILAR/CROP_DERIVATIVE/… relationships discovered during comparisons.</td></tr>
+</table>
+
+<h3>Retrieval for verification</h3>
+<p>Given a <code>vaultDnaRecordId</code>, <span class="file-ref">src/services/forensics/investigation-stored-dna-source.service.ts</span>
+resolves the authoritative stored fingerprint — preferring the sealed
+<code>enterpriseDnaPackage</code> (immutable JSON snapshot of all layer digests,
+Section 9) over re-fingerprinting live vault bytes, so verification is fast and does
+not require decrypting the original file for every comparison.</p>
+
+<!-- ============ 9. VERIFICATION / COMPARISON ============ -->
+<h1 class="section">9. Verification &amp; the Comparison Engine</h1>
+
+<p><span class="file-ref">src/services/verification/comparison-engine.ts</span> —
+<code>ComparisonEngine.compare(fpA, fpB)</code> — is the core layer-by-layer matcher.
+Both a stored fingerprint (A) and a probe fingerprint (B) carry the same 15-layer
+shape; the engine compares layer-for-layer and produces one verdict.</p>
+
+<h3>Per-layer thresholds &amp; weights</h3>
+<table>
+<tr><th>Layer</th><th>Weight</th><th>Match threshold</th></tr>
+<tr><td>L1 Cryptographic</td><td>0.35</td><td>1.00 (exact only)</td></tr>
+<tr><td>L2 Structural</td><td>0.20</td><td>0.80</td></tr>
+<tr><td>L3 Perceptual</td><td>0.20</td><td>0.75</td></tr>
+<tr><td>L4 Semantic</td><td>0.10</td><td>0.70</td></tr>
+<tr><td>L5 Metadata</td><td>0.05</td><td>0.60</td></tr>
+<tr><td>L6 Signature</td><td>0.10</td><td>0.90</td></tr>
+<tr><td>L7–L10</td><td>0 (shown, not scored)</td><td>0.50 / 1.00</td></tr>
+</table>
+
+<p><code>overallScore = Σ (similarityScore × weight)</code> across non-skipped layers.
+Classification:</p>
+<pre>if (L1 matched exactly &amp;&amp; overallScore &gt;= 95) → DNA_MATCH
+else if (overallScore &gt;= 55)                    → SIMILAR
+else                                              → DIFFERENT</pre>
+
+<h3>Tampering pattern detection</h3>
+<p><code>analyzeTampering()</code> inspects which layers changed and classifies the
+<em>kind</em> of change with severity, not just a binary flag:</p>
+<ul>
+<li><strong>Re-encode</strong> (MEDIUM): L1 bytes differ, L3 perceptual similarity ≥ 0.92 → same content, different encoding.</li>
+<li><strong>Minor content edit</strong> (LOW): L1 differs, L3 similarity 0.70–0.91.</li>
+<li><strong>Minor structural edit</strong> (LOW): L1 &amp; L2 differ but L3 stays ≥ 0.90.</li>
+<li><strong>Metadata manipulation only</strong> (MEDIUM): L5 differs, L1–L4 all match — content unchanged, provenance edited.</li>
+<li><strong>Signature forgery attempt</strong> (CRITICAL): L1–L5 all match but L6 differs — content is untouched but the embedded identity seal doesn't verify.</li>
+<li><strong>Heavy structural modification</strong> (HIGH): L2 <em>and</em> L3 similarity both &lt; 0.50.</li>
+<li><strong>Semantic/colour-only edit</strong> (LOW): L4 differs while L2 and L3 stay ≥ 0.80 — filter/colour-grade.</li>
+</ul>
+<p><code>tamperingDetected = indicators.length &gt; 0 || L6 changed</code>.</p>
+
+<div class="callout warn">
+<strong>Document-page verification nuance:</strong> L5 (metadata) and L6 (the
+per-record embedded signature) are inherently unable to match between a freshly
+re-rasterized probe page and a stored fingerprint, even for byte-identical content —
+L6 in particular is deliberately unique per <code>dnaRecordId</code>. Document
+tamper-checking (<code>verifyProtectedDocument()</code> in
+<span class="file-ref">document-page-protection.service.ts</span>) therefore reads L1
+and L3 directly from <code>layerComparisons</code> rather than trusting the generic
+<code>classification</code>/<code>tamperingDetected</code> fields: a page counts as
+unchanged if L1 matched exactly, or L3 similarity ≥ 0.92 (same "re-encoded, content
+identical" bar the engine itself uses).
+</div>
+
+<h3>Enterprise comparison (V2)</h3>
+<p><span class="file-ref">src/services/verification/enterprise-comparison-engine.service.ts</span>
+runs an additional 15-layer domain-scored comparison
+(<code>identity</code>/<code>evidence</code>/<code>ownership</code>/<code>trust</code>
+domains) against the sealed <code>enterpriseDnaPackage</code> when available, feeding
+<code>identityScore</code>/<code>evidenceScore</code>/etc. into the final report
+alongside the legacy engine's score — both run so the legacy
+<code>overallConfidenceScore</code> (which downstream Acceptance logic depends on)
+stays stable while the richer domain breakdown is available for investigators.</p>
+
+<!-- ============ 10. TAMPER LOCALIZATION ============ -->
+<h1 class="section">10. Tamper Localization &amp; Region Detection</h1>
+
+<p>Two independent localization mechanisms exist, used in different situations.</p>
+
+<h3>10.1 Cryptographic localization (no reference bytes needed)</h3>
+<p>HKCA (Section 4.2) re-derives the per-image key and re-computes the HMAC of every
+8×8 cell of the <em>candidate</em> image, compares each to the stored tag, and feeds
+the pass/fail map into <code>findConnectedFineRegions()</code>
+(<span class="file-ref">fine-map.ts</span>) — a 4-connected flood fill over failed
+cells that merges them into bounding-box regions with a cell count and stats
+(<code>tamperedAreaPercentage</code>, <code>exactPassRate</code>). This works even
+when only the protected DNA record is available — no separate reference file needs to
+be fetched or decrypted.</p>
+
+<h3>10.2 Pixel-diff localization (reference image available)</h3>
+<p><span class="file-ref">python-ai/services/forensic_scanner/service.py</span> —
+<code>localize_tamper(probe, reference)</code>: resizes the reference to the probe's
+dimensions, computes <code>cv2.absdiff()</code>, converts to greyscale, thresholds at
+28, applies a 5×5 morphological close to merge nearby noise, then
+<code>cv2.findContours()</code> to extract up to 8 bounding-box regions (≥200px² each).
+Produces <code>modifiedPercent</code>, a JET-colormap heat overlay (base64 PNG for the
+investigator UI), and per-region classification via
+<code>_classify_region_change()</code>.</p>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 860 220" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="a3" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#1d4ed8"/></marker></defs>
+<style>.b{fill:#eff6ff;stroke:#2563eb;stroke-width:1.3;rx:7;} .t{font:600 10px sans-serif;fill:#0f1729;text-anchor:middle;} .s{font:8px sans-serif;fill:#475569;text-anchor:middle;}</style>
+<rect class="b" x="10" y="20" width="180" height="55" rx="7"/>
+<text class="t" x="100" y="42">Candidate image</text>
+<text class="s" x="100" y="58">re-rasterized / re-uploaded</text>
+
+<rect class="b" x="10" y="140" width="180" height="55" rx="7"/>
+<text class="t" x="100" y="162">Stored pixelAuthBlob</text>
+<text class="s" x="100" y="178">8×8 cell HMAC tags</text>
+
+<rect class="b" x="250" y="80" width="200" height="55" rx="7"/>
+<text class="t" x="350" y="102">Per-cell HMAC compare</text>
+<text class="s" x="350" y="118">timingSafeEqual per cell</text>
+
+<rect class="b" x="510" y="80" width="180" height="55" rx="7"/>
+<text class="t" x="600" y="102">4-connected flood fill</text>
+<text class="s" x="600" y="118">group TAMPERED cells</text>
+
+<rect class="b" x="750" y="80" width="100" height="55" rx="7"/>
+<text class="t" x="800" y="102">Region</text>
+<text class="t" x="800" y="116">bounding</text>
+<text class="t" x="800" y="130">boxes</text>
+
+<line x1="190" y1="48" x2="248" y2="95" stroke="#1d4ed8" marker-end="url(#a3)"/>
+<line x1="190" y1="167" x2="248" y2="115" stroke="#1d4ed8" marker-end="url(#a3)"/>
+<line x1="450" y1="107" x2="508" y2="107" stroke="#1d4ed8" marker-end="url(#a3)"/>
+<line x1="690" y1="107" x2="748" y2="107" stroke="#1d4ed8" marker-end="url(#a3)"/>
+</svg>
+</div>
+<p class="caption">Figure 3 — Pixel/region-level tamper localization (HKCA path — no reference file required)</p>
+
+<!-- ============ 11. CROP / RESIZE ============ -->
+<h1 class="section">11. Crop &amp; Resize Detection (Homography)</h1>
+
+<p><span class="file-ref">python-ai/services/forensic_scanner/service.py</span> —
+<code>detect_crop_homography(probe, reference)</code>:</p>
+<ol>
+<li>Decode both images to grayscale (max dimension 1280px) and normalize.</li>
+<li>Extract up to 2500 ORB keypoints/descriptors from each (<code>cv2.ORB_create</code>).</li>
+<li>Match with a brute-force Hamming matcher, cross-check enabled
+  (<code>cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)</code>), keep the best 80
+  matches under distance 50.</li>
+<li>If ≥8 good matches: fit a homography with
+  <code>cv2.findHomography(src, dst, cv2.RANSAC, 5.0)</code> — RANSAC separates true
+  geometric-transform inliers from spurious matches.</li>
+<li><code>sharedRegionPercent</code> is derived from the inlier ratio (inliers / good
+  matches) blended with inlier coverage of the probe's own keypoints;
+  <code>cropPercent = 100 − sharedRegionPercent</code>.</li>
+</ol>
+<p>Below 8 good matches, the function falls back to a coarse keypoint-count ratio
+rather than attempting an unstable homography fit.</p>
+<p>This is the mechanism behind "X% cropped / Y% still visible" reporting in
+investigation results, and is what identifies that two images are the <em>same
+underlying photo</em> even after a crop or perspective change that would break a
+simple pixel hash comparison.</p>
+
+<!-- ============ 12. SCORING ============ -->
+<h1 class="section">12. Similarity, Confidence &amp; Tamper Scoring — Summary</h1>
+
+<table>
+<tr><th>Signal</th><th>Where computed</th><th>What it measures</th></tr>
+<tr><td>Hamming similarity (pHash/dHash/aHash)</td><td>Layer 3, local-DNA patches</td><td>Perceptual closeness, tolerant of re-encoding/resize</td></tr>
+<tr><td>HKCA cell pass rate</td><td>Spatial Auth 3A</td><td>Fraction of 8×8 regions cryptographically intact</td></tr>
+<tr><td>Merkle root / root MAC match</td><td>Spatial Auth 3A</td><td>Binary — was the whole HKCA package tampered</td></tr>
+<tr><td>Weighted overall score (0–100)</td><td>ComparisonEngine.compare()</td><td>Blended L1–L6 similarity → DNA_MATCH / SIMILAR / DIFFERENT</td></tr>
+<tr><td>ORB inlier ratio → sharedRegionPercent</td><td>forensic_scanner (Python)</td><td>Geometric overlap after crop/rotate/perspective change</td></tr>
+<tr><td>modifiedPercent (pixel diff)</td><td>forensic_scanner.localize_tamper</td><td>Literal % of probe pixels differing from a reference</td></tr>
+<tr><td>Fusion score</td><td><code>_fusion_weights()</code>, forensic_scanner</td><td>pHash 0.14, tile 0.18, ORB 0.14, CLIP 0.22, texture 0.08, watermark 0.12, dna 0.12 — blended multi-signal match confidence</td></tr>
+</table>
+
+<p><strong>Distinguishing original vs. modified</strong> is never a single check — it
+is the combination above: L1 exact-match settles "byte-identical or not"; L3/pHash
+settles "same visual content despite re-encoding"; HKCA settles "exactly which region
+changed, cryptographically, with no reference file"; ORB/homography settles "same
+photo, cropped/rotated/perspective-shifted"; and the tampering-pattern rules
+(Section 9) turn the raw layer diffs into a human-readable verdict (re-encode vs.
+minor edit vs. forged signature vs. heavy structural change).</p>
+
+<!-- ============ 13. DIAGRAMS SUMMARY ============ -->
+<h1 class="section">13. End-to-End Flow Diagrams</h1>
+
+<h2>13.1 Protection / Enrollment Flow</h2>
+<div class="diagram-wrap">
+<svg viewBox="0 0 900 260" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="a4" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#1d4ed8"/></marker></defs>
+<style>.b{fill:#eff6ff;stroke:#2563eb;stroke-width:1.3;rx:7;} .t{font:600 9.5px sans-serif;fill:#0f1729;text-anchor:middle;} .s{font:7.6px sans-serif;fill:#475569;text-anchor:middle;}</style>
+<rect class="b" x="10" y="20" width="140" height="50" rx="7"/><text class="t" x="80" y="40">Upload buffer</text><text class="s" x="80" y="55">UniversalFileRouter</text>
+<rect class="b" x="190" y="20" width="140" height="50" rx="7"/><text class="t" x="260" y="40">DnaOrchestrator</text><text class="s" x="260" y="55">L1–L6 (+L7–L15)</text>
+<rect class="b" x="370" y="20" width="150" height="50" rx="7"/><text class="t" x="445" y="40">Spatial Auth enroll</text><text class="s" x="445" y="55">Block + HKCA (+Pixel1)</text>
+<rect class="b" x="560" y="20" width="150" height="50" rx="7"/><text class="t" x="635" y="40">Local-DNA index</text><text class="s" x="635" y="55">multi-scale patches</text>
+<rect class="b" x="750" y="20" width="140" height="50" rx="7"/><text class="t" x="820" y="40">Persist</text><text class="s" x="820" y="55">dna_records + layers</text>
+
+<line x1="150" y1="45" x2="188" y2="45" stroke="#1d4ed8" marker-end="url(#a4)"/>
+<line x1="330" y1="45" x2="368" y2="45" stroke="#1d4ed8" marker-end="url(#a4)"/>
+<line x1="520" y1="45" x2="558" y2="45" stroke="#1d4ed8" marker-end="url(#a4)"/>
+<line x1="710" y1="45" x2="748" y2="45" stroke="#1d4ed8" marker-end="url(#a4)"/>
+
+<rect class="b" x="190" y="140" width="150" height="60" rx="7"/><text class="t" x="265" y="162">Vault store</text><text class="s" x="265" y="178">encrypt(AES-256-GCM)</text>
+<rect class="b" x="380" y="140" width="150" height="60" rx="7"/><text class="t" x="455" y="162">Identity embed</text><text class="s" x="455" y="178">LSB watermark + HMAC sig</text>
+<rect class="b" x="570" y="140" width="170" height="60" rx="7"/><text class="t" x="655" y="162">Re-enroll HKCA</text><text class="s" x="655" y="178">on post-embed bytes</text>
+<line x1="820" y1="70" x2="820" y2="105" stroke="#1d4ed8"/>
+<line x1="820" y1="105" x2="265" y2="105" stroke="#1d4ed8"/>
+<line x1="265" y1="105" x2="265" y2="138" stroke="#1d4ed8" marker-end="url(#a4)"/>
+<line x1="340" y1="170" x2="378" y2="170" stroke="#1d4ed8" marker-end="url(#a4)"/>
+<line x1="530" y1="170" x2="568" y2="170" stroke="#1d4ed8" marker-end="url(#a4)"/>
+</svg>
+</div>
+<p class="caption">Figure A — Enrollment: fingerprint first, encrypt, embed identity, then re-enroll HKCA on the bytes that actually leave the vault.</p>
+
+<h2>13.2 Verification / Matching Flow</h2>
+<div class="diagram-wrap">
+<svg viewBox="0 0 900 200" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="a5" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#1d4ed8"/></marker></defs>
+<style>.b{fill:#eff6ff;stroke:#2563eb;stroke-width:1.3;rx:7;} .t{font:600 9.5px sans-serif;fill:#0f1729;text-anchor:middle;} .s{font:7.6px sans-serif;fill:#475569;text-anchor:middle;}</style>
+<rect class="b" x="10" y="70" width="150" height="60" rx="7"/><text class="t" x="85" y="95">Probe file</text><text class="s" x="85" y="111">re-uploaded / suspect</text>
+<rect class="b" x="200" y="70" width="150" height="60" rx="7"/><text class="t" x="275" y="92">Resolve stored</text><text class="t" x="275" y="106">fingerprint</text><text class="s" x="275" y="120">sealed enterpriseDnaPackage</text>
+<rect class="b" x="390" y="70" width="170" height="60" rx="7"/><text class="t" x="475" y="95">ComparisonEngine</text><text class="s" x="475" y="111">per-layer similarity + weights</text>
+<rect class="b" x="600" y="10" width="150" height="50" rx="7"/><text class="t" x="675" y="30">Classification</text><text class="s" x="675" y="45">DNA_MATCH/SIMILAR/DIFFERENT</text>
+<rect class="b" x="600" y="140" width="150" height="50" rx="7"/><text class="t" x="675" y="160">Tamper patterns</text><text class="s" x="675" y="175">re-encode / forged sig / …</text>
+<rect class="b" x="790" y="70" width="100" height="60" rx="7"/><text class="t" x="840" y="95">Result +</text><text class="t" x="840" y="109">evidence</text>
+
+<line x1="160" y1="100" x2="198" y2="100" stroke="#1d4ed8" marker-end="url(#a5)"/>
+<line x1="350" y1="100" x2="388" y2="100" stroke="#1d4ed8" marker-end="url(#a5)"/>
+<line x1="560" y1="90" x2="598" y2="45" stroke="#1d4ed8" marker-end="url(#a5)"/>
+<line x1="560" y1="110" x2="598" y2="160" stroke="#1d4ed8" marker-end="url(#a5)"/>
+<line x1="750" y1="35" x2="838" y2="72" stroke="#1d4ed8" marker-end="url(#a5)"/>
+<line x1="750" y1="165" x2="838" y2="128" stroke="#1d4ed8" marker-end="url(#a5)"/>
+</svg>
+</div>
+<p class="caption">Figure B — Verification: resolve the SSoT stored fingerprint (no decrypt needed for scoring), compare per layer, derive both a classification and a human-readable tamper pattern.</p>
+
+<!-- ============ 14. FILE REFERENCE INDEX ============ -->
+<h1 class="section">14. File &amp; Service Reference Index</h1>
+<table>
+<tr><th>Concept</th><th>File</th></tr>
+<tr><td>Upload entry point / type detection</td><td><code>src/services/universal-file-router.ts</code>, <code>src/services/file-type-detector.ts</code></td></tr>
+<tr><td>Image 15-layer DNA orchestrator</td><td><code>src/services/dna.orchestrator.ts</code></td></tr>
+<tr><td>Layers 1–6</td><td><code>src/services/layers/layer1.cryptographic.ts</code> … <code>layer6.steganography.ts</code></td></tr>
+<tr><td>Layers 7–10 / 11–15</td><td><code>src/services/layers/layer7.behavioral.ts</code> … <code>layer10.evolution.ts</code>, <code>layers-11-15.service.ts</code></td></tr>
+<tr><td>Spatial Auth — enroll / persist</td><td><code>src/services/spatial/enroll.service.ts</code></td></tr>
+<tr><td>HKCA (Phase 3A) internals</td><td><code>src/services/spatial/pixel-auth/{cell-grid,cell-auth,pixel-blob,pixel-merkle,key-derivation,fine-map,verify,package-builder}.ts</code></td></tr>
+<tr><td>Dense per-pixel (Phase 4E)</td><td><code>src/services/spatial/pixel1-*.ts</code> (via <code>enroll.service.ts</code>)</td></tr>
+<tr><td>Local-DNA patch generation / index</td><td><code>src/services/forensics/local-dna-patch-generator.service.ts</code>, <code>local-dna-index.service.ts</code></td></tr>
+<tr><td>Fragment/splice detection</td><td><code>src/services/forensics/fragment-splice-detector.service.ts</code></td></tr>
+<tr><td>Identity embedding (LSB/PDF/OOXML)</td><td><code>src/services/identity/identity-embedding.service.ts</code>, <code>identity-embedding-pipeline.service.ts</code></td></tr>
+<tr><td>Vault encrypt/store/retrieve</td><td><code>src/services/vault/vault.service.ts</code></td></tr>
+<tr><td>Document rasterization (Python)</td><td><code>python-ai/services/document_rasterizer/service.py</code></td></tr>
+<tr><td>Document page protection (2-phase)</td><td><code>src/services/documents/document-page-protection.service.ts</code></td></tr>
+<tr><td>PDF/DOCX text-DNA engines</td><td><code>src/services/engines/pdf/pdf-dna-engine.ts</code>, <code>engines/docx/docx-dna-engine.ts</code></td></tr>
+<tr><td>Comparison / classification engine</td><td><code>src/services/verification/comparison-engine.ts</code>, <code>dna-comparison.service.ts</code></td></tr>
+<tr><td>Enterprise (V2) comparison</td><td><code>src/services/verification/enterprise-comparison-engine.service.ts</code></td></tr>
+<tr><td>Leaked-file / re-upload detection</td><td><code>src/services/forensics/leaked-file-verify.service.ts</code></td></tr>
+<tr><td>Forensic scanner — ORB/homography/pixel-diff (Python)</td><td><code>python-ai/services/forensic_scanner/service.py</code></td></tr>
+<tr><td>Prisma schema (all models above)</td><td><code>prisma/schema.prisma</code></td></tr>
+</table>
+
+<div class="footer-note">
+PINIT-DNA — Pixel-Level Protection Technical Documentation. Generated directly from
+the source implementation for engineering reference. Sections and diagrams reflect
+the code as of the current working tree; enable <code>PRISMA_LOG_QUERIES</code> /
+consult the referenced files directly for line-level detail beyond what is
+summarized here.
+</div>
+
+</body>
+</html>

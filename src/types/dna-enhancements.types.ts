@@ -209,6 +209,7 @@ export type TamperVector =
   | 'PARTIAL_CLIP'
   | 'OCR_MODIFICATION'
   | 'COLOR_ADJUSTMENT'
+  | 'SPLICED_FRAGMENT'
   | 'UNKNOWN_TAMPER';
 
 export interface TamperClassificationResult {

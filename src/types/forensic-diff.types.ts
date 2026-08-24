@@ -73,6 +73,14 @@ export interface ImageDiffResult {
   visualDescription:      string;
   heatmapAvailable:       boolean;
   error?:                 string;
+  /**
+   * Phase 2 Spatial Auth — additive cryptographic block localization.
+   * Present only when Mode A verify was attached; derived evidence only.
+   */
+  spatialBlockLocalization?: unknown;
+  spatialAuthStatus?: string;
+  /** Phase 3C hierarchical investigation (visualization only; not a trust source) */
+  spatialInvestigation?: unknown;
 }
 
 // ─── Metadata diff ────────────────────────────────────────────────────────────
