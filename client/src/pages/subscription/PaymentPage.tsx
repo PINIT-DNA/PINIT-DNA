@@ -139,7 +139,7 @@ export function PaymentPage() {
     <>
       <SubscriptionFlowShell
         title="Complete payment"
-        subtitle={`PINITHub ${plan.name} · ₹${total}/month`}
+        subtitle={`Pinit HUB ${plan.name} · ₹${total}/month`}
         step={{ current: 2, total: 3, label: 'Payment' }}
         backTo="/subscription/checkout"
         backLabel="Back to checkout"
@@ -234,7 +234,7 @@ export function PaymentPage() {
             <label className="flex items-start gap-2 text-xs text-gray-400 cursor-pointer">
               <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} className="mt-0.5 accent-dna-500" />
               <span>
-                I agree to the Terms of Service and authorize PINITHub to charge ₹{total} monthly until I cancel.
+                I agree to the Terms of Service and authorize Pinit HUB to charge ₹{total} monthly until I cancel.
               </span>
             </label>
           </div>

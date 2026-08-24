@@ -277,7 +277,7 @@ export function OrganizationProfileTab({
               value={form.bio}
               onChange={(e) => setForm({ ...form, bio: e.target.value })}
               className="w-full px-3 py-2 bg-bg-elevated border border-bg-border rounded-lg text-xs text-white resize-none h-24 focus:outline-none focus:border-dna-500"
-              placeholder="Describe your organization, mission, and what you protect with PINITHub…"
+              placeholder="Describe your organization, mission, and what you protect with Pinit HUB…"
             />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

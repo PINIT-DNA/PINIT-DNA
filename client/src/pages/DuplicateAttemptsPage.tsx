@@ -123,7 +123,7 @@ export function DuplicateAttemptsPage() {
       ) : !attempts || attempts.length === 0 ? (
         <EmptyState
           icon={CheckCircle2}
-          title="No Duplicate Attempts"
+          title="No duplicate attempts"
           description="No duplicate upload attempts have been detected. The registry is clean."
         />
       ) : (

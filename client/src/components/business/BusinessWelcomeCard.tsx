@@ -22,7 +22,7 @@ export function BusinessWelcomeCard({
         <div className="space-y-1 min-w-0">
           <div className="inline-flex items-center gap-2 text-purple-300 text-xs font-medium">
             <Sparkles size={12} />
-            Welcome to PINITHub Business
+            Welcome to Pinit HUB Business
           </div>
           <h2 className="text-xl font-bold text-white">Business mode is ready on your account</h2>
           <p className="text-sm text-gray-400">

@@ -89,11 +89,11 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
             <ShieldCheck size={16} className="text-dna-400" />
             <p className="text-sm font-semibold text-white">{record.originalFileName}</p>
           </div>
-          <p className="text-2xs text-gray-400 mb-2">
+          <p className="text-xs text-gray-400 mb-2">
             Download with tracking so you can see who received the file. Opening outside Pinit may still
             be identified later through Investigate.
           </p>
-          <ul className="text-2xs text-dna-300 space-y-0.5">
+          <ul className="text-xs text-dna-300 space-y-0.5">
             <li>✓ Tracked delivery</li>
             <li>✓ Visible watermark</li>
             <li>✓ Download log (time / device)</li>
@@ -105,7 +105,7 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
         {phase === 'idle' && (
           <div className="space-y-3">
             <div>
-              <label className="text-2xs text-gray-500">Recipient (optional label)</label>
+              <label className="text-xs text-gray-500">Recipient (optional label)</label>
               <input
                 className="input text-sm mt-1"
                 placeholder="e.g. HR team / self"
@@ -135,7 +135,7 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
         </ul>
 
         {phase === 'done' && forensicPreserved && (
-          <div className="text-2xs text-success text-center space-y-1">
+          <div className="text-xs text-success text-center space-y-1">
             <p>Protected download recorded in chain of custody.</p>
             {lastTep && <p className="text-dna-300 text-xs">Tracking code {lastTep}</p>}
           </div>
@@ -206,7 +206,7 @@ function VaultGalleryCard({
           {getVaultFileTypeDisplay(record.originalMimeType, record.originalFileName)}
           {source ? ` · ${source}` : ''}
         </p>
-        <p className="text-2xs text-gray-500">
+        <p className="text-xs text-gray-500">
           {format(new Date(record.createdAt), 'MMM d, yyyy')}
         </p>
       </div>
@@ -343,17 +343,17 @@ export function VaultPage() {
         <div className="stat-grid-3 gap-3">
           <div className="card-sm text-center">
             <p className="text-2xl font-bold text-purple tabular-nums">{records.length}</p>
-            <p className="text-2xs text-gray-500 mt-1">Protected assets</p>
+            <p className="text-xs text-gray-500 mt-1">Protected assets</p>
           </div>
           <div className="card-sm text-center">
             <p className="text-2xl font-bold text-success tabular-nums">
               {formatBytes(records.reduce((s, r) => s + r.encryptedSizeBytes, 0))}
             </p>
-            <p className="text-2xs text-gray-500 mt-1">Storage used</p>
+            <p className="text-xs text-gray-500 mt-1">Storage used</p>
           </div>
           <div className="card-sm text-center">
             <p className="text-2xl font-bold text-dna-400">Protected</p>
-            <p className="text-2xs text-gray-500 mt-1">Only you control access</p>
+            <p className="text-xs text-gray-500 mt-1">Only you control access</p>
           </div>
         </div>
       )}
@@ -527,14 +527,14 @@ export function VaultPage() {
                           <p className="text-sm font-medium text-white truncate max-w-[200px]">
                             {r.originalFileName}
                           </p>
-                          <p className="text-2xs text-gray-500">
+                          <p className="text-xs text-gray-500">
                             {getVaultFileTypeDisplay(r.originalMimeType, r.originalFileName)}
                           </p>
                         </div>
                       </div>
                     </td>
                     <td>
-                      <span className="text-2xs text-gray-300">
+                      <span className="text-xs text-gray-300">
                         {vaultSourceCaption(r) ?? 'Pinit HUB'}
                       </span>
                     </td>
@@ -546,7 +546,7 @@ export function VaultPage() {
                         <div className="flex items-start gap-1 max-w-[160px]">
                           <MapPin size={12} className="text-dna-400 shrink-0 mt-0.5" />
                           <span
-                            className="text-2xs text-gray-300 truncate"
+                            className="text-xs text-gray-300 truncate"
                             title={[
                               r.location.creationLabel && `Created: ${r.location.creationLabel}`,
                               r.location.sharedLabel && `Shared: ${r.location.sharedLabel}`,
@@ -560,7 +560,7 @@ export function VaultPage() {
                           </span>
                         </div>
                       ) : (
-                        <span className="text-2xs text-gray-500">Unavailable</span>
+                        <span className="text-xs text-gray-500">Unavailable</span>
                       )}
                     </td>
                     <td>

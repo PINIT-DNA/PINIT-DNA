@@ -15,7 +15,7 @@ const UNLOCK_ITEMS = [
 ];
 
 export function UpgradeRequiredPanel({
-  title = 'Upgrade to PINITHub Pro',
+  title = 'Upgrade to Pinit HUB Pro',
   featureLabel = 'this premium module',
   requiredPlan = 'PRO',
 }: UpgradeRequiredPanelProps) {

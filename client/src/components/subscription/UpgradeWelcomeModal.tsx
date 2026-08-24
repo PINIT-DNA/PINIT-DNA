@@ -69,7 +69,7 @@ export function UpgradeWelcomeModal({ open, planCode, onDismiss }: UpgradeWelcom
                     Upgrade complete
                   </div>
                   <h2 className="text-lg font-bold text-white">
-                    Welcome to PINITHub {isEnterprise ? 'Enterprise' : 'Pro'}
+                    Welcome to Pinit HUB {isEnterprise ? 'Enterprise' : 'Pro'}
                   </h2>
                 </div>
               </div>

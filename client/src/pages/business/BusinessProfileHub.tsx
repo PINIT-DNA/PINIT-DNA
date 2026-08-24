@@ -152,7 +152,7 @@ export function BusinessProfileHub({
         <div className="flex items-start gap-5 flex-wrap">
           <div className="w-20 h-20 rounded-2xl border-2 border-violet-200 bg-violet-50 dark:border-blue-500/30 dark:bg-blue-500/10 flex items-center justify-center shrink-0 overflow-hidden">
             {organization?.logoUrl ? (
-              <img src={organization.logoUrl} alt="" className="w-full h-full object-cover" />
+              <img src={organization.logoUrl} alt="Organization logo" className="w-full h-full object-cover" />
             ) : (
               <Building2 size={32} className="text-violet-700 dark:text-blue-400" />
             )}
@@ -454,7 +454,7 @@ function OrganizationTab({
               value={form.aboutDescription}
               onChange={(e) => setForm({ ...form, aboutDescription: e.target.value })}
               className="w-full px-3 py-2.5 bg-bg-elevated/80 border border-bg-border rounded-xl text-sm text-white resize-none h-28 focus:outline-none focus:border-purple-500/50"
-              placeholder="Mission, focus areas, and what you protect with PINITHub…"
+              placeholder="Mission, focus areas, and what you protect with Pinit HUB…"
             />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
