@@ -8,7 +8,7 @@ import {
 import { SubscriptionFlowShell } from '../../components/subscription/SubscriptionFlowShell';
 import { loadCheckoutSession, updateCheckoutSession, clearCheckoutSession } from '../../lib/subscription/checkout-session';
 import { getPlan, FALLBACK_PLANS } from '../../lib/subscription/plans';
-import { fetchBillingConfig, resolvePaymentProvider } from '../../lib/subscription/payment-provider';
+import { fetchBillingConfig, resolvePaymentProvider, mockPaymentProvider } from '../../lib/subscription/payment-provider';
 import { invalidateSubscriptionCache } from '../../hooks/useSubscription';
 import { markPlanChoiceComplete } from '../../lib/plan-onboarding';
 import { setPendingUpgradeWelcome } from '../../lib/subscription/upgrade-welcome';
@@ -45,6 +45,7 @@ export function PaymentPage() {
   const [processStep, setProcessStep] = useState(0);
   const [savedCard] = useState(true);
   const [useRazorpay, setUseRazorpay] = useState<boolean | null>(null);
+  const [mockAllowed, setMockAllowed] = useState(false);
 
   useEffect(() => {
     if (!session?.planCode || !plan) {
@@ -53,15 +54,18 @@ export function PaymentPage() {
   }, [session, plan, navigate]);
 
   useEffect(() => {
-    void fetchBillingConfig().then((cfg) => setUseRazorpay(cfg.configured));
+    void fetchBillingConfig().then((cfg) => {
+      setUseRazorpay(cfg.configured);
+      setMockAllowed(cfg.mockAllowed);
+    });
   }, []);
 
   if (!session || !plan) return null;
 
-  async function handlePay(simulateFailure = false) {
+  async function handlePay(simulateFailure = false, forceMock = false) {
     if (!terms || !session) return;
 
-    const provider = await resolvePaymentProvider();
+    const provider = forceMock ? mockPaymentProvider : await resolvePaymentProvider();
     const isRazorpay = provider.id === 'razorpay';
 
     let stepTimer: ReturnType<typeof setInterval> | undefined;
@@ -270,6 +274,16 @@ export function PaymentPage() {
               >
                 {useRazorpay ? `Pay with Razorpay · ₹${total}` : `Proceed to pay ₹${total}`}
               </button>
+              {useRazorpay && mockAllowed && (
+                <button
+                  type="button"
+                  disabled={!terms || phase !== 'form'}
+                  onClick={() => void handlePay(false, true)}
+                  className="w-full mt-2 py-2.5 rounded-xl text-xs font-semibold border border-dashed border-amber-500/40 text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-50"
+                >
+                  🧪 Simulate successful payment (dev/test only)
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => navigate('/upgrade')}
@@ -285,6 +299,7 @@ export function PaymentPage() {
               {useRazorpay && (
                 <p className="text-2xs text-gray-600 mt-3 text-center">
                   Payments are processed securely by Razorpay.
+                  {mockAllowed && ' The simulate button skips checkout entirely — dev-only, unavailable in production.'}
                 </p>
               )}
             </div>
