@@ -141,9 +141,9 @@ export function GenerationProgress({
     if (phase !== 'processing') return;
 
     const timers = [
-      window.setTimeout(() => setSubStep(1), 450),
-      window.setTimeout(() => setSubStep(2), 1100),
-      window.setTimeout(() => setSubStep(3), 1900),
+      window.setTimeout(() => setSubStep(1), 120),
+      window.setTimeout(() => setSubStep(2), 280),
+      window.setTimeout(() => setSubStep(3), 450),
     ];
     return () => timers.forEach((t) => window.clearTimeout(t));
   }, [phase, checklistFloor]);

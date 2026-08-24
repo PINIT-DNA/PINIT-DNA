@@ -21,9 +21,6 @@ export function VaultStep({ file, dnaRecordId, custodyLocation, onComplete, onEr
     let cancelled = false;
 
     const run = async () => {
-      await delay(1100);
-      if (cancelled) return;
-
       try {
         const result = await storeInVault(
           file,
@@ -38,9 +35,8 @@ export function VaultStep({ file, dnaRecordId, custodyLocation, onComplete, onEr
         );
         if (cancelled) return;
         setStage('complete');
-        await delay(600);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if (!cancelled) onComplete(result as any);
+        onComplete(result as any);
       } catch (err: unknown) {
         if (cancelled) return;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -55,7 +51,7 @@ export function VaultStep({ file, dnaRecordId, custodyLocation, onComplete, onEr
       }
     };
 
-    run();
+    void run();
     return () => { cancelled = true; };
   }, [file, dnaRecordId, custodyLocation, onComplete, onError]);
 
@@ -78,8 +74,4 @@ export function VaultStep({ file, dnaRecordId, custodyLocation, onComplete, onEr
       )}
     </motion.div>
   );
-}
-
-function delay(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
 }

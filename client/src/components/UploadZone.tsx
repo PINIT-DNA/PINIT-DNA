@@ -248,8 +248,7 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
                     <Upload size={28} className="text-dna-400" />
                   </div>
                   <p className="text-white font-semibold text-lg mb-1">Drag & drop any asset</p>
-                  <p className="text-gray-500 text-sm mb-4">or click here to browse</p>
-                  <p className="text-gray-600 text-xs">Max 500 MB</p>
+                  <p className="text-gray-500 text-sm">or click here to browse</p>
                 </>
               )}
             </div>

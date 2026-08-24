@@ -5,7 +5,6 @@ import toast from 'react-hot-toast';
 import type { DnaSession } from '../types';
 import { formatBytes } from '../lib/file-type-utils';
 import { protectedDownloadFromVault } from '../services/dashboard.api';
-import { AuthenticityReportCard } from './AuthenticityReportCard';
 import { formatTrackId, formatVaultId } from '../lib/lifecycle-ids';
 
 interface Props {
@@ -105,14 +104,6 @@ export function SuccessPanel({ session, onReset }: Props) {
               )}
             </div>
           </div>
-
-          {imageAnalysis && (
-            <AuthenticityReportCard
-              analysis={imageAnalysis}
-              compact
-              title="Image analysis"
-            />
-          )}
 
           <div className="rounded-xl bg-bg-elevated border border-bg-border p-3.5">
             <div className="flex items-center justify-between gap-2 mb-1">

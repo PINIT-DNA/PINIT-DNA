@@ -84,7 +84,7 @@ export default function App() {
         fileAnalysis:     result.fileAnalysis ?? null,
       });
 
-      setTimeout(() => setStage('encrypting'), 150);
+      setStage('encrypting');
     } catch (err: unknown) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const anyErr = err as any;
@@ -107,7 +107,7 @@ export default function App() {
 
   const handleEncryptionComplete = useCallback((enc: EncryptionResult) => {
     setSession((prev) => (prev ? { ...prev, encryption: enc } : prev));
-    setTimeout(() => setStage('vaulting'), 150);
+    setStage('vaulting');
   }, []);
 
   const handleVaultComplete = useCallback((vault: VaultStoreResponse) => {
@@ -116,7 +116,7 @@ export default function App() {
       vault,
       fileAnalysis: vault.contentAnalysis ?? prev.fileAnalysis ?? null,
     } : prev));
-    setTimeout(() => setStage('readying'), 150);
+    setStage('readying');
   }, []);
 
   const handleVaultError = useCallback((msg: string) => {
