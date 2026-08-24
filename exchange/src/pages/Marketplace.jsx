@@ -232,21 +232,19 @@ export default function Marketplace({
     if (!user?.pinit_id || !editing) return;
     setSaving(true);
     setEditError('');
-    try {
-      const res = await fetch(`/api/listings/${encodeURIComponent(editing.listing_id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pinit_id: user.pinit_id, ...editForm }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Update failed');
-      setEditing(null);
-      await fetchListings();
-    } catch (err) {
-      setEditError(err.message || 'Update failed');
-    } finally {
+    const { ok, error } = await apiFetch(`/api/listings/${encodeURIComponent(editing.listing_id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pinit_id: user.pinit_id, ...editForm }),
+    });
+    if (!ok) {
+      setEditError(error || 'Update failed');
       setSaving(false);
+      return;
     }
+    setEditing(null);
+    await fetchListings();
+    setSaving(false);
   };
 
   const isOwner = (item) => samePinitIdentity(user?.pinit_id, item.pinit_id);
