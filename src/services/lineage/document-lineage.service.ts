@@ -14,10 +14,14 @@ import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 
 export type LineageRelation =
-  | 'DUPLICATE'       // DNA_MATCH (≥95% similarity)
-  | 'DERIVED_FROM'    // SIMILAR (55–94%)
-  | 'RELATED'         // Some layers match
-  | 'MODIFIED_COPY';  // Content same, metadata different
+  | 'DUPLICATE'          // DNA_MATCH (≥95% similarity)
+  | 'DERIVED_FROM'       // SIMILAR (55–94%)
+  | 'RELATED'            // Some layers match
+  | 'MODIFIED_COPY'      // Content same, metadata different
+  | 'CROP_DERIVATIVE'    // Whole-image match with Crop as the primary tamper vector
+  | 'RESIZE_DERIVATIVE'  // Whole-image match with Resize as the primary tamper vector
+  | 'AI_TRANSFORMED'     // Whole-image match with AI Editing/Enhancement/Generated detected
+  | 'FRAGMENT_COMPOSITE'; // A fragment of this asset was found composited into the other
 
 export interface LineageNode {
   dnaRecordId: string;
@@ -48,13 +52,39 @@ export class DocumentLineageService {
     dnaRecordIdA:   string;
     dnaRecordIdB:   string;
     classification: string;   // DNA_MATCH | SIMILAR | DIFFERENT
-    confidence:     number;   // 0–100
+    confidence:     number;   // 0–100 — overall whole-image match confidence
     changedLayers:  string[];
+    /** Additive — when available, these produce a more specific relation than
+     * the raw confidence band alone (e.g. "this is specifically a crop", not
+     * just "somewhat similar"). Falls back to band-based classification when
+     * omitted, so existing callers keep working unchanged. */
+    primaryTamperVector?: string | null;
+    fragmentDetected?: boolean;
+    fragmentConfidence?: number | null;
   }): Promise<void> {
-    // Determine relationship type
+    // Determine relationship type — prefer a specific, evidence-backed relation
+    // over the generic confidence band when richer signal is available.
     let relation: LineageRelation;
-    if (params.confidence >= 95) {
+    let edgeConfidence = params.confidence;
+
+    if (params.fragmentDetected) {
+      // A fragment match is inherently a low WHOLE-IMAGE confidence scenario by
+      // definition (only part of the asset is present) — record it on its own
+      // confidence rather than falling through the "too different" cutoff below.
+      relation = 'FRAGMENT_COMPOSITE';
+      edgeConfidence = params.fragmentConfidence ?? params.confidence;
+    } else if (params.confidence >= 95) {
       relation = 'DUPLICATE';
+    } else if (params.primaryTamperVector === 'CROP') {
+      relation = 'CROP_DERIVATIVE';
+    } else if (params.primaryTamperVector === 'RESIZE') {
+      relation = 'RESIZE_DERIVATIVE';
+    } else if (
+      params.primaryTamperVector === 'AI_EDITING'
+      || params.primaryTamperVector === 'AI_ENHANCEMENT'
+      || params.primaryTamperVector === 'AI_GENERATED'
+    ) {
+      relation = 'AI_TRANSFORMED';
     } else if (params.confidence >= 80) {
       relation = 'MODIFIED_COPY';
     } else if (params.confidence >= 55) {
@@ -78,18 +108,18 @@ export class DocumentLineageService {
           fromDnaRecordId: params.dnaRecordIdA,
           toDnaRecordId:   params.dnaRecordIdB,
           relation,
-          confidence:      params.confidence,
+          confidence:      edgeConfidence,
         },
         update: {
           relation,
-          confidence: params.confidence,
+          confidence: edgeConfidence,
         },
       });
 
       logger.info('Lineage relationship recorded', {
         fromId: params.dnaRecordIdA.slice(0, 8),
         toId:   params.dnaRecordIdB.slice(0, 8),
-        relation, confidence: params.confidence,
+        relation, confidence: edgeConfidence,
       });
     } catch (err) {
       // Non-fatal — lineage is supplemental data

@@ -282,6 +282,37 @@ class ForensicScannerService(EnterpriseAIService):
                 break
         return tiles
 
+    def _classify_region_change(
+        self,
+        probe_gray: np.ndarray,
+        ref_gray: np.ndarray,
+        x: int, y: int, w: int, h: int,
+    ) -> str:
+        """
+        Heuristic add/remove classification for one changed region.
+        Compares local texture (Laplacian variance) inside the box between
+        probe and reference: new detail appearing => "added"; detail flattened
+        out (e.g. painted over / blurred / deleted) => "removed". Not a proof —
+        a best-effort signal alongside the pixel-diff region itself.
+        """
+        import cv2
+
+        probe_crop = probe_gray[y:y + h, x:x + w]
+        ref_crop = ref_gray[y:y + h, x:x + w]
+        if probe_crop.size == 0 or ref_crop.size == 0:
+            return "modified"
+
+        probe_var = float(cv2.Laplacian(probe_crop, cv2.CV_64F).var())
+        ref_var = float(cv2.Laplacian(ref_crop, cv2.CV_64F).var())
+        denom = max(probe_var, ref_var, 1e-6)
+        delta = (probe_var - ref_var) / denom
+
+        if delta > 0.35:
+            return "added"
+        if delta < -0.35:
+            return "removed"
+        return "modified"
+
     def localize_tamper(
         self,
         probe_bytes: bytes,
@@ -318,6 +349,9 @@ class ForensicScannerService(EnterpriseAIService):
         Image.fromarray(overlay.astype(np.uint8)).save(buf, format="PNG")
         overlay_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
 
+        probe_gray_full = cv2.cvtColor(probe_rgb, cv2.COLOR_RGB2GRAY)
+        ref_gray_full = cv2.cvtColor(ref_resized, cv2.COLOR_RGB2GRAY)
+
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         regions = []
         for cnt in contours[:8]:
@@ -326,7 +360,7 @@ class ForensicScannerService(EnterpriseAIService):
                 continue
             regions.append({
                 "x": int(x), "y": int(y), "width": int(w), "height": int(h),
-                "type": "modified",
+                "type": self._classify_region_change(probe_gray_full, ref_gray_full, x, y, w, h),
             })
 
         return ServiceResult(True, {
@@ -568,8 +602,12 @@ class ForensicScannerService(EnterpriseAIService):
         if probe_gray is None or ref_gray is None:
             return ServiceResult(False, {}, "Failed to decode images", self.name)
 
-        pg = self._normalize(cv2.cvtColor(probe_gray, cv2.COLOR_RGB2GRAY))
-        rg = self._normalize(cv2.cvtColor(ref_gray, cv2.COLOR_RGB2GRAY))
+        # _normalize() already converts RGB→gray internally (see extract_features for the
+        # same pattern) — pre-converting here as well fed it an already 1-channel image and
+        # crashed with "Invalid number of channels", taking down the whole forensic-scan
+        # request (crop % + tamper localization) for every investigation with a reference image.
+        pg = self._normalize(probe_gray)
+        rg = self._normalize(ref_gray)
 
         orb = cv2.ORB_create(nfeatures=2500)
         kp1, des1 = orb.detectAndCompute(pg, None)
@@ -665,12 +703,18 @@ class ForensicScannerService(EnterpriseAIService):
         crop_data: dict[str, Any] = {}
         tamper_localization: dict[str, Any] = {}
         if reference_bytes:
-            crop = self.detect_crop_homography(image_bytes, reference_bytes)
-            if crop.success:
-                crop_data = crop.data
-            loc = self.localize_tamper(image_bytes, reference_bytes)
-            if loc.success:
-                tamper_localization = loc.data
+            try:
+                crop = self.detect_crop_homography(image_bytes, reference_bytes)
+                if crop.success:
+                    crop_data = crop.data
+            except Exception:
+                pass
+            try:
+                loc = self.localize_tamper(image_bytes, reference_bytes)
+                if loc.success:
+                    tamper_localization = loc.data
+            except Exception:
+                pass
 
         # Merge tile + CLIP candidates by vaultId
         merged: dict[str, dict[str, Any]] = {}

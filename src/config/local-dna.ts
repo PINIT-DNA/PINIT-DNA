@@ -52,4 +52,20 @@ export const localDnaConfig = {
   orbRefineTopK: intEnv('PINIT_LOCAL_DNA_ORB_TOP_K', 5),
   /** Weight per scale in multi-scale voting */
   scaleWeights: { 16: 0.12, 32: 0.25, 64: 0.25, 128: 0.20, 256: 0.18 } as Record<number, number>,
+  /**
+   * Small-fragment splice detection — separate, deliberately looser gating than the
+   * crop-recovery thresholds above. A pasted-in fragment (e.g. just the eyes) is
+   * legitimately a tiny fraction of the probe, so it must not be filtered by minMatchRatio.
+   */
+  fragmentDetection: {
+    enabled: flag('PINIT_FRAGMENT_DETECTION_ENABLED', true),
+    /** Min patches in a spatially-coherent island to call it a fragment hit */
+    minPatchMatches: intEnv('PINIT_FRAGMENT_MIN_PATCHES', 3),
+    /** Island's probe bounding-box area must be <= this % of the probe canvas (else it's a crop, not a splice) */
+    maxProbeBBoxAreaPercent: parseFloat(process.env['PINIT_FRAGMENT_MAX_BBOX_PCT'] ?? '35'),
+    /** Min internal spatial consistency (translation agreement) within the island */
+    minIslandSpatialConsistency: parseFloat(process.env['PINIT_FRAGMENT_MIN_SPATIAL'] ?? '0.3'),
+    /** Grid-cell adjacency radius (in probe grid units) used to cluster patches into islands */
+    clusterAdjacency: intEnv('PINIT_FRAGMENT_CLUSTER_ADJACENCY', 2),
+  },
 } as const;

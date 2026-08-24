@@ -142,6 +142,113 @@ const STATUS_STROKE: Record<SpatialCellStatus, string> = {
   UNKNOWN: 'rgba(148,163,184,0.0)',
 };
 
+/** Magnified crop around one pixel, with a bold red box on the exact tampered cell. */
+function PixelZoomCanvas({
+  imageUrl,
+  x,
+  y,
+  cropRadius = 14,
+  displaySize = 200,
+  boxed,
+}: {
+  imageUrl?: string | null;
+  x: number;
+  y: number;
+  cropRadius?: number;
+  displaySize?: number;
+  boxed: boolean;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    canvas.width = displaySize;
+    canvas.height = displaySize;
+
+    if (!imageUrl) {
+      ctx.fillStyle = '#0f1623';
+      ctx.fillRect(0, 0, displaySize, displaySize);
+      return;
+    }
+
+    let cancelled = false;
+    const cropSize = cropRadius * 2 + 1;
+    const sx = Math.max(0, x - cropRadius);
+    const sy = Math.max(0, y - cropRadius);
+    const scale = displaySize / cropSize;
+    const px = (x - sx) * scale;
+    const py = (y - sy) * scale;
+
+    const img = new window.Image();
+    img.onload = () => {
+      if (cancelled) return;
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, displaySize, displaySize);
+      ctx.drawImage(img, sx, sy, cropSize, cropSize, 0, 0, displaySize, displaySize);
+      if (boxed) {
+        ctx.fillStyle = 'rgba(239,68,68,0.30)';
+        ctx.fillRect(px, py, scale, scale);
+        ctx.strokeStyle = 'rgba(239,68,68,1)';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(px + 1, py + 1, scale - 2, scale - 2);
+      }
+    };
+    img.onerror = () => {
+      if (cancelled) return;
+      ctx.fillStyle = '#0f1623';
+      ctx.fillRect(0, 0, displaySize, displaySize);
+    };
+    img.src = imageUrl;
+    return () => {
+      cancelled = true;
+    };
+  }, [imageUrl, x, y, cropRadius, displaySize, boxed]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="rounded-lg border border-bg-border"
+      style={{ width: displaySize, height: displaySize, imageRendering: 'pixelated' }}
+    />
+  );
+}
+
+/** Before/after magnified pair for one tampered pixel coordinate. */
+function PixelZoomPair({
+  x,
+  y,
+  originalImageUrl,
+  suspectImageUrl,
+}: {
+  x: number;
+  y: number;
+  originalImageUrl?: string | null;
+  suspectImageUrl?: string | null;
+}) {
+  return (
+    <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-2 space-y-1.5">
+      <p className="text-2xs text-gray-300">
+        Pixel (<span className="mono">{x}</span>, <span className="mono">{y}</span>)
+      </p>
+      <div className="flex gap-2">
+        {originalImageUrl && (
+          <div className="space-y-1">
+            <p className="text-2xs text-gray-500">Original</p>
+            <PixelZoomCanvas imageUrl={originalImageUrl} x={x} y={y} boxed={false} />
+          </div>
+        )}
+        <div className="space-y-1">
+          <p className="text-2xs text-gray-500">Suspect (tampered)</p>
+          <PixelZoomCanvas imageUrl={suspectImageUrl} x={x} y={y} boxed />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StatusIcon({ status }: { status: SpatialCellStatus }) {
   if (status === 'TAMPERED') return <AlertTriangle size={12} className="text-red-400" />;
   if (status === 'AUTHENTIC') return <CheckCircle2 size={12} className="text-emerald-400" />;
@@ -631,26 +738,47 @@ export function SpatialAuthInvestigationPanel({
           ) : pixelList.length === 0 ? (
             <p className="text-2xs text-gray-500">No failed 1×1 pixels in this run.</p>
           ) : (
-            <div className="max-h-36 overflow-auto rounded-lg border border-bg-border">
-              <table className="w-full text-2xs">
-                <thead className="text-gray-500 bg-bg-base/80 sticky top-0">
-                  <tr>
-                    <th className="text-left px-2 py-1">#</th>
-                    <th className="text-left px-2 py-1">X</th>
-                    <th className="text-left px-2 py-1">Y</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pixelList.slice(0, 100).map((p, i) => (
-                    <tr key={`${p.x}-${p.y}-${i}`} className="border-t border-bg-border/60 text-gray-300">
-                      <td className="px-2 py-1">{i + 1}</td>
-                      <td className="px-2 py-1 mono">{p.x}</td>
-                      <td className="px-2 py-1 mono">{p.y}</td>
+            <>
+              <p className="text-2xs text-gray-500">
+                Magnified crop around each tampered pixel — original vs suspect, exact pixel boxed in red.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {pixelList.slice(0, 6).map((p, i) => (
+                  <PixelZoomPair
+                    key={`${p.x}-${p.y}-${i}`}
+                    x={p.x}
+                    y={p.y}
+                    originalImageUrl={originalImageUrl}
+                    suspectImageUrl={imageUrl}
+                  />
+                ))}
+              </div>
+              {pixelList.length > 6 && (
+                <p className="text-2xs text-gray-500">
+                  +{pixelList.length - 6} more tampered pixels — see table below.
+                </p>
+              )}
+              <div className="max-h-36 overflow-auto rounded-lg border border-bg-border">
+                <table className="w-full text-2xs">
+                  <thead className="text-gray-500 bg-bg-base/80 sticky top-0">
+                    <tr>
+                      <th className="text-left px-2 py-1">#</th>
+                      <th className="text-left px-2 py-1">X</th>
+                      <th className="text-left px-2 py-1">Y</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {pixelList.slice(0, 100).map((p, i) => (
+                      <tr key={`${p.x}-${p.y}-${i}`} className="border-t border-bg-border/60 text-gray-300">
+                        <td className="px-2 py-1">{i + 1}</td>
+                        <td className="px-2 py-1 mono">{p.x}</td>
+                        <td className="px-2 py-1 mono">{p.y}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       )}

@@ -8,6 +8,7 @@ import { tamperClassifierService } from './tamper-classifier.service';
 import type { DnaComparisonResult } from '../../types/comparison.types';
 import type { TamperAnalysisSection, TamperChangeItem } from '../../types/unified-investigation.types';
 import type { LeakedFileVerifyResult } from './leaked-file-verify.service';
+import type { FragmentReuseFinding } from '../../types/unified-investigation.types';
 
 export interface TamperDetectorResult {
   detector: string;
@@ -42,6 +43,7 @@ export const TAMPER_DETECTOR_NAMES = [
   'Format Conversion',
   'Sharpen',
   'Text / Letter Mismatch',
+  'Spliced Fragment',
 ] as const;
 
 export type TamperDetectorName = (typeof TAMPER_DETECTOR_NAMES)[number];
@@ -330,6 +332,7 @@ const HUMAN_DETAIL: Record<string, string> = {
   'Color Filters': 'Color grading / filters differ from the original.',
   'Format Conversion': 'File format or container converted (e.g. PNG→JPEG, DOCX→PDF).',
   Sharpen: 'Sharpening or edge enhancement applied after the original.',
+  'Spliced Fragment': 'A small region of a protected original appears composited into this otherwise-unrelated image.',
 };
 
 function buildChangesInventory(
@@ -407,6 +410,61 @@ export interface BuildTamperAnalysisInput {
   spatialAuthInvestigation?: Record<string, unknown> | null;
   /** Phase 4B–4E hierarchy summary for Investigate JSON */
   spatialHierarchy?: Record<string, unknown> | null;
+  /** Small-fragment reuse / splice candidates from fragment-splice-detector.service.ts */
+  fragmentReuse?: FragmentReuseFinding[] | null;
+  /** Actual pixel dimensions of probe vs vault original, when both were retrievable */
+  dimensions?: { probeWidth: number; probeHeight: number; vaultWidth: number; vaultHeight: number } | null;
+}
+
+/**
+ * Resize is otherwise only ever set as a side effect of Crop detection (mid-band
+ * perceptual similarity), so a pure resize with no crop — same content, different
+ * dimensions, still ~full-frame similar — was never flagged on its own. This checks
+ * actual pixel dimensions directly, independent of the crop heuristic.
+ */
+function applyDimensionSignal(
+  registry: Map<TamperDetectorName, TamperDetectorResult>,
+  dims: BuildTamperAnalysisInput['dimensions'],
+): void {
+  if (!dims) return;
+  const { probeWidth, probeHeight, vaultWidth, vaultHeight } = dims;
+  if (probeWidth === vaultWidth && probeHeight === vaultHeight) return;
+
+  const probeRatio = probeWidth / probeHeight;
+  const vaultRatio = vaultWidth / vaultHeight;
+  const aspectDelta = Math.abs(probeRatio - vaultRatio) / vaultRatio;
+  const scaleFactor = Math.sqrt((probeWidth * probeHeight) / (vaultWidth * vaultHeight));
+  const pctChange = Math.round(Math.abs(1 - scaleFactor) * 100);
+
+  setDetected(registry, 'Resize', {
+    confidence: aspectDelta < 0.03 ? 75 : 55,
+    score: pctChange,
+    evidence: [
+      `Vault original ${vaultWidth}×${vaultHeight} → probe ${probeWidth}×${probeHeight}`,
+      aspectDelta < 0.03
+        ? `Same aspect ratio, ${pctChange}% ${scaleFactor < 1 ? 'smaller' : 'larger'} — pure resize`
+        : 'Aspect ratio also changed — resize combined with crop/reframe',
+    ],
+    where: 'Pixel dimensions vs vault original',
+  });
+}
+
+function applyFragmentReuseSignal(
+  registry: Map<TamperDetectorName, TamperDetectorResult>,
+  findings: FragmentReuseFinding[] | null | undefined,
+): void {
+  if (!findings?.length) return;
+  const top = findings[0]!;
+  if (top.confidence < 50) return;
+  setDetected(registry, 'Spliced Fragment', {
+    confidence: top.confidence,
+    score: top.confidence,
+    evidence: [
+      `${top.patchMatchCount} matching patches from a protected original found in a localized region of this image`,
+      `Matched region: ~${Math.round(top.probeRegion.xPercent)}%,${Math.round(top.probeRegion.yPercent)}% of the image (~${Math.round(top.probeRegion.widthPercent)}%×${Math.round(top.probeRegion.heightPercent)}%)`,
+    ],
+    where: `Localized region at ~${Math.round(top.probeRegion.xPercent)}%,${Math.round(top.probeRegion.yPercent)}% of the uploaded image`,
+  });
 }
 
 /**
@@ -434,6 +492,19 @@ export function buildTamperAnalysis(input: BuildTamperAnalysisInput): TamperAnal
   } catch (e) {
     logger.warn('[TamperAnalysis] Layer signal pass failed', { error: String(e) });
     markFailed(registry, 'Compression', String(e));
+  }
+
+  try {
+    applyDimensionSignal(registry, input.dimensions);
+  } catch (e) {
+    logger.warn('[TamperAnalysis] Dimension signal pass failed', { error: String(e) });
+  }
+
+  try {
+    applyFragmentReuseSignal(registry, input.fragmentReuse);
+  } catch (e) {
+    logger.warn('[TamperAnalysis] Fragment reuse signal pass failed', { error: String(e) });
+    markFailed(registry, 'Spliced Fragment', String(e));
   }
 
   let primaryVector = 'NONE';
@@ -470,6 +541,17 @@ export function buildTamperAnalysis(input: BuildTamperAnalysisInput): TamperAnal
     primaryVector = 'UNKNOWN';
     overallTamperScore = 0;
     description = 'Tamper classification unavailable — partial detector results retained';
+  }
+
+  // Fragment reuse is its own claim (a piece of a protected original found inside this
+  // otherwise-unrelated image) — surface it as primary whenever no stronger whole-image
+  // tamper signal already explains the probe, including the "no whole-image match" path
+  // where comparison is null and primaryVector would otherwise stay NONE/UNKNOWN.
+  const fragmentHit = registry.get('Spliced Fragment');
+  if (fragmentHit?.detected && (primaryVector === 'NONE' || primaryVector === 'UNKNOWN')) {
+    primaryVector = 'SPLICED_FRAGMENT';
+    overallTamperScore = Math.max(overallTamperScore, fragmentHit.confidence);
+    description = `Spliced fragment detected — a region of a protected original appears composited into this image (${fragmentHit.confidence}% confidence). ${fragmentHit.evidence[0] ?? ''}`;
   }
 
   // Prefer detector-backed modification inventory over generic classifier text

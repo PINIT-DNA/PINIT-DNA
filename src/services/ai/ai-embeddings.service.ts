@@ -395,6 +395,49 @@ export class AIEmbeddingsService {
     }
   }
 
+  /** Render PDF pages to PNG images for per-page pixel-level DNA protection. */
+  async rasterizeDocument(
+    buffer: Buffer,
+    filename: string,
+    opts?: { dpi?: number; maxPages?: number },
+  ): Promise<{
+    totalPages: number;
+    renderedPages: number;
+    truncated: boolean;
+    dpi: number;
+    pages: Array<{ pageNumber: number; width: number; height: number; imageBase64: string }>;
+  } | null> {
+    try {
+      const FormData = require('form-data');
+      const form = new FormData();
+      form.append('file', buffer, { filename, contentType: 'application/pdf' });
+
+      const qs = new URLSearchParams();
+      if (opts?.dpi) qs.set('dpi', String(opts.dpi));
+      if (opts?.maxPages) qs.set('max_pages', String(opts.maxPages));
+      const query = qs.toString();
+
+      const { data } = await client.post(
+        `/document/rasterize${query ? `?${query}` : ''}`,
+        form,
+        { headers: form.getHeaders(), timeout: 180_000 },
+      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = data as any;
+      if (!d.success) return null;
+      return {
+        totalPages: d.totalPages ?? 0,
+        renderedPages: d.renderedPages ?? 0,
+        truncated: !!d.truncated,
+        dpi: d.dpi ?? 150,
+        pages: d.pages ?? [],
+      };
+    } catch (err) {
+      this.logError('document/rasterize', err);
+      return null;
+    }
+  }
+
   // ─── Error helper ──────────────────────────────────────────────────────────
 
   private logError(operation: string, err: unknown): void {

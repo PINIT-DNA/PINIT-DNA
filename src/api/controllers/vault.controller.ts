@@ -876,6 +876,54 @@ export async function verifyFileIdentity(req: Request, res: Response, next: Next
   }
 }
 
+/**
+ * POST /vault/:id/verify-changes
+ * Re-upload a possibly-modified copy of a protected document (PDF) and get
+ * back exactly which page(s) changed — reuses the same per-page DNA/pixel
+ * comparison standalone protected images get.
+ */
+export async function verifyDocumentPages(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const file = (req as any).file as Express.Multer.File | undefined;
+  if (!file) { res.status(400).json({ success: false, error: 'No file uploaded' }); return; }
+
+  try {
+    const { id: vaultId } = req.params;
+    const ownerUserId = getAuthUserId(req);
+
+    const { prisma } = await import('../../lib/prisma');
+    const vault = await prisma.vaultRecord.findUnique({
+      where: { id: vaultId },
+      select: { dnaRecordId: true },
+    });
+    if (!vault) { res.status(404).json({ success: false, error: 'Vault record not found' }); return; }
+
+    const buffer = file.buffer ?? await fs.readFile(file.path);
+    const { documentPageProtectionService } = await import('../../services/documents/document-page-protection.service');
+
+    const result = await documentPageProtectionService.verifyProtectedDocument({
+      documentDnaRecordId: vault.dnaRecordId,
+      probeBuffer: buffer,
+      probeFileName: file.originalname,
+      ownerUserId,
+    });
+
+    if (!result) {
+      res.json({
+        success: true,
+        available: false,
+        message: 'No page-level protection found for this document, or rasterization is unavailable.',
+      });
+      return;
+    }
+
+    res.json({ success: true, available: true, ...result });
+  } catch (err) {
+    next(err);
+  } finally {
+    if (file.path) fs.unlink(file.path).catch(() => {});
+  }
+}
+
 /** POST /vault/local-dna/backfill — build patch indexes for existing vaulted images */
 export async function backfillLocalDnaIndex(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {

@@ -124,6 +124,10 @@ export async function enrollSpatialAuth(params: {
   ownerUserId: string;
   contentSealHmac?: string | null;
   sha256Hash?: string | null;
+  /** Skip the dense per-pixel (4E) pass — expensive (~40s/17MB per image) and
+   * not needed where cheaper HKCA (3A) + patch-level local-DNA already give
+   * tamper localization (e.g. document pages, where it multiplies by page count). */
+  skipPixel1?: boolean;
 }): Promise<SpatialEnrollmentResult> {
   if (!isSpatialAuthEnabled()) {
     throw new Error('Spatial auth is disabled (SPATIAL_AUTH_ENABLED=false)');
@@ -173,7 +177,7 @@ export async function enrollSpatialAuth(params: {
     });
   }
 
-  if (isSpatialPixel1AuthEnabled()) {
+  if (isSpatialPixel1AuthEnabled() && !params.skipPixel1) {
     const p1 = buildPixel1AuthPackageFromRgb({
       rgb: decoded.rgb,
       width: decoded.width,
@@ -222,6 +226,7 @@ export async function tryEnrollSpatialAuthAfterDna(params: {
   imageBuffer: Buffer;
   dnaRecordId: string;
   ownerUserId?: string | null;
+  skipPixel1?: boolean;
 }): Promise<SpatialEnrollmentResult | null> {
   if (!isSpatialAuthEnabled()) return null;
   if (!params.ownerUserId) {
@@ -253,6 +258,7 @@ export async function tryEnrollSpatialAuthAfterDna(params: {
       ownerUserId: params.ownerUserId,
       contentSealHmac: contentSeal,
       sha256Hash: dna?.sha256Hash ?? null,
+      skipPixel1: params.skipPixel1,
     });
   } catch (err) {
     logger.warn('Spatial auth enrollment failed (non-fatal)', {

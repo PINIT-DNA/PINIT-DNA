@@ -88,6 +88,11 @@ export class DnaOrchestrator {
       gpsLatitude?: number;
       gpsLongitude?: number;
       locationShared?: boolean;
+      /** Skip the expensive dense per-pixel (4E) spatial-auth pass — HKCA (3A)
+       * still runs. Used by document page protection, where 4E's ~40s/17MB
+       * cost multiplies by page count for marginal extra tamper-localization
+       * value over what HKCA + local-DNA patches already provide. */
+      skipSpatialPixel1?: boolean;
     }
   ): Promise<DnaGenerationResult> {
     const pipelineStart = Date.now();
@@ -346,6 +351,7 @@ export class DnaOrchestrator {
         imageBuffer: image.buffer,
         dnaRecordId,
         ownerUserId: universalCtx?.ownerUserId,
+        skipPixel1: universalCtx?.skipSpatialPixel1,
       });
     } catch {
       /* non-fatal — Spatial auth must never break DNA generation */
