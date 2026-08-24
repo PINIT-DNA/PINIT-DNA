@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Dna, Shield, Archive, FileSearch,
   Award, ChevronRight, Zap,
   Activity, Radio, Ban, LogOut, User, X,
-  Sun, Moon, CreditCard, Building2, Settings, Users, Key, ShieldCheck,
+  Sun, Moon, CreditCard, Building2, Settings, Users, Key, ShieldCheck, Briefcase,
 } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { useAuth } from '../../context/AuthContext';
@@ -161,6 +161,7 @@ const BUSINESS_NAV_ITEMS: Array<{
   feature?: string;
 }> = [
   { to: '/business', icon: Building2, label: 'Home', end: true },
+  { to: '/business/clients', icon: Briefcase, label: 'Clients' },
   { to: '/generate', icon: Dna, label: 'Protect asset' },
   { to: '/vault', icon: Archive, label: 'Digital Assets' },
   { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Investigate', feature: FeatureKey.FEATURE_INVESTIGATION },

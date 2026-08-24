@@ -260,10 +260,35 @@ export async function storeInVault(
       logger.warn('[ContentAnalysis] vault store analysis failed', { error: String(err) });
     }
 
+    // Business Account — optionally attach this asset to a Campaign the user is
+    // uploading into. Reuses campaignService's own org-scoping/RBAC/audit-log —
+    // never fatal to the protect flow if the campaign link fails.
+    let campaignId: string | null = null;
+    const requestedCampaignId = (req.body as { campaignId?: string })?.campaignId?.trim();
+    if (requestedCampaignId && result.assetId) {
+      try {
+        const { getOrganizationIdForUser } = await import('../../services/organization/org-access.service');
+        const { campaignService } = await import('../../services/organization/campaign.service');
+        const organizationId = await getOrganizationIdForUser(ownerUserId);
+        if (organizationId) {
+          await campaignService.attachAsset(organizationId, ownerUserId, requestedCampaignId, result.assetId);
+          campaignId = requestedCampaignId;
+        }
+      } catch (err) {
+        logger.warn('Vault — campaign asset attach failed (non-fatal)', {
+          assetId: result.assetId,
+          requestedCampaignId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     res.status(201).json({
       success: true,
       vaultId:             result.vaultId,
       dnaRecordId:         result.dnaRecordId,
+      assetId:             result.assetId ?? null,
+      campaignId,
       originalFileName:    result.originalFileName,
       originalMimeType:    result.originalMimeType,
       encryptedSizeBytes:  result.encryptedSizeBytes,

@@ -35,6 +35,7 @@ import { superAdminRouter }       from './api/routes/super-admin.routes';
 import { tepRouter }              from './api/routes/tep.routes';
 import { subscriptionRouter }     from './api/routes/subscription.routes';
 import { organizationRouter }     from './api/routes/organization.routes';
+import { businessRouter }         from './api/routes/business.routes';
 import { publishGuardianRouter }  from './api/routes/publish-guardian.routes';
 import { assetRouter }            from './api/routes/asset.routes';
 import { exchangeRouter }         from './api/routes/exchange.routes';
@@ -170,6 +171,7 @@ app.use(`${config.apiPrefix}/super-admin`,   superAdminRouter);
 app.use(`${config.apiPrefix}/tep`,           tepRouter);
 app.use(`${config.apiPrefix}/subscription`,  subscriptionRouter);
 app.use(`${config.apiPrefix}/organization`,   organizationRouter);
+app.use(`${config.apiPrefix}/business`,       businessRouter);
 /** Publish Guardian — /api/v1/extension/* and /api/v1/posts* (additive) */
 app.use(`${config.apiPrefix}`, publishGuardianRouter);
 app.use(`${config.apiPrefix}`, assetRouter);

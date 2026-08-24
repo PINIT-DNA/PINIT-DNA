@@ -82,8 +82,16 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
       hasBusinessAccess ? 'BUSINESS' : 'INDIVIDUAL',
     );
 
-    // Pure individual accounts cannot stay in Business view — only after access is resolved
+    // Pure individual accounts cannot stay in Business view — only after access is resolved.
+    //
+    // `hasBusinessAccess` is false for a moment on every cold load: the JWT does
+    // not carry accountType, so it is unknown until the subscription request
+    // lands. Acting on that transient false wiped a genuine BUSINESS preference
+    // and bounced the user off any /business/* deep link (team, settings,
+    // clients…) before the truth arrived. Wait for the subscription to resolve
+    // before demoting anyone.
     if (!hasBusinessAccess) {
+      if (!subscriptionReady) return;
       if (preferred === 'BUSINESS') {
         setAccountViewMode(user.sub, 'INDIVIDUAL');
       }
@@ -99,13 +107,16 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
     }
 
     setMode(preferred);
-  }, [user?.sub, hasBusinessAccess, accessResolved, location.pathname]);
+  }, [user?.sub, hasBusinessAccess, accessResolved, subscriptionReady, location.pathname]);
 
   // Keep URL and shell aligned — never mix Individual nav with Business pages
   useEffect(() => {
     if (!accessResolved || !user?.sub || switching) return;
 
+    // Same reasoning as above: never evict someone from a business URL on the
+    // strength of a not-yet-loaded subscription.
     if (mode === 'INDIVIDUAL' && isBusinessPath(location.pathname)) {
+      if (!subscriptionReady) return;
       navigate('/', { replace: true });
       return;
     }
@@ -121,6 +132,7 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
     switching,
     navigate,
     accessResolved,
+    subscriptionReady,
   ]);
 
   useEffect(() => {

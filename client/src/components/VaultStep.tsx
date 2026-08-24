@@ -8,13 +8,15 @@ interface Props {
   file: File;
   dnaRecordId: string;
   custodyLocation?: { latitude: number; longitude: number } | null;
+  /** Business Account — when protecting an asset from inside a Campaign workspace. */
+  campaignId?: string | null;
   onComplete: (result: VaultStoreResponse) => void;
   onError: (msg: string) => void;
 }
 
 type VaultStage = 'working' | 'complete' | 'error';
 
-export function VaultStep({ file, dnaRecordId, custodyLocation, onComplete, onError }: Props) {
+export function VaultStep({ file, dnaRecordId, custodyLocation, campaignId, onComplete, onError }: Props) {
   const [stage, setStage] = useState<VaultStage>('working');
 
   useEffect(() => {
@@ -25,13 +27,12 @@ export function VaultStep({ file, dnaRecordId, custodyLocation, onComplete, onEr
         const result = await storeInVault(
           file,
           dnaRecordId,
-          custodyLocation
-            ? {
-                locationShared: true,
-                latitude: custodyLocation.latitude,
-                longitude: custodyLocation.longitude,
-              }
-            : undefined,
+          {
+            ...(custodyLocation
+              ? { locationShared: true, latitude: custodyLocation.latitude, longitude: custodyLocation.longitude }
+              : {}),
+            ...(campaignId ? { campaignId } : {}),
+          },
         );
         if (cancelled) return;
         setStage('complete');
@@ -53,7 +54,7 @@ export function VaultStep({ file, dnaRecordId, custodyLocation, onComplete, onEr
 
     void run();
     return () => { cancelled = true; };
-  }, [file, dnaRecordId, custodyLocation, onComplete, onError]);
+  }, [file, dnaRecordId, custodyLocation, campaignId, onComplete, onError]);
 
   return (
     <motion.div

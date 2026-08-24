@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
-import { CheckCircle2, Shield, Lock, Archive, Plus, Copy, Check, Download, Loader2 } from 'lucide-react';
+import { CheckCircle2, Shield, Lock, Archive, Plus, Copy, Check, Download, Loader2, ArrowLeft } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import type { DnaSession } from '../types';
 import { formatBytes } from '../lib/file-type-utils';
@@ -10,9 +11,11 @@ import { formatTrackId, formatVaultId } from '../lib/lifecycle-ids';
 interface Props {
   session: DnaSession;
   onReset: () => void;
+  /** Business Account — present when protecting into a Campaign; shows a way back. */
+  campaignId?: string | null;
 }
 
-export function SuccessPanel({ session, onReset }: Props) {
+export function SuccessPanel({ session, onReset, campaignId }: Props) {
   const [copied, setCopied] = useState(false);
   const [copiedTep, setCopiedTep] = useState(false);
   const [copiedVault, setCopiedVault] = useState(false);
@@ -233,6 +236,12 @@ export function SuccessPanel({ session, onReset }: Props) {
         </div>
 
         <div className="px-5 pb-6 pt-1 flex flex-col sm:flex-row gap-2">
+          {campaignId && (
+            <Link to={`/business/campaigns/${campaignId}`} className="btn btn-primary flex-1 py-3">
+              <ArrowLeft size={16} />
+              <span>Back to Campaign</span>
+            </Link>
+          )}
           <button type="button" onClick={onReset} className="btn btn-secondary flex-1 py-3">
             <Plus size={16} />
             <span>Protect Another Asset</span>

@@ -97,7 +97,7 @@ export async function getDnaRecord(id: string) {
 export async function storeInVault(
   file: File,
   dnaRecordId: string,
-  options?: { locationShared?: boolean; latitude?: number; longitude?: number },
+  options?: { locationShared?: boolean; latitude?: number; longitude?: number; campaignId?: string },
 ) {
   const form = new FormData();
   form.append('image', file);
@@ -106,6 +106,9 @@ export async function storeInVault(
     form.append('locationShared', 'true');
     form.append('gpsLat', String(options.latitude));
     form.append('gpsLng', String(options.longitude));
+  }
+  if (options?.campaignId) {
+    form.append('campaignId', options.campaignId);
   }
 
   try {

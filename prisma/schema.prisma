@@ -27,6 +27,10 @@ model DnaRecord {
   organizationId        String?
   workspaceId           String?
   departmentId          String?
+  /// Pre-existing column, restored here to match live DB — not otherwise used by this change.
+  documentDnaRecordId   String?
+  /// Pre-existing column, restored here to match live DB — not otherwise used by this change.
+  pageNumber            Int?
   behavioralLayer       BehavioralLayer?
   cryptoLayer           CryptoLayer?
   ownerUser             User?              @relation(fields: [ownerUserId], references: [id])
@@ -553,9 +557,87 @@ model Organization {
   webhooks           OrganizationWebhook[]
   integrations       OrganizationIntegration[]
   dnaRecords         DnaRecord[]
+  clients            Client[]
+  campaigns          Campaign[]
 
   @@index([ownerUserId])
   @@map("organizations")
+}
+
+/// A business's customer relationship — the agency operating layer's first missing
+/// piece. Distinct from the business's own internal Department/Workspace structure.
+model Client {
+  id              String       @id @default(uuid())
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String
+  companyName     String?
+  website         String?
+  contactName     String?
+  contactEmail    String?
+  notes           String?      @db.Text
+  createdByUserId String
+  campaigns       Campaign[]
+
+  @@index([organizationId])
+  @@map("clients")
+}
+
+/// Operational container for a client's work — the natural home for Assets,
+/// People and (in later phases) Approvals/Rights.
+model Campaign {
+  id              String           @id @default(uuid())
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  organizationId  String
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?          @db.Text
+  status          CampaignStatus   @default(ACTIVE)
+  startDate       DateTime?
+  endDate         DateTime?
+  budgetCents     Int?
+  createdByUserId String
+  assets          Asset[]
+  members         CampaignMember[]
+
+  @@index([organizationId])
+  @@index([clientId])
+  @@map("campaigns")
+}
+
+enum CampaignStatus {
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+/// A person connected to a Campaign's work — internal staff (userId set) or a
+/// lightweight external creator/collaborator (no account, no membership tier).
+/// External creators are never OrganizationMembers; they receive access only
+/// through the existing scoped ShareLink pattern.
+model CampaignMember {
+  id            String   @id @default(uuid())
+  createdAt     DateTime @default(now())
+  campaignId    String
+  campaign      Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  userId        String?
+  name          String?
+  platform      String?
+  profileUrl    String?
+  roleLabel     String?
+  isExternal    Boolean  @default(false)
+  addedByUserId String
+
+  @@unique([campaignId, userId])
+  @@index([campaignId])
+  @@index([userId])
+  @@map("campaign_members")
 }
 
 model Workspace {
@@ -2022,6 +2104,7 @@ model Asset {
   dnaId            String?
   certificateId    String?
   monitorRecordId  String?
+  campaignId       String?
   /// Monitoring profile: PENDING | RUNNING | PAUSED | FAILED | DISABLED
   monitorStatus    String      @default("PENDING")
   monitorJobId     String?
@@ -2040,6 +2123,7 @@ model Asset {
 
   ownerUser      User                 @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   dnaRecord      DnaRecord?           @relation(fields: [dnaId], references: [id], onDelete: SetNull)
+  campaign       Campaign?            @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   protectedPosts ProtectedPost[]
   timeline       AssetTimelineEvent[]
   discoveries    AssetDiscovery[]
@@ -2052,6 +2136,7 @@ model Asset {
   @@index([monitorStatus])
   @@index([dnaId])
   @@index([vaultId])
+  @@index([campaignId])
   @@map("assets")
 }
 

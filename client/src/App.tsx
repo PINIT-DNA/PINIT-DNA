@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 
 const Header = () => null;
@@ -19,6 +19,9 @@ type FlowStage = AppStage | 'vaulting' | 'readying';
 
 export default function App() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Business Account — protecting an asset from inside a Campaign workspace.
+  const campaignId = searchParams.get('campaignId');
   const [stage, setStage] = useState<FlowStage>('idle');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [session, setSession] = useState<DnaSession | null>(null);
@@ -227,6 +230,7 @@ export default function App() {
                     file={selectedFile}
                     dnaRecordId={session.dnaRecordId}
                     custodyLocation={custodyLocation}
+                    campaignId={campaignId}
                     onComplete={handleVaultComplete}
                     onError={handleVaultError}
                   />
@@ -246,7 +250,7 @@ export default function App() {
 
           {stage === 'success' && session && (
             <motion.div key="success" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <SuccessPanel session={session} onReset={handleReset} />
+              <SuccessPanel session={session} onReset={handleReset} campaignId={session.vault?.campaignId ?? campaignId} />
             </motion.div>
           )}
         </AnimatePresence>

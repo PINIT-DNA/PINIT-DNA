@@ -1,0 +1,29 @@
+import { Router } from 'express';
+import { requireAuth } from '../middleware/auth.middleware';
+import { businessController } from '../controllers/business.controller';
+
+export const businessRouter = Router();
+
+businessRouter.get('/overview', requireAuth, businessController.getOverview);
+
+businessRouter.get('/clients', requireAuth, businessController.listClients);
+businessRouter.post('/clients', requireAuth, businessController.createClient);
+businessRouter.get('/clients/:clientId', requireAuth, businessController.getClient);
+businessRouter.patch('/clients/:clientId', requireAuth, businessController.updateClient);
+businessRouter.delete('/clients/:clientId', requireAuth, businessController.deleteClient);
+
+businessRouter.get('/clients/:clientId/campaigns', requireAuth, businessController.listCampaigns);
+businessRouter.post('/clients/:clientId/campaigns', requireAuth, businessController.createCampaign);
+
+businessRouter.get('/campaigns/:campaignId', requireAuth, businessController.getCampaign);
+businessRouter.patch('/campaigns/:campaignId', requireAuth, businessController.updateCampaign);
+businessRouter.delete('/campaigns/:campaignId', requireAuth, businessController.deleteCampaign);
+
+businessRouter.get('/campaigns/:campaignId/members', requireAuth, businessController.listCampaignMembers);
+businessRouter.post('/campaigns/:campaignId/members', requireAuth, businessController.addCampaignMember);
+businessRouter.delete('/campaigns/:campaignId/members/:memberId', requireAuth, businessController.removeCampaignMember);
+
+businessRouter.get('/campaigns/:campaignId/assets', requireAuth, businessController.listCampaignAssets);
+businessRouter.post('/campaigns/:campaignId/assets', requireAuth, businessController.attachCampaignAsset);
+
+businessRouter.get('/campaigns/:campaignId/activity', requireAuth, businessController.listCampaignActivity);

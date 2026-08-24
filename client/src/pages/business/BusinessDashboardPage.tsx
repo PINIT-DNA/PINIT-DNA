@@ -28,6 +28,7 @@ import {
   QuickActionsBar,
   TeamSnapshotPanel,
 } from '../../components/business/dashboard/BusinessOpsSections';
+import { ClientsOverviewSection } from '../../components/business/dashboard/ClientsOverviewSection';
 import type { PlanCode } from '../../hooks/useSubscription';
 
 export function BusinessDashboardPage() {
@@ -115,6 +116,8 @@ export function BusinessDashboardPage() {
       )}
 
       <QuickActionsBar />
+
+      <ClientsOverviewSection />
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
         <div className="xl:col-span-2">

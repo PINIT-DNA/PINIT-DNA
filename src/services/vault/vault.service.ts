@@ -52,6 +52,8 @@ async function readLocal(vaultId: string): Promise<Buffer> {
 export interface StoreResult {
   vaultId:            string;
   dnaRecordId:        string;
+  /** Canonical Asset.id, when Asset identity creation succeeded (owned uploads only). */
+  assetId?:           string;
   encryptedFilePath:  string;
   originalFileName:   string;
   originalMimeType:   string;
@@ -218,11 +220,12 @@ export class VaultService {
 
     // ── Canonical Asset identity (assetId != vaultId != dnaId) ────────────
     // Skipped for anonymous protections (no ownerUserId) — Asset.ownerUserId is required.
+    let createdAssetId: string | undefined;
     if (dnaRecord.ownerUserId) {
       try {
         const { assetService } = await import('../assets/asset.service');
         const { inferAssetType, ASSET_STATUS } = await import('../assets/lifecycle');
-        await assetService.ensureAssetFromProtect({
+        const createdAsset = await assetService.ensureAssetFromProtect({
           ownerUserId: dnaRecord.ownerUserId,
           assetType: inferAssetType(originalMimeType, originalFileName),
           originalFilename: originalFileName,
@@ -241,6 +244,7 @@ export class VaultService {
           status: ASSET_STATUS.PROTECTED,
           protectedPostId: '',
         });
+        createdAssetId = createdAsset.id;
       } catch (assetErr) {
         // Non-fatal — Vault/DNA are the source of truth; Asset is an additional identity layer.
         logger.warn('Vault — Asset identity creation failed (non-fatal)', {
@@ -289,6 +293,7 @@ export class VaultService {
     return {
       vaultId:            record.id,
       dnaRecordId:        record.dnaRecordId,
+      assetId:            createdAssetId,
       encryptedFilePath:  record.encryptedFilePath,
       originalFileName:   record.originalFileName,
       originalMimeType:   record.originalMimeType,

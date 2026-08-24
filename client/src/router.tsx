@@ -33,6 +33,9 @@ import { PaymentFailedPage } from './pages/subscription/PaymentFailedPage';
 import { SubscriptionPage } from './pages/subscription/SubscriptionPage';
 import { AccountTypeOnboardingPage } from './pages/onboarding/AccountTypeOnboardingPage';
 import { BusinessDashboardPage } from './pages/business/BusinessDashboardPage';
+import { ClientsPage } from './pages/business/ClientsPage';
+import { ClientWorkspacePage } from './pages/business/ClientWorkspacePage';
+import { CampaignWorkspacePage } from './pages/business/CampaignWorkspacePage';
 import { OrganizationSettingsPage } from './pages/business/OrganizationSettingsPage';
 import { BusinessTeamPage } from './pages/business/BusinessTeamPage';
 import { BusinessAuditLogsPage } from './pages/business/BusinessAuditLogsPage';
@@ -103,6 +106,9 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <HomeRedirect /> },
       { path: 'business', element: <BusinessDashboardPage /> },
+      { path: 'business/clients', element: <ClientsPage /> },
+      { path: 'business/clients/:clientId', element: <ClientWorkspacePage /> },
+      { path: 'business/campaigns/:campaignId', element: <CampaignWorkspacePage /> },
       { path: 'business/settings', element: <OrganizationSettingsPage /> },
       { path: 'business/team', element: <BusinessTeamPage /> },
       { path: 'business/audit-logs', element: <BusinessAuditLogsPage /> },
