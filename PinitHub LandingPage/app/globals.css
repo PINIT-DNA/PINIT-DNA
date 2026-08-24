@@ -1,0 +1,360 @@
+@import 'tailwindcss';
+
+/* ============================================================
+   PINITHUB — Design tokens
+   ============================================================ */
+@theme {
+  --color-ink: #050816;
+  --color-ink-2: #08111f;
+  --color-ink-3: #0b1729;
+  --color-blue: #2d7bff;
+  --color-cyan: #55e6ff;
+  --color-violet: #6f5cff;
+  --color-paper: #f8fafc;
+  --color-mute: #b8c2d0;
+  --color-mute-2: #7d899b;
+  --color-signal: #14d991;
+
+  --color-line: rgba(184, 194, 208, 0.12);
+  --color-line-2: rgba(184, 194, 208, 0.07);
+
+  --font-display: var(--font-space-grotesk), 'Space Grotesk', system-ui, sans-serif;
+  --font-sans: var(--font-inter), Inter, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), 'IBM Plex Mono', ui-monospace, monospace;
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-quint: cubic-bezier(0.83, 0, 0.17, 1);
+
+  --shadow-lift: 0 1px 0 0 rgba(248, 250, 252, 0.05) inset, 0 30px 60px -20px rgba(2, 5, 14, 0.9);
+  --shadow-lift-hi:
+    0 1px 0 0 rgba(248, 250, 252, 0.09) inset, 0 50px 90px -25px rgba(2, 5, 14, 0.95),
+    0 0 60px -20px rgba(45, 123, 255, 0.55);
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+    overflow-x: clip;
+  }
+
+  body {
+    background-color: var(--color-ink);
+    color: var(--color-paper);
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: clip;
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  img,
+  video,
+  svg {
+    max-width: 100%;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.035em;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  ::selection {
+    background: rgba(45, 123, 255, 0.35);
+    color: var(--color-paper);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-cyan);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #04060f;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgba(45, 123, 255, 0.5), rgba(111, 92, 255, 0.4));
+    border-radius: 99px;
+    border: 3px solid #04060f;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, rgba(85, 230, 255, 0.7), rgba(45, 123, 255, 0.6));
+  }
+
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+  }
+
+  /* Native select dropdown list is OS-rendered — force legible colors */
+  select option {
+    background: #08111f;
+    color: #f8fafc;
+  }
+}
+
+/* ============================================================
+   Signature utilities
+   ============================================================ */
+@layer utilities {
+  .shell {
+    width: 100%;
+    max-width: 1440px;
+    margin-inline: auto;
+    padding-inline: max(1rem, env(safe-area-inset-left, 0px))
+      max(1rem, env(safe-area-inset-right, 0px));
+  }
+  @media (min-width: 640px) {
+    .shell {
+      padding-inline: 1.5rem;
+    }
+  }
+  @media (min-width: 768px) {
+    .shell {
+      padding-inline: 2.5rem;
+    }
+  }
+  @media (min-width: 1280px) {
+    .shell {
+      padding-inline: 4.5rem;
+    }
+  }
+
+  /* Consistent section rhythm on phones vs desktop */
+  .section-pad {
+    padding-block: 4rem;
+  }
+  @media (min-width: 640px) {
+    .section-pad {
+      padding-block: 5.5rem;
+    }
+  }
+  @media (min-width: 1024px) {
+    .section-pad {
+      padding-block: 7rem;
+    }
+  }
+  @media (min-width: 1280px) {
+    .section-pad {
+      padding-block: 10rem;
+    }
+  }
+
+  /* Editorial micro-label */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    line-height: 1;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--color-mute-2);
+  }
+
+  /* Blueprint lattice — the page's structural signature */
+  .lattice {
+    background-image:
+      linear-gradient(to right, rgba(184, 194, 208, 0.055) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(184, 194, 208, 0.055) 1px, transparent 1px);
+    background-size: 72px 72px;
+  }
+  .lattice-fine {
+    background-image:
+      linear-gradient(to right, rgba(184, 194, 208, 0.04) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(184, 194, 208, 0.04) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  .mask-radial {
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 30%, transparent 78%);
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 30%, transparent 78%);
+  }
+  .mask-fade-b {
+    -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 55%, transparent 100%);
+  }
+
+  /* Volumetric ambience */
+  .aura {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(110px);
+    pointer-events: none;
+    will-change: transform;
+  }
+
+  /* Fine film grain — kills banding in the dark gradients */
+  .grain::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.035;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* Hairline card with a lit top edge */
+  .panel {
+    position: relative;
+    border-radius: 1.25rem;
+    border: 1px solid var(--color-line);
+    background:
+      linear-gradient(180deg, rgba(248, 250, 252, 0.035) 0%, rgba(248, 250, 252, 0) 45%),
+      linear-gradient(180deg, rgba(11, 23, 41, 0.85) 0%, rgba(5, 8, 22, 0.7) 100%);
+    box-shadow: var(--shadow-lift);
+  }
+  .panel::before {
+    content: '';
+    position: absolute;
+    inset-inline: 12%;
+    top: -1px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(85, 230, 255, 0.55), transparent);
+    opacity: 0.5;
+    transition: opacity 0.5s var(--ease-out-expo);
+  }
+  .panel:hover::before {
+    opacity: 1;
+  }
+
+  .text-glow {
+    background: linear-gradient(180deg, #ffffff 0%, #b9cdf5 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .text-beam {
+    background: linear-gradient(100deg, #55e6ff 0%, #2d7bff 45%, #6f5cff 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Pin crosshair — the "PinIT" mark used at layout intersections */
+  .pin-cross {
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    opacity: 0.45;
+  }
+  .pin-cross::before,
+  .pin-cross::after {
+    content: '';
+    position: absolute;
+    background: rgba(85, 230, 255, 0.6);
+  }
+  .pin-cross::before {
+    left: 50%;
+    top: 0;
+    width: 1px;
+    height: 100%;
+    transform: translateX(-50%);
+  }
+  .pin-cross::after {
+    top: 50%;
+    left: 0;
+    height: 1px;
+    width: 100%;
+    transform: translateY(-50%);
+  }
+
+  .marquee-mask {
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  }
+}
+
+/* ============================================================
+   Keyframes
+   ============================================================ */
+@keyframes drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(2%, -3%, 0);
+  }
+}
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+@keyframes scan {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(900%);
+  }
+}
+@keyframes slide-x {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+@keyframes spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.anim-drift {
+  animation: drift 18s var(--ease-in-out-quint) infinite;
+}
+.anim-breathe {
+  animation: breathe 6s ease-in-out infinite;
+}
+.anim-scan {
+  animation: scan 7s linear infinite;
+}
+.anim-marquee {
+  animation: slide-x var(--marquee-duration, 40s) linear infinite;
+}
+.anim-spin-slow {
+  animation: spin-slow 26s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
