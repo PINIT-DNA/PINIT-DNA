@@ -2059,6 +2059,82 @@ enum ReviewStatus {
   SUPERSEDED
 }
 
+/// COMMENT is discussion. CHANGE_REQUEST is work someone must act on, and is
+/// what drives the "needs attention" counters on the campaign overview.
+enum CommentKind {
+  COMMENT
+  CHANGE_REQUEST
+}
+
+/// Shared by both kinds. A plain comment normally only ever sees OPEN and
+/// RESOLVED; the middle states carry a change request through its lifecycle.
+enum CommentStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  REJECTED
+  CLOSED
+}
+
+/// A comment or an actionable change request on one version of an asset.
+///
+/// Spec 13 is right that a change request is not merely a comment: it is
+/// actionable and carries its own lifecycle. That distinction is kept with a
+/// `kind` discriminator rather than a second table, so the two behave
+/// differently in the UI and in queries while the team keeps one inbox and the
+/// client keeps one mental model.
+///
+/// Always version-anchored. A comment that only names an asset becomes
+/// meaningless the moment V2 lands.
+model ReviewComment {
+  id             String   @id @default(uuid())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organizationId String
+  campaignId     String
+  assetId        String
+  versionId      String
+
+  kind           CommentKind   @default(COMMENT)
+  status         CommentStatus @default(OPEN)
+  /// null = thread root. One level of nesting only; replies never nest further.
+  parentId       String?
+
+  /// Exactly one of these identifies the author. authorRecipientId is for a
+  /// client reviewing through a share link, who has no user account.
+  authorUserId      String?
+  authorRecipientId String?
+  /// Denormalised so a thread still reads correctly if a member later leaves.
+  authorLabel       String
+
+  body           String   @db.Text
+  /// Team members named in the body, resolved at write time and notified once.
+  mentionedUserIds String[] @default([])
+
+  /// { type: "page" | "coordinate" | "timestamp" | "text", ... }
+  /// Kept as JSON so a new asset type does not need a migration.
+  anchor         Json?
+  /// Set when a later version invalidates the anchor. The quoted text stays on
+  /// the comment; the anchor is never relocated, because guessing where a
+  /// changed heading moved to is worse than admitting it moved.
+  anchorOrphaned Boolean  @default(false)
+
+  resolvedAt       DateTime?
+  resolvedByUserId String?
+
+  version  AssetVersion    @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  parent   ReviewComment?  @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  ReviewComment[] @relation("CommentThread")
+
+  @@index([versionId, createdAt])
+  @@index([assetId, versionId, createdAt])
+  @@index([campaignId, status])
+  @@index([campaignId, kind, status])
+  @@index([parentId])
+  @@map("review_comments")
+}
+
 /// One immutable revision of a logical deliverable (V1 -> V2 -> V3).
 ///
 /// Each version carries its OWN dnaRecordId / vaultId / certificateId, so a new
@@ -2098,7 +2174,8 @@ model AssetVersion {
   supersededAt   DateTime?
   supersededById String?   @unique
 
-  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset    Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  comments ReviewComment[]
 
   @@unique([assetId, versionNumber])
   @@index([assetId, versionNumber])

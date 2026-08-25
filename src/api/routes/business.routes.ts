@@ -33,3 +33,9 @@ businessRouter.get('/assets/:assetId/versions', requireAuth, businessController.
 businessRouter.post('/assets/:assetId/versions', requireAuth, businessController.createAssetVersion);
 businessRouter.get('/versions/:versionId', requireAuth, businessController.getAssetVersion);
 businessRouter.patch('/versions/:versionId/review-status', requireAuth, businessController.setVersionReviewStatus);
+
+// ── Review comments and change requests — always version-anchored ───────────
+businessRouter.get('/versions/:versionId/comments', requireAuth, businessController.listVersionComments);
+businessRouter.post('/versions/:versionId/comments', requireAuth, businessController.createVersionComment);
+businessRouter.patch('/comments/:commentId/status', requireAuth, businessController.setCommentStatus);
+businessRouter.get('/campaigns/:campaignId/change-requests', requireAuth, businessController.listCampaignChangeRequests);

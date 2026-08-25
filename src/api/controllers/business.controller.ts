@@ -1,9 +1,11 @@
 import type { Request, Response, NextFunction } from 'express';
+import type { CommentKind, CommentStatus } from '@prisma/client';
 import { getAuthUserId } from '../../lib/tenant-scope';
 import { getOrganizationIdForUser } from '../../services/organization/org-access.service';
 import { clientService } from '../../services/organization/client.service';
 import { campaignService } from '../../services/organization/campaign.service';
 import { assetVersionService } from '../../services/organization/asset-version.service';
+import { reviewCommentService } from '../../services/organization/review-comment.service';
 import { AppError } from '../middleware/error.middleware';
 
 async function orgIdFor(req: Request): Promise<{ userId: string; organizationId: string }> {
@@ -52,6 +54,55 @@ export const businessController = {
       const { userId, organizationId } = await orgIdFor(req);
       await clientService.remove(organizationId, userId, req.params.clientId as string);
       res.json({ success: true });
+    } catch (err) { next(err); }
+  },
+
+  // ── Review comments / change requests ─────────────────────────────────
+  async listVersionComments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { status, kind } = req.query as { status?: string; kind?: string };
+      const result = await reviewCommentService.listForVersion(
+        organizationId, userId, req.params.versionId as string,
+        {
+          ...(status ? { status: status as CommentStatus } : {}),
+          ...(kind ? { kind: kind as CommentKind } : {}),
+        },
+      );
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async createVersionComment(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const comment = await reviewCommentService.create(
+        organizationId, userId, req.params.versionId as string, req.body,
+      );
+      res.status(201).json({ success: true, comment });
+    } catch (err) { next(err); }
+  },
+
+  async setCommentStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { status } = (req.body ?? {}) as { status?: string };
+      if (!status) throw new AppError(400, 'A status is required');
+      const comment = await reviewCommentService.setStatus(
+        organizationId, userId, req.params.commentId as string,
+        status as Parameters<typeof reviewCommentService.setStatus>[3],
+      );
+      res.json({ success: true, comment });
+    } catch (err) { next(err); }
+  },
+
+  async listCampaignChangeRequests(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const changeRequests = await reviewCommentService.listOpenChangeRequests(
+        organizationId, userId, req.params.campaignId as string,
+      );
+      res.json({ success: true, changeRequests });
     } catch (err) { next(err); }
   },
 
