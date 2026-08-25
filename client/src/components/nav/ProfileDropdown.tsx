@@ -1,15 +1,17 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Shield, Bell, Clock, LogOut, Settings, HelpCircle, Sun, Moon, LayoutDashboard } from 'lucide-react';
+import { User, Shield, Bell, Clock, LogOut, Settings, HelpCircle, Sun, Moon, LayoutDashboard, Crown } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../hooks/useTheme';
 import { useUserProfile, isRealDisplayName, resolveDisplayName } from '../../hooks/useUserProfile';
+import { useSubscription } from '../../hooks/useSubscription';
 import { isPlatformOwnerShortId } from '../../lib/platform-owner';
 
 export function ProfileDropdown() {
   const [open, setOpen] = useState(false);
   const { user, logout } = useAuth();
   const { profile } = useUserProfile();
+  const { subscription } = useSubscription();
   const { theme, toggle: toggleTheme } = useTheme();
   const navigate = useNavigate();
   const ref = useRef<HTMLDivElement>(null);
@@ -19,6 +21,9 @@ export function ProfileDropdown() {
   const initials = isRealDisplayName(displayName)
     ? displayName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
     : (profile?.shortId ?? user?.shortId ?? 'P').replace(/^PINIT-/i, '').slice(0, 2).toUpperCase() || 'P';
+
+  const shortId = profile?.shortId ?? (user as { shortId?: string } | null)?.shortId ?? '';
+  const isPaidPlan = Boolean(subscription && subscription.planCode !== 'FREE');
 
   function go(path: string) { setOpen(false); navigate(path); }
 
@@ -58,8 +63,24 @@ export function ProfileDropdown() {
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-white truncate">{labelName}</p>
-                <p className="text-2xs text-dna-400 font-mono">{profile?.shortId ?? (user as any)?.shortId ?? ''}</p>
+                {/* Only repeat the Pinit ID when it isn't already the heading —
+                    an unnamed account showed the same string twice. */}
+                {shortId && shortId !== labelName && (
+                  <p className="text-2xs text-dna-400 font-mono">{shortId}</p>
+                )}
                 {profile?.email && <p className="text-2xs text-gray-500 truncate">{profile.email}</p>}
+                {subscription && (
+                  <span
+                    className={`inline-flex items-center gap-1 mt-1 text-2xs font-semibold px-2 py-0.5 rounded-full border ${
+                      isPaidPlan
+                        ? 'bg-dna-500/15 text-dna-400 border-dna-500/30'
+                        : 'bg-bg-elevated text-gray-400 border-bg-border'
+                    }`}
+                  >
+                    {isPaidPlan && <Crown size={10} />}
+                    {subscription.planName} plan
+                  </span>
+                )}
               </div>
             </div>
             {profile?.profileCompletion != null && (

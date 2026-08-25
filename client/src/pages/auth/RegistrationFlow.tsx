@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ShieldCheck, Camera, Mic, Sparkles,
-  ArrowRight, CheckCircle2, Building2, User,
+  ArrowRight, CheckCircle2, Building2, User, Copy, Check,
 } from 'lucide-react';
 
 import { AuthShell } from '../../components/auth/AuthShell';
@@ -46,6 +46,8 @@ export function RegistrationFlow() {
 
   const [step, setStep] = useState<Step>('welcome');
   const [error, setError] = useState('');
+  /** The minted Pinit ID, surfaced on the success screen so it can be saved. */
+  const [newShortId, setNewShortId] = useState('');
   const deviceFpRef = useRef<string>('');
   const hoidRef = useRef<string>('');
   const faceEmbeddingRef = useRef<number[] | null>(null);
@@ -158,6 +160,7 @@ export function RegistrationFlow() {
                   }
                 }
                 const shortId = result.user?.shortId ?? '';
+                setNewShortId(shortId);
                 const hoid = hoidRef.current || generateHoid(deviceFpRef.current);
                 saveRegistration({
                   hoid,
@@ -174,6 +177,7 @@ export function RegistrationFlow() {
           )}
           {step === 'success'     && (
             <Success
+              shortId={newShortId}
               onEnter={() => {
                 const uid = user?.sub;
                 if (uid) {
@@ -357,11 +361,27 @@ function Creating({
   );
 }
 
-function Success({ onEnter }: { onEnter: () => void }) {
-  useEffect(() => {
-    const t = setTimeout(onEnter, 1600);
-    return () => clearTimeout(t);
-  }, [onEnter]);
+/**
+ * Registration success — the one moment the new Pinit ID is shown.
+ *
+ * This used to auto-advance after 1.6s without ever displaying the ID, so a
+ * new user never saw their own identity. It no longer moves on by itself:
+ * signing in normally is done by face, but the ID is the recovery path and is
+ * worth a deliberate moment to copy.
+ */
+function Success({ shortId, onEnter }: { shortId?: string; onEnter: () => void }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    if (!shortId) return;
+    try {
+      await navigator.clipboard.writeText(shortId);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard blocked — the ID is on screen to copy by hand */
+    }
+  };
 
   return (
     <div className="pa-card" style={{ textAlign: 'center' }}>
@@ -369,7 +389,44 @@ function Success({ onEnter }: { onEnter: () => void }) {
         <CheckCircle2 size={42} color="#fff" />
       </div>
       <h1 style={{ fontSize: 23, fontWeight: 800 }}>Welcome to Pinit HUB</h1>
-      <div style={{ marginBottom: 18 }}><TrustBadge score={99.8} /></div>
+
+      {shortId && (
+        <>
+          <p className="pa-muted" style={{ fontSize: 13, marginTop: 10 }}>
+            Your Pinit ID
+          </p>
+          <div style={{
+            margin: '8px auto 0', padding: '12px 14px', maxWidth: 320,
+            borderRadius: 12, border: '1px solid rgba(59,158,255,0.35)',
+            background: 'rgba(8,14,28,0.7)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+          }}>
+            <code style={{ fontSize: 17, fontWeight: 800, letterSpacing: 0.8, color: '#e8eef8' }}>
+              {shortId}
+            </code>
+            <button
+              type="button"
+              onClick={copy}
+              title="Copy Pinit ID"
+              aria-label="Copy Pinit ID"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                background: 'transparent', border: 'none', cursor: 'pointer',
+                color: copied ? '#34d399' : '#3b9eff', fontSize: 12, fontWeight: 700,
+              }}
+            >
+              {copied ? <Check size={15} /> : <Copy size={15} />}
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+          <p className="pa-muted" style={{ fontSize: 12.5, marginTop: 10, lineHeight: 1.5, maxWidth: 330, margin: '10px auto 0' }}>
+            You won&apos;t need this to sign in — just scan your face. Keep it
+            somewhere safe as a backup way into your account.
+          </p>
+        </>
+      )}
+
+      <div style={{ margin: '18px 0' }}><TrustBadge score={99.8} /></div>
       <button className="pa-btn" onClick={onEnter}>Enter Pinit HUB <ArrowRight size={17} /></button>
     </div>
   );
