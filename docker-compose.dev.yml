@@ -1,0 +1,32 @@
+# Per-developer local database for Pinit HUB.
+#
+# Why this exists: the team shared one Supabase database, so a `prisma migrate
+# reset` or `db push --force-reset` on any laptop wiped everyone's data — which
+# is exactly what happened on 2026-08-24. With this, each developer resets and
+# migrates their own database as often as they like and nobody else notices.
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#
+# Port 5435 is deliberate: 5432 is often taken by a local Postgres install and
+# 5434 belongs to pinithub-landing's compose file.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: pinit-hub-dev-db
+    restart: unless-stopped
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_USER: pinit
+      POSTGRES_PASSWORD: pinit
+      POSTGRES_DB: pinit_hub
+    volumes:
+      - pinit_hub_dev_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pinit -d pinit_hub"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pinit_hub_dev_pgdata:
