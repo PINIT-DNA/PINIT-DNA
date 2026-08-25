@@ -33,6 +33,9 @@ import {
   listShareViewerMessages,
   replyShareViewerMessage,
   getMyShareViewerMessages,
+  getShareReview,
+  getShareReviewComments,
+  postShareReviewComment,
   debugReport,
   getGlobalShareStats,
   getLiveTrackingMap,
@@ -76,6 +79,11 @@ shareRouter.post('/:token/unmask-request',     requestUnmask);            // ─
 shareRouter.get('/:token/unmask-status',       getUnmaskStatus);          // ── Privacy Masking — check approval
 shareRouter.post('/:token/messages',           postShareViewerMessage);
 shareRouter.get('/:token/messages/mine',       getMyShareViewerMessages);
+
+// ── Client review — token-scoped, no account. Gated by the link's own flags. ─
+shareRouter.get('/:token/review',              getShareReview);
+shareRouter.get('/:token/review/comments',     getShareReviewComments);
+shareRouter.post('/:token/review/comments',    postShareReviewComment);
 // Owner-only routes (require auth)
 shareRouter.get('/:token/logs',                requireAuth, requireTrackingUnlessLicensedShare(requireFeature(FeatureKey.FEATURE_TRACKING)), requireShareLinkOwnership, getShareLinkLogs);
 shareRouter.get('/:token/export',              requireAuth, requireShareLinkOwnership, exportShareLogsCsv);

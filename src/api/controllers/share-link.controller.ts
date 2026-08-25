@@ -1437,3 +1437,31 @@ export async function previewImage(req: Request, res: Response, next: NextFuncti
     res.send(svg);
   } catch (err) { next(err); }
 }
+
+// ── Client review through a secure link (Collaboration Phase 2) ──────────────
+// Public: the token is the authority. Scope is derived server-side from the
+// link and never read from the request body.
+
+export async function getShareReview(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { shareReviewService } = await import('../../services/share/share-review.service');
+    const review = await shareReviewService.getContext(req.params.token as string);
+    res.json({ success: true, review });
+  } catch (err) { next(err); }
+}
+
+export async function getShareReviewComments(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { shareReviewService } = await import('../../services/share/share-review.service');
+    const result = await shareReviewService.listComments(req.params.token as string);
+    res.json({ success: true, ...result });
+  } catch (err) { next(err); }
+}
+
+export async function postShareReviewComment(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { shareReviewService } = await import('../../services/share/share-review.service');
+    const comment = await shareReviewService.createComment(req.params.token as string, req.body ?? {});
+    res.status(201).json({ success: true, comment });
+  } catch (err) { next(err); }
+}

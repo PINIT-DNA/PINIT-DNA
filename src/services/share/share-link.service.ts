@@ -70,6 +70,12 @@ export interface CreateShareLinkInput {
   expiresIn?:    number | null;  // hours, null = never
   maxViews?:     number | null;
   allowDownload?: boolean;
+  /** Collaboration — turns the secure viewer into a review surface. Off by
+   *  default, so an ordinary share is never silently made commentable. */
+  reviewMode?: boolean;
+  allowComments?: boolean;
+  allowChangeRequest?: boolean;
+  reviewVersionId?: string | null;
   requireName?:  boolean;
   note?:         string;
 
@@ -326,6 +332,14 @@ export class ShareLinkService {
         expiresAt,
         maxViews:     input.maxViews ?? null,
         allowDownload: input.allowDownload ?? false,
+
+        // Comments only mean anything in review mode, so they are gated on it
+        // rather than trusted independently — a caller cannot enable commenting
+        // on a link that is not a review link.
+        reviewMode:         input.reviewMode ?? false,
+        allowComments:      Boolean(input.reviewMode && (input.allowComments ?? true)),
+        allowChangeRequest: Boolean(input.reviewMode && (input.allowChangeRequest ?? true)),
+        reviewVersionId:    input.reviewMode ? (input.reviewVersionId ?? null) : null,
         requireName:  input.requireName ?? false,
         note:         input.note ?? null,
 

@@ -198,3 +198,137 @@ export async function listCampaignActivity(campaignId: string): Promise<Campaign
   const { data } = await api.get<{ success: boolean; activity: CampaignActivityItem[] }>(`${BASE}/campaigns/${campaignId}/activity`);
   return Array.isArray(data?.activity) ? data.activity : [];
 }
+
+// ── Asset versions ───────────────────────────────────────────────────────────
+// The immutable revision chain. Each version owns its own DNA/vault/certificate,
+// so a new version is an insert and prior versions are never rewritten.
+
+export type ReviewStatus =
+  | 'DRAFT' | 'IN_REVIEW' | 'CHANGES_REQUESTED'
+  | 'IN_PROGRESS' | 'APPROVED' | 'SUPERSEDED';
+
+export interface AssetVersion {
+  id: string;
+  versionNumber: number;
+  reviewStatus: ReviewStatus;
+  originalFilename: string;
+  mimeType: string;
+  sizeBytes: number;
+  dnaRecordId: string | null;
+  vaultId: string | null;
+  certificateId: string | null;
+  contentHash: string | null;
+  changeSummary: string | null;
+  createdByUserId: string;
+  createdAt: string;
+  supersededAt: string | null;
+  isProtected: boolean;
+}
+
+export interface VersionList {
+  versions: AssetVersion[];
+  currentVersionId: string | null;
+  currentVersionNumber: number | null;
+}
+
+export async function listAssetVersions(assetId: string): Promise<VersionList> {
+  const { data } = await api.get<{ success: boolean } & VersionList>(`${BASE}/assets/${assetId}/versions`);
+  return {
+    versions: Array.isArray(data?.versions) ? data.versions : [],
+    currentVersionId: data?.currentVersionId ?? null,
+    currentVersionNumber: data?.currentVersionNumber ?? null,
+  };
+}
+
+export async function setVersionReviewStatus(
+  versionId: string,
+  status: ReviewStatus,
+  note?: string,
+): Promise<AssetVersion> {
+  const { data } = await api.patch<{ success: boolean; version: AssetVersion }>(
+    `${BASE}/versions/${versionId}/review-status`, { status, note },
+  );
+  return data.version;
+}
+
+// ── Review comments and change requests ──────────────────────────────────────
+
+export type CommentKind = 'COMMENT' | 'CHANGE_REQUEST';
+export type CommentStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'REJECTED' | 'CLOSED';
+
+/** Where a comment points. Validated server-side; never trust an unknown shape. */
+export type CommentAnchor =
+  | { type: 'page'; page: number }
+  | { type: 'coordinate'; x: number; y: number }
+  | { type: 'timestamp'; seconds: number }
+  | { type: 'text'; quote: string; page?: number; prefix?: string; suffix?: string };
+
+export interface ReviewComment {
+  id: string;
+  kind: CommentKind;
+  status: CommentStatus;
+  body: string;
+  authorLabel: string;
+  authorUserId: string | null;
+  isClient: boolean;
+  anchor: CommentAnchor | null;
+  anchorOrphaned: boolean;
+  mentionedUserIds: string[];
+  versionId: string;
+  parentId: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+  replies: ReviewComment[];
+}
+
+export interface CommentThreads {
+  comments: ReviewComment[];
+  counts: { open: number; resolved: number; openChangeRequests: number };
+}
+
+export async function listVersionComments(
+  versionId: string,
+  filter: { status?: CommentStatus; kind?: CommentKind } = {},
+): Promise<CommentThreads> {
+  const qs = new URLSearchParams();
+  if (filter.status) qs.set('status', filter.status);
+  if (filter.kind) qs.set('kind', filter.kind);
+  const suffix = qs.toString() ? `?${qs}` : '';
+  const { data } = await api.get<{ success: boolean } & CommentThreads>(
+    `${BASE}/versions/${versionId}/comments${suffix}`,
+  );
+  return {
+    comments: Array.isArray(data?.comments) ? data.comments : [],
+    counts: data?.counts ?? { open: 0, resolved: 0, openChangeRequests: 0 },
+  };
+}
+
+export async function createVersionComment(
+  versionId: string,
+  input: {
+    body: string;
+    kind?: CommentKind;
+    parentId?: string | null;
+    anchor?: CommentAnchor | null;
+    mentionedUserIds?: string[];
+  },
+): Promise<ReviewComment> {
+  const { data } = await api.post<{ success: boolean; comment: ReviewComment }>(
+    `${BASE}/versions/${versionId}/comments`, input,
+  );
+  return data.comment;
+}
+
+export async function setCommentStatus(commentId: string, status: CommentStatus): Promise<ReviewComment> {
+  const { data } = await api.patch<{ success: boolean; comment: ReviewComment }>(
+    `${BASE}/comments/${commentId}/status`, { status },
+  );
+  return data.comment;
+}
+
+export async function listCampaignChangeRequests(campaignId: string): Promise<ReviewComment[]> {
+  const { data } = await api.get<{ success: boolean; changeRequests: ReviewComment[] }>(
+    `${BASE}/campaigns/${campaignId}/change-requests`,
+  );
+  return Array.isArray(data?.changeRequests) ? data.changeRequests : [];
+}

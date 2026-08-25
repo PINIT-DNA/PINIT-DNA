@@ -1243,6 +1243,16 @@ model ShareLink {
   forwardingDetected        Boolean              @default(false)
   intendedDeviceFingerprint String?
   intendedIpAddress         String?
+  /// Review mode — collaboration on top of access control. Default false, so
+  /// every share link that already exists keeps behaving exactly as it did.
+  /// Approval is deliberately NOT here yet: it carries legal weight and needs
+  /// identity-bound evidence, which lands with the approvals phase.
+  reviewMode                Boolean              @default(false)
+  allowComments             Boolean              @default(false)
+  allowChangeRequest        Boolean              @default(false)
+  /// Pins the link to one version. Null means "whatever is current".
+  reviewVersionId           String?
+
   linkType                  String               @default("PARENT")
   parentLinkId              String?
   recipientLabel            String?
@@ -1287,6 +1297,7 @@ model ShareLink {
   @@index([forwardStatus])
   @@index([assetId])
   @@index([exchangeSealId])
+  @@index([reviewVersionId])
   @@map("share_links")
 }
 

@@ -13,6 +13,9 @@ import { Shield, Lock, Download, Eye, AlertTriangle, CheckCircle2, Clock, Ban, S
 import axios from 'axios';
 import { format } from 'date-fns';
 import { API_BASE_URL } from '../config/api.config';
+import { ClientReviewPanel } from '../components/share/ClientReviewPanel';
+import { getShareReview } from '../services/share-review.api';
+import type { ClientReviewContext } from '../services/share-review.api';
 import { stripPinitProtectionTailsForDisplay } from '../lib/strip-pinit-tails';
 import { isValidMapCoordinate } from '../lib/geo-coords';
 import {
@@ -619,6 +622,22 @@ export function ShareViewerPage() {
         }
       });
   }, [info, nameSubmitted, token]);
+
+  // ── Review mode (Collaboration Phase 2) ────────────────────────────────
+  // Returns null for every ordinary share link, so the viewer is unchanged for
+  // the 12 links that already exist. Failure is deliberately silent: a review
+  // panel that cannot load must never block someone from reading their file.
+  const [review, setReview] = useState<ClientReviewContext | null>(null);
+  const [reviewNonce, setReviewNonce] = useState(0);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    getShareReview(token)
+      .then((r) => { if (!cancelled) setReview(r); })
+      .catch(() => { if (!cancelled) setReview(null); });
+    return () => { cancelled = true; };
+  }, [token, reviewNonce]);
 
   // ── Load text content when it's a text/csv/json file (not HTML — rendered in iframe) ─
   useEffect(() => {
@@ -1313,6 +1332,17 @@ export function ShareViewerPage() {
                 Download is disabled by the sender for this link.
               </p>
             )}
+          </div>
+        )}
+
+        {/* Review — renders only when the sender turned it on for this link. */}
+        {review && (
+          <div className="w-full max-w-3xl mx-auto mt-6 print-hide">
+            <ClientReviewPanel
+              token={token ?? ''}
+              review={review}
+              onActivity={() => setReviewNonce((n) => n + 1)}
+            />
           </div>
         )}
       </div>

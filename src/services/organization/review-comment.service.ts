@@ -166,6 +166,17 @@ function shape(c: CommentRow, replies: CommentRow[] = []): ShapedComment {
 }
 
 export const reviewCommentService = {
+  /**
+   * Shared body/anchor validation.
+   *
+   * Exposed so the client-facing share-review path reuses exactly this, rather
+   * than growing a second validator that could drift and let a client write a
+   * row the team path would have refused.
+   */
+  validateInput(input: { body?: unknown; anchor?: unknown }) {
+    return { body: cleanBody(input.body), anchor: cleanAnchor(input.anchor) };
+  },
+
   /** Threads for one version, roots with their replies nested. */
   async listForVersion(
     organizationId: string,

@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import {
   Plus, Archive, Users, Activity, Sparkles, CheckCircle2, GitBranch, ScrollText,
   Share2, Pencil, RefreshCw, Trash2, UserPlus, ExternalLink, Shield,
+  MessageSquare, ChevronRight,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
@@ -19,6 +20,8 @@ import {
   BusinessPage, Breadcrumbs, SectionCard, StatTile, SkeletonRows, SkeletonTiles,
   TabBar, ComingSoonPanel, PageError, EmptyHint,
 } from '../../components/business/clients/BusinessKit';
+import { VersionsPanel, ApprovalsPanel } from '../../components/business/review/CampaignReviewPanels';
+import { listCampaignChangeRequests } from '../../services/business.api';
 import { CampaignFormModal } from '../../components/business/clients/CampaignFormModal';
 import { AddCampaignPersonModal } from '../../components/business/clients/AddCampaignPersonModal';
 
@@ -29,6 +32,12 @@ export function CampaignWorkspacePage() {
   const [params, setParams] = useSearchParams();
   const tab = (params.get('tab') as Tab) || 'overview';
   const setTab = (id: Tab) => setParams({ tab: id }, { replace: true });
+
+  // Live count of open change requests — drives the Approvals tab badge and the
+  // Needs attention row on Overview. Refetched whenever review state changes.
+  const [pendingCount, setPendingCount] = useState<number | undefined>(undefined);
+  const [reviewNonce, setReviewNonce] = useState(0);
+  const refreshReview = useCallback(() => setReviewNonce((n) => n + 1), []);
 
   const [editOpen, setEditOpen] = useState(false);
   const [personOpen, setPersonOpen] = useState(false);
@@ -50,6 +59,19 @@ export function CampaignWorkspacePage() {
   const { data: activity, loading: activityLoading } = useApi<CampaignActivityItem[]>(
     fetchActivity, [campaignId], { cacheKey: `business-campaign-activity-${campaignId}` },
   );
+
+  // Open change requests across the campaign. Kept out of useApi's cache on
+  // purpose: it must reflect an action taken seconds ago, not a cached page.
+  useEffect(() => {
+    let cancelled = false;
+    if (!campaignId) return;
+    listCampaignChangeRequests(campaignId)
+      .then((rows) => { if (!cancelled) setPendingCount(rows.length); })
+      // A failed count must not surface an error over the whole page — the tab
+      // simply shows no badge.
+      .catch(() => { if (!cancelled) setPendingCount(undefined); });
+    return () => { cancelled = true; };
+  }, [campaignId, reviewNonce]);
 
   const handleSaved = useCallback((updated: Campaign) => {
     invalidateApiCache('business-');
@@ -89,8 +111,8 @@ export function CampaignWorkspacePage() {
     { id: 'overview' as const, label: 'Overview', icon: Activity },
     { id: 'assets' as const, label: 'Assets', icon: Archive, count: assets?.length },
     { id: 'people' as const, label: 'People', icon: Users, count: members?.length },
-    { id: 'approvals' as const, label: 'Approvals', icon: CheckCircle2, soon: true },
-    { id: 'versions' as const, label: 'Versions', icon: GitBranch, soon: true },
+    { id: 'approvals' as const, label: 'Approvals', icon: CheckCircle2, count: pendingCount },
+    { id: 'versions' as const, label: 'Versions', icon: GitBranch },
     { id: 'rights' as const, label: 'Rights', icon: ScrollText, soon: true },
     { id: 'sharing' as const, label: 'Sharing', icon: Share2 },
     { id: 'activity' as const, label: 'Activity', icon: Activity },
@@ -151,6 +173,31 @@ export function CampaignWorkspacePage() {
       {tab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 space-y-4">
+            {/* Needs attention — shown only when something actually needs it,
+                so an all-clear campaign is not padded with an empty panel. */}
+            {typeof pendingCount === 'number' && pendingCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setTab('approvals')}
+                className="w-full text-left rounded-xl border border-amber-500/30 bg-amber-500/5
+                           px-4 py-3 flex items-center gap-3 hover:bg-amber-500/10 transition-colors"
+              >
+                <span className="w-9 h-9 rounded-lg bg-amber-500/15 border border-amber-500/25
+                                 flex items-center justify-center shrink-0">
+                  <MessageSquare size={16} className="text-amber-400" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-white">
+                    {pendingCount === 1
+                      ? '1 change request needs a response'
+                      : `${pendingCount} change requests need a response`}
+                  </span>
+                  <span className="block text-2xs text-gray-400 mt-0.5">Open Approvals to review them</span>
+                </span>
+                <ChevronRight size={16} className="text-amber-400 shrink-0" />
+              </button>
+            )}
+
             <SectionCard title="Recent assets" icon={Archive}>
               {assetsLoading && !assets ? (
                 <SkeletonRows rows={3} />
@@ -296,21 +343,11 @@ export function CampaignWorkspacePage() {
       )}
 
       {tab === 'approvals' && (
-        <SectionCard title="Approvals" icon={CheckCircle2}>
-          <ComingSoonPanel
-            title="Approval workflow"
-            detail="Draft → In review → Changes requested → Approved → Delivered, with the current approved version always obvious. Arrives with the Collaboration phase."
-          />
-        </SectionCard>
+        <ApprovalsPanel campaignId={campaignId} assets={assets} onChanged={refreshReview} />
       )}
 
       {tab === 'versions' && (
-        <SectionCard title="Versions" icon={GitBranch}>
-          <ComingSoonPanel
-            title="Version history"
-            detail="Originals and their derivatives stay connected. Pinit already records this at the data layer — the campaign view arrives with the Collaboration phase."
-          />
-        </SectionCard>
+        <VersionsPanel assets={assets} assetsLoading={assetsLoading} onChanged={refreshReview} />
       )}
 
       {tab === 'rights' && (
