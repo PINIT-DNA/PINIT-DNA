@@ -46,10 +46,35 @@ interface IntegrityReport {
   results: IntegrityResult[];
 }
 
+/**
+ * The response was previously cast straight to IntegrityReport with `as any`,
+ * so any shape the server didn't promise reached render untouched — and
+ * `report.results.filter(...)` threw "Cannot read properties of undefined",
+ * taking the whole route down with an unhandled error rather than showing a
+ * failure. Normalise here instead: a report that arrives without its arrays is
+ * still a report, just an empty one.
+ */
+function normalizeReport(raw: unknown): IntegrityReport {
+  const r = (raw ?? {}) as Partial<IntegrityReport> & { data?: Partial<IntegrityReport> };
+  // Tolerate an envelope ({ data: … }) as well as the bare report.
+  const body = (r.results || r.summary ? r : r.data ?? {}) as Partial<IntegrityReport>;
+
+  const results = Array.isArray(body.results) ? body.results : [];
+  const s = body.summary;
+  const summary: IntegrityReport['summary'] = {
+    total:    typeof s?.total === 'number' ? s.total : results.length,
+    healthy:  typeof s?.healthy === 'number' ? s.healthy : results.filter((x) => x.status === 'HEALTHY').length,
+    missing:  typeof s?.missing === 'number' ? s.missing : results.filter((x) => x.status === 'FILE_MISSING').length,
+    mismatch: typeof s?.mismatch === 'number' ? s.mismatch : results.filter((x) => x.status === 'SIZE_MISMATCH').length,
+    overallHealth: s?.overallHealth ?? 'HEALTHY',
+  };
+
+  return { summary, results, checkedAt: body.checkedAt ?? new Date().toISOString() };
+}
+
 async function runIntegrityCheck(): Promise<IntegrityReport> {
   const { data } = await api.get('/api/v1/vault/integrity-check');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return data as any;
+  return normalizeReport(data);
 }
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
@@ -89,7 +114,10 @@ export function VaultIntegrityPage() {
     }
   };
 
-  const filtered = report?.results.filter(r => filter === 'ALL' || r.status === filter) ?? [];
+  // Belt-and-braces: normalizeReport already guarantees an array, but this page
+  // must never be the reason a route dies — the optional chain stopped at
+  // `report` and left `.results` unguarded.
+  const filtered = (report?.results ?? []).filter(r => filter === 'ALL' || r.status === filter);
   const healthCfg = report ? HEALTH_CFG[report.summary.overallHealth] : null;
 
   return (
