@@ -2045,6 +2045,70 @@ enum AssetStatus {
   FAILED
 }
 
+/// Review lifecycle of one AssetVersion.
+///
+/// Deliberately separate from AssetStatus, which is a protection/monitoring
+/// lifecycle (PROTECTED, MONITORING, DISCOVERY...). Overloading that enum would
+/// conflate "is this asset watched for leaks" with "has the client signed it off".
+enum ReviewStatus {
+  DRAFT
+  IN_REVIEW
+  CHANGES_REQUESTED
+  IN_PROGRESS
+  APPROVED
+  SUPERSEDED
+}
+
+/// One immutable revision of a logical deliverable (V1 -> V2 -> V3).
+///
+/// Each version carries its OWN dnaRecordId / vaultId / certificateId, so a new
+/// version is an INSERT and no code path ever rewrites a previous version's
+/// protection columns. Immutability is therefore structural, not conventional.
+///
+/// This is NOT EvolutionLayer. That model is keyed dnaRecordId @unique and logs
+/// fingerprint mutation *within a single file*; it cannot express a chain of
+/// distinct files, each with its own DNA record.
+///
+/// Tenancy follows the business layer (organizationId), matching Campaign rather
+/// than Asset.ownerUserId - see docs/BUSINESS_CLIENT_COLLABORATION_BLUEPRINT.md.
+model AssetVersion {
+  id             String   @id @default(uuid())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  assetId        String
+  versionNumber  Int
+  organizationId String
+  campaignId     String?
+
+  /// Protection - one immutable set per version, never reused.
+  dnaRecordId      String?
+  vaultId          String?
+  certificateId    String?
+  contentHash      String?
+  originalFilename String
+  mimeType         String   @default("application/octet-stream")
+  sizeBytes        Int      @default(0)
+
+  reviewStatus    ReviewStatus @default(DRAFT)
+  changeSummary   String?      @db.Text
+  createdByUserId String
+
+  /// Set when a later version replaces this one. Never deletes, never rewrites.
+  supersededAt   DateTime?
+  supersededById String?   @unique
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, versionNumber])
+  @@index([assetId, versionNumber])
+  @@index([campaignId, reviewStatus])
+  @@index([organizationId])
+  @@index([dnaRecordId])
+  @@index([vaultId])
+  @@map("asset_versions")
+}
+
 enum AssetTimelineType {
   CREATED
   PROTECTED
@@ -2128,6 +2192,7 @@ model Asset {
   timeline       AssetTimelineEvent[]
   discoveries    AssetDiscovery[]
   platformLinks  AssetPlatformLink[]
+  versions       AssetVersion[]
 
   @@unique([ownerUserId, clientRequestId])
   @@index([ownerUserId, createdAt])

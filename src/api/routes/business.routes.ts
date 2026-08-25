@@ -27,3 +27,9 @@ businessRouter.get('/campaigns/:campaignId/assets', requireAuth, businessControl
 businessRouter.post('/campaigns/:campaignId/assets', requireAuth, businessController.attachCampaignAsset);
 
 businessRouter.get('/campaigns/:campaignId/activity', requireAuth, businessController.listCampaignActivity);
+
+// ── Asset versions — immutable revision chain (V1 → V2 → V3) ────────────────
+businessRouter.get('/assets/:assetId/versions', requireAuth, businessController.listAssetVersions);
+businessRouter.post('/assets/:assetId/versions', requireAuth, businessController.createAssetVersion);
+businessRouter.get('/versions/:versionId', requireAuth, businessController.getAssetVersion);
+businessRouter.patch('/versions/:versionId/review-status', requireAuth, businessController.setVersionReviewStatus);

@@ -3,6 +3,7 @@ import { getAuthUserId } from '../../lib/tenant-scope';
 import { getOrganizationIdForUser } from '../../services/organization/org-access.service';
 import { clientService } from '../../services/organization/client.service';
 import { campaignService } from '../../services/organization/campaign.service';
+import { assetVersionService } from '../../services/organization/asset-version.service';
 import { AppError } from '../middleware/error.middleware';
 
 async function orgIdFor(req: Request): Promise<{ userId: string; organizationId: string }> {
@@ -51,6 +52,47 @@ export const businessController = {
       const { userId, organizationId } = await orgIdFor(req);
       await clientService.remove(organizationId, userId, req.params.clientId as string);
       res.json({ success: true });
+    } catch (err) { next(err); }
+  },
+
+  // ── Asset versions ────────────────────────────────────────────────────
+  async listAssetVersions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const result = await assetVersionService.list(organizationId, userId, req.params.assetId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async createAssetVersion(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const version = await assetVersionService.createVersion(
+        organizationId, userId, req.params.assetId as string, req.body,
+      );
+      res.status(201).json({ success: true, version });
+    } catch (err) { next(err); }
+  },
+
+  async getAssetVersion(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const version = await assetVersionService.get(organizationId, userId, req.params.versionId as string);
+      res.json({ success: true, version });
+    } catch (err) { next(err); }
+  },
+
+  async setVersionReviewStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { status, note } = (req.body ?? {}) as { status?: string; note?: string };
+      if (!status) throw new AppError(400, 'A review status is required');
+      const version = await assetVersionService.setReviewStatus(
+        organizationId, userId, req.params.versionId as string,
+        status as Parameters<typeof assetVersionService.setReviewStatus>[3],
+        { note },
+      );
+      res.json({ success: true, version });
     } catch (err) { next(err); }
   },
 
