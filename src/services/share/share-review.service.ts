@@ -30,6 +30,8 @@ export interface ReviewContext {
   filename: string;
   allowComments: boolean;
   allowChangeRequest: boolean;
+  allowApproval: boolean;
+  requiresIdentityCheck: boolean;
   recipientId: string | null;
   recipientLabel: string;
 }
@@ -46,6 +48,7 @@ export async function resolveReviewContext(token: string): Promise<ReviewContext
     select: {
       id: true, token: true, isActive: true, expiresAt: true,
       reviewMode: true, allowComments: true, allowChangeRequest: true,
+      allowApproval: true, requireOtp: true, otpVerified: true,
       reviewVersionId: true, assetId: true, filename: true,
       shareRecipientId: true, recipientLabel: true,
     },
@@ -86,6 +89,10 @@ export async function resolveReviewContext(token: string): Promise<ReviewContext
     filename: version.originalFilename || link.filename,
     allowComments: link.allowComments,
     allowChangeRequest: link.allowChangeRequest,
+    allowApproval: link.allowApproval,
+    // Surfaced so the client UI can prompt for verification rather than letting
+    // them press Approve and be refused.
+    requiresIdentityCheck: link.requireOtp && !link.otpVerified,
     recipientId: link.shareRecipientId,
     recipientLabel: link.recipientLabel?.trim() || 'Client',
   };
@@ -111,6 +118,8 @@ export const shareReviewService = {
       reviewStatus: ctx.reviewStatus,
       allowComments: ctx.allowComments,
       allowChangeRequest: ctx.allowChangeRequest,
+      allowApproval: ctx.allowApproval,
+      requiresIdentityCheck: ctx.requiresIdentityCheck,
       recipientLabel: ctx.recipientLabel,
       // History is visible but read-only — the client can see that V1 existed
       // without being able to reach into it.
@@ -202,6 +211,10 @@ export const shareReviewService = {
     const wantsChangeRequest = input.kind === 'CHANGE_REQUEST';
     if (wantsChangeRequest && !ctx.allowChangeRequest) {
       throw new AppError(403, 'Change requests are turned off for this link');
+    }
+    // Same rule the team path enforces: an approved version is finished.
+    if (wantsChangeRequest && ctx.reviewStatus === 'APPROVED') {
+      throw new AppError(409, 'This version has been approved. A new version is needed for further changes.');
     }
 
     // Reuse the team service's validation so a client and a team member cannot

@@ -332,3 +332,38 @@ export async function listCampaignChangeRequests(campaignId: string): Promise<Re
   );
   return Array.isArray(data?.changeRequests) ? data.changeRequests : [];
 }
+
+// ── Version approvals ────────────────────────────────────────────────────────
+// Insert-only decisions carrying identity evidence. Never updated.
+
+export type ApprovalDecision = 'APPROVED' | 'CHANGES_REQUESTED';
+
+export interface VersionApproval {
+  id: string;
+  decision: ApprovalDecision;
+  comment: string | null;
+  approverLabel: string;
+  byClient: boolean;
+  identityVerified: boolean;
+  versionId: string;
+  assetId: string;
+  createdAt: string;
+}
+
+export async function listCampaignApprovals(campaignId: string): Promise<VersionApproval[]> {
+  const { data } = await api.get<{ success: boolean; decisions: VersionApproval[] }>(
+    `${BASE}/campaigns/${campaignId}/approvals`,
+  );
+  return Array.isArray(data?.decisions) ? data.decisions : [];
+}
+
+export async function decideVersion(
+  versionId: string,
+  decision: ApprovalDecision,
+  comment?: string,
+): Promise<{ approval: VersionApproval; reviewStatus: ReviewStatus }> {
+  const { data } = await api.post<{ success: boolean; approval: VersionApproval; reviewStatus: ReviewStatus }>(
+    `${BASE}/versions/${versionId}/decision`, { decision, comment },
+  );
+  return { approval: data.approval, reviewStatus: data.reviewStatus };
+}

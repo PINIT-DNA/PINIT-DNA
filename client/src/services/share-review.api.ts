@@ -26,6 +26,9 @@ export interface ClientReviewContext {
   reviewStatus: string;
   allowComments: boolean;
   allowChangeRequest: boolean;
+  allowApproval: boolean;
+  /** True when the sender required identity verification and it hasn't happened. */
+  requiresIdentityCheck: boolean;
   recipientLabel: string;
   versions: ClientReviewVersion[];
 }
@@ -68,4 +71,37 @@ export async function postShareReviewComment(
     `${API_BASE_URL}/share/${token}/review/comments`, input,
   );
   return data.comment;
+}
+
+// ── Decisions ────────────────────────────────────────────────────────────────
+
+export type ApprovalDecision = 'APPROVED' | 'CHANGES_REQUESTED';
+
+export interface VersionDecision {
+  id: string;
+  decision: ApprovalDecision;
+  comment: string | null;
+  approverLabel: string;
+  byClient: boolean;
+  identityVerified: boolean;
+  versionId: string;
+  assetId: string;
+  createdAt: string;
+}
+
+export async function getShareReviewDecisions(token: string): Promise<VersionDecision[]> {
+  const { data } = await axios.get<{ success: boolean; decisions: VersionDecision[] }>(
+    `${API_BASE_URL}/share/${token}/review/decisions`,
+  );
+  return Array.isArray(data?.decisions) ? data.decisions : [];
+}
+
+export async function postShareReviewDecision(
+  token: string,
+  input: { decision: ApprovalDecision; comment?: string; approverLabel?: string },
+): Promise<{ approval: VersionDecision; reviewStatus: string }> {
+  const { data } = await axios.post<{ success: boolean; approval: VersionDecision; reviewStatus: string }>(
+    `${API_BASE_URL}/share/${token}/review/decision`, input,
+  );
+  return { approval: data.approval, reviewStatus: data.reviewStatus };
 }

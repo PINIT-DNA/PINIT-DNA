@@ -102,7 +102,7 @@ async function loadVersionScoped(organizationId: string, versionId: string) {
   const version = await prisma.assetVersion.findFirst({
     where: { id: versionId, organizationId },
     select: { id: true, assetId: true, campaignId: true, versionNumber: true,
-              originalFilename: true, organizationId: true },
+              originalFilename: true, organizationId: true, reviewStatus: true },
   });
   if (!version) throw new AppError(404, 'Version not found');
   return version;
@@ -256,6 +256,16 @@ export const reviewCommentService = {
   ) {
     await requireOrgRole(actorUserId, organizationId, OrganizationMemberRole.MEMBER);
     const version = await loadVersionScoped(organizationId, versionId);
+
+    // An approved version is finished. Discussion may continue, but asking for
+    // a change on it is contradictory — that work belongs to a new version.
+    const wantsChangeRequest = (input.kind ?? 'COMMENT') === 'CHANGE_REQUEST' && !input.parentId;
+    if (wantsChangeRequest && version.reviewStatus === 'APPROVED') {
+      throw new AppError(
+        409,
+        'This version is approved. Create a new version to make further changes.',
+      );
+    }
 
     const body = cleanBody(input.body);
     const anchor = cleanAnchor(input.anchor);

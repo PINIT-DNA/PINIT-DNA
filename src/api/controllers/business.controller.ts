@@ -57,6 +57,44 @@ export const businessController = {
     } catch (err) { next(err); }
   },
 
+  // ── Version approvals ─────────────────────────────────────────────────
+  async decideVersion(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { versionApprovalService } = await import('../../services/share/version-approval.service');
+      const body = (req.body ?? {}) as { decision?: string; comment?: unknown };
+      if (body.decision !== 'APPROVED' && body.decision !== 'CHANGES_REQUESTED') {
+        throw new AppError(400, 'A decision is required');
+      }
+      const result = await versionApprovalService.decideAsTeam(
+        organizationId, userId, req.params.versionId as string,
+        { decision: body.decision, comment: body.comment },
+        { ipAddress: req.ip ?? null },
+      );
+      res.status(201).json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async listVersionApprovals(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { organizationId } = await orgIdFor(req);
+      const { versionApprovalService } = await import('../../services/share/version-approval.service');
+      const decisions = await versionApprovalService.listForVersion(
+        organizationId, req.params.versionId as string);
+      res.json({ success: true, decisions });
+    } catch (err) { next(err); }
+  },
+
+  async listCampaignApprovals(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { organizationId } = await orgIdFor(req);
+      const { versionApprovalService } = await import('../../services/share/version-approval.service');
+      const decisions = await versionApprovalService.listForCampaign(
+        organizationId, req.params.campaignId as string);
+      res.json({ success: true, decisions });
+    } catch (err) { next(err); }
+  },
+
   // ── Review comments / change requests ─────────────────────────────────
   async listVersionComments(req: Request, res: Response, next: NextFunction) {
     try {

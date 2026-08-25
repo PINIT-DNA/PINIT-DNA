@@ -36,6 +36,8 @@ import {
   getShareReview,
   getShareReviewComments,
   postShareReviewComment,
+  postShareReviewDecision,
+  getShareReviewDecisions,
   debugReport,
   getGlobalShareStats,
   getLiveTrackingMap,
@@ -84,6 +86,8 @@ shareRouter.get('/:token/messages/mine',       getMyShareViewerMessages);
 shareRouter.get('/:token/review',              getShareReview);
 shareRouter.get('/:token/review/comments',     getShareReviewComments);
 shareRouter.post('/:token/review/comments',    postShareReviewComment);
+shareRouter.get('/:token/review/decisions',    getShareReviewDecisions);
+shareRouter.post('/:token/review/decision',    postShareReviewDecision);
 // Owner-only routes (require auth)
 shareRouter.get('/:token/logs',                requireAuth, requireTrackingUnlessLicensedShare(requireFeature(FeatureKey.FEATURE_TRACKING)), requireShareLinkOwnership, getShareLinkLogs);
 shareRouter.get('/:token/export',              requireAuth, requireShareLinkOwnership, exportShareLogsCsv);

@@ -1465,3 +1465,36 @@ export async function postShareReviewComment(req: Request, res: Response, next: 
     res.status(201).json({ success: true, comment });
   } catch (err) { next(err); }
 }
+
+/**
+ * Client decision on a version. Public — the token is the authority.
+ * Every identifier on the resulting record is derived server-side.
+ */
+export async function postShareReviewDecision(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { versionApprovalService } = await import('../../services/share/version-approval.service');
+    const body = (req.body ?? {}) as { decision?: string; comment?: unknown; approverLabel?: unknown };
+    if (body.decision !== 'APPROVED' && body.decision !== 'CHANGES_REQUESTED') {
+      throw new AppError(400, 'A decision is required');
+    }
+    const result = await versionApprovalService.decideAsClient(
+      req.params.token as string,
+      { decision: body.decision, comment: body.comment, approverLabel: body.approverLabel },
+      {
+        ipAddress: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || null,
+        deviceFingerprint: (req.headers['x-device-fingerprint'] as string) || null,
+      },
+    );
+    res.status(201).json({ success: true, ...result });
+  } catch (err) { next(err); }
+}
+
+export async function getShareReviewDecisions(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { resolveReviewContext } = await import('../../services/share/share-review.service');
+    const { versionApprovalService } = await import('../../services/share/version-approval.service');
+    const ctx = await resolveReviewContext(req.params.token as string);
+    const decisions = await versionApprovalService.listForVersion(ctx.organizationId, ctx.versionId);
+    res.json({ success: true, decisions });
+  } catch (err) { next(err); }
+}

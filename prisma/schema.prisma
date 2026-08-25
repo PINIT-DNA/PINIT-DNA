@@ -1250,6 +1250,8 @@ model ShareLink {
   reviewMode                Boolean              @default(false)
   allowComments             Boolean              @default(false)
   allowChangeRequest        Boolean              @default(false)
+  /// Approval carries legal weight, so it is a separate grant from commenting.
+  allowApproval             Boolean              @default(false)
   /// Pins the link to one version. Null means "whatever is current".
   reviewVersionId           String?
 
@@ -2077,6 +2079,13 @@ enum CommentKind {
   CHANGE_REQUEST
 }
 
+/// The two things a reviewer can decide. Deliberately only two: an approval
+/// workflow with more outcomes than this becomes one nobody can reason about.
+enum ApprovalDecision {
+  APPROVED
+  CHANGES_REQUESTED
+}
+
 /// Shared by both kinds. A plain comment normally only ever sees OPEN and
 /// RESOLVED; the middle states carry a change request through its lifecycle.
 enum CommentStatus {
@@ -2085,6 +2094,47 @@ enum CommentStatus {
   RESOLVED
   REJECTED
   CLOSED
+}
+
+/// A decision recorded against one version. Insert-only, never updated.
+///
+/// This is the audit claim — "Adhureddy approved version 3 on 25 Aug 2026" — so
+/// it stores the evidence behind the claim, not just the outcome. A row keeps
+/// the recipient, the token used, whether that token had been identity-verified,
+/// and the device and IP it came from. Without that, an approval is only proof
+/// that somebody held a URL.
+///
+/// There is no update path anywhere in the codebase. A decision is reversed by
+/// recording a new one on a new version, never by rewriting this row.
+model VersionApproval {
+  id             String   @id @default(uuid())
+  createdAt      DateTime @default(now())
+
+  organizationId String
+  clientId       String?
+  campaignId     String
+  assetId        String
+  versionId      String
+
+  decision       ApprovalDecision
+  comment        String?  @db.Text
+
+  /// Identity evidence. Exactly one of the two actor columns is set.
+  approvedByUserId      String?
+  approvedByRecipientId String?
+  approverLabel         String
+  shareToken            String?
+  otpVerified           Boolean @default(false)
+  deviceFingerprint     String?
+  ipAddress             String?
+
+  version AssetVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId, createdAt])
+  @@index([campaignId, decision])
+  @@index([organizationId, createdAt])
+  @@index([assetId])
+  @@map("version_approvals")
 }
 
 /// A comment or an actionable change request on one version of an asset.
@@ -2186,7 +2236,8 @@ model AssetVersion {
   supersededById String?   @unique
 
   asset    Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  comments ReviewComment[]
+  comments  ReviewComment[]
+  approvals VersionApproval[]
 
   @@unique([assetId, versionNumber])
   @@index([assetId, versionNumber])

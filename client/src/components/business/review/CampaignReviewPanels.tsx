@@ -6,16 +6,16 @@
  * chain, so the panel is never empty for an asset that exists.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { GitBranch, MessageSquare, Archive, AlertTriangle, RefreshCw, Loader2, Inbox } from 'lucide-react';
+import { GitBranch, MessageSquare, Archive, AlertTriangle, RefreshCw, Loader2, Inbox, ShieldCheck, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
   listAssetVersions, setVersionReviewStatus,
   listVersionComments, createVersionComment, setCommentStatus,
-  listCampaignChangeRequests,
+  listCampaignChangeRequests, listCampaignApprovals,
 } from '../../../services/business.api';
 import type {
   CampaignAsset, AssetVersion, ReviewStatus,
-  ReviewComment, CommentThreads,
+  ReviewComment, CommentThreads, VersionApproval,
 } from '../../../services/business.api';
 import { SectionCard, SkeletonRows } from '../clients/BusinessKit';
 import { VersionTimeline } from './VersionTimeline';
@@ -205,6 +205,7 @@ export function ApprovalsPanel({
   onChanged?: () => void;
 }) {
   const [requests, setRequests] = useState<ReviewComment[] | null>(null);
+  const [decisions, setDecisions] = useState<VersionApproval[]>([]);
   const [awaiting, setAwaiting] = useState<Array<{ asset: CampaignAsset; version: AssetVersion }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -214,11 +215,13 @@ export function ApprovalsPanel({
     setLoading(true);
     setError(null);
     try {
-      const [crs, chains] = await Promise.all([
+      const [crs, decided, chains] = await Promise.all([
         listCampaignChangeRequests(campaignId),
+        listCampaignApprovals(campaignId).catch(() => [] as VersionApproval[]),
         Promise.all((assets ?? []).map(async (a) => ({ asset: a, chain: await listAssetVersions(a.id) }))),
       ]);
       setRequests(crs);
+      setDecisions(decided);
       // Anything not yet settled needs someone's attention.
       setAwaiting(
         chains.flatMap(({ asset, chain }) => chain.versions
@@ -254,7 +257,7 @@ export function ApprovalsPanel({
   }
 
   const openRequests = requests ?? [];
-  const nothingPending = openRequests.length === 0 && awaiting.length === 0;
+  const nothingPending = openRequests.length === 0 && awaiting.length === 0 && decisions.length === 0;
 
   if (nothingPending) {
     return (
@@ -285,6 +288,47 @@ export function ApprovalsPanel({
                   </p>
                 </div>
                 <ReviewStatusBadge status={version.reviewStatus} />
+              </li>
+            ))}
+          </ul>
+        </SectionCard>
+      )}
+
+      {decisions.length > 0 && (
+        <SectionCard title="Decisions" icon={ShieldCheck}>
+          <ul className="space-y-2">
+            {decisions.map((d) => (
+              <li key={d.id}
+                className={cn(
+                  'rounded-lg border px-3 py-2.5',
+                  d.decision === 'APPROVED'
+                    ? 'border-emerald-500/25 bg-emerald-500/5'
+                    : 'border-amber-500/25 bg-amber-500/5',
+                )}>
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <p className="text-sm font-semibold text-white flex items-center gap-1.5 min-w-0">
+                    {d.decision === 'APPROVED'
+                      ? <Check size={14} className="text-emerald-400 shrink-0" />
+                      : <MessageSquare size={14} className="text-amber-400 shrink-0" />}
+                    <span className="truncate">{d.approverLabel}</span>
+                    {d.byClient && (
+                      <span className="text-2xs text-gray-400 border border-bg-border rounded px-1.5 py-px shrink-0">
+                        Client
+                      </span>
+                    )}
+                  </p>
+                  <span className={cn('text-2xs font-semibold whitespace-nowrap',
+                    d.decision === 'APPROVED' ? 'text-emerald-400' : 'text-amber-400')}>
+                    {d.decision === 'APPROVED' ? 'Approved' : 'Changes requested'}
+                  </span>
+                </div>
+                <p className="text-2xs text-gray-500 mt-1">
+                  {new Date(d.createdAt).toLocaleString()}
+                  {d.identityVerified && ' · identity verified'}
+                </p>
+                {d.comment && (
+                  <p className="text-xs text-gray-300 mt-1.5 break-words whitespace-pre-wrap">{d.comment}</p>
+                )}
               </li>
             ))}
           </ul>

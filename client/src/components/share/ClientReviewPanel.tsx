@@ -12,7 +12,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { MessageSquare, GitBranch, ShieldCheck, Loader2 } from 'lucide-react';
 import type { CommentThreads } from '../../services/business.api';
 import type { ClientReviewContext } from '../../services/share-review.api';
-import { getShareReviewComments, postShareReviewComment } from '../../services/share-review.api';
+import {
+  getShareReviewComments, postShareReviewComment,
+  getShareReviewDecisions, postShareReviewDecision,
+} from '../../services/share-review.api';
+import type { VersionDecision } from '../../services/share-review.api';
+import { ApprovalActions } from './ApprovalActions';
 import { ReviewThreads } from '../business/review/ReviewThreads';
 
 const cn = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
@@ -40,13 +45,20 @@ export function ClientReviewPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState('');
+  const [decisions, setDecisions] = useState<VersionDecision[]>([]);
 
   const load = useCallback(async () => {
-    if (!review?.allowComments) { setLoading(false); return; }
     setLoading(true);
     setError(null);
     try {
-      setThreads(await getShareReviewComments(token));
+      // Decisions are fetched even on a comments-off link, because an approval
+      // already recorded must still be shown.
+      const [t, d] = await Promise.all([
+        review?.allowComments ? getShareReviewComments(token) : Promise.resolve(EMPTY),
+        getShareReviewDecisions(token).catch(() => [] as VersionDecision[]),
+      ]);
+      setThreads(t);
+      setDecisions(d);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load comments');
     } finally {
@@ -121,6 +133,28 @@ export function ClientReviewPanel({
               </li>
             ))}
           </ol>
+        </div>
+      )}
+
+      {/* Decision — above the conversation, because it is the thing being asked. */}
+      {(review.allowApproval || review.reviewStatus === 'APPROVED') && (
+        <div className="px-4 sm:px-5 pt-4">
+          <ApprovalActions
+            versionNumber={review.versionNumber}
+            reviewStatus={review.reviewStatus}
+            allowApproval={review.allowApproval}
+            requiresIdentityCheck={review.requiresIdentityCheck}
+            decisions={decisions}
+            approverName={name.trim() || review.recipientLabel}
+            onDecide={async (decision, comment) => {
+              await postShareReviewDecision(token, {
+                decision, comment,
+                approverLabel: name.trim() || undefined,
+              });
+              await load();
+              onActivity?.();
+            }}
+          />
         </div>
       )}
 

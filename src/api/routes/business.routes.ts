@@ -39,3 +39,8 @@ businessRouter.get('/versions/:versionId/comments', requireAuth, businessControl
 businessRouter.post('/versions/:versionId/comments', requireAuth, businessController.createVersionComment);
 businessRouter.patch('/comments/:commentId/status', requireAuth, businessController.setCommentStatus);
 businessRouter.get('/campaigns/:campaignId/change-requests', requireAuth, businessController.listCampaignChangeRequests);
+
+// ── Version approvals — insert-only decisions with identity evidence ────────
+businessRouter.post('/versions/:versionId/decision', requireAuth, businessController.decideVersion);
+businessRouter.get('/versions/:versionId/approvals', requireAuth, businessController.listVersionApprovals);
+businessRouter.get('/campaigns/:campaignId/approvals', requireAuth, businessController.listCampaignApprovals);
