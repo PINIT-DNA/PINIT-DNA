@@ -6,7 +6,10 @@ coverage/
 tmp/
 .env
 *.log
-prisma/migrations/
+# prisma/migrations/ was ignored here, which is why migration history drifted:
+# the files never reached the remote, so nothing could apply them and the
+# team fell back on `db push` + scripts/ensure-*.cjs. Migrations are now
+# tracked so the SQL is reviewable and travels with the code.
 
 # Vault encrypted files — never commit user data
 vault/encrypted/*.enc

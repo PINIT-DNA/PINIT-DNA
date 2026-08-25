@@ -35,10 +35,21 @@ if (!process.env.DIRECT_URL) {
   console.warn('[baseline] DIRECT_URL not set — using DATABASE_URL. Prefer session pooler (port 5432) for migrate resolve.');
 }
 
-const ensureScripts = [
-  'scripts/ensure-provenance-table.cjs',
-  'scripts/ensure-platform-events.cjs',
-];
+// Derived from the real production boot chain rather than hand-listed, because
+// a hand-listed copy went stale: it named 2 of the 7 ensure-* scripts, so
+// baselining silently skipped five tables. Reading start:prod keeps the two in
+// step by construction.
+const ensureScripts = (() => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const chain = pkg.scripts?.['start:prod'] ?? '';
+  const found = [...chain.matchAll(/node (scripts\/ensure-[\w-]+\.cjs)/g)].map((m) => m[1]);
+  if (found.length) return found;
+  // Fallback: the chain was restructured — run every ensure script we can find.
+  return fs.readdirSync(path.join(root, 'scripts'))
+    .filter((f) => /^ensure-.*\.cjs$/.test(f))
+    .sort()
+    .map((f) => `scripts/${f}`);
+})();
 
 console.log('[baseline] Applying idempotent schema bootstraps…');
 for (const script of ensureScripts) {
