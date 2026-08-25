@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { DashboardLayout } from './layouts/DashboardLayout';
+import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import { OnboardingLayout } from './layouts/OnboardingLayout';
 import { GeneratePage } from './pages/GeneratePage';
 import { VaultPage } from './pages/VaultPage';
@@ -58,6 +59,7 @@ export const router = createBrowserRouter([
   { path: '/login', element: <PinitGateway /> },
   {
     path: '/register/account-type',
+    errorElement: <RouteErrorBoundary />,
     element: <PreRegisterRoute />,
     children: [{ index: true, element: <PreRegisterAccountTypePage /> }],
   },
@@ -65,6 +67,7 @@ export const router = createBrowserRouter([
   { path: '/face-auth', element: <FaceLoginPage /> },
   {
     path: '/extension/auth',
+    errorElement: <RouteErrorBoundary />,
     element: (
       <RequireAuth>
         <ExtensionAuthPage />
@@ -81,6 +84,7 @@ export const router = createBrowserRouter([
   // ── Onboarding (auth required, isolated shell — no dashboard chrome) ──────
   {
     path: '/onboarding',
+    errorElement: <RouteErrorBoundary />,
     element: (
       <RequireAuth>
         <OnboardingLayout />
@@ -96,6 +100,7 @@ export const router = createBrowserRouter([
   // ── Application (auth + onboarding complete + dashboard shell) ────────────
   {
     path: '/',
+    errorElement: <RouteErrorBoundary />,
     element: (
       <RequireAuth>
         <RequireAccountTypeOnboarding>

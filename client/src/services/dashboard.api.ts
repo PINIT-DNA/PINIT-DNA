@@ -39,8 +39,14 @@ export function deriveFileType(record: DnaRecord): string {
 }
 
 export const api = axios.create({
-  /** Per-request ceiling — busy backend (monitor/crawler) may need up to ~30s locally. */
-  timeout: 30_000,
+  /**
+   * Per-request ceiling — a busy backend (monitor/crawler) needs ~30s locally,
+   * but the deployed API sleeps on Render's free tier and takes roughly 50s to
+   * wake. At 30s every first request of the day failed, which surfaced as
+   * "Internal server error" and a silently downgraded plan rather than a slow
+   * page. Individual calls still set their own longer timeouts where needed.
+   */
+  timeout: 75_000,
 });
 
 /** Human-readable message for failed API calls (proxy offline, 5xx, etc.) */

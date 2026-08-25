@@ -488,8 +488,12 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
 
   const investigating = loading || captureProcessing;
 
-  const completedSteps = report?.pipeline.filter((s) => s.status === 'complete').length ?? 0;
-  const totalSteps = report?.pipeline.length ?? 16;
+  // `report?.pipeline.filter(...)` only guards the report: a response that
+  // arrives without `pipeline` walks into .filter on undefined and takes the
+  // route down. Same shape of crash that hit Vault check in production.
+  const pipeline = report?.pipeline ?? [];
+  const completedSteps = pipeline.filter((s) => s.status === 'complete').length;
+  const totalSteps = pipeline.length || 16;
 
   return (
     <div className="page-shell w-full max-w-5xl space-y-6 min-w-0">
@@ -656,7 +660,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               Investigation Pipeline — {completedSteps}/{totalSteps} complete
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2">
-              {report.pipeline.map((s) => (
+              {pipeline.map((s) => (
                 <div key={s.id} className="flex flex-col items-center text-center gap-1 p-2 rounded-lg bg-bg-elevated">
                   <span className={cn('w-2 h-2 rounded-full', STEP_STATUS[s.status])} title={s.detail} />
                   <span className="text-2xs text-gray-400 leading-tight">{s.label}</span>

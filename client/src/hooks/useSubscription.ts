@@ -69,6 +69,20 @@ let inflight: Promise<SubscriptionView> | null = null;
 let lastFetchedAt = 0;
 const STALE_MS = 60_000;
 
+/**
+ * A failed request is not evidence of a Free plan.
+ *
+ * This used to answer a network error by writing FREE_FALLBACK into `cached`,
+ * which is module-level and shared: one slow response and every component read
+ * "Free" for the rest of the session. A Pro account showed "Free plan" and
+ * "0 of 5 protected assets used" while its five files were listed on the same
+ * screen — seen in production, where the free-tier backend cold-starts around
+ * 50s and blows past the timeout below.
+ *
+ * Absence of an answer now leaves the last known plan in place, and never
+ * writes a fabricated one into the cache. FREE_FALLBACK stays as the first-load
+ * default only, where nothing better exists yet.
+ */
 async function fetchSubscription(): Promise<SubscriptionView> {
   try {
     const { data } = await api.get<{ success?: boolean; subscription?: SubscriptionView }>(
@@ -80,10 +94,10 @@ async function fetchSubscription(): Promise<SubscriptionView> {
       return cached;
     }
   } catch {
-    /* fall through to Free */
+    /* keep whatever we already knew — see above */
   }
-  cached = FREE_FALLBACK;
-  return FREE_FALLBACK;
+  // Deliberately NOT assigned to `cached`: a failure must not become a fact.
+  return cached ?? FREE_FALLBACK;
 }
 
 export function invalidateSubscriptionCache(): void {
@@ -101,7 +115,11 @@ export function useSubscription() {
     if (!silent) setLoading(true);
     try {
       if (!inflight) inflight = fetchSubscription().finally(() => { inflight = null; });
-      const view = await withTimeout(inflight, 8_000, cached ?? FREE_FALLBACK);
+      // 8s could not survive a cold start on Render's free tier, which takes
+      // ~50s to wake — so the very first load of the day always fell back.
+      // The fallback is now the last known plan rather than a guess, but the
+      // wait still needs to outlast the wake-up or it is never reached.
+      const view = await withTimeout(inflight, 60_000, cached ?? FREE_FALLBACK);
       setSubscription(view);
       return view;
     } finally {

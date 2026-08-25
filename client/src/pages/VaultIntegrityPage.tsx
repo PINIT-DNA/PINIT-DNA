@@ -59,6 +59,15 @@ function normalizeReport(raw: unknown): IntegrityReport {
   // Tolerate an envelope ({ data: … }) as well as the bare report.
   const body = (r.results || r.summary ? r : r.data ?? {}) as Partial<IntegrityReport>;
 
+  // A payload carrying neither results nor summary is not an empty vault — it
+  // is a response we could not read. Saying "All Systems Healthy · 0 files
+  // checked" to that is worse than the crash it replaced: it reads as a real
+  // all-clear on a check that never ran. Fail loudly so the caller's error
+  // path shows instead.
+  if (!Array.isArray(body.results) && !body.summary) {
+    throw new Error('Integrity check returned an unreadable response');
+  }
+
   const results = Array.isArray(body.results) ? body.results : [];
   const s = body.summary;
   const summary: IntegrityReport['summary'] = {

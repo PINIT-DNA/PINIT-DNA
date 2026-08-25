@@ -79,14 +79,30 @@ export interface BusinessOverview {
 
 const BASE = `${API_BASE_URL}/business`;
 
+/**
+ * Guarantee the list fields exist before anything renders them.
+ *
+ * Consumers do `data.recentClients.map(...)` after checking only `!data`, so an
+ * overview that arrives without its arrays would throw "Cannot read properties
+ * of undefined" and take the route down — the same failure that hit Vault
+ * check in production. Normalising here fixes it for every caller at once.
+ */
 export async function getBusinessOverview(): Promise<BusinessOverview> {
   const { data } = await api.get<{ success: boolean; overview: BusinessOverview }>(`${BASE}/overview`);
-  return data.overview;
+  const o = (data?.overview ?? {}) as Partial<BusinessOverview>;
+  return {
+    clientCount: o.clientCount ?? 0,
+    campaignCount: o.campaignCount ?? 0,
+    assetCount: o.assetCount ?? 0,
+    creatorCount: o.creatorCount ?? 0,
+    recentClients: Array.isArray(o.recentClients) ? o.recentClients : [],
+    recentCampaigns: Array.isArray(o.recentCampaigns) ? o.recentCampaigns : [],
+  };
 }
 
 export async function listClients(): Promise<BusinessClient[]> {
   const { data } = await api.get<{ success: boolean; clients: BusinessClient[] }>(`${BASE}/clients`);
-  return data.clients;
+  return Array.isArray(data?.clients) ? data.clients : [];
 }
 
 export async function getClient(clientId: string): Promise<BusinessClient> {
@@ -119,7 +135,7 @@ export async function deleteClient(clientId: string): Promise<void> {
 
 export async function listCampaigns(clientId: string): Promise<Campaign[]> {
   const { data } = await api.get<{ success: boolean; campaigns: Campaign[] }>(`${BASE}/clients/${clientId}/campaigns`);
-  return data.campaigns;
+  return Array.isArray(data?.campaigns) ? data.campaigns : [];
 }
 
 export async function getCampaign(campaignId: string): Promise<Campaign> {
@@ -151,7 +167,7 @@ export async function deleteCampaign(campaignId: string): Promise<void> {
 
 export async function listCampaignMembers(campaignId: string): Promise<CampaignMember[]> {
   const { data } = await api.get<{ success: boolean; members: CampaignMember[] }>(`${BASE}/campaigns/${campaignId}/members`);
-  return data.members;
+  return Array.isArray(data?.members) ? data.members : [];
 }
 
 export interface CampaignMemberInput {
@@ -175,10 +191,10 @@ export async function removeCampaignMember(campaignId: string, memberId: string)
 
 export async function listCampaignAssets(campaignId: string): Promise<CampaignAsset[]> {
   const { data } = await api.get<{ success: boolean; assets: CampaignAsset[] }>(`${BASE}/campaigns/${campaignId}/assets`);
-  return data.assets;
+  return Array.isArray(data?.assets) ? data.assets : [];
 }
 
 export async function listCampaignActivity(campaignId: string): Promise<CampaignActivityItem[]> {
   const { data } = await api.get<{ success: boolean; activity: CampaignActivityItem[] }>(`${BASE}/campaigns/${campaignId}/activity`);
-  return data.activity;
+  return Array.isArray(data?.activity) ? data.activity : [];
 }
