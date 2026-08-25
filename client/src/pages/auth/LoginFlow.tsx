@@ -17,7 +17,7 @@ import { warmBackend, parseJwt, getAccessToken, hasValidAccessToken } from '../.
 import { toRootPinitId } from '../../lib/pinit-identity';
 import { resolveDefaultHomePath } from '../../lib/subscription/post-upgrade-redirect';
 import { takePendingTeamInvite } from '../../lib/team-invite';
-import { loginWithFace, type FacePadEvidence } from '../../lib/face-api-client';
+import { loginWithFace, identifyWithFace, type FacePadEvidence } from '../../lib/face-api-client';
 import { collectFingerprint } from '../../lib/device-fingerprint';
 import { preloadFaceModels } from '../../lib/face-capture';
 import { createExchangeSso } from '../../services/dashboard.api';
@@ -27,12 +27,22 @@ import {
   takeStashedExchangeReturn,
 } from '../../lib/exchange-return';
 
-type Step = 'welcome' | 'face' | 'fingerprint' | 'voice' | 'presence' | 'success';
+type Step =
+  | 'welcome'
+  // ── face-first sign-in (default): scan, identify, done ──
+  | 'identifyScan' | 'identifying' | 'notRecognized'
+  // ── Pinit ID fallback: the original 1:1 flow, unchanged ──
+  | 'claim' | 'face' | 'fingerprint' | 'voice' | 'presence'
+  | 'success';
+
 /**
  * Passkey/voice first, then face+PAD immediately before database match.
  * PAD challenges expire — scanning face too early (before passkey) caused false "liveness inconclusive".
  */
-const ORDER: Step[] = ['welcome', 'fingerprint', 'voice', 'face', 'presence', 'success'];
+const ORDER: Step[] = ['welcome', 'claim', 'fingerprint', 'voice', 'face', 'presence', 'success'];
+
+/** Face-first path is 3 short steps; the progress bar shouldn't imply the long one. */
+const IDENTIFY_ORDER: Step[] = ['welcome', 'identifyScan', 'identifying', 'success'];
 
 const fade = {
   initial: { opacity: 0, y: 16 },
@@ -68,7 +78,10 @@ export function LoginFlow() {
   claimedShortIdRef.current = claimedShortId;
 
   const go = (s: Step) => { setError(''); setStep(s); };
-  const idx = ORDER.indexOf(step);
+
+  const onIdentifyPath = IDENTIFY_ORDER.includes(step) && step !== 'welcome';
+  const activeOrder = onIdentifyPath ? IDENTIFY_ORDER : ORDER;
+  const idx = Math.max(0, activeOrder.indexOf(step));
 
   const bootRef = useRef(false);
   useEffect(() => {
@@ -164,13 +177,102 @@ export function LoginFlow() {
   }
 
   return (
-    <AuthShell steps={ORDER.length} current={idx} tagline="Biometric Access">
+    <AuthShell steps={activeOrder.length} current={idx} tagline="Biometric Access">
       <AnimatePresence mode="wait">
         <motion.div key={step} {...fade}>
           {step === 'welcome' && (
             <WelcomeBack
+              onScanFace={() => go('identifyScan')}
+              onUsePinitId={() => go('claim')}
+              onRegister={goToRegister}
+              exchangeReturn={!!exchangeReturn}
+              error={error}
+            />
+          )}
+
+          {/* ── Face-first sign-in ─────────────────────────────────────── */}
+          {step === 'identifyScan' && (
+            <>
+              <FaceRoundScan
+                mode="login"
+                title="Sign in with your face"
+                onEmbedding={(emb) => { faceEmbeddingRef.current = emb; }}
+                onPadEvidence={(ev) => { padEvidenceRef.current = ev; }}
+                onNext={() => go('identifying')}
+                onError={(m) => setError(m)}
+              />
+              <button
+                type="button"
+                className="pa-link"
+                onClick={() => go('claim')}
+                style={{ display: 'block', margin: '14px auto 0', fontSize: 13 }}
+              >
+                Use Pinit ID instead
+              </button>
+              {error && <p style={{ color: '#fca5a5', fontSize: 13, marginTop: 8, textAlign: 'center' }}>{error}</p>}
+            </>
+          )}
+
+          {step === 'identifying' && (
+            <Presence
+              error={error}
+              exchangeReturn={!!exchangeReturn}
+              run={async () => {
+                const embedding = faceEmbeddingRef.current;
+                if (!embedding) throw new Error('Face data missing. Scan again.');
+
+                const result = await identifyWithFace({
+                  embedding,
+                  padEvidence: padEvidenceRef.current ?? undefined,
+                  deviceFingerprint: (await collectFingerprint().catch(() => ({ hash: '' }))).hash || undefined,
+                });
+
+                loginWithFaceResponse(result);
+
+                const shortId = result.user?.shortId ?? '';
+                if (shortId) {
+                  let deviceFp = '';
+                  try { deviceFp = (await collectFingerprint()).hash; } catch { /* noop */ }
+                  saveRegistration({
+                    hoid: generateHoid(deviceFp),
+                    shortId,
+                    trustScore: getTrustScore(),
+                    deviceFp,
+                  });
+                  recordLogin();
+                }
+              }}
+              onDone={() => go('success')}
+              onError={() => {
+                // Every identify refusal looks the same by design — there is no
+                // detail here worth surfacing beyond "not recognized".
+                padEvidenceRef.current = null;
+                faceEmbeddingRef.current = null;
+                setStep('notRecognized');
+              }}
+              onRegister={goToRegister}
+              onRetry={() => {
+                padEvidenceRef.current = null;
+                faceEmbeddingRef.current = null;
+                go('identifyScan');
+              }}
+            />
+          )}
+
+          {step === 'notRecognized' && (
+            <FaceNotRecognized
+              onRetry={() => go('identifyScan')}
+              onUsePinitId={() => go('claim')}
+              onRegister={goToRegister}
+            />
+          )}
+
+          {/* ── Pinit ID fallback (original 1:1 flow) ──────────────────── */}
+          {step === 'claim' && (
+            <ClaimPinitId
               claimedShortId={claimedShortId}
               onClaimedShortIdChange={setClaimedShortId}
+              onBack={() => go('welcome')}
               onNext={() => {
                 const claim = (toRootPinitId(claimedShortId) || claimedShortId).trim();
                 if (!claim) {
@@ -180,8 +282,6 @@ export function LoginFlow() {
                 setClaimedShortId(claim);
                 go('fingerprint');
               }}
-              onRegister={goToRegister}
-              exchangeReturn={!!exchangeReturn}
               error={error}
             />
           )}
@@ -297,18 +397,126 @@ export function LoginFlow() {
 }
 
 function WelcomeBack({
-  onNext,
+  onScanFace,
+  onUsePinitId,
   onRegister,
   exchangeReturn,
-  claimedShortId,
-  onClaimedShortIdChange,
   error,
 }: {
-  onNext: () => void;
+  onScanFace: () => void;
+  onUsePinitId: () => void;
   onRegister: () => void;
   exchangeReturn?: boolean;
+  error?: string;
+}) {
+  return (
+    <div className="pa-card" style={{ textAlign: 'center' }}>
+      <div style={{
+        width: 72, height: 72, margin: '4px auto 16px', borderRadius: 20,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'radial-gradient(circle at 50% 30%, rgba(59,158,255,0.35), rgba(29,111,216,0.08))',
+        border: '1px solid rgba(59,158,255,0.35)',
+      }}>
+        <ScanFace size={34} color="#3b9eff" />
+      </div>
+      <h1 style={{ fontSize: 22, fontWeight: 800 }}>
+        {exchangeReturn ? 'Continue' : 'Welcome Back'}
+      </h1>
+      <p className="pa-muted" style={{ fontSize: 14, marginTop: 8 }}>
+        Look at the camera — we&apos;ll find your account.
+      </p>
+
+      {error && <p style={{ color: '#fca5a5', fontSize: 13, marginTop: 12 }}>{error}</p>}
+
+      <button className="pa-btn" style={{ marginTop: 18 }} onClick={onScanFace}>
+        <ScanFace size={17} /> Scan face to sign in
+      </button>
+
+      <button
+        type="button"
+        className="pa-link"
+        onClick={onUsePinitId}
+        style={{ display: 'block', margin: '14px auto 0', fontSize: 13 }}
+      >
+        Use Pinit ID instead
+      </button>
+
+      {!exchangeReturn && (
+        <>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            margin: '18px 0 14px', color: 'rgba(200,215,235,0.35)', fontSize: 12,
+          }}>
+            <span style={{ flex: 1, height: 1, background: 'rgba(120,160,220,0.18)' }} />
+            new here?
+            <span style={{ flex: 1, height: 1, background: 'rgba(120,160,220,0.18)' }} />
+          </div>
+          <button className="pa-btn pa-btn-ghost" onClick={onRegister}>
+            Create account
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Shown only when 1:N identify refused. Never says why — the server does not
+ *  reveal whether a face is enrolled, and neither should this screen. */
+function FaceNotRecognized({
+  onRetry,
+  onUsePinitId,
+  onRegister,
+}: {
+  onRetry: () => void;
+  onUsePinitId: () => void;
+  onRegister: () => void;
+}) {
+  return (
+    <div className="pa-card" style={{ textAlign: 'center' }}>
+      <div style={{
+        width: 72, height: 72, margin: '4px auto 16px', borderRadius: 20,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'radial-gradient(circle at 50% 30%, rgba(248,113,113,0.22), rgba(127,29,29,0.08))',
+        border: '1px solid rgba(248,113,113,0.35)',
+      }}>
+        <ScanFace size={34} color="#fca5a5" />
+      </div>
+      <h1 style={{ fontSize: 20, fontWeight: 800 }}>Face not recognized</h1>
+      <p className="pa-muted" style={{ fontSize: 14, marginTop: 8, lineHeight: 1.5 }}>
+        We couldn&apos;t confidently match your face to an account. Try again in
+        even lighting, facing the camera straight on.
+      </p>
+
+      <button className="pa-btn" style={{ marginTop: 18 }} onClick={onRetry}>
+        <ScanFace size={17} /> Try again
+      </button>
+      <button className="pa-btn pa-btn-ghost" style={{ marginTop: 10 }} onClick={onUsePinitId}>
+        Sign in with Pinit ID
+      </button>
+      <button
+        type="button"
+        className="pa-link"
+        onClick={onRegister}
+        style={{ display: 'block', margin: '14px auto 0', fontSize: 13 }}
+      >
+        Create a new account
+      </button>
+    </div>
+  );
+}
+
+/** Pinit ID fallback — the original 1:1 claim step, now opt-in. */
+function ClaimPinitId({
+  claimedShortId,
+  onClaimedShortIdChange,
+  onNext,
+  onBack,
+  error,
+}: {
   claimedShortId: string;
   onClaimedShortIdChange: (v: string) => void;
+  onNext: () => void;
+  onBack: () => void;
   error?: string;
 }) {
   return (
@@ -321,33 +529,20 @@ function WelcomeBack({
       }}>
         <UserCheck size={34} color="#3b9eff" />
       </div>
-      <h1 style={{ fontSize: 22, fontWeight: 800 }}>
-        {exchangeReturn ? 'Continue' : 'Welcome Back'}
-      </h1>
-      <div className="pa-bio-steps">
-        <div className="pa-bio-step">
-          <ScanFace size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
-          <span>Face</span>
-          <em>Scan</em>
-        </div>
-        <div className="pa-bio-step">
-          <ShieldCheck size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
-          <span>Device</span>
-          <em>Bind</em>
-        </div>
-        <div className="pa-bio-step">
-          <CheckCircle2 size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
-          <span>Voice</span>
-          <em>Optional</em>
-        </div>
-      </div>
+      <h1 style={{ fontSize: 20, fontWeight: 800 }}>Sign in with Pinit ID</h1>
+      <p className="pa-muted" style={{ fontSize: 13, marginTop: 8 }}>
+        We&apos;ll verify your face against this account.
+      </p>
+
       <label className="pa-muted" style={{ display: 'block', fontSize: 12, textAlign: 'left', marginTop: 16 }}>
         Pinit ID
         <input
           value={claimedShortId}
           onChange={(e) => onClaimedShortIdChange(e.target.value.toUpperCase())}
+          onKeyDown={(e) => { if (e.key === 'Enter') onNext(); }}
           placeholder="PINIT-XXXXXX"
           autoComplete="username"
+          autoFocus
           style={{
             display: 'block', width: '100%', marginTop: 6, padding: '10px 12px',
             borderRadius: 10, border: '1px solid rgba(59,158,255,0.35)',
@@ -356,12 +551,17 @@ function WelcomeBack({
         />
       </label>
       {error && <p style={{ color: '#fca5a5', fontSize: 13, marginTop: 10 }}>{error}</p>}
-      <button className="pa-btn" style={{ marginTop: 14 }} onClick={onNext}><ScanFace size={17} /> Verify</button>
-      {!exchangeReturn && (
-        <button className="pa-btn pa-btn-ghost" style={{ marginTop: 10 }} onClick={onRegister}>
-          Create account
-        </button>
-      )}
+      <button className="pa-btn" style={{ marginTop: 14 }} onClick={onNext}>
+        <ScanFace size={17} /> Verify
+      </button>
+      <button
+        type="button"
+        className="pa-link"
+        onClick={onBack}
+        style={{ display: 'block', margin: '14px auto 0', fontSize: 13 }}
+      >
+        Back to face sign-in
+      </button>
     </div>
   );
 }

@@ -159,6 +159,25 @@ export const config = {
       faceDuplicate: parseFloat(optional('BIOMETRIC_FACE_DUPLICATE_THRESHOLD', '0.33')),
       // Best match must beat 2nd-best by this margin when ≥2 templates exist.
       faceLoginMargin: parseFloat(optional('BIOMETRIC_FACE_LOGIN_MARGIN', '0.08')),
+      /**
+       * 1:N face identification — sign in by face alone, no Pinit ID typed.
+       *
+       * Deliberately stricter than faceLogin (0.33). In 1:1 the account is
+       * already named, so the only question is "is this that person?". In 1:N
+       * every enrolled face is a candidate, so a near-miss signs you into
+       * someone else's vault — the worst failure this system can have.
+       *
+       * 0.25 sits in the empty band between the two populations measured on
+       * this deployment: 0.137 for a person against their own enrolled face,
+       * versus 0.317 / 0.320 / 0.375 / 0.471 for genuine strangers (the first
+       * two of those are real false-duplicate rejections logged on 2026-08-25,
+       * which is exactly why faceLogin's 0.33 is unsafe to identify with).
+       *
+       * Threshold alone is not the gate: isConfidentFaceMatch also requires a
+       * finite second-best that is itself above threshold, and a margin over
+       * it, so an ambiguous gallery refuses to identify rather than guessing.
+       */
+      faceIdentify: parseFloat(optional('BIOMETRIC_FACE_IDENTIFY_THRESHOLD', '0.25')),
       voiceLogin: parseFloat(optional('BIOMETRIC_VOICE_LOGIN_THRESHOLD', '0.45')),
       voiceDuplicate: parseFloat(optional('BIOMETRIC_VOICE_DUPLICATE_THRESHOLD', '0.35')),
       fingerprintLogin: parseFloat(optional('BIOMETRIC_FINGERPRINT_LOGIN_THRESHOLD', '0.40')),

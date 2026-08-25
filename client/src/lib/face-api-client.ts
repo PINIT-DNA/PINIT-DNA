@@ -97,6 +97,36 @@ export async function loginWithFace(payload: {
   return data;
 }
 
+/** Thrown when 1:N identify finds no confident match — the caller shows the
+ *  "Face not recognized" state rather than a generic failure. */
+export class FaceNotRecognizedError extends Error {
+  constructor(message = 'Face not recognized.') {
+    super(message);
+    this.name = 'FaceNotRecognizedError';
+  }
+}
+
+/**
+ * Sign in by face alone — no Pinit ID typed.
+ *
+ * Sends only the face and its liveness evidence: the server searches the
+ * gallery and either returns a confidently identified account or refuses.
+ * A refusal carries no distance and no hint about which faces are enrolled,
+ * so there is nothing here to tell the two apart beyond "not recognized".
+ */
+export async function identifyWithFace(payload: {
+  embedding: number[];
+  padEvidence?: FacePadEvidence;
+  deviceFingerprint?: string;
+}): Promise<FaceAuthResponse> {
+  const { data } = await postFace('/identify', payload);
+  if (data.success !== true || data.matched === false) {
+    throw new FaceNotRecognizedError(data.message ?? 'Face not recognized.');
+  }
+  if (!data.accessToken) throw new FaceNotRecognizedError();
+  return data;
+}
+
 export interface FacePadEvidence {
   challengeToken: string;
   samples: Array<{

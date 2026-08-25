@@ -140,6 +140,57 @@ export async function faceLogin(req: Request, res: Response, next: NextFunction)
   }
 }
 
+/**
+ * POST /auth/face/identify — sign in by face alone, no Pinit ID typed.
+ *
+ * Mirrors faceLogin's response shape so the client can treat them the same on
+ * success. A refusal is always the same opaque body: no distance, no shortId,
+ * nothing that reveals whether a face is enrolled.
+ */
+export async function faceIdentify(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { embedding, deviceFingerprint, padEvidence } = req.body as {
+      embedding?: number[];
+      deviceFingerprint?: string;
+      padEvidence?: PadEvidence;
+    };
+
+    const meta = clientMeta(req);
+    const result = await biometricAuthService.identify({
+      faceEmbedding: embedding ?? [],
+      padEvidence,
+      deviceFingerprint,
+      ...meta,
+    });
+
+    if (!result.ok) {
+      res.status(200).json({
+        success: false,
+        matched: false,
+        message: result.message,
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      matched: true,
+      confidence: result.confidence,
+      user: {
+        id: result.user.id,
+        shortId: result.user.shortId,
+        fullName: result.user.fullName,
+        email: result.user.email,
+        role: result.user.role,
+      },
+      accessToken: result.tokens.accessToken,
+      refreshToken: result.tokens.refreshToken,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function faceStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const userId = (req as { user?: { sub?: string } }).user?.sub;

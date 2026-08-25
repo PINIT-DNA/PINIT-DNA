@@ -30,7 +30,9 @@ import {
   rankFaceMatches,
   rankVoiceMatches,
   isFaceProbeQualityOk,
+  isConfidentFaceMatch,
   verifyClaimedFace,
+  THRESHOLDS as MATCH_THRESHOLDS,
   type FusionResult,
 } from './biometric-matching.service';
 import { logSecurityEvent, logLoginHistory } from './biometric-audit.service';
@@ -1163,6 +1165,138 @@ export const biometricAuthService = {
       tokens,
       confidence: fusion.overallConfidence,
       fusion,
+    };
+  },
+
+  /**
+   * 1:N sign-in — scan a face, get the account, no Pinit ID typed.
+   *
+   * login() above is 1:1 on purpose and stays that way: it is the fallback for
+   * anyone this refuses. The difference is what a mistake costs. In 1:1 a bad
+   * match denies the rightful owner; here it would hand someone another
+   * person's vault, so this path only ever resolves an identity it is sure of
+   * and otherwise says "not recognized" and stops.
+   *
+   * Four gates, all of which must pass:
+   *   1. probe quality — same check as login
+   *   2. liveness (PAD) — same single-use challenge as login, so a photo or a
+   *      replayed capture is rejected before any matching happens
+   *   3. distance under faceIdentify (0.25), stricter than login's 0.33 —
+   *      strangers were measured at 0.317+ on this deployment
+   *   4. isConfidentFaceMatch — a finite runner-up that is itself above
+   *      threshold, beaten by a clear margin. A gallery of one, or two
+   *      plausible candidates, refuses rather than guessing.
+   *
+   * Failures are deliberately indistinguishable to the caller: no distance, no
+   * "close but not quite", no hint that a given face is enrolled at all.
+   */
+  async identify(input: {
+    faceEmbedding: number[];
+    padEvidence?: PadEvidence;
+    deviceFingerprint?: string;
+    ip?: string;
+    userAgent?: string;
+  }): Promise<
+    | { ok: true; user: AuthUser; tokens: AuthTokens; confidence: number }
+    | { ok: false; matched: false; message: string }
+  > {
+    const { faceEmbedding, padEvidence, deviceFingerprint, ip, userAgent } = input;
+
+    const NOT_RECOGNIZED = 'Face not recognized.';
+    const deny = (message = NOT_RECOGNIZED) => ({
+      ok: false as const,
+      matched: false as const,
+      message,
+    });
+
+    if (!isValidTemplate(faceEmbedding) || !isFaceProbeQualityOk(faceEmbedding)) {
+      await logSecurityEvent('FACE_IDENTIFY_FAILED', {
+        ip, userAgent, success: false,
+        detail: { reason: 'probe_quality' },
+      });
+      return deny();
+    }
+
+    // Liveness first — never match against the gallery on unproven input.
+    const pad = await consumePadEvidence(padEvidence);
+    logger.info('[Auth:Identify] PAD', { verdict: pad.verdict, reasons: pad.reasons });
+    if (pad.verdict !== 'LIVE') {
+      await logSecurityEvent('FACE_IDENTIFY_FAILED', {
+        ip, userAgent, success: false,
+        detail: { reason: 'pad_failed', verdict: pad.verdict, reasons: pad.reasons },
+      });
+      return deny(padDenyMessage(pad.verdict, pad.reasons));
+    }
+
+    const probe = normalizeEmbedding(faceEmbedding);
+    const gallery = await loadAllFaceTemplates(prisma, { activeOnly: true });
+    const { best, secondDistance } = rankFaceMatches(probe, gallery);
+
+    const threshold = MATCH_THRESHOLDS.faceIdentify;
+    const confident = Boolean(best) && isConfidentFaceMatch(best!.distance, secondDistance, threshold);
+
+    logger.info('[Auth:Identify] 1:N gallery search', {
+      gallerySize: gallery.length,
+      nearestShortId: best?.shortId ?? null,
+      nearestDistance: best ? Number(best.distance.toFixed(4)) : null,
+      secondDistance: Number.isFinite(secondDistance) ? Number(secondDistance.toFixed(4)) : null,
+      margin: MATCH_THRESHOLDS.faceLoginMargin,
+      threshold,
+      confident,
+    });
+
+    if (!best || !confident) {
+      await logSecurityEvent('FACE_IDENTIFY_FAILED', {
+        ip, userAgent, success: false,
+        detail: {
+          reason: !best ? 'empty_gallery' : 'no_confident_match',
+          gallerySize: gallery.length,
+        },
+      });
+      return deny();
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: best.userId, isActive: true },
+      select: { id: true, shortId: true, fullName: true, email: true, role: true, accountType: true },
+    });
+    if (!user) return deny();
+
+    const deviceId = await upsertDevice(user.id, deviceFingerprint);
+    await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+    await prisma.biometricIdentity.updateMany({
+      where: { userId: user.id },
+      data: { lastVerifiedAt: new Date() },
+    });
+
+    const tokens = createTokens({
+      id: user.id,
+      shortId: user.shortId,
+      fullName: user.fullName,
+      role: user.role,
+      accountType: user.accountType ?? 'INDIVIDUAL',
+    });
+    await createSession(user.id, tokens.refreshToken, ip, userAgent, deviceId);
+
+    // No distances persisted — an audit trail must not become a way to measure
+    // how close a probe was to an enrolled template.
+    await logSecurityEvent('FACE_IDENTIFY_SUCCESS', {
+      userId: user.id, ip, userAgent, deviceId,
+      detail: { shortId: user.shortId, gallerySize: gallery.length },
+    });
+    await logLoginHistory({ userId: user.id, method: 'biometric_identify', ip, userAgent, success: true });
+
+    logger.info('[Auth:Identify] ✓ Identified', {
+      userId: user.id,
+      pinitId: user.shortId,
+      distance: best.distance.toFixed(4),
+    });
+
+    return {
+      ok: true,
+      user,
+      tokens,
+      confidence: Math.round(Math.max(0, 1 - best.distance / threshold) * 100),
     };
   },
 

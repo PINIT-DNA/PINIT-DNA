@@ -2,7 +2,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { authController } from '../controllers/auth.controller';
 import { requireAuth } from '../middleware/auth.middleware';
-import { faceRegister, faceLogin, faceStatus, faceChallenge } from '../controllers/face-auth.controller';
+import { faceRegister, faceLogin, faceIdentify, faceStatus, faceChallenge } from '../controllers/face-auth.controller';
 import {
   passkeyRegisterStart,
   passkeyRegisterFinish,
@@ -34,6 +34,9 @@ authRouter.get('/business-setup/status', requireAuth, authController.businessSet
 authRouter.post('/face/challenge', biometricLimiter, faceChallenge);
 authRouter.post('/face/register', biometricLimiter, faceRegister);
 authRouter.post('/face/login',    biometricLimiter, faceLogin);
+// 1:N sign-in by face alone. Same rate limiter as login — this endpoint is the
+// most attractive one to brute-force, since a caller supplies no account claim.
+authRouter.post('/face/identify', biometricLimiter, faceIdentify);
 authRouter.get('/face/status',    requireAuth, faceStatus);
 
 authRouter.post('/passkey/register/start',  biometricLimiter, passkeyRegisterStart);
