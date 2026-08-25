@@ -1,4 +1,5 @@
 ﻿import { api } from '../services/dashboard.api';
+import { API_BASE_URL } from '../config/api.config';
 /**
  * PINIT-DNA — Vault Integrity Monitoring Dashboard (Phase 4.6)
  * Route: /vault-integrity
@@ -82,7 +83,11 @@ function normalizeReport(raw: unknown): IntegrityReport {
 }
 
 async function runIntegrityCheck(): Promise<IntegrityReport> {
-  const { data } = await api.get('/api/v1/vault/integrity-check');
+  // Must be API_BASE_URL, not a bare '/api/v1/…' path. The literal only works
+  // locally, where Vite proxies /api/v1 to the backend; a production build
+  // resolves it against the site's own origin, so this 404'd on pinithub.com
+  // while every other call on the page succeeded.
+  const { data } = await api.get(`${API_BASE_URL}/vault/integrity-check`);
   return normalizeReport(data);
 }
 

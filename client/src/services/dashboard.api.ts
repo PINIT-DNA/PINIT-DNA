@@ -77,6 +77,19 @@ export function formatApiError(err: unknown): string {
 
 // Attach JWT to every request from this instance
 api.interceptors.request.use((config) => {
+  // A bare '/api/v1/…' URL only resolves locally, where Vite proxies it to the
+  // backend. A production build resolves it against the site's own origin and
+  // 404s — which is how Vault check shipped broken while every other call on
+  // the page worked. The rule is in CLAUDE.md but nothing enforced it, so
+  // enforce it here, loudly, at the moment the mistake is made.
+  if (import.meta.env.DEV && config.url?.startsWith('/api/v1')) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[api] "${config.url}" is a hardcoded path and will 404 in production. ` +
+      'Use `${API_BASE_URL}/…` from config/api.config.ts instead.',
+    );
+  }
+
   const token = localStorage.getItem('pinit_access_token');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   if (token) (config.headers as any)['Authorization'] = `Bearer ${token}`;
