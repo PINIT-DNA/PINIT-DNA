@@ -144,15 +144,15 @@ export function BusinessDashboardPage() {
       />
 
       {!organization?.setupCompletedAt && (
-        <div className="rounded-xl border border-purple-500/25 bg-purple-500/5 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="rounded-xl border border-dna-500/25 bg-dna-500/5 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-2 text-sm text-gray-300">
-            <Sparkles size={16} className="text-purple-400 shrink-0" />
+            <Sparkles size={16} className="text-dna-400 shrink-0" />
             Complete your organization profile for client-ready branding.
           </div>
           <button
             type="button"
             onClick={() => setWizardOpen(true)}
-            className="inline-flex items-center gap-1 text-xs font-semibold text-purple-400 hover:text-purple-300"
+            className="inline-flex items-center gap-1 text-xs font-semibold text-dna-400 hover:text-dna-500"
           >
             Open setup wizard
             <ArrowRight size={12} />

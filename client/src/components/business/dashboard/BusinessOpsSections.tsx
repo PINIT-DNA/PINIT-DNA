@@ -78,11 +78,11 @@ function MetricTile({
 }) {
   const accents = {
     dna: 'text-dna-400 bg-dna-500/10 border-dna-500/20',
-    emerald: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-    amber: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
-    purple: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
-    rose: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
-    cyan: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
+    emerald: 'text-dna-400 bg-dna-500/10 border-dna-500/20',
+    amber: 'text-dna-400 bg-dna-500/10 border-dna-500/20',
+    purple: 'text-dna-400 bg-dna-500/10 border-dna-500/20',
+    rose: 'text-dna-400 bg-dna-500/10 border-dna-500/20',
+    cyan: 'text-dna-400 bg-dna-500/10 border-dna-500/20',
   };
   const inner = (
     <div className={cn('rounded-xl border p-3.5 h-full transition-colors hover:bg-bg-elevated/50', accents[accent].split(' ').slice(2).join(' '))}>
@@ -135,13 +135,13 @@ export function OrgOverviewGrid({
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
       <MetricTile label="Protected Assets" value={protectedAssets} icon={<Shield size={16} />} to="/vault" accent="dna" />
-      <MetricTile label="DNA Generated" value={dnaGenerated} icon={<Dna size={16} />} to="/dna-records" accent="purple" />
-      <MetricTile label="Investigations" value={activeInvestigations} icon={<FileSearch size={16} />} to={BRAND.investigationPath} accent="cyan" />
-      <MetricTile label="Threat Alerts" value={threatAlerts} icon={<AlertTriangle size={16} />} to="/monitoring" accent="amber" />
-      <MetricTile label="Storage Used" value={storageLabel} icon={<HardDrive size={16} />} to="/vault" accent="emerald" />
-      <MetricTile label="Team Members" value={teamDisplay} icon={<Users size={16} />} to="/business/settings" accent="purple" />
-      <MetricTile label="Shared Assets" value={sharedAssets} icon={<Share2 size={16} />} to="/access-intelligence" accent="cyan" />
-      <MetricTile label="Certificates" value={certificates} icon={<Award size={16} />} to="/certificates" accent="rose" />
+      <MetricTile label="DNA Generated" value={dnaGenerated} icon={<Dna size={16} />} to="/dna-records" accent="dna" />
+      <MetricTile label="Investigations" value={activeInvestigations} icon={<FileSearch size={16} />} to={BRAND.investigationPath} accent="dna" />
+      <MetricTile label="Threat Alerts" value={threatAlerts} icon={<AlertTriangle size={16} />} to="/monitoring" accent="dna" />
+      <MetricTile label="Storage Used" value={storageLabel} icon={<HardDrive size={16} />} to="/vault" accent="dna" />
+      <MetricTile label="Team Members" value={teamDisplay} icon={<Users size={16} />} to="/business/settings" accent="dna" />
+      <MetricTile label="Shared Assets" value={sharedAssets} icon={<Share2 size={16} />} to="/access-intelligence" accent="dna" />
+      <MetricTile label="Certificates" value={certificates} icon={<Award size={16} />} to="/certificates" accent="dna" />
     </div>
   );
 }
@@ -260,10 +260,10 @@ export function ActiveAlertsPanel({
 
   const catColors: Record<AlertItem['category'], string> = {
     security: 'text-red-400',
-    investigation: 'text-cyan-400',
+    investigation: 'text-dna-400',
     monitoring: 'text-amber-400',
-    billing: 'text-purple-400',
-    storage: 'text-emerald-400',
+    billing: 'text-dna-400',
+    storage: 'text-dna-400',
     system: 'text-gray-400',
   };
 
@@ -440,7 +440,7 @@ export function InvestigationSnapshot({ investigations }: { investigations: Stor
   return (
     <SectionCard
       title="Unified Investigation"
-      icon={<FileSearch size={16} className="text-cyan-400" />}
+      icon={<FileSearch size={16} className="text-dna-400" />}
       action={
         <Link to={BRAND.investigationPath} className="text-2xs text-dna-400 hover:text-dna-300 flex items-center gap-1">
           Open module <ChevronRight size={12} />
@@ -457,7 +457,7 @@ export function InvestigationSnapshot({ investigations }: { investigations: Stor
               <li key={r.id} className="rounded-lg border border-bg-border bg-bg-elevated/40 px-3 py-2">
                 <p className="text-xs font-medium text-white truncate">{r.filename}</p>
                 <p className="text-2xs text-gray-500">{investigationListSubtitle(r.data, r.filename)}</p>
-                <p className="text-2xs text-cyan-400/80 mt-0.5">
+                <p className="text-2xs text-dna-400/80 mt-0.5">
                   {investigationVerdictLabel(r.data)} · {fmtAgo(r.savedAt)}
                 </p>
               </li>
@@ -492,7 +492,7 @@ export function VaultExplorerSnapshot({
   return (
     <SectionCard
       title="Vault Explorer"
-      icon={<Archive size={16} className="text-emerald-400" />}
+      icon={<Archive size={16} className="text-dna-400" />}
       action={
         <Link to="/vault" className="text-2xs text-dna-400 hover:text-dna-300 flex items-center gap-1">
           Open explorer <ChevronRight size={12} />
@@ -653,7 +653,7 @@ export function ReportsSnapshot({ reportCount }: { reportCount: number }) {
   return (
     <SectionCard
       title="Reports"
-      icon={<BarChart2 size={16} className="text-purple-400" />}
+      icon={<BarChart2 size={16} className="text-dna-400" />}
       action={
         <Link to="/reports" className="text-2xs text-dna-400 hover:text-dna-300 flex items-center gap-1">
           All reports <ChevronRight size={12} />
@@ -687,7 +687,7 @@ export function CertificatesSnapshot({ count, recent }: { count: number; recent:
   return (
     <SectionCard
       title="Certificates"
-      icon={<Award size={16} className="text-rose-400" />}
+      icon={<Award size={16} className="text-dna-400" />}
       action={
         <Link to="/certificates" className="text-2xs text-dna-400 hover:text-dna-300 flex items-center gap-1">
           Certificate manager <ChevronRight size={12} />
@@ -716,12 +716,12 @@ export function CertificatesSnapshot({ count, recent }: { count: number; recent:
 
 const QUICK_ACTIONS = [
   { to: '/generate', icon: Dna, label: 'Generate DNA', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
-  { to: '/generate', icon: Upload, label: 'Upload Asset', accent: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25' },
-  { to: BRAND.investigationPath, icon: FileSearch, label: 'Start Investigation', accent: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/25' },
-  { to: '/business/settings', icon: UserPlus, label: 'Invite Member', accent: 'bg-purple-500/15 text-purple-300 border-purple-500/25' },
-  { to: '/vault', icon: Share2, label: 'Share Asset', accent: 'bg-blue-500/15 text-blue-300 border-blue-500/25' },
-  { to: '/certificates', icon: Award, label: 'Generate Certificate', accent: 'bg-rose-500/15 text-rose-300 border-rose-500/25' },
-  { to: '/monitoring', icon: Radio, label: 'Run Monitoring', accent: 'bg-amber-500/15 text-amber-300 border-amber-500/25' },
+  { to: '/generate', icon: Upload, label: 'Upload Asset', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
+  { to: BRAND.investigationPath, icon: FileSearch, label: 'Start Investigation', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
+  { to: '/business/settings', icon: UserPlus, label: 'Invite Member', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
+  { to: '/vault', icon: Share2, label: 'Share Asset', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
+  { to: '/certificates', icon: Award, label: 'Generate Certificate', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
+  { to: '/monitoring', icon: Radio, label: 'Run Monitoring', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
 ] as const;
 
 export function QuickActionsBar() {
@@ -765,7 +765,7 @@ export function TeamSnapshotPanel({
   return (
     <SectionCard
       title="Team Snapshot"
-      icon={<Users size={16} className="text-purple-400" />}
+      icon={<Users size={16} className="text-dna-400" />}
       action={
         planCode === 'FREE' ? (
           <Link to="/upgrade" className="text-2xs text-amber-400 hover:text-amber-300">
@@ -787,11 +787,11 @@ export function TeamSnapshotPanel({
             key={role}
             className={cn(
               'rounded-lg border px-3 py-2.5',
-              active ? 'border-purple-500/30 bg-purple-500/5' : 'border-bg-border bg-bg-elevated/30 opacity-70',
+              active ? 'border-dna-500/30 bg-dna-500/5' : 'border-bg-border bg-bg-elevated/30 opacity-70',
             )}
           >
             <div className="flex items-center gap-2 mb-1">
-              <Icon size={14} className={active ? 'text-purple-400' : 'text-gray-600'} />
+              <Icon size={14} className={active ? 'text-dna-400' : 'text-gray-600'} />
               <span className="text-xs font-semibold text-white">{role}</span>
               <span className="text-2xs text-gray-500 ml-auto">{count}</span>
             </div>
