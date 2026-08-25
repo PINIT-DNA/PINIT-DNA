@@ -301,12 +301,12 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                     {displayId || user.sub?.slice(0, 8)}
                   </p>
                   {accountRootId && displayId !== accountRootId && (
-                    <p className="text-2xs text-gray-600 truncate mono mt-0.5" title="Biometric account">
+                    <p className="text-2xs text-gray-500 font-medium truncate mono mt-0.5" title="Biometric account">
                       {accountRootId}
                     </p>
                   )}
                   {subscription && (
-                    <p className="text-2xs text-gray-500 mt-0.5">{subscription.planName} plan</p>
+                    <p className="text-2xs text-gray-400 font-medium mt-0.5">{subscription.planName} plan</p>
                   )}
                 </div>
               </div>

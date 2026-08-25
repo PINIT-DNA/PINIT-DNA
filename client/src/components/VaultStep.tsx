@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { storeInVault } from '../services/api';
 import { formatApiError } from '../services/dashboard.api';
@@ -19,17 +19,40 @@ type VaultStage = 'working' | 'complete' | 'error';
 export function VaultStep({ file, dnaRecordId, custodyLocation, campaignId, onComplete, onError }: Props) {
   const [stage, setStage] = useState<VaultStage>('working');
 
+  /**
+   * Vaulting is not idempotent — the API rejects a second store for the same
+   * DNA record with "already in the vault".
+   *
+   * `custodyLocation` arrives asynchronously (App.tsx resolves GPS and calls
+   * setCustodyLocation), so when it landed mid-upload the effect re-ran and
+   * fired a second store for a record the first call had already vaulted. The
+   * `cancelled` flag only suppressed the stale *state update*; the duplicate
+   * network call still went out, and its rejection painted an error over a
+   * protection that had in fact succeeded.
+   *
+   * Keyed by record id so protecting a genuinely different file still runs.
+   */
+  const submittedFor = useRef<string | null>(null);
+
+  /** Read at call time so a location that resolved before the request still counts. */
+  const locationRef = useRef(custodyLocation);
+  locationRef.current = custodyLocation;
+
   useEffect(() => {
+    if (submittedFor.current === dnaRecordId) return;
+    submittedFor.current = dnaRecordId;
+
     let cancelled = false;
 
     const run = async () => {
       try {
+        const location = locationRef.current;
         const result = await storeInVault(
           file,
           dnaRecordId,
           {
-            ...(custodyLocation
-              ? { locationShared: true, latitude: custodyLocation.latitude, longitude: custodyLocation.longitude }
+            ...(location
+              ? { locationShared: true, latitude: location.latitude, longitude: location.longitude }
               : {}),
             ...(campaignId ? { campaignId } : {}),
           },
@@ -54,7 +77,7 @@ export function VaultStep({ file, dnaRecordId, custodyLocation, campaignId, onCo
 
     void run();
     return () => { cancelled = true; };
-  }, [file, dnaRecordId, custodyLocation, campaignId, onComplete, onError]);
+  }, [file, dnaRecordId, campaignId, onComplete, onError]);
 
   return (
     <motion.div
@@ -71,7 +94,7 @@ export function VaultStep({ file, dnaRecordId, custodyLocation, campaignId, onCo
       ) : stage === 'error' ? (
         <div className="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center text-red-400 text-lg">!</div>
       ) : (
-        <div className="w-10 h-10 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+        <div className="w-10 h-10 border-2 border-dna-400 border-t-transparent rounded-full animate-spin" />
       )}
     </motion.div>
   );

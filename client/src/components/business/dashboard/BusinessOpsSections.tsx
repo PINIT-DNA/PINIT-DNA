@@ -837,17 +837,20 @@ export function OpsDashboardHeader({
         <h1 className="text-2xl sm:text-3xl font-bold text-white">
           {greeting}
         </h1>
-        <p className="text-sm text-gray-400 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="text-white/90 font-medium">{orgName}</span>
-          <span className="text-gray-600">·</span>
+        {/* Every colour here must be one the light-mode remap in index.css covers.
+            `text-white/90` is NOT remapped (only bare `.text-white` is), so on the
+            light page background the org name rendered white-on-white. */}
+        <p className="text-sm text-gray-300 font-medium mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-white font-semibold">{orgName}</span>
+          <span className="text-gray-500" aria-hidden="true">·</span>
           <span>{workspaceLabel}</span>
           {orgShortId && (
             <>
-              <span className="text-gray-600">·</span>
-              <span className="font-mono text-dna-400/80">{orgShortId}</span>
+              <span className="text-gray-500" aria-hidden="true">·</span>
+              <span className="font-mono font-semibold text-dna-400">{orgShortId}</span>
             </>
           )}
-          <span className="text-gray-600">·</span>
+          <span className="text-gray-500" aria-hidden="true">·</span>
           <span className="px-2 py-0.5 rounded-full bg-bg-elevated border border-bg-border text-2xs">{planName}</span>
         </p>
       </div>
