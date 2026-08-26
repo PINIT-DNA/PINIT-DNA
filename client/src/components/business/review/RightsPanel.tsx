@@ -26,10 +26,26 @@ import type { ReviewStatus } from '../../../services/business.api';
 
 const cn = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 
-const LICENCE_STATE: Record<string, { label: string; cls: string }> = {
-  licensed: { label: 'Licensed',   cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' },
-  listed:   { label: 'Listed',     cls: 'text-dna-400 bg-dna-500/10 border-dna-500/25' },
-  none:     { label: 'No licence', cls: 'text-gray-400 bg-bg-elevated border-bg-border' },
+/**
+ * What the rights mean right now. Deliberately more than "licensed or not" —
+ * an expired licence is still a licence on Exchange but confers nothing today,
+ * and "we could not reach Exchange" must never read as "there are no rights".
+ */
+const RIGHTS_STATE: Record<string, { label: string; cls: string; hint: string }> = {
+  ACTIVE:     { label: 'Rights active',    cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+                hint: 'A licence is in force.' },
+  EXPIRING:   { label: 'Expiring soon',    cls: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+                hint: 'The licence expires within 30 days.' },
+  EXPIRED:    { label: 'Rights expired',   cls: 'text-red-400 bg-red-500/10 border-red-500/30',
+                hint: 'The licence is no longer in force.' },
+  RESTRICTED: { label: 'Restricted',       cls: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+                hint: 'In force, with restrictions worth checking before use.' },
+  AVAILABLE:  { label: 'Rights available', cls: 'text-dna-400 bg-dna-500/10 border-dna-500/25',
+                hint: 'Listed on Exchange. No licence has been issued yet.' },
+  NONE:       { label: 'No rights info',   cls: 'text-gray-400 bg-bg-elevated border-bg-border',
+                hint: 'Never listed or sold on Exchange.' },
+  UNKNOWN:    { label: 'Not configured',   cls: 'text-gray-500 bg-bg-elevated/60 border-bg-border',
+                hint: 'Exchange could not be reached, so rights could not be checked.' },
 };
 
 export function RightsPanel({ campaignId }: { campaignId: string }) {
@@ -84,10 +100,24 @@ export function RightsPanel({ campaignId }: { campaignId: string }) {
 
   return (
     <div className="space-y-4">
+      {!data.exchangeReachable && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+          <p className="text-sm font-semibold text-amber-400 flex items-center gap-2">
+            <Info size={14} /> Rights could not be checked
+          </p>
+          <p className="text-2xs text-gray-400 mt-1">
+            Exchange did not respond, so licence information is unavailable right now. This is not
+            the same as an asset having no rights — protection and access below are still accurate.
+          </p>
+        </div>
+      )}
+
       <p className="text-2xs text-gray-500 flex items-start gap-1.5 px-1">
         <Info size={11} className="shrink-0 mt-0.5" />
         Licence information comes from Exchange and is read-only here. Protection and access are
         Pinit records.
+        {data.clientName && <> Client: <span className="text-gray-400">{data.clientName}</span>
+          {data.clientContact && ` (${data.clientContact})`}.</>}
       </p>
 
       {data.assets.map((a) => <RightsCard key={a.assetId} asset={a} />)}
@@ -96,15 +126,16 @@ export function RightsPanel({ campaignId }: { campaignId: string }) {
 }
 
 function RightsCard({ asset: a }: { asset: AssetRights }) {
-  const lic = LICENCE_STATE[a.licence.state] ?? LICENCE_STATE.none;
+  const st = RIGHTS_STATE[a.rightsState] ?? RIGHTS_STATE.NONE;
 
   return (
     <SectionCard
       title={a.filename}
       icon={ScrollText}
       action={
-        <span className={cn('text-2xs font-semibold rounded-full border px-2 py-0.5 whitespace-nowrap', lic.cls)}>
-          {lic.label}
+        <span title={st.hint}
+          className={cn('text-2xs font-semibold rounded-full border px-2 py-0.5 whitespace-nowrap', st.cls)}>
+          {st.label}
         </span>
       }
     >
@@ -178,6 +209,8 @@ function RightsCard({ asset: a }: { asset: AssetRights }) {
               {a.licence.termsVersion && <Row label="Terms" value={a.licence.termsVersion} />}
             </dl>
           )}
+
+          <p className="text-2xs text-gray-500 mt-1.5">{st.hint}</p>
 
           {a.licence.permittedUse && (
             <p className="text-2xs text-gray-400 mt-2 pt-2 border-t border-bg-border/70">

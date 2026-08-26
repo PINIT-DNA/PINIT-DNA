@@ -493,8 +493,13 @@ export async function listCampaignAccessLinks(
 
 // ── Rights (Exchange remains the source of truth; this only presents it) ─────
 
+export type RightsState =
+  | 'NONE' | 'AVAILABLE' | 'ACTIVE' | 'EXPIRING' | 'EXPIRED' | 'RESTRICTED' | 'UNKNOWN';
+
 export interface AssetRights {
   assetId: string;
+  /** What the rights mean right now — distinct from where the asset sits on Exchange. */
+  rightsState: RightsState;
   filename: string;
   assetType: string;
   addedAt: string;
@@ -529,6 +534,7 @@ export interface AssetRights {
 export interface CampaignRights {
   campaignName: string;
   clientName: string | null;
+  clientContact: string | null;
   exchangeReachable: boolean;
   assets: AssetRights[];
 }
@@ -540,6 +546,7 @@ export async function listCampaignRights(campaignId: string): Promise<CampaignRi
   return {
     campaignName: data?.campaignName ?? '',
     clientName: data?.clientName ?? null,
+    clientContact: data?.clientContact ?? null,
     exchangeReachable: Boolean(data?.exchangeReachable),
     assets: Array.isArray(data?.assets) ? data.assets : [],
   };
