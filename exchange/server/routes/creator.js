@@ -3,7 +3,7 @@ import db from '../database.js';
 import { requireSeller } from '../lib/rbac.js';
 import { sellerMatchClause, listingUserJoinSql, extractPinitCode, toUserPinitId } from '../lib/pinit-identity.js';
 import { exchangePreviewUrl } from '../lib/preview-url.js';
-import { publicListingSql } from '../lib/lifecycle.js';
+import { publicListingSql, publicListingWithSellerSql } from '../lib/lifecycle.js';
 import { fetchHubProfiles } from '../hub-client.js';
 
 /**
@@ -166,8 +166,8 @@ router.get('/directory', (req, res) => {
            COALESCE(u.bio, '') AS creator_bio,
            COALESCE(u.pinit_id, l.pinit_id) AS creator_pinit_id
     FROM listings l
-    LEFT JOIN users u ON ${listingUserJoinSql('l', 'u')}
-    WHERE ${publicListingSql()}
+    INNER JOIN users u ON ${listingUserJoinSql('l', 'u')}
+    WHERE ${publicListingWithSellerSql()}
     ORDER BY l.created_at DESC
   `;
   db.all(query, [], (err, listingRows) => {

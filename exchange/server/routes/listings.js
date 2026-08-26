@@ -3,7 +3,7 @@ import db from '../database.js';
 import { verifyHubBridgeToken, confirmListingWithHub } from '../hub-client.js';
 import { exchangePreviewUrl, PLACEHOLDER_PREVIEW } from '../lib/preview-url.js';
 import { postAssetActivity } from '../lib/asset-activity.js';
-import { LISTING_STATUS, publicListingSql, BRIDGE_EVENT } from '../lib/lifecycle.js';
+import { LISTING_STATUS, publicListingWithSellerSql, BRIDGE_EVENT } from '../lib/lifecycle.js';
 import { recordBridgeEvent, markBridgeEventProcessed } from '../lib/bridge-events.js';
 import { getSql, runSql } from '../lib/db.js';
 import { toExchangePinitId, listingUserJoinSql, sellerMatchClause, extractPinitCode } from '../lib/pinit-identity.js';
@@ -82,8 +82,8 @@ router.get('/', (req, res) => {
            COALESCE(u.exchange_id, '') as creator_exchange_id, 
            COALESCE(u.kyc_status, 'pending') as creator_kyc
     FROM listings l
-    LEFT JOIN users u ON ${listingUserJoinSql('l', 'u')}
-    WHERE ${publicListingSql()}
+    INNER JOIN users u ON ${listingUserJoinSql('l', 'u')}
+    WHERE ${publicListingWithSellerSql()}
   `;
   const params = [];
 
@@ -254,14 +254,19 @@ router.get('/:id', (req, res) => {
            COALESCE(ha.dna_record_id, '') as dna_record_id, 
            COALESCE(ha.vault_encrypted, 1) as vault_encrypted
     FROM listings l
-    LEFT JOIN users u ON ${listingUserJoinSql('l', 'u')}
+    INNER JOIN users u ON ${listingUserJoinSql('l', 'u')}
     LEFT JOIN hub_assets ha ON l.asset_id = ha.asset_id
     WHERE l.listing_id = ?
   `;
 
   db.get(query, [listingId], (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
-    if (!row) return res.status(404).json({ error: 'Listing not found' });
+    if (!row) {
+      return res.status(404).json({
+        error: 'Listing not found',
+        message: 'This listing is no longer available on Exchange.',
+      });
+    }
     row.preview_url = exchangePreviewUrl(row.asset_id, row.cached_preview_url || PLACEHOLDER_PREVIEW);
     delete row.cached_preview_url;
 

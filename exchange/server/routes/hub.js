@@ -11,7 +11,7 @@ import { exchangePreviewUrl, isHubVaultId, PLACEHOLDER_PREVIEW } from '../lib/pr
 import { verifyPreviewToken } from '../lib/preview-token.js';
 import { rateLimit } from '../lib/rate-limit.js';
 import { requireSeller, requireActiveSeller } from '../lib/rbac.js';
-import { identityCandidates, sellerMatchClause } from '../lib/pinit-identity.js';
+import { identityCandidates, sellerMatchClause, listingUserJoinSql } from '../lib/pinit-identity.js';
 
 const router = express.Router();
 
@@ -298,8 +298,11 @@ router.get('/preview/:assetId', previewLimiter, async (req, res) => {
   // account.
   const allow = await new Promise((resolve) => {
     db.get(
-      `SELECT asset_id FROM listings
-        WHERE asset_id = ? AND status IN ('published', 'live', 'sold_exclusive')
+      `SELECT l.asset_id
+         FROM listings l
+         INNER JOIN users u ON ${listingUserJoinSql('l', 'u')}
+        WHERE l.asset_id = ?
+          AND l.status IN ('published', 'live', 'sold_exclusive')
         LIMIT 1`,
       [assetId],
       (err, row) => resolve(Boolean(row)),
