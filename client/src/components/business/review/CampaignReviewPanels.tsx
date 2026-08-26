@@ -12,14 +12,16 @@ import {
   listAssetVersions, setVersionReviewStatus,
   listVersionComments, createVersionComment, setCommentStatus,
   listCampaignChangeRequests, listCampaignApprovals,
+  listCampaignMessages, sendCampaignMessage, markCampaignMessagesRead, campaignMessageStreamUrl,
 } from '../../../services/business.api';
 import type {
   CampaignAsset, AssetVersion, ReviewStatus,
-  ReviewComment, CommentThreads, VersionApproval,
+  ReviewComment, CommentThreads, VersionApproval, CampaignMessage,
 } from '../../../services/business.api';
 import { SectionCard, SkeletonRows } from '../clients/BusinessKit';
 import { VersionTimeline } from './VersionTimeline';
 import { ReviewThreads } from './ReviewThreads';
+import { ConversationPanel } from './ConversationPanel';
 import { ReviewStatusBadge, CommentStatusBadge, AnchorChip, timeAgo } from './ReviewPrimitives';
 
 const cn = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
@@ -387,5 +389,69 @@ function ErrorBlock({ message, onRetry }: { message: string; onRetry?: () => voi
         </button>
       )}
     </div>
+  );
+}
+
+
+// ── Messages tab ─────────────────────────────────────────────────────────────
+
+/**
+ * The team's side of the campaign conversation.
+ *
+ * Opening the tab marks the client's messages read, which is what a person
+ * means by "I have seen it" — a separate button would just be a chore.
+ */
+export function MessagesPanel({
+  campaignId, onChanged,
+}: {
+  campaignId: string;
+  onChanged?: () => void;
+}) {
+  const [messages, setMessages] = useState<CampaignMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await listCampaignMessages(campaignId);
+      setMessages(res.messages);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load messages');
+    } finally {
+      setLoading(false);
+    }
+  }, [campaignId]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const markRead = useCallback(() => {
+    void markCampaignMessagesRead(campaignId).then(() => onChanged?.()).catch(() => {});
+  }, [campaignId, onChanged]);
+
+  return (
+    <SectionCard title="Conversation" icon={MessageSquare}>
+      <ConversationPanel
+        audience="team"
+        messages={messages.map((m) => ({
+          id: m.id, body: m.body, authorLabel: m.authorLabel,
+          isSystem: m.isSystem, createdAt: m.createdAt,
+          readByOther: m.readByOther,
+          // The team's own messages are the non-client ones.
+          mine: !m.isClient,
+        }))}
+        loading={loading}
+        error={error}
+        onRetry={load}
+        onVisible={markRead}
+        streamUrl={campaignMessageStreamUrl(campaignId)}
+        live={() => { void load(); }}
+        onSend={async (body) => {
+          await sendCampaignMessage(campaignId, body);
+          await load();
+          onChanged?.();
+        }}
+      />
+    </SectionCard>
   );
 }

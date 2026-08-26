@@ -38,6 +38,10 @@ import {
   postShareReviewComment,
   postShareReviewDecision,
   getShareReviewDecisions,
+  getShareMessages,
+  postShareMessage,
+  markShareMessagesRead,
+  streamShareMessages,
   debugReport,
   getGlobalShareStats,
   getLiveTrackingMap,
@@ -88,6 +92,12 @@ shareRouter.get('/:token/review/comments',     getShareReviewComments);
 shareRouter.post('/:token/review/comments',    postShareReviewComment);
 shareRouter.get('/:token/review/decisions',    getShareReviewDecisions);
 shareRouter.post('/:token/review/decision',    postShareReviewDecision);
+
+// ── Campaign conversation — token-scoped, no account ────────────────────────
+shareRouter.get('/:token/messages/stream',     streamShareMessages);
+shareRouter.get('/:token/campaign-messages',   getShareMessages);
+shareRouter.post('/:token/campaign-messages',  postShareMessage);
+shareRouter.post('/:token/campaign-messages/read', markShareMessagesRead);
 // Owner-only routes (require auth)
 shareRouter.get('/:token/logs',                requireAuth, requireTrackingUnlessLicensedShare(requireFeature(FeatureKey.FEATURE_TRACKING)), requireShareLinkOwnership, getShareLinkLogs);
 shareRouter.get('/:token/export',              requireAuth, requireShareLinkOwnership, exportShareLogsCsv);

@@ -47,3 +47,10 @@ businessRouter.get('/campaigns/:campaignId/approvals', requireAuth, businessCont
 
 // ── Share dialog: may this file be shared for review? ───────────────────────
 businessRouter.get('/share-eligibility/:vaultId', requireAuth, businessController.getShareReviewEligibility);
+
+// ── Campaign conversation — client ↔ team, scoped to one campaign ───────────
+businessRouter.get('/campaigns/:campaignId/messages', requireAuth, businessController.listCampaignMessages);
+businessRouter.post('/campaigns/:campaignId/messages', requireAuth, businessController.sendCampaignMessage);
+businessRouter.post('/campaigns/:campaignId/messages/read', requireAuth, businessController.markCampaignMessagesRead);
+businessRouter.get('/campaigns/:campaignId/messages/stream', requireAuth, businessController.streamCampaignMessages);
+businessRouter.get('/messages/unread', requireAuth, businessController.getCampaignUnread);

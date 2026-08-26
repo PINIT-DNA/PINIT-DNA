@@ -20,12 +20,12 @@ import {
   BusinessPage, Breadcrumbs, SectionCard, StatTile, SkeletonRows, SkeletonTiles,
   TabBar, ComingSoonPanel, PageError, EmptyHint,
 } from '../../components/business/clients/BusinessKit';
-import { VersionsPanel, ApprovalsPanel } from '../../components/business/review/CampaignReviewPanels';
-import { listCampaignChangeRequests } from '../../services/business.api';
+import { VersionsPanel, ApprovalsPanel, MessagesPanel } from '../../components/business/review/CampaignReviewPanels';
+import { listCampaignChangeRequests, listCampaignMessages } from '../../services/business.api';
 import { CampaignFormModal } from '../../components/business/clients/CampaignFormModal';
 import { AddCampaignPersonModal } from '../../components/business/clients/AddCampaignPersonModal';
 
-type Tab = 'overview' | 'assets' | 'people' | 'approvals' | 'versions' | 'rights' | 'sharing' | 'activity' | 'intelligence';
+type Tab = 'overview' | 'assets' | 'people' | 'approvals' | 'versions' | 'messages' | 'rights' | 'sharing' | 'activity' | 'intelligence';
 
 export function CampaignWorkspacePage() {
   const { campaignId = '' } = useParams();
@@ -36,6 +36,7 @@ export function CampaignWorkspacePage() {
   // Live count of open change requests — drives the Approvals tab badge and the
   // Needs attention row on Overview. Refetched whenever review state changes.
   const [pendingCount, setPendingCount] = useState<number | undefined>(undefined);
+  const [unreadMessages, setUnreadMessages] = useState<number | undefined>(undefined);
   const [reviewNonce, setReviewNonce] = useState(0);
   const refreshReview = useCallback(() => setReviewNonce((n) => n + 1), []);
 
@@ -70,6 +71,9 @@ export function CampaignWorkspacePage() {
       // A failed count must not surface an error over the whole page — the tab
       // simply shows no badge.
       .catch(() => { if (!cancelled) setPendingCount(undefined); });
+    listCampaignMessages(campaignId)
+      .then((res) => { if (!cancelled) setUnreadMessages(res.unread); })
+      .catch(() => { if (!cancelled) setUnreadMessages(undefined); });
     return () => { cancelled = true; };
   }, [campaignId, reviewNonce]);
 
@@ -114,6 +118,7 @@ export function CampaignWorkspacePage() {
     { id: 'approvals' as const, label: 'Approvals', icon: CheckCircle2, count: pendingCount },
     { id: 'versions' as const, label: 'Versions', icon: GitBranch },
     { id: 'rights' as const, label: 'Rights', icon: ScrollText, soon: true },
+    { id: 'messages' as const, label: 'Messages', icon: MessageSquare, count: unreadMessages },
     { id: 'sharing' as const, label: 'Sharing', icon: Share2 },
     { id: 'activity' as const, label: 'Activity', icon: Activity },
     { id: 'intelligence' as const, label: 'Intelligence', icon: Sparkles, soon: true },
@@ -344,6 +349,10 @@ export function CampaignWorkspacePage() {
 
       {tab === 'approvals' && (
         <ApprovalsPanel campaignId={campaignId} assets={assets} onChanged={refreshReview} />
+      )}
+
+      {tab === 'messages' && (
+        <MessagesPanel campaignId={campaignId} onChanged={refreshReview} />
       )}
 
       {tab === 'versions' && (

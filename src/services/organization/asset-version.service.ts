@@ -248,6 +248,17 @@ export const assetVersionService = {
       title: `Version ${created.versionNumber} of ${asset.originalFilename} uploaded`,
     });
 
+    // Put it in the conversation too, so a client watching the thread learns a
+    // new version exists without being told separately.
+    if (asset.campaignId) {
+      const { campaignMessageService } = await import('./campaign-message.service');
+      await campaignMessageService.postSystem(
+        organizationId, asset.campaignId,
+        `Version ${created.versionNumber} of ${asset.originalFilename} was uploaded.`,
+        { assetId, versionId: created.id },
+      );
+    }
+
     return shape(created);
   },
 

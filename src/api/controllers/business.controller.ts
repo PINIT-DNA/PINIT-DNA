@@ -101,6 +101,83 @@ export const businessController = {
     } catch (err) { next(err); }
   },
 
+  // ── Campaign conversation, team side ──────────────────────────────────
+  async listCampaignMessages(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignMessageService } = await import('../../services/organization/campaign-message.service');
+      const { assetId } = req.query as { assetId?: string };
+      const result = await campaignMessageService.listForTeam(
+        organizationId, userId, req.params.campaignId as string,
+        assetId ? { assetId } : {},
+      );
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async sendCampaignMessage(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignMessageService } = await import('../../services/organization/campaign-message.service');
+      const message = await campaignMessageService.sendAsTeam(
+        organizationId, userId, req.params.campaignId as string, req.body ?? {},
+      );
+      res.status(201).json({ success: true, message });
+    } catch (err) { next(err); }
+  },
+
+  async markCampaignMessagesRead(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignMessageService } = await import('../../services/organization/campaign-message.service');
+      const result = await campaignMessageService.markReadByTeam(
+        organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  /**
+   * SSE tick for a campaign conversation, team side.
+   *
+   * Subscribes to the same campaign channel the client's stream uses, on the
+   * realtimeHub that already backs notifications — no second transport.
+   */
+  async streamCampaignMessages(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignMessageService, campaignChannel } =
+        await import('../../services/organization/campaign-message.service');
+      // Authorise before opening the stream — a stream is still a read.
+      await campaignMessageService.listForTeam(organizationId, userId, req.params.campaignId as string);
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      if (typeof (res as { flushHeaders?: () => void }).flushHeaders === 'function') {
+        (res as { flushHeaders: () => void }).flushHeaders();
+      }
+
+      const { realtimeHub } = await import('../../services/platform-events/realtime-hub');
+      const channel = campaignChannel(req.params.campaignId as string);
+      const push = () => { res.write(`data: ${JSON.stringify({ ts: Date.now() })}\n\n`); };
+
+      push();
+      const unsub = realtimeHub.subscribe(channel, push);
+      const heartbeat = setInterval(() => res.write(': keepalive\n\n'), 25000);
+      req.on('close', () => { clearInterval(heartbeat); unsub(); });
+    } catch (err) { next(err); }
+  },
+
+  async getCampaignUnread(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignMessageService } = await import('../../services/organization/campaign-message.service');
+      const unread = await campaignMessageService.unreadByCampaign(organizationId, userId);
+      res.json({ success: true, unread });
+    } catch (err) { next(err); }
+  },
+
   // ── Version approvals ─────────────────────────────────────────────────
   async decideVersion(req: Request, res: Response, next: NextFunction) {
     try {

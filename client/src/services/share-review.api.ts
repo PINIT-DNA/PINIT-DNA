@@ -105,3 +105,51 @@ export async function postShareReviewDecision(
   );
   return { approval: data.approval, reviewStatus: data.reviewStatus };
 }
+
+// ── Campaign conversation, client side ───────────────────────────────────────
+
+export interface ClientMessage {
+  id: string;
+  body: string;
+  authorLabel: string;
+  isMine: boolean;
+  isSystem: boolean;
+  createdAt: string;
+  readByOther: boolean;
+}
+
+export interface ClientConversation {
+  campaignName: string;
+  recipientLabel: string;
+  messages: ClientMessage[];
+  unread: number;
+}
+
+export async function getShareMessages(token: string): Promise<ClientConversation> {
+  const { data } = await axios.get<{ success: boolean } & ClientConversation>(
+    `${API_BASE_URL}/share/${token}/campaign-messages`,
+  );
+  return {
+    campaignName: data?.campaignName ?? '',
+    recipientLabel: data?.recipientLabel ?? 'You',
+    messages: Array.isArray(data?.messages) ? data.messages : [],
+    unread: data?.unread ?? 0,
+  };
+}
+
+export async function postShareMessage(
+  token: string, body: string, authorLabel?: string,
+): Promise<ClientMessage> {
+  const { data } = await axios.post<{ success: boolean; message: ClientMessage }>(
+    `${API_BASE_URL}/share/${token}/campaign-messages`, { body, authorLabel },
+  );
+  return data.message;
+}
+
+export async function markShareMessagesRead(token: string): Promise<void> {
+  await axios.post(`${API_BASE_URL}/share/${token}/campaign-messages/read`, {});
+}
+
+export function shareMessageStreamUrl(token: string): string {
+  return `${API_BASE_URL}/share/${token}/messages/stream`;
+}

@@ -1498,3 +1498,61 @@ export async function getShareReviewDecisions(req: Request, res: Response, next:
     res.json({ success: true, decisions });
   } catch (err) { next(err); }
 }
+
+// ── Campaign conversation, client side (Collaboration Phase 4) ───────────────
+
+export async function getShareMessages(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { shareMessageService } = await import('../../services/share/share-message.service');
+    const result = await shareMessageService.list(req.params.token as string);
+    res.json({ success: true, ...result });
+  } catch (err) { next(err); }
+}
+
+export async function postShareMessage(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { shareMessageService } = await import('../../services/share/share-message.service');
+    const message = await shareMessageService.send(req.params.token as string, req.body ?? {});
+    res.status(201).json({ success: true, message });
+  } catch (err) { next(err); }
+}
+
+export async function markShareMessagesRead(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { shareMessageService } = await import('../../services/share/share-message.service');
+    const result = await shareMessageService.markRead(req.params.token as string);
+    res.json({ success: true, ...result });
+  } catch (err) { next(err); }
+}
+
+/**
+ * SSE stream for a client's campaign conversation.
+ *
+ * Same shape as the notification stream that already exists — it pushes a
+ * "something changed" tick, not the payload, so the page refetches through the
+ * normal authorised path and the stream can never become a second way to read
+ * data. Subscribes to the campaign channel on the existing realtimeHub.
+ */
+export async function streamShareMessages(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { shareMessageService } = await import('../../services/share/share-message.service');
+    const { channel } = await shareMessageService.channelFor(req.params.token as string);
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    if (typeof (res as { flushHeaders?: () => void }).flushHeaders === 'function') {
+      (res as { flushHeaders: () => void }).flushHeaders();
+    }
+
+    const { realtimeHub } = await import('../../services/platform-events/realtime-hub');
+    const push = () => { res.write(`data: ${JSON.stringify({ ts: Date.now() })}\n\n`); };
+
+    push();
+    const unsub = realtimeHub.subscribe(channel, push);
+    const heartbeat = setInterval(() => res.write(': keepalive\n\n'), 25000);
+
+    req.on('close', () => { clearInterval(heartbeat); unsub(); });
+  } catch (err) { next(err); }
+}

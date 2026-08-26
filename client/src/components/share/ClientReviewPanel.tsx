@@ -15,10 +15,12 @@ import type { ClientReviewContext } from '../../services/share-review.api';
 import {
   getShareReviewComments, postShareReviewComment,
   getShareReviewDecisions, postShareReviewDecision,
+  getShareMessages, postShareMessage, markShareMessagesRead, shareMessageStreamUrl,
 } from '../../services/share-review.api';
-import type { VersionDecision } from '../../services/share-review.api';
+import type { VersionDecision, ClientMessage } from '../../services/share-review.api';
 import { ApprovalActions } from './ApprovalActions';
 import { ReviewThreads } from '../business/review/ReviewThreads';
+import { ConversationPanel } from '../business/review/ConversationPanel';
 
 const cn = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 
@@ -46,6 +48,10 @@ export function ClientReviewPanel({
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [decisions, setDecisions] = useState<VersionDecision[]>([]);
+  const [messages, setMessages] = useState<ClientMessage[]>([]);
+  const [msgLoading, setMsgLoading] = useState(true);
+  const [msgError, setMsgError] = useState<string | null>(null);
+  const [tab, setTab] = useState<'review' | 'messages'>('review');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,7 +72,20 @@ export function ClientReviewPanel({
     }
   }, [token, review?.allowComments]);
 
+  const loadMessages = useCallback(async () => {
+    if (!review?.allowComments) { setMsgLoading(false); return; }
+    setMsgError(null);
+    try {
+      setMessages((await getShareMessages(token)).messages);
+    } catch (err) {
+      setMsgError(err instanceof Error ? err.message : 'Could not load messages');
+    } finally {
+      setMsgLoading(false);
+    }
+  }, [token, review?.allowComments]);
+
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void loadMessages(); }, [loadMessages]);
 
   if (!review) return null;
 
@@ -158,7 +177,57 @@ export function ClientReviewPanel({
         </div>
       )}
 
-      <div className="px-4 sm:px-5 py-4">
+      {/* Two conversations, deliberately separate: comments are about this
+          version, messages are about the campaign. Merging them would lose
+          which one a remark belongs to. */}
+      {review.allowComments && (
+        <div className="px-4 sm:px-5 pt-4 flex gap-1.5">
+          {([['review', 'This version'], ['messages', 'Messages']] as const).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTab(id)}
+              aria-pressed={tab === id}
+              className={cn(
+                'px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors',
+                tab === id
+                  ? 'bg-blue-600 text-white border-blue-700'
+                  : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50',
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {tab === 'messages' && review.allowComments && (
+        <div className="px-4 sm:px-5 py-4">
+          <ConversationPanel
+            audience="client"
+            messages={messages.map((m) => ({
+              id: m.id, body: m.body, authorLabel: m.authorLabel,
+              isSystem: m.isSystem, createdAt: m.createdAt,
+              readByOther: m.readByOther, mine: m.isMine,
+            }))}
+            loading={msgLoading}
+            error={msgError}
+            onRetry={loadMessages}
+            onVisible={() => { void markShareMessagesRead(token).catch(() => {}); }}
+            streamUrl={shareMessageStreamUrl(token)}
+            live={() => { void loadMessages(); }}
+            senderName={name}
+            onSenderNameChange={setName}
+            onSend={async (body) => {
+              await postShareMessage(token, body, name.trim() || undefined);
+              await loadMessages();
+              onActivity?.();
+            }}
+          />
+        </div>
+      )}
+
+      <div className={cn('px-4 sm:px-5 py-4', tab !== 'review' && 'hidden')}>
         {!review.allowComments ? (
           <p className="text-xs text-gray-500 text-center py-4">
             This link is view-only. Contact the sender if you need to leave feedback.

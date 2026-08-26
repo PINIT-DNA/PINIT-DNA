@@ -367,3 +367,45 @@ export async function decideVersion(
   );
   return { approval: data.approval, reviewStatus: data.reviewStatus };
 }
+
+// ── Campaign conversation ────────────────────────────────────────────────────
+
+export interface CampaignMessage {
+  id: string;
+  body: string;
+  authorLabel: string;
+  isClient: boolean;
+  isSystem: boolean;
+  assetId: string | null;
+  versionId: string | null;
+  createdAt: string;
+  readByOther: boolean;
+}
+
+export async function listCampaignMessages(
+  campaignId: string, assetId?: string,
+): Promise<{ messages: CampaignMessage[]; unread: number }> {
+  const qs = assetId ? `?assetId=${encodeURIComponent(assetId)}` : '';
+  const { data } = await api.get<{ success: boolean; messages: CampaignMessage[]; unread: number }>(
+    `${BASE}/campaigns/${campaignId}/messages${qs}`,
+  );
+  return { messages: Array.isArray(data?.messages) ? data.messages : [], unread: data?.unread ?? 0 };
+}
+
+export async function sendCampaignMessage(
+  campaignId: string, body: string, opts: { assetId?: string; versionId?: string } = {},
+): Promise<CampaignMessage> {
+  const { data } = await api.post<{ success: boolean; message: CampaignMessage }>(
+    `${BASE}/campaigns/${campaignId}/messages`, { body, ...opts },
+  );
+  return data.message;
+}
+
+export async function markCampaignMessagesRead(campaignId: string): Promise<void> {
+  await api.post(`${BASE}/campaigns/${campaignId}/messages/read`, {});
+}
+
+/** SSE endpoint that ticks when this campaign's conversation changes. */
+export function campaignMessageStreamUrl(campaignId: string): string {
+  return `${API_BASE_URL}/business/campaigns/${campaignId}/messages/stream`;
+}

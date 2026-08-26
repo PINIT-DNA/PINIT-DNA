@@ -604,6 +604,7 @@ model Campaign {
   createdByUserId String
   assets          Asset[]
   members         CampaignMember[]
+  messages        CampaignMessage[]
 
   @@index([organizationId])
   @@index([clientId])
@@ -2094,6 +2095,50 @@ enum CommentStatus {
   RESOLVED
   REJECTED
   CLOSED
+}
+
+/// One message in a campaign conversation between the team and the client.
+///
+/// Campaign-scoped, not global: every message belongs to exactly one campaign,
+/// so two clients can never see each other and a message cannot be addressed to
+/// "the business" in the abstract. Optionally narrowed further to an asset or a
+/// version, which is what keeps "change the logo" attached to the thing it is
+/// about instead of floating in one long channel.
+///
+/// Unread is tracked per side rather than with a single flag: a message from the
+/// client is unread for the team until the team opens it, and the reverse. One
+/// shared flag would let either party mark the other's messages read.
+model CampaignMessage {
+  id             String   @id @default(uuid())
+  createdAt      DateTime @default(now())
+
+  organizationId String
+  campaignId     String
+  /// Optional narrowing. Null means the message is about the campaign itself.
+  assetId        String?
+  versionId      String?
+
+  /// Exactly one of these identifies the author, or neither when isSystem.
+  authorUserId      String?
+  authorRecipientId String?
+  /// Denormalised so a thread still reads correctly if a member later leaves.
+  authorLabel       String
+  /// System lines ("Version 3 uploaded") are part of the conversation but are
+  /// written by the platform, not a person.
+  isSystem       Boolean  @default(false)
+
+  body           String   @db.Text
+
+  readByTeamAt   DateTime?
+  readByClientAt DateTime?
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, createdAt])
+  @@index([assetId, createdAt])
+  @@index([campaignId, readByTeamAt])
+  @@index([organizationId])
+  @@map("campaign_messages")
 }
 
 /// A decision recorded against one version. Insert-only, never updated.

@@ -277,6 +277,18 @@ async function record(input: {
     detail: { versionId: input.versionId, approvalId: created.id },
   });
 
+  // And into the conversation, so the thread reads as one story.
+  {
+    const { campaignMessageService } = await import('../organization/campaign-message.service');
+    await campaignMessageService.postSystem(
+      input.organizationId, input.campaignId,
+      input.decision === 'APPROVED'
+        ? `${input.approverLabel} approved version ${input.versionNumber}.`
+        : `${input.approverLabel} requested changes to version ${input.versionNumber}.`,
+      { assetId: input.assetId, versionId: input.versionId },
+    );
+  }
+
   // Notify the team through the existing event engine rather than a second
   // notification path. skipTimeline/skipAudit because the line above already
   // wrote the campaign-visible record.
