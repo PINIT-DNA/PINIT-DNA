@@ -8,6 +8,18 @@ import { sellerSubscriptionLabel } from '../lib/money.js';
 
 const STATUS_TIMEOUT_MS = 20000;
 
+function isTransientApiFailure(result) {
+  if (!result || result.ok) return false;
+  if (result.status === 0 || result.status === 502 || result.status === 503 || result.status === 504) {
+    return true;
+  }
+  // Vite proxy returns empty 500 when Exchange is mid-restart.
+  if (result.status === 500 && (!result.data || /empty response|server error|try again/i.test(String(result.error || '')))) {
+    return true;
+  }
+  return /timed out|aborted|cannot reach|ECONN/i.test(String(result.error || ''));
+}
+
 async function fetchWithTimeout(url, options = {}, ms = STATUS_TIMEOUT_MS) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
@@ -23,6 +35,16 @@ async function fetchWithTimeout(url, options = {}, ms = STATUS_TIMEOUT_MS) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function fetchWithRetry(url, options = {}, { attempts = 5, delayMs = 500 } = {}) {
+  let last = { ok: false, status: 0, data: null, error: 'Could not reach Exchange API' };
+  for (let i = 0; i < attempts; i += 1) {
+    last = await fetchWithTimeout(url, options);
+    if (last.ok || !isTransientApiFailure(last)) return last;
+    await new Promise((r) => setTimeout(r, delayMs + i * 250));
+  }
+  return last;
 }
 
 export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }) {
@@ -48,7 +70,7 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
     setLoading(true);
     setError('');
     try {
-      const { ok, data, error: err } = await fetchWithTimeout(
+      const { ok, data, error: err } = await fetchWithRetry(
         `/api/seller/onboarding/status?pinit_id=${encodeURIComponent(user.pinit_id)}`,
       );
       if (!ok) {
@@ -85,7 +107,7 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
     setNotice('');
     try {
       const idempotencyKey = `spm_${user.pinit_id}_${Date.now()}`;
-      const init = await fetchWithTimeout('/api/seller/onboarding/payment-method', {
+      const init = await fetchWithRetry('/api/seller/onboarding/payment-method', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -124,7 +146,7 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
         razorpay_signature = paid.razorpay_signature;
       }
 
-      const verify = await fetchWithTimeout('/api/seller/onboarding/payment-method/verify', {
+      const verify = await fetchWithRetry('/api/seller/onboarding/payment-method/verify', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -238,8 +260,16 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
           </div>
         )}
         {error && (
-          <div style={{ color: '#f87171', fontSize: '0.9rem', marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ color: '#f87171', fontSize: '0.9rem', marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <RefreshCw size={14} /> {error}
+            <button
+              type="button"
+              className="btn-secondary"
+              style={{ marginLeft: 'auto', padding: '6px 10px', fontSize: '0.8rem' }}
+              onClick={loadStatus}
+            >
+              Retry
+            </button>
           </div>
         )}
         <button
