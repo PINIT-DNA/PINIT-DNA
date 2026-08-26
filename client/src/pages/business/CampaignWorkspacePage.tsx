@@ -3,7 +3,7 @@ import { useParams, useSearchParams, Link } from 'react-router-dom';
 import {
   Plus, Archive, Users, Activity, Sparkles, CheckCircle2, GitBranch, ScrollText,
   Share2, Pencil, RefreshCw, Trash2, UserPlus, ExternalLink, Shield,
-  MessageSquare, ChevronRight, PackageCheck, Radar,
+  MessageSquare, ChevronRight, PackageCheck, Radar, Search,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
@@ -25,11 +25,12 @@ import { PeoplePanel } from '../../components/business/review/PeoplePanel';
 import { RightsPanel } from '../../components/business/review/RightsPanel';
 import { HandoverPanel } from '../../components/business/review/HandoverPanel';
 import { MonitoringPanel } from '../../components/business/review/MonitoringPanel';
+import { FindingsPanel } from '../../components/business/review/FindingsPanel';
 import { listCampaignChangeRequests, listCampaignMessages } from '../../services/business.api';
 import { CampaignFormModal } from '../../components/business/clients/CampaignFormModal';
 import { AddCampaignPersonModal } from '../../components/business/clients/AddCampaignPersonModal';
 
-type Tab = 'overview' | 'assets' | 'people' | 'approvals' | 'versions' | 'messages' | 'rights' | 'handover' | 'monitoring' | 'sharing' | 'activity' | 'intelligence';
+type Tab = 'overview' | 'assets' | 'people' | 'approvals' | 'versions' | 'messages' | 'rights' | 'handover' | 'monitoring' | 'findings' | 'sharing' | 'activity' | 'intelligence';
 
 export function CampaignWorkspacePage() {
   const { campaignId = '' } = useParams();
@@ -125,6 +126,7 @@ export function CampaignWorkspacePage() {
     { id: 'handover' as const, label: 'Handover', icon: PackageCheck },
     { id: 'messages' as const, label: 'Messages', icon: MessageSquare, count: unreadMessages },
     { id: 'monitoring' as const, label: 'Monitoring', icon: Radar },
+    { id: 'findings' as const, label: 'Findings', icon: Search },
     { id: 'sharing' as const, label: 'Sharing', icon: Share2 },
     { id: 'activity' as const, label: 'Activity', icon: Activity },
     { id: 'intelligence' as const, label: 'Intelligence', icon: Sparkles, soon: true },
@@ -353,6 +355,10 @@ export function CampaignWorkspacePage() {
 
       {tab === 'monitoring' && (
         <MonitoringPanel campaignId={campaignId} onChanged={refreshReview} />
+      )}
+
+      {tab === 'findings' && (
+        <FindingsPanel campaignId={campaignId} onChanged={refreshReview} />
       )}
 
       {tab === 'handover' && (

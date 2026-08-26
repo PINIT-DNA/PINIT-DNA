@@ -79,3 +79,9 @@ businessRouter.delete('/campaigns/:campaignId/handovers/:handoverId', requireAut
 businessRouter.get('/campaigns/:campaignId/monitoring', requireAuth, businessController.listCampaignMonitoring);
 businessRouter.post('/campaigns/:campaignId/monitoring/:assetId', requireAuth, businessController.enableCampaignMonitoring);
 businessRouter.delete('/campaigns/:campaignId/monitoring/:assetId', requireAuth, businessController.disableCampaignMonitoring);
+
+// ── Findings — reads AssetDiscovery, which the existing pipeline writes ─────
+// PENDING → CONFIRMED | DISMISSED. Nothing here creates a finding.
+businessRouter.get('/campaigns/:campaignId/findings', requireAuth, businessController.listCampaignFindings);
+businessRouter.get('/findings/:findingId', requireAuth, businessController.getCampaignFinding);
+businessRouter.patch('/findings/:findingId', requireAuth, businessController.decideCampaignFinding);

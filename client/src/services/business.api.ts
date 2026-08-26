@@ -711,3 +711,58 @@ export async function enableMonitoring(campaignId: string, assetId: string): Pro
 export async function disableMonitoring(campaignId: string, assetId: string): Promise<void> {
   await api.delete(`${BASE}/campaigns/${campaignId}/monitoring/${assetId}`);
 }
+
+// ── Findings (Phase C, layer 2) ──────────────────────────────────────────────
+// Reads AssetDiscovery, which the existing pipeline writes only on a real match.
+
+export type FindingStatus = 'PENDING' | 'CONFIRMED' | 'DISMISSED';
+
+export interface Finding {
+  id: string;
+  assetId: string;
+  assetName: string;
+  status: FindingStatus;
+  url: string;
+  platform: string | null;
+  pageTitle: string | null;
+  similarity: number;
+  confidence: number;
+  severity: string;
+  riskScore: number;
+  tampered: boolean;
+  tampering: string;
+  matchBand: string;
+  matchLabel: string;
+  matchMeaning: string;
+  firstSeen: string;
+  lastSeen: string;
+  createdAt: string;
+  investigationId: string | null;
+}
+
+export interface CampaignFindings {
+  campaignName: string;
+  findings: Finding[];
+  counts: { total: number; pending: number; confirmed: number; dismissed: number };
+  /** Lets the empty state explain itself: nothing found vs nothing looked for. */
+  context: { assetsInCampaign: number; assetsMonitored: number };
+}
+
+export async function listCampaignFindings(
+  campaignId: string, status?: FindingStatus, assetId?: string,
+): Promise<CampaignFindings> {
+  const qs = new URLSearchParams();
+  if (status) qs.set('status', status);
+  if (assetId) qs.set('assetId', assetId);
+  const suffix = qs.toString() ? `?${qs}` : '';
+  const { data } = await api.get<{ success: boolean } & CampaignFindings>(
+    `${BASE}/campaigns/${campaignId}/findings${suffix}`,
+  );
+  return data;
+}
+
+export async function decideFinding(
+  findingId: string, status: 'CONFIRMED' | 'DISMISSED', note?: string,
+): Promise<void> {
+  await api.patch(`${BASE}/findings/${findingId}`, { status, note });
+}

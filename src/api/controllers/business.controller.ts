@@ -101,6 +101,47 @@ export const businessController = {
     } catch (err) { next(err); }
   },
 
+  // ── Findings (Phase C, layer 2) ───────────────────────────────────────
+  async listCampaignFindings(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignFindingsService } = await import('../../services/organization/campaign-findings.service');
+      const { status, assetId } = req.query as { status?: string; assetId?: string };
+      const result = await campaignFindingsService.listForCampaign(
+        organizationId, userId, req.params.campaignId as string,
+        {
+          ...(status ? { status: status as 'PENDING' | 'CONFIRMED' | 'DISMISSED' } : {}),
+          ...(assetId ? { assetId } : {}),
+        },
+      );
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async getCampaignFinding(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignFindingsService } = await import('../../services/organization/campaign-findings.service');
+      const finding = await campaignFindingsService.get(
+        organizationId, userId, req.params.findingId as string);
+      res.json({ success: true, finding });
+    } catch (err) { next(err); }
+  },
+
+  async decideCampaignFinding(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignFindingsService } = await import('../../services/organization/campaign-findings.service');
+      const { status, note } = (req.body ?? {}) as { status?: string; note?: string };
+      if (status !== 'CONFIRMED' && status !== 'DISMISSED') {
+        throw new AppError(400, 'A finding can only be confirmed or dismissed');
+      }
+      const result = await campaignFindingsService.decide(
+        organizationId, userId, req.params.findingId as string, status, note);
+      res.json({ success: true, finding: result });
+    } catch (err) { next(err); }
+  },
+
   // ── Monitoring (Phase C, layer 1) ─────────────────────────────────────
   async listCampaignMonitoring(req: Request, res: Response, next: NextFunction) {
     try {
