@@ -73,3 +73,9 @@ businessRouter.get('/campaigns/:campaignId/handovers', requireAuth, businessCont
 businessRouter.post('/campaigns/:campaignId/handovers', requireAuth, businessController.createHandover);
 businessRouter.post('/campaigns/:campaignId/handovers/:handoverId/send', requireAuth, businessController.sendHandover);
 businessRouter.delete('/campaigns/:campaignId/handovers/:handoverId', requireAuth, businessController.revokeHandover);
+
+// ── Monitoring — scopes the existing monitor engine to a campaign ───────────
+// No new crawler, DNA or finding store; monitoringService already owns those.
+businessRouter.get('/campaigns/:campaignId/monitoring', requireAuth, businessController.listCampaignMonitoring);
+businessRouter.post('/campaigns/:campaignId/monitoring/:assetId', requireAuth, businessController.enableCampaignMonitoring);
+businessRouter.delete('/campaigns/:campaignId/monitoring/:assetId', requireAuth, businessController.disableCampaignMonitoring);

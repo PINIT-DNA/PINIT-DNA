@@ -101,6 +101,40 @@ export const businessController = {
     } catch (err) { next(err); }
   },
 
+  // ── Monitoring (Phase C, layer 1) ─────────────────────────────────────
+  async listCampaignMonitoring(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignMonitoringService } = await import('../../services/organization/campaign-monitoring.service');
+      const result = await campaignMonitoringService.listForCampaign(
+        organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async enableCampaignMonitoring(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignMonitoringService } = await import('../../services/organization/campaign-monitoring.service');
+      const result = await campaignMonitoringService.enable(
+        organizationId, userId,
+        req.params.campaignId as string, req.params.assetId as string,
+        req.body ?? {});
+      res.status(201).json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async disableCampaignMonitoring(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignMonitoringService } = await import('../../services/organization/campaign-monitoring.service');
+      const result = await campaignMonitoringService.disable(
+        organizationId, userId,
+        req.params.campaignId as string, req.params.assetId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
   // ── Rights and handover ───────────────────────────────────────────────
   async listCampaignRights(req: Request, res: Response, next: NextFunction) {
     try {

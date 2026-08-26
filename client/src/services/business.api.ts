@@ -634,3 +634,66 @@ export async function revokeHandover(campaignId: string, handoverId: string): Pr
   );
   return data.handover;
 }
+
+// ── Monitoring (Phase C, layer 1) ────────────────────────────────────────────
+// Scopes the existing monitor engine to a campaign. No second crawler or
+// finding store — MonitorRecord, MonitoringRun and AssetDiscovery already exist.
+
+export interface DiscoveryCapability {
+  crawlerEnabled: boolean;
+  anyProviderConfigured: boolean;
+  reverseImageAvailable: boolean;
+  providers: Array<{
+    id: string; label: string; configured: boolean; finds: string; requires: string | null;
+  }>;
+  summary: string;
+}
+
+export interface MonitoredAsset {
+  assetId: string;
+  filename: string;
+  assetType: string;
+  canMonitor: boolean;
+  monitoring: {
+    enabled: boolean;
+    status: string;
+    scanType: string;
+    everyHours: number;
+    lastScanAt: string | null;
+    nextScanAt: string | null;
+    totalScans: number;
+    totalMatches: number;
+    totalFailures: number;
+  } | null;
+  findings: {
+    total: number; needsReview: number; confirmed: number; dismissed: number;
+    lastAt: string | null;
+  };
+  recentScans: Array<{
+    id: string; status: string; trigger: string;
+    startedAt: string; completedAt: string | null; durationMs: number | null;
+    candidatesFound: number; matchesFound: number; failureReason: string | null;
+  }>;
+}
+
+export interface CampaignMonitoring {
+  campaignName: string;
+  capability: DiscoveryCapability;
+  assets: MonitoredAsset[];
+  totals: { monitored: number; findings: number; needsReview: number; confirmed: number };
+}
+
+export async function listCampaignMonitoring(campaignId: string): Promise<CampaignMonitoring> {
+  const { data } = await api.get<{ success: boolean } & CampaignMonitoring>(
+    `${BASE}/campaigns/${campaignId}/monitoring`,
+  );
+  return data;
+}
+
+export async function enableMonitoring(campaignId: string, assetId: string): Promise<void> {
+  await api.post(`${BASE}/campaigns/${campaignId}/monitoring/${assetId}`, {});
+}
+
+export async function disableMonitoring(campaignId: string, assetId: string): Promise<void> {
+  await api.delete(`${BASE}/campaigns/${campaignId}/monitoring/${assetId}`);
+}
