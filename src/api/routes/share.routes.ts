@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.middleware';
+import { clientReportController } from '../controllers/client-report.controller';
 import {
   requireShareLinkOwnership,
   requireVaultOwnership,
@@ -102,6 +103,11 @@ shareRouter.post('/:token/campaign-messages/read', markShareMessagesRead);
 
 // ── Client handover bundle — token-scoped, no account ──────────────────────
 shareRouter.get('/handover/:token',            getHandoverView);
+
+// ── Client report — token-scoped, no account (Phase C, layer 6) ────────────
+// Two literal segments, so neither can be shadowed by the '/:token/...' routes.
+shareRouter.get('/client-report/:token',        clientReportController.getClientReport);
+shareRouter.get('/client-report/:token/pdf',    clientReportController.downloadClientReport);
 // Owner-only routes (require auth)
 shareRouter.get('/:token/logs',                requireAuth, requireTrackingUnlessLicensedShare(requireFeature(FeatureKey.FEATURE_TRACKING)), requireShareLinkOwnership, getShareLinkLogs);
 shareRouter.get('/:token/export',              requireAuth, requireShareLinkOwnership, exportShareLogsCsv);

@@ -47,6 +47,7 @@ import { RequireAccountTypeOnboarding } from './components/onboarding/RequireAcc
 import { BRAND } from './config/brand.config';
 import { ShareViewerPage } from './pages/ShareViewerPage';
 import { HandoverPage } from './pages/HandoverPage';
+import { ClientReportPage } from './pages/ClientReportPage';
 import { PinitGateway, RegisterGateway } from './pages/auth/PinitGateway';
 import { PreRegisterRoute } from './pages/auth/PreRegisterGateway';
 import { PreRegisterAccountTypePage } from './pages/auth/PreRegisterAccountTypePage';
@@ -80,6 +81,8 @@ export const router = createBrowserRouter([
   { path: '/s/:token', element: <ShareViewerPage /> },
   // Public, like the share viewer — the handover token is the authority.
   { path: '/handover/:token', element: <HandoverPage /> },
+  // Public too — the report token is the authority, and the page sends no auth.
+  { path: '/client-report/:token', element: <ClientReportPage /> },
 
   // ── Team invite join (remembers token if login is required) ────────────────
   { path: '/team/join/:token', element: <TeamJoinPage /> },

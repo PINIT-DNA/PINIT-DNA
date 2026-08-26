@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Gavel, Plus, AlertTriangle, RefreshCw, Loader2, ArrowLeft, Clock,
-  FileCheck2, MessageSquare, ExternalLink, ShieldCheck, RotateCcw, X,
+  MessageSquare, ExternalLink, ShieldCheck, RotateCcw, X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
@@ -30,6 +30,7 @@ import type {
   InvestigationStatus, InvestigationPriority,
 } from '../../../services/business.api';
 import { SectionCard, SkeletonRows } from '../clients/BusinessKit';
+import { CaseEvidencePanel, CaseReportsPanel } from './CaseEvidence';
 import { timeAgo } from './ReviewPrimitives';
 
 const cn = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
@@ -494,29 +495,15 @@ function CaseDetail({
       </SectionCard>
 
       {/* Evidence and notes stay apart — one is collected, the other is written. */}
-      <SectionCard title="Evidence collected" icon={FileCheck2}>
-        {c.evidence.length === 0 ? (
-          <p className="text-xs text-gray-500">
-            No evidence has been collected against this case yet.
-          </p>
-        ) : (
-          <ul className="space-y-2">
-            {c.evidence.map((e) => (
-              <li key={e.id} className="rounded-lg border border-bg-border bg-bg-card px-2.5 py-2">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <p className="text-xs font-semibold text-white">{e.type}</p>
-                  <span className="text-2xs text-gray-500 font-mono">{e.code}</span>
-                </div>
-                {e.description && <p className="text-2xs text-gray-400 mt-0.5">{e.description}</p>}
-                <p className="text-2xs text-gray-600 mt-1">
-                  Collected {timeAgo(e.collectedAt)}
-                  {e.integrity && <> · integrity <span className="font-mono">{e.integrity}</span></>}
-                </p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </SectionCard>
+      <CaseEvidencePanel investigationId={c.id} onChanged={() => void load()} />
+
+      {c.campaignId && (
+        <CaseReportsPanel
+          investigationId={c.id}
+          campaignId={c.campaignId}
+          evidenceCount={c.evidence.length}
+        />
+      )}
 
       <SectionCard title="Case notes" icon={MessageSquare}>
         <div className="space-y-3">

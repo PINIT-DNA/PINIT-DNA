@@ -762,4 +762,93 @@ export const businessController = {
       throw new AppError(400, 'Nothing to change');
     } catch (err) { next(err); }
   },
+  // ── Evidence on a case (Phase C, layer 5) ─────────────────────────────
+  async listInvestigationEvidence(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignEvidenceService } = await import('../../services/organization/campaign-evidence.service');
+      const result = await campaignEvidenceService.listFor(
+        organizationId, userId, req.params.investigationId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async collectInvestigationEvidence(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignEvidenceService } = await import('../../services/organization/campaign-evidence.service');
+      const b = (req.body ?? {}) as { evidenceType?: string; description?: string; sourceUrl?: string };
+      const evidence = await campaignEvidenceService.collect(
+        organizationId, userId, req.params.investigationId as string,
+        {
+          evidenceType: b.evidenceType ?? '',
+          description: b.description ?? '',
+          ...(b.sourceUrl ? { sourceUrl: b.sourceUrl } : {}),
+        },
+      );
+      res.status(201).json({ success: true, evidence });
+    } catch (err) { next(err); }
+  },
+
+  // ── Client reports (Phase C, layer 6) ─────────────────────────────────
+  async createClientReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignClientReportService } = await import('../../services/organization/campaign-client-report.service');
+      const b = (req.body ?? {}) as { title?: string; summary?: string; expiresInDays?: number };
+      const report = await campaignClientReportService.create(
+        organizationId, userId, req.params.investigationId as string, b);
+      res.status(201).json({ success: true, report });
+    } catch (err) { next(err); }
+  },
+
+  async listClientReports(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignClientReportService } = await import('../../services/organization/campaign-client-report.service');
+      const result = await campaignClientReportService.listForCampaign(
+        organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async getClientReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignClientReportService } = await import('../../services/organization/campaign-client-report.service');
+      const report = await campaignClientReportService.getForBusiness(
+        organizationId, userId, req.params.reportId as string);
+      res.json({ success: true, report });
+    } catch (err) { next(err); }
+  },
+
+  async downloadClientReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignClientReportService } = await import('../../services/organization/campaign-client-report.service');
+      const { pdf, filename } = await campaignClientReportService.renderForBusiness(
+        organizationId, userId, req.params.reportId as string);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+      res.send(pdf);
+    } catch (err) { next(err); }
+  },
+
+  async updateClientReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignClientReportService } = await import('../../services/organization/campaign-client-report.service');
+      const { action } = (req.body ?? {}) as { action?: string };
+      const id = req.params.reportId as string;
+      if (action === 'ISSUE') {
+        res.json({ success: true, report: await campaignClientReportService.issue(organizationId, userId, id) });
+        return;
+      }
+      if (action === 'REVOKE') {
+        res.json({ success: true, report: await campaignClientReportService.revoke(organizationId, userId, id) });
+        return;
+      }
+      throw new AppError(400, 'Unknown action');
+    } catch (err) { next(err); }
+  },
 };

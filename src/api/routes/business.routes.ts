@@ -93,5 +93,16 @@ businessRouter.get('/investigations/:investigationId', requireAuth, businessCont
 businessRouter.patch('/investigations/:investigationId', requireAuth, businessController.updateInvestigation);
 businessRouter.post('/investigations/:investigationId/notes', requireAuth, businessController.addInvestigationNote);
 
+// Evidence on a case (Phase C, layer 5) — reuses EvidenceRecord, adds scoping.
+businessRouter.get('/investigations/:investigationId/evidence', requireAuth, businessController.listInvestigationEvidence);
+businessRouter.post('/investigations/:investigationId/evidence', requireAuth, businessController.collectInvestigationEvidence);
+
+// Client reports (Phase C, layer 6) — redacted projection of a case.
+businessRouter.post('/investigations/:investigationId/reports', requireAuth, businessController.createClientReport);
+businessRouter.get('/campaigns/:campaignId/reports', requireAuth, businessController.listClientReports);
+businessRouter.get('/reports/:reportId', requireAuth, businessController.getClientReport);
+businessRouter.get('/reports/:reportId/pdf', requireAuth, businessController.downloadClientReport);
+businessRouter.patch('/reports/:reportId', requireAuth, businessController.updateClientReport);
+
 // ── Campaign intelligence — aggregates real rows only, no new storage ───────
 businessRouter.get('/campaigns/:campaignId/intelligence', requireAuth, businessController.getCampaignIntelligence);

@@ -2700,3 +2700,46 @@ model SpatialAuthPackage {
   @@index([ownerUserId])
   @@map("spatial_auth_packages")
 }
+
+/// A client-facing report issued from an investigation.
+///
+/// The PDF is not stored as a blob. Instead `snapshot` holds the REDACTED
+/// projection that was approved at issue time, and the PDF is rendered
+/// deterministically from it. Two reasons: a client opening the link next month
+/// sees exactly what was issued rather than whatever the database says today,
+/// and the redaction is decided once, at issue, rather than re-derived on every
+/// read where a later code change could widen it.
+///
+/// `contentHash` is the SHA-256 of that snapshot, so a client's copy can be
+/// checked against the record.
+model ClientReport {
+  id              String    @id @default(uuid())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  /// Human reference, safe to quote to a client. Never a database id.
+  reportCode      String    @unique
+  organizationId  String
+  campaignId      String
+  investigationId String
+  clientId        String?
+  title           String
+  status          String    @default("DRAFT")
+  /// Opaque access token. The client never sees any internal id.
+  accessToken     String    @unique
+  expiresAt       DateTime?
+  issuedAt        DateTime?
+  revokedAt       DateTime?
+  firstOpenedAt   DateTime?
+  lastOpenedAt    DateTime?
+  openCount       Int       @default(0)
+  generatedByUserId String?
+  evidenceCount   Int       @default(0)
+  contentHash     String?
+  /// The redacted projection, as JSON. Nothing internal is written here.
+  snapshot        String?   @db.Text
+
+  @@index([organizationId, createdAt])
+  @@index([campaignId])
+  @@index([investigationId])
+  @@map("client_reports")
+}

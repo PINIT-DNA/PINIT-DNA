@@ -955,3 +955,146 @@ export async function updateInvestigation(
   );
   return data.investigation;
 }
+
+// ── Evidence on a case (Phase C, layer 5) ────────────────────────────────────
+// Reuses the existing EvidenceRecord store. No second evidence system.
+
+export interface EvidenceEntry {
+  id: string;
+  code: string;
+  type: string;
+  /** What this kind of evidence means, in plain words. */
+  meaning: string;
+  description: string;
+  sourceUrl: string | null;
+  sourceHost: string | null;
+  platform: string | null;
+  collectedAt: string;
+  /** Short prefix — enough to compare copies, not enough to reconstruct. */
+  integrity: string | null;
+  hasIntegrity: boolean;
+}
+
+export interface InvestigationEvidence {
+  investigationId: string;
+  caseCode: string;
+  relatedAsset: { id: string; filename: string } | null;
+  relatedFinding: {
+    id: string; url: string; host: string | null;
+    platform: string | null; similarity: number;
+  } | null;
+  evidence: EvidenceEntry[];
+  counts: { total: number; withIntegrity: number; byType: Record<string, number> };
+  collectableTypes: { id: string; meaning: string }[];
+}
+
+export async function listInvestigationEvidence(
+  investigationId: string,
+): Promise<InvestigationEvidence> {
+  const { data } = await api.get<{ success: boolean } & InvestigationEvidence>(
+    `${BASE}/investigations/${investigationId}/evidence`,
+  );
+  return data;
+}
+
+export async function collectEvidence(
+  investigationId: string,
+  input: { evidenceType: string; description: string; sourceUrl?: string },
+): Promise<{ id: string; code: string }> {
+  const { data } = await api.post<{ success: boolean; evidence: { id: string; code: string } }>(
+    `${BASE}/investigations/${investigationId}/evidence`, input,
+  );
+  return data.evidence;
+}
+
+// ── Client reports (Phase C, layer 6) ────────────────────────────────────────
+
+export type ClientReportStatus = 'DRAFT' | 'ISSUED' | 'REVOKED';
+
+/** Exactly what a client sees. Nothing internal appears on this type. */
+export interface ClientReportSnapshot {
+  reportCode: string;
+  title: string;
+  preparedBy: string;
+  preparedFor: string | null;
+  generatedAt: string;
+  summary: string | null;
+  campaign: { name: string; startedOn: string | null; endedOn: string | null };
+  asset: {
+    filename: string; protectedOn: string | null;
+    isFingerprinted: boolean; isVaulted: boolean; isCertified: boolean;
+  } | null;
+  finding: {
+    foundAt: string | null; host: string | null;
+    confidence: string; similarityPercent: number; firstSeen: string | null;
+  } | null;
+  caseStatus: string;
+  outcome: string | null;
+  evidence: {
+    reference: string; type: string; meaning: string; description: string;
+    sourceUrl: string | null; sourceHost: string | null;
+    collectedAt: string; integrity: string | null;
+  }[];
+}
+
+export interface ClientReport {
+  id: string;
+  reportCode: string;
+  title: string;
+  status: ClientReportStatus;
+  investigationId: string;
+  campaignId: string;
+  /** The team needs this to send the link. It never appears in a snapshot. */
+  accessToken: string;
+  createdAt: string;
+  issuedAt: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  firstOpenedAt: string | null;
+  lastOpenedAt: string | null;
+  openCount: number;
+  evidenceCount: number;
+  isExpired: boolean;
+  isLive: boolean;
+  seal: string | null;
+  /** What the client will see — so the team can check before issuing. */
+  preview: ClientReportSnapshot | null;
+}
+
+export async function createClientReport(
+  investigationId: string,
+  input: { title?: string; summary?: string; expiresInDays?: number },
+): Promise<ClientReport> {
+  const { data } = await api.post<{ success: boolean; report: ClientReport }>(
+    `${BASE}/investigations/${investigationId}/reports`, input,
+  );
+  return data.report;
+}
+
+export async function listClientReports(campaignId: string): Promise<{ reports: ClientReport[] }> {
+  const { data } = await api.get<{ success: boolean; reports: ClientReport[] }>(
+    `${BASE}/campaigns/${campaignId}/reports`,
+  );
+  return { reports: data.reports };
+}
+
+export async function getClientReport(reportId: string): Promise<ClientReport> {
+  const { data } = await api.get<{ success: boolean; report: ClientReport }>(
+    `${BASE}/reports/${reportId}`,
+  );
+  return data.report;
+}
+
+export async function updateClientReport(
+  reportId: string, action: 'ISSUE' | 'REVOKE',
+): Promise<ClientReport> {
+  const { data } = await api.patch<{ success: boolean; report: ClientReport }>(
+    `${BASE}/reports/${reportId}`, { action },
+  );
+  return data.report;
+}
+
+/** The business-side PDF preview — identical bytes to the client's copy. */
+export function clientReportPdfUrl(reportId: string): string {
+  return `${BASE}/reports/${reportId}/pdf`;
+}
