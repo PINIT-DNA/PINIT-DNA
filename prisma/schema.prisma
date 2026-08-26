@@ -622,23 +622,76 @@ enum CampaignStatus {
 /// lightweight external creator/collaborator (no account, no membership tier).
 /// External creators are never OrganizationMembers; they receive access only
 /// through the existing scoped ShareLink pattern.
+/// How much of the campaign an external person can actually reach.
+///
+/// NONE is the default and the point: being listed on a campaign is a record of
+/// involvement, not a grant. Access is issued deliberately, per asset, and can
+/// be taken back without removing the person from the record.
+enum MemberAccessStatus {
+  NONE
+  INVITED
+  ACTIVE
+  REVOKED
+}
+
 model CampaignMember {
   id            String   @id @default(uuid())
   createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
   campaignId    String
   campaign      Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   userId        String?
   name          String?
+  email         String?
   platform      String?
   profileUrl    String?
   roleLabel     String?
   isExternal    Boolean  @default(false)
   addedByUserId String
 
+  /// Access for an external person. Internal staff are governed by
+  /// OrganizationMember and their org role — never by these columns.
+  accessStatus      MemberAccessStatus @default(NONE)
+  canComment        Boolean  @default(true)
+  canRequestChanges Boolean  @default(false)
+  /// Approval is a client's decision. An external creator can be granted it,
+  /// but never by default — sign-off is not part of doing the work.
+  canApprove        Boolean  @default(false)
+  /// Links this person to the share layer's identity record, so their access
+  /// carries the same trust scoring and device history as any other recipient.
+  shareRecipientId  String?
+  lastAccessAt      DateTime?
+  revokedAt         DateTime?
+
+  assetAccess CampaignMemberAsset[]
+
   @@unique([campaignId, userId])
   @@index([campaignId])
   @@index([userId])
   @@map("campaign_members")
+}
+
+/// Which assets one campaign member may actually reach.
+///
+/// This is what makes external access scoped rather than campaign-wide: a
+/// creator assigned to one asset cannot see the other eleven. Each row carries
+/// the share token issued for that pairing, so access is delivered through the
+/// existing secure-link machinery — expiry, revocation, tracking and watermarks
+/// all come for free rather than being reimplemented.
+model CampaignMemberAsset {
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+  memberId   String
+  assetId    String
+  /// The scoped review link issued for this person and this asset.
+  shareToken String?
+
+  member CampaignMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, assetId])
+  @@index([memberId])
+  @@index([assetId])
+  @@map("campaign_member_assets")
 }
 
 model Workspace {

@@ -77,6 +77,12 @@ export interface CreateShareLinkInput {
   allowComments?: boolean;
   allowChangeRequest?: boolean;
   allowApproval?: boolean;
+  /** Who this link is for. Shown to them, and used to attribute what they
+   *  write — without it an external creator is labelled "Client". */
+  recipientLabel?: string;
+  /** Links this share to a ShareRecipient so trust score and device history
+   *  accumulate against one identity across their links. */
+  shareRecipientId?: string;
   reviewVersionId?: string | null;
   requireName?:  boolean;
   note?:         string;
@@ -369,6 +375,8 @@ export class ShareLinkService {
         // may be held to, not a discussion.
         allowApproval:      Boolean(input.reviewMode && (input.allowApproval ?? false)),
         reviewVersionId:    input.reviewMode ? (input.reviewVersionId ?? null) : null,
+        recipientLabel:     input.recipientLabel?.trim() || null,
+        shareRecipientId:   input.shareRecipientId ?? null,
         requireName:  input.requireName ?? false,
         note:         input.note ?? null,
 

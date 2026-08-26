@@ -409,3 +409,84 @@ export async function markCampaignMessagesRead(campaignId: string): Promise<void
 export function campaignMessageStreamUrl(campaignId: string): string {
   return `${API_BASE_URL}/business/campaigns/${campaignId}/messages/stream`;
 }
+
+// ── Campaign people and scoped access ────────────────────────────────────────
+
+export type MemberAccessStatus = 'NONE' | 'INVITED' | 'ACTIVE' | 'REVOKED';
+
+export interface CampaignPerson {
+  id: string;
+  kind: 'internal' | 'external';
+  name: string;
+  shortId: string | null;
+  email: string | null;
+  platform: string | null;
+  profileUrl: string | null;
+  roleLabel: string | null;
+  orgRole: string | null;
+  accessStatus: MemberAccessStatus;
+  permissions: { canComment: boolean; canRequestChanges: boolean; canApprove: boolean } | null;
+  assets: Array<{ assetId: string; filename: string; hasLink: boolean }>;
+  lastAccessAt: string | null;
+  addedAt: string;
+}
+
+export interface CampaignPeople {
+  client: { name: string; contactName: string | null; contactEmail: string | null } | null;
+  people: CampaignPerson[];
+}
+
+export async function listCampaignPeople(campaignId: string): Promise<CampaignPeople> {
+  const { data } = await api.get<{ success: boolean } & CampaignPeople>(
+    `${BASE}/campaigns/${campaignId}/people`,
+  );
+  return { client: data?.client ?? null, people: Array.isArray(data?.people) ? data.people : [] };
+}
+
+export interface AccessGrantInput {
+  assetIds: string[];
+  canComment?: boolean;
+  canRequestChanges?: boolean;
+  canApprove?: boolean;
+  expiresInHours?: number | null;
+}
+
+export async function grantCampaignAccess(
+  campaignId: string, memberId: string, input: AccessGrantInput,
+): Promise<{ issued: Array<{ assetId: string; filename: string; token: string | null }> }> {
+  const { data } = await api.post<{ success: boolean; issued: Array<{ assetId: string; filename: string; token: string | null }> }>(
+    `${BASE}/campaigns/${campaignId}/people/${memberId}/access`, input,
+  );
+  return { issued: Array.isArray(data?.issued) ? data.issued : [] };
+}
+
+export async function updateCampaignAccess(
+  campaignId: string, memberId: string,
+  perms: { canComment?: boolean; canRequestChanges?: boolean; canApprove?: boolean },
+): Promise<void> {
+  await api.patch(`${BASE}/campaigns/${campaignId}/people/${memberId}/access`, perms);
+}
+
+export async function revokeCampaignAccess(
+  campaignId: string, memberId: string, assetId?: string,
+): Promise<void> {
+  const qs = assetId ? `?assetId=${encodeURIComponent(assetId)}` : '';
+  await api.delete(`${BASE}/campaigns/${campaignId}/people/${memberId}/access${qs}`);
+}
+
+export interface AccessLink {
+  token: string;
+  filename: string;
+  active: boolean;
+  expiresAt: string | null;
+  viewCount: number;
+}
+
+export async function listCampaignAccessLinks(
+  campaignId: string, memberId: string,
+): Promise<AccessLink[]> {
+  const { data } = await api.get<{ success: boolean; links: AccessLink[] }>(
+    `${BASE}/campaigns/${campaignId}/people/${memberId}/links`,
+  );
+  return Array.isArray(data?.links) ? data.links : [];
+}

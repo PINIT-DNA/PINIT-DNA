@@ -101,6 +101,75 @@ export const businessController = {
     } catch (err) { next(err); }
   },
 
+  // ── Campaign people and scoped access ─────────────────────────────────
+  async listCampaignPeople(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignAccessService } = await import('../../services/organization/campaign-access.service');
+      const result = await campaignAccessService.listPeople(
+        organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async grantCampaignAccess(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignAccessService } = await import('../../services/organization/campaign-access.service');
+      const body = (req.body ?? {}) as { assetIds?: string[] } & Record<string, unknown>;
+      const result = await campaignAccessService.grantAssetAccess(
+        organizationId, userId,
+        req.params.campaignId as string, req.params.memberId as string,
+        body.assetIds ?? [],
+        {
+          canComment: body.canComment as boolean | undefined,
+          canRequestChanges: body.canRequestChanges as boolean | undefined,
+          canApprove: body.canApprove as boolean | undefined,
+          expiresInHours: body.expiresInHours as number | undefined,
+        },
+      );
+      res.status(201).json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async revokeCampaignAccess(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignAccessService } = await import('../../services/organization/campaign-access.service');
+      const { assetId } = req.query as { assetId?: string };
+      const result = await campaignAccessService.revokeAccess(
+        organizationId, userId,
+        req.params.campaignId as string, req.params.memberId as string,
+        assetId ? { assetId } : {},
+      );
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async updateCampaignAccess(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignAccessService } = await import('../../services/organization/campaign-access.service');
+      const result = await campaignAccessService.updatePermissions(
+        organizationId, userId,
+        req.params.campaignId as string, req.params.memberId as string,
+        req.body ?? {},
+      );
+      res.json({ success: true, permissions: result });
+    } catch (err) { next(err); }
+  },
+
+  async listCampaignAccessLinks(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignAccessService } = await import('../../services/organization/campaign-access.service');
+      const links = await campaignAccessService.listAccessLinks(
+        organizationId, userId,
+        req.params.campaignId as string, req.params.memberId as string);
+      res.json({ success: true, links });
+    } catch (err) { next(err); }
+  },
+
   // ── Campaign conversation, team side ──────────────────────────────────
   async listCampaignMessages(req: Request, res: Response, next: NextFunction) {
     try {

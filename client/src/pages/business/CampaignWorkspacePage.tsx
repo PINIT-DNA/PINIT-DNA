@@ -21,6 +21,7 @@ import {
   TabBar, ComingSoonPanel, PageError, EmptyHint,
 } from '../../components/business/clients/BusinessKit';
 import { VersionsPanel, ApprovalsPanel, MessagesPanel } from '../../components/business/review/CampaignReviewPanels';
+import { PeoplePanel } from '../../components/business/review/PeoplePanel';
 import { listCampaignChangeRequests, listCampaignMessages } from '../../services/business.api';
 import { CampaignFormModal } from '../../components/business/clients/CampaignFormModal';
 import { AddCampaignPersonModal } from '../../components/business/clients/AddCampaignPersonModal';
@@ -277,32 +278,14 @@ export function CampaignWorkspacePage() {
       )}
 
       {tab === 'people' && (
-        <SectionCard
-          title={members ? `${members.length} on this campaign` : 'People'}
-          icon={Users}
-          action={
-            <button onClick={() => setPersonOpen(true)} className="btn btn-primary btn-sm">
-              <UserPlus size={13} /> Add person
-            </button>
-          }
-        >
-          {membersLoading && !members ? (
-            <SkeletonRows rows={4} />
-          ) : !members || members.length === 0 ? (
-            <EmptyState
-              icon={Users}
-              title="No one's connected to this campaign yet"
-              description="Add a team member, or an external creator like a freelancer or influencer."
-              action={
-                <button onClick={() => setPersonOpen(true)} className="btn btn-primary btn-sm">
-                  <UserPlus size={14} /> Add person
-                </button>
-              }
-            />
-          ) : (
-            <PeopleList members={members} onRemove={handleRemovePerson} />
-          )}
-        </SectionCard>
+        <PeoplePanel
+          campaignId={campaignId}
+          assets={assets}
+          onAddPerson={() => setPersonOpen(true)}
+          onRemovePerson={(memberId, name) =>
+            handleRemovePerson({ id: memberId, name } as CampaignMember)}
+          onChanged={() => { refetchMembers(); refetchCampaign(); refreshReview(); }}
+        />
       )}
 
       {tab === 'sharing' && (

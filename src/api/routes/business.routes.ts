@@ -54,3 +54,12 @@ businessRouter.post('/campaigns/:campaignId/messages', requireAuth, businessCont
 businessRouter.post('/campaigns/:campaignId/messages/read', requireAuth, businessController.markCampaignMessagesRead);
 businessRouter.get('/campaigns/:campaignId/messages/stream', requireAuth, businessController.streamCampaignMessages);
 businessRouter.get('/messages/unread', requireAuth, businessController.getCampaignUnread);
+
+// ── Campaign people — scoped access for external creators ───────────────────
+// Internal membership stays with the organization team endpoints; nothing here
+// grants Business Account access.
+businessRouter.get('/campaigns/:campaignId/people', requireAuth, businessController.listCampaignPeople);
+businessRouter.post('/campaigns/:campaignId/people/:memberId/access', requireAuth, businessController.grantCampaignAccess);
+businessRouter.patch('/campaigns/:campaignId/people/:memberId/access', requireAuth, businessController.updateCampaignAccess);
+businessRouter.delete('/campaigns/:campaignId/people/:memberId/access', requireAuth, businessController.revokeCampaignAccess);
+businessRouter.get('/campaigns/:campaignId/people/:memberId/links', requireAuth, businessController.listCampaignAccessLinks);
