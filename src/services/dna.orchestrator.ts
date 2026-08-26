@@ -318,15 +318,15 @@ export class DnaOrchestrator {
       logger.warn('DNA enhancement/identity package skipped (non-fatal)', { dnaRecordId, error: String(err) });
     }
 
-    // Milestone B Step 2 — enterprise DNA package (immutable SSoT dual-write)
-    try {
-      await persistEnterpriseDnaPackage(dnaRecordId);
-    } catch (err) {
+    // Milestone B Step 2 — enterprise DNA package (immutable SSoT dual-write).
+    // Do not block protect UX on package sealing — identity package above is enough
+    // for vault store; enterprise package finishes in the background.
+    void persistEnterpriseDnaPackage(dnaRecordId).catch((err) => {
       logger.warn('Enterprise DNA package persistence skipped (non-fatal)', {
         dnaRecordId,
         error: String(err),
       });
-    }
+    });
 
     const totalMs = Date.now() - pipelineStart;
 

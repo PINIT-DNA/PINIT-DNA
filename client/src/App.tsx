@@ -6,7 +6,6 @@ const Header = () => null;
 import { UploadZone } from './components/UploadZone';
 import { EncryptionStep } from './components/EncryptionStep';
 import { VaultStep } from './components/VaultStep';
-import { ProtectReadyStep, type ProtectReadyResult } from './components/ProtectReadyStep';
 import { SuccessPanel } from './components/SuccessPanel';
 import { GenerationProgress } from './components/GenerationProgress';
 
@@ -15,7 +14,7 @@ import type { AppStage, DnaSession, EncryptionResult, VaultStoreResponse } from 
 import { DNA_GENERATOR_VERSION } from './config/dna-versions';
 import { requestCustodyLocation, type CustodyLocation } from './lib/location-consent';
 
-type FlowStage = AppStage | 'vaulting' | 'readying';
+type FlowStage = AppStage | 'vaulting';
 
 export default function App() {
   const navigate = useNavigate();
@@ -118,8 +117,10 @@ export default function App() {
       ...prev,
       vault,
       fileAnalysis: vault.contentAnalysis ?? prev.fileAnalysis ?? null,
+      // Download can be fetched on demand from Success — don't block protect UX.
+      downloadReady: true,
     } : prev));
-    setStage('readying');
+    setStage('success');
   }, []);
 
   const handleVaultError = useCallback((msg: string) => {
@@ -130,27 +131,6 @@ export default function App() {
     setError(msg);
     setStage('idle');
   }, [navigate]);
-
-  const handleProtectReady = useCallback((result: ProtectReadyResult) => {
-    const url = URL.createObjectURL(result.blob);
-    setSession((prev) => {
-      if (prev?.protectedBlobUrl) URL.revokeObjectURL(prev.protectedBlobUrl);
-      return prev
-        ? {
-            ...prev,
-            downloadReady: true,
-            tepCode: result.tepCode,
-            protectedBlobUrl: url,
-          }
-        : prev;
-    });
-    setTimeout(() => setStage('success'), 350);
-  }, []);
-
-  const handleProtectReadyError = useCallback(() => {
-    setSession((prev) => (prev ? { ...prev, downloadReady: !!prev.vault?.vaultId } : prev));
-    setTimeout(() => setStage('success'), 350);
-  }, []);
 
   const handleReset = () => {
     setSession((prev) => {
@@ -167,8 +147,7 @@ export default function App() {
   const isWorking =
     stage === 'processing'
     || stage === 'encrypting'
-    || stage === 'vaulting'
-    || stage === 'readying';
+    || stage === 'vaulting';
 
   return (
     <div className="min-h-screen flex flex-col bg-bg-base">
@@ -212,7 +191,7 @@ export default function App() {
               exit={{ opacity: 0 }}
             >
               <GenerationProgress
-                phase={stage as 'processing' | 'encrypting' | 'vaulting' | 'readying'}
+                phase={stage as 'processing' | 'encrypting' | 'vaulting'}
                 fileName={selectedFile?.name ?? session?.filename}
                 fileSizeBytes={selectedFile?.size ?? session?.fileSizeBytes}
                 mimeType={selectedFile?.type ?? session?.mimeType}
@@ -233,15 +212,6 @@ export default function App() {
                     campaignId={campaignId}
                     onComplete={handleVaultComplete}
                     onError={handleVaultError}
-                  />
-                </div>
-              )}
-              {stage === 'readying' && session?.vault?.vaultId && (
-                <div className="sr-only" aria-hidden>
-                  <ProtectReadyStep
-                    vaultId={session.vault.vaultId}
-                    onComplete={handleProtectReady}
-                    onError={handleProtectReadyError}
                   />
                 </div>
               )}

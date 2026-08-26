@@ -54,16 +54,27 @@ export interface VaultEmbedPipelineResult {
   detail: string;
 }
 
+export interface VaultEmbedPipelineOptions {
+  /** Invisible DCT/DWT watermark (slow). Default true. */
+  includeWatermark?: boolean;
+  /** Re-extract/verify after embed (slow). Default true. */
+  verify?: boolean;
+}
+
 export class IdentityEmbeddingPipeline {
   async process(
     buffer: Buffer,
     mimeType: string,
     fileName: string,
     context: VaultEmbedContext,
+    options: VaultEmbedPipelineOptions = {},
   ): Promise<VaultEmbedPipelineResult> {
     if (!isVaultIdentityPipelineEnabled()) {
       return this.legacyEmbed(buffer, mimeType, fileName, context);
     }
+
+    const includeWatermark = options.includeWatermark !== false;
+    const doVerify = options.verify !== false;
 
     const methods: string[] = [];
     const preEmbedSha256 = crypto.createHash('sha256').update(buffer).digest('hex');
@@ -93,17 +104,23 @@ export class IdentityEmbeddingPipeline {
 
     // ── 3. Invisible watermark ────────────────────────────────────────────────
     let working = buffer;
-    const wmResult = await vaultWatermarkEngine.embed(working, mimeType, fileName, {
-      vaultId: context.vaultId,
-      dnaRecordId: context.dnaRecordId,
-      certificateId: context.certificateId,
-      ownerUserId: context.ownerUserId,
-      identityToken,
-      recoveryToken,
-    });
-    if (wmResult.embedded) {
-      working = wmResult.buffer;
-      methods.push(wmResult.method);
+    let watermarkHash = '';
+    let watermarkEmbedded = false;
+    if (includeWatermark) {
+      const wmResult = await vaultWatermarkEngine.embed(working, mimeType, fileName, {
+        vaultId: context.vaultId,
+        dnaRecordId: context.dnaRecordId,
+        certificateId: context.certificateId,
+        ownerUserId: context.ownerUserId,
+        identityToken,
+        recoveryToken,
+      });
+      if (wmResult.embedded) {
+        working = wmResult.buffer;
+        methods.push(wmResult.method);
+        watermarkEmbedded = true;
+      }
+      watermarkHash = wmResult.watermarkHash;
     }
 
     // ── 4. Cryptographic owner signature ─────────────────────────────────────
@@ -134,7 +151,7 @@ export class IdentityEmbeddingPipeline {
       methods: [...methods],
       identityTokenHash,
       recoveryTokenHash: recoveryTokenHash(recoveryToken),
-      watermarkHash: wmResult.watermarkHash,
+      watermarkHash,
       signatureHash,
     });
 
@@ -158,17 +175,18 @@ export class IdentityEmbeddingPipeline {
     methods.push('integrity-manifest');
     const manifestEmbedded = true;
 
-    // ── 6. Verify embeddings ──────────────────────────────────────────────────
-    const verify = await identityEmbeddingService.extractAndVerify(working, mimeType, fileName);
-    const manifestOk = extractManifest(working) !== null;
-    const verified = (verify.found && verify.valid) || manifestOk;
-
-    if (!verified) {
-      logger.warn('[VaultPipeline] Post-embed verification weak', {
-        vaultId: context.vaultId,
-        identityFound: verify.found,
-        manifestOk,
-      });
+    // ── 6. Verify embeddings (optional — expensive on large images) ───────────
+    let verified = extractManifest(working) !== null;
+    if (doVerify) {
+      const verify = await identityEmbeddingService.extractAndVerify(working, mimeType, fileName);
+      verified = (verify.found && verify.valid) || verified;
+      if (!verified) {
+        logger.warn('[VaultPipeline] Post-embed verification weak', {
+          vaultId: context.vaultId,
+          identityFound: verify.found,
+          manifestOk: extractManifest(working) !== null,
+        });
+      }
     }
 
     logger.info('[VaultPipeline] Identity embedding complete', {
@@ -176,26 +194,27 @@ export class IdentityEmbeddingPipeline {
       dnaRecordId: context.dnaRecordId,
       methods,
       verified,
-      watermarkEmbedded: wmResult.embedded,
+      watermarkEmbedded,
       signatureEmbedded,
+      fastPath: !includeWatermark || !doVerify,
     });
 
     return {
       buffer: working,
-      success: signatureEmbedded || wmResult.embedded || manifestEmbedded,
+      success: signatureEmbedded || watermarkEmbedded || manifestEmbedded,
       methods,
       identityTokenIssued,
       recoveryTokenIssued: true,
-      watermarkEmbedded: wmResult.embedded,
+      watermarkEmbedded,
       signatureEmbedded,
       manifestEmbedded,
       verified,
-      watermarkHash: wmResult.watermarkHash,
+      watermarkHash,
       signatureHash,
       manifestHash: mHash,
       detail: verified
         ? 'Vault identity pipeline complete — watermark, signature, and manifest verified'
-        : 'Vault identity pipeline complete — partial verification (proceeding)',
+        : 'Vault identity pipeline complete — fast path (signature + manifest)',
     };
   }
 

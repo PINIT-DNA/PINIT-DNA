@@ -138,6 +138,9 @@ export class VaultService {
           ownerUserId: dnaRecord.ownerUserId ?? ownerUserId,
           certificateId,
         },
+        // Protect UX: signature + manifest are enough to seal the vault file.
+        // Heavy invisible watermark + re-verify run on protected download / share.
+        { includeWatermark: false, verify: false },
       );
 
       if (pipelineResult.success) {
