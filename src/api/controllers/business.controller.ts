@@ -57,6 +57,50 @@ export const businessController = {
     } catch (err) { next(err); }
   },
 
+  /**
+   * Can this vault file be shared for review?
+   *
+   * The share dialog asks before offering review controls, so a sender is never
+   * shown options that would be refused at creation time. Returns only what the
+   * dialog needs to explain itself — no internal ids beyond the campaign the
+   * user already has access to.
+   */
+  async getShareReviewEligibility(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { prisma } = await import('../../lib/prisma');
+      const asset = await prisma.asset.findFirst({
+        where: { vaultId: req.params.vaultId as string, ownerUserId: userId },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true, originalFilename: true, campaignId: true,
+          campaign: { select: { id: true, name: true, organizationId: true,
+                                client: { select: { name: true } } } },
+        },
+      });
+
+      if (!asset) {
+        res.json({ success: true, eligible: false,
+          reason: 'This file has no asset record yet.' });
+        return;
+      }
+      if (!asset.campaign || asset.campaign.organizationId !== organizationId) {
+        res.json({ success: true, eligible: false,
+          reason: 'Review is available for assets in a campaign. Add this asset to a campaign first.' });
+        return;
+      }
+
+      const versions = await prisma.assetVersion.count({ where: { assetId: asset.id } });
+      res.json({
+        success: true,
+        eligible: true,
+        campaignName: asset.campaign.name,
+        clientName: asset.campaign.client?.name ?? null,
+        versionCount: versions,
+      });
+    } catch (err) { next(err); }
+  },
+
   // ── Version approvals ─────────────────────────────────────────────────
   async decideVersion(req: Request, res: Response, next: NextFunction) {
     try {

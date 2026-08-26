@@ -44,3 +44,6 @@ businessRouter.get('/campaigns/:campaignId/change-requests', requireAuth, busine
 businessRouter.post('/versions/:versionId/decision', requireAuth, businessController.decideVersion);
 businessRouter.get('/versions/:versionId/approvals', requireAuth, businessController.listVersionApprovals);
 businessRouter.get('/campaigns/:campaignId/approvals', requireAuth, businessController.listCampaignApprovals);
+
+// ── Share dialog: may this file be shared for review? ───────────────────────
+businessRouter.get('/share-eligibility/:vaultId', requireAuth, businessController.getShareReviewEligibility);

@@ -41,12 +41,15 @@ export interface ReviewThreadsProps {
   /** Copy differs slightly for the client. */
   audience?: 'team' | 'client';
   emptyHint?: string;
+  /** False hides the "Needs a change" control — offering a permission the
+   *  sender switched off is misleading, even though the server refuses it. */
+  allowChangeRequest?: boolean;
 }
 
 export function ReviewThreads({
   comments, counts, loading, error, onRetry,
   onSubmit, onSetStatus, pendingAnchor, onClearAnchor,
-  audience = 'team', emptyHint,
+  audience = 'team', emptyHint, allowChangeRequest = true,
 }: ReviewThreadsProps) {
   const [filter, setFilter] = useState<Filter>('all');
   const [body, setBody] = useState('');
@@ -204,7 +207,7 @@ export function ReviewThreads({
           )}
 
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            {!replyTo ? (
+            {!replyTo && allowChangeRequest ? (
               <label className="inline-flex items-center gap-2 text-2xs text-gray-400 cursor-pointer select-none">
                 <input
                   type="checkbox"

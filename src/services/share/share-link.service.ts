@@ -11,6 +11,7 @@ import axios    from 'axios';
 import { prisma } from '../../lib/prisma';
 import { logger }  from '../../lib/logger';
 import { assertRecordOwner } from '../../lib/tenant-scope';
+import { AppError } from '../../api/middleware/error.middleware';
 import { riskEngineService, serializeRiskEvidence } from './risk-engine.service';
 import { sanitizeCoordinatePair } from '../../lib/geo-coords';
 import { getIpIntelligence } from '../forensic/ip-intelligence.service';
@@ -75,6 +76,7 @@ export interface CreateShareLinkInput {
   reviewMode?: boolean;
   allowComments?: boolean;
   allowChangeRequest?: boolean;
+  allowApproval?: boolean;
   reviewVersionId?: string | null;
   requireName?:  boolean;
   note?:         string;
@@ -316,6 +318,30 @@ export class ShareLinkService {
       });
     }
 
+    // Review mode needs the canonical Asset.id, because the client's scope is
+    // resolved through it: token -> assetId -> campaign -> organization. The
+    // share dialog creates links by vaultId, so resolve it here rather than
+    // relying on every caller to remember — a review link with a null assetId
+    // would look created but resolve to nothing.
+    let resolvedAssetId: string | null = input.assetId ?? null;
+    if (input.reviewMode && !resolvedAssetId) {
+      const asset = await prisma.asset.findFirst({
+        where: { vaultId: vault.id },
+        select: { id: true, campaignId: true },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (!asset) {
+        throw new AppError(400, 'Review needs an asset record for this file. Protect it into a campaign first.');
+      }
+      if (!asset.campaignId) {
+        throw new AppError(
+          400,
+          'Review is only available for assets in a campaign. Add this asset to a campaign, then share it again.',
+        );
+      }
+      resolvedAssetId = asset.id;
+    }
+
     const link = await prisma.shareLink.create({
       data: {
         token,
@@ -324,7 +350,7 @@ export class ShareLinkService {
         dnaRecordId:  vault.dnaRecordId,
         filename:     vault.originalFileName,
         mimeType:     vault.originalMimeType,
-        assetId:         input.assetId ?? null,
+        assetId:         resolvedAssetId,
         sourceContext:   input.sourceContext ?? 'hub',
         exchangeOrderId: input.exchangeOrderId ?? null,
         exchangeSealId:  input.exchangeSealId ?? null,
@@ -339,6 +365,9 @@ export class ShareLinkService {
         reviewMode:         input.reviewMode ?? false,
         allowComments:      Boolean(input.reviewMode && (input.allowComments ?? true)),
         allowChangeRequest: Boolean(input.reviewMode && (input.allowChangeRequest ?? true)),
+        // Approval is opt-in even inside review mode: it is a decision someone
+        // may be held to, not a discussion.
+        allowApproval:      Boolean(input.reviewMode && (input.allowApproval ?? false)),
         reviewVersionId:    input.reviewMode ? (input.reviewVersionId ?? null) : null,
         requireName:  input.requireName ?? false,
         note:         input.note ?? null,
@@ -1543,10 +1572,33 @@ export class ShareLinkService {
     if (!vault) throw new Error(`Vault record not found: ${vaultId}`);
     assertRecordOwner(vault.dnaRecord?.ownerUserId, ownerUserId, 'Vault');
 
+    // Explicit select rather than the whole row. The previous version returned
+    // all 75 columns to the browser, including otpCodeHash and tokenSignature —
+    // the OTP hash and the token's HMAC. The owner is entitled to their link,
+    // but not to have its verification secrets shipped into a page where any
+    // script or extension can read them.
     return prisma.shareLink.findMany({
       where:   { vaultId, ownerUserId, linkType: 'PARENT' },
       orderBy: { createdAt: 'desc' },
-      include: { accessLogs: { orderBy: { createdAt: 'desc' }, take: 10 } },
+      select: {
+        id: true, token: true, filename: true, mimeType: true, note: true,
+        createdAt: true, expiresAt: true, isActive: true,
+        maxViews: true, viewCount: true, maxDownloads: true, downloadCount: true,
+        allowDownload: true, requireName: true, requestLocation: true,
+        oneTimeUse: true, requireOtp: true, otpVerified: true,
+        privacyMaskingEnabled: true, watermarkCode: true,
+        forwardStatus: true, depth: true, linkType: true,
+        recipientLabel: true, recipientEmail: true,
+        reviewMode: true, allowComments: true, allowChangeRequest: true, allowApproval: true,
+        accessLogs: {
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: {
+            id: true, createdAt: true, action: true,
+            country: true, city: true, device: true, recipientName: true,
+          },
+        },
+      },
     });
   }
 

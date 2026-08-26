@@ -30,6 +30,10 @@ interface ShareManageState {
   requireName?: boolean;
   requestLocation?: boolean;
   privacyMaskingEnabled?: boolean;
+  reviewMode?: boolean;
+  allowComments?: boolean;
+  allowChangeRequest?: boolean;
+  allowApproval?: boolean;
   watermark?: boolean;
   tracking?: boolean;
   createdAt?: string;
@@ -54,6 +58,10 @@ interface VaultShareLink {
   requireName?: boolean;
   requestLocation?: boolean;
   privacyMaskingEnabled?: boolean;
+  reviewMode?: boolean;
+  allowComments?: boolean;
+  allowChangeRequest?: boolean;
+  allowApproval?: boolean;
 }
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
@@ -124,6 +132,12 @@ export function VaultShareManagePage() {
   const expiresAt = link?.expiresAt ?? navState.expiresAt ?? null;
   const maxViews = link?.maxViews ?? (navState.maxViews ? Number(navState.maxViews) : null);
   const allowDownload = link?.allowDownload ?? navState.allowDownload ?? false;
+
+  // Review permissions, preferring the server's copy over what we navigated with.
+  const reviewMode         = link?.reviewMode ?? navState.reviewMode ?? false;
+  const allowComments      = link?.allowComments ?? navState.allowComments ?? false;
+  const allowChangeRequest = link?.allowChangeRequest ?? navState.allowChangeRequest ?? false;
+  const allowApproval      = link?.allowApproval ?? navState.allowApproval ?? false;
   const filename = link?.filename ?? navState.filename ?? record?.originalFileName ?? 'Protected file';
   const isActive = link?.isActive ?? true;
 
@@ -282,6 +296,36 @@ export function VaultShareManagePage() {
             {(navState.privacyMaskingEnabled ?? link?.privacyMaskingEnabled) && (
               <DetailRow label="Sensitive masking" value="Enabled" />
             )}
+            <DetailRow label="Review" value={reviewMode ? 'Enabled' : 'View only'} />
+            {reviewMode && (
+              <>
+                <DetailRow label="Comments" value={allowComments ? 'Allowed' : 'Blocked'} />
+                <DetailRow label="Change requests" value={allowChangeRequest ? 'Allowed' : 'Blocked'} />
+                <DetailRow
+                  label="Approval"
+                  value={allowApproval ? 'Allowed — decision is recorded' : 'Not allowed'}
+                />
+              </>
+            )}
+          </div>
+
+          {/* Say plainly what the recipient can do, so the sender can check it
+              against what they intended before passing the link on. */}
+          <div className={`rounded-xl border px-3 py-2.5 ${
+            reviewMode ? 'border-dna-500/30 bg-dna-500/5' : 'border-bg-border bg-bg-elevated/50'
+          }`}>
+            <p className="text-2xs text-gray-400">
+              This recipient can{' '}
+              <span className="text-gray-200 font-medium">
+                {[
+                  'open the file',
+                  allowDownload && 'download it',
+                  reviewMode && allowComments && 'comment',
+                  reviewMode && allowChangeRequest && 'request changes',
+                  reviewMode && allowApproval && 'approve the current version',
+                ].filter(Boolean).join(', ')}
+              </span>.
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-2 pt-1">

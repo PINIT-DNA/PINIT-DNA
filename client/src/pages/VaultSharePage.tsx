@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { ReviewShareControls } from '../components/share/ReviewShareControls';
+import type { ReviewPermissions, ReviewEligibility } from '../components/share/ReviewShareControls';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -94,6 +96,13 @@ export function VaultSharePage() {
   const [note, setNote] = useState('');
   const [creating, setCreating] = useState(false);
 
+  // Review permissions. Off by default so an ordinary share is unchanged.
+  const [review, setReview] = useState<ReviewPermissions>({
+    reviewMode: false, allowComments: false, allowChangeRequest: false, allowApproval: false,
+  });
+  const [eligibility, setEligibility] = useState<ReviewEligibility | null>(null);
+  const [eligibilityLoading, setEligibilityLoading] = useState(true);
+
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [oneTimeUse, setOneTimeUse] = useState(false);
   const [maxDownloads, setMaxDownloads] = useState('');
@@ -174,6 +183,36 @@ export function VaultSharePage() {
     if (record?.id) void fetchLinks(record.id);
   }, [record?.id]);
 
+  // Ask whether this file can be reviewed before offering the controls, so the
+  // sender is never shown an option that creation would refuse.
+  useEffect(() => {
+    if (!record?.id) return;
+    let cancelled = false;
+    setEligibilityLoading(true);
+    api.get<{ eligible?: boolean; reason?: string; campaignName?: string | null;
+              clientName?: string | null; versionCount?: number }>(
+      `${API_BASE_URL}/business/share-eligibility/${record.id}`)
+      .then(({ data }) => {
+        if (cancelled) return;
+        setEligibility({
+          eligible: Boolean(data?.eligible),
+          reason: data?.reason,
+          campaignName: data?.campaignName ?? null,
+          clientName: data?.clientName ?? null,
+          versionCount: data?.versionCount ?? 0,
+        });
+      })
+      // A business account is not required to share a file, so a failure here
+      // means "no review", never an error over the whole page.
+      .catch(() => {
+        if (!cancelled) {
+          setEligibility({ eligible: false, reason: 'Review is available for assets in a campaign.' });
+        }
+      })
+      .then(() => { if (!cancelled) setEligibilityLoading(false); });
+    return () => { cancelled = true; };
+  }, [record?.id]);
+
   const handleCreate = async () => {
     if (!record) return;
     setCreating(true);
@@ -202,6 +241,10 @@ export function VaultSharePage() {
         vpnBlock,
         torBlock,
         oneDeviceOnly,
+        reviewMode:         review.reviewMode,
+        allowComments:      review.allowComments,
+        allowChangeRequest: review.allowChangeRequest,
+        allowApproval:      review.allowApproval,
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const d = data as any;
@@ -222,6 +265,10 @@ export function VaultSharePage() {
           requireName,
           requestLocation,
           privacyMaskingEnabled,
+          reviewMode:         review.reviewMode,
+          allowComments:      review.allowComments,
+          allowChangeRequest: review.allowChangeRequest,
+          allowApproval:      review.allowApproval,
           watermark: true,
           tracking: true,
           createdAt: new Date().toISOString(),
@@ -460,6 +507,13 @@ export function VaultSharePage() {
             </button>
           </div>
 
+          <ReviewShareControls
+            value={review}
+            onChange={setReview}
+            eligibility={eligibility}
+            loading={eligibilityLoading}
+          />
+
           <div className="border border-bg-border rounded-xl overflow-hidden">
             <button
               type="button"
@@ -582,7 +636,7 @@ export function VaultSharePage() {
           >
             {creating
               ? <><RefreshCw size={14} className="animate-spin" /> Creating secure link…</>
-              : <><Share2 size={14} /> Create Secure Link</>}
+              : <><Share2 size={14} /> {review.reviewMode ? 'Create Secure Review Link' : 'Create Secure Link'}</>}
           </button>
         </section>
 

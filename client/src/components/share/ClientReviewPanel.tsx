@@ -225,9 +225,10 @@ function ClientThreads({
         loading={loading}
         error={error}
         onRetry={onRetry}
+        allowChangeRequest={allowChangeRequest}
         onSubmit={allowChangeRequest ? onSubmit : (async (input) => {
-          // Change requests are off for this link — force plain comments even if
-          // the control were somehow toggled.
+          // Belt and braces: the control is hidden above, and the server refuses
+          // it anyway, but a forged request still lands as a plain comment.
           await onSubmit?.({ ...input, kind: 'COMMENT' });
         })}
         audience="client"
