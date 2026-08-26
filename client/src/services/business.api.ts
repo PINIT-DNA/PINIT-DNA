@@ -766,3 +766,66 @@ export async function decideFinding(
 ): Promise<void> {
   await api.patch(`${BASE}/findings/${findingId}`, { status, note });
 }
+
+// ── Campaign intelligence (Phase C, layer 3) ─────────────────────────────────
+// Aggregates real rows from every earlier layer. No new storage.
+
+export interface CampaignIntelligence {
+  campaign: {
+    id: string; name: string; status: string; clientName: string | null;
+    startDate: string | null; endDate: string | null;
+  };
+  protection: { assets: number; withDna: number; withVault: number; withCertificate: number };
+  review: {
+    versions: number; approved: number; inReview: number; changesRequested: number;
+    draft: number; superseded: number; openChangeRequests: number; totalComments: number;
+  };
+  client: {
+    name: string | null; approvalsGiven: number; changesRequested: number;
+    commentsWritten: number; messagesSent: number; unreadFromClient: number;
+    lastHeardFrom: string | null;
+  };
+  creators: {
+    total: number; withAccess: number; revoked: number; neverGranted: number;
+    assetsShared: number;
+    people: Array<{ name: string; accessStatus: string; assetCount: number; lastAccessAt: string | null }>;
+  };
+  monitoring: {
+    capability: {
+      crawlerEnabled: boolean; anyProviderOperational: boolean;
+      summary: string; lastMatchAt: string | null;
+    };
+    monitored: number; monitorable: number; lastScanAt: string | null; totalScans: number;
+  };
+  findings: {
+    total: number; needsReview: number; confirmed: number; dismissed: number; highPriority: number;
+  };
+  investigations: {
+    total: number; open: number; resolved: number; evidenceItems: number;
+    recent: Array<{
+      code: string; severity: string; status: string; trigger: string;
+      openedAt: string; resolvedAt: string | null; evidenceCount: number;
+    }>;
+  };
+  handover: {
+    total: number; completed: number; awaitingClient: number; draft: number; revoked: number;
+    assetsDelivered: number;
+    latest: { status: string; recipientLabel: string; sentAt: string | null; openedAt: string | null } | null;
+  };
+  sharing: { links: number; active: number; reviewLinks: number; totalViews: number };
+  assets: Array<{
+    id: string; filename: string; assetType: string; protectedAt: string;
+    protection: { dna: boolean; vault: boolean; certificate: boolean };
+    version: { number: number; status: string } | null;
+    versionCount: number; creatorsWithAccess: number; monitored: boolean;
+    findings: number; findingsNeedingReview: number; handedOver: boolean;
+  }>;
+  recentActivity: Array<{ id: string; action: string; title: string; at: string }>;
+}
+
+export async function getCampaignIntelligence(campaignId: string): Promise<CampaignIntelligence> {
+  const { data } = await api.get<{ success: boolean; intelligence: CampaignIntelligence }>(
+    `${BASE}/campaigns/${campaignId}/intelligence`,
+  );
+  return data.intelligence;
+}

@@ -18,7 +18,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { Badge } from '../../components/ui/Badge';
 import {
   BusinessPage, Breadcrumbs, SectionCard, StatTile, SkeletonRows, SkeletonTiles,
-  TabBar, ComingSoonPanel, PageError, EmptyHint,
+  TabBar, PageError, EmptyHint,
 } from '../../components/business/clients/BusinessKit';
 import { VersionsPanel, ApprovalsPanel, MessagesPanel } from '../../components/business/review/CampaignReviewPanels';
 import { PeoplePanel } from '../../components/business/review/PeoplePanel';
@@ -26,6 +26,7 @@ import { RightsPanel } from '../../components/business/review/RightsPanel';
 import { HandoverPanel } from '../../components/business/review/HandoverPanel';
 import { MonitoringPanel } from '../../components/business/review/MonitoringPanel';
 import { FindingsPanel } from '../../components/business/review/FindingsPanel';
+import { IntelligencePanel } from '../../components/business/review/IntelligencePanel';
 import { listCampaignChangeRequests, listCampaignMessages } from '../../services/business.api';
 import { CampaignFormModal } from '../../components/business/clients/CampaignFormModal';
 import { AddCampaignPersonModal } from '../../components/business/clients/AddCampaignPersonModal';
@@ -129,7 +130,7 @@ export function CampaignWorkspacePage() {
     { id: 'findings' as const, label: 'Findings', icon: Search },
     { id: 'sharing' as const, label: 'Sharing', icon: Share2 },
     { id: 'activity' as const, label: 'Activity', icon: Activity },
-    { id: 'intelligence' as const, label: 'Intelligence', icon: Sparkles, soon: true },
+    { id: 'intelligence' as const, label: 'Intelligence', icon: Sparkles },
   ];
 
   return (
@@ -366,12 +367,7 @@ export function CampaignWorkspacePage() {
       )}
 
       {tab === 'intelligence' && (
-        <SectionCard title="Intelligence" icon={Sparkles}>
-          <ComingSoonPanel
-            title="Campaign intelligence"
-            detail="Where this campaign's work appears, which creators contributed, and what needs verification. Arrives once monitoring is campaign-aware."
-          />
-        </SectionCard>
+        <IntelligencePanel campaignId={campaignId} />
       )}
 
       {campaign && (

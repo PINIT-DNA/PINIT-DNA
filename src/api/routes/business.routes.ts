@@ -85,3 +85,6 @@ businessRouter.delete('/campaigns/:campaignId/monitoring/:assetId', requireAuth,
 businessRouter.get('/campaigns/:campaignId/findings', requireAuth, businessController.listCampaignFindings);
 businessRouter.get('/findings/:findingId', requireAuth, businessController.getCampaignFinding);
 businessRouter.patch('/findings/:findingId', requireAuth, businessController.decideCampaignFinding);
+
+// ── Campaign intelligence — aggregates real rows only, no new storage ───────
+businessRouter.get('/campaigns/:campaignId/intelligence', requireAuth, businessController.getCampaignIntelligence);

@@ -101,6 +101,18 @@ export const businessController = {
     } catch (err) { next(err); }
   },
 
+  // ── Campaign intelligence (Phase C, layer 3) ──────────────────────────
+  async getCampaignIntelligence(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignIntelligenceService } =
+        await import('../../services/organization/campaign-intelligence.service');
+      const intelligence = await campaignIntelligenceService.getForCampaign(
+        organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, intelligence });
+    } catch (err) { next(err); }
+  },
+
   // ── Findings (Phase C, layer 2) ───────────────────────────────────────
   async listCampaignFindings(req: Request, res: Response, next: NextFunction) {
     try {
