@@ -187,6 +187,52 @@ export default function App() {
     }
   };
 
+  const waitForExchangeApi = async ({ attempts = 12, delayMs = 500 } = {}) => {
+    for (let i = 0; i < attempts; i += 1) {
+      try {
+        const res = await fetch('/api/health', { cache: 'no-store' });
+        if (res.ok) return true;
+      } catch {
+        /* API still restarting */
+      }
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+    return false;
+  };
+
+  const postHubSsoWithRetry = async (token, intent) => {
+    let last = { ok: false, status: 0, data: null };
+    for (let i = 0; i < 5; i += 1) {
+      try {
+        const res = await fetch('/api/auth/hub-sso', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, intent }),
+        });
+        let data = null;
+        try {
+          data = await res.json();
+        } catch {
+          data = null;
+        }
+        last = { ok: res.ok, status: res.status, data };
+        if (res.ok) return last;
+        // Retry only when Exchange was briefly down / restarting.
+        const retryable =
+          res.status === 0 ||
+          res.status === 502 ||
+          res.status === 503 ||
+          res.status === 504 ||
+          (res.status === 500 && !data);
+        if (!retryable) return last;
+      } catch {
+        last = { ok: false, status: 0, data: null };
+      }
+      await new Promise((r) => setTimeout(r, 600 + i * 250));
+    }
+    return last;
+  };
+
   const handleHubHandoff = async () => {
     try {
       const params = new URLSearchParams(window.location.search);
@@ -209,40 +255,37 @@ export default function App() {
             : storedIntent === 'creator'
               ? 'creator'
               : 'buyer';
-        const res = await fetch('/api/auth/hub-sso', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: hubSso, intent }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.user) {
-            setUser(data.user);
-            // Keep the signed token — it is what proves this browser's
-            // identity on every later request.
-            saveSession(data.user, data.session_token);
-            setAuthOpen(false);
-            setRoleNotice('');
-            navigate(homePageForUser(data.user), { replace: true });
-            try {
-              sessionStorage.removeItem(INTENT_KEY);
-            } catch {
-              /* ignore */
-            }
-          } else {
-            setRoleNotice('Hub signed in, but Exchange did not receive a user profile.');
-            openAuth({ mode: 'login', intent });
-          }
-        } else {
-          let msg = 'Could not sign in with Hub.';
+
+        // Hub biometrics can finish while Exchange is mid-restart (node --watch).
+        // Wait for health, then retry SSO so "Database succeed" is not wasted.
+        const apiUp = await waitForExchangeApi();
+        const result = apiUp
+          ? await postHubSsoWithRetry(hubSso, intent)
+          : { ok: false, status: 0, data: null };
+
+        if (result.ok && result.data?.user) {
+          setUser(result.data.user);
+          // Keep the signed token — it is what proves this browser's
+          // identity on every later request.
+          saveSession(result.data.user, result.data.session_token);
+          setAuthOpen(false);
+          setRoleNotice('');
+          navigate(homePageForUser(result.data.user), { replace: true });
           try {
-            const data = await res.json();
-            msg = data.message || data.error || msg;
+            sessionStorage.removeItem(INTENT_KEY);
           } catch {
-            if (res.status === 502 || res.status === 503 || res.status === 504) {
-              msg = 'Exchange API is offline. Start the Exchange server, then try again.';
-            }
+            /* ignore */
           }
+        } else if (result.ok) {
+          setRoleNotice('Hub signed in, but Exchange did not receive a user profile.');
+          openAuth({ mode: 'login', intent });
+        } else {
+          const msg =
+            result.data?.message ||
+            result.data?.error ||
+            (result.status === 0 || result.status >= 500
+              ? 'Exchange API was restarting. Wait a few seconds, then tap Continue with Hub again.'
+              : 'Could not sign in with Hub.');
           setRoleNotice(msg);
           openAuth({ mode: 'login', intent });
         }
