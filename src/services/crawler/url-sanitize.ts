@@ -15,6 +15,47 @@ const BLOCKED_PATH_PATTERNS = [
   /\/assets\/.*\.(svg|ico)(\?|$)/i,
 ];
 
+/**
+ * Hosts whose pages are search results, never a place an asset lives.
+ *
+ * Kept separate from BLOCKED_HOST_PATTERNS because the question is different:
+ * that list asks "is this URL useless as an image", this asks "is this URL a
+ * search results page". A search page recorded as an external asset candidate
+ * means the system compares your work against the search engine's own page
+ * furniture — which is exactly what produced 1,532 stored candidates at 0.000
+ * similarity and not a single match in 3,992 runs.
+ */
+const SEARCH_RESULT_HOST_PATTERNS = [
+  /(^|\.)duckduckgo\.com$/i,
+  /(^|\.)google\.[a-z.]+$/i,
+  /(^|\.)bing\.com$/i,
+  /(^|\.)yandex\.[a-z.]+$/i,
+  /(^|\.)search\.brave\.com$/i,
+  /(^|\.)ecosia\.org$/i,
+  /(^|\.)startpage\.com$/i,
+  /(^|\.)baidu\.com$/i,
+];
+
+/**
+ * True when this URL is a search results page rather than somewhere an asset
+ * is published. Such a URL must never be recorded as a discovery candidate,
+ * as either the image or the page it was found on.
+ */
+export function isSearchResultPageUrl(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  try {
+    const trimmed = raw.trim();
+    const url = new URL(trimmed.startsWith('//') ? `https:${trimmed}` : trimmed);
+    const host = url.hostname.toLowerCase();
+    if (SEARCH_RESULT_HOST_PATTERNS.some((re) => re.test(host))) return true;
+    // A bare ?q= / ?query= on any host is a search page in all but name.
+    const params = url.searchParams;
+    return (params.has('q') || params.has('query')) && /search|\/html\/?$/i.test(url.pathname + host);
+  } catch {
+    return false;
+  }
+}
+
 export function isBlockedCrawlerUrl(raw: string | null | undefined): boolean {
   if (!raw) return true;
   const trimmed = raw.trim();

@@ -29,60 +29,154 @@ import { FilenameSearchProvider } from '../crawler/providers/filename-search.pro
  * search is unavailable" and "nothing works at all" are different situations
  * and the second is not true here.
  */
+/**
+ * Provider health.
+ *
+ * "Configured" and "working" are different questions and conflating them is how
+ * a dead provider gets reported as available. NOT_CONFIGURED means it lacks its
+ * credentials. OPERATIONAL means it has produced a real match. DEGRADED means it
+ * runs but has produced nothing usable — which is the honest description of a
+ * provider that has returned zero matches across thousands of runs.
+ */
+export type ProviderHealth = 'OPERATIONAL' | 'DEGRADED' | 'NOT_CONFIGURED' | 'UNKNOWN';
+
+export interface ProviderStatus {
+  id: string;
+  label: string;
+  /** Has its credentials / prerequisites. */
+  configured: boolean;
+  /** Whether it actually works, judged on evidence rather than config. */
+  health: ProviderHealth;
+  /** Plain-language health, so the UI does not have to compose one. */
+  healthReason: string;
+  /** What it can find, so the gap is understandable rather than just "off". */
+  finds: string;
+  /** What would make it work, when it does not. */
+  requires: string | null;
+}
+
 export interface DiscoveryCapability {
   /** False when the background crawler is switched off for this environment. */
   crawlerEnabled: boolean;
-  /** True only when at least one provider can actually search. */
+  /** True only when at least one provider has its credentials. */
   anyProviderConfigured: boolean;
+  /** True only when a provider has actually produced a match. */
+  anyProviderOperational: boolean;
   /** True when image-content search is possible — the meaningful kind. */
   reverseImageAvailable: boolean;
-  providers: Array<{
-    id: string;
-    label: string;
-    configured: boolean;
-    /** What it can find, so the gap is understandable rather than just "off". */
-    finds: string;
-    /** What would make it work, when it does not. */
-    requires: string | null;
-  }>;
+  providers: ProviderStatus[];
+  /** When any provider last returned a candidate to compare. Null if never. */
+  lastCandidateAt: string | null;
+  /** When comparison last produced a real match. Null if never. */
+  lastMatchAt: string | null;
+  /** Evidence behind the health verdicts. */
+  evidence: { totalRuns: number; runsWithCandidates: number; totalMatches: number };
   /** One sentence the UI can show without composing its own. */
   summary: string;
 }
 
-export function getDiscoveryCapability(): DiscoveryCapability {
+/**
+ * What discovery can actually do, judged on evidence rather than configuration.
+ *
+ * Reads real run history: whether candidates have ever been returned, and
+ * whether comparison has ever produced a match. A provider that is configured
+ * and runs but has never produced a match is DEGRADED, not available — calling
+ * it available is how someone comes to believe their work is being watched.
+ */
+export async function getDiscoveryCapability(): Promise<DiscoveryCapability> {
   const bing = new BingVisualSearchProvider();
   const filename = new FilenameSearchProvider();
 
   const reverseImageAvailable = bing.isConfigured();
   const crawlerEnabled = isMonitoringCrawlerEnabled();
 
-  const providers = [
+  const [totalRuns, runsWithCandidates, totalMatches, lastCandidateRun, lastMatchRun] =
+    await Promise.all([
+      prisma.monitoringRun.count(),
+      prisma.monitoringRun.count({ where: { candidatesFound: { gt: 0 } } }),
+      prisma.monitoringRun.count({ where: { matchesFound: { gt: 0 } } }),
+      prisma.monitoringRun.findFirst({
+        where: { candidatesFound: { gt: 0 } },
+        orderBy: { startedAt: 'desc' }, select: { startedAt: true },
+      }),
+      prisma.monitoringRun.findFirst({
+        where: { matchesFound: { gt: 0 } },
+        orderBy: { startedAt: 'desc' }, select: { startedAt: true },
+      }),
+    ]);
+
+  /**
+   * A provider has produced nothing usable if scanning has run a meaningful
+   * number of times and never yielded a match. Below that threshold the honest
+   * answer is UNKNOWN — too early to judge, not "fine".
+   */
+  const ENOUGH_RUNS_TO_JUDGE = 25;
+  const judge = (configured: boolean): { health: ProviderHealth; reason: string } => {
+    if (!configured) {
+      return { health: 'NOT_CONFIGURED', reason: 'Missing its credentials, so it never runs.' };
+    }
+    if (totalRuns < ENOUGH_RUNS_TO_JUDGE) {
+      return { health: 'UNKNOWN', reason: 'Too few scans so far to say whether it works.' };
+    }
+    if (totalMatches > 0) {
+      return { health: 'OPERATIONAL', reason: 'Has produced real matches.' };
+    }
+    return {
+      health: 'DEGRADED',
+      reason: `Runs, but has produced no usable discoveries in ${totalRuns.toLocaleString()} scans.`,
+    };
+  };
+
+  const bingJudged = judge(reverseImageAvailable);
+  const filenameJudged = judge(filename.isConfigured());
+
+  const providers: ProviderStatus[] = [
     {
       id: 'bing-visual',
       label: 'Reverse image search',
       configured: reverseImageAvailable,
+      health: bingJudged.health,
+      healthReason: bingJudged.reason,
       finds: 'Copies and edits of the image itself, anywhere it has been published.',
-      requires: reverseImageAvailable ? null : 'A Bing Visual Search API key (BING_SEARCH_API_KEY).',
+      requires: reverseImageAvailable
+        ? null
+        : 'An image-search provider key. Note the Bing Search API this was built '
+          + 'against was retired, so a replacement provider is likely needed.',
     },
     {
       id: 'filename',
       label: 'Filename search',
       configured: filename.isConfigured(),
-      finds: 'Pages that reference the file by name. Weak — it cannot see the image.',
+      health: filenameJudged.health,
+      healthReason: filenameJudged.reason,
+      finds: 'Pages that reference the file by name. It cannot see the image itself.',
       requires: null,
     },
   ];
 
   const anyProviderConfigured = providers.some((p) => p.configured);
+  const anyProviderOperational = providers.some((p) => p.health === 'OPERATIONAL');
 
   const summary = !crawlerEnabled
     ? 'Background scanning is turned off in this environment, so no new findings will appear.'
-    : !reverseImageAvailable
-      ? 'Reverse image search is not configured, so copies of the image itself cannot be found. '
-        + 'Only filename references will be discovered.'
-      : 'Monitoring is active and searching for copies of your work.';
+    : !anyProviderOperational
+      ? 'No discovery provider is currently producing usable results, so copies of your work '
+        + 'will not be found. Connecting a reverse-image provider is what changes this.'
+      : !reverseImageAvailable
+        ? 'Reverse image search is not connected, so copies of the image itself cannot be found.'
+        : 'Monitoring is active and searching for copies of your work.';
 
-  return { crawlerEnabled, anyProviderConfigured, reverseImageAvailable, providers, summary };
+  return {
+    crawlerEnabled,
+    anyProviderConfigured,
+    anyProviderOperational,
+    reverseImageAvailable,
+    providers,
+    lastCandidateAt: lastCandidateRun?.startedAt.toISOString() ?? null,
+    lastMatchAt: lastMatchRun?.startedAt.toISOString() ?? null,
+    evidence: { totalRuns, runsWithCandidates, totalMatches },
+    summary,
+  };
 }
 
 /** Load a campaign and prove it belongs to this organization. */
@@ -121,7 +215,7 @@ export const campaignMonitoringService = {
     if (assets.length === 0) {
       return {
         campaignName: campaign.name,
-        capability: getDiscoveryCapability(),
+        capability: await getDiscoveryCapability(),
         assets: [],
         totals: { monitored: 0, findings: 0, needsReview: 0, confirmed: 0 },
       };
@@ -224,7 +318,7 @@ export const campaignMonitoringService = {
 
     return {
       campaignName: campaign.name,
-      capability: getDiscoveryCapability(),
+      capability: await getDiscoveryCapability(),
       assets: shaped,
       totals: {
         monitored: shaped.filter((a) => a.monitoring?.enabled).length,
@@ -283,7 +377,7 @@ export const campaignMonitoringService = {
       detail: { assetId, monitorRecordId },
     });
 
-    return { monitorRecordId, capability: getDiscoveryCapability() };
+    return { monitorRecordId, capability: await getDiscoveryCapability() };
   },
 
   /**

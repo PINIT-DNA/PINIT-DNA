@@ -639,13 +639,27 @@ export async function revokeHandover(campaignId: string, handoverId: string): Pr
 // Scopes the existing monitor engine to a campaign. No second crawler or
 // finding store — MonitorRecord, MonitoringRun and AssetDiscovery already exist.
 
+export type ProviderHealth = 'OPERATIONAL' | 'DEGRADED' | 'NOT_CONFIGURED' | 'UNKNOWN';
+
+export interface ProviderStatus {
+  id: string;
+  label: string;
+  configured: boolean;
+  health: ProviderHealth;
+  healthReason: string;
+  finds: string;
+  requires: string | null;
+}
+
 export interface DiscoveryCapability {
   crawlerEnabled: boolean;
   anyProviderConfigured: boolean;
+  anyProviderOperational: boolean;
   reverseImageAvailable: boolean;
-  providers: Array<{
-    id: string; label: string; configured: boolean; finds: string; requires: string | null;
-  }>;
+  providers: ProviderStatus[];
+  lastCandidateAt: string | null;
+  lastMatchAt: string | null;
+  evidence: { totalRuns: number; runsWithCandidates: number; totalMatches: number };
   summary: string;
 }
 

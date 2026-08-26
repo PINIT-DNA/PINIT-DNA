@@ -15,6 +15,7 @@ import {
   decodeDdgRedirect,
   isBlockedCrawlerUrl,
   isDirectImageUrl,
+  isSearchResultPageUrl,
 } from '../url-sanitize';
 
 const IMAGE_URL_RE  = /https?:\/\/[^\s"'<>]+\.(jpg|jpeg|png|webp|gif)(\?[^\s"'<>]*)?/gi;
@@ -45,6 +46,11 @@ export class FilenameSearchProvider implements ImageSearchProvider {
 
     const add = (imageUrl: string, pageUrl: string) => {
       if (!imageUrl || isBlockedCrawlerUrl(imageUrl) || seen.has(imageUrl)) return;
+      // A candidate is only meaningful if it was found somewhere an asset can
+      // actually live. Previously only the image was checked, so images lifted
+      // from a results page were stored with the search URL as their source —
+      // recording the search engine itself as an external copy of the work.
+      if (isSearchResultPageUrl(pageUrl) || isSearchResultPageUrl(imageUrl)) return;
       seen.add(imageUrl);
       results.push({ imageUrl, pageUrl, source: 'FILENAME_SEARCH' });
     };
@@ -83,13 +89,13 @@ export class FilenameSearchProvider implements ImageSearchProvider {
           await new Promise((r) => setTimeout(r, 400));
         }
 
-        // Fallback: image URLs embedded in DDG HTML (filtered)
-        IMG_SRC_RE.lastIndex = 0;
+        // The previous fallback scraped every <img> out of the results page and
+        // recorded it against ddgUrl. Those are the search engine's own icons
+        // and thumbnails, not copies of the asset — which is how 1,532
+        // candidates at 0.000 similarity accumulated without one match in 3,992
+        // runs. Removed rather than filtered: there is no version of "images on
+        // a search results page" that constitutes a discovery.
         let m: RegExpExecArray | null;
-        while ((m = IMG_SRC_RE.exec(html)) !== null) {
-          const url = this.resolveUrl(m[1]);
-          if (url) add(url, ddgUrl);
-        }
 
         IMAGE_URL_RE.lastIndex = 0;
         while ((m = IMAGE_URL_RE.exec(html)) !== null) {

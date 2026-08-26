@@ -14,13 +14,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Radar, RadioTower, AlertTriangle, RefreshCw, Loader2, Power, PowerOff,
-  Clock, Search, Info, ShieldQuestion, CheckCircle2,
+  Clock, Search, Info, ShieldQuestion,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
   listCampaignMonitoring, enableMonitoring, disableMonitoring,
 } from '../../../services/business.api';
-import type { CampaignMonitoring, MonitoredAsset } from '../../../services/business.api';
+import type {
+  CampaignMonitoring, MonitoredAsset, ProviderStatus, ProviderHealth,
+} from '../../../services/business.api';
 import { SectionCard, SkeletonRows, StatTile } from '../clients/BusinessKit';
 import { timeAgo } from './ReviewPrimitives';
 
@@ -90,7 +92,9 @@ export function MonitoringPanel({
 
   if (!data) return null;
   const cap = data.capability;
-  const fullyWorking = cap.crawlerEnabled && cap.reverseImageAvailable;
+  // "Working" means a provider has actually produced a match — not that one is
+  // merely configured. Anything less says so plainly.
+  const fullyWorking = cap.crawlerEnabled && cap.anyProviderOperational;
 
   return (
     <div className="space-y-4">
@@ -105,31 +109,27 @@ export function MonitoringPanel({
           fullyWorking ? 'text-emerald-400' : 'text-amber-400')}>
           {fullyWorking
             ? <><RadioTower size={15} /> Monitoring is active</>
-            : <><ShieldQuestion size={15} /> Discovery is not fully configured</>}
+            : <><ShieldQuestion size={15} /> Discovery is not producing results</>}
         </p>
         <p className="text-xs text-gray-400 mt-1">{cap.summary}</p>
 
-        <ul className="mt-2.5 space-y-1.5">
-          {cap.providers.map((p) => (
-            <li key={p.id} className="flex items-start gap-2">
-              <span className={cn('mt-0.5 w-3.5 h-3.5 rounded-full border shrink-0 flex items-center justify-center',
-                p.configured
-                  ? 'bg-emerald-500/20 border-emerald-500/40'
-                  : 'bg-bg-elevated border-bg-border')}>
-                {p.configured && <CheckCircle2 size={9} className="text-emerald-400" />}
-              </span>
-              <span className="min-w-0">
-                <span className={cn('block text-2xs font-semibold',
-                  p.configured ? 'text-gray-300' : 'text-gray-500')}>
-                  {p.label} — {p.configured ? 'available' : 'not configured'}
-                </span>
-                <span className="block text-2xs text-gray-500">{p.finds}</span>
-                {p.requires && (
-                  <span className="block text-2xs text-amber-400/80 mt-0.5">Needs: {p.requires}</span>
-                )}
-              </span>
-            </li>
-          ))}
+        {/* Evidence, so the verdict above is checkable rather than asserted. */}
+        <dl className="mt-2.5 grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1">
+          <Fact label="Scans run" value={cap.evidence.totalRuns.toLocaleString()} />
+          <Fact
+            label="Last candidate found"
+            value={cap.lastCandidateAt ? timeAgo(cap.lastCandidateAt) : 'Never'}
+            muted={!cap.lastCandidateAt}
+          />
+          <Fact
+            label="Last confirmed match"
+            value={cap.lastMatchAt ? timeAgo(cap.lastMatchAt) : 'Never'}
+            muted={!cap.lastMatchAt}
+          />
+        </dl>
+
+        <ul className="mt-3 space-y-2">
+          {cap.providers.map((p) => <ProviderRow key={p.id} provider={p} />)}
         </ul>
       </div>
 
@@ -261,5 +261,44 @@ function AssetRow({
         </ul>
       )}
     </li>
+  );
+}
+
+/** Provider health, stated as a verdict with its reason. */
+const HEALTH: Record<ProviderHealth, { label: string; cls: string; dot: string }> = {
+  OPERATIONAL:    { label: 'Operational',    cls: 'text-emerald-400', dot: 'bg-emerald-400' },
+  DEGRADED:       { label: 'Degraded',       cls: 'text-amber-400',   dot: 'bg-amber-400' },
+  NOT_CONFIGURED: { label: 'Not configured', cls: 'text-gray-500',    dot: 'bg-gray-600' },
+  UNKNOWN:        { label: 'Unknown',        cls: 'text-gray-400',    dot: 'bg-gray-500' },
+};
+
+function ProviderRow({ provider: p }: { provider: ProviderStatus }) {
+  const h = HEALTH[p.health] ?? HEALTH.UNKNOWN;
+  return (
+    <li className="rounded-lg border border-bg-border bg-bg-elevated/40 px-2.5 py-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', h.dot)} />
+        <span className="text-2xs font-semibold text-gray-300">{p.label}</span>
+        <span className={cn('text-2xs font-semibold', h.cls)}>· {h.label}</span>
+        {p.configured && (
+          <span className="text-2xs text-gray-600">· configured</span>
+        )}
+      </div>
+      <p className="text-2xs text-gray-500 mt-0.5">{p.healthReason}</p>
+      <p className="text-2xs text-gray-600 mt-0.5">{p.finds}</p>
+      {p.requires && (
+        <p className="text-2xs text-amber-400/80 mt-1">Needs: {p.requires}</p>
+      )}
+    </li>
+  );
+}
+
+function Fact({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-2xs text-gray-600">{label}</dt>
+      <dd className={cn('text-2xs font-medium truncate',
+        muted ? 'text-gray-500' : 'text-gray-300')}>{value}</dd>
+    </div>
   );
 }
