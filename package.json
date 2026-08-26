@@ -21,6 +21,7 @@
     "db:baseline": "node scripts/baseline-migrations.cjs",
     "db:ensure-provenance": "node scripts/ensure-provenance-table.cjs",
     "db:ensure-platform-events": "node scripts/ensure-platform-events.cjs",
+    "db:audit": "node scripts/db-audit.cjs",
     "db:snapshot": "node scripts/db-snapshot.cjs",
     "db:push": "node scripts/normalize-db-env.cjs && prisma db push",
     "build:start": "npm run build:all && npm run start:prod",

@@ -188,6 +188,66 @@ signal — those only ever grow in normal operation.
 
 ---
 
+---
+
+## Verifying the database before a deploy
+
+`npm run db:audit` runs a read-only audit — SELECTs against `information_schema`
+and `pg_catalog` only, no DDL, no writes. It is safe against production.
+
+It checks:
+
+- every table the Prisma schema declares actually exists
+- every table this collaboration work added has **both** a migration and an
+  ensure script, and that every ensure script is chained into `start:prod`
+- every `@@index`, `@@unique` and foreign key declared in the schema exists in
+  the database
+- nullability and defaults agree between Prisma and Postgres
+- migration history and the migrations directory agree
+
+Two findings are expected and benign:
+
+| Finding | Why it is fine |
+|---|---|
+| 2 rolled-back attempts retained in history | `20260721140000_business_workspace_setup` and `20260721180000_organization_workspace` failed on 2026-07-21 and were rolled back. Prisma keeps the failed attempt alongside the later successful one, which is why `_prisma_migrations` holds 34 rows for 32 directories. `rolled_back_at` is set, so they are resolved and do not block `migrate deploy`. |
+| Boot chain does not run `migrate deploy` | By design — see above. The ensure scripts are the route to production. |
+
+A note on `@updatedAt`: a database default on an `updatedAt` column is only drift
+when the schema does **not** also declare `@default()`. The biometric template
+tables declare `@default(now()) @updatedAt`, so their default is correct;
+`campaign_members` declared only `@updatedAt`, so its default was genuine drift
+and was removed.
+
+---
+
+## The production baseline — still outstanding, needs credentials
+
+This is the one step that cannot be completed without access to the production
+database, and it is a prerequisite for ever using `migrate deploy` there.
+
+**What is needed:** `DIRECT_URL` for the production database (Supabase session
+pooler, port 5432 — not the transaction pooler on 6543, which cannot run
+`migrate resolve`).
+
+**What to run, once, against production:**
+
+```bash
+npm run db:snapshot pre-baseline   # safety copy first
+npm run db:baseline                # applies ensure-* bootstraps, then marks
+                                   # every migration folder as applied
+npx prisma migrate status          # expect: up to date
+npm run db:audit                   # expect: PASS
+```
+
+`db:baseline` **drops nothing, deletes nothing, and replays no SQL** — it marks
+existing migrations as applied so Prisma stops reporting P3005 on a database
+that was bootstrapped with `db push`.
+
+**Until that runs**, production continues to get schema changes exclusively
+through the `ensure-*.cjs` boot chain, which is proven and idempotent. Nothing is
+broken; the baseline simply unlocks `migrate deploy` as an additional, more
+conventional route.
+
 ## Related
 
 - `docs/BUSINESS_CLIENT_COLLABORATION_BLUEPRINT.md` — the feature these
