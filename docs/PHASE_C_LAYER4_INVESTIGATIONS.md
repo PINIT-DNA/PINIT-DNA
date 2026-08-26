@@ -130,6 +130,20 @@ Typecheck 0 errors, client build clean, `prisma migrate diff` empty, `db:audit`
 PASS. All five endpoints answer 401 unauthenticated (404 control confirms the
 distinction).
 
+Deployed from `org/ashwitha` at commit `8235ab9`:
+
+- Render backend live after ~220s; all five endpoints answer 401 on
+  `https://pinit-dna-uf5y.onrender.com` (they answered 404 before the deploy,
+  which is what makes the 401 meaningful)
+- Vercel frontend 200, and its bundle contains the panel — `All investigations`,
+  `Reopen` and the notes-are-not-evidence line are all present in
+  `/static/index-Bs7fTzQx.js`
+
+**Test residue:** the test restored the four tables it tracked, but `logOrgAudit`
+writes rows it did not account for — 12 `INVESTIGATION_*` audit rows survived,
+all referencing case codes that no longer exist. That is a gap in the test, not
+in the service. Worth adding an audit-log baseline to future layer tests.
+
 **Not verified:** the Investigations tab was not exercised in a browser — the
 local client had no session and logging in is not something this process does.
 The panel is wired at `CampaignWorkspacePage.tsx` and needs a human pass.
