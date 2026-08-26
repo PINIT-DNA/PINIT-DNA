@@ -86,5 +86,12 @@ businessRouter.get('/campaigns/:campaignId/findings', requireAuth, businessContr
 businessRouter.get('/findings/:findingId', requireAuth, businessController.getCampaignFinding);
 businessRouter.patch('/findings/:findingId', requireAuth, businessController.decideCampaignFinding);
 
+// Investigations (Phase C, layer 4) — case management over existing incidents.
+businessRouter.get('/campaigns/:campaignId/investigations', requireAuth, businessController.listCampaignInvestigations);
+businessRouter.post('/campaigns/:campaignId/investigations', requireAuth, businessController.createCampaignInvestigation);
+businessRouter.get('/investigations/:investigationId', requireAuth, businessController.getInvestigation);
+businessRouter.patch('/investigations/:investigationId', requireAuth, businessController.updateInvestigation);
+businessRouter.post('/investigations/:investigationId/notes', requireAuth, businessController.addInvestigationNote);
+
 // ── Campaign intelligence — aggregates real rows only, no new storage ───────
 businessRouter.get('/campaigns/:campaignId/intelligence', requireAuth, businessController.getCampaignIntelligence);

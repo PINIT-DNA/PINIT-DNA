@@ -1553,6 +1553,16 @@ enum TepStatus {
   REDISCOVERED
 }
 
+/// An investigation.
+///
+/// This is the existing Incident model, extended rather than replaced — the
+/// crawler already opens one on a match, evidence already hangs off it, and
+/// AssetDiscovery already carries investigationId. The additions below are case
+/// management: who owns it, what it is called, and which campaign it belongs to.
+///
+/// The scoping columns are nullable because an incident can predate a campaign
+/// or be raised outside one; where campaignId is null the case is reachable
+/// through dnaRecordId as before, and nothing that already existed changes.
 model Incident {
   id              String           @id @default(uuid())
   createdAt       DateTime         @default(now())
@@ -1568,12 +1578,50 @@ model Incident {
   metadata        String?
   resolvedAt      DateTime?
   resolvedNote    String?
+
+  /// Case management. All nullable so every existing incident stays valid.
+  title            String?
+  organizationId   String?
+  campaignId       String?
+  assetId          String?
+  /// The AssetDiscovery this case was raised from, when it came from a finding.
+  findingId        String?
+  assignedToUserId String?
+  openedByUserId   String?
+  closedByUserId   String?
+  closedAt         DateTime?
+
   evidenceRecords EvidenceRecord[]
+  notes           IncidentNote[]
 
   @@index([dnaRecordId])
   @@index([severity])
   @@index([status])
+  @@index([campaignId, status])
+  @@index([organizationId, createdAt])
+  @@index([assignedToUserId])
   @@map("incidents")
+}
+
+/// A note on an investigation — the working record of what someone did or found.
+///
+/// Separate from EvidenceRecord on purpose: evidence is a collected artefact
+/// with integrity information, a note is a person's account. Conflating them
+/// would let commentary be presented to a client as evidence.
+model IncidentNote {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  incidentId  String
+  authorUserId String?
+  authorLabel String
+  body        String   @db.Text
+  /// Marks the note that recorded a status change, so the timeline reads in order.
+  isSystem    Boolean  @default(false)
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId, createdAt])
+  @@map("incident_notes")
 }
 
 model EvidenceRecord {

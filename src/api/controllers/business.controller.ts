@@ -6,6 +6,9 @@ import { clientService } from '../../services/organization/client.service';
 import { campaignService } from '../../services/organization/campaign.service';
 import { assetVersionService } from '../../services/organization/asset-version.service';
 import { reviewCommentService } from '../../services/organization/review-comment.service';
+import type {
+  InvestigationStatus, InvestigationPriority,
+} from '../../services/organization/campaign-investigation.service';
 import { AppError } from '../middleware/error.middleware';
 
 async function orgIdFor(req: Request): Promise<{ userId: string; organizationId: string }> {
@@ -656,6 +659,107 @@ export const businessController = {
           })),
         },
       });
+    } catch (err) { next(err); }
+  },
+  // ── Investigations (Phase C, layer 4) ─────────────────────────────────
+  //
+  // Cases sit on the existing Incident model. Nothing here accepts an
+  // organizationId from the client — orgIdFor derives it from the session, and
+  // the service re-proves ownership of every case it touches.
+  async listCampaignInvestigations(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignInvestigationService } = await import('../../services/organization/campaign-investigation.service');
+      const { status } = req.query as { status?: string };
+      const result = await campaignInvestigationService.listForCampaign(
+        organizationId, userId, req.params.campaignId as string,
+        status ? { status: status as InvestigationStatus } : {},
+      );
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async createCampaignInvestigation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignInvestigationService } = await import('../../services/organization/campaign-investigation.service');
+      const body = (req.body ?? {}) as {
+        title?: string; description?: string; priority?: string;
+        findingId?: string; assetId?: string; assignedToUserId?: string;
+      };
+      const investigation = await campaignInvestigationService.create(
+        organizationId, userId,
+        {
+          campaignId: req.params.campaignId as string,
+          title: body.title ?? '',
+          ...(body.description ? { description: body.description } : {}),
+          ...(body.priority ? { priority: body.priority as InvestigationPriority } : {}),
+          ...(body.findingId ? { findingId: body.findingId } : {}),
+          ...(body.assetId ? { assetId: body.assetId } : {}),
+          ...(body.assignedToUserId ? { assignedToUserId: body.assignedToUserId } : {}),
+        },
+      );
+      res.status(201).json({ success: true, investigation });
+    } catch (err) { next(err); }
+  },
+
+  async getInvestigation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignInvestigationService } = await import('../../services/organization/campaign-investigation.service');
+      const investigation = await campaignInvestigationService.get(
+        organizationId, userId, req.params.investigationId as string);
+      res.json({ success: true, investigation });
+    } catch (err) { next(err); }
+  },
+
+  async addInvestigationNote(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignInvestigationService } = await import('../../services/organization/campaign-investigation.service');
+      const { body } = (req.body ?? {}) as { body?: string };
+      const note = await campaignInvestigationService.addNote(
+        organizationId, userId, req.params.investigationId as string, body ?? '');
+      res.status(201).json({ success: true, note });
+    } catch (err) { next(err); }
+  },
+
+  async updateInvestigation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignInvestigationService } = await import('../../services/organization/campaign-investigation.service');
+      const id = req.params.investigationId as string;
+      const b = (req.body ?? {}) as {
+        status?: string; resolution?: string; priority?: string;
+        assignedToUserId?: string | null; reopenReason?: string;
+      };
+
+      // Reopening is its own deliberate act, never a status edit.
+      if (b.reopenReason !== undefined) {
+        const investigation = await campaignInvestigationService.reopen(
+          organizationId, userId, id, b.reopenReason);
+        res.json({ success: true, investigation });
+        return;
+      }
+      if (b.status !== undefined) {
+        const investigation = await campaignInvestigationService.setStatus(
+          organizationId, userId, id, b.status as InvestigationStatus, b.resolution);
+        res.json({ success: true, investigation });
+        return;
+      }
+      if (b.priority !== undefined) {
+        const investigation = await campaignInvestigationService.setPriority(
+          organizationId, userId, id, b.priority as InvestigationPriority);
+        res.json({ success: true, investigation });
+        return;
+      }
+      if (b.assignedToUserId !== undefined) {
+        const investigation = await campaignInvestigationService.assign(
+          organizationId, userId, id, b.assignedToUserId);
+        res.json({ success: true, investigation });
+        return;
+      }
+      throw new AppError(400, 'Nothing to change');
     } catch (err) { next(err); }
   },
 };

@@ -829,3 +829,129 @@ export async function getCampaignIntelligence(campaignId: string): Promise<Campa
   );
   return data.intelligence;
 }
+
+// ── Investigations (Phase C, layer 4) ────────────────────────────────────────
+// Case management over the existing incident record. No new investigation model.
+
+export type InvestigationStatus =
+  | 'OPEN' | 'INVESTIGATING' | 'AWAITING_CLIENT' | 'RESOLVED' | 'DISMISSED';
+
+export type InvestigationPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+export interface Investigation {
+  id: string;
+  /** Human case reference, safe to quote to a client. Not a database id. */
+  caseCode: string;
+  title: string;
+  description: string;
+  priority: InvestigationPriority;
+  status: InvestigationStatus;
+  statusMeaning: string;
+  isTerminal: boolean;
+  openedBecause: string;
+  campaignId: string | null;
+  assetId: string | null;
+  findingId: string | null;
+  assignedToUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+  resolution: string | null;
+  closedAt: string | null;
+}
+
+export interface InvestigationVocabulary {
+  statuses: { id: InvestigationStatus; meaning: string; terminal: boolean }[];
+  priorities: InvestigationPriority[];
+}
+
+export interface CampaignInvestigations {
+  campaignName: string;
+  investigations: Investigation[];
+  counts: {
+    total: number; open: number; investigating: number;
+    awaitingClient: number; resolved: number; dismissed: number; active: number;
+  };
+  vocabulary: InvestigationVocabulary;
+}
+
+export interface InvestigationEntry {
+  id: string; at: string; author: string; body: string; isSystem: boolean;
+}
+
+export interface InvestigationDetail extends Investigation {
+  assignee: { id: string; name: string } | null;
+  nextStatuses: InvestigationStatus[];
+  timeline: InvestigationEntry[];
+  evidence: {
+    id: string; code: string; type: string;
+    description: string | null; integrity: string | null; collectedAt: string;
+  }[];
+  asset: {
+    id: string; filename: string;
+    hasDna: boolean; hasVault: boolean; hasCertificate: boolean;
+  } | null;
+  finding: {
+    id: string; url: string; platform: string | null;
+    similarity: number; firstSeen: string;
+  } | null;
+}
+
+export async function listCampaignInvestigations(
+  campaignId: string, status?: InvestigationStatus,
+): Promise<CampaignInvestigations> {
+  const suffix = status ? `?status=${encodeURIComponent(status)}` : '';
+  const { data } = await api.get<{ success: boolean } & CampaignInvestigations>(
+    `${BASE}/campaigns/${campaignId}/investigations${suffix}`,
+  );
+  return data;
+}
+
+export async function createInvestigation(
+  campaignId: string,
+  input: {
+    title: string; description?: string; priority?: InvestigationPriority;
+    findingId?: string; assetId?: string; assignedToUserId?: string;
+  },
+): Promise<Investigation> {
+  const { data } = await api.post<{ success: boolean; investigation: Investigation }>(
+    `${BASE}/campaigns/${campaignId}/investigations`, input,
+  );
+  return data.investigation;
+}
+
+export async function getInvestigation(investigationId: string): Promise<InvestigationDetail> {
+  const { data } = await api.get<{ success: boolean; investigation: InvestigationDetail }>(
+    `${BASE}/investigations/${investigationId}`,
+  );
+  return data.investigation;
+}
+
+export async function addInvestigationNote(
+  investigationId: string, body: string,
+): Promise<InvestigationEntry> {
+  const { data } = await api.post<{ success: boolean; note: InvestigationEntry }>(
+    `${BASE}/investigations/${investigationId}/notes`, { body },
+  );
+  return data.note;
+}
+
+/**
+ * One endpoint, one intent per call.
+ *
+ * `reopenReason` is separate from `status` on purpose — reopening a closed case
+ * is a deliberate act, not a value picked from the same dropdown.
+ */
+export async function updateInvestigation(
+  investigationId: string,
+  change:
+    | { status: InvestigationStatus; resolution?: string }
+    | { priority: InvestigationPriority }
+    | { assignedToUserId: string | null }
+    | { reopenReason: string },
+): Promise<Investigation> {
+  const { data } = await api.patch<{ success: boolean; investigation: Investigation }>(
+    `${BASE}/investigations/${investigationId}`, change,
+  );
+  return data.investigation;
+}
