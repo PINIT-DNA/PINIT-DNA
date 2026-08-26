@@ -46,6 +46,7 @@ import { HomeRedirect } from './components/subscription/HomeRedirect';
 import { RequireAccountTypeOnboarding } from './components/onboarding/RequireAccountTypeOnboarding';
 import { BRAND } from './config/brand.config';
 import { ShareViewerPage } from './pages/ShareViewerPage';
+import { HandoverPage } from './pages/HandoverPage';
 import { PinitGateway, RegisterGateway } from './pages/auth/PinitGateway';
 import { PreRegisterRoute } from './pages/auth/PreRegisterGateway';
 import { PreRegisterAccountTypePage } from './pages/auth/PreRegisterAccountTypePage';
@@ -77,6 +78,8 @@ export const router = createBrowserRouter([
 
   // ── Public share viewer ───────────────────────────────────────────────────
   { path: '/s/:token', element: <ShareViewerPage /> },
+  // Public, like the share viewer — the handover token is the authority.
+  { path: '/handover/:token', element: <HandoverPage /> },
 
   // ── Team invite join (remembers token if login is required) ────────────────
   { path: '/team/join/:token', element: <TeamJoinPage /> },

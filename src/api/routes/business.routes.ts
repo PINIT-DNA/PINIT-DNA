@@ -63,3 +63,13 @@ businessRouter.post('/campaigns/:campaignId/people/:memberId/access', requireAut
 businessRouter.patch('/campaigns/:campaignId/people/:memberId/access', requireAuth, businessController.updateCampaignAccess);
 businessRouter.delete('/campaigns/:campaignId/people/:memberId/access', requireAuth, businessController.revokeCampaignAccess);
 businessRouter.get('/campaigns/:campaignId/people/:memberId/links', requireAuth, businessController.listCampaignAccessLinks);
+
+// ── Rights — Exchange remains the source of truth; this only presents it ────
+businessRouter.get('/campaigns/:campaignId/rights', requireAuth, businessController.listCampaignRights);
+
+// ── Client handover — only approved versions, scoped links, revocable ───────
+businessRouter.get('/campaigns/:campaignId/handover/candidates', requireAuth, businessController.listHandoverCandidates);
+businessRouter.get('/campaigns/:campaignId/handovers', requireAuth, businessController.listHandovers);
+businessRouter.post('/campaigns/:campaignId/handovers', requireAuth, businessController.createHandover);
+businessRouter.post('/campaigns/:campaignId/handovers/:handoverId/send', requireAuth, businessController.sendHandover);
+businessRouter.delete('/campaigns/:campaignId/handovers/:handoverId', requireAuth, businessController.revokeHandover);

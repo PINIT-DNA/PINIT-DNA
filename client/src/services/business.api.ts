@@ -490,3 +490,140 @@ export async function listCampaignAccessLinks(
   );
   return Array.isArray(data?.links) ? data.links : [];
 }
+
+// ── Rights (Exchange remains the source of truth; this only presents it) ─────
+
+export interface AssetRights {
+  assetId: string;
+  filename: string;
+  assetType: string;
+  addedAt: string;
+  protection: {
+    hasDna: boolean;
+    hasVault: boolean;
+    certificateId: string | null;
+    certificateStatus: string | null;
+    certificateIssuedAt: string | null;
+    certificateExpiresAt: string | null;
+  };
+  review: { currentVersion: number | null; reviewStatus: string | null; versionCount: number };
+  owner: { name: string | null; pinitId: string | null };
+  licence: {
+    state: 'none' | 'listed' | 'licensed';
+    tier: string | null;
+    commercialUse: boolean | null;
+    permittedUse: string | null;
+    status: string | null;
+    expiresAt: string | null;
+    licensedTo: string | null;
+    licensedAt: string | null;
+    termsVersion: string | null;
+    termsAcceptedAt: string | null;
+    downloadLimit: number | null;
+    downloadCount: number | null;
+    restrictions: string[];
+  };
+  access: Array<{ name: string; kind: string; status: string }>;
+}
+
+export interface CampaignRights {
+  campaignName: string;
+  clientName: string | null;
+  exchangeReachable: boolean;
+  assets: AssetRights[];
+}
+
+export async function listCampaignRights(campaignId: string): Promise<CampaignRights> {
+  const { data } = await api.get<{ success: boolean } & CampaignRights>(
+    `${BASE}/campaigns/${campaignId}/rights`,
+  );
+  return {
+    campaignName: data?.campaignName ?? '',
+    clientName: data?.clientName ?? null,
+    exchangeReachable: Boolean(data?.exchangeReachable),
+    assets: Array.isArray(data?.assets) ? data.assets : [],
+  };
+}
+
+// ── Client handover ──────────────────────────────────────────────────────────
+
+export type HandoverStatus = 'DRAFT' | 'READY' | 'COMPLETED' | 'REVOKED';
+
+export interface HandoverCandidate {
+  assetId: string;
+  filename: string;
+  eligible: boolean;
+  versionId: string | null;
+  versionNumber: number | null;
+  reason: string | null;
+}
+
+export interface HandoverCandidates {
+  campaignName: string;
+  client: { id: string; name: string; contactName: string | null } | null;
+  candidates: HandoverCandidate[];
+}
+
+export interface Handover {
+  id: string;
+  status: HandoverStatus;
+  title: string | null;
+  note: string | null;
+  recipientLabel: string;
+  recipientEmail: string | null;
+  accessToken: string;
+  createdAt: string;
+  sentAt: string | null;
+  firstOpenedAt: string | null;
+  completedAt: string | null;
+  revokedAt: string | null;
+  expiresAt: string | null;
+  openCount: number;
+  assets: Array<{ assetId: string; filename: string; versionId: string; hasLink: boolean }>;
+}
+
+export async function listHandoverCandidates(campaignId: string): Promise<HandoverCandidates> {
+  const { data } = await api.get<{ success: boolean } & HandoverCandidates>(
+    `${BASE}/campaigns/${campaignId}/handover/candidates`,
+  );
+  return {
+    campaignName: data?.campaignName ?? '',
+    client: data?.client ?? null,
+    candidates: Array.isArray(data?.candidates) ? data.candidates : [],
+  };
+}
+
+export async function listHandovers(campaignId: string): Promise<Handover[]> {
+  const { data } = await api.get<{ success: boolean; handovers: Handover[] }>(
+    `${BASE}/campaigns/${campaignId}/handovers`,
+  );
+  return Array.isArray(data?.handovers) ? data.handovers : [];
+}
+
+export async function createHandover(
+  campaignId: string,
+  input: {
+    assetIds: string[]; title?: string; note?: string;
+    recipientLabel?: string; recipientEmail?: string;
+    expiresInHours?: number | null; allowDownload?: boolean;
+  },
+): Promise<Handover> {
+  const { data } = await api.post<{ success: boolean; handover: Handover }>(
+    `${BASE}/campaigns/${campaignId}/handovers`, input,
+  );
+  return data.handover;
+}
+
+export async function sendHandover(campaignId: string, handoverId: string): Promise<Handover> {
+  const { data } = await api.post<{ success: boolean; handover: Handover }>(
+    `${BASE}/campaigns/${campaignId}/handovers/${handoverId}/send`, {},
+  );
+  return data.handover;
+}
+
+export async function revokeHandover(campaignId: string, handoverId: string): Promise<Handover> {
+  const { data } = await api.delete<{ success: boolean; handover: Handover }>(
+    `${BASE}/campaigns/${campaignId}/handovers/${handoverId}`,
+  );
+  return data.handover;
+}

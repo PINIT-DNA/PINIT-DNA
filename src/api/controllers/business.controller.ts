@@ -101,6 +101,67 @@ export const businessController = {
     } catch (err) { next(err); }
   },
 
+  // ── Rights and handover ───────────────────────────────────────────────
+  async listCampaignRights(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignRightsService } = await import('../../services/organization/campaign-rights.service');
+      const result = await campaignRightsService.listForCampaign(
+        organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async listHandoverCandidates(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignHandoverService } = await import('../../services/organization/campaign-handover.service');
+      const result = await campaignHandoverService.listCandidates(
+        organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async listHandovers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignHandoverService } = await import('../../services/organization/campaign-handover.service');
+      const handovers = await campaignHandoverService.list(
+        organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, handovers });
+    } catch (err) { next(err); }
+  },
+
+  async createHandover(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignHandoverService } = await import('../../services/organization/campaign-handover.service');
+      const handover = await campaignHandoverService.create(
+        organizationId, userId, req.params.campaignId as string, req.body ?? {});
+      res.status(201).json({ success: true, handover });
+    } catch (err) { next(err); }
+  },
+
+  async sendHandover(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignHandoverService } = await import('../../services/organization/campaign-handover.service');
+      const handover = await campaignHandoverService.send(
+        organizationId, userId, req.params.campaignId as string, req.params.handoverId as string);
+      res.json({ success: true, handover });
+    } catch (err) { next(err); }
+  },
+
+  async revokeHandover(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignHandoverService } = await import('../../services/organization/campaign-handover.service');
+      const handover = await campaignHandoverService.revoke(
+        organizationId, userId, req.params.campaignId as string, req.params.handoverId as string);
+      res.json({ success: true, handover });
+    } catch (err) { next(err); }
+  },
+
   // ── Campaign people and scoped access ─────────────────────────────────
   async listCampaignPeople(req: Request, res: Response, next: NextFunction) {
     try {

@@ -1556,3 +1556,15 @@ export async function streamShareMessages(req: Request, res: Response, next: Nex
     req.on('close', () => { clearInterval(heartbeat); unsub(); });
   } catch (err) { next(err); }
 }
+
+/**
+ * The client's handover view. Public — the handover token is the authority.
+ * Returns only the final assets and their approval evidence.
+ */
+export async function getHandoverView(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { handoverViewService } = await import('../../services/share/handover-view.service');
+    const handover = await handoverViewService.get(req.params.token as string);
+    res.json({ success: true, handover });
+  } catch (err) { next(err); }
+}

@@ -605,6 +605,7 @@ model Campaign {
   assets          Asset[]
   members         CampaignMember[]
   messages        CampaignMessage[]
+  handovers       CampaignHandover[]
 
   @@index([organizationId])
   @@index([clientId])
@@ -2148,6 +2149,89 @@ enum CommentStatus {
   RESOLVED
   REJECTED
   CLOSED
+}
+
+/// Where a handover has got to.
+///
+/// DRAFT is being assembled and the client can see nothing. READY has links
+/// issued and is openable. COMPLETED is the client having actually opened it —
+/// recorded from their access, not asserted by the team. REVOKED withdraws the
+/// access while keeping the record that it happened.
+enum HandoverStatus {
+  DRAFT
+  READY
+  COMPLETED
+  REVOKED
+}
+
+/// Handing finished work to the client.
+///
+/// A handover is an event with a record, not a folder: it names who received
+/// what, when they opened it, and under whose authority it was sent. The assets
+/// themselves are untouched — their DNA records, vault entries and certificates
+/// are referenced, never copied or re-protected.
+///
+/// Access is a scoped ShareLink per asset plus one bundle token, so revocation,
+/// expiry and tracking come from the sharing layer rather than a new mechanism.
+model CampaignHandover {
+  id             String   @id @default(uuid())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organizationId String
+  campaignId     String
+  clientId       String?
+
+  status         HandoverStatus @default(DRAFT)
+  title          String?
+  note           String?  @db.Text
+
+  /// Who it went to. Recorded at send time so the record survives the client
+  /// record being renamed later.
+  recipientLabel   String
+  recipientEmail   String?
+  shareRecipientId String?
+
+  /// The bundle the client opens. Unique so it cannot collide with a share token.
+  accessToken    String   @unique
+  expiresAt      DateTime?
+
+  sentAt         DateTime?
+  firstOpenedAt  DateTime?
+  completedAt    DateTime?
+  revokedAt      DateTime?
+  openCount      Int      @default(0)
+
+  createdByUserId String
+
+  campaign Campaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  assets   CampaignHandoverAsset[]
+
+  @@index([campaignId, status])
+  @@index([organizationId, createdAt])
+  @@index([accessToken])
+  @@map("campaign_handovers")
+}
+
+/// One finished asset inside a handover, pinned to the exact version handed over.
+///
+/// versionId is required: handing over "the file" without saying which version
+/// would make the record useless the moment a V4 appears.
+model CampaignHandoverAsset {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  handoverId  String
+  assetId     String
+  versionId   String
+  /// The scoped link issued for this asset in this handover.
+  shareToken  String?
+
+  handover CampaignHandover @relation(fields: [handoverId], references: [id], onDelete: Cascade)
+
+  @@unique([handoverId, assetId])
+  @@index([handoverId])
+  @@index([assetId])
+  @@map("campaign_handover_assets")
 }
 
 /// One message in a campaign conversation between the team and the client.

@@ -3,7 +3,7 @@ import { useParams, useSearchParams, Link } from 'react-router-dom';
 import {
   Plus, Archive, Users, Activity, Sparkles, CheckCircle2, GitBranch, ScrollText,
   Share2, Pencil, RefreshCw, Trash2, UserPlus, ExternalLink, Shield,
-  MessageSquare, ChevronRight,
+  MessageSquare, ChevronRight, PackageCheck,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
@@ -22,11 +22,13 @@ import {
 } from '../../components/business/clients/BusinessKit';
 import { VersionsPanel, ApprovalsPanel, MessagesPanel } from '../../components/business/review/CampaignReviewPanels';
 import { PeoplePanel } from '../../components/business/review/PeoplePanel';
+import { RightsPanel } from '../../components/business/review/RightsPanel';
+import { HandoverPanel } from '../../components/business/review/HandoverPanel';
 import { listCampaignChangeRequests, listCampaignMessages } from '../../services/business.api';
 import { CampaignFormModal } from '../../components/business/clients/CampaignFormModal';
 import { AddCampaignPersonModal } from '../../components/business/clients/AddCampaignPersonModal';
 
-type Tab = 'overview' | 'assets' | 'people' | 'approvals' | 'versions' | 'messages' | 'rights' | 'sharing' | 'activity' | 'intelligence';
+type Tab = 'overview' | 'assets' | 'people' | 'approvals' | 'versions' | 'messages' | 'rights' | 'handover' | 'sharing' | 'activity' | 'intelligence';
 
 export function CampaignWorkspacePage() {
   const { campaignId = '' } = useParams();
@@ -118,7 +120,8 @@ export function CampaignWorkspacePage() {
     { id: 'people' as const, label: 'People', icon: Users, count: members?.length },
     { id: 'approvals' as const, label: 'Approvals', icon: CheckCircle2, count: pendingCount },
     { id: 'versions' as const, label: 'Versions', icon: GitBranch },
-    { id: 'rights' as const, label: 'Rights', icon: ScrollText, soon: true },
+    { id: 'rights' as const, label: 'Rights', icon: ScrollText },
+    { id: 'handover' as const, label: 'Handover', icon: PackageCheck },
     { id: 'messages' as const, label: 'Messages', icon: MessageSquare, count: unreadMessages },
     { id: 'sharing' as const, label: 'Sharing', icon: Share2 },
     { id: 'activity' as const, label: 'Activity', icon: Activity },
@@ -343,12 +346,11 @@ export function CampaignWorkspacePage() {
       )}
 
       {tab === 'rights' && (
-        <SectionCard title="Usage rights" icon={ScrollText}>
-          <ComingSoonPanel
-            title="Usage rights & handover"
-            detail="Which uses are permitted (social, web, paid, print), until when, and what was delivered to the client. Arrives with the Rights & Handover phase."
-          />
-        </SectionCard>
+        <RightsPanel campaignId={campaignId} />
+      )}
+
+      {tab === 'handover' && (
+        <HandoverPanel campaignId={campaignId} onChanged={refreshReview} />
       )}
 
       {tab === 'intelligence' && (

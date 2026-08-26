@@ -42,6 +42,7 @@ import {
   postShareMessage,
   markShareMessagesRead,
   streamShareMessages,
+  getHandoverView,
   debugReport,
   getGlobalShareStats,
   getLiveTrackingMap,
@@ -98,6 +99,9 @@ shareRouter.get('/:token/messages/stream',     streamShareMessages);
 shareRouter.get('/:token/campaign-messages',   getShareMessages);
 shareRouter.post('/:token/campaign-messages',  postShareMessage);
 shareRouter.post('/:token/campaign-messages/read', markShareMessagesRead);
+
+// ── Client handover bundle — token-scoped, no account ──────────────────────
+shareRouter.get('/handover/:token',            getHandoverView);
 // Owner-only routes (require auth)
 shareRouter.get('/:token/logs',                requireAuth, requireTrackingUnlessLicensedShare(requireFeature(FeatureKey.FEATURE_TRACKING)), requireShareLinkOwnership, getShareLinkLogs);
 shareRouter.get('/:token/export',              requireAuth, requireShareLinkOwnership, exportShareLogsCsv);
