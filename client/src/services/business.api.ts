@@ -649,6 +649,8 @@ export interface ProviderStatus {
   healthReason: string;
   finds: string;
   requires: string | null;
+  /** Providers that could fill this slot, when none is connected. */
+  candidates?: { id: string; label: string; note: string }[];
 }
 
 export interface DiscoveryCapability {
@@ -1097,4 +1099,90 @@ export async function updateClientReport(
 /** The business-side PDF preview — identical bytes to the client's copy. */
 export function clientReportPdfUrl(reportId: string): string {
   return `${BASE}/reports/${reportId}/pdf`;
+}
+
+// ── Client-level rollups ─────────────────────────────────────────────────────
+// Each endpoint sums the campaign-level service across the client's campaigns.
+// Nothing here is a separate store — it is the campaign answer, asked wider.
+
+export interface ClientDeliveries {
+  clientName: string;
+  campaignCount: number;
+  /** True when a campaign could not be read — totals are incomplete, not wrong. */
+  partial: boolean;
+  deliveries: {
+    id: string; status: string; title: string | null;
+    recipientLabel: string; recipientEmail: string | null;
+    createdAt: string; sentAt: string | null; firstOpenedAt: string | null;
+    completedAt: string | null; revokedAt: string | null; expiresAt: string | null;
+    openCount: number;
+    assets: { assetId: string; filename: string; hasLink: boolean }[];
+    campaign: { id: string; name: string };
+  }[];
+  counts: {
+    total: number; live: number; opened: number;
+    awaitingOpen: number; revoked: number; assetsDelivered: number;
+  };
+}
+
+export interface ClientRights {
+  clientName: string;
+  campaignCount: number;
+  partial: boolean;
+  /** False when Exchange could not be reached — not the same as "no rights". */
+  exchangeReachable: boolean;
+  assets: {
+    assetId: string; filename: string; assetType: string | null; addedAt: string;
+    rights?: { state?: string; label?: string; detail?: string };
+    campaign: { id: string; name: string };
+  }[];
+  counts: { total: number; byState: Record<string, number> };
+}
+
+export interface ClientActivity {
+  clientName: string;
+  campaignCount: number;
+  entries: {
+    id: string; at: string; action: string; title: string;
+    actor: string; campaignId: string | null; campaignName: string | null;
+  }[];
+}
+
+export interface ClientIntelligence {
+  clientName: string;
+  campaignCount: number;
+  partial: boolean;
+  campaigns: { id: string; name: string; assets: number; findings: number; monitored: number }[];
+  totals: {
+    assets: number; withDna: number; withVault: number; withCertificate: number;
+    monitored: number; findings: number; findingsConfirmed: number; findingsNeedsReview: number;
+  };
+  /** Carried up unchanged — it decides how a findings total should be read. */
+  discovery: {
+    health: string; reason: string; providers?: { name: string; configured: boolean }[];
+  } | null;
+}
+
+export async function getClientDeliveries(clientId: string): Promise<ClientDeliveries> {
+  const { data } = await api.get<{ success: boolean } & ClientDeliveries>(
+    `${BASE}/clients/${clientId}/deliveries`);
+  return data;
+}
+
+export async function getClientRights(clientId: string): Promise<ClientRights> {
+  const { data } = await api.get<{ success: boolean } & ClientRights>(
+    `${BASE}/clients/${clientId}/rights`);
+  return data;
+}
+
+export async function getClientActivity(clientId: string): Promise<ClientActivity> {
+  const { data } = await api.get<{ success: boolean } & ClientActivity>(
+    `${BASE}/clients/${clientId}/activity`);
+  return data;
+}
+
+export async function getClientIntelligence(clientId: string): Promise<ClientIntelligence> {
+  const { data } = await api.get<{ success: boolean } & ClientIntelligence>(
+    `${BASE}/clients/${clientId}/intelligence`);
+  return data;
 }

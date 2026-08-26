@@ -851,4 +851,48 @@ export const businessController = {
       throw new AppError(400, 'Unknown action');
     } catch (err) { next(err); }
   },
+  // ── Client-level rollups ──────────────────────────────────────────────
+  // Each one calls the same campaign service the campaign tab calls and sums
+  // the results. No per-client copy of any record exists.
+  async clientDeliveries(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { clientAggregateService } = await import('../../services/organization/client-aggregate.service');
+      const result = await clientAggregateService.deliveries(
+        organizationId, userId, req.params.clientId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async clientRights(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { clientAggregateService } = await import('../../services/organization/client-aggregate.service');
+      const result = await clientAggregateService.rights(
+        organizationId, userId, req.params.clientId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async clientActivity(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { clientAggregateService } = await import('../../services/organization/client-aggregate.service');
+      const limit = Number.parseInt(String((req.query as { limit?: string }).limit ?? '100'), 10);
+      const result = await clientAggregateService.activity(
+        organizationId, userId, req.params.clientId as string,
+        Number.isFinite(limit) ? limit : 100);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async clientIntelligence(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { clientAggregateService } = await import('../../services/organization/client-aggregate.service');
+      const result = await clientAggregateService.intelligence(
+        organizationId, userId, req.params.clientId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
 };

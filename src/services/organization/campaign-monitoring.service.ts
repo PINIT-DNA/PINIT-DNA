@@ -20,7 +20,7 @@ import { emitCampaignMonitoringChanged } from '../platform-events';
 import {
   monitoringService, isMonitoringCrawlerEnabled, MATCH,
 } from '../crawler/monitoring.service';
-import { BingVisualSearchProvider } from '../crawler/providers/bing-visual-search.provider';
+import { providerStatus } from '../crawler/providers/registry';
 import { FilenameSearchProvider } from '../crawler/providers/filename-search.provider';
 
 /**
@@ -54,6 +54,11 @@ export interface ProviderStatus {
   finds: string;
   /** What would make it work, when it does not. */
   requires: string | null;
+  /**
+   * Providers that could be adopted for this slot, when none is connected.
+   * Recorded so the choice does not have to be researched again.
+   */
+  candidates?: { id: string; label: string; note: string }[];
 }
 
 export interface DiscoveryCapability {
@@ -85,10 +90,10 @@ export interface DiscoveryCapability {
  * it available is how someone comes to believe their work is being watched.
  */
 export async function getDiscoveryCapability(): Promise<DiscoveryCapability> {
-  const bing = new BingVisualSearchProvider();
+  const reverseImage = providerStatus();
   const filename = new FilenameSearchProvider();
 
-  const reverseImageAvailable = bing.isConfigured();
+  const reverseImageAvailable = reverseImage.configured;
   const crawlerEnabled = isMonitoringCrawlerEnabled();
 
   const [totalRuns, runsWithCandidates, totalMatches, lastCandidateRun, lastMatchRun] =
@@ -128,21 +133,27 @@ export async function getDiscoveryCapability(): Promise<DiscoveryCapability> {
     };
   };
 
-  const bingJudged = judge(reverseImageAvailable);
+  const reverseJudged = judge(reverseImageAvailable);
   const filenameJudged = judge(filename.isConfigured());
 
   const providers: ProviderStatus[] = [
     {
-      id: 'bing-visual',
+      id: 'reverse-image',
       label: 'Reverse image search',
       configured: reverseImageAvailable,
-      health: bingJudged.health,
-      healthReason: bingJudged.reason,
+      health: reverseJudged.health,
+      healthReason: reverseImageAvailable
+        ? reverseJudged.reason
+        // Distinguish "no key" from "nothing to key". The Bing API this was
+        // built against was retired, so there is no key to add — a provider has
+        // to be chosen first. Saying "missing credentials" would imply otherwise.
+        : reverseImage.implementedCount > 0
+          ? 'Built, but its key is not set.'
+          : 'No provider is connected, so nothing searches for copies of the image itself.',
       finds: 'Copies and edits of the image itself, anywhere it has been published.',
-      requires: reverseImageAvailable
-        ? null
-        : 'An image-search provider key. Note the Bing Search API this was built '
-          + 'against was retired, so a replacement provider is likely needed.',
+      requires: reverseImageAvailable ? null : reverseImage.summary,
+      /** What could be adopted, so the choice is not re-researched each time. */
+      candidates: reverseImage.candidates.map((c) => ({ id: c.id, label: c.label, note: c.note })),
     },
     {
       id: 'filename',
@@ -160,11 +171,11 @@ export async function getDiscoveryCapability(): Promise<DiscoveryCapability> {
 
   const summary = !crawlerEnabled
     ? 'Background scanning is turned off in this environment, so no new findings will appear.'
-    : !anyProviderOperational
-      ? 'No discovery provider is currently producing usable results, so copies of your work '
-        + 'will not be found. Connecting a reverse-image provider is what changes this.'
-      : !reverseImageAvailable
-        ? 'Reverse image search is not connected, so copies of the image itself cannot be found.'
+    : !reverseImageAvailable
+      ? reverseImage.summary
+      : !anyProviderOperational
+        ? 'No discovery provider is currently producing usable results, so copies of your work '
+          + 'will not be found.'
         : 'Monitoring is active and searching for copies of your work.';
 
   return {

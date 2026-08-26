@@ -11,6 +11,9 @@ import { getClient, listCampaigns, type BusinessClient, type Campaign } from '..
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Badge } from '../../components/ui/Badge';
 import {
+  ClientDeliveriesPanel, ClientRightsPanel, ClientActivityPanel, ClientIntelligencePanel,
+} from '../../components/business/clients/ClientRollups';
+import {
   BusinessPage, Breadcrumbs, SectionCard, SkeletonRows, TabBar, ComingSoonPanel, PageError,
 } from '../../components/business/clients/BusinessKit';
 import { ClientFormModal } from '../../components/business/clients/ClientFormModal';
@@ -22,10 +25,10 @@ const TABS = [
   { id: 'campaigns' as const, label: 'Campaigns', icon: Megaphone },
   { id: 'assets' as const, label: 'Assets', icon: Archive },
   { id: 'people' as const, label: 'People', icon: Users },
-  { id: 'deliveries' as const, label: 'Deliveries', icon: Truck, soon: true },
-  { id: 'rights' as const, label: 'Rights', icon: ScrollText, soon: true },
-  { id: 'activity' as const, label: 'Activity', icon: Activity, soon: true },
-  { id: 'intelligence' as const, label: 'Intelligence', icon: Sparkles, soon: true },
+  { id: 'deliveries' as const, label: 'Deliveries', icon: Truck },
+  { id: 'rights' as const, label: 'Rights', icon: ScrollText },
+  { id: 'activity' as const, label: 'Activity', icon: Activity },
+  { id: 'intelligence' as const, label: 'Intelligence', icon: Sparkles },
 ];
 
 export function ClientWorkspacePage() {
@@ -184,29 +187,13 @@ export function ClientWorkspacePage() {
         </SectionCard>
       )}
 
-      {tab === 'deliveries' && (
-        <SectionCard title="Deliveries" icon={Truck}>
-          <ComingSoonPanel title="Deliveries & handover" detail="Recording what was delivered to this client, and when, arrives with the Rights & Handover phase." />
-        </SectionCard>
-      )}
+      {tab === 'deliveries' && <ClientDeliveriesPanel clientId={clientId} />}
 
-      {tab === 'rights' && (
-        <SectionCard title="Usage rights" icon={ScrollText}>
-          <ComingSoonPanel title="Usage rights" detail="Permitted-use records (social, web, print) for this client's assets arrive with the Rights & Handover phase." />
-        </SectionCard>
-      )}
+      {tab === 'rights' && <ClientRightsPanel clientId={clientId} />}
 
-      {tab === 'activity' && (
-        <SectionCard title="Activity" icon={Activity}>
-          <ComingSoonPanel title="Client activity" detail="A combined feed across this client's campaigns. Per-campaign activity is available now inside each campaign." />
-        </SectionCard>
-      )}
+      {tab === 'activity' && <ClientActivityPanel clientId={clientId} />}
 
-      {tab === 'intelligence' && (
-        <SectionCard title="Intelligence" icon={Sparkles}>
-          <ComingSoonPanel title="Client intelligence" detail="Where this client's work appears, and which relationships were discovered, arrives once monitoring is campaign-aware." />
-        </SectionCard>
-      )}
+      {tab === 'intelligence' && <ClientIntelligencePanel clientId={clientId} />}
 
       <ClientFormModal open={editOpen} onClose={() => setEditOpen(false)} onSaved={handleClientSaved} existing={client} />
       {client && (

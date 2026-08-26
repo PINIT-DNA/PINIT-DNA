@@ -289,6 +289,29 @@ function ProviderRow({ provider: p }: { provider: ProviderStatus }) {
       {p.requires && (
         <p className="text-2xs text-amber-400/80 mt-1">Needs: {p.requires}</p>
       )}
+
+      {/*
+        When nothing fills this slot, name what could. Otherwise "not configured"
+        reads as a missing setting somebody forgot, rather than a decision that
+        has not been made yet.
+      */}
+      {!p.configured && p.candidates && p.candidates.length > 0 && (
+        <details className="mt-1.5">
+          <summary className="text-2xs text-dna-400 hover:text-dna-300 cursor-pointer">
+            Options for connecting this
+          </summary>
+          <ul className="mt-1.5 space-y-1 pl-1">
+            {p.candidates.map((c) => (
+              <li key={c.id} className="text-2xs text-gray-500">
+                <span className="text-gray-300 font-medium">{c.label}</span> — {c.note}
+              </li>
+            ))}
+          </ul>
+          <p className="text-2xs text-gray-600 mt-1.5">
+            None is connected yet. Nothing here searches for copies until one is.
+          </p>
+        </details>
+      )}
     </li>
   );
 }

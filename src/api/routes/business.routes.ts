@@ -104,5 +104,11 @@ businessRouter.get('/reports/:reportId', requireAuth, businessController.getClie
 businessRouter.get('/reports/:reportId/pdf', requireAuth, businessController.downloadClientReport);
 businessRouter.patch('/reports/:reportId', requireAuth, businessController.updateClientReport);
 
+// Client-level rollups — the campaign services, asked across the client's campaigns.
+businessRouter.get('/clients/:clientId/deliveries', requireAuth, businessController.clientDeliveries);
+businessRouter.get('/clients/:clientId/rights', requireAuth, businessController.clientRights);
+businessRouter.get('/clients/:clientId/activity', requireAuth, businessController.clientActivity);
+businessRouter.get('/clients/:clientId/intelligence', requireAuth, businessController.clientIntelligence);
+
 // ── Campaign intelligence — aggregates real rows only, no new storage ───────
 businessRouter.get('/campaigns/:campaignId/intelligence', requireAuth, businessController.getCampaignIntelligence);
