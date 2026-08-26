@@ -598,11 +598,23 @@ export default function App() {
             user={user}
             onNavigate={navigate}
             onVerified={(updatedUser) => {
-              const u = updatedUser || user;
-              if (u) {
-                setUser(u);
-                saveSession(u);
-              }
+              // Payment/status used to hand back a stale user (or no user), so
+              // can_list stayed false and the route guard bounced straight back
+              // to this payment page — looking like Pay did nothing.
+              const base = updatedUser || user;
+              if (!base) return;
+              const activated = {
+                ...base,
+                seller_onboarding_status:
+                  base.seller_onboarding_status === 'PAYMENT_METHOD_VERIFIED'
+                    ? 'PAYMENT_METHOD_VERIFIED'
+                    : 'SELLER_ACTIVE',
+                seller_onboarding_complete: true,
+                seller_payment_verified: true,
+                can_list: true,
+              };
+              setUser(activated);
+              saveSession(activated);
               setRoleNotice('Seller account verified. You can list and sell on Exchange.');
               navigate('seller_listings');
             }}

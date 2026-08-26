@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ShieldCheck, CreditCard, ArrowRight, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
 import { loadRazorpayScript, openRazorpayCheckout, CHECKOUT_CANCELLED } from '../lib/razorpay-checkout.js';
@@ -6,42 +6,86 @@ import { sellerNeedsPaymentVerification } from '../lib/seller-onboarding.js';
 import TestPaymentHint from '../components/TestPaymentHint.jsx';
 import { sellerSubscriptionLabel } from '../lib/money.js';
 
+const STATUS_TIMEOUT_MS = 20000;
+
+async function fetchWithTimeout(url, options = {}, ms = STATUS_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const result = await apiFetch(url, { ...options, signal: controller.signal });
+    if (
+      !result.ok &&
+      (controller.signal.aborted || /aborted|timeout/i.test(String(result.error || '')))
+    ) {
+      return { ok: false, status: 0, data: null, error: 'Request timed out. Try again.' };
+    }
+    return result;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }) {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const finishingRef = useRef(false);
+
+  const finishAsCreator = (updatedUser) => {
+    if (finishingRef.current) return;
+    finishingRef.current = true;
+    const next = updatedUser || user;
+    onVerified?.(next);
+  };
 
   const loadStatus = async () => {
-    if (!user?.pinit_id) return;
-    setLoading(true);
-    setError('');
-    const { ok, data, error: err } = await apiFetch(
-      `/api/seller/onboarding/status?pinit_id=${encodeURIComponent(user.pinit_id)}`,
-    );
-    setLoading(false);
-    if (!ok) {
-      setError(err || 'Could not load onboarding status');
+    if (!user?.pinit_id) {
+      setLoading(false);
       return;
     }
-    setStatus(data);
-    if (data?.seller_onboarding_complete) {
-      onVerified?.(data.user);
+    setLoading(true);
+    setError('');
+    try {
+      const { ok, data, error: err } = await fetchWithTimeout(
+        `/api/seller/onboarding/status?pinit_id=${encodeURIComponent(user.pinit_id)}`,
+      );
+      if (!ok) {
+        setError(err || 'Could not load onboarding status');
+        setStatus(null);
+        return;
+      }
+      setStatus(data);
+      if (data?.seller_onboarding_complete) {
+        finishAsCreator(data.user || user);
+      }
+    } catch (e) {
+      setError(e.message || 'Could not load onboarding status');
+      setStatus(null);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
+    finishingRef.current = false;
     loadStatus();
   }, [user?.pinit_id]);
 
   const startVerification = async () => {
-    if (!user?.pinit_id) return;
+    if (!user?.pinit_id) {
+      setError('Sign in again to continue payment.');
+      return;
+    }
+    if (verifying) return;
+
     setVerifying(true);
     setError('');
+    setNotice('');
     try {
       const idempotencyKey = `spm_${user.pinit_id}_${Date.now()}`;
-      const init = await apiFetch('/api/seller/onboarding/payment-method', {
+      const init = await fetchWithTimeout('/api/seller/onboarding/payment-method', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -52,7 +96,7 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
       if (!init.ok) throw new Error(init.error || 'Could not start payment verification');
       const created = init.data || {};
       if (created.already_verified) {
-        onVerified?.(created.user);
+        finishAsCreator(created.user);
         return;
       }
 
@@ -69,9 +113,6 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
           keyId: created.keyId,
           orderId: created.orderId,
           amount: created.amount,
-          // Fall back to the server's currency, not a hardcoded one. This said
-          // 'USD', which on an Indian Razorpay account drops UPI from the sheet
-          // and makes the charge an international transaction.
           currency: created.currency || 'INR',
           description: created.description || `Seller subscription — ${sellerSubscriptionLabel()}`,
           userName: user.display_name || user.name,
@@ -83,7 +124,7 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
         razorpay_signature = paid.razorpay_signature;
       }
 
-      const verify = await apiFetch('/api/seller/onboarding/payment-method/verify', {
+      const verify = await fetchWithTimeout('/api/seller/onboarding/payment-method/verify', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -98,12 +139,9 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
         }),
       });
       if (!verify.ok) throw new Error(verify.error || 'Verification failed');
-      onVerified?.(verify.data?.user);
       setStatus(verify.data);
+      finishAsCreator(verify.data?.user);
     } catch (e) {
-      // Closing the Razorpay sheet is a decision, not a fault. Reporting it in
-      // red next to "Verification failed" made a deliberate exit look like
-      // something had gone wrong with the payment.
       if (e.code === CHECKOUT_CANCELLED) {
         setError('');
         setNotice('Payment cancelled — your account is unchanged. You can pay whenever you are ready.');
@@ -129,6 +167,14 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
     return (
       <div className="page-shell" style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)' }}>
         Loading seller onboarding…
+        {error && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ color: '#f87171', marginBottom: 12 }}>{error}</div>
+            <button type="button" className="btn-primary" onClick={loadStatus}>
+              Retry
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -151,9 +197,9 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
             type="button"
             className="btn-primary"
             style={{ marginTop: 16 }}
-            onClick={() => onNavigate?.('seller_listings')}
+            onClick={() => finishAsCreator(status?.user || user)}
           >
-            Continue to Seller Dashboard <ArrowRight size={16} />
+            Continue to Creator account <ArrowRight size={16} />
           </button>
         </div>
       </div>
@@ -185,10 +231,6 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
           <span style={{ color: '#e2e8f0', fontSize: '0.9rem' }}>Seller subscription</span>
           <strong style={{ color: '#fff', fontSize: '1.35rem' }}>{sellerSubscriptionLabel()}</strong>
         </div>
-        {/* Which sandbox method actually works. This screen previously showed
-            a note only when payments were simulated, so once real Razorpay
-            test mode was switched on it went silent — leaving a creator to
-            guess, and the obvious card is the one that fails. */}
         <TestPaymentHint billing={status?.billing} className="pay-hint--stack" />
         {notice && (
           <div style={{ color: 'var(--text-muted)', fontSize: '0.88rem', marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}>

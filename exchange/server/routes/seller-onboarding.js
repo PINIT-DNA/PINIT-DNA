@@ -47,7 +47,9 @@ async function buildStatusResponse(user) {
   const verified = await loadVerifiedPaymentMethod(user.pinit_id);
   const status = normalizeOnboardingStatus(user.seller_onboarding_status);
   const complete = isSellerOnboardingComplete(user);
+  const publicUser = enrichPublicUser(user);
   return {
+    user: publicUser,
     seller_onboarding_status: status,
     seller_onboarding_complete: complete,
     seller_payment_verified: complete,
