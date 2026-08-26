@@ -14,6 +14,7 @@ import {
   fetchRazorpayPayment,
   getBillingPublicConfig,
   verifyRazorpaySignature,
+  razorpayErrorMessage,
   SELLER_SUBSCRIPTION_AMOUNT_CENTS,
   SELLER_SUBSCRIPTION_CURRENCY,
 } from '../razorpay.js';
@@ -166,7 +167,11 @@ router.post('/payment-method', requireSeller, async (req, res) => {
       subscription_amount_cents: SELLER_SUBSCRIPTION_AMOUNT_CENTS,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Could not initialize payment method setup' });
+    console.error('[seller/onboarding/payment-method]', razorpayErrorMessage(err), err);
+    res.status(500).json({
+      error: razorpayErrorMessage(err) || 'Could not initialize payment method setup',
+      message: razorpayErrorMessage(err) || 'Could not initialize payment method setup',
+    });
   }
 });
 
