@@ -23,6 +23,7 @@ import { AppError } from '../../api/middleware/error.middleware';
 import { requireOrgRole } from './org-access.service';
 import { OrganizationMemberRole } from './constants/org-rbac';
 import { logOrgAudit } from './audit-log.service';
+import { emitFindingConfirmed } from '../platform-events';
 
 /** The states a finding moves through. PENDING is the engine's default. */
 export type FindingStatus = 'PENDING' | 'CONFIRMED' | 'DISMISSED';
@@ -230,6 +231,21 @@ export const campaignFindingsService = {
         : `Match dismissed on ${finding.asset.originalFilename}`,
       detail: { findingId, url: finding.url, note: note ?? null },
     });
+
+    // Only a confirmation is announced. A dismissal is the team agreeing there
+    // is nothing there, and broadcasting that is how a badge becomes noise.
+    if (status === 'CONFIRMED') {
+      let host: string | null = null;
+      try { host = new URL(finding.url).hostname; } catch { host = null; }
+      await emitFindingConfirmed({
+        campaignId,
+        campaignName: '',
+        assetName: finding.asset.originalFilename,
+        host,
+        findingId: finding.id,
+        actorUserId,
+      });
+    }
 
     return {
       id: updated.id,

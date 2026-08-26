@@ -27,6 +27,7 @@ import { OrganizationMemberRole } from './constants/org-rbac';
 import { logOrgAudit } from './audit-log.service';
 import { createEvidenceRecord } from '../watermark/watermark.service';
 import { isSearchResultPageUrl } from '../crawler/url-sanitize';
+import { emitEvidenceCollected } from '../platform-events';
 
 /**
  * What a piece of evidence is, in words a non-forensic reader understands.
@@ -245,6 +246,17 @@ export const campaignEvidenceService = {
         body: `Evidence ${created.evidenceCode} collected (${input.evidenceType}).`,
       },
     });
+
+    if (incident.campaignId) {
+      await emitEvidenceCollected({
+        campaignId: incident.campaignId,
+        caseCode: incident.incidentCode,
+        evidenceCode: created.evidenceCode,
+        evidenceType: input.evidenceType,
+        actorUserId,
+        assigneeUserId: incident.assignedToUserId,
+      });
+    }
 
     return { id: created.id, code: created.evidenceCode };
   },

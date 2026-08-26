@@ -16,6 +16,7 @@ import { AppError } from '../../api/middleware/error.middleware';
 import { requireOrgRole } from './org-access.service';
 import { OrganizationMemberRole } from './constants/org-rbac';
 import { logOrgAudit } from './audit-log.service';
+import { emitCampaignMonitoringChanged } from '../platform-events';
 import {
   monitoringService, isMonitoringCrawlerEnabled, MATCH,
 } from '../crawler/monitoring.service';
@@ -377,6 +378,12 @@ export const campaignMonitoringService = {
       detail: { assetId, monitorRecordId },
     });
 
+    await emitCampaignMonitoringChanged({
+      campaignId, campaignName: '',
+      assetName: asset.originalFilename,
+      enabled: true, actorUserId,
+    });
+
     return { monitorRecordId, capability: await getDiscoveryCapability() };
   },
 
@@ -413,6 +420,12 @@ export const campaignMonitoringService = {
       entityType: 'campaign', entityId: campaignId,
       title: `Monitoring stopped for ${asset.originalFilename}`,
       detail: { assetId },
+    });
+
+    await emitCampaignMonitoringChanged({
+      campaignId, campaignName: '',
+      assetName: asset.originalFilename,
+      enabled: false, actorUserId,
     });
 
     return { stopped: count };

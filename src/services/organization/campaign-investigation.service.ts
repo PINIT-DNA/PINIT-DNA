@@ -26,6 +26,10 @@ import { AppError } from '../../api/middleware/error.middleware';
 import { requireOrgRole } from './org-access.service';
 import { OrganizationMemberRole } from './constants/org-rbac';
 import { logOrgAudit } from './audit-log.service';
+import {
+  emitInvestigationOpened, emitInvestigationAssigned,
+  emitInvestigationClosed, emitInvestigationReopened,
+} from '../platform-events';
 
 export type InvestigationStatus =
   | 'OPEN'
@@ -290,6 +294,16 @@ export const campaignInvestigationService = {
       detail: { caseCode: created.incidentCode, findingId: input.findingId ?? null, priority },
     });
 
+    await emitInvestigationOpened({
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      caseCode: created.incidentCode,
+      title,
+      priority,
+      assigneeUserId: input.assignedToUserId ?? null,
+      actorUserId,
+    });
+
     return shape(created);
   },
 
@@ -530,6 +544,18 @@ export const campaignInvestigationService = {
       });
     }
 
+    if (closing && incident.campaignId) {
+      await emitInvestigationClosed({
+        campaignId: incident.campaignId,
+        campaignName: '',
+        caseCode: incident.incidentCode,
+        title: incident.title ?? incident.incidentCode,
+        status: next,
+        actorUserId,
+        assigneeUserId: incident.assignedToUserId,
+      });
+    }
+
     return shape(updated);
   },
 
@@ -587,6 +613,17 @@ export const campaignInvestigationService = {
       });
     }
 
+    if (incident.campaignId) {
+      await emitInvestigationReopened({
+        campaignId: incident.campaignId,
+        caseCode: incident.incidentCode,
+        title: incident.title ?? incident.incidentCode,
+        reason: text,
+        actorUserId,
+        assigneeUserId: incident.assignedToUserId,
+      });
+    }
+
     return shape(updated);
   },
 
@@ -615,6 +652,16 @@ export const campaignInvestigationService = {
       data: { assignedToUserId: assigneeUserId },
     });
     await systemNote(incident.id, assigneeUserId ? `Assigned to ${label}.` : 'Assignment cleared.');
+
+    if (assigneeUserId && incident.campaignId) {
+      await emitInvestigationAssigned({
+        campaignId: incident.campaignId,
+        caseCode: incident.incidentCode,
+        title: incident.title ?? incident.incidentCode,
+        assigneeUserId,
+        actorUserId,
+      });
+    }
 
     return shape(updated);
   },

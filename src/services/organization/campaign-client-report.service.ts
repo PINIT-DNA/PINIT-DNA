@@ -34,6 +34,7 @@ import { AppError } from '../../api/middleware/error.middleware';
 import { requireOrgRole } from './org-access.service';
 import { OrganizationMemberRole } from './constants/org-rbac';
 import { logOrgAudit } from './audit-log.service';
+import { emitClientReportIssued, emitClientReportOpened } from '../platform-events';
 import { campaignEvidenceService, hashSnapshot } from './campaign-evidence.service';
 import {
   C, PAGE_W, PAGE_H, MARGIN, CONTENT_W,
@@ -515,6 +516,14 @@ export const campaignClientReportService = {
       detail: { reportCode: report.reportCode },
     });
 
+    await emitClientReportIssued({
+      campaignId: report.campaignId,
+      campaignName: parseSnapshot(report.snapshot)?.campaign.name ?? '',
+      reportCode: report.reportCode,
+      title: report.title,
+      actorUserId,
+    });
+
     return shapeForBusiness(updated, parseSnapshot(updated.snapshot));
   },
 
@@ -597,6 +606,7 @@ export const campaignClientReportService = {
       select: {
         id: true, status: true, expiresAt: true, snapshot: true,
         firstOpenedAt: true, openCount: true,
+        campaignId: true, reportCode: true, title: true, generatedByUserId: true,
       },
     });
     // One message for every failure. A client with a bad link learns that it
@@ -608,14 +618,28 @@ export const campaignClientReportService = {
     const snapshot = parseSnapshot(report.snapshot);
     if (!snapshot) throw new AppError(404, 'Report not found');
 
+    const isFirstOpen = !report.firstOpenedAt;
+
     await prisma.clientReport.update({
       where: { id: report.id },
       data: {
         openCount: { increment: 1 },
         lastOpenedAt: new Date(),
-        ...(report.firstOpenedAt ? {} : { firstOpenedAt: new Date() }),
+        ...(isFirstOpen ? { firstOpenedAt: new Date() } : {}),
       },
     });
+
+    // Only the first open, and only to whoever issued it — that is the person
+    // waiting to know it landed. A client rereading the report is not news, and
+    // the client is not a user of this system, so there is no actor to exclude.
+    if (isFirstOpen) {
+      await emitClientReportOpened({
+        campaignId: report.campaignId,
+        reportCode: report.reportCode,
+        title: report.title,
+        issuedByUserId: report.generatedByUserId,
+      });
+    }
 
     return snapshot;
   },
