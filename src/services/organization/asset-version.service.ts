@@ -19,6 +19,7 @@ import { AppError } from '../../api/middleware/error.middleware';
 import { requireOrgRole } from './org-access.service';
 import { OrganizationMemberRole } from './constants/org-rbac';
 import { logOrgAudit } from './audit-log.service';
+import { emitBusinessEvent } from '../platform-events/notification-policy';
 
 /**
  * Legal review transitions.
@@ -258,6 +259,19 @@ export const assetVersionService = {
         { assetId, versionId: created.id },
       );
     }
+
+    // A new version is a request for someone's time — the people responsible
+    // for this campaign's review, and never the person who just uploaded it.
+    await emitBusinessEvent('review.version_submitted', {
+      organizationId,
+      ...(asset.campaignId ? { campaignId: asset.campaignId } : {}),
+      assetId,
+      assetName: asset.originalFilename,
+      versionId: created.id,
+      versionNumber: created.versionNumber,
+      actorUserId,
+      ...(input.changeSummary ? { detail: input.changeSummary } : {}),
+    });
 
     return shape(created);
   },

@@ -19,8 +19,8 @@ import { AppError } from '../../api/middleware/error.middleware';
 import { requireOrgRole } from './org-access.service';
 import { OrganizationMemberRole } from './constants/org-rbac';
 import { logOrgAudit } from './audit-log.service';
+import { emitBusinessEvent } from '../platform-events/notification-policy';
 import { shareLinkService } from '../share/share-link.service';
-import { platformEvents } from '../platform-events';
 
 function newToken(): string {
   // Distinct prefix so a handover token is never mistaken for a share token.
@@ -264,6 +264,14 @@ export const campaignHandoverService = {
       detail: { handoverId: handover.id, assetIds },
     });
 
+    await emitBusinessEvent('handover.created', {
+      organizationId, campaignId,
+      handoverId: handover.id,
+      recipientLabel,
+      actorUserId,
+      detail: `${assets.length} final asset${assets.length === 1 ? '' : 's'}.`,
+    });
+
     return this.get(organizationId, actorUserId, campaignId, handover.id);
   },
 
@@ -329,6 +337,12 @@ export const campaignHandoverService = {
       detail: { handoverId, revokedLinks: tokens.length },
     });
 
+    await emitBusinessEvent('handover.revoked', {
+      organizationId, campaignId, handoverId,
+      recipientLabel: handover.recipientLabel,
+      actorUserId,
+    });
+
     return this.get(organizationId, actorUserId, campaignId, handoverId);
   },
 
@@ -375,26 +389,14 @@ export const campaignHandoverService = {
         detail: { handoverId },
       });
 
-      const owner = await prisma.campaign.findUnique({
-        where: { id: handover.campaignId },
-        select: { createdByUserId: true },
+      // First open only, and only to whoever sent it — that is the person
+      // waiting to know it landed. Re-opens are activity, handled by the
+      // handover's own openCount.
+      await emitBusinessEvent('handover.opened', {
+        campaignId: handover.campaignId,
+        handoverId: handover.id,
+        recipientLabel: handover.recipientLabel,
       });
-      if (owner) {
-        platformEvents.emit({
-          name: 'handover.opened',
-          category: 'sharing',
-          severity: 'success',
-          ownerUserId: owner.createdByUserId,
-          entityType: 'campaign',
-          entityId: handover.campaignId,
-          title: `${handover.recipientLabel} opened the handover`,
-          body: 'The final assets have been received.',
-          deepLink: `/business/campaigns/${handover.campaignId}?tab=rights`,
-          notificationType: 'HANDOVER_OPENED',
-          skipTimeline: true,
-          skipAudit: true,
-        });
-      }
     }
   },
 };

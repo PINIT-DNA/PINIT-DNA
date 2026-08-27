@@ -19,6 +19,7 @@ import { AppError } from '../../api/middleware/error.middleware';
 import { requireOrgRole } from './org-access.service';
 import { OrganizationMemberRole } from './constants/org-rbac';
 import { logOrgAudit } from './audit-log.service';
+import { emitBusinessEvent } from '../platform-events/notification-policy';
 
 /**
  * Statuses a change request may move between.
@@ -316,6 +317,28 @@ export const reviewCommentService = {
           : `Comment on ${version.originalFilename} (V${version.versionNumber})`,
       });
     }
+
+    // The comment's own kind decides the event. A change request is somebody
+    // being asked to redo work; a comment is not, and conflating them is how a
+    // badge stops meaning anything.
+    await emitBusinessEvent(
+      created.kind === 'CHANGE_REQUEST' ? 'review.change_requested' : 'review.comment_added',
+      {
+        organizationId,
+        ...(version.campaignId ? { campaignId: version.campaignId } : {}),
+        assetId: version.assetId,
+        assetName: version.originalFilename,
+        versionId,
+        versionNumber: version.versionNumber,
+        commentId: created.id,
+        actorUserId,
+        actorLabel: created.authorLabel,
+        detail: body.slice(0, 200),
+        // People named in the comment are addressed directly; the policy still
+        // filters them through the organization gate.
+        targetUserIds: mentions,
+      },
+    );
 
     return shape(created);
   },

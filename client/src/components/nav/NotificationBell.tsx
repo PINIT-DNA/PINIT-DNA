@@ -12,6 +12,29 @@ import {
   resolveNotificationDeepLink,
 } from '../../lib/notification-config';
 
+/**
+ * Split rows into Today and Earlier.
+ *
+ * Two buckets rather than a full date breakdown: the question a person opens
+ * the bell to answer is "is there anything new", and more headings than that
+ * just adds scrolling.
+ */
+function groupByDay(rows: NotificationItem[]): [string, NotificationItem[]][] {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+
+  const today: NotificationItem[] = [];
+  const earlier: NotificationItem[] = [];
+  for (const n of rows) {
+    (new Date(n.createdAt) >= startOfToday ? today : earlier).push(n);
+  }
+
+  const out: [string, NotificationItem[]][] = [];
+  if (today.length) out.push(['Today', today]);
+  if (earlier.length) out.push(['Earlier', earlier]);
+  return out;
+}
+
 export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -20,7 +43,9 @@ export function NotificationBell() {
   const navigate = useNavigate();
 
   const fetchNotifs = useCallback(() => {
-    api.get(`${API_BASE_URL}/notifications?limit=30`).then(r => {
+    // view=bell returns NOTIFICATION and ALERT only. Activity belongs in the
+    // dashboard timeline and must never raise a badge here.
+    api.get(`${API_BASE_URL}/notifications?limit=30&view=bell`).then(r => {
       const data = r.data as { notifications?: NotificationItem[]; unreadCount?: number };
       setNotifications(data.notifications ?? []);
       setUnreadCount(data.unreadCount ?? 0);
@@ -157,11 +182,19 @@ export function NotificationBell() {
             {notifications.length === 0 ? (
               <div className="py-12 text-center">
                 <Bell size={24} className="text-gray-600 mx-auto mb-2" />
-                <p className="text-xs text-gray-500">No notifications yet</p>
-                <p className="text-2xs text-gray-600 mt-1">Alerts appear when activity occurs on your assets</p>
+                <p className="text-xs text-gray-500">Nothing needs you right now</p>
+                <p className="text-2xs text-gray-600 mt-1 max-w-[13rem] mx-auto">
+                  You'll see something here when a person acts on work you're
+                  responsible for. Ordinary activity stays on the dashboard.
+                </p>
               </div>
             ) : (
-              notifications.map(n => {
+              groupByDay(notifications).map(([heading, rows]) => (
+                <div key={heading}>
+                  <p className="px-4 py-1.5 text-2xs font-semibold text-gray-500 bg-bg-elevated/60 sticky top-0">
+                    {heading}
+                  </p>
+                  {rows.map(n => {
                 const cfg = notificationTypeConfig(n.type);
                 const borderColor = NOTIFICATION_SEVERITY_BORDER[n.severity] ?? 'border-l-transparent';
                 return (
@@ -208,7 +241,9 @@ export function NotificationBell() {
                     </button>
                   </div>
                 );
-              })
+                  })}
+                </div>
+              ))
             )}
           </div>
 

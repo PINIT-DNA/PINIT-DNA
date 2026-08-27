@@ -45,16 +45,8 @@ export {
   emitTepCreated,
 } from './extended-events';
 export {
-  campaignAudience,
-  emitCampaignMonitoringChanged,
-  emitFindingConfirmed,
-  emitInvestigationOpened,
-  emitInvestigationAssigned,
-  emitInvestigationClosed,
-  emitInvestigationReopened,
-  emitEvidenceCollected,
-  emitClientReportIssued,
-  emitClientReportOpened,
-} from './campaign-events';
+  emitBusinessEvent, describeMatrix, EVENTS,
+} from './notification-policy';
+export type { NotificationClass, EventContext, BusinessEvent } from './notification-policy';
 export { realtimeHub } from './realtime-hub';
 export { preferenceKeyForNotificationType, USER_PREF_SELECT } from './preference-map';

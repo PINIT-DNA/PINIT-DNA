@@ -34,7 +34,7 @@ import { AppError } from '../../api/middleware/error.middleware';
 import { requireOrgRole } from './org-access.service';
 import { OrganizationMemberRole } from './constants/org-rbac';
 import { logOrgAudit } from './audit-log.service';
-import { emitClientReportIssued, emitClientReportOpened } from '../platform-events';
+import { emitBusinessEvent } from '../platform-events/notification-policy';
 import { campaignEvidenceService, hashSnapshot } from './campaign-evidence.service';
 import {
   C, PAGE_W, PAGE_H, MARGIN, CONTENT_W,
@@ -490,6 +490,15 @@ export const campaignClientReportService = {
       detail: { reportCode, evidenceCount: snapshot.evidence.length },
     });
 
+    await emitBusinessEvent('report.generated', {
+      organizationId,
+      campaignId: incident.campaignId,
+      reportId: report.id,
+      reportCode,
+      detail: title,
+      actorUserId,
+    });
+
     return shapeForBusiness(report, snapshot);
   },
 
@@ -516,11 +525,12 @@ export const campaignClientReportService = {
       detail: { reportCode: report.reportCode },
     });
 
-    await emitClientReportIssued({
+    await emitBusinessEvent('report.issued', {
+      organizationId,
       campaignId: report.campaignId,
-      campaignName: parseSnapshot(report.snapshot)?.campaign.name ?? '',
+      reportId: report.id,
       reportCode: report.reportCode,
-      title: report.title,
+      detail: report.title,
       actorUserId,
     });
 
@@ -633,11 +643,11 @@ export const campaignClientReportService = {
     // waiting to know it landed. A client rereading the report is not news, and
     // the client is not a user of this system, so there is no actor to exclude.
     if (isFirstOpen) {
-      await emitClientReportOpened({
+      await emitBusinessEvent('report.opened_by_client', {
         campaignId: report.campaignId,
+        reportId: report.id,
         reportCode: report.reportCode,
-        title: report.title,
-        issuedByUserId: report.generatedByUserId,
+        detail: report.title,
       });
     }
 

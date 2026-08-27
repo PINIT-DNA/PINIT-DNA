@@ -20,6 +20,7 @@ import { AppError } from '../../api/middleware/error.middleware';
 import { requireOrgRole } from './org-access.service';
 import { OrganizationMemberRole } from './constants/org-rbac';
 import { logOrgAudit } from './audit-log.service';
+import { emitBusinessEvent } from '../platform-events/notification-policy';
 import { shareLinkService } from '../share/share-link.service';
 
 export interface AccessGrant {
@@ -237,6 +238,16 @@ export const campaignAccessService = {
       detail: { memberId, assetIds: issued.map((i) => i.assetId) },
     });
 
+    // Activity, not a notification: granting access is a thing the team did on
+    // purpose a moment ago, so telling them about it is noise. It belongs in
+    // the record so anyone can see who can reach what.
+    await emitBusinessEvent('creator.access_granted', {
+      organizationId, campaignId,
+      recipientLabel: member.name ?? 'External creator',
+      actorUserId,
+      detail: `${issued.length} asset${issued.length === 1 ? '' : 's'}.`,
+    });
+
     return { issued, accessStatus: 'ACTIVE' as const };
   },
 
@@ -288,6 +299,17 @@ export const campaignAccessService = {
         ? `${member.name ?? 'External creator'} lost access to one asset`
         : `${member.name ?? 'External creator'} had all access revoked`,
       detail: { memberId, revokedLinks: revoked },
+    });
+
+    // Revocation IS worth a notification: it changes who can reach the work,
+    // and a mistaken revocation strands a creator mid-job.
+    await emitBusinessEvent('creator.access_revoked', {
+      organizationId, campaignId,
+      recipientLabel: member.name ?? 'External creator',
+      actorUserId,
+      detail: opts.assetId
+        ? 'Access to one asset was withdrawn.'
+        : `All access withdrawn (${revoked} link${revoked === 1 ? '' : 's'}).`,
     });
 
     return { revoked, remaining };

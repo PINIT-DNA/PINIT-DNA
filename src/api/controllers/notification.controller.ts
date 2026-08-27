@@ -18,8 +18,31 @@ export async function getNotifications(req: Request, res: Response, next: NextFu
     const sort = req.query.sort === 'severity' ? 'severity' : 'createdAt';
     const includeArchived = req.query.includeArchived === 'true';
 
+    /**
+     * Which class of row the caller wants.
+     *
+     *   bell     NOTIFICATION + ALERT — things a person must know or act on
+     *   activity ACTIVITY — the timeline; never badged
+     *   alerts   ALERT only
+     *   (unset)  everything, for the full notification page
+     *
+     * Rows written before the class existed are null, and are treated as
+     * NOTIFICATION so nothing that used to appear silently disappears.
+     */
+    const view = typeof req.query.view === 'string' ? req.query.view : undefined;
+    const NOTIFICATION_LIKE = { OR: [
+      { notificationClass: { in: ['NOTIFICATION', 'ALERT'] } },
+      { notificationClass: null },
+    ] };
+    const classWhere: Prisma.NotificationWhereInput =
+      view === 'bell' ? NOTIFICATION_LIKE
+      : view === 'activity' ? { notificationClass: 'ACTIVITY' }
+      : view === 'alerts' ? { notificationClass: 'ALERT' }
+      : {};
+
     const where: Prisma.NotificationWhereInput = {
       userId: userId(req),
+      ...classWhere,
       ...(unreadOnly ? { read: false } : {}),
       ...(category ? { category } : {}),
       ...(type ? { type } : {}),
@@ -38,23 +61,34 @@ export async function getNotifications(req: Request, res: Response, next: NextFu
       ? [{ severity: 'desc' }, { createdAt: 'desc' }]
       : [{ createdAt: 'desc' }];
 
-    const [notifications, unreadCount, total] = await Promise.all([
+    const [notifications, unreadCount, total, alertCount] = await Promise.all([
       prisma.notification.findMany({
         where,
         orderBy,
         take: limit,
         skip: offset,
       }),
+      // The badge counts bell-worthy rows only. Activity must never raise it.
       prisma.notification.count({
-        where: { userId: userId(req), read: false, archived: false },
+        where: {
+          userId: userId(req), read: false, archived: false,
+          ...NOTIFICATION_LIKE,
+        },
       }),
       prisma.notification.count({ where }),
+      prisma.notification.count({
+        where: {
+          userId: userId(req), read: false, archived: false,
+          notificationClass: 'ALERT',
+        },
+      }),
     ]);
 
     res.json({
       success: true,
       notifications,
       unreadCount,
+      alertCount,
       total,
       hasMore: offset + notifications.length < total,
     });

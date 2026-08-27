@@ -20,6 +20,18 @@ function severityForNotification(severity: PlatformEventInput['severity']): stri
   return severity;
 }
 
+/**
+ * Which of the three classes this row is.
+ *
+ * The policy puts it in the payload. Anything emitted outside the policy has no
+ * opinion and stays null — read as NOTIFICATION downstream, preserving the
+ * behaviour every pre-existing emitter already had.
+ */
+function classOf(event: PlatformEventInput): string | null {
+  const c = (event.payload as { notificationClass?: unknown } | undefined)?.notificationClass;
+  return typeof c === 'string' ? c : null;
+}
+
 export async function handleNotificationSubscriber(event: PlatformEventInput): Promise<void> {
   if (event.skipNotification || !event.ownerUserId) return;
 
@@ -91,6 +103,12 @@ export async function handleNotificationSubscriber(event: PlatformEventInput): P
         deepLink: event.deepLink,
         dedupeKey: event.dedupeKey,
         aggregateCount: 1,
+        // Set by notification-policy.ts, never by a call site. Events that
+        // predate the policy leave it null and are read as NOTIFICATION,
+        // which is how they already behaved.
+        notificationClass: classOf(event),
+        entityType: event.entityType ?? null,
+        entityId: event.entityId ?? null,
       },
     });
 

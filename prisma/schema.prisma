@@ -1046,12 +1046,33 @@ model Notification {
   deepLink       String?
   dedupeKey      String?
   aggregateCount Int      @default(1)
+
+  /// What this row IS, which decides where it surfaces:
+  ///
+  ///   ACTIVITY      something happened and is worth a timeline entry. No badge.
+  ///                 "The client opened the review link."
+  ///   NOTIFICATION  someone specific needs to know, and probably to act.
+  ///                 "Adhureddy requested changes to Version 2."
+  ///   ALERT         something is wrong and needs attention now.
+  ///                 "A confirmed external copy of Asset Y was detected."
+  ///
+  /// Nullable because every row written before this existed predates the
+  /// distinction; those are read as NOTIFICATION, which is how they already
+  /// behaved. Set from notification-policy.ts and never from a call site.
+  notificationClass String?
+
+  /// The thing this is about, so a click can land on it rather than a list page.
+  entityType     String?
+  entityId       String?
+
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, read])
   @@index([userId, createdAt])
   @@index([userId, dedupeKey])
   @@index([userId, archived])
+  @@index([userId, notificationClass, read])
+  @@index([entityType, entityId])
   @@map("notifications")
 }
 

@@ -20,7 +20,7 @@ import type { ApprovalDecision } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../../api/middleware/error.middleware';
 import { logOrgAudit } from '../organization/audit-log.service';
-import { platformEvents } from '../platform-events';
+import { emitBusinessEvent } from '../platform-events/notification-policy';
 import { resolveReviewContext } from './share-review.service';
 
 /** Statuses a version may be decided from. */
@@ -289,33 +289,24 @@ async function record(input: {
     );
   }
 
-  // Notify the team through the existing event engine rather than a second
-  // notification path. skipTimeline/skipAudit because the line above already
-  // wrote the campaign-visible record.
-  const owner = await prisma.asset.findUnique({
-    where: { id: input.assetId },
-    select: { ownerUserId: true },
-  });
-  if (owner) {
-    platformEvents.emit({
-      name: input.decision === 'APPROVED' ? 'version.approved' : 'version.changes_requested',
-      category: 'sharing',
-      severity: input.decision === 'APPROVED' ? 'success' : 'warning',
-      ownerUserId: owner.ownerUserId,
-      actorUserId: input.approvedByUserId ?? undefined,
-      entityType: 'asset_version',
-      entityId: input.versionId,
-      title,
-      body: input.comment ?? (input.decision === 'APPROVED'
-        ? 'No further changes were requested.'
-        : 'Changes were requested.'),
-      deepLink: `/business/campaigns/${input.campaignId}?tab=approvals`,
-      notificationType: input.decision === 'APPROVED' ? 'VERSION_APPROVED' : 'VERSION_CHANGES_REQUESTED',
-      fileName: input.filename,
-      skipTimeline: true,
-      skipAudit: true,
-    });
-  }
+  // The client is not a user of this system, so there is no actor to exclude —
+  // the whole responsible team should hear it. Recipients come from the
+  // campaign relationship, not from asset.ownerUserId, which was one arbitrary
+  // person and missed everyone else working the review.
+  await emitBusinessEvent(
+    input.decision === 'APPROVED' ? 'review.version_approved' : 'review.change_requested',
+    {
+      organizationId: input.organizationId,
+      campaignId: input.campaignId,
+      assetId: input.assetId,
+      assetName: input.filename,
+      versionId: input.versionId,
+      versionNumber: input.versionNumber,
+      actorUserId: input.approvedByUserId ?? null,
+      actorLabel: input.approverLabel,
+      ...(input.comment ? { detail: input.comment } : {}),
+    },
+  );
 
   return { approval: shape(created), reviewStatus: nextStatus };
 }

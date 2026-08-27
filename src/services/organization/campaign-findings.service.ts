@@ -23,7 +23,7 @@ import { AppError } from '../../api/middleware/error.middleware';
 import { requireOrgRole } from './org-access.service';
 import { OrganizationMemberRole } from './constants/org-rbac';
 import { logOrgAudit } from './audit-log.service';
-import { emitFindingConfirmed } from '../platform-events';
+import { emitBusinessEvent } from '../platform-events/notification-policy';
 
 /** The states a finding moves through. PENDING is the engine's default. */
 export type FindingStatus = 'PENDING' | 'CONFIRMED' | 'DISMISSED';
@@ -237,11 +237,21 @@ export const campaignFindingsService = {
     if (status === 'CONFIRMED') {
       let host: string | null = null;
       try { host = new URL(finding.url).hostname; } catch { host = null; }
-      await emitFindingConfirmed({
-        campaignId,
-        campaignName: '',
+      await emitBusinessEvent('finding.confirmed', {
+        organizationId, campaignId,
+        assetId: finding.asset.id,
         assetName: finding.asset.originalFilename,
-        host,
+        findingId: finding.id,
+        actorUserId,
+        ...(host ? { host } : {}),
+      });
+    }
+
+    if (status === 'DISMISSED') {
+      await emitBusinessEvent('finding.dismissed', {
+        organizationId, campaignId,
+        assetId: finding.asset.id,
+        assetName: finding.asset.originalFilename,
         findingId: finding.id,
         actorUserId,
       });

@@ -26,10 +26,7 @@ import { AppError } from '../../api/middleware/error.middleware';
 import { requireOrgRole } from './org-access.service';
 import { OrganizationMemberRole } from './constants/org-rbac';
 import { logOrgAudit } from './audit-log.service';
-import {
-  emitInvestigationOpened, emitInvestigationAssigned,
-  emitInvestigationClosed, emitInvestigationReopened,
-} from '../platform-events';
+import { emitBusinessEvent } from '../platform-events/notification-policy';
 
 export type InvestigationStatus =
   | 'OPEN'
@@ -294,13 +291,14 @@ export const campaignInvestigationService = {
       detail: { caseCode: created.incidentCode, findingId: input.findingId ?? null, priority },
     });
 
-    await emitInvestigationOpened({
+    await emitBusinessEvent('investigation.updated', {
+      organizationId,
       campaignId: campaign.id,
       campaignName: campaign.name,
+      investigationId: created.id,
       caseCode: created.incidentCode,
-      title,
-      priority,
-      assigneeUserId: input.assignedToUserId ?? null,
+      detail: title,
+      status: 'opened',
       actorUserId,
     });
 
@@ -545,14 +543,14 @@ export const campaignInvestigationService = {
     }
 
     if (closing && incident.campaignId) {
-      await emitInvestigationClosed({
+      await emitBusinessEvent('investigation.updated', {
+        organizationId,
         campaignId: incident.campaignId,
-        campaignName: '',
+        investigationId: incident.id,
         caseCode: incident.incidentCode,
-        title: incident.title ?? incident.incidentCode,
+        detail: incident.title ?? incident.incidentCode,
         status: next,
         actorUserId,
-        assigneeUserId: incident.assignedToUserId,
       });
     }
 
@@ -614,13 +612,14 @@ export const campaignInvestigationService = {
     }
 
     if (incident.campaignId) {
-      await emitInvestigationReopened({
+      await emitBusinessEvent('investigation.updated', {
+        organizationId,
         campaignId: incident.campaignId,
+        investigationId: incident.id,
         caseCode: incident.incidentCode,
-        title: incident.title ?? incident.incidentCode,
-        reason: text,
+        detail: incident.title ?? incident.incidentCode,
+        status: 'reopened',
         actorUserId,
-        assigneeUserId: incident.assignedToUserId,
       });
     }
 
@@ -654,12 +653,15 @@ export const campaignInvestigationService = {
     await systemNote(incident.id, assigneeUserId ? `Assigned to ${label}.` : 'Assignment cleared.');
 
     if (assigneeUserId && incident.campaignId) {
-      await emitInvestigationAssigned({
+      await emitBusinessEvent('investigation.assigned', {
+        organizationId,
         campaignId: incident.campaignId,
+        investigationId: incident.id,
         caseCode: incident.incidentCode,
-        title: incident.title ?? incident.incidentCode,
-        assigneeUserId,
+        detail: incident.title ?? incident.incidentCode,
         actorUserId,
+        // Addressed to the assignee alone; the policy still checks org membership.
+        targetUserIds: [assigneeUserId],
       });
     }
 
