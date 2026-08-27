@@ -301,7 +301,7 @@ export function ClientIntelligencePanel({ clientId }: { clientId: string }) {
   if (!data) return null;
 
   const t = data.totals;
-  const operational = data.discovery?.health === 'OPERATIONAL';
+  const operational = data.discovery?.anyProviderOperational === true;
 
   return (
     <div className="space-y-4">
@@ -325,9 +325,11 @@ export function ClientIntelligencePanel({ clientId }: { clientId: string }) {
               <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-2.5 py-2 mb-3">
                 <p className="text-2xs font-semibold text-amber-400 inline-flex items-center gap-1.5">
                   <ShieldQuestion size={11} />
-                  External discovery: {data.discovery.health.replace(/_/g, ' ').toLowerCase()}
+                  {data.discovery.crawlerEnabled
+                    ? 'External discovery is not producing results'
+                    : 'External discovery is not running'}
                 </p>
-                <p className="text-2xs text-gray-400 mt-0.5">{data.discovery.reason}</p>
+                <p className="text-2xs text-gray-400 mt-0.5">{data.discovery.summary}</p>
                 <p className="text-2xs text-gray-500 mt-1">
                   Read the findings figure with that in mind: nothing found is not the
                   same as nothing out there.

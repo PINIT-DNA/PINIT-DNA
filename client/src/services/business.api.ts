@@ -1158,9 +1158,16 @@ export interface ClientIntelligence {
     assets: number; withDna: number; withVault: number; withCertificate: number;
     monitored: number; findings: number; findingsConfirmed: number; findingsNeedsReview: number;
   };
-  /** Carried up unchanged — it decides how a findings total should be read. */
+  /**
+   * Carried up unchanged from campaignIntelligenceService, which narrows the
+   * full capability to these four fields. It does NOT carry `health` — reading
+   * a field that is not there is what broke this panel.
+   */
   discovery: {
-    health: string; reason: string; providers?: { name: string; configured: boolean }[];
+    crawlerEnabled: boolean;
+    anyProviderOperational: boolean;
+    summary: string;
+    lastMatchAt: string | null;
   } | null;
 }
 
