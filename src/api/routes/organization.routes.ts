@@ -16,6 +16,12 @@ organizationRouter.get('/team/members', requireAuth, organizationController.list
 organizationRouter.get('/team/invites', requireAuth, organizationController.listInvites);
 organizationRouter.post('/team/invite', requireAuth, organizationController.inviteMember);
 organizationRouter.post('/team/accept', requireAuth, organizationController.acceptInvite);
+// Confirm a Pinit account exists before inviting it — name only, nothing more.
+organizationRouter.get('/team/lookup-pinit-id', requireAuth, organizationController.lookupPinitId);
+// Business members not yet on a given campaign, for the picker.
+organizationRouter.get('/team/assignable', requireAuth, organizationController.listAssignableMembers);
+// Place an existing business member onto a campaign — no invitation needed.
+organizationRouter.post('/team/campaign-members', requireAuth, organizationController.addMemberToCampaign);
 organizationRouter.delete('/team/invites/:id', requireAuth, organizationController.revokeInvite);
 organizationRouter.patch('/team/members/:id/role', requireAuth, organizationController.updateMemberRole);
 organizationRouter.delete('/team/members/:id', requireAuth, organizationController.removeMember);

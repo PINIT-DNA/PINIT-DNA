@@ -156,16 +156,55 @@ export const organizationController = {
     }
   },
 
+  async lookupPinitId(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = getAuthUserId(req);
+      const orgId = await orgIdFor(req);
+      const account = await teamService.lookupByPinitId(
+        orgId, userId, String(req.query.pinitId ?? ''));
+      res.json({ success: true, account });
+    } catch (err) { next(err); }
+  },
+
+  async listAssignableMembers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = getAuthUserId(req);
+      const orgId = await orgIdFor(req);
+      const result = await teamService.listAssignableMembers(
+        orgId, userId, String(req.query.campaignId ?? ''));
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async addMemberToCampaign(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = getAuthUserId(req);
+      const orgId = await orgIdFor(req);
+      const { campaignId, memberUserId, campaignRole } = (req.body ?? {}) as {
+        campaignId?: string; memberUserId?: string; campaignRole?: string;
+      };
+      const member = await teamService.addExistingMemberToCampaign(
+        orgId, userId, campaignId ?? '', memberUserId ?? '', campaignRole ?? 'CONTRIBUTOR');
+      res.status(201).json({ success: true, member });
+    } catch (err) { next(err); }
+  },
+
   async inviteMember(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = getAuthUserId(req);
       const orgId = await orgIdFor(req);
-      const { email, inviteeShortId, role } = req.body as {
+      const { email, inviteeShortId, role, campaignId, campaignRole } = req.body as {
         email?: string;
         inviteeShortId?: string;
         role?: OrganizationMemberRole;
+        campaignId?: string;
+        campaignRole?: string;
       };
-      const invite = await teamService.inviteMember(orgId, userId, { email, inviteeShortId, role });
+      const invite = await teamService.inviteMember(orgId, userId, {
+        email, inviteeShortId, role,
+        ...(campaignId ? { campaignId } : {}),
+        ...(campaignRole ? { campaignRole } : {}),
+      });
       res.json({ success: true, invite });
     } catch (err) {
       next(err);

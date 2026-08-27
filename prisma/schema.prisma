@@ -760,10 +760,21 @@ model OrganizationInvite {
   expiresAt       DateTime
   acceptedAt      DateTime?
   acceptedUserId  String?
+
+  /// Optional campaign binding.
+  ///
+  /// An invite without these is what it always was: join the organization.
+  /// With them, accepting ALSO places the person on that campaign in that role,
+  /// in one step, so an owner does not have to invite and then separately
+  /// remember to assign. Nullable, so every existing invite stays valid.
+  campaignId      String?
+  campaignRole    String?
+
   organization    Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, status])
   @@index([email])
+  @@index([campaignId, status])
   @@map("organization_invites")
 }
 

@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma';
 import { OrganizationMemberRole, type OrganizationMemberRole as OrgRole } from './constants/org-rbac';
 import { requireOrgRole } from './org-access.service';
 import { logOrgAudit } from './audit-log.service';
+import { isCampaignRole } from './constants/campaign-roles';
 import { platformEvents } from '../platform-events/platform-event.engine';
 import { entitlementService } from '../subscription/entitlements/entitlement.service';
 
@@ -26,8 +27,191 @@ async function ensureOwnerMember(organizationId: string, ownerUserId: string) {
   });
 }
 
+/**
+ * Put an accepted invitee onto the campaign the invite named.
+ *
+ * Only ever called AFTER organization membership exists, so campaign membership
+ * can never be the thing that grants someone entry to a business. Idempotent:
+ * accepting twice, or accepting when already on the campaign, changes nothing.
+ *
+ * The row is written with isExternal false and a real userId — that is what
+ * makes this person a team member rather than an external collaborator, and it
+ * is the distinction every downstream audience query relies on.
+ */
+async function placeOnCampaign(
+  invite: { campaignId: string | null; campaignRole: string | null; organizationId: string; invitedByUserId: string },
+  userId: string,
+): Promise<void> {
+  if (!invite.campaignId) return;
+
+  // Re-check the campaign still belongs to the organization. An invite can sit
+  // for days, and a campaign can be moved or deleted in that time.
+  const campaign = await prisma.campaign.findFirst({
+    where: { id: invite.campaignId, organizationId: invite.organizationId },
+    select: { id: true },
+  });
+  if (!campaign) return;
+
+  const existing = await prisma.campaignMember.findUnique({
+    where: { campaignId_userId: { campaignId: campaign.id, userId } },
+    select: { id: true },
+  });
+  if (existing) return;
+
+  await prisma.campaignMember.create({
+    data: {
+      campaignId: campaign.id,
+      userId,
+      isExternal: false,
+      roleLabel: invite.campaignRole,
+      addedByUserId: invite.invitedByUserId,
+      // Internal people reach assets through their organization role, so the
+      // external access columns stay at their defaults and are never consulted.
+    },
+  });
+}
+
 export const teamService = {
   ensureOwnerMember,
+
+  /**
+   * Look up a Pinit account before inviting it.
+   *
+   * Answers one question — "is this a real account, and whose?" — so the person
+   * sending an invitation can confirm the name before it goes out. A typo in a
+   * Pinit ID otherwise means inviting a stranger.
+   *
+   * Returns the display name and the ID that was matched, and nothing else. No
+   * email, no organizations they belong to, no activity: this is reachable by
+   * any manager in any business, so it must reveal only what is needed to
+   * confirm the right person.
+   */
+  async lookupByPinitId(organizationId: string, actorUserId: string, pinitId: string) {
+    await requireOrgRole(actorUserId, organizationId, OrganizationMemberRole.MANAGER);
+
+    const shortId = pinitId?.trim();
+    if (!shortId) throw Object.assign(new Error('Enter a Pinit ID'), { status: 400 });
+
+    const user = await prisma.user.findUnique({
+      where: { shortId },
+      select: { id: true, shortId: true, fullName: true },
+    });
+    // Same answer whether the ID is malformed or simply nobody's, so this
+    // cannot be used to enumerate which IDs exist.
+    if (!user) {
+      throw Object.assign(new Error('No Pinit account with that ID'), { status: 404 });
+    }
+
+    const member = await prisma.organizationMember.findUnique({
+      where: { organizationId_userId: { organizationId, userId: user.id } },
+      select: { role: true },
+    });
+    const pending = await prisma.organizationInvite.findFirst({
+      where: { organizationId, inviteeShortId: shortId, status: 'PENDING' },
+      select: { id: true },
+    });
+
+    return {
+      pinitId: user.shortId,
+      name: user.fullName ?? 'Pinit user',
+      alreadyMember: Boolean(member),
+      memberRole: member?.role ?? null,
+      invitePending: Boolean(pending),
+    };
+  },
+
+  /**
+   * Put an existing business member onto a campaign.
+   *
+   * No invitation: they already belong to the organization, so there is nothing
+   * for them to accept. This is the everyday case — staffing a campaign from
+   * people who already work here.
+   */
+  async addExistingMemberToCampaign(
+    organizationId: string,
+    actorUserId: string,
+    campaignId: string,
+    memberUserId: string,
+    campaignRole: string,
+  ) {
+    await requireOrgRole(actorUserId, organizationId, OrganizationMemberRole.MANAGER);
+
+    const campaign = await prisma.campaign.findFirst({
+      where: { id: campaignId, organizationId }, select: { id: true, name: true },
+    });
+    if (!campaign) throw Object.assign(new Error('Campaign not found'), { status: 404 });
+
+    // The person must already be in THIS organization. Without this check a
+    // caller could place any user id onto their campaign.
+    const member = await prisma.organizationMember.findUnique({
+      where: { organizationId_userId: { organizationId, userId: memberUserId } },
+      select: { userId: true },
+    });
+    if (!member) {
+      throw Object.assign(new Error('That person is not in your organization'), { status: 400 });
+    }
+
+    if (!isCampaignRole(campaignRole)) {
+      throw Object.assign(new Error('Unknown campaign role'), { status: 400 });
+    }
+
+    const existing = await prisma.campaignMember.findUnique({
+      where: { campaignId_userId: { campaignId, userId: memberUserId } },
+      select: { id: true },
+    });
+    if (existing) {
+      throw Object.assign(new Error('They are already on this campaign'), { status: 409 });
+    }
+
+    const created = await prisma.campaignMember.create({
+      data: {
+        campaignId, userId: memberUserId, isExternal: false,
+        roleLabel: campaignRole, addedByUserId: actorUserId,
+      },
+      select: { id: true },
+    });
+
+    const user = await prisma.user.findUnique({
+      where: { id: memberUserId }, select: { fullName: true, shortId: true },
+    });
+
+    await logOrgAudit({
+      organizationId, actorUserId,
+      action: 'CAMPAIGN_MEMBER_ADDED',
+      entityType: 'campaign', entityId: campaignId,
+      title: `${user?.fullName ?? 'A team member'} added to ${campaign.name}`,
+      detail: { memberUserId, pinitId: user?.shortId, campaignRole },
+    });
+
+    return { id: created.id, name: user?.fullName ?? 'Team member', pinitId: user?.shortId ?? null };
+  },
+
+  /** Business members not yet on this campaign, for the picker. */
+  async listAssignableMembers(organizationId: string, actorUserId: string, campaignId: string) {
+    await requireOrgRole(actorUserId, organizationId, OrganizationMemberRole.VIEWER);
+
+    const [members, onCampaign] = await Promise.all([
+      prisma.organizationMember.findMany({
+        where: { organizationId },
+        select: { userId: true, role: true, user: { select: { fullName: true, shortId: true } } },
+      }),
+      prisma.campaignMember.findMany({
+        where: { campaignId, userId: { not: null } }, select: { userId: true },
+      }),
+    ]);
+    const taken = new Set(onCampaign.map((c) => c.userId));
+
+    return {
+      members: members
+        .filter((m) => !taken.has(m.userId))
+        .map((m) => ({
+          userId: m.userId,
+          name: m.user.fullName ?? 'Team member',
+          pinitId: m.user.shortId,
+          orgRole: m.role,
+        })),
+    };
+  },
 
   async listMembers(organizationId: string, actorUserId: string) {
     await requireOrgRole(actorUserId, organizationId, OrganizationMemberRole.VIEWER);
@@ -76,7 +260,11 @@ export const teamService = {
   async inviteMember(
     organizationId: string,
     actorUserId: string,
-    input: { email?: string; inviteeShortId?: string; role?: OrgRole },
+    input: {
+      email?: string; inviteeShortId?: string; role?: OrgRole;
+      /** Bind the invite to a campaign so accepting also places them on it. */
+      campaignId?: string; campaignRole?: string;
+    },
   ) {
     await requireOrgRole(actorUserId, organizationId, OrganizationMemberRole.MANAGER);
 
@@ -109,6 +297,22 @@ export const teamService = {
       if (existing) throw Object.assign(new Error('User is already a member'), { status: 409 });
     }
 
+    // A campaign binding must be a campaign of THIS organization, or an invite
+    // could be used to place someone on work that is not the inviter's to staff.
+    let campaignId: string | null = null;
+    let campaignRole: string | null = null;
+    if (input.campaignId) {
+      const campaign = await prisma.campaign.findFirst({
+        where: { id: input.campaignId, organizationId }, select: { id: true },
+      });
+      if (!campaign) throw Object.assign(new Error('Campaign not found'), { status: 404 });
+      if (input.campaignRole && !isCampaignRole(input.campaignRole)) {
+        throw Object.assign(new Error('Unknown campaign role'), { status: 400 });
+      }
+      campaignId = campaign.id;
+      campaignRole = input.campaignRole ?? 'CONTRIBUTOR';
+    }
+
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + INVITE_TTL_DAYS);
 
@@ -121,6 +325,7 @@ export const teamService = {
         token: generateInviteToken(),
         invitedByUserId: actorUserId,
         expiresAt,
+        ...(campaignId ? { campaignId, campaignRole: campaignRole ?? 'CONTRIBUTOR' } : {}),
       },
     });
 
@@ -188,7 +393,13 @@ export const teamService = {
         where: { id: invite.id },
         data: { status: 'ACCEPTED', acceptedAt: new Date(), acceptedUserId: userId },
       });
-      return { organizationId: invite.organizationId, role: existing.role, alreadyMember: true };
+      await placeOnCampaign(invite, userId);
+      return {
+        organizationId: invite.organizationId,
+        role: existing.role,
+        alreadyMember: true,
+        campaignId: invite.campaignId,
+      };
     }
 
     await prisma.$transaction([
@@ -206,6 +417,8 @@ export const teamService = {
       }),
     ]);
 
+    await placeOnCampaign(invite, userId);
+
     await logOrgAudit({
       organizationId: invite.organizationId,
       actorUserId: userId,
@@ -215,7 +428,12 @@ export const teamService = {
       title: 'New member joined the organization',
     });
 
-    return { organizationId: invite.organizationId, role: invite.role, alreadyMember: false };
+    return {
+      organizationId: invite.organizationId,
+      role: invite.role,
+      alreadyMember: false,
+      campaignId: invite.campaignId,
+    };
   },
 
   async revokeInvite(organizationId: string, actorUserId: string, inviteId: string) {
