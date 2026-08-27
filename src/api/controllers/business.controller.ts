@@ -895,4 +895,23 @@ export const businessController = {
       res.json({ success: true, ...result });
     } catch (err) { next(err); }
   },
+  async clientAssets(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { clientAggregateService } = await import('../../services/organization/client-aggregate.service');
+      const result = await clientAggregateService.assets(
+        organizationId, userId, req.params.clientId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async clientPeople(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { clientAggregateService } = await import('../../services/organization/client-aggregate.service');
+      const result = await clientAggregateService.people(
+        organizationId, userId, req.params.clientId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
 };

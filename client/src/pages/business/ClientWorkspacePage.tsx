@@ -14,7 +14,10 @@ import {
   ClientDeliveriesPanel, ClientRightsPanel, ClientActivityPanel, ClientIntelligencePanel,
 } from '../../components/business/clients/ClientRollups';
 import {
-  BusinessPage, Breadcrumbs, SectionCard, SkeletonRows, TabBar, ComingSoonPanel, PageError,
+  ClientAssetsPanel, ClientPeoplePanel,
+} from '../../components/business/clients/ClientAssetsPeople';
+import {
+  BusinessPage, Breadcrumbs, SectionCard, SkeletonRows, TabBar, PageError,
 } from '../../components/business/clients/BusinessKit';
 import { ClientFormModal } from '../../components/business/clients/ClientFormModal';
 import { CampaignFormModal } from '../../components/business/clients/CampaignFormModal';
@@ -169,23 +172,9 @@ export function ClientWorkspacePage() {
         </SectionCard>
       )}
 
-      {tab === 'assets' && (
-        <SectionCard title="Assets" icon={Archive}>
-          <ComingSoonPanel
-            title="Assets roll up from campaigns"
-            detail="Open a campaign to see and add its protected assets. A combined client-wide asset view arrives with the next phase."
-          />
-        </SectionCard>
-      )}
+      {tab === 'assets' && <ClientAssetsPanel clientId={clientId} />}
 
-      {tab === 'people' && (
-        <SectionCard title="People" icon={Users}>
-          <ComingSoonPanel
-            title="People are assigned per campaign"
-            detail="Team members and external creators are connected inside each campaign's People tab."
-          />
-        </SectionCard>
-      )}
+      {tab === 'people' && <ClientPeoplePanel clientId={clientId} />}
 
       {tab === 'deliveries' && <ClientDeliveriesPanel clientId={clientId} />}
 

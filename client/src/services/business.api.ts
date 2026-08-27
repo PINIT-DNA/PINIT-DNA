@@ -1133,7 +1133,8 @@ export interface ClientRights {
   exchangeReachable: boolean;
   assets: {
     assetId: string; filename: string; assetType: string | null; addedAt: string;
-    rights?: { state?: string; label?: string; detail?: string };
+    /** Top-level on the campaign service's payload, not nested under `rights`. */
+    rightsState?: string;
     campaign: { id: string; name: string };
   }[];
   counts: { total: number; byState: Record<string, number> };
@@ -1184,5 +1185,71 @@ export async function getClientActivity(clientId: string): Promise<ClientActivit
 export async function getClientIntelligence(clientId: string): Promise<ClientIntelligence> {
   const { data } = await api.get<{ success: boolean } & ClientIntelligence>(
     `${BASE}/clients/${clientId}/intelligence`);
+  return data;
+}
+
+// ── Client → Assets and People ───────────────────────────────────────────────
+// Both sum the campaign-level services. No second asset or membership store.
+
+export interface ClientAssets {
+  clientName: string;
+  campaignCount: number;
+  partial: boolean;
+  assets: {
+    assetId: string;
+    filename: string;
+    assetType: string | null;
+    addedAt: string;
+    campaign: { id: string; name: string };
+    protection: { hasDna: boolean; hasVault: boolean; hasCertificate: boolean; complete: boolean };
+    review: {
+      currentVersion: number | null; versionCount: number;
+      reviewStatus: string | null; isApproved: boolean;
+    };
+    rightsState: string;
+    handover: { delivered: boolean; accessLive: boolean };
+    /** Opens the asset inside its own campaign. */
+    deepLink: string;
+  }[];
+  byCampaign: { id: string; name: string; count: number }[];
+  counts: {
+    total: number; fullyProtected: number; approved: number;
+    delivered: number; deliveredLive: number;
+  };
+}
+
+export interface ClientPeople {
+  clientName: string;
+  campaignCount: number;
+  partial: boolean;
+  clientContact: { name: string; contactName: string | null; contactEmail: string | null } | null;
+  people: {
+    key: string;
+    kind: 'internal' | 'external';
+    name: string;
+    shortId: string | null;
+    email: string | null;
+    orgRole: string | null;
+    roleLabels: string[];
+    campaigns: { id: string; name: string; accessStatus: string; roleLabel: string | null }[];
+    assets: { assetId: string; filename: string; campaignId: string }[];
+    campaignCount: number;
+    assetCount: number;
+    hasLiveAccess: boolean;
+    lastAccessAt: string | null;
+    addedAt: string;
+  }[];
+  counts: { total: number; internal: number; external: number; externalLive: number };
+}
+
+export async function getClientAssets(clientId: string): Promise<ClientAssets> {
+  const { data } = await api.get<{ success: boolean } & ClientAssets>(
+    `${BASE}/clients/${clientId}/assets`);
+  return data;
+}
+
+export async function getClientPeople(clientId: string): Promise<ClientPeople> {
+  const { data } = await api.get<{ success: boolean } & ClientPeople>(
+    `${BASE}/clients/${clientId}/people`);
   return data;
 }

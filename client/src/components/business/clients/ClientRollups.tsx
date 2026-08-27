@@ -239,8 +239,8 @@ export function ClientRightsPanel({ clientId }: { clientId: string }) {
                   <p className="text-2xs text-gray-500">{a.campaign.name}</p>
                 </div>
                 <span className={cn('text-2xs font-semibold whitespace-nowrap',
-                  STATE_TONE[a.rights?.state ?? 'UNKNOWN'] ?? 'text-gray-500')}>
-                  {a.rights?.label ?? a.rights?.state ?? 'Not listed'}
+                  STATE_TONE[a.rightsState ?? 'UNKNOWN'] ?? 'text-gray-500')}>
+                  {(a.rightsState ?? 'Not listed').toLowerCase()}
                 </span>
               </li>
             ))}

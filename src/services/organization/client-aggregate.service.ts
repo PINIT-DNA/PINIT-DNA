@@ -23,6 +23,7 @@ import { OrganizationMemberRole } from './constants/org-rbac';
 import { campaignHandoverService } from './campaign-handover.service';
 import { campaignRightsService } from './campaign-rights.service';
 import { campaignIntelligenceService } from './campaign-intelligence.service';
+import { campaignAccessService } from './campaign-access.service';
 
 /** Campaigns are the unit of work; a client view is the sum of theirs. */
 async function clientCampaigns(organizationId: string, clientId: string) {
@@ -106,6 +107,202 @@ export const clientAggregateService = {
   },
 
   /**
+   * Every asset across this client's campaigns.
+   *
+   * Reuses campaignRightsService, which already assembles protection, review and
+   * licence state per asset, and campaignHandoverService for what has actually
+   * been delivered. No second asset query and no second asset store — Asset
+   * stays the only record, read through the services that already interpret it.
+   */
+  async assets(organizationId: string, actorUserId: string, clientId: string) {
+    await requireOrgRole(actorUserId, organizationId, OrganizationMemberRole.VIEWER);
+    const { client, campaigns } = await clientCampaigns(organizationId, clientId);
+
+    const [rights, handovers] = await Promise.all([
+      acrossCampaigns(campaigns, (id) =>
+        campaignRightsService.listForCampaign(organizationId, actorUserId, id)),
+      acrossCampaigns(campaigns, (id) =>
+        campaignHandoverService.list(organizationId, actorUserId, id)),
+    ]);
+
+    // Which assets have gone to the client, and whether that access still works.
+    const deliveredLive = new Set<string>();
+    const deliveredEver = new Set<string>();
+    const now = Date.now();
+    for (const { value } of handovers.results) {
+      for (const h of value) {
+        const live = !h.revokedAt && (!h.expiresAt || new Date(h.expiresAt).getTime() > now);
+        for (const a of h.assets) {
+          deliveredEver.add(a.assetId);
+          if (live) deliveredLive.add(a.assetId);
+        }
+      }
+    }
+
+    const assets = rights.results.flatMap(({ campaign, value }) =>
+      value.assets.map((a) => {
+        const row = a as unknown as {
+          assetId: string; filename: string; assetType: string | null; addedAt: string;
+          protection: { hasDna: boolean; hasVault: boolean; certificateId: string | null };
+          review: { currentVersion: number | null; reviewStatus: string | null; versionCount: number };
+          rightsState?: string;
+        };
+        return {
+          assetId: row.assetId,
+          filename: row.filename,
+          assetType: row.assetType,
+          addedAt: row.addedAt,
+          campaign: { id: campaign.id, name: campaign.name },
+          protection: {
+            hasDna: row.protection.hasDna,
+            hasVault: row.protection.hasVault,
+            hasCertificate: Boolean(row.protection.certificateId),
+            /** All three present is what "fully protected" means here. */
+            complete: row.protection.hasDna && row.protection.hasVault
+              && Boolean(row.protection.certificateId),
+          },
+          review: {
+            currentVersion: row.review.currentVersion,
+            versionCount: row.review.versionCount,
+            reviewStatus: row.review.reviewStatus,
+            isApproved: row.review.reviewStatus === 'APPROVED',
+          },
+          rightsState: row.rightsState ?? 'UNKNOWN',
+          handover: {
+            delivered: deliveredEver.has(row.assetId),
+            /** Delivered but the link no longer opens — revoked or expired. */
+            accessLive: deliveredLive.has(row.assetId),
+          },
+          /** Opens the asset in the campaign it belongs to, not a list page. */
+          deepLink: '/business/campaigns/' + campaign.id + '?tab=assets&asset=' + row.assetId,
+        };
+      }),
+    ).sort((a, b) => b.addedAt.localeCompare(a.addedAt));
+
+    const byCampaign = campaigns.map((c) => ({
+      id: c.id,
+      name: c.name,
+      count: assets.filter((a) => a.campaign.id === c.id).length,
+    }));
+
+    return {
+      clientName: client.name,
+      campaignCount: campaigns.length,
+      partial: rights.failed > 0 || handovers.failed > 0,
+      assets,
+      byCampaign,
+      counts: {
+        total: assets.length,
+        fullyProtected: assets.filter((a) => a.protection.complete).length,
+        approved: assets.filter((a) => a.review.isApproved).length,
+        delivered: assets.filter((a) => a.handover.delivered).length,
+        deliveredLive: assets.filter((a) => a.handover.accessLive).length,
+      },
+    };
+  },
+
+  /**
+   * Everyone involved in this client's work.
+   *
+   * Reuses campaignAccessService.listPeople per campaign — the same call the
+   * campaign People tab makes — and merges by identity, so one person working
+   * three campaigns reads as one person with three campaigns rather than three
+   * separate rows.
+   *
+   * Nothing here reads OrganizationMember directly for the list. A colleague who
+   * has never touched this client's work is not involved with this client, and
+   * listing the whole organization would be exactly the generic-list mistake.
+   */
+  async people(organizationId: string, actorUserId: string, clientId: string) {
+    await requireOrgRole(actorUserId, organizationId, OrganizationMemberRole.VIEWER);
+    const { client, campaigns } = await clientCampaigns(organizationId, clientId);
+
+    const { results, failed } = await acrossCampaigns(campaigns, (id) =>
+      campaignAccessService.listPeople(organizationId, actorUserId, id));
+
+    type Person = Awaited<ReturnType<typeof campaignAccessService.listPeople>>['people'][number];
+
+    /** One row per human. shortId identifies staff; email or name an outsider. */
+    const keyFor = (p: Person) =>
+      p.shortId ? 'u:' + p.shortId
+        : p.email ? 'e:' + p.email.toLowerCase()
+        : 'n:' + p.name;
+
+    const merged = new Map<string, {
+      key: string; kind: 'internal' | 'external'; name: string;
+      shortId: string | null; email: string | null; orgRole: string | null;
+      roleLabels: string[];
+      campaigns: { id: string; name: string; accessStatus: string; roleLabel: string | null }[];
+      assets: { assetId: string; filename: string; campaignId: string }[];
+      lastAccessAt: string | null;
+      addedAt: string;
+    }>();
+
+    for (const { campaign, value } of results) {
+      for (const p of value.people) {
+        const key = keyFor(p);
+        const entry = merged.get(key) ?? {
+          key,
+          kind: p.kind,
+          name: p.name,
+          shortId: p.shortId,
+          email: p.email,
+          orgRole: p.orgRole,
+          roleLabels: [] as string[],
+          campaigns: [] as { id: string; name: string; accessStatus: string; roleLabel: string | null }[],
+          assets: [] as { assetId: string; filename: string; campaignId: string }[],
+          lastAccessAt: p.lastAccessAt,
+          addedAt: p.addedAt,
+        };
+
+        entry.campaigns.push({
+          id: campaign.id, name: campaign.name,
+          accessStatus: p.accessStatus, roleLabel: p.roleLabel,
+        });
+        if (p.roleLabel && !entry.roleLabels.includes(p.roleLabel)) {
+          entry.roleLabels.push(p.roleLabel);
+        }
+        for (const a of p.assets) {
+          entry.assets.push({ assetId: a.assetId, filename: a.filename, campaignId: campaign.id });
+        }
+        // Keep the most recent access and the earliest involvement.
+        if (p.lastAccessAt && (!entry.lastAccessAt || p.lastAccessAt > entry.lastAccessAt)) {
+          entry.lastAccessAt = p.lastAccessAt;
+        }
+        if (p.addedAt < entry.addedAt) entry.addedAt = p.addedAt;
+
+        merged.set(key, entry);
+      }
+    }
+
+    const people = [...merged.values()]
+      .map((p) => ({
+        ...p,
+        campaignCount: p.campaigns.length,
+        assetCount: p.assets.length,
+        /** External access is live only where at least one campaign says so. */
+        hasLiveAccess: p.kind === 'internal'
+          || p.campaigns.some((c) => c.accessStatus === 'ACTIVE'),
+      }))
+      .sort((a, b) => (b.campaignCount - a.campaignCount) || a.name.localeCompare(b.name));
+
+    return {
+      clientName: client.name,
+      campaignCount: campaigns.length,
+      partial: failed > 0,
+      /** The client's own contact, from the client record, not a member row. */
+      clientContact: results[0]?.value.client ?? null,
+      people,
+      counts: {
+        total: people.length,
+        internal: people.filter((p) => p.kind === 'internal').length,
+        external: people.filter((p) => p.kind === 'external').length,
+        externalLive: people.filter((p) => p.kind === 'external' && p.hasLiveAccess).length,
+      },
+    };
+  },
+
+  /**
    * Usage rights across the client's work.
    *
    * Reuses campaignRightsService, which reads Exchange read-only. No licensing
@@ -126,9 +323,13 @@ export const clientAggregateService = {
     // "no rights recorded" is indistinguishable from an outage otherwise.
     const exchangeReachable = results.every((r) => r.value.exchangeReachable !== false);
 
+    // campaignRightsService returns `rightsState` at the top of each asset, not
+    // a nested `rights.state`. Reading the wrong path silently bucketed every
+    // asset as UNKNOWN, which a breakdown that only has to sum correctly will
+    // never reveal.
     const byState: Record<string, number> = {};
     for (const a of assets) {
-      const state = (a as { rights?: { state?: string } }).rights?.state ?? 'UNKNOWN';
+      const state = (a as { rightsState?: string }).rightsState ?? 'UNKNOWN';
       byState[state] = (byState[state] ?? 0) + 1;
     }
 

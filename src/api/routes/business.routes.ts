@@ -109,6 +109,8 @@ businessRouter.get('/clients/:clientId/deliveries', requireAuth, businessControl
 businessRouter.get('/clients/:clientId/rights', requireAuth, businessController.clientRights);
 businessRouter.get('/clients/:clientId/activity', requireAuth, businessController.clientActivity);
 businessRouter.get('/clients/:clientId/intelligence', requireAuth, businessController.clientIntelligence);
+businessRouter.get('/clients/:clientId/assets', requireAuth, businessController.clientAssets);
+businessRouter.get('/clients/:clientId/people', requireAuth, businessController.clientPeople);
 
 // ── Campaign intelligence — aggregates real rows only, no new storage ───────
 businessRouter.get('/campaigns/:campaignId/intelligence', requireAuth, businessController.getCampaignIntelligence);
