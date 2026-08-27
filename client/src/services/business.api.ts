@@ -174,6 +174,8 @@ export interface CampaignMemberInput {
   /** Internal staff to connect. Named `memberUserId`, not `userId`, because the
    *  API strips `userId`-style keys from request bodies as an anti-spoofing guard. */
   memberUserId?: string;
+  /** Resolve an organization member by Pinit ID when lookup must not return userId. */
+  memberShortId?: string;
   name?: string;
   platform?: string;
   profileUrl?: string;
@@ -429,6 +431,8 @@ export interface CampaignPerson {
   assets: Array<{ assetId: string; filename: string; hasLink: boolean }>;
   lastAccessAt: string | null;
   addedAt: string;
+  /** Pending OrganizationInvite bound to this campaign — not yet a CampaignMember. */
+  pendingInvite?: boolean;
 }
 
 export interface CampaignPeople {

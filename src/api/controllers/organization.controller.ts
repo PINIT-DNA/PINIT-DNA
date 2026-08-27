@@ -149,7 +149,8 @@ export const organizationController = {
     try {
       const userId = getAuthUserId(req);
       const orgId = await orgIdFor(req);
-      const invites = await teamService.listInvites(orgId, userId);
+      const campaignId = typeof req.query.campaignId === 'string' ? req.query.campaignId : undefined;
+      const invites = await teamService.listInvites(orgId, userId, { campaignId });
       res.json({ success: true, invites });
     } catch (err) {
       next(err);
@@ -161,31 +162,12 @@ export const organizationController = {
       const userId = getAuthUserId(req);
       const orgId = await orgIdFor(req);
       const account = await teamService.lookupByPinitId(
-        orgId, userId, String(req.query.pinitId ?? ''));
+        orgId,
+        userId,
+        String(req.query.pinitId ?? ''),
+        { campaignId: typeof req.query.campaignId === 'string' ? req.query.campaignId : undefined },
+      );
       res.json({ success: true, account });
-    } catch (err) { next(err); }
-  },
-
-  async listAssignableMembers(req: Request, res: Response, next: NextFunction) {
-    try {
-      const userId = getAuthUserId(req);
-      const orgId = await orgIdFor(req);
-      const result = await teamService.listAssignableMembers(
-        orgId, userId, String(req.query.campaignId ?? ''));
-      res.json({ success: true, ...result });
-    } catch (err) { next(err); }
-  },
-
-  async addMemberToCampaign(req: Request, res: Response, next: NextFunction) {
-    try {
-      const userId = getAuthUserId(req);
-      const orgId = await orgIdFor(req);
-      const { campaignId, memberUserId, campaignRole } = (req.body ?? {}) as {
-        campaignId?: string; memberUserId?: string; campaignRole?: string;
-      };
-      const member = await teamService.addExistingMemberToCampaign(
-        orgId, userId, campaignId ?? '', memberUserId ?? '', campaignRole ?? 'CONTRIBUTOR');
-      res.status(201).json({ success: true, member });
     } catch (err) { next(err); }
   },
 

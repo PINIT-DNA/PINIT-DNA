@@ -55,3 +55,12 @@ eng.traineddata
 
 # Editor
 .cursor/
+# Next.js build output
+.next/
+out/
+# Dependencies
+# Secrets — never commit
+.env.*
+!.env.example
+# Large media
+*.mp4

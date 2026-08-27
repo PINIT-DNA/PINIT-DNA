@@ -86,7 +86,12 @@ export const teamService = {
    * any manager in any business, so it must reveal only what is needed to
    * confirm the right person.
    */
-  async lookupByPinitId(organizationId: string, actorUserId: string, pinitId: string) {
+  async lookupByPinitId(
+    organizationId: string,
+    actorUserId: string,
+    pinitId: string,
+    opts?: { campaignId?: string },
+  ) {
     await requireOrgRole(actorUserId, organizationId, OrganizationMemberRole.MANAGER);
 
     const shortId = pinitId?.trim();
@@ -106,10 +111,25 @@ export const teamService = {
       where: { organizationId_userId: { organizationId, userId: user.id } },
       select: { role: true },
     });
+    const pendingWhere = {
+      organizationId,
+      inviteeShortId: shortId,
+      status: 'PENDING' as const,
+      ...(opts?.campaignId ? { campaignId: opts.campaignId } : {}),
+    };
     const pending = await prisma.organizationInvite.findFirst({
-      where: { organizationId, inviteeShortId: shortId, status: 'PENDING' },
+      where: pendingWhere,
       select: { id: true },
     });
+
+    let alreadyOnCampaign = false;
+    if (opts?.campaignId) {
+      const onCampaign = await prisma.campaignMember.findUnique({
+        where: { campaignId_userId: { campaignId: opts.campaignId, userId: user.id } },
+        select: { id: true },
+      });
+      alreadyOnCampaign = Boolean(onCampaign);
+    }
 
     return {
       pinitId: user.shortId,
@@ -117,99 +137,7 @@ export const teamService = {
       alreadyMember: Boolean(member),
       memberRole: member?.role ?? null,
       invitePending: Boolean(pending),
-    };
-  },
-
-  /**
-   * Put an existing business member onto a campaign.
-   *
-   * No invitation: they already belong to the organization, so there is nothing
-   * for them to accept. This is the everyday case — staffing a campaign from
-   * people who already work here.
-   */
-  async addExistingMemberToCampaign(
-    organizationId: string,
-    actorUserId: string,
-    campaignId: string,
-    memberUserId: string,
-    campaignRole: string,
-  ) {
-    await requireOrgRole(actorUserId, organizationId, OrganizationMemberRole.MANAGER);
-
-    const campaign = await prisma.campaign.findFirst({
-      where: { id: campaignId, organizationId }, select: { id: true, name: true },
-    });
-    if (!campaign) throw Object.assign(new Error('Campaign not found'), { status: 404 });
-
-    // The person must already be in THIS organization. Without this check a
-    // caller could place any user id onto their campaign.
-    const member = await prisma.organizationMember.findUnique({
-      where: { organizationId_userId: { organizationId, userId: memberUserId } },
-      select: { userId: true },
-    });
-    if (!member) {
-      throw Object.assign(new Error('That person is not in your organization'), { status: 400 });
-    }
-
-    if (!isCampaignRole(campaignRole)) {
-      throw Object.assign(new Error('Unknown campaign role'), { status: 400 });
-    }
-
-    const existing = await prisma.campaignMember.findUnique({
-      where: { campaignId_userId: { campaignId, userId: memberUserId } },
-      select: { id: true },
-    });
-    if (existing) {
-      throw Object.assign(new Error('They are already on this campaign'), { status: 409 });
-    }
-
-    const created = await prisma.campaignMember.create({
-      data: {
-        campaignId, userId: memberUserId, isExternal: false,
-        roleLabel: campaignRole, addedByUserId: actorUserId,
-      },
-      select: { id: true },
-    });
-
-    const user = await prisma.user.findUnique({
-      where: { id: memberUserId }, select: { fullName: true, shortId: true },
-    });
-
-    await logOrgAudit({
-      organizationId, actorUserId,
-      action: 'CAMPAIGN_MEMBER_ADDED',
-      entityType: 'campaign', entityId: campaignId,
-      title: `${user?.fullName ?? 'A team member'} added to ${campaign.name}`,
-      detail: { memberUserId, pinitId: user?.shortId, campaignRole },
-    });
-
-    return { id: created.id, name: user?.fullName ?? 'Team member', pinitId: user?.shortId ?? null };
-  },
-
-  /** Business members not yet on this campaign, for the picker. */
-  async listAssignableMembers(organizationId: string, actorUserId: string, campaignId: string) {
-    await requireOrgRole(actorUserId, organizationId, OrganizationMemberRole.VIEWER);
-
-    const [members, onCampaign] = await Promise.all([
-      prisma.organizationMember.findMany({
-        where: { organizationId },
-        select: { userId: true, role: true, user: { select: { fullName: true, shortId: true } } },
-      }),
-      prisma.campaignMember.findMany({
-        where: { campaignId, userId: { not: null } }, select: { userId: true },
-      }),
-    ]);
-    const taken = new Set(onCampaign.map((c) => c.userId));
-
-    return {
-      members: members
-        .filter((m) => !taken.has(m.userId))
-        .map((m) => ({
-          userId: m.userId,
-          name: m.user.fullName ?? 'Team member',
-          pinitId: m.user.shortId,
-          orgRole: m.role,
-        })),
+      alreadyOnCampaign,
     };
   },
 
@@ -239,10 +167,14 @@ export const teamService = {
     return prisma.organizationMember.count({ where: { organizationId } });
   },
 
-  async listInvites(organizationId: string, actorUserId: string) {
+  async listInvites(organizationId: string, actorUserId: string, opts?: { campaignId?: string }) {
     await requireOrgRole(actorUserId, organizationId, OrganizationMemberRole.MANAGER);
     const invites = await prisma.organizationInvite.findMany({
-      where: { organizationId, status: 'PENDING' },
+      where: {
+        organizationId,
+        status: 'PENDING',
+        ...(opts?.campaignId ? { campaignId: opts.campaignId } : {}),
+      },
       orderBy: { createdAt: 'desc' },
     });
     return invites.map((i) => ({
@@ -254,6 +186,8 @@ export const teamService = {
       token: i.token,
       expiresAt: i.expiresAt.toISOString(),
       createdAt: i.createdAt.toISOString(),
+      campaignId: i.campaignId,
+      campaignRole: i.campaignRole,
     }));
   },
 
@@ -313,6 +247,32 @@ export const teamService = {
       campaignRole = input.campaignRole ?? 'CONTRIBUTOR';
     }
 
+    // Do not stack identical pending invites for the same person + campaign.
+    if (input.inviteeShortId?.trim()) {
+      const duplicate = await prisma.organizationInvite.findFirst({
+        where: {
+          organizationId,
+          inviteeShortId: input.inviteeShortId.trim(),
+          status: 'PENDING',
+          ...(campaignId ? { campaignId } : { campaignId: null }),
+        },
+        select: {
+          id: true, token: true, expiresAt: true, role: true, campaignId: true, campaignRole: true,
+        },
+      });
+      if (duplicate) {
+        return {
+          id: duplicate.id,
+          token: duplicate.token,
+          expiresAt: duplicate.expiresAt.toISOString(),
+          role: duplicate.role,
+          campaignId: duplicate.campaignId,
+          campaignRole: duplicate.campaignRole,
+          alreadyPending: true,
+        };
+      }
+    }
+
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + INVITE_TTL_DAYS);
 
@@ -338,10 +298,17 @@ export const teamService = {
         actorUserId,
         entityType: 'organization_invite',
         entityId: invite.id,
-        title: 'Organization invitation',
-        body: 'You have been invited to join an organization on Pinit HUB.',
+        title: campaignId ? 'Campaign invitation' : 'Organization invitation',
+        body: campaignId
+          ? 'You have been invited to a campaign on Pinit HUB.'
+          : 'You have been invited to join an organization on Pinit HUB.',
         deepLink: `/team/join/${invite.token}`,
-        payload: { organizationId, role, inviteToken: invite.token },
+        payload: {
+          organizationId,
+          role,
+          inviteToken: invite.token,
+          ...(campaignId ? { campaignId, campaignRole } : {}),
+        },
       });
     }
 
@@ -351,7 +318,9 @@ export const teamService = {
       action: 'MEMBER_INVITED',
       entityType: 'organization_invite',
       entityId: invite.id,
-      title: `Invited ${input.email ?? input.inviteeShortId ?? 'via link'} as ${role}`,
+      title: campaignId
+        ? `Invited ${input.inviteeShortId ?? input.email ?? 'via link'} to campaign as ${campaignRole}`
+        : `Invited ${input.email ?? input.inviteeShortId ?? 'via link'} as ${role}`,
     });
 
     return {
@@ -359,6 +328,9 @@ export const teamService = {
       token: invite.token,
       expiresAt: invite.expiresAt.toISOString(),
       role: invite.role,
+      campaignId: invite.campaignId,
+      campaignRole: invite.campaignRole,
+      alreadyPending: false,
     };
   },
 

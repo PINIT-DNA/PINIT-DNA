@@ -30,6 +30,11 @@ export interface CampaignMemberInput {
    * organization membership below before anything is written.
    */
   memberUserId?: string;
+  /**
+   * Prefer this when the UI only has a Pinit ID (lookup never returns userId).
+   * Resolved server-side to the same path as memberUserId.
+   */
+  memberShortId?: string;
   /** External creator/collaborator — no account required. */
   name?: string;
   platform?: string;
@@ -229,9 +234,18 @@ export const campaignService = {
     await requireOrgRole(actorUserId, organizationId, OrganizationMemberRole.MANAGER);
     const campaign = await loadCampaignScoped(organizationId, campaignId);
 
-    if (input.memberUserId) {
+    let memberUserId = input.memberUserId?.trim() || '';
+    if (!memberUserId && input.memberShortId?.trim()) {
+      const byShort = await prisma.user.findUnique({
+        where: { shortId: input.memberShortId.trim() },
+        select: { id: true },
+      });
+      if (!byShort) throw new AppError(404, 'No Pinit account with that ID');
+      memberUserId = byShort.id;
+    }
+
+    if (memberUserId) {
       // Internal staff — must already be a member of this organization.
-      const memberUserId = input.memberUserId;
       const orgMember = await prisma.organizationMember.findUnique({
         where: { organizationId_userId: { organizationId, userId: memberUserId } },
       });

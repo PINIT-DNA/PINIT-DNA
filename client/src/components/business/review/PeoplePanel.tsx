@@ -24,20 +24,20 @@ import type {
   CampaignPeople, CampaignPerson, CampaignAsset, AccessLink,
 } from '../../../services/business.api';
 import { SectionCard, SkeletonRows } from '../clients/BusinessKit';
-import { AddTeamMemberDialog } from './AddTeamMemberDialog';
 import { timeAgo, initialsOf } from './ReviewPrimitives';
+import { campaignRoleLabel } from '../../../lib/campaign-roles';
 
 const cn = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 
 const ACCESS_BADGE: Record<string, { label: string; cls: string }> = {
   NONE:    { label: 'No access',  cls: 'text-gray-400 bg-bg-elevated border-bg-border' },
-  INVITED: { label: 'Invited',    cls: 'text-dna-400 bg-dna-500/10 border-dna-500/25' },
-  ACTIVE:  { label: 'Has access', cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' },
+  INVITED: { label: 'Invitation pending', cls: 'text-amber-400 bg-amber-500/10 border-amber-500/30' },
+  ACTIVE:  { label: 'Active',     cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' },
   REVOKED: { label: 'Revoked',    cls: 'text-gray-500 bg-bg-elevated/60 border-bg-border' },
 };
 
 export function PeoplePanel({
-  campaignId, assets, onAddPerson, onRemovePerson, onChanged,
+  campaignId, assets, onAddPerson, onRemovePerson, onChanged, refreshKey = 0,
 }: {
   campaignId: string;
   assets: CampaignAsset[] | null;
@@ -46,6 +46,8 @@ export function PeoplePanel({
    *  their access, which keeps the record of involvement. */
   onRemovePerson?: (memberId: string, name: string) => void | Promise<void>;
   onChanged?: () => void;
+  /** Bump after add/invite so the list reloads without remounting. */
+  refreshKey?: number;
 }) {
   const [data, setData] = useState<CampaignPeople | null>(null);
   const [loading, setLoading] = useState(true);
@@ -63,7 +65,7 @@ export function PeoplePanel({
     }
   }, [campaignId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); }, [load, refreshKey]);
 
   if (loading) return <SkeletonRows rows={4} />;
 
@@ -84,18 +86,9 @@ export function PeoplePanel({
 
   const internal = data?.people.filter((p) => p.kind === 'internal') ?? [];
   const external = data?.people.filter((p) => p.kind === 'external') ?? [];
-  const [addTeamOpen, setAddTeamOpen] = useState(false);
 
   return (
     <div className="space-y-4">
-      <AddTeamMemberDialog
-        campaignId={campaignId}
-        campaignName={data?.client?.name ?? 'this campaign'}
-        open={addTeamOpen}
-        onClose={() => setAddTeamOpen(false)}
-        onAdded={() => { void load(); onChanged?.(); }}
-      />
-
       {data?.client && (
         <SectionCard title="Client" icon={Users}>
           <div className="flex items-center gap-3">
@@ -132,36 +125,50 @@ export function PeoplePanel({
             <p className="text-xs text-gray-400 mb-3">
               Add someone from your organization to show who is working on it.
             </p>
-            <button type="button" onClick={() => setAddTeamOpen(true)}
+            <button type="button" onClick={onAddPerson}
               className="btn btn-secondary text-xs inline-flex items-center gap-1.5">
               <UserPlus size={13} /> Add team member
             </button>
           </div>
         ) : (
           <ul className="space-y-2">
-            {internal.map((p) => (
-              <li key={p.id} className="flex items-center gap-3 rounded-lg border border-bg-border
-                                        bg-bg-elevated/40 px-3 py-2.5">
-                <Avatar name={p.name} tone="dna" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-white truncate">{p.name}</p>
-                  <p className="text-2xs text-gray-500 truncate">
-                    {p.roleLabel ?? 'Team member'}
-                    {p.shortId ? ` · ${p.shortId}` : ''}
-                  </p>
-                </div>
-                {p.orgRole && (
-                  <span className="text-2xs font-semibold text-gray-400 border border-bg-border
-                                   rounded-full px-2 py-0.5 whitespace-nowrap">
-                    {p.orgRole.toLowerCase()}
+            {internal.map((p) => {
+              const pending = Boolean(p.pendingInvite) || p.accessStatus === 'INVITED';
+              const status = pending
+                ? ACCESS_BADGE.INVITED
+                : ACCESS_BADGE.ACTIVE;
+              return (
+                <li key={p.id} className="flex items-center gap-3 rounded-lg border border-bg-border
+                                          bg-bg-elevated/40 px-3 py-2.5">
+                  <Avatar name={p.name} tone="dna" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-white truncate">{p.name}</p>
+                    <p className="text-2xs text-gray-500 truncate">
+                      {campaignRoleLabel(p.roleLabel)}
+                      {p.shortId ? ` · ${p.shortId}` : ''}
+                      {' · '}
+                      <span className="text-gray-400">Organization</span>
+                    </p>
+                  </div>
+                  <span className={cn(
+                    'text-2xs font-semibold border rounded-full px-2 py-0.5 whitespace-nowrap',
+                    status.cls,
+                  )}>
+                    {status.label}
                   </span>
-                )}
-              </li>
-            ))}
+                  {p.orgRole && !pending && (
+                    <span className="text-2xs font-semibold text-gray-400 border border-bg-border
+                                     rounded-full px-2 py-0.5 whitespace-nowrap hidden sm:inline">
+                      Biz: {p.orgRole.toLowerCase()}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
         {internal.length > 0 && (
-          <button type="button" onClick={() => setAddTeamOpen(true)}
+          <button type="button" onClick={onAddPerson}
             className="btn btn-secondary text-xs inline-flex items-center gap-1.5 mt-3">
             <UserPlus size={13} /> Add team member
           </button>
@@ -270,7 +277,9 @@ function ExternalPersonRow({
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-white truncate">{p.name}</p>
           <p className="text-2xs text-gray-500 truncate">
-            {p.roleLabel ?? 'External creator'}
+            {campaignRoleLabel(p.roleLabel)}
+            {' · '}
+            <span className="text-gray-400">External</span>
             {p.platform ? ` · ${p.platform}` : ''}
             {p.assets.length > 0 && ` · ${p.assets.length} asset${p.assets.length === 1 ? '' : 's'}`}
           </p>

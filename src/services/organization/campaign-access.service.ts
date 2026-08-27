@@ -85,38 +85,88 @@ export const campaignAccessService = {
       : [];
     const assetById = new Map(assets.map((a) => [a.id, a]));
 
+    const people = members.map((m) => {
+      const user = m.userId ? userById.get(m.userId) : null;
+      return {
+        id: m.id,
+        kind: m.isExternal ? ('external' as const) : ('internal' as const),
+        name: user?.fullName || m.name || user?.shortId || 'Unnamed',
+        shortId: user?.shortId ?? null,
+        email: m.email,
+        platform: m.platform,
+        profileUrl: m.profileUrl,
+        roleLabel: m.roleLabel,
+        // Internal people show their organization role; external people show
+        // the access they were granted.
+        orgRole: m.userId ? (roleByUser.get(m.userId) ?? null) : null,
+        accessStatus: m.isExternal ? m.accessStatus : ('ACTIVE' as const),
+        permissions: m.isExternal
+          ? { canComment: m.canComment, canRequestChanges: m.canRequestChanges, canApprove: m.canApprove }
+          : null,
+        assets: m.assetAccess.map((a) => ({
+          assetId: a.assetId,
+          filename: assetById.get(a.assetId)?.originalFilename ?? 'Removed asset',
+          hasLink: Boolean(a.shareToken),
+        })),
+        lastAccessAt: m.lastAccessAt ? m.lastAccessAt.toISOString() : null,
+        addedAt: m.createdAt.toISOString(),
+        pendingInvite: false,
+      };
+    });
+
+    // Pending OrganizationInvites bound to this campaign — same People list,
+    // marked Invitation pending until accept creates CampaignMember.
+    const pendingInvites = await prisma.organizationInvite.findMany({
+      where: { organizationId, campaignId, status: 'PENDING' },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        inviteeShortId: true,
+        campaignRole: true,
+        role: true,
+        createdAt: true,
+        expiresAt: true,
+      },
+    });
+    const pendingShortIds = pendingInvites
+      .map((i) => i.inviteeShortId)
+      .filter((s): s is string => Boolean(s));
+    const pendingUsers = pendingShortIds.length
+      ? await prisma.user.findMany({
+          where: { shortId: { in: pendingShortIds } },
+          select: { shortId: true, fullName: true },
+        })
+      : [];
+    const pendingNameByShort = new Map(pendingUsers.map((u) => [u.shortId, u.fullName]));
+
+    for (const inv of pendingInvites) {
+      people.push({
+        id: `invite:${inv.id}`,
+        kind: 'internal',
+        name: (inv.inviteeShortId && pendingNameByShort.get(inv.inviteeShortId))
+          || inv.inviteeShortId
+          || 'Pending invite',
+        shortId: inv.inviteeShortId,
+        email: null,
+        platform: null,
+        profileUrl: null,
+        roleLabel: inv.campaignRole,
+        orgRole: inv.role,
+        accessStatus: 'INVITED',
+        permissions: null,
+        assets: [],
+        lastAccessAt: null,
+        addedAt: inv.createdAt.toISOString(),
+        pendingInvite: true,
+      });
+    }
+
     return {
       client: campaign.client
         ? { name: campaign.client.name, contactName: campaign.client.contactName,
             contactEmail: campaign.client.contactEmail }
         : null,
-      people: members.map((m) => {
-        const user = m.userId ? userById.get(m.userId) : null;
-        return {
-          id: m.id,
-          kind: m.isExternal ? ('external' as const) : ('internal' as const),
-          name: user?.fullName || m.name || user?.shortId || 'Unnamed',
-          shortId: user?.shortId ?? null,
-          email: m.email,
-          platform: m.platform,
-          profileUrl: m.profileUrl,
-          roleLabel: m.roleLabel,
-          // Internal people show their organization role; external people show
-          // the access they were granted.
-          orgRole: m.userId ? (roleByUser.get(m.userId) ?? null) : null,
-          accessStatus: m.isExternal ? m.accessStatus : 'ACTIVE',
-          permissions: m.isExternal
-            ? { canComment: m.canComment, canRequestChanges: m.canRequestChanges, canApprove: m.canApprove }
-            : null,
-          assets: m.assetAccess.map((a) => ({
-            assetId: a.assetId,
-            filename: assetById.get(a.assetId)?.originalFilename ?? 'Removed asset',
-            hasLink: Boolean(a.shareToken),
-          })),
-          lastAccessAt: m.lastAccessAt ? m.lastAccessAt.toISOString() : null,
-          addedAt: m.createdAt.toISOString(),
-        };
-      }),
+      people,
     };
   },
 

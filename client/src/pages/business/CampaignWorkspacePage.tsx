@@ -49,6 +49,7 @@ export function CampaignWorkspacePage() {
 
   const [editOpen, setEditOpen] = useState(false);
   const [personOpen, setPersonOpen] = useState(false);
+  const [peopleRefreshKey, setPeopleRefreshKey] = useState(0);
 
   const fetchCampaign = useCallback(() => getCampaign(campaignId), [campaignId]);
   const fetchMembers = useCallback(() => listCampaignMembers(campaignId), [campaignId]);
@@ -91,9 +92,10 @@ export function CampaignWorkspacePage() {
     refetchCampaign();
   }, [refetchCampaign]);
 
-  const handlePersonAdded = useCallback(() => {
+  const handlePersonAdded = useCallback((opts?: { keepOpen?: boolean }) => {
     invalidateApiCache('business-');
-    setPersonOpen(false);
+    if (!opts?.keepOpen) setPersonOpen(false);
+    setPeopleRefreshKey((k) => k + 1);
     refetchMembers();
     refetchCampaign();
   }, [refetchMembers, refetchCampaign]);
@@ -291,6 +293,7 @@ export function CampaignWorkspacePage() {
         <PeoplePanel
           campaignId={campaignId}
           assets={assets}
+          refreshKey={peopleRefreshKey}
           onAddPerson={() => setPersonOpen(true)}
           onRemovePerson={(memberId, name) =>
             handleRemovePerson({ id: memberId, name } as CampaignMember)}
@@ -390,6 +393,8 @@ export function CampaignWorkspacePage() {
             open={personOpen}
             onClose={() => setPersonOpen(false)}
             campaignId={campaign.id}
+            existingUserIds={(members ?? []).map((m) => m.userId).filter((id): id is string => Boolean(id))}
+            existingShortIds={(members ?? []).map((m) => m.shortId).filter((id): id is string => Boolean(id))}
             onAdded={handlePersonAdded}
           />
         </>
