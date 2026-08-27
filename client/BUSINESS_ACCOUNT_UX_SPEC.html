@@ -1,0 +1,574 @@
+<title>Business Account UX Spec</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-base: #eef2f7;
+    --bg-surface: #e2e8f0;
+    --bg-card: #ffffff;
+    --bg-elevated: #f1f5f9;
+    --bg-border: #cbd5e1;
+    --text-hi: #0f1115;
+    --text-md: #3f4756;
+    --text-lo: #6b7686;
+    --accent: #2f7cf6;
+    --accent-600: #2563eb;
+    --accent-soft: rgba(47,124,246,0.10);
+    --accent-border: rgba(47,124,246,0.24);
+    --success: #22c55e;
+    --success-soft: rgba(34,197,94,0.12);
+    --warning: #f59e0b;
+    --warning-soft: rgba(245,158,11,0.12);
+    --danger: #ef4444;
+    --danger-soft: rgba(239,68,68,0.12);
+    --purple: #8b5cf6;
+    --purple-soft: rgba(139,92,246,0.12);
+    --shadow: 0 1px 2px rgba(15,17,21,0.04), 0 8px 24px rgba(15,17,21,0.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg-base: #0f1115;
+      --bg-surface: #14161a;
+      --bg-card: #181a1f;
+      --bg-elevated: #1e2128;
+      --bg-border: #2a2d35;
+      --text-hi: #f5f6f8;
+      --text-md: #c3c9d4;
+      --text-lo: #8b93a3;
+      --accent: #60a5fa;
+      --accent-600: #3b82f6;
+      --accent-soft: rgba(96,165,250,0.12);
+      --accent-border: rgba(96,165,250,0.28);
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg-base: #0f1115;
+    --bg-surface: #14161a;
+    --bg-card: #181a1f;
+    --bg-elevated: #1e2128;
+    --bg-border: #2a2d35;
+    --text-hi: #f5f6f8;
+    --text-md: #c3c9d4;
+    --text-lo: #8b93a3;
+    --accent: #60a5fa;
+    --accent-600: #3b82f6;
+    --accent-soft: rgba(96,165,250,0.12);
+    --accent-border: rgba(96,165,250,0.28);
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg-base);
+    color: var(--text-md);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  code, .mono { font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace; }
+
+  h1, h2, h3, h4 { color: var(--text-hi); text-wrap: balance; font-weight: 800; margin: 0; }
+  a { color: var(--accent); }
+
+  .shell { display: grid; grid-template-columns: 248px minmax(0,1fr); min-height: 100vh; }
+
+  /* ---- TOC nav ---- */
+  .toc {
+    position: sticky; top: 0; align-self: start; height: 100vh;
+    border-right: 1px solid var(--bg-border);
+    background: var(--bg-surface);
+    padding: 22px 16px; overflow-y: auto;
+  }
+  .toc .brand { display: flex; align-items: center; gap: 8px; margin-bottom: 22px; }
+  .toc .brand .dot { width: 9px; height: 9px; border-radius: 3px; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .toc .brand span { font-weight: 800; color: var(--text-hi); font-size: 13.5px; letter-spacing: 0.2px; }
+  .toc .kicker { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-lo); padding: 0 8px; margin: 18px 0 6px; }
+  .toc .kicker:first-of-type { margin-top: 0; }
+  .toc a.item {
+    display: block; font-size: 13px; font-weight: 600; color: var(--text-md);
+    text-decoration: none; padding: 7px 8px; border-radius: 8px; margin-bottom: 1px;
+  }
+  .toc a.item:hover { background: var(--accent-soft); color: var(--accent); }
+  .toc a.item .n { font-family: 'JetBrains Mono', monospace; color: var(--text-lo); font-size: 11px; margin-right: 6px; }
+
+  /* ---- main ---- */
+  main { padding: 48px clamp(20px, 4vw, 64px) 96px; max-width: 980px; }
+  .eyebrow { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--accent); margin-bottom: 10px; }
+  .doc-title { font-size: clamp(28px, 4vw, 38px); letter-spacing: -0.02em; }
+  .doc-sub { color: var(--text-lo); font-size: 16px; margin-top: 10px; max-width: 62ch; }
+  .source-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+  .pill { font-size: 11.5px; font-weight: 600; padding: 5px 10px; border-radius: 999px; background: var(--bg-elevated); border: 1px solid var(--bg-border); color: var(--text-lo); }
+
+  section.block { margin-top: 64px; padding-top: 8px; scroll-margin-top: 24px; }
+  .block-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
+  .block-head h2 { font-size: 24px; letter-spacing: -0.01em; }
+  .block-num { font-family: 'JetBrains Mono', monospace; color: var(--accent); font-weight: 700; font-size: 15px; }
+  .block-lede { color: var(--text-lo); max-width: 68ch; margin: 10px 0 26px; font-size: 14.5px; }
+
+  .card {
+    background: var(--bg-card); border: 1px solid var(--bg-border); border-radius: 14px;
+    box-shadow: var(--shadow);
+  }
+  .panel { padding: 18px 20px; }
+  .panel + .panel { border-top: 1px solid var(--bg-border); }
+
+  /* badges matching ui/Badge.tsx variants */
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
+  .badge.dna    { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-border); }
+  .badge.success{ background: var(--success-soft); color: var(--success); border-color: rgba(34,197,94,0.3); }
+  .badge.warning{ background: var(--warning-soft); color: var(--warning); border-color: rgba(245,158,11,0.3); }
+  .badge.danger { background: var(--danger-soft); color: var(--danger); border-color: rgba(239,68,68,0.3); }
+  .badge.muted  { background: var(--bg-elevated); color: var(--text-lo); border-color: var(--bg-border); }
+  .badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  .tagrow { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 22px; }
+
+  /* ---- two-col meta grid: purpose / primary action etc ---- */
+  .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px,1fr)); gap: 1px; background: var(--bg-border); border: 1px solid var(--bg-border); border-radius: 14px; overflow: hidden; margin-bottom: 26px; }
+  .meta-cell { background: var(--bg-card); padding: 16px 18px; }
+  .meta-cell .label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-lo); margin-bottom: 6px; }
+  .meta-cell .value { font-size: 14px; color: var(--text-hi); font-weight: 600; line-height: 1.45; }
+
+  /* ---- mockup device frame ---- */
+  .mock-frame { border: 1px solid var(--bg-border); border-radius: 16px; overflow: hidden; background: var(--bg-base); box-shadow: var(--shadow); margin: 22px 0 30px; }
+  .mock-topbar { display:flex; align-items:center; gap: 8px; padding: 9px 14px; background: var(--bg-surface); border-bottom: 1px solid var(--bg-border); }
+  .mock-topbar .dots { display:flex; gap:5px; }
+  .mock-topbar .dots i { width:8px; height:8px; border-radius:50%; background: var(--bg-border); }
+  .mock-topbar .crumb { margin-left: 8px; font-size: 11.5px; color: var(--text-lo); font-family: 'JetBrains Mono', monospace; }
+  .mock-body { padding: 22px 24px; background: var(--bg-base); }
+
+  .m-stat-row { display:grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-bottom: 18px; }
+  .m-stat { background: var(--bg-card); border:1px solid var(--bg-border); border-radius: 12px; padding: 12px 14px; }
+  .m-stat .k { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-lo); font-weight: 700; }
+  .m-stat .v { font-size: 20px; font-weight: 800; color: var(--text-hi); margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .m-stat.accent .v { color: var(--accent); }
+
+  .m-section { background: var(--bg-card); border: 1px solid var(--bg-border); border-radius: 12px; margin-bottom: 12px; }
+  .m-section .hd { display:flex; align-items:center; justify-content:space-between; padding: 10px 14px; border-bottom: 1px solid var(--bg-border); }
+  .m-section .hd h4 { font-size: 12.5px; font-weight: 700; color: var(--text-hi); }
+  .m-section .bd { padding: 12px 14px; }
+  .m-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding: 7px 0; border-bottom: 1px dashed var(--bg-border); font-size: 12.5px; }
+  .m-row:last-child { border-bottom: none; }
+  .m-row .who { display:flex; align-items:center; gap:8px; color: var(--text-hi); font-weight: 600; }
+  .m-avatar { width:22px; height:22px; border-radius:7px; background: var(--accent-soft); color: var(--accent); display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:800; }
+
+  .m-tabbar { display:flex; gap: 4px; flex-wrap:wrap; margin-bottom: 14px; }
+  .m-tab { font-size: 11.5px; font-weight: 700; padding: 6px 12px; border-radius: 9px; border: 1px solid var(--bg-border); color: var(--text-lo); background: var(--bg-card); }
+  .m-tab.active { background: var(--accent); color: #fff; border-color: var(--accent-600); }
+  .m-tab.soon { opacity: .5; }
+
+  .m-btn { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; font-weight:700; padding: 7px 13px; border-radius: 9px; border:1px solid; }
+  .m-btn.primary { background: var(--accent); color:#fff; border-color: var(--accent-600); }
+  .m-btn.ghost { background: var(--bg-card); color: var(--text-md); border-color: var(--bg-border); }
+
+  .m-field { margin-bottom: 12px; }
+  .m-field .l { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--text-lo); margin-bottom: 5px; }
+  .m-field .i { border: 1px solid var(--bg-border); background: var(--bg-elevated); border-radius: 9px; padding: 9px 11px; font-size: 12.5px; color: var(--text-hi); }
+  .m-field .i.ph { color: var(--text-lo); }
+
+  .m-empty { text-align:center; padding: 28px 16px; color: var(--text-lo); font-size: 12.5px; }
+  .m-empty .ic { width:38px; height:38px; margin: 0 auto 10px; border-radius: 11px; background: var(--bg-elevated); border:1px solid var(--bg-border); display:flex; align-items:center; justify-content:center; font-size:16px; }
+
+  .attn { border-left: 3px solid var(--warning); background: var(--warning-soft); border-radius: 0 10px 10px 0; padding: 9px 12px; font-size: 12.5px; color: var(--text-hi); margin-bottom: 10px; }
+
+  /* ---- state matrix table ---- */
+  table.states { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 18px 0 30px; }
+  table.states th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-lo); font-weight: 700; padding: 0 12px 8px; border-bottom: 1px solid var(--bg-border); }
+  table.states td { padding: 11px 12px; border-bottom: 1px solid var(--bg-border); vertical-align: top; color: var(--text-md); }
+  table.states td:first-child { font-weight: 700; color: var(--text-hi); white-space: nowrap; }
+  table.states tr:last-child td { border-bottom: none; }
+
+  .callout { border: 1px solid var(--bg-border); background: var(--bg-elevated); border-radius: 12px; padding: 14px 18px; font-size: 13.5px; margin: 18px 0; }
+  .callout.accent { border-color: var(--accent-border); background: var(--accent-soft); }
+  .callout strong { color: var(--text-hi); }
+
+  .flow { display:flex; align-items:center; flex-wrap:wrap; gap: 6px; margin: 16px 0 28px; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+  .flow .n { background: var(--bg-card); border:1px solid var(--bg-border); border-radius: 8px; padding: 6px 10px; color: var(--text-hi); font-weight: 600; }
+  .flow .arr { color: var(--text-lo); }
+
+  .checklist { list-style: none; padding: 0; margin: 18px 0; }
+  .checklist li { display:flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--bg-border); font-size: 14px; color: var(--text-md); }
+  .checklist li:last-child { border-bottom: none; }
+  .checklist .box { flex-shrink:0; width:18px; height:18px; border-radius: 5px; border: 2px solid var(--bg-border); margin-top:1px; }
+
+  .later-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap: 10px; margin: 18px 0 30px; }
+  .later-card { border: 1px dashed var(--bg-border); border-radius: 12px; padding: 13px 15px; color: var(--text-lo); font-size: 13px; }
+  .later-card b { display:block; color: var(--text-hi); font-size: 13.5px; margin-bottom: 3px; }
+
+  footer.doc-end { margin-top: 70px; padding-top: 22px; border-top: 1px solid var(--bg-border); color: var(--text-lo); font-size: 13px; }
+
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    .toc { position: relative; height: auto; border-right: none; border-bottom: 1px solid var(--bg-border); }
+    .m-stat-row { grid-template-columns: repeat(2,1fr); }
+  }
+</style>
+
+<div class="shell">
+  <nav class="toc">
+    <div class="brand"><span class="dot"></span><span>Pinit HUB · Business Account</span></div>
+
+    <div class="kicker">Read first</div>
+    <a class="item" href="#scope"><span class="n">00</span>Scope &amp; anchors</a>
+    <a class="item" href="#nav"><span class="n">00</span>Navigation change</a>
+
+    <div class="kicker">Screens</div>
+    <a class="item" href="#overview"><span class="n">01</span>Business Overview</a>
+    <a class="item" href="#add-client"><span class="n">02</span>Add Client</a>
+    <a class="item" href="#client-workspace"><span class="n">03</span>Client Workspace</a>
+    <a class="item" href="#new-campaign"><span class="n">04</span>New Campaign</a>
+    <a class="item" href="#campaign-workspace"><span class="n">05</span>Campaign Workspace</a>
+
+    <div class="kicker">Wrap-up</div>
+    <a class="item" href="#not-yet"><span class="n">06</span>Not in this slice</a>
+    <a class="item" href="#acceptance"><span class="n">07</span>Acceptance checklist</a>
+  </nav>
+
+  <main>
+    <div id="scope">
+      <p class="eyebrow">UX Spec · Phase 1, Step 2–3 · No code</p>
+      <h1 class="doc-title">Business Account — the first connected slice</h1>
+      <p class="doc-sub">Business → Client → Campaign, specified screen by screen: what the user is trying to do, what they see, and what happens next — before a single migration gets written.</p>
+      <div class="source-row">
+        <span class="pill">PinitHUB — Overview &amp; Build Plan.docx</span>
+        <span class="pill">PinitHUB — Simple Overview for Feedback.docx</span>
+        <span class="pill">Creative Agency Strategy &amp; Implementation Report</span>
+        <span class="pill">Real-Time Business Profile Scenario.pdf</span>
+      </div>
+    </div>
+
+    <section class="block">
+      <div class="block-head"><span class="block-num">00</span><h2>Scope of this slice</h2></div>
+      <p class="block-lede">Everything below the fold is spec for five screens only — the smallest complete loop the whole architecture grows from. Nothing here is a form built because a model exists; every screen ties directly to a step in the target flow.</p>
+
+      <div class="flow">
+        <span class="n">Business</span><span class="arr">→</span>
+        <span class="n" style="background:var(--accent);color:#fff;border-color:var(--accent-600)">Client</span><span class="arr">→</span>
+        <span class="n" style="background:var(--accent);color:#fff;border-color:var(--accent-600)">Campaign</span><span class="arr">→</span>
+        <span class="n" style="opacity:.45">People</span><span class="arr">→</span>
+        <span class="n" style="opacity:.45">Assets</span><span class="arr">→</span>
+        <span class="n" style="opacity:.45">…Intelligence, Evidence, Client Report</span>
+      </div>
+
+      <div class="callout accent"><strong>Design system rule for all five screens:</strong> nothing new is invented. Cards reuse the dashboard's <code>SectionCard</code> shell (<code>rounded-xl border border-bg-border bg-bg-card</code>), stat tiles reuse <code>MetricTile</code>'s accent system, badges come from <code>ui/Badge.tsx</code>, and the campaign tab bar reuses the exact query-param tab pattern already live on the Organization Profile page. The mockups below are drawn in the product's real color tokens for that reason — this is what they should actually look like, not a placeholder.</div>
+    </section>
+
+    <section class="block" id="nav">
+      <div class="block-head"><span class="block-num">00</span><h2>One navigation change</h2></div>
+      <p class="block-lede">A single new item, "Clients," added to the existing Business sidebar group — right after Home, before Protect asset. Nothing else in the sidebar moves. Team, Assets, Investigate, Monitoring, Certificates, Organization Profile all stay exactly where they are; a Client's own Campaigns live one level inside the Client workspace, not scattered across new top-level items.</p>
+      <div class="flow">
+        <span class="n">Organization</span><span class="arr">→</span>
+        <span class="n">Home</span><span class="arr">→</span>
+        <span class="n" style="background:var(--accent);color:#fff;border-color:var(--accent-600)">Clients (new)</span><span class="arr">→</span>
+        <span class="n">Protect asset</span><span class="arr">→</span>
+        <span class="n">Digital Assets</span><span class="arr">→</span>
+        <span class="n">Investigate</span><span class="arr">→</span>
+        <span class="n">…Team, Certificates, Profile</span>
+      </div>
+    </section>
+
+    <!-- ============ 01 BUSINESS OVERVIEW ============ -->
+    <section class="block" id="overview">
+      <div class="block-head"><span class="block-num">01</span><h2>Business Overview</h2></div>
+      <p class="block-lede">The existing <code>/business</code> dashboard evolves — same route, same header, same data hook — gaining a new lead section that answers "what's happening with my clients and campaigns right now," ahead of the existing asset/investigation/team snapshots which stay exactly where they are, lower on the page.</p>
+
+      <div class="meta-grid">
+        <div class="meta-cell"><div class="label">User goal</div><div class="value">Understand what needs my attention today, across every client relationship.</div></div>
+        <div class="meta-cell"><div class="label">Primary action</div><div class="value">Open a Client, or start a new one.</div></div>
+        <div class="meta-cell"><div class="label">After the action</div><div class="value">Land inside that Client's workspace, not back on the dashboard.</div></div>
+        <div class="meta-cell"><div class="label">Connects to</div><div class="value">Existing <code>useBusinessDashboard</code> hook — Clients/Campaigns join the same feed as investigations, vault activity, alerts.</div></div>
+      </div>
+
+      <div class="mock-frame">
+        <div class="mock-topbar"><div class="dots"><i></i><i></i><i></i></div><span class="crumb">/business</span></div>
+        <div class="mock-body">
+          <div style="margin-bottom:16px;">
+            <div style="font-size:13px;color:var(--text-lo);">Good morning, Rohan</div>
+            <div style="font-size:19px;font-weight:800;color:var(--text-hi);">NorthStar Creative Labs</div>
+          </div>
+          <div class="m-stat-row">
+            <div class="m-stat accent"><div class="k">Clients</div><div class="v">13</div></div>
+            <div class="m-stat accent"><div class="k">Campaigns</div><div class="v">20</div></div>
+            <div class="m-stat"><div class="k">Assets</div><div class="v">490</div></div>
+            <div class="m-stat"><div class="k">Creators</div><div class="v">65</div></div>
+          </div>
+          <div class="m-section">
+            <div class="hd"><h4>Needs attention</h4><span class="badge warning"><span class="dot"></span>1</span></div>
+            <div class="bd"><div class="attn">1 campaign asset requires usage verification — Monsoon Glow 2026</div></div>
+          </div>
+          <div class="m-section">
+            <div class="hd"><h4>Your clients</h4><span class="m-btn ghost">+ New client</span></div>
+            <div class="bd">
+              <div class="m-row"><span class="who"><span class="m-avatar">AN</span>Aurelia Naturals</span><span style="color:var(--text-lo)">3 campaigns · 2 need review</span></div>
+              <div class="m-row"><span class="who"><span class="m-avatar">VS</span>Vale Studio</span><span style="color:var(--text-lo)">1 campaign · on track</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <table class="states">
+        <tr><th>State</th><th>What the user sees</th></tr>
+        <tr><td>Loading</td><td>Skeleton stat tiles + skeleton client rows — same shimmer pattern already used on the dashboard's snapshot cards, not a spinner.</td></tr>
+        <tr><td>Empty (day 1)</td><td>Zero clients yet: the "Your clients" section shows the shared <code>EmptyState</code> — "No clients yet" / "Add your first client to start organizing campaigns and assets" / a primary "Add Client" action — in place of the row list. Stat tiles still render at zero rather than hiding.</td></tr>
+        <tr><td>Error</td><td>Section-scoped inline error with Retry, matching the dashboard's existing error banner — a failed Clients fetch never blanks the rest of the dashboard.</td></tr>
+        <tr><td>Permission</td><td>A Viewer-role member sees the same overview read-only — no "+ New client" action, no per-row edit affordance.</td></tr>
+        <tr><td>Mobile</td><td>Stat row becomes 2×2; "Needs attention" and "Your clients" stack full-width; row actions collapse to a chevron.</td></tr>
+      </table>
+
+      <div class="callout"><strong>Honesty note carried over from the earlier discussion:</strong> on a genuinely new account this screen is mostly zeros and empty states — that's correct, not a bug. The "intelligent" version above is what it grows into by day 30–90 as Campaigns and Discovery accumulate real activity, matching the product's own Day 1 → Day 90 progression in the source documents.</div>
+    </section>
+
+    <!-- ============ 02 ADD CLIENT ============ -->
+    <section class="block" id="add-client">
+      <div class="block-head"><span class="block-num">02</span><h2>Add Client</h2></div>
+      <p class="block-lede">A short, single-step form — five fields, no wizard. Reuses the existing <code>Modal</code> component (<code>size="md"</code>), the same shell every other lightweight creation action in the app already uses.</p>
+
+      <div class="meta-grid">
+        <div class="meta-cell"><div class="label">User goal</div><div class="value">Get a new client relationship set up in seconds, not a form to configure.</div></div>
+        <div class="meta-cell"><div class="label">Primary action</div><div class="value">Create Client</div></div>
+        <div class="meta-cell"><div class="label">After the action</div><div class="value">Modal closes; user lands directly inside the new Client's (empty) workspace — never back on a list wondering what's next.</div></div>
+        <div class="meta-cell"><div class="label">Trigger points</div><div class="value">"+ New client" on Business Overview, and on the Clients list itself.</div></div>
+      </div>
+
+      <div class="mock-frame" style="max-width:420px;">
+        <div class="mock-topbar"><div class="dots"><i></i><i></i><i></i></div><span class="crumb">Add Client</span></div>
+        <div class="mock-body">
+          <div class="m-field"><div class="l">Client name</div><div class="i ph">e.g. Aurelia Naturals</div></div>
+          <div class="m-field"><div class="l">Company / brand</div><div class="i ph">Optional</div></div>
+          <div class="m-field"><div class="l">Website</div><div class="i ph">aurelianaturals.example</div></div>
+          <div class="m-field"><div class="l">Primary contact</div><div class="i ph">Name &amp; email, optional</div></div>
+          <div class="m-field"><div class="l">Notes</div><div class="i ph">Anything worth remembering</div></div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+            <span class="m-btn ghost">Cancel</span>
+            <span class="m-btn primary">Create Client</span>
+          </div>
+        </div>
+      </div>
+
+      <table class="states">
+        <tr><th>State</th><th>What the user sees</th></tr>
+        <tr><td>Validation</td><td>Only Client name is required — everything else can be filled in later from the workspace. The Create button stays enabled the instant a name is typed; no full-form validation blocking submission.</td></tr>
+        <tr><td>Loading</td><td>Create Client button shows an inline spinner + "Creating…"; form fields disable; modal cannot be dismissed mid-submit.</td></tr>
+        <tr><td>Error</td><td>Inline error banner inside the modal (duplicate name, network failure) — form stays filled in, nothing is lost.</td></tr>
+        <tr><td>Success</td><td>No separate confirmation screen — the modal closes and the Client Workspace is already loading behind it. A toast confirms: "Aurelia Naturals added."</td></tr>
+        <tr><td>Permission</td><td>Viewer/Member roles never see the trigger button at all, rather than seeing it and hitting a permission error on submit.</td></tr>
+        <tr><td>Mobile</td><td>Modal becomes the existing bottom-sheet variant already built into the shared <code>Modal</code> component — no separate mobile design needed.</td></tr>
+      </table>
+    </section>
+
+    <!-- ============ 03 CLIENT WORKSPACE ============ -->
+    <section class="block" id="client-workspace">
+      <div class="block-head"><span class="block-num">03</span><h2>Client Workspace</h2></div>
+      <p class="block-lede">A real route — <code class="mono">/business/clients/:clientId</code> — not a side panel, because a Client is a place the user returns to repeatedly, not a quick peek. Tabs follow the same query-param pattern already live on the Organization Profile page.</p>
+
+      <div class="meta-grid">
+        <div class="meta-cell"><div class="label">User goal</div><div class="value">See everything happening for this one client in one place.</div></div>
+        <div class="meta-cell"><div class="label">Primary action</div><div class="value">Start a new Campaign for this client.</div></div>
+        <div class="meta-cell"><div class="label">After the action</div><div class="value">Land inside the new Campaign's own workspace.</div></div>
+        <div class="meta-cell"><div class="label">Route</div><div class="value mono" style="font-weight:600;">business/clients/:clientId</div></div>
+      </div>
+
+      <div class="mock-frame">
+        <div class="mock-topbar"><div class="dots"><i></i><i></i><i></i></div><span class="crumb">Business / Clients / Aurelia Naturals</span></div>
+        <div class="mock-body">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
+            <div>
+              <div style="font-size:19px;font-weight:800;color:var(--text-hi);">Aurelia Naturals</div>
+              <div style="font-size:12px;color:var(--text-lo);margin-top:2px;">Skincare brand · aurelianaturals.example</div>
+            </div>
+            <span class="m-btn primary">+ New Campaign</span>
+          </div>
+          <div class="m-tabbar">
+            <div class="m-tab active">Campaigns</div>
+            <div class="m-tab">Assets</div>
+            <div class="m-tab">People</div>
+            <div class="m-tab">Deliveries</div>
+            <div class="m-tab">Rights</div>
+            <div class="m-tab">Activity</div>
+            <div class="m-tab soon">Intelligence</div>
+          </div>
+          <div class="m-section">
+            <div class="bd">
+              <div class="m-row"><span class="who">Monsoon Glow 2026</span><span class="badge dna">78 assets</span></div>
+              <div class="m-row"><span class="who">Winter Renewal 2025</span><span class="badge muted">Delivered</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <table class="states">
+        <tr><th>State</th><th>What the user sees</th></tr>
+        <tr><td>Loading</td><td>Header skeleton (name/subline placeholder) + tab bar renders immediately with skeleton content beneath the active tab — tabs themselves are never blocked by the fetch.</td></tr>
+        <tr><td>Empty — Campaigns tab</td><td>Brand-new client, zero campaigns: <code>EmptyState</code> — "No campaigns yet" / "Create the first campaign for Aurelia Naturals" / primary "New Campaign" action, same button as the header's.</td></tr>
+        <tr><td>Empty — other tabs</td><td>Assets/People/Deliveries/Rights/Activity each show their own scoped empty state until a Campaign exists — never a shared generic "nothing here."</td></tr>
+        <tr><td>Error</td><td>Full-page error state (client not found, or fetch failed) with a link back to the Clients list — not a silently blank page.</td></tr>
+        <tr><td>Permission</td><td>A Viewer sees every tab read-only; the "+ New Campaign" button and all row-level actions are simply absent, not disabled-and-explained.</td></tr>
+        <tr><td>Mobile</td><td>Header stacks (name above the action button); tab bar becomes horizontally scrollable, same as the existing Organization Profile tab bar already does today.</td></tr>
+      </table>
+    </section>
+
+    <!-- ============ 04 NEW CAMPAIGN ============ -->
+    <section class="block" id="new-campaign">
+      <div class="block-head"><span class="block-num">04</span><h2>New Campaign</h2></div>
+      <p class="block-lede">Launched in-context from the Client Workspace, as a larger <code>Modal</code> (<code>size="lg"</code>) rather than a page navigation — the client relationship is already on screen, so there's no reason to leave it. Team and Creator assignment are optional here and can always be finished later from the Campaign's own People tab, so this never becomes the "big form before you're allowed to start" the source documents explicitly warn against.</p>
+
+      <div class="meta-grid">
+        <div class="meta-cell"><div class="label">User goal</div><div class="value">Stand up a new piece of client work without leaving the client's context.</div></div>
+        <div class="meta-cell"><div class="label">Primary action</div><div class="value">Create Campaign</div></div>
+        <div class="meta-cell"><div class="label">After the action</div><div class="value">Modal closes; user lands inside the new Campaign Workspace, already scoped to this client.</div></div>
+        <div class="meta-cell"><div class="label">Required fields</div><div class="value">Campaign name only — dates, budget, description, team and creators are all optional at creation.</div></div>
+      </div>
+
+      <div class="mock-frame" style="max-width:520px;">
+        <div class="mock-topbar"><div class="dots"><i></i><i></i><i></i></div><span class="crumb">Aurelia Naturals / New Campaign</span></div>
+        <div class="mock-body">
+          <div class="m-field"><div class="l">Campaign name</div><div class="i ph">e.g. Monsoon Glow 2026</div></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div class="m-field"><div class="l">Start date</div><div class="i ph">Aug 10, 2026</div></div>
+            <div class="m-field"><div class="l">End date</div><div class="i ph">Sep 10, 2026</div></div>
+          </div>
+          <div class="m-field"><div class="l">Description</div><div class="i ph">What this campaign covers</div></div>
+          <div class="m-field"><div class="l">Budget</div><div class="i ph">₹8,50,000 · optional</div></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div class="m-field"><div class="l">Team</div><div class="i ph">Add later from People tab</div></div>
+            <div class="m-field"><div class="l">Creators</div><div class="i ph">Add later from People tab</div></div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+            <span class="m-btn ghost">Cancel</span>
+            <span class="m-btn primary">Create Campaign</span>
+          </div>
+        </div>
+      </div>
+
+      <table class="states">
+        <tr><th>State</th><th>What the user sees</th></tr>
+        <tr><td>Validation</td><td>Only Campaign name is required. End date, if set, must not precede start date — checked inline, not on submit.</td></tr>
+        <tr><td>Loading</td><td>Same disabled-form-plus-spinner pattern as Add Client.</td></tr>
+        <tr><td>Error</td><td>Inline error banner inside the modal; all entered fields preserved.</td></tr>
+        <tr><td>Success</td><td>Modal closes into the new Campaign Workspace directly — no intermediate "campaign created" screen. Toast: "Monsoon Glow 2026 created."</td></tr>
+        <tr><td>Permission</td><td>Same as Add Client — the trigger is absent for roles that can't create campaigns.</td></tr>
+        <tr><td>Mobile</td><td>Bottom-sheet modal; the two-column date/team/creator field pairs stack to single-column.</td></tr>
+      </table>
+    </section>
+
+    <!-- ============ 05 CAMPAIGN WORKSPACE ============ -->
+    <section class="block" id="campaign-workspace">
+      <div class="block-head"><span class="block-num">05</span><h2>Campaign Workspace</h2></div>
+      <p class="block-lede">The strongest screen in this slice — the working container the rest of the architecture hangs off. Route: <code class="mono">/business/clients/:clientId/campaigns/:campaignId</code>. It has to feel like an active workspace on day one, even though several of its tabs (Approvals, Versions, Rights, Sharing, Intelligence) don't have real backends yet.</p>
+
+      <div class="meta-grid">
+        <div class="meta-cell"><div class="label">User goal</div><div class="value">Run this campaign — see what needs attention, who's involved, what's been made.</div></div>
+        <div class="meta-cell"><div class="label">Primary action</div><div class="value">Upload/register an asset into this campaign.</div></div>
+        <div class="meta-cell"><div class="label">After the action</div><div class="value">Asset appears in the Assets tab, already tagged with this Campaign — reusing the existing Protect-asset flow, not a second uploader.</div></div>
+        <div class="meta-cell"><div class="label">Route</div><div class="value mono" style="font-weight:600;">…/campaigns/:campaignId</div></div>
+      </div>
+
+      <div class="mock-frame">
+        <div class="mock-topbar"><div class="dots"><i></i><i></i><i></i></div><span class="crumb">Business / Aurelia Naturals / Monsoon Glow 2026</span></div>
+        <div class="mock-body">
+          <div style="margin-bottom:12px;">
+            <div style="font-size:19px;font-weight:800;color:var(--text-hi);">Monsoon Glow 2026</div>
+            <div style="font-size:12px;color:var(--text-lo);margin-top:2px;">Aug 10 – Sep 10, 2026 · Aurelia Naturals</div>
+          </div>
+          <div class="m-stat-row">
+            <div class="m-stat accent"><div class="k">Assets</div><div class="v">78</div></div>
+            <div class="m-stat"><div class="k">Creators</div><div class="v">4</div></div>
+            <div class="m-stat"><div class="k">Approvals</div><div class="v">3</div></div>
+            <div class="m-stat"><div class="k">External links</div><div class="v">14</div></div>
+          </div>
+          <div class="m-tabbar">
+            <div class="m-tab active">Overview</div>
+            <div class="m-tab">Assets</div>
+            <div class="m-tab">People</div>
+            <div class="m-tab soon">Approvals</div>
+            <div class="m-tab soon">Versions</div>
+            <div class="m-tab soon">Rights</div>
+            <div class="m-tab">Sharing</div>
+            <div class="m-tab">Activity</div>
+            <div class="m-tab soon">Intelligence</div>
+          </div>
+          <div class="m-section">
+            <div class="hd"><h4>Needs attention</h4></div>
+            <div class="bd">
+              <div class="attn">2 assets waiting for approval</div>
+              <div class="attn">1 usage verification required</div>
+            </div>
+          </div>
+          <div class="m-section">
+            <div class="hd"><h4>People</h4></div>
+            <div class="bd">
+              <div class="m-row"><span class="who"><span class="m-avatar">AN</span>Ananya Rao</span><span style="color:var(--text-lo)">Creative Director</span></div>
+              <div class="m-row"><span class="who"><span class="m-avatar">KS</span>Kabir Shah</span><span style="color:var(--text-lo)">Designer</span></div>
+              <div class="m-row"><span class="who"><span class="m-avatar">IK</span>Isha Kulkarni</span><span class="badge muted">External creator</span></div>
+            </div>
+          </div>
+          <div class="m-section">
+            <div class="hd"><h4>Recent activity</h4></div>
+            <div class="bd">
+              <div class="m-row"><span class="who">Meera uploaded aurelia_monsoon_01.jpg</span><span style="color:var(--text-lo)">2h ago</span></div>
+              <div class="m-row"><span class="who">Isha received the asset</span><span style="color:var(--text-lo)">1d ago</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout"><strong>Tab-by-tab reality for this slice</strong> — reusing the app's existing <code>ComingSoonTile</code> pattern rather than shipping an empty or broken tab:</div>
+
+      <table class="states">
+        <tr><th>Tab</th><th>This slice</th></tr>
+        <tr><td>Overview</td><td><span class="badge success">Live</span> — stat row, Needs Attention, People preview, Activity feed, as mocked above.</td></tr>
+        <tr><td>Assets</td><td><span class="badge success">Live</span> — existing Digital Assets grid, filtered to <code>campaignId</code>; upload uses the existing Protect-asset flow.</td></tr>
+        <tr><td>People</td><td><span class="badge success">Live</span> — reuses the Team panel's exact row pattern (icon-by-role, name + id/role subline) for both internal team and external creators.</td></tr>
+        <tr><td>Activity</td><td><span class="badge success">Live</span> — chronological feed scoped to this campaign, same visual pattern as the dashboard's Live Activity Feed.</td></tr>
+        <tr><td>Sharing</td><td><span class="badge dna">Reused</span> — existing controlled-sharing flow, entry point relocated here; no new sharing logic.</td></tr>
+        <tr><td>Approvals · Versions · Rights · Intelligence</td><td><span class="badge muted">Coming later</span> — tab is visible (so the eventual shape of the workspace is legible now) but opens a <code>ComingSoonTile</code>, not an empty table. Phases 3–4–6 respectively.</td></tr>
+      </table>
+
+      <table class="states">
+        <tr><th>State</th><th>What the user sees</th></tr>
+        <tr><td>Loading</td><td>Stat row and header render as skeletons first; tabs are interactive immediately, each tab's own content loads independently.</td></tr>
+        <tr><td>Empty — Assets tab</td><td>Freshly created campaign: <code>EmptyState</code> — "No assets yet" / "Protect an asset to add it to Monsoon Glow 2026" / primary action opens the existing Protect-asset flow pre-scoped to this campaign.</td></tr>
+        <tr><td>Empty — People tab</td><td>"No one's connected to this campaign yet" / "Add Team" and "Add Creator" actions side by side.</td></tr>
+        <tr><td>Error</td><td>Same full-page pattern as the Client Workspace — campaign not found or fetch failed, link back to the client.</td></tr>
+        <tr><td>Permission</td><td>External creators (see §09 of the source scenario) never see this workspace at all — they only ever receive the single scoped, time-limited share link for their own asset, via the existing sharing system. This screen is staff-only.</td></tr>
+        <tr><td>Mobile</td><td>Stat row 2×2, tab bar horizontally scrollable, section cards stack full width, People rows drop the trailing role text to a second line.</td></tr>
+      </table>
+    </section>
+
+    <!-- ============ NOT YET ============ -->
+    <section class="block" id="not-yet">
+      <div class="block-head"><span class="block-num">06</span><h2>Deliberately not in this slice</h2></div>
+      <p class="block-lede">Named explicitly so scope doesn't quietly creep while building — each of these is a later phase, not an oversight here.</p>
+      <div class="later-grid">
+        <div class="later-card"><b>Approvals workflow</b>Draft → Review → Approved state machine. Phase 3.</div>
+        <div class="later-card"><b>Version history UI</b>Data already exists (<code>EvolutionLayer</code>); no screen yet. Phase 3.</div>
+        <div class="later-card"><b>Usage rights &amp; handover</b>Permitted-use record, delivery receipt. Phase 4.</div>
+        <div class="later-card"><b>Discovery → Campaign link</b>Monitoring results scoped into campaign context. Phase 5.</div>
+        <div class="later-card"><b>Business-level Network graph</b>Visual relationship graph across all clients. Phase 6.</div>
+        <div class="later-card"><b>Investigation → Evidence → Client report</b>Full story from the source scenario's §13–17. Phase 7.</div>
+      </div>
+    </section>
+
+    <!-- ============ ACCEPTANCE ============ -->
+    <section class="block" id="acceptance">
+      <div class="block-head"><span class="block-num">07</span><h2>Acceptance checklist for this slice</h2></div>
+      <p class="block-lede">The end-to-end loop this UX has to support, before implementation moves to the next phase:</p>
+      <ul class="checklist">
+        <li><span class="box"></span>From Business Overview, create a Client in under 10 seconds and land directly in its workspace.</li>
+        <li><span class="box"></span>From the Client Workspace, create a Campaign without leaving the client's context.</li>
+        <li><span class="box"></span>Land in the new Campaign Workspace immediately, with Overview already showing zero-state correctly.</li>
+        <li><span class="box"></span>Upload an asset via the existing Protect-asset flow and see it appear in the Campaign's Assets tab, correctly attributed.</li>
+        <li><span class="box"></span>Add an internal team member and an external creator to the Campaign's People tab, visually distinguished.</li>
+        <li><span class="box"></span>Every empty/loading/error state above renders as specified — no blank screens, no raw error text.</li>
+        <li><span class="box"></span>A Viewer-role account can see the whole loop read-only, with no create/edit affordances rendered anywhere.</li>
+        <li><span class="box"></span>The full loop works at mobile width without horizontal scrolling the page body.</li>
+        <li><span class="box"></span>Nothing here introduces a second asset identity — every asset in a Campaign is still keyed by the existing canonical <code>Asset.id</code>.</li>
+      </ul>
+    </section>
+
+    <footer class="doc-end">Once this is approved, Phase 1 implementation follows the agreed method: trace existing code → confirm data model against these screens → backend → frontend → connect to existing systems → test the full journey and tenant isolation → polish.</footer>
+  </main>
+</div>

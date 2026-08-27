@@ -16,7 +16,7 @@ export function AssetEvidenceFlow() {
         <ol className="relative mx-auto mt-12 max-w-4xl lg:mt-16">
           <div
             aria-hidden
-            className="absolute top-4 bottom-4 left-[1.15rem] w-px bg-[linear-gradient(180deg,transparent,rgba(85,230,255,0.35),transparent)] sm:left-1/2 sm:-translate-x-px"
+            className="absolute top-4 bottom-4 left-[1.15rem] w-px bg-[linear-gradient(180deg,transparent,rgba(232,121,249,0.35),transparent)] sm:left-1/2 sm:-translate-x-px"
           />
           {EVIDENCE_FLOW.stages.map((stage, i) => (
             <li

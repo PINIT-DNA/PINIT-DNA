@@ -39,3 +39,19 @@ recovered-vault/
 
 # Local DB snapshots taken before migrations — contain real user data, never commit
 scripts/backups/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Throwaway probe scripts
+scripts/tmp-*.py
+scripts/tmp-*.cjs
+tmp-*.cjs
+
+# Large binaries — not source. Fetch or build these locally.
+eng.traineddata
+*.zip
+
+# Editor
+.cursor/

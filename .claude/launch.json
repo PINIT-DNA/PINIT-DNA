@@ -34,6 +34,13 @@
       "runtimeArgs": ["--prefix", "exchange", "run", "server"],
       "port": 5000,
       "autoPort": false
+    },
+    {
+      "name": "landing",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "pinithub-landing", "run", "dev", "--", "-p", "3002"],
+      "port": 3002,
+      "autoPort": false
     }
   ]
 }

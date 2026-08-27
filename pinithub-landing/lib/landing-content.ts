@@ -37,17 +37,17 @@ export const PLATFORM_LOOP = {
     {
       title: 'Protect',
       body: 'Secure the original when an asset enters your workspace.',
-      tint: '#2D7BFF',
+      tint: '#6D5EF0',
     },
     {
       title: 'Prove',
       body: 'Establish ownership evidence that can be compared later.',
-      tint: '#55E6FF',
+      tint: '#E879F9',
     },
     {
       title: 'Share',
       body: 'Grant access without losing visibility or control.',
-      tint: '#6F5CFF',
+      tint: '#A855F7',
     },
     {
       title: 'Detect',

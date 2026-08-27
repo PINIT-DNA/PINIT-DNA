@@ -1,17 +1,89 @@
-import type { ReactNode } from 'react';
+'use client';
 
+import { motion, useMotionTemplate, useMotionValue, useReducedMotion, useSpring } from 'framer-motion';
+import type { MouseEvent, ReactNode } from 'react';
+import { useCallback, useRef, useState } from 'react';
+
+/**
+ * Panel with cursor-tracked lighting and a restrained 3D tilt.
+ * The glow follows the pointer; the tilt is capped low so text stays readable.
+ * Shared by every card-grid section on the live page — this is the single
+ * place that decides whether cards feel flat or premium.
+ */
 export function Card({
   children,
   className = '',
   as: Tag = 'div',
+  maxTilt = 5,
+  glow = 'rgba(232,121,249,0.10)',
 }: {
   children: ReactNode;
   className?: string;
   as?: 'div' | 'article' | 'li' | 'section';
+  maxTilt?: number;
+  glow?: string;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const reduce = useReducedMotion();
+  const [hovered, setHovered] = useState(false);
+
+  const px = useMotionValue(50);
+  const py = useMotionValue(50);
+  const rx = useSpring(useMotionValue(0), { stiffness: 220, damping: 24 });
+  const ry = useSpring(useMotionValue(0), { stiffness: 220, damping: 24 });
+
+  const spotlight = useMotionTemplate`radial-gradient(320px circle at ${px}% ${py}%, ${glow}, transparent 62%)`;
+
+  const onMove = useCallback(
+    (e: MouseEvent) => {
+      if (!ref.current) return;
+      const r = ref.current.getBoundingClientRect();
+      const nx = (e.clientX - r.left) / r.width;
+      const ny = (e.clientY - r.top) / r.height;
+      px.set(nx * 100);
+      py.set(ny * 100);
+      if (!reduce) {
+        ry.set((nx - 0.5) * maxTilt * 2);
+        rx.set(-(ny - 0.5) * maxTilt * 2);
+      }
+    },
+    [maxTilt, px, py, reduce, rx, ry],
+  );
+
+  const onLeave = useCallback(() => {
+    setHovered(false);
+    rx.set(0);
+    ry.set(0);
+    px.set(50);
+    py.set(50);
+  }, [px, py, rx, ry]);
+
+  // Runtime picks the real tag; the cast just keeps the ref/props union tractable.
+  const MotionTag = motion[Tag] as typeof motion.div;
+
   return (
-    <Tag className={`panel rounded-[var(--radius-xl)] border border-line bg-ink-2/60 ${className}`}>
-      {children}
-    </Tag>
+    <MotionTag
+      ref={ref}
+      className={`panel grain group relative overflow-hidden rounded-[var(--radius-xl)] border border-line bg-ink-2/60 transition-[box-shadow,border-color] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-white/12 hover:shadow-[var(--shadow-lift-hi)] ${className}`}
+      style={
+        reduce
+          ? undefined
+          : { rotateX: rx, rotateY: ry, transformPerspective: 1200, transformStyle: 'preserve-3d' }
+      }
+      onMouseMove={onMove}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={onLeave}
+      whileHover={reduce ? undefined : { y: -4 }}
+      transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+    >
+      <motion.span
+        aria-hidden
+        className="pointer-events-none absolute inset-0 z-0"
+        style={{ background: spotlight }}
+        animate={{ opacity: hovered ? 1 : 0 }}
+        transition={{ duration: 0.45, ease: 'easeOut' }}
+      />
+      <span className="relative z-10 block h-full [transform:translateZ(24px)]">{children}</span>
+    </MotionTag>
   );
 }

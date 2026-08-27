@@ -264,7 +264,7 @@ export function DemoBooking({
                           {i < STEPS.length - 1 && (
                             <span aria-hidden className="relative h-px flex-1 bg-line">
                               <motion.span
-                                className="absolute inset-y-0 left-0 bg-[linear-gradient(90deg,#55E6FF,#2D7BFF)]"
+                                className="absolute inset-y-0 left-0 bg-[linear-gradient(90deg,#E879F9,#6D5EF0)]"
                                 animate={{ width: i < step ? '100%' : '0%' }}
                                 transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
                               />
@@ -433,7 +433,7 @@ export function DemoBooking({
                                     <span
                                       className={`grid h-5 w-5 place-items-center rounded-[0.4rem] border transition-all duration-300 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-cyan ${
                                         values.consent
-                                          ? 'border-cyan/60 bg-[linear-gradient(140deg,#55E6FF,#2D7BFF)]'
+                                          ? 'border-cyan/60 bg-[linear-gradient(140deg,#E879F9,#6D5EF0)]'
                                           : errors.consent
                                             ? 'border-red-400/60'
                                             : 'border-line'
@@ -678,10 +678,10 @@ function CalendarVisual({ date, time }: { date: string; time: string }) {
       >
         <span
           aria-hidden
-          className="absolute -inset-4 rounded-[1.75rem] bg-[linear-gradient(140deg,rgba(85,230,255,0.28),rgba(111,92,255,0.24))] opacity-60 blur-2xl"
+          className="absolute -inset-4 rounded-[1.75rem] bg-[linear-gradient(140deg,rgba(232,121,249,0.28),rgba(168,85,247,0.24))] opacity-60 blur-2xl"
         />
         <div className="relative overflow-hidden rounded-2xl border border-white/14 bg-[linear-gradient(160deg,rgba(23,39,68,0.96),rgba(6,11,26,0.94))] shadow-[0_30px_60px_-25px_rgba(0,0,0,0.95)]">
-          <div className="border-b border-line bg-[linear-gradient(100deg,#55E6FF,#2D7BFF,#6F5CFF)] px-4 py-2">
+          <div className="border-b border-line bg-[linear-gradient(100deg,#E879F9,#6D5EF0,#A855F7)] px-4 py-2">
             <p className="font-mono text-[0.6875rem] tracking-[0.16em] text-ink uppercase">{month}</p>
           </div>
           <div className="px-4 py-6 text-center">

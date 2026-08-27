@@ -19,7 +19,7 @@ export function EnterpriseCTA() {
         <div className="mt-10 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
           <a
             href={hubSignupUrl()}
-            className="inline-flex h-[3.35rem] w-full items-center justify-center gap-2.5 rounded-full bg-[linear-gradient(100deg,#55E6FF_0%,#2D7BFF_45%,#6F5CFF_100%)] px-8 text-base font-medium text-white sm:w-auto"
+            className="inline-flex h-[3.35rem] w-full items-center justify-center gap-2.5 rounded-full bg-[linear-gradient(100deg,#E879F9_0%,#6D5EF0_45%,#A855F7_100%)] px-8 text-base font-medium text-white sm:w-auto"
           >
             {FINAL_CTA.primary}
             <ArrowUpRight className="h-4 w-4" aria-hidden />

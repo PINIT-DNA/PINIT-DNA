@@ -138,8 +138,8 @@ export const DEFAULT_FEATURES = [
     title: 'Protect',
     body: 'Secure the original. Encrypted asset storage with protection and provenance established when an asset enters your workspace.',
     span: 'lg:col-span-2',
-    tint: '#2D7BFF',
-    glow: 'rgba(45,123,255,0.08)',
+    tint: '#6D5EF0',
+    glow: 'rgba(109,94,240,0.08)',
     featured: false,
   },
   {
@@ -147,8 +147,8 @@ export const DEFAULT_FEATURES = [
     title: 'Prove',
     body: 'Establish ownership evidence. Persistent asset identity that can be compared against later copies or transformations.',
     span: 'lg:col-span-2',
-    tint: '#55E6FF',
-    glow: 'rgba(85,230,255,0.08)',
+    tint: '#E879F9',
+    glow: 'rgba(232,121,249,0.08)',
     featured: false,
   },
   {
@@ -156,8 +156,8 @@ export const DEFAULT_FEATURES = [
     title: 'Share',
     body: 'Share without losing control. Access-controlled sharing with activity visibility and revocation when you need it.',
     span: 'lg:col-span-2',
-    tint: '#6F5CFF',
-    glow: 'rgba(111,92,255,0.08)',
+    tint: '#A855F7',
+    glow: 'rgba(168,85,247,0.08)',
     featured: false,
   },
   {
@@ -174,8 +174,8 @@ export const DEFAULT_FEATURES = [
     title: 'Investigate',
     body: 'Turn a suspicious copy into evidence. Compare assets, inspect provenance, reconstruct activity, and build a trail.',
     span: 'lg:col-span-3',
-    tint: '#55E6FF',
-    glow: 'rgba(85,230,255,0.08)',
+    tint: '#E879F9',
+    glow: 'rgba(232,121,249,0.08)',
     featured: false,
   },
   {
@@ -183,8 +183,8 @@ export const DEFAULT_FEATURES = [
     title: 'Identity & access',
     body: 'Strong account identity and controlled access so only the right people enter the workspace that holds your assets.',
     span: 'lg:col-span-3',
-    tint: '#6F5CFF',
-    glow: 'rgba(111,92,255,0.07)',
+    tint: '#A855F7',
+    glow: 'rgba(168,85,247,0.07)',
     featured: false,
   },
   {
@@ -213,8 +213,8 @@ export const DEFAULT_ECOSYSTEM_PRODUCTS = [
     tagline: 'Available now · private asset workspace',
     body: 'Protect and manage digital assets privately. Your assets do not need to be listed, published, or sold to stay protected inside Hub.',
     points: 'Protect & store privately\nProve ownership evidence\nShare with control\nDetect & investigate',
-    tint: '#2D7BFF',
-    glow: 'rgba(45,123,255,0.10)',
+    tint: '#6D5EF0',
+    glow: 'rgba(109,94,240,0.10)',
     artKey: 'vault',
     ctaLabel: 'Get started',
     ctaHref: 'https://pinit-dna.vercel.app/register/account-type',
@@ -224,8 +224,8 @@ export const DEFAULT_ECOSYSTEM_PRODUCTS = [
     tagline: 'Coming soon · commerce when you choose',
     body: 'Turn protected assets into commerce only when you make them available. Buyers browse and license; sellers list and sell—roles stay separate.',
     points: 'List & license (planned)\nBuy & acquire (planned)\nPrivate Hub stays private\nRoles enforce actions',
-    tint: '#6F5CFF',
-    glow: 'rgba(111,92,255,0.10)',
+    tint: '#A855F7',
+    glow: 'rgba(168,85,247,0.10)',
     artKey: 'exchange',
     ctaLabel: 'Ask about the roadmap',
     ctaHref: '#demo',
@@ -235,8 +235,8 @@ export const DEFAULT_ECOSYSTEM_PRODUCTS = [
     tagline: 'Roadmap · professional identity',
     body: 'Verified portfolios and professional identity built on protected work—future PINITHUB surface, not part of live Hub today.',
     points: 'Verified portfolios (planned)\nProfessional identity (planned)\nCredentials (planned)',
-    tint: '#55E6FF',
-    glow: 'rgba(85,230,255,0.08)',
+    tint: '#E879F9',
+    glow: 'rgba(232,121,249,0.08)',
     artKey: 'career',
     ctaLabel: 'Talk to our team',
     ctaHref: '#demo',
@@ -247,7 +247,7 @@ export const DEFAULT_WHY_CARDS = [
   {
     kicker: 'Positioning',
     title: 'Evidence. Control. Accountability.',
-    glow: 'rgba(85,230,255,0.08)',
+    glow: 'rgba(232,121,249,0.08)',
     artKey: 'fragment',
     body: [
       'Customers do not wake up needing fingerprints or forensics jargon. They need to protect what they create, prove what they own, and respond when assets escape.',
@@ -257,7 +257,7 @@ export const DEFAULT_WHY_CARDS = [
   {
     kicker: 'Private first',
     title: 'Not every asset needs to be sold',
-    glow: 'rgba(45,123,255,0.08)',
+    glow: 'rgba(109,94,240,0.08)',
     artKey: 'horizon',
     body: [
       'Protect an asset privately inside PINITHUB without publishing it, listing it, or exposing it to a marketplace.',
@@ -267,7 +267,7 @@ export const DEFAULT_WHY_CARDS = [
   {
     kicker: 'Honesty',
     title: 'Ship what we claim',
-    glow: 'rgba(111,92,255,0.08)',
+    glow: 'rgba(168,85,247,0.08)',
     artKey: 'network',
     body: [
       'Available now vs Coming soon is labeled clearly so demos and procurement stay aligned.',
@@ -380,7 +380,7 @@ export const DEFAULT_TESTIMONIALS: {
     role: 'Creative Operations Lead · Bengaluru, India',
     company: '',
     initials: 'AR',
-    tint: '#55E6FF',
+    tint: '#E879F9',
     rating: 5,
   },
   {
@@ -390,7 +390,7 @@ export const DEFAULT_TESTIMONIALS: {
     role: 'IT Security Manager · Hyderabad, India',
     company: '',
     initials: 'RM',
-    tint: '#2D7BFF',
+    tint: '#6D5EF0',
     rating: 5,
   },
   {
@@ -400,7 +400,7 @@ export const DEFAULT_TESTIMONIALS: {
     role: 'Media Operations · Mumbai, India',
     company: '',
     initials: 'KP',
-    tint: '#6F5CFF',
+    tint: '#A855F7',
     rating: 5,
   },
   {

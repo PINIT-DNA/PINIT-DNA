@@ -76,7 +76,7 @@ export function LandingNavbar() {
               </a>
               <a
                 href={signup}
-                className="inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-full bg-[linear-gradient(100deg,#55E6FF_0%,#2D7BFF_45%,#6F5CFF_100%)] px-5 text-[0.9375rem] font-medium text-white"
+                className="inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-full bg-[linear-gradient(100deg,#E879F9_0%,#6D5EF0_45%,#A855F7_100%)] px-5 text-[0.9375rem] font-medium text-white"
               >
                 Get started
                 <ArrowUpRight className="h-4 w-4" aria-hidden />
@@ -124,7 +124,7 @@ export function LandingNavbar() {
                 <a
                   href={signup}
                   onClick={() => setOpen(false)}
-                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[linear-gradient(100deg,#55E6FF_0%,#2D7BFF_45%,#6F5CFF_100%)] text-base font-medium text-white"
+                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[linear-gradient(100deg,#E879F9_0%,#6D5EF0_45%,#A855F7_100%)] text-base font-medium text-white"
                 >
                   Get started
                 </a>

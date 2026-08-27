@@ -1,13 +1,13 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 import { ArrowUpRight, Play } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { ProductMockup } from '@/components/ui/ProductMockup';
 import { VideoModal } from '@/components/ui/VideoModal';
 import { LANDING_HERO } from '@/lib/landing-content';
 import { DEMO_VIDEO_URL, hubSignupUrl } from '@/lib/site';
-import { HubDashboardMock } from './mockups';
 
 export function LandingHero() {
   const [line1, line2] = LANDING_HERO.headline.split('\n');
@@ -37,7 +37,7 @@ export function LandingHero() {
           <div className="mt-8 flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
             <a
               href={hubSignupUrl()}
-              className="inline-flex h-[3.35rem] w-full items-center justify-center gap-2.5 rounded-full bg-[linear-gradient(100deg,#55E6FF_0%,#2D7BFF_45%,#6F5CFF_100%)] px-8 text-base font-medium text-white sm:w-auto"
+              className="inline-flex h-[3.35rem] w-full items-center justify-center gap-2.5 rounded-full bg-[linear-gradient(100deg,#E879F9_0%,#6D5EF0_45%,#A855F7_100%)] px-8 text-base font-medium text-white sm:w-auto"
             >
               {LANDING_HERO.primaryCta}
               <ArrowUpRight className="h-4 w-4" aria-hidden />
@@ -74,9 +74,33 @@ export function LandingHero() {
           <p className="mt-4 max-w-lg text-[0.9375rem] text-mute-2">{LANDING_HERO.differentiator}</p>
         </div>
 
-        <ProductMockup title="Workspace overview" className="w-full">
-          <HubDashboardMock />
-        </ProductMockup>
+        <div className="relative mb-10 sm:mb-16 lg:mb-0">
+          <ProductMockup title="Pinit Exchange — Discover" eyebrow="Live product" flush className="w-full">
+            <Image
+              src="/images/exchange-discover.png"
+              alt="Pinit Exchange marketplace — Discover page showing DNA & Vault-protected creative assets"
+              width={1440}
+              height={900}
+              className="block h-auto w-full"
+              priority
+            />
+          </ProductMockup>
+
+          <ProductMockup
+            title="Pinit HUB — Sign in"
+            eyebrow="Live product"
+            flush
+            className="absolute -bottom-10 -left-6 w-[62%] shadow-[var(--shadow-lift-hi)] sm:-bottom-14 sm:-left-10 sm:w-[56%]"
+          >
+            <Image
+              src="/images/hub-login.png"
+              alt="Pinit HUB biometric sign-in screen — Face, Device, and Voice verification"
+              width={1440}
+              height={900}
+              className="block h-auto w-full"
+            />
+          </ProductMockup>
+        </div>
       </div>
 
       {videoOpen && videoUrl ? <VideoModal url={videoUrl} onClose={() => setVideoOpen(false)} /> : null}

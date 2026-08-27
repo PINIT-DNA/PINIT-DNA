@@ -58,7 +58,7 @@ export function Button({
           <>
             <span
               aria-hidden
-              className="absolute inset-0 rounded-full bg-[linear-gradient(100deg,#55E6FF_0%,#2D7BFF_42%,#6F5CFF_100%)]"
+              className="absolute inset-0 rounded-full bg-[linear-gradient(100deg,#E879F9_0%,#6D5EF0_42%,#A855F7_100%)]"
             />
             <span aria-hidden className="absolute inset-x-6 -top-px h-px rounded-full bg-white/50" />
           </>

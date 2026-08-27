@@ -8,11 +8,14 @@ export function ProductMockup({
   children,
   className = '',
   eyebrow = 'PinIT Hub',
+  flush = false,
 }: {
   title: string;
   children: ReactNode;
   className?: string;
   eyebrow?: string;
+  /** Edge-to-edge content area (no padding/lattice) — for real product screenshots. */
+  flush?: boolean;
 }) {
   return (
     <figure
@@ -30,10 +33,14 @@ export function ProductMockup({
         </div>
         <span className="eyebrow shrink-0 text-[0.6rem]">{eyebrow}</span>
       </figcaption>
-      <div className="relative bg-[linear-gradient(180deg,rgba(11,23,41,0.9),rgba(5,8,22,0.95))] p-4 sm:p-5">
-        <div className="lattice-fine pointer-events-none absolute inset-0 opacity-30" aria-hidden />
+      {flush ? (
         <div className="relative">{children}</div>
-      </div>
+      ) : (
+        <div className="relative bg-[linear-gradient(180deg,rgba(11,23,41,0.9),rgba(5,8,22,0.95))] p-4 sm:p-5">
+          <div className="lattice-fine pointer-events-none absolute inset-0 opacity-30" aria-hidden />
+          <div className="relative">{children}</div>
+        </div>
+      )}
     </figure>
   );
 }

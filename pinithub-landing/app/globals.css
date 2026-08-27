@@ -7,9 +7,9 @@
   --color-ink: #050816;
   --color-ink-2: #08111f;
   --color-ink-3: #0b1729;
-  --color-blue: #2d7bff;
-  --color-cyan: #55e6ff;
-  --color-violet: #6f5cff;
+  --color-blue: #6d5ef0;
+  --color-cyan: #e879f9;
+  --color-violet: #a855f7;
   --color-paper: #f8fafc;
   --color-mute: #b8c2d0;
   --color-mute-2: #7d899b;
@@ -37,7 +37,7 @@
   --shadow-lift: 0 1px 0 0 rgba(248, 250, 252, 0.05) inset, 0 30px 60px -20px rgba(2, 5, 14, 0.9);
   --shadow-lift-hi:
     0 1px 0 0 rgba(248, 250, 252, 0.06) inset, 0 40px 70px -28px rgba(2, 5, 14, 0.9),
-    0 0 40px -24px rgba(45, 123, 255, 0.22);
+    0 0 40px -24px rgba(109, 94, 240, 0.22);
 }
 
 /* ============================================================
@@ -86,7 +86,7 @@
   }
 
   ::selection {
-    background: rgba(45, 123, 255, 0.35);
+    background: rgba(109, 94, 240, 0.35);
     color: var(--color-paper);
   }
 
@@ -104,12 +104,12 @@
     background: #04060f;
   }
   ::-webkit-scrollbar-thumb {
-    background: linear-gradient(180deg, rgba(45, 123, 255, 0.5), rgba(111, 92, 255, 0.4));
+    background: linear-gradient(180deg, rgba(109, 94, 240, 0.5), rgba(168, 85, 247, 0.4));
     border-radius: 99px;
     border: 3px solid #04060f;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(180deg, rgba(85, 230, 255, 0.7), rgba(45, 123, 255, 0.6));
+    background: linear-gradient(180deg, rgba(232, 121, 249, 0.7), rgba(109, 94, 240, 0.6));
   }
 
   input,
@@ -250,13 +250,13 @@
   }
 
   .text-glow {
-    background: linear-gradient(180deg, #ffffff 0%, #b9cdf5 100%);
+    background: linear-gradient(180deg, #ffffff 0%, #d9c9f7 100%);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
   }
   .text-beam {
-    background: linear-gradient(100deg, #d7ecff 0%, #55e6ff 38%, #2d7bff 100%);
+    background: linear-gradient(100deg, #f3e0ff 0%, #e879f9 38%, #6d5ef0 100%);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
