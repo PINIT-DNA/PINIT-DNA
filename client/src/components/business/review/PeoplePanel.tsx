@@ -24,6 +24,7 @@ import type {
   CampaignPeople, CampaignPerson, CampaignAsset, AccessLink,
 } from '../../../services/business.api';
 import { SectionCard, SkeletonRows } from '../clients/BusinessKit';
+import { AddTeamMemberDialog } from './AddTeamMemberDialog';
 import { timeAgo, initialsOf } from './ReviewPrimitives';
 
 const cn = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
@@ -83,9 +84,18 @@ export function PeoplePanel({
 
   const internal = data?.people.filter((p) => p.kind === 'internal') ?? [];
   const external = data?.people.filter((p) => p.kind === 'external') ?? [];
+  const [addTeamOpen, setAddTeamOpen] = useState(false);
 
   return (
     <div className="space-y-4">
+      <AddTeamMemberDialog
+        campaignId={campaignId}
+        campaignName={data?.client?.name ?? 'this campaign'}
+        open={addTeamOpen}
+        onClose={() => setAddTeamOpen(false)}
+        onAdded={() => { void load(); onChanged?.(); }}
+      />
+
       {data?.client && (
         <SectionCard title="Client" icon={Users}>
           <div className="flex items-center gap-3">
@@ -119,9 +129,13 @@ export function PeoplePanel({
         {internal.length === 0 ? (
           <div className="rounded-lg border border-dashed border-bg-border bg-bg-elevated/40 px-4 py-6 text-center">
             <p className="text-sm font-semibold text-white mb-0.5">No team members on this campaign</p>
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-gray-400 mb-3">
               Add someone from your organization to show who is working on it.
             </p>
+            <button type="button" onClick={() => setAddTeamOpen(true)}
+              className="btn btn-secondary text-xs inline-flex items-center gap-1.5">
+              <UserPlus size={13} /> Add team member
+            </button>
           </div>
         ) : (
           <ul className="space-y-2">
@@ -145,6 +159,12 @@ export function PeoplePanel({
               </li>
             ))}
           </ul>
+        )}
+        {internal.length > 0 && (
+          <button type="button" onClick={() => setAddTeamOpen(true)}
+            className="btn btn-secondary text-xs inline-flex items-center gap-1.5 mt-3">
+            <UserPlus size={13} /> Add team member
+          </button>
         )}
         <p className="text-2xs text-gray-500 mt-2.5">
           Team members reach campaign assets through their organization role. Change it in Team.

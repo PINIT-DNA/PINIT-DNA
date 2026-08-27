@@ -31,6 +31,22 @@ export interface CreatedTeamInvite {
   role: string;
 }
 
+/** What a Pinit ID lookup may reveal. Name and status only — never contact details. */
+export interface LookedUpAccount {
+  pinitId: string;
+  name: string;
+  alreadyMember: boolean;
+  memberRole: string | null;
+  invitePending: boolean;
+}
+
+export interface AssignableMember {
+  userId: string;
+  name: string;
+  pinitId: string;
+  orgRole: string;
+}
+
 export function useOrganizationTeam() {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [invites, setInvites] = useState<TeamInvite[]>([]);
@@ -62,13 +78,49 @@ export function useOrganizationTeam() {
     void refresh();
   }, [refresh]);
 
-  async function invite(payload: { email?: string; inviteeShortId?: string; role?: string }): Promise<CreatedTeamInvite> {
+  async function invite(payload: {
+    email?: string; inviteeShortId?: string; role?: string;
+    /** Bind to a campaign so accepting also places them on it. */
+    campaignId?: string; campaignRole?: string;
+  }): Promise<CreatedTeamInvite> {
     const { data } = await api.post<{ invite?: CreatedTeamInvite }>(`${API_BASE_URL}/organization/team/invite`, payload);
     await refresh();
     if (!data.invite?.token) {
       throw new Error('Invite created but link was missing');
     }
     return data.invite;
+  }
+
+  /**
+   * Confirm a Pinit account before inviting it.
+   *
+   * Returns the verified display name so the sender sees who they are about to
+   * invite. A mistyped Pinit ID otherwise invites a stranger.
+   */
+  async function lookupPinitId(pinitId: string): Promise<LookedUpAccount> {
+    const { data } = await api.get<{ account: LookedUpAccount }>(
+      `${API_BASE_URL}/organization/team/lookup-pinit-id`,
+      { params: { pinitId } },
+    );
+    return data.account;
+  }
+
+  /** Business members not already on this campaign. */
+  async function assignableMembers(campaignId: string): Promise<AssignableMember[]> {
+    const { data } = await api.get<{ members: AssignableMember[] }>(
+      `${API_BASE_URL}/organization/team/assignable`,
+      { params: { campaignId } },
+    );
+    return data.members ?? [];
+  }
+
+  /** Put an existing colleague on a campaign. No invitation — they already belong. */
+  async function addToCampaign(campaignId: string, memberUserId: string, campaignRole: string) {
+    const { data } = await api.post<{ member: { id: string; name: string; pinitId: string | null } }>(
+      `${API_BASE_URL}/organization/team/campaign-members`,
+      { campaignId, memberUserId, campaignRole },
+    );
+    return data.member;
   }
 
   async function revokeInvite(inviteId: string) {
@@ -97,5 +149,8 @@ export function useOrganizationTeam() {
     revokeInvite,
     updateRole,
     removeMember,
-  };
+      lookupPinitId,
+    assignableMembers,
+    addToCampaign,
+};
 }
