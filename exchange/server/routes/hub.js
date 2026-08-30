@@ -24,7 +24,7 @@ const previewLimiter = rateLimit({
   max: 120,
   message: 'Too many preview requests. Slow down.',
 });
-const HUB_APP_URL = (process.env.HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
+const HUB_APP_URL = (process.env.HUB_APP_URL || 'http://localhost:3002').replace(/\/$/, '');
 
 const IMAGE_EXTS = new Set([
   '.jpg', '.jpeg', '.jpe', '.jfif', '.png', '.webp', '.tiff', '.tif', '.gif', '.bmp',

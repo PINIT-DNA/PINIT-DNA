@@ -220,7 +220,7 @@ async function main() {
     (rows) => prisma.socialLink.createMany({ data: rows.map((r, order) => ({ ...r, order })) }),
   );
 
-  console.log('\nDone. Sign in at http://localhost:3000/admin\n');
+  console.log('\nDone. Sign in at http://localhost:3002/admin\n');
 }
 
 main()

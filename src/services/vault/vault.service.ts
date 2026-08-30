@@ -30,6 +30,7 @@ import { encrypt, decrypt } from './encryption.service';
 import { uploadVaultFile, downloadVaultFile, deleteVaultFile, isSupabaseStorageConfigured, isSupabaseStorageRestricted } from '../../lib/supabase-storage';
 import { assertRecordOwner } from '../../lib/tenant-scope';
 import { identityEmbeddingPipeline } from '../identity/identity-embedding-pipeline.service';
+import { documentPageProtectionService } from '../documents/document-page-protection.service';
 
 // In development without Supabase configured, fall back to local disk.
 const USE_LOCAL = process.env['NODE_ENV'] !== 'production' &&
@@ -117,13 +118,20 @@ export class VaultService {
     const existing = await prisma.vaultRecord.findUnique({ where: { dnaRecordId } });
     if (existing) throw new Error(`DNA record ${dnaRecordId} is already in the vault`);
 
+    const vaultId = uuidv4();
+    const certificateId = await identityEmbeddingPipeline.resolveCertificateId(dnaRecordId);
+
+    // NOTE: PDF per-page pixel protection (embed + HKCA + reassembly) is
+    // intentionally NOT run here — it takes minutes for multi-page documents
+    // (each page re-runs the full image protection pipeline), which blew past
+    // the frontend's request timeout and made /vault/store look permanently
+    // unreachable even though it was still working. It runs as a background
+    // upgrade after this fast response instead — see upgradePdfInBackground().
+
     // ── Embed owner identity into file before encryption ──────────────────
     // Embeds DNA ID + Vault ID + Owner User ID as a cryptographic signature
     // inside the file itself. Even if 90% of the file is tampered, this
     // signature allows us to prove original ownership and detect the culprit.
-    const vaultId = uuidv4();
-    const certificateId = await identityEmbeddingPipeline.resolveCertificateId(dnaRecordId);
-
     let fileToEncrypt = imageBuffer;
     let embedAudit: StoreResult['identityEmbedding'];
 
@@ -258,6 +266,28 @@ export class VaultService {
       }
     }
 
+    // ── PDF: upgrade to per-page pixel-protected version in the background ──
+    // Fire-and-forget so this multi-minute, multi-page job never blocks the
+    // response (see note above). The raw PDF is already safely vaulted; this
+    // swaps in the protected version once ready.
+    if (originalMimeType === 'application/pdf' || /\.pdf$/i.test(originalFileName)) {
+      void this.upgradePdfInBackground({
+        vaultId,
+        dnaRecordId,
+        ownerUserId: dnaRecord.ownerUserId ?? ownerUserId,
+        rawBuffer: imageBuffer,
+        originalFileName,
+        originalMimeType,
+        certificateId,
+      }).catch((err) => {
+        logger.warn('Vault — PDF background upgrade failed (raw PDF remains vaulted)', {
+          vaultId,
+          dnaRecordId,
+          error: String(err),
+        });
+      });
+    }
+
     try {
       const { forensicProvenanceService } = await import('../forensics/forensic-provenance.service');
       forensicProvenanceService.appendAsync({
@@ -308,6 +338,85 @@ export class VaultService {
       createdAt:          record.createdAt,
       identityEmbedding:  embedAudit,
     };
+  }
+
+  /**
+   * Background upgrade: embed DNA into every PDF page's pixels (per-page DNA
+   * + pixel HKCA + identity signature, same as a standalone protected photo),
+   * reassemble the pages into a protected PDF, then swap it in for the raw
+   * PDF already sitting in the vault — re-encrypting under the SAME vaultId
+   * and updating the vault record in place. Runs after store() has already
+   * returned, so a multi-minute multi-page job never blocks the response.
+   */
+  private async upgradePdfInBackground(params: {
+    vaultId: string;
+    dnaRecordId: string;
+    ownerUserId: string;
+    rawBuffer: Buffer;
+    originalFileName: string;
+    originalMimeType: string;
+    certificateId: string | null;
+  }): Promise<void> {
+    const protectedPdf = await documentPageProtectionService.protectAndAssembleForVault({
+      documentDnaRecordId: params.dnaRecordId,
+      buffer: params.rawBuffer,
+      originalName: params.originalFileName,
+      ownerUserId: params.ownerUserId,
+    });
+    if (!protectedPdf) {
+      logger.info('Vault — PDF background upgrade skipped (no pages protected)', {
+        vaultId: params.vaultId,
+        dnaRecordId: params.dnaRecordId,
+      });
+      return;
+    }
+
+    let fileToEncrypt = protectedPdf.pdfBuffer;
+    try {
+      const pipelineResult = await identityEmbeddingPipeline.process(
+        protectedPdf.pdfBuffer,
+        params.originalMimeType,
+        params.originalFileName,
+        {
+          vaultId: params.vaultId,
+          dnaRecordId: params.dnaRecordId,
+          ownerUserId: params.ownerUserId,
+          certificateId: params.certificateId,
+        },
+      );
+      if (pipelineResult.success) fileToEncrypt = pipelineResult.buffer;
+    } catch (err) {
+      logger.warn('Vault — PDF background upgrade identity embed failed (using unembedded protected PDF)', {
+        vaultId: params.vaultId,
+        error: String(err),
+      });
+    }
+
+    const encResult = encrypt(fileToEncrypt, params.vaultId);
+
+    let encryptedFilePath: string;
+    if (USE_LOCAL) {
+      encryptedFilePath = await writeLocal(params.vaultId, encResult.encryptedBuffer);
+    } else {
+      encryptedFilePath = await uploadVaultFile(params.vaultId, encResult.encryptedBuffer, params.ownerUserId);
+    }
+
+    await prisma.vaultRecord.update({
+      where: { id: params.vaultId },
+      data: {
+        encryptedFilePath,
+        encryptedSizeBytes: encResult.encryptedSizeBytes,
+        originalSizeBytes: encResult.originalSizeBytes,
+        ivHex: encResult.ivHex,
+        authTagHex: encResult.authTagHex,
+      },
+    });
+
+    logger.info('Vault — PDF background upgrade complete (protected pages now served on download)', {
+      vaultId: params.vaultId,
+      dnaRecordId: params.dnaRecordId,
+      pageCount: protectedPdf.pageCount,
+    });
   }
 
   /**

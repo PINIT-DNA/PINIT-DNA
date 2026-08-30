@@ -67,6 +67,7 @@ import type {
   IdentityRecoveryReportSection,
   IdentityRecoverySection,
   LeakIntelligenceSection,
+  TamperAnalysisSection,
 } from '../../types/unified-investigation.types';
 import { mergeSnapshot } from './investigation-live-snapshot';
 import {
@@ -93,7 +94,82 @@ import {
   buildLiveLeadTamperAnalysis,
   emptyTamperAnalysis,
 } from './tamper-analysis.service';
+import { fragmentSpliceDetectorService } from './fragment-splice-detector.service';
+import type { FragmentReuseFinding, FragmentReuseSection } from '../../types/unified-investigation.types';
 import { DNA_LAYER_REGISTRY } from '../../constants/dna-layer-registry';
+import { DocumentLineageService } from '../lineage/document-lineage.service';
+
+const documentLineageService = new DocumentLineageService();
+
+/**
+ * Resolve the probe's own permanent DnaRecord id (created moments earlier by
+ * the ephemeral fingerprinter, soft-archived rather than deleted — see
+ * src/lib/dna-immutability.ts) via its exact content hash, then record the
+ * probe -> matched-original relationship into the document_lineage graph.
+ * Fault-isolated: lineage is supplemental evidence, never blocks a report.
+ */
+async function recordLineageEdge(params: {
+  currentFileHash: string;
+  matchedDnaRecordId: string;
+  classification: string;
+  confidence: number;
+  changedLayers: string[];
+  primaryTamperVector?: string | null;
+  fragmentDetected?: boolean;
+  fragmentConfidence?: number | null;
+}): Promise<void> {
+  try {
+    const probeRecord = await prisma.dnaRecord.findFirst({
+      where: { sha256Hash: params.currentFileHash },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    if (!probeRecord || probeRecord.id === params.matchedDnaRecordId) return;
+
+    await documentLineageService.recordRelationship({
+      dnaRecordIdA: params.matchedDnaRecordId,
+      dnaRecordIdB: probeRecord.id,
+      classification: params.classification,
+      confidence: params.confidence,
+      changedLayers: params.changedLayers,
+      primaryTamperVector: params.primaryTamperVector,
+      fragmentDetected: params.fragmentDetected,
+      fragmentConfidence: params.fragmentConfidence,
+    });
+  } catch (e) {
+    logger.warn('[UnifiedInvestigation] Lineage recording failed', { error: String(e) });
+  }
+}
+
+/**
+ * Authorization verdict — reads context leaked-file-verify.service.ts already
+ * resolved (share link / recipient / tracked export package) rather than
+ * running any new detection. A populated share/TEP context means the probe
+ * traces back to a specific grant this platform issued; a real DNA match with
+ * none of that context means the platform has no record of authorizing this
+ * copy — which is evidence of "not authorized through this platform", not
+ * proof of unauthorized use (content shared entirely outside the platform
+ * leaves no trail either way).
+ */
+function resolveAuthorizationStatus(
+  matched: boolean,
+  leakVerify: { shareLink?: unknown; recipient?: unknown; tep?: { code?: string } | null } | null | undefined,
+): 'AUTHORIZED' | 'UNKNOWN_ORIGIN' | 'NOT_APPLICABLE' {
+  if (!matched) return 'NOT_APPLICABLE';
+  if (leakVerify?.shareLink || leakVerify?.recipient || leakVerify?.tep?.code) return 'AUTHORIZED';
+  return 'UNKNOWN_ORIGIN';
+}
+
+function buildFragmentReuseSection(findings: FragmentReuseFinding[]): FragmentReuseSection {
+  const top = findings[0];
+  return {
+    detected: findings.length > 0,
+    findings,
+    summary: top
+      ? `A protected original's content (${top.patchMatchCount} matching patches, ${top.confidence}% confidence) appears composited into a localized region of this image.`
+      : 'No fragment reuse detected.',
+  };
+}
 import { tepService } from '../tep/tep.service';
 
 function step(
@@ -871,7 +947,7 @@ export class UnifiedInvestigationOrchestrator {
           };
           const noMatch = await this.buildNoMatchReport(
             investigationId, pipeline, leakVerify, ownerUserId, identityRecovery,
-            currentFileHash, originalName, closestOutcome, enterprise,
+            currentFileHash, originalName, closestOutcome, enterprise, undefined, buffer, mimeType,
           );
           return this.attachPipelineAudit(noMatch, {
             probeFilename: originalName,
@@ -911,7 +987,7 @@ export class UnifiedInvestigationOrchestrator {
       logInvestigationDecision('no_match_report', { ...reportOutcome, candidate: null, state: 'NO_SIGNATURE' });
       const noMatch = await this.buildNoMatchReport(
         investigationId, pipeline, leakVerify, ownerUserId, identityRecovery,
-        currentFileHash, originalName, reportOutcome, enterprise,
+        currentFileHash, originalName, reportOutcome, enterprise, undefined, buffer, mimeType,
       );
       return this.attachPipelineAudit(noMatch, {
         probeFilename: originalName,
@@ -937,7 +1013,7 @@ export class UnifiedInvestigationOrchestrator {
     if (!match) {
       const noMatch = await this.buildNoMatchReport(
         investigationId, pipeline, leakVerify, ownerUserId, identityRecovery,
-        currentFileHash, originalName, reportOutcome, enterprise,
+        currentFileHash, originalName, reportOutcome, enterprise, undefined, buffer, mimeType,
       );
       return this.attachPipelineAudit(noMatch, {
         probeFilename: originalName,
@@ -1188,6 +1264,8 @@ export class UnifiedInvestigationOrchestrator {
               rejectedOutcome,
               undefined,
               `Vault candidate rejected after 15-layer compare (${cmpScore}% — ${cmpClass}).`,
+              buffer,
+              mimeType,
             );
             return this.attachPipelineAudit(rejected, {
               probeFilename: originalName,
@@ -1233,6 +1311,8 @@ export class UnifiedInvestigationOrchestrator {
     // Tamper localization + enrichment in parallel (same steps, lower wall-clock)
     const enrichmentMs = investigationPerformanceConfig.orchestratorEnrichmentTimeoutMs;
 
+    let dimensionSignal: { probeWidth: number; probeHeight: number; vaultWidth: number; vaultHeight: number } | null = null;
+
     const tamperLocalizationPromise = (async () => {
       let scanRef = enterprise.auditContext?.forensicScan ?? null;
       if (!mimeType.startsWith('image/') || !match?.vaultId) return scanRef;
@@ -1243,12 +1323,27 @@ export class UnifiedInvestigationOrchestrator {
           'vault_retrieve_tamper',
         );
         if (vaultFile?.originalBuffer) {
-          const rescan = await withTimeoutSoft(
-            () => forensicScannerService.scanProbe(buffer, mimeType, vaultFile.originalBuffer),
-            30_000,
-            'forensic_tamper_localize',
-          );
+          const [rescan, dims] = await Promise.all([
+            withTimeoutSoft(
+              () => forensicScannerService.scanProbe(buffer, mimeType, vaultFile.originalBuffer),
+              30_000,
+              'forensic_tamper_localize',
+            ),
+            withTimeoutSoft(async () => {
+              const sharp = (await import('sharp')).default;
+              const [probeMeta, vaultMeta] = await Promise.all([
+                sharp(buffer).metadata(),
+                sharp(vaultFile.originalBuffer).metadata(),
+              ]);
+              if (!probeMeta.width || !probeMeta.height || !vaultMeta.width || !vaultMeta.height) return null;
+              return {
+                probeWidth: probeMeta.width, probeHeight: probeMeta.height,
+                vaultWidth: vaultMeta.width, vaultHeight: vaultMeta.height,
+              };
+            }, 5_000, 'dimension_compare'),
+          ]);
           if (rescan?.available) scanRef = rescan;
+          dimensionSignal = dims;
         }
       } catch {
         /* non-fatal */
@@ -1256,7 +1351,42 @@ export class UnifiedInvestigationOrchestrator {
       return scanRef;
     })();
 
-    const [forensicScanWithRef, enrichment] = await Promise.all([
+    // Fragment-reuse (spliced-region) detection is skipped only when the whole-image match
+    // is verified AND that verification came from real full-frame DNA layers (crypto/
+    // perceptual/structural on the whole probe) — in that case the probe is confirmed to be
+    // a derivative of the whole original, so a separate fragment check adds nothing.
+    // A match whose selectionSource is 'local_patch' was promoted from sparse patch votes
+    // (the crop-recovery boost path) rather than a full-frame layer match — that is exactly
+    // the ambiguous case a genuine small-fragment splice would also land in, so it must
+    // still be checked even though the report shows VERIFIED.
+    const verifiedByFullFrameMatch = reportOutcome.state === 'VERIFIED'
+      && (resolvedDnaScore ?? 0) >= 70
+      && authAsset?.selectionSource !== 'local_patch';
+    const shouldCheckFragmentReuse = mimeType.startsWith('image/') && !verifiedByFullFrameMatch;
+
+    const fragmentReusePromise = (async (): Promise<FragmentReuseFinding[]> => {
+      if (!shouldCheckFragmentReuse) return [];
+      try {
+        // No excludeVaultId: the detector's own bounding-box-area filter already tells
+        // apart "small isolated fragment" from "this IS the whole probe" — including the
+        // already-matched vault is required precisely for the local_patch-sourced case
+        // (see shouldCheckFragmentReuse above), where that vault is often the fragment's
+        // real source.
+        // Same budget as the whole-image local-DNA patch search (localDnaTimeoutMs) — this
+        // does comparable per-patch DB + matching work, so the 12s vault-retrieve budget
+        // was cutting it off before it finished, silently returning [] on every call.
+        return await withTimeoutSoft(
+          () => fragmentSpliceDetectorService.detectSplicedFragments(buffer, ownerUserId, mimeType),
+          investigationPerformanceConfig.localDnaTimeoutMs,
+          'fragment_splice_detect',
+        ) ?? [];
+      } catch (e) {
+        logger.warn('[UnifiedInvestigation] Fragment splice detection failed', { error: String(e) });
+        return [];
+      }
+    })();
+
+    const [forensicScanWithRef, enrichment, fragmentReuseFindings] = await Promise.all([
       tamperLocalizationPromise,
       executeStagesParallel(
       [
@@ -1289,6 +1419,7 @@ export class UnifiedInvestigationOrchestrator {
       ],
       { onEachComplete: (r) => stageOnComplete(r.stage, formatStageLabel(r.stage))(r) },
       ),
+      fragmentReusePromise,
     ]);
 
     // 7. Tamper analysis — fault-isolated; never throws
@@ -1299,6 +1430,8 @@ export class UnifiedInvestigationOrchestrator {
         leakVerify,
         mimeType,
         filename: originalName,
+        fragmentReuse: fragmentReuseFindings,
+        dimensions: dimensionSignal,
       }),
       { onComplete: stageOnComplete('tamper_analysis', 'Tamper Analysis') },
     );
@@ -1712,6 +1845,9 @@ export class UnifiedInvestigationOrchestrator {
       tamperAnalysis.overlayPngBase64 = forensicScan.tamperLocalization.overlayPngBase64;
       tamperAnalysis.modifiedPercent = forensicScan.tamperLocalization.modifiedPercent;
       tamperAnalysis.insertedRegions = forensicScan.tamperLocalization.insertedRegions;
+      if (forensicScan.tamperLocalization.regions?.length) {
+        tamperAnalysis.regions = forensicScan.tamperLocalization.regions as TamperAnalysisSection['regions'];
+      }
       if (forensicScan.tamperLocalization.description) {
         tamperAnalysis.description = [
           tamperAnalysis.description,
@@ -1802,6 +1938,19 @@ export class UnifiedInvestigationOrchestrator {
       ...(enterprise.stageTimings ?? []),
       ...orchestratorTimer.getTimings(),
     ];
+
+    const authorizationStatus = resolveAuthorizationStatus(true, leakVerify);
+    await recordLineageEdge({
+      currentFileHash,
+      matchedDnaRecordId: match.dnaRecordId,
+      classification: comparison?.classification ?? 'SIMILAR',
+      confidence: dnaPct,
+      changedLayers: (comparison?.layerComparisons ?? []).filter((l) => l.changed).map((l) => l.name),
+      primaryTamperVector: tamperAnalysis.primaryVector,
+      fragmentDetected: fragmentReuseFindings.length > 0,
+      fragmentConfidence: fragmentReuseFindings[0]?.confidence ?? null,
+    });
+    const relatedLineage = await documentLineageService.getLineage(match.dnaRecordId).catch(() => ({ nodes: [], edges: [] }));
 
     const report: UnifiedInvestigationReport = {
       success: true,
@@ -1895,6 +2044,9 @@ export class UnifiedInvestigationOrchestrator {
       currentFileHash,
       stageTimings,
       progressTimeline,
+      fragmentReuseAnalysis: buildFragmentReuseSection(fragmentReuseFindings),
+      provenance: { authorizationStatus },
+      relatedLineage,
     };
 
     return this.attachPipelineAudit(report, {
@@ -2501,6 +2653,24 @@ export class UnifiedInvestigationOrchestrator {
 
     const conf = Math.max(displayConf, liveLeadScore);
 
+    // Fragment-reuse (spliced-region) check — a partial/weak whole-image match doesn't
+    // rule out a small fragment of a DIFFERENT protected original being spliced into this
+    // probe; this is exactly the report shape that scenario tends to land in.
+    let fragmentReuseFindings: FragmentReuseFinding[] = [];
+    if (params.probe?.buffer && params.probe.mimeType?.startsWith('image/')) {
+      try {
+        fragmentReuseFindings = await withTimeoutSoft(
+          () => fragmentSpliceDetectorService.detectSplicedFragments(
+            params.probe!.buffer, params.ownerUserId, params.probe!.mimeType,
+          ),
+          investigationPerformanceConfig.localDnaTimeoutMs,
+          'fragment_splice_detect_partial',
+        ) ?? [];
+      } catch (e) {
+        logger.warn('[PartialReport] Fragment splice detection failed', { error: String(e) });
+      }
+    }
+
     // Prefer layer DNA for tamper; else synthesize Crop/Compress from live ORB/similarity
     const leakStub = {
       found: true as const,
@@ -2546,6 +2716,33 @@ export class UnifiedInvestigationOrchestrator {
         ],
       };
     }
+
+    if (fragmentReuseFindings.length) {
+      const top = fragmentReuseFindings[0]!;
+      tamperAnalysis = {
+        ...tamperAnalysis,
+        vectors: [
+          ...tamperAnalysis.vectors.filter((v) => v.label !== 'Spliced Fragment'),
+          {
+            label: 'Spliced Fragment',
+            detected: true,
+            confidence: top.confidence,
+            evidence: [`${top.patchMatchCount} matching patches found in a localized region of this image`],
+          },
+        ],
+        changesVsOriginal: [
+          {
+            type: 'Spliced Fragment',
+            detected: true,
+            confidence: top.confidence,
+            detail: 'A protected original\'s content appears composited into a localized region of this image.',
+            where: `Region at ~${Math.round(top.probeRegion.xPercent)}%,${Math.round(top.probeRegion.yPercent)}% of the uploaded image`,
+          },
+          ...(tamperAnalysis.changesVsOriginal ?? []),
+        ],
+      };
+    }
+
     params.pipeline.push(step(
       'tamper',
       'Tamper analysis',
@@ -2780,6 +2977,23 @@ export class UnifiedInvestigationOrchestrator {
       evidenceTimeline,
     });
 
+    const authorizationStatus = resolveAuthorizationStatus(true, { tep: tepResolved.tepCode ? { code: tepResolved.tepCode } : null });
+    if (params.currentFileHash && dnaRecordId) {
+      await recordLineageEdge({
+        currentFileHash: params.currentFileHash,
+        matchedDnaRecordId: dnaRecordId,
+        classification: comparison?.classification ?? 'SIMILAR',
+        confidence: dnaDisplay,
+        changedLayers: (comparison?.layerComparisons ?? []).filter((l) => l.changed).map((l) => l.name),
+        primaryTamperVector: tamperAnalysis.primaryVector,
+        fragmentDetected: fragmentReuseFindings.length > 0,
+        fragmentConfidence: fragmentReuseFindings[0]?.confidence ?? null,
+      });
+    }
+    const relatedLineage = dnaRecordId
+      ? await documentLineageService.getLineage(dnaRecordId).catch(() => ({ nodes: [], edges: [] }))
+      : { nodes: [], edges: [] };
+
     const report: UnifiedInvestigationReport = {
       success: reportState !== 'NO_SIGNATURE',
       investigationId: params.investigationId,
@@ -2830,6 +3044,9 @@ export class UnifiedInvestigationOrchestrator {
       dnaComparison: comparison,
       layerAnalysis,
       tamperAnalysis,
+      fragmentReuseAnalysis: buildFragmentReuseSection(fragmentReuseFindings),
+      provenance: { authorizationStatus },
+      relatedLineage,
       timeline: timelineEvents,
       evidenceTimeline,
       provenanceSummary,
@@ -3072,7 +3289,22 @@ export class UnifiedInvestigationOrchestrator {
     outcome: InvestigationOutcome,
     enterprise?: EnterpriseRecoveryResult,
     customMessage?: string,
+    probeBuffer?: Buffer,
+    probeMimeType?: string,
   ): Promise<UnifiedInvestigationReport> {
+    // A whole-image match failed, but the probe may still contain a spliced-in
+    // fragment of a protected original (e.g. a small region composited into an
+    // otherwise-unrelated photo) — check before finalizing a bare "no match".
+    let fragmentReuseFindings: FragmentReuseFinding[] = [];
+    if (probeBuffer && probeMimeType && _ownerUserId) {
+      try {
+        fragmentReuseFindings = await fragmentSpliceDetectorService.detectSplicedFragments(
+          probeBuffer, _ownerUserId, probeMimeType,
+        );
+      } catch (e) {
+        logger.warn('[UnifiedInvestigation] Fragment splice detection failed (no-match path)', { error: String(e) });
+      }
+    }
     const noSignatureOutcome: InvestigationOutcome = {
       ...outcome,
       candidate: null,
@@ -3155,7 +3387,8 @@ export class UnifiedInvestigationOrchestrator {
         : undefined,
       recipientAttribution: this.buildRecipientSection(leakVerify),
       layerAnalysis: [],
-      tamperAnalysis: buildTamperAnalysis({ comparison: null, leakVerify }),
+      tamperAnalysis: buildTamperAnalysis({ comparison: null, leakVerify, fragmentReuse: fragmentReuseFindings }),
+      fragmentReuseAnalysis: buildFragmentReuseSection(fragmentReuseFindings),
       timeline: timelineEvents,
       accessIntelligence: leakVerify.accessHistory ?? [],
       leakIntelligence: { hasPublicLeak: false, entries: [], message: 'No public leak detected.' },

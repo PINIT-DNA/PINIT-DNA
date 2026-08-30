@@ -2,9 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { format } from 'date-fns';
-import { PageHeader } from '../components/PageHeader';
-import { DataTable } from '../components/DataTable';
-import { StatusBadge } from '../components/StatusBadge';
+import { LightDataTable } from '../components/LightDataTable';
+import { LightStatusBadge } from '../components/LightStatusBadge';
 import { fetchAllUsers } from '../api/super-admin.api';
 
 type UserRow = {
@@ -44,26 +43,21 @@ export function UsersPage() {
 
   return (
     <div>
-      <PageHeader
-        title="User Management"
-        description="View and manage all registered users across the platform"
-      />
-
       <div className="flex flex-wrap gap-3 mb-4">
         <div className="relative flex-1 min-w-[200px] max-w-md">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="search"
             placeholder="Search by ID, name, email, org..."
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 bg-[#111113] border border-zinc-800 rounded-md text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+            className="w-full pl-9 pr-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400"
           />
         </div>
         <select
           value={role}
           onChange={(e) => setRole(e.target.value)}
-          className="px-3 py-2 bg-[#111113] border border-zinc-800 rounded-md text-sm text-zinc-300 focus:outline-none"
+          className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:border-indigo-400"
         >
           <option value="">All roles</option>
           <option value="SUPER_ADMIN">Super Admin</option>
@@ -75,26 +69,26 @@ export function UsersPage() {
       </div>
 
       {error && (
-        <div className="mb-4 px-4 py-3 rounded-md border border-red-900/50 bg-red-950/30 text-sm text-red-400">
+        <div className="mb-4 px-4 py-3 rounded-lg border border-red-200 bg-red-50 text-sm text-red-700">
           {error} — try refreshing or re-login as SUPER_ADMIN
         </div>
       )}
 
       {loading ? (
         <div className="flex justify-center py-16">
-          <div className="w-8 h-8 border-2 border-zinc-600 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />
         </div>
       ) : (
-        <DataTable
+        <LightDataTable
           rows={users}
           keyField="id"
           onRowClick={(row) => navigate(`/admin/users/${row.id}`)}
           columns={[
-            { key: 'shortId', header: 'User ID', render: (r) => <span className="font-mono text-zinc-200">{r.shortId}</span> },
+            { key: 'shortId', header: 'User ID', render: (r) => <span className="font-mono text-gray-900">{r.shortId}</span> },
             { key: 'fullName', header: 'Name', render: (r) => r.fullName ?? '—' },
             { key: 'email', header: 'Email', render: (r) => r.email ?? '—' },
-            { key: 'role', header: 'Role', render: (r) => <StatusBadge value={r.role} /> },
-            { key: 'status', header: 'Status', render: (r) => <StatusBadge value={r.isActive ? 'ACTIVE' : 'INACTIVE'} /> },
+            { key: 'role', header: 'Role', render: (r) => <LightStatusBadge value={r.role} /> },
+            { key: 'status', header: 'Status', render: (r) => <LightStatusBadge value={r.isActive ? 'ACTIVE' : 'INACTIVE'} /> },
             { key: 'dna', header: 'DNA', render: (r) => r._count.dnaRecords },
             { key: 'certs', header: 'Certs', render: (r) => r._count.certificates },
             { key: 'org', header: 'Organization', render: (r) => r.organization ?? '—' },

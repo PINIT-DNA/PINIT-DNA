@@ -6,7 +6,7 @@ import { apiFetch } from '../../lib/api.js';
 import { listingPreviewUrl, isListed } from '../../lib/listing-preview.js';
 import { isVideoListing } from '../../lib/media.js';
 
-const HUB_APP_URL = (import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
+const HUB_APP_URL = (import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3002').replace(/\/$/, '');
 
 export default function SellerAssets({ user, onOpenListFromHub, onSelectListing, hubAppUrl = HUB_APP_URL }) {
   const [assets, setAssets] = useState([]);

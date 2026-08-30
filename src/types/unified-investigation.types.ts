@@ -210,6 +210,8 @@ export interface TamperAnalysisSection {
   overlayPngBase64?: string;
   modifiedPercent?: number;
   insertedRegions?: number;
+  /** Bounding boxes for changed regions, with a best-effort added/removed/modified classification */
+  regions?: Array<{ x: number; y: number; width: number; height: number; type: 'added' | 'removed' | 'modified' }>;
   /** Homography / crop geometry when available (images) */
   cropDetection?: {
     sharedRegionPercent?: number;
@@ -218,6 +220,25 @@ export interface TamperAnalysisSection {
     missingPercent?: number;
     homographyFound?: boolean;
   };
+}
+
+/** A small fragment of a protected original found composited into an otherwise-unrelated probe image */
+export interface FragmentReuseFinding {
+  vaultId: string;
+  dnaRecordId: string;
+  ownerFilename?: string;
+  patchMatchCount: number;
+  confidence: number;
+  /** Normalized bounding box (0-100) of the matched fragment within the probe image */
+  probeRegion: { xPercent: number; yPercent: number; widthPercent: number; heightPercent: number };
+  /** Normalized bounding box (0-100) of the corresponding region in the protected original */
+  vaultRegion: { xPercent: number; yPercent: number; widthPercent: number; heightPercent: number };
+}
+
+export interface FragmentReuseSection {
+  detected: boolean;
+  findings: FragmentReuseFinding[];
+  summary: string;
 }
 
 export interface MatchReason {
@@ -369,4 +390,21 @@ export interface UnifiedInvestigationReport {
   pipelineAudit?: import('./investigation-pipeline-audit.types').InvestigationPipelineAudit;
   /** Phase 2 — explainable matching + recovered forensic evidence */
   forensicEvidence?: ForensicEvidenceSection;
+  /** Small-fragment reuse / splice detection — additive, does not affect the whole-image ownership verdict */
+  fragmentReuseAnalysis?: FragmentReuseSection;
+  /** Provenance/authorization verdict — computed from existing share/TEP records,
+   * not a new detection. AUTHORIZED means this probe traces back to a specific
+   * share or export event this platform issued; UNKNOWN_ORIGIN means a real DNA
+   * match exists but no such record does (evidence of "not authorized through
+   * this platform", not proof of theft — content shared outside the platform
+   * leaves no trail either way). NOT_APPLICABLE when there's no match at all. */
+  provenance?: {
+    authorizationStatus: 'AUTHORIZED' | 'UNKNOWN_ORIGIN' | 'NOT_APPLICABLE';
+  };
+  /** One-hop lineage graph around the matched protected original — which other
+   * files (crops, derivatives, prior investigations) are already linked to it. */
+  relatedLineage?: {
+    nodes: Array<{ dnaRecordId: string; filename: string; fileType: string; createdAt: string }>;
+    edges: Array<{ fromId: string; toId: string; relation: string; confidence: number; detectedAt: string }>;
+  };
 }

@@ -8,7 +8,7 @@ export default function ListFromHubModal({
   onListingCreated,
   user,
   preselectedAssetId = null,
-  hubAppUrl = 'http://localhost:3000',
+  hubAppUrl = 'http://localhost:3002',
 }) {
   const [hubAssets, setHubAssets] = useState([]);
   const [selectedAssetId, setSelectedAssetId] = useState('');

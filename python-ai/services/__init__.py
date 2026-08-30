@@ -10,6 +10,7 @@ from typing import Any
 from .audio import audio_service
 from .computer_vision import computer_vision_service
 from .deepfake import deepfake_service
+from .document_rasterizer import document_rasterizer_service
 from .embeddings import embeddings_service
 from .ocr import ocr_service
 from .forensic_scanner import forensic_scanner_service
@@ -29,6 +30,7 @@ ALL_SERVICES = [
     audio_service,
     deepfake_service,
     screenshot_service,
+    document_rasterizer_service,
 ]
 
 

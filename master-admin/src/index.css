@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    background-color: #ffffff;
+    color: #0f172a;
+    color-scheme: light;
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  * { box-sizing: border-box; }
+}
+
+/*
+ * Larger, bold-type skin.
+ * The admin UI is built from plain Tailwind utility classes, so instead
+ * of touching every page this bumps the type scale (and weight) for
+ * every size class in use, app-wide. Written as plain (non-@layer)
+ * rules so they land after Tailwind's own utilities in the compiled
+ * stylesheet and win on specificity ties without needing !important
+ * everywhere.
+ */
+.bg-\[\#F7F7FB\] { background-color: #ffffff !important; }
+
+.text-\[10px\] { font-size: 18px !important; font-weight: 700 !important; }
+.text-\[11px\] { font-size: 19px !important; font-weight: 700 !important; }
+.text-xs { font-size: 21px !important; line-height: 1.85rem !important; font-weight: 700 !important; }
+.text-sm { font-size: 23px !important; line-height: 2rem !important; font-weight: 700 !important; }
+.text-base { font-size: 25px !important; line-height: 2.2rem !important; font-weight: 700 !important; }
+.text-lg { font-size: 29px !important; line-height: 2.5rem !important; font-weight: 700 !important; }
+.text-xl { font-size: 34px !important; line-height: 2.75rem !important; font-weight: 800 !important; }
+.text-2xl { font-size: 44px !important; line-height: 3rem !important; font-weight: 800 !important; }
+
+.font-normal, .font-medium, .font-semibold { font-weight: 700 !important; }

@@ -64,3 +64,7 @@ out/
 !.env.example
 # Large media
 *.mp4
+
+# Local scratch/debug output — logs, tokens, one-off test artifacts
+scratch/
+*.tsbuildinfo

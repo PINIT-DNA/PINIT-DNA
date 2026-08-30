@@ -19,7 +19,7 @@ export default defineConfig({
     },
   ],
   server: {
-    // Hub client uses 3000 — keep Exchange on 5174 to avoid collision
+    // Hub client uses 3002 — keep Exchange on 5174 to avoid collision
     port: 5174,
     proxy: {
       '/api': {

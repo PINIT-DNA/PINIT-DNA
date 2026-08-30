@@ -1,43 +1,34 @@
 import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { api } from '../../services/dashboard.api';
-import { API_BASE_URL } from '../../config/api.config';
-import { isPlatformOwnerShortId } from '../../lib/platform-owner';
+import { fetchMyCapabilities } from '../api/super-admin.api';
+import type { MyCapabilities } from '../api/super-admin.api';
+import { AdminCapabilitiesProvider } from '../context/AdminCapabilitiesContext';
 
 /**
- * Only the platform-owner Pinit ID may access /admin/*.
- * Role SUPER_ADMIN alone is not enough — shortId must be allowlisted.
+ * Any of the five UserRole values may enter /admin/* as long as their
+ * capability map grants at least one read domain (Phase 2 RBAC). Destructive
+ * actions remain separately gated server-side behind the platform-owner
+ * shortId allowlist regardless of what this check allows in.
  */
 export function RequireSuperAdmin({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const [checking, setChecking] = useState(true);
-  const [allowed, setAllowed] = useState(false);
+  const [caps, setCaps] = useState<MyCapabilities | null>(null);
 
   useEffect(() => {
     if (loading) return;
     if (!user) {
-      setChecking(false);
-      setAllowed(false);
-      return;
-    }
-
-    const jwtShortId = (user as { shortId?: string }).shortId;
-    if (isPlatformOwnerShortId(jwtShortId) && user.role === 'SUPER_ADMIN') {
-      setAllowed(true);
       setChecking(false);
       return;
     }
 
     void (async () => {
       try {
-        const res = await api.get(`${API_BASE_URL}/profile`);
-        const profile = (res.data as { profile?: { role?: string; shortId?: string } }).profile;
-        setAllowed(
-          profile?.role === 'SUPER_ADMIN' && isPlatformOwnerShortId(profile?.shortId ?? jwtShortId),
-        );
+        const result = await fetchMyCapabilities();
+        setCaps(result);
       } catch {
-        setAllowed(false);
+        setCaps(null);
       } finally {
         setChecking(false);
       }
@@ -56,9 +47,10 @@ export function RequireSuperAdmin({ children }: { children: React.ReactNode }) {
     return <Navigate to="/login" replace />;
   }
 
-  if (!allowed) {
+  const allowed = !!caps && (caps.isOwner || caps.capabilities.length > 0);
+  if (!allowed || !caps) {
     return <Navigate to="/" replace />;
   }
 
-  return <>{children}</>;
+  return <AdminCapabilitiesProvider value={caps}>{children}</AdminCapabilitiesProvider>;
 }

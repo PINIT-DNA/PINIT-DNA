@@ -30,7 +30,6 @@ import { evidenceRouter }         from './api/routes/evidence.routes';
 import { authRouter }             from './api/routes/auth.routes';
 import { profileRouter }          from './api/routes/profile.routes';
 import { notificationRouter }     from './api/routes/notification.routes';
-import { adminRouter }            from './api/routes/admin.routes';
 import { superAdminRouter }       from './api/routes/super-admin.routes';
 import { tepRouter }              from './api/routes/tep.routes';
 import { subscriptionRouter }     from './api/routes/subscription.routes';
@@ -39,6 +38,7 @@ import { businessRouter }         from './api/routes/business.routes';
 import { publishGuardianRouter }  from './api/routes/publish-guardian.routes';
 import { assetRouter }            from './api/routes/asset.routes';
 import { exchangeRouter }         from './api/routes/exchange.routes';
+import { adminBridgeRouter }      from './api/routes/admin-bridge.routes';
 import { creatorRouter }          from './api/routes/creator.routes';
 import {
   issueExtensionAuthCode,
@@ -166,7 +166,9 @@ app.use(`${config.apiPrefix}/evidence`,   evidenceRouter);
 app.use(`${config.apiPrefix}/auth`,      authRouter);
 app.use(`${config.apiPrefix}/profile`,       profileRouter);
 app.use(`${config.apiPrefix}/notifications`, notificationRouter);
-app.use(`${config.apiPrefix}/admin`,         adminRouter);
+// /api/v1/admin (legacy adminRouter) retired — it gated role-change/toggle
+// on plain ADMIN role with no owner check, a weaker parallel path to the
+// same destructive actions super-admin now locks to the platform owner.
 app.use(`${config.apiPrefix}/super-admin`,   superAdminRouter);
 app.use(`${config.apiPrefix}/tep`,           tepRouter);
 app.use(`${config.apiPrefix}/subscription`,  subscriptionRouter);
@@ -177,6 +179,8 @@ app.use(`${config.apiPrefix}`, publishGuardianRouter);
 app.use(`${config.apiPrefix}`, assetRouter);
 /** Exchange bridge — Hub master identity + list/sale handoff */
 app.use(`${config.apiPrefix}/exchange`, exchangeRouter);
+/** Master Admin bridge — separate app SSO handoff */
+app.use(`${config.apiPrefix}/admin-bridge`, adminBridgeRouter);
 app.use(`${config.apiPrefix}/creator`, creatorRouter);
 
 /** Extension OAuth (additive — does not change password/biometric login) */

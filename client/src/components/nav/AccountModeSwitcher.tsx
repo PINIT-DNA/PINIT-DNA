@@ -1,14 +1,16 @@
 import { useState } from 'react';
-import { Building2, Store, User } from 'lucide-react';
+import { Building2, ShieldCheck, Store, User } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { cn } from '../ui/utils';
 import { useAccountViewMode } from '../../hooks/useAccountViewMode';
 import { openHubExchange } from '../../lib/open-exchange';
+import { openMasterAdmin } from '../../lib/open-master-admin';
 
 /** Top-of-dashboard Individual | Business | Exchange — same face, different prefix. */
 export function AccountModeSwitcher({ className }: { className?: string }) {
   const { mode, switching, switchTo, canSwitch } = useAccountViewMode();
   const [openingExchange, setOpeningExchange] = useState(false);
+  const [openingAdmin, setOpeningAdmin] = useState(false);
 
   if (!canSwitch) return null;
 
@@ -25,6 +27,21 @@ export function AccountModeSwitcher({ className }: { className?: string }) {
       toast.error(msg);
     } finally {
       setOpeningExchange(false);
+    }
+  };
+
+  const openAdmin = async () => {
+    if (openingAdmin) return;
+    setOpeningAdmin(true);
+    try {
+      await openMasterAdmin();
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+        (err instanceof Error ? err.message : 'Could not open Master Admin');
+      toast.error(msg);
+    } finally {
+      setOpeningAdmin(false);
     }
   };
 
@@ -79,6 +96,21 @@ export function AccountModeSwitcher({ className }: { className?: string }) {
       >
         <Store size={13} />
         <span>{openingExchange ? 'Opening…' : 'Exchange'}</span>
+      </button>
+      <button
+        type="button"
+        disabled={switching || openingAdmin}
+        onClick={() => void openAdmin()}
+        className={cn(
+          'flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-2xs sm:text-xs font-semibold transition-colors disabled:opacity-60',
+          openingAdmin
+            ? 'bg-dna-500 text-white border border-dna-600 shadow-sm'
+            : 'text-slate-600 hover:text-slate-900 border border-transparent dark:text-gray-300 dark:hover:text-white',
+        )}
+        title="Opens the PinitHUB Master Admin console in a new tab"
+      >
+        <ShieldCheck size={13} />
+        <span>{openingAdmin ? 'Opening…' : 'Master Admin'}</span>
       </button>
     </div>
   );

@@ -29,8 +29,8 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',
-    port: 3000,
-    /** Fail fast if 3000 is taken — Exchange SSO expects Hub on 3000 locally. */
+    port: 3002,
+    /** Fail fast if the port is taken — Exchange SSO expects Hub at a known, fixed port locally. */
     strictPort: true,
     allowedHosts: true,
     proxy: {

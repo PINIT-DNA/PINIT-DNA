@@ -494,7 +494,7 @@ export class ShareLinkService {
               requestLocation: boolean; ownerUserId: string | null; tokenSignature: string | null; },
     recipients: Array<{ label: string; email?: string }>
   ): Promise<ChildLinkResult[]> {
-    const appUrl = process.env['PUBLIC_APP_URL'] ?? 'http://localhost:3000';
+    const appUrl = process.env['PUBLIC_APP_URL'] ?? 'http://localhost:3002';
     const results: ChildLinkResult[] = [];
 
     for (const recipient of recipients) {

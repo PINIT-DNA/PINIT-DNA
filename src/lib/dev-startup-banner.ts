@@ -71,7 +71,7 @@ export function printDevStackBanner(opts: {
     row('       │'),
     row(readyLine),
     '  ├───────────────────────────────────────────────────────────┤',
-    row('Frontend (Terminal 2):  cd client && npm run dev  → 3000'),
+    row('Frontend (Terminal 2):  cd client && npm run dev  → 3002'),
     '  └───────────────────────────────────────────────────────────┘',
     '',
   ];

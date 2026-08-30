@@ -175,7 +175,7 @@ async function resolveVaultIdFromExchangeId(
  * is no request context (the bridge is service-to-service).
  */
 function buildHubShareUrl(token: string, baseUrl?: string): string {
-  const base = (baseUrl || process.env['PUBLIC_APP_URL'] || process.env['HUB_APP_URL'] || 'http://localhost:3000')
+  const base = (baseUrl || process.env['PUBLIC_APP_URL'] || process.env['HUB_APP_URL'] || 'http://localhost:3002')
     .replace(/\/$/, '');
   return `${base}/s/${token}`;
 }
@@ -1230,7 +1230,7 @@ export const exchangeBridgeService = {
 
     const hubBase = (config as any).publicAppUrl
       || process.env.PUBLIC_APP_URL
-      || 'http://localhost:3000';
+      || 'http://localhost:3002';
 
     return {
       pinitId: resolved.pinitId,

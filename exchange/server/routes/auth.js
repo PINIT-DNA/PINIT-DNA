@@ -115,7 +115,7 @@ function hubIdentityRequired(res) {
   return res.status(403).json({
     error: 'HUB_BIOMETRIC_REQUIRED',
     message: 'Email and password are disabled on Exchange. Sign in with Pinit HUB biometric identity.',
-    hub_url: process.env.HUB_APP_URL || 'http://localhost:3000',
+    hub_url: process.env.HUB_APP_URL || 'http://localhost:3002',
     action: 'continue_with_hub',
   });
 }
@@ -180,7 +180,7 @@ router.post('/hub-sso', (req, res) => {
         hub_linked: true,
         biometric_verified: true,
         next_step: isCreator
-          ? { action: 'protect_in_hub', hub_url: process.env.HUB_APP_URL || 'http://localhost:3000' }
+          ? { action: 'protect_in_hub', hub_url: process.env.HUB_APP_URL || 'http://localhost:3002' }
           : { action: 'browse_marketplace' },
       });
     };

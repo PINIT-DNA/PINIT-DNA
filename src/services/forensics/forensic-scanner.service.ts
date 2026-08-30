@@ -36,6 +36,7 @@ export interface ForensicScanResult {
     modifiedPercent?: number;
     visiblePercent?: number;
     insertedRegions?: number;
+    regions?: Array<{ x: number; y: number; width: number; height: number; type: 'added' | 'removed' | 'modified' }>;
     overlayPngBase64?: string;
     description?: string;
   };

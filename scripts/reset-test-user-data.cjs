@@ -334,7 +334,7 @@ async function main() {
   await maybeClearSupabaseStorage();
 
   console.log('\nDone. Next real registration will mint a new unique Hub user + biometric enrollment.');
-  console.log('Clear the browser: DevTools → Application → Clear site data for localhost:3000 and localhost:5174');
+  console.log('Clear the browser: DevTools → Application → Clear site data for localhost:3002 and localhost:5174');
 }
 
 main().catch((e) => {

@@ -42,6 +42,7 @@ import { TOTAL_DNA_LAYERS } from '../constants/dna-layers';
 import { buildEnhancementBundle, mergeUniversalFingerprints } from './forensics/dna-enhancement-bundle.service';
 import { dnaEnhancements } from '../config/dna-enhancements';
 import { persistEnterpriseDnaPackage, mergeUniversalFingerprintsImmutable } from './dna/enterprise-dna-package.service';
+import { documentPageProtectionService } from './documents/document-page-protection.service';
 
 // ─── Universal input type ────────────────────────────────────────────────────
 
@@ -337,6 +338,26 @@ export class UniversalFileRouter {
         dnaRecordId,
         error: String(err),
       });
+    }
+
+    // ── Phase 1 (Documents) — page-level pixel protection ────────────────────
+    // Fire-and-forget: rasterizing + fully DNA/HKCA/local-DNA protecting every
+    // page reuses the same per-image pipeline N times, which is too slow to
+    // block the upload response. Runs after the parent record already exists.
+    if (fileType === 'PDF' && file.ownerUserId) {
+      void documentPageProtectionService
+        .protectPdfPages({
+          documentDnaRecordId: dnaRecordId,
+          buffer: file.buffer,
+          originalName: file.originalName,
+          ownerUserId: file.ownerUserId,
+        })
+        .catch((err) => {
+          logger.warn('Document page protection skipped (non-fatal)', {
+            dnaRecordId,
+            error: String(err),
+          });
+        });
     }
 
     return {

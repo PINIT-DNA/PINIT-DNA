@@ -36,7 +36,7 @@ export default function CreatorDesk({ user, onOpenListFromHub, onOpenAuth, onSel
   const [couponCode, setCouponCode] = useState('');
   const [couponPercent, setCouponPercent] = useState(10);
   const [couponMsg, setCouponMsg] = useState('');
-  const hubAppUrl = (hubAppUrlProp || import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
+  const hubAppUrl = (hubAppUrlProp || import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3002').replace(/\/$/, '');
 
   useEffect(() => {
     if (section && SECTION_TAB[section]) setActiveTab(SECTION_TAB[section]);

@@ -122,7 +122,7 @@ export const config = {
   webauthn: {
     rpName: optional('WEBAUTHN_RP_NAME', 'PINIT'),
     rpID: optional('WEBAUTHN_RP_ID', 'localhost'),
-    origin: optional('WEBAUTHN_ORIGIN', 'http://localhost:3000'),
+    origin: optional('WEBAUTHN_ORIGIN', 'http://localhost:3002'),
     /**
      * When false, the "fingerprint" step is a placeholder: no passkey is required
      * to register or log in, and none is enrolled. Authentication then rests on
@@ -233,6 +233,20 @@ export const config = {
 
   log: {
     level: optional('LOG_LEVEL', 'debug'),
+  },
+
+  /**
+   * PinitHUB Master Admin — a fully separate app (own Vite project, own port),
+   * same split as Exchange. Hub has no password login, so the admin app cannot
+   * run its own sign-in form; instead an already-logged-in Hub user requests a
+   * short-lived signed bridge token and is redirected into the admin app with it.
+   */
+  admin: {
+    appUrl: optional('ADMIN_APP_URL', 'http://localhost:3003').replace(/\/$/, ''),
+    bridgeSecret: optional(
+      'ADMIN_BRIDGE_SECRET',
+      optional('JWT_SECRET', 'dev_jwt_secret_change_in_prod_min_32_chars_long!!'),
+    ),
   },
 } as const;
 

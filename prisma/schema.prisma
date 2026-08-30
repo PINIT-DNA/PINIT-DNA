@@ -502,6 +502,12 @@ model User {
   // Freemium subscription (additive — does not affect DNA/Vault/auth)
   subscription Subscription?
 
+  // Manual identity verification (KYC) — reviewed via Master Admin console
+  verificationRequests VerificationRequest[]
+
+  // Support tickets and disputes — reviewed via Master Admin console
+  supportTickets SupportTicket[]
+
   // Business organization (owner on Free tier — extensible for Enterprise teams)
   ownedOrganization       Organization?
   organizationMemberships OrganizationMember[]
@@ -1198,6 +1204,32 @@ model AuditEvent {
   @@map("audit_events")
 }
 
+/// Platform-wide log of admin-console actions (Master Admin Phase 1).
+/// Distinct from AuditEvent (per-file/DNA events) and OrganizationAuditLog
+/// (tenant-scoped) — this is "who changed what" for super-admin actions.
+/// Intended append-only: application code must never update or delete rows.
+model AdminAuditEvent {
+  id            String   @id @default(uuid())
+  createdAt     DateTime @default(now())
+  actorUserId   String
+  actorShortId  String?
+  action        String
+  targetType    String?
+  targetId      String?
+  before        Json?
+  after         Json?
+  reason        String?
+  ipAddress     String?
+  userAgent     String?
+  requestMethod String?
+  requestPath   String?
+
+  @@index([actorUserId, createdAt])
+  @@index([targetType, targetId])
+  @@index([action])
+  @@map("admin_audit_events")
+}
+
 model MonitorRecord {
   id             String          @id @default(uuid())
   createdAt      DateTime        @default(now())
@@ -1677,6 +1709,72 @@ model EvidenceRecord {
   @@index([incidentId])
   @@index([dnaRecordId])
   @@map("evidence_records")
+}
+
+/// Manual KYC-style identity verification, reviewed through the Master Admin
+/// console. Logged and decided by an admin — there is no self-serve
+/// submission flow in the main app yet, so every row starts as an admin
+/// entry rather than a user-initiated request.
+model VerificationRequest {
+  id               String    @id @default(uuid())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  userId           String
+  requestType      String    @default("IDENTITY")
+  status           String    @default("PENDING")
+  documentType     String?
+  submittedNote    String?
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  reviewNote       String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@map("verification_requests")
+}
+
+/// Support tickets and disputes, handled through the Master Admin console.
+/// "Dispute" is just a category value here rather than a separate model —
+/// same lifecycle (open, respond, resolve) as any other ticket.
+model SupportTicket {
+  id               String    @id @default(uuid())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  userId           String
+  subject          String
+  category         String    @default("GENERAL")
+  priority         String    @default("NORMAL")
+  status           String    @default("OPEN")
+  description      String    @db.Text
+  resolvedByUserId String?
+  resolvedAt       DateTime?
+  resolutionNote   String?
+
+  user     User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages SupportTicketMessage[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("support_tickets")
+}
+
+/// Reply thread on a ticket — admin responses and internal notes.
+model SupportTicketMessage {
+  id           String   @id @default(uuid())
+  createdAt    DateTime @default(now())
+  ticketId     String
+  authorUserId String?
+  authorLabel  String
+  body         String   @db.Text
+  /// Internal admin note, never shown to the ticket's user.
+  isInternal   Boolean  @default(false)
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+  @@map("support_ticket_messages")
 }
 
 model ShareAccessLog {
@@ -2695,7 +2793,7 @@ model AssetDiscovery {
 /// Declared here so `prisma migrate` stops proposing to DROP it. Nothing is created,
 /// renamed or altered by adding this model.
 model SpatialAuthPackage {
-  id                String   @id
+  id                String   @id @default(uuid())
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   dnaRecordId       String   @unique

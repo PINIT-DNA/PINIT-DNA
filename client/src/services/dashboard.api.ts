@@ -685,6 +685,21 @@ export async function createExchangeSso(): Promise<{
   return data;
 }
 
+export async function createAdminBridgeSso(): Promise<{
+  success: boolean;
+  token: string;
+  adminUrl: string;
+  expiresIn: string;
+}> {
+  const { data } = await api.post<{
+    success: boolean;
+    token: string;
+    adminUrl: string;
+    expiresIn: string;
+  }>(`${API_BASE_URL}/admin-bridge/sso`);
+  return data;
+}
+
 // ─── DNA Comparison ───────────────────────────────────────────────────────────
 
 export async function compareDna(

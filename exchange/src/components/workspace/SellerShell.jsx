@@ -5,7 +5,7 @@ import {
   ExternalLink, Settings, LogOut, Store,
 } from 'lucide-react';
 
-const HUB_APP_URL = (import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
+const HUB_APP_URL = (import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3002').replace(/\/$/, '');
 
 const NAV = [
   { id: 'creator_studio', label: 'Overview', icon: LayoutDashboard },

@@ -7,6 +7,7 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../../lib/prisma';
 import { AppError } from './error.middleware';
 import { isPlatformOwnerShortId } from '../../lib/platform-owner';
+import { hasCapability, type AdminDomain } from '../../config/admin-capabilities';
 import type { UserRole } from '@prisma/client';
 
 export type AppRole = UserRole;
@@ -51,6 +52,40 @@ export function requireSuperAdmin(req: Request, _res: Response, next: NextFuncti
       next();
     })
     .catch(() => next(new AppError(500, 'Auth check failed')));
+}
+
+/**
+ * Read-access gate for the admin console, keyed by capability domain.
+ * Any of the five roles may pass if their capability map includes the
+ * domain — the platform-owner shortId allowlist is NOT required here.
+ * Use this for GET routes; keep destructive routes on `requireSuperAdmin`.
+ */
+export function requireCapability(domain: AdminDomain) {
+  return function (req: Request, _res: Response, next: NextFunction): void {
+    const userId = getUserId(req);
+    if (!userId) {
+      next(new AppError(401, 'Not authenticated'));
+      return;
+    }
+    loadRoleAndShortId(userId)
+      .then((row) => {
+        if (!row) {
+          next(new AppError(403, 'Access denied'));
+          return;
+        }
+        // The platform owner always has full access regardless of the capability map.
+        if (row.role === 'SUPER_ADMIN' && isPlatformOwnerShortId(row.shortId)) {
+          next();
+          return;
+        }
+        if (!hasCapability(row.role, domain)) {
+          next(new AppError(403, `Your role (${row.role}) does not have '${domain}' access`));
+          return;
+        }
+        next();
+      })
+      .catch(() => next(new AppError(500, 'Auth check failed')));
+  };
 }
 
 /** ADMIN or SUPER_ADMIN — optional shared elevated routes */

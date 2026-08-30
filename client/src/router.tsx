@@ -52,9 +52,10 @@ import { PinitGateway, RegisterGateway } from './pages/auth/PinitGateway';
 import { PreRegisterRoute } from './pages/auth/PreRegisterGateway';
 import { PreRegisterAccountTypePage } from './pages/auth/PreRegisterAccountTypePage';
 import { FaceLoginPage } from './pages/auth/FaceLoginPage';
-import { AdminPortalPage } from './pages/AdminPortalPage';
 import { RequireAuth } from './components/auth/RequireAuth';
-import { superAdminRoutes } from './admin/routes';
+// Master Admin now lives in its own app (master-admin/, port 3003) — see
+// lib/open-master-admin.ts. ./admin/* stays on disk unreferenced until that
+// app is verified end-to-end, then gets removed.
 
 export const router = createBrowserRouter([
   // ── Auth (public) ─────────────────────────────────────────────────────────
@@ -159,10 +160,8 @@ export const router = createBrowserRouter([
       { path: 'link/:token', element: <LinkIntelligencePage /> },
       { path: 'certificates', element: <CertificatesPage /> },
       { path: 'verify-certificate', element: <VerifyCertificatePage /> },
-      { path: 'admin-portal', element: <AdminPortalPage /> },
+      // 'admin-portal' retired — duplicate of the Master Admin console (master-admin/, port 3003).
       { path: '*', element: <NotFoundPage /> },
     ],
   },
-
-  superAdminRoutes,
 ]);

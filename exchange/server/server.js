@@ -44,7 +44,7 @@ const allowedOrigins = new Set(
     'https://www.pinitexchange.com',
     'https://pinitexchange.com',
     'http://localhost:5174',
-    'http://localhost:3000',
+    'http://localhost:3002',
     ...String(process.env.CORS_ALLOWED_ORIGINS || '')
       .split(',')
       .map((o) => o.trim()),

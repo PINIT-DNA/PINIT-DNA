@@ -23,7 +23,7 @@ function isInvalidHubUrl(url) {
 
 /**
  * Resolve the live Hub app URL for SSO.
- * Local: localhost:3000 (must match Hub Vite port). Production: pinithub.com.
+ * Local: localhost:3002 (must match Hub Vite port). Production: pinithub.com.
  */
 export function resolveHubAppUrl() {
   const raw = String(import.meta.env.VITE_HUB_APP_URL || '').trim().replace(/\/$/, '');
@@ -39,13 +39,13 @@ export function resolveHubAppUrl() {
     ) {
       return LIVE_HUB_APP_URL;
     }
-    // Local dev — Hub must run on 3000 (see client/vite.config.ts strictPort).
+    // Local dev — Hub must run on 3002 (see client/vite.config.ts strictPort).
     if (host === 'localhost' || host === '127.0.0.1') {
-      return 'http://localhost:3000';
+      return 'http://localhost:3002';
     }
   }
 
-  return 'http://localhost:3000';
+  return 'http://localhost:3002';
 }
 
 /** Absolute Hub login URL for Exchange SSO. */
