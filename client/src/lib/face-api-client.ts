@@ -69,9 +69,10 @@ export async function registerFaceIdentity(payload: {
       data.message
       || (data as { error?: string }).error
       || `Registration failed (${status}). Please try again.`;
-    // Never map generic server errors to "already registered"
+    // Never map generic server errors to "already registered" or biometrics —
+    // 500s are usually DB/config (e.g. unreachable DATABASE_URL).
     throw new Error(detail === 'Internal server error'
-      ? 'Registration failed on the server. Check voice/face capture and try again.'
+      ? 'Registration failed on the server (database/API error). Check DATABASE_URL in .env and that Supabase is reachable, then restart the backend.'
       : detail);
   }
   if (!data.accessToken) throw new Error('Registration failed. Please try again.');

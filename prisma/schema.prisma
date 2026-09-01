@@ -27,10 +27,13 @@ model DnaRecord {
   organizationId        String?
   workspaceId           String?
   departmentId          String?
-  /// Pre-existing column, restored here to match live DB — not otherwise used by this change.
+  /// Document page pixel-protection — a rendered document page is its own
+  /// DnaRecord (full image pipeline reused as-is), linked back to the parent
+  /// document DnaRecord (e.g. a PDF) via these two fields.
   documentDnaRecordId   String?
-  /// Pre-existing column, restored here to match live DB — not otherwise used by this change.
   pageNumber            Int?
+  documentDnaRecord     DnaRecord?         @relation("DocumentPages", fields: [documentDnaRecordId], references: [id], onDelete: Cascade)
+  pages                 DnaRecord[]        @relation("DocumentPages")
   behavioralLayer       BehavioralLayer?
   cryptoLayer           CryptoLayer?
   ownerUser             User?              @relation(fields: [ownerUserId], references: [id])
@@ -74,6 +77,7 @@ model DnaRecord {
 
   @@index([organizationId])
   @@index([ownerUserId])
+  @@index([documentDnaRecordId])
   @@map("dna_records")
 }
 
@@ -2793,39 +2797,43 @@ model AssetDiscovery {
 /// Declared here so `prisma migrate` stops proposing to DROP it. Nothing is created,
 /// renamed or altered by adding this model.
 model SpatialAuthPackage {
-  id                String   @id @default(uuid())
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  dnaRecordId       String   @unique
+  id                String    @id @default(uuid())
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  dnaRecordId       String    @unique
   ownerUserId       String
   width             Int
   height            Int
-  orientationPolicy String   @default("file-pixel-order-v1")
+  /// Decode policy id (file-pixel-order-v1 = no EXIF rotate, RGB removeAlpha)
+  orientationPolicy String    @default("file-pixel-order-v1")
+  /// Content-seal HMAC or sha256:… / dna:… parent binding
   globalDnaRef      String
   keyId             String
   algorithmVersion  String
   primaryScale      Int
   scales            Int[]
-  merkleRoot        String   @db.Char(64)
-  rootMac           String   @db.Char(64)
+  merkleRoot        String    @db.Char(64)
+  rootMac           String    @db.Char(64)
+  /// Compact binary block leaves (SPB1)
   blockBlob         Bytes
+  /// Phase 3A — Hierarchical Keyed Cell Auth (8×8 HKCA); nullable = Phase1/2-only packages
   pixelAlgoVersion  String?
   pixelScheme       String?
   pixelKeyId        String?
   pixelCellSize     Int?
   pixelTagBytes     Int?
   pixelAuthBlob     Bytes?
-  pixelAuthRoot     String?  @db.Char(64)
-  pixelRootMac      String?  @db.Char(64)
+  pixelAuthRoot     String?   @db.Char(64)
+  pixelRootMac      String?   @db.Char(64)
+  /// Phase 4E — dense enrolled 1×1 HMAC tags (SP1T blob; not per-pixel rows)
   pixel1AlgoVersion String?
   pixel1KeyId       String?
   pixel1TagBytes    Int?
   pixel1AuthBlob    Bytes?
-  pixel1AuthRoot    String?  @db.Char(64)
-  pixel1RootMac     String?  @db.Char(64)
-
-  dnaRecord DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
-  ownerUser User      @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  pixel1AuthRoot    String?   @db.Char(64)
+  pixel1RootMac     String?   @db.Char(64)
+  dnaRecord         DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+  ownerUser         User      @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
 
   @@index([ownerUserId])
   @@map("spatial_auth_packages")

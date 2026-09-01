@@ -188,6 +188,129 @@ function layerStatus(pct: number, skipped?: boolean): 'verified' | 'warning' | '
   return 'failed';
 }
 
+type TamperAnalysisLike = ReturnType<typeof buildTamperAnalysis>;
+
+/**
+ * Mode A spatial verify for Investigate reports (main + partial paths).
+ * Always attempts to attach investigation payload when DNA + probe image exist.
+ */
+async function attachSpatialAuthToTamper(params: {
+  tamperAnalysis: TamperAnalysisLike;
+  dnaRecordId?: string | null;
+  probeBuffer?: Buffer | null;
+  mimeType?: string | null;
+  pipeline?: InvestigationPipelineStep[];
+}): Promise<TamperAnalysisLike> {
+  const { dnaRecordId, probeBuffer, mimeType, pipeline } = params;
+  let { tamperAnalysis } = params;
+
+  if (!dnaRecordId || !probeBuffer || !(mimeType ?? '').startsWith('image/')) {
+    logger.info('Spatial auth skipped — missing dna/probe/image', {
+      hasDna: !!dnaRecordId,
+      hasProbe: !!probeBuffer,
+      mimeType: mimeType ?? null,
+    });
+    return {
+      ...tamperAnalysis,
+      spatialAuthInvestigation: {
+        trusted: false,
+        localizationClaim: '8x8_cell',
+        verificationStatus: 'SKIPPED',
+        unavailableReason: 'Spatial auth needs an image probe and matched DNA record.',
+      },
+      spatialHierarchy: null,
+    } as TamperAnalysisLike;
+  }
+
+  try {
+    const { isSpatialAuthEnabled } = await import('../../config/spatial-auth');
+    if (!isSpatialAuthEnabled()) {
+      return {
+        ...tamperAnalysis,
+        spatialAuthInvestigation: {
+          trusted: false,
+          localizationClaim: '8x8_cell',
+          verificationStatus: 'DISABLED',
+          unavailableReason: 'SPATIAL_AUTH_ENABLED=false',
+        },
+        spatialHierarchy: null,
+      } as TamperAnalysisLike;
+    }
+
+    const { verifyExactSpatialAuthForDna } = await import('../spatial/verify-exact.service');
+    const { mergeSpatialVerifyIntoTamperAnalysis } = await import('../spatial/integration');
+
+    const spatialVerifyResult = await withTimeoutSoft(
+      () => verifyExactSpatialAuthForDna({
+        dnaRecordId,
+        candidateImageBuffer: probeBuffer,
+      }),
+      90_000,
+      'spatial_auth_verify',
+    );
+
+    if (!spatialVerifyResult) {
+      logger.warn('Spatial auth verify timed out or failed', { dnaRecordId: dnaRecordId.slice(0, 8) });
+      pipeline?.push(step(
+        'spatial_auth',
+        'Spatial auth localization',
+        'warning',
+        'Spatial verify timed out',
+      ));
+      return {
+        ...tamperAnalysis,
+        spatialAuthInvestigation: {
+          trusted: false,
+          localizationClaim: '8x8_cell',
+          verificationStatus: 'TIMEOUT',
+          unavailableReason: 'Spatial verify timed out — retry Investigate.',
+        },
+        spatialHierarchy: null,
+      } as TamperAnalysisLike;
+    }
+
+    logger.info('Spatial auth verify attached to investigation', {
+      dnaRecordId: dnaRecordId.slice(0, 8),
+      status: spatialVerifyResult.status,
+      tampered: spatialVerifyResult.tampered,
+      blocksFailed: spatialVerifyResult.blocksFailed,
+      hasInvestigation: !!spatialVerifyResult.investigation,
+    });
+
+    tamperAnalysis = mergeSpatialVerifyIntoTamperAnalysis(
+      tamperAnalysis as unknown as Record<string, unknown>,
+      spatialVerifyResult,
+    ) as unknown as TamperAnalysisLike;
+
+    pipeline?.push(step(
+      'spatial_auth',
+      'Spatial auth localization',
+      spatialVerifyResult.tampered || (spatialVerifyResult.blocksFailed ?? 0) > 0
+        ? 'warning'
+        : spatialVerifyResult.status === 'MATCH' || spatialVerifyResult.matched
+          ? 'complete'
+          : 'warning',
+      spatialVerifyResult.detail
+        ?? `${spatialVerifyResult.blocksFailed ?? 0} tampered 64×64 · claim 8x8_cell`,
+    ));
+
+    return tamperAnalysis;
+  } catch (err) {
+    logger.warn('Spatial auth attach failed', { dnaRecordId: dnaRecordId.slice(0, 8), error: String(err) });
+    pipeline?.push(step('spatial_auth', 'Spatial auth localization', 'failed', String(err).slice(0, 120)));
+    return {
+      ...tamperAnalysis,
+      spatialAuthInvestigation: {
+        trusted: false,
+        localizationClaim: '8x8_cell',
+        verificationStatus: 'ERROR',
+        unavailableReason: String(err).slice(0, 200),
+      },
+      spatialHierarchy: null,
+    } as TamperAnalysisLike;
+  }
+}
+
 /** Estimate 15-layer rows from live retrieval when deep compare did not finish. */
 function buildLiveLeadLayerAnalysis(input: {
   dnaPct: number;
@@ -1450,6 +1573,16 @@ export class UnifiedInvestigationOrchestrator {
         patchVotes: local?.patchMatchCount,
       });
     }
+
+    // Mode A spatial map (64×64 → 1×1) — required for Investigate overlay UI
+    tamperAnalysis = await attachSpatialAuthToTamper({
+      tamperAnalysis,
+      dnaRecordId: match.dnaRecordId,
+      probeBuffer: buffer,
+      mimeType,
+      pipeline,
+    });
+
     pipeline.push(step(
       'tamper',
       'Tamper analysis',
@@ -2716,6 +2849,15 @@ export class UnifiedInvestigationOrchestrator {
         ],
       };
     }
+
+    // Partial / timeout reports must still get the spatial overlay when possible
+    tamperAnalysis = await attachSpatialAuthToTamper({
+      tamperAnalysis,
+      dnaRecordId,
+      probeBuffer: params.probe?.buffer,
+      mimeType: params.probe?.mimeType,
+      pipeline: params.pipeline,
+    });
 
     if (fragmentReuseFindings.length) {
       const top = fragmentReuseFindings[0]!;

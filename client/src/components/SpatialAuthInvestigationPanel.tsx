@@ -662,6 +662,7 @@ export function SpatialAuthInvestigationPanel({
             )}
             <div className="space-y-1">
               <p className="text-2xs font-medium text-gray-400">
+                {/* Only rendered when view !== 'regions', so that case is unreachable here. */}
                 Suspect with tamper map ({view === '1' ? '1×1' : `${view}×${view}`})
               </p>
               <div className="rounded-lg overflow-hidden border border-bg-border bg-bg-base">

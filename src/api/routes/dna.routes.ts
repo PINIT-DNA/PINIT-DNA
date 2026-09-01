@@ -20,6 +20,11 @@ import {
   extractVideoFingerprintHandler,
   extractAudioFingerprintHandler,
 } from '../controllers/lightweight-dna.controller';
+import {
+  getSpatialAuthStatus,
+  enrollSpatialAuthHandler,
+  verifyExactSpatialAuthHandler,
+} from '../controllers/spatial-auth.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import { requireDnaOwnership } from '../middleware/ownership.middleware';
 
@@ -81,6 +86,11 @@ router.post('/compare-lightweight-dna', requireAuth, compareLightweightDnaHandle
 router.post('/extract-image-fingerprint', requireAuth, uploadSingle, extractImageFingerprintHandler);
 router.post('/extract-video-fingerprint', requireAuth, uploadSingle, extractVideoFingerprintHandler);
 router.post('/extract-audio-fingerprint', requireAuth, uploadSingle, extractAudioFingerprintHandler);
+
+/** Phase 1 — Spatial Auth Mode A (feature-flagged SPATIAL_AUTH_ENABLED) */
+router.get('/spatial-auth/status', requireAuth, getSpatialAuthStatus);
+router.post('/:id/spatial-auth/enroll', requireAuth, requireDnaOwnership, uploadSingle, enrollSpatialAuthHandler);
+router.post('/:id/spatial-auth/verify-exact', requireAuth, requireDnaOwnership, uploadSingle, verifyExactSpatialAuthHandler);
 
 /**
  * POST /dna/:id/verify

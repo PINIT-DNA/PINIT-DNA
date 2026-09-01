@@ -164,41 +164,66 @@ export class ProtectedDownloadService {
     let watermarkMethod: string | undefined;
 
     const ownerId = record.dnaRecord?.ownerUserId ?? requestingUserId;
-    const embedded = await vaultDownloadIdentityService.embedForDownload(
-      outBuffer,
-      retrieved.originalMimeType,
-      retrieved.originalFileName,
-      vaultId,
-      record.dnaRecordId,
-      ownerId,
-    );
-    outBuffer = embedded.buffer;
-    identityTokenEmbedded = embedded.identityEmbedded;
-    watermarkMethod = embedded.methods.join(', ') || undefined;
 
-    if (identityTokenEmbedded) {
+    // Mode A spatial auth is enrolled on vault-store (post-embed) bytes.
+    // A second download-time embed changes pixels again → Investigate shows
+    // "everything tampered". Keep exact vault bytes when a spatial package exists.
+    const spatialPkg = await prisma.spatialAuthPackage.findUnique({
+      where: { dnaRecordId: record.dnaRecordId },
+      select: { dnaRecordId: true },
+    });
+
+    if (spatialPkg) {
       steps.push({
         id: 'identity_token',
-        label: 'Forensic identity embedded',
+        label: 'Spatial-exact export',
         status: 'complete',
-        detail: embedded.detail,
+        detail:
+          'Serving exact vault bytes (no second embed) so spatial 64×64→1×1 matches protected downloads',
+      });
+      logger.info('Protected download — skipped re-embed for spatial auth package', {
+        vaultId,
+        dnaRecordId: record.dnaRecordId,
       });
     } else {
-      steps.push({
-        id: 'identity_token',
-        label: 'Identity embedding',
-        status: 'warning',
-        detail: embedded.detail,
-      });
+      const embedded = await vaultDownloadIdentityService.embedForDownload(
+        outBuffer,
+        retrieved.originalMimeType,
+        retrieved.originalFileName,
+        vaultId,
+        record.dnaRecordId,
+        ownerId,
+      );
+      outBuffer = embedded.buffer;
+      identityTokenEmbedded = embedded.identityEmbedded;
+      watermarkMethod = embedded.methods.join(', ') || undefined;
+
+      if (identityTokenEmbedded) {
+        steps.push({
+          id: 'identity_token',
+          label: 'Forensic identity embedded',
+          status: 'complete',
+          detail: embedded.detail,
+        });
+      } else {
+        steps.push({
+          id: 'identity_token',
+          label: 'Identity embedding',
+          status: 'warning',
+          detail: embedded.detail,
+        });
+      }
     }
 
     steps.push({
       id: 'prepare',
       label: 'Protected file ready',
       status: 'complete',
-      detail: identityTokenEmbedded
-        ? 'Encrypted identity token embedded — forensic DNA registry intact'
-        : 'File bytes unchanged — watermarks, DNA fingerprints, and embedded identity intact',
+      detail: spatialPkg
+        ? 'Exact vault bytes — spatial auth baseline preserved'
+        : identityTokenEmbedded
+          ? 'Encrypted identity token embedded — forensic DNA registry intact'
+          : 'File bytes unchanged — watermarks, DNA fingerprints, and embedded identity intact',
     });
 
     logger.info('Protected download prepared', {

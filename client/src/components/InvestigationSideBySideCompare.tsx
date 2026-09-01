@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react';
 import { ImageIcon, FileWarning, Loader2, ShieldCheck } from 'lucide-react';
 import { retrieveFromVault } from '../services/dashboard.api';
 import { cn } from './ui/utils';
+import {
+  SpatialAuthInvestigationPanel,
+  type SpatialInvestigationViewModel,
+  type SpatialHierarchyViewModel,
+} from './SpatialAuthInvestigationPanel';
 
 export interface InvestigationSideBySideCompareProps {
   vaultId?: string | null;
@@ -22,6 +27,10 @@ export interface InvestigationSideBySideCompareProps {
   cropSharedPercent?: number | null;
   cropMissingPercent?: number | null;
   cropVisiblePercent?: number | null;
+  /** Phase 3C spatial hierarchical investigation (visualization only) */
+  spatialInvestigation?: SpatialInvestigationViewModel | null;
+  /** Phase 4B–4E hierarchy summary (4×4 / 2×2 / 1×1) */
+  spatialHierarchy?: SpatialHierarchyViewModel | null;
 }
 
 function isImageMime(mime?: string | null): boolean {
@@ -156,6 +165,8 @@ export function InvestigationSideBySideCompare({
   cropSharedPercent,
   cropMissingPercent,
   cropVisiblePercent,
+  spatialInvestigation,
+  spatialHierarchy,
 }: InvestigationSideBySideCompareProps) {
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
   const [originalMime, setOriginalMime] = useState<string | null>(null);
@@ -372,6 +383,26 @@ export function InvestigationSideBySideCompare({
           </div>
         </div>
       )}
+
+      {/* Always show spatial block under Visual Comparison when we have any payload */}
+      {spatialInvestigation ? (
+        <div className="mt-4" id="spatial-tamper-investigation">
+          <SpatialAuthInvestigationPanel
+            investigation={spatialInvestigation}
+            hierarchy={spatialHierarchy}
+            imageUrl={probeIsImage ? probePreviewUrl : originalUrl}
+            originalImageUrl={originalUrl}
+          />
+        </div>
+      ) : probeIsImage ? (
+        <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-1" id="spatial-tamper-investigation">
+          <p className="text-xs font-semibold text-amber-300">Spatial tamper investigation</p>
+          <p className="text-2xs text-gray-400">
+            No spatial map in this report. Click <span className="text-gray-300">New Investigation</span> and
+            re-upload the same file — the latest backend attaches 64×64 → 1×1 overlays here.
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

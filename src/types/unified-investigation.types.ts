@@ -220,6 +220,40 @@ export interface TamperAnalysisSection {
     missingPercent?: number;
     homographyFound?: boolean;
   };
+  /**
+   * Phase 2 Spatial Auth — additive block localization summary (derived evidence only).
+   * Never an independent trust source; does not claim edit-operation type.
+   */
+  spatialAuthBlockLocalization?: Record<string, unknown> | null;
+  /**
+   * Phase 3C — hierarchical coarse→fine investigation (visualization only).
+   * localizationClaim remains 8x8_cell; not single-pixel cryptographic proof.
+   */
+  spatialAuthInvestigation?: Record<string, unknown> | null;
+  /**
+   * Phase 4B–4E compact hierarchy summary (4×4 / 2×2 / 1×1) for Investigate JSON.
+   * Public production claim remains 8x8_cell until explicitly upgraded.
+   */
+  spatialHierarchy?: Record<string, unknown> | null;
+}
+
+/** A small fragment of a protected original found composited into an otherwise-unrelated probe image */
+export interface FragmentReuseFinding {
+  vaultId: string;
+  dnaRecordId: string;
+  ownerFilename?: string;
+  patchMatchCount: number;
+  confidence: number;
+  /** Normalized bounding box (0-100) of the matched fragment within the probe image */
+  probeRegion: { xPercent: number; yPercent: number; widthPercent: number; heightPercent: number };
+  /** Normalized bounding box (0-100) of the corresponding region in the protected original */
+  vaultRegion: { xPercent: number; yPercent: number; widthPercent: number; heightPercent: number };
+}
+
+export interface FragmentReuseSection {
+  detected: boolean;
+  findings: FragmentReuseFinding[];
+  summary: string;
 }
 
 /** A small fragment of a protected original found composited into an otherwise-unrelated probe image */
