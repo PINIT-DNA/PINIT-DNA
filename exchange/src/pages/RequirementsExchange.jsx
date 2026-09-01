@@ -51,7 +51,7 @@ const SELLER_STEPS = [
   {
     n: '03',
     title: 'Buyer licenses on Exchange',
-    body: 'If selected, the buyer completes licensing. Creators cannot purchase.',
+    body: 'If selected, the buyer completes licensing. You can also buy other creators\' work on this same account.',
   },
 ];
 

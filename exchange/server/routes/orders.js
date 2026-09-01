@@ -19,8 +19,7 @@ import { isListingPurchasable, LICENSE_STATUS, ORDER_STATUS, BRIDGE_EVENT } from
 import { authorizeLicenseDownload } from '../lib/license-auth.js';
 import { recordBridgeEvent, markBridgeEventProcessed, retryDueBridgeEvents } from '../lib/bridge-events.js';
 import { getSql, runSql, allSql } from '../lib/db.js';
-import { requireBuyer, findUserByPinitId, requireVerifiedIdentity } from '../lib/rbac.js';
-import { canPurchase, sellerDeniedPurchase } from '../lib/roles.js';
+import { requireBuyer, requireVerifiedIdentity } from '../lib/rbac.js';
 import { postAssetActivity, emitForSeal } from '../lib/asset-activity.js';
 import { downloadsRemaining, describeEntitlement, LICENSE_TERMS_VERSION } from '../lib/licensing.js';
 import { formatMoney, activeCurrency } from '../lib/money.js';
@@ -132,7 +131,10 @@ router.post('/create-payment', requireBuyer, async (req, res) => {
     });
   } catch (err) {
     console.error('[create-payment]', err);
-    res.status(500).json({ error: err.message || 'Payment create failed' });
+    res.status(500).json({
+      error: err.message || 'Payment create failed',
+      message: err.message || 'Payment create failed',
+    });
   }
 });
 
@@ -157,12 +159,6 @@ router.post('/verify-payment', async (req, res) => {
     if (!intent) return res.status(404).json({ error: 'Payment intent not found' });
     if (intent.status === 'paid') {
       return res.status(400).json({ error: 'Payment already completed' });
-    }
-    if (intent.buyer_pinit_id) {
-      const payer = await findUserByPinitId(intent.buyer_pinit_id);
-      if (payer && !canPurchase(payer.role)) {
-        return res.status(403).json(sellerDeniedPurchase());
-      }
     }
 
     const orderId = razorpay_order_id || intent.razorpay_order_id;

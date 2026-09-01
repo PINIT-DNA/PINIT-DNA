@@ -38,33 +38,23 @@ export default function ExchangeHeader({
   const account = resolveExchangeAccount(user);
   const buyer = account.canPurchase;
   const seller = account.canList;
+  const sellerPending = account.sellerIntent && !account.canList;
   const signedIn = Boolean(user);
   const [menu, setMenu] = useState(false);
   const [query, setQuery] = useState('');
   const name = account.displayName || (seller ? 'Creator' : 'Buyer');
 
-  const links = seller
-    ? [
-      ['marketplace', 'Discover'],
-      ['collections', 'Collections'],
-      ['passports', 'Creators'],
-      ['seller_opportunities', 'Opportunities'],
-      ['seller_listings', 'Your listings'],
-    ]
-    : signedIn && buyer
-      ? [
-        ['home', 'Discover'],
-        ['collections', 'Collections'],
-        ['passports', 'Creators'],
-        ['requirements', 'Requirements'],
-        ['my_licenses', 'Purchases'],
-      ]
-      : [
-        ['marketplace', 'Discover'],
-        ['collections', 'Collections'],
-        ['passports', 'Creators'],
-        ['requirements', 'Requirements'],
-      ];
+  const links = [
+    ['marketplace', 'Discover'],
+    ['collections', 'Collections'],
+    ['passports', 'Creators'],
+  ];
+  if (signedIn && buyer) {
+    links.push(['my_licenses', 'Purchases']);
+  }
+  if (seller) {
+    links.push(['seller_listings', 'Your listings']);
+  }
 
   const search = (e) => {
     e?.preventDefault?.();
@@ -88,7 +78,7 @@ export default function ExchangeHeader({
           className="brand-logo"
           onClick={(e) => {
             e.preventDefault();
-            setActivePage(seller ? 'marketplace' : (signedIn ? 'home' : 'marketplace'));
+            setActivePage('marketplace');
           }}
         >
           <div className="brand-mark">
@@ -134,6 +124,16 @@ export default function ExchangeHeader({
               Sell
             </button>
           )}
+          {signedIn && !seller && (
+            <button
+              type="button"
+              className="btn-secondary"
+              style={{ padding: '8px 12px', height: 36, fontSize: '0.8rem' }}
+              onClick={() => (sellerPending ? setActivePage('seller_onboarding_payment') : onBecomeCreator?.())}
+            >
+              {sellerPending ? 'Finish selling' : 'Sell on Exchange'}
+            </button>
+          )}
           {seller && (
             <button
               type="button"
@@ -171,24 +171,29 @@ export default function ExchangeHeader({
                     <strong>{name}</strong>
                     <span>{account.uiLabel}</span>
                   </div>
-                  {seller ? (
+                  {signedIn && (
                     <>
-                      <button type="button" onClick={() => closeGo('seller_portfolio')}>Portfolio</button>
-                      <button type="button" onClick={() => closeGo('seller_listings')}>Your listings</button>
-                      <button type="button" onClick={() => closeGo('seller_assets')}>Your assets</button>
-                      <button type="button" onClick={() => closeGo('seller_sales')}>Sales</button>
-                      <button type="button" onClick={() => closeGo('seller_earnings')}>Earnings</button>
                       <button type="button" onClick={() => closeGo('settings')}>Account</button>
+                      {buyer && (
+                        <>
+                          <button type="button" onClick={() => closeGo('my_licenses')}>Purchases</button>
+                          <button type="button" onClick={() => closeGo('buyer_orders')}>Orders &amp; receipts</button>
+                          <button type="button" onClick={() => closeGo('cart')}>Cart</button>
+                        </>
+                      )}
+                      {seller ? (
+                        <>
+                          <button type="button" onClick={() => closeGo('seller_listings')}>Seller dashboard</button>
+                          <button type="button" onClick={() => closeGo('seller_portfolio')}>Portfolio</button>
+                          <button type="button" onClick={() => closeGo('seller_sales')}>Sales</button>
+                          <button type="button" onClick={() => closeGo('seller_earnings')}>Earnings</button>
+                        </>
+                      ) : sellerPending ? (
+                        <button type="button" onClick={() => closeGo('seller_onboarding_payment')}>Finish seller activation</button>
+                      ) : (
+                        <button type="button" onClick={() => { setMenu(false); onBecomeCreator?.(); }}>Sell on Exchange</button>
+                      )}
                       <a href={HUB_APP_URL} target="_blank" rel="noreferrer">Open Pinit Hub</a>
-                    </>
-                  ) : (
-                    <>
-                      <button type="button" onClick={() => closeGo('settings')}>Account</button>
-                      <button type="button" onClick={() => closeGo('my_licenses')}>Purchases</button>
-                      <button type="button" onClick={() => closeGo('buyer_orders')}>Orders &amp; receipts</button>
-                      <button type="button" onClick={() => closeGo('buyer_payments')}>Payment methods</button>
-                      <button type="button" onClick={() => closeGo('buyer_notifications')}>Notifications</button>
-                      <button type="button" onClick={() => { setMenu(false); onBecomeCreator?.(); }}>Sell on Exchange</button>
                     </>
                   )}
                   <button type="button" onClick={() => { setMenu(false); onSignOut?.(); }}><LogOut size={14} /> Sign out</button>

@@ -106,7 +106,7 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
     setError('');
     setNotice('');
     try {
-      const idempotencyKey = `spm_${user.pinit_id}_${Date.now()}`;
+      const idempotencyKey = `seller_pm_${user.pinit_id}_${new Date().toISOString().slice(0, 10)}`;
       const init = await fetchWithRetry('/api/seller/onboarding/payment-method', {
         method: 'POST',
         headers: {
@@ -126,10 +126,13 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
       let razorpay_payment_id = null;
       let razorpay_signature = null;
 
-      if (created.mock || !created.keyId) {
+      if (created.mock) {
         razorpay_payment_id = `pay_mock_${Date.now()}`;
         razorpay_signature = 'mock';
       } else {
+        if (!created.keyId || !created.orderId) {
+          throw new Error(created.message || 'Payment is not configured. Cannot charge without a Razorpay order.');
+        }
         await loadRazorpayScript();
         const paid = await openRazorpayCheckout({
           keyId: created.keyId,

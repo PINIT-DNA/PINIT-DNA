@@ -34,7 +34,7 @@ export default function BecomeCreatorModal({ isOpen, onClose, user, onConverted 
           <div>
             <h3 style={{ color: '#fff', fontSize: '1.15rem' }}>Become a Seller</h3>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-              Create an Exchange seller account, then subscribe to list and sell.
+              Add selling to this identity. Buying, cart, and licenses stay available.
             </p>
           </div>
           <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
@@ -43,7 +43,8 @@ export default function BecomeCreatorModal({ isOpen, onClose, user, onConverted 
         </div>
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.5 }}>
-            Hub stays your private workspace. Selling on Exchange requires a seller subscription.
+            Hub stays your private workspace. The seller subscription unlocks listing.
+            You can still buy other creators&apos; work on this account.
           </p>
           <div
             style={{
@@ -68,9 +69,9 @@ export default function BecomeCreatorModal({ isOpen, onClose, user, onConverted 
           {error && <div style={{ color: '#f87171', fontSize: '0.85rem' }}>{error}</div>}
         </div>
         <div className="modal-footer">
-          <button type="button" className="btn-secondary" onClick={onClose}>Keep buyer account</button>
+          <button type="button" className="btn-secondary" onClick={onClose}>Keep shopping</button>
           <button type="button" className="btn-primary" disabled={loading || !user} onClick={convert}>
-            {loading ? 'Creating account…' : 'Subscribe'}
+            {loading ? 'Enabling selling…' : 'Continue to payment'}
           </button>
         </div>
       </div>

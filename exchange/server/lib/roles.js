@@ -34,47 +34,48 @@ export function canList(role) {
   return isSellerRole(role);
 }
 
-export function canPurchase(role) {
-  return normalizeRole(role) === EXCHANGE_ROLES.BUYER || isAdminRole(role);
+/** Buying is available to every Exchange account. Selling is additive. */
+export function canPurchase(_role) {
+  return true;
 }
 
 export function buyerDeniedList() {
   return {
     error: 'BUYER_CANNOT_LIST',
-    message: 'Buyer accounts cannot list assets on Pinit Exchange. Become a Creator to sell.',
+    message: 'Pay the seller subscription to list assets on Pinit Exchange. Buying still works on this account.',
   };
 }
 
 export function sellerDeniedPurchase() {
   return {
     error: 'SELLER_CANNOT_PURCHASE',
-    message: 'Creator accounts cannot purchase marketplace assets.',
+    message: 'This account cannot complete this purchase.',
   };
 }
 
 export function sellerDeniedBuyerAction() {
   return {
     error: 'SELLER_CANNOT_BUY',
-    message: 'Creator accounts cannot post buyer requirements or check out as a buyer.',
+    message: 'Sign in to purchase or post a buyer brief. Selling on this account does not block buying.',
   };
 }
 
 export function buyerDeniedSellerAction() {
   return {
     error: 'BUYER_CANNOT_SELL',
-    message: 'Buyer accounts cannot access seller tools. Become a Creator to list and manage sales.',
+    message: 'Buyer accounts cannot access seller tools. Choose Sell on Exchange to add selling to this same identity.',
   };
 }
 
 export function rolePositioning(role) {
   const n = normalizeRole(role);
   if (n === EXCHANGE_ROLES.SELLER) {
-    return 'Create, protect, list and earn from creative assets.';
+    return 'Buy licenses and sell Hub-protected work from the same Pinit identity.';
   }
   if (n === EXCHANGE_ROLES.ADMIN) {
     return 'Platform administration for Pinit Exchange.';
   }
-  return 'Discover, license and manage creative assets.';
+  return 'Discover, license and manage creative assets. Add selling when you are ready.';
 }
 
 import { onboardingFieldsForUser } from './seller-onboarding.js';
@@ -83,15 +84,21 @@ export function enrichPublicUser(row) {
   if (!row) return null;
   const { password_hash: _pw, ...safe } = row;
   const exchange_role = normalizeRole(row.role);
-  const seller = exchange_role === EXCHANGE_ROLES.SELLER || exchange_role === EXCHANGE_ROLES.ADMIN;
+  const sellerIntent = exchange_role === EXCHANGE_ROLES.SELLER || exchange_role === EXCHANGE_ROLES.ADMIN;
   const onboarding = onboardingFieldsForUser(row);
+  const can_list = canList(row.role) && onboarding.seller_onboarding_complete;
   return {
     ...safe,
     exchange_role,
-    account_type: seller ? 'CREATOR' : 'BUYER',
+    account_type: sellerIntent ? 'CREATOR' : 'BUYER',
     exchange_enabled: true,
-    can_list: canList(row.role) && onboarding.seller_onboarding_complete,
-    can_purchase: canPurchase(row.role),
+    can_list,
+    can_purchase: true,
+    capabilities: {
+      buy: true,
+      sell: can_list,
+      seller_intent: sellerIntent,
+    },
     positioning: rolePositioning(row.role),
     ...onboarding,
   };

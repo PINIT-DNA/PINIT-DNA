@@ -184,6 +184,7 @@ test('seller → listing → buyer cart → payment → licence → Hub bridge',
   assert.equal(payOk.status, 200, JSON.stringify(payOk.data));
   assert.equal(payOk.data.seller_onboarding_complete, true);
   assert.equal(payOk.data.user?.can_list, true);
+  assert.equal(payOk.data.user?.can_purchase, true, 'seller subscription must not remove buying');
 
   const listed = await api('/api/listings', {
     method: 'POST',
@@ -206,6 +207,13 @@ test('seller → listing → buyer cart → payment → licence → Hub bridge',
   const listingId = listed.data.listing.listing_id;
   assert.ok(listingId);
   assert.equal(hubHits.confirm, 1, 'publish must call Hub listings/confirm');
+
+  const sellerCart = await api('/api/commerce/cart', {
+    method: 'POST',
+    token: sellerToken,
+    body: { buyer_key: sellerId, listing_id: listingId, license_tier: 'commercial' },
+  });
+  assert.equal(sellerCart.status, 201, 'activated seller must still be able to use cart');
 
   const market = await api('/api/listings?search=E2E%20Protected');
   assert.equal(market.status, 200);

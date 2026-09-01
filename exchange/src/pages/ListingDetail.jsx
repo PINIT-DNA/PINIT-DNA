@@ -80,7 +80,7 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
 
   const addToCart = async () => {
     if (user && !canPurchase(user)) {
-      setToast('Creator accounts cannot purchase marketplace assets.');
+      setToast('Sign in to purchase.');
       return;
     }
     const { ok, error } = await apiFetch('/api/commerce/cart', {
@@ -170,8 +170,7 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
     || null;
 
   const account = resolveExchangeAccount(user);
-  const seller = account.role === 'SELLER';
-  const ownsListing = seller && samePinitIdentity(account.pinitId, listing.pinit_id);
+  const ownsListing = samePinitIdentity(account.pinitId, listing.pinit_id);
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
@@ -374,13 +373,13 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
           </div>
 
           <div className="ex-card ex-card--pad buy-panel">
-            {seller ? (
+            {ownsListing ? (
               <>
                 <h3 className="ex-h2 buy-panel__title">
                   {ownsListing ? 'Your listing' : 'Creator catalogue'}
                 </h3>
                 <p className="buy-panel__note">
-                  {account.uiLabel}. Creators cannot purchase marketplace assets.
+                  Manage this listing from your seller dashboard. You can still buy other creators&apos; work from Discover.
                 </p>
                 <ul className="buy-panel__tiers">
                   {tiers.length === 0 && <li className="buy-panel__none">No pricing published</li>}

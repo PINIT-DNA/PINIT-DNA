@@ -152,10 +152,13 @@ export async function payAndSeal({
   let razorpay_payment_id = null;
   let razorpay_signature = null;
 
-  if (created.mock || !created.keyId) {
+  if (created.mock) {
     razorpay_payment_id = `pay_mock_${Date.now()}`;
     razorpay_signature = 'mock';
   } else {
+    if (!created.keyId || !created.orderId) {
+      throw new Error(created.message || 'Payment is not configured. Cannot charge without a Razorpay order.');
+    }
     const paid = await openRazorpayCheckout({
       keyId: created.keyId,
       orderId: created.orderId,

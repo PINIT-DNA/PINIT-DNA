@@ -383,7 +383,7 @@ export default function App() {
       return;
     }
     if (intent === 'buyer' && !canPurchase(user)) {
-      setRoleNotice('Creator accounts cannot purchase marketplace assets.');
+      openAuth({ mode: 'login' });
       return;
     }
     action?.();
@@ -404,8 +404,8 @@ export default function App() {
   useEffect(() => {
     if (!sessionReady) return;
     if (activePage === 'public_portfolio') return;
-    if (user && canList(user) && (activePage === 'home' || activePage === 'creator_desk' || activePage === 'creator_studio')) {
-      navigate(activePage === 'home' ? 'marketplace' : 'seller_listings', { replace: true });
+    if (user && canList(user) && (activePage === 'creator_desk' || activePage === 'creator_studio')) {
+      navigate('seller_listings', { replace: true });
       return;
     }
     if (!canAccessPage(user, activePage)) {
@@ -414,14 +414,11 @@ export default function App() {
         openAuth({ mode: 'login' });
         return;
       }
-      if (canList(user)) {
-        setRoleNotice('Creator accounts browse the marketplace but cannot purchase.');
-        navigate('marketplace', { replace: true });
-      } else if (resolveExchangeAccount(user).workspace === 'seller') {
-        setRoleNotice('Verify a payment method to access seller tools.');
+      if (resolveExchangeAccount(user).sellerIntent && !canList(user)) {
+        setRoleNotice('Pay the seller subscription to access seller tools. Buying still works on this account.');
         navigate('seller_onboarding_payment', { replace: true });
       } else {
-        setRoleNotice('Listing pages are for Creator accounts. You can set one up in Account settings.');
+        setRoleNotice('That page needs seller tools. Choose Sell on Exchange to add selling to this identity.');
         navigate('settings', { replace: true });
       }
     }
@@ -496,7 +493,7 @@ export default function App() {
             onBrowse={(page) => navigate(page || 'marketplace')}
             onAddToCart={async (listing) => {
               if (user && !canPurchase(user)) {
-                setRoleNotice('Creator accounts cannot add marketplace assets to cart.');
+                setRoleNotice('Sign in to add marketplace assets to cart.');
                 return;
               }
               const key = buyerKey(user) || localStorage.getItem('pinit_guest_buyer') || `GUEST-${Date.now()}`;
@@ -533,7 +530,7 @@ export default function App() {
         )}
         {(activePage === 'requirements' || activePage === 'seller_opportunities') && (
           <RequirementsExchange
-            mode={activePage === 'seller_opportunities' || resolveExchangeAccount(user).workspace === 'seller' ? 'seller' : 'buyer'}
+            mode={activePage === 'seller_opportunities' ? 'seller' : 'buyer'}
             onNavigate={navigate}
             user={user}
             onOpenAuth={openAuth}

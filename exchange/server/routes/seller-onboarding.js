@@ -1,6 +1,6 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { requireSeller } from '../lib/rbac.js';
+import { requireSeller, requireVerifiedIdentity } from '../lib/rbac.js';
 import { getSql, runSql } from '../lib/db.js';
 import { enrichPublicUser } from '../lib/roles.js';
 import {
@@ -14,12 +14,15 @@ import {
   fetchRazorpayPayment,
   getBillingPublicConfig,
   verifyRazorpaySignature,
-  razorpayErrorMessage,
+  publicPaymentError,
+  sellerSubscriptionPaymentAcceptable,
   SELLER_SUBSCRIPTION_AMOUNT_CENTS,
   SELLER_SUBSCRIPTION_CURRENCY,
 } from '../razorpay.js';
 
 const router = express.Router();
+router.use(requireVerifiedIdentity);
+router.use(requireSeller);
 
 function idempotencyKey(req) {
   return String(
@@ -73,7 +76,7 @@ async function buildStatusResponse(user) {
 }
 
 /** GET /api/seller/onboarding/status */
-router.get('/status', requireSeller, async (req, res) => {
+router.get('/status', async (req, res) => {
   try {
     res.json(await buildStatusResponse(req.exchangeUser));
   } catch (err) {
@@ -82,7 +85,7 @@ router.get('/status', requireSeller, async (req, res) => {
 });
 
 /** POST /api/seller/onboarding/payment-method — initialize Razorpay verification checkout */
-router.post('/payment-method', requireSeller, async (req, res) => {
+router.post('/payment-method', async (req, res) => {
   try {
     const user = req.exchangeUser;
     if (isSellerOnboardingComplete(user)) {
@@ -167,16 +170,16 @@ router.post('/payment-method', requireSeller, async (req, res) => {
       subscription_amount_cents: SELLER_SUBSCRIPTION_AMOUNT_CENTS,
     });
   } catch (err) {
-    console.error('[seller/onboarding/payment-method]', razorpayErrorMessage(err), err);
+    console.error('[seller/onboarding/payment-method]', publicPaymentError(err), err);
     res.status(500).json({
-      error: razorpayErrorMessage(err) || 'Could not initialize payment method setup',
-      message: razorpayErrorMessage(err) || 'Could not initialize payment method setup',
+      error: publicPaymentError(err) || 'Could not initialize payment method setup',
+      message: publicPaymentError(err) || 'Could not initialize payment method setup',
     });
   }
 });
 
 /** POST /api/seller/onboarding/payment-method/verify */
-router.post('/payment-method/verify', requireSeller, async (req, res) => {
+router.post('/payment-method/verify', async (req, res) => {
   try {
     const user = req.exchangeUser;
     if (isSellerOnboardingComplete(user)) {
@@ -198,15 +201,35 @@ router.post('/payment-method/verify', requireSeller, async (req, res) => {
     }
 
     const key = idempotencyKey(req) || defaultIdempotencyKey(user.pinit_id);
-    const intent = await getSql(
-      `SELECT * FROM seller_onboarding_intents WHERE idempotency_key = ? AND pinit_id = ? LIMIT 1`,
-      [key, user.pinit_id],
+    let intent = await getSql(
+      `SELECT * FROM seller_onboarding_intents WHERE razorpay_order_id = ? AND pinit_id = ? LIMIT 1`,
+      [orderId, user.pinit_id],
     );
-    if (intent && intent.razorpay_order_id && intent.razorpay_order_id !== orderId) {
+    if (!intent) {
+      intent = await getSql(
+        `SELECT * FROM seller_onboarding_intents WHERE idempotency_key = ? AND pinit_id = ? LIMIT 1`,
+        [key, user.pinit_id],
+      );
+    }
+    if (!intent?.razorpay_order_id) {
+      return res.status(400).json({
+        error: 'INVALID_PAYMENT_INTENT',
+        message: 'This payment session expired or is invalid. Start payment again.',
+      });
+    }
+    if (intent.razorpay_order_id !== orderId) {
       return res.status(409).json({ error: 'Order mismatch for this verification session' });
     }
+    if (intent.status === 'completed') {
+      const fresh = await getSql('SELECT * FROM users WHERE pinit_id = ?', [user.pinit_id]);
+      return res.json({
+        message: 'Seller account already verified',
+        user: enrichPublicUser(fresh),
+        ...(await buildStatusResponse(fresh)),
+      });
+    }
 
-    if (!verifyRazorpaySignature({ orderId, paymentId, signature: signature || 'mock' })) {
+    if (!verifyRazorpaySignature({ orderId, paymentId, signature: signature || '' })) {
       await runSql(
         `UPDATE users SET seller_onboarding_status = ? WHERE pinit_id = ?`,
         [ONBOARDING.PAYMENT_METHOD_FAILED, user.pinit_id],
@@ -227,7 +250,41 @@ router.post('/payment-method/verify', requireSeller, async (req, res) => {
       });
     }
 
+    const duplicatePay = await getSql(
+      `SELECT id FROM seller_payment_methods WHERE provider_payment_id = ? AND status = 'verified' LIMIT 1`,
+      [paymentId],
+    );
+    if (duplicatePay) {
+      await runSql(
+        `UPDATE users SET seller_onboarding_status = ? WHERE pinit_id = ?`,
+        [ONBOARDING.SELLER_ACTIVE, user.pinit_id],
+      );
+      if (intent?.id) {
+        await runSql(
+          `UPDATE seller_onboarding_intents SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?`,
+          [intent.id],
+        );
+      }
+      const fresh = await getSql('SELECT * FROM users WHERE pinit_id = ?', [user.pinit_id]);
+      return res.json({
+        message: 'Seller subscription already recorded for this payment.',
+        user: enrichPublicUser(fresh),
+        ...(await buildStatusResponse(fresh)),
+      });
+    }
+
     const payment = await fetchRazorpayPayment(paymentId);
+    const accepted = sellerSubscriptionPaymentAcceptable(payment, orderId);
+    if (!accepted.ok) {
+      await runSql(
+        `UPDATE users SET seller_onboarding_status = ? WHERE pinit_id = ?`,
+        [ONBOARDING.PAYMENT_METHOD_FAILED, user.pinit_id],
+      );
+      return res.status(402).json({
+        error: 'PAYMENT_VERIFICATION_FAILED',
+        message: accepted.reason,
+      });
+    }
     const methodId = payment.token_id || payment.id;
     const methodType = payment.method || 'unknown';
     const last4 = payment.card?.last4 || payment.vpa?.slice(-4) || null;

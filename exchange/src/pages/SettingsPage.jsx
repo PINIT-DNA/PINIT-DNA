@@ -218,9 +218,9 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
               <section>
                 <h2 className="ex-h2 settings-h">Become a Creator</h2>
                 <p className="settings-body">
-                  A Creator account lets you list assets you have protected in Pinit HUB and
-                  earn from licences. Buying and selling stay separate — a Creator account
-                  cannot purchase on Exchange.
+                  A Creator capability lets you list assets you have protected in Pinit HUB and
+                  earn from licences. Buying stays on this same account — you do not need a
+                  second login.
                 </p>
 
                 <div className="creator-upgrade">
@@ -251,8 +251,8 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
                   {upgrading ? 'Creating your Creator account…' : 'Continue to payment'}
                 </button>
                 <span className="settings-fine">
-                  Your account converts to a Creator account, then you complete the {sellerSubscriptionLabel()}
-                  activation. Listing stays disabled until that payment is verified.
+                  Your account keeps buying. After the {sellerSubscriptionLabel()} subscription
+                  is verified, listing is enabled on this same identity.
                 </span>
               </section>
             )}

@@ -96,7 +96,7 @@ export default function Marketplace({
 
   useEffect(() => {
     if (resetFiltersToken) {
-      setSelectedVertical(user?.pinit_id ? 'mine' : 'all');
+      setSelectedVertical('all');
       setSelectedBadge('all');
       setSearchQuery('');
       setSortOption('newest');

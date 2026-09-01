@@ -2,9 +2,7 @@ import { getSql } from './db.js';
 import { identityCandidates } from './pinit-identity.js';
 import {
   canList,
-  canPurchase,
   buyerDeniedList,
-  sellerDeniedPurchase,
   buyerDeniedSellerAction,
 } from './roles.js';
 import { sellerOnboardingBlocked } from './seller-onboarding.js';
@@ -155,12 +153,15 @@ export async function requireBuyer(req, res, next) {
     if (!pinitId) {
       return res.status(401).json({
         error: 'AUTH_REQUIRED',
-        message: 'Sign in as a buyer to purchase or post requirements.',
+        message: 'Sign in to purchase or post requirements.',
       });
     }
     const user = await findUserByPinitId(pinitId);
-    if (!user || !canPurchase(user.role)) {
-      return res.status(403).json(sellerDeniedPurchase());
+    if (!user) {
+      return res.status(401).json({
+        error: 'AUTH_REQUIRED',
+        message: 'Sign in to purchase or post requirements.',
+      });
     }
     req.exchangeUser = user;
     next();
@@ -169,15 +170,12 @@ export async function requireBuyer(req, res, next) {
   }
 }
 
-/** Guests may browse/save; signed sellers cannot use buyer commerce. */
+/** Guests may browse/save. Signed-in sellers keep buyer commerce. */
 export async function forbidSellerCommerce(req, res, next) {
   try {
     const pinitId = pinitIdFromReq(req) || maybePinitFromBuyerKey(req);
     if (!pinitId) return next();
     const user = await findUserByPinitId(pinitId);
-    if (user && !canPurchase(user.role)) {
-      return res.status(403).json(sellerDeniedPurchase());
-    }
     if (user) req.exchangeUser = user;
     next();
   } catch (err) {

@@ -18,7 +18,7 @@ export default function SellerSales({ user, mode = 'sales' }) {
       title={orders ? 'Orders' : 'Sales'}
       subtitle={orders
         ? 'Sealed license orders for your listings. Delivery stays with the buyer after purchase.'
-        : 'Completed licenses on your assets. Creators cannot purchase on Exchange.'}
+        : 'Completed licenses on your assets. You can still buy other creators\' work from Discover.'}
     >
       {sales.length === 0 ? (
         <EmptyState

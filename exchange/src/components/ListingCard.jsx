@@ -1,7 +1,8 @@
 import { formatFrom, formatMoney } from '../lib/money.js';
 import React, { useState } from 'react';
 import { CheckCircle2, Heart, Play, ShoppingCart } from 'lucide-react';
-import { canPurchase, isSeller } from '../lib/roles.js';
+import { canPurchase } from '../lib/roles.js';
+import { samePinitIdentity } from '../lib/pinit-identity.js';
 import {
   isVideoListing,
   hasPlayableVideoPreview,
@@ -176,7 +177,7 @@ export default function ListingCard({
         </div>
       </div>
 
-      {isSeller(user) && <span className="listing-tile__owner">Your listing</span>}
+      {samePinitIdentity(user?.pinit_id, item.pinit_id) && <span className="listing-tile__owner">Your listing</span>}
     </article>
   );
 }

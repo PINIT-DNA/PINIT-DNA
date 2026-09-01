@@ -67,6 +67,44 @@ export function razorpayErrorMessage(err) {
   );
 }
 
+/**
+ * User-facing copy for gateway failures. Razorpay's 401 text is
+ * "Authentication failed", which the storefront was showing as a logged-in
+ * session error. Map that to the real cause: key id/secret on the API host.
+ */
+export function publicPaymentError(err) {
+  if (isRazorpayAuthFailure(err) || /authentication failed|invalid key/i.test(razorpayErrorMessage(err))) {
+    return (
+      'Payment gateway rejected the Razorpay keys on the Exchange API. '
+      + 'Set matching RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET from the same Razorpay dashboard. '
+      + 'This is not your Pinit login.'
+    );
+  }
+  return razorpayErrorMessage(err) || 'Could not start payment';
+}
+
+/** After signature check: captured ₹2,500 INR on the expected order. */
+export function sellerSubscriptionPaymentAcceptable(payment, expectedOrderId) {
+  if (!payment) return { ok: false, reason: 'Payment not found at the gateway' };
+  if (payment.mock || String(payment.id || '').startsWith('pay_mock_')) return { ok: true };
+  if (expectedOrderId && payment.order_id && String(payment.order_id) !== String(expectedOrderId)) {
+    return { ok: false, reason: 'Payment does not match this order' };
+  }
+  const status = String(payment.status || '').toLowerCase();
+  if (status && !['captured', 'authorized'].includes(status)) {
+    return { ok: false, reason: `Payment was not completed (status: ${status})` };
+  }
+  const amount = Number(payment.amount);
+  if (Number.isFinite(amount) && amount > 0 && amount !== SELLER_SUBSCRIPTION_AMOUNT_PAISE) {
+    return { ok: false, reason: 'Payment amount does not match the seller subscription' };
+  }
+  const currency = String(payment.currency || '').toUpperCase();
+  if (currency && currency !== SELLER_SUBSCRIPTION_CURRENCY) {
+    return { ok: false, reason: 'Payment currency does not match the seller subscription' };
+  }
+  return { ok: true };
+}
+
 function allowDevMockFallback() {
   return !isLiveKey() && process.env.NODE_ENV !== 'production';
 }
@@ -152,6 +190,7 @@ export async function createRazorpayOrder({ amountPaise, receipt, notes = {}, cu
       amount: amountPaise,
       currency: payCurrency,
       receipt: String(receipt || `ex_${Date.now()}`).slice(0, 40),
+      payment_capture: 1,
       notes,
     });
 
@@ -166,7 +205,7 @@ export async function createRazorpayOrder({ amountPaise, receipt, notes = {}, cu
     if (markRazorpayAuthBroken(err)) {
       return mockOrder({ amountPaise, currency: payCurrency });
     }
-    const wrapped = new Error(razorpayErrorMessage(err));
+    const wrapped = new Error(publicPaymentError(err));
     wrapped.status = err?.statusCode || 502;
     throw wrapped;
   }
@@ -228,7 +267,7 @@ export async function createRazorpayCustomer({ name, email, contact, notes = {} 
     if (markRazorpayAuthBroken(err)) {
       return { id: `cust_mock_${Date.now()}`, mock: true };
     }
-    const wrapped = new Error(razorpayErrorMessage(err));
+    const wrapped = new Error(publicPaymentError(err));
     wrapped.status = err?.statusCode || 502;
     throw wrapped;
   }
@@ -257,7 +296,7 @@ export async function fetchRazorpayPayment(paymentId) {
         mock: true,
       };
     }
-    const wrapped = new Error(razorpayErrorMessage(err));
+    const wrapped = new Error(publicPaymentError(err));
     wrapped.status = err?.statusCode || 502;
     throw wrapped;
   }

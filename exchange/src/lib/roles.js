@@ -11,11 +11,12 @@ export function exchangeRole(user) {
 }
 
 export function isSeller(user) {
-  return resolveExchangeAccount(user).role === 'SELLER';
+  const a = resolveExchangeAccount(user);
+  return a.sellerIntent || a.role === 'SELLER';
 }
 
 export function isBuyer(user) {
-  return resolveExchangeAccount(user).role === 'BUYER';
+  return resolveExchangeAccount(user).canPurchase;
 }
 
 export function canList(user) {
@@ -35,7 +36,10 @@ export function roleLabel(user) {
 
 export function rolePositioning(user) {
   const a = resolveExchangeAccount(user);
-  if (a.role === 'SELLER') return 'Create, protect, list and earn from creative assets.';
+  if (a.canList && a.canPurchase) {
+    return 'Buy licenses and sell Hub-protected work from the same Pinit identity.';
+  }
+  if (a.sellerIntent) return 'Complete the seller subscription to list, or keep buying on this account.';
   if (a.role === 'BUYER') return 'Discover, license and manage creative assets.';
   return 'Where protected creative assets are discovered, licensed and sold.';
 }
@@ -97,19 +101,17 @@ export const PUBLIC_PAGES = new Set([
 
 export function homePageForUser(user) {
   const a = resolveExchangeAccount(user);
-  if (a.workspace === 'seller') return a.canList ? 'seller_listings' : 'seller_onboarding_payment';
-  if (a.workspace === 'buyer') return 'home';
-  return 'marketplace';
+  if (a.sellerIntent && !a.canList) return 'seller_onboarding_payment';
+  return 'home';
 }
 
 export function canAccessPage(user, page) {
   if (page === 'seller_onboarding_payment') {
-    return resolveExchangeAccount(user).workspace === 'seller';
+    return Boolean(user) && resolveExchangeAccount(user).sellerIntent;
   }
   if (SELLER_ONLY_PAGES.has(page)) return resolveExchangeAccount(user).canList;
   if (BUYER_ONLY_PAGES.has(page)) {
-    const a = resolveExchangeAccount(user);
-    return !user || a.canPurchase;
+    return !user || resolveExchangeAccount(user).canPurchase;
   }
   return true;
 }

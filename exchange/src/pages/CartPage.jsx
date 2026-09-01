@@ -80,7 +80,7 @@ export default function CartPage({ user, onOpenAuth, onSelectListing, onCheckout
       return;
     }
     if (!canPurchase(user)) {
-      setError('Creator accounts cannot purchase marketplace assets.');
+      setError('Sign in to check out.');
       return;
     }
     setCheckingOut(true);

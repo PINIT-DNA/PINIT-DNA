@@ -3,7 +3,7 @@ import db from '../database.js';
 import { verifyHubBridgeToken } from '../hub-client.js';
 import { extractPinitCode, identityCandidates, toExchangePinitId } from '../lib/pinit-identity.js';
 import { enrichPublicUser, isSellerRole } from '../lib/roles.js';
-import { findUserByPinitId, resolveIdentity } from '../lib/rbac.js';
+import { findUserByPinitId, resolveIdentity, requireVerifiedIdentity } from '../lib/rbac.js';
 import { mintSessionToken } from '../lib/session-token.js';
 import { initialCreatorOnboardingStatus, ONBOARDING } from '../lib/seller-onboarding.js';
 
@@ -292,9 +292,9 @@ router.post('/profile', async (req, res) => {
 /**
  * Controlled buyer → creator conversion. Never automatic from Hub upload.
  */
-router.post('/become-creator', async (req, res) => {
+router.post('/become-creator', requireVerifiedIdentity, async (req, res) => {
   try {
-    const targetId = String(req.body?.pinit_id || '').trim();
+    const targetId = req.verifiedPinitId;
     if (!targetId) return res.status(400).json({ error: 'pinit_id is required' });
     const existing = await findUserByPinitId(targetId);
     if (!existing) return res.status(404).json({ error: 'User not found' });
@@ -350,7 +350,7 @@ router.post('/become-creator', async (req, res) => {
           res.json({
             message: paid
               ? 'Creator account restored. Your activation is already paid — you can list straight away.'
-              : 'Seller account created. Pay the ₹2,500 subscription to start listing.',
+              : 'Seller capability added. Pay the ₹2,500 subscription to start listing. Buying on this account is unchanged.',
             user: publicUser(updated),
             next_step: paid
               ? { action: 'start_listing', path: '/exchange/seller/listings' }

@@ -65,7 +65,7 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
       return;
     }
     if (user && !canPurchase(user)) {
-      setErrorMsg('Creator accounts cannot purchase marketplace assets.');
+      setErrorMsg('Sign in to purchase.');
       return;
     }
     const defaults = defaultBuyer(user);

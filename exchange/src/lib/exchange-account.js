@@ -1,9 +1,9 @@
 /**
  * Single Exchange account authority.
  *
- * Hub identity (PINIT-*) is shared. Exchange role is not guessed per page.
- * Backend `/api/auth/me` fields `exchange_role` + `can_list` are the source of truth.
- * localStorage only stores pinit_id so the session can be restored — never the role.
+ * Hub identity (PINIT-*) is shared. Buying is always on for a signed-in user.
+ * Selling is an additive capability after subscription verification.
+ * Backend `/api/auth/me` fields `can_list` / `can_purchase` / `capabilities` are source of truth.
  */
 
 export function resolveExchangeAccount(user) {
@@ -18,6 +18,7 @@ export function resolveExchangeAccount(user) {
       exchangeEnabled: false,
       canList: false,
       canPurchase: false,
+      sellerIntent: false,
       displayName: '',
       raw: null,
     };
@@ -25,23 +26,29 @@ export function resolveExchangeAccount(user) {
 
   const listFlag = user.can_list;
   const raw = String(user.exchange_role || user.role || '').toLowerCase();
-  const rawSeller = raw === 'creator' || raw === 'seller' || raw === 'admin';
+  const sellerIntent = raw === 'creator' || raw === 'seller' || raw === 'admin';
+  const caps = user.capabilities || {};
+  const canList = listFlag === true || listFlag === 1 || caps.sell === true;
+  const canPurchase = user.can_purchase !== false && caps.buy !== false;
 
-  const seller = rawSeller;
-  const canList = listFlag === true || listFlag === 1;
+  let uiLabel = 'Buyer Account';
+  if (canList && canPurchase) uiLabel = 'Buyer & Creator';
+  else if (sellerIntent && !canList) uiLabel = 'Creator (activation pending)';
+  else if (sellerIntent) uiLabel = 'Creator Account';
 
   return {
     userId: user.id || user.pinit_id || null,
     pinitId: user.pinit_id || '',
-    role: seller ? 'SELLER' : 'BUYER',
-    accountType: seller ? 'CREATOR' : 'BUYER',
-    uiLabel: seller ? 'Creator Account' : 'Buyer Account',
-    workspace: seller ? 'seller' : 'buyer',
+    role: sellerIntent ? 'SELLER' : 'BUYER',
+    accountType: sellerIntent ? 'CREATOR' : 'BUYER',
+    uiLabel,
+    workspace: canList ? 'both' : (sellerIntent ? 'seller' : 'buyer'),
     exchangeEnabled: true,
     canList,
-    canPurchase: !rawSeller,
-    sellerOnboardingComplete: user.seller_onboarding_complete !== false,
-    displayName: user.display_name || user.name || (seller ? 'Creator' : 'Buyer'),
+    canPurchase,
+    sellerIntent,
+    sellerOnboardingComplete: user.seller_onboarding_complete !== false && canList,
+    displayName: user.display_name || user.name || (sellerIntent ? 'Creator' : 'Buyer'),
     raw: user,
   };
 }
@@ -50,12 +57,12 @@ export function isSellerAccount(accountOrUser) {
   const a = accountOrUser?.role
     ? accountOrUser
     : resolveExchangeAccount(accountOrUser);
-  return a.role === 'SELLER';
+  return a.sellerIntent || a.role === 'SELLER';
 }
 
 export function isBuyerAccount(accountOrUser) {
   const a = accountOrUser?.role
     ? accountOrUser
     : resolveExchangeAccount(accountOrUser);
-  return a.role === 'BUYER';
+  return Boolean(a.canPurchase);
 }

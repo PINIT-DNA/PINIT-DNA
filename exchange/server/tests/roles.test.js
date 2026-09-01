@@ -14,11 +14,11 @@ test('normalizeRole maps creator/seller to seller', () => {
   assert.equal(normalizeRole('admin'), 'admin');
 });
 
-test('buyers cannot list; sellers cannot purchase', () => {
+test('buyers can list only after seller role; every role can purchase', () => {
   assert.equal(canList('buyer'), false);
   assert.equal(canPurchase('buyer'), true);
   assert.equal(canList('creator'), true);
-  assert.equal(canPurchase('creator'), false);
+  assert.equal(canPurchase('creator'), true);
   assert.equal(canList('admin'), true);
   assert.equal(canPurchase('admin'), true);
 });
@@ -34,5 +34,7 @@ test('enrichPublicUser strips password and adds flags', () => {
   assert.equal(pub.exchange_role, 'buyer');
   assert.equal(pub.can_list, false);
   assert.equal(pub.can_purchase, true);
+  assert.equal(pub.capabilities.buy, true);
+  assert.equal(pub.capabilities.sell, false);
   assert.equal(pub.seller_onboarding_complete, true);
 });
