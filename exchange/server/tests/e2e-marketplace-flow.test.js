@@ -184,7 +184,12 @@ test('seller → listing → buyer cart → payment → licence → Hub bridge',
   assert.equal(payOk.status, 200, JSON.stringify(payOk.data));
   assert.equal(payOk.data.seller_onboarding_complete, true);
   assert.equal(payOk.data.user?.can_list, true);
-  assert.equal(payOk.data.user?.can_purchase, true, 'seller subscription must not remove buying');
+  assert.equal(payOk.data.user?.can_purchase, false, 'creator SSO does not auto-enable buying');
+
+  const enabledBuyer = await api('/api/auth/enable-buyer', { method: 'POST', token: sellerToken, body: {} });
+  assert.equal(enabledBuyer.status, 200, JSON.stringify(enabledBuyer.data));
+  assert.equal(enabledBuyer.data.user?.can_purchase, true);
+  assert.equal(enabledBuyer.data.user?.can_list, true, 'enabling buyer must not drop seller tools');
 
   const listed = await api('/api/listings', {
     method: 'POST',

@@ -29,8 +29,9 @@ export function canPurchase(user) {
 
 export function roleLabel(user) {
   const a = resolveExchangeAccount(user);
-  if (a.accountType === 'CREATOR') return 'Creator';
-  if (a.accountType === 'BUYER') return 'Buyer';
+  if (a.canList && a.canPurchase) return 'Buyer & Creator';
+  if (a.accountType === 'CREATOR' || a.sellerIntent) return 'Creator';
+  if (a.accountType === 'BUYER' || a.canPurchase) return 'Buyer';
   return 'Guest';
 }
 
@@ -39,7 +40,9 @@ export function rolePositioning(user) {
   if (a.canList && a.canPurchase) {
     return 'Buy licenses and sell Hub-protected work from the same Pinit identity.';
   }
-  if (a.sellerIntent) return 'Complete the seller subscription to list, or keep buying on this account.';
+  if (a.needsBuyerEnable) {
+    return 'Selling is on. Create a Buyer account on this same identity to purchase other creators’ work.';
+  }
   if (a.role === 'BUYER') return 'Discover, license and manage creative assets.';
   return 'Where protected creative assets are discovered, licensed and sold.';
 }

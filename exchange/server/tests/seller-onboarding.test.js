@@ -42,7 +42,8 @@ test('enrichPublicUser gates can_list until onboarding complete', () => {
     seller_onboarding_status: 'PAYMENT_METHOD_REQUIRED',
   });
   assert.equal(pending.can_list, false);
-  assert.equal(pending.can_purchase, true);
+  assert.equal(pending.can_purchase, false);
+  assert.equal(pending.needs_buyer_enable, true);
   assert.equal(pending.seller_onboarding_complete, false);
 
   const active = enrichPublicUser({
@@ -52,7 +53,17 @@ test('enrichPublicUser gates can_list until onboarding complete', () => {
     seller_onboarding_status: 'SELLER_ACTIVE',
   });
   assert.equal(active.can_list, true);
-  assert.equal(active.can_purchase, true);
-  assert.equal(active.capabilities.buy, true);
-  assert.equal(active.capabilities.sell, true);
+  assert.equal(active.can_purchase, false);
+
+  const both = enrichPublicUser({
+    pinit_id: 'PINIT-EX-TEST3',
+    role: 'creator',
+    name: 'Creator',
+    seller_onboarding_status: 'SELLER_ACTIVE',
+    buyer_enabled: 1,
+  });
+  assert.equal(both.can_list, true);
+  assert.equal(both.can_purchase, true);
+  assert.equal(both.capabilities.buy, true);
+  assert.equal(both.capabilities.sell, true);
 });

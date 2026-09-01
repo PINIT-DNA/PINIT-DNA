@@ -14,11 +14,11 @@ test('normalizeRole maps creator/seller to seller', () => {
   assert.equal(normalizeRole('admin'), 'admin');
 });
 
-test('buyers can list only after seller role; every role can purchase', () => {
+test('buyers can purchase; creators list but need buyer_enabled to purchase', () => {
   assert.equal(canList('buyer'), false);
   assert.equal(canPurchase('buyer'), true);
   assert.equal(canList('creator'), true);
-  assert.equal(canPurchase('creator'), true);
+  assert.equal(canPurchase('creator'), false);
   assert.equal(canList('admin'), true);
   assert.equal(canPurchase('admin'), true);
 });

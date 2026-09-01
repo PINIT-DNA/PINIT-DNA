@@ -31,6 +31,7 @@ function ensureUserColumns(cb) {
     `ALTER TABLE users ADD COLUMN onboarding_step TEXT DEFAULT 'complete'`,
     `ALTER TABLE users ADD COLUMN seller_onboarding_status TEXT DEFAULT 'SELLER_ACTIVE'`,
     `ALTER TABLE users ADD COLUMN razorpay_customer_id TEXT`,
+    `ALTER TABLE users ADD COLUMN buyer_enabled INTEGER`,
   ];
   let i = 0;
   const next = () => {
@@ -242,11 +243,11 @@ router.post('/hub-sso', (req, res) => {
           INSERT INTO users (
             pinit_id, exchange_id, name, email, role, kyc_status, biometric_verified,
             seller_plan, bio, display_name, account_intent, hub_linked, onboarding_step,
-            seller_onboarding_status
-          ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, 'Connected via Pinit HUB biometric', ?, ?, 1, ?, ?)
+            seller_onboarding_status, buyer_enabled
+          ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, 'Connected via Pinit HUB biometric', ?, ?, 1, ?, ?, ?)
         `, [
           pinitId, mintedExchangeId, name, email, role, kyc, sellerPlan, name, requested,
-          onboarding, sellerOnboarding || 'SELLER_ACTIVE',
+          onboarding, sellerOnboarding || 'SELLER_ACTIVE', requested === 'creator' ? 0 : 1,
         ], function(err) {
           if (err) return res.status(500).json({ error: err.message });
           db.get('SELECT * FROM users WHERE pinit_id = ?', [pinitId], (err2, user) => {
@@ -337,7 +338,8 @@ router.post('/become-creator', requireVerifiedIdentity, async (req, res) => {
         seller_plan = COALESCE(seller_plan, 'starter'),
         kyc_status = CASE WHEN kyc_status = 'not_required' THEN 'pending' ELSE kyc_status END,
         onboarding_step = 'protect_in_hub',
-        seller_onboarding_status = ?
+        seller_onboarding_status = ?,
+        buyer_enabled = 1
        WHERE pinit_id = ?`,
       [nextStatus, existing.pinit_id],
       (err) => {
@@ -355,6 +357,34 @@ router.post('/become-creator', requireVerifiedIdentity, async (req, res) => {
             next_step: paid
               ? { action: 'start_listing', path: '/exchange/seller/listings' }
               : { action: 'verify_payment_method', path: '/exchange/seller/onboarding/payment' },
+          });
+        });
+      },
+    );
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Creator → also Buyer on the same Pinit identity. Does not change role or listings.
+ */
+router.post('/enable-buyer', requireVerifiedIdentity, async (req, res) => {
+  try {
+    const targetId = req.verifiedPinitId;
+    const existing = await findUserByPinitId(targetId);
+    if (!existing) return res.status(404).json({ error: 'User not found' });
+
+    db.run(
+      `UPDATE users SET buyer_enabled = 1 WHERE pinit_id = ?`,
+      [existing.pinit_id],
+      (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        db.get('SELECT * FROM users WHERE pinit_id = ?', [existing.pinit_id], (err2, updated) => {
+          if (err2) return res.status(500).json({ error: err2.message });
+          res.json({
+            message: 'Buyer access is on for this Pinit identity. Listings and seller tools are unchanged.',
+            user: publicUser(updated),
           });
         });
       },

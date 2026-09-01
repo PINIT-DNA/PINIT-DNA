@@ -29,6 +29,7 @@ export default function ExchangeHeader({
   setActivePage,
   onOpenAuth,
   onBecomeCreator,
+  onEnableBuyer,
   onOpenListFromHub,
   onSignOut,
   onSearch,
@@ -38,8 +39,11 @@ export default function ExchangeHeader({
   const account = resolveExchangeAccount(user);
   const seller = account.canList;
   const sellerPending = account.sellerIntent && !account.canList;
+  const buyer = account.canPurchase;
+  const needsBuyer = account.needsBuyerEnable;
   const signedIn = Boolean(user);
   const [menu, setMenu] = useState(false);
+  const [enablingBuyer, setEnablingBuyer] = useState(false);
   const [query, setQuery] = useState('');
   const name = account.displayName || (seller ? 'Creator' : 'Buyer');
 
@@ -48,13 +52,24 @@ export default function ExchangeHeader({
     ['collections', 'Collections'],
     ['passports', 'Creators'],
   ];
-  if (signedIn) {
+  if (signedIn && buyer) {
     links.push(['my_licenses', 'Purchases']);
   }
   if (seller) {
     links.push(['seller_listings', 'Your listings']);
     links.push(['seller_opportunities', 'Opportunities']);
   }
+
+  const enableBuyer = async () => {
+    if (enablingBuyer) return;
+    setEnablingBuyer(true);
+    try {
+      await onEnableBuyer?.();
+    } finally {
+      setEnablingBuyer(false);
+      setMenu(false);
+    }
+  };
 
   const search = (e) => {
     e?.preventDefault?.();
@@ -134,6 +149,17 @@ export default function ExchangeHeader({
               {sellerPending ? 'Finish selling' : 'Sell on Exchange'}
             </button>
           )}
+          {signedIn && needsBuyer && (
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ padding: '8px 12px', height: 36, fontSize: '0.8rem' }}
+              disabled={enablingBuyer}
+              onClick={enableBuyer}
+            >
+              {enablingBuyer ? 'Enabling…' : 'Create Buyer Account'}
+            </button>
+          )}
           {seller && (
             <button
               type="button"
@@ -145,12 +171,16 @@ export default function ExchangeHeader({
             </button>
           )}
 
-          <IconBtn title="Saved assets" active={activePage === 'wishlist'} onClick={() => setActivePage('wishlist')}>
-            <Heart size={16} />
-          </IconBtn>
-          <IconBtn title="Cart" active={activePage === 'cart'} onClick={() => setActivePage('cart')} badge={cartCount}>
-            <ShoppingCart size={16} />
-          </IconBtn>
+          {(buyer || !signedIn) && (
+            <>
+              <IconBtn title="Saved assets" active={activePage === 'wishlist'} onClick={() => setActivePage('wishlist')}>
+                <Heart size={16} />
+              </IconBtn>
+              <IconBtn title="Cart" active={activePage === 'cart'} onClick={() => setActivePage('cart')} badge={cartCount}>
+                <ShoppingCart size={16} />
+              </IconBtn>
+            </>
+          )}
 
           {user ? (
             <div className="studio-profile">
@@ -166,15 +196,25 @@ export default function ExchangeHeader({
                   <div className="studio-menu__meta">
                     <strong>{name}</strong>
                     <span>{account.uiLabel}</span>
+                    <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                      {buyer ? 'Buying on' : 'Buying off'}
+                      {seller ? ' · Selling on' : sellerPending ? ' · Selling pending' : ''}
+                    </span>
                   </div>
                   {signedIn && (
                     <>
+                      {needsBuyer && (
+                        <button type="button" onClick={enableBuyer} disabled={enablingBuyer}>
+                          {enablingBuyer ? 'Enabling Buyer…' : 'Create Buyer Account'}
+                        </button>
+                      )}
                       <button type="button" onClick={() => closeGo('settings')}>Account</button>
-                      {signedIn && (
+                      {buyer && (
                         <>
                           <button type="button" onClick={() => closeGo('my_licenses')}>Purchases</button>
                           <button type="button" onClick={() => closeGo('buyer_orders')}>Orders &amp; receipts</button>
                           <button type="button" onClick={() => closeGo('cart')}>Cart</button>
+                          <button type="button" onClick={() => closeGo('wishlist')}>Wishlist</button>
                         </>
                       )}
                       {seller ? (

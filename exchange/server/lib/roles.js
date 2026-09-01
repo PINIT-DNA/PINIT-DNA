@@ -30,13 +30,34 @@ export function isBuyerRole(role) {
   return n === EXCHANGE_ROLES.BUYER || n === EXCHANGE_ROLES.ADMIN;
 }
 
+export function isBuyerCapabilityEnabled(row) {
+  if (!row) return false;
+  if (isAdminRole(row.role)) return true;
+  if (normalizeRole(row.role) === EXCHANGE_ROLES.BUYER) return true;
+  const v = row.buyer_enabled;
+  return v === true || v === 1 || v === '1';
+}
+
 export function canList(role) {
   return isSellerRole(role);
 }
 
-/** Buying is available to every Exchange account. Selling is additive. */
-export function canPurchase(_role) {
-  return true;
+/** Role-only helper for tests. Creators need buyer_enabled on the user row. */
+export function canPurchase(role) {
+  const n = normalizeRole(role);
+  return n === EXCHANGE_ROLES.BUYER || n === EXCHANGE_ROLES.ADMIN;
+}
+
+export function buyerNeedsEnable(row) {
+  return isSellerRole(row?.role) && !isBuyerCapabilityEnabled(row);
+}
+
+export function enableBuyerDenied() {
+  return {
+    error: 'ENABLE_BUYER_REQUIRED',
+    message: 'Enable Buyer on this same Pinit identity to check out. Selling is unchanged.',
+    next_step: { action: 'enable_buyer', path: '/exchange/account' },
+  };
 }
 
 export function buyerDeniedList() {
@@ -87,15 +108,18 @@ export function enrichPublicUser(row) {
   const sellerIntent = exchange_role === EXCHANGE_ROLES.SELLER || exchange_role === EXCHANGE_ROLES.ADMIN;
   const onboarding = onboardingFieldsForUser(row);
   const can_list = canList(row.role) && onboarding.seller_onboarding_complete;
+  const can_purchase = isBuyerCapabilityEnabled(row);
   return {
     ...safe,
     exchange_role,
-    account_type: sellerIntent ? 'CREATOR' : 'BUYER',
+    account_type: sellerIntent && can_purchase ? 'CREATOR_AND_BUYER' : (sellerIntent ? 'CREATOR' : 'BUYER'),
     exchange_enabled: true,
     can_list,
-    can_purchase: true,
+    can_purchase,
+    buyer_enabled: can_purchase ? 1 : 0,
+    needs_buyer_enable: sellerIntent && !can_purchase,
     capabilities: {
-      buy: true,
+      buy: can_purchase,
       sell: can_list,
       seller_intent: sellerIntent,
     },

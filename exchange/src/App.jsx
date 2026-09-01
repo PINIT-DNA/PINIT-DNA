@@ -359,6 +359,24 @@ export default function App() {
     navigate('settings');
   };
 
+  const enableBuyer = async () => {
+    const { ok, data, error } = await apiFetch('/api/auth/enable-buyer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    if (!ok) {
+      setRoleNotice(error || 'Could not enable Buyer on this account.');
+      return;
+    }
+    if (data?.user) {
+      setUser(data.user);
+      writeSession(data.user);
+    }
+    setRoleNotice('Buyer access is on. Discover, Cart, Checkout, Purchases and Wishlist are available. Selling is unchanged.');
+    navigate('marketplace');
+  };
+
   const openListFromHub = (assetId) => {
     if (!user) {
       openAuth({ mode: 'signup', intent: 'creator' });
@@ -383,7 +401,8 @@ export default function App() {
       return;
     }
     if (intent === 'buyer' && !canPurchase(user)) {
-      openAuth({ mode: 'login' });
+      setRoleNotice('Create a Buyer account on this same Pinit identity to purchase. Selling stays on.');
+      navigate('settings');
       return;
     }
     action?.();
@@ -667,7 +686,15 @@ export default function App() {
         )}
 
         {activePage === 'settings' && (
-          <SettingsPage user={user} onUserUpdated={(updated) => setUser(updated)} onNavigate={navigate} />
+          <SettingsPage
+            user={user}
+            onUserUpdated={(updated) => {
+              setUser(updated);
+              writeSession(updated);
+            }}
+            onNavigate={navigate}
+            onEnableBuyer={enableBuyer}
+          />
         )}
       </>
   );
@@ -716,6 +743,7 @@ export default function App() {
         setActivePage={navigate}
         onOpenAuth={openAuth}
         onBecomeCreator={openBecomeCreator}
+        onEnableBuyer={enableBuyer}
         onOpenListFromHub={openListFromHub}
         onSignOut={handleSignOut}
         onSearch={(term) => setHeaderSearch({ term, at: Date.now() })}

@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS exchange.users (
   onboarding_step TEXT DEFAULT 'complete',
   seller_onboarding_status TEXT DEFAULT 'SELLER_ACTIVE',
   razorpay_customer_id TEXT,
+  buyer_enabled SMALLINT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

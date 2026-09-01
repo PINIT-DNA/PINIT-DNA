@@ -4,6 +4,8 @@ import {
   canList,
   buyerDeniedList,
   buyerDeniedSellerAction,
+  isBuyerCapabilityEnabled,
+  enableBuyerDenied,
 } from './roles.js';
 import { sellerOnboardingBlocked } from './seller-onboarding.js';
 import { verifiedPinitIdFromReq, isSessionSigningEnabled } from './session-token.js';
@@ -162,6 +164,9 @@ export async function requireBuyer(req, res, next) {
         error: 'AUTH_REQUIRED',
         message: 'Sign in to purchase or post requirements.',
       });
+    }
+    if (!isBuyerCapabilityEnabled(user)) {
+      return res.status(403).json(enableBuyerDenied());
     }
     req.exchangeUser = user;
     next();

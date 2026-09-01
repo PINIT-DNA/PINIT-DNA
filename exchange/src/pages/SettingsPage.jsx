@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import {
   User, Store, ShieldCheck, ShieldAlert, CreditCard, Bell, Lock,
-  CheckCircle, AlertCircle,
+  CheckCircle, AlertCircle, ShoppingCart,
 } from 'lucide-react';
-import { canList, canPurchase, roleLabel, rolePositioning } from '../lib/roles.js';
+import { canList, canPurchase, roleLabel, rolePositioning, resolveExchangeAccount } from '../lib/roles.js';
 import { apiFetch } from '../lib/api.js';
 import { sellerSubscriptionLabel } from '../lib/money.js';
 
@@ -34,8 +34,11 @@ const NOTIFY_ROWS = [
   { id: 'hub_tracking', label: 'Hub tracking alerts', hint: 'Post-sale activity on a protected asset.' },
 ];
 
-export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
+export default function SettingsPage({ user, onUserUpdated, onNavigate, onEnableBuyer }) {
   const seller = canList(user);
+  const account = resolveExchangeAccount(user);
+  const needsBuyer = account.needsBuyerEnable;
+  const [enablingBuyer, setEnablingBuyer] = useState(false);
   const [activeTab, setActiveTab] = useState('account');
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
   const [saveError, setSaveError] = useState('');
@@ -78,6 +81,16 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
     }
     onUserUpdated?.(data.user);
     onNavigate?.('seller_onboarding_payment');
+  };
+
+  const startEnableBuyer = async () => {
+    setEnablingBuyer(true);
+    setUpgradeError('');
+    try {
+      if (onEnableBuyer) await onEnableBuyer();
+    } finally {
+      setEnablingBuyer(false);
+    }
   };
 
   const toggleNotify = (id) => {
@@ -130,6 +143,7 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
   const tabs = seller
     ? [
       { id: 'account', label: 'Account profile', icon: User },
+      { id: 'buyer', label: 'Buyer access', icon: ShoppingCart },
       { id: 'storefront', label: 'Public storefront', icon: Store },
       { id: 'verification', label: 'Seller verification', icon: ShieldCheck },
       { id: 'billing', label: 'Billing & payouts', icon: CreditCard },
@@ -211,6 +225,39 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
                   <input id="set-pid" type="text" className="form-input settings-readonly" value={user?.pinit_id || ''} readOnly />
                   <span className="settings-fine">Shared identity between Pinit HUB Vault and Pinit Exchange.</span>
                 </div>
+                <p className="settings-fine" style={{ marginTop: 12 }}>
+                  Capabilities: {canPurchase(user) ? 'Buying on' : 'Buying off'}
+                  {seller ? ' · Selling on' : ''}
+                </p>
+              </section>
+            )}
+
+            {activeTab === 'buyer' && (
+              <section>
+                <h2 className="ex-h2 settings-h">Buyer access</h2>
+                <p className="settings-body">
+                  Enable buying on this same Pinit identity. Your Creator listings, sales and dashboard stay.
+                  No second email or login.
+                </p>
+                {canPurchase(user) && !needsBuyer ? (
+                  <p className="settings-fine">Buyer is already on. Cart, checkout, purchases and wishlist are available.</p>
+                ) : (
+                  <>
+                    {upgradeError && (
+                      <div className="ex-alert ex-alert--error settings-alert" role="alert">
+                        <AlertCircle size={18} /> <span>{upgradeError}</span>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      className="ex-btn ex-btn--primary"
+                      disabled={enablingBuyer}
+                      onClick={startEnableBuyer}
+                    >
+                      {enablingBuyer ? 'Enabling Buyer…' : 'Create Buyer Account'}
+                    </button>
+                  </>
+                )}
               </section>
             )}
 
