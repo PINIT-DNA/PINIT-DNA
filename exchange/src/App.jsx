@@ -360,20 +360,25 @@ export default function App() {
   };
 
   const enableBuyer = async () => {
-    const { ok, data, error } = await apiFetch('/api/auth/enable-buyer', {
+    const { ok, data, error, status } = await apiFetch('/api/auth/enable-buyer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ pinit_id: user?.pinit_id }),
     });
     if (!ok) {
+      if (status === 401) {
+        setRoleNotice('Continue with Pinit HUB once, then click Create Buyer Account again. No second account is created.');
+        openAuth({ mode: 'login' });
+        return;
+      }
       setRoleNotice(error || 'Could not enable Buyer on this account.');
       return;
     }
     if (data?.user) {
       setUser(data.user);
-      writeSession(data.user);
+      writeSession(data.user, data.session_token);
     }
-    setRoleNotice('Buyer access is on. Discover, Cart, Checkout, Purchases and Wishlist are available. Selling is unchanged.');
+    setRoleNotice('Buyer access is on. Cart, Checkout, Purchases and Wishlist are available. Selling is unchanged.');
     navigate('marketplace');
   };
 

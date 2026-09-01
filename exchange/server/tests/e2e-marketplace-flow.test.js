@@ -119,10 +119,11 @@ function ssoToken(pinitId, extra = {}) {
   );
 }
 
-async function api(pathname, { method = 'GET', token, body, intent } = {}) {
+async function api(pathname, { method = 'GET', token, body, intent, pinitId } = {}) {
   const headers = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = `Bearer ${token}`;
+  if (pinitId) headers['X-Pinit-Id'] = pinitId;
   const res = await fetch(`http://127.0.0.1:${EXCHANGE_PORT}${pathname}`, {
     method,
     headers,
@@ -186,8 +187,15 @@ test('seller → listing → buyer cart → payment → licence → Hub bridge',
   assert.equal(payOk.data.user?.can_list, true);
   assert.equal(payOk.data.user?.can_purchase, false, 'creator SSO does not auto-enable buying');
 
-  const enabledBuyer = await api('/api/auth/enable-buyer', { method: 'POST', token: sellerToken, body: {} });
+  // Creators often have a Hub login in localStorage without a minted session
+  // token. Enable-buyer must still work on the claimed Pinit ID (strict auth off).
+  const enabledBuyer = await api('/api/auth/enable-buyer', {
+    method: 'POST',
+    pinitId: sellerId,
+    body: { pinit_id: sellerId },
+  });
   assert.equal(enabledBuyer.status, 200, JSON.stringify(enabledBuyer.data));
+  assert.ok(enabledBuyer.data.session_token, 'must mint a session token so later cart calls are signed');
   assert.equal(enabledBuyer.data.user?.can_purchase, true);
   assert.equal(enabledBuyer.data.user?.can_list, true, 'enabling buyer must not drop seller tools');
 

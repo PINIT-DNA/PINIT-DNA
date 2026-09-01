@@ -3,7 +3,7 @@ import db from '../database.js';
 import { verifyHubBridgeToken } from '../hub-client.js';
 import { extractPinitCode, identityCandidates, toExchangePinitId } from '../lib/pinit-identity.js';
 import { enrichPublicUser, isSellerRole } from '../lib/roles.js';
-import { findUserByPinitId, resolveIdentity, requireVerifiedIdentity } from '../lib/rbac.js';
+import { findUserByPinitId, resolveIdentity, requireVerifiedIdentity, requireSeller } from '../lib/rbac.js';
 import { mintSessionToken } from '../lib/session-token.js';
 import { initialCreatorOnboardingStatus, ONBOARDING } from '../lib/seller-onboarding.js';
 
@@ -368,12 +368,16 @@ router.post('/become-creator', requireVerifiedIdentity, async (req, res) => {
 
 /**
  * Creator → also Buyer on the same Pinit identity. Does not change role or listings.
+ *
+ * Uses the same identity bar as seller tools (signed session token, or the
+ * claimed Pinit ID while EXCHANGE_STRICT_AUTH is off). Requiring a verified
+ * token only blocked Creators who were already listing — they had a Hub login
+ * in localStorage without a minted session_token.
  */
-router.post('/enable-buyer', requireVerifiedIdentity, async (req, res) => {
-  try {
-    const targetId = req.verifiedPinitId;
-    const existing = await findUserByPinitId(targetId);
-    if (!existing) return res.status(404).json({ error: 'User not found' });
+router.post('/enable-buyer', requireSeller, (req, res) => {
+  ensureUserColumns(() => {
+    const existing = req.exchangeUser;
+    if (!existing) return res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Sign in to enable Buyer.' });
 
     db.run(
       `UPDATE users SET buyer_enabled = 1 WHERE pinit_id = ?`,
@@ -382,16 +386,16 @@ router.post('/enable-buyer', requireVerifiedIdentity, async (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         db.get('SELECT * FROM users WHERE pinit_id = ?', [existing.pinit_id], (err2, updated) => {
           if (err2) return res.status(500).json({ error: err2.message });
+          const sessionToken = mintSessionToken(updated.pinit_id);
           res.json({
             message: 'Buyer access is on for this Pinit identity. Listings and seller tools are unchanged.',
             user: publicUser(updated),
+            session_token: sessionToken,
           });
         });
       },
     );
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  });
 });
 
 // Update Profile / Seller Onboarding — does NOT convert buyers unless become_creator=true
