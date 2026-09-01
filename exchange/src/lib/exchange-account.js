@@ -29,12 +29,13 @@ export function resolveExchangeAccount(user) {
   const sellerIntent = raw === 'creator' || raw === 'seller' || raw === 'admin';
   const caps = user.capabilities || {};
   const canList = listFlag === true || listFlag === 1 || caps.sell === true;
-  const canPurchase = user.can_purchase !== false && caps.buy !== false;
+  // Buying is a capability of the signed-in identity. Never honor a stale
+  // can_purchase:false from an older API that treated Creator as exclusive.
+  const canPurchase = true;
 
   let uiLabel = 'Buyer Account';
-  if (canList && canPurchase) uiLabel = 'Buyer & Creator';
-  else if (sellerIntent && !canList) uiLabel = 'Creator (activation pending)';
-  else if (sellerIntent) uiLabel = 'Creator Account';
+  if (canList) uiLabel = 'Buyer & Creator';
+  else if (sellerIntent) uiLabel = 'Buyer · seller activation pending';
 
   return {
     userId: user.id || user.pinit_id || null,

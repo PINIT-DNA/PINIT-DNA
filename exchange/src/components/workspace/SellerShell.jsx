@@ -19,8 +19,10 @@ const NAV = [
   { id: 'seller_orders', label: 'Orders', icon: Receipt },
   { id: 'seller_earnings', label: 'Earnings', icon: Wallet },
   { id: 'seller_reviews', label: 'Reviews', icon: Star },
-  { heading: 'Marketplace' },
-  { id: 'marketplace', label: 'Browse Exchange', icon: Store },
+  { heading: 'Buy' },
+  { id: 'marketplace', label: 'Discover', icon: Store },
+  { id: 'cart', label: 'Cart', icon: Receipt },
+  { id: 'my_licenses', label: 'Purchases', icon: BadgeDollarSign },
   { id: 'seller_opportunities', label: 'Opportunities', icon: ClipboardList },
   { heading: 'Grow' },
   { id: 'seller_analytics', label: 'Analytics', icon: LineChart },
@@ -31,13 +33,11 @@ const NAV = [
 ];
 
 const TOP = [
-  ['creator_studio', 'Dashboard'],
-  ['marketplace', 'Marketplace'],
-  ['seller_assets', 'My Assets'],
-  ['seller_portfolio', 'Portfolio'],
+  ['marketplace', 'Discover'],
+  ['cart', 'Cart'],
+  ['my_licenses', 'Purchases'],
   ['seller_listings', 'Listings'],
   ['seller_sales', 'Sales'],
-  ['seller_earnings', 'Earnings'],
 ];
 
 export default function SellerShell({
@@ -136,7 +136,7 @@ export default function SellerShell({
               <button type="button" className="nav-account" onClick={() => setMenu((v) => !v)}>
                 <span className="nav-account__avatar">{name[0].toUpperCase()}</span>
                 <span className="nav-account__meta">
-                  <span className="nav-account__role">Creator Account</span>
+                  <span className="nav-account__role">Buyer &amp; Creator</span>
                   <span className="nav-account__id">{pinitId}</span>
                 </span>
               </button>
@@ -144,8 +144,10 @@ export default function SellerShell({
                 <div className="studio-menu">
                   <div className="studio-menu__meta">
                     <strong>{name}</strong>
-                    <span>Verified Creator</span>
+                    <span>Buyer &amp; Creator</span>
                   </div>
+                  <button type="button" onClick={() => go('my_licenses')}>Purchases</button>
+                  <button type="button" onClick={() => go('cart')}>Cart</button>
                   <button type="button" onClick={() => go('settings')}>Profile &amp; settings</button>
                   <button type="button" onClick={() => go('seller_alerts')}>Notifications</button>
                   <a href={HUB_APP_URL} target="_blank" rel="noreferrer">Open Pinit Hub</a>

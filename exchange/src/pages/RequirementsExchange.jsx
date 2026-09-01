@@ -430,7 +430,7 @@ export default function RequirementsExchange({
         <h2>{sellerMode ? 'Why submit to a brief?' : 'Why post a brief on Pinit Exchange?'}</h2>
         <p className="req-why__sub">
           {sellerMode
-            ? 'Opportunities connect your Hub-protected work to buyer needs. Exchange closes the license — you never buy as a Creator.'
+            ? 'Opportunities connect your Hub-protected work to buyer needs. You can still buy other creators’ work on this same account.'
             : 'Requirements connect buyers to creators — HUB protects the asset, Exchange closes the license.'}
         </p>
         <ul className="req-why__grid">

@@ -49,7 +49,7 @@ export default function SiteFooter({ onNavigate, user = null }) {
   const go = (page) => onNavigate?.(page);
   const role = String(user?.exchange_role || user?.role || '').toLowerCase();
   const seller = role === 'creator' || role === 'seller' || role === 'admin';
-  const buyer = role === 'buyer' || role === 'admin';
+  const signedIn = Boolean(user);
 
   return (
     <footer className="site-footer">
@@ -73,11 +73,10 @@ export default function SiteFooter({ onNavigate, user = null }) {
               <small>Discovery · Licensing · Commerce</small>
             </div>
           </div>
-          {user && (
+          {signedIn && (
             <div className="site-footer__account">
-              {buyer && (
-                <button type="button" onClick={() => go('my_licenses')}>My Library</button>
-              )}
+              <button type="button" onClick={() => go('my_licenses')}>Purchases</button>
+              <button type="button" onClick={() => go('cart')}>Cart</button>
               {seller && (
                 <>
                   <button type="button" onClick={() => go('seller_listings')}>Your listings</button>

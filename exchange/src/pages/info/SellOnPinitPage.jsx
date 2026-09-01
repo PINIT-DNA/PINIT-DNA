@@ -1,14 +1,15 @@
 import React from 'react';
 import { ShieldCheck, ShoppingBag, CheckCircle, Activity } from 'lucide-react';
 import InfoPage, { InfoCards, InfoSteps } from '../../components/InfoPage.jsx';
+import { canList } from '../../lib/roles.js';
 
 export default function SellOnPinitPage({ onNavigate, onOpenAuth, onOpenListFromHub, user }) {
   const list = () => {
-    if (user && Number(user.hub_linked) && user.role !== 'buyer' && user.exchange_role !== 'buyer') {
+    if (canList(user)) {
       onOpenListFromHub?.();
       return;
     }
-    if (user?.role === 'buyer' || user?.exchange_role === 'buyer') {
+    if (user) {
       onOpenAuth?.({ mode: 'signup', intent: 'creator' });
       return;
     }

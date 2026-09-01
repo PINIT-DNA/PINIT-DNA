@@ -36,7 +36,6 @@ export default function ExchangeHeader({
   cartCount = 0,
 }) {
   const account = resolveExchangeAccount(user);
-  const buyer = account.canPurchase;
   const seller = account.canList;
   const sellerPending = account.sellerIntent && !account.canList;
   const signedIn = Boolean(user);
@@ -49,11 +48,12 @@ export default function ExchangeHeader({
     ['collections', 'Collections'],
     ['passports', 'Creators'],
   ];
-  if (signedIn && buyer) {
+  if (signedIn) {
     links.push(['my_licenses', 'Purchases']);
   }
   if (seller) {
     links.push(['seller_listings', 'Your listings']);
+    links.push(['seller_opportunities', 'Opportunities']);
   }
 
   const search = (e) => {
@@ -145,16 +145,12 @@ export default function ExchangeHeader({
             </button>
           )}
 
-          {(buyer || !signedIn) && (
-            <>
-              <IconBtn title="Saved assets" active={activePage === 'wishlist'} onClick={() => setActivePage('wishlist')}>
-                <Heart size={16} />
-              </IconBtn>
-              <IconBtn title="Cart" active={activePage === 'cart'} onClick={() => setActivePage('cart')} badge={cartCount}>
-                <ShoppingCart size={16} />
-              </IconBtn>
-            </>
-          )}
+          <IconBtn title="Saved assets" active={activePage === 'wishlist'} onClick={() => setActivePage('wishlist')}>
+            <Heart size={16} />
+          </IconBtn>
+          <IconBtn title="Cart" active={activePage === 'cart'} onClick={() => setActivePage('cart')} badge={cartCount}>
+            <ShoppingCart size={16} />
+          </IconBtn>
 
           {user ? (
             <div className="studio-profile">
@@ -174,7 +170,7 @@ export default function ExchangeHeader({
                   {signedIn && (
                     <>
                       <button type="button" onClick={() => closeGo('settings')}>Account</button>
-                      {buyer && (
+                      {signedIn && (
                         <>
                           <button type="button" onClick={() => closeGo('my_licenses')}>Purchases</button>
                           <button type="button" onClick={() => closeGo('buyer_orders')}>Orders &amp; receipts</button>
