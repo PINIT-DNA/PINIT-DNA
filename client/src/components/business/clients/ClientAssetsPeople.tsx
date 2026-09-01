@@ -258,14 +258,14 @@ export function ClientPeoplePanel({ clientId }: { clientId: string }) {
     useRollup<ClientPeople>(() => getClientPeople(clientId), [clientId]);
 
   if (loading) return <SkeletonRows rows={3} />;
-  if (forbidden) return <SectionCard title="People" icon={Users}>
-    <Forbidden what="this client's people" /></SectionCard>;
-  if (error) return <SectionCard title="People" icon={Users}>
-    <Failed what="people" error={error} onRetry={reload} /></SectionCard>;
+  if (forbidden) return <SectionCard title="Campaign people" icon={Users}>
+    <Forbidden what="this client's campaign people" /></SectionCard>;
+  if (error) return <SectionCard title="Campaign people" icon={Users}>
+    <Failed what="campaign people" error={error} onRetry={reload} /></SectionCard>;
   if (!data) return null;
 
   return (
-    <SectionCard title={`People (${data.counts.total})`} icon={Users}>
+    <SectionCard title={`Campaign people (${data.counts.total})`} icon={Users}>
       <PartialNote show={data.partial} />
 
       {data.clientContact?.contactName && (
@@ -285,15 +285,15 @@ export function ClientPeoplePanel({ clientId }: { clientId: string }) {
           <p className="text-xs text-gray-400 max-w-md mx-auto">
             {data.campaignCount === 0
               ? 'This client has no campaigns yet.'
-              : "People appear here once they're added to one of this client's campaigns."}
+              : 'People appear here once a team member or external creator is added to one of this client\'s campaigns.'}
           </p>
         </div>
       ) : (
         <>
           <div className="grid grid-cols-3 gap-2 mb-3">
-            <Stat label="People" value={data.counts.total} />
-            <Stat label="Team" value={data.counts.internal} />
-            <Stat label="External" value={data.counts.external}
+            <Stat label="Total" value={data.counts.total} />
+            <Stat label="Campaign team" value={data.counts.internal} />
+            <Stat label="External creators" value={data.counts.external}
               tone={data.counts.external > 0 ? 'text-dna-400' : undefined} />
           </div>
 
@@ -318,8 +318,8 @@ export function ClientPeoplePanel({ clientId }: { clientId: string }) {
                         ? 'text-dna-400 bg-dna-500/10 border-dna-500/30'
                         : 'text-gray-500 bg-bg-elevated border-bg-border',
                   )}>
-                    {p.kind === 'internal' ? 'Team'
-                      : p.hasLiveAccess ? 'External · active' : 'External · no access'}
+                    {p.kind === 'internal' ? 'Campaign team'
+                      : p.hasLiveAccess ? 'External creator · active' : 'External creator · no access'}
                   </span>
                 </div>
 

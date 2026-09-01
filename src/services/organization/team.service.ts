@@ -39,7 +39,13 @@ async function ensureOwnerMember(organizationId: string, ownerUserId: string) {
  * is the distinction every downstream audience query relies on.
  */
 async function placeOnCampaign(
-  invite: { campaignId: string | null; campaignRole: string | null; organizationId: string; invitedByUserId: string },
+  invite: {
+    campaignId: string | null;
+    campaignRole: string | null;
+    organizationId: string;
+    invitedByUserId: string;
+    campaignOnly?: boolean;
+  },
   userId: string,
 ): Promise<void> {
   if (!invite.campaignId) return;
@@ -58,15 +64,22 @@ async function placeOnCampaign(
   });
   if (existing) return;
 
+  const user = invite.campaignOnly
+    ? await prisma.user.findUnique({
+        where: { id: userId },
+        select: { fullName: true, shortId: true },
+      })
+    : null;
+
   await prisma.campaignMember.create({
     data: {
       campaignId: campaign.id,
       userId,
-      isExternal: false,
+      isExternal: Boolean(invite.campaignOnly),
+      name: invite.campaignOnly ? (user?.fullName || user?.shortId || 'External creator') : null,
       roleLabel: invite.campaignRole,
       addedByUserId: invite.invitedByUserId,
-      // Internal people reach assets through their organization role, so the
-      // external access columns stay at their defaults and are never consulted.
+      ...(invite.campaignOnly ? { accessStatus: 'NONE' as const } : {}),
     },
   });
 }
@@ -174,6 +187,9 @@ export const teamService = {
         organizationId,
         status: 'PENDING',
         ...(opts?.campaignId ? { campaignId: opts.campaignId } : {}),
+        // Team page lists org invitations only. Campaign-only creator invites
+        // surface on Campaign → People → External creators.
+        ...(!opts?.campaignId ? { campaignOnly: false } : {}),
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -188,6 +204,7 @@ export const teamService = {
       createdAt: i.createdAt.toISOString(),
       campaignId: i.campaignId,
       campaignRole: i.campaignRole,
+      campaignOnly: i.campaignOnly,
     }));
   },
 
@@ -198,17 +215,28 @@ export const teamService = {
       email?: string; inviteeShortId?: string; role?: OrgRole;
       /** Bind the invite to a campaign so accepting also places them on it. */
       campaignId?: string; campaignRole?: string;
+      /** External creator: campaign membership only — never OrganizationMember. */
+      campaignOnly?: boolean;
     },
   ) {
     await requireOrgRole(actorUserId, organizationId, OrganizationMemberRole.MANAGER);
 
+    const campaignOnly = Boolean(input.campaignOnly);
+
+    if (campaignOnly && !input.campaignId) {
+      throw Object.assign(new Error('A campaign is required for an external creator invitation'), { status: 400 });
+    }
+    if (campaignOnly && !input.inviteeShortId?.trim()) {
+      throw Object.assign(new Error('Enter the creator\'s Pinit ID so the invitation is bound to their account'), { status: 400 });
+    }
+
     const entitlements = await entitlementService.getEntitlements(actorUserId);
     const currentCount = await this.countMembers(organizationId);
     const pendingCount = await prisma.organizationInvite.count({
-      where: { organizationId, status: 'PENDING' },
+      where: { organizationId, status: 'PENDING', campaignOnly: false },
     });
     const limit = entitlements.teamMemberLimit;
-    if (limit !== null && currentCount + pendingCount >= limit) {
+    if (!campaignOnly && limit !== null && currentCount + pendingCount >= limit) {
       throw Object.assign(new Error('Team member limit reached for your plan'), { status: 403 });
     }
 
@@ -228,7 +256,14 @@ export const teamService = {
       const existing = await prisma.organizationMember.findUnique({
         where: { organizationId_userId: { organizationId, userId: u.id } },
       });
-      if (existing) throw Object.assign(new Error('User is already a member'), { status: 409 });
+      if (existing && !campaignOnly) {
+        throw Object.assign(new Error('User is already a member'), { status: 409 });
+      }
+      if (existing && campaignOnly) {
+        throw Object.assign(new Error(
+          'This person is already on your organization team. Add them as a Team Member on the campaign instead.',
+        ), { status: 409 });
+      }
     }
 
     // A campaign binding must be a campaign of THIS organization, or an invite
@@ -245,6 +280,15 @@ export const teamService = {
       }
       campaignId = campaign.id;
       campaignRole = input.campaignRole ?? 'CONTRIBUTOR';
+      if (targetUserId) {
+        const onCampaign = await prisma.campaignMember.findUnique({
+          where: { campaignId_userId: { campaignId: campaign.id, userId: targetUserId } },
+          select: { id: true },
+        });
+        if (onCampaign) {
+          throw Object.assign(new Error('Already connected to this campaign'), { status: 409 });
+        }
+      }
     }
 
     // Do not stack identical pending invites for the same person + campaign.
@@ -254,10 +298,12 @@ export const teamService = {
           organizationId,
           inviteeShortId: input.inviteeShortId.trim(),
           status: 'PENDING',
+          campaignOnly,
           ...(campaignId ? { campaignId } : { campaignId: null }),
         },
         select: {
           id: true, token: true, expiresAt: true, role: true, campaignId: true, campaignRole: true,
+          campaignOnly: true,
         },
       });
       if (duplicate) {
@@ -268,6 +314,7 @@ export const teamService = {
           role: duplicate.role,
           campaignId: duplicate.campaignId,
           campaignRole: duplicate.campaignRole,
+          campaignOnly: duplicate.campaignOnly,
           alreadyPending: true,
         };
       }
@@ -285,6 +332,7 @@ export const teamService = {
         token: generateInviteToken(),
         invitedByUserId: actorUserId,
         expiresAt,
+        campaignOnly,
         ...(campaignId ? { campaignId, campaignRole: campaignRole ?? 'CONTRIBUTOR' } : {}),
       },
     });
@@ -298,15 +346,18 @@ export const teamService = {
         actorUserId,
         entityType: 'organization_invite',
         entityId: invite.id,
-        title: campaignId ? 'Campaign invitation' : 'Organization invitation',
-        body: campaignId
-          ? 'You have been invited to a campaign on Pinit HUB.'
-          : 'You have been invited to join an organization on Pinit HUB.',
+        title: campaignOnly ? 'External creator invitation' : campaignId ? 'Campaign invitation' : 'Organization invitation',
+        body: campaignOnly
+          ? 'You have been invited as an external creator on a campaign. Accepting does not join the organization.'
+          : campaignId
+            ? 'You have been invited to a campaign on Pinit HUB.'
+            : 'You have been invited to join an organization on Pinit HUB.',
         deepLink: `/team/join/${invite.token}`,
         payload: {
           organizationId,
-          role,
+          role: campaignOnly ? null : role,
           inviteToken: invite.token,
+          campaignOnly,
           ...(campaignId ? { campaignId, campaignRole } : {}),
         },
       });
@@ -315,12 +366,14 @@ export const teamService = {
     await logOrgAudit({
       organizationId,
       actorUserId,
-      action: 'MEMBER_INVITED',
+      action: campaignOnly ? 'CAMPAIGN_CREATOR_INVITED' : 'MEMBER_INVITED',
       entityType: 'organization_invite',
       entityId: invite.id,
-      title: campaignId
-        ? `Invited ${input.inviteeShortId ?? input.email ?? 'via link'} to campaign as ${campaignRole}`
-        : `Invited ${input.email ?? input.inviteeShortId ?? 'via link'} as ${role}`,
+      title: campaignOnly
+        ? `Invited ${input.inviteeShortId} as an external creator (${campaignRole})`
+        : campaignId
+          ? `Invited ${input.inviteeShortId ?? input.email ?? 'via link'} to campaign as ${campaignRole}`
+          : `Invited ${input.email ?? input.inviteeShortId ?? 'via link'} as ${role}`,
     });
 
     return {
@@ -330,7 +383,62 @@ export const teamService = {
       role: invite.role,
       campaignId: invite.campaignId,
       campaignRole: invite.campaignRole,
+      campaignOnly: invite.campaignOnly,
       alreadyPending: false,
+    };
+  },
+
+  /**
+   * What the recipient sees before they accept. Opening this does not grant access.
+   * Identity-bound invites report mismatch instead of leaking campaign details.
+   */
+  async previewInvite(userId: string, token: string) {
+    const invite = await prisma.organizationInvite.findUnique({ where: { token } });
+    if (!invite) {
+      throw Object.assign(new Error('Invalid or expired invitation'), { status: 404 });
+    }
+    if (invite.status === 'REVOKED') {
+      throw Object.assign(new Error('This invitation was revoked'), { status: 403 });
+    }
+    if (invite.status === 'EXPIRED' || (invite.status === 'PENDING' && invite.expiresAt < new Date())) {
+      if (invite.status === 'PENDING') {
+        await prisma.organizationInvite.update({
+          where: { id: invite.id },
+          data: { status: 'EXPIRED' },
+        });
+      }
+      throw Object.assign(new Error('Invitation expired'), { status: 410 });
+    }
+    if (invite.status !== 'PENDING' && invite.status !== 'ACCEPTED') {
+      throw Object.assign(new Error('Invalid or expired invitation'), { status: 404 });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { shortId: true },
+    });
+    const identityMatch = !invite.inviteeShortId || user?.shortId === invite.inviteeShortId;
+
+    let campaignName: string | null = null;
+    if (identityMatch && invite.campaignId) {
+      const campaign = await prisma.campaign.findFirst({
+        where: { id: invite.campaignId, organizationId: invite.organizationId },
+        select: { name: true },
+      });
+      campaignName = campaign?.name ?? null;
+    }
+
+    return {
+      status: invite.status,
+      campaignOnly: invite.campaignOnly,
+      organizationJoin: !invite.campaignOnly,
+      campaignId: identityMatch ? invite.campaignId : null,
+      campaignName,
+      campaignRole: identityMatch ? invite.campaignRole : null,
+      inviteeShortId: invite.inviteeShortId,
+      identityMatch,
+      expiresAt: invite.expiresAt.toISOString(),
+      alreadyAccepted: invite.status === 'ACCEPTED',
     };
   },
 
@@ -360,6 +468,36 @@ export const teamService = {
     const existing = await prisma.organizationMember.findUnique({
       where: { organizationId_userId: { organizationId: invite.organizationId, userId } },
     });
+
+    if (invite.campaignOnly) {
+      if (existing) {
+        throw Object.assign(new Error(
+          'You already belong to this organization. Ask to be added as a team member on the campaign.',
+        ), { status: 409 });
+      }
+      await prisma.organizationInvite.update({
+        where: { id: invite.id },
+        data: { status: 'ACCEPTED', acceptedAt: new Date(), acceptedUserId: userId },
+      });
+      await placeOnCampaign(invite, userId);
+      await logOrgAudit({
+        organizationId: invite.organizationId,
+        actorUserId: userId,
+        action: 'CAMPAIGN_CREATOR_JOINED',
+        entityType: 'campaign',
+        entityId: invite.campaignId ?? undefined,
+        title: 'External creator accepted campaign invitation',
+      });
+      return {
+        organizationId: invite.organizationId,
+        role: null,
+        alreadyMember: false,
+        campaignId: invite.campaignId,
+        campaignOnly: true,
+        isExternal: true,
+      };
+    }
+
     if (existing) {
       await prisma.organizationInvite.update({
         where: { id: invite.id },
@@ -371,6 +509,7 @@ export const teamService = {
         role: existing.role,
         alreadyMember: true,
         campaignId: invite.campaignId,
+        campaignOnly: false,
       };
     }
 
@@ -405,6 +544,7 @@ export const teamService = {
       role: invite.role,
       alreadyMember: false,
       campaignId: invite.campaignId,
+      campaignOnly: false,
     };
   },
 

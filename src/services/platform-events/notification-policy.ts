@@ -26,8 +26,9 @@
  *   ALERT         Something is wrong and wants attention now.
  *                 "A confirmed external copy of Asset Y was detected."
  *
- * Only NOTIFICATION and ALERT reach the bell. ACTIVITY is written for the
- * timeline and never raises a badge.
+ * Only NOTIFICATION and ALERT are written to the notifications table and
+ * reach the bell. ACTIVITY is recorded by the calling service (audit /
+ * campaign timeline) and must never produce a badge row.
  *
  * ── What is deliberately not here ───────────────────────────────────────────
  *
@@ -36,11 +37,20 @@
  * something is. That distinction is enforced by omission — there is no
  * definition for them, and `emitBusinessEvent` refuses an unknown event.
  */
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { platformEvents } from './platform-event.engine';
 
 export type NotificationClass = 'ACTIVITY' | 'NOTIFICATION' | 'ALERT';
+
+/** Bell + unread badge: NOTIFICATION, ALERT, and pre-policy rows (null class). */
+export const BELL_NOTIFICATION_CLASS_WHERE: Prisma.NotificationWhereInput = {
+  OR: [
+    { notificationClass: { in: ['NOTIFICATION', 'ALERT'] } },
+    { notificationClass: null },
+  ],
+};
 
 /** Everything a definition may need. Services pass what applies. */
 export interface EventContext {
@@ -606,6 +616,16 @@ export async function emitBusinessEvent(
   }
 
   if (recipients.length === 0) return { recipients: [], skipped: true };
+
+  if (!ctx.campaignId) {
+    logger.warn('[notification-policy] skipped: no campaignId', { event });
+    return { recipients: [], skipped: true };
+  }
+
+  // Activity is auditable history, not a bell row. Never persist it as a notification.
+  if (def.class === 'ACTIVITY') {
+    return { recipients, skipped: true };
+  }
 
   /**
    * The entity reference must be internally consistent.

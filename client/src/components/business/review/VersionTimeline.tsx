@@ -12,6 +12,7 @@
 import { useState } from 'react';
 import {
   GitBranch, ShieldCheck, Loader2, Send, Check, MessageSquare, Hammer, FileText,
+  Eye, Download,
 } from 'lucide-react';
 import type { AssetVersion, ReviewStatus } from '../../../services/business.api';
 import { ReviewStatusBadge, timeAgo } from './ReviewPrimitives';
@@ -50,6 +51,9 @@ export function VersionTimeline({
   selectedId,
   onSelect,
   onSetStatus,
+  onOpenFile,
+  onDownloadFile,
+  fileBusyId,
   canAct = true,
   busyId,
 }: {
@@ -57,6 +61,9 @@ export function VersionTimeline({
   selectedId?: string | null;
   onSelect?: (v: AssetVersion) => void;
   onSetStatus?: (versionId: string, status: ReviewStatus) => Promise<void>;
+  onOpenFile?: (v: AssetVersion) => void;
+  onDownloadFile?: (v: AssetVersion) => void;
+  fileBusyId?: string | null;
   /** False for VIEWER-role members — the controls disappear rather than 403. */
   canAct?: boolean;
   busyId?: string | null;
@@ -83,6 +90,9 @@ export function VersionTimeline({
           selected={selectedId === v.id}
           onSelect={onSelect ? () => onSelect(v) : undefined}
           onSetStatus={onSetStatus}
+          onOpenFile={onOpenFile}
+          onDownloadFile={onDownloadFile}
+          fileBusy={fileBusyId === v.id}
           canAct={canAct}
           busy={busyId === v.id}
         />
@@ -92,15 +102,18 @@ export function VersionTimeline({
 }
 
 function VersionRow({
-  version: v, isLatest, selected, onSelect, onSetStatus, canAct, busy,
+  version: v, isLatest, selected, onSelect, onSetStatus, onOpenFile, onDownloadFile, canAct, busy, fileBusy,
 }: {
   version: AssetVersion;
   isLatest: boolean;
   selected?: boolean;
   onSelect?: () => void;
   onSetStatus?: (versionId: string, status: ReviewStatus) => Promise<void>;
+  onOpenFile?: (v: AssetVersion) => void;
+  onDownloadFile?: (v: AssetVersion) => void;
   canAct: boolean;
   busy?: boolean;
+  fileBusy?: boolean;
 }) {
   const [error, setError] = useState<string | null>(null);
   const actions = NEXT_ACTIONS[v.reviewStatus] ?? [];
@@ -165,6 +178,33 @@ function VersionRow({
             {v.changeSummary && (
               <p className="text-xs text-gray-400 mt-1.5 break-words">{v.changeSummary}</p>
             )}
+
+            <div className="flex items-center gap-1.5 flex-wrap mt-2.5">
+              <button
+                type="button"
+                disabled={!v.vaultId || fileBusy}
+                title={v.vaultId ? 'Open this version' : 'This version has no vault file yet'}
+                onClick={(e) => { e.stopPropagation(); onOpenFile?.(v); }}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-2xs font-semibold
+                           bg-bg-elevated hover:bg-bg-card text-gray-200 border-bg-border transition-colors
+                           disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {fileBusy ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />}
+                Open
+              </button>
+              <button
+                type="button"
+                disabled={!v.vaultId || fileBusy}
+                title={v.vaultId ? 'Download this version' : 'This version has no vault file yet'}
+                onClick={(e) => { e.stopPropagation(); onDownloadFile?.(v); }}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-2xs font-semibold
+                           bg-bg-elevated hover:bg-bg-card text-gray-200 border-bg-border transition-colors
+                           disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Download size={12} />
+                Download
+              </button>
+            </div>
 
             {canAct && onSetStatus && actions.length > 0 && !superseded && (
               <div className="flex items-center gap-1.5 flex-wrap mt-2.5">

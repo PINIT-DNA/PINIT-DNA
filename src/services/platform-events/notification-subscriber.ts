@@ -34,6 +34,7 @@ function classOf(event: PlatformEventInput): string | null {
 
 export async function handleNotificationSubscriber(event: PlatformEventInput): Promise<void> {
   if (event.skipNotification || !event.ownerUserId) return;
+  if (classOf(event) === 'ACTIVITY') return;
 
   const notifType = event.notificationType ?? event.name.replace(/\./g, '_').toUpperCase();
 

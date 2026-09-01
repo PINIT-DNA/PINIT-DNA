@@ -59,7 +59,7 @@ export function ConversationPanel({
     if (!streamUrl) return;
     let es: EventSource | null = null;
     try {
-      es = new EventSource(streamUrl, { withCredentials: true });
+      es = new EventSource(streamUrl);
       es.onopen = () => setConnected(true);
       es.onmessage = () => liveRef.current?.();
       es.onerror = () => setConnected(false);

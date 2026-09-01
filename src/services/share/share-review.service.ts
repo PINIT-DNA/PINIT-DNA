@@ -17,6 +17,7 @@ import type { CommentKind } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../../api/middleware/error.middleware';
 import { logOrgAudit } from '../organization/audit-log.service';
+import { emitBusinessEvent } from '../platform-events/notification-policy';
 
 export interface ReviewContext {
   shareLinkId: string;
@@ -147,7 +148,12 @@ export const shareReviewService = {
     if (!ctx.allowComments) throw new AppError(403, 'Comments are turned off for this link');
 
     const all = await prisma.reviewComment.findMany({
-      where: { versionId: ctx.versionId, organizationId: ctx.organizationId },
+      where: {
+        versionId: ctx.versionId,
+        organizationId: ctx.organizationId,
+        campaignId: ctx.campaignId,
+        assetId: ctx.assetId,
+      },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -278,6 +284,22 @@ export const shareReviewService = {
         ? `${label} requested changes on ${ctx.filename} (V${ctx.versionNumber})`
         : `${label} commented on ${ctx.filename} (V${ctx.versionNumber})`,
     });
+
+    await emitBusinessEvent(
+      created.kind === 'CHANGE_REQUEST' ? 'review.change_requested' : 'review.comment_added',
+      {
+        organizationId: ctx.organizationId,
+        campaignId: ctx.campaignId,
+        assetId: ctx.assetId,
+        assetName: ctx.filename,
+        versionId: ctx.versionId,
+        versionNumber: ctx.versionNumber,
+        commentId: created.id,
+        actorUserId: null,
+        actorLabel: label,
+        detail: validated.body.slice(0, 200),
+      },
+    );
 
     return {
       id: created.id,

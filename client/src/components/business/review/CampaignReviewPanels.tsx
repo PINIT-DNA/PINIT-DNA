@@ -6,10 +6,10 @@
  * chain, so the panel is never empty for an asset that exists.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { GitBranch, MessageSquare, Archive, AlertTriangle, RefreshCw, Loader2, Inbox, ShieldCheck, Check } from 'lucide-react';
+import { GitBranch, MessageSquare, Archive, AlertTriangle, RefreshCw, Loader2, Inbox, ShieldCheck, Check, X, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
-  listAssetVersions, setVersionReviewStatus,
+  listAssetVersions, setVersionReviewStatus, fetchVersionFile,
   listVersionComments, createVersionComment, setCommentStatus,
   listCampaignChangeRequests, listCampaignApprovals,
   listCampaignMessages, sendCampaignMessage, markCampaignMessagesRead, campaignMessageStreamUrl,
@@ -31,11 +31,13 @@ const EMPTY_THREADS: CommentThreads = { comments: [], counts: { open: 0, resolve
 // ── Versions tab ─────────────────────────────────────────────────────────────
 
 export function VersionsPanel({
-  assets, assetsLoading, onChanged,
+  assets, assetsLoading, onChanged, initialAssetId, initialVersionId,
 }: {
   assets: CampaignAsset[] | null;
   assetsLoading: boolean;
   onChanged?: () => void;
+  initialAssetId?: string | null;
+  initialVersionId?: string | null;
 }) {
   const [assetId, setAssetId] = useState<string | null>(null);
   const [versions, setVersions] = useState<AssetVersion[] | null>(null);
@@ -47,11 +49,21 @@ export function VersionsPanel({
   const [threads, setThreads] = useState<CommentThreads>(EMPTY_THREADS);
   const [threadsLoading, setThreadsLoading] = useState(false);
   const [threadsError, setThreadsError] = useState<string | null>(null);
+  const [fileBusyId, setFileBusyId] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ url: string; mimeType: string; filename: string } | null>(null);
 
-  // Default to the first asset once they arrive, without clobbering a choice.
+  useEffect(() => () => {
+    if (preview?.url) URL.revokeObjectURL(preview.url);
+  }, [preview?.url]);
+
+  // Default to the focused asset from a notification deep link, else the first.
   useEffect(() => {
+    if (initialAssetId && assets?.some((a) => a.id === initialAssetId)) {
+      setAssetId(initialAssetId);
+      return;
+    }
     if (!assetId && assets && assets.length > 0) setAssetId(assets[0].id);
-  }, [assets, assetId]);
+  }, [assets, assetId, initialAssetId]);
 
   const loadVersions = useCallback(async (id: string) => {
     setLoading(true);
@@ -59,16 +71,19 @@ export function VersionsPanel({
     try {
       const res = await listAssetVersions(id);
       setVersions(res.versions);
-      setSelectedVersionId((prev) =>
-        prev && res.versions.some((v) => v.id === prev) ? prev : res.currentVersionId,
-      );
+      setSelectedVersionId((prev) => {
+        if (initialVersionId && res.versions.some((v) => v.id === initialVersionId)) {
+          return initialVersionId;
+        }
+        return prev && res.versions.some((v) => v.id === prev) ? prev : res.currentVersionId;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load versions');
       setVersions(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [initialVersionId]);
 
   useEffect(() => { if (assetId) void loadVersions(assetId); }, [assetId, loadVersions]);
 
@@ -101,6 +116,54 @@ export function VersionsPanel({
       setBusyId(null);
     }
   }, [assetId, loadVersions, onChanged]);
+
+  const closePreview = useCallback(() => {
+    setPreview((prev) => {
+      if (prev?.url) URL.revokeObjectURL(prev.url);
+      return null;
+    });
+  }, []);
+
+  const handleOpenFile = useCallback(async (v: AssetVersion) => {
+    if (!v.vaultId) {
+      toast.error('This version has no file in the vault yet');
+      return;
+    }
+    setFileBusyId(v.id);
+    try {
+      const file = await fetchVersionFile(v.id);
+      const url = URL.createObjectURL(file.blob);
+      setPreview((prev) => {
+        if (prev?.url) URL.revokeObjectURL(prev.url);
+        return { url, mimeType: file.mimeType, filename: file.filename };
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not open this file');
+    } finally {
+      setFileBusyId(null);
+    }
+  }, []);
+
+  const handleDownloadFile = useCallback(async (v: AssetVersion) => {
+    if (!v.vaultId) {
+      toast.error('This version has no file in the vault yet');
+      return;
+    }
+    setFileBusyId(v.id);
+    try {
+      const file = await fetchVersionFile(v.id, { download: true });
+      const url = URL.createObjectURL(file.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.filename || v.originalFilename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not download this file');
+    } finally {
+      setFileBusyId(null);
+    }
+  }, []);
 
   const selected = useMemo(
     () => versions?.find((v) => v.id === selectedVersionId) ?? null,
@@ -155,6 +218,9 @@ export function VersionsPanel({
               selectedId={selectedVersionId}
               onSelect={(v) => setSelectedVersionId(v.id)}
               onSetStatus={handleStatus}
+              onOpenFile={(v) => void handleOpenFile(v)}
+              onDownloadFile={(v) => void handleDownloadFile(v)}
+              fileBusyId={fileBusyId}
               busyId={busyId}
             />
           )}
@@ -193,6 +259,91 @@ export function VersionsPanel({
           )}
         </SectionCard>
       </div>
+      {preview && (
+        <VersionFilePreview
+          url={preview.url}
+          mimeType={preview.mimeType}
+          filename={preview.filename}
+          onClose={closePreview}
+          onDownload={() => {
+            const a = document.createElement('a');
+            a.href = preview.url;
+            a.download = preview.filename;
+            a.click();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function VersionFilePreview({
+  url, mimeType, filename, onClose, onDownload,
+}: {
+  url: string;
+  mimeType: string;
+  filename: string;
+  onClose: () => void;
+  onDownload: () => void;
+}) {
+  const mime = mimeType.toLowerCase().split(';')[0]?.trim() ?? '';
+  const isImage = mime.startsWith('image/');
+  const isVideo = mime.startsWith('video/');
+  const isAudio = mime.startsWith('audio/');
+  const isPdf = mime === 'application/pdf' || filename.toLowerCase().endsWith('.pdf');
+  const isText = mime.startsWith('text/') || /\.(txt|csv|json|xml|md|log)$/i.test(filename);
+  const isOffice = /\.(docx?|xlsx?|pptx?)$/i.test(filename)
+    || mime.includes('officedocument')
+    || mime.includes('msword')
+    || mime.includes('ms-excel')
+    || mime.includes('ms-powerpoint');
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col bg-black/80 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Preview ${filename}`}
+    >
+      <div className="flex items-center justify-between gap-3 mb-3 shrink-0">
+        <p className="text-sm font-semibold text-white truncate min-w-0" title={filename}>{filename}</p>
+        <div className="flex items-center gap-2 shrink-0">
+          <button type="button" onClick={onDownload}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-bg-border
+                       bg-bg-elevated text-gray-200 text-2xs font-semibold">
+            <Download size={12} /> Download
+          </button>
+          <button type="button" onClick={onClose} aria-label="Close preview"
+            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-bg-border
+                       bg-bg-elevated text-gray-200">
+            <X size={14} />
+          </button>
+        </div>
+      </div>
+      <div className="flex-1 min-h-0 rounded-xl border border-bg-border bg-bg-card overflow-hidden flex items-center justify-center">
+        {isImage ? (
+          <img src={url} alt={filename} className="max-w-full max-h-full object-contain" />
+        ) : isVideo ? (
+          <video src={url} controls className="max-w-full max-h-full" />
+        ) : isAudio ? (
+          <audio src={url} controls className="w-full max-w-xl mx-4" />
+        ) : isPdf ? (
+          <iframe src={url} title={filename} className="w-full h-full bg-white" />
+        ) : isText ? (
+          <iframe src={url} title={filename} className="w-full h-full bg-white" />
+        ) : (
+          <div className="text-center px-6">
+            <p className="text-sm text-white font-semibold mb-1">Preview is not available for this file type</p>
+            <p className="text-xs text-gray-400 mb-3">
+              {isOffice ? 'Office documents can be downloaded and opened locally.' : mime || 'Unknown type'}
+            </p>
+            <button type="button" onClick={onDownload}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-dna-500 text-white text-xs font-semibold">
+              <Download size={13} /> Download file
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -200,11 +351,12 @@ export function VersionsPanel({
 // ── Approvals tab ────────────────────────────────────────────────────────────
 
 export function ApprovalsPanel({
-  campaignId, assets, onChanged,
+  campaignId, assets, onChanged, initialAssetId,
 }: {
   campaignId: string;
   assets: CampaignAsset[] | null;
   onChanged?: () => void;
+  initialAssetId?: string | null;
 }) {
   const [requests, setRequests] = useState<ReviewComment[] | null>(null);
   const [decisions, setDecisions] = useState<VersionApproval[]>([]);
@@ -282,7 +434,10 @@ export function ApprovalsPanel({
           <ul className="space-y-2">
             {awaiting.map(({ asset, version }) => (
               <li key={version.id}
-                className="flex items-center justify-between gap-3 rounded-lg border border-bg-border bg-bg-elevated/40 px-3 py-2.5 flex-wrap">
+                className={cn(
+                  'flex items-center justify-between gap-3 rounded-lg border bg-bg-elevated/40 px-3 py-2.5 flex-wrap',
+                  initialAssetId === asset.id ? 'border-dna-500/50' : 'border-bg-border',
+                )}>
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-white truncate">{asset.originalFilename}</p>
                   <p className="text-2xs text-gray-500 mt-0.5">

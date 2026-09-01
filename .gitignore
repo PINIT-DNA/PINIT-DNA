@@ -19,6 +19,15 @@ vault/encrypted/*.json
 tmp/
 data/
 
+# Generated AI/search indexes (rebuild on AI sidecar / Node startup).
+# Root `data/` is already ignored; keep python-ai/data binaries untracked too.
+python-ai/data/*.bin
+python-ai/data/*.bin.corrupt
+python-ai/data/*.faiss
+python-ai/data/metadata.json
+*.faiss
+
+
 # OS
 .DS_Store
 Thumbs.db

@@ -31,6 +31,7 @@ import { InvestigationsPanel } from '../../components/business/review/Investigat
 import { listCampaignChangeRequests, listCampaignMessages } from '../../services/business.api';
 import { CampaignFormModal } from '../../components/business/clients/CampaignFormModal';
 import { AddCampaignPersonModal } from '../../components/business/clients/AddCampaignPersonModal';
+import { campaignRoleLabel } from '../../lib/campaign-roles';
 
 type Tab = 'overview' | 'assets' | 'people' | 'approvals' | 'versions' | 'messages' | 'rights' | 'handover' | 'monitoring' | 'findings' | 'investigations' | 'sharing' | 'activity' | 'intelligence';
 
@@ -38,7 +39,15 @@ export function CampaignWorkspacePage() {
   const { campaignId = '' } = useParams();
   const [params, setParams] = useSearchParams();
   const tab = (params.get('tab') as Tab) || 'overview';
-  const setTab = (id: Tab) => setParams({ tab: id }, { replace: true });
+  const setTab = (id: Tab) => {
+    const next = new URLSearchParams(params);
+    next.set('tab', id);
+    setParams(next, { replace: true });
+  };
+  const focusAssetId = params.get('asset');
+  const focusVersionId = params.get('version');
+  const focusFindingId = params.get('finding');
+  const focusCaseId = params.get('case');
 
   // Live count of open change requests — drives the Approvals tab badge and the
   // Needs attention row on Overview. Refetched whenever review state changes.
@@ -180,7 +189,7 @@ export function CampaignWorkspacePage() {
       ) : (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <StatTile label="Assets" value={campaign?.assetCount ?? 0} icon={Archive} accent="dna" />
-          <StatTile label="People" value={campaign?.memberCount ?? 0} icon={Users} accent="cyan" />
+          <StatTile label="Campaign team" value={members?.filter((m) => !m.isExternal).length ?? campaign?.memberCount ?? 0} icon={Users} accent="cyan" />
           <StatTile label="External creators" value={externalCount} icon={ExternalLink} accent="purple" />
           <StatTile label="Status" value={statusLabel(campaign?.status ?? 'ACTIVE')} icon={Shield} accent="emerald" />
         </div>
@@ -247,7 +256,7 @@ export function CampaignWorkspacePage() {
               {membersLoading && !members ? (
                 <SkeletonRows rows={3} />
               ) : !members || members.length === 0 ? (
-                <EmptyHint text="No one connected yet." />
+                <EmptyHint text="Nobody on this campaign yet. Open People to add a team member or an external creator." />
               ) : (
                 <PeopleList members={members.slice(0, 6)} />
               )}
@@ -308,7 +317,8 @@ export function CampaignWorkspacePage() {
           ) : (
             <div className="space-y-3">
               <p className="text-xs text-gray-400">
-                Campaign assets are shared through Pinit&apos;s existing tracked share links — every view and download is logged.
+                Generate a tracked review link for a client. They open it without a HUB account
+                and are not added to the campaign team or as an external creator. They see only the file you share.
               </p>
               <ul className="divide-y divide-bg-border -mx-1">
                 {assets.map((a) => (
@@ -317,8 +327,8 @@ export function CampaignWorkspacePage() {
                       <p className="text-sm text-white truncate">{a.originalFilename}</p>
                     </div>
                     {a.vaultId ? (
-                      <Link to={`/vault/assets/${a.vaultId}/share`} className="btn btn-secondary btn-sm shrink-0">
-                        <Share2 size={12} /> Share
+                      <Link to={`/vault/assets/${a.vaultId}/share?intent=review`} className="btn btn-secondary btn-sm shrink-0">
+                        <Share2 size={12} /> Review link
                       </Link>
                     ) : (
                       <Badge variant="muted">Not in vault</Badge>
@@ -344,7 +354,12 @@ export function CampaignWorkspacePage() {
       )}
 
       {tab === 'approvals' && (
-        <ApprovalsPanel campaignId={campaignId} assets={assets} onChanged={refreshReview} />
+        <ApprovalsPanel
+          campaignId={campaignId}
+          assets={assets}
+          onChanged={refreshReview}
+          initialAssetId={focusAssetId}
+        />
       )}
 
       {tab === 'messages' && (
@@ -352,7 +367,13 @@ export function CampaignWorkspacePage() {
       )}
 
       {tab === 'versions' && (
-        <VersionsPanel assets={assets} assetsLoading={assetsLoading} onChanged={refreshReview} />
+        <VersionsPanel
+          assets={assets}
+          assetsLoading={assetsLoading}
+          onChanged={refreshReview}
+          initialAssetId={focusAssetId}
+          initialVersionId={focusVersionId}
+        />
       )}
 
       {tab === 'rights' && (
@@ -364,11 +385,11 @@ export function CampaignWorkspacePage() {
       )}
 
       {tab === 'findings' && (
-        <FindingsPanel campaignId={campaignId} onChanged={refreshReview} />
+        <FindingsPanel campaignId={campaignId} onChanged={refreshReview} focusFindingId={focusFindingId} />
       )}
 
       {tab === 'investigations' && (
-        <InvestigationsPanel campaignId={campaignId} onChanged={refreshReview} />
+        <InvestigationsPanel campaignId={campaignId} onChanged={refreshReview} initialCaseId={focusCaseId} />
       )}
 
       {tab === 'handover' && (
@@ -437,12 +458,13 @@ function PeopleList({ members, onRemove }: { members: CampaignMember[]; onRemove
             {initials(m.name ?? '?')}
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-sm text-white truncate">{m.name ?? 'Unnamed'}</p>
+            <p className="text-sm text-slate-900 dark:text-white truncate">{m.name ?? 'Unnamed'}</p>
             <p className="text-2xs text-gray-500 truncate">
-              {[m.roleLabel, m.shortId, m.platform].filter(Boolean).join(' · ') || (m.isExternal ? 'External creator' : 'Team member')}
+              {[campaignRoleLabel(m.roleLabel), m.shortId, m.isExternal ? 'External creator' : 'Team member', m.platform]
+                .filter(Boolean).join(' · ')}
             </p>
           </div>
-          {m.isExternal && <Badge variant="purple" className="shrink-0 hidden sm:inline-flex">External</Badge>}
+          {m.isExternal && <Badge variant="purple" className="shrink-0 hidden sm:inline-flex">External creator</Badge>}
           {onRemove && (
             <button
               type="button"

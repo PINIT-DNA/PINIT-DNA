@@ -1,6 +1,7 @@
 /** Business Account — Client / Campaign API. Uses the JWT-authenticated `api` instance. */
 import { api } from './dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
+import { getAccessToken } from '../lib/auth';
 
 export interface BusinessClient {
   id: string;
@@ -242,6 +243,74 @@ export async function listAssetVersions(assetId: string): Promise<VersionList> {
   };
 }
 
+function filenameFromDisposition(header: string | undefined, fallback: string): string {
+  if (!header) return fallback;
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (star?.[1]) {
+    try { return decodeURIComponent(star[1]); } catch { /* keep raw */ }
+    return star[1];
+  }
+  const quoted = /filename="([^"]+)"/i.exec(header);
+  if (quoted?.[1]) return quoted[1];
+  const plain = /filename=([^;]+)/i.exec(header);
+  return plain?.[1]?.trim() || fallback;
+}
+
+async function blobErrorMessage(data: unknown, fallback: string): Promise<string> {
+  if (!(data instanceof Blob)) return fallback;
+  const text = await data.text();
+  try {
+    const parsed = JSON.parse(text) as { error?: string; message?: string };
+    return parsed.error ?? parsed.message ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/** Authenticated file bytes for the version being reviewed (vault decrypt). */
+export async function fetchVersionFile(
+  versionId: string,
+  opts: { download?: boolean } = {},
+): Promise<{ blob: Blob; filename: string; mimeType: string }> {
+  const qs = opts.download ? '?download=1' : '';
+  let data: Blob;
+  let headers: Record<string, unknown>;
+  try {
+    const res = await api.get<Blob>(`${BASE}/versions/${versionId}/file${qs}`, {
+      responseType: 'blob',
+      timeout: 120_000,
+    });
+    data = res.data;
+    headers = res.headers as Record<string, unknown>;
+  } catch (err: unknown) {
+    const payload = err && typeof err === 'object' && 'response' in err
+      ? (err as { response?: { data?: unknown } }).response?.data
+      : undefined;
+    if (payload instanceof Blob) {
+      throw new Error(await blobErrorMessage(payload, err instanceof Error ? err.message : 'Could not open this file'));
+    }
+    throw err;
+  }
+  const rawType = headers['content-type'];
+  const contentType = (
+    typeof rawType === 'string' ? rawType
+      : Array.isArray(rawType) ? rawType[0] ?? ''
+        : ''
+  ).toLowerCase();
+  if (contentType.includes('application/json')) {
+    throw new Error(await blobErrorMessage(data, 'Could not open this file'));
+  }
+  if (!(data instanceof Blob) || data.size === 0) {
+    throw new Error('Empty file response');
+  }
+  const mimeType = (typeof rawType === 'string' ? rawType.split(';')[0] : '') || data.type || 'application/octet-stream';
+  const filename = filenameFromDisposition(
+    typeof headers['content-disposition'] === 'string' ? headers['content-disposition'] : undefined,
+    'file',
+  );
+  return { blob: data, filename, mimeType };
+}
+
 export async function setVersionReviewStatus(
   versionId: string,
   status: ReviewStatus,
@@ -408,8 +477,10 @@ export async function markCampaignMessagesRead(campaignId: string): Promise<void
 }
 
 /** SSE endpoint that ticks when this campaign's conversation changes. */
-export function campaignMessageStreamUrl(campaignId: string): string {
-  return `${API_BASE_URL}/business/campaigns/${campaignId}/messages/stream`;
+export function campaignMessageStreamUrl(campaignId: string): string | undefined {
+  const token = getAccessToken();
+  if (!token) return undefined;
+  return `${API_BASE_URL}/business/campaigns/${campaignId}/messages/stream?token=${encodeURIComponent(token)}`;
 }
 
 // ── Campaign people and scoped access ────────────────────────────────────────
@@ -493,6 +564,10 @@ export async function listCampaignAccessLinks(
     `${BASE}/campaigns/${campaignId}/people/${memberId}/links`,
   );
   return Array.isArray(data?.links) ? data.links : [];
+}
+
+export async function revokeCampaignPeopleInvite(inviteId: string): Promise<void> {
+  await api.delete(`${API_BASE_URL}/organization/team/invites/${inviteId}`);
 }
 
 // ── Rights (Exchange remains the source of truth; this only presents it) ─────

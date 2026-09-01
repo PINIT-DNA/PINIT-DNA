@@ -182,7 +182,7 @@ export function IntelligencePanel({ campaignId }: { campaignId: string }) {
           ) : (
             <>
               <div className="grid grid-cols-3 gap-3">
-                <Metric label="People" value={data.creators.total} />
+                <Metric label="Total" value={data.creators.total} />
                 <Metric label="With access" value={data.creators.withAccess} />
                 <Metric label="Revoked" value={data.creators.revoked} />
               </div>

@@ -59,13 +59,14 @@ const PRIORITY_STYLE: Record<InvestigationPriority, string> = {
 };
 
 export function InvestigationsPanel({
-  campaignId, onChanged,
+  campaignId, onChanged, initialCaseId,
 }: {
   campaignId: string;
   onChanged?: () => void;
+  initialCaseId?: string | null;
 }) {
   const [data, setData] = useState<CampaignInvestigations | null>(null);
-  const [openCaseId, setOpenCaseId] = useState<string | null>(null);
+  const [openCaseId, setOpenCaseId] = useState<string | null>(initialCaseId ?? null);
   const [creating, setCreating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

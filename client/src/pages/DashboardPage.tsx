@@ -532,7 +532,7 @@ export function DashboardPage() {
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               {[
                 { icon: <Eye size={14} className="text-dna-400" />,    label: 'Views',       value: shareStats.totalViews },
-                { icon: <Globe size={14} className="text-cyan" />,      label: 'People',      value: shareStats.uniqueRecipients },
+                { icon: <Globe size={14} className="text-cyan" />,      label: 'Recipients',  value: shareStats.uniqueRecipients },
                 { icon: <Globe size={14} className="text-blue-400" />,  label: 'Countries',   value: shareStats.countriesReached },
                 { icon: <MapPin size={14} className="text-purple" />,   label: 'Cities',      value: shareStats.citiesReached },
                 { icon: <Clock size={14} className="text-amber-400" />, label: 'Avg time',    value: shareStats.avgViewTimeSec > 0 ? `${shareStats.avgViewTimeSec}s` : '—' },

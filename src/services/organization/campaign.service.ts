@@ -309,8 +309,22 @@ export const campaignService = {
   async removeMember(organizationId: string, actorUserId: string, campaignId: string, memberId: string) {
     await requireOrgRole(actorUserId, organizationId, OrganizationMemberRole.MANAGER);
     await loadCampaignScoped(organizationId, campaignId);
-    const member = await prisma.campaignMember.findFirst({ where: { id: memberId, campaignId } });
+    const member = await prisma.campaignMember.findFirst({
+      where: { id: memberId, campaignId },
+      include: { assetAccess: true },
+    });
     if (!member) throw new AppError(404, 'Not found on this campaign');
+
+    if (member.isExternal) {
+      const tokens = member.assetAccess.map((a) => a.shareToken).filter((t): t is string => Boolean(t));
+      if (tokens.length) {
+        await prisma.shareLink.updateMany({
+          where: { token: { in: tokens } },
+          data: { isActive: false },
+        });
+      }
+    }
+
     await prisma.campaignMember.delete({ where: { id: memberId } });
     return { ok: true };
   },

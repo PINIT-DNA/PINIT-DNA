@@ -326,7 +326,7 @@ export function OrganizationProfileTab({
           />
           <StatCard
             icon={<Users size={14} />}
-            label="Team Members"
+            label="Team members"
             value={`${subscription?.teamMemberCount ?? 1}${subscription?.teamMemberLimit != null ? ` / ${subscription.teamMemberLimit}` : ''}`}
           />
           <StatCard icon={<Globe size={14} />} label="Renewal Date" value="—" />
@@ -350,7 +350,7 @@ export function OrganizationProfileTab({
           <StatCard icon={<Award size={14} />} label="Certificates" value={stats?.certificates ?? 0} />
           <StatCard icon={<Shield size={14} />} label="Investigations" value="—" />
           <StatCard icon={<Radio size={14} />} label="Monitoring Assets" value={stats?.monitoringJobs ?? 0} />
-          <StatCard icon={<Users size={14} />} label="Team Members" value={subscription?.teamMemberCount ?? 1} />
+          <StatCard icon={<Users size={14} />} label="Team members" value={subscription?.teamMemberCount ?? 1} />
         </div>
       </SectionCard>
 

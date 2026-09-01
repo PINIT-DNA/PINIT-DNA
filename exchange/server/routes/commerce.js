@@ -225,9 +225,16 @@ router.post('/cart/checkout', requireBuyer, async (req, res) => {
 
   // Delegate to create-payment then verify in mock mode
   try {
+    const authHeaders = {
+      'Content-Type': 'application/json',
+    };
+    if (req.headers.authorization) authHeaders.Authorization = req.headers.authorization;
+    if (req.headers['x-session-token']) authHeaders['X-Session-Token'] = req.headers['x-session-token'];
+    if (req.headers['x-pinit-id']) authHeaders['X-Pinit-Id'] = req.headers['x-pinit-id'];
+
     const createRes = await fetch(`http://127.0.0.1:${process.env.PORT || 5000}/api/commerce/cart/create-payment`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({
         buyer_key: key,
         buyer_name,
@@ -250,7 +257,7 @@ router.post('/cart/checkout', requireBuyer, async (req, res) => {
 
     const verifyRes = await fetch(`http://127.0.0.1:${process.env.PORT || 5000}/api/orders/verify-payment`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({
         payment_intent_id: created.payment_intent_id,
         razorpay_order_id: created.orderId,

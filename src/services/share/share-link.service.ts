@@ -348,6 +348,35 @@ export class ShareLinkService {
       resolvedAssetId = asset.id;
     }
 
+    // A review link is useless without a version row. Create V1 if needed, and
+    // move DRAFT → IN_REVIEW so the team sees the request and a client change
+    // request can advance the status.
+    if (input.reviewMode && resolvedAssetId) {
+      const scoped = await prisma.asset.findUnique({
+        where: { id: resolvedAssetId },
+        select: { campaign: { select: { organizationId: true } } },
+      });
+      const orgId = scoped?.campaign?.organizationId;
+      if (orgId) {
+        const { assetVersionService } = await import('../organization/asset-version.service');
+        await assetVersionService.ensureV1(orgId, input.ownerUserId, resolvedAssetId);
+        const current = input.reviewVersionId
+          ? await prisma.assetVersion.findFirst({
+              where: { id: input.reviewVersionId, assetId: resolvedAssetId },
+            })
+          : await prisma.assetVersion.findFirst({
+              where: { assetId: resolvedAssetId, supersededAt: null },
+              orderBy: { versionNumber: 'desc' },
+            });
+        if (current?.reviewStatus === 'DRAFT') {
+          await prisma.assetVersion.update({
+            where: { id: current.id },
+            data: { reviewStatus: 'IN_REVIEW' },
+          });
+        }
+      }
+    }
+
     const link = await prisma.shareLink.create({
       data: {
         token,
@@ -491,7 +520,10 @@ export class ShareLinkService {
               allowedCountries: string[]; allowedDeviceTypes: string[]; allowedIpPrefixes: string[];
               requireOtp: boolean; privacyMaskingEnabled: boolean; maskEmail: boolean; maskPhone: boolean;
               maskAadhaar: boolean; maskPan: boolean; maskAddress: boolean; maskCustomPatterns: string | null;
-              requestLocation: boolean; ownerUserId: string | null; tokenSignature: string | null; },
+              requestLocation: boolean; ownerUserId: string | null; tokenSignature: string | null;
+              assetId: string | null; reviewMode: boolean; allowComments: boolean;
+              allowChangeRequest: boolean; allowApproval: boolean; reviewVersionId: string | null;
+              shareRecipientId: string | null; },
     recipients: Array<{ label: string; email?: string }>
   ): Promise<ChildLinkResult[]> {
     const appUrl = process.env['PUBLIC_APP_URL'] ?? 'http://localhost:3002';
@@ -514,9 +546,16 @@ export class ShareLinkService {
           dnaRecordId:  parent.dnaRecordId,
           filename:     parent.filename,
           mimeType:     parent.mimeType,
+          assetId:      parent.assetId,
           expiresAt:    parent.expiresAt,
           maxViews:     parent.maxViews,
           allowDownload: parent.allowDownload,
+          reviewMode:         parent.reviewMode,
+          allowComments:      parent.allowComments,
+          allowChangeRequest: parent.allowChangeRequest,
+          allowApproval:      parent.allowApproval,
+          reviewVersionId:    parent.reviewVersionId,
+          shareRecipientId:   parent.shareRecipientId,
           requireName:  parent.requireName,
           note:         parent.note,
           oneTimeUse:   parent.oneTimeUse,
@@ -609,9 +648,16 @@ export class ShareLinkService {
         dnaRecordId: parent.dnaRecordId,
         filename: parent.filename,
         mimeType: parent.mimeType,
+        assetId: parent.assetId,
         expiresAt: parent.expiresAt,
         maxViews: null, // each hop recipient gets their own quota — don't inherit parent cap
         allowDownload: parent.allowDownload,
+        reviewMode: parent.reviewMode,
+        allowComments: parent.allowComments,
+        allowChangeRequest: parent.allowChangeRequest,
+        allowApproval: parent.allowApproval,
+        reviewVersionId: parent.reviewVersionId,
+        shareRecipientId: parent.shareRecipientId,
         requireName: parent.requireName,
         note: parent.note,
         oneTimeUse: false, // each hop is independent; don't inherit one-shot of parent

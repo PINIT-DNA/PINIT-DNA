@@ -2,15 +2,22 @@ import { useState } from 'react';
 import { Building2, ShieldCheck, Store, User } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { cn } from '../ui/utils';
+import { useAuth } from '../../context/AuthContext';
+import { useUserProfile } from '../../hooks/useUserProfile';
 import { useAccountViewMode } from '../../hooks/useAccountViewMode';
 import { openHubExchange } from '../../lib/open-exchange';
 import { openMasterAdmin } from '../../lib/open-master-admin';
+import { isPlatformOwnerShortId } from '../../lib/platform-owner';
 
 /** Top-of-dashboard Individual | Business | Exchange — same face, different prefix. */
 export function AccountModeSwitcher({ className }: { className?: string }) {
+  const { user } = useAuth();
+  const { profile } = useUserProfile();
   const { mode, switching, switchTo, canSwitch } = useAccountViewMode();
   const [openingExchange, setOpeningExchange] = useState(false);
   const [openingAdmin, setOpeningAdmin] = useState(false);
+  const shortId = profile?.shortId ?? (user as { shortId?: string } | null)?.shortId;
+  const showMasterAdmin = isPlatformOwnerShortId(shortId);
 
   if (!canSwitch) return null;
 
@@ -48,7 +55,7 @@ export function AccountModeSwitcher({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        'inline-flex items-center rounded-xl border border-bg-border bg-bg-elevated p-0.5 shrink-0',
+        'inline-flex flex-wrap items-center rounded-xl border border-bg-border bg-bg-elevated p-0.5 shrink-0 max-w-[min(100%,22rem)] sm:max-w-none',
         className,
       )}
       role="group"
@@ -97,21 +104,23 @@ export function AccountModeSwitcher({ className }: { className?: string }) {
         <Store size={13} />
         <span>{openingExchange ? 'Opening…' : 'Exchange'}</span>
       </button>
-      <button
-        type="button"
-        disabled={switching || openingAdmin}
-        onClick={() => void openAdmin()}
-        className={cn(
-          'flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-2xs sm:text-xs font-semibold transition-colors disabled:opacity-60',
-          openingAdmin
-            ? 'bg-dna-500 text-white border border-dna-600 shadow-sm'
-            : 'text-slate-600 hover:text-slate-900 border border-transparent dark:text-gray-300 dark:hover:text-white',
-        )}
-        title="Opens the PinitHUB Master Admin console in a new tab"
-      >
-        <ShieldCheck size={13} />
-        <span>{openingAdmin ? 'Opening…' : 'Master Admin'}</span>
-      </button>
+      {showMasterAdmin && (
+        <button
+          type="button"
+          disabled={switching || openingAdmin}
+          onClick={() => void openAdmin()}
+          className={cn(
+            'flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-2xs sm:text-xs font-semibold transition-colors disabled:opacity-60',
+            openingAdmin
+              ? 'bg-dna-500 text-white border border-dna-600 shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 border border-transparent dark:text-gray-300 dark:hover:text-white',
+          )}
+          title="Opens the PinitHUB Master Admin console in a new tab"
+        >
+          <ShieldCheck size={13} />
+          <span className="hidden sm:inline">{openingAdmin ? 'Opening…' : 'Admin'}</span>
+        </button>
+      )}
     </div>
   );
 }

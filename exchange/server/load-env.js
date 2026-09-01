@@ -28,15 +28,19 @@ const exchangeDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..'
 const exchangeEnv = path.join(exchangeDir, '.env');
 const hubEnv = path.join(exchangeDir, '..', '.env');
 
-// Exchange-local first (bridge + overrides)
-applyEnvFile(exchangeEnv, { forcePrefixes: ['EXCHANGE_', 'HUB_'] });
+// Isolated tests spawn the server with a complete env. Do not let local .env
+// files replace that with production Postgres URLs or live Razorpay keys.
+if (process.env.EXCHANGE_ISOLATED_TEST !== '1' && process.env.EXCHANGE_IGNORE_DOTENV !== '1') {
+  // Exchange-local first (bridge + overrides)
+  applyEnvFile(exchangeEnv, { forcePrefixes: ['EXCHANGE_', 'HUB_'] });
 
-// Dev: reuse Hub Razorpay keys when Exchange .env has none
-applyEnvFile(hubEnv, {
-  onlyKeys: new Set([
-    'RAZORPAY_KEY_ID',
-    'RAZORPAY_KEY_SECRET',
-    'RAZORPAY_WEBHOOK_SECRET',
-    'PAYMENT_MOCK',
-  ]),
-});
+  // Dev: reuse Hub Razorpay keys when Exchange .env has none
+  applyEnvFile(hubEnv, {
+    onlyKeys: new Set([
+      'RAZORPAY_KEY_ID',
+      'RAZORPAY_KEY_SECRET',
+      'RAZORPAY_WEBHOOK_SECRET',
+      'PAYMENT_MOCK',
+    ]),
+  });
+}

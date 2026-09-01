@@ -70,10 +70,16 @@ export const businessController = {
    */
   async getShareReviewEligibility(req: Request, res: Response, next: NextFunction) {
     try {
-      const { userId, organizationId } = await orgIdFor(req);
+      const { organizationId } = await orgIdFor(req);
       const { prisma } = await import('../../lib/prisma');
+      // Scope by the caller's organisation campaign, not Asset.ownerUserId.
+      // A teammate who did not upload the file can still send a client review
+      // link; a personal vault file in another org stays ineligible.
       const asset = await prisma.asset.findFirst({
-        where: { vaultId: req.params.vaultId as string, ownerUserId: userId },
+        where: {
+          vaultId: req.params.vaultId as string,
+          campaign: { organizationId },
+        },
         orderBy: { createdAt: 'desc' },
         select: {
           id: true, originalFilename: true, campaignId: true,
@@ -509,6 +515,24 @@ export const businessController = {
       const { userId, organizationId } = await orgIdFor(req);
       const version = await assetVersionService.get(organizationId, userId, req.params.versionId as string);
       res.json({ success: true, version });
+    } catch (err) { next(err); }
+  },
+
+  async serveAssetVersionFile(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const file = await assetVersionService.getFile(
+        organizationId, userId, req.params.versionId as string,
+      );
+      const download = req.query.download === '1' || req.query.download === 'true';
+      const safeName = file.filename.replace(/[\r\n"]/g, '_');
+      res.set({
+        'Content-Type': file.mimeType,
+        'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${safeName}"`,
+        'Cache-Control': 'private, no-store',
+        'X-Version-Id': req.params.versionId as string,
+      });
+      res.status(200).send(file.buffer);
     } catch (err) { next(err); }
   },
 

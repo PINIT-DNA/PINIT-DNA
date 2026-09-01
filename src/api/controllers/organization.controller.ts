@@ -175,17 +175,19 @@ export const organizationController = {
     try {
       const userId = getAuthUserId(req);
       const orgId = await orgIdFor(req);
-      const { email, inviteeShortId, role, campaignId, campaignRole } = req.body as {
+      const { email, inviteeShortId, role, campaignId, campaignRole, campaignOnly } = req.body as {
         email?: string;
         inviteeShortId?: string;
         role?: OrganizationMemberRole;
         campaignId?: string;
         campaignRole?: string;
+        campaignOnly?: boolean;
       };
       const invite = await teamService.inviteMember(orgId, userId, {
         email, inviteeShortId, role,
         ...(campaignId ? { campaignId } : {}),
         ...(campaignRole ? { campaignRole } : {}),
+        ...(campaignOnly ? { campaignOnly: true } : {}),
       });
       res.json({ success: true, invite });
     } catch (err) {
@@ -203,6 +205,21 @@ export const organizationController = {
       }
       const result = await teamService.acceptInvite(userId, token.trim());
       res.json({ success: true, ...result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async previewInvite(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = getAuthUserId(req);
+      const token = String(req.params.token ?? '').trim();
+      if (!token) {
+        res.status(400).json({ success: false, error: 'token is required' });
+        return;
+      }
+      const preview = await teamService.previewInvite(userId, token);
+      res.json({ success: true, preview });
     } catch (err) {
       next(err);
     }

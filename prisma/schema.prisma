@@ -780,6 +780,11 @@ model OrganizationInvite {
   campaignId      String?
   campaignRole    String?
 
+  /// When true, accept places a CampaignMember with isExternal=true and does
+  /// NOT create OrganizationMember. Default false preserves Team / Pinit-ID
+  /// org invitations.
+  campaignOnly    Boolean @default(false)
+
   organization    Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, status])

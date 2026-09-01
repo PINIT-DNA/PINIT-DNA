@@ -129,6 +129,9 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
       requireOtp, recipientEmail,
       privacyMaskingEnabled, maskEmail, maskPhone, maskAadhaar, maskPan, maskAddress, maskCustomPatterns,
       requestLocation,
+      reviewMode, allowComments, allowChangeRequest, allowApproval, reviewVersionId,
+      recipientLabel, shareRecipientId,
+      vpnBlock, torBlock, oneDeviceOnly,
     } = req.body as {
       vaultId: string;
       expiresIn?: number | null;
@@ -151,6 +154,16 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
       maskAddress?: boolean;
       maskCustomPatterns?: string[];
       requestLocation?: boolean;
+      reviewMode?: boolean;
+      allowComments?: boolean;
+      allowChangeRequest?: boolean;
+      allowApproval?: boolean;
+      reviewVersionId?: string | null;
+      recipientLabel?: string;
+      shareRecipientId?: string;
+      vpnBlock?: boolean;
+      torBlock?: boolean;
+      oneDeviceOnly?: boolean;
     };
 
     if (!vaultId) { res.status(400).json({ success: false, error: 'vaultId is required' }); return; }
@@ -165,6 +178,9 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
       requireOtp, recipientEmail,
       privacyMaskingEnabled, maskEmail, maskPhone, maskAadhaar, maskPan, maskAddress, maskCustomPatterns,
       requestLocation,
+      reviewMode, allowComments, allowChangeRequest, allowApproval, reviewVersionId,
+      recipientLabel, shareRecipientId,
+      vpnBlock, torBlock, oneDeviceOnly,
       ownerUserId,
       recipients,
     }) as any;

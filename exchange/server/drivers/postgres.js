@@ -17,8 +17,9 @@ function makeCtx(rowCount, lastID) {
 export function createPostgresDatabase(connectionString) {
   const pool = new pg.Pool({
     connectionString,
-    ssl: connectionString.includes('localhost') ? false : { rejectUnauthorized: false },
+    ssl: connectionString.includes('localhost') || connectionString.includes('127.0.0.1') ? false : { rejectUnauthorized: false },
     max: 10,
+    connectionTimeoutMillis: 8_000,
   });
 
   async function withClient(fn) {

@@ -8,14 +8,20 @@ import { fileURLToPath } from 'url';
 import { createPostgresDatabase, initPostgresSchema } from './drivers/postgres.js';
 import { ensureExchangeBuckets } from './lib/exchange-storage.js';
 import { toExchangePinitId } from './lib/pinit-identity.js';
+import { resolveDatabaseConfig } from './lib/db-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Tests / local override: EXCHANGE_FORCE_SQLITE=1 or omit EXCHANGE_DATABASE_URL
-const forceSqlite = String(process.env.EXCHANGE_FORCE_SQLITE || '').trim() === '1';
-const databaseUrl = forceSqlite ? '' : String(process.env.EXCHANGE_DATABASE_URL || '').trim();
-export const dbDriver = databaseUrl ? 'postgres' : 'sqlite';
+let dbConfig;
+try {
+  dbConfig = resolveDatabaseConfig();
+} catch (err) {
+  console.error(err?.message || err);
+  process.exit(1);
+}
+const databaseUrl = dbConfig.url;
+export const dbDriver = dbConfig.driver;
 
 /** @type {import('sqlite3').Database | ReturnType<typeof createPostgresDatabase>} */
 let db;
@@ -38,6 +44,13 @@ export function initDatabase() {
 }
 
 async function initPostgresDatabase() {
+  try {
+    await db.query('SELECT 1 AS ok');
+  } catch (err) {
+    throw new Error(
+      `FATAL: Exchange could not connect to Postgres using EXCHANGE_DATABASE_URL / DATABASE_URL. ${err.message}`,
+    );
+  }
   await initPostgresSchema(db);
   await seedInitialDataAsync();
   await dedupeMarketplaceListings();
@@ -179,8 +192,8 @@ function initSqliteDatabase() {
                   listing_id TEXT NOT NULL,
                   license_tier TEXT DEFAULT 'commercial',
                   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                  UNIQUE(buyer_key, listing_id, license_tier),
-                  asset_id TEXT
+                  asset_id TEXT,
+                  UNIQUE(buyer_key, listing_id, license_tier)
                 )
               `, () => {
                 db.run(`
@@ -189,8 +202,8 @@ function initSqliteDatabase() {
                     buyer_key TEXT NOT NULL,
                     listing_id TEXT NOT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(buyer_key, listing_id),
-                    asset_id TEXT
+                    asset_id TEXT,
+                    UNIQUE(buyer_key, listing_id)
                   )
                 `, () => {
                   db.run(`

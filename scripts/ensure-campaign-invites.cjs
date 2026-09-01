@@ -15,6 +15,7 @@ const log = (...a) => console.log('[ensure-campaign-invites]', ...a);
 const DDL = [
   `ALTER TABLE "organization_invites" ADD COLUMN IF NOT EXISTS "campaignId" TEXT;`,
   `ALTER TABLE "organization_invites" ADD COLUMN IF NOT EXISTS "campaignRole" TEXT;`,
+  `ALTER TABLE "organization_invites" ADD COLUMN IF NOT EXISTS "campaignOnly" BOOLEAN NOT NULL DEFAULT false;`,
   `CREATE INDEX IF NOT EXISTS "organization_invites_campaignId_status_idx"
      ON "organization_invites"("campaignId", "status");`,
 ];

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth.middleware';
+import { requireAuth, requireAuthSse } from '../middleware/auth.middleware';
 import { businessController } from '../controllers/business.controller';
 
 export const businessRouter = Router();
@@ -32,6 +32,7 @@ businessRouter.get('/campaigns/:campaignId/activity', requireAuth, businessContr
 businessRouter.get('/assets/:assetId/versions', requireAuth, businessController.listAssetVersions);
 businessRouter.post('/assets/:assetId/versions', requireAuth, businessController.createAssetVersion);
 businessRouter.get('/versions/:versionId', requireAuth, businessController.getAssetVersion);
+businessRouter.get('/versions/:versionId/file', requireAuth, businessController.serveAssetVersionFile);
 businessRouter.patch('/versions/:versionId/review-status', requireAuth, businessController.setVersionReviewStatus);
 
 // ── Review comments and change requests — always version-anchored ───────────
@@ -52,7 +53,7 @@ businessRouter.get('/share-eligibility/:vaultId', requireAuth, businessControlle
 businessRouter.get('/campaigns/:campaignId/messages', requireAuth, businessController.listCampaignMessages);
 businessRouter.post('/campaigns/:campaignId/messages', requireAuth, businessController.sendCampaignMessage);
 businessRouter.post('/campaigns/:campaignId/messages/read', requireAuth, businessController.markCampaignMessagesRead);
-businessRouter.get('/campaigns/:campaignId/messages/stream', requireAuth, businessController.streamCampaignMessages);
+businessRouter.get('/campaigns/:campaignId/messages/stream', requireAuthSse, businessController.streamCampaignMessages);
 businessRouter.get('/messages/unread', requireAuth, businessController.getCampaignUnread);
 
 // ── Campaign people — scoped access for external creators ───────────────────

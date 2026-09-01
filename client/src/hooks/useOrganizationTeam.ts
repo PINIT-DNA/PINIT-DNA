@@ -33,6 +33,7 @@ export interface CreatedTeamInvite {
   role: string;
   campaignId?: string | null;
   campaignRole?: string | null;
+  campaignOnly?: boolean;
   alreadyPending?: boolean;
 }
 
@@ -81,6 +82,8 @@ export function useOrganizationTeam() {
     email?: string; inviteeShortId?: string; role?: string;
     /** Bind to a campaign so accepting also places them on it. */
     campaignId?: string; campaignRole?: string;
+    /** External creator — campaign only, not organization membership. */
+    campaignOnly?: boolean;
   }): Promise<CreatedTeamInvite> {
     const { data } = await api.post<{ invite?: CreatedTeamInvite }>(`${API_BASE_URL}/organization/team/invite`, payload);
     await refresh();

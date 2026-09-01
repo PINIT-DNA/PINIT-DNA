@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ReviewShareControls } from '../components/share/ReviewShareControls';
 import type { ReviewPermissions, ReviewEligibility } from '../components/share/ReviewShareControls';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   ChevronRight,
@@ -84,6 +84,8 @@ function SummaryRow({ label, value }: { label: string; value: React.ReactNode })
 export function VaultSharePage() {
   const { assetId = '' } = useParams<{ assetId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const campaignReviewIntent = searchParams.get('intent') === 'review';
 
   const [record, setRecord] = useState<VaultRecord | null>(null);
   const [loading, setLoading] = useState(true);
@@ -213,8 +215,20 @@ export function VaultSharePage() {
     return () => { cancelled = true; };
   }, [record?.id]);
 
+  // Campaign Sharing tab always lands here as a review link, not a silent view-only share.
+  useEffect(() => {
+    if (!campaignReviewIntent || !eligibility?.eligible) return;
+    setReview((prev) => (prev.reviewMode
+      ? prev
+      : { reviewMode: true, allowComments: true, allowChangeRequest: true, allowApproval: false }));
+  }, [campaignReviewIntent, eligibility?.eligible]);
+
   const handleCreate = async () => {
     if (!record) return;
+    if (campaignReviewIntent && !review.reviewMode) {
+      toast.error('A campaign review link must have client review turned on.');
+      return;
+    }
     setCreating(true);
     try {
       const { data } = await api.post(`${API_BASE_URL}/share`, {
@@ -369,9 +383,13 @@ export function VaultSharePage() {
           >
             <ArrowLeft size={13} /> Back to Digital Assets
           </button>
-          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Share secure link</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+            {campaignReviewIntent ? 'Create client review link' : 'Share secure link'}
+          </h1>
           <p className="text-sm text-gray-500 mt-1 max-w-2xl">
-            Control how this protected asset can be accessed and shared.
+            {campaignReviewIntent
+              ? 'The recipient opens this link without joining your organisation or campaign People list. They see only this file and can comment or request changes on the current version.'
+              : 'Control how this protected asset can be accessed and shared.'}
           </p>
         </div>
         <Badge variant="success" dot>Protected asset</Badge>
@@ -512,6 +530,7 @@ export function VaultSharePage() {
             onChange={setReview}
             eligibility={eligibility}
             loading={eligibilityLoading}
+            required={campaignReviewIntent}
           />
 
           <div className="border border-bg-border rounded-xl overflow-hidden">

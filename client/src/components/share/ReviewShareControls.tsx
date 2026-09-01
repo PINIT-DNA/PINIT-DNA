@@ -29,12 +29,14 @@ export interface ReviewEligibility {
 }
 
 export function ReviewShareControls({
-  value, onChange, eligibility, loading,
+  value, onChange, eligibility, loading, required,
 }: {
   value: ReviewPermissions;
   onChange: (next: ReviewPermissions) => void;
   eligibility: ReviewEligibility | null;
   loading: boolean;
+  /** Campaign "Generate review link" — review stays on; a view-only link would be the wrong product. */
+  required?: boolean;
 }) {
   const set = (patch: Partial<ReviewPermissions>) => {
     const next = { ...value, ...patch };
@@ -90,13 +92,18 @@ export function ReviewShareControls({
       {/* Master switch */}
       <button
         type="button"
-        onClick={() => set({ reviewMode: !value.reviewMode, allowComments: !value.reviewMode })}
+        onClick={() => {
+          if (required && value.reviewMode) return;
+          set({ reviewMode: !value.reviewMode, allowComments: !value.reviewMode });
+        }}
         aria-pressed={value.reviewMode}
+        disabled={Boolean(required && value.reviewMode)}
         className={cn(
           'w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-left transition-colors',
           value.reviewMode
             ? 'border-dna-500/40 bg-dna-500/10'
             : 'border-bg-border bg-bg-elevated hover:border-dna-500/25',
+          required && value.reviewMode && 'cursor-default',
         )}
       >
         <div className="min-w-0 pr-3">
@@ -110,9 +117,11 @@ export function ReviewShareControls({
             </span>
           </p>
           <p className="text-2xs text-gray-500 mt-0.5">
-            {value.reviewMode
-              ? 'The recipient sees the current version and can give feedback.'
-              : 'Off — the recipient can only view the file.'}
+            {required
+              ? 'Required for a campaign client review link. The recipient is not added to your team.'
+              : value.reviewMode
+                ? 'The recipient sees the current version and can give feedback.'
+                : 'Off — the recipient can only view the file.'}
           </p>
         </div>
         <div className={cn('w-8 h-4 rounded-full relative shrink-0',

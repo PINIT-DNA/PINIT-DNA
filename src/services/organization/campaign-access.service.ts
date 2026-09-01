@@ -126,6 +126,7 @@ export const campaignAccessService = {
         role: true,
         createdAt: true,
         expiresAt: true,
+        campaignOnly: true,
       },
     });
     const pendingShortIds = pendingInvites
@@ -142,7 +143,7 @@ export const campaignAccessService = {
     for (const inv of pendingInvites) {
       people.push({
         id: `invite:${inv.id}`,
-        kind: 'internal',
+        kind: inv.campaignOnly ? ('external' as const) : ('internal' as const),
         name: (inv.inviteeShortId && pendingNameByShort.get(inv.inviteeShortId))
           || inv.inviteeShortId
           || 'Pending invite',
@@ -151,7 +152,7 @@ export const campaignAccessService = {
         platform: null,
         profileUrl: null,
         roleLabel: inv.campaignRole,
-        orgRole: inv.role,
+        orgRole: inv.campaignOnly ? null : inv.role,
         accessStatus: 'INVITED',
         permissions: null,
         assets: [],

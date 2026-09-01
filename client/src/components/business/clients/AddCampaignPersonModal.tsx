@@ -21,12 +21,14 @@ interface Props {
 
 type Mode = 'team' | 'external';
 type TeamPath = 'existing' | 'invite';
+type ExternalPath = 'record' | 'invite';
 
 export function AddCampaignPersonModal({
   open, onClose, campaignId, existingUserIds = [], existingShortIds = [], onAdded,
 }: Props) {
   const [mode, setMode] = useState<Mode>('team');
   const [teamPath, setTeamPath] = useState<TeamPath>('existing');
+  const [externalPath, setExternalPath] = useState<ExternalPath>('record');
   const [search, setSearch] = useState('');
   const [userId, setUserId] = useState('');
   const [campaignRole, setCampaignRole] = useState<CampaignRoleId>('CONTRIBUTOR');
@@ -48,6 +50,7 @@ export function AddCampaignPersonModal({
     if (!open) return;
     setMode('team');
     setTeamPath('existing');
+    setExternalPath('record');
     setSearch('');
     setUserId('');
     setCampaignRole('CONTRIBUTOR');
@@ -81,7 +84,8 @@ export function AddCampaignPersonModal({
 
   const canSaveTeamExisting = !!userId && !saving;
   const canSaveInvite = !!lookup && !lookup.alreadyOnCampaign && !saving;
-  const canSaveExternal = name.trim().length > 0 && !saving;
+  const canSaveExternalRecord = name.trim().length > 0 && !saving;
+  const canSaveExternalInvite = !!lookup && !lookup.alreadyOnCampaign && !lookup.alreadyMember && !saving;
 
   const findAccount = async () => {
     setLookup(null);
@@ -113,7 +117,20 @@ export function AddCampaignPersonModal({
     setError(null);
     try {
       if (mode === 'external') {
-        if (!canSaveExternal) return;
+        if (externalPath === 'invite') {
+          if (!lookup || lookup.alreadyOnCampaign || lookup.alreadyMember) return;
+          const created = await invite({
+            inviteeShortId: lookup.pinitId,
+            campaignId,
+            campaignRole,
+            campaignOnly: true,
+          });
+          const origin = typeof window !== 'undefined' ? window.location.origin : '';
+          setInviteLink(`${origin}/team/join/${created.token}`);
+          onAdded({ keepOpen: true });
+          return;
+        }
+        if (!canSaveExternalRecord) return;
         await addCampaignMember(campaignId, {
           name: name.trim(),
           platform: platform || undefined,
@@ -175,8 +192,12 @@ export function AddCampaignPersonModal({
 
   const footerPrimaryLabel = (() => {
     if (saving) {
-      if (mode === 'team' && teamPath === 'invite' && lookup && !lookup.alreadyMember) return 'Sending…';
+      if ((mode === 'team' && teamPath === 'invite' && lookup && !lookup.alreadyMember)
+        || (mode === 'external' && externalPath === 'invite')) return 'Sending…';
       return 'Adding…';
+    }
+    if (mode === 'external' && externalPath === 'invite') {
+      return 'Send invitation';
     }
     if (mode === 'team' && teamPath === 'invite') {
       if (lookup?.alreadyMember) return 'Add to campaign';
@@ -186,7 +207,7 @@ export function AddCampaignPersonModal({
   })();
 
   const canSubmit = mode === 'external'
-    ? canSaveExternal
+    ? (externalPath === 'invite' ? canSaveExternalInvite : canSaveExternalRecord)
     : teamPath === 'existing'
       ? canSaveTeamExisting
       : canSaveInvite;
@@ -195,7 +216,7 @@ export function AddCampaignPersonModal({
     <Modal
       open={open}
       onClose={saving ? () => {} : onClose}
-      title="Add person to campaign"
+      title="Add to campaign"
       size="md"
       footer={
         inviteLink ? (
@@ -215,10 +236,10 @@ export function AddCampaignPersonModal({
     >
       <form id="add-person-form" onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-2">
-          <ModeButton active={mode === 'team'} onClick={() => { setMode('team'); setError(null); }} icon={Users}
+          <ModeButton active={mode === 'team'} onClick={() => { setMode('team'); setError(null); setInviteLink(null); }} icon={Users}
             title="Team member" detail="Someone in your organization" />
-          <ModeButton active={mode === 'external'} onClick={() => { setMode('external'); setError(null); }} icon={ExternalLink}
-            title="External creator" detail="Freelancer or influencer" />
+          <ModeButton active={mode === 'external'} onClick={() => { setMode('external'); setError(null); setInviteLink(null); }} icon={ExternalLink}
+            title="External creator" detail="Campaign-scoped — not a team member" />
         </div>
 
         {mode === 'team' && (
@@ -385,35 +406,130 @@ export function AddCampaignPersonModal({
 
         {mode === 'external' && (
           <>
-            <Field label="Name" required>
-              <input autoFocus value={name} onChange={(e) => setName(e.target.value)} disabled={saving}
-                placeholder="e.g. Isha Kulkarni" className="input w-full" />
-            </Field>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Field label="Platform">
-                <input value={platform} onChange={(e) => setPlatform(e.target.value)} disabled={saving}
-                  placeholder="Instagram" className="input w-full" />
-              </Field>
-              <Field label="Profile URL">
-                <input value={profileUrl} onChange={(e) => setProfileUrl(e.target.value)} disabled={saving}
-                  placeholder="Optional" className="input w-full" />
-              </Field>
+            <div className="grid grid-cols-2 gap-2">
+              <PathChip
+                active={externalPath === 'record'}
+                onClick={() => { setExternalPath('record'); setError(null); setInviteLink(null); }}
+                label="Record without a Pinit account"
+              />
+              <PathChip
+                active={externalPath === 'invite'}
+                onClick={() => { setExternalPath('invite'); setError(null); setInviteLink(null); }}
+                label="Invite by Pinit ID"
+              />
             </div>
-            <Field label="Campaign role">
-              <select
-                value={campaignRole}
-                onChange={(e) => setCampaignRole(e.target.value as CampaignRoleId)}
-                disabled={saving}
-                className="input w-full"
-              >
-                {CAMPAIGN_ROLES.map((r) => (
-                  <option key={r.id} value={r.id}>{r.label}</option>
-                ))}
-              </select>
-            </Field>
-            <p className="text-2xs text-gray-500">
-              External creators do not become organization members. Share specific assets with tracked links.
-            </p>
+
+            {externalPath === 'invite' && inviteLink ? (
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-3">
+                <div className="flex items-center gap-2 text-emerald-400">
+                  <Check size={16} />
+                  <p className="text-sm font-semibold">Invitation sent</p>
+                </div>
+                <p className="text-xs text-gray-400">
+                  Bound to <span className="text-white font-medium">{lookup?.name}</span>
+                  {' '}(<span className="mono text-2xs">{lookup?.pinitId}</span>).
+                  They are not added to your organization. Opening the link does not grant access
+                  until they sign in as this account and accept.
+                </p>
+                <div className="flex gap-2">
+                  <input readOnly value={inviteLink} className="input w-full text-2xs mono" />
+                  <button type="button" onClick={copyLink} className="btn btn-secondary btn-sm shrink-0">
+                    {copied ? <Check size={14} /> : <Copy size={14} />}
+                    {copied ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+            ) : externalPath === 'invite' ? (
+              <>
+                <Field label="Pinit ID" required>
+                  <div className="flex gap-2">
+                    <input
+                      value={invitePinitId}
+                      onChange={(e) => { setInvitePinitId(e.target.value); setLookup(null); setLookupError(null); }}
+                      disabled={saving || lookingUp}
+                      placeholder="PINIT-XXXXXX"
+                      className="input w-full mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={findAccount}
+                      disabled={lookingUp || saving || !invitePinitId.trim()}
+                      className="btn btn-secondary btn-sm shrink-0 inline-flex items-center gap-1.5"
+                    >
+                      {lookingUp ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                      Find account
+                    </button>
+                  </div>
+                </Field>
+                {lookupError && (
+                  <p className="text-xs text-danger bg-danger/10 border border-danger/25 rounded-lg px-3 py-2">{lookupError}</p>
+                )}
+                {lookup && (
+                  <div className="space-y-2">
+                    <PersonCard name={lookup.name} pinitId={lookup.pinitId} />
+                    {lookup.alreadyOnCampaign && (
+                      <p className="text-xs text-amber-400">Already on this campaign.</p>
+                    )}
+                    {lookup.alreadyMember && !lookup.alreadyOnCampaign && (
+                      <p className="text-xs text-amber-400">
+                        Already on your organization team — add them as a team member instead.
+                      </p>
+                    )}
+                    {!lookup.alreadyOnCampaign && !lookup.alreadyMember && (
+                      <p className="text-2xs text-gray-500 flex items-start gap-1.5">
+                        <Link2 size={12} className="mt-0.5 shrink-0" />
+                        Sends a campaign-only invitation. They will not become an organization member.
+                      </p>
+                    )}
+                  </div>
+                )}
+                <Field label="Campaign role" required>
+                  <select
+                    value={campaignRole}
+                    onChange={(e) => setCampaignRole(e.target.value as CampaignRoleId)}
+                    disabled={saving}
+                    className="input w-full"
+                  >
+                    {CAMPAIGN_ROLES.map((r) => (
+                      <option key={r.id} value={r.id}>{r.label}</option>
+                    ))}
+                  </select>
+                </Field>
+              </>
+            ) : (
+              <>
+                <Field label="Name" required>
+                  <input autoFocus value={name} onChange={(e) => setName(e.target.value)} disabled={saving}
+                    placeholder="e.g. Isha Kulkarni" className="input w-full" />
+                </Field>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Field label="Platform">
+                    <input value={platform} onChange={(e) => setPlatform(e.target.value)} disabled={saving}
+                      placeholder="Instagram" className="input w-full" />
+                  </Field>
+                  <Field label="Profile URL">
+                    <input value={profileUrl} onChange={(e) => setProfileUrl(e.target.value)} disabled={saving}
+                      placeholder="Optional" className="input w-full" />
+                  </Field>
+                </div>
+                <Field label="Campaign role">
+                  <select
+                    value={campaignRole}
+                    onChange={(e) => setCampaignRole(e.target.value as CampaignRoleId)}
+                    disabled={saving}
+                    className="input w-full"
+                  >
+                    {CAMPAIGN_ROLES.map((r) => (
+                      <option key={r.id} value={r.id}>{r.label}</option>
+                    ))}
+                  </select>
+                </Field>
+                <p className="text-2xs text-gray-500">
+                  Listed as an external creator only. They do not join the organization.
+                  Share specific assets afterwards — listing them is not access.
+                </p>
+              </>
+            )}
           </>
         )}
 

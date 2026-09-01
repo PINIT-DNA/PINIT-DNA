@@ -20,6 +20,9 @@ import { requireOrgRole } from './org-access.service';
 import { OrganizationMemberRole } from './constants/org-rbac';
 import { logOrgAudit } from './audit-log.service';
 import { emitBusinessEvent } from '../platform-events/notification-policy';
+import { VaultService } from '../vault/vault.service';
+
+const vaultService = new VaultService();
 
 /**
  * Legal review transitions.
@@ -173,6 +176,41 @@ export const assetVersionService = {
     });
     if (!version) throw new AppError(404, 'Version not found');
     return shape(version);
+  },
+
+  /**
+   * Decrypt and return the vaulted bytes for this version.
+   *
+   * Vault retrieve is owner-bound. After org/campaign scope is proven here, we
+   * load the vault owner's id from the record (same pattern as share-link and
+   * Exchange bridge) so a campaign reviewer can open the file they are reviewing
+   * without being the original uploader.
+   */
+  async getFile(organizationId: string, actorUserId: string, versionId: string) {
+    await requireOrgRole(actorUserId, organizationId, OrganizationMemberRole.VIEWER);
+    const version = await prisma.assetVersion.findFirst({
+      where: { id: versionId, organizationId },
+    });
+    if (!version) throw new AppError(404, 'Version not found');
+    if (!version.vaultId) {
+      throw new AppError(404, 'This version has no file in the vault yet');
+    }
+
+    const vault = await prisma.vaultRecord.findUnique({
+      where: { id: version.vaultId },
+      include: { dnaRecord: { select: { ownerUserId: true } } },
+    });
+    const ownerUserId = vault?.dnaRecord?.ownerUserId;
+    if (!vault || !ownerUserId) {
+      throw new AppError(404, 'The file for this version is not available');
+    }
+
+    const result = await vaultService.retrieve(version.vaultId, ownerUserId);
+    return {
+      buffer: result.originalBuffer,
+      mimeType: version.mimeType || result.originalMimeType || 'application/octet-stream',
+      filename: version.originalFilename || result.originalFileName || 'file',
+    };
   },
 
   /**

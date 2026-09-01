@@ -45,10 +45,9 @@ export async function getShareReview(token: string): Promise<ClientReviewContext
     );
     return data?.review ?? null;
   } catch (err) {
-    // 404 = not a review link (the common case). 403 = review turned off or
-    // link revoked. Neither is an error worth surfacing over someone's file.
     const status = (err as { response?: { status?: number } })?.response?.status;
-    if (status === 404 || status === 403) return null;
+    // 404 = ordinary view-only share (or unknown token handled by the file route).
+    if (status === 404) return null;
     throw err;
   }
 }

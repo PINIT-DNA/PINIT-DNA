@@ -139,7 +139,7 @@ export function OrgOverviewGrid({
       <MetricTile label="Investigations" value={activeInvestigations} icon={<FileSearch size={16} />} to={BRAND.investigationPath} accent="dna" />
       <MetricTile label="Threat Alerts" value={threatAlerts} icon={<AlertTriangle size={16} />} to="/monitoring" accent="dna" />
       <MetricTile label="Storage Used" value={storageLabel} icon={<HardDrive size={16} />} to="/vault" accent="dna" />
-      <MetricTile label="Team Members" value={teamDisplay} icon={<Users size={16} />} to="/business/settings" accent="dna" />
+      <MetricTile label="Team members" value={teamDisplay} icon={<Users size={16} />} to="/business/team" accent="dna" />
       <MetricTile label="Shared Assets" value={sharedAssets} icon={<Share2 size={16} />} to="/access-intelligence" accent="dna" />
       <MetricTile label="Certificates" value={certificates} icon={<Award size={16} />} to="/certificates" accent="dna" />
     </div>
@@ -759,7 +759,7 @@ export function TeamSnapshotPanel({
     { role: 'Owner', icon: Crown, count: 1, names: ownerName, active: true },
     { role: 'Managers', icon: Briefcase, count: 0, names: '—', active: false },
     { role: 'Investigators', icon: FileSearch, count: 0, names: '—', active: false },
-    { role: 'Members', icon: Users, count: 0, names: '—', active: false },
+    { role: 'Team members', icon: Users, count: 0, names: '—', active: false },
   ];
 
   return (

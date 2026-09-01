@@ -2,6 +2,11 @@ import { Request, Response, NextFunction } from 'express';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { realtimeHub } from '../../services/platform-events/realtime-hub';
+import { BELL_NOTIFICATION_CLASS_WHERE } from '../../services/platform-events/notification-policy';
+import {
+  applyResolvedDeepLinks,
+  persistDeepLinkRepairs,
+} from '../../services/platform-events/historical-notification-link';
 
 function userId(req: Request): string {
   return (req as any).user?.sub;
@@ -30,12 +35,8 @@ export async function getNotifications(req: Request, res: Response, next: NextFu
      * NOTIFICATION so nothing that used to appear silently disappears.
      */
     const view = typeof req.query.view === 'string' ? req.query.view : undefined;
-    const NOTIFICATION_LIKE = { OR: [
-      { notificationClass: { in: ['NOTIFICATION', 'ALERT'] } },
-      { notificationClass: null },
-    ] };
     const classWhere: Prisma.NotificationWhereInput =
-      view === 'bell' ? NOTIFICATION_LIKE
+      view === 'bell' ? BELL_NOTIFICATION_CLASS_WHERE
       : view === 'activity' ? { notificationClass: 'ACTIVITY' }
       : view === 'alerts' ? { notificationClass: 'ALERT' }
       : {};
@@ -61,7 +62,8 @@ export async function getNotifications(req: Request, res: Response, next: NextFu
       ? [{ severity: 'desc' }, { createdAt: 'desc' }]
       : [{ createdAt: 'desc' }];
 
-    const [notifications, unreadCount, total, alertCount] = await Promise.all([
+    const uid = userId(req);
+    const [rawNotifications, unreadCount, total, alertCount] = await Promise.all([
       prisma.notification.findMany({
         where,
         orderBy,
@@ -71,22 +73,51 @@ export async function getNotifications(req: Request, res: Response, next: NextFu
       // The badge counts bell-worthy rows only. Activity must never raise it.
       prisma.notification.count({
         where: {
-          userId: userId(req), read: false, archived: false,
-          ...NOTIFICATION_LIKE,
+          userId: uid, read: false, archived: false,
+          ...BELL_NOTIFICATION_CLASS_WHERE,
         },
       }),
       prisma.notification.count({ where }),
       prisma.notification.count({
         where: {
-          userId: userId(req), read: false, archived: false,
+          userId: uid, read: false, archived: false,
           notificationClass: 'ALERT',
         },
       }),
     ]);
 
+    const { rows: notifications, repairs } = await applyResolvedDeepLinks(
+      rawNotifications.map((n) => ({
+        id: n.id,
+        userId: n.userId,
+        type: n.type,
+        category: n.category,
+        deepLink: n.deepLink,
+        linkToken: n.linkToken,
+        entityType: n.entityType,
+        entityId: n.entityId,
+        notificationClass: n.notificationClass,
+        read: n.read,
+        archived: n.archived,
+      })),
+      uid,
+    );
+    if (repairs.length > 0) {
+      void persistDeepLinkRepairs(uid, repairs);
+    }
+
+    const byId = new Map(notifications.map((n) => [n.id, n]));
+    const payload = rawNotifications.map((n) => {
+      const resolved = byId.get(n.id);
+      return {
+        ...n,
+        deepLink: resolved?.deepLink ?? n.deepLink,
+      };
+    });
+
     res.json({
       success: true,
-      notifications,
+      notifications: payload,
       unreadCount,
       alertCount,
       total,
@@ -149,7 +180,10 @@ export async function streamNotifications(req: Request, res: Response, next: Nex
 
     const push = async () => {
       const unreadCount = await prisma.notification.count({
-        where: { userId: uid, read: false, archived: false },
+        where: {
+          userId: uid, read: false, archived: false,
+          ...BELL_NOTIFICATION_CLASS_WHERE,
+        },
       });
       res.write(`data: ${JSON.stringify({ unreadCount, ts: Date.now() })}\n\n`);
     };

@@ -40,13 +40,14 @@ const BAND: Record<string, string> = {
 type Tab = 'PENDING' | 'CONFIRMED' | 'DISMISSED' | 'ALL';
 
 export function FindingsPanel({
-  campaignId, onChanged,
+  campaignId, onChanged, focusFindingId,
 }: {
   campaignId: string;
   onChanged?: () => void;
+  focusFindingId?: string | null;
 }) {
   const [data, setData] = useState<CampaignFindings | null>(null);
-  const [tab, setTab] = useState<Tab>('PENDING');
+  const [tab, setTab] = useState<Tab>(focusFindingId ? 'ALL' : 'PENDING');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -134,7 +135,7 @@ export function FindingsPanel({
         ) : (
           <ul className="space-y-2.5">
             {data.findings.map((f) => (
-              <FindingRow key={f.id} finding={f} busy={busyId === f.id}
+              <FindingRow key={f.id} finding={f} busy={busyId === f.id} focused={f.id === focusFindingId}
                 onDecide={(s) => void decide(f, s)} />
             ))}
           </ul>
@@ -203,9 +204,9 @@ function EmptyState({
 }
 
 function FindingRow({
-  finding: f, busy, onDecide,
+  finding: f, busy, focused, onDecide,
 }: {
-  finding: Finding; busy: boolean; onDecide: (s: 'CONFIRMED' | 'DISMISSED') => void;
+  finding: Finding; busy: boolean; focused?: boolean; onDecide: (s: 'CONFIRMED' | 'DISMISSED') => void;
 }) {
   const s = STATUS[f.status] ?? STATUS.PENDING;
   const settled = f.status !== 'PENDING';
@@ -213,7 +214,10 @@ function FindingRow({
   try { host = new URL(f.url).hostname; } catch { /* keep the raw string */ }
 
   return (
-    <li className={cn('rounded-xl border bg-bg-card p-3', settled ? 'border-bg-border opacity-85' : 'border-amber-500/25')}>
+    <li className={cn(
+      'rounded-xl border bg-bg-card p-3',
+      focused ? 'border-dna-500/60' : settled ? 'border-bg-border opacity-85' : 'border-amber-500/25',
+    )}>
       <div className="flex items-start justify-between gap-2 flex-wrap mb-1.5">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-white truncate">{f.assetName}</p>

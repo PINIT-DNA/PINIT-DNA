@@ -20,8 +20,11 @@ const orgInviteUpdate = jest.fn<AnyAsync>();
 const orgInviteCount = jest.fn<AnyAsync>();
 const campaignFindFirst = jest.fn<AnyAsync>();
 const campaignMemberFindUnique = jest.fn<AnyAsync>();
-const campaignMemberCreate = jest.fn<AnyAsync>();
 const campaignMemberFindMany = jest.fn<AnyAsync>();
+const campaignMemberCreate = jest.fn<AnyAsync>();
+const campaignMemberFindFirst = jest.fn<AnyAsync>();
+const campaignMemberDelete = jest.fn<AnyAsync>();
+const shareLinkUpdateMany = jest.fn<AnyAsync>();
 const organizationFindFirst = jest.fn<AnyAsync>();
 const assetFindMany = jest.fn<AnyAsync>();
 const tx = jest.fn<AnyAsync>();
@@ -48,7 +51,10 @@ jest.mock('../../src/lib/prisma', () => ({
       findUnique: campaignMemberFindUnique,
       findMany: campaignMemberFindMany,
       create: campaignMemberCreate,
+      findFirst: campaignMemberFindFirst,
+      delete: campaignMemberDelete,
     },
+    shareLink: { updateMany: shareLinkUpdateMany },
     organization: { findFirst: organizationFindFirst },
     asset: { findMany: assetFindMany },
     $transaction: tx,
@@ -94,6 +100,7 @@ beforeEach(() => {
   requireOrgRole.mockResolvedValue({ role: 'MANAGER' });
   orgInviteCount.mockResolvedValue(0);
   assetFindMany.mockResolvedValue([]);
+  campaignMemberFindUnique.mockResolvedValue(null);
   tx.mockImplementation(async (ops: unknown) => {
     if (Array.isArray(ops)) return Promise.all(ops);
     return undefined;
@@ -404,6 +411,72 @@ describe('invite by Pinit ID (OrganizationInvite + campaign binding)', () => {
     await expect(teamService.acceptInvite(RAHUL.id, 'tok-abc'))
       .rejects.toMatchObject({ message: 'Invitation expired', status: 410 });
   });
+
+  test('wrong account preview hides campaign details and writes nothing', async () => {
+    orgInviteFindUnique.mockResolvedValue({
+      id: 'inv-1',
+      token: 'tok-abc',
+      status: 'PENDING',
+      expiresAt: new Date(Date.now() + 86_400_000),
+      inviteeShortId: 'PINIT-RAHUL',
+      organizationId: ORG,
+      campaignId: CAMPAIGN,
+      campaignRole: 'CONTRIBUTOR',
+      campaignOnly: false,
+    });
+    userFindUnique.mockResolvedValue({ shortId: 'PINIT-OTHER' });
+
+    const preview = await teamService.previewInvite('user-other', 'tok-abc');
+    expect(preview.identityMatch).toBe(false);
+    expect(preview.campaignName).toBeNull();
+    expect(preview.campaignId).toBeNull();
+    expect(preview.organizationJoin).toBe(true);
+    expect(campaignFindFirst).not.toHaveBeenCalled();
+    expect(orgMemberCreate).not.toHaveBeenCalled();
+    expect(campaignMemberCreate).not.toHaveBeenCalled();
+  });
+
+  test('revoked invitation cannot be previewed or accepted', async () => {
+    orgInviteFindUnique.mockResolvedValue({
+      id: 'inv-1',
+      token: 'tok-abc',
+      status: 'REVOKED',
+      expiresAt: new Date(Date.now() + 86_400_000),
+      inviteeShortId: 'PINIT-RAHUL',
+      organizationId: ORG,
+    });
+
+    await expect(teamService.previewInvite(RAHUL.id, 'tok-abc'))
+      .rejects.toMatchObject({ message: 'This invitation was revoked', status: 403 });
+    await expect(teamService.acceptInvite(RAHUL.id, 'tok-abc'))
+      .rejects.toMatchObject({ message: 'Invalid or expired invitation', status: 404 });
+    expect(orgMemberCreate).not.toHaveBeenCalled();
+    expect(campaignMemberCreate).not.toHaveBeenCalled();
+  });
+
+  test('preview of a pending invite does not create membership (open ≠ accept)', async () => {
+    orgInviteFindUnique.mockResolvedValue({
+      id: 'inv-1',
+      token: 'tok-abc',
+      status: 'PENDING',
+      expiresAt: new Date(Date.now() + 86_400_000),
+      inviteeShortId: 'PINIT-RAHUL',
+      organizationId: ORG,
+      campaignId: CAMPAIGN,
+      campaignRole: 'CONTRIBUTOR',
+      campaignOnly: false,
+    });
+    userFindUnique.mockResolvedValue({ shortId: 'PINIT-RAHUL' });
+    campaignFindFirst.mockResolvedValue({ name: 'Campaign A' });
+
+    const preview = await teamService.previewInvite(RAHUL.id, 'tok-abc');
+    expect(preview.alreadyAccepted).toBe(false);
+    expect(preview.organizationJoin).toBe(true);
+    expect(preview.campaignOnly).toBe(false);
+    expect(orgInviteUpdate).not.toHaveBeenCalled();
+    expect(orgMemberCreate).not.toHaveBeenCalled();
+    expect(campaignMemberCreate).not.toHaveBeenCalled();
+  });
 });
 
 describe('listPeople merges pending invites', () => {
@@ -444,6 +517,7 @@ describe('listPeople merges pending invites', () => {
         role: 'MEMBER',
         createdAt: new Date('2026-01-02'),
         expiresAt: new Date('2026-02-01'),
+        campaignOnly: false,
       },
     ]);
 
@@ -469,5 +543,203 @@ describe('listPeople merges pending invites', () => {
       pendingInvite: true,
     });
     expect(active?.orgRole).toBe('MEMBER');
+  });
+});
+
+describe('external creator campaign-only invitation', () => {
+  test('invite does not consume team-seat pending count as org invite', async () => {
+    userFindUnique.mockResolvedValue({ id: RAHUL.id });
+    orgMemberFindUnique.mockResolvedValue(null);
+    campaignFindFirst.mockResolvedValue({ id: CAMPAIGN });
+    campaignMemberFindUnique.mockResolvedValue(null);
+    orgInviteFindFirst.mockResolvedValue(null);
+    orgInviteCreate.mockResolvedValue({
+      id: 'inv-ext',
+      token: 'tok-ext',
+      expiresAt: new Date('2026-09-15'),
+      role: 'MEMBER',
+      campaignId: CAMPAIGN,
+      campaignRole: 'DESIGNER',
+      campaignOnly: true,
+    });
+
+    const invite = await teamService.inviteMember(ORG, ACTOR, {
+      inviteeShortId: 'PINIT-RAHUL',
+      campaignId: CAMPAIGN,
+      campaignRole: 'DESIGNER',
+      campaignOnly: true,
+    });
+
+    expect(orgInviteCount).toHaveBeenCalledWith({
+      where: { organizationId: ORG, status: 'PENDING', campaignOnly: false },
+    });
+    expect(orgInviteCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        inviteeShortId: 'PINIT-RAHUL',
+        campaignId: CAMPAIGN,
+        campaignRole: 'DESIGNER',
+        campaignOnly: true,
+      }),
+    });
+    expect(invite.campaignOnly).toBe(true);
+  });
+
+  test('accept places CampaignMember isExternal without OrganizationMember', async () => {
+    orgInviteFindUnique.mockResolvedValue({
+      id: 'inv-ext',
+      token: 'tok-ext',
+      status: 'PENDING',
+      expiresAt: new Date(Date.now() + 86_400_000),
+      inviteeShortId: 'PINIT-RAHUL',
+      organizationId: ORG,
+      role: 'MEMBER',
+      campaignId: CAMPAIGN,
+      campaignRole: 'DESIGNER',
+      invitedByUserId: ACTOR,
+      campaignOnly: true,
+    });
+    userFindUnique.mockResolvedValue({ shortId: 'PINIT-RAHUL', fullName: 'Rahul' });
+    orgMemberFindUnique.mockResolvedValue(null);
+    campaignFindFirst.mockResolvedValue({ id: CAMPAIGN, organizationId: ORG });
+    campaignMemberFindUnique.mockResolvedValue(null);
+    campaignMemberCreate.mockResolvedValue({ id: 'cm-ext' });
+    orgInviteUpdate.mockResolvedValue({});
+
+    const result = await teamService.acceptInvite(RAHUL.id, 'tok-ext');
+
+    expect(result).toMatchObject({ campaignOnly: true, isExternal: true, campaignId: CAMPAIGN });
+    expect(orgMemberCreate).not.toHaveBeenCalled();
+    expect(campaignMemberCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        campaignId: CAMPAIGN,
+        userId: RAHUL.id,
+        isExternal: true,
+        roleLabel: 'DESIGNER',
+      }),
+    });
+  });
+
+  test('wrong Pinit account cannot accept campaign-only invite', async () => {
+    orgInviteFindUnique.mockResolvedValue({
+      id: 'inv-ext',
+      token: 'tok-ext',
+      status: 'PENDING',
+      expiresAt: new Date(Date.now() + 86_400_000),
+      inviteeShortId: 'PINIT-RAHUL',
+      organizationId: ORG,
+      campaignOnly: true,
+      campaignId: CAMPAIGN,
+    });
+    userFindUnique.mockResolvedValue({ shortId: 'PINIT-OTHER' });
+
+    await expect(teamService.acceptInvite('user-other', 'tok-ext'))
+      .rejects.toMatchObject({
+        message: 'This invitation is for a different Pinit account',
+        status: 403,
+      });
+    expect(campaignMemberCreate).not.toHaveBeenCalled();
+    expect(orgMemberCreate).not.toHaveBeenCalled();
+  });
+
+  test('duplicate accept does not create a second CampaignMember', async () => {
+    orgInviteFindUnique.mockResolvedValue({
+      id: 'inv-ext',
+      token: 'tok-ext',
+      status: 'PENDING',
+      expiresAt: new Date(Date.now() + 86_400_000),
+      inviteeShortId: 'PINIT-RAHUL',
+      organizationId: ORG,
+      role: 'MEMBER',
+      campaignId: CAMPAIGN,
+      campaignRole: 'DESIGNER',
+      invitedByUserId: ACTOR,
+      campaignOnly: true,
+    });
+    userFindUnique.mockResolvedValue({ shortId: 'PINIT-RAHUL', fullName: 'Rahul' });
+    orgMemberFindUnique.mockResolvedValue(null);
+    campaignFindFirst.mockResolvedValue({ id: CAMPAIGN, organizationId: ORG });
+    campaignMemberFindUnique.mockResolvedValue({ id: 'cm-already' });
+    orgInviteUpdate.mockResolvedValue({});
+
+    await teamService.acceptInvite(RAHUL.id, 'tok-ext');
+    expect(campaignMemberCreate).not.toHaveBeenCalled();
+  });
+
+  test('pending campaign-only invite lists under External creators', async () => {
+    campaignFindFirst.mockResolvedValue({
+      id: CAMPAIGN,
+      clientId: null,
+      client: null,
+    });
+    campaignMemberFindMany.mockResolvedValue([]);
+    orgInviteFindMany.mockResolvedValue([
+      {
+        id: 'inv-ext-pend',
+        inviteeShortId: 'PINIT-NEW',
+        campaignRole: 'DESIGNER',
+        role: 'MEMBER',
+        createdAt: new Date('2026-01-02'),
+        expiresAt: new Date('2026-02-01'),
+        campaignOnly: true,
+      },
+    ]);
+    userFindMany.mockResolvedValue([{ shortId: 'PINIT-NEW', fullName: 'Isha' }]);
+
+    const result = await campaignAccessService.listPeople(ORG, ACTOR, CAMPAIGN);
+    const pending = result.people.find((p) => p.id === 'invite:inv-ext-pend');
+    expect(pending).toMatchObject({
+      kind: 'external',
+      name: 'Isha',
+      accessStatus: 'INVITED',
+      pendingInvite: true,
+      orgRole: null,
+    });
+  });
+
+  test('preview does not grant access', async () => {
+    orgInviteFindUnique.mockResolvedValue({
+      id: 'inv-ext',
+      token: 'tok-ext',
+      status: 'PENDING',
+      expiresAt: new Date(Date.now() + 86_400_000),
+      inviteeShortId: 'PINIT-RAHUL',
+      organizationId: ORG,
+      campaignOnly: true,
+      campaignId: CAMPAIGN,
+      campaignRole: 'DESIGNER',
+    });
+    userFindUnique.mockResolvedValue({ shortId: 'PINIT-RAHUL' });
+    campaignFindFirst.mockResolvedValue({ name: 'Spring drop' });
+
+    const preview = await teamService.previewInvite(RAHUL.id, 'tok-ext');
+    expect(preview.campaignOnly).toBe(true);
+    expect(preview.organizationJoin).toBe(false);
+    expect(preview.identityMatch).toBe(true);
+    expect(preview.campaignName).toBe('Spring drop');
+    expect(orgMemberCreate).not.toHaveBeenCalled();
+    expect(campaignMemberCreate).not.toHaveBeenCalled();
+  });
+
+  test('removing an external creator deactivates their share links', async () => {
+    campaignFindFirst.mockResolvedValue({ id: CAMPAIGN, organizationId: ORG });
+    campaignMemberFindFirst.mockResolvedValue({
+      id: 'cm-ext',
+      campaignId: CAMPAIGN,
+      isExternal: true,
+      assetAccess: [
+        { shareToken: 'tok-a' },
+        { shareToken: 'tok-b' },
+      ],
+    });
+    shareLinkUpdateMany.mockResolvedValue({ count: 2 });
+    campaignMemberDelete.mockResolvedValue({});
+
+    await campaignService.removeMember(ORG, ACTOR, CAMPAIGN, 'cm-ext');
+
+    expect(shareLinkUpdateMany).toHaveBeenCalledWith({
+      where: { token: { in: ['tok-a', 'tok-b'] } },
+      data: { isActive: false },
+    });
+    expect(campaignMemberDelete).toHaveBeenCalledWith({ where: { id: 'cm-ext' } });
   });
 });

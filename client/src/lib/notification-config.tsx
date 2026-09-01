@@ -23,6 +23,9 @@ export interface NotificationItem {
   ip?: string;
   deepLink?: string;
   aggregateCount?: number;
+  entityType?: string | null;
+  entityId?: string | null;
+  notificationClass?: string | null;
 }
 
 export const NOTIFICATION_TYPE_CONFIG: Record<string, { icon: React.ReactNode; color: string }> = {
@@ -127,15 +130,43 @@ export const NOTIFICATION_CATEGORY_LABELS: Record<string, string> = {
   automation: 'Automation',
 };
 
+const GENERIC_LIST_LINKS = new Set([
+  '/monitoring',
+  '/investigation',
+  '/unified-investigation',
+  '/certificates',
+  '/dna',
+  '/dna-records',
+  '/vault',
+  '/dashboard',
+  '/access-intelligence',
+  '/pinit-hub/investigation',
+  '/profile?tab=notifications',
+]);
+
+function isGenericListLink(link: string): boolean {
+  if (GENERIC_LIST_LINKS.has(link)) return true;
+  const path = link.split('?')[0] ?? '';
+  return GENERIC_LIST_LINKS.has(path) && !link.includes('id=') && !link.includes('monitor=') && !link.includes('tab=');
+}
+
 export function resolveNotificationDeepLink(n: NotificationItem): string {
+  if (n.deepLink && !isGenericListLink(n.deepLink)) return n.deepLink;
+  if (n.linkToken) return `/access-intelligence/${encodeURIComponent(n.linkToken)}`;
+  if (n.entityType === 'vault' && n.entityId) return `/vault?id=${n.entityId}`;
+  if (n.entityType === 'dna_record' && n.entityId) return `/dna-records?id=${n.entityId}`;
+  if (n.entityType === 'monitor_record' && n.entityId) return `/monitoring?monitor=${n.entityId}`;
+  if (n.entityType === 'certificate' && n.entityId) return `/certificates?id=${encodeURIComponent(n.entityId)}`;
+  if (n.deepLink === '/investigation' || n.deepLink === '/unified-investigation') return '/pinit-hub/investigation';
+  if (n.deepLink === '/dna') return '/dna-records';
+  if (n.deepLink?.startsWith('/protected-posts/')) return '/vault';
   if (n.deepLink) return n.deepLink;
-  if (n.linkToken) return '/access-intelligence';
   if (n.category === 'monitoring') return '/monitoring';
   if (n.category === 'account') return '/profile?tab=security';
   if (n.type === 'DUPLICATE_UPLOAD_ATTEMPT') return '/duplicate-attempts';
-  if (n.type.startsWith('INVESTIGATION_') || n.type === 'AI_TAMPERING_DETECTED') return '/investigation';
+  if (n.type.startsWith('INVESTIGATION_') || n.type === 'AI_TAMPERING_DETECTED') return '/pinit-hub/investigation';
   if (n.type.startsWith('CERT_')) return '/certificates';
-  if (n.type.startsWith('DNA_')) return '/dna';
+  if (n.type.startsWith('DNA_')) return '/dna-records';
   return '/profile?tab=notifications';
 }
 

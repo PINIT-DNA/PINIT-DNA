@@ -67,14 +67,14 @@ export function Topbar({ onMenu }: TopbarProps) {
           <ChevronRight size={10} />
         </div>
         <div className="min-w-0">
-          <p className="text-base lg:text-sm font-semibold text-white truncate">{meta.title}</p>
+          <p className="text-base lg:text-sm font-semibold text-slate-900 dark:text-white truncate">{meta.title}</p>
         </div>
         {meta.subtitle && (
           <p className="hidden xl:block text-xs text-gray-500 truncate">— {meta.subtitle}</p>
         )}
       </div>
 
-      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 max-w-[70%] sm:max-w-none justify-end">
         <AccountModeSwitcher />
         <Link
           to="/generate"

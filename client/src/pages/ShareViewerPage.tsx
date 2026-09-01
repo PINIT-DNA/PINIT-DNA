@@ -629,13 +629,23 @@ export function ShareViewerPage() {
   // panel that cannot load must never block someone from reading their file.
   const [review, setReview] = useState<ClientReviewContext | null>(null);
   const [reviewNonce, setReviewNonce] = useState(0);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
+    setReviewError(null);
     getShareReview(token)
       .then((r) => { if (!cancelled) setReview(r); })
-      .catch(() => { if (!cancelled) setReview(null); });
+      .catch((err) => {
+        if (cancelled) return;
+        setReview(null);
+        const status = (err as { response?: { status?: number; data?: { error?: string } } })?.response?.status;
+        const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+        if (status === 403) {
+          setReviewError(msg ?? 'This review link has been revoked or has expired.');
+        }
+      });
     return () => { cancelled = true; };
   }, [token, reviewNonce]);
 
@@ -1336,6 +1346,13 @@ export function ShareViewerPage() {
         )}
 
         {/* Review — renders only when the sender turned it on for this link. */}
+        {reviewError && (
+          <div className="w-full max-w-3xl mx-auto mt-6 print-hide">
+            <p className="text-sm text-amber-400 border border-amber-500/30 bg-amber-500/10 rounded-xl px-3 py-2">
+              {reviewError}
+            </p>
+          </div>
+        )}
         {review && (
           <div className="w-full max-w-3xl mx-auto mt-6 print-hide">
             <ClientReviewPanel

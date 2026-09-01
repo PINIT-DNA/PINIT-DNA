@@ -157,7 +157,7 @@ export function TeamPanel() {
         )}
       </EnterpriseCard>
 
-      <EnterpriseCard title="Members" icon={<Users size={16} />}>
+      <EnterpriseCard title="Team members" icon={<Users size={16} />}>
         <ul className="divide-y divide-bg-border -mx-1">
           {members.map((m) => {
             const Icon = roleIcon(m.role);
@@ -183,7 +183,7 @@ export function TeamPanel() {
                     </select>
                     <button
                       type="button"
-                      onClick={() => void removeMember(m.id).then(() => toast.success('Member removed'))}
+                      onClick={() => void removeMember(m.id).then(() => toast.success('Removed from team'))}
                       className="p-1.5 text-red-400 hover:bg-red-500/10 rounded-lg"
                       aria-label="Remove member"
                     >

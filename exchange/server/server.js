@@ -149,6 +149,7 @@ initDatabase()
     });
   })
   .catch((err) => {
-    console.error('Failed to initialize database:', err);
+    const message = err?.message || String(err);
+    console.error(message.startsWith('FATAL:') ? message : `FATAL: Failed to initialize database: ${message}`);
     process.exit(1);
   });

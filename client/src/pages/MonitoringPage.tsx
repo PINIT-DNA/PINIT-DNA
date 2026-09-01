@@ -23,6 +23,7 @@ import { Modal } from '../components/ui/Modal';
 import { cn } from '../components/ui/utils';
 import { resolveAlertUrl, resolveAlertSubtitle } from '../lib/crawler-url';
 import { downloadDmcaDraft } from '../lib/dmca-draft';
+import { useSearchParams } from 'react-router-dom';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -194,7 +195,7 @@ function AlertCard({ alert, onDismiss, onConfirm }: {
 
 // ─── Monitor Card ─────────────────────────────────────────────────────────────
 
-function MonitorCard({ m, onCheck, onPause, onResume, onScanTypeChange, checking, onRefresh }: {
+function MonitorCard({ m, onCheck, onPause, onResume, onScanTypeChange, checking, onRefresh, defaultExpanded }: {
   m: MonitorRecord;
   onCheck: () => void;
   onPause: () => void;
@@ -202,8 +203,9 @@ function MonitorCard({ m, onCheck, onPause, onResume, onScanTypeChange, checking
   onScanTypeChange: (t: string) => void;
   checking: boolean;
   onRefresh: () => void;
+  defaultExpanded?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(Boolean(defaultExpanded));
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [newUrl, setNewUrl] = useState('');
   const [savingUrl, setSavingUrl] = useState(false);
@@ -410,6 +412,8 @@ interface EngineStats {
 }
 
 export function MonitoringPage() {
+  const [params] = useSearchParams();
+  const focusMonitor = params.get('monitor');
   const [monitors,    setMonitors]    = useState<MonitorRecord[]>([]);
   const [alerts,      setAlerts]      = useState<CrawlResult[]>([]);
   const [stats,       setStats]       = useState<(Stats & { monitoringEnabled?: boolean; crawlerEngineEnabled?: boolean }) | null>(null);
@@ -801,6 +805,7 @@ export function MonitoringPage() {
           <div className="space-y-3">
             {monitors.map(m => (
               <MonitorCard key={m.id} m={m}
+                defaultExpanded={m.id === focusMonitor}
                 checking={checking === m.id}
                 onCheck={() => handleCheck(m.id)}
                 onPause={() => api.post(`${API_BASE_URL}/monitor/${m.id}/pause`).then(load)}

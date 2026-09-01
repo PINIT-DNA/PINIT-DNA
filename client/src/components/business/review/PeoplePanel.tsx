@@ -18,7 +18,7 @@ import {
 import toast from 'react-hot-toast';
 import {
   listCampaignPeople, grantCampaignAccess, updateCampaignAccess,
-  revokeCampaignAccess, listCampaignAccessLinks,
+  revokeCampaignAccess, listCampaignAccessLinks, revokeCampaignPeopleInvite,
 } from '../../../services/business.api';
 import type {
   CampaignPeople, CampaignPerson, CampaignAsset, AccessLink,
@@ -138,7 +138,7 @@ export function PeoplePanel({
                 ? ACCESS_BADGE.INVITED
                 : ACCESS_BADGE.ACTIVE;
               return (
-                <li key={p.id} className="flex items-center gap-3 rounded-lg border border-bg-border
+                <li key={p.id} className="flex flex-wrap items-center gap-2 sm:gap-3 rounded-lg border border-bg-border
                                           bg-bg-elevated/40 px-3 py-2.5">
                   <Avatar name={p.name} tone="dna" />
                   <div className="min-w-0 flex-1">
@@ -147,7 +147,7 @@ export function PeoplePanel({
                       {campaignRoleLabel(p.roleLabel)}
                       {p.shortId ? ` · ${p.shortId}` : ''}
                       {' · '}
-                      <span className="text-gray-400">Organization</span>
+                      <span className="text-gray-400">Team member</span>
                     </p>
                   </div>
                   <span className={cn(
@@ -174,7 +174,7 @@ export function PeoplePanel({
           </button>
         )}
         <p className="text-2xs text-gray-500 mt-2.5">
-          Team members reach campaign assets through their organization role. Change it in Team.
+          Campaign role is the job on this campaign. Business role (Owner / Manager / Member) is unchanged — manage that in Team.
         </p>
       </SectionCard>
 
@@ -184,7 +184,7 @@ export function PeoplePanel({
         action={onAddPerson && (
           <button type="button" onClick={onAddPerson}
             className="btn btn-secondary text-2xs inline-flex items-center gap-1.5">
-            <UserPlus size={12} /> Add
+            <UserPlus size={12} /> Add external creator
           </button>
         )}
       >
@@ -193,7 +193,8 @@ export function PeoplePanel({
             <ExternalLink size={20} className="text-gray-500 mx-auto mb-2" />
             <p className="text-sm font-semibold text-white mb-0.5">No external creators yet</p>
             <p className="text-xs text-gray-400">
-              Add a freelancer or agency partner, then give them access to specific assets.
+              Invite a freelancer by Pinit ID, or record someone without an account, then give them
+              access to specific assets. They never join the organization team.
             </p>
           </div>
         ) : (
@@ -239,6 +240,7 @@ function ExternalPersonRow({
   const [rowError, setRowError] = useState<string | null>(null);
 
   const badge = ACCESS_BADGE[p.accessStatus] ?? ACCESS_BADGE.NONE;
+  const pending = Boolean(p.pendingInvite) || p.accessStatus === 'INVITED';
   const assigned = new Set(p.assets.map((a) => a.assetId));
   const unassigned = assets.filter((a) => !assigned.has(a.id));
 
@@ -291,6 +293,32 @@ function ExternalPersonRow({
 
       {expanded && (
         <div className="px-3 pb-3 space-y-3 border-t border-bg-border/70 pt-3">
+          {pending ? (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-400">
+                Invitation pending. They must sign in as {p.shortId ?? 'the invited Pinit account'} and
+                accept. Opening the link alone does not grant access, and they are not an organization member.
+              </p>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  const inviteId = p.id.startsWith('invite:') ? p.id.slice('invite:'.length) : p.id;
+                  if (!window.confirm(`Revoke the invitation for ${p.name}?`)) return;
+                  void act(() => revokeCampaignPeopleInvite(inviteId), 'Invitation revoked');
+                }}
+                className="text-2xs font-semibold text-danger hover:text-red-400 inline-flex items-center gap-1 disabled:opacity-50"
+              >
+                <ShieldOff size={11} /> Revoke invitation
+              </button>
+              {rowError && (
+                <p role="alert" className="text-2xs text-danger flex items-start gap-1.5">
+                  <AlertTriangle size={11} className="shrink-0 mt-px" /> {rowError}
+                </p>
+              )}
+            </div>
+          ) : (
+            <>
           {/* What they currently reach */}
           <div>
             <p className="text-2xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">
@@ -460,6 +488,8 @@ function ExternalPersonRow({
             <p role="alert" className="text-2xs text-danger flex items-start gap-1.5">
               <AlertTriangle size={11} className="shrink-0 mt-px" /> {rowError}
             </p>
+          )}
+            </>
           )}
         </div>
       )}

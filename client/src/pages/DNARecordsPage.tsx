@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Search, Database, RefreshCw, Eye, ChevronDown, ChevronUp, Share2, Cpu } from 'lucide-react';
 import { API_BASE_URL } from '../config/api.config';
 import { format } from 'date-fns';
@@ -9,7 +9,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { Badge, ClassificationBadge, FileTypeBadge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import type { DnaRecord } from '../types/dashboard.types';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 function DnaDetailModal({ record, onClose }: { record: DnaRecord; onClose: () => void }) {
@@ -58,6 +58,8 @@ type SortField = 'createdAt' | 'imageFilename' | 'fileType' | 'status';
 
 export function DnaRecordsPage() {
   const { data: records, loading, error, refetch } = useApi(listDnaRecords, [], { cacheKey: 'dna-records' });
+  const [params] = useSearchParams();
+  const focusId = params.get('id');
   const [search, setSearch]     = useState('');
   const [filter, setFilter]     = useState('ALL');
   const [sort, setSort]         = useState<SortField>('createdAt');
@@ -67,6 +69,12 @@ export function DnaRecordsPage() {
   const [aiResults, setAiResults] = useState<string[]>([]); // dnaRecordIds
   const [aiSearching, setAiSearching] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!focusId || !records?.length || selected?.id === focusId) return;
+    const match = records.find((r) => r.id === focusId);
+    if (match) setSelected(match);
+  }, [focusId, records, selected?.id]);
 
   const handleSearch = async (q: string) => {
     setSearch(q);

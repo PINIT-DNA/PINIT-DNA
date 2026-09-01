@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Archive, Search, RefreshCw, Eye, Check, Clock, ShieldCheck, MapPin, LayoutGrid, List, Cpu } from 'lucide-react';
 import { VaultFileThumbnail } from '../components/VaultFileThumbnail';
 import { VaultDetailSidePanel } from '../components/VaultDetailSidePanel';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { useApi, formatBytes } from '../hooks/useApi';
@@ -216,6 +216,8 @@ function VaultGalleryCard({
 
 export function VaultPage() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const focusId = params.get('id');
   const { data: records, loading, error, refetch, setData: setRecords } = useApi(listVaultRecords, [], { cacheKey: 'vault-records' });
   const [search, setSearch]     = useState('');
   const [selected, setSelected] = useState<VaultRecord | null>(null);
@@ -226,6 +228,12 @@ export function VaultPage() {
   const [viewMode, setViewMode] = useState<'gallery' | 'list'>('gallery');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!focusId || !records?.length || selected?.id === focusId) return;
+    const match = records.find((r) => r.id === focusId);
+    if (match) setSelected(match);
+  }, [focusId, records, selected?.id]);
 
   const handleShare = (record: VaultRecord) => {
     setSelected(null);

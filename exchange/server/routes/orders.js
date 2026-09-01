@@ -345,7 +345,9 @@ router.post('/checkout', requireBuyer, async (req, res) => {
       buyerOrg: body.buyer_org,
       buyerPinitId: body.buyer_pinit_id,
       couponPercent,
-      termsAcceptedAt: intent.terms_accepted_at || null,
+      termsAcceptedAt: (body.accept_terms === true || body.accept_terms === 'true')
+        ? new Date().toISOString()
+        : null,
       payment: {
         paymentStatus: 'mock_paid',
         razorpayOrderId: rz.orderId,

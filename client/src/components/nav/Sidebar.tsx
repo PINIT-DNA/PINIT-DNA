@@ -168,7 +168,7 @@ const BUSINESS_NAV_ITEMS: Array<{
   { to: '/reports', icon: Shield, label: 'Reports', feature: FeatureKey.FEATURE_INVESTIGATION },
   { to: '/monitoring', icon: Radio, label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },
   { to: '/certificates', icon: Award, label: 'Certificates' },
-  { to: '/profile?tab=team', icon: Users, label: 'Team' },
+  { to: '/business/team', icon: Users, label: 'Team' },
   { to: '/profile?tab=audit', icon: FileSearch, label: 'Audit Logs' },
   { to: '/profile?tab=api', icon: Key, label: 'API Access', feature: 'FEATURE_API_ACCESS' },
   { to: '/profile', icon: Settings, label: 'Organization Profile' },
