@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { realtimeHub } from '../../services/platform-events/realtime-hub';
 import { BELL_NOTIFICATION_CLASS_WHERE } from '../../services/platform-events/notification-policy';
+import { notificationInboxWhere } from '../../services/platform-events/notification-inbox';
 import {
   applyResolvedDeepLinks,
   persistDeepLinkRepairs,
@@ -63,6 +64,18 @@ export async function getNotifications(req: Request, res: Response, next: NextFu
       : [{ createdAt: 'desc' }];
 
     const uid = userId(req);
+    const inboxUser = await prisma.user.findUnique({
+      where: { id: uid },
+      select: { notificationInboxClearedAt: true },
+    });
+    const inboxWhere = notificationInboxWhere(inboxUser?.notificationInboxClearedAt);
+
+    // Bell/inbox hides rows at or before the clear watermark. History (no
+    // view=bell) still returns every stored row, including those "cleared".
+    if (view === 'bell') {
+      Object.assign(where, inboxWhere);
+    }
+
     const [rawNotifications, unreadCount, total, alertCount] = await Promise.all([
       prisma.notification.findMany({
         where,
@@ -70,11 +83,12 @@ export async function getNotifications(req: Request, res: Response, next: NextFu
         take: limit,
         skip: offset,
       }),
-      // The badge counts bell-worthy rows only. Activity must never raise it.
+      // Badge = unread in the current inbox only. History unread is unchanged.
       prisma.notification.count({
         where: {
           userId: uid, read: false, archived: false,
           ...BELL_NOTIFICATION_CLASS_WHERE,
+          ...inboxWhere,
         },
       }),
       prisma.notification.count({ where }),
@@ -82,6 +96,7 @@ export async function getNotifications(req: Request, res: Response, next: NextFu
         where: {
           userId: uid, read: false, archived: false,
           notificationClass: 'ALERT',
+          ...inboxWhere,
         },
       }),
     ]);
@@ -147,6 +162,19 @@ export async function markAllRead(req: Request, res: Response, next: NextFunctio
   } catch (err) { next(err); }
 }
 
+/** Hide the current inbox from the bell/badge. Does not delete rows. */
+export async function clearInbox(req: Request, res: Response, next: NextFunction) {
+  try {
+    const uid = userId(req);
+    await prisma.user.update({
+      where: { id: uid },
+      data: { notificationInboxClearedAt: new Date() },
+    });
+    await realtimeHub.notify(uid);
+    res.json({ success: true, unreadCount: 0 });
+  } catch (err) { next(err); }
+}
+
 export async function archiveNotification(req: Request, res: Response, next: NextFunction) {
   try {
     await prisma.notification.updateMany({
@@ -179,10 +207,15 @@ export async function streamNotifications(req: Request, res: Response, next: Nex
     }
 
     const push = async () => {
+      const inboxUser = await prisma.user.findUnique({
+        where: { id: uid },
+        select: { notificationInboxClearedAt: true },
+      });
       const unreadCount = await prisma.notification.count({
         where: {
           userId: uid, read: false, archived: false,
           ...BELL_NOTIFICATION_CLASS_WHERE,
+          ...notificationInboxWhere(inboxUser?.notificationInboxClearedAt),
         },
       });
       res.write(`data: ${JSON.stringify({ unreadCount, ts: Date.now() })}\n\n`);

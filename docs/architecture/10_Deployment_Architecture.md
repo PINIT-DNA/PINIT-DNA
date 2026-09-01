@@ -124,7 +124,7 @@ Exact CI workflow files (GitHub Actions) — **verify in repo if present**; prim
 
 ### Frontend
 
-`VITE_API_BASE_URL`, optional `VITE_SUPABASE_*`, `VITE_PROXY_TARGET` (dev).
+`VITE_API_BASE_URL`, optional `VITE_SUPABASE_*`, `VITE_PROXY_TARGET` (dev), optional `VITE_MAPTILER_API_KEY` (public MapTiler raster tile key — Vercel Hub SPA only; tiles are requested in the browser).
 
 ### AI
 

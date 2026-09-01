@@ -489,15 +489,34 @@ export async function previewVaultFile(
     const userId = getAuthUserId(req);
     const result = await vaultService.retrieve(id, userId);
 
+    let body = result.originalBuffer;
+    let contentType = result.originalMimeType || 'application/octet-stream';
+
+    const wantThumb = req.query['thumb'] === '1' || req.query['thumb'] === 'true';
+    if (wantThumb && contentType.startsWith('image/') && !/svg/i.test(contentType)) {
+      try {
+        const sharp = (await import('sharp')).default;
+        body = await sharp(result.originalBuffer)
+          .rotate()
+          .resize(480, 480, { fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 72 })
+          .toBuffer();
+        contentType = 'image/jpeg';
+      } catch {
+        body = result.originalBuffer;
+        contentType = result.originalMimeType;
+      }
+    }
+
     res.set({
-      'Content-Type':        result.originalMimeType,
-      'Content-Length':      String(result.originalBuffer.length),
+      'Content-Type':        contentType,
+      'Content-Length':      String(body.length),
       'Content-Disposition': `inline; filename="${result.originalFileName}"`,
       'X-Vault-Id':          result.vaultId,
       'Cache-Control':       'private, max-age=300',
     });
 
-    res.status(200).send(result.originalBuffer);
+    res.status(200).send(body);
   } catch (err) {
     if (err instanceof Error && err.message.includes('not found')) {
       return next(new AppError(404, err.message));

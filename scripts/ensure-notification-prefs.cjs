@@ -15,6 +15,7 @@ const COLUMNS = [
   'ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "notifyReports" BOOLEAN NOT NULL DEFAULT true',
   'ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "notifySystem" BOOLEAN NOT NULL DEFAULT true',
   'ALTER TABLE "notifications" ADD COLUMN IF NOT EXISTS "archived" BOOLEAN NOT NULL DEFAULT false',
+  'ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "notificationInboxClearedAt" TIMESTAMP(3)',
 ];
 
 async function main() {

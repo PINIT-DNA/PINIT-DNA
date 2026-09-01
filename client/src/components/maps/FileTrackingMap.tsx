@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { isValidMapCoordinate } from '../../lib/geo-coords';
+import { leafletBasemapLayer } from './leafletBasemap';
 
 export type AccessKind = 'direct_recipient' | 'direct_share' | 'reshared';
 
@@ -133,11 +134,7 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
     });
     mapInstance.current = map;
 
-    // Dark tile layer
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
-      maxZoom: 18,
-    }).addTo(map);
+    leafletBasemapLayer('dark').addTo(map);
 
     const markers: L.LatLng[] = [];
 

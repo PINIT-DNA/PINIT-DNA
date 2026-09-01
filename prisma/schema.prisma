@@ -464,6 +464,8 @@ model User {
   notifySecurity           Boolean               @default(true)
   notifyReports            Boolean               @default(true)
   notifySystem             Boolean               @default(true)
+  /// Bell/inbox hide watermark. Does not delete notification rows.
+  notificationInboxClearedAt DateTime?
   organization             String?
   organizationIndustry     OrganizationIndustry?
   organizationSize         OrganizationSize?

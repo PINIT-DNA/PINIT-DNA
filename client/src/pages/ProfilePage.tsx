@@ -492,7 +492,7 @@ function NotificationHistoryPanel() {
             Archived
           </label>
           <button onClick={markAllRead} className="text-2xs text-dna-400 hover:text-white px-2 py-1 rounded border border-bg-border">
-            Mark all read
+            Mark all as read
           </button>
         </div>
       </div>

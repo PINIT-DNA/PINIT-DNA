@@ -348,10 +348,19 @@ export function BusinessNotificationsPanel({
             </span>
           )}
           <button type="button" onClick={() => void markAllRead()} className="text-2xs text-gray-400 hover:text-white">
-            Mark all read
+            Mark all as read
           </button>
-          <Link to="/profile" className="text-2xs text-dna-400 hover:text-dna-300">
-            View all
+          <button
+            type="button"
+            onClick={() => {
+              void api.put(`${API_BASE_URL}/notifications/clear-inbox`).then(() => onRefresh());
+            }}
+            className="text-2xs text-gray-400 hover:text-white"
+          >
+            Clear all
+          </button>
+          <Link to="/profile?tab=notifications" className="text-2xs text-dna-400 hover:text-dna-300">
+            View notification history
           </Link>
         </div>
       }

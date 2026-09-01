@@ -7,6 +7,7 @@
 import axios from 'axios';
 import { formatDistanceToNow } from 'date-fns';
 import { API_BASE_URL } from '../config/api.config';
+import { vaultPreviewBlobLooksLikeJson } from '../lib/vault-preview-bytes';
 import { refreshAccessToken, clearTokens } from '../lib/auth';
 import type {
   DnaRecord, VaultRecord, SupportedTypesResponse,
@@ -243,8 +244,9 @@ export async function retrieveFromVault(vaultId: string): Promise<Blob> {
 }
 
 /** Clean decrypted bytes for vault gallery thumbnails (no forensic re-embedding). */
-export async function previewVaultFile(vaultId: string): Promise<Blob> {
-  const { data, headers } = await api.get<Blob>(`${API_BASE_URL}/vault/${vaultId}/preview`, {
+export async function previewVaultFile(vaultId: string, opts?: { thumb?: boolean }): Promise<Blob> {
+  const q = opts?.thumb === false ? '' : '?thumb=1';
+  const { data, headers } = await api.get<Blob>(`${API_BASE_URL}/vault/${vaultId}/preview${q}`, {
     responseType: 'blob',
     timeout: 120_000,
   });
@@ -254,20 +256,23 @@ export async function previewVaultFile(vaultId: string): Promise<Blob> {
       : Array.isArray(rawHeader) ? rawHeader[0] ?? ''
         : ''
   ).toLowerCase();
-  if (contentType.includes('application/json')) {
-    const raw = await (data as Blob).text();
+  const buf = data instanceof Blob ? await data.arrayBuffer() : (data as ArrayBuffer);
+  const bytes = new Uint8Array(buf);
+  if (contentType.includes('application/json') || vaultPreviewBlobLooksLikeJson(bytes)) {
+    const raw = new TextDecoder().decode(bytes);
     try {
       const parsed = JSON.parse(raw) as { error?: string; message?: string };
       throw new Error(parsed.error ?? parsed.message ?? 'Preview failed');
     } catch (e) {
-      if (e instanceof Error && e.message !== 'Preview failed') throw e;
+      if (e instanceof Error && e.message !== 'Preview failed' && !e.message.startsWith('{')) throw e;
       throw new Error('Preview failed');
     }
   }
-  if (!(data instanceof Blob) || data.size === 0) {
+  if (bytes.byteLength === 0) {
     throw new Error('Empty preview response');
   }
-  return data;
+  const mime = contentType.split(';')[0]?.trim() || 'application/octet-stream';
+  return new Blob([buf], { type: mime });
 }
 
 export interface ProtectedDownloadStep {

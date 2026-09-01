@@ -451,14 +451,12 @@ export function DashboardPage() {
           ) : stats && stats.recentActivity.length > 0 ? (
             <div className="space-y-2">
               {stats.recentActivity.map(r => {
-                const vault = r.vaultId
-                  ? vaultRecords.find(v => v.id === r.vaultId) ?? vaultByDnaId.get(r.id)
-                  : vaultByDnaId.get(r.id);
+                const vaultId = r.vaultId ?? vaultByDnaId.get(r.id)?.id ?? null;
                 return (
                   <div key={r.id} className="flex items-center gap-3 p-3 rounded-lg bg-bg-elevated border border-bg-border hover:border-dna-500/30 transition-all">
-                    {vault ? (
+                    {vaultId ? (
                       <VaultFileThumbnail
-                        vaultId={vault.id}
+                        vaultId={vaultId}
                         fileName={r.imageFilename}
                         mimeType={r.imageMimeType}
                         variant="compact"

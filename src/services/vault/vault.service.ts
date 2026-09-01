@@ -28,6 +28,7 @@ import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { encrypt, decrypt } from './encryption.service';
 import { uploadVaultFile, downloadVaultFile, deleteVaultFile, isSupabaseStorageConfigured, isSupabaseStorageRestricted } from '../../lib/supabase-storage';
+import { vaultEncryptedLooksLikeLocalPath } from './vault-storage-path';
 import { assertRecordOwner } from '../../lib/tenant-scope';
 import { identityEmbeddingPipeline } from '../identity/identity-embedding-pipeline.service';
 import { documentPageProtectionService } from '../documents/document-page-protection.service';
@@ -486,22 +487,30 @@ export class VaultService {
     assertRecordOwner(record.dnaRecord?.ownerUserId, requestingUserId, 'Vault');
     const ownerUserId = record.dnaRecord?.ownerUserId ?? requestingUserId;
 
-    // ── Download encrypted file (local in dev, Supabase in production) ──
-    let encryptedBuffer: Buffer;
+    // Local-first in dev, but files vaulted in production live in Supabase.
+    // Always fall through: local miss must not blank the gallery.
     const storedPath = record.encryptedFilePath || '';
-    const looksLocal = /[/\\]vault[/\\]encrypted[/\\]/i.test(storedPath) || storedPath.includes(':\\');
-    try {
-      if (USE_LOCAL || looksLocal) {
-        encryptedBuffer = looksLocal ? await fs.readFile(storedPath) : await readLocal(vaultId);
-      } else {
-        encryptedBuffer = await downloadVaultFile(
-          vaultId,
-          ownerUserId,
-          storedPath ? [storedPath] : [],
-        );
+    const attempts: Array<() => Promise<Buffer>> = [];
+    if (vaultEncryptedLooksLikeLocalPath(storedPath)) {
+      attempts.push(() => fs.readFile(storedPath));
+    }
+    attempts.push(() => readLocal(vaultId));
+    if (isSupabaseStorageConfigured()) {
+      attempts.push(() => downloadVaultFile(vaultId, ownerUserId, storedPath ? [storedPath] : []));
+    }
+
+    let encryptedBuffer: Buffer | undefined;
+    const errors: string[] = [];
+    for (const attempt of attempts) {
+      try {
+        encryptedBuffer = await attempt();
+        break;
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : String(err));
       }
-    } catch (err) {
-      throw new Error(`Vault file unavailable: ${String(err)}`);
+    }
+    if (!encryptedBuffer) {
+      throw new Error(`Vault file unavailable: ${errors.join(' | ') || 'no storage backend'}`);
     }
 
     // ── Decrypt (key re-derived from vaultId + master secret) ─────────────

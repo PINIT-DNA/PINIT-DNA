@@ -3,6 +3,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { isValidMapCoordinate } from '../../lib/geo-coords';
 import { formatDistanceToNow } from 'date-fns';
+import { leafletBasemapCredit, leafletBasemapLayer } from './leafletBasemap';
 
 export interface DashboardFileMapPoint {
   id?: string;
@@ -80,10 +81,7 @@ export function DashboardFilesMap({ points, height, fill, live }: DashboardFiles
     });
     mapInstance.current = map;
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      attribution: '',
-      maxZoom: 18,
-    }).addTo(map);
+    leafletBasemapLayer('light').addTo(map);
 
     const markers: L.LatLng[] = [];
 
@@ -175,7 +173,7 @@ export function DashboardFilesMap({ points, height, fill, live }: DashboardFiles
         <span>{validPoints.length} access location{validPoints.length !== 1 ? 's' : ''}</span>
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" /> Viewed</span>
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" /> Downloaded</span>
-        <span className="opacity-40 text-[10px]">© OSM · CARTO</span>
+        <span className="opacity-40 text-[10px]">{leafletBasemapCredit()}</span>
       </div>
     </div>
   );

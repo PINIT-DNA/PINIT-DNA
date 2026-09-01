@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, CheckCheck, Trash2, X, ExternalLink } from 'lucide-react';
+import { Bell, CheckCheck, Trash2, X, ExternalLink, BellOff } from 'lucide-react';
 import { api } from '../../services/dashboard.api';
 import { API_BASE_URL } from '../../config/api.config';
 import { getAccessToken } from '../../lib/auth';
@@ -113,6 +113,12 @@ export function NotificationBell() {
     setUnreadCount(0);
   };
 
+  const clearInbox = async () => {
+    await api.put(`${API_BASE_URL}/notifications/clear-inbox`);
+    setNotifications([]);
+    setUnreadCount(0);
+  };
+
   const markRead = async (id: string) => {
     await api.put(`${API_BASE_URL}/notifications/${id}/read`);
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
@@ -155,25 +161,38 @@ export function NotificationBell() {
             aria-label="Close notifications"
             onClick={() => setOpen(false)}
           />
-          <div className="dropdown-panel w-full sm:w-96">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-bg-border">
-            <div className="flex items-center gap-2">
-              <Bell size={14} className="text-dna-400" />
-              <h3 className="text-sm font-semibold text-white">Notifications</h3>
-              {unreadCount > 0 && (
-                <span className="text-2xs bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-medium">
-                  {unreadCount} new
-                </span>
-              )}
+          <div className="dropdown-panel w-full sm:w-96 flex flex-col">
+          <div className="px-4 py-3 border-b border-bg-border shrink-0">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Bell size={14} className="text-dna-400 shrink-0" />
+                <h3 className="text-sm font-semibold text-white">Notifications</h3>
+                {unreadCount > 0 && (
+                  <span className="text-2xs bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-medium shrink-0">
+                    {unreadCount} new
+                  </span>
+                )}
+              </div>
+              <button type="button" onClick={() => setOpen(false)} className="text-gray-500 hover:text-white p-1 shrink-0" aria-label="Close notifications">
+                <X size={12} />
+              </button>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
               {unreadCount > 0 && (
-                <button onClick={markAllRead} className="text-2xs text-dna-400 hover:text-white flex items-center gap-1 px-2 py-1 rounded hover:bg-bg-elevated transition-colors">
-                  <CheckCheck size={10} /> Mark all read
+                <button
+                  type="button"
+                  onClick={() => void markAllRead()}
+                  className="text-2xs text-dna-400 hover:text-white flex items-center gap-1 px-2 py-1 rounded hover:bg-bg-elevated transition-colors"
+                >
+                  <CheckCheck size={10} /> Mark all as read
                 </button>
               )}
-              <button onClick={() => setOpen(false)} className="text-gray-500 hover:text-white p-1">
-                <X size={12} />
+              <button
+                type="button"
+                onClick={() => void clearInbox()}
+                className="text-2xs text-gray-300 hover:text-white flex items-center gap-1 px-2 py-1 rounded border border-bg-border hover:bg-bg-elevated transition-colors"
+              >
+                <BellOff size={10} /> Clear all
               </button>
             </div>
           </div>
@@ -247,16 +266,22 @@ export function NotificationBell() {
             )}
           </div>
 
-          {notifications.length > 0 && (
-            <div className="px-4 py-2 border-t border-bg-border text-center">
+            <div className="px-4 py-2 border-t border-bg-border shrink-0 flex items-center justify-center gap-3 flex-wrap">
               <button
+                type="button"
+                onClick={() => void clearInbox()}
+                className="text-2xs text-gray-400 hover:text-white flex items-center gap-1 transition-colors"
+              >
+                <BellOff size={10} /> Clear all
+              </button>
+              <button
+                type="button"
                 onClick={() => { setOpen(false); navigate('/profile?tab=notifications'); }}
-                className="text-2xs text-dna-400 hover:text-white flex items-center gap-1 mx-auto transition-colors"
+                className="text-2xs text-dna-400 hover:text-white flex items-center gap-1 transition-colors"
               >
                 <ExternalLink size={10} /> View notification history
               </button>
             </div>
-          )}
           </div>
         </>
       )}
