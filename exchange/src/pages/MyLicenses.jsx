@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldCheck, Download, Award, FileText, ExternalLink, Share2, Copy, X } from 'lucide-react';
+import { ShieldCheck, Download, Award, FileText, ExternalLink, Share2, Copy, X, Eye } from 'lucide-react';
 import { formatMoney } from '../lib/money.js';
 import { apiFetch } from '../lib/api.js';
 import { canPurchase, resolveExchangeAccount } from '../lib/roles.js';
@@ -46,13 +46,8 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
     }
   };
 
-  const authorizeDownload = async (lic) => {
+  const openLicensedAccess = async (lic, download) => {
     setActionError('');
-    // apiFetch, not bare fetch — the server now identifies the buyer from the
-    // signed session token, which only apiFetch attaches. The buyer id and
-    // email are no longer sent: the server reads them from the session, and
-    // accepting them from the body was how someone else's licence could be
-    // downloaded by supplying a public Pinit ID.
     const { ok, data, error } = await apiFetch('/api/orders/download/authorize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -62,14 +57,21 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
       }),
     });
     if (!ok) {
-      setActionError(error || 'Download not allowed.');
+      setActionError(error || 'You don\'t have access to this file.');
       return;
     }
-    if (!data?.download_url) {
-      setActionError('Delivery is not ready yet. Please try again shortly.');
+    const url = download
+      ? (data?.download_intent_url || data?.share_url)
+      : (data?.view_url || data?.share_url);
+    if (!url || String(url).includes('/exchange/delivery/')) {
+      setActionError('Access is not ready yet. Please try again shortly.');
       return;
     }
-    window.open(data.download_url, '_blank', 'noopener,noreferrer');
+    window.location.assign(
+      download && !String(url).includes('download=')
+        ? `${url}${url.includes('?') ? '&' : '?'}download=1`
+        : url,
+    );
   };
 
   const openShare = (lic) => {
@@ -152,7 +154,7 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
       <div style={{ marginBottom: '32px' }}>
         <h1 style={{ fontSize: '2.2rem', color: '#fff' }}>My Purchases</h1>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>
-          Download licensed exports from Pinit HUB. Master files never leave the Hub vault.
+          Licensed files stay in the Pinit vault. Open a controlled access link to view or download.
         </p>
       </div>
 
@@ -202,7 +204,7 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {licenses.map((lic) => {
             const licenseStatus = String(lic.license_status || 'active').toLowerCase();
-            const canDownload = licenseStatus === 'active' && lic.delivery_url;
+            const canDownload = licenseStatus === 'active';
             return (
             <div key={lic.seal_id} className="ex-card" style={{ padding: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 20, marginBottom: '16px' }}>
@@ -253,17 +255,27 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
 
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                 {canDownload ? (
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    onClick={() => authorizeDownload(lic)}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
-                  >
-                    <Download size={16} /> Download licensed file (Hub)
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={() => openLicensedAccess(lic, false)}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                    >
+                      <Eye size={16} /> View licensed asset
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => openLicensedAccess(lic, true)}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                    >
+                      <Download size={16} /> Download licensed file
+                    </button>
+                  </>
                 ) : (
                   <button type="button" className="btn-secondary" disabled>
-                    <Download size={16} /> {licenseStatus === 'active' ? 'Delivery pending' : `Blocked (${licenseStatus})`}
+                    <Download size={16} /> {`Blocked (${licenseStatus})`}
                   </button>
                 )}
                 {/* Opens the real certificate record. This used to call
@@ -285,15 +297,6 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
                 >
                   <Share2 size={16} /> Share
                 </button>
-                {lic.dna_hash_summary && (
-                  <span
-                    title={`Digital DNA fingerprint: ${lic.dna_hash_summary}`}
-                    style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-dim)', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                  >
-                    <ShieldCheck size={13} color="var(--emerald)" />
-                    DNA {String(lic.dna_hash_summary).slice(0, 10)}…
-                  </span>
-                )}
               </div>
             </div>
             );
@@ -480,12 +483,6 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
                     <div><dt>Licensed to</dt><dd>{certData.buyer?.name}{certData.buyer?.org ? ` · ${certData.buyer.org}` : ''}</dd></div>
                   </dl>
 
-                  {certData.dna_hash_summary && (
-                    <div className="cert-dna">
-                      <span className="ex-label">Pinit DNA fingerprint</span>
-                      <code>{certData.dna_hash_summary}</code>
-                    </div>
-                  )}
 
                   <p className="cert-note">{certData.note}</p>
                 </>

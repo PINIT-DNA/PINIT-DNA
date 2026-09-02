@@ -289,6 +289,8 @@ export async function ensureCommerceReadiness(db) {
     ['orders_sealed', 'download_count', 'INTEGER DEFAULT 0'],
     ['orders_sealed', 'download_limit', 'INTEGER'],
     ['orders_sealed', 'invoice_number', 'TEXT'],
+    ['orders_sealed', 'share_token', 'TEXT'],
+    ['orders_sealed', 'share_url', 'TEXT'],
     ['payment_intents', 'terms_accepted_at', 'TIMESTAMPTZ'],
   ];
   for (const [table, col, type] of COLUMNS) {

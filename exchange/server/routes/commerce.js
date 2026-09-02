@@ -12,6 +12,7 @@ import { createRazorpayOrder, isPaymentMockMode } from '../razorpay.js';
 import { forbidSellerCommerce, requireBuyer, requireSeller, requireVerifiedIdentity, pinitIdFromReq } from '../lib/rbac.js';
 import { exchangePreviewUrl, PLACEHOLDER_PREVIEW } from '../lib/preview-url.js';
 import { createLicensedShareOnHub } from '../hub-client.js';
+import { persistLicensedShare } from '../lib/licensed-access.js';
 import { emitForListing, emitForSeal } from '../lib/asset-activity.js';
 
 const router = express.Router();
@@ -510,6 +511,7 @@ router.post('/purchases/:sealId/share', requireVerifiedIdentity, (req, res) => {
         licenseTier: order.license_tier,
         options: req.body?.options || {},
       });
+      await persistLicensedShare(order.seal_id, result);
       res.status(201).json({ ok: true, ...result });
     } catch (e) {
       console.error('[commerce/share]', e.message);

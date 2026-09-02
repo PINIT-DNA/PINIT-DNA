@@ -45,7 +45,15 @@ function startHubStub() {
       hubHits.seal += 1;
       return json(res, 200, { success: true, sealId: 'HUB-SEAL-E2E', monitoring: 'stub' });
     }
-    if (req.method === 'POST' && url.endsWith('/exchange/delivery/prepare')) {
+    if (req.method === 'POST' && url.endsWith('/exchange/share/create')) {
+      hubHits.share = (hubHits.share || 0) + 1;
+      return json(res, 200, {
+        success: true,
+        token: 'e2e-share-token',
+        shareUrl: `http://127.0.0.1:${HUB_PORT}/share/e2e-share-token`,
+        allowDownload: true,
+      });
+    }
       hubHits.delivery += 1;
       return json(res, 200, {
         success: true,
@@ -285,7 +293,8 @@ test('seller → listing → buyer cart → payment → licence → Hub bridge',
   assert.ok(verified.data.order?.seal_id);
   assert.equal(hubHits.seal, 1, 'seal must call Hub /exchange/sales/seal');
   assert.equal(hubHits.delivery, 1, 'seal must call Hub /exchange/delivery/prepare');
-  assert.ok(verified.data.order?.download_url || verified.data.order?.delivery_url, 'licence must receive Hub delivery URL');
+  assert.ok(verified.data.order?.share_url || verified.data.order?.view_url, 'licence must receive Hub share URL');
+  assert.ok(!String(verified.data.order?.share_url || '').includes('/exchange/delivery/'));
 
   const licenses = await api('/api/orders/my-licenses', { token: buyerToken });
   assert.equal(licenses.status, 200, JSON.stringify(licenses.data));

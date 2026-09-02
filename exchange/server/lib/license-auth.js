@@ -63,10 +63,10 @@ export async function authorizeLicenseDownload({
     }
   }
 
-  if (order.delivery_expires_at) {
+  if (order.delivery_expires_at && !order.share_token) {
     const exp = new Date(order.delivery_expires_at).getTime();
     if (Number.isFinite(exp) && Date.now() > exp) {
-      const err = new Error('Download blocked: delivery token expired');
+      const err = new Error('This access link is no longer available.');
       err.status = 403;
       throw err;
     }

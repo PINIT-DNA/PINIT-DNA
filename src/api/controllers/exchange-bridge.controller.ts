@@ -9,6 +9,7 @@ import {
   verifyServiceBridgeSecret,
 } from '../../services/exchange/exchange-bridge.service';
 import { config } from '../../config';
+import { logger } from '../../lib/logger';
 import { resolvePublicBaseUrl } from '../../lib/request-utils';
 import {
   recordAssetActivityBatch,
@@ -199,6 +200,7 @@ export async function createLicensedShareBridge(req: Request, res: Response, nex
       buyerPinitId,
       licenseTier: req.body?.licenseTier || req.body?.license_tier,
       baseUrl: resolvePublicBaseUrl(req),
+      hubAppUrl: String(req.body?.hubAppUrl || req.body?.hub_app_url || '').trim() || undefined,
       options: req.body?.options || {},
     });
     res.status(201).json({ success: true, ...result });
@@ -276,12 +278,12 @@ export async function prepareDeliveryBridge(req: Request, res: Response, next: N
   }
 }
 
-/** GET /exchange/delivery/:token — buyer downloads licensed export (no Hub UI) */
-export async function redeemDeliveryBridge(req: Request, res: Response, next: NextFunction): Promise<void> {
+/** GET /exchange/delivery/:token — service fallback only; browsers use /share/:token */
+export async function redeemDeliveryBridge(req: Request, res: Response, _next: NextFunction): Promise<void> {
   try {
     const token = String(req.params.token || '').trim();
     if (!token) {
-      res.status(400).json({ success: false, error: 'Delivery token required' });
+      res.status(400).json({ success: false, error: 'This access link is not valid.' });
       return;
     }
     const result = await exchangeBridgeService.redeemDelivery(token);
@@ -294,7 +296,12 @@ export async function redeemDeliveryBridge(req: Request, res: Response, next: Ne
     res.setHeader('X-PinIT-Delivery', 'licensed-export');
     res.send(result.buffer);
   } catch (err) {
-    next(err);
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn('[exchange-delivery] redeem failed', { message });
+    res.status(401).json({
+      success: false,
+      error: 'You don\'t have access to this file.',
+    });
   }
 }
 

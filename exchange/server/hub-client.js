@@ -334,7 +334,15 @@ export async function createLicensedShareOnHub({ assetId, sealId, orderId, buyer
       'Content-Type': 'application/json',
       'X-PinIT-Bridge-Secret': secret,
     },
-    body: JSON.stringify({ assetId, sealId, orderId, buyerPinitId, licenseTier, options: options || {} }),
+    body: JSON.stringify({
+      assetId,
+      sealId,
+      orderId,
+      buyerPinitId,
+      licenseTier,
+      options: options || {},
+      hubAppUrl: process.env.HUB_APP_URL || process.env.PUBLIC_APP_URL || '',
+    }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {

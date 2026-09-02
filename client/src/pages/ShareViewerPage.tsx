@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { Shield, Lock, Download, Eye, AlertTriangle, CheckCircle2, Clock, Ban, Share2, Copy } from 'lucide-react';
 import axios from 'axios';
 import { format } from 'date-fns';
@@ -164,6 +164,8 @@ async function extractApiError(err: unknown): Promise<string | undefined> {
 
 export function ShareViewerPage() {
   const { token } = useParams<{ token: string }>();
+  const [searchParams] = useSearchParams();
+  const autoDownload = searchParams.get('download') === '1';
   const [info, setInfo]           = useState<LinkInfo | null>(null);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState('');
@@ -171,11 +173,13 @@ export function ShareViewerPage() {
   const [nameSubmitted, setNameSubmitted] = useState(false);
   const [fileUrl, setFileUrl]     = useState('');
   const [downloading, setDownloading] = useState(false);
+  const [downloadNotice, setDownloadNotice] = useState<'success' | 'failed' | null>(null);
   const [fileLoadError, setFileLoadError] = useState<string | null>(null);
   const [shareFurtherUrl, setShareFurtherUrl] = useState<string | null>(null);
   const [shareFurtherBusy, setShareFurtherBusy] = useState(false);
   const [shareFurtherMsg, setShareFurtherMsg] = useState('');
   const hopRedirecting = useRef(false);
+  const autoDownloadFired = useRef(false);
 
   // ── GPS Location (only when owner enabled requestLocation on the share) ───
   const [locationAsked, setLocationAsked] = useState(false);
@@ -243,10 +247,15 @@ export function ShareViewerPage() {
         const apiErr = (err as { response?: { data?: { error?: string; code?: string } } })?.response?.data;
         if (status === 503 || apiErr?.code === 'BACKEND_OFFLINE') {
           setError('Backend is starting. Wait a few seconds and refresh.');
+        } else if (status === 403) {
+          setError('You don\'t have access to this file.');
         } else if (status === 404) {
-          setError('Link not found or has been removed. Check the full URL (token letters are case-sensitive).');
+          setError('This link is no longer available.');
         } else {
-          setError(apiErr?.error || 'Could not open this link. Is the backend running on port 4000?');
+          const raw = apiErr?.error || '';
+          setError(/bridge token|expired Exchange/i.test(raw)
+            ? 'You don\'t have access to this file.'
+            : 'This link could not be opened.');
         }
       })
       .then(() => setLoading(false), () => setLoading(false));
@@ -536,7 +545,17 @@ export function ShareViewerPage() {
   const handleDownload = async () => {
     if (!info?.allowDownload || !token) return;
     setDownloading(true);
+    setDownloadNotice(null);
     try {
+      await axios.post(`${API_BASE_URL}/share/${token}/access`, {
+        action: 'DOWNLOAD_STARTED', recipientName: name || undefined,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        sessionId: getSessionId(),
+        screenResolution: getScreenResolution(),
+        deviceFingerprint: computeDeviceFingerprint(),
+        ...buildGpsPayload(gpsDataRef.current, info?.requestLocation, locationDone || !info?.requestLocation),
+      }).catch(() => {});
+
       const resp = await axios.get<Blob>(`${API_BASE_URL}/share/${token}/file`, {
         responseType: 'blob',
         headers: shareTrackingHeaders(),
@@ -546,7 +565,6 @@ export function ShareViewerPage() {
       a.href = url; a.download = info.filename; a.click();
       URL.revokeObjectURL(url);
 
-      // Track download
       await axios.post(`${API_BASE_URL}/share/${token}/access`, {
         action: 'DOWNLOADED', recipientName: name || undefined,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -555,10 +573,22 @@ export function ShareViewerPage() {
         deviceFingerprint: computeDeviceFingerprint(),
         ...buildGpsPayload(gpsDataRef.current, info?.requestLocation, locationDone || !info?.requestLocation),
       }).catch(() => {});
+      setDownloadNotice('success');
     } catch {
-      alert('Download failed. The file may have been removed.');
+      setDownloadNotice('failed');
+      await axios.post(`${API_BASE_URL}/share/${token}/access`, {
+        action: 'DOWNLOAD_FAILED',
+        sessionId: getSessionId(),
+      }).catch(() => {});
     } finally { setDownloading(false); }
   };
+
+  useEffect(() => {
+    if (!autoDownload || autoDownloadFired.current) return;
+    if (!info?.allowDownload || !info.isActive || !trackingReady) return;
+    autoDownloadFired.current = true;
+    void handleDownload();
+  }, [autoDownload, info?.allowDownload, info?.isActive, trackingReady]);
 
   /** Mint a NEW tracked hop URL for the next person (WhatsApp / email). */
   const handleShareFurther = async () => {
@@ -794,7 +824,7 @@ export function ShareViewerPage() {
         <div className="w-16 h-16 bg-danger/10 rounded-full flex items-center justify-center mx-auto mb-4">
           <AlertTriangle size={28} className="text-danger" />
         </div>
-        <h1 className="text-white font-bold text-lg mb-2">Link Not Found</h1>
+        <h1 className="text-white font-bold text-lg mb-2">You don&apos;t have access to this file.</h1>
         <p className="text-gray-400 text-sm">{error || 'This link does not exist or has been removed.'}</p>
       </div>
     </div>
@@ -807,9 +837,9 @@ export function ShareViewerPage() {
         <div className="w-16 h-16 bg-danger/10 rounded-full flex items-center justify-center mx-auto mb-4">
           <Ban size={28} className="text-danger" />
         </div>
-        <h1 className="text-white font-bold text-lg mb-2">Access Revoked</h1>
+        <h1 className="text-white font-bold text-lg mb-2">Access has been revoked</h1>
         <p className="text-gray-400 text-sm">
-          The owner has revoked your access to this file. Other recipients are not affected.
+          This protected file is no longer available through this link.
         </p>
         <div className="mt-4 px-4 py-2 bg-bg-elevated rounded-lg border border-bg-border inline-block">
           <p className="text-2xs text-gray-500 mono">{token}</p>
@@ -822,20 +852,20 @@ export function ShareViewerPage() {
   if (!info.isActive) {
     const reason = info.inactiveReason
       ?? (info.isExpired ? 'expired' : info.isExhausted ? 'exhausted' : 'revoked');
-    const title = reason === 'expired' ? 'Link Expired'
+    const title = reason === 'expired' ? 'Access link expired'
       : reason === 'exhausted' ? 'View Limit Reached'
       : reason === 'one_time' ? 'Link Already Used'
-      : reason === 'tampered' ? 'Link Invalid'
-      : 'Link Unavailable';
+      : reason === 'tampered' ? 'You don\'t have access to this file.'
+      : 'Access has been revoked';
     const message = reason === 'expired'
-      ? 'This share link has expired and is no longer accessible.'
+      ? 'This link is no longer available.'
       : reason === 'exhausted'
       ? `This link was limited to ${info.maxViews ?? '?'} views and has been exhausted.`
       : reason === 'one_time'
       ? 'This was a one-time link and has already been used.'
       : reason === 'tampered'
-      ? 'This link could not be verified and may have been tampered with.'
-      : 'This share link has been revoked or is no longer active.';
+      ? 'You don\'t have access to this file.'
+      : 'This protected file is no longer available through this link.';
     return (
     <div className="min-h-screen bg-bg-base flex items-center justify-center">
       <div className="text-center max-w-sm mx-auto p-6">
@@ -844,9 +874,14 @@ export function ShareViewerPage() {
         </div>
         <h1 className="text-white font-bold text-lg mb-2">{title}</h1>
         <p className="text-gray-400 text-sm">{message}</p>
-        <div className="mt-4 px-4 py-2 bg-bg-elevated rounded-lg border border-bg-border inline-block">
-          <p className="text-2xs text-gray-500 mono">{token}</p>
-        </div>
+        {reason === 'expired' && (
+          <a
+            href="mailto:support@pinitdna.com"
+            className="btn btn-primary btn-sm mt-4 inline-flex"
+          >
+            Contact owner
+          </a>
+        )}
       </div>
     </div>
     );
@@ -985,7 +1020,7 @@ export function ShareViewerPage() {
                   {' '}wants to
                 </p>
                 <p id="loc-perm-desc" className="text-[13px] leading-snug text-[#202124] mt-0.5">
-                  Know your location
+                  Allow location access to help verify where this protected asset is being accessed.
                 </p>
                 {locationDenied && (
                   <p className="text-[11px] text-[#d93025] mt-2 leading-snug">
@@ -1000,12 +1035,12 @@ export function ShareViewerPage() {
                 type="button"
                 disabled={locationAsked}
                 onClick={() => {
-                  setLocationDenied(true);
-                  setLocationAsked(false);
+                  setLocationDenied(false);
+                  setLocationDone(true);
                 }}
                 className="min-w-[64px] h-9 px-3 rounded text-[13px] font-medium text-[#1a73e8] hover:bg-[#f1f3f4] disabled:opacity-50"
               >
-                Block
+                Continue without precise location
               </button>
               <button
                 type="button"
@@ -1013,7 +1048,7 @@ export function ShareViewerPage() {
                 onClick={handleAllow}
                 className="min-w-[64px] h-9 px-3 rounded text-[13px] font-medium text-[#1a73e8] hover:bg-[#f1f3f4] disabled:opacity-50"
               >
-                {locationAsked ? '…' : 'Allow'}
+                {locationAsked ? '…' : 'Allow location'}
               </button>
             </div>
           </div>
@@ -1110,11 +1145,22 @@ export function ShareViewerPage() {
             <button onClick={handleDownload} disabled={downloading}
               className="btn btn-secondary btn-sm text-xs">
               <Download size={12} />
-              {downloading ? 'Downloading…' : 'Download'}
+              {downloading ? 'Downloading…' : 'Download licensed file'}
             </button>
           )}
         </div>
       </div>
+
+      {downloadNotice === 'failed' && (
+        <div className="mx-4 mt-3 rounded-xl border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger">
+          Download failed. Try again, or contact the owner if this keeps happening.
+        </div>
+      )}
+      {downloadNotice === 'success' && (
+        <div className="mx-4 mt-3 rounded-xl border border-success/30 bg-success/10 px-4 py-2 text-sm text-success">
+          Download started.
+        </div>
+      )}
 
       {/* Note from sender */}
       {info.note && (
@@ -1335,7 +1381,7 @@ export function ShareViewerPage() {
             </p>
             {info.allowDownload ? (
               <button onClick={handleDownload} disabled={downloading} className="btn btn-primary">
-                <Download size={14} /> Secure Download
+                <Download size={14} /> Download licensed file
               </button>
             ) : (
               <p className="text-xs text-gray-500 border border-bg-border rounded-lg px-3 py-2">

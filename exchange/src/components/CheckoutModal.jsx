@@ -1,6 +1,6 @@
 import { formatMoney, setPlatformCurrency } from '../lib/money.js';
 import React, { useState, useEffect, useRef } from 'react';
-import { X, ShieldCheck, Award, Download } from 'lucide-react';
+import { X, ShieldCheck, Award, Download, Eye } from 'lucide-react';
 import { payAndSeal, CHECKOUT_CANCELLED } from '../lib/razorpay-checkout.js';
 import { apiFetch } from '../lib/api.js';
 import { canPurchase } from '../lib/roles.js';
@@ -120,6 +120,34 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
     void runCheckout(defaults.name, defaults.email, defaults.org);
   }, [isOpen, payMode, listing?.listing_id, acceptedTerms]);
 
+  const openLicensedAccess = async (order, download) => {
+    setErrorMsg('');
+    const direct = download
+      ? (order.download_intent_url || (order.share_url || order.view_url
+        ? `${order.share_url || order.view_url}${(order.share_url || order.view_url).includes('?') ? '&' : '?'}download=1`
+        : null))
+      : (order.view_url || order.share_url);
+    if (direct && !String(direct).includes('/exchange/delivery/')) {
+      window.location.assign(direct);
+      return;
+    }
+    const { ok, data, error } = await apiFetch('/api/orders/download/authorize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seal_id: order.seal_id, asset_id: order.asset_id }),
+    });
+    const url = download
+      ? (data?.download_intent_url || data?.share_url)
+      : (data?.view_url || data?.share_url);
+    if (!ok || !url || String(url).includes('/exchange/delivery/')) {
+      setErrorMsg(error || 'Access is not ready yet. Open Purchases in a moment.');
+      return;
+    }
+    window.location.assign(download && !url.includes('download=')
+      ? `${url}${url.includes('?') ? '&' : '?'}download=1`
+      : url);
+  };
+
   // Must come after every hook above — an early return here would change how many
   // hooks run between the closed and open renders (React error #310).
   if (!isOpen || !listing) return null;
@@ -175,24 +203,12 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
                 <div>Order ID: <strong style={{ color: '#fff' }}>{completedOrder.order_id}</strong></div>
                 <div>Seal ID: <strong style={{ color: 'var(--primary)' }}>{completedOrder.seal_id}</strong></div>
-                <div>License Tier: <strong style={{ color: 'var(--emerald)' }}>{String(completedOrder.license_tier).toUpperCase()}</strong></div>
-                <div>Amount Paid: <strong style={{ color: '#fff' }}>
+                <div>License type: <strong style={{ color: 'var(--emerald)' }}>{String(completedOrder.license_tier).toUpperCase()}</strong></div>
+                <div>Amount paid: <strong style={{ color: '#fff' }}>
                   {formatMoney(completedOrder.price_paid, completedOrder.currency)}
                 </strong></div>
                 <div>Payment: <strong style={{ color: '#fff' }}>{completedOrder.payment_status || 'paid'}</strong></div>
                 <div>Buyer: <strong style={{ color: '#fff' }}>{completedOrder.buyer_name}</strong></div>
-              </div>
-
-              <div style={{
-                background: 'rgba(0,0,0,0.4)',
-                padding: '10px 14px',
-                borderRadius: '6px',
-                fontSize: '0.75rem',
-                color: 'var(--text-dim)',
-                wordBreak: 'break-all',
-                fontFamily: 'monospace',
-              }}>
-                SHA256 DNA Hash: {completedOrder.dna_hash_summary}
               </div>
 
               {completedOrder.hub_seal?.sealId && (
@@ -202,32 +218,28 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
               )}
               {completedOrder.hub_seal?.error && (
                 <div style={{ marginTop: 12, fontSize: '0.82rem', color: 'var(--badge-gold)' }}>
-                  Sale sealed on Exchange. Hub callback pending — set EXCHANGE_BRIDGE_SECRET on both apps.
+                  Sale sealed. Access link is being prepared — open Purchases in a moment.
                 </div>
               )}
             </div>
 
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-              {completedOrder.download_url ? (
-                <a
-                  className="btn-primary"
-                  href={completedOrder.download_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ flex: 1, justifyContent: 'center', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
-                >
-                  <Download size={16} /> Download licensed file (Hub)
-                </a>
-              ) : (
-                <button
-                  type="button"
-                  className="btn-primary"
-                  style={{ flex: 1, justifyContent: 'center' }}
-                  onClick={() => setErrorMsg('Delivery is still being prepared by Pinit Hub. Open Purchases in a moment to download.')}
-                >
-                  <Download size={16} /> Delivery pending
-                </button>
-              )}
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ flex: 1, justifyContent: 'center', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                onClick={() => openLicensedAccess(completedOrder, false)}
+              >
+                <Eye size={16} /> View licensed asset
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ flex: 1, justifyContent: 'center', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                onClick={() => openLicensedAccess(completedOrder, true)}
+              >
+                <Download size={16} /> Download licensed file
+              </button>
               <button type="button" className="btn-secondary" onClick={onClose}>
                 Done
               </button>

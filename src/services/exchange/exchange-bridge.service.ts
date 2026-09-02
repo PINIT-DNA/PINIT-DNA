@@ -175,9 +175,14 @@ async function resolveVaultIdFromExchangeId(
  * is no request context (the bridge is service-to-service).
  */
 function buildHubShareUrl(token: string, baseUrl?: string): string {
-  const base = (baseUrl || process.env['PUBLIC_APP_URL'] || process.env['HUB_APP_URL'] || 'http://localhost:3002')
-    .replace(/\/$/, '');
-  return `${base}/s/${token}`;
+  const base = (
+    process.env['PUBLIC_APP_URL']
+    || process.env['HUB_APP_URL']
+    || process.env['FRONTEND_URL']
+    || baseUrl
+    || 'https://pinit-dna.vercel.app'
+  ).replace(/\/$/, '');
+  return `${base}/share/${token}`;
 }
 
 /** Resolve any Pinit ID form (PINIT-x / PINIT-USER-x / PINIT-EX-x) to a Hub user. */
@@ -919,6 +924,8 @@ export const exchangeBridgeService = {
     licenseTier?: string;
     /** Public base URL resolved from the incoming request (same source the Hub share flow uses). */
     baseUrl?: string;
+    /** Optional Hub frontend origin from Exchange (PUBLIC_APP_URL / HUB_APP_URL). */
+    hubAppUrl?: string;
     options?: {
       expiresIn?: number | null;
       maxViews?: number | null;
@@ -936,16 +943,24 @@ export const exchangeBridgeService = {
       throw new AppError(404, 'Asset not found in Hub');
     }
 
-    const buyer = await resolvePinitIdToUser(input.buyerPinitId);
-    if (!buyer) {
-      throw new AppError(404, 'No Pinit HUB account found for this buyer Pinit ID');
+    const vault = await prisma.vaultRecord.findUnique({
+      where: { id: resolved.vaultId },
+      include: { dnaRecord: { select: { ownerUserId: true } } },
+    });
+    if (!vault?.dnaRecord?.ownerUserId) {
+      throw new AppError(404, 'Asset not found in Hub');
     }
+
+    // Tracking belongs to the vault owner (creator) in Hub Sharing Activity.
+    // The buyer does not need a Hub account for the share grant to exist.
+    const ownerUserId = vault.dnaRecord.ownerUserId;
+    const buyer = await resolvePinitIdToUser(input.buyerPinitId);
 
     const { shareLinkService } = await import('../share/share-link.service');
     const opts = input.options ?? {};
     const created = await shareLinkService.create({
       vaultId: resolved.vaultId,
-      ownerUserId: buyer.id,
+      ownerUserId,
       assetId: resolved.assetId ?? input.assetId,
       sourceContext: 'exchange_license',
       exchangeSealId: input.sealId,
@@ -953,7 +968,7 @@ export const exchangeBridgeService = {
       licenseTier: input.licenseTier,
       expiresIn: opts.expiresIn ?? null,
       maxViews: opts.maxViews ?? null,
-      allowDownload: opts.allowDownload ?? false,
+      allowDownload: opts.allowDownload ?? true,
       requireName: opts.requireName ?? false,
       note: opts.note,
       requireOtp: opts.requireOtp ?? false,
@@ -964,7 +979,7 @@ export const exchangeBridgeService = {
     await recordAssetTimelineEvent({
       assetId: resolved.assetId,
       eventType: 'SHARED',
-      title: 'Shared by licensee',
+      title: 'Licensed access created',
       detail: `${input.licenseTier ? `${input.licenseTier} license` : 'Licensed'} · seal ${input.sealId}`,
       payload: {
         sealId: input.sealId,
@@ -978,13 +993,15 @@ export const exchangeBridgeService = {
     logger.info('[Exchange:Bridge] Licensed share created', {
       assetId: resolved.assetId,
       sealId: input.sealId,
-      buyerUserId: buyer.id,
+      ownerUserId,
+      buyerUserId: buyer?.id ?? null,
       token: created.token,
     });
 
+    const shareBase = input.hubAppUrl || input.baseUrl;
     return {
       token: created.token,
-      shareUrl: buildHubShareUrl(created.token, input.baseUrl),
+      shareUrl: buildHubShareUrl(created.token, shareBase),
       expiresAt: created.expiresAt ?? null,
       allowDownload: created.allowDownload,
     };
@@ -1152,17 +1169,10 @@ export const exchangeBridgeService = {
       expiresIn,
     );
 
-    const apiBase =
-      (process.env.PUBLIC_API_URL || process.env.HUB_PUBLIC_API_URL || `http://localhost:${config.port}`).replace(
-        /\/$/,
-        '',
-      );
-    const downloadUrl = `${apiBase}${config.apiPrefix}/exchange/delivery/${encodeURIComponent(token)}`;
-
     return {
       ok: true,
       downloadToken: token,
-      downloadUrl,
+      downloadUrl: null,
       expiresIn,
       certificateSummary: {
         certificateId: cert?.certificateId || cert?.id || null,

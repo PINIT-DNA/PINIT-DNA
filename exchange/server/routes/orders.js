@@ -17,6 +17,7 @@ import {
 } from '../razorpay.js';
 import { isListingPurchasable, LICENSE_STATUS, ORDER_STATUS, BRIDGE_EVENT } from '../lib/lifecycle.js';
 import { authorizeLicenseDownload } from '../lib/license-auth.js';
+import { ensureLicensedShare, publicAccessFromOrder } from '../lib/licensed-access.js';
 import { recordBridgeEvent, markBridgeEventProcessed, retryDueBridgeEvents } from '../lib/bridge-events.js';
 import { getSql, runSql, allSql } from '../lib/db.js';
 import { requireBuyer, requireVerifiedIdentity } from '../lib/rbac.js';
@@ -24,7 +25,14 @@ import { postAssetActivity, emitForSeal } from '../lib/asset-activity.js';
 import { downloadsRemaining, describeEntitlement, LICENSE_TERMS_VERSION } from '../lib/licensing.js';
 import { formatMoney, activeCurrency } from '../lib/money.js';
 
-const router = express.Router();
+function publicLicenseRow(row) {
+  if (!row) return row;
+  const rest = { ...row };
+  delete rest.delivery_url;
+  delete rest.delivery_token;
+  delete rest.dna_hash_summary;
+  return { ...rest, ...publicAccessFromOrder(row) };
+}
 
 /** GET /api/orders/billing/config */
 router.get('/billing/config', (_req, res) => {
@@ -390,7 +398,7 @@ router.get('/my-licenses', requireVerifiedIdentity, (req, res) => {
 
   db.all(sql, params, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json({ licenses: rows || [] });
+    res.json({ licenses: (rows || []).map(publicLicenseRow) });
   });
 });
 
@@ -437,7 +445,7 @@ router.get('/certificate/:seal_id', requireVerifiedIdentity, async (req, res) =>
         org: order.buyer_org,
       },
       price_paid: order.price_paid,
-      dna_hash_summary: order.dna_hash_summary,
+      dna_hash_summary: undefined,
       note: 'Master file remains in Pinit HUB vault. Use POST /api/orders/download/authorize for delivery.',
     });
   } catch (err) {
@@ -447,20 +455,11 @@ router.get('/certificate/:seal_id', requireVerifiedIdentity, async (req, res) =>
 
 /**
  * POST /api/orders/download/authorize
- * Verify buyer owns ACTIVE license before returning Hub delivery URL.
+ * Verify buyer owns ACTIVE license, then return the Hub share URL (never a JWT API URL).
  */
 router.post('/download/authorize', requireVerifiedIdentity, async (req, res) => {
   try {
     const sealId = String(req.body?.seal_id || req.body?.license_id || '').trim();
-    // The buyer identity is taken from the signed session only.
-    //
-    // This route used to read buyer_pinit_id straight from the request body and
-    // hand it to authorizeLicenseDownload, which compares it against the seal's
-    // stored buyer. Because the two values came from the same untrusted place
-    // they always matched: anyone who knew a seal id and a Pinit ID — both of
-    // which appear publicly in the UI — could obtain the delivery URL for an
-    // asset they never licensed. The ownership check is only meaningful when
-    // one side of the comparison is proven.
     const buyerPinitId = req.verifiedPinitId;
     const requestedAssetId = String(req.body?.asset_id || '').trim();
 
@@ -471,22 +470,12 @@ router.post('/download/authorize', requireVerifiedIdentity, async (req, res) => 
       requestedAssetId,
     });
 
-    if (!order.delivery_url) {
-      return res.status(409).json({
-        error: 'Delivery not ready',
-        message: 'Hub delivery token not prepared yet. Retry shortly.',
-      });
-    }
-
-    // Authorisation passed, so this download counts against the tier
-    // entitlement. Incremented before responding so a client that never
-    // finishes the transfer cannot replay the allowance indefinitely.
-    await runSql(
-      'UPDATE orders_sealed SET download_count = COALESCE(download_count, 0) + 1 WHERE seal_id = ?',
-      [order.seal_id],
-    );
-    const used = Number(order.download_count || 0) + 1;
-    const remaining = downloadsRemaining({ ...order, download_count: used });
+    const share = await ensureLicensedShare(order);
+    const access = publicAccessFromOrder({
+      ...order,
+      share_token: share.token,
+      share_url: share.shareUrl,
+    });
 
     res.json({
       ok: true,
@@ -494,24 +483,17 @@ router.post('/download/authorize', requireVerifiedIdentity, async (req, res) => 
       asset_id: order.asset_id,
       license_status: order.license_status || LICENSE_STATUS.ACTIVE,
       delivery_status: order.delivery_status || 'active',
-      delivery_expires_at: order.delivery_expires_at,
-      download_url: order.delivery_url,
-      downloads_used: used,
-      downloads_remaining: remaining,
+      ...access,
+      downloads_used: Number(order.download_count || 0),
+      downloads_remaining: downloadsRemaining(order),
       download_limit: order.download_limit ?? null,
     });
-
-    // Authorised download of a licensed asset. buyer_email is intentionally not
-    // forwarded — only the Pinit ID, which the creator is permitted to see.
-    postAssetActivity({
-      assetId: order.asset_id,
-      eventType: 'DOWNLOADED',
-      title: 'Licensed asset downloaded',
-      detail: `Seal ${order.seal_id}`,
-      payload: { sealId: order.seal_id, buyerPinitId: buyerPinitId || null },
-    });
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    const msg = String(err.message || '');
+    const friendly = /bridge token|delivery token/i.test(msg)
+      ? 'You don\'t have access to this file.'
+      : msg;
+    res.status(err.status || 500).json({ error: friendly });
   }
 });
 

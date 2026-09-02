@@ -1,4 +1,5 @@
-import { sealSaleWithHub, prepareDeliveryWithHub } from '../hub-client.js';
+import { sealSaleWithHub, prepareDeliveryWithHub, createLicensedShareOnHub } from '../hub-client.js';
+import { persistLicensedShare, publicAccessFromOrder } from './licensed-access.js';
 import { tierPrice, applyCouponPercent } from './pricing.js';
 import { withImmediateTransaction, runSql, getSql } from './db.js';
 import { LISTING_STATUS, LICENSE_STATUS, ORDER_STATUS, BRIDGE_EVENT, isListingPurchasable } from './lifecycle.js';
@@ -86,7 +87,7 @@ export async function sealListingSale({
       throw err;
     }
 
-    const deliveryExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const deliveryExpires = null;
 
     await txRun(
       `INSERT INTO orders_sealed (
@@ -186,6 +187,7 @@ export async function sealListingSale({
 
   let hubSeal = null;
   let delivery = null;
+  let licensedShare = null;
   try {
     hubSeal = await sealSaleWithHub({
       vaultId: listing.asset_id,
@@ -201,6 +203,21 @@ export async function sealListingSale({
   }
 
   try {
+    licensedShare = await createLicensedShareOnHub({
+      assetId: listing.asset_id,
+      sealId,
+      orderId,
+      buyerPinitId: buyerId,
+      licenseTier,
+      options: { allowDownload: true, requestLocation: false, requireName: false, expiresIn: null },
+    });
+    await persistLicensedShare(sealId, licensedShare);
+  } catch (shareErr) {
+    console.warn('[seal] Hub licensed share failed:', shareErr.message);
+    licensedShare = { error: shareErr.message };
+  }
+
+  try {
     delivery = await prepareDeliveryWithHub({
       vaultId: listing.asset_id,
       orderId,
@@ -209,13 +226,13 @@ export async function sealListingSale({
       buyerEmail,
       licenseTier,
     });
-    if (delivery?.downloadUrl) {
+    if (delivery?.downloadToken) {
       await runSql(
         `UPDATE orders_sealed
-         SET delivery_url = ?, delivery_token = ?, delivery_status = 'active',
+         SET delivery_token = ?, delivery_status = 'active',
              delivery_issued_at = CURRENT_TIMESTAMP
          WHERE seal_id = ?`,
-        [delivery.downloadUrl, delivery.downloadToken || null, sealId],
+        [delivery.downloadToken, sealId],
       );
       const { event: delEvent, duplicate: delDup } = await recordBridgeEvent({
         eventType: BRIDGE_EVENT.DELIVERED,
@@ -236,22 +253,26 @@ export async function sealListingSale({
       });
     }
   } catch (delErr) {
-    console.warn('[seal] Hub delivery failed:', delErr.message);
+    console.warn('[seal] Hub delivery prepare failed:', delErr.message);
     delivery = { error: delErr.message };
   }
 
   if (soldEvent?.id) await markBridgeEventProcessed(soldEvent.id).catch(() => {});
 
   const saved = await getSql('SELECT * FROM orders_sealed WHERE seal_id = ?', [sealId]);
+  const access = publicAccessFromOrder({
+    ...saved,
+    share_token: licensedShare?.token || saved?.share_token,
+    share_url: licensedShare?.shareUrl || saved?.share_url,
+  });
   return {
     ...mapOrderRow(saved),
+    ...access,
     title: listing.title,
     badge_tier: listing.badge_tier,
     tracking_job_id: null,
     sealed_at: saved?.sealed_at || new Date().toISOString(),
     hub_seal: hubSeal,
-    download_url: delivery?.downloadUrl || saved?.delivery_url || null,
-    download_token: delivery?.downloadToken || saved?.delivery_token || null,
     certificate_summary: delivery?.certificateSummary || null,
   };
 }
@@ -277,7 +298,6 @@ function mapOrderRow(row) {
     status: row.status,
     delivery_status: row.delivery_status,
     delivery_expires_at: row.delivery_expires_at,
-    download_url: row.delivery_url,
-    download_token: row.delivery_token,
+    ...publicAccessFromOrder(row),
   };
 }

@@ -416,6 +416,8 @@ function applyTrustHardeningSchema() {
       'ALTER TABLE orders_sealed ADD COLUMN download_count INTEGER DEFAULT 0',
       'ALTER TABLE orders_sealed ADD COLUMN download_limit INTEGER',
       'ALTER TABLE orders_sealed ADD COLUMN invoice_number TEXT',
+      'ALTER TABLE orders_sealed ADD COLUMN share_token TEXT',
+      'ALTER TABLE orders_sealed ADD COLUMN share_url TEXT',
       'ALTER TABLE payment_intents ADD COLUMN terms_accepted_at DATETIME',
     ];
 

@@ -80,6 +80,7 @@ export const router = createBrowserRouter([
 
   // ── Public share viewer ───────────────────────────────────────────────────
   { path: '/s/:token', element: <ShareViewerPage /> },
+  { path: '/share/:token', element: <ShareViewerPage /> },
   // Public, like the share viewer — the handover token is the authority.
   { path: '/handover/:token', element: <HandoverPage /> },
   // Public too — the report token is the authority, and the page sends no auth.
