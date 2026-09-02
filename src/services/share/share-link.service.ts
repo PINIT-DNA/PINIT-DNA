@@ -170,6 +170,8 @@ export interface ShareLinkPublicInfo {
   requestLocation:  boolean;
   inactiveReason?:  'expired' | 'exhausted' | 'revoked' | 'one_time' | 'tampered' | null;
   viewerRevoked?:   boolean;
+  sourceContext?:   string | null;
+  licenseTier?:     string | null;
 }
 
 export interface AccessLogInput {
@@ -1085,6 +1087,8 @@ export class ShareLinkService {
       requestLocation:       link.requestLocation,
       inactiveReason,
       viewerRevoked,
+      sourceContext: link.sourceContext ?? 'hub',
+      licenseTier:   link.licenseTier ?? null,
     };
   }
 
@@ -1386,6 +1390,7 @@ export class ShareLinkService {
     const NOTIFY_ACTIONS = new Set([
       'VIEWED', 'DOWNLOADED', 'FORWARDING_DETECTED',
       'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT',
+      'SCREEN_RECORDING_ATTEMPT', 'DOWNLOAD_STARTED', 'DOWNLOAD_FAILED', 'SHARE_FURTHER',
     ]);
     if (link.ownerUserId && NOTIFY_ACTIONS.has(input.action)) {
       const hopNumber = link.linkType === 'GRANDCHILD' ? 2 : link.linkType === 'CHILD' ? 1 : undefined;
@@ -1443,7 +1448,9 @@ export class ShareLinkService {
     // Revokes the link automatically when score ≥ 85 AND at least 2 suspicious
     // actions exist in the history (guards against single-event false positives,
     // e.g. a first-time traveller triggering "+new country" alone).
-    const SUSPICIOUS_ACTIONS = new Set(['COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT']);
+    const SUSPICIOUS_ACTIONS = new Set([
+      'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT', 'SCREEN_RECORDING_ATTEMPT',
+    ]);
     let autoRevoked = false;
     if (risk.level === 'CRITICAL' && risk.score >= 85) {
       const suspiciousCount = history.filter(h => SUSPICIOUS_ACTIONS.has(h.action)).length;
@@ -1518,8 +1525,9 @@ export class ShareLinkService {
   /** Live map pins — where shared files were opened (GPS or IP geolocation). */
   async getLiveTrackingMap(ownerUserId: string) {
     const TRACKED_ACTIONS = [
-      'VIEWED', 'DOWNLOADED', 'FORWARDING_DETECTED',
-      'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT',
+      'VIEWED', 'DOWNLOADED', 'DOWNLOAD_STARTED', 'DOWNLOAD_FAILED',
+      'FORWARDING_DETECTED', 'SHARE_FURTHER',
+      'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT', 'SCREEN_RECORDING_ATTEMPT',
     ];
 
     const logs = await prisma.shareAccessLog.findMany({

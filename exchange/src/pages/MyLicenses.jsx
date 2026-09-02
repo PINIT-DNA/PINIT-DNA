@@ -13,7 +13,15 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
   const [actionError, setActionError] = useState('');
   /** Licence currently being shared (null = modal closed). */
   const [shareFor, setShareFor] = useState(null);
-  const [shareOpts, setShareOpts] = useState({ expiresIn: '', maxViews: '', allowDownload: false, requireName: false, requestLocation: false });
+  const [shareOpts, setShareOpts] = useState({
+    expiresPreset: 'never',
+    expiresCustom: '',
+    viewsPreset: 'unlimited',
+    viewsCustom: '',
+    allowDownload: true,
+    requireName: false,
+    requestLocation: false,
+  });
   const [shareBusy, setShareBusy] = useState(false);
   const [shareResult, setShareResult] = useState(null);
   const [shareError, setShareError] = useState('');
@@ -76,7 +84,15 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
 
   const openShare = (lic) => {
     setShareFor(lic);
-    setShareOpts({ expiresIn: '', maxViews: '', allowDownload: false, requireName: false, requestLocation: false });
+    setShareOpts({
+      expiresPreset: 'never',
+      expiresCustom: '',
+      viewsPreset: 'unlimited',
+      viewsCustom: '',
+      allowDownload: true,
+      requireName: false,
+      requestLocation: false,
+    });
     setShareResult(null);
     setShareError('');
     setCopied(false);
@@ -86,29 +102,61 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
    * Hub creates and hosts the share link; Exchange only proves the caller owns
    * this seal. All view/download tracking lives in Hub, so nothing is stored here.
    */
+  const shareHours = () => {
+    if (shareOpts.expiresPreset === 'never') return null;
+    if (shareOpts.expiresPreset === 'custom') {
+      const n = Number(shareOpts.expiresCustom);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    }
+    const n = Number(shareOpts.expiresPreset);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+
+  const shareMaxViews = () => {
+    if (shareOpts.viewsPreset === 'unlimited') return null;
+    if (shareOpts.viewsPreset === 'custom') {
+      const n = Number(shareOpts.viewsCustom);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    }
+    const n = Number(shareOpts.viewsPreset);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+
   const createShare = async () => {
     if (!shareFor) return;
     setShareBusy(true);
     setShareError('');
-    // apiFetch attaches the signed session token. The server identifies the
-    // sharer from that token now, so the X-PinIT-Id header this used to set by
-    // hand is neither needed nor trusted.
-    const { ok, data, error } = await apiFetch(`/api/commerce/purchases/${encodeURIComponent(shareFor.seal_id)}/share`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        options: {
-          expiresIn: shareOpts.expiresIn ? Number(shareOpts.expiresIn) : null,
-          maxViews: shareOpts.maxViews ? Number(shareOpts.maxViews) : null,
-          allowDownload: shareOpts.allowDownload,
-          requireName: shareOpts.requireName,
-          requestLocation: shareOpts.requestLocation,
-        },
-      }),
-    });
-    if (ok) setShareResult(data);
-    else setShareError(error || 'Could not create share link.');
-    setShareBusy(false);
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(() => ctrl.abort(), 48000);
+    try {
+      const { ok, data, error } = await apiFetch(`/api/commerce/purchases/${encodeURIComponent(shareFor.seal_id)}/share`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: ctrl.signal,
+        body: JSON.stringify({
+          options: {
+            expiresIn: shareHours(),
+            maxViews: shareMaxViews(),
+            allowDownload: shareOpts.allowDownload,
+            requireName: shareOpts.requireName,
+            requestLocation: shareOpts.requestLocation,
+          },
+        }),
+      });
+      if (ok && data?.shareUrl) {
+        setShareResult({
+          ...data,
+          allowDownload: data.allowDownload !== false,
+          maxViews: data.maxViews ?? shareMaxViews(),
+          expiresAt: data.expiresAt ?? null,
+        });
+      } else {
+        setShareError(error || 'Couldn\'t create the sharing link.');
+      }
+    } finally {
+      window.clearTimeout(timer);
+      setShareBusy(false);
+    }
   };
 
   /**
@@ -140,6 +188,13 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
       await navigator.clipboard.writeText(shareResult.shareUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+      if (shareFor?.seal_id && shareResult.token) {
+        apiFetch(`/api/commerce/purchases/${encodeURIComponent(shareFor.seal_id)}/share/copied`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: shareResult.token }),
+        }).catch(() => {});
+      }
     } catch {
       setShareError('Copy failed — select the link and copy manually.');
     }
@@ -295,7 +350,7 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
                   onClick={() => openShare(lic)}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
                 >
-                  <Share2 size={16} /> Share
+                  <Share2 size={16} /> Share licensed asset
                 </button>
               </div>
             </div>
@@ -339,64 +394,115 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
             {!shareResult ? (
               <>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', margin: '14px 0 18px' }}>
-                  The link is created and hosted by Pinit HUB. Every view and download is
-                  tracked there, and the master file never leaves the Hub vault.
+                  This creates a controlled link to the licensed asset. Views and downloads are recorded.
                 </p>
 
-                <div style={{ display: 'grid', gap: 14 }}>
-                  <label style={{ display: 'grid', gap: 6, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                    Expires after (hours) — blank = never
-                    <input
-                      type="number" min="1" placeholder="e.g. 48"
-                      value={shareOpts.expiresIn}
-                      onChange={(e) => setShareOpts((s) => ({ ...s, expiresIn: e.target.value }))}
-                      style={{ padding: '9px 11px', borderRadius: 8, border: '1px solid rgba(148,163,184,0.28)', background: 'rgba(8,14,28,0.7)', color: '#e8eef8' }}
-                    />
-                  </label>
-                  <label style={{ display: 'grid', gap: 6, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                    Max views — blank = unlimited
-                    <input
-                      type="number" min="1" placeholder="e.g. 25"
-                      value={shareOpts.maxViews}
-                      onChange={(e) => setShareOpts((s) => ({ ...s, maxViews: e.target.value }))}
-                      style={{ padding: '9px 11px', borderRadius: 8, border: '1px solid rgba(148,163,184,0.28)', background: 'rgba(8,14,28,0.7)', color: '#e8eef8' }}
-                    />
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                    <input
-                      type="checkbox" checked={shareOpts.allowDownload}
-                      onChange={(e) => setShareOpts((s) => ({ ...s, allowDownload: e.target.checked }))}
-                    />
-                    Allow the recipient to download
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                    <input
-                      type="checkbox" checked={shareOpts.requireName}
-                      onChange={(e) => setShareOpts((s) => ({ ...s, requireName: e.target.checked }))}
-                    />
-                    Ask the recipient for their name
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                    <input
-                      type="checkbox" checked={shareOpts.requestLocation}
-                      onChange={(e) => setShareOpts((s) => ({ ...s, requestLocation: e.target.checked }))}
-                    />
-                    Ask the recipient for precise location (GPS)
-                  </label>
-                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '-4px 0 0 26px' }}>
-                    Without this only approximate city/ISP location from the IP address is recorded.
-                  </p>
+                <div style={{ display: 'grid', gap: 16 }}>
+                  <div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 8 }}>Link expiration</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {[
+                        ['never', 'Never'],
+                        ['48', '48 hours'],
+                        ['168', '7 days'],
+                        ['custom', 'Custom'],
+                      ].map(([id, label]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className={shareOpts.expiresPreset === id ? 'btn-primary btn-sm' : 'btn-secondary btn-sm'}
+                          onClick={() => setShareOpts((s) => ({ ...s, expiresPreset: id }))}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {shareOpts.expiresPreset === 'custom' && (
+                      <input
+                        type="number"
+                        min="1"
+                        placeholder="Hours"
+                        value={shareOpts.expiresCustom}
+                        onChange={(e) => setShareOpts((s) => ({ ...s, expiresCustom: e.target.value }))}
+                        style={{ marginTop: 8, width: '100%', padding: '9px 11px', borderRadius: 8, border: '1px solid rgba(148,163,184,0.28)', background: 'rgba(8,14,28,0.7)', color: '#e8eef8' }}
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 8 }}>View limit</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {[
+                        ['unlimited', 'Unlimited'],
+                        ['1', '1'],
+                        ['5', '5'],
+                        ['25', '25'],
+                        ['custom', 'Custom'],
+                      ].map(([id, label]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className={shareOpts.viewsPreset === id ? 'btn-primary btn-sm' : 'btn-secondary btn-sm'}
+                          onClick={() => setShareOpts((s) => ({ ...s, viewsPreset: id }))}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {shareOpts.viewsPreset === 'custom' && (
+                      <input
+                        type="number"
+                        min="1"
+                        placeholder="Max views"
+                        value={shareOpts.viewsCustom}
+                        onChange={(e) => setShareOpts((s) => ({ ...s, viewsCustom: e.target.value }))}
+                        style={{ marginTop: 8, width: '100%', padding: '9px 11px', borderRadius: 8, border: '1px solid rgba(148,163,184,0.28)', background: 'rgba(8,14,28,0.7)', color: '#e8eef8' }}
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 8 }}>Permissions</div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 8 }}>
+                      <input
+                        type="checkbox" checked={shareOpts.allowDownload}
+                        onChange={(e) => setShareOpts((s) => ({ ...s, allowDownload: e.target.checked }))}
+                      />
+                      Allow download
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 8 }}>
+                      <input
+                        type="checkbox" checked={shareOpts.requireName}
+                        onChange={(e) => setShareOpts((s) => ({ ...s, requireName: e.target.checked }))}
+                      />
+                      Ask recipient for their name
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                      <input
+                        type="checkbox" checked={shareOpts.requestLocation}
+                        onChange={(e) => setShareOpts((s) => ({ ...s, requestLocation: e.target.checked }))}
+                      />
+                      Request precise location
+                    </label>
+                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '8px 0 0' }}>
+                      Approximate country and city are recorded from the request when available.
+                      Precise GPS is only stored if the recipient allows it.
+                    </p>
+                  </div>
                 </div>
 
                 {shareError && (
-                  <p style={{ color: '#fca5a5', fontSize: '0.83rem', marginTop: 14 }}>{shareError}</p>
+                  <p role="alert" style={{ color: '#fca5a5', fontSize: '0.83rem', marginTop: 14 }}>{shareError}</p>
                 )}
 
                 <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
                   <button type="button" className="btn-primary" onClick={createShare} disabled={shareBusy}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <Share2 size={16} /> {shareBusy ? 'Creating…' : 'Create share link'}
+                    <Share2 size={16} /> {shareBusy ? 'Creating…' : 'Create secure link'}
                   </button>
+                  {shareError && (
+                    <button type="button" className="btn-secondary" onClick={createShare} disabled={shareBusy}>
+                      Try again
+                    </button>
+                  )}
                   <button type="button" className="btn-secondary" onClick={() => setShareFor(null)} disabled={shareBusy}>
                     Cancel
                   </button>
@@ -405,28 +511,37 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
             ) : (
               <>
                 <p style={{ color: 'var(--emerald)', fontSize: '0.88rem', margin: '16px 0 10px' }}>
-                  Share link created
+                  ✓ Secure link created
+                </p>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '0 0 12px' }}>
+                  {(shareFor.title || shareFor.asset_title || 'Your licensed asset')} can now be shared through Pinit.
                 </p>
                 <div style={{
                   background: 'rgba(8,14,28,0.75)', border: '1px solid rgba(148,163,184,0.25)',
                   borderRadius: 8, padding: '11px 12px', fontSize: '0.8rem', color: '#e8eef8',
-                  wordBreak: 'break-all', fontFamily: 'monospace',
+                  wordBreak: 'break-all',
                 }}>
                   {shareResult.shareUrl}
                 </div>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: 12 }}>
+                  Expires: {shareResult.expiresAt ? new Date(shareResult.expiresAt).toLocaleString() : 'Never'}
+                  {' · '}Views allowed: {shareResult.maxViews != null ? shareResult.maxViews : 'Unlimited'}
+                  {' · '}Download: {shareResult.allowDownload ? 'Allowed' : 'Off'}
+                </p>
                 <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
                   <button type="button" className="btn-primary" onClick={copyShareUrl}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <Copy size={16} /> {copied ? 'Copied' : 'Copy link'}
+                    <Copy size={16} /> {copied ? 'Copied' : 'Copy secure link'}
                   </button>
                   <a className="btn-secondary" href={shareResult.shareUrl} target="_blank" rel="noopener noreferrer"
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>
-                    <ExternalLink size={16} /> Open
+                    <ExternalLink size={16} /> Open link
                   </a>
                   <button type="button" className="btn-secondary" onClick={() => setShareFor(null)}>Done</button>
                 </div>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: 14 }}>
-                  Activity for this link is tracked in Pinit HUB.
+                  Copying here is recorded. Opening the same link later is tracked as a new view.
+                  External forwarding outside Pinit cannot be detected.
                 </p>
               </>
             )}

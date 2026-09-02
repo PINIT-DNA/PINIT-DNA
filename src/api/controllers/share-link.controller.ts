@@ -268,7 +268,13 @@ export async function getShareLinkInfo(req: Request, res: Response, next: NextFu
       sessionId,
       ipAddress: resolveClientIp(req),
     });
-    if (!info) { res.status(404).json({ success: false, error: 'Link not found' }); return; }
+    if (!info) {
+      res.status(404).json({
+        success: false,
+        error: 'This sharing link has expired or is no longer available.',
+      });
+      return;
+    }
     res.json({ success: true, link: info });
   } catch (err) { next(err); }
 }

@@ -11,8 +11,9 @@ import {
 import { createRazorpayOrder, isPaymentMockMode } from '../razorpay.js';
 import { forbidSellerCommerce, requireBuyer, requireSeller, requireVerifiedIdentity, pinitIdFromReq } from '../lib/rbac.js';
 import { exchangePreviewUrl, PLACEHOLDER_PREVIEW } from '../lib/preview-url.js';
-import { createLicensedShareOnHub } from '../hub-client.js';
+import { createLicensedShareOnHub, recordLicensedShareCopiedOnHub } from '../hub-client.js';
 import { persistLicensedShare } from '../lib/licensed-access.js';
+import { publicLicensedShareUrl } from '../lib/share-viewer-url.js';
 import { emitForListing, emitForSeal } from '../lib/asset-activity.js';
 
 const router = express.Router();
@@ -511,12 +512,45 @@ router.post('/purchases/:sealId/share', requireVerifiedIdentity, (req, res) => {
         licenseTier: order.license_tier,
         options: req.body?.options || {},
       });
-      await persistLicensedShare(order.seal_id, result);
-      res.status(201).json({ ok: true, ...result });
+      const shareUrl = publicLicensedShareUrl(result.token, process.env.HUB_APP_URL) || result.shareUrl;
+      const payload = {
+        token: result.token,
+        shareUrl,
+        expiresAt: result.expiresAt ?? null,
+        allowDownload: result.allowDownload !== false,
+        maxViews: result.maxViews ?? req.body?.options?.maxViews ?? null,
+      };
+      try {
+        await persistLicensedShare(order.seal_id, payload);
+      } catch (persistErr) {
+        console.error('[commerce/share] persist failed', persistErr?.message);
+      }
+      res.status(201).json({ ok: true, ...payload });
     } catch (e) {
       console.error('[commerce/share]', e.message);
-      res.status(e.status || 502).json({ error: e.message || 'Could not create share link' });
+      const status = e.status && Number(e.status) >= 400 ? Number(e.status) : 502;
+      res.status(status).json({
+        error: e.message || 'Couldn\'t create the sharing link.',
+      });
     }
+  });
+});
+
+router.post('/purchases/:sealId/share/copied', requireVerifiedIdentity, (req, res) => {
+  const sealId = String(req.params.sealId || '').trim();
+  const callerPinitId = req.verifiedPinitId;
+  const token = String(req.body?.token || '').trim();
+  if (!sealId || !token) return res.status(400).json({ error: 'sealId and token required' });
+
+  db.get('SELECT * FROM orders_sealed WHERE seal_id = ?', [sealId], async (err, order) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!order) return res.status(404).json({ error: 'Purchase not found' });
+    const code = (v) => String(v || '').trim().toUpperCase().split('-').pop();
+    if (code(order.buyer_pinit_id) !== code(callerPinitId)) {
+      return res.status(403).json({ error: 'This purchase does not belong to you' });
+    }
+    const recorded = await recordLicensedShareCopiedOnHub(token);
+    res.json({ ok: true, recorded: recorded.ok });
   });
 });
 

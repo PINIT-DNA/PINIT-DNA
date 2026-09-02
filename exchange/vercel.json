@@ -32,7 +32,8 @@
     { "source": "/404", "destination": "/index.html" },
     { "source": "/exchange/seller/onboarding/:path*", "destination": "/index.html" },
     { "source": "/exchange/:path*", "destination": "/index.html" },
-    { "source": "/p", "destination": "/index.html" },
+    { "source": "/s/:path*", "destination": "https://www.pinithub.com/s/:path*" },
+    { "source": "/share/:path*", "destination": "https://www.pinithub.com/s/:path*" },
     { "source": "/p/:path*", "destination": "/index.html" }
   ]
 }

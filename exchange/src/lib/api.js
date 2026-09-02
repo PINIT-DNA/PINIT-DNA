@@ -107,7 +107,9 @@ export async function apiFetch(url, options = {}) {
       status: 0,
       data: null,
       error: publicErrorMessage(
-        err?.message?.includes('Failed to fetch')
+        err?.name === 'AbortError'
+          ? 'Request timed out. Please try again.'
+          : err?.message?.includes('Failed to fetch')
           ? 'Pinit Exchange is temporarily waking up.'
           : err?.message || 'Network error',
         0,

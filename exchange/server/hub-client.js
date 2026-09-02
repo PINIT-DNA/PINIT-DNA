@@ -3,7 +3,7 @@
  * Never imports Hub vault/DNA source code.
  */
 
-import jwt from 'jsonwebtoken';
+import { publicLicensedShareUrl } from './lib/share-viewer-url.js';
 
 function hubApiBase() {
   return (process.env.HUB_API_URL || 'http://localhost:4000/api/v1').replace(/\/$/, '');
@@ -311,7 +311,24 @@ export async function fetchPreviewFromHub(vaultId) {
   };
 }
 
-export { hubApiBase as HUB_API_BASE, bridgeSecret as BRIDGE_SECRET };
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 45000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: ctrl.signal });
+    const data = await res.json().catch(() => ({}));
+    return { res, data };
+  } catch (e) {
+    if (e?.name === 'AbortError') {
+      const err = new Error('Pinit could not create the sharing link in time. Please try again.');
+      err.status = 504;
+      throw err;
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * Ask Hub to create a share link for a file the buyer licensed.
@@ -328,7 +345,7 @@ export async function createLicensedShareOnHub({ assetId, sealId, orderId, buyer
     err.status = 503;
     throw err;
   }
-  const res = await fetch(`${hubApiBase()}/exchange/share/create`, {
+  const { res, data } = await fetchJsonWithTimeout(`${hubApiBase()}/exchange/share/create`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -341,17 +358,48 @@ export async function createLicensedShareOnHub({ assetId, sealId, orderId, buyer
       buyerPinitId,
       licenseTier,
       options: options || {},
-      hubAppUrl: process.env.HUB_APP_URL || process.env.PUBLIC_APP_URL || '',
+      hubAppUrl: process.env.HUB_APP_URL || process.env.PUBLIC_APP_URL || process.env.SHARE_PUBLIC_BASE_URL || '',
     }),
   });
-  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = new Error(data.error || `Hub share creation failed (${res.status})`);
-    err.status = res.status;
+    const raw = data.error || data.message || `Hub share creation failed (${res.status})`;
+    const friendly = /bridge token|expired Exchange/i.test(String(raw))
+      ? 'Couldn\'t create the sharing link.'
+      : String(raw);
+    const err = new Error(friendly);
+    err.status = res.status === 401 ? 502 : res.status;
     throw err;
   }
-  return data;
+  const token = data.token;
+  if (!token) {
+    const err = new Error('Couldn\'t create the sharing link.');
+    err.status = 502;
+    throw err;
+  }
+  const shareUrl = publicLicensedShareUrl(token, process.env.HUB_APP_URL);
+  return { ...data, token, shareUrl };
 }
+
+export async function recordLicensedShareCopiedOnHub(token) {
+  const safe = String(token || '').trim();
+  if (!safe) return { ok: false };
+  try {
+    const { res } = await fetchJsonWithTimeout(
+      `${hubApiBase()}/share/${encodeURIComponent(safe)}/access`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'COPIED' }),
+      },
+      8000,
+    );
+    return { ok: res.ok };
+  } catch {
+    return { ok: false };
+  }
+}
+
+export { hubApiBase as HUB_API_BASE, bridgeSecret as BRIDGE_SECRET };
 
 async function hubPaymentPost(path, body) {
   const secret = bridgeSecret();

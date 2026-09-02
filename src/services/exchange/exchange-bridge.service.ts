@@ -16,6 +16,7 @@ import { deriveMarketplacePreview } from './marketplace-preview.service';
 import { extractPinitCode, toExchangePinitId, toRootPinitId, toUserPinitId } from '../../lib/pinit-identity';
 import { AppError } from '../../api/middleware/error.middleware';
 import { VaultService } from '../vault/vault.service';
+import { buildShareViewerUrl } from '../../lib/share-viewer-url';
 
 const LIST_INTENT_EXPIRES = '15m';
 const SSO_EXPIRES = '10m';
@@ -175,14 +176,23 @@ async function resolveVaultIdFromExchangeId(
  * is no request context (the bridge is service-to-service).
  */
 function buildHubShareUrl(token: string, baseUrl?: string): string {
-  const base = (
-    process.env['PUBLIC_APP_URL']
-    || process.env['HUB_APP_URL']
-    || process.env['FRONTEND_URL']
-    || baseUrl
-    || 'https://pinit-dna.vercel.app'
-  ).replace(/\/$/, '');
-  return `${base}/share/${token}`;
+  return buildShareViewerUrl(token, baseUrl);
+}
+
+/**
+ * Map an old Hub JWT delivery URL to the licensed ShareLink so browsers never
+ * land on raw JSON (`Invalid or expired Exchange bridge token`).
+ */
+export async function resolveShareUrlForDeliveryToken(token: string): Promise<string | null> {
+  const decoded = jwt.decode(token) as { orderId?: string; vaultId?: string } | null;
+  const orderId = String(decoded?.orderId || '').trim();
+  if (!orderId) return null;
+  const link = await prisma.shareLink.findFirst({
+    where: { exchangeOrderId: orderId, sourceContext: 'exchange_license' },
+    orderBy: { createdAt: 'desc' },
+    select: { token: true },
+  });
+  return link?.token ? buildHubShareUrl(link.token) : null;
 }
 
 /** Resolve any Pinit ID form (PINIT-x / PINIT-USER-x / PINIT-EX-x) to a Hub user. */
@@ -958,6 +968,37 @@ export const exchangeBridgeService = {
 
     const { shareLinkService } = await import('../share/share-link.service');
     const opts = input.options ?? {};
+    const requestLocation = opts.requestLocation === true;
+    const allowDownload = opts.allowDownload !== false;
+
+    const existing = await prisma.shareLink.findFirst({
+      where: { exchangeSealId: input.sealId, isActive: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const reuseExisting = Boolean(
+      existing
+      && !opts.expiresIn
+      && !opts.maxViews
+      && !opts.requireOtp
+      && !opts.recipientEmail,
+    );
+    if (existing && reuseExisting) {
+      if (existing.requestLocation !== requestLocation || existing.allowDownload !== allowDownload) {
+        await prisma.shareLink.update({
+          where: { id: existing.id },
+          data: { requestLocation, allowDownload },
+        });
+      }
+      const shareBase = input.hubAppUrl || input.baseUrl;
+      return {
+        token: existing.token,
+        shareUrl: buildHubShareUrl(existing.token, shareBase),
+        expiresAt: existing.expiresAt ?? null,
+        allowDownload,
+        maxViews: existing.maxViews ?? null,
+      };
+    }
+
     const created = await shareLinkService.create({
       vaultId: resolved.vaultId,
       ownerUserId,
@@ -968,12 +1009,12 @@ export const exchangeBridgeService = {
       licenseTier: input.licenseTier,
       expiresIn: opts.expiresIn ?? null,
       maxViews: opts.maxViews ?? null,
-      allowDownload: opts.allowDownload ?? true,
+      allowDownload,
       requireName: opts.requireName ?? false,
       note: opts.note,
       requireOtp: opts.requireOtp ?? false,
       recipientEmail: opts.recipientEmail,
-      requestLocation: opts.requestLocation ?? false,
+      requestLocation,
     });
 
     await recordAssetTimelineEvent({
@@ -998,12 +1039,25 @@ export const exchangeBridgeService = {
       token: created.token,
     });
 
+    try {
+      await shareLinkService.recordAccess({
+        shareLinkId: created.id,
+        action: 'SHARE_CREATED',
+      });
+    } catch (err) {
+      logger.warn('[Exchange:Bridge] SHARE_CREATED log failed', {
+        token: created.token,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     const shareBase = input.hubAppUrl || input.baseUrl;
     return {
       token: created.token,
       shareUrl: buildHubShareUrl(created.token, shareBase),
       expiresAt: created.expiresAt ?? null,
       allowDownload: created.allowDownload,
+      maxViews: created.maxViews ?? null,
     };
   },
 

@@ -1,23 +1,28 @@
 import { createLicensedShareOnHub } from '../hub-client.js';
 import { runSql } from './db.js';
+import { publicLicensedShareUrl } from './share-viewer-url.js';
 
 /**
  * Persist Hub share grant on the sealed order. The browser never receives
  * Hub JWT delivery URLs — only this share URL.
  */
 export async function persistLicensedShare(sealId, share) {
-  if (!sealId || !share?.token || !share?.shareUrl) return;
+  if (!sealId || !share?.token) return;
+  const shareUrl = publicLicensedShareUrl(share.token) || share.shareUrl;
+  if (!shareUrl) return;
   await runSql(
     `UPDATE orders_sealed
         SET share_token = ?, share_url = ?, delivery_status = 'active'
       WHERE seal_id = ?`,
-    [share.token, share.shareUrl, sealId],
+    [share.token, shareUrl, sealId],
   );
 }
 
 export function publicAccessFromOrder(order) {
-  const shareUrl = order?.share_url || null;
   const token = order?.share_token || null;
+  const shareUrl = token
+    ? (publicLicensedShareUrl(token) || order?.share_url || null)
+    : (order?.share_url || null);
   return {
     share_token: token,
     share_url: shareUrl,
@@ -45,7 +50,7 @@ export async function ensureLicensedShare(order, options = {}) {
     licenseTier: order.license_tier,
     options: {
       allowDownload: true,
-      requestLocation: false,
+      requestLocation: true,
       requireName: false,
       expiresIn: options.expiresIn ?? null,
       ...options,

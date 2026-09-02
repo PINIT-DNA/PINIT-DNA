@@ -16,6 +16,7 @@ import rateLimit from 'express-rate-limit';
 import { config } from './config';
 import { logger } from './lib/logger';
 import { prisma } from './lib/prisma';
+import { buildShareViewerUrl } from './lib/share-viewer-url';
 import { dnaRouter }               from './api/routes/dna.routes';
 import { vaultRouter }             from './api/routes/vault.routes';
 import { intelligenceRouter }      from './api/routes/intelligence.routes';
@@ -187,17 +188,27 @@ app.use(`${config.apiPrefix}/creator`, creatorRouter);
 app.post(`${config.apiPrefix}/auth/extension/issue-code`, requireAuth, issueExtensionAuthCode);
 app.post(`${config.apiPrefix}/auth/extension/token`, exchangeExtensionAuthToken);
 
+// Recipients must land on the Hub frontend viewer, not this API process.
+app.get('/share/:token', (req, res) => {
+  const token = String(req.params.token || '').trim();
+  if (!token) {
+    res.status(400).type('html').send('Link unavailable');
+    return;
+  }
+  res.redirect(302, buildShareViewerUrl(token));
+});
+
 // ─── Share viewer with dynamic OG meta tags (trackable preview) ──────────────
 // When WhatsApp/Telegram crawl /s/:token, they get OG tags with our trackable
 // preview image URL. Tapping the preview opens the share viewer (tracked).
 app.get('/s/:token', async (req, res) => {
+  const { token } = req.params;
+  const viewerUrl = buildShareViewerUrl(String(token || ''));
   const reactIndex = path.join(__dirname, '..', 'client', 'dist', 'index.html');
   if (!fs.existsSync(reactIndex)) {
-    res.status(404).json({ success: false, error: 'Route not found' });
+    res.redirect(302, viewerUrl);
     return;
   }
-
-  const { token } = req.params;
   let title = 'PINIT DNA — Secure File';
   let description = 'Access this encrypted file securely. Protected by PINIT DNA.';
   let filename = 'Secure File';
@@ -212,7 +223,7 @@ app.get('/s/:token', async (req, res) => {
   } catch { /* serve with defaults */ }
 
   const previewUrl = `https://${req.get('host')}${config.apiPrefix}/share/${token}/preview.png`;
-  const pageUrl = `https://${req.get('host')}/s/${token}`;
+  const pageUrl = viewerUrl;
 
   let html = fs.readFileSync(reactIndex, 'utf-8');
   const ogTags = `
@@ -237,6 +248,13 @@ app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) {
     res.status(404).json({ success: false, error: 'Route not found' });
     return;
+  }
+  if (req.path.startsWith('/s/') || req.path.startsWith('/share/')) {
+    const token = req.path.split('/').filter(Boolean)[1] || '';
+    if (token) {
+      res.redirect(302, buildShareViewerUrl(token));
+      return;
+    }
   }
   const reactIndex = path.join(__dirname, '..', 'client', 'dist', 'index.html');
   if (fs.existsSync(reactIndex)) {

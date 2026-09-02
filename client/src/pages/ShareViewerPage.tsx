@@ -52,6 +52,8 @@ interface LinkInfo {
   // ── Privacy & Location ──────────────────────────────────────────────────
   privacyMaskingEnabled?: boolean;
   requestLocation?:       boolean;
+  sourceContext?:         string | null;
+  licenseTier?:           string | null;
 }
 
 // Generate a session ID for grouping events
@@ -248,14 +250,12 @@ export function ShareViewerPage() {
         if (status === 503 || apiErr?.code === 'BACKEND_OFFLINE') {
           setError('Backend is starting. Wait a few seconds and refresh.');
         } else if (status === 403) {
-          setError('You don\'t have access to this file.');
+          setError('NO_ACCESS');
         } else if (status === 404) {
-          setError('This link is no longer available.');
+          setError('UNAVAILABLE');
         } else {
           const raw = apiErr?.error || '';
-          setError(/bridge token|expired Exchange/i.test(raw)
-            ? 'You don\'t have access to this file.'
-            : 'This link could not be opened.');
+          setError(/bridge token|expired Exchange/i.test(raw) ? 'NO_ACCESS' : 'UNAVAILABLE');
         }
       })
       .then(() => setLoading(false), () => setLoading(false));
@@ -479,6 +479,17 @@ export function ShareViewerPage() {
       if (isScreenshot && now - screenshotCooldown.last > 1000) {
         screenshotCooldown.last = now;
         track('SCREENSHOT_ATTEMPT');
+        // Cmd/Win+Shift+5 is also the OS screen-recording picker on macOS/Windows.
+        if (e.metaKey && e.shiftKey && key === '5') track('SCREEN_RECORDING_ATTEMPT');
+      }
+
+      // Win+Alt+R (Xbox Game Bar) / Alt+R with Windows key
+      const isRecordingShortcut =
+        (e.altKey && (e.metaKey || e.ctrlKey) && key === 'r')
+        || (e.altKey && e.shiftKey && key === 'r');
+      if (isRecordingShortcut && now - screenshotCooldown.last > 1000) {
+        screenshotCooldown.last = now;
+        track('SCREEN_RECORDING_ATTEMPT');
       }
     };
     document.addEventListener('keydown', onKeyDown);
@@ -528,6 +539,20 @@ export function ShareViewerPage() {
       mql.addEventListener?.('change', onPrintMql);
     } catch { /* not supported — ignore */ }
 
+    // Best-effort: this origin started a display capture (cannot see OS-level
+    // recording of other apps). Still useful when a viewer records via browser APIs.
+    let displayPerm: PermissionStatus | null = null;
+    const onDisplayCapture = () => {
+      if (displayPerm?.state === 'granted') track('SCREEN_RECORDING_ATTEMPT');
+    };
+    try {
+      void navigator.permissions?.query({ name: 'display-capture' as PermissionName }).then((status) => {
+        displayPerm = status;
+        status.addEventListener('change', onDisplayCapture);
+        if (status.state === 'granted') onDisplayCapture();
+      }).catch(() => {});
+    } catch { /* PermissionName not supported */ }
+
     return () => {
       window.removeEventListener('scroll', onScroll);
       document.removeEventListener('copy', onCopy);
@@ -536,6 +561,7 @@ export function ShareViewerPage() {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('beforeprint', onPrint);
       mql?.removeEventListener?.('change', onPrintMql);
+      displayPerm?.removeEventListener?.('change', onDisplayCapture);
       if (idleTimer) clearTimeout(idleTimer);
       for (const evt of activityEvents) document.removeEventListener(evt, resetIdle);
     };
@@ -818,17 +844,29 @@ export function ShareViewerPage() {
   );
 
   // ── Error ──────────────────────────────────────────────────────────────────
-  if (error || !info) return (
+  if (error || !info) {
+    const noAccess = error === 'NO_ACCESS';
+    return (
     <div className="min-h-screen bg-bg-base flex items-center justify-center">
       <div className="text-center max-w-sm mx-auto p-6">
         <div className="w-16 h-16 bg-danger/10 rounded-full flex items-center justify-center mx-auto mb-4">
           <AlertTriangle size={28} className="text-danger" />
         </div>
-        <h1 className="text-white font-bold text-lg mb-2">You don&apos;t have access to this file.</h1>
-        <p className="text-gray-400 text-sm">{error || 'This link does not exist or has been removed.'}</p>
+        <h1 className="text-white font-bold text-lg mb-2">
+          {noAccess ? 'You don\'t have access to this file.' : 'Link unavailable'}
+        </h1>
+        <p className="text-gray-400 text-sm">
+          {noAccess
+            ? 'You don\'t have access to this file.'
+            : 'This sharing link has expired or is no longer available.'}
+        </p>
+        <button type="button" className="btn btn-secondary btn-sm mt-4" onClick={() => window.close()}>
+          Close
+        </button>
       </div>
     </div>
-  );
+    );
+  }
 
   // ── Per-viewer revoke (owner blocked this device only) ─────────────────────
   if (info.viewerRevoked) return (
@@ -852,20 +890,14 @@ export function ShareViewerPage() {
   if (!info.isActive) {
     const reason = info.inactiveReason
       ?? (info.isExpired ? 'expired' : info.isExhausted ? 'exhausted' : 'revoked');
-    const title = reason === 'expired' ? 'Access link expired'
-      : reason === 'exhausted' ? 'View Limit Reached'
-      : reason === 'one_time' ? 'Link Already Used'
+    const title = reason === 'expired' ? 'Link unavailable'
+      : reason === 'exhausted' ? 'Link unavailable'
+      : reason === 'one_time' ? 'Link unavailable'
       : reason === 'tampered' ? 'You don\'t have access to this file.'
-      : 'Access has been revoked';
-    const message = reason === 'expired'
-      ? 'This link is no longer available.'
-      : reason === 'exhausted'
-      ? `This link was limited to ${info.maxViews ?? '?'} views and has been exhausted.`
-      : reason === 'one_time'
-      ? 'This was a one-time link and has already been used.'
-      : reason === 'tampered'
+      : 'Link unavailable';
+    const message = reason === 'tampered'
       ? 'You don\'t have access to this file.'
-      : 'This protected file is no longer available through this link.';
+      : 'This sharing link has expired or is no longer available.';
     return (
     <div className="min-h-screen bg-bg-base flex items-center justify-center">
       <div className="text-center max-w-sm mx-auto p-6">
@@ -991,8 +1023,6 @@ export function ShareViewerPage() {
       );
     };
 
-    const hostLabel = typeof window !== 'undefined' ? window.location.host : 'this site';
-
     return (
       <div className="min-h-screen bg-[#f1f3f4] relative overflow-hidden">
         {/* Soft page behind prompt (like a blank tab) */}
@@ -1016,11 +1046,11 @@ export function ShareViewerPage() {
               </div>
               <div className="min-w-0">
                 <p id="loc-perm-title" className="text-[13px] leading-snug text-[#202124] font-medium">
-                  <span className="font-normal text-[#5f6368]">{hostLabel}</span>
-                  {' '}wants to
+                  Allow location access?
                 </p>
                 <p id="loc-perm-desc" className="text-[13px] leading-snug text-[#202124] mt-0.5">
-                  Allow location access to help verify where this protected asset is being accessed.
+                  The sender requested precise location to help verify where this
+                  protected asset is being accessed.
                 </p>
                 {locationDenied && (
                   <p className="text-[11px] text-[#d93025] mt-2 leading-snug">
@@ -1105,7 +1135,11 @@ export function ShareViewerPage() {
           </div>
           <div>
             <p className="text-sm font-semibold text-white truncate max-w-[200px]">{info.filename}</p>
-            <p className="text-2xs text-gray-500">PINIT-DNA Secure Viewer</p>
+            <p className="text-2xs text-gray-500">
+              {info.sourceContext === 'exchange_license'
+                ? 'Verified licensed asset'
+                : 'PINIT secure viewer'}
+            </p>
           </div>
         </div>
 
@@ -1127,8 +1161,13 @@ export function ShareViewerPage() {
           {/* Verified badge */}
           <div className="flex items-center gap-1 text-2xs text-success border border-success/30 bg-success/5 rounded px-2 py-1">
             <CheckCircle2 size={10} />
-            Verified
+            Verified Pinit asset
           </div>
+          {info.sourceContext === 'exchange_license' && (
+            <div className="flex items-center gap-1 text-2xs text-gray-400 border border-bg-border rounded px-2 py-1">
+              {info.licenseTier ? `${info.licenseTier} license` : 'Licensed access'}
+            </div>
+          )}
           {/* Share further — mint a NEW hop URL for the next recipient */}
           <button
             type="button"

@@ -54,6 +54,7 @@ function startHubStub() {
         allowDownload: true,
       });
     }
+    if (req.method === 'POST' && url.endsWith('/exchange/delivery/prepare')) {
       hubHits.delivery += 1;
       return json(res, 200, {
         success: true,
@@ -95,6 +96,7 @@ function startExchange() {
         RAZORPAY_KEY_SECRET: '',
         EXCHANGE_BRIDGE_SECRET: BRIDGE_SECRET,
         HUB_API_URL: `http://127.0.0.1:${HUB_PORT}/api/v1`,
+        HUB_APP_URL: 'http://localhost:3002',
         EXCHANGE_PUBLIC_URL: `http://127.0.0.1:${EXCHANGE_PORT}`,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
