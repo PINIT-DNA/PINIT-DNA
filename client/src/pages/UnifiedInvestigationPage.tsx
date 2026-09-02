@@ -1,10 +1,11 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Shield, Upload, AlertTriangle, RefreshCw, ScanLine,
   ChevronDown, ChevronUp, Fingerprint, Dna, User, Clock, Activity,
   FileDown, Globe, Lock, Eye, Download, Microscope,
 } from 'lucide-react';
-import { unifiedInvestigateStream } from '../services/dashboard.api';
+import { unifiedInvestigateStream, getVaultRecord } from '../services/dashboard.api';
 import { cn } from '../components/ui/utils';
 import { InvestigationScanner } from '../components/InvestigationScanner';
 import { InvestigationProcessingCard } from '../components/InvestigationProcessingCard';
@@ -344,6 +345,9 @@ function Section({
 }
 
 export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: boolean }) {
+  const [searchParams] = useSearchParams();
+  const contextVaultId = searchParams.get('vaultId')?.trim() || null;
+  const [contextAssetName, setContextAssetName] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [mode, setMode] = useState<'upload' | 'scan'>('upload');
   const [loading, setLoading] = useState(false);
@@ -357,6 +361,24 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
   const [scannerKey, setScannerKey] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const reportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!contextVaultId) {
+      setContextAssetName(null);
+      return;
+    }
+    let cancelled = false;
+    getVaultRecord(contextVaultId)
+      .then((vault) => {
+        if (!cancelled) {
+          setContextAssetName(vault?.originalFileName || vault?.originalFilename || vault?.filename || null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setContextAssetName(null);
+      });
+    return () => { cancelled = true; };
+  }, [contextVaultId]);
 
   const previewUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
@@ -533,6 +555,31 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
           </p>
         </div>
       </div>
+
+      {contextVaultId && (
+        <div className="rounded-xl border border-dna-500/30 bg-dna-500/10 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-xs text-dna-200">Investigating in context of this asset</p>
+            <p className="text-sm font-semibold text-white truncate">
+              {contextAssetName || 'Protected asset'}
+            </p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <Link
+              to={`/access-intelligence?vaultId=${encodeURIComponent(contextVaultId)}`}
+              className="text-2xs font-semibold text-dna-300 hover:text-white"
+            >
+              Asset activity
+            </Link>
+            <Link
+              to={`/timeline?vaultId=${encodeURIComponent(contextVaultId)}`}
+              className="text-2xs font-semibold text-dna-300 hover:text-white"
+            >
+              Timeline
+            </Link>
+          </div>
+        </div>
+      )}
 
       {!report && investigating && (
         liveSnapshot ? (

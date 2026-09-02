@@ -18,7 +18,6 @@ import {
   Users,
   ChevronRight,
   Microscope,
-  Shield,
   Pencil,
   Store,
 } from 'lucide-react';
@@ -33,7 +32,6 @@ import {
 } from '../lib/file-type-utils';
 import { buildShareFileAttachment } from '../lib/share-file-open';
 import { API_BASE_URL } from '../config/api.config';
-import { BRAND } from '../config/brand.config';
 import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, renameVaultRecord, createExchangeListIntent, getExchangeRole, type VaultTrackingDashboard } from '../services/dashboard.api';
 import { useAuth } from '../context/AuthContext';
 import { ShareQrBlock } from './ShareQrBlock';
@@ -983,7 +981,7 @@ export function VaultDetailSidePanel({
               )}
               <button
                 type="button"
-                onClick={() => gatePremium('/timeline')}
+                onClick={() => gatePremium(`/timeline?vaultId=${encodeURIComponent(record.id)}`)}
                 className="w-full flex items-center justify-center gap-1 text-xs text-dna-400 hover:text-white py-2"
               >
                 View in Timeline <ChevronRight size={12} />
@@ -1100,21 +1098,11 @@ export function VaultDetailSidePanel({
               label="Intelligence Report"
               onClick={() => gatePremium(`/intelligence/${record.id}`)}
             />
-            <QuickAction
-              icon={<Microscope size={18} />}
-              label="Compare files"
-              onClick={() => gatePremium('/forensic-diff')}
-            />
             <QuickAction icon={<Activity size={18} />} label="Tracking" onClick={handleAccessIntelligence} />
-            <QuickAction
-              icon={<Shield size={18} />}
-              label="Unified Investigation"
-              onClick={() => gatePremium(BRAND.investigationPath)}
-            />
             <QuickAction
               icon={<Eye size={18} />}
               label="View in Timeline"
-              onClick={() => gatePremium('/timeline')}
+              onClick={() => gatePremium(`/timeline?vaultId=${encodeURIComponent(record.id)}`)}
             />
           </div>
           <button

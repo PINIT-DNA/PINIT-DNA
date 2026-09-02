@@ -7,13 +7,13 @@ import { BRAND } from '../../config/brand.config';
 import { useAccountViewMode } from '../../hooks/useAccountViewMode';
 
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
-  '/':                    { title: 'Home', subtitle: 'See who opened what you shared' },
+  '/':                    { title: 'Home', subtitle: 'What needs your attention' },
   '/business':            { title: 'Home', subtitle: 'Team operations' },
   '/generate':            { title: 'Protect New Asset', subtitle: 'Upload your file and we’ll create its protected identity' },
   '/vault':               { title: 'My Assets', subtitle: 'Your protected files — share and track' },
   '/vault-integrity':     { title: 'Security Check', subtitle: 'Confirm your files are stored safely' },
   '/dna-records':         { title: 'Protected Files', subtitle: 'Files you have protected in Pinit HUB' },
-  '/timeline':            { title: 'File activity', subtitle: 'What happened to your files' },
+  '/timeline':            { title: 'Timeline', subtitle: 'Complete chronological history of the asset' },
   '/reports':             { title: 'Reports', subtitle: 'Investigation and comparison reports' },
   '/certificates':        { title: 'Certificates', subtitle: 'Ownership proof you can share' },
   '/verify-certificate':  { title: 'Verify certificate', subtitle: 'Check if a certificate is still valid' },
@@ -22,7 +22,7 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   '/monitoring':          { title: 'Monitoring', subtitle: 'Watch for copies of your files online' },
   '/protected-posts':     { title: 'My Assets', subtitle: 'Your protected files' },
   '/assets':              { title: 'My Assets', subtitle: 'Your protected files' },
-  '/access-intelligence': { title: 'Viewer Activity & Risk', subtitle: 'Who opened your shared files' },
+  '/access-intelligence': { title: 'Asset Activity', subtitle: 'See who accessed this asset and what happened' },
   '/unmask-requests':     { title: 'Access Requests', subtitle: 'Approve sensitive data reveal requests' },
   '/duplicate-attempts':  { title: 'Duplicate Checks', subtitle: 'When someone tried to re-upload your file' },
   '/profile':             { title: 'Account', subtitle: 'Your account and preferences' },
@@ -38,16 +38,16 @@ interface TopbarProps {
 export function Topbar({ onMenu }: TopbarProps) {
   const location = useLocation();
   const { isBusinessShell } = useAccountViewMode();
-  const alertsOpen = location.pathname === '/profile' && new URLSearchParams(location.search).get('tab') === 'notifications';
-  const meta = alertsOpen
-    ? { title: 'Alerts', subtitle: 'Notifications about your files and activity' }
+  const notificationsOpen = location.pathname === '/profile' && new URLSearchParams(location.search).get('tab') === 'notifications';
+  const meta = notificationsOpen
+    ? { title: 'Notifications', subtitle: 'Choose what we notify you about' }
     : (PAGE_META[location.pathname]
     ?? (/^\/vault\/assets\/[^/]+\/shares\//.test(location.pathname)
       ? { title: 'Manage share', subtitle: 'Secure link details and actions' }
       : /^\/vault\/assets\/[^/]+\/share$/.test(location.pathname)
         ? { title: 'Share secure link', subtitle: 'Control how this protected file can be accessed' }
         : location.pathname.startsWith('/access-intelligence/')
-          ? { title: 'Viewer Activity & Risk', subtitle: 'Activity for this shared file' }
+          ? { title: 'Asset Activity', subtitle: 'See who accessed this asset and what happened' }
           : location.pathname.startsWith('/protected-posts/') || location.pathname.startsWith('/assets/')
             ? { title: 'My Assets', subtitle: 'Your protected files' }
             : location.pathname.startsWith('/business/clients')

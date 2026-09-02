@@ -23,10 +23,15 @@ import {
   api,
   listProtectedFileShares,
   revokeVaultTep,
+  getLiveTrackingMap,
+  getVaultTracking,
   type ProtectedFileShare,
+  type VaultTrackingDashboard,
 } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
 import { formatDistanceToNow } from 'date-fns';
+import { DashboardFilesMap, type DashboardFileMapPoint } from '../components/maps/DashboardFilesMap';
+import { VaultFileThumbnail } from '../components/VaultFileThumbnail';
 
 interface ShareLink {
   id: string;
@@ -62,9 +67,13 @@ export function AccessIntelligencePage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const vaultFilter = searchParams.get('vaultId')?.trim() || null;
+  const [loadError, setLoadError] = useState('');
+  const [assetMap, setAssetMap] = useState<DashboardFileMapPoint[]>([]);
+  const [vaultTrack, setVaultTrack] = useState<VaultTrackingDashboard | null>(null);
 
   const loadLinks = () => {
     setLoading(true);
+    setLoadError('');
     void (async () => {
       try {
         const r = await api.get(`${API_BASE_URL}/share`);
@@ -74,6 +83,7 @@ export function AccessIntelligencePage() {
         setLinks(data);
       } catch {
         setLinks([]);
+        setLoadError(vaultFilter ? "Couldn't load activity for this asset." : "Couldn't load activity.");
       } finally {
         setLoading(false);
       }
@@ -93,6 +103,24 @@ export function AccessIntelligencePage() {
     loadFileShares();
   }, []);
 
+  useEffect(() => {
+    if (!vaultFilter) {
+      setAssetMap([]);
+      setVaultTrack(null);
+      return;
+    }
+    let cancelled = false;
+    getLiveTrackingMap()
+      .then((data) => {
+        if (!cancelled) setAssetMap(data.points.filter((p) => p.vaultId === vaultFilter));
+      })
+      .catch(() => { if (!cancelled) setAssetMap([]); });
+    getVaultTracking(vaultFilter)
+      .then((t) => { if (!cancelled) setVaultTrack(t); })
+      .catch(() => { if (!cancelled) setVaultTrack(null); });
+    return () => { cancelled = true; };
+  }, [vaultFilter]);
+
   // Vault → Tracking lands on ?vaultId=… so all share links for that file stay visible.
   // Do not auto-jump to a single token (that hid other shares of the same file).
 
@@ -108,8 +136,15 @@ export function AccessIntelligencePage() {
 
   const activeLinks = filteredLinks.filter((l) => l.isActive);
   const totalViews = filteredLinks.reduce((s, l) => s + (l.viewCount ?? 0), 0);
-  const totalLogs = filteredLinks.reduce((s, l) => s + (l.accessLogs?.length ?? 0), 0);
   const uniqueCountries = new Set(filteredLinks.flatMap((l) => (l.accessLogs ?? []).map((a) => a.country).filter(Boolean)));
+  const securityActions = new Set(['COPY_ATTEMPT', 'PRINT_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'SCREEN_RECORDING_ATTEMPT', 'DOWNLOAD_FAILED', 'BLOCKED_REVOKED']);
+  const securityEvents = filteredLinks.reduce(
+    (s, l) => s + (l.accessLogs ?? []).filter((a) => securityActions.has(a.action)).length,
+    0,
+  );
+  const uniqueViewers = new Set(
+    filteredLinks.flatMap((l) => (l.accessLogs ?? []).filter((a) => a.action === 'VIEWED').map((a) => a.ipAddress || a.id)),
+  );
 
   const openFileShares = filteredFileShares.filter((s) => s.kind === 'file_open' && s.token);
   const activeFiles = openFileShares.filter((s) => s.status === 'ACTIVE');
@@ -155,7 +190,7 @@ export function AccessIntelligencePage() {
     if (!share.tepCode) return;
     if (!confirm(`Revoke tracking for ${share.tepCode}? This marks the shared file package as revoked.`)) return;
     try {
-      await revokeVaultTep(share.vaultId, share.tepCode, 'Revoked from Access Intelligence');
+      await revokeVaultTep(share.vaultId, share.tepCode, 'Revoked from Asset Activity');
       setFileShares((prev) =>
         prev.map((s) => (s.id === share.id ? { ...s, status: 'REVOKED' } : s)),
       );
@@ -175,12 +210,12 @@ export function AccessIntelligencePage() {
       navigate(`/access-intelligence/${encodeURIComponent(related.token)}`);
       return;
     }
-    toast.error('No Access Intelligence view for this item — use a Pinit open Share File row');
+    toast.error('No activity view for this item — use a Pinit open Share File row');
   };
 
   const busy = tab === 'links' ? loading : loadingFiles;
 
-  if (busy && (tab === 'links' ? links.length === 0 : fileShares.length === 0)) {
+  if (busy && (tab === 'links' ? links.length === 0 : fileShares.length === 0) && !loadError) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <RefreshCw size={24} className="animate-spin text-dna-400" />
@@ -192,15 +227,15 @@ export function AccessIntelligencePage() {
     <div className="page-shell w-full max-w-5xl">
       <div className="flex items-end justify-between mb-6 gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-medium text-gray-500 mb-1">Activity</p>
+          <p className="text-xs font-medium text-gray-500 mb-1">
+            {vaultFilter ? 'This asset' : 'All assets'}
+          </p>
           <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
             <Shield size={22} className="text-dna-400" />
-            Tracking
+            Asset Activity
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            {tab === 'links'
-              ? 'Who opened your share links'
-              : 'Who opened files you sent'}
+            See who accessed {vaultFilter ? 'this asset' : 'your assets'} and what happened.
           </p>
         </div>
         <button
@@ -213,27 +248,61 @@ export function AccessIntelligencePage() {
         </button>
       </div>
 
+      {loadError && (
+        <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 flex items-center justify-between gap-3">
+          <p className="text-sm text-white">{loadError}</p>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={loadLinks}>Try again</button>
+        </div>
+      )}
+
       {vaultFilter && (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dna-500/30 bg-dna-500/10 px-3 py-2.5">
-          <div className="min-w-0">
-            <p className="text-xs text-dna-200">
-              Tracking for this file only
-              {filterFilename ? <span className="text-white font-medium"> — {filterFilename}</span> : null}
-            </p>
-            <p className="text-2xs text-gray-400 mt-0.5">
-              {filteredLinks.length} share link{filteredLinks.length === 1 ? '' : 's'}
-              {openFileShares.length > 0 ? ` · ${openFileShares.length} file share(s)` : ''}
-              {' '}— open any row for its map &amp; viewers
-            </p>
+        <div className="mb-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dna-500/30 bg-dna-500/10 px-3 py-2.5">
+            <div className="flex items-center gap-3 min-w-0">
+              <VaultFileThumbnail
+                vaultId={vaultFilter}
+                fileName={filterFilename || vaultTrack?.filename || 'Asset'}
+                mimeType="application/octet-stream"
+                variant="compact"
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-white truncate">
+                  {filterFilename || vaultTrack?.filename || 'Protected asset'}
+                </p>
+                <p className="text-2xs text-gray-400">
+                  Protected
+                  {vaultTrack?.status ? ` · ${vaultTrack.status}` : ''}
+                  {activeLinks.length > 0 ? ' · Sharing active' : ' · No live share'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={clearVaultFilter}
+              className="inline-flex items-center gap-1 text-2xs font-semibold text-dna-300 hover:text-white shrink-0"
+            >
+              <ArrowLeft size={12} />
+              All assets
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={clearVaultFilter}
-            className="inline-flex items-center gap-1 text-2xs font-semibold text-dna-300 hover:text-white shrink-0"
-          >
-            <ArrowLeft size={12} />
-            Show all files
-          </button>
+          {assetMap.length > 0 ? (
+            <div>
+              <p className="text-xs font-semibold text-white mb-2">Where this asset was accessed</p>
+              <p className="text-2xs text-gray-500 mb-2">
+                Approximate IP/network location unless the recipient allowed precise location.
+              </p>
+              <div className="h-56 rounded-xl overflow-hidden border border-bg-border">
+                <DashboardFilesMap points={assetMap} fill />
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-bg-border bg-bg-elevated px-4 py-4">
+              <p className="text-xs font-semibold text-white">Where this asset was accessed</p>
+              <p className="text-2xs text-gray-500 mt-1">
+                No location yet. Pins appear when someone opens a share and location is available (precise GPS only with permission; otherwise approximate IP).
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -257,10 +326,10 @@ export function AccessIntelligencePage() {
       {tab === 'links' ? (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
-            <StatCard icon={<Shield size={14} />} label="Links" value={filteredLinks.length} color="text-dna-400" />
-            <StatCard icon={<Eye size={14} />} label="Active" value={activeLinks.length} color="text-green-400" />
-            <StatCard icon={<Users size={14} />} label="Views" value={totalViews} color="text-blue-400" />
-            <StatCard icon={<Clock size={14} />} label="Events" value={totalLogs} color="text-purple-400" />
+            <StatCard icon={<Users size={14} />} label="Viewers" value={uniqueViewers.size} color="text-cyan-400" />
+            <StatCard icon={<Eye size={14} />} label="Views" value={totalViews} color="text-blue-400" />
+            <StatCard icon={<Clock size={14} />} label="Downloads" value={filteredLinks.reduce((s, l) => s + (l.downloadCount ?? 0), 0)} color="text-green-400" />
+            <StatCard icon={<AlertTriangle size={14} />} label="Security events" value={securityEvents} color="text-orange-400" />
             <StatCard icon={<Globe size={14} />} label="Countries" value={uniqueCountries.size} color="text-orange-400" />
           </div>
 
@@ -268,11 +337,11 @@ export function AccessIntelligencePage() {
             <div className="card text-center py-16">
               <Shield size={40} className="text-gray-500 mx-auto mb-3" />
               <p className="text-sm text-gray-500">
-                {vaultFilter ? 'No share links for this file yet' : 'No share links yet'}
+                {vaultFilter ? 'No activity yet' : 'No share links yet'}
               </p>
               <p className="text-2xs text-gray-500 mt-1">
                 {vaultFilter
-                  ? 'Open My Assets → Share to create a tracked link for this file'
+                  ? 'Activity will appear here when someone accesses or interacts with your shared asset.'
                   : 'Go to My Assets → Share to create your first tracked link'}
               </p>
             </div>

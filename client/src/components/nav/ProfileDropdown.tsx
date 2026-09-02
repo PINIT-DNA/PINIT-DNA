@@ -110,7 +110,7 @@ export function ProfileDropdown() {
               label={theme === 'dark' ? 'Light mode' : 'Dark mode'}
               onClick={toggleTheme}
             />
-            <MenuItem icon={<HelpCircle size={14} />} label="Help & Support" onClick={() => window.open('mailto:support@pinitdna.com', '_blank')} />
+            <MenuItem icon={<HelpCircle size={14} />} label="Help & Support" onClick={() => go('/help')} />
           </div>
 
           {/* Footer */}

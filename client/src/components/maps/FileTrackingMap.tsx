@@ -27,6 +27,8 @@ interface MapPoint {
   locationSource?: string | null;
   /** Green / blue / red pin role */
   accessKind?: AccessKind;
+  /** Screenshot, copy, recording, download — shown on the pin popup */
+  actionSummary?: string;
 }
 
 interface FileTrackingMapProps {
@@ -184,6 +186,7 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
             <div>🌐 IP: <code style="background:#f1f5f9;padding:1px 4px;border-radius:3px">${p.ip}</code></div>
             <div>📱 ${p.device}</div>
             <div>👁 ${p.totalActions} action${p.totalActions > 1 ? 's' : ''}</div>
+            ${p.actionSummary ? `<div style="font-size:10px;color:#7c3aed;margin-top:4px">${p.actionSummary}</div>` : ''}
             ${accuracyBadge}
             <div style="font-size:10px;color:#999;margin-top:4px">
               ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}

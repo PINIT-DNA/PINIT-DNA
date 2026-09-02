@@ -31,7 +31,10 @@ const ACTION_COLORS: Record<string, string> = {
   FORWARDING_DETECTED: '#f97316',
   COPY_ATTEMPT: '#eab308',
   SCREENSHOT_ATTEMPT: '#ef4444',
+  SCREEN_RECORDING_ATTEMPT: '#ec4899',
   PRINT_ATTEMPT: '#ef4444',
+  DOWNLOAD_STARTED: '#34d399',
+  SHARE_FURTHER: '#f97316',
 };
 
 function pinIcon(color: string): L.DivIcon {
@@ -156,7 +159,7 @@ export function DashboardFilesMap({ points, height, fill, live }: DashboardFiles
   return (
     <div
       ref={wrapRef}
-      className={`relative w-full min-h-0 ${fill ? 'flex-1 min-h-[240px]' : ''}`}
+      className={`relative w-full ${fill ? 'h-full min-h-[240px]' : ''}`}
       style={!fill && mapHeight ? { height: mapHeight } : undefined}
     >
       <div

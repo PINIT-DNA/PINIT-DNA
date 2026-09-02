@@ -5,6 +5,8 @@ import {
   Bot, FileWarning, UserPlus, RefreshCw, Clock, Zap, Server,
 } from 'lucide-react';
 
+export const OPEN_NOTIFICATION_BELL_EVENT = 'pinit-open-notification-bell';
+
 export interface NotificationItem {
   id: string;
   createdAt: string;
@@ -153,7 +155,12 @@ function isGenericListLink(link: string): boolean {
 export function resolveNotificationDeepLink(n: NotificationItem): string {
   if (n.deepLink && !isGenericListLink(n.deepLink)) return n.deepLink;
   if (n.linkToken) return `/access-intelligence/${encodeURIComponent(n.linkToken)}`;
-  if (n.entityType === 'vault' && n.entityId) return `/vault?id=${n.entityId}`;
+  if (n.entityType === 'vault' && n.entityId) {
+    if (n.category === 'sharing' || n.category === 'security') {
+      return `/access-intelligence?vaultId=${encodeURIComponent(n.entityId)}`;
+    }
+    return `/vault?id=${n.entityId}`;
+  }
   if (n.entityType === 'dna_record' && n.entityId) return `/dna-records?id=${n.entityId}`;
   if (n.entityType === 'monitor_record' && n.entityId) return `/monitoring?monitor=${n.entityId}`;
   if (n.entityType === 'certificate' && n.entityId) return `/certificates?id=${encodeURIComponent(n.entityId)}`;

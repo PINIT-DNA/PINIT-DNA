@@ -10,6 +10,7 @@ import {
   notificationTypeConfig,
   NOTIFICATION_SEVERITY_BORDER,
   resolveNotificationDeepLink,
+  OPEN_NOTIFICATION_BELL_EVENT,
 } from '../../lib/notification-config';
 
 /**
@@ -105,6 +106,12 @@ export function NotificationBell() {
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  useEffect(() => {
+    const openBell = () => setOpen(true);
+    window.addEventListener(OPEN_NOTIFICATION_BELL_EVENT, openBell);
+    return () => window.removeEventListener(OPEN_NOTIFICATION_BELL_EVENT, openBell);
   }, []);
 
   const markAllRead = async () => {
@@ -204,7 +211,7 @@ export function NotificationBell() {
                 <p className="text-xs text-gray-500">Nothing needs you right now</p>
                 <p className="text-2xs text-gray-600 mt-1 max-w-[13rem] mx-auto">
                   You'll see something here when a person acts on work you're
-                  responsible for. Ordinary activity stays on the dashboard.
+                  responsible for.
                 </p>
               </div>
             ) : (

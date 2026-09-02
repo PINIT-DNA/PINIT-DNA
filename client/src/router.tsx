@@ -46,6 +46,7 @@ import { HomeRedirect } from './components/subscription/HomeRedirect';
 import { RequireAccountTypeOnboarding } from './components/onboarding/RequireAccountTypeOnboarding';
 import { BRAND } from './config/brand.config';
 import { ShareViewerPage } from './pages/ShareViewerPage';
+import { HelpPage } from './pages/HelpPage';
 import { HandoverPage } from './pages/HandoverPage';
 import { ClientReportPage } from './pages/ClientReportPage';
 import { PinitGateway, RegisterGateway } from './pages/auth/PinitGateway';
@@ -159,6 +160,7 @@ export const router = createBrowserRouter([
       { path: 'pinit-hub/investigation', element: <UnifiedInvestigationPage /> },
       { path: 'unified-investigation', element: <Navigate to={BRAND.investigationPath} replace /> },
       { path: 'link/:token', element: <LinkIntelligencePage /> },
+      { path: 'help', element: <HelpPage /> },
       { path: 'certificates', element: <CertificatesPage /> },
       { path: 'verify-certificate', element: <VerifyCertificatePage /> },
       // 'admin-portal' retired — duplicate of the Master Admin console (master-admin/, port 3003).

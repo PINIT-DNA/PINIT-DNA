@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, RefreshCw, Globe, Eye, Download, Copy, Ban,
-  Users, Clock, Smartphone, Monitor, MapPin, AlertTriangle, ExternalLink, XCircle,
+  Users, Clock, Smartphone, Monitor, MapPin, AlertTriangle, ExternalLink, XCircle, Video,
 } from 'lucide-react';
 import { api } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
@@ -312,8 +312,10 @@ function viewerGroupKey(log: AccessLog): string {
 }
 
 const VIEWER_ACTIONS = new Set([
-  'VIEWED', 'DOWNLOADED', 'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT',
-  'TAB_SWITCH', 'SCROLL', 'IDLE', 'ACTIVE', 'FORWARDING_DETECTED', 'LOCATION_UPDATE',
+  'VIEWED', 'DOWNLOADED', 'DOWNLOAD_STARTED', 'DOWNLOAD_FAILED',
+  'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'SCREEN_RECORDING_ATTEMPT', 'PRINT_ATTEMPT',
+  'TAB_SWITCH', 'SCROLL', 'IDLE', 'ACTIVE', 'FORWARDING_DETECTED', 'SHARE_FURTHER',
+  'HOP_MINTED', 'LOCATION_UPDATE',
 ]);
 
 const RISK_COLOR: Record<string, string> = {
@@ -326,15 +328,21 @@ const RISK_COLOR: Record<string, string> = {
 const ACTION_CONFIG: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
   VIEWED:             { icon: <Eye size={11} />,      label: 'Viewed',        color: 'text-blue-400' },
   DOWNLOADED:         { icon: <Download size={11} />,  label: 'Downloaded',    color: 'text-green-400' },
+  DOWNLOAD_STARTED:   { icon: <Download size={11} />,  label: 'Download started', color: 'text-green-300' },
+  DOWNLOAD_FAILED:    { icon: <Ban size={11} />,       label: 'Download failed', color: 'text-red-400' },
   COPIED:             { icon: <Copy size={11} />,      label: 'Copied',        color: 'text-yellow-400' },
-  COPY_ATTEMPT:       { icon: <Copy size={11} />,      label: 'Copy Attempt',  color: 'text-orange-400' },
-  SCREENSHOT_ATTEMPT: { icon: <Ban size={11} />,       label: 'Screenshot',    color: 'text-red-400' },
-  TAB_SWITCH:         { icon: <ExternalLink size={11}/>, label: 'Tab Switch',  color: 'text-purple-400' },
-  PRINT_ATTEMPT:      { icon: <Ban size={11} />,       label: 'Print Attempt', color: 'text-red-400' },
+  COPY_ATTEMPT:       { icon: <Copy size={11} />,      label: 'Copy attempt',  color: 'text-orange-400' },
+  SCREENSHOT_ATTEMPT: { icon: <Ban size={11} />,       label: 'Screenshot try', color: 'text-red-400' },
+  SCREEN_RECORDING_ATTEMPT: { icon: <Video size={11} />, label: 'Screen recording', color: 'text-pink-400' },
+  TAB_SWITCH:         { icon: <ExternalLink size={11}/>, label: 'Tab switch',  color: 'text-purple-400' },
+  PRINT_ATTEMPT:      { icon: <Ban size={11} />,       label: 'Print attempt', color: 'text-red-400' },
+  SHARE_FURTHER:      { icon: <ExternalLink size={11} />, label: 'Reshared',   color: 'text-orange-400' },
+  FORWARDING_DETECTED:{ icon: <ExternalLink size={11} />, label: 'Forwarded',  color: 'text-orange-400' },
+  HOP_MINTED:         { icon: <ExternalLink size={11} />, label: 'Share hop',  color: 'text-orange-300' },
   ACTIVE:             { icon: <Eye size={11} />,       label: 'Active',        color: 'text-dna-400' },
   IDLE:               { icon: <Clock size={11} />,     label: 'Idle',          color: 'text-gray-400' },
   SCROLL:             { icon: <Eye size={11} />,       label: 'Scrolled',      color: 'text-gray-400' },
-  LOCATION_UPDATE:   { icon: <MapPin size={11} />,    label: 'GPS Refined',   color: 'text-green-400' },
+  LOCATION_UPDATE:   { icon: <MapPin size={11} />,    label: 'GPS refined',   color: 'text-green-400' },
 };
 
 export function LinkIntelligencePage() {
@@ -365,7 +373,7 @@ export function LinkIntelligencePage() {
       })
       .catch((err: { response?: { data?: { error?: string }; status?: number } }) => {
         setLink(null);
-        setLoadError(err?.response?.data?.error ?? 'Failed to load link intelligence. Is the backend running?');
+          setLoadError(err?.response?.data?.error ?? "Couldn't load activity for this asset.");
         setLoading(false);
       });
   };
@@ -523,12 +531,12 @@ export function LinkIntelligencePage() {
 
   if (!link) return (
     <div className="max-w-lg mx-auto text-center py-16">
-      <p className="text-sm text-gray-400 mb-2">{loadError ?? 'Link not found'}</p>
+      <p className="text-sm text-gray-400 mb-2">{loadError ?? "Couldn't load activity for this asset."}</p>
       <div className="flex items-center justify-center gap-3">
         <Link to="/access-intelligence" className="text-dna-400 text-sm hover:underline flex items-center gap-1">
-          <ArrowLeft size={14} /> Back to Tracking
+          <ArrowLeft size={14} /> Back
         </Link>
-        <button onClick={load} className="text-sm text-gray-400 hover:text-white">Retry</button>
+        <button onClick={load} className="btn btn-secondary btn-sm">Try again</button>
       </div>
     </div>
   );
@@ -537,6 +545,14 @@ export function LinkIntelligencePage() {
   const trackingBackPath = link.vaultId
     ? `/access-intelligence?vaultId=${encodeURIComponent(link.vaultId)}`
     : '/access-intelligence';
+  const securityEventCount = (link.accessLogs ?? []).filter((a) => (
+    a.action === 'COPY_ATTEMPT'
+    || a.action === 'PRINT_ATTEMPT'
+    || a.action === 'SCREENSHOT_ATTEMPT'
+    || a.action === 'SCREEN_RECORDING_ATTEMPT'
+    || a.action === 'DOWNLOAD_FAILED'
+    || a.action === 'FORWARDING_DETECTED'
+  )).length;
 
   return (
     <div className="page-shell-wide w-full">
@@ -546,12 +562,13 @@ export function LinkIntelligencePage() {
           <ArrowLeft size={20} />
         </Link>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium text-gray-500 mb-0.5">Tracking</p>
+          <p className="text-xs font-medium text-gray-500 mb-0.5">Asset Activity</p>
           <h1 className="text-lg sm:text-xl font-bold text-white truncate" title={link.filename}>
             {link.filename}
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            Shared {formatDistanceToNow(new Date(link.createdAt))} ago
+            See who accessed this asset and what happened.
+            {' '}Shared {formatDistanceToNow(new Date(link.createdAt))} ago
             {(link.hopLinkCount ?? 0) > 0 && (
               <span className="text-dna-400"> · {link.hopLinkCount} forward{link.hopLinkCount === 1 ? '' : 's'} tracked</span>
             )}
@@ -594,8 +611,8 @@ export function LinkIntelligencePage() {
         <StatCard icon={<Globe size={14} />} label="Countries" value={Object.keys(countryStats).length} color="text-purple-400" />
         <StatCard
           icon={<AlertTriangle size={14} />}
-          label="Risk Events"
-          value={viewers.filter(v => v.riskLevel === 'HIGH' || v.riskLevel === 'CRITICAL').length}
+          label="Security events"
+          value={securityEventCount}
           color="text-red-400"
         />
       </div>
@@ -603,8 +620,11 @@ export function LinkIntelligencePage() {
       {/* Interactive World Map — file tracking visualization */}
       <div className="card mb-6">
         <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-4">
-          <Globe size={14} className="text-dna-400" /> File Tracking Map — Where Your File Traveled
+          <Globe size={14} className="text-dna-400" /> Where this asset was accessed
         </h2>
+        <p className="text-2xs text-gray-500 -mt-2 mb-4">
+          Precise GPS only when the recipient allowed it. Other pins are approximate IP/network location.
+        </p>
 
         <FileTrackingMap
           points={viewers
@@ -626,6 +646,9 @@ export function LinkIntelligencePage() {
             gpsFullAddress: v.gpsFullAddress,
             locationSource: v.locationSource,
             accessKind: v.accessKind,
+            actionSummary: [...new Set(v.actions.map((a) => ACTION_CONFIG[a.action]?.label || a.action))]
+              .slice(0, 8)
+              .join(' · '),
           }))}
           height="420px"
         />
@@ -661,7 +684,14 @@ export function LinkIntelligencePage() {
         )}
       </div>
 
-      {/* Viewers grid + activity detail */}
+          {viewers.length === 0 ? (
+            <div className="card text-center py-12 mb-6">
+              <p className="text-sm font-semibold text-white">No activity yet</p>
+              <p className="text-2xs text-gray-500 mt-1 max-w-md mx-auto">
+                Activity will appear here when someone accesses or interacts with your shared asset.
+              </p>
+            </div>
+          ) : (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Viewers list */}
         <div className="lg:col-span-1 space-y-2">
@@ -805,17 +835,29 @@ export function LinkIntelligencePage() {
                 </span>
               </div>
 
-              {/* Viewer identity card */}
+              {/* Viewer identity — compact, then technical details */}
               <div className="bg-bg-elevated rounded-lg p-3 border border-bg-border mb-4 space-y-2 text-2xs">
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  <div><span className="text-gray-500">IP:</span> <span className="text-white font-mono">{activeViewer.ip}</span></div>
+                  <div><span className="text-gray-500">Viewer:</span> <span className="text-white">{ACCESS_KIND_LABELS[activeViewer.accessKind]}{activeViewer.recipientName ? ` · ${activeViewer.recipientName}` : ''}</span></div>
+                  <div><span className="text-gray-500">First seen:</span> <span className="text-white">{format(new Date(activeViewer.firstSeen), 'MMM d, yyyy · h:mm a')}</span></div>
+                  <div><span className="text-gray-500">Last seen:</span> <span className="text-white">{format(new Date(activeViewer.actions[activeViewer.actions.length - 1]?.createdAt ?? activeViewer.firstSeen), 'MMM d, yyyy · h:mm a')}</span></div>
+                  <div><span className="text-gray-500">Views:</span> <span className="text-white">{activeViewer.actions.filter((a) => a.action === 'VIEWED').length}</span></div>
+                  <div><span className="text-gray-500">Actions:</span> <span className="text-white">{activeViewer.totalActions}</span></div>
                   <div><span className="text-gray-500">Device:</span> <span className="text-white">{activeViewer.device}</span></div>
-                  <div><span className="text-gray-500">Browser:</span> <span className="text-white">{activeViewer.browser} · {activeViewer.os}</span></div>
-                  <div><span className="text-gray-500">Risk:</span> <span className={RISK_COLOR[activeViewer.riskLevel]?.split(' ')[0] ?? 'text-green-400'}>{activeViewer.riskLevel} ({activeViewer.riskScore})</span></div>
-                  <div><span className="text-gray-500">Location Trust:</span> <span className={
+                  <div><span className="text-gray-500">Browser / OS:</span> <span className="text-white">{activeViewer.browser} · {activeViewer.os}</span></div>
+                  <div><span className="text-gray-500">Risk:</span> <span className={RISK_COLOR[activeViewer.riskLevel]?.split(' ')[0] ?? 'text-green-400'}>{activeViewer.riskLevel}</span></div>
+                  <div><span className="text-gray-500">Location trust:</span> <span className={
                     activeViewer.locationTrust === 'HIGH' ? 'text-green-400'
                       : activeViewer.locationTrust === 'MEDIUM' ? 'text-yellow-400' : 'text-orange-400'
-                  }>{activeViewer.locationTrust} ({activeViewer.trustScore})</span></div>
+                  }>{activeViewer.locationTrust}</span></div>
+                </div>
+                <details className="border-t border-bg-border pt-2">
+                  <summary className="cursor-pointer text-xs font-semibold text-dna-300 hover:text-white">View details</summary>
+                  <div className="mt-2 space-y-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <div><span className="text-gray-500">IP:</span> <span className="text-white font-mono">{activeViewer.ip}</span></div>
+                  <div><span className="text-gray-500">Risk score:</span> <span className={RISK_COLOR[activeViewer.riskLevel]?.split(' ')[0] ?? 'text-green-400'}>{activeViewer.riskScore}</span></div>
+                  <div><span className="text-gray-500">Trust score:</span> <span className="text-white">{activeViewer.trustScore}</span></div>
                   {(activeViewer.isVpn || activeViewer.isTor || activeViewer.isProxy || activeViewer.isDatacenter) && (
                     <div className="col-span-full flex flex-wrap gap-1.5">
                       {activeViewer.isVpn && <span className="text-2xs px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-300">VPN</span>}
@@ -831,7 +873,6 @@ export function LinkIntelligencePage() {
                       </span>
                     </div>
                   )}
-                  <div><span className="text-gray-500">First Seen:</span> <span className="text-white">{format(new Date(activeViewer.firstSeen), 'MMM d, yyyy · h:mm:ss a')}</span></div>
                   {activeViewer.isp && <div><span className="text-gray-500">ISP:</span> <span className="text-white">{activeViewer.isp}</span></div>}
                 </div>
                 {/* Location — GPS or IP fallback */}
@@ -910,6 +951,8 @@ export function LinkIntelligencePage() {
                   )}
                   {activeViewer.timezone && <div className="mt-1"><span className="text-gray-500">Timezone:</span> <span className="text-white">{activeViewer.timezone}</span></div>}
                 </div>
+                  </div>
+                </details>
               </div>
 
               {activeViewer.riskFactors.filter(f => !/^No anomalies/i.test(f) && !/^GPS and IP consistent/i.test(f)).length > 0 && (
@@ -954,17 +997,19 @@ export function LinkIntelligencePage() {
                   const logPlace = [log.gpsVillage, log.gpsMandal, log.gpsDistrict].filter(Boolean).join(', ')
                     || log.gpsCity
                     || log.city;
+                  const coords = formatCoords(logLat, logLng);
+                  const line = [logPlace, log.device, [log.browser, log.os].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
                   return (
                     <div key={log.id} className="flex items-center gap-3 bg-bg-elevated rounded-lg px-3 py-2 border border-bg-border">
                       <span className={`${cfg.color}`}>{cfg.icon}</span>
                       <div className="flex-1 min-w-0">
                         <span className="text-xs text-white">{cfg.label}</span>
-                        {(logPlace || formatCoords(logLat, logLng)) && (
+                        {(line || coords) && (
                           <p className="text-2xs text-gray-500 truncate">
-                            {logPlace && <span>{logPlace}</span>}
-                            {logPlace && formatCoords(logLat, logLng) && ' · '}
-                            {formatCoords(logLat, logLng) && (
-                              <span className="font-mono text-dna-400/80">{formatCoords(logLat, logLng)}</span>
+                            {line}
+                            {line && coords ? ' · ' : ''}
+                            {coords && (
+                              <span className="font-mono text-dna-400/80">{coords}</span>
                             )}
                           </p>
                         )}
@@ -988,6 +1033,7 @@ export function LinkIntelligencePage() {
           )}
         </div>
       </div>
+          )}
     </div>
   );
 }
