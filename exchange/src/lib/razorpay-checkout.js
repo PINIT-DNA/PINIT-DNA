@@ -124,7 +124,6 @@ export async function openRazorpayCheckout({
       description,
       order_id: orderId,
       prefill: buildPrefill({ userName, userEmail, userContact }),
-      remember_customer: true,
       theme: { color: '#3b82f6' },
       handler: (response) => finish(resolve, response),
       modal: {

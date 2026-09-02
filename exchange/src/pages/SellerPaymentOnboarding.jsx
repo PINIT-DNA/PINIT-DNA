@@ -7,6 +7,7 @@ import TestPaymentHint from '../components/TestPaymentHint.jsx';
 import { sellerSubscriptionLabel } from '../lib/money.js';
 
 const STATUS_TIMEOUT_MS = 15000;
+const PAY_TIMEOUT_MS = 45000;
 
 function isTransientApiFailure(result) {
   if (!result || result.ok) return false;
@@ -37,14 +38,35 @@ async function fetchWithTimeout(url, options = {}, ms = STATUS_TIMEOUT_MS) {
   }
 }
 
-async function fetchWithRetry(url, options = {}, { attempts = 2, delayMs = 400 } = {}) {
+async function fetchWithRetry(url, options = {}, { attempts = 2, delayMs = 400, timeoutMs = STATUS_TIMEOUT_MS } = {}) {
   let last = { ok: false, status: 0, data: null, error: 'Could not reach Exchange API' };
   for (let i = 0; i < attempts; i += 1) {
-    last = await fetchWithTimeout(url, options);
+    last = await fetchWithTimeout(url, options, timeoutMs);
     if (last.ok || !isTransientApiFailure(last)) return last;
     await new Promise((r) => setTimeout(r, delayMs + i * 250));
   }
   return last;
+}
+
+function payReturnParams() {
+  if (typeof window === 'undefined') return null;
+  const q = new URLSearchParams(window.location.search);
+  const paymentId = q.get('razorpay_payment_id');
+  if (!paymentId) return null;
+  return {
+    razorpay_payment_id: paymentId,
+    razorpay_order_id: q.get('razorpay_order_id') || '',
+    razorpay_signature: q.get('razorpay_signature') || '',
+    razorpay_payment_link_id: q.get('razorpay_payment_link_id') || '',
+    razorpay_payment_link_reference_id: q.get('razorpay_payment_link_reference_id') || '',
+    razorpay_payment_link_status: q.get('razorpay_payment_link_status') || '',
+  };
+}
+
+function clearPayReturnQuery() {
+  if (typeof window === 'undefined') return;
+  const url = `${window.location.pathname}`;
+  window.history.replaceState({}, '', url);
 }
 
 export default function SellerPaymentOnboarding({ user, onVerified, onNavigate, onSessionUser }) {
@@ -93,6 +115,32 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate, 
 
   useEffect(() => {
     finishingRef.current = false;
+    const returned = payReturnParams();
+    if (returned?.razorpay_payment_id && user?.pinit_id) {
+      (async () => {
+        setVerifying(true);
+        setNotice('Confirming payment…');
+        setError('');
+        try {
+          const verify = await fetchWithRetry('/api/seller/onboarding/payment-method/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pinit_id: user.pinit_id, ...returned }),
+          }, { timeoutMs: PAY_TIMEOUT_MS });
+          if (!verify.ok) throw new Error(verify.error || 'Verification failed');
+          clearPayReturnQuery();
+          if (verify.data?.user) onSessionUser?.(verify.data.user);
+          setStatus(verify.data);
+          finishAsCreator(verify.data?.user);
+        } catch (e) {
+          setNotice('');
+          setError(e.message || 'Payment verification failed');
+          setVerifying(false);
+          await loadStatus();
+        }
+      })();
+      return;
+    }
     loadStatus();
   }, [user?.pinit_id]);
 
@@ -116,7 +164,7 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate, 
           'Idempotency-Key': idempotencyKey,
         },
         body: JSON.stringify({ pinit_id: user.pinit_id, idempotency_key: idempotencyKey }),
-      });
+      }, { timeoutMs: PAY_TIMEOUT_MS });
       if (!init.ok) throw new Error(init.error || 'Could not start payment verification');
       const created = init.data || {};
       if (created.already_verified) {
@@ -133,6 +181,10 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate, 
         setNotice('Confirming test payment…');
         razorpay_payment_id = `pay_mock_${Date.now()}`;
         razorpay_signature = 'mock';
+      } else if (created.checkoutUrl) {
+        setNotice('Redirecting to Razorpay…');
+        window.location.assign(created.checkoutUrl);
+        return;
       } else {
         if (!created.keyId || !created.orderId) {
           throw new Error(created.message || 'Payment is not configured. Cannot charge without a Razorpay order.');

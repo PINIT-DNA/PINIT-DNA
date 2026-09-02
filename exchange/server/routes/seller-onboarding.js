@@ -10,10 +10,12 @@ import {
 } from '../lib/seller-onboarding.js';
 import {
   createRazorpayOrder,
+  createRazorpayPaymentLink,
   createRazorpayCustomer,
   fetchRazorpayPayment,
   getBillingPublicConfig,
   verifyRazorpaySignature,
+  verifyPaymentLinkSignature,
   publicPaymentError,
   sellerSubscriptionPaymentAcceptable,
   orderStillPayable,
@@ -57,6 +59,20 @@ function idempotencyKey(req) {
 
 function defaultIdempotencyKey(pinitId) {
   return `seller_pm_${pinitId}_${new Date().toISOString().slice(0, 10)}`;
+}
+
+function sellerPayReturnUrl(req) {
+  const env = String(process.env.EXCHANGE_PUBLIC_URL || '').trim().replace(/\/$/, '');
+  let origin = '';
+  try {
+    const raw = String(req.headers.origin || req.headers.referer || '').trim();
+    if (raw) origin = new URL(raw).origin;
+  } catch {
+    origin = '';
+  }
+  const base = env || origin || 'https://www.pinitexchange.com';
+  if (/localhost|127\.0\.0\.1/i.test(base)) return '';
+  return `${base.replace(/\/$/, '')}/exchange/seller/onboarding/payment`;
 }
 
 async function loadVerifiedPaymentMethod(pinitId) {
@@ -168,16 +184,48 @@ router.post('/payment-method', async (req, res) => {
 
     const intentId = existingIntent?.id || uuidv4();
     const receipt = `spm_${user.pinit_id.slice(-8)}_${Date.now()}`.slice(0, 40);
-    const order = await createRazorpayOrder({
-      amountPaise: SELLER_SUBSCRIPTION_AMOUNT_CENTS,
-      currency: SELLER_SUBSCRIPTION_CURRENCY,
-      receipt,
-      notes: {
-        purpose: 'seller_subscription',
-        pinit_id: user.pinit_id,
-        amount_inr: '2500',
-      },
-    });
+    const notes = {
+      purpose: 'seller_subscription',
+      pinit_id: user.pinit_id,
+      amount_inr: '2500',
+    };
+    const returnUrl = sellerPayReturnUrl(req);
+    let order = null;
+    let checkoutUrl = null;
+
+    if (returnUrl) {
+      const link = await createRazorpayPaymentLink({
+        amountPaise: SELLER_SUBSCRIPTION_AMOUNT_CENTS,
+        currency: SELLER_SUBSCRIPTION_CURRENCY,
+        description: 'Seller subscription — ₹2,500',
+        referenceId: intentId,
+        callbackUrl: returnUrl,
+        notes,
+        customer: {
+          name: user.display_name || user.name,
+          email: user.email,
+        },
+      });
+      if (link?.shortUrl && !link.mock) {
+        checkoutUrl = link.shortUrl;
+        order = {
+          orderId: link.orderId || link.id,
+          amount: SELLER_SUBSCRIPTION_AMOUNT_CENTS,
+          currency: SELLER_SUBSCRIPTION_CURRENCY,
+          keyId: process.env.RAZORPAY_KEY_ID,
+          mock: false,
+        };
+      }
+    }
+
+    if (!order) {
+      order = await createRazorpayOrder({
+        amountPaise: SELLER_SUBSCRIPTION_AMOUNT_CENTS,
+        currency: SELLER_SUBSCRIPTION_CURRENCY,
+        receipt,
+        notes,
+      });
+    }
 
     if (existingIntent?.id) {
       await runSql(
@@ -204,6 +252,7 @@ router.post('/payment-method', async (req, res) => {
       currency: order.currency || SELLER_SUBSCRIPTION_CURRENCY,
       keyId: order.keyId,
       mock: order.mock,
+      checkoutUrl,
       customerId,
       description: 'Seller subscription — ₹2,500',
       subscription_amount_cents: SELLER_SUBSCRIPTION_AMOUNT_CENTS,
@@ -233,21 +282,40 @@ router.post('/payment-method/verify', async (req, res) => {
       razorpay_order_id: orderId,
       razorpay_payment_id: paymentId,
       razorpay_signature: signature,
+      razorpay_payment_link_id: paymentLinkId,
+      razorpay_payment_link_reference_id: paymentLinkRef,
+      razorpay_payment_link_status: paymentLinkStatus,
     } = req.body || {};
 
-    if (!orderId || !paymentId) {
-      return res.status(400).json({ error: 'razorpay_order_id and razorpay_payment_id are required' });
+    if (!paymentId) {
+      return res.status(400).json({ error: 'razorpay_payment_id is required' });
     }
 
     const key = idempotencyKey(req) || defaultIdempotencyKey(user.pinit_id);
-    let intent = await getSql(
-      `SELECT * FROM seller_onboarding_intents WHERE razorpay_order_id = ? AND pinit_id = ? LIMIT 1`,
-      [orderId, user.pinit_id],
-    );
+    let intent = null;
+    if (orderId) {
+      intent = await getSql(
+        `SELECT * FROM seller_onboarding_intents WHERE razorpay_order_id = ? AND pinit_id = ? LIMIT 1`,
+        [orderId, user.pinit_id],
+      );
+    }
+    if (!intent && paymentLinkRef) {
+      intent = await getSql(
+        `SELECT * FROM seller_onboarding_intents WHERE id = ? AND pinit_id = ? LIMIT 1`,
+        [paymentLinkRef, user.pinit_id],
+      );
+    }
     if (!intent) {
       intent = await getSql(
         `SELECT * FROM seller_onboarding_intents WHERE idempotency_key = ? AND pinit_id = ? LIMIT 1`,
         [key, user.pinit_id],
+      );
+    }
+    if (!intent) {
+      intent = await getSql(
+        `SELECT * FROM seller_onboarding_intents WHERE pinit_id = ? AND status = 'pending'
+         ORDER BY created_at DESC LIMIT 1`,
+        [user.pinit_id],
       );
     }
     if (!intent?.razorpay_order_id) {
@@ -256,7 +324,9 @@ router.post('/payment-method/verify', async (req, res) => {
         message: 'This payment session expired or is invalid. Start payment again.',
       });
     }
-    if (intent.razorpay_order_id !== orderId) {
+    const storedOrder = String(intent.razorpay_order_id);
+    const isLinkIntent = storedOrder.startsWith('plink_') || Boolean(paymentLinkId);
+    if (orderId && storedOrder !== String(orderId) && !isLinkIntent) {
       return res.status(409).json({ error: 'Order mismatch for this verification session' });
     }
     if (intent.status === 'completed') {
@@ -268,7 +338,20 @@ router.post('/payment-method/verify', async (req, res) => {
       });
     }
 
-    if (!verifyRazorpaySignature({ orderId, paymentId, signature: signature || '' })) {
+    const signedOk = paymentLinkId
+      ? verifyPaymentLinkSignature({
+          paymentLinkId,
+          paymentLinkRef: paymentLinkRef || intent.id,
+          paymentLinkStatus: paymentLinkStatus || 'paid',
+          paymentId,
+          signature: signature || '',
+        })
+      : verifyRazorpaySignature({
+          orderId: orderId || storedOrder,
+          paymentId,
+          signature: signature || '',
+        });
+    if (!signedOk) {
       await runSql(
         `UPDATE users SET seller_onboarding_status = ? WHERE pinit_id = ?`,
         [ONBOARDING.PAYMENT_METHOD_FAILED, user.pinit_id],
@@ -313,7 +396,10 @@ router.post('/payment-method/verify', async (req, res) => {
     }
 
     const payment = await fetchRazorpayPayment(paymentId);
-    const accepted = sellerSubscriptionPaymentAcceptable(payment, orderId);
+    const accepted = sellerSubscriptionPaymentAcceptable(
+      payment,
+      isLinkIntent ? (payment.order_id || orderId) : (orderId || storedOrder),
+    );
     if (!accepted.ok) {
       await runSql(
         `UPDATE users SET seller_onboarding_status = ? WHERE pinit_id = ?`,

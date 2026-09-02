@@ -209,6 +209,107 @@ function mockOrder({ amountPaise, currency }) {
   };
 }
 
+function verifyHmacHex(body, signature) {
+  const expected = crypto
+    .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+    .update(body)
+    .digest('hex');
+  const a = Buffer.from(expected, 'utf8');
+  const b = Buffer.from(String(signature || ''), 'utf8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+/**
+ * Hosted Payment Link — the browser navigates to Razorpay, then GET-returns
+ * to our SPA. Checkout.js modals were failing silently on the live site
+ * (nothing looked like a "payment page").
+ */
+export async function createRazorpayPaymentLink({
+  amountPaise,
+  currency,
+  description,
+  referenceId,
+  callbackUrl,
+  notes = {},
+  customer = {},
+}) {
+  const payCurrency = String(currency || activeCurrency()).toUpperCase();
+  if (isPaymentMockMode()) {
+    return {
+      id: `plink_mock_${Date.now()}`,
+      shortUrl: null,
+      orderId: `order_mock_${Date.now()}`,
+      mock: true,
+    };
+  }
+  if (!callbackUrl || !/^https:\/\//i.test(callbackUrl)) {
+    return null;
+  }
+
+  try {
+    const client = getClient();
+    const customerPayload = {};
+    if (customer.name) customerPayload.name = String(customer.name).slice(0, 120);
+    if (customer.email && !/@(pinithub|buyer|pinit)\.local$/i.test(String(customer.email))) {
+      customerPayload.email = String(customer.email).slice(0, 120);
+    }
+    if (customer.contact) customerPayload.contact = String(customer.contact).slice(0, 15);
+
+    const payload = {
+      amount: amountPaise,
+      currency: payCurrency,
+      accept_partial: false,
+      description: String(description || 'Pinit Exchange').slice(0, 255),
+      reference_id: String(referenceId || '').slice(0, 40),
+      callback_url: callbackUrl,
+      callback_method: 'get',
+      reminder_enable: false,
+      notify: { sms: false, email: false },
+      notes,
+    };
+    if (Object.keys(customerPayload).length) payload.customer = customerPayload;
+
+    const link = await withTimeout(
+      client.paymentLink.create(payload),
+      15000,
+      'Timed out creating the Razorpay payment page. Try Pay again.',
+    );
+    return {
+      id: link.id,
+      shortUrl: link.short_url,
+      orderId: link.order_id || null,
+      mock: false,
+    };
+  } catch (err) {
+    if (markRazorpayAuthBroken(err)) {
+      return {
+        id: `plink_mock_${Date.now()}`,
+        shortUrl: null,
+        orderId: `order_mock_${Date.now()}`,
+        mock: true,
+      };
+    }
+    console.warn('[payments] payment link failed, checkout.js fallback:', publicPaymentError(err));
+    return null;
+  }
+}
+
+export function verifyPaymentLinkSignature({
+  paymentLinkId,
+  paymentLinkRef,
+  paymentLinkStatus,
+  paymentId,
+  signature,
+}) {
+  if (String(paymentId || '').startsWith('pay_mock_') || String(paymentLinkId || '').startsWith('plink_mock_')) {
+    return !isLiveKey();
+  }
+  if (isPaymentMockMode() || !process.env.RAZORPAY_KEY_SECRET) return false;
+  const body = `${paymentLinkId}|${paymentLinkRef}|${paymentLinkStatus}|${paymentId}`;
+  return verifyHmacHex(body, signature);
+}
+
 export async function createRazorpayOrder({ amountPaise, receipt, notes = {}, currency }) {
   const payCurrency = String(currency || activeCurrency()).toUpperCase();
   if (isPaymentMockMode()) {
@@ -258,11 +359,7 @@ export function verifyRazorpaySignature({ orderId, paymentId, signature }) {
     return false;
   }
   const body = `${orderId}|${paymentId}`;
-  const expected = crypto
-    .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-    .update(body)
-    .digest('hex');
-  return expected === signature;
+  return verifyHmacHex(body, signature);
 }
 
 /**
