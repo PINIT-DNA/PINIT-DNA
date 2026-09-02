@@ -1,12 +1,14 @@
+import { publicErrorMessage } from './user-facing-error.js';
+
 /**
  * Safe fetch helpers — never throw raw "Unexpected end of JSON" to users.
  */
 
 function statusMessage(status, fallback) {
   if (status === 401) return 'Your session has expired.';
-  if (status === 403) return 'You do not have access';
+  if (status === 403) return 'You do not have access to that yet.';
   if (status === 404) return 'Not found';
-  if (status >= 500) return 'Server error — try again shortly';
+  if (status >= 500) return 'Pinit Exchange is temporarily waking up.';
   return fallback;
 }
 
@@ -80,11 +82,16 @@ export async function apiFetch(url, options = {}) {
     if (!parsed.ok) {
       const code = parsed.data?.error;
       const raw = parsed.data?.message;
-      const msg =
-        raw ||
-        (code && !/^[A-Z][A-Z0-9_]+$/.test(String(code)) ? String(code) : null) ||
-        parsed.error ||
-        statusMessage(parsed.status, 'Something went wrong');
+      if (code === 'PAYMENT_INIT_FAILED' && raw) {
+        return { ok: false, status: parsed.status, data: parsed.data, error: String(raw), headers: res.headers };
+      }
+      const msg = publicErrorMessage(
+        raw
+          || (code && !/^[A-Z][A-Z0-9_]+$/.test(String(code)) ? String(code) : null)
+          || parsed.error
+          || statusMessage(parsed.status, 'Something went wrong'),
+        parsed.status,
+      );
       return { ok: false, status: parsed.status, data: parsed.data, error: msg, headers: res.headers };
     }
     return { ok: true, status: parsed.status, data: parsed.data, error: null, headers: res.headers };
@@ -93,9 +100,12 @@ export async function apiFetch(url, options = {}) {
       ok: false,
       status: 0,
       data: null,
-      error: err?.message?.includes('Failed to fetch')
-        ? 'Cannot reach Exchange API. Is the server running on port 5000?'
-        : err?.message || 'Network error',
+      error: publicErrorMessage(
+        err?.message?.includes('Failed to fetch')
+          ? 'Pinit Exchange is temporarily waking up.'
+          : err?.message || 'Network error',
+        0,
+      ),
     };
   }
 }

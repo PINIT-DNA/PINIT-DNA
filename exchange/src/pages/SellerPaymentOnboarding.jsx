@@ -232,7 +232,6 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate, 
         setNotice('');
         setError(e.message || 'Payment verification failed');
       }
-      await loadStatus();
     } finally {
       setVerifying(false);
     }

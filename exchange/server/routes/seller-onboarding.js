@@ -10,7 +10,6 @@ import {
 } from '../lib/seller-onboarding.js';
 import {
   createRazorpayOrder,
-  createRazorpayPaymentLink,
   createRazorpayCustomer,
   fetchRazorpayPayment,
   getBillingPublicConfig,
@@ -59,20 +58,6 @@ function idempotencyKey(req) {
 
 function defaultIdempotencyKey(pinitId) {
   return `seller_pm_${pinitId}_${new Date().toISOString().slice(0, 10)}`;
-}
-
-function sellerPayReturnUrl(req) {
-  const env = String(process.env.EXCHANGE_PUBLIC_URL || '').trim().replace(/\/$/, '');
-  let origin = '';
-  try {
-    const raw = String(req.headers.origin || req.headers.referer || '').trim();
-    if (raw) origin = new URL(raw).origin;
-  } catch {
-    origin = '';
-  }
-  const base = env || origin || 'https://www.pinitexchange.com';
-  if (/localhost|127\.0\.0\.1/i.test(base)) return '';
-  return `${base.replace(/\/$/, '')}/exchange/seller/onboarding/payment`;
 }
 
 async function loadVerifiedPaymentMethod(pinitId) {
@@ -147,6 +132,7 @@ router.post('/payment-method', async (req, res) => {
     }
 
     const reusable = existingIntent?.razorpay_order_id
+      && String(existingIntent.razorpay_order_id).startsWith('order_')
       && existingIntent.status === 'pending'
       && await orderStillPayable(existingIntent.razorpay_order_id);
     if (reusable) {
@@ -184,59 +170,39 @@ router.post('/payment-method', async (req, res) => {
 
     const intentId = existingIntent?.id || uuidv4();
     const receipt = `spm_${user.pinit_id.slice(-8)}_${Date.now()}`.slice(0, 40);
-    const notes = {
-      purpose: 'seller_subscription',
-      pinit_id: user.pinit_id,
-      amount_inr: '2500',
-    };
-    const returnUrl = sellerPayReturnUrl(req);
-    let order = null;
-    let checkoutUrl = null;
+    const order = await createRazorpayOrder({
+      amountPaise: SELLER_SUBSCRIPTION_AMOUNT_CENTS,
+      currency: SELLER_SUBSCRIPTION_CURRENCY,
+      receipt,
+      notes: {
+        purpose: 'seller_subscription',
+        pinit_id: String(user.pinit_id),
+        amount_inr: '2500',
+      },
+    });
+    if (!order?.orderId) {
+      throw new Error('Razorpay did not return an order id. Try Pay again.');
+    }
 
-    if (returnUrl) {
-      const link = await createRazorpayPaymentLink({
-        amountPaise: SELLER_SUBSCRIPTION_AMOUNT_CENTS,
-        currency: SELLER_SUBSCRIPTION_CURRENCY,
-        description: 'Seller subscription — ₹2,500',
-        referenceId: intentId,
-        callbackUrl: returnUrl,
-        notes,
-        customer: {
-          name: user.display_name || user.name,
-          email: user.email,
-        },
-      });
-      if (link?.shortUrl && !link.mock) {
-        checkoutUrl = link.shortUrl;
-        order = {
-          orderId: link.orderId || link.id,
-          amount: SELLER_SUBSCRIPTION_AMOUNT_CENTS,
-          currency: SELLER_SUBSCRIPTION_CURRENCY,
-          keyId: process.env.RAZORPAY_KEY_ID,
-          mock: false,
-        };
+    try {
+      if (existingIntent?.id) {
+        await runSql(
+          `UPDATE seller_onboarding_intents SET razorpay_order_id = ?, status = 'pending' WHERE id = ?`,
+          [order.orderId, existingIntent.id],
+        );
+      } else {
+        await runSql(
+          `INSERT INTO seller_onboarding_intents (id, pinit_id, idempotency_key, razorpay_order_id, status)
+           VALUES (?, ?, ?, ?, 'pending')`,
+          [intentId, user.pinit_id, key, order.orderId],
+        );
       }
-    }
-
-    if (!order) {
-      order = await createRazorpayOrder({
-        amountPaise: SELLER_SUBSCRIPTION_AMOUNT_CENTS,
-        currency: SELLER_SUBSCRIPTION_CURRENCY,
-        receipt,
-        notes,
-      });
-    }
-
-    if (existingIntent?.id) {
+    } catch (dbErr) {
+      const dup = /unique|duplicate/i.test(String(dbErr?.message || ''));
+      if (!dup) throw dbErr;
       await runSql(
-        `UPDATE seller_onboarding_intents SET razorpay_order_id = ?, status = 'pending' WHERE id = ?`,
-        [order.orderId, existingIntent.id],
-      );
-    } else {
-      await runSql(
-        `INSERT INTO seller_onboarding_intents (id, pinit_id, idempotency_key, razorpay_order_id, status)
-         VALUES (?, ?, ?, ?, 'pending')`,
-        [intentId, user.pinit_id, key, order.orderId],
+        `UPDATE seller_onboarding_intents SET razorpay_order_id = ?, status = 'pending' WHERE idempotency_key = ?`,
+        [order.orderId, key],
       );
     }
     await runSql(
@@ -252,16 +218,16 @@ router.post('/payment-method', async (req, res) => {
       currency: order.currency || SELLER_SUBSCRIPTION_CURRENCY,
       keyId: order.keyId,
       mock: order.mock,
-      checkoutUrl,
       customerId,
       description: 'Seller subscription — ₹2,500',
       subscription_amount_cents: SELLER_SUBSCRIPTION_AMOUNT_CENTS,
     });
   } catch (err) {
-    console.error('[seller/onboarding/payment-method]', publicPaymentError(err), err);
-    res.status(500).json({
-      error: publicPaymentError(err) || 'Could not initialize payment method setup',
-      message: publicPaymentError(err) || 'Could not initialize payment method setup',
+    const message = publicPaymentError(err) || 'Could not initialize payment method setup';
+    console.error('[seller/onboarding/payment-method]', message, err);
+    res.status(502).json({
+      error: 'PAYMENT_INIT_FAILED',
+      message,
     });
   }
 });
