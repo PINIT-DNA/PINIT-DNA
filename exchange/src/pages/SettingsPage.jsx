@@ -34,11 +34,9 @@ const NOTIFY_ROWS = [
   { id: 'hub_tracking', label: 'Hub tracking alerts', hint: 'Post-sale activity on a protected asset.' },
 ];
 
-export default function SettingsPage({ user, onUserUpdated, onNavigate, onEnableBuyer }) {
+export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
   const seller = canList(user);
   const account = resolveExchangeAccount(user);
-  const needsBuyer = account.needsBuyerEnable;
-  const [enablingBuyer, setEnablingBuyer] = useState(false);
   const [activeTab, setActiveTab] = useState('account');
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
   const [saveError, setSaveError] = useState('');
@@ -79,18 +77,8 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate, onEnable
       setUpgradeError(error || 'Could not start the Creator upgrade. Please try again.');
       return;
     }
-    onUserUpdated?.(data.user);
+    onUserUpdated?.(data.user, data.session_token);
     onNavigate?.('seller_onboarding_payment');
-  };
-
-  const startEnableBuyer = async () => {
-    setEnablingBuyer(true);
-    setUpgradeError('');
-    try {
-      if (onEnableBuyer) await onEnableBuyer();
-    } finally {
-      setEnablingBuyer(false);
-    }
   };
 
   const toggleNotify = (id) => {
@@ -236,28 +224,10 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate, onEnable
               <section>
                 <h2 className="ex-h2 settings-h">Buyer access</h2>
                 <p className="settings-body">
-                  Enable buying on this same Pinit identity. Your Creator listings, sales and dashboard stay.
-                  No second email or login.
+                  Buying is always on this same Pinit identity. Cart, checkout, purchases and
+                  wishlist stay available when you add selling. No second email or login.
                 </p>
-                {canPurchase(user) && !needsBuyer ? (
-                  <p className="settings-fine">Buyer is already on. Cart, checkout, purchases and wishlist are available.</p>
-                ) : (
-                  <>
-                    {upgradeError && (
-                      <div className="ex-alert ex-alert--error settings-alert" role="alert">
-                        <AlertCircle size={18} /> <span>{upgradeError}</span>
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      className="ex-btn ex-btn--primary"
-                      disabled={enablingBuyer}
-                      onClick={startEnableBuyer}
-                    >
-                      {enablingBuyer ? 'Enabling Buyer…' : 'Create Buyer Account'}
-                    </button>
-                  </>
-                )}
+                <p className="settings-fine">Buy is on. Cart, checkout, purchases and wishlist are available.</p>
               </section>
             )}
 

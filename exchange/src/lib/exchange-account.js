@@ -1,9 +1,8 @@
 /**
  * Single Exchange account authority.
  *
- * Hub identity (PINIT-*) is shared. Selling and buying are capabilities.
- * Creators who signed up only to sell enable buying via Create Buyer Account.
- * Buyers who start selling keep buying (buyer_enabled stays on).
+ * One Pinit identity buys and sells. Selling is a capability gated by the
+ * ₹2,500 seller subscription — not a second login.
  */
 
 export function resolveExchangeAccount(user) {
@@ -30,30 +29,27 @@ export function resolveExchangeAccount(user) {
   const sellerIntent = raw === 'creator' || raw === 'seller' || raw === 'admin';
   const caps = user.capabilities || {};
   const canList = listFlag === true || listFlag === 1 || caps.sell === true;
-  const canPurchase = user.can_purchase === true || user.can_purchase === 1
-    || caps.buy === true
-    || user.buyer_enabled === true || user.buyer_enabled === 1;
-  const needsBuyerEnable = Boolean(user.needs_buyer_enable) || (sellerIntent && !canPurchase);
+  const canPurchase = true;
+  const needsBuyerEnable = false;
 
-  let uiLabel = 'Buyer Account';
-  if (canList && canPurchase) uiLabel = 'Buyer & Creator';
-  else if (sellerIntent && canPurchase) uiLabel = 'Buyer · seller activation pending';
-  else if (sellerIntent) uiLabel = 'Creator Account';
+  let uiLabel = 'Pinit Account';
+  if (canList && canPurchase) uiLabel = 'Buy & Sell';
+  else if (sellerIntent && canPurchase) uiLabel = 'Buy · sell pending';
 
   return {
     userId: user.id || user.pinit_id || null,
     pinitId: user.pinit_id || '',
     role: sellerIntent ? 'SELLER' : 'BUYER',
-    accountType: user.account_type || (sellerIntent ? 'CREATOR' : 'BUYER'),
+    accountType: user.account_type || (sellerIntent ? 'CREATOR_AND_BUYER' : 'BUYER'),
     uiLabel,
-    workspace: canList && canPurchase ? 'both' : (canList ? 'seller' : 'buyer'),
+    workspace: canList ? 'both' : 'buyer',
     exchangeEnabled: true,
     canList,
     canPurchase,
     sellerIntent,
     needsBuyerEnable,
     sellerOnboardingComplete: user.seller_onboarding_complete !== false && canList,
-    displayName: user.display_name || user.name || (sellerIntent ? 'Creator' : 'Buyer'),
+    displayName: user.display_name || user.name || 'Account',
     raw: user,
   };
 }

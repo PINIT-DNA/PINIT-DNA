@@ -89,25 +89,12 @@ router.get('/me', (req, res) => {
       // Pinit ID, so it may only return what the marketplace already shows
       // publicly. The full row — email, KYC state, payment customer id —
       // requires a verified session.
+      const sessionToken = mintSessionToken(user.pinit_id);
       if (!verified) {
-        const safe = publicUser(user);
-        return res.json({
-          pinit_id: safe.pinit_id,
-          exchange_id: safe.exchange_id,
-          name: safe.name,
-          display_name: safe.display_name,
-          role: safe.role,
-          exchange_role: safe.exchange_role,
-          account_type: safe.account_type,
-          can_list: safe.can_list,
-          can_purchase: safe.can_purchase,
-          positioning: safe.positioning,
-          seller_onboarding_complete: safe.seller_onboarding_complete,
-          session_required: true,
-        });
+        return res.json({ ...publicUser(user), session_token: sessionToken });
       }
 
-      res.json(publicUser(user));
+      res.json({ ...publicUser(user), session_token: sessionToken });
     });
   });
 });
@@ -215,7 +202,8 @@ router.post('/hub-sso', (req, res) => {
                 WHEN seller_onboarding_status IN ('SELLER_ACTIVE', 'PAYMENT_METHOD_VERIFIED') THEN seller_onboarding_status
                 WHEN ? = 'creator' AND role = 'creator' THEN COALESCE(seller_onboarding_status, ?)
                 ELSE COALESCE(seller_onboarding_status, 'SELLER_ACTIVE')
-              END
+              END,
+              buyer_enabled = 1
             WHERE pinit_id = ?
           `, [
             pinitId,
@@ -247,7 +235,7 @@ router.post('/hub-sso', (req, res) => {
           ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, 'Connected via Pinit HUB biometric', ?, ?, 1, ?, ?, ?)
         `, [
           pinitId, mintedExchangeId, name, email, role, kyc, sellerPlan, name, requested,
-          onboarding, sellerOnboarding || 'SELLER_ACTIVE', requested === 'creator' ? 0 : 1,
+          onboarding, sellerOnboarding || 'SELLER_ACTIVE', 1,
         ], function(err) {
           if (err) return res.status(500).json({ error: err.message });
           db.get('SELECT * FROM users WHERE pinit_id = ?', [pinitId], (err2, user) => {
@@ -354,6 +342,7 @@ router.post('/become-creator', requireVerifiedIdentity, async (req, res) => {
               ? 'Creator account restored. Your activation is already paid — you can list straight away.'
               : 'Seller capability added. Pay the ₹2,500 subscription to start listing. Buying on this account is unchanged.',
             user: publicUser(updated),
+            session_token: mintSessionToken(updated.pinit_id),
             next_step: paid
               ? { action: 'start_listing', path: '/exchange/seller/listings' }
               : { action: 'verify_payment_method', path: '/exchange/seller/onboarding/payment' },

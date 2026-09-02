@@ -91,6 +91,16 @@ export function requireVerifiedIdentity(req, res, next) {
     req.verifiedPinitId = pinitId;
     return next();
   }
+  // Same bar as listing while EXCHANGE_STRICT_AUTH is off: Hub SSO often
+  // leaves a Pinit ID in localStorage without a minted session_token.
+  // Seller ₹2,500 checkout and become-creator were 401ing on production.
+  if (!strictAuthEnabled()) {
+    const claimed = pinitIdFromReq(req);
+    if (claimed) {
+      req.verifiedPinitId = claimed;
+      return next();
+    }
+  }
   return res.status(401).json({
     error: 'SESSION_REQUIRED',
     message: isSessionSigningEnabled()

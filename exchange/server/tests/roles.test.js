@@ -14,7 +14,7 @@ test('normalizeRole maps creator/seller to seller', () => {
   assert.equal(normalizeRole('admin'), 'admin');
 });
 
-test('buyers can purchase; creators list but need buyer_enabled to purchase', () => {
+test('buyers and creators can purchase on the same identity; listing is gated by role', () => {
   assert.equal(canList('buyer'), false);
   assert.equal(canPurchase('buyer'), true);
   assert.equal(canList('creator'), true);
@@ -37,4 +37,17 @@ test('enrichPublicUser strips password and adds flags', () => {
   assert.equal(pub.capabilities.buy, true);
   assert.equal(pub.capabilities.sell, false);
   assert.equal(pub.seller_onboarding_complete, true);
+});
+
+test('enrichPublicUser lets a creator purchase on the same identity', () => {
+  const pub = enrichPublicUser({
+    pinit_id: 'PINIT-EX-CREATOR',
+    role: 'creator',
+    password_hash: 'secret',
+    name: 'Creator',
+    seller_onboarding_status: 'SELLER_ACTIVE',
+  });
+  assert.equal(pub.can_purchase, true);
+  assert.equal(pub.can_list, true);
+  assert.equal(pub.needs_buyer_enable, false);
 });

@@ -173,7 +173,7 @@ export default function App() {
         const fresh = res.data;
         if (fresh?.pinit_id) {
           setUser(fresh);
-          writeSession(fresh);
+          writeSession(fresh, fresh.session_token);
         }
         return;
       }
@@ -367,7 +367,7 @@ export default function App() {
     });
     if (!ok) {
       if (status === 401) {
-        setRoleNotice('Continue with Pinit HUB once, then click Create Buyer Account again. No second account is created.');
+        setRoleNotice('Continue with Pinit HUB once, then try again. No second account is created.');
         openAuth({ mode: 'login' });
         return;
       }
@@ -403,11 +403,6 @@ export default function App() {
     }
     if (intent === 'creator' && !canList(user)) {
       openBecomeCreator();
-      return;
-    }
-    if (intent === 'buyer' && !canPurchase(user)) {
-      setRoleNotice('Create a Buyer account on this same Pinit identity to purchase. Selling stays on.');
-      navigate('settings');
       return;
     }
     action?.();
@@ -693,9 +688,9 @@ export default function App() {
         {activePage === 'settings' && (
           <SettingsPage
             user={user}
-            onUserUpdated={(updated) => {
+            onUserUpdated={(updated, token) => {
               setUser(updated);
-              writeSession(updated);
+              writeSession(updated, token);
             }}
             onNavigate={navigate}
             onEnableBuyer={enableBuyer}

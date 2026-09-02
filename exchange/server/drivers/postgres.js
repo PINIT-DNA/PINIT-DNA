@@ -136,8 +136,7 @@ export async function initPostgresSchema(db) {
     await db.query('ALTER TABLE exchange.users ADD COLUMN IF NOT EXISTS buyer_enabled SMALLINT');
     await db.query(
       `UPDATE exchange.users SET buyer_enabled = 1
-       WHERE (role IS NULL OR role IN ('buyer', 'admin'))
-         AND (buyer_enabled IS NULL OR buyer_enabled = 0)`,
+       WHERE buyer_enabled IS NULL OR buyer_enabled = 0`,
     );
     await db.query(
       `UPDATE exchange.users SET seller_onboarding_status = 'SELLER_ACTIVE'

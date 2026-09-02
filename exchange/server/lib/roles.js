@@ -32,10 +32,9 @@ export function isBuyerRole(role) {
 
 export function isBuyerCapabilityEnabled(row) {
   if (!row) return false;
-  if (isAdminRole(row.role)) return true;
-  if (normalizeRole(row.role) === EXCHANGE_ROLES.BUYER) return true;
-  const v = row.buyer_enabled;
-  return v === true || v === 1 || v === '1';
+  // Phase 1: one Pinit identity always buys. Selling is gated by the ₹2,500
+  // subscription, not by a second account.
+  return true;
 }
 
 export function canList(role) {
@@ -48,8 +47,8 @@ export function canPurchase(role) {
   return n === EXCHANGE_ROLES.BUYER || n === EXCHANGE_ROLES.ADMIN;
 }
 
-export function buyerNeedsEnable(row) {
-  return isSellerRole(row?.role) && !isBuyerCapabilityEnabled(row);
+export function buyerNeedsEnable(_row) {
+  return false;
 }
 
 export function enableBuyerDenied() {
@@ -117,7 +116,7 @@ export function enrichPublicUser(row) {
     can_list,
     can_purchase,
     buyer_enabled: can_purchase ? 1 : 0,
-    needs_buyer_enable: sellerIntent && !can_purchase,
+    needs_buyer_enable: false,
     capabilities: {
       buy: can_purchase,
       sell: can_list,
