@@ -369,7 +369,30 @@ h1, h2, h3, h4, h5, h6 {
   padding: 4px 2px;
 }
 
-.nav-link:hover, .nav-link.active {
+.ex-module-switch {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(255,255,255,0.04);
+  flex-shrink: 0;
+}
+.ex-module-switch__btn {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.ex-module-switch__btn.is-on {
+  background: var(--primary);
+  color: #fff;
+}
+.ex-module-switch__btn:hover:not(.is-on) {
   color: #fff;
 }
 

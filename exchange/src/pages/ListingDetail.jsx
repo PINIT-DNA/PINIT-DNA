@@ -14,7 +14,7 @@ import { recordListingView } from '../lib/recently-viewed.js';
 import { canPurchase, resolveExchangeAccount } from '../lib/roles.js';
 import { samePinitIdentity } from '../lib/pinit-identity.js';
 
-export default function ListingDetail({ listingId, onBack, onOpenCheckout, onManageListing, user, onCartChanged, onEnableBuyer }) {
+export default function ListingDetail({ listingId, onBack, onOpenCheckout, onManageListing, onOpenBuyModule, shopModule = 'buy', user, onCartChanged, onEnableBuyer }) {
   const [listing, setListing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedTier, setSelectedTier] = useState('');
@@ -374,13 +374,11 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
           </div>
 
           <div className="ex-card ex-card--pad buy-panel">
-            {ownsListing ? (
+            {ownsListing && shopModule === 'sell' ? (
               <>
-                <h3 className="ex-h2 buy-panel__title">
-                  {ownsListing ? 'Your listing' : 'Creator catalogue'}
-                </h3>
+                <h3 className="ex-h2 buy-panel__title">Your listing</h3>
                 <p className="buy-panel__note">
-                  Manage this listing from your seller dashboard. You can still buy other creators&apos; work from Discover.
+                  Manage this listing from Sell. To license someone else&apos;s work, open Buy and choose a listing that is not yours.
                 </p>
                 <ul className="buy-panel__tiers">
                   {tiers.length === 0 && <li className="buy-panel__none">No pricing published</li>}
@@ -391,13 +389,24 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
                     </li>
                   ))}
                 </ul>
-                {ownsListing && (
-                  <button type="button" className="ex-btn ex-btn--primary ex-btn--block" onClick={onManageListing}>
-                    Back to My Listings
-                  </button>
-                )}
-                <button type="button" className="ex-btn ex-btn--secondary ex-btn--block" onClick={() => onBack?.()}>
-                  Browse Exchange
+                <button type="button" className="ex-btn ex-btn--primary ex-btn--block" onClick={onManageListing}>
+                  Your Listings
+                </button>
+                <button type="button" className="ex-btn ex-btn--secondary ex-btn--block" onClick={onOpenBuyModule}>
+                  Buy other work
+                </button>
+              </>
+            ) : ownsListing ? (
+              <>
+                <h3 className="ex-h2 buy-panel__title">This is your listing</h3>
+                <p className="buy-panel__note">
+                  You cannot buy your own work. Open Discover and pick another creator&apos;s listing to see License now, Add to cart and Wishlist.
+                </p>
+                <button type="button" className="ex-btn ex-btn--primary ex-btn--block" onClick={onOpenBuyModule}>
+                  Discover listings to buy
+                </button>
+                <button type="button" className="ex-btn ex-btn--secondary ex-btn--block" onClick={onManageListing}>
+                  Manage in Sell
                 </button>
               </>
             ) : needsBuyer ? (
@@ -453,7 +462,7 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
                     className="ex-btn ex-btn--primary ex-btn--block"
                     onClick={() => onOpenCheckout({ ...listing, preferredTier: activeTier.id })}
                   >
-                    License now — {formatMoney(activeTier.price)}
+                    Buy now — {formatMoney(activeTier.price)}
                   </button>
                   <button type="button" className="ex-btn ex-btn--secondary ex-btn--block" onClick={addToCart}>
                     <ShoppingCart size={16} /> Add to cart

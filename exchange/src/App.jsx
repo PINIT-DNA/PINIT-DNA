@@ -53,6 +53,7 @@ import {
 import { apiFetch } from './lib/api.js';
 import { buyerKey } from './lib/buyer.js';
 import { applyPageMeta, pageFromPath, pathForPage, portfolioSlugFromPath, resolveHubAppUrl } from './lib/exchange-routes.js';
+import { moduleFromPage } from './lib/exchange-module.js';
 import PublicPortfolioPage from './pages/PublicPortfolio.jsx';
 
 const HUB_APP_URL = resolveHubAppUrl();
@@ -60,9 +61,12 @@ const HUB_APP_URL = resolveHubAppUrl();
 export default function App() {
   const [activePage, setActivePage] = useState(() => pageFromPath(window.location.pathname));
   const [portfolioSlug, setPortfolioSlug] = useState(() => portfolioSlugFromPath(window.location.pathname));
+  const [shopModule, setShopModule] = useState(() => moduleFromPage(pageFromPath(window.location.pathname)) || 'buy');
 
   const navigate = (page, opts = {}) => {
     if (!page) return;
+    const inferred = moduleFromPage(page);
+    if (inferred) setShopModule(inferred);
     setActivePage(page);
     if (opts.slug) setPortfolioSlug(String(opts.slug).toLowerCase());
     applyPageMeta(page);
@@ -437,9 +441,38 @@ export default function App() {
     action?.();
   };
 
-  const handleSelectListing = (id) => {
+  const handleSelectListing = (id, origin = 'buy') => {
+    setShopModule(origin === 'sell' ? 'sell' : 'buy');
     setSelectedListingId(id);
-    navigate('listing_detail');
+    setActivePage('listing_detail');
+    applyPageMeta('listing_detail');
+    const next = pathForPage('listing_detail');
+    if (window.location.pathname !== next) {
+      window.history.pushState({}, '', next);
+    }
+    window.scrollTo(0, 0);
+  };
+
+  const openBuyModule = () => {
+    setShopModule('buy');
+    navigate('marketplace');
+  };
+
+  const openSellModule = () => {
+    if (!user) {
+      openAuth({ mode: 'signup', intent: 'creator' });
+      return;
+    }
+    setShopModule('sell');
+    if (canList(user)) {
+      navigate('seller_listings');
+      return;
+    }
+    if (resolveExchangeAccount(user).sellerIntent) {
+      navigate('seller_onboarding_payment');
+      return;
+    }
+    openBecomeCreator();
   };
 
   const handleOpenCheckout = (listing) => {
@@ -522,9 +555,14 @@ export default function App() {
         {activePage === 'listing_detail' && (
           <ListingDetail
             listingId={selectedListingId}
-            onBack={() => navigate('marketplace')}
+            shopModule={shopModule}
+            onBack={() => navigate(shopModule === 'sell' ? 'seller_listings' : 'marketplace')}
             onOpenCheckout={handleOpenCheckout}
-            onManageListing={() => navigate('seller_listings')}
+            onManageListing={() => {
+              setShopModule('sell');
+              navigate('seller_listings');
+            }}
+            onOpenBuyModule={openBuyModule}
             user={user}
             onCartChanged={refreshCartCount}
             onEnableBuyer={enableBuyer}
@@ -642,7 +680,7 @@ export default function App() {
           <CreatorStudio
             user={user}
             onNavigate={navigate}
-            onSelectListing={handleSelectListing}
+            onSelectListing={(id) => handleSelectListing(id, 'sell')}
           />
         )}
 
@@ -650,7 +688,7 @@ export default function App() {
           <SellerListings
             user={user}
             onOpenListFromHub={openListFromHub}
-            onSelectListing={handleSelectListing}
+            onSelectListing={(id) => handleSelectListing(id, 'sell')}
             onNavigate={navigate}
             onOpenAssetActivity={(assetId) => {
               setActivityAssetId(assetId);
@@ -663,7 +701,7 @@ export default function App() {
             user={user}
             assetId={activityAssetId}
             onBack={() => navigate('seller_listings')}
-            onSelectListing={handleSelectListing}
+            onSelectListing={(id) => handleSelectListing(id, 'sell')}
           />
         )}
         {activePage === 'seller_assets' && (
@@ -783,17 +821,23 @@ export default function App() {
     >
       <ExchangeHeader
         activePage={activePage}
+        shopModule={shopModule}
         setActivePage={navigate}
         onOpenAuth={openAuth}
         onBecomeCreator={openBecomeCreator}
         onEnableBuyer={enableBuyer}
         onOpenListFromHub={openListFromHub}
+        onOpenBuyModule={openBuyModule}
+        onOpenSellModule={openSellModule}
         onSignOut={handleSignOut}
-        onSearch={(term) => setHeaderSearch({ term, at: Date.now() })}
+        onSearch={(term) => {
+          setShopModule('buy');
+          setHeaderSearch({ term, at: Date.now() });
+        }}
         user={user}
         cartCount={cartCount}
       />
-      {account.canList && isSellerAccountPage(activePage) && (
+      {account.canList && shopModule === 'sell' && (
         <SellerAccountNav
           activePage={activePage}
           onNavigate={navigate}

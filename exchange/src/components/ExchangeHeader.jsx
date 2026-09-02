@@ -6,7 +6,6 @@ import {
 import { resolveExchangeAccount } from '../lib/roles.js';
 
 import { resolveHubAppUrl } from '../lib/exchange-routes.js';
-import { isSellerAccountPage } from './SellerAccountNav.jsx';
 
 const HUB_APP_URL = resolveHubAppUrl();
 
@@ -116,11 +115,14 @@ function AccountMenuBody({
 
 export default function ExchangeHeader({
   activePage,
+  shopModule = 'buy',
   setActivePage,
   onOpenAuth,
   onBecomeCreator,
   onEnableBuyer,
   onOpenListFromHub,
+  onOpenBuyModule,
+  onOpenSellModule,
   onSignOut,
   onSearch,
   user,
@@ -130,21 +132,37 @@ export default function ExchangeHeader({
   const seller = account.canList;
   const sellerPending = account.sellerIntent && !account.canList;
   const signedIn = Boolean(user);
-  const showBuyerTools = !signedIn || account.canPurchase;
+  const inBuy = shopModule !== 'sell';
+  const showBuyerTools = inBuy && (!signedIn || account.canPurchase);
   const [menu, setMenu] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [query, setQuery] = useState('');
   const menuRef = useRef(null);
   const name = account.displayName || 'Account';
 
-  const links = [
+  const buyLinks = [
     ['marketplace', 'Discover'],
     ['collections', 'Collections'],
     ['passports', 'Creators'],
   ];
+  if (signedIn && account.canPurchase) {
+    buyLinks.push(['my_licenses', 'Purchases']);
+  }
+  const sellLinks = seller
+    ? [
+      ['seller_listings', 'Your Listings'],
+      ['seller_assets', 'Your Assets'],
+      ['seller_analytics', 'Activity'],
+      ['seller_sales', 'Sales'],
+      ['seller_earnings', 'Payouts'],
+    ]
+    : [];
+  const links = inBuy ? buyLinks : sellLinks;
 
   const isActive = (page) => {
-    if (page === 'seller_listings') return isSellerAccountPage(activePage);
+    if (page === 'seller_listings') {
+      return activePage === 'seller_listings' || activePage === 'creator_desk' || activePage === 'creator_studio';
+    }
     return activePage === page;
   };
 
@@ -230,6 +248,27 @@ export default function ExchangeHeader({
           </span>
         </a>
 
+        <div className="ex-module-switch" role="tablist" aria-label="Buy or Sell">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={inBuy}
+            className={`ex-module-switch__btn ${inBuy ? 'is-on' : ''}`}
+            onClick={onOpenBuyModule}
+          >
+            Buy
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!inBuy}
+            className={`ex-module-switch__btn ${!inBuy ? 'is-on' : ''}`}
+            onClick={onOpenSellModule}
+          >
+            Sell
+          </button>
+        </div>
+
         <nav className="nav-links" aria-label="Primary">
           {links.map(([page, label]) => (
             <button
@@ -255,7 +294,7 @@ export default function ExchangeHeader({
         </form>
 
         <div className="nav-actions">
-          {!signedIn && (
+          {!signedIn && inBuy && (
             <button
               type="button"
               className="btn-secondary nav-primary-action"
@@ -265,7 +304,7 @@ export default function ExchangeHeader({
               Sell
             </button>
           )}
-          {signedIn && sellerPending && (
+          {signedIn && sellerPending && !inBuy && (
             <button
               type="button"
               className="btn-secondary nav-primary-action"
@@ -275,7 +314,7 @@ export default function ExchangeHeader({
               Finish selling
             </button>
           )}
-          {seller && (
+          {seller && !inBuy && (
             <button
               type="button"
               className="btn-secondary nav-primary-action"
@@ -347,6 +386,8 @@ export default function ExchangeHeader({
             onClick={(e) => e.stopPropagation()}
           >
             <nav className="ex-drawer__links" aria-label="Pages">
+              <button type="button" className={inBuy ? 'is-active' : ''} onClick={() => { setDrawer(false); onOpenBuyModule?.(); }}>Buy</button>
+              <button type="button" className={!inBuy ? 'is-active' : ''} onClick={() => { setDrawer(false); onOpenSellModule?.(); }}>Sell</button>
               {links.map(([page, label]) => (
                 <button
                   key={page}
