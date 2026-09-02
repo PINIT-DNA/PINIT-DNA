@@ -7,6 +7,7 @@ import AuthModal, { INTENT_KEY } from './components/AuthModal.jsx';
 import { clearSession, readCachedUser, readSession, writeSession } from './lib/session.js';
 import {
   canList, canPurchase, homePageForUser, canAccessPage, resolveExchangeAccount,
+  SELLER_ONLY_PAGES,
 } from './lib/roles.js';
 
 import HomePage from './pages/HomePage.jsx';
@@ -38,6 +39,7 @@ import BuyerOrders from './pages/buyer/BuyerOrders.jsx';
 import BuyerNotifications from './pages/buyer/BuyerNotifications.jsx';
 import CartPage from './pages/CartPage.jsx';
 import WishlistPage from './pages/WishlistPage.jsx';
+import BecomeSellerPanel from './components/BecomeSellerPanel.jsx';
 import SiteFooter from './components/SiteFooter.jsx';
 import CreatorProgramPage from './pages/info/CreatorProgramPage.jsx';
 import LicensingGuidePage from './pages/info/LicensingGuidePage.jsx';
@@ -95,7 +97,7 @@ export default function App() {
   const [becomeCreatorOpen, setBecomeCreatorOpen] = useState(false);
   const [roleNotice, setRoleNotice] = useState('');
   const [user, setUser] = useState(() => readCachedUser());
-  const [sessionReady, setSessionReady] = useState(() => Boolean(readCachedUser()));
+  const [sessionReady, setSessionReady] = useState(false);
   const [cartCount, setCartCount] = useState(0);
 
   const refreshCartCount = async () => {
@@ -350,13 +352,35 @@ export default function App() {
    * a sales prompt, not an account setting. A buyer is now told where the
    * option lives and taken there.
    */
-  const openBecomeCreator = () => {
+  const openBecomeCreator = async () => {
     if (!user) {
       openAuth({ mode: 'signup', intent: 'creator' });
       return;
     }
-    setRoleNotice('Selling is set up in Account settings. Buying stays on this identity.');
-    navigate('settings');
+    if (resolveExchangeAccount(user).sellerIntent && !canList(user)) {
+      navigate('seller_onboarding_payment');
+      return;
+    }
+    const { ok, data, error, status } = await apiFetch('/api/auth/become-creator', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pinit_id: user.pinit_id }),
+    });
+    if (!ok) {
+      if (status === 401) {
+        setRoleNotice('Continue with Pinit Hub once, then try Become a Seller again.');
+        openAuth({ mode: 'login' });
+        return;
+      }
+      setRoleNotice(error || 'Could not start selling on this account.');
+      navigate('settings');
+      return;
+    }
+    if (data?.user) {
+      setUser(data.user);
+      writeSession(data.user, data.session_token);
+    }
+    navigate('seller_onboarding_payment');
   };
 
   const enableBuyer = async () => {
@@ -401,6 +425,11 @@ export default function App() {
       openAuth({ mode: intent ? 'signup' : 'welcome', intent: intent || null });
       return;
     }
+    if (intent === 'buyer' && !canPurchase(user)) {
+      setRoleNotice('Become a Buyer on this same identity to purchase. Selling stays as it is.');
+      navigate('settings');
+      return;
+    }
     if (intent === 'creator' && !canList(user)) {
       openBecomeCreator();
       return;
@@ -434,16 +463,24 @@ export default function App() {
         return;
       }
       if (resolveExchangeAccount(user).sellerIntent && !canList(user)) {
-        setRoleNotice('Pay the seller subscription to access seller tools. Buying still works on this account.');
+        setRoleNotice('Pay the seller subscription to access seller tools.');
         navigate('seller_onboarding_payment', { replace: true });
+      } else if (SELLER_ONLY_PAGES.has(activePage) && !canList(user)) {
+        return;
       } else {
-        setRoleNotice('That page needs seller tools. Choose Sell on Exchange to add selling to this identity.');
+        setRoleNotice('Open Become a Seller to list and sell on this same account.');
         navigate('settings', { replace: true });
       }
     }
   }, [activePage, user, sessionReady]);
 
   const account = resolveExchangeAccount(user);
+  const sellerLocked = Boolean(
+    user
+    && SELLER_ONLY_PAGES.has(activePage)
+    && !account.canList
+    && !account.sellerIntent,
+  );
   const notice = roleNotice ? (
     <div className="exchange-role-notice" role="status">
       {roleNotice}
@@ -451,7 +488,9 @@ export default function App() {
     </div>
   ) : null;
 
-  const pages = (
+  const pages = sellerLocked ? (
+    <BecomeSellerPanel onStart={openBecomeCreator} />
+  ) : (
       <>
         {activePage === 'home' && (
           <HomePage
@@ -488,6 +527,7 @@ export default function App() {
             onManageListing={() => navigate('seller_listings')}
             user={user}
             onCartChanged={refreshCartCount}
+            onEnableBuyer={enableBuyer}
           />
         )}
 
@@ -496,6 +536,7 @@ export default function App() {
             user={user}
             onOpenAuth={openAuth}
             onSelectListing={handleSelectListing}
+            onEnableBuyer={enableBuyer}
             onBrowse={(page) => navigate(page || 'marketplace')}
             onCheckoutDone={() => {
               refreshCartCount();
@@ -509,10 +550,11 @@ export default function App() {
             user={user}
             onOpenAuth={openAuth}
             onSelectListing={handleSelectListing}
+            onEnableBuyer={enableBuyer}
             onBrowse={(page) => navigate(page || 'marketplace')}
             onAddToCart={async (listing) => {
               if (user && !canPurchase(user)) {
-                setRoleNotice('Sign in to add marketplace assets to cart.');
+                setRoleNotice('Become a Buyer on this same identity to use cart.');
                 return;
               }
               const key = buyerKey(user) || localStorage.getItem('pinit_guest_buyer') || `GUEST-${Date.now()}`;
@@ -590,10 +632,9 @@ export default function App() {
         {activePage === 'my_licenses' && (
           <MyLicenses
             user={user}
-            // Certificates live on the Purchases page. This previously popped an
-            // alert claiming the certificate was "verified tamper-proof" — no
-            // verification had run, so the claim was fabricated.
             onViewCertificate={() => navigate('my_licenses')}
+            onEnableBuyer={enableBuyer}
+            onBrowse={navigate}
           />
         )}
 
@@ -699,6 +740,8 @@ export default function App() {
       </>
   );
 
+  const sessionPending = !sessionReady;
+
   if (activePage === 'public_portfolio') {
     return (
       <>
@@ -758,7 +801,14 @@ export default function App() {
         />
       )}
       {notice}
-      <main style={{ flex: 1 }}>{pages}</main>
+      <main style={{ flex: 1 }}>
+        {sessionPending ? (
+          <div className="ex-page" aria-busy="true" aria-label="Loading account">
+            <div className="ex-skel ex-skel--line" style={{ width: '28%', height: 22, marginTop: 28 }} />
+            <div className="ex-skel" style={{ height: 180, marginTop: 18, borderRadius: 14 }} />
+          </div>
+        ) : pages}
+      </main>
       <SiteFooter onNavigate={navigate} user={user} />
 
       <ListFromHubModal

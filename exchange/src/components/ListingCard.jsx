@@ -138,7 +138,7 @@ export default function ListingCard({
         <CheckCircle2 size={12} /> Verified
       </span>
 
-      {onWishlist && (
+      {onWishlist && (!user || canPurchase(user)) && (
         <button
           type="button"
           className={`listing-tile__wish ${wishlisted ? 'active' : ''}`}

@@ -32,9 +32,10 @@ export function isBuyerRole(role) {
 
 export function isBuyerCapabilityEnabled(row) {
   if (!row) return false;
-  // Phase 1: one Pinit identity always buys. Selling is gated by the ₹2,500
-  // subscription, not by a second account.
-  return true;
+  if (isAdminRole(row.role)) return true;
+  if (normalizeRole(row.role) === EXCHANGE_ROLES.BUYER) return true;
+  const v = row.buyer_enabled;
+  return v === true || v === 1 || v === '1';
 }
 
 export function canList(role) {
@@ -47,14 +48,14 @@ export function canPurchase(role) {
   return n === EXCHANGE_ROLES.BUYER || n === EXCHANGE_ROLES.ADMIN;
 }
 
-export function buyerNeedsEnable(_row) {
-  return false;
+export function buyerNeedsEnable(row) {
+  return isSellerRole(row?.role) && !isBuyerCapabilityEnabled(row);
 }
 
 export function enableBuyerDenied() {
   return {
     error: 'ENABLE_BUYER_REQUIRED',
-    message: 'Enable Buyer on this same Pinit identity to check out. Selling is unchanged.',
+    message: 'Become a Buyer on this same Pinit account to check out. Selling is unchanged.',
     next_step: { action: 'enable_buyer', path: '/exchange/account' },
   };
 }
@@ -62,14 +63,14 @@ export function enableBuyerDenied() {
 export function buyerDeniedList() {
   return {
     error: 'BUYER_CANNOT_LIST',
-    message: 'Pay the seller subscription to list assets on Pinit Exchange. Buying still works on this account.',
+    message: 'Pay the seller subscription to list assets on Pinit Exchange.',
   };
 }
 
 export function sellerDeniedPurchase() {
   return {
     error: 'SELLER_CANNOT_PURCHASE',
-    message: 'This account cannot complete this purchase.',
+    message: 'Become a Buyer on this same Pinit account to complete this purchase.',
   };
 }
 
@@ -83,14 +84,14 @@ export function sellerDeniedBuyerAction() {
 export function buyerDeniedSellerAction() {
   return {
     error: 'BUYER_CANNOT_SELL',
-    message: 'Buyer accounts cannot access seller tools. Choose Sell on Exchange to add selling to this same identity.',
+    message: 'Become a Seller on this same Pinit account to use seller tools.',
   };
 }
 
 export function rolePositioning(role) {
   const n = normalizeRole(role);
   if (n === EXCHANGE_ROLES.SELLER) {
-    return 'Buy licenses and sell Hub-protected work from the same Pinit identity.';
+    return 'Create, protect, list and sell Hub-protected work. Become a Buyer when you want to license others’ work.';
   }
   if (n === EXCHANGE_ROLES.ADMIN) {
     return 'Platform administration for Pinit Exchange.';
@@ -116,7 +117,7 @@ export function enrichPublicUser(row) {
     can_list,
     can_purchase,
     buyer_enabled: can_purchase ? 1 : 0,
-    needs_buyer_enable: false,
+    needs_buyer_enable: sellerIntent && !can_purchase,
     capabilities: {
       buy: can_purchase,
       sell: can_list,

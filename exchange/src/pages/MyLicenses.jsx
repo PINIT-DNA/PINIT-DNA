@@ -2,8 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { ShieldCheck, Download, Award, FileText, ExternalLink, Share2, Copy, X } from 'lucide-react';
 import { formatMoney } from '../lib/money.js';
 import { apiFetch } from '../lib/api.js';
+import { canPurchase, resolveExchangeAccount } from '../lib/roles.js';
+import BecomeBuyerPanel from '../components/BecomeBuyerPanel.jsx';
+import EmptyState from '../components/EmptyState.jsx';
 
-export default function MyLicenses({ user, onViewCertificate }) {
+export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onBrowse }) {
   const [licenses, setLicenses] = useState([]);
   const [loading, setLoading] = useState(true);
   // Surfaces download/authorisation failures inline instead of an OS alert.
@@ -21,8 +24,13 @@ export default function MyLicenses({ user, onViewCertificate }) {
   const [certError, setCertError] = useState('');
 
   useEffect(() => {
+    if (user && !canPurchase(user)) {
+      setLoading(false);
+      setLicenses([]);
+      return;
+    }
     fetchMyLicenses();
-  }, [user?.pinit_id, user?.email]);
+  }, [user?.pinit_id, user?.email, user?.can_purchase]);
 
   const fetchMyLicenses = async () => {
     setLoading(true);
@@ -135,6 +143,10 @@ export default function MyLicenses({ user, onViewCertificate }) {
     }
   };
 
+  if (user && resolveExchangeAccount(user).needsBuyerEnable) {
+    return <BecomeBuyerPanel onEnable={onEnableBuyer} />;
+  }
+
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '32px 24px' }}>
       <div style={{ marginBottom: '32px' }}>
@@ -179,11 +191,13 @@ export default function MyLicenses({ user, onViewCertificate }) {
           ))}
         </div>
       ) : licenses.length === 0 ? (
-        <div className="ex-card ex-empty">
-          <div className="ex-empty__icon"><ShieldCheck size={24} /></div>
-          <div className="ex-empty__title">No licences yet</div>
-          <p className="ex-empty__body">Assets you licence will appear here with their certificates and downloads.</p>
-        </div>
+        <EmptyState
+          icon={<ShieldCheck size={28} color="var(--primary)" />}
+          title="No purchases yet"
+          description="Your licensed creative assets will appear here."
+          primaryLabel="Explore Discover"
+          onPrimary={() => onBrowse?.('marketplace')}
+        />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {licenses.map((lic) => {

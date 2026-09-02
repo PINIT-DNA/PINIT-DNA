@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ShieldCheck, LogIn, LogOut,
-  ShoppingCart, Heart, Search,
+  ShoppingCart, Heart, Search, Menu, X,
 } from 'lucide-react';
 import { resolveExchangeAccount } from '../lib/roles.js';
 
@@ -25,12 +25,101 @@ function IconBtn({ title, active, onClick, children, badge }) {
   );
 }
 
+function MenuGroup({ label, children }) {
+  return (
+    <div className="studio-menu__group">
+      <div className="studio-menu__label">{label}</div>
+      {children}
+    </div>
+  );
+}
+
+function AccountMenuBody({
+  account,
+  seller,
+  sellerPending,
+  closeGo,
+  onEnableBuyer,
+  onBecomeCreator,
+  onSignOut,
+  onClose,
+}) {
+  const name = account.displayName || 'Account';
+  return (
+    <>
+      <div className="studio-menu__meta">
+        <strong>{name}</strong>
+        <span>{account.uiLabel}</span>
+      </div>
+
+      <MenuGroup label="Buy">
+        <button type="button" onClick={() => closeGo('marketplace')}>Discover</button>
+        <button type="button" onClick={() => closeGo('collections')}>Collections</button>
+        <button type="button" onClick={() => closeGo('passports')}>Creators</button>
+        {account.canPurchase && (
+          <>
+            <button type="button" onClick={() => closeGo('cart')}>Cart</button>
+            <button type="button" onClick={() => closeGo('my_licenses')}>Purchases</button>
+            <button type="button" onClick={() => closeGo('wishlist')}>Wishlist</button>
+          </>
+        )}
+      </MenuGroup>
+
+      <MenuGroup label="Sell">
+        {seller ? (
+          <>
+            <button type="button" onClick={() => closeGo('seller_listings')}>Your Listings</button>
+            <button type="button" onClick={() => closeGo('seller_opportunities')}>Opportunities</button>
+            <button type="button" onClick={() => closeGo('seller_sales')}>Sales</button>
+            <button type="button" onClick={() => closeGo('seller_earnings')}>Earnings</button>
+            <button type="button" onClick={() => closeGo('seller_portfolio')}>Portfolio</button>
+          </>
+        ) : sellerPending ? (
+          <button type="button" onClick={() => closeGo('seller_onboarding_payment')}>Finish selling</button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              onClose?.();
+              onBecomeCreator?.();
+            }}
+          >
+            Become a Seller
+          </button>
+        )}
+      </MenuGroup>
+
+      {account.needsBuyerEnable && (
+        <button
+          type="button"
+          className="studio-menu__cta"
+          onClick={() => {
+            onClose?.();
+            onEnableBuyer?.();
+          }}
+        >
+          Become a Buyer
+        </button>
+      )}
+
+      <MenuGroup label="Account">
+        <button type="button" onClick={() => closeGo('settings')}>Account</button>
+        <button type="button" onClick={() => closeGo('settings')}>Settings</button>
+        <a href={HUB_APP_URL} target="_blank" rel="noreferrer">Open Pinit Hub</a>
+        <button type="button" onClick={() => { onClose?.(); onSignOut?.(); }}>
+          <LogOut size={14} /> Sign out
+        </button>
+      </MenuGroup>
+    </>
+  );
+}
+
 export default function ExchangeHeader({
   activePage,
   setActivePage,
   onOpenAuth,
   onBecomeCreator,
-  onEnableBuyer: _onEnableBuyer,
+  onEnableBuyer,
   onOpenListFromHub,
   onSignOut,
   onSearch,
@@ -41,7 +130,9 @@ export default function ExchangeHeader({
   const seller = account.canList;
   const sellerPending = account.sellerIntent && !account.canList;
   const signedIn = Boolean(user);
+  const showBuyerTools = !signedIn || account.canPurchase;
   const [menu, setMenu] = useState(false);
+  const [drawer, setDrawer] = useState(false);
   const [query, setQuery] = useState('');
   const menuRef = useRef(null);
   const name = account.displayName || 'Account';
@@ -51,12 +142,6 @@ export default function ExchangeHeader({
     ['collections', 'Collections'],
     ['passports', 'Creators'],
   ];
-  if (signedIn) {
-    links.push(['my_licenses', 'Purchases']);
-  }
-  if (seller) {
-    links.push(['seller_listings', 'Sell']);
-  }
 
   const isActive = (page) => {
     if (page === 'seller_listings') return isSellerAccountPage(activePage);
@@ -65,15 +150,13 @@ export default function ExchangeHeader({
 
   const search = (e) => {
     e?.preventDefault?.();
-    // This used to navigate to the marketplace and silently drop the query, so
-    // typing a search and pressing enter looked like it worked and did nothing.
-    // The term now travels to the marketplace, which runs the real search.
     onSearch?.(query.trim());
     setActivePage('marketplace');
   };
 
   const closeGo = (page) => {
     setMenu(false);
+    setDrawer(false);
     setActivePage(page);
   };
 
@@ -93,14 +176,49 @@ export default function ExchangeHeader({
     };
   }, [menu]);
 
+  useEffect(() => {
+    if (!drawer) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setDrawer(false);
+    };
+    document.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = '';
+    };
+  }, [drawer]);
+
+  const menuProps = {
+    account,
+    seller,
+    sellerPending,
+    closeGo,
+    onEnableBuyer,
+    onBecomeCreator,
+    onSignOut,
+    onClose: () => { setMenu(false); setDrawer(false); },
+  };
+
   return (
     <header className="header-nav">
       <div className="nav-container">
+        <button
+          type="button"
+          className="nav-hamburger"
+          aria-label={drawer ? 'Close menu' : 'Open menu'}
+          aria-expanded={drawer}
+          onClick={() => setDrawer((v) => !v)}
+        >
+          {drawer ? <X size={18} /> : <Menu size={18} />}
+        </button>
+
         <a
           href="/exchange/discover"
           className="brand-logo"
           onClick={(e) => {
             e.preventDefault();
+            setDrawer(false);
             setActivePage('marketplace');
           }}
         >
@@ -140,27 +258,27 @@ export default function ExchangeHeader({
           {!signedIn && (
             <button
               type="button"
-              className="btn-secondary"
+              className="btn-secondary nav-primary-action"
               style={{ padding: '8px 12px', height: 36, fontSize: '0.8rem' }}
               onClick={() => onOpenAuth?.({ mode: 'signup', intent: 'creator' })}
             >
               Sell
             </button>
           )}
-          {signedIn && !seller && (
+          {signedIn && sellerPending && (
             <button
               type="button"
-              className="btn-secondary"
+              className="btn-secondary nav-primary-action"
               style={{ padding: '8px 12px', height: 36, fontSize: '0.8rem' }}
-              onClick={() => (sellerPending ? setActivePage('seller_onboarding_payment') : onBecomeCreator?.())}
+              onClick={() => setActivePage('seller_onboarding_payment')}
             >
-              {sellerPending ? 'Finish selling' : 'Sell on Exchange'}
+              Finish selling
             </button>
           )}
           {seller && (
             <button
               type="button"
-              className="btn-secondary"
+              className="btn-secondary nav-primary-action"
               style={{ padding: '8px 12px', height: 36, fontSize: '0.8rem' }}
               onClick={onOpenListFromHub}
             >
@@ -168,20 +286,31 @@ export default function ExchangeHeader({
             </button>
           )}
 
-          <IconBtn title="Saved assets" active={activePage === 'wishlist'} onClick={() => setActivePage('wishlist')}>
-            <Heart size={16} />
-          </IconBtn>
-          <IconBtn title="Cart" active={activePage === 'cart'} onClick={() => setActivePage('cart')} badge={cartCount}>
-            <ShoppingCart size={16} />
-          </IconBtn>
+          {showBuyerTools && (
+            <>
+              <IconBtn title="Saved assets" active={activePage === 'wishlist'} onClick={() => setActivePage('wishlist')}>
+                <Heart size={16} />
+              </IconBtn>
+              <IconBtn title="Cart" active={activePage === 'cart'} onClick={() => setActivePage('cart')} badge={cartCount}>
+                <ShoppingCart size={16} />
+              </IconBtn>
+            </>
+          )}
 
           {user ? (
             <div className="studio-profile" ref={menuRef}>
               <button
                 type="button"
                 className="nav-account"
-                onClick={() => setMenu((v) => !v)}
-                aria-expanded={menu}
+                onClick={() => {
+                  if (window.matchMedia('(max-width: 768px)').matches) {
+                    setDrawer((v) => !v);
+                    setMenu(false);
+                    return;
+                  }
+                  setMenu((v) => !v);
+                }}
+                aria-expanded={menu || drawer}
                 aria-haspopup="menu"
               >
                 <span className="nav-account__avatar">{name[0].toUpperCase()}</span>
@@ -192,32 +321,7 @@ export default function ExchangeHeader({
               </button>
               {menu && (
                 <div className="studio-menu" role="menu">
-                  <div className="studio-menu__meta">
-                    <strong>{name}</strong>
-                    <span>{account.uiLabel}</span>
-                    <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                      Buy on
-                      {seller ? ' · Sell on' : sellerPending ? ' · Sell pending' : ' · Sell when ready'}
-                    </span>
-                  </div>
-                  {signedIn && (
-                    <>
-                      <button type="button" onClick={() => closeGo('settings')}>Account</button>
-                      <button type="button" onClick={() => closeGo('my_licenses')}>Purchases</button>
-                      <button type="button" onClick={() => closeGo('buyer_orders')}>Orders &amp; receipts</button>
-                      <button type="button" onClick={() => closeGo('cart')}>Cart</button>
-                      <button type="button" onClick={() => closeGo('wishlist')}>Wishlist</button>
-                      {seller ? (
-                        <button type="button" onClick={() => closeGo('seller_listings')}>Seller dashboard</button>
-                      ) : sellerPending ? (
-                        <button type="button" onClick={() => closeGo('seller_onboarding_payment')}>Finish seller activation</button>
-                      ) : (
-                        <button type="button" onClick={() => { setMenu(false); onBecomeCreator?.(); }}>Sell on Exchange</button>
-                      )}
-                      <a href={HUB_APP_URL} target="_blank" rel="noreferrer">Open Pinit Hub</a>
-                    </>
-                  )}
-                  <button type="button" onClick={() => { setMenu(false); onSignOut?.(); }}><LogOut size={14} /> Sign out</button>
+                  <AccountMenuBody {...menuProps} />
                 </div>
               )}
             </div>
@@ -226,13 +330,49 @@ export default function ExchangeHeader({
               <button type="button" className="btn-secondary" style={{ height: 36, padding: '8px 12px' }} onClick={() => onOpenAuth?.({ mode: 'login' })}>
                 <LogIn size={16} /> Sign in
               </button>
-              <button type="button" className="btn-primary" style={{ height: 36, padding: '8px 12px' }} onClick={() => onOpenAuth?.({ mode: 'welcome' })}>
+              <button type="button" className="btn-primary nav-signup" style={{ height: 36, padding: '8px 12px' }} onClick={() => onOpenAuth?.({ mode: 'welcome' })}>
                 Sign up
               </button>
             </>
           )}
         </div>
       </div>
+
+      {drawer && (
+        <div className="ex-drawer-backdrop" onClick={() => setDrawer(false)} role="presentation">
+          <div
+            className="ex-drawer"
+            role="dialog"
+            aria-label="Account menu"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <nav className="ex-drawer__links" aria-label="Pages">
+              {links.map(([page, label]) => (
+                <button
+                  key={page}
+                  type="button"
+                  className={isActive(page) ? 'is-active' : ''}
+                  onClick={() => closeGo(page)}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
+            {user ? (
+              <AccountMenuBody {...menuProps} />
+            ) : (
+              <div className="ex-drawer__guest">
+                <button type="button" className="btn-primary" onClick={() => { setDrawer(false); onOpenAuth?.({ mode: 'welcome' }); }}>
+                  Sign up
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => { setDrawer(false); onOpenAuth?.({ mode: 'login' }); }}>
+                  Sign in
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </header>
   );
 }

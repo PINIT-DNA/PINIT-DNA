@@ -14,7 +14,7 @@ import { recordListingView } from '../lib/recently-viewed.js';
 import { canPurchase, resolveExchangeAccount } from '../lib/roles.js';
 import { samePinitIdentity } from '../lib/pinit-identity.js';
 
-export default function ListingDetail({ listingId, onBack, onOpenCheckout, onManageListing, user, onCartChanged }) {
+export default function ListingDetail({ listingId, onBack, onOpenCheckout, onManageListing, user, onCartChanged, onEnableBuyer }) {
   const [listing, setListing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedTier, setSelectedTier] = useState('');
@@ -80,7 +80,7 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
 
   const addToCart = async () => {
     if (user && !canPurchase(user)) {
-      setToast('Sign in to purchase.');
+      setToast('Become a Buyer on this same identity to purchase.');
       return;
     }
     const { ok, error } = await apiFetch('/api/commerce/cart', {
@@ -171,6 +171,7 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
 
   const account = resolveExchangeAccount(user);
   const ownsListing = samePinitIdentity(account.pinitId, listing.pinit_id);
+  const needsBuyer = Boolean(user && account.needsBuyerEnable);
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
@@ -397,6 +398,16 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
                 )}
                 <button type="button" className="ex-btn ex-btn--secondary ex-btn--block" onClick={() => onBack?.()}>
                   Browse Exchange
+                </button>
+              </>
+            ) : needsBuyer ? (
+              <>
+                <h3 className="ex-h2 buy-panel__title">Want to license this work?</h3>
+                <p className="buy-panel__note">
+                  Activate Buyer on this same Pinit identity. Selling stays as it is — no second login.
+                </p>
+                <button type="button" className="ex-btn ex-btn--primary ex-btn--block" onClick={onEnableBuyer}>
+                  Become a Buyer
                 </button>
               </>
             ) : tiers.length === 0 ? (

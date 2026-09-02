@@ -65,7 +65,7 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
       return;
     }
     if (user && !canPurchase(user)) {
-      setErrorMsg('Sign in to purchase.');
+      setErrorMsg('Become a Buyer on this same identity to purchase.');
       return;
     }
     const defaults = defaultBuyer(user);

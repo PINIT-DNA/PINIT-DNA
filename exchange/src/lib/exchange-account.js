@@ -1,8 +1,6 @@
 /**
- * Single Exchange account authority.
- *
- * One Pinit identity buys and sells. Selling is a capability gated by the
- * ₹2,500 seller subscription — not a second login.
+ * One Pinit identity. Buying and selling are capabilities on that identity.
+ * Frontend labels come from API flags (can_purchase / can_list), not a second account.
  */
 
 export function resolveExchangeAccount(user) {
@@ -29,20 +27,26 @@ export function resolveExchangeAccount(user) {
   const sellerIntent = raw === 'creator' || raw === 'seller' || raw === 'admin';
   const caps = user.capabilities || {};
   const canList = listFlag === true || listFlag === 1 || caps.sell === true;
-  const canPurchase = true;
-  const needsBuyerEnable = false;
+  const buyFlag = user.can_purchase;
+  const canPurchase = sellerIntent
+    ? (buyFlag === true || buyFlag === 1 || caps.buy === true
+      || user.buyer_enabled === true || user.buyer_enabled === 1 || user.buyer_enabled === '1')
+    : (buyFlag !== false && buyFlag !== 0);
+  const needsBuyerEnable = sellerIntent && !canPurchase;
 
-  let uiLabel = 'Pinit Account';
-  if (canList && canPurchase) uiLabel = 'Buy & Sell';
-  else if (sellerIntent && canPurchase) uiLabel = 'Buy · sell pending';
+  let uiLabel = 'Buyer Account';
+  if (canPurchase && (canList || sellerIntent)) uiLabel = 'Buyer & Creator';
+  else if (sellerIntent) uiLabel = 'Seller Account';
 
   return {
     userId: user.id || user.pinit_id || null,
     pinitId: user.pinit_id || '',
     role: sellerIntent ? 'SELLER' : 'BUYER',
-    accountType: user.account_type || (sellerIntent ? 'CREATOR_AND_BUYER' : 'BUYER'),
+    accountType: user.account_type || (canPurchase && sellerIntent
+      ? 'CREATOR_AND_BUYER'
+      : (sellerIntent ? 'CREATOR' : 'BUYER')),
     uiLabel,
-    workspace: canList ? 'both' : 'buyer',
+    workspace: canList && canPurchase ? 'both' : (canList || sellerIntent ? 'seller' : 'buyer'),
     exchangeEnabled: true,
     canList,
     canPurchase,

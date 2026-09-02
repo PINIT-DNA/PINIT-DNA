@@ -39,7 +39,7 @@ test('enrichPublicUser strips password and adds flags', () => {
   assert.equal(pub.seller_onboarding_complete, true);
 });
 
-test('enrichPublicUser lets a creator purchase on the same identity', () => {
+test('enrichPublicUser keeps creator buying off until Become a Buyer', () => {
   const pub = enrichPublicUser({
     pinit_id: 'PINIT-EX-CREATOR',
     role: 'creator',
@@ -47,7 +47,7 @@ test('enrichPublicUser lets a creator purchase on the same identity', () => {
     name: 'Creator',
     seller_onboarding_status: 'SELLER_ACTIVE',
   });
-  assert.equal(pub.can_purchase, true);
+  assert.equal(pub.can_purchase, false);
   assert.equal(pub.can_list, true);
-  assert.equal(pub.needs_buyer_enable, false);
+  assert.equal(pub.needs_buyer_enable, true);
 });

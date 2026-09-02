@@ -107,6 +107,9 @@ export default function AuthModal({
               <span>{eyebrow}</span>
             </div>
             <h2 id="auth-modal-title" className="auth-modal__title">{title}</h2>
+            {mode === 'welcome' && (
+              <p className="auth-hub-hint" style={{ marginTop: 8 }}>I&apos;m here to…</p>
+            )}
           </div>
           <button type="button" className="auth-modal__close" onClick={onClose} aria-label="Close">
             <X size={18} />
@@ -115,22 +118,24 @@ export default function AuthModal({
 
         {mode === 'welcome' && (
           <div className="auth-path-grid">
-            <button type="button" className="auth-path-card" onClick={() => startIntent('creator')}>
-              <span className="auth-path-card__icon auth-path-card__icon--sell" aria-hidden>
-                <Camera size={20} />
-              </span>
-              <span className="auth-path-card__body">
-                <strong>Seller</strong>
-              </span>
-              <ArrowRight size={16} className="auth-path-card__arrow" aria-hidden />
-            </button>
-
             <button type="button" className="auth-path-card" onClick={() => startIntent('buyer')}>
               <span className="auth-path-card__icon auth-path-card__icon--buy" aria-hidden>
                 <ShoppingBag size={20} />
               </span>
               <span className="auth-path-card__body">
-                <strong>Buyer</strong>
+                <strong>Buy creative work</strong>
+                <span>Discover and license verified assets</span>
+              </span>
+              <ArrowRight size={16} className="auth-path-card__arrow" aria-hidden />
+            </button>
+
+            <button type="button" className="auth-path-card" onClick={() => startIntent('creator')}>
+              <span className="auth-path-card__icon auth-path-card__icon--sell" aria-hidden>
+                <Camera size={20} />
+              </span>
+              <span className="auth-path-card__body">
+                <strong>Sell my creative work</strong>
+                <span>Create, protect, list and sell</span>
               </span>
               <ArrowRight size={16} className="auth-path-card__arrow" aria-hidden />
             </button>

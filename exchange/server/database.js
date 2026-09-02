@@ -292,7 +292,7 @@ function applyTrustHardeningSchema() {
     `ALTER TABLE users ADD COLUMN seller_onboarding_status TEXT DEFAULT 'SELLER_ACTIVE'`,
     `ALTER TABLE users ADD COLUMN razorpay_customer_id TEXT`,
     `ALTER TABLE users ADD COLUMN buyer_enabled INTEGER`,
-    `UPDATE users SET buyer_enabled = 1 WHERE buyer_enabled IS NULL OR buyer_enabled = 0`,
+    `UPDATE users SET buyer_enabled = 1 WHERE role IN ('buyer', 'admin') AND (buyer_enabled IS NULL OR buyer_enabled = 0)`,
   ];
 
   const creates = [

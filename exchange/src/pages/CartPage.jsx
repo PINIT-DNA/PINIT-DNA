@@ -5,9 +5,10 @@ import { apiFetch } from '../lib/api.js';
 import { formatMoney } from '../lib/money.js';
 import EmptyState from '../components/EmptyState.jsx';
 import { buyerKey } from '../lib/buyer.js';
-import { canPurchase } from '../lib/roles.js';
+import { canPurchase, resolveExchangeAccount } from '../lib/roles.js';
+import BecomeBuyerPanel from '../components/BecomeBuyerPanel.jsx';
 
-export default function CartPage({ user, onOpenAuth, onSelectListing, onCheckoutDone, onBrowse }) {
+export default function CartPage({ user, onOpenAuth, onSelectListing, onCheckoutDone, onBrowse, onEnableBuyer }) {
   const [items, setItems] = useState([]);
   const [subtotal, setSubtotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -18,9 +19,10 @@ export default function CartPage({ user, onOpenAuth, onSelectListing, onCheckout
   const [error, setError] = useState('');
 
   const key = buyerKey(user);
+  const needsBuyer = Boolean(user && resolveExchangeAccount(user).needsBuyerEnable);
 
   const load = async () => {
-    if (!key) {
+    if (!key || needsBuyer) {
       setLoading(false);
       setItems([]);
       return;
@@ -46,7 +48,11 @@ export default function CartPage({ user, onOpenAuth, onSelectListing, onCheckout
       localStorage.setItem('pinit_guest_buyer', `GUEST-${Date.now()}`);
     }
     load();
-  }, [user?.pinit_id, user?.email]);
+  }, [user?.pinit_id, user?.email, needsBuyer]);
+
+  if (needsBuyer) {
+    return <BecomeBuyerPanel onEnable={onEnableBuyer} />;
+  }
 
   const remove = async (id) => {
     await apiFetch(`/api/commerce/cart/${id}?buyer_key=${encodeURIComponent(key)}`, {
@@ -80,7 +86,7 @@ export default function CartPage({ user, onOpenAuth, onSelectListing, onCheckout
       return;
     }
     if (!canPurchase(user)) {
-      setError('Sign in to check out.');
+      setError('Become a Buyer on this same identity to check out.');
       return;
     }
     setCheckingOut(true);
@@ -143,8 +149,8 @@ export default function CartPage({ user, onOpenAuth, onSelectListing, onCheckout
         <EmptyState
           icon={<ShoppingCart size={28} color="var(--primary)" />}
           title="Your cart is empty"
-          description="Build a shortlist of creative licenses and check out when you are ready."
-          primaryLabel="Browse Exchange"
+          description="Add creative assets you want to license."
+          primaryLabel="Explore Discover"
           onPrimary={() => onBrowse?.() || onSelectListing?.(null)}
           secondaryLabel="Explore Collections"
           onSecondary={() => onBrowse?.('collections')}

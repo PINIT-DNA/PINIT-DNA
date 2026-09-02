@@ -170,9 +170,7 @@ export default function RequirementsExchange({
       return;
     }
     if (!canPurchase(user)) {
-      // Silently doing nothing left the buyer clicking Publish with no
-      // explanation of why the brief never appeared.
-      setNotice({ kind: 'error', text: 'Post buyer briefs from Discover. This Opportunities view is for submitting work.' });
+      setNotice({ kind: 'error', text: 'Become a Buyer on this same account to post a buyer brief.' });
       return;
     }
     const { ok, error } = await apiFetch('/api/requirements', {
@@ -243,7 +241,7 @@ export default function RequirementsExchange({
         </h1>
         <p className="req-hero__sub">
           {sellerMode
-            ? 'Submit Hub-protected work to buyer briefs. Buying other creators’ work stays on this same account.'
+            ? 'Submit Hub-protected work to buyer briefs. Become a Buyer on this same account if you also want to license others’ work.'
             : 'Post a verified creative brief and receive provenance-backed submissions from creators.'}
         </p>
         <div className="req-hero__cta">

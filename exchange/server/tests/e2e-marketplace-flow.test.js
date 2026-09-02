@@ -185,7 +185,14 @@ test('seller → listing → buyer cart → payment → licence → Hub bridge',
   assert.equal(payOk.status, 200, JSON.stringify(payOk.data));
   assert.equal(payOk.data.seller_onboarding_complete, true);
   assert.equal(payOk.data.user?.can_list, true);
-  assert.equal(payOk.data.user?.can_purchase, true, 'same identity can buy after seller activation');
+  assert.equal(payOk.data.user?.can_purchase, false, 'seller pay does not auto-enable buying');
+
+  const blockedCart = await api('/api/commerce/cart', {
+    method: 'POST',
+    token: sellerToken,
+    body: { buyer_key: sellerId, listing_id: 'not-yet', license_tier: 'commercial' },
+  });
+  assert.equal(blockedCart.status, 403, 'seller without Become a Buyer cannot use cart');
 
   // Creators often have a Hub login in localStorage without a minted session
   // token. Enable-buyer must still work on the claimed Pinit ID (strict auth off).

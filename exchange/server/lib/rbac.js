@@ -5,6 +5,7 @@ import {
   buyerDeniedList,
   buyerDeniedSellerAction,
   isBuyerCapabilityEnabled,
+  isSellerRole,
   enableBuyerDenied,
 } from './roles.js';
 import { sellerOnboardingBlocked } from './seller-onboarding.js';
@@ -185,13 +186,16 @@ export async function requireBuyer(req, res, next) {
   }
 }
 
-/** Guests may browse/save. Signed-in sellers keep buyer commerce. */
+/** Guests may browse/save. Sellers need Become a Buyer before cart/wishlist. */
 export async function forbidSellerCommerce(req, res, next) {
   try {
     const pinitId = pinitIdFromReq(req) || maybePinitFromBuyerKey(req);
     if (!pinitId) return next();
     const user = await findUserByPinitId(pinitId);
     if (user) req.exchangeUser = user;
+    if (user && isSellerRole(user.role) && !isBuyerCapabilityEnabled(user)) {
+      return res.status(403).json(enableBuyerDenied());
+    }
     next();
   } catch (err) {
     res.status(500).json({ error: err.message });

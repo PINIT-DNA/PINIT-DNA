@@ -202,8 +202,7 @@ router.post('/hub-sso', (req, res) => {
                 WHEN seller_onboarding_status IN ('SELLER_ACTIVE', 'PAYMENT_METHOD_VERIFIED') THEN seller_onboarding_status
                 WHEN ? = 'creator' AND role = 'creator' THEN COALESCE(seller_onboarding_status, ?)
                 ELSE COALESCE(seller_onboarding_status, 'SELLER_ACTIVE')
-              END,
-              buyer_enabled = 1
+              END
             WHERE pinit_id = ?
           `, [
             pinitId,
@@ -235,7 +234,7 @@ router.post('/hub-sso', (req, res) => {
           ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, 'Connected via Pinit HUB biometric', ?, ?, 1, ?, ?, ?)
         `, [
           pinitId, mintedExchangeId, name, email, role, kyc, sellerPlan, name, requested,
-          onboarding, sellerOnboarding || 'SELLER_ACTIVE', 1,
+          onboarding, sellerOnboarding || 'SELLER_ACTIVE', requested === 'creator' ? 0 : 1,
         ], function(err) {
           if (err) return res.status(500).json({ error: err.message });
           db.get('SELECT * FROM users WHERE pinit_id = ?', [pinitId], (err2, user) => {

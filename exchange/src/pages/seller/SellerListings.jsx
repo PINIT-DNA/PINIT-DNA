@@ -28,6 +28,8 @@ function ListingThumb({ item, onOpen }) {
     </button>
   );
 }
+
+export default function SellerListings({ user, onOpenListFromHub, onSelectListing, onOpenAssetActivity }) {
   const { listings, loading, refresh } = useSellerDesk(user);
   const [busyId, setBusyId] = useState('');
   const [filter, setFilter] = useState('all');

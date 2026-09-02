@@ -34,9 +34,10 @@ const NOTIFY_ROWS = [
   { id: 'hub_tracking', label: 'Hub tracking alerts', hint: 'Post-sale activity on a protected asset.' },
 ];
 
-export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
+export default function SettingsPage({ user, onUserUpdated, onNavigate, onEnableBuyer }) {
   const seller = canList(user);
   const account = resolveExchangeAccount(user);
+  const sellerWorkspace = account.sellerIntent;
   const [activeTab, setActiveTab] = useState('account');
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
   const [saveError, setSaveError] = useState('');
@@ -53,6 +54,7 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
 
   const [upgrading, setUpgrading] = useState(false);
   const [upgradeError, setUpgradeError] = useState('');
+  const [enablingBuyer, setEnablingBuyer] = useState(false);
 
   /**
    * Buyer -> Creator, started deliberately from here.
@@ -128,7 +130,7 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
     }
   };
 
-  const tabs = seller
+  const tabs = sellerWorkspace
     ? [
       { id: 'account', label: 'Account profile', icon: User },
       { id: 'buyer', label: 'Buyer access', icon: ShoppingCart },
@@ -141,7 +143,7 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
     : [
       { id: 'account', label: 'Account profile', icon: User },
       { id: 'payments', label: 'Payment methods', icon: CreditCard },
-      { id: 'creator', label: 'Become a Creator', icon: Store },
+      { id: 'creator', label: 'Become a Seller', icon: Store },
       { id: 'notifications', label: 'Notifications', icon: Bell },
       { id: 'security', label: 'Security & sessions', icon: Lock },
     ];
@@ -154,9 +156,9 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
   return (
     <div className="ex-page settings-page">
       <header className="settings-head">
-        <h1 className="ex-h1">{seller ? 'Creator settings' : 'Account settings'}</h1>
+        <h1 className="ex-h1">{sellerWorkspace ? 'Seller settings' : 'Account settings'}</h1>
         <p className="settings-head__role">{roleLabel(user)} · {rolePositioning(user)}</p>
-        {canPurchase(user) && !seller && (
+        {canPurchase(user) && !sellerWorkspace && (
           <p className="settings-head__hint">
             Pinit HUB is your private workspace. Listing on Exchange requires becoming a Creator.
           </p>
@@ -223,19 +225,38 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
             {activeTab === 'buyer' && (
               <section>
                 <h2 className="ex-h2 settings-h">Buyer access</h2>
-                <p className="settings-body">
-                  Buying is always on this same Pinit identity. Cart, checkout, purchases and
-                  wishlist stay available when you add selling. No second email or login.
-                </p>
-                <p className="settings-fine">Buy is on. Cart, checkout, purchases and wishlist are available.</p>
+                {account.needsBuyerEnable ? (
+                  <>
+                    <p className="settings-body">
+                      Activate Buyer on this same Pinit identity to use Discover checkout, cart,
+                      purchases and wishlist. Selling is unchanged. No second email or login.
+                    </p>
+                    <button
+                      type="button"
+                      className="ex-btn ex-btn--primary"
+                      disabled={enablingBuyer}
+                      onClick={async () => {
+                        setEnablingBuyer(true);
+                        await onEnableBuyer?.();
+                        setEnablingBuyer(false);
+                      }}
+                    >
+                      {enablingBuyer ? 'Enabling…' : 'Become a Buyer'}
+                    </button>
+                  </>
+                ) : (
+                  <p className="settings-fine">
+                    Buyer is on. Cart, checkout, purchases and wishlist are available alongside selling.
+                  </p>
+                )}
               </section>
             )}
 
             {activeTab === 'creator' && (
               <section>
-                <h2 className="ex-h2 settings-h">Become a Creator</h2>
+                <h2 className="ex-h2 settings-h">Become a Seller</h2>
                 <p className="settings-body">
-                  A Creator capability lets you list assets you have protected in Pinit HUB and
+                  A Seller capability lets you list assets you have protected in Pinit HUB and
                   earn from licences. Buying stays on this same account — you do not need a
                   second login.
                 </p>
