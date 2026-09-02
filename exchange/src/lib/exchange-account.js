@@ -34,9 +34,7 @@ export function resolveExchangeAccount(user) {
     : (buyFlag !== false && buyFlag !== 0);
   const needsBuyerEnable = sellerIntent && !canPurchase;
 
-  let uiLabel = 'Buyer Account';
-  if (canPurchase && (canList || sellerIntent)) uiLabel = 'Buyer & Creator';
-  else if (sellerIntent) uiLabel = 'Seller Account';
+  const displayName = user.display_name || user.name || 'Account';
 
   return {
     userId: user.id || user.pinit_id || null,
@@ -45,7 +43,7 @@ export function resolveExchangeAccount(user) {
     accountType: user.account_type || (canPurchase && sellerIntent
       ? 'CREATOR_AND_BUYER'
       : (sellerIntent ? 'CREATOR' : 'BUYER')),
-    uiLabel,
+    uiLabel: displayName,
     workspace: canList && canPurchase ? 'both' : (canList || sellerIntent ? 'seller' : 'buyer'),
     exchangeEnabled: true,
     canList,
@@ -53,7 +51,7 @@ export function resolveExchangeAccount(user) {
     sellerIntent,
     needsBuyerEnable,
     sellerOnboardingComplete: user.seller_onboarding_complete !== false && canList,
-    displayName: user.display_name || user.name || 'Account',
+    displayName,
     raw: user,
   };
 }

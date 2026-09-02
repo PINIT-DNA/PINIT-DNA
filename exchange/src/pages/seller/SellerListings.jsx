@@ -99,9 +99,9 @@ export default function SellerListings({ user, onOpenListFromHub, onSelectListin
       {visible.length === 0 ? (
         <EmptyState
           icon={<ListTree size={32} color="var(--primary)" />}
-          title="No listings in this view"
-          description="List a protected Hub asset when you are ready to sell. Marketplace Discover stays separate."
-          primaryLabel="List from Hub"
+          title="No listings yet"
+          description="Protect an asset in Pinit HUB and list it on Exchange."
+          primaryLabel="List an asset"
           onPrimary={onOpenListFromHub}
         />
       ) : (

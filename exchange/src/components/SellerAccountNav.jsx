@@ -8,7 +8,7 @@ const LINKS = [
   ['seller_earnings', 'Earnings'],
   ['seller_portfolio', 'Portfolio'],
   ['seller_reviews', 'Reviews'],
-['seller_analytics', 'Activity'],
+  ['seller_analytics', 'Analytics'],
 ];
 
 const SELLER_PAGES = new Set([

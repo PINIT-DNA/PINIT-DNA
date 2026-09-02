@@ -102,13 +102,16 @@ export async function apiFetch(url, options = {}) {
 
 export function verticalLabel(v) {
   const map = {
-    images: 'Photography',
+    images: 'Images',
     video: 'Video',
-    ui_ux: 'UI/UX',
+    ui_ux: 'Design',
+    design: 'Design',
     '3d': '3D',
     audio: 'Audio',
-    concepts: 'Concepts',
-    graphics: 'Graphics',
+    concepts: 'Other',
+    other: 'Other',
+    documents: 'Documents',
+    graphics: 'Design',
   };
   return map[v] || v || 'Creative';
 }

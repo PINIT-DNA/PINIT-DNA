@@ -3,7 +3,7 @@ import {
   User, Store, ShieldCheck, ShieldAlert, CreditCard, Bell, Lock,
   CheckCircle, AlertCircle, ShoppingCart,
 } from 'lucide-react';
-import { canList, canPurchase, roleLabel, rolePositioning, resolveExchangeAccount } from '../lib/roles.js';
+import { canList, canPurchase, roleLabel, resolveExchangeAccount } from '../lib/roles.js';
 import { apiFetch } from '../lib/api.js';
 import { sellerSubscriptionLabel } from '../lib/money.js';
 
@@ -157,7 +157,7 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate, onEnable
     <div className="ex-page settings-page">
       <header className="settings-head">
         <h1 className="ex-h1">{sellerWorkspace ? 'Seller settings' : 'Account settings'}</h1>
-        <p className="settings-head__role">{roleLabel(user)} · {rolePositioning(user)}</p>
+        <p className="settings-head__role">{roleLabel(user)}{user?.pinit_id ? ` · ${user.pinit_id}` : ''}</p>
         {canPurchase(user) && !sellerWorkspace && (
           <p className="settings-head__hint">
             Pinit HUB is your private workspace. Listing on Exchange requires becoming a Creator.

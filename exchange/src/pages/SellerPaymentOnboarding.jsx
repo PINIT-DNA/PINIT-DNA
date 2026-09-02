@@ -6,7 +6,7 @@ import { sellerNeedsPaymentVerification } from '../lib/seller-onboarding.js';
 import TestPaymentHint from '../components/TestPaymentHint.jsx';
 import { sellerSubscriptionLabel } from '../lib/money.js';
 
-const STATUS_TIMEOUT_MS = 20000;
+const STATUS_TIMEOUT_MS = 15000;
 
 function isTransientApiFailure(result) {
   if (!result || result.ok) return false;
@@ -37,7 +37,7 @@ async function fetchWithTimeout(url, options = {}, ms = STATUS_TIMEOUT_MS) {
   }
 }
 
-async function fetchWithRetry(url, options = {}, { attempts = 5, delayMs = 500 } = {}) {
+async function fetchWithRetry(url, options = {}, { attempts = 2, delayMs = 400 } = {}) {
   let last = { ok: false, status: 0, data: null, error: 'Could not reach Exchange API' };
   for (let i = 0; i < attempts; i += 1) {
     last = await fetchWithTimeout(url, options);
@@ -47,7 +47,7 @@ async function fetchWithRetry(url, options = {}, { attempts = 5, delayMs = 500 }
   return last;
 }
 
-export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }) {
+export default function SellerPaymentOnboarding({ user, onVerified, onNavigate, onSessionUser }) {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [verifying, setVerifying] = useState(false);
@@ -79,6 +79,7 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
         return;
       }
       setStatus(data);
+      if (data?.user) onSessionUser?.(data.user);
       if (data?.seller_onboarding_complete) {
         finishAsCreator(data.user || user);
       }
@@ -106,7 +107,8 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
     setError('');
     setNotice('');
     try {
-      const idempotencyKey = `seller_pm_${user.pinit_id}_${new Date().toISOString().slice(0, 10)}`;
+      const idempotencyKey = `seller_pm_${user.pinit_id}_${Date.now()}`;
+      setNotice('Opening payment…');
       const init = await fetchWithRetry('/api/seller/onboarding/payment-method', {
         method: 'POST',
         headers: {
@@ -118,6 +120,7 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
       if (!init.ok) throw new Error(init.error || 'Could not start payment verification');
       const created = init.data || {};
       if (created.already_verified) {
+        if (created.user) onSessionUser?.(created.user);
         finishAsCreator(created.user);
         return;
       }
@@ -127,12 +130,14 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
       let razorpay_signature = null;
 
       if (created.mock) {
+        setNotice('Confirming test payment…');
         razorpay_payment_id = `pay_mock_${Date.now()}`;
         razorpay_signature = 'mock';
       } else {
         if (!created.keyId || !created.orderId) {
           throw new Error(created.message || 'Payment is not configured. Cannot charge without a Razorpay order.');
         }
+        setNotice('Opening Razorpay…');
         await loadRazorpayScript();
         const paid = await openRazorpayCheckout({
           keyId: created.keyId,
@@ -164,6 +169,7 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
         }),
       });
       if (!verify.ok) throw new Error(verify.error || 'Verification failed');
+      if (verify.data?.user) onSessionUser?.(verify.data.user);
       setStatus(verify.data);
       finishAsCreator(verify.data?.user);
     } catch (e) {
@@ -210,7 +216,7 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
   if (complete && !needsPayment) {
     return (
       <div className="page-shell" style={{ maxWidth: 560, margin: '48px auto', padding: '0 24px' }}>
-        <div className="modal-content" style={{ padding: 28 }}>
+        <div className="pay-panel" style={{ padding: 28 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
             <ShieldCheck size={22} color="var(--emerald)" />
             <h2 style={{ margin: 0, color: '#fff' }}>You&apos;re ready to sell</h2>
@@ -233,7 +239,7 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
 
   return (
     <div className="page-shell" style={{ maxWidth: 560, margin: '48px auto', padding: '0 24px' }}>
-      <div className="modal-content" style={{ padding: 28 }}>
+      <div className="pay-panel" style={{ padding: 28 }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
           <CreditCard size={22} color="#60a5fa" />
           <h2 style={{ margin: 0, color: '#fff' }}>Pay seller subscription</h2>
@@ -279,9 +285,10 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
           type="button"
           className="btn-primary"
           disabled={verifying}
+          style={{ width: '100%', minHeight: 48, marginTop: 8 }}
           onClick={startVerification}
         >
-          {verifying ? 'Processing payment…' : `Pay ${sellerSubscriptionLabel()}`}
+          {verifying ? 'Opening payment…' : `Pay ${sellerSubscriptionLabel()}`}
         </button>
       </div>
     </div>

@@ -89,8 +89,13 @@ export default function ListFromHubModal({
     setTitle(asset.title || '');
     setTagline('');
     setTagsInput('');
-    const v = asset.vertical || asset.file_type || 'images';
-    setVertical(v === 'image' ? 'images' : v === 'documents' || v === 'document' ? 'concepts' : v);
+    const v = String(asset.vertical || asset.file_type || 'images').toLowerCase();
+    const mapped = v === 'image' || v === 'photography' ? 'images'
+      : v === 'documents' || v === 'document' || v === 'docs' ? 'documents'
+      : v === 'ui_ux' || v === 'graphics' ? 'design'
+      : v === 'concepts' || v === 'illustration' ? 'other'
+      : v;
+    setVertical(mapped);
     setHumanPercent(asset.human_percent != null ? Number(asset.human_percent) : 90);
     setAiPercent(asset.ai_percent != null ? Number(asset.ai_percent) : 10);
     if (asset.preview_url) setPreviewUrl(asset.preview_url);
@@ -388,12 +393,13 @@ export default function ListFromHubModal({
                   <div className="form-group">
                     <label className="form-label">Vertical / Category</label>
                     <select className="form-select" value={vertical} onChange={(e) => setVertical(e.target.value)}>
-                      <option value="images">Photography / Images</option>
-                      <option value="video">Video / Film</option>
-                      <option value="ui_ux">UI/UX Components</option>
-                      <option value="3d">3D Models</option>
+                      <option value="images">Images</option>
+                      <option value="video">Video</option>
                       <option value="audio">Audio</option>
-                      <option value="concepts">Concepts & Documents</option>
+                      <option value="documents">Documents</option>
+                      <option value="design">Design</option>
+                      <option value="3d">3D</option>
+                      <option value="other">Other</option>
                     </select>
                   </div>
                 </div>

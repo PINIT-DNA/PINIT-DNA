@@ -30,7 +30,7 @@ export function canPurchase(user) {
 export function roleLabel(user) {
   const a = resolveExchangeAccount(user);
   if (!user) return 'Guest';
-  return a.uiLabel;
+  return a.displayName || a.pinitId || 'Account';
 }
 
 export function rolePositioning(user) {

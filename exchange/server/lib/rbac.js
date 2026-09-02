@@ -115,6 +115,29 @@ function maybePinitFromBuyerKey(req) {
   return key.toUpperCase().startsWith('PINIT-') ? key : '';
 }
 
+export async function requireOnboardingPayer(req, res, next) {
+  try {
+    const pinitId = pinitIdFromReq(req);
+    if (!pinitId) {
+      return res.status(401).json({
+        error: 'AUTH_REQUIRED',
+        message: 'Sign in to pay the seller subscription.',
+      });
+    }
+    const user = await findUserByPinitId(pinitId);
+    if (!user) {
+      return res.status(401).json({
+        error: 'AUTH_REQUIRED',
+        message: 'Sign in to pay the seller subscription.',
+      });
+    }
+    req.exchangeUser = user;
+    next();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 export async function requireSeller(req, res, next) {
   try {
     const pinitId = pinitIdFromReq(req);

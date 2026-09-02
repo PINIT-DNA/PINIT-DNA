@@ -9,7 +9,7 @@ import { buyerKey } from '../lib/buyer.js';
 import { isVideoListing } from '../lib/media.js';
 import HubTrustBadge from '../components/HubTrustBadge.jsx';
 import ProvenanceDrawer from '../components/ProvenanceDrawer.jsx';
-import { apiFetch, verifiedLabel } from '../lib/api.js';
+import { apiFetch, verifiedLabel, verticalLabel } from '../lib/api.js';
 import { recordListingView } from '../lib/recently-viewed.js';
 import { canPurchase, resolveExchangeAccount } from '../lib/roles.js';
 import { samePinitIdentity } from '../lib/pinit-identity.js';
@@ -238,12 +238,16 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
           <header className="asset-head">
             <h1 className="ex-h1 asset-head__title">{listing.title}</h1>
             {listing.tagline && <p className="asset-head__tagline">{listing.tagline}</p>}
+            <p className="asset-head__offer">
+              Marketplace listing for a Hub-protected asset
+              {listing.asset_id ? ` · ${listing.asset_id}` : ''}
+            </p>
             <div className="asset-head__meta">
               <span className="asset-head__rating">
                 <Star size={15} /> {avgRating || '—'}
                 <em>{reviewCount === 1 ? '1 review' : `${reviewCount} reviews`}</em>
               </span>
-              {listing.vertical && <span className="asset-head__chip">{listing.vertical}</span>}
+              {listing.vertical && <span className="asset-head__chip">{verticalLabel(listing.vertical)}</span>}
             </div>
           </header>
 
@@ -400,7 +404,7 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
               <>
                 <h3 className="ex-h2 buy-panel__title">This is your listing</h3>
                 <p className="buy-panel__note">
-                  You cannot buy your own work. Open Discover and pick another creator&apos;s listing to see License now, Add to cart and Wishlist.
+                  You cannot buy your own work. Open Discover and pick another creator&apos;s listing to see Buy now, Add to cart and Wishlist.
                 </p>
                 <button type="button" className="ex-btn ex-btn--primary ex-btn--block" onClick={onOpenBuyModule}>
                   Discover listings to buy

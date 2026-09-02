@@ -17,13 +17,43 @@ function verticalFilterClause(vertical) {
   if (!v || v === 'all' || v === 'mine') return { sql: '', params: [] };
   if (v === 'images' || v === 'image' || v === 'photography') {
     return {
-      sql: ` AND LOWER(l.vertical) IN ('images', 'image', 'photography', 'graphics')`,
+      sql: ` AND LOWER(l.vertical) IN ('images', 'image', 'photography')`,
       params: [],
     };
   }
   if (v === 'video' || v === 'videos') {
     return {
       sql: ` AND (LOWER(l.vertical) IN ('video', 'videos') OR LOWER(l.vertical) LIKE 'video%')`,
+      params: [],
+    };
+  }
+  if (v === 'audio' || v === 'music') {
+    return {
+      sql: ` AND LOWER(l.vertical) IN ('audio', 'music')`,
+      params: [],
+    };
+  }
+  if (v === 'documents' || v === 'document' || v === 'docs') {
+    return {
+      sql: ` AND LOWER(l.vertical) IN ('documents', 'document', 'docs', 'pdf')`,
+      params: [],
+    };
+  }
+  if (v === 'design' || v === 'ui_ux') {
+    return {
+      sql: ` AND LOWER(l.vertical) IN ('ui_ux', 'design', 'graphics')`,
+      params: [],
+    };
+  }
+  if (v === 'other' || v === 'concepts') {
+    return {
+      sql: ` AND LOWER(l.vertical) IN ('concepts', 'other', 'illustration')`,
+      params: [],
+    };
+  }
+  if (v === '3d') {
+    return {
+      sql: ` AND LOWER(l.vertical) IN ('3d', '3d_models')`,
       params: [],
     };
   }
@@ -133,8 +163,8 @@ router.get('/', (req, res) => {
     params.push(priceMax);
   }
 
-  // Media type. `vertical` is a marketing category (Photography, Concepts,
-  // UI/UX…) and does not answer "is this a still or a moving image". The
+  // Media type. `vertical` is a Discover filter (Images, Design, Other),
+  // not the product identity. The
   // authoritative answer is hub_assets.file_type, mirrored from Hub at list
   // time. Matched with a correlated EXISTS so the main query keeps returning
   // one row per listing — a JOIN here would duplicate rows if an asset ever
@@ -151,6 +181,17 @@ router.get('/', (req, res) => {
     params.push(like, media === 'video' ? 'video' : 'images');
   }
 
+  const creator = String(req.query.creator || '').trim();
+  if (creator) {
+    const creatorPattern = `%${creator}%`;
+    query += ` AND (
+      LOWER(COALESCE(u.name,'')) LIKE LOWER(?)
+      OR LOWER(l.pinit_id) LIKE LOWER(?)
+      OR LOWER(COALESCE(u.exchange_id,'')) LIKE LOWER(?)
+    )`;
+    params.push(creatorPattern, creatorPattern, creatorPattern);
+  }
+
   if (search) {
     // LOWER(...) LIKE LOWER(?) rather than IFNULL/ILIKE.
     //
@@ -163,9 +204,10 @@ router.get('/', (req, res) => {
       LOWER(l.title) LIKE LOWER(?) OR LOWER(l.description) LIKE LOWER(?)
       OR LOWER(l.tags) LIKE LOWER(?) OR LOWER(COALESCE(l.tagline,'')) LIKE LOWER(?)
       OR LOWER(l.asset_id) LIKE LOWER(?) OR LOWER(l.listing_id) LIKE LOWER(?)
+      OR LOWER(COALESCE(u.name,'')) LIKE LOWER(?) OR LOWER(l.pinit_id) LIKE LOWER(?)
     )`;
     const searchPattern = `%${search}%`;
-    params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
+    params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
   }
 
   if (sort === 'price_asc') {

@@ -9,14 +9,14 @@ import EmptyState from '../components/EmptyState.jsx';
 import { canList, canPurchase } from '../lib/roles.js';
 
 const CATEGORIES = [
-  { id: 'all', label: 'All Categories' },
-  { id: 'images', label: 'Photography' },
+  { id: 'all', label: 'All Assets' },
+  { id: 'images', label: 'Images' },
   { id: 'video', label: 'Video' },
-  { id: 'concepts', label: 'Illustration' },
-  { id: 'ui_ux', label: 'UI/UX' },
-  { id: '3d', label: '3D' },
   { id: 'audio', label: 'Audio' },
-  { id: 'graphics', label: 'Graphics' },
+  { id: 'documents', label: 'Documents' },
+  { id: 'design', label: 'Design' },
+  { id: '3d', label: '3D' },
+  { id: 'other', label: 'Other' },
 ];
 
 const BUYER_STEPS = [
@@ -454,13 +454,13 @@ export default function RequirementsExchange({
               <input className="form-input" placeholder="Brief title" value={title} onChange={(e) => setTitle(e.target.value)} required />
               <textarea className="form-textarea" rows={3} placeholder="What do you need? Usage, deliverables, style…" value={description} onChange={(e) => setDescription(e.target.value)} required />
               <select className="form-select" value={vertical} onChange={(e) => setVertical(e.target.value)}>
-                <option value="images">Photography</option>
+                <option value="images">Images</option>
                 <option value="video">Video</option>
-                <option value="concepts">Illustration</option>
-                <option value="ui_ux">UI/UX</option>
-                <option value="3d">3D</option>
                 <option value="audio">Audio</option>
-                <option value="graphics">Graphics</option>
+                <option value="documents">Documents</option>
+                <option value="design">Design</option>
+                <option value="3d">3D</option>
+                <option value="other">Other</option>
               </select>
               <label style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Budget (USD)</label>
               <input type="number" className="form-input" value={budget} onChange={(e) => setBudget(Number(e.target.value))} />

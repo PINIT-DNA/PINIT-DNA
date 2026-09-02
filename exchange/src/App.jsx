@@ -101,7 +101,7 @@ export default function App() {
   const [becomeCreatorOpen, setBecomeCreatorOpen] = useState(false);
   const [roleNotice, setRoleNotice] = useState('');
   const [user, setUser] = useState(() => readCachedUser());
-  const [sessionReady, setSessionReady] = useState(false);
+  const [sessionReady, setSessionReady] = useState(() => Boolean(readCachedUser()));
   const [cartCount, setCartCount] = useState(0);
 
   const refreshCartCount = async () => {
@@ -362,6 +362,7 @@ export default function App() {
       return;
     }
     if (resolveExchangeAccount(user).sellerIntent && !canList(user)) {
+      setBecomeCreatorOpen(false);
       navigate('seller_onboarding_payment');
       return;
     }
@@ -384,6 +385,7 @@ export default function App() {
       setUser(data.user);
       writeSession(data.user, data.session_token);
     }
+    setBecomeCreatorOpen(false);
     navigate('seller_onboarding_payment');
   };
 
@@ -406,7 +408,9 @@ export default function App() {
       setUser(data.user);
       writeSession(data.user, data.session_token);
     }
-    setRoleNotice('Buyer access is on. Cart, Checkout, Purchases and Wishlist are available. Selling is unchanged.');
+    setRoleNotice('Buyer access is on. Cart, Purchases and Wishlist are available. Selling is unchanged.');
+    setShopModule('buy');
+    if (['cart', 'wishlist', 'my_licenses'].includes(activePage)) return;
     navigate('marketplace');
   };
 
@@ -534,6 +538,10 @@ export default function App() {
             user={user}
             onSelectListing={handleSelectListing}
             onOpenCheckout={handleOpenCheckout}
+            onBrowseVertical={(verticalId) => {
+              setCollectionVertical({ vertical: verticalId, at: Date.now() });
+              navigate('marketplace');
+            }}
           />
         )}
 
@@ -549,6 +557,8 @@ export default function App() {
                 externalSearch={headerSearch}
                 externalVertical={collectionVertical}
                 onCartChanged={refreshCartCount}
+                shopModule={shopModule}
+                onNavigate={navigate}
               />
             )}
 
@@ -735,6 +745,11 @@ export default function App() {
           <SellerPaymentOnboarding
             user={user}
             onNavigate={navigate}
+            onSessionUser={(updated) => {
+              if (!updated) return;
+              setUser(updated);
+              saveSession(updated);
+            }}
             onVerified={(updatedUser) => {
               // Payment/status used to hand back a stale user (or no user), so
               // can_list stayed false and the route guard bounced straight back
@@ -778,7 +793,7 @@ export default function App() {
       </>
   );
 
-  const sessionPending = !sessionReady;
+  const sessionPending = !sessionReady && !user;
 
   if (activePage === 'public_portfolio') {
     return (
@@ -897,6 +912,7 @@ export default function App() {
           setUser(updated);
           saveSession(updated);
           setRoleNotice('Seller account created. Complete the activation payment to start listing.');
+          setBecomeCreatorOpen(false);
           navigate('seller_onboarding_payment');
         }}
       />

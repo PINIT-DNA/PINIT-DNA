@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ShieldCheck, LogIn, LogOut,
-  ShoppingCart, Heart, Search, Menu, X,
+  ShoppingCart, Heart, Search, Menu, X, Plus,
 } from 'lucide-react';
 import { resolveExchangeAccount } from '../lib/roles.js';
 
@@ -48,30 +48,38 @@ function AccountMenuBody({
     <>
       <div className="studio-menu__meta">
         <strong>{name}</strong>
-        <span>{account.uiLabel}</span>
+        {account.pinitId ? <span className="studio-menu__id">{account.pinitId}</span> : null}
       </div>
 
       <MenuGroup label="Buy">
-        <button type="button" onClick={() => closeGo('marketplace')}>Discover</button>
-        <button type="button" onClick={() => closeGo('collections')}>Collections</button>
-        <button type="button" onClick={() => closeGo('passports')}>Creators</button>
-        {account.canPurchase && (
+        {account.canPurchase ? (
           <>
-            <button type="button" onClick={() => closeGo('cart')}>Cart</button>
             <button type="button" onClick={() => closeGo('my_licenses')}>Purchases</button>
+            <button type="button" onClick={() => closeGo('cart')}>Cart</button>
             <button type="button" onClick={() => closeGo('wishlist')}>Wishlist</button>
           </>
+        ) : account.needsBuyerEnable ? (
+          <button
+            type="button"
+            onClick={() => {
+              onClose?.();
+              onEnableBuyer?.();
+            }}
+          >
+            Become a Buyer
+          </button>
+        ) : (
+          <button type="button" onClick={() => closeGo('marketplace')}>Discover</button>
         )}
       </MenuGroup>
 
       <MenuGroup label="Sell">
         {seller ? (
           <>
-            <button type="button" onClick={() => closeGo('seller_listings')}>Your Listings</button>
-            <button type="button" onClick={() => closeGo('seller_opportunities')}>Opportunities</button>
+            <button type="button" onClick={() => closeGo('seller_assets')}>Your Assets</button>
+            <button type="button" onClick={() => closeGo('seller_listings')}>Listings</button>
             <button type="button" onClick={() => closeGo('seller_sales')}>Sales</button>
             <button type="button" onClick={() => closeGo('seller_earnings')}>Earnings</button>
-            <button type="button" onClick={() => closeGo('seller_portfolio')}>Portfolio</button>
           </>
         ) : sellerPending ? (
           <button type="button" onClick={() => closeGo('seller_onboarding_payment')}>Finish selling</button>
@@ -88,21 +96,8 @@ function AccountMenuBody({
         )}
       </MenuGroup>
 
-      {account.needsBuyerEnable && (
-        <button
-          type="button"
-          className="studio-menu__cta"
-          onClick={() => {
-            onClose?.();
-            onEnableBuyer?.();
-          }}
-        >
-          Become a Buyer
-        </button>
-      )}
-
       <MenuGroup label="Account">
-        <button type="button" onClick={() => closeGo('settings')}>Account</button>
+        <button type="button" onClick={() => closeGo('settings')}>Profile</button>
         <button type="button" onClick={() => closeGo('settings')}>Settings</button>
         <a href={HUB_APP_URL} target="_blank" rel="noreferrer">Open Pinit Hub</a>
         <button type="button" onClick={() => { onClose?.(); onSignOut?.(); }}>
@@ -150,11 +145,11 @@ export default function ExchangeHeader({
   }
   const sellLinks = seller
     ? [
-      ['seller_listings', 'Your Listings'],
       ['seller_assets', 'Your Assets'],
-      ['seller_analytics', 'Activity'],
+      ['seller_listings', 'Listings'],
+      ['seller_opportunities', 'Opportunities'],
       ['seller_sales', 'Sales'],
-      ['seller_earnings', 'Payouts'],
+      ['seller_earnings', 'Earnings'],
     ]
     : [];
   const links = inBuy ? buyLinks : sellLinks;
@@ -248,11 +243,12 @@ export default function ExchangeHeader({
           </span>
         </a>
 
-        <div className="ex-module-switch" role="tablist" aria-label="Buy or Sell">
+        <div className="ex-module-switch" role="tablist" aria-label="Switch marketplace view">
           <button
             type="button"
             role="tab"
             aria-selected={inBuy}
+            title="Switch marketplace view"
             className={`ex-module-switch__btn ${inBuy ? 'is-on' : ''}`}
             onClick={onOpenBuyModule}
           >
@@ -262,6 +258,7 @@ export default function ExchangeHeader({
             type="button"
             role="tab"
             aria-selected={!inBuy}
+            title="Switch marketplace view"
             className={`ex-module-switch__btn ${!inBuy ? 'is-on' : ''}`}
             onClick={onOpenSellModule}
           >
@@ -288,7 +285,7 @@ export default function ExchangeHeader({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search photos, video, creators…"
+            placeholder="Search creative work, creators, or assets…"
             aria-label="Search the marketplace"
           />
         </form>
@@ -314,14 +311,14 @@ export default function ExchangeHeader({
               Finish selling
             </button>
           )}
-          {seller && !inBuy && (
+          {seller && (
             <button
               type="button"
-              className="btn-secondary nav-primary-action"
+              className="btn-primary nav-primary-action"
               style={{ padding: '8px 12px', height: 36, fontSize: '0.8rem' }}
               onClick={onOpenListFromHub}
             >
-              List an asset
+              <Plus size={14} /> List an asset
             </button>
           )}
 
@@ -354,7 +351,7 @@ export default function ExchangeHeader({
               >
                 <span className="nav-account__avatar">{name[0].toUpperCase()}</span>
                 <span className="nav-account__meta">
-                  <span className="nav-account__role">{account.uiLabel}</span>
+                  <span className="nav-account__role">{name}</span>
                   <span className="nav-account__id">{account.pinitId || 'Account'}</span>
                 </span>
               </button>
@@ -385,19 +382,9 @@ export default function ExchangeHeader({
             aria-label="Account menu"
             onClick={(e) => e.stopPropagation()}
           >
-            <nav className="ex-drawer__links" aria-label="Pages">
+            <nav className="ex-drawer__links" aria-label="Marketplace view">
               <button type="button" className={inBuy ? 'is-active' : ''} onClick={() => { setDrawer(false); onOpenBuyModule?.(); }}>Buy</button>
               <button type="button" className={!inBuy ? 'is-active' : ''} onClick={() => { setDrawer(false); onOpenSellModule?.(); }}>Sell</button>
-              {links.map(([page, label]) => (
-                <button
-                  key={page}
-                  type="button"
-                  className={isActive(page) ? 'is-active' : ''}
-                  onClick={() => closeGo(page)}
-                >
-                  {label}
-                </button>
-              ))}
             </nav>
             {user ? (
               <AccountMenuBody {...menuProps} />

@@ -149,7 +149,7 @@ export default function CartPage({ user, onOpenAuth, onSelectListing, onCheckout
         <EmptyState
           icon={<ShoppingCart size={28} color="var(--primary)" />}
           title="Your cart is empty"
-          description="Add creative assets you want to license."
+          description="Add creative work you want to license."
           primaryLabel="Explore Discover"
           onPrimary={() => onBrowse?.() || onSelectListing?.(null)}
           secondaryLabel="Explore Collections"

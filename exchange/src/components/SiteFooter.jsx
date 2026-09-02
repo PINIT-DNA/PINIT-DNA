@@ -7,10 +7,9 @@ const COLUMNS = [
     id: 'product',
     title: 'Product',
     links: [
-      { label: 'Marketplace', page: 'marketplace' },
+      { label: 'Discover', page: 'marketplace' },
       { label: 'Collections', page: 'collections' },
-      { label: 'Requirements', page: 'requirements' },
-      { label: 'Creator Program', page: 'creator_program' },
+      { label: 'Creators', page: 'passports' },
     ],
   },
   {
@@ -18,9 +17,8 @@ const COLUMNS = [
     title: 'Trust',
     links: [
       { label: 'Trust Center', page: 'trust' },
-      { label: 'Licensing Guide', page: 'licensing_guide' },
-      { label: 'Provenance', page: 'provenance' },
       { label: 'Security', page: 'security' },
+      { label: 'Provenance', page: 'provenance' },
     ],
   },
   {
@@ -28,6 +26,7 @@ const COLUMNS = [
     title: 'Business',
     links: [
       { label: 'Sell on Exchange', page: 'sell' },
+      { label: 'Creator Program', page: 'creator_program' },
       { label: 'Enterprise', page: 'enterprise' },
       { label: 'Creator Support', page: 'creator_support' },
     ],
@@ -44,12 +43,9 @@ const COLUMNS = [
   },
 ];
 
-export default function SiteFooter({ onNavigate, user = null }) {
+export default function SiteFooter({ onNavigate }) {
   const [open, setOpen] = useState(null);
   const go = (page) => onNavigate?.(page);
-  const role = String(user?.exchange_role || user?.role || '').toLowerCase();
-  const seller = role === 'creator' || role === 'seller' || role === 'admin';
-  const signedIn = Boolean(user);
 
   return (
     <footer className="site-footer">
@@ -73,18 +69,6 @@ export default function SiteFooter({ onNavigate, user = null }) {
               <small>Discovery · Licensing · Commerce</small>
             </div>
           </div>
-          {signedIn && (
-            <div className="site-footer__account">
-              <button type="button" onClick={() => go('my_licenses')}>Purchases</button>
-              <button type="button" onClick={() => go('cart')}>Cart</button>
-              {seller && (
-                <>
-                  <button type="button" onClick={() => go('seller_listings')}>Your listings</button>
-                  <button type="button" onClick={() => go('seller_sales')}>Sales</button>
-                </>
-              )}
-            </div>
-          )}
           <a
             className="site-footer__hub"
             href={HUB_APP_URL}
@@ -125,7 +109,7 @@ export default function SiteFooter({ onNavigate, user = null }) {
 
       <div className="site-footer__bottom">
         <span>© {new Date().getFullYear()} Pinit Exchange</span>
-        <span className="site-footer__pill">HUB protects · Exchange monetizes</span>
+        <span className="site-footer__pill">Pinit HUB protects · Exchange monetizes</span>
         <span className="site-footer__tagline">From Creation to Commerce. From Files to Value.</span>
       </div>
     </footer>

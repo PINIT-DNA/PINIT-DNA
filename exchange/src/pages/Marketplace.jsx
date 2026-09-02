@@ -21,33 +21,43 @@ const VERTICAL_HUE = {
   mine: 'var(--v-mine)',
   images: 'var(--v-images)',
   video: 'var(--v-video)',
+  audio: 'var(--v-audio)',
+  documents: 'var(--v-all)',
+  design: 'var(--v-ui_ux)',
   ui_ux: 'var(--v-ui_ux)',
   '3d': 'var(--v-3d)',
-  audio: 'var(--v-audio)',
+  other: 'var(--v-concepts)',
   concepts: 'var(--v-concepts)',
 };
 
-// Foreground for the active pill, chosen per hue rather than defaulting to
-// white. Amber, cyan, emerald and orange are light enough that white text on
-// them measures 3.3-4.2:1 — below the 4.5:1 WCAG AA threshold. Dark ink on
-// those clears 8:1. The darker hues keep white.
 const VERTICAL_INK = {
   images: '#1a1204',
+  design: '#04171c',
   ui_ux: '#04171c',
   '3d': '#04160f',
+  other: '#0f0600',
   concepts: '#0f0600',
 };
 
 const VERTICALS = [
-  { id: 'all', name: 'All Verticals' },
-  { id: 'mine', name: 'My Listings' },
-  { id: 'images', name: 'Photography' },
+  { id: 'all', name: 'All Assets' },
+  { id: 'images', name: 'Images' },
   { id: 'video', name: 'Video' },
-  { id: 'ui_ux', name: 'UI/UX' },
-  { id: '3d', name: '3D Models' },
   { id: 'audio', name: 'Audio' },
-  { id: 'concepts', name: 'Concepts' },
+  { id: 'documents', name: 'Documents' },
+  { id: 'design', name: 'Design' },
+  { id: '3d', name: '3D' },
+  { id: 'other', name: 'Other' },
 ];
+
+const INBOUND_VERTICAL = {
+  ui_ux: 'design',
+  graphics: 'design',
+  photography: 'images',
+  image: 'images',
+  concepts: 'other',
+  illustration: 'other',
+};
 
 export default function Marketplace({
   onSelectListing,
@@ -60,7 +70,10 @@ export default function Marketplace({
   externalSearch = null,
   externalVertical = null,
   onCartChanged,
+  shopModule = 'buy',
+  onNavigate,
 }) {
+  const buyView = shopModule !== 'sell';
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
   // A failed request and an empty catalogue are different things. Conflating
@@ -85,6 +98,7 @@ export default function Marketplace({
   const [media, setMedia] = useState('');
   const [priceMin, setPriceMin] = useState('');
   const [priceMax, setPriceMax] = useState('');
+  const [creatorQuery, setCreatorQuery] = useState('');
   // Incremented when a filter is committed, so the fetch runs on apply rather
   // than on every keystroke in the price boxes.
   const [filterToken, setFilterToken] = useState(0);
@@ -93,6 +107,10 @@ export default function Marketplace({
   const [editForm, setEditForm] = useState({});
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState('');
+
+  useEffect(() => {
+    if (buyView && selectedVertical === 'mine') setSelectedVertical('all');
+  }, [buyView, selectedVertical]);
 
   useEffect(() => {
     if (resetFiltersToken) {
@@ -104,6 +122,7 @@ export default function Marketplace({
       setMedia('');
       setPriceMin('');
       setPriceMax('');
+      setCreatorQuery('');
     }
   }, [resetFiltersToken, user?.pinit_id]);
 
@@ -125,13 +144,15 @@ export default function Marketplace({
   // whatever was left applied from an earlier visit.
   useEffect(() => {
     if (!externalVertical?.vertical) return;
-    setSelectedVertical(externalVertical.vertical);
+    const incoming = String(externalVertical.vertical || '').toLowerCase();
+    setSelectedVertical(INBOUND_VERTICAL[incoming] || incoming);
     setSelectedBadge('all');
     setSearchQuery('');
     setLicence('');
     setMedia('');
     setPriceMin('');
     setPriceMax('');
+    setCreatorQuery('');
     setSearchToken((t) => t + 1);
   }, [externalVertical]);
 
@@ -163,6 +184,7 @@ export default function Marketplace({
     if (media) url += `&media=${encodeURIComponent(media)}`;
     if (priceMin !== '' && Number(priceMin) > 0) url += `&price_min=${encodeURIComponent(priceMin)}`;
     if (priceMax !== '' && Number(priceMax) > 0) url += `&price_max=${encodeURIComponent(priceMax)}`;
+    if (creatorQuery.trim()) url += `&creator=${encodeURIComponent(creatorQuery.trim())}`;
     return url;
   };
 
@@ -263,8 +285,9 @@ export default function Marketplace({
   const badgeActive = selectedBadge !== 'all';
   const verticalActive = selectedVertical !== 'all';
   const priceActive = (priceMin !== '' && Number(priceMin) > 0) || (priceMax !== '' && Number(priceMax) > 0);
+  const creatorActive = Boolean(creatorQuery.trim());
   const resultsMode = Boolean(appliedSearch) || badgeActive || verticalActive
-    || Boolean(licence) || Boolean(media) || priceActive;
+    || Boolean(licence) || Boolean(media) || priceActive || creatorActive;
 
   // Section rails only earn their place once the catalogue is bigger than the
   // grid can show at a glance. Below that, Featured and Recently listed would
@@ -283,6 +306,19 @@ export default function Marketplace({
   // Newest first is how the default query already sorts, so this needs no
   // extra request and no fabricated "trending" metric.
   const recentlyListed = railsWorthShowing ? listings.slice(0, 6) : [];
+
+  const exploreCreators = !resultsMode
+    ? Object.values(listings.reduce((acc, item) => {
+      const id = item.pinit_id || item.creator_exchange_id;
+      if (!id || acc[id]) return acc;
+      acc[id] = {
+        id,
+        name: item.creator_name || 'Creator',
+        preview: item.preview_url,
+      };
+      return acc;
+    }, {})).slice(0, 8)
+    : [];
 
   const activeFilters = [];
   if (appliedSearch) {
@@ -320,6 +356,13 @@ export default function Marketplace({
       clear: () => { setMedia(''); setFilterToken((t) => t + 1); },
     });
   }
+  if (creatorActive) {
+    activeFilters.push({
+      key: 'creator',
+      label: `Creator: ${creatorQuery.trim()}`,
+      clear: () => { setCreatorQuery(''); setFilterToken((t) => t + 1); },
+    });
+  }
   if (priceActive) {
     const lo = priceMin !== '' && Number(priceMin) > 0 ? formatMoney(Number(priceMin)) : null;
     const hi = priceMax !== '' && Number(priceMax) > 0 ? formatMoney(Number(priceMax)) : null;
@@ -338,6 +381,7 @@ export default function Marketplace({
     setMedia('');
     setPriceMin('');
     setPriceMax('');
+    setCreatorQuery('');
     setSearchToken((t) => t + 1);
   };
 
@@ -360,22 +404,14 @@ export default function Marketplace({
           </div>
           {/* Sizing lives in CSS, not inline styles — the compact variant needs
               to override it, and an inline style would always win. */}
-          <h1 className="market-hero__title">
-            The verified marketplace for creative licenses
-          </h1>
+          <h1 className="market-hero__title">Discover</h1>
           <p className="market-hero__sub">
-            {canList(user)
-              ? 'Create, protect, list and earn from creative assets.'
-              : 'Discover, license and manage creative assets.'}
+            Find protected creative work from creators around the world.
           </p>
-          {/* A signed-in buyer gets no hero CTA at all — they are already in the
-              marketplace, and the listings below are the call to action. Skip the
-              row entirely rather than rendering an empty flex container, which
-              would leave stray gap spacing under the subtitle. */}
-          <div style={{ display: 'flex', gap: '16px' }} hidden={Boolean(user) && !canList(user)}>
-            {canList(user) ? (
+          <div style={{ display: 'flex', gap: '16px' }} hidden={Boolean(user) && buyView}>
+            {!buyView && canList(user) ? (
               <button className="btn-primary" onClick={onOpenListFromHub} style={{ padding: '12px 24px', fontSize: '1rem' }}>
-                List from Pinit Hub <ArrowRight size={18} />
+                List an asset <ArrowRight size={18} />
               </button>
             ) : !user ? (
               // Guests only. A signed-in buyer is already inside the marketplace,
@@ -409,7 +445,7 @@ export default function Marketplace({
           display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '12px',
           marginBottom: '20px', borderBottom: '1px solid var(--border-subtle)',
         }}>
-          {VERTICALS.filter((v) => v.id !== 'mine' || canList(user)).map((v) => (
+          {VERTICALS.map((v) => (
             <button
               key={v.id}
               type="button"
@@ -433,7 +469,7 @@ export default function Marketplace({
               <input
                 type="text"
                 className="form-input"
-                placeholder="Search title, tagline, tags, Asset ID, or listing ID…"
+                placeholder="Search creative work, creators, or assets…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 style={{ paddingLeft: '40px' }}
@@ -442,7 +478,7 @@ export default function Marketplace({
             <button type="submit" className="btn-secondary">Search</button>
           </form>
 
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <div className="market-toolbar">
             <button
               type="button"
               className={`ex-btn ex-btn--secondary ex-btn--sm filter-toggle${activeFilters.length ? ' has-active' : ''}`}
@@ -450,20 +486,30 @@ export default function Marketplace({
               aria-controls="market-filters"
               onClick={() => setFiltersOpen((o) => !o)}
             >
-              <Filter size={15} /> Filters
+              <Filter size={15} /> Type · Price · License
               {activeFilters.length > 0 && <span className="filter-toggle__count">{activeFilters.length}</span>}
             </button>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Filter size={16} color="var(--text-muted)" />
-              <select className="form-select" value={selectedBadge} onChange={(e) => setSelectedBadge(e.target.value)} style={{ width: 'auto', minWidth: '180px' }}>
-                <option value="all">All Authenticity Badges</option>
-                <option value="Gold">Gold Badge</option>
-                <option value="Silver">Silver Badge</option>
-                <option value="Bronze">Bronze Badge</option>
-              </select>
-            </div>
-            <select className="form-select" value={sortOption} onChange={(e) => setSortOption(e.target.value)} style={{ width: 'auto', minWidth: '150px' }}>
-              <option value="newest">Newest Listings</option>
+            <input
+              className="form-input market-toolbar__creator"
+              placeholder="Creator"
+              value={creatorQuery}
+              onChange={(e) => setCreatorQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  setFilterToken((t) => t + 1);
+                }
+              }}
+              aria-label="Filter by creator"
+            />
+            <select className="form-select" value={selectedBadge} onChange={(e) => setSelectedBadge(e.target.value)} style={{ width: 'auto', minWidth: '120px' }}>
+              <option value="all">Verified</option>
+              <option value="Gold">Gold</option>
+              <option value="Silver">Silver</option>
+              <option value="Bronze">Bronze</option>
+            </select>
+            <select className="form-select" value={sortOption} onChange={(e) => setSortOption(e.target.value)} style={{ width: 'auto', minWidth: '120px' }}>
+              <option value="newest">Newest</option>
               <option value="popular">Most Viewed</option>
               <option value="price_asc">Price: Low to High</option>
               <option value="price_desc">Price: High to Low</option>
@@ -502,7 +548,7 @@ export default function Marketplace({
             </div>
 
             <div className="market-filters__group">
-              <span className="ex-label" id="lbl-media">Media type</span>
+              <span className="ex-label" id="lbl-media">Type</span>
               <div className="market-filters__opts" role="group" aria-labelledby="lbl-media">
                 {[
                   { id: '', label: 'Any' },
@@ -634,7 +680,7 @@ export default function Marketplace({
         ) : (
           <EmptyState
             icon={<ShieldCheck size={36} color="var(--primary)" />}
-            title="No listings in this view"
+            title="No work in this view"
             description={
               selectedVertical === 'mine'
                 ? 'Your protected assets can become licenses on Pinit Exchange.'
@@ -650,16 +696,22 @@ export default function Marketplace({
           />
         )
       ) : (
-        // A four-up grid holding two items reads as an empty shop. Under six
-        // listings the tiles grow to fill the row instead of stranding
-        // whitespace to the right.
+        <>
+        {!resultsMode && (
+          <div className="ex-section-head market-discover-head">
+            <div>
+              <h2 className="ex-h2">Featured / Discover</h2>
+              <div className="ex-h2-sub">Interesting work, who created it, what it costs, and the license you get.</div>
+            </div>
+          </div>
+        )}
         <div className={`listing-grid${visibleListings.length < 6 ? ' listing-grid--sparse' : ''}`}>
           {visibleListings.map((item) => (
             <div
               key={item.listing_id}
               style={{ position: 'relative', '--tile-hue': VERTICAL_HUE[item.vertical] || 'var(--v-all)' }}
             >
-              {isOwner(item) && canList(user) && (
+              {isOwner(item) && !buyView && canList(user) && (
                 <button
                   type="button"
                   className="card-edit-btn"
@@ -706,6 +758,7 @@ export default function Marketplace({
             </div>
           ))}
         </div>
+        </>
       )}
 
       {/* Section rails. Both read from the listings already loaded above, so
@@ -746,8 +799,8 @@ export default function Marketplace({
         <section className="ex-section">
           <div className="ex-section-head">
             <div>
-              <h2 className="ex-h2">Recently listed</h2>
-              <div className="ex-h2-sub">Newest on the marketplace</div>
+              <h2 className="ex-h2">Recently added</h2>
+              <div className="ex-h2-sub">Newest offers on the marketplace</div>
             </div>
           </div>
           <div className="rail rail--compact">
@@ -773,10 +826,32 @@ export default function Marketplace({
         </section>
       )}
 
+      {!loading && !loadError && !resultsMode && (
+        <section className="ex-section market-explore">
+          <div className="market-explore__row">
+            <button type="button" className="market-explore__card" onClick={() => onNavigate?.('passports')}>
+              <h3>Explore Creators</h3>
+              <p>Meet the people behind protected work on Pinit Exchange.</p>
+              {exploreCreators.length > 0 && (
+                <div className="market-explore__faces">
+                  {exploreCreators.slice(0, 5).map((c) => (
+                    <span key={c.id} title={c.name}>{String(c.name).charAt(0).toUpperCase()}</span>
+                  ))}
+                </div>
+              )}
+            </button>
+            <button type="button" className="market-explore__card" onClick={() => onNavigate?.('collections')}>
+              <h3>Popular Collections</h3>
+              <p>Browse work by type, saved lists, and recently viewed assets.</p>
+            </button>
+          </div>
+        </section>
+      )}
+
       {!loading && !loadError && visibleListings.length > 0 && (
         <div className="marketplace-more">
           <p className="marketplace-more__count">
-            Showing {visibleListings.length}{total ? ` of ${total}` : ''} listing{total === 1 ? '' : 's'}
+            Showing {visibleListings.length}{total ? ` of ${total}` : ''} {total === 1 ? 'asset' : 'assets'}
           </p>
           {hasMore && (
             <button

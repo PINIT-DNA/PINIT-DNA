@@ -1,6 +1,6 @@
-import { formatFrom, formatMoney } from '../lib/money.js';
+import { formatMoney } from '../lib/money.js';
 import React, { useState } from 'react';
-import { CheckCircle2, Heart, Play, ShoppingCart } from 'lucide-react';
+import { CheckCircle2, Heart, Play, ShieldCheck, FileText, Box, Headphones } from 'lucide-react';
 import { canPurchase } from '../lib/roles.js';
 import { samePinitIdentity } from '../lib/pinit-identity.js';
 import {
@@ -8,27 +8,21 @@ import {
   hasPlayableVideoPreview,
   formatMediaDuration,
 } from '../lib/media.js';
+import { assetKind, assetKindLabel, licenseTeaser, listingFromPrice } from '../lib/asset-type.js';
 
-function PreviewPlaceholder({ title = '' }) {
+function PreviewPlaceholder({ title = '', kind = 'other' }) {
   const letter = String(title || 'P').trim().charAt(0).toUpperCase() || 'P';
+  const Icon = kind === 'audio' ? Headphones : kind === 'document' ? FileText : kind === '3d' ? Box : null;
   return (
     <div className="listing-card__video-ph listing-card__video-ph--brand" aria-hidden>
       <div className="listing-card__video-ph-inner">
-        <span className="listing-card__ph-letter">{letter}</span>
+        {Icon ? <Icon size={28} /> : <span className="listing-card__ph-letter">{letter}</span>}
       </div>
     </div>
   );
 }
 
-function goldBadgeLabel(tier) {
-  const t = String(tier || '').toLowerCase();
-  if (t === 'gold') return 'Gold · Human Verified';
-  if (t === 'silver') return 'Silver · Pinit Verified';
-  if (t === 'bronze') return 'Bronze · Pinit Verified';
-  return null;
-}
-
-function CardMedia({ item, isVideo }) {
+function CardMedia({ item, isVideo, kind }) {
   const [mediaFailed, setMediaFailed] = useState(false);
   const [duration, setDuration] = useState(
     item.duration_sec != null ? formatMediaDuration(item.duration_sec) : null,
@@ -57,35 +51,56 @@ function CardMedia({ item, isVideo }) {
           <div className="listing-card__play" aria-hidden>
             <Play size={18} fill="#fff" />
           </div>
-          <div className="listing-card__media-meta">
-            <span className="listing-card__type">Video</span>
-            {duration && <span className="listing-card__duration">{duration}</span>}
-          </div>
+          {duration && (
+            <div className="listing-card__media-meta">
+              <span className="listing-card__duration">{duration}</span>
+            </div>
+          )}
         </>
       );
     }
-
     return (
       <>
-        <div className="listing-card__video-ph" aria-hidden>
-          <div className="listing-card__video-ph-inner">
-            <Play size={28} fill="#fff" />
-            <span>{item.title || 'Video'}</span>
-          </div>
-        </div>
+        <PreviewPlaceholder title={item.title} kind="video" />
         <div className="listing-card__play" aria-hidden>
           <Play size={18} fill="#fff" />
-        </div>
-        <div className="listing-card__media-meta">
-          <span className="listing-card__type">Video</span>
-          {duration && <span className="listing-card__duration">{duration}</span>}
         </div>
       </>
     );
   }
 
+  if (kind === 'audio') {
+    return (
+      <>
+        {still && !mediaFailed ? (
+          <img src={still} alt="" className="card-media pinit-protected-media" draggable={false} onError={() => setMediaFailed(true)} />
+        ) : (
+          <PreviewPlaceholder title={item.title} kind="audio" />
+        )}
+        <div className="listing-card__media-meta">
+          <span className="listing-card__type">Audio</span>
+        </div>
+      </>
+    );
+  }
+
+  if (kind === 'document' || kind === 'design' || kind === '3d') {
+    if (still && !mediaFailed) {
+      return (
+        <img
+          src={still}
+          alt={item.title || 'Asset preview'}
+          className="card-media pinit-protected-media"
+          draggable={false}
+          onError={() => setMediaFailed(true)}
+        />
+      );
+    }
+    return <PreviewPlaceholder title={item.title} kind={kind} />;
+  }
+
   if (mediaFailed || !still) {
-    return <PreviewPlaceholder title={item.title} />;
+    return <PreviewPlaceholder title={item.title} kind={kind} />;
   }
 
   return (
@@ -105,81 +120,64 @@ export default function ListingCard({
   item,
   onSelect,
   onWishlist,
-  onAddToCart,
+  onAddToCart: _onAddToCart,
   user = null,
   wishlisted = false,
 }) {
   const isVideo = isVideoListing(item);
-  const fromPrice = item.price_personal ?? item.price_commercial ?? 0;
-  const tierLabel = goldBadgeLabel(item.badge_tier);
+  const kind = assetKind(item);
+  const fromPrice = listingFromPrice(item);
+  const own = samePinitIdentity(user?.pinit_id, item.pinit_id);
+  const showBuyActions = !own && (!user || canPurchase(user));
   const open = () => onSelect?.(item.listing_id);
+  const subtitle = String(item.tagline || '').trim();
 
-  // Gallery cards are the picture. Title, price, creator and provenance all
-  // live on the asset page — a browsing grid reads faster when the work is the
-  // only thing competing for attention.
-  //
-  // The caption is always in the DOM (screen readers get it regardless) and
-  // reveals visually on hover or keyboard focus.
   return (
     <article
       id={item.listing_id ? `listing-${item.listing_id}` : undefined}
-      className="listing-tile"
-      tabIndex={0}
-      role="link"
-      aria-label={`${item.title} by ${item.creator_name || 'verified creator'}, from ${formatMoney(fromPrice)}`}
-      onClick={open}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
-      }}
+      className="asset-card"
     >
-      <CardMedia item={item} isVideo={isVideo} />
+      <button
+        type="button"
+        className="asset-card__media"
+        onClick={open}
+        aria-label={`View ${item.title || 'asset'}`}
+      >
+        <CardMedia item={item} isVideo={isVideo} kind={kind} />
+        {own && <span className="listing-tile__owner">Your listing</span>}
+      </button>
 
-      <span className="listing-tile__verified" title="Hub verified & protected">
-        <CheckCircle2 size={12} /> Verified
-      </span>
-
-      {onWishlist && (!user || canPurchase(user)) && (
-        <button
-          type="button"
-          className={`listing-tile__wish ${wishlisted ? 'active' : ''}`}
-          title={wishlisted ? 'Saved' : 'Save to wishlist'}
-          aria-label={wishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
-          onClick={(e) => { e.stopPropagation(); onWishlist(item); }}
-        >
-          <Heart size={15} fill={wishlisted ? 'currentColor' : 'none'} />
-        </button>
-      )}
-
-      <div className="listing-tile__caption">
-        <div className="listing-tile__text">
-          <h3 className="listing-tile__title">{item.title}</h3>
-          <p className="listing-tile__by">
-            {item.creator_name || 'Verified creator'}
-            {tierLabel ? <span className="listing-tile__tier"> · {tierLabel}</span> : null}
-          </p>
+      <div className="asset-card__body">
+        <h3 className="asset-card__title">
+          <button type="button" onClick={open}>{item.title}</button>
+        </h3>
+        {subtitle ? <p className="asset-card__tag">{subtitle}</p> : null}
+        <p className="asset-card__by">by {item.creator_name || 'Verified creator'}</p>
+        <div className="asset-card__chips">
+          <span>{assetKindLabel(item)}</span>
+          <span><ShieldCheck size={11} /> Hub protected</span>
+          <span><CheckCircle2 size={11} /> Verified</span>
         </div>
-
-        <div className="listing-tile__right">
-          <span className="listing-tile__price">{formatFrom(fromPrice)}</span>
-          {(!user || canPurchase(user)) && (
+        <div className="asset-card__price-row">
+          <strong>{formatMoney(fromPrice)}</strong>
+          <span>{licenseTeaser(item)}</span>
+        </div>
+        <div className="asset-card__actions">
+          {onWishlist && showBuyActions && (
             <button
               type="button"
-              className="listing-tile__cart"
-              title="Add to cart"
-              aria-label={`Add ${item.title} to cart`}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (onAddToCart) onAddToCart(item);
-                else open();
-              }}
+              className={`asset-card__wish ${wishlisted ? 'is-on' : ''}`}
+              onClick={() => onWishlist(item)}
             >
-              <ShoppingCart size={15} />
+              <Heart size={14} fill={wishlisted ? 'currentColor' : 'none'} />
+              {wishlisted ? 'Saved' : 'Add to wishlist'}
             </button>
           )}
+          <button type="button" className="btn-primary asset-card__view" onClick={open}>
+            View asset
+          </button>
         </div>
       </div>
-
-      {samePinitIdentity(user?.pinit_id, item.pinit_id) && <span className="listing-tile__owner">Your listing</span>}
     </article>
   );
 }

@@ -5,16 +5,16 @@ import HubTrustBadge from '../components/HubTrustBadge.jsx';
 import { apiFetch, unwrapList } from '../lib/api.js';
 
 const CATEGORIES = [
-  { id: 'images', label: 'Photography' },
+  { id: 'images', label: 'Images' },
   { id: 'video', label: 'Video' },
-  { id: 'concepts', label: 'Illustration' },
-  { id: 'ui_ux', label: 'UI/UX' },
-  { id: '3d', label: '3D' },
   { id: 'audio', label: 'Audio' },
-  { id: 'graphics', label: 'Graphics' },
+  { id: 'documents', label: 'Documents' },
+  { id: 'design', label: 'Design' },
+  { id: '3d', label: '3D' },
+  { id: 'other', label: 'Other' },
 ];
 
-export default function HomePage({ onNavigate, onOpenAuth, user, onSelectListing }) {
+export default function HomePage({ onNavigate, onOpenAuth, user, onSelectListing, onBrowseVertical }) {
   const [featured, setFeatured] = useState([]);
   const [query, setQuery] = useState('');
   const [savedCount, setSavedCount] = useState(0);
@@ -53,10 +53,10 @@ export default function HomePage({ onNavigate, onOpenAuth, user, onSelectListing
           <Sparkles size={14} /> Verified creative marketplace
         </div>
         <h1 className="home-hero__title">
-          {user ? `Welcome back, ${(user.display_name || user.name || 'there').split(' ')[0]}` : 'Discover verified creative assets.'}
+          {user ? `Welcome back, ${(user.display_name || user.name || 'there').split(' ')[0]}` : 'Discover protected creative work'}
         </h1>
         <p className="home-hero__sub">
-          What are you looking for?
+          Find protected creative work from creators around the world.
         </p>
         <form
           className="home-search"
@@ -69,7 +69,7 @@ export default function HomePage({ onNavigate, onOpenAuth, user, onSelectListing
             className="form-input"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search assets, creators, collections…"
+            placeholder="Search creative work, creators, or assets…"
           />
           <button type="submit" className="btn-primary">Search</button>
         </form>
@@ -79,7 +79,7 @@ export default function HomePage({ onNavigate, onOpenAuth, user, onSelectListing
               key={c.id}
               type="button"
               className="home-chip"
-              onClick={() => onNavigate('marketplace')}
+              onClick={() => (onBrowseVertical ? onBrowseVertical(c.id) : onNavigate('marketplace'))}
             >
               {c.label}
             </button>
@@ -189,12 +189,12 @@ export default function HomePage({ onNavigate, onOpenAuth, user, onSelectListing
         <div className="section-head">
           <div>
             <h2>Browse by category</h2>
-            <p>Find the right vertical for your next license.</p>
+            <p>Filter the marketplace — type is a filter, not the product.</p>
           </div>
         </div>
         <div className="home-cat-grid">
           {CATEGORIES.map((c) => (
-            <button key={c.id} type="button" className="home-cat-tile" onClick={() => onNavigate('marketplace')}>
+            <button key={c.id} type="button" className="home-cat-tile" onClick={() => (onBrowseVertical ? onBrowseVertical(c.id) : onNavigate('marketplace'))}>
               {c.label}
             </button>
           ))}

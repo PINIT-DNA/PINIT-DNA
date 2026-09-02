@@ -86,9 +86,9 @@ export default function WishlistPage({ user, onOpenAuth, onSelectListing, onAddT
       ) : items.length === 0 ? (
         <EmptyState
           icon={<Heart size={28} color="var(--primary)" />}
-          title="No saved assets yet"
-          description="Build your shortlist of creative assets and return when you are ready to license them."
-          primaryLabel="Browse Exchange"
+          title="No saved work yet"
+          description="Save creative work you may want to license later."
+          primaryLabel="Explore Discover"
           onPrimary={() => onBrowse?.('marketplace')}
           secondaryLabel="Explore Collections"
           onSecondary={() => onBrowse?.('collections')}

@@ -31,8 +31,20 @@ export function loadRazorpayScript() {
     const script = document.createElement('script');
     script.src = 'https://checkout.razorpay.com/v1/checkout.js';
     script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Failed to load Razorpay checkout'));
+    const fail = (message) => {
+      scriptPromise = null;
+      reject(new Error(message));
+    };
+    const timer = setTimeout(() => fail('Razorpay checkout took too long to load. Check your network and try Pay again.'), 12000);
+    script.onload = () => {
+      clearTimeout(timer);
+      if (window.Razorpay) resolve();
+      else fail('Razorpay checkout failed to initialize.');
+    };
+    script.onerror = () => {
+      clearTimeout(timer);
+      fail('Could not load Razorpay. Disable ad blockers for checkout.razorpay.com and try again.');
+    };
     document.body.appendChild(script);
   });
 
@@ -93,6 +105,17 @@ export async function openRazorpayCheckout({
   if (!window.Razorpay) throw new Error('Razorpay checkout is unavailable');
 
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(watchdog);
+      fn(value);
+    };
+    const watchdog = setTimeout(() => {
+      finish(reject, new Error('Payment window did not complete. Click Pay to try again.'));
+    }, 5 * 60 * 1000);
+
     const rzp = new window.Razorpay({
       key: keyId,
       amount,
@@ -101,34 +124,27 @@ export async function openRazorpayCheckout({
       description,
       order_id: orderId,
       prefill: buildPrefill({ userName, userEmail, userContact }),
-      // Remembers the payer between the subscription and later purchases, so a
-      // returning customer sees their saved method instead of starting over.
       remember_customer: true,
-      method: {
-        upi: true,
-        card: true,
-        netbanking: true,
-        wallet: true,
-        emi: false,
-        paylater: false,
-      },
       theme: { color: '#3b82f6' },
-      handler: (response) => resolve(response),
+      handler: (response) => finish(resolve, response),
       modal: {
-        // Keeps the sheet from closing on a stray background click mid-payment.
         escape: true,
         backdropclose: false,
-        ondismiss: () => reject(checkoutError('Payment cancelled', CHECKOUT_CANCELLED)),
+        ondismiss: () => finish(reject, checkoutError('Payment cancelled', CHECKOUT_CANCELLED)),
       },
     });
 
     rzp.on('payment.failed', (response) => {
-      reject(new Error(
+      finish(reject, new Error(
         response.error?.description || response.error?.reason || 'Payment failed',
       ));
     });
 
-    rzp.open();
+    try {
+      rzp.open();
+    } catch (err) {
+      finish(reject, err instanceof Error ? err : new Error('Could not open Razorpay checkout'));
+    }
   });
 }
 

@@ -158,6 +158,37 @@ export function getBillingPublicConfig() {
   };
 }
 
+function withTimeout(promise, ms, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]);
+}
+
+export async function fetchRazorpayOrder(orderId) {
+  if (isPaymentMockMode() || String(orderId || '').startsWith('order_mock_')) {
+    return { id: orderId, status: 'created', mock: true };
+  }
+  const client = getClient();
+  return withTimeout(
+    client.orders.fetch(orderId),
+    12000,
+    'Timed out talking to Razorpay. Try Pay again.',
+  );
+}
+
+export async function orderStillPayable(orderId) {
+  if (!orderId) return false;
+  try {
+    const order = await fetchRazorpayOrder(orderId);
+    return String(order.status || '').toLowerCase() === 'created';
+  } catch {
+    return false;
+  }
+}
+
 function getClient() {
   if (!isRazorpayConfigured()) {
     throw new Error('Razorpay is not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.');
@@ -186,13 +217,17 @@ export async function createRazorpayOrder({ amountPaise, receipt, notes = {}, cu
 
   try {
     const client = getClient();
-    const order = await client.orders.create({
-      amount: amountPaise,
-      currency: payCurrency,
-      receipt: String(receipt || `ex_${Date.now()}`).slice(0, 40),
-      payment_capture: 1,
-      notes,
-    });
+    const order = await withTimeout(
+      client.orders.create({
+        amount: amountPaise,
+        currency: payCurrency,
+        receipt: String(receipt || `ex_${Date.now()}`).slice(0, 40),
+        payment_capture: 1,
+        notes,
+      }),
+      15000,
+      'Timed out creating the Razorpay order. Try Pay again.',
+    );
 
     return {
       orderId: order.id,
@@ -256,12 +291,16 @@ export async function createRazorpayCustomer({ name, email, contact, notes = {} 
   }
   try {
     const client = getClient();
-    const customer = await client.customers.create({
-      name: String(name || 'Pinit Seller').slice(0, 120),
-      email: String(email || '').slice(0, 120) || undefined,
-      contact: contact ? String(contact).slice(0, 15) : undefined,
-      notes,
-    });
+    const customer = await withTimeout(
+      client.customers.create({
+        name: String(name || 'Pinit Seller').slice(0, 120),
+        email: String(email || '').slice(0, 120) || undefined,
+        contact: contact ? String(contact).slice(0, 15) : undefined,
+        notes,
+      }),
+      10000,
+      'Timed out creating the Razorpay customer.',
+    );
     return { id: customer.id, mock: false };
   } catch (err) {
     if (markRazorpayAuthBroken(err)) {
