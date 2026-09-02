@@ -9,11 +9,12 @@ import {
   formatMediaDuration,
 } from '../lib/media.js';
 
-function PreviewPlaceholder({ label = 'Preview' }) {
+function PreviewPlaceholder({ title = '' }) {
+  const letter = String(title || 'P').trim().charAt(0).toUpperCase() || 'P';
   return (
-    <div className="listing-card__video-ph" aria-hidden>
+    <div className="listing-card__video-ph listing-card__video-ph--brand" aria-hidden>
       <div className="listing-card__video-ph-inner">
-        <span>{label}</span>
+        <span className="listing-card__ph-letter">{letter}</span>
       </div>
     </div>
   );
@@ -34,6 +35,7 @@ function CardMedia({ item, isVideo }) {
   );
   const playable = hasPlayableVideoPreview(item.preview_url);
   const poster = item.poster_url || item.thumbnail_url || null;
+  const still = item.preview_url || item.thumbnail_url || item.poster_url || '';
 
   if (isVideo) {
     if (playable && !mediaFailed) {
@@ -68,7 +70,7 @@ function CardMedia({ item, isVideo }) {
         <div className="listing-card__video-ph" aria-hidden>
           <div className="listing-card__video-ph-inner">
             <Play size={28} fill="#fff" />
-            <span>Video preview</span>
+            <span>{item.title || 'Video'}</span>
           </div>
         </div>
         <div className="listing-card__play" aria-hidden>
@@ -82,13 +84,13 @@ function CardMedia({ item, isVideo }) {
     );
   }
 
-  if (mediaFailed || !item.preview_url) {
-    return <PreviewPlaceholder label="Image preview" />;
+  if (mediaFailed || !still) {
+    return <PreviewPlaceholder title={item.title} />;
   }
 
   return (
     <img
-      src={item.preview_url}
+      src={still}
       alt={item.title || 'Asset preview'}
       className="card-media pinit-protected-media"
       draggable={false}

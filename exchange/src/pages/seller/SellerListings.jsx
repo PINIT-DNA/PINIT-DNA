@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ListTree, PlusCircle, Play, Images } from 'lucide-react';
+import { ListTree, PlusCircle } from 'lucide-react';
 import StudioPage from '../../components/workspace/StudioPage.jsx';
 import EmptyState from '../../components/EmptyState.jsx';
 import { apiFetch } from '../../lib/api.js';
@@ -8,7 +8,26 @@ import { isVideoListing } from '../../lib/media.js';
 import useSellerDesk from '../../hooks/useSellerDesk.js';
 import { formatMoney } from '../../lib/money.js';
 
-export default function SellerListings({ user, onOpenListFromHub, onSelectListing, onNavigate, onOpenAssetActivity }) {
+function ListingThumb({ item, onOpen }) {
+  const preview = listingPreviewUrl(item);
+  const video = isVideoListing(item);
+  const [failed, setFailed] = useState(false);
+  const letter = String(item.title || 'P').trim().charAt(0).toUpperCase() || 'P';
+
+  return (
+    <button type="button" className="studio-list__thumb" onClick={() => onOpen?.(item.listing_id)} aria-label={`Open ${item.title}`}>
+      {preview && !failed ? (
+        video ? (
+          <video src={preview} muted playsInline onError={() => setFailed(true)} />
+        ) : (
+          <img src={preview} alt="" onError={() => setFailed(true)} />
+        )
+      ) : (
+        <span className="studio-list__ph" aria-hidden>{letter}</span>
+      )}
+    </button>
+  );
+}
   const { listings, loading, refresh } = useSellerDesk(user);
   const [busyId, setBusyId] = useState('');
   const [filter, setFilter] = useState('all');
@@ -31,7 +50,21 @@ export default function SellerListings({ user, onOpenListFromHub, onSelectListin
   };
 
   if (loading) {
-    return <div className="studio-mod studio-mod--loading">Loading listings…</div>;
+    return (
+      <StudioPage title="Listings" subtitle="Loading your marketplace offers…">
+        <div className="studio-list" aria-busy="true">
+          {[1, 2, 3].map((n) => (
+            <div key={n} className="glass-panel studio-list__row studio-list__row--skel">
+              <div className="studio-list__thumb studio-list__thumb--skel" />
+              <div className="studio-list__skel-lines">
+                <span />
+                <span />
+              </div>
+            </div>
+          ))}
+        </div>
+      </StudioPage>
+    );
   }
 
   return (
@@ -72,18 +105,10 @@ export default function SellerListings({ user, onOpenListFromHub, onSelectListin
       ) : (
         <div className="studio-list">
           {visible.map((item) => {
-            const preview = listingPreviewUrl(item);
-            const video = isVideoListing(item);
             const listed = isListed(item);
             return (
               <article key={item.listing_id} className="glass-panel studio-list__row">
-                <button type="button" className="studio-list__thumb" onClick={() => onSelectListing?.(item.listing_id)}>
-                  {preview ? (
-                    video ? <video src={preview} muted playsInline /> : <img src={preview} alt="" />
-                  ) : (
-                    <span>{video ? <Play size={18} /> : <Images size={18} />}</span>
-                  )}
-                </button>
+                <ListingThumb item={item} onOpen={onSelectListing} />
                 <div className="studio-list__meta">
                   <strong>{item.title}</strong>
                   <span>{item.listing_id} · {listingStatusLabel(item)} · {item.views || 0} views</span>

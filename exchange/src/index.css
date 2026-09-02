@@ -1302,6 +1302,57 @@ input[type="range"]::-webkit-slider-thumb {
     linear-gradient(160deg, #121826 0%, #0a0e16 60%, #111827 100%);
   display: flex; align-items: center; justify-content: center;
 }
+.listing-card__ph-letter {
+  width: 48px; height: 48px; border-radius: 14px;
+  display: grid; place-items: center;
+  font-size: 1.25rem; font-weight: 700; color: #fff;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.28);
+}
+.studio-list__ph {
+  width: 100%; height: 100%;
+  display: grid; place-items: center;
+  font-weight: 700; color: #fff;
+  background: linear-gradient(135deg, #1e3a5f, #312e81);
+}
+.studio-list__row--skel { pointer-events: none; opacity: 0.7; }
+.studio-list__thumb--skel {
+  background: linear-gradient(90deg, #121826 0%, #1a2234 50%, #121826 100%);
+  background-size: 200% 100%;
+  animation: studio-skel 1.2s ease-in-out infinite;
+}
+.studio-list__skel-lines { display: flex; flex-direction: column; gap: 8px; }
+.studio-list__skel-lines span {
+  display: block; height: 10px; border-radius: 6px;
+  background: rgba(255,255,255,0.08);
+}
+.studio-list__skel-lines span:first-child { width: 42%; }
+.studio-list__skel-lines span:last-child { width: 28%; }
+@keyframes studio-skel {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+.studio-menu button:focus-visible, .studio-menu a:focus-visible {
+  outline: 2px solid var(--primary); outline-offset: 1px; color: #fff;
+}
+.nav-account:hover, .nav-account:focus-visible {
+  border-color: var(--border-glow);
+}
+.nav-account:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.nav-icon-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.site-subnav__links button:focus-visible {
+  outline: 2px solid var(--primary); outline-offset: 2px;
+}
+
+@media (hover: none) {
+  .listing-tile__caption,
+  .listing-tile__verified,
+  .listing-tile__wish { opacity: 1; transform: none; }
+}
+
+@media (max-width: 1100px) {
+  .nav-account__id { display: none; }
+}
 .listing-card__video-ph-inner {
   display: flex; flex-direction: column; align-items: center; gap: 8px;
   color: rgba(255,255,255,0.85); font-size: 0.78rem; font-weight: 600;

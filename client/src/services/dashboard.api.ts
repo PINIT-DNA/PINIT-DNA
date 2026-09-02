@@ -55,7 +55,12 @@ export function formatApiError(err: unknown): string {
   if (err && typeof err === 'object' && 'isAxiosError' in err && (err as { isAxiosError?: boolean }).isAxiosError) {
     const ax = err as unknown as { response?: { status?: number; data?: { error?: string; code?: string } }; message: string };
     const data = ax.response?.data;
-    if (data?.code === 'BACKEND_OFFLINE' || (ax.response?.status === 503 && !data?.error)) {
+    if (data?.code === 'BACKEND_OFFLINE') {
+      return import.meta.env.DEV
+        ? 'Backend starting — auto-retrying… (or run npm run dev:all from project root)'
+        : 'Backend offline — start the API from project root: npm run dev';
+    }
+    if (ax.response?.status === 503 && !data?.error && !(data as { status?: string })?.status) {
       return import.meta.env.DEV
         ? 'Backend starting — auto-retrying… (or run npm run dev:all from project root)'
         : 'Backend offline — start the API from project root: npm run dev';

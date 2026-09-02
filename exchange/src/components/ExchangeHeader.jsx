@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ShieldCheck, LogIn, LogOut,
   ShoppingCart, Heart, Search,
@@ -6,6 +6,7 @@ import {
 import { resolveExchangeAccount } from '../lib/roles.js';
 
 import { resolveHubAppUrl } from '../lib/exchange-routes.js';
+import { isSellerAccountPage } from './SellerAccountNav.jsx';
 
 const HUB_APP_URL = resolveHubAppUrl();
 
@@ -42,6 +43,7 @@ export default function ExchangeHeader({
   const signedIn = Boolean(user);
   const [menu, setMenu] = useState(false);
   const [query, setQuery] = useState('');
+  const menuRef = useRef(null);
   const name = account.displayName || 'Account';
 
   const links = [
@@ -53,9 +55,13 @@ export default function ExchangeHeader({
     links.push(['my_licenses', 'Purchases']);
   }
   if (seller) {
-    links.push(['seller_listings', 'Your listings']);
-    links.push(['seller_opportunities', 'Opportunities']);
+    links.push(['seller_listings', 'Sell']);
   }
+
+  const isActive = (page) => {
+    if (page === 'seller_listings') return isSellerAccountPage(activePage);
+    return activePage === page;
+  };
 
   const search = (e) => {
     e?.preventDefault?.();
@@ -70,6 +76,22 @@ export default function ExchangeHeader({
     setMenu(false);
     setActivePage(page);
   };
+
+  useEffect(() => {
+    if (!menu) return undefined;
+    const onDoc = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenu(false);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') setMenu(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menu]);
 
   return (
     <header className="header-nav">
@@ -95,7 +117,7 @@ export default function ExchangeHeader({
             <button
               key={`${page}-${label}`}
               type="button"
-              className={`nav-link ${activePage === page ? 'active' : ''}`}
+              className={`nav-link ${isActive(page) ? 'active' : ''}`}
               onClick={() => setActivePage(page)}
             >
               {label}
@@ -154,8 +176,14 @@ export default function ExchangeHeader({
           </IconBtn>
 
           {user ? (
-            <div className="studio-profile">
-              <button type="button" className="nav-account" onClick={() => setMenu((v) => !v)}>
+            <div className="studio-profile" ref={menuRef}>
+              <button
+                type="button"
+                className="nav-account"
+                onClick={() => setMenu((v) => !v)}
+                aria-expanded={menu}
+                aria-haspopup="menu"
+              >
                 <span className="nav-account__avatar">{name[0].toUpperCase()}</span>
                 <span className="nav-account__meta">
                   <span className="nav-account__role">{account.uiLabel}</span>
@@ -163,7 +191,7 @@ export default function ExchangeHeader({
                 </span>
               </button>
               {menu && (
-                <div className="studio-menu">
+                <div className="studio-menu" role="menu">
                   <div className="studio-menu__meta">
                     <strong>{name}</strong>
                     <span>{account.uiLabel}</span>
@@ -180,12 +208,7 @@ export default function ExchangeHeader({
                       <button type="button" onClick={() => closeGo('cart')}>Cart</button>
                       <button type="button" onClick={() => closeGo('wishlist')}>Wishlist</button>
                       {seller ? (
-                        <>
-                          <button type="button" onClick={() => closeGo('seller_listings')}>Seller dashboard</button>
-                          <button type="button" onClick={() => closeGo('seller_portfolio')}>Portfolio</button>
-                          <button type="button" onClick={() => closeGo('seller_sales')}>Sales</button>
-                          <button type="button" onClick={() => closeGo('seller_earnings')}>Earnings</button>
-                        </>
+                        <button type="button" onClick={() => closeGo('seller_listings')}>Seller dashboard</button>
                       ) : sellerPending ? (
                         <button type="button" onClick={() => closeGo('seller_onboarding_payment')}>Finish seller activation</button>
                       ) : (

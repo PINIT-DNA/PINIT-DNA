@@ -1,14 +1,14 @@
 import React from 'react';
 
 const LINKS = [
-  ['seller_portfolio', 'Portfolio'],
   ['seller_listings', 'Your listings'],
   ['seller_assets', 'Your assets'],
+  ['seller_opportunities', 'Opportunities'],
   ['seller_sales', 'Sales'],
   ['seller_earnings', 'Earnings'],
+  ['seller_portfolio', 'Portfolio'],
   ['seller_reviews', 'Reviews'],
   ['seller_analytics', 'Analytics'],
-  ['seller_opportunities', 'Opportunities'],
 ];
 
 const SELLER_PAGES = new Set([
@@ -31,7 +31,7 @@ export function isSellerAccountPage(page) {
   return SELLER_PAGES.has(page);
 }
 
-export default function SellerAccountNav({ activePage, onNavigate, onOpenListFromHub }) {
+export default function SellerAccountNav({ activePage, onNavigate }) {
   const current = activePage === 'creator_desk' || activePage === 'creator_studio'
     ? 'seller_listings'
     : activePage;
@@ -39,7 +39,7 @@ export default function SellerAccountNav({ activePage, onNavigate, onOpenListFro
   return (
     <div className="site-subnav">
       <div className="site-subnav__inner">
-        <nav className="site-subnav__links" aria-label="Seller account">
+        <nav className="site-subnav__links" aria-label="Seller workspace">
           {LINKS.map(([id, label]) => (
             <button
               key={id}
@@ -51,9 +51,6 @@ export default function SellerAccountNav({ activePage, onNavigate, onOpenListFro
             </button>
           ))}
         </nav>
-        <button type="button" className="btn-primary site-subnav__cta" onClick={onOpenListFromHub}>
-          List an asset
-        </button>
       </div>
     </div>
   );

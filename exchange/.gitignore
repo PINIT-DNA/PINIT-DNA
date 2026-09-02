@@ -6,3 +6,4 @@ dist/
 *.db
 server/exchange.db
 server/tests/test-trust.db
+.vercel

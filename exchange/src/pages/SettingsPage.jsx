@@ -265,7 +265,7 @@ export default function SettingsPage({ user, onUserUpdated, onNavigate }) {
                   disabled={upgrading}
                   onClick={startCreatorUpgrade}
                 >
-                  {upgrading ? 'Creating your Creator account…' : 'Continue to payment'}
+                  {upgrading ? 'Starting seller setup…' : 'Continue to payment'}
                 </button>
                 <span className="settings-fine">
                   Your account keeps buying. After the {sellerSubscriptionLabel()} subscription

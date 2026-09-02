@@ -172,7 +172,7 @@ export default function RequirementsExchange({
     if (!canPurchase(user)) {
       // Silently doing nothing left the buyer clicking Publish with no
       // explanation of why the brief never appeared.
-      setNotice({ kind: 'error', text: 'Creator accounts cannot post buyer briefs.' });
+      setNotice({ kind: 'error', text: 'Post buyer briefs from Discover. This Opportunities view is for submitting work.' });
       return;
     }
     const { ok, error } = await apiFetch('/api/requirements', {
@@ -243,7 +243,7 @@ export default function RequirementsExchange({
         </h1>
         <p className="req-hero__sub">
           {sellerMode
-            ? 'Submit Hub-protected work to buyer briefs. This is not a purchase flow — Creator accounts cannot buy.'
+            ? 'Submit Hub-protected work to buyer briefs. Buying other creators’ work stays on this same account.'
             : 'Post a verified creative brief and receive provenance-backed submissions from creators.'}
         </p>
         <div className="req-hero__cta">

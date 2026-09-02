@@ -224,7 +224,7 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate }
             style={{ marginTop: 16 }}
             onClick={() => finishAsCreator(status?.user || user)}
           >
-            Continue to Creator account <ArrowRight size={16} />
+            Continue to seller dashboard <ArrowRight size={16} />
           </button>
         </div>
       </div>

@@ -127,7 +127,14 @@ function checkMemory(): ComponentHealth {
   const usedPct  = Math.round((1 - freeMem / totalMem) * 100);
   const freeMb   = Math.round(freeMem / 1024 / 1024);
 
-  if (usedPct > 95) return { status: 'unhealthy', message: `Memory critical: ${usedPct}% used, ${freeMb}MB free` };
-  if (usedPct > 85) return { status: 'degraded',  message: `Memory high: ${usedPct}% used, ${freeMb}MB free` };
+  // Windows reports a high used-% while the working set still has hundreds of
+  // MB free. Treating that as unhealthy made GET /health 503, and the Hub UI
+  // showed "Backend starting" even though ping and dashboard APIs were 200.
+  if (freeMb < 96) {
+    return { status: 'unhealthy', message: `Memory critical: ${usedPct}% used, ${freeMb}MB free` };
+  }
+  if (usedPct > 90 || freeMb < 512) {
+    return { status: 'degraded',  message: `Memory high: ${usedPct}% used, ${freeMb}MB free` };
+  }
   return { status: 'healthy', message: `Memory OK: ${usedPct}% used, ${freeMb}MB free` };
 }

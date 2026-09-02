@@ -298,7 +298,7 @@ export default function App() {
           body: JSON.stringify({ hub_list_token: hubList }),
         });
         if (res.status === 403) {
-          setRoleNotice('Buyer Hub assets stay private. Set up a Creator account in Account settings to list.');
+          setRoleNotice('Listing needs seller tools. Choose Sell on Exchange in Account — buying stays on this identity.');
           navigate('settings', { replace: true });
         } else if (res.ok) {
           const data = await res.json();
@@ -355,7 +355,7 @@ export default function App() {
       openAuth({ mode: 'signup', intent: 'creator' });
       return;
     }
-    setRoleNotice('Creator accounts are set up in Account settings.');
+    setRoleNotice('Selling is set up in Account settings. Buying stays on this identity.');
     navigate('settings');
   };
 
@@ -388,7 +388,7 @@ export default function App() {
       return;
     }
     if (!canList(user)) {
-      setRoleNotice('Buyer accounts keep Hub assets private. Set up a Creator account in Account settings to list.');
+      setRoleNotice('Listing needs seller tools on this same account. Open Account to add selling.');
       navigate('settings');
       return;
     }
