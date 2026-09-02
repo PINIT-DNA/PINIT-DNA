@@ -209,9 +209,9 @@ export const config = {
   },
 
   razorpay: {
-    keyId: optional('RAZORPAY_KEY_ID', ''),
-    keySecret: optional('RAZORPAY_KEY_SECRET', ''),
-    webhookSecret: optional('RAZORPAY_WEBHOOK_SECRET', ''),
+    keyId: optional('RAZORPAY_KEY_ID', '').trim(),
+    keySecret: optional('RAZORPAY_KEY_SECRET', '').trim(),
+    webhookSecret: optional('RAZORPAY_WEBHOOK_SECRET', '').trim(),
   },
 
   /**

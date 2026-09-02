@@ -5,7 +5,6 @@ import { canPurchase } from '../lib/roles.js';
 import { samePinitIdentity } from '../lib/pinit-identity.js';
 import {
   isVideoListing,
-  hasPlayableVideoPreview,
   formatMediaDuration,
 } from '../lib/media.js';
 import { assetKind, assetKindLabel, licenseTeaser, listingFromPrice } from '../lib/asset-type.js';
@@ -27,44 +26,32 @@ function CardMedia({ item, isVideo, kind }) {
   const [duration, setDuration] = useState(
     item.duration_sec != null ? formatMediaDuration(item.duration_sec) : null,
   );
-  const playable = hasPlayableVideoPreview(item.preview_url);
   const poster = item.poster_url || item.thumbnail_url || null;
   const still = item.preview_url || item.thumbnail_url || item.poster_url || '';
 
   if (isVideo) {
-    if (playable && !mediaFailed) {
-      return (
-        <>
-          <video
-            src={item.preview_url}
-            poster={poster || undefined}
-            className="card-media"
-            muted
-            playsInline
-            preload="metadata"
-            onError={() => setMediaFailed(true)}
-            onLoadedMetadata={(e) => {
-              const d = e.currentTarget.duration;
-              if (Number.isFinite(d) && d > 0) setDuration(formatMediaDuration(d));
-            }}
-          />
-          <div className="listing-card__play" aria-hidden>
-            <Play size={18} fill="#fff" />
-          </div>
-          {duration && (
-            <div className="listing-card__media-meta">
-              <span className="listing-card__duration">{duration}</span>
-            </div>
-          )}
-        </>
-      );
-    }
+    const cover = poster || still;
     return (
       <>
-        <PreviewPlaceholder title={item.title} kind="video" />
+        {cover && !mediaFailed ? (
+          <img
+            src={cover}
+            alt=""
+            className="card-media pinit-protected-media"
+            draggable={false}
+            onError={() => setMediaFailed(true)}
+          />
+        ) : (
+          <PreviewPlaceholder title={item.title} kind="video" />
+        )}
         <div className="listing-card__play" aria-hidden>
           <Play size={18} fill="#fff" />
         </div>
+        {duration && (
+          <div className="listing-card__media-meta">
+            <span className="listing-card__duration">{duration}</span>
+          </div>
+        )}
       </>
     );
   }
@@ -77,6 +64,9 @@ function CardMedia({ item, isVideo, kind }) {
         ) : (
           <PreviewPlaceholder title={item.title} kind="audio" />
         )}
+        <div className="asset-card__wave" aria-hidden>
+          {Array.from({ length: 18 }).map((_, i) => <span key={i} style={{ '--h': `${30 + ((i * 17) % 55)}%` }} />)}
+        </div>
         <div className="listing-card__media-meta">
           <span className="listing-card__type">Audio</span>
         </div>
@@ -135,47 +125,49 @@ export default function ListingCard({
   return (
     <article
       id={item.listing_id ? `listing-${item.listing_id}` : undefined}
-      className="asset-card"
+      className="asset-card asset-card--poster"
     >
-      <button
-        type="button"
+      <div
         className="asset-card__media"
+        role="link"
+        tabIndex={0}
         onClick={open}
-        aria-label={`View ${item.title || 'asset'}`}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            open();
+          }
+        }}
+        aria-label={`${item.title || 'Asset'} — ${formatMoney(fromPrice)}. Hover or focus for details.`}
       >
         <CardMedia item={item} isVideo={isVideo} kind={kind} />
         {own && <span className="listing-tile__owner">Your listing</span>}
-      </button>
-
-      <div className="asset-card__body">
-        <h3 className="asset-card__title">
-          <button type="button" onClick={open}>{item.title}</button>
-        </h3>
-        {subtitle ? <p className="asset-card__tag">{subtitle}</p> : null}
-        <p className="asset-card__by">by {item.creator_name || 'Verified creator'}</p>
-        <div className="asset-card__chips">
-          <span>{assetKindLabel(item)}</span>
-          <span><ShieldCheck size={11} /> Hub protected</span>
-          <span><CheckCircle2 size={11} /> Verified</span>
-        </div>
-        <div className="asset-card__price-row">
-          <strong>{formatMoney(fromPrice)}</strong>
-          <span>{licenseTeaser(item)}</span>
-        </div>
-        <div className="asset-card__actions">
-          {onWishlist && showBuyActions && (
-            <button
-              type="button"
-              className={`asset-card__wish ${wishlisted ? 'is-on' : ''}`}
-              onClick={() => onWishlist(item)}
-            >
-              <Heart size={14} fill={wishlisted ? 'currentColor' : 'none'} />
-              {wishlisted ? 'Saved' : 'Add to wishlist'}
-            </button>
-          )}
-          <button type="button" className="btn-primary asset-card__view" onClick={open}>
-            View asset
-          </button>
+        <div className="asset-card__overlay">
+          <h3 className="asset-card__title">{item.title}</h3>
+          {subtitle ? <p className="asset-card__tag">{subtitle}</p> : null}
+          <p className="asset-card__by">by {item.creator_name || 'Verified creator'}</p>
+          <div className="asset-card__chips">
+            <span>{assetKindLabel(item)}</span>
+            <span><ShieldCheck size={11} /> HUB Protected</span>
+            <span><CheckCircle2 size={11} /> Verified</span>
+          </div>
+          <div className="asset-card__price-row">
+            <strong>{formatMoney(fromPrice)}</strong>
+            <span>{licenseTeaser(item)}</span>
+          </div>
+          <div className="asset-card__actions">
+            {onWishlist && showBuyActions && (
+              <button
+                type="button"
+                className={`asset-card__wish ${wishlisted ? 'is-on' : ''}`}
+                aria-label={wishlisted ? 'Saved to wishlist' : 'Add to wishlist'}
+                onClick={(e) => { e.stopPropagation(); onWishlist(item); }}
+              >
+                <Heart size={14} fill={wishlisted ? 'currentColor' : 'none'} />
+              </button>
+            )}
+            <span className="asset-card__view">View asset</span>
+          </div>
         </div>
       </div>
     </article>

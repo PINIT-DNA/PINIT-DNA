@@ -164,8 +164,10 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
         animate={{ opacity: 1, y: 0 }}
         className="text-center mb-8"
       >
-        <div className="text-6xl mb-4 dna-float">🧬</div>
-        <h2 className="text-3xl font-bold text-white">Protect asset</h2>
+        <h2 className="text-3xl font-bold text-white">Protect New Asset</h2>
+        <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
+          Upload your file and we’ll create its protected identity.
+        </p>
       </motion.div>
 
       {!selectedFile && (

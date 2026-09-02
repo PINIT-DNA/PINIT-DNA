@@ -344,3 +344,61 @@ export async function createLicensedShareOnHub({ assetId, sealId, orderId, buyer
   }
   return data;
 }
+
+async function hubPaymentPost(path, body) {
+  const secret = bridgeSecret();
+  if (!secret) return { skipped: true };
+  const res = await fetch(`${hubApiBase()}${path}`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'X-PinIT-Bridge-Secret': secret,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
+/** Create a Razorpay order using Hub's keys (one Razorpay account). */
+export async function createOrderViaHub({ amountPaise, currency, receipt, notes }) {
+  const result = await hubPaymentPost('/exchange/payments/create-order', {
+    amountPaise,
+    currency,
+    receipt,
+    notes,
+  });
+  if (result.skipped) return null;
+  if (!result.ok || !result.data?.orderId) {
+    const err = new Error(result.data?.error || 'Hub payment order failed');
+    err.status = result.status;
+    err.hubPayment = true;
+    throw err;
+  }
+  return {
+    orderId: result.data.orderId,
+    amount: result.data.amount,
+    currency: result.data.currency,
+    keyId: result.data.keyId,
+    mock: Boolean(result.data.mock),
+    via: 'hub',
+  };
+}
+
+/** Verify Razorpay signature + fetch payment on Hub. */
+export async function verifyPaymentViaHub({ orderId, paymentId, signature }) {
+  const result = await hubPaymentPost('/exchange/payments/verify', {
+    razorpay_order_id: orderId,
+    razorpay_payment_id: paymentId,
+    razorpay_signature: signature,
+  });
+  if (result.skipped) return null;
+  if (!result.ok) {
+    const err = new Error(result.data?.error || 'Hub payment verify failed');
+    err.status = result.status;
+    err.hubPayment = true;
+    throw err;
+  }
+  return result.data;
+}

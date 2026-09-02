@@ -42,6 +42,8 @@ import {
   recordAssetActivityBridge,
   listLicensedSharesForOwner,
   profilesBridge,
+  createExchangeGatewayOrder,
+  verifyExchangeGatewayPayment,
 } from '../controllers/exchange-bridge.controller';
 
 const router = Router();
@@ -66,6 +68,8 @@ router.post('/listings/confirm', confirmExchangeListing);
 router.post('/sales/seal', sealExchangeSale);
 router.post('/share/create',      createLicensedShareBridge);
 router.post('/activity',          recordAssetActivityBridge);
+router.post('/payments/create-order', createExchangeGatewayOrder);
+router.post('/payments/verify', verifyExchangeGatewayPayment);
 router.post('/delivery/prepare', prepareDeliveryBridge);
 router.get('/delivery/:token', redeemDeliveryBridge);
 router.get('/profiles-bridge', profilesBridge);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Search, Filter, ShieldCheck, Pencil, X, Check, Heart, ArrowRight,
+  Search, Filter, ShieldCheck, Pencil, X, Check,
 } from 'lucide-react';
 import ListingCard from '../components/ListingCard.jsx';
 import EmptyState from '../components/EmptyState.jsx';
@@ -272,6 +272,7 @@ export default function Marketplace({
   const isOwner = (item) => samePinitIdentity(user?.pinit_id, item.pinit_id);
 
   const visibleListings = listings.filter((item) => {
+    if (buyView && user?.pinit_id && samePinitIdentity(user.pinit_id, item.pinit_id)) return false;
     if (selectedVertical === 'images') return isImageListing(item);
     if (selectedVertical === 'video') return isVideoListing(item);
     return true;
@@ -393,48 +394,25 @@ export default function Marketplace({
           is the job. */}
       <div className={`glass-panel market-hero${user ? ' market-hero--compact' : ''}`}>
         <div className="market-hero__copy">
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: '8px',
-            background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)',
-            padding: '6px 14px', borderRadius: 'var(--radius-full)', fontSize: '0.8rem',
-            color: 'var(--primary)', fontWeight: 600, marginBottom: '20px',
-          }} className="market-hero__badge">
+          <div className="market-hero__badge">
             <ShieldCheck size={16} />
-            <span>Pinit HUB DNA &amp; Vault Protection Powered</span>
+            <span>Protected by Pinit HUB</span>
           </div>
-          {/* Sizing lives in CSS, not inline styles — the compact variant needs
-              to override it, and an inline style would always win. */}
-          <h1 className="market-hero__title">Discover</h1>
+          <h1 className="market-hero__title">Discover protected creative work</h1>
           <p className="market-hero__sub">
-            Find protected creative work from creators around the world.
+            Explore, license and collect creative work protected by Pinit HUB.
           </p>
-          <div style={{ display: 'flex', gap: '16px' }} hidden={Boolean(user) && buyView}>
-            {!buyView && canList(user) ? (
-              <button className="btn-primary" onClick={onOpenListFromHub} style={{ padding: '12px 24px', fontSize: '1rem' }}>
-                List an asset <ArrowRight size={18} />
-              </button>
-            ) : !user ? (
-              // Guests only. A signed-in buyer is already inside the marketplace,
-              // so sending them out to Hub is not a useful primary action.
-              <a
-                href={resolveHubAppUrl()}
-                className="btn-primary"
-                style={{ padding: '12px 24px', fontSize: '1rem', textDecoration: 'none' }}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Browse Pinit Hub
-              </a>
-            ) : null}
-            {/* No "Become a Creator" here. canPurchase() is false for guests, so
-                this only ever showed to a signed-in buyer — pushing them to switch
-                account type on the page they came to shop on. Buyers who do want
-                to sell still have "Sell on Exchange" in the account menu. */}
-            {!user && (
-              <button type="button" className="btn-secondary" style={{ padding: '12px 24px', fontSize: '1rem' }} onClick={onOpenListFromHub}>
-                Sell on Exchange
-              </button>
-            )}
+          <div className="market-hero__ctas">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => document.getElementById('browse-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            >
+              Explore assets
+            </button>
+            <button type="button" className="btn-secondary" onClick={onOpenListFromHub}>
+              List from Pinit HUB
+            </button>
           </div>
         </div>
         <DiscoverHeroArt />
@@ -486,7 +464,7 @@ export default function Marketplace({
               aria-controls="market-filters"
               onClick={() => setFiltersOpen((o) => !o)}
             >
-              <Filter size={15} /> Type · Price · License
+              <Filter size={15} /> Type · Price · License · Creator
               {activeFilters.length > 0 && <span className="filter-toggle__count">{activeFilters.length}</span>}
             </button>
             <input
@@ -503,7 +481,7 @@ export default function Marketplace({
               aria-label="Filter by creator"
             />
             <select className="form-select" value={selectedBadge} onChange={(e) => setSelectedBadge(e.target.value)} style={{ width: 'auto', minWidth: '120px' }}>
-              <option value="all">Verified</option>
+              <option value="all">Protection</option>
               <option value="Gold">Gold</option>
               <option value="Silver">Silver</option>
               <option value="Bronze">Bronze</option>
@@ -655,8 +633,8 @@ export default function Marketplace({
         <EmptyState
           icon={<ShieldCheck size={36} color="var(--danger, #c0392b)" />}
           title="Couldn't load the marketplace"
-          description={`${loadError} This is a connection problem, not an empty catalogue.`}
-          primaryLabel="Try again"
+          description="Pinit Exchange is temporarily waking up. Please try again in a moment."
+          primaryLabel="Retry"
           onPrimary={fetchListings}
         />
       ) : visibleListings.length === 0 ? (
@@ -680,9 +658,13 @@ export default function Marketplace({
         ) : (
           <EmptyState
             icon={<ShieldCheck size={36} color="var(--primary)" />}
-            title="No work in this view"
+            title={buyView && listings.some((item) => samePinitIdentity(user?.pinit_id, item.pinit_id))
+              ? 'No other creators to buy from yet'
+              : 'No work in this view'}
             description={
-              selectedVertical === 'mine'
+              buyView && listings.some((item) => samePinitIdentity(user?.pinit_id, item.pinit_id))
+                ? 'Your own listings stay in Sell. Buy, cart and wishlist appear on another creator’s asset. Open Discover after someone else lists, or switch to Sell to manage yours.'
+                : selectedVertical === 'mine'
                 ? 'Your protected assets can become licenses on Pinit Exchange.'
                 : 'Try another category, clear filters, or list a protected asset.'
             }

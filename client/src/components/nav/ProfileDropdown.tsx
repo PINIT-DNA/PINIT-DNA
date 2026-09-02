@@ -1,11 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Shield, Bell, Clock, LogOut, Settings, HelpCircle, Sun, Moon, LayoutDashboard, Crown } from 'lucide-react';
+import { User, Shield, Bell, LogOut, Settings, HelpCircle, Sun, Moon, Crown } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../hooks/useTheme';
 import { useUserProfile, isRealDisplayName, resolveDisplayName } from '../../hooks/useUserProfile';
 import { useSubscription } from '../../hooks/useSubscription';
-import { isPlatformOwnerShortId } from '../../lib/platform-owner';
 
 export function ProfileDropdown() {
   const [open, setOpen] = useState(false);
@@ -38,8 +37,12 @@ export function ProfileDropdown() {
   return (
     <div ref={ref} className="relative">
       <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Account menu"
         onClick={() => setOpen(!open)}
-        className="w-8 h-8 rounded-full bg-gradient-to-br from-dna-500 to-purple flex items-center justify-center text-xs font-bold text-white select-none hover:ring-2 hover:ring-dna-400/50 transition-all"
+        className="w-8 h-8 rounded-full bg-gradient-to-br from-dna-500 to-purple flex items-center justify-center text-xs font-bold text-white select-none hover:ring-2 hover:ring-dna-400/50 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-dna-500"
       >
         {profile?.avatarUrl ? (
           <img src={profile.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover" />
@@ -66,7 +69,7 @@ export function ProfileDropdown() {
                 {/* Only repeat the Pinit ID when it isn't already the heading —
                     an unnamed account showed the same string twice. */}
                 {shortId && shortId !== labelName && (
-                  <p className="text-2xs text-dna-400 font-mono">{shortId}</p>
+                  <p className="text-2xs text-dna-400 font-mono">Pinit ID {shortId}</p>
                 )}
                 {profile?.email && <p className="text-2xs text-gray-500 truncate">{profile.email}</p>}
                 {subscription && (
@@ -98,30 +101,27 @@ export function ProfileDropdown() {
 
           {/* Menu */}
           <div className="py-1">
-            <MenuItem icon={<User size={14} />} label="View Profile" onClick={() => go('/profile')} />
-            <MenuItem icon={<Shield size={14} />} label="Security Settings" onClick={() => go('/profile?tab=security')} />
+            <MenuItem icon={<User size={14} />} label="Account" onClick={() => go('/profile')} />
+            <MenuItem icon={<Shield size={14} />} label="Security" onClick={() => go('/profile?tab=security')} />
             <MenuItem icon={<Bell size={14} />} label="Notifications" onClick={() => go('/profile?tab=notifications')} />
-            <MenuItem icon={<Clock size={14} />} label="Activity History" onClick={() => go('/profile?tab=activity')} />
-            {isPlatformOwnerShortId(profile?.shortId ?? (user as { shortId?: string } | null)?.shortId) && (
-              <MenuItem icon={<LayoutDashboard size={14} />} label="Admin Console" onClick={() => go('/admin')} />
-            )}
+            <MenuItem icon={<Settings size={14} />} label="Preferences" onClick={() => go('/profile?tab=settings')} />
             <MenuItem
               icon={theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-              label={theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+              label={theme === 'dark' ? 'Light mode' : 'Dark mode'}
               onClick={toggleTheme}
             />
-            <MenuItem icon={<Settings size={14} />} label="Settings" onClick={() => go('/profile?tab=settings')} />
             <MenuItem icon={<HelpCircle size={14} />} label="Help & Support" onClick={() => window.open('mailto:support@pinitdna.com', '_blank')} />
           </div>
 
           {/* Footer */}
           <div className="border-t border-bg-border p-2">
             <button
+              type="button"
               onClick={async () => { setOpen(false); await logout(); }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-dna-500"
             >
               <LogOut size={14} />
-              Sign Out
+              Sign out
             </button>
           </div>
           </div>
@@ -134,8 +134,9 @@ export function ProfileDropdown() {
 function MenuItem({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className="w-full flex items-center gap-2.5 px-4 py-2 text-xs text-gray-400 hover:text-white hover:bg-bg-elevated transition-colors"
+      className="w-full flex items-center gap-2.5 px-4 py-2 text-xs text-gray-400 hover:text-white hover:bg-bg-elevated transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-dna-500"
     >
       {icon}
       {label}

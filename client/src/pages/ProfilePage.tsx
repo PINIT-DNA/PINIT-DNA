@@ -356,7 +356,7 @@ function NotificationPreferences({ profile, onUpdate }: { profile: any; onUpdate
   };
 
   const items = [
-    { key: 'notifyVault', label: 'Digital Assets', desc: 'Storage issues, protected downloads, and file events' },
+    { key: 'notifyVault', label: 'My Assets', desc: 'Storage issues, protected downloads, and file events' },
     { key: 'notifyDna', label: 'DNA', desc: 'DNA generated, verification results, and mismatches' },
     { key: 'notifyCertificates', label: 'Certificates', desc: 'Issued, revoked, expired, and validation failures' },
     { key: 'notifyShareAccess', label: 'Secure Share', desc: 'Link views, downloads, forwards, revokes, and expiry' },

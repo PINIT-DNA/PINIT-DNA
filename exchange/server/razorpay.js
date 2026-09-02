@@ -1,14 +1,26 @@
 import crypto from 'crypto';
 import Razorpay from 'razorpay';
 import { activeCurrency } from './lib/money.js';
+import { createOrderViaHub, verifyPaymentViaHub } from './hub-client.js';
+
+function razorpayKeyId() {
+  return String(process.env.RAZORPAY_KEY_ID || '').trim();
+}
+
+function razorpayKeySecret() {
+  return String(process.env.RAZORPAY_KEY_SECRET || '').trim();
+}
+
+export const SHOPPER_PAYMENT_UNAVAILABLE =
+  "Payment temporarily unavailable. We couldn't connect to our payment provider. You have not been charged. Please try again.";
 
 export function isRazorpayConfigured() {
-  return Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
+  return Boolean(razorpayKeyId() && razorpayKeySecret());
 }
 
 /** True when the configured key is a live (real money) key. */
 export function isLiveKey() {
-  return String(process.env.RAZORPAY_KEY_ID || '').startsWith('rzp_live_');
+  return razorpayKeyId().startsWith('rzp_live_');
 }
 
 function flagOn(name) {
@@ -68,19 +80,15 @@ export function razorpayErrorMessage(err) {
 }
 
 /**
- * User-facing copy for gateway failures. Razorpay's 401 text is
- * "Authentication failed", which the storefront was showing as a logged-in
- * session error. Map that to the real cause: key id/secret on the API host.
+ * Shopper-facing copy only. Operators get the Razorpay description in logs.
  */
 export function publicPaymentError(err) {
-  if (isRazorpayAuthFailure(err) || /authentication failed|invalid key/i.test(razorpayErrorMessage(err))) {
-    return (
-      'Payment gateway rejected the Razorpay keys on the Exchange API. '
-      + 'Set matching RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET from the same Razorpay dashboard. '
-      + 'This is not your Pinit login.'
-    );
+  if (isRazorpayAuthFailure(err) || /authentication failed|invalid key|PAYMENT_GATEWAY/i.test(razorpayErrorMessage(err))) {
+    return SHOPPER_PAYMENT_UNAVAILABLE;
   }
-  return razorpayErrorMessage(err) || 'Could not start payment';
+  const raw = razorpayErrorMessage(err);
+  if (/razorpay|key_id|key_secret/i.test(raw)) return SHOPPER_PAYMENT_UNAVAILABLE;
+  return raw || 'Could not start payment';
 }
 
 /** After signature check: captured ₹2,500 INR on the expected order. */
@@ -145,11 +153,9 @@ export function getBillingPublicConfig() {
   return {
     configured: isRazorpayConfigured(),
     mock: isPaymentMockMode(),
-    keyId: isRazorpayConfigured() && !isPaymentMockMode() ? process.env.RAZORPAY_KEY_ID : null,
+    keyId: isRazorpayConfigured() && !isPaymentMockMode() ? razorpayKeyId() : null,
     currency: activeCurrency(),
-    // Surfaced so the storefront can warn that checkout will not capture a
-    // real card while a test key is in use.
-    testMode: String(process.env.RAZORPAY_KEY_ID || '').startsWith('rzp_test_'),
+    testMode: razorpayKeyId().startsWith('rzp_test_'),
     // Explicit demo mode, so the UI can label the payment plainly rather than
     // letting a simulated success look like a real one.
     demo: isPaymentDemoMode() || (razorpayAuthBroken && allowDevMockFallback()),
@@ -194,8 +200,8 @@ function getClient() {
     throw new Error('Razorpay is not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.');
   }
   return new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID,
-    key_secret: process.env.RAZORPAY_KEY_SECRET,
+    key_id: razorpayKeyId(),
+    key_secret: razorpayKeySecret(),
   });
 }
 
@@ -211,7 +217,7 @@ function mockOrder({ amountPaise, currency }) {
 
 function verifyHmacHex(body, signature) {
   const expected = crypto
-    .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+    .createHmac('sha256', razorpayKeySecret())
     .update(body)
     .digest('hex');
   const a = Buffer.from(expected, 'utf8');
@@ -305,7 +311,7 @@ export function verifyPaymentLinkSignature({
   if (String(paymentId || '').startsWith('pay_mock_') || String(paymentLinkId || '').startsWith('plink_mock_')) {
     return !isLiveKey();
   }
-  if (isPaymentMockMode() || !process.env.RAZORPAY_KEY_SECRET) return false;
+  if (isPaymentMockMode() || !razorpayKeySecret()) return false;
   const body = `${paymentLinkId}|${paymentLinkRef}|${paymentLinkStatus}|${paymentId}`;
   return verifyHmacHex(body, signature);
 }
@@ -314,6 +320,23 @@ export async function createRazorpayOrder({ amountPaise, receipt, notes = {}, cu
   const payCurrency = String(currency || activeCurrency()).toUpperCase();
   if (isPaymentMockMode()) {
     return mockOrder({ amountPaise, currency: payCurrency });
+  }
+
+  try {
+    const hub = await createOrderViaHub({
+      amountPaise,
+      currency: payCurrency,
+      receipt: String(receipt || `ex_${Date.now()}`).slice(0, 40),
+      notes,
+    });
+    if (hub?.orderId) return hub;
+  } catch (err) {
+    console.error('[payments] Hub Razorpay order:', razorpayErrorMessage(err));
+    if (err.hubPayment && Number(err.status) === 502) {
+      const wrapped = new Error(SHOPPER_PAYMENT_UNAVAILABLE);
+      wrapped.status = 502;
+      throw wrapped;
+    }
   }
 
   try {
@@ -334,13 +357,14 @@ export async function createRazorpayOrder({ amountPaise, receipt, notes = {}, cu
       orderId: order.id,
       amount: Number(order.amount),
       currency: order.currency || payCurrency,
-      keyId: process.env.RAZORPAY_KEY_ID,
+      keyId: razorpayKeyId(),
       mock: false,
     };
   } catch (err) {
     if (markRazorpayAuthBroken(err)) {
       return mockOrder({ amountPaise, currency: payCurrency });
     }
+    console.error('[payments] local Razorpay order:', razorpayErrorMessage(err));
     const wrapped = new Error(publicPaymentError(err));
     wrapped.status = err?.statusCode || 502;
     throw wrapped;
@@ -360,6 +384,39 @@ export function verifyRazorpaySignature({ orderId, paymentId, signature }) {
   }
   const body = `${orderId}|${paymentId}`;
   return verifyHmacHex(body, signature);
+}
+
+/**
+ * Server-side confirmation only. Checkout.js success is not enough to activate
+ * a seller or seal a licence.
+ */
+export async function confirmRazorpayPayment({ orderId, paymentId, signature }) {
+  const mock =
+    isPaymentMockMode()
+    || String(orderId || '').startsWith('order_mock_')
+    || String(paymentId || '').startsWith('pay_mock_');
+  if (mock) {
+    if (isLiveKey() && !isPaymentMockMode()) return { ok: false };
+    return {
+      ok: true,
+      payment: {
+        id: paymentId,
+        order_id: orderId,
+        status: 'captured',
+        mock: true,
+      },
+    };
+  }
+  try {
+    const hub = await verifyPaymentViaHub({ orderId, paymentId, signature });
+    if (hub?.verified && hub.payment) return { ok: true, payment: hub.payment, via: 'hub' };
+  } catch (err) {
+    if (Number(err.status) === 402) return { ok: false };
+    console.warn('[payments] Hub verify:', razorpayErrorMessage(err));
+  }
+  if (!verifyRazorpaySignature({ orderId, paymentId, signature })) return { ok: false };
+  const payment = await fetchRazorpayPayment(paymentId);
+  return { ok: true, payment };
 }
 
 /**

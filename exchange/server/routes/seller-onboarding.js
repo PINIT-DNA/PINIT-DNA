@@ -13,9 +13,10 @@ import {
   createRazorpayCustomer,
   fetchRazorpayPayment,
   getBillingPublicConfig,
-  verifyRazorpaySignature,
   verifyPaymentLinkSignature,
+  confirmRazorpayPayment,
   publicPaymentError,
+  SHOPPER_PAYMENT_UNAVAILABLE,
   sellerSubscriptionPaymentAcceptable,
   orderStillPayable,
   SELLER_SUBSCRIPTION_AMOUNT_CENTS,
@@ -223,11 +224,11 @@ router.post('/payment-method', async (req, res) => {
       subscription_amount_cents: SELLER_SUBSCRIPTION_AMOUNT_CENTS,
     });
   } catch (err) {
-    const message = publicPaymentError(err) || 'Could not initialize payment method setup';
-    console.error('[seller/onboarding/payment-method]', message, err);
+    console.error('[seller/onboarding/payment-method]', err);
     res.status(502).json({
-      error: 'PAYMENT_INIT_FAILED',
-      message,
+      error: 'PAYMENT_UNAVAILABLE',
+      message: SHOPPER_PAYMENT_UNAVAILABLE,
+      charged: false,
     });
   }
 });
@@ -304,7 +305,12 @@ router.post('/payment-method/verify', async (req, res) => {
       });
     }
 
-    const signedOk = paymentLinkId
+    const confirmed = await confirmRazorpayPayment({
+      orderId: orderId || storedOrder,
+      paymentId,
+      signature: signature || '',
+    });
+    const linkOk = paymentLinkId
       ? verifyPaymentLinkSignature({
           paymentLinkId,
           paymentLinkRef: paymentLinkRef || intent.id,
@@ -312,19 +318,15 @@ router.post('/payment-method/verify', async (req, res) => {
           paymentId,
           signature: signature || '',
         })
-      : verifyRazorpaySignature({
-          orderId: orderId || storedOrder,
-          paymentId,
-          signature: signature || '',
-        });
-    if (!signedOk) {
+      : false;
+    if (!confirmed.ok && !linkOk) {
       await runSql(
         `UPDATE users SET seller_onboarding_status = ? WHERE pinit_id = ?`,
         [ONBOARDING.PAYMENT_METHOD_FAILED, user.pinit_id],
       );
       return res.status(402).json({
         error: 'PAYMENT_VERIFICATION_FAILED',
-        message: 'Payment verification failed. Please try again.',
+        message: 'Payment could not be verified. You have not been charged for a seller account.',
       });
     }
 
@@ -361,7 +363,7 @@ router.post('/payment-method/verify', async (req, res) => {
       });
     }
 
-    const payment = await fetchRazorpayPayment(paymentId);
+    const payment = confirmed.payment || await fetchRazorpayPayment(paymentId);
     const accepted = sellerSubscriptionPaymentAcceptable(
       payment,
       isLinkIntent ? (payment.order_id || orderId) : (orderId || storedOrder),

@@ -16,10 +16,10 @@ export default function HubTrustBadge({
         className="hub-trust-compact"
         onClick={onOpenProvenance}
         style={style}
-        title="HUB Verified & Protected — view provenance"
+        title="Protected by Pinit HUB"
       >
         <ShieldCheck size={12} />
-        HUB Verified &amp; Protected
+        HUB Protected
       </button>
     );
   }
@@ -31,11 +31,13 @@ export default function HubTrustBadge({
         <strong>Protected by Pinit HUB</strong>
       </div>
       <ul className="hub-trust-card__list">
-        <li><Check size={14} /> Vault protected</li>
-        <li><Check size={14} /> Digital DNA registered</li>
-        <li><Check size={14} /> Provenance verified</li>
-        <li><Check size={14} /> Monitoring enabled</li>
+        <li><Check size={14} /> HUB Protected</li>
+        <li><Check size={14} /> Verified</li>
+        <li><Check size={14} /> Authenticity available</li>
       </ul>
+      <p className="hub-trust-card__note">
+        Protection and provenance information are available for this asset.
+      </p>
       {onOpenProvenance && (
         <button type="button" className="btn-secondary" style={{ marginTop: 10, width: '100%' }} onClick={onOpenProvenance}>
           View provenance

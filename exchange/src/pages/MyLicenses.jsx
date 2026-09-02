@@ -194,8 +194,8 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
         <EmptyState
           icon={<ShieldCheck size={28} color="var(--primary)" />}
           title="No purchases yet"
-          description="Creative work you license will appear here."
-          primaryLabel="Explore Discover"
+          description="Assets you license will appear here."
+          primaryLabel="Explore assets"
           onPrimary={() => onBrowse?.('marketplace')}
         />
       ) : (

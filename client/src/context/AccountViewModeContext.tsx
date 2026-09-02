@@ -164,10 +164,10 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
         setMode(next);
         if (next === 'BUSINESS') {
           navigate(BUSINESS_DASHBOARD_PATH, { replace: true });
-          toast.success('Business mode — same account, ORG ID');
+          toast.success('Switched to business workspace');
         } else {
           navigate('/', { replace: true });
-          toast.success('Individual mode — same account, USER ID');
+          toast.success('Switched to personal workspace');
         }
         return;
       }

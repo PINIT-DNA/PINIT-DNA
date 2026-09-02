@@ -352,7 +352,7 @@ export function VaultSharePage() {
       <div className="page-shell animate-fade-in space-y-4">
         <p className="text-sm text-danger">{loadError ?? 'Asset not found'}</p>
         <Link to="/vault" className="btn btn-secondary btn-sm inline-flex">
-          <ArrowLeft size={14} /> Back to Digital Assets
+          <ArrowLeft size={14} /> Back to My Assets
         </Link>
       </div>
     );
@@ -367,7 +367,7 @@ export function VaultSharePage() {
       <nav className="flex flex-wrap items-center gap-1.5 text-2xs text-gray-500">
         <span className="text-gray-400">{BRAND.name}</span>
         <ChevronRight size={10} />
-        <Link to="/vault" className="hover:text-white transition-colors">Digital Assets</Link>
+        <Link to="/vault" className="hover:text-white transition-colors">My Assets</Link>
         <ChevronRight size={10} />
         <span className="text-gray-300 truncate max-w-[12rem] sm:max-w-xs">{record.originalFileName}</span>
         <ChevronRight size={10} />
@@ -381,7 +381,7 @@ export function VaultSharePage() {
             onClick={() => navigate('/vault')}
             className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-white mb-2"
           >
-            <ArrowLeft size={13} /> Back to Digital Assets
+            <ArrowLeft size={13} /> Back to My Assets
           </button>
           <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
             {campaignReviewIntent ? 'Create client review link' : 'Share secure link'}

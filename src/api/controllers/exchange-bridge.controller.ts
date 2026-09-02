@@ -14,6 +14,11 @@ import {
   recordAssetActivityBatch,
   type AssetActivityInput,
 } from '../../services/assets/asset-activity.service';
+import {
+  createHubGatewayOrder,
+  verifyHubGatewaySignature,
+  fetchHubGatewayPayment,
+} from '../../services/exchange/hub-gateway-payment.service';
 
 function userId(req: Request): string {
   return (req as any).user?.sub as string;
@@ -422,6 +427,65 @@ export async function recordAssetActivityBridge(req: Request, res: Response, nex
 
     const result = await recordAssetActivityBatch(events);
     res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+function bridgeAuth(req: Request): void {
+  verifyServiceBridgeSecret(
+    (req.headers['x-pinit-bridge-secret'] as string | undefined) ||
+      (req.headers['x-exchange-bridge-secret'] as string | undefined),
+  );
+}
+
+/** POST /exchange/payments/create-order — Exchange uses Hub Razorpay keys */
+export async function createExchangeGatewayOrder(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    bridgeAuth(req);
+    const amountPaise = Number(req.body?.amountPaise || req.body?.amount);
+    const currency = String(req.body?.currency || 'INR');
+    const receipt = String(req.body?.receipt || '');
+    const notes = req.body?.notes && typeof req.body.notes === 'object' ? req.body.notes : {};
+    const order = await createHubGatewayOrder({ amountPaise, currency, receipt, notes });
+    res.json({ success: true, ...order });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** POST /exchange/payments/verify — signature + capture check on Hub keys */
+export async function verifyExchangeGatewayPayment(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    bridgeAuth(req);
+    const orderId = String(req.body?.razorpay_order_id || req.body?.orderId || '').trim();
+    const paymentId = String(req.body?.razorpay_payment_id || req.body?.paymentId || '').trim();
+    const signature = String(req.body?.razorpay_signature || req.body?.signature || '').trim();
+    if (!orderId || !paymentId || !signature) {
+      res.status(400).json({ success: false, error: 'order, payment and signature are required' });
+      return;
+    }
+    if (!verifyHubGatewaySignature({ orderId, paymentId, signature })) {
+      res.status(402).json({ success: false, error: 'PAYMENT_VERIFICATION_FAILED', verified: false });
+      return;
+    }
+    const payment = await fetchHubGatewayPayment(paymentId);
+    res.json({
+      success: true,
+      verified: true,
+      payment: {
+        id: payment.id,
+        order_id: payment.order_id,
+        status: payment.status,
+        amount: payment.amount,
+        currency: payment.currency,
+        method: payment.method,
+        token_id: (payment as { token_id?: string }).token_id,
+        card: (payment as { card?: { last4?: string; network?: string } }).card,
+        vpa: (payment as { vpa?: string }).vpa,
+        bank: (payment as { bank?: string }).bank,
+      },
+    });
   } catch (err) {
     next(err);
   }

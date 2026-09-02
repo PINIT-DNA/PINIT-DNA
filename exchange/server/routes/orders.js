@@ -11,7 +11,7 @@ import {
 import { sealListingSale } from '../lib/seal-order.js';
 import {
   createRazorpayOrder,
-  verifyRazorpaySignature,
+  confirmRazorpayPayment,
   getBillingPublicConfig,
   isPaymentMockMode,
 } from '../razorpay.js';
@@ -174,12 +174,12 @@ router.post('/verify-payment', async (req, res) => {
       return res.status(400).json({ error: 'Missing Razorpay payment fields' });
     }
 
-    const ok = verifyRazorpaySignature({
+    const confirmed = await confirmRazorpayPayment({
       orderId,
       paymentId,
       signature: signature || '',
     });
-    if (!ok) return res.status(400).json({ error: 'Invalid payment signature' });
+    if (!confirmed.ok) return res.status(400).json({ error: 'Invalid payment signature' });
 
     if (intent.kind === 'cart') {
       const lines = JSON.parse(intent.cart_snapshot || '[]');

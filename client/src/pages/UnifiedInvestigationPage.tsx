@@ -251,9 +251,9 @@ interface InvestigationReport {
 }
 
 const REPORT_STATE_LABELS: Record<string, string> = {
-  VERIFIED: 'Ownership Verified',
-  POSSIBLE: 'Possible Similarity – Top Candidates Only',
-  NO_SIGNATURE: 'Unknown Asset',
+  VERIFIED: 'Confirmed match',
+  POSSIBLE: 'Possible match',
+  NO_SIGNATURE: 'No match found',
 };
 
 const REPORT_STATE_STYLE: Record<string, string> = {
@@ -527,9 +527,9 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
           <Microscope size={20} className="text-dna-400" />
         </div>
         <div>
-          <h1 className="text-lg font-bold text-white">Unified Forensic Investigation Center</h1>
+          <h1 className="text-lg font-bold text-white">Investigate a File</h1>
           <p className="text-xs text-gray-500">
-            Upload or scan a suspected file — both modes run the full PINIT identity recovery pipeline.
+            Find out whether a file is connected to protected work.
           </p>
         </div>
       </div>
@@ -647,6 +647,17 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                 : FORENSIC_VERDICT_LABELS[report.summary.forensicVerdict!] ?? report.summary.forensicVerdict));
         return (
         <div ref={reportRef} className="space-y-6 scroll-mt-6">
+          <div className="card p-5 border border-slate-200">
+            <p className="text-2xs font-bold uppercase tracking-wider text-slate-400 mb-1">Result</p>
+            <p className="text-xl font-bold text-slate-900">{verdictLabel}</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {reportState === 'VERIFIED'
+                ? 'This file is connected to protected work.'
+                : reportState === 'POSSIBLE'
+                  ? 'This file may be related to protected work. Review the details before acting.'
+                  : 'We could not connect this file to protected work.'}
+            </p>
+          </div>
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
               {(manifest?.verdict || report.summary.reportState || report.summary.forensicVerdict) && (
@@ -679,12 +690,14 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
             </button>
           </div>
 
-          {/* Pipeline progress */}
-          <div className="card p-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-              Investigation Pipeline — {completedSteps}/{totalSteps} complete
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2">
+          <details className="card p-4 group">
+            <summary className="text-xs font-semibold text-slate-600 cursor-pointer list-none flex items-center justify-between">
+              View technical details
+              <span className="text-2xs text-slate-400 font-normal">
+                Pipeline {completedSteps}/{totalSteps}
+              </span>
+            </summary>
+            <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2">
               {pipeline.map((s) => (
                 <div key={s.id} className="flex flex-col items-center text-center gap-1 p-2 rounded-lg bg-bg-elevated">
                   <span className={cn('w-2 h-2 rounded-full', STEP_STATUS[s.status])} title={s.detail} />
@@ -692,7 +705,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                 </div>
               ))}
             </div>
-          </div>
+          </details>
 
           {(manifest?.decisionReason || report.message) && (
             <div className={cn(

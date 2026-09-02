@@ -237,7 +237,7 @@ export function DashboardPage() {
         <div className="flex items-center gap-2 shrink-0">
           <Link to="/generate" className="btn btn-primary btn-sm gap-2">
             <Plus size={14} />
-            Protect an asset
+            Protect New
           </Link>
           <button onClick={handleRefresh} disabled={loading} className="btn btn-secondary btn-sm gap-2" title="Refresh">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
@@ -277,7 +277,7 @@ export function DashboardPage() {
                   </div>
                 ))
               ) : (
-                <InsightEmpty text="No live share links yet — share a file from Digital Assets" />
+                <InsightEmpty text="No live share links yet — share a file from My Assets" />
               )}
             </InsightPanel>
 
@@ -358,7 +358,7 @@ export function DashboardPage() {
             <StatCard
               icon={<Database size={20} className="text-white" />}
               variant="blue"
-              label="Protected assets"
+              label="Protected Files"
               value={stats.totalDnaRecords}
               sub={`${stats.completedDna} ready`}
               to="/dna-records"
@@ -366,7 +366,7 @@ export function DashboardPage() {
             <StatCard
               icon={<Archive size={20} className="text-white" />}
               variant="purple"
-              label="Digital Assets"
+              label="My Assets"
               value={stats.totalVaultRecords}
               sub={formatBytes(stats.totalEncryptedBytes) + ' stored'}
               to="/vault"
@@ -401,9 +401,9 @@ export function DashboardPage() {
           </div>
           <div className="grid grid-cols-2 gap-2 mb-4 shrink-0">
             {[
-              { to: '/generate', label: 'Protect an asset', icon: <Zap size={15} className="text-white" />, tile: 'action-tile-dna' },
+              { to: '/generate', label: 'Protect New', icon: <Zap size={15} className="text-white" />, tile: 'action-tile-dna' },
               { to: BRAND.investigationPath, label: 'Investigate', icon: <Shield size={15} className="text-white" />, tile: 'action-tile-cyan' },
-              { to: '/vault', label: 'Digital Assets', icon: <Archive size={15} className="text-white" />, tile: 'action-tile-purple' },
+              { to: '/vault', label: 'My Assets', icon: <Archive size={15} className="text-white" />, tile: 'action-tile-purple' },
               { to: '/certificates', label: 'Certificates', icon: <Shield size={15} className="text-white" />, tile: 'action-tile-success' },
             ].map(item => (
               <Link
@@ -478,10 +478,10 @@ export function DashboardPage() {
           ) : (
             <div className="flex flex-col items-center justify-center py-10 text-center px-4">
               <FileText size={24} className="text-gray-500 mb-2" />
-              <p className="text-sm text-gray-500">No protected assets yet</p>
-              <p className="text-2xs text-gray-500 mt-1 max-w-[220px]">Protect an asset to start tracking who opens it</p>
+              <p className="text-sm text-gray-500">No protected files yet</p>
+              <p className="text-2xs text-gray-500 mt-1 max-w-[220px]">Protect New to start tracking who opens it</p>
               <Link to="/generate" className="btn btn-primary btn-sm mt-4">
-                Protect an asset
+                Protect New
               </Link>
             </div>
           )}
@@ -494,16 +494,16 @@ export function DashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Archive size={16} className="text-purple" />
-              <h2 className="text-sm font-semibold text-white">Digital Assets storage</h2>
+              <h2 className="text-sm font-semibold text-white">My Assets storage</h2>
             </div>
             <Link to="/vault" className="text-xs text-dna-400 hover:text-dna-300 transition-colors">
-              Open Digital Assets
+              Open My Assets
             </Link>
           </div>
           <div className="stat-grid-3">
             <div className="p-3 rounded-xl bg-bg-elevated border border-bg-border text-center">
               <p className="text-xl font-bold text-purple">{stats.totalVaultRecords}</p>
-              <p className="text-2xs text-gray-500 mt-1">Protected assets</p>
+              <p className="text-2xs text-gray-500 mt-1">Protected Files</p>
             </div>
             <div className="p-3 rounded-xl bg-bg-elevated border border-bg-border text-center">
               <p className="text-xl font-bold text-success">{formatBytes(stats.totalEncryptedBytes)}</p>

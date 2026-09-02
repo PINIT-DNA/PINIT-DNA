@@ -82,8 +82,14 @@ export async function apiFetch(url, options = {}) {
     if (!parsed.ok) {
       const code = parsed.data?.error;
       const raw = parsed.data?.message;
-      if (code === 'PAYMENT_INIT_FAILED' && raw) {
-        return { ok: false, status: parsed.status, data: parsed.data, error: String(raw), headers: res.headers };
+      if (code === 'PAYMENT_UNAVAILABLE' || code === 'PAYMENT_INIT_FAILED') {
+        return {
+          ok: false,
+          status: parsed.status,
+          data: parsed.data,
+          error: String(raw || 'Payment temporarily unavailable. You have not been charged. Please try again.'),
+          headers: res.headers,
+        };
       }
       const msg = publicErrorMessage(
         raw

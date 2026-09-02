@@ -1,18 +1,33 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Images, PlusCircle, Play, ExternalLink } from 'lucide-react';
 import StudioPage from '../../components/workspace/StudioPage.jsx';
+import SellerContextNav from '../../components/SellerContextNav.jsx';
 import EmptyState from '../../components/EmptyState.jsx';
+import SellerPortfolio from './SellerPortfolio.jsx';
 import { apiFetch } from '../../lib/api.js';
 import { listingPreviewUrl, isListed } from '../../lib/listing-preview.js';
 import { isVideoListing } from '../../lib/media.js';
+import { ASSET_SECTIONS } from '../../lib/seller-workspace.js';
 
 const HUB_APP_URL = (import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3002').replace(/\/$/, '');
 
-export default function SellerAssets({ user, onOpenListFromHub, onSelectListing, hubAppUrl = HUB_APP_URL }) {
+export default function SellerAssets({
+  user,
+  onOpenListFromHub,
+  onSelectListing,
+  hubAppUrl = HUB_APP_URL,
+  onNavigate,
+  initialSection = 'all',
+}) {
   const [assets, setAssets] = useState([]);
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
+  const [section, setSection] = useState(initialSection);
+
+  useEffect(() => {
+    setSection(initialSection);
+  }, [initialSection]);
 
   useEffect(() => {
     if (!user?.pinit_id) return;
@@ -50,14 +65,25 @@ export default function SellerAssets({ user, onOpenListFromHub, onSelectListing,
     return [...fromHub, ...listedOnly];
   }, [assets, listings, listedByAsset]);
 
+  const visible = useMemo(() => {
+    if (section === 'portfolios' || section === 'activity') return rows;
+    return rows.filter((item) => {
+      const listed = item.listing && isListed(item.listing);
+      if (section === 'protected') return item.source === 'hub';
+      if (section === 'sale' || section === 'listed' || section === 'license') return listed;
+      if (section === 'unlisted' || section === 'inactive') return !listed;
+      return true;
+    });
+  }, [rows, section]);
+
   if (loading) {
     return <div className="studio-mod studio-mod--loading">Loading your Hub assets…</div>;
   }
 
   return (
     <StudioPage
-      title="My Assets"
-      subtitle="Your protected Hub vault. Listing is a separate step — uploading never auto-lists on Exchange."
+      title="Assets"
+      subtitle="Hub-protected work available to list. Full history, certificates and vault files stay in Pinit HUB."
       actions={(
         <>
           <button type="button" className="btn-primary" onClick={onOpenListFromHub}>
@@ -69,19 +95,29 @@ export default function SellerAssets({ user, onOpenListFromHub, onSelectListing,
         </>
       )}
     >
-      {rows.length === 0 ? (
+      <SellerContextNav label="Assets" items={ASSET_SECTIONS} value={section} onChange={setSection} />
+      {section === 'portfolios' ? (
+        <SellerPortfolio
+          user={user}
+          onOpenListFromHub={onOpenListFromHub}
+          onSelectListing={onSelectListing}
+          onNavigate={onNavigate}
+        />
+      ) : section === 'activity' ? (
+        <p className="studio-empty">Asset activity for listings is under Listings → Activity. Complete Hub tracking stays in Hub → Activity.</p>
+      ) : visible.length === 0 ? (
         <EmptyState
           icon={<Images size={32} color="var(--primary)" />}
-          title="No protected assets yet"
-          description={message || 'Protect files in Pinit Hub, then list them here when you are ready to sell.'}
-          primaryLabel="Protect in Hub"
+          title="No assets ready to list"
+          description="Protect your work in Pinit HUB, then list it here."
+          primaryLabel="Open Pinit HUB"
           onPrimary={() => window.open(`${hubAppUrl}/generate`, '_blank', 'noreferrer')}
           secondaryLabel="List from Hub"
           onSecondary={onOpenListFromHub}
         />
       ) : (
         <div className="studio-assets studio-assets--wide">
-          {rows.map((item) => {
+          {visible.map((item) => {
             const listed = item.listing && isListed(item.listing);
             const preview = listingPreviewUrl(item.listing || item);
             const video = isVideoListing(item.listing || item);

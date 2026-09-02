@@ -40,6 +40,7 @@ function AccountMenuBody({
   closeGo,
   onEnableBuyer,
   onBecomeCreator,
+  onOpenListFromHub,
   onSignOut,
   onClose,
 }) {
@@ -52,6 +53,7 @@ function AccountMenuBody({
       </div>
 
       <MenuGroup label="Buy">
+        <button type="button" onClick={() => closeGo('marketplace')}>Discover</button>
         {account.canPurchase ? (
           <>
             <button type="button" onClick={() => closeGo('my_licenses')}>Purchases</button>
@@ -68,15 +70,14 @@ function AccountMenuBody({
           >
             Become a Buyer
           </button>
-        ) : (
-          <button type="button" onClick={() => closeGo('marketplace')}>Discover</button>
-        )}
+        ) : null}
       </MenuGroup>
 
       <MenuGroup label="Sell">
         {seller ? (
           <>
-            <button type="button" onClick={() => closeGo('seller_assets')}>Your Assets</button>
+            <button type="button" onClick={() => closeGo('seller_overview')}>Overview</button>
+            <button type="button" onClick={() => closeGo('seller_assets')}>Assets</button>
             <button type="button" onClick={() => closeGo('seller_listings')}>Listings</button>
             <button type="button" onClick={() => closeGo('seller_sales')}>Sales</button>
             <button type="button" onClick={() => closeGo('seller_earnings')}>Earnings</button>
@@ -84,15 +85,26 @@ function AccountMenuBody({
         ) : sellerPending ? (
           <button type="button" onClick={() => closeGo('seller_onboarding_payment')}>Finish selling</button>
         ) : (
-          <button
-            type="button"
-            onClick={() => {
-              onClose?.();
-              onBecomeCreator?.();
-            }}
-          >
-            Become a Seller
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                onClose?.();
+                onBecomeCreator?.();
+              }}
+            >
+              Start selling
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onClose?.();
+                onOpenListFromHub?.();
+              }}
+            >
+              List your protected work from Pinit HUB
+            </button>
+          </>
         )}
       </MenuGroup>
 
@@ -145,7 +157,8 @@ export default function ExchangeHeader({
   }
   const sellLinks = seller
     ? [
-      ['seller_assets', 'Your Assets'],
+      ['seller_overview', 'Overview'],
+      ['seller_assets', 'Assets'],
       ['seller_listings', 'Listings'],
       ['seller_opportunities', 'Opportunities'],
       ['seller_sales', 'Sales'],
@@ -155,8 +168,17 @@ export default function ExchangeHeader({
   const links = inBuy ? buyLinks : sellLinks;
 
   const isActive = (page) => {
+    if (page === 'seller_overview') {
+      return activePage === 'seller_overview' || activePage === 'creator_studio';
+    }
     if (page === 'seller_listings') {
-      return activePage === 'seller_listings' || activePage === 'creator_desk' || activePage === 'creator_studio';
+      return activePage === 'seller_listings' || activePage === 'creator_desk' || activePage === 'seller_asset_activity';
+    }
+    if (page === 'seller_assets') {
+      return activePage === 'seller_assets' || activePage === 'seller_portfolio';
+    }
+    if (page === 'seller_sales') {
+      return ['seller_sales', 'seller_orders', 'seller_reviews', 'seller_analytics', 'seller_promotions', 'seller_alerts'].includes(activePage);
     }
     return activePage === page;
   };
@@ -209,6 +231,7 @@ export default function ExchangeHeader({
     closeGo,
     onEnableBuyer,
     onBecomeCreator,
+    onOpenListFromHub,
     onSignOut,
     onClose: () => { setMenu(false); setDrawer(false); },
   };

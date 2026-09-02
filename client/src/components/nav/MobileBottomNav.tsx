@@ -16,10 +16,10 @@ export function MobileBottomNav({ onOpenMenu }: Props) {
   const HomeIcon = isBusinessShell ? Building2 : LayoutDashboard;
 
   const tabs = [
-    { to: homeTo, icon: HomeIcon, label: isBusinessShell ? 'Org' : 'Home', end: true as const },
-    { to: '/generate', icon: Dna, label: 'DNA' },
+    { to: homeTo, icon: HomeIcon, label: 'Home', end: true as const },
+    { to: '/generate', icon: Dna, label: 'Protect' },
     { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Investigate' },
-    { to: '/vault', icon: Archive, label: 'Digital Assets' },
+    { to: '/vault', icon: Archive, label: 'Assets' },
   ];
 
   return (

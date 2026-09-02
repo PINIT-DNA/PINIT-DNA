@@ -708,7 +708,7 @@ function SubscriptionTab({
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <EnterpriseStat label="Plan" value={subscription?.planName ?? 'Free'} accent="amber" />
           <EnterpriseStat
-            label="Protected assets"
+            label="Protected Files"
             value={`${subscription?.protectedAssetCount ?? 0}${subscription?.assetLimit != null ? ` / ${subscription.assetLimit}` : ''}`}
             accent="dna"
           />

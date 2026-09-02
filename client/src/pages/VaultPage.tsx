@@ -249,7 +249,7 @@ export function VaultPage() {
   };
 
   const handleDelete = async (record: VaultRecord) => {
-    if (!window.confirm(`Remove "${record.originalFileName}" from Digital Assets?`)) return;
+    if (!window.confirm(`Remove "${record.originalFileName}" from My Assets?`)) return;
     const previous = records;
     setDeletingId(record.id);
     // Optimistic UI — remove card + close panel immediately
@@ -328,7 +328,7 @@ export function VaultPage() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div className="min-w-0">
           <p className="text-xs font-medium text-gray-500 mb-1">Library</p>
-          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Digital Assets</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">My Assets</h1>
           <p className="text-sm text-gray-500 mt-1 max-w-xl">
             All your protected files in one place — Hub uploads and extension captures
           </p>
@@ -351,7 +351,7 @@ export function VaultPage() {
         <div className="stat-grid-3 gap-3">
           <div className="card-sm text-center">
             <p className="text-2xl font-bold text-purple tabular-nums">{records.length}</p>
-            <p className="text-xs text-gray-500 mt-1">Protected assets</p>
+            <p className="text-xs text-gray-500 mt-1">Protected Files</p>
           </div>
           <div className="card-sm text-center">
             <p className="text-2xl font-bold text-success tabular-nums">
@@ -466,7 +466,7 @@ export function VaultPage() {
               <EmptyState
                 icon={Archive}
                 title="No protected assets yet"
-                description="Protect an asset to store it here — then share and track who opens it"
+                description="Protect New to store it here — then share and track who opens it"
               />
             ) : (
               <div className={cn(
@@ -510,7 +510,7 @@ export function VaultPage() {
                     <EmptyState
                       icon={Archive}
                       title="No protected assets yet"
-                      description="Protect an asset to store it here — then share and track who opens it"
+                      description="Protect New to store it here — then share and track who opens it"
                     />
                   </td>
                 </tr>

@@ -320,15 +320,29 @@ export default function SellerPaymentOnboarding({ user, onVerified, onNavigate, 
           </div>
         )}
         {error && (
-          <div style={{ color: '#f87171', fontSize: '0.9rem', marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <RefreshCw size={14} /> {error}
+          <div
+            role="alert"
+            style={{
+              color: '#fecaca',
+              fontSize: '0.9rem',
+              marginBottom: 12,
+              padding: '12px 14px',
+              borderRadius: 10,
+              border: '1px solid rgba(248,113,113,0.35)',
+              background: 'rgba(127,29,29,0.25)',
+            }}
+          >
+            <strong style={{ display: 'block', color: '#fff', marginBottom: 6 }}>Payment temporarily unavailable</strong>
+            <p style={{ margin: '0 0 8px', lineHeight: 1.5 }}>
+              We couldn&apos;t connect to our payment provider. You have not been charged.
+            </p>
             <button
               type="button"
               className="btn-secondary"
-              style={{ marginLeft: 'auto', padding: '6px 10px', fontSize: '0.8rem' }}
-              onClick={loadStatus}
+              style={{ padding: '6px 10px', fontSize: '0.8rem' }}
+              onClick={startVerification}
             >
-              Retry
+              Try again
             </button>
           </div>
         )}

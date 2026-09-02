@@ -7,7 +7,7 @@ const COLUMNS = [
     id: 'product',
     title: 'Product',
     links: [
-      { label: 'Discover', page: 'marketplace' },
+      { label: 'Marketplace', page: 'marketplace' },
       { label: 'Collections', page: 'collections' },
       { label: 'Creators', page: 'passports' },
     ],
@@ -16,16 +16,16 @@ const COLUMNS = [
     id: 'trust',
     title: 'Trust',
     links: [
-      { label: 'Trust Center', page: 'trust' },
-      { label: 'Security', page: 'security' },
+      { label: 'Protection', page: 'trust' },
       { label: 'Provenance', page: 'provenance' },
+      { label: 'Security', page: 'security' },
     ],
   },
   {
     id: 'business',
     title: 'Business',
     links: [
-      { label: 'Sell on Exchange', page: 'sell' },
+      { label: 'Sell on Pinit', page: 'sell' },
       { label: 'Creator Program', page: 'creator_program' },
       { label: 'Enterprise', page: 'enterprise' },
       { label: 'Creator Support', page: 'creator_support' },

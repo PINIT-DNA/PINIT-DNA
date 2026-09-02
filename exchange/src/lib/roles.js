@@ -50,6 +50,7 @@ export const EXCHANGE_POSITIONING = 'Where protected creative assets are discove
 export const SELLER_ONLY_PAGES = new Set([
   'creator_studio',
   'creator_desk',
+  'seller_overview',
   'seller_assets',
   'seller_portfolio',
   'seller_listings',

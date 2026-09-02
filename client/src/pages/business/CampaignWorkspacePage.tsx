@@ -179,7 +179,7 @@ export function CampaignWorkspacePage() {
             <Pencil size={13} /> Edit
           </button>
           <Link to={protectHref} className="btn btn-primary btn-sm">
-            <Plus size={14} /> Protect asset
+            <Plus size={14} /> Protect New
           </Link>
         </div>
       </div>
@@ -231,7 +231,7 @@ export function CampaignWorkspacePage() {
               ) : !assets || assets.length === 0 ? (
                 <EmptyHint
                   text="No assets in this campaign yet."
-                  action={<Link to={protectHref} className="btn btn-primary btn-sm"><Plus size={14} /> Protect asset</Link>}
+                  action={<Link to={protectHref} className="btn btn-primary btn-sm"><Plus size={14} /> Protect New</Link>}
                 />
               ) : (
                 <AssetList assets={assets.slice(0, 5)} />
@@ -279,7 +279,7 @@ export function CampaignWorkspacePage() {
               <button onClick={refetchAssets} disabled={assetsLoading} className="btn-ghost btn-sm text-xs text-gray-500">
                 <RefreshCw size={12} className={assetsLoading ? 'animate-spin' : ''} />
               </button>
-              <Link to={protectHref} className="btn btn-primary btn-sm"><Plus size={13} /> Protect asset</Link>
+              <Link to={protectHref} className="btn btn-primary btn-sm"><Plus size={13} /> Protect New</Link>
             </div>
           }
         >
@@ -289,8 +289,8 @@ export function CampaignWorkspacePage() {
             <EmptyState
               icon={Archive}
               title="No assets yet"
-              description={`Protect an asset to add it to ${campaign?.name ?? 'this campaign'}. It keeps its Pinit identity and protection.`}
-              action={<Link to={protectHref} className="btn btn-primary btn-sm"><Plus size={14} /> Protect asset</Link>}
+              description={`Protect New to add it to ${campaign?.name ?? 'this campaign'}. It keeps its Pinit identity and protection.`}
+              action={<Link to={protectHref} className="btn btn-primary btn-sm"><Plus size={14} /> Protect New</Link>}
             />
           ) : (
             <AssetList assets={assets} />
@@ -313,7 +313,7 @@ export function CampaignWorkspacePage() {
       {tab === 'sharing' && (
         <SectionCard title="Sharing" icon={Share2}>
           {!assets || assets.length === 0 ? (
-            <EmptyHint text="Protect an asset into this campaign first — then share it from Digital Assets with full tracking." />
+            <EmptyHint text="Protect New into this campaign first — then share it from My Assets with full tracking." />
           ) : (
             <div className="space-y-3">
               <p className="text-xs text-gray-400">

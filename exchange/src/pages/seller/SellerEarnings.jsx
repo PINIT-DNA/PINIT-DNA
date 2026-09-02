@@ -1,45 +1,73 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Wallet } from 'lucide-react';
 import StudioPage from '../../components/workspace/StudioPage.jsx';
+import SellerContextNav from '../../components/SellerContextNav.jsx';
 import useSellerDesk from '../../hooks/useSellerDesk.js';
 import { formatMoney } from '../../lib/money.js';
+import { EARNINGS_SECTIONS } from '../../lib/seller-workspace.js';
 
 export default function SellerEarnings({ user, onNavigate }) {
   const { metrics, sales, loading } = useSellerDesk(user);
+  const [section, setSection] = useState('overview');
 
   if (loading) {
     return <div className="studio-mod studio-mod--loading">Loading earnings…</div>;
   }
 
+  const pending = Number(metrics.payout_pending || 0);
+  const net = Number(metrics.total_net_revenue || 0);
+  const gross = Number(metrics.total_gross_revenue || 0);
+  const fees = Math.max(0, gross - net);
+
   return (
     <StudioPage
       title="Earnings"
-      subtitle="Creator net after Exchange fees. Withdrawals are not enabled yet — these balances are accrued and will be payable once payouts go live."
+      subtitle="Creator net after Exchange fees. Payouts are not live yet — balances accrue until withdrawals open. Hub remains the transaction system of record."
     >
+      <SellerContextNav label="Earnings" items={EARNINGS_SECTIONS} value={section} onChange={setSection} />
+
+      {(section === 'overview' || section === 'revenue') && (
       <div className="studio-kpi">
         <div className="glass-panel studio-kpi__card">
           <span>Gross sales</span>
           <Wallet size={18} color="var(--emerald)" />
-          <strong>{formatMoney(metrics.total_gross_revenue || 0)}</strong>
+          <strong>{formatMoney(gross)}</strong>
           <em>{metrics.sealed_sales_count || 0} sealed licenses</em>
         </div>
         <div className="glass-panel studio-kpi__card">
           <span>Creator net</span>
           <Wallet size={18} color="var(--emerald)" />
-          <strong>{formatMoney(metrics.total_net_revenue || 0)}</strong>
+          <strong>{formatMoney(net)}</strong>
           <em>After platform fee</em>
         </div>
         <div className="glass-panel studio-kpi__card">
           <span>Payout pending</span>
           <Wallet size={18} color="var(--primary)" />
-          <strong>{formatMoney(metrics.payout_pending || 0)}</strong>
+          <strong>{formatMoney(pending)}</strong>
           <em>Settles through the payment provider</em>
         </div>
       </div>
+      )}
+
+      {section === 'pending' && (
+        <p className="studio-empty">Pending settlement: {formatMoney(pending)}. This is accrued creator net, not a second Hub wallet.</p>
+      )}
+      {section === 'available' && (
+        <p className="studio-empty">Available for payout: {formatMoney(0)}. Withdrawals are not enabled yet.</p>
+      )}
+      {section === 'payouts' && (
+        <p className="studio-empty">Payouts are not live. When they are, this view will list provider transfers — not a duplicate Hub ledger.</p>
+      )}
+      {section === 'fees' && (
+        <p className="studio-empty">Platform fees on sealed sales: {formatMoney(fees)}.</p>
+      )}
+      {section === 'statements' && (
+        <p className="studio-empty">Statements will be a filtered view of Hub → Transactions. No separate statement system on Exchange.</p>
+      )}
 
       <div className="studio-section">
         <div className="studio-section__head">
-          <h2>Recent payouts</h2>
+          <h2>Recent earnings</h2>
           <button type="button" className="btn-secondary" onClick={() => onNavigate?.('seller_sales')}>View sales</button>
         </div>
         {sales.length === 0 ? (
@@ -57,3 +85,4 @@ export default function SellerEarnings({ user, onNavigate }) {
     </StudioPage>
   );
 }
+

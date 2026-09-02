@@ -20,17 +20,13 @@ import EnterpriseLicensing from './pages/EnterpriseLicensing.jsx';
 import TrustCenter from './pages/TrustCenter.jsx';
 import KnowledgeGuide from './pages/KnowledgeGuide.jsx';
 import MyLicenses from './pages/MyLicenses.jsx';
-import CreatorStudio from './pages/CreatorStudio.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
-import SellerAccountNav, { isSellerAccountPage } from './components/SellerAccountNav.jsx';
 import SellerAssets from './pages/seller/SellerAssets.jsx';
-import SellerPortfolio from './pages/seller/SellerPortfolio.jsx';
 import SellerListings from './pages/seller/SellerListings.jsx';
 import SellerAssetActivity from './pages/seller/SellerAssetActivity.jsx';
-import SellerSales from './pages/seller/SellerSales.jsx';
+import SalesCenter from './pages/seller/SalesCenter.jsx';
+import SellerOverview from './pages/seller/SellerOverview.jsx';
 import SellerEarnings from './pages/seller/SellerEarnings.jsx';
-import SellerReviews from './pages/seller/SellerReviews.jsx';
-import SellerAnalytics from './pages/seller/SellerAnalytics.jsx';
 import SellerPromotions from './pages/seller/SellerPromotions.jsx';
 import SellerAlerts from './pages/seller/SellerAlerts.jsx';
 import SellerPaymentOnboarding from './pages/SellerPaymentOnboarding.jsx';
@@ -469,7 +465,7 @@ export default function App() {
     }
     setShopModule('sell');
     if (canList(user)) {
-      navigate('seller_listings');
+      navigate('seller_overview');
       return;
     }
     if (resolveExchangeAccount(user).sellerIntent) {
@@ -490,7 +486,7 @@ export default function App() {
     if (!sessionReady) return;
     if (activePage === 'public_portfolio') return;
     if (user && canList(user) && (activePage === 'creator_desk' || activePage === 'creator_studio')) {
-      navigate('seller_listings', { replace: true });
+      navigate(activePage === 'creator_desk' ? 'seller_listings' : 'seller_overview', { replace: true });
       return;
     }
     if (!canAccessPage(user, activePage)) {
@@ -576,6 +572,7 @@ export default function App() {
             user={user}
             onCartChanged={refreshCartCount}
             onEnableBuyer={enableBuyer}
+            onSelectListing={handleSelectListing}
           />
         )}
 
@@ -686,11 +683,11 @@ export default function App() {
           />
         )}
 
-        {activePage === 'creator_studio' && (
-          <CreatorStudio
+        {(activePage === 'seller_overview') && (
+          <SellerOverview
             user={user}
             onNavigate={navigate}
-            onSelectListing={(id) => handleSelectListing(id, 'sell')}
+            onOpenListFromHub={openListFromHub}
           />
         )}
 
@@ -714,31 +711,25 @@ export default function App() {
             onSelectListing={(id) => handleSelectListing(id, 'sell')}
           />
         )}
-        {activePage === 'seller_assets' && (
+        {(activePage === 'seller_assets' || activePage === 'seller_portfolio') && (
           <SellerAssets
             user={user}
             onOpenListFromHub={openListFromHub}
             onSelectListing={handleSelectListing}
             hubAppUrl={HUB_APP_URL}
+            onNavigate={navigate}
+            initialSection={activePage === 'seller_portfolio' ? 'portfolios' : 'all'}
           />
         )}
-        {activePage === 'seller_portfolio' && (
-          <SellerPortfolio
+        {(activePage === 'seller_sales' || activePage === 'seller_orders' || activePage === 'seller_reviews' || activePage === 'seller_analytics') && (
+          <SalesCenter
             user={user}
-            onOpenListFromHub={openListFromHub}
-            onSelectListing={handleSelectListing}
+            page={activePage}
+            onSelectListing={(id) => handleSelectListing(id, 'sell')}
             onNavigate={navigate}
           />
         )}
-        {activePage === 'seller_sales' && <SellerSales user={user} mode="sales" />}
-        {activePage === 'seller_orders' && <SellerSales user={user} mode="orders" />}
         {activePage === 'seller_earnings' && <SellerEarnings user={user} onNavigate={navigate} />}
-        {activePage === 'seller_reviews' && (
-          <SellerReviews user={user} onSelectListing={handleSelectListing} />
-        )}
-        {activePage === 'seller_analytics' && (
-          <SellerAnalytics user={user} onSelectListing={handleSelectListing} />
-        )}
         {activePage === 'seller_promotions' && <SellerPromotions user={user} />}
         {activePage === 'seller_alerts' && <SellerAlerts user={user} hubAppUrl={HUB_APP_URL} />}
         {activePage === 'seller_onboarding_payment' && (
@@ -769,7 +760,7 @@ export default function App() {
               setUser(activated);
               saveSession(activated);
               setRoleNotice('Seller account verified. You can list and sell on Exchange.');
-              navigate('seller_listings');
+              navigate('seller_overview');
             }}
           />
         )}
@@ -852,13 +843,6 @@ export default function App() {
         user={user}
         cartCount={cartCount}
       />
-      {account.canList && shopModule === 'sell' && (
-        <SellerAccountNav
-          activePage={activePage}
-          onNavigate={navigate}
-          onOpenListFromHub={openListFromHub}
-        />
-      )}
       {notice}
       <main style={{ flex: 1 }}>
         {sessionPending ? (

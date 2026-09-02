@@ -3,7 +3,7 @@
 export function publicErrorMessage(raw, status = 0) {
   const text = String(raw || '').trim();
   const lower = text.toLowerCase();
-  if (status === 401 || lower.includes('session has expired') || lower.includes('authentication failed')) {
+  if (status === 401 || (lower.includes('session has expired') && !lower.includes('razorpay'))) {
     return 'Your session has expired.';
   }
   if (

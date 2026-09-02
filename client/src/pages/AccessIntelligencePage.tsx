@@ -272,8 +272,8 @@ export function AccessIntelligencePage() {
               </p>
               <p className="text-2xs text-gray-500 mt-1">
                 {vaultFilter
-                  ? 'Open Digital Assets → Share to create a tracked link for this file'
-                  : 'Go to Digital Assets → Share to create your first tracked link'}
+                  ? 'Open My Assets → Share to create a tracked link for this file'
+                  : 'Go to My Assets → Share to create your first tracked link'}
               </p>
             </div>
           ) : (
@@ -380,7 +380,7 @@ export function AccessIntelligencePage() {
               <Send size={40} className="text-gray-500 mx-auto mb-3" />
               <p className="text-sm text-gray-500">No shared assets tracked yet</p>
               <p className="text-2xs text-gray-500 mt-1">
-                From Digital Assets, use Share File. When someone opens it in Pinit, activity shows up here.
+                From My Assets, use Share File. When someone opens it in Pinit, activity shows up here.
               </p>
             </div>
           ) : (

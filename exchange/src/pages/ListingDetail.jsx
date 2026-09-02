@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Award, ArrowLeft, Check, Download, Heart, ImageOff, Minus,
-  ShieldCheck, ShoppingCart, Star,
+  ShieldCheck, ShoppingCart,
 } from 'lucide-react';
 import { formatMoney } from '../lib/money.js';
 import { availableTiers } from '../lib/licensing.js';
@@ -9,12 +9,15 @@ import { buyerKey } from '../lib/buyer.js';
 import { isVideoListing } from '../lib/media.js';
 import HubTrustBadge from '../components/HubTrustBadge.jsx';
 import ProvenanceDrawer from '../components/ProvenanceDrawer.jsx';
-import { apiFetch, verifiedLabel, verticalLabel } from '../lib/api.js';
+import ListingCard from '../components/ListingCard.jsx';
+import { apiFetch, verifiedLabel, verticalLabel, unwrapList } from '../lib/api.js';
+import { publicErrorMessage } from '../lib/user-facing-error.js';
+import { assetKindLabel } from '../lib/asset-type.js';
 import { recordListingView } from '../lib/recently-viewed.js';
 import { canPurchase, resolveExchangeAccount } from '../lib/roles.js';
 import { samePinitIdentity } from '../lib/pinit-identity.js';
 
-export default function ListingDetail({ listingId, onBack, onOpenCheckout, onManageListing, onOpenBuyModule, shopModule = 'buy', user, onCartChanged, onEnableBuyer }) {
+export default function ListingDetail({ listingId, onBack, onOpenCheckout, onManageListing, onOpenBuyModule, shopModule = 'buy', user, onCartChanged, onEnableBuyer, onSelectListing }) {
   const [listing, setListing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedTier, setSelectedTier] = useState('');
@@ -27,6 +30,7 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
   const [toast, setToast] = useState('');
   const [mediaError, setMediaError] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [related, setRelated] = useState([]);
 
   useEffect(() => {
     if (listingId) {
@@ -40,6 +44,24 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
       recordListingView(listingId);
     }
   }, [listingId]);
+
+  useEffect(() => {
+    if (!listing?.listing_id) return undefined;
+    let cancelled = false;
+    (async () => {
+      const vertical = listing.vertical || 'all';
+      const { ok, data, headers } = await apiFetch(
+        `/api/listings?vertical=${encodeURIComponent(vertical)}&badge=all&sort=newest&limit=8`,
+      );
+      if (!ok || cancelled) return;
+      const items = unwrapList(data, headers).items
+        .filter((row) => row.listing_id !== listing.listing_id)
+        .filter((row) => shopModule !== 'buy' || !samePinitIdentity(user?.pinit_id, row.pinit_id))
+        .slice(0, 4);
+      setRelated(items);
+    })();
+    return () => { cancelled = true; };
+  }, [listing?.listing_id, listing?.vertical, shopModule, user?.pinit_id]);
 
   const fetchListingDetail = async () => {
     setLoading(true);
@@ -92,7 +114,7 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
         license_tier: selectedTier,
       }),
     });
-    setToast(ok ? 'Added to cart' : (error || 'Could not add to cart'));
+    setToast(ok ? 'Added to cart' : publicErrorMessage(error || 'Could not add to cart'));
     if (ok) onCartChanged?.();
   };
 
@@ -104,7 +126,7 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ buyer_key: ensureBuyerKey(), listing_id: listing.listing_id }),
     });
-    setToast(ok ? 'Saved to wishlist' : (error || 'Could not save'));
+    setToast(ok ? 'Saved to wishlist' : publicErrorMessage(error || 'Could not save'));
   };
 
   const submitReview = async (e) => {
@@ -235,20 +257,8 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
             </p>
           </div>
 
-          <header className="asset-head">
-            <h1 className="ex-h1 asset-head__title">{listing.title}</h1>
-            {listing.tagline && <p className="asset-head__tagline">{listing.tagline}</p>}
-            <p className="asset-head__offer">
-              Marketplace listing for a Hub-protected asset
-              {listing.asset_id ? ` · ${listing.asset_id}` : ''}
-            </p>
-            <div className="asset-head__meta">
-              <span className="asset-head__rating">
-                <Star size={15} /> {avgRating || '—'}
-                <em>{reviewCount === 1 ? '1 review' : `${reviewCount} reviews`}</em>
-              </span>
-              {listing.vertical && <span className="asset-head__chip">{verticalLabel(listing.vertical)}</span>}
-            </div>
+          <header className="asset-head asset-head--stage">
+            <p className="asset-head__kicker">{verticalLabel(listing.vertical)} · {assetKindLabel(listing)}</p>
           </header>
 
           <div className="asset-tabs" role="tablist" aria-label="Asset details">
@@ -378,6 +388,14 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
           </div>
 
           <div className="ex-card ex-card--pad buy-panel">
+            <h1 className="ex-h1 buy-panel__asset-title">{listing.title}</h1>
+            <p className="buy-panel__by">by {listing.creator_name || 'Verified creator'}</p>
+            <div className="asset-card__chips" style={{ marginBottom: 12 }}>
+              <span>{assetKindLabel(listing)}</span>
+              <span><ShieldCheck size={11} /> HUB Protected</span>
+              <span>Verified</span>
+            </div>
+            {listing.tagline && <p className="buy-panel__note">{listing.tagline}</p>}
             {ownsListing && shopModule === 'sell' ? (
               <>
                 <h3 className="ex-h2 buy-panel__title">Your listing</h3>
@@ -466,7 +484,7 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
                     className="ex-btn ex-btn--primary ex-btn--block"
                     onClick={() => onOpenCheckout({ ...listing, preferredTier: activeTier.id })}
                   >
-                    Buy now — {formatMoney(activeTier.price)}
+                    License asset — {formatMoney(activeTier.price)}
                   </button>
                   <button type="button" className="ex-btn ex-btn--secondary ex-btn--block" onClick={addToCart}>
                     <ShoppingCart size={16} /> Add to cart
@@ -483,6 +501,27 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
           </div>
         </aside>
       </div>
+
+      {related.length > 0 && (
+        <section className="ex-section" style={{ marginTop: 40 }}>
+          <div className="ex-section-head">
+            <div>
+              <h2 className="ex-h2">Related assets</h2>
+              <div className="ex-h2-sub">More work in this category</div>
+            </div>
+          </div>
+          <div className="listing-grid">
+            {related.map((item) => (
+              <ListingCard
+                key={item.listing_id}
+                item={item}
+                user={user}
+                onSelect={onSelectListing}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       <ProvenanceDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} listing={listing} />
     </div>

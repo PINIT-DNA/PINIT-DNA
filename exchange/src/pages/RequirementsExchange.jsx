@@ -7,6 +7,8 @@ import { apiFetch, verticalLabel } from '../lib/api.js';
 import { formatMoney } from '../lib/money.js';
 import EmptyState from '../components/EmptyState.jsx';
 import { canList, canPurchase } from '../lib/roles.js';
+import SellerContextNav from '../components/SellerContextNav.jsx';
+import { OPPORTUNITY_SECTIONS } from '../lib/seller-workspace.js';
 
 const CATEGORIES = [
   { id: 'all', label: 'All Assets' },
@@ -103,7 +105,8 @@ function defaultDeadline() {
 export default function RequirementsExchange({
   onNavigate, user = null, onOpenAuth, onBecomeCreator, mode = 'buyer',
 }) {
-  const sellerMode = mode === 'seller' || canList(user);
+  const sellerMode = mode === 'seller';
+  const [oppSection, setOppSection] = useState('discover');
   const [requirements, setRequirements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -221,6 +224,16 @@ export default function RequirementsExchange({
 
   return (
     <div className="req-page">
+      {sellerMode && (
+        <div className="ex-page" style={{ paddingBottom: 0 }}>
+          <SellerContextNav
+            label="Opportunities"
+            items={OPPORTUNITY_SECTIONS}
+            value={oppSection}
+            onChange={setOppSection}
+          />
+        </div>
+      )}
       {notice && (
         <div
           className={`ex-alert ${notice.kind === 'ok' ? 'ex-alert--ok' : 'ex-alert--error'} req-notice`}
