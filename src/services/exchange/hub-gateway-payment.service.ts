@@ -54,7 +54,6 @@ export async function createHubGatewayOrder(input: {
       amount,
       currency,
       receipt: String(input.receipt || `hub_${Date.now()}`).slice(0, 40),
-      payment_capture: 1,
       notes: stringNotes(input.notes),
     });
     logger.info('[hub-gateway] Razorpay order created', { orderId: order.id, currency, amount });
