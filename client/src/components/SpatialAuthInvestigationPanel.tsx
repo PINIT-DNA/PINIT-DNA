@@ -530,11 +530,16 @@ export function SpatialAuthInvestigationPanel({
   if (!investigation) return null;
 
   if (!investigation.trusted) {
+    const notEnrolled = /No SpatialAuthPackage/i.test(investigation.unavailableReason ?? '');
     return (
       <div className={`rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-2 ${className ?? ''}`}>
-        <p className="text-xs font-semibold text-amber-300">Spatial investigation unavailable</p>
+        <p className="text-xs font-semibold text-amber-300">
+          {notEnrolled ? 'Spatial tags not enrolled for this file' : 'Spatial investigation unavailable'}
+        </p>
         <p className="text-2xs text-gray-400">
-          Status: {investigation.verificationStatus ?? 'unknown'}. No trusted fine map or overlay.
+          {notEnrolled
+            ? 'This asset was protected before DNA pixel-level spatial auth was enabled, so there is no 8×8 integrity map to overlay. Protect a new image (or re-enroll) and investigate that copy.'
+            : `Status: ${investigation.verificationStatus ?? 'unknown'}. No trusted fine map or overlay.`}
         </p>
         {investigation.unavailableReason && (
           <p className="text-2xs text-gray-500">{investigation.unavailableReason}</p>

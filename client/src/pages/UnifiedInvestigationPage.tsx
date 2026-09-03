@@ -695,15 +695,56 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
         return (
         <div ref={reportRef} className="space-y-6 scroll-mt-6">
           <div className="card p-5 border border-slate-200">
-            <p className="text-2xs font-bold uppercase tracking-wider text-slate-400 mb-1">Result</p>
-            <p className="text-xl font-bold text-slate-900">{verdictLabel}</p>
-            <p className="text-xs text-slate-500 mt-1">
-              {reportState === 'VERIFIED'
-                ? 'This file is connected to protected work.'
-                : reportState === 'POSSIBLE'
-                  ? 'This file may be related to protected work. Review the details before acting.'
-                  : 'We could not connect this file to protected work.'}
+            <p className="text-2xs font-bold uppercase tracking-wider text-slate-400 mb-1">Investigation result</p>
+            <p className="text-xl font-bold text-slate-900">
+              {reportState === 'VERIFIED' ? 'Confirmed Match' : reportState === 'POSSIBLE' ? 'Possible Match' : 'No Match'}
             </p>
+            <p className="text-xs text-slate-500 mt-1">{verdictLabel}</p>
+            {hasVaultMatch && (
+              <dl className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                <div>
+                  <dt className="text-2xs uppercase tracking-wide text-slate-400">Original asset</dt>
+                  <dd className="font-semibold text-slate-800">{resolvedOwner.originalFilename || 'Protected Pinit asset'}</dd>
+                </div>
+                <div>
+                  <dt className="text-2xs uppercase tracking-wide text-slate-400">Owner</dt>
+                  <dd className="font-semibold text-slate-800">
+                    {resolvedOwner.ownershipVerified
+                      ? (resolvedOwner.ownerName || resolvedOwner.ownerPinitId || 'Registered owner')
+                      : 'Not confirmed — candidate only'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-2xs uppercase tracking-wide text-slate-400">Confidence</dt>
+                  <dd className="font-semibold text-slate-800">{displayMatchScore}%</dd>
+                </div>
+                <div>
+                  <dt className="text-2xs uppercase tracking-wide text-slate-400">Source</dt>
+                  <dd className="font-semibold text-slate-800">
+                    {(report.leakIntelligence.entries[0]?.url)
+                      || (report.leakIntelligence.hasPublicLeak ? 'Crawler / public leak' : 'Investigation upload')}
+                  </dd>
+                </div>
+              </dl>
+            )}
+            <ul className="mt-3 space-y-1 text-xs text-slate-600">
+              {hasVaultMatch && <li>Protected Pinit asset found</li>}
+              {typeof dnaLayerScore === 'number' && dnaLayerScore > 0 && (
+                <li>DNA/protection evidence matched ({dnaLayerScore}%)</li>
+              )}
+              {(report.tamperAnalysis.spatialAuthInvestigation as { verificationStatus?: string } | null)?.verificationStatus
+                && (report.tamperAnalysis.spatialAuthInvestigation as { verificationStatus?: string }).verificationStatus !== 'SKIPPED'
+                && (report.tamperAnalysis.spatialAuthInvestigation as { verificationStatus?: string }).verificationStatus !== 'DISABLED'
+                ? (
+                  <li>
+                    Spatial evidence:{' '}
+                    {(report.tamperAnalysis.spatialAuthInvestigation as { verificationStatus?: string }).verificationStatus}
+                  </li>
+                ) : null}
+              {(report.leakIntelligence?.entries?.length || report.leakIntelligence?.hasPublicLeak) ? (
+                <li>Crawler/source evidence found</li>
+              ) : null}
+            </ul>
           </div>
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
@@ -739,7 +780,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
 
           <details className="card p-4 group">
             <summary className="text-xs font-semibold text-slate-600 cursor-pointer list-none flex items-center justify-between">
-              View technical details
+              View technical evidence
               <span className="text-2xs text-slate-400 font-normal">
                 Pipeline {completedSteps}/{totalSteps}
               </span>
