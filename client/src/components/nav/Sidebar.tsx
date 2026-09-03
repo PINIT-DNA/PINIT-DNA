@@ -14,8 +14,6 @@ import { useAccountViewMode } from '../../hooks/useAccountViewMode';
 import { API_BASE_URL } from '../../config/api.config';
 import { BRAND } from '../../config/brand.config';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
-import { listVaultRecords } from '../../services/dashboard.api';
-import type { VaultRecord } from '../../types/dashboard.types';
 
 function BackendStatus() {
   const [online, setOnline] = useState<boolean | null>(null);
@@ -176,53 +174,6 @@ const ACCOUNT_LINKS: NavItem[] = [
   { to: '/help', icon: HelpCircle, label: 'Help' },
 ];
 
-function RecentProtectedNav({ onClose }: { onClose?: () => void }) {
-  const [items, setItems] = useState<VaultRecord[]>([]);
-
-  useEffect(() => {
-    listVaultRecords()
-      .then((rows) => {
-        const sorted = [...rows].sort(
-          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-        );
-        setItems(sorted.slice(0, 5));
-      })
-      .catch(() => setItems([]));
-  }, []);
-
-  if (items.length === 0) return null;
-
-  return (
-    <div>
-      <p className="text-2xs font-bold uppercase tracking-widest px-2 mb-1 text-slate-400">
-        Recently protected
-      </p>
-      <ul className="space-y-0.5">
-        {items.map((v) => (
-          <li key={v.id}>
-            <NavLink
-              to={`/vault?id=${encodeURIComponent(v.id)}`}
-              onClick={onClose}
-              title={v.originalFileName}
-              className={({ isActive }) =>
-                cn(
-                  'block px-3 py-1.5 rounded-xl text-[12px] font-medium truncate transition-colors',
-                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-dna-500',
-                  isActive
-                    ? 'bg-dna-50 text-dna-700'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50',
-                )
-              }
-            >
-              {v.originalFileName}
-            </NavLink>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 interface SidebarProps {
   open?: boolean;
   onClose?: () => void;
@@ -327,8 +278,6 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             </ul>
           </div>
         ))}
-
-        <RecentProtectedNav onClose={onClose} />
 
         <div>
           <p className="text-2xs font-bold uppercase tracking-widest px-2 mb-1 text-slate-400">Account</p>

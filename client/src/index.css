@@ -131,6 +131,13 @@
   html.dark .bg-bg-elevated { background-color: #1C2130 !important; }
   html.dark .bg-bg-muted    { background-color: #1C2130 !important; }
   html.dark .border-bg-border { border-color: #2A3040 !important; }
+  /* `bg-bg-base/70` etc. are different classes — they kept the light #eef2f7 fill
+     so Overview/Details text (forced light) sat on a pale box and vanished. */
+  html.dark [class*="bg-bg-base/"] { background-color: rgba(18, 21, 28, 0.92) !important; }
+  html.dark [class*="bg-bg-surface/"] { background-color: rgba(18, 21, 28, 0.92) !important; }
+  html.dark [class*="bg-bg-card/"] { background-color: rgba(23, 27, 36, 0.92) !important; }
+  html.dark [class*="bg-bg-elevated/"] { background-color: rgba(28, 33, 48, 0.92) !important; }
+  html.dark [class*="bg-bg-muted/"] { background-color: rgba(28, 33, 48, 0.92) !important; }
   html.dark .hub-header { background-color: #141821 !important; }
 
   html.dark .btn-primary,

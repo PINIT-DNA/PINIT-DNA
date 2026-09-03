@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { storeInVault } from '../services/api';
-import { formatApiError } from '../services/dashboard.api';
+import { formatApiError, listVaultRecords } from '../services/dashboard.api';
+import type { VaultRecord } from '../types/dashboard.types';
 import type { VaultStoreResponse } from '../types';
 
 interface Props {
@@ -16,38 +17,75 @@ interface Props {
 
 type VaultStage = 'working' | 'complete' | 'error';
 
+function vaultRecordToStoreResponse(row: VaultRecord): VaultStoreResponse {
+  return {
+    success: true,
+    vaultId: row.id,
+    dnaRecordId: row.dnaRecordId,
+    originalFileName: row.originalFileName,
+    originalMimeType: row.originalMimeType,
+    encryptedSizeBytes: row.encryptedSizeBytes,
+    originalSizeBytes: row.originalSizeBytes,
+    encryptionAlgorithm: row.encryptionAlgorithm,
+    storedAt: row.createdAt,
+    contentLabel: row.contentLabel ?? null,
+    contentAnalysis: row.contentAnalysis ?? null,
+  };
+}
+
 export function VaultStep({ file, dnaRecordId, custodyLocation, campaignId, onComplete, onError }: Props) {
   const [stage, setStage] = useState<VaultStage>('working');
 
   /**
-   * Vaulting is not idempotent — the API rejects a second store for the same
-   * DNA record with "already in the vault".
-   *
-   * `custodyLocation` arrives asynchronously (App.tsx resolves GPS and calls
-   * setCustodyLocation), so when it landed mid-upload the effect re-ran and
-   * fired a second store for a record the first call had already vaulted. The
-   * `cancelled` flag only suppressed the stale *state update*; the duplicate
-   * network call still went out, and its rejection painted an error over a
-   * protection that had in fact succeeded.
-   *
-   * Keyed by record id so protecting a genuinely different file still runs.
+   * Share one in-flight POST per DNA id:
+   * - React Strict Mode remounts this effect; swallowing success used to leave
+   *   Generate spinning while My Assets already listed the file.
+   * - `custodyLocation` arriving later must not start a second POST.
    */
-  const submittedFor = useRef<string | null>(null);
+  const inFlightByDna = useRef<Map<string, Promise<VaultStoreResponse>>>(new Map());
+  const finishedRef = useRef(false);
 
   /** Read at call time so a location that resolved before the request still counts. */
   const locationRef = useRef(custodyLocation);
   locationRef.current = custodyLocation;
 
   useEffect(() => {
-    if (submittedFor.current === dnaRecordId) return;
-    submittedFor.current = dnaRecordId;
-
     let cancelled = false;
+    finishedRef.current = false;
 
-    const run = async () => {
+    const finish = (result: VaultStoreResponse) => {
+      if (cancelled || finishedRef.current) return;
+      finishedRef.current = true;
+      setStage('complete');
+      onComplete(result);
+    };
+
+    const fail = (msg: string, quota?: { message?: string }) => {
+      if (cancelled || finishedRef.current) return;
+      finishedRef.current = true;
+      if (quota) {
+        onError(quota.message ?? 'Protected asset limit reached');
+        return;
+      }
+      setStage('error');
+      onError(msg);
+    };
+
+    const findListed = async (): Promise<VaultStoreResponse | null> => {
       try {
+        const rows = await listVaultRecords();
+        const row = rows.find((v) => v.dnaRecordId === dnaRecordId);
+        return row ? vaultRecordToStoreResponse(row) : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const runStore = async () => {
+      let pending = inFlightByDna.current.get(dnaRecordId);
+      if (!pending) {
         const location = locationRef.current;
-        const result = await storeInVault(
+        pending = storeInVault(
           file,
           dnaRecordId,
           {
@@ -56,27 +94,51 @@ export function VaultStep({ file, dnaRecordId, custodyLocation, campaignId, onCo
               : {}),
             ...(campaignId ? { campaignId } : {}),
           },
-        );
-        if (cancelled) return;
-        setStage('complete');
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        onComplete(result as any);
+        ) as Promise<VaultStoreResponse>;
+        inFlightByDna.current.set(dnaRecordId, pending);
+      }
+
+      try {
+        const result = await pending;
+        finish(result);
       } catch (err: unknown) {
-        if (cancelled) return;
+        inFlightByDna.current.delete(dnaRecordId);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const anyErr = err as any;
         if (anyErr?.isAssetQuotaExceeded) {
-          onError(anyErr.message ?? 'Protected asset limit reached');
+          const listed = await findListed();
+          if (listed) {
+            finish(listed);
+            return;
+          }
+          fail('', { message: anyErr.message ?? 'Protected asset limit reached' });
           return;
         }
-        const msg = formatApiError(err);
-        setStage('error');
-        onError(msg);
+        const status = anyErr?.response?.status as number | undefined;
+        const listed = await findListed();
+        if (listed && (status === 409 || status === 500 || !anyErr?.response)) {
+          finish(listed);
+          return;
+        }
+        fail(formatApiError(err));
       }
     };
 
-    void run();
-    return () => { cancelled = true; };
+    void runStore();
+
+    // If the POST hangs after the backend already committed, My Assets is the
+    // source of truth — complete as soon as this DNA appears in the vault list.
+    const poll = window.setInterval(() => {
+      if (cancelled || finishedRef.current) return;
+      void findListed().then((listed) => {
+        if (listed) finish(listed);
+      });
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(poll);
+    };
   }, [file, dnaRecordId, campaignId, onComplete, onError]);
 
   return (

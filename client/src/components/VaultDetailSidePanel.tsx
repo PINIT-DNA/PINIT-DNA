@@ -43,6 +43,7 @@ import {
   shareViaOs,
 } from '../lib/platform-share';
 import { formatReshareId, formatShareId, formatTrackId } from '../lib/lifecycle-ids';
+import { parseCoordsFromLabel } from '../lib/parse-location-label';
 
 type PanelTab = 'overview' | 'details' | 'permissions' | 'activity';
 
@@ -543,7 +544,7 @@ export function VaultDetailSidePanel({
         </button>
       </div>
 
-      <div className="overflow-y-auto flex-1">
+      <div className="overflow-y-auto flex-1 text-gray-800 dark:text-gray-100">
         <div className="relative aspect-video bg-bg-elevated border-b border-bg-border">
           <VaultFileThumbnail
             vaultId={record.id}
@@ -642,7 +643,7 @@ export function VaultDetailSidePanel({
           {tab === 'overview' && (
             <>
               <section>
-                <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                <h3 className="text-2xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider mb-2">
                   Protection
                 </h3>
                 <dl className="space-y-2 text-xs">
@@ -652,34 +653,34 @@ export function VaultDetailSidePanel({
                     ['Verified', 'Yes'],
                   ].map(([k, v]) => (
                     <div key={k} className="flex justify-between gap-2">
-                      <dt className="text-gray-500">{k}</dt>
-                      <dd className="text-white font-medium text-right">{v}</dd>
+                    <dt className="text-gray-600 dark:text-gray-300">{k}</dt>
+                    <dd className="text-gray-900 dark:text-gray-100 font-medium text-right">{v}</dd>
                     </div>
                   ))}
                 </dl>
               </section>
               <section>
-                <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                <h3 className="text-2xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider mb-2">
                   Where it came from
                 </h3>
                 <dl className="space-y-2 text-xs">
                   <div className="flex justify-between gap-2">
-                    <dt className="text-gray-500">Source</dt>
-                    <dd className="text-white font-medium text-right">
+                    <dt className="text-gray-600 dark:text-gray-300">Source</dt>
+                    <dd className="text-gray-900 dark:text-gray-100 font-medium text-right">
                       {vaultSourceCaption(record) ?? 'Pinit HUB upload'}
                     </dd>
                   </div>
                   {formatSourcePlatform(record.sourcePlatform) && (
                     <div className="flex justify-between gap-2">
-                      <dt className="text-gray-500">Platform</dt>
-                      <dd className="text-white font-medium text-right">
+                      <dt className="text-gray-600 dark:text-gray-300">Platform</dt>
+                      <dd className="text-gray-900 dark:text-gray-100 font-medium text-right">
                         {formatSourcePlatform(record.sourcePlatform)}
                       </dd>
                     </div>
                   )}
                   {record.sourceUrl && (
                     <div className="flex flex-col gap-1">
-                      <dt className="text-gray-500">Original link</dt>
+                      <dt className="text-gray-600 dark:text-gray-300">Original link</dt>
                       <dd className="text-dna-400 text-right break-all">
                         <a
                           href={record.sourceUrl}
@@ -697,26 +698,26 @@ export function VaultDetailSidePanel({
                 </dl>
               </section>
               <section>
-                <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                <h3 className="text-2xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider mb-2">
                   File identity
                 </h3>
                 <dl className="space-y-2 text-xs">
                   <div className="flex justify-between gap-2">
-                    <dt className="text-gray-500">Record</dt>
+                    <dt className="text-gray-600 dark:text-gray-300">Record</dt>
                     <dd className="text-dna-400 mono text-right truncate max-w-[180px]">{record.dnaRecordId.slice(0, 16)}…</dd>
                   </div>
                   <div className="flex justify-between gap-2">
-                    <dt className="text-gray-500">Watermark</dt>
-                    <dd className="text-white">Enabled</dd>
+                    <dt className="text-gray-600 dark:text-gray-300">Watermark</dt>
+                    <dd className="text-gray-900 dark:text-gray-100">Enabled</dd>
                   </div>
                   <div className="flex justify-between gap-2">
-                    <dt className="text-gray-500">Live tracking</dt>
-                    <dd className="text-white">Active</dd>
+                    <dt className="text-gray-600 dark:text-gray-300">Live tracking</dt>
+                    <dd className="text-gray-900 dark:text-gray-100">Active</dd>
                   </div>
                 </dl>
               </section>
               <section>
-                <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                <h3 className="text-2xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider mb-2">
                   Protected Downloads
                 </h3>
                 {loadingTracking ? (
@@ -796,40 +797,40 @@ export function VaultDetailSidePanel({
                 )}
               </section>
               <section>
-                <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                <h3 className="text-2xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider mb-2">
                   Chain of Custody
                 </h3>
                 <dl className="space-y-2 text-xs">
                   <div className="flex justify-between gap-2">
-                    <dt className="text-gray-500">Owner</dt>
-                    <dd className="text-white">{user?.shortId ?? '—'}</dd>
+                    <dt className="text-gray-600 dark:text-gray-300">Owner</dt>
+                    <dd className="text-gray-900 dark:text-gray-100">{user?.shortId ?? '—'}</dd>
                   </div>
                   <div className="flex justify-between gap-2">
-                    <dt className="text-gray-500">Created</dt>
-                    <dd className="text-white text-right">{format(new Date(record.createdAt), 'PPpp')}</dd>
+                    <dt className="text-gray-600 dark:text-gray-300">Created</dt>
+                    <dd className="text-gray-900 dark:text-gray-100 text-right">{format(new Date(record.createdAt), 'PPpp')}</dd>
                   </div>
                   <div className="flex justify-between gap-2">
-                    <dt className="text-gray-500">Vault</dt>
+                    <dt className="text-gray-600 dark:text-gray-300">Vault</dt>
                     <dd className="text-dna-400 mono text-right truncate max-w-[180px]">{record.id.slice(0, 16)}…</dd>
                   </div>
                   {record.location?.status === 'AVAILABLE' && (
                     <>
                       {record.location.creationLabel && (
                         <div className="flex justify-between gap-2">
-                          <dt className="text-gray-500 flex items-center gap-1"><MapPin size={10} /> Asset GPS</dt>
-                          <dd className="text-white text-right truncate max-w-[180px]">{record.location.creationLabel}</dd>
+                          <dt className="text-gray-600 dark:text-gray-300 flex items-center gap-1"><MapPin size={10} /> Asset GPS</dt>
+                          <dd className="text-gray-900 dark:text-gray-100 text-right truncate max-w-[180px]">{record.location.creationLabel}</dd>
                         </div>
                       )}
                       {record.location.sharedLabel && (
                         <div className="flex justify-between gap-2">
-                          <dt className="text-gray-500">Share GPS</dt>
-                          <dd className="text-white text-right truncate max-w-[180px]">{record.location.sharedLabel}</dd>
+                          <dt className="text-gray-600 dark:text-gray-300">Share GPS</dt>
+                          <dd className="text-gray-900 dark:text-gray-100 text-right truncate max-w-[180px]">{record.location.sharedLabel}</dd>
                         </div>
                       )}
                       {record.location.presentLabel && record.location.presentLabel !== record.location.creationLabel && (
                         <div className="flex justify-between gap-2">
-                          <dt className="text-gray-500">Latest GPS</dt>
-                          <dd className="text-white text-right truncate max-w-[180px]">{record.location.presentLabel}</dd>
+                          <dt className="text-gray-600 dark:text-gray-300">Latest GPS</dt>
+                          <dd className="text-gray-900 dark:text-gray-100 text-right truncate max-w-[180px]">{record.location.presentLabel}</dd>
                         </div>
                       )}
                     </>
@@ -876,12 +877,55 @@ export function VaultDetailSidePanel({
                   ['Stored at', format(new Date(record.createdAt), 'PPpp')],
                 ].map(([label, value]) => (
                   <div key={label} className="bg-bg-elevated rounded-lg p-3">
-                    <dt className="text-2xs text-gray-500 mb-1">{label}</dt>
-                    <dd className={cn('break-all', label.toString().includes('ID') ? 'mono text-dna-400' : 'text-gray-200')}>
+                    <dt className="text-2xs text-gray-600 dark:text-gray-300 mb-1">{label}</dt>
+                    <dd className={cn('break-all', label.toString().includes('ID') ? 'mono text-dna-400' : 'text-gray-900 dark:text-gray-100')}>
                       {value}
                     </dd>
                   </div>
                 ))}
+                <div className="bg-bg-elevated rounded-lg p-3">
+                  <dt className="text-2xs text-gray-600 dark:text-gray-300 mb-1 flex items-center gap-1">
+                    <MapPin size={11} className="text-dna-400" />
+                    Upload GPS
+                  </dt>
+                  {(() => {
+                    const label = record.location?.creationLabel;
+                    const source = record.location?.creationSource;
+                    const coords = parseCoordsFromLabel(label);
+                    if (!label) {
+                      return (
+                        <dd className="text-gray-500 dark:text-gray-400">
+                          Not shared when this file was protected
+                        </dd>
+                      );
+                    }
+                    return (
+                      <>
+                        <dd className="text-gray-900 dark:text-gray-100 break-all font-medium">
+                          {coords ? (
+                            <a
+                              href={`https://www.google.com/maps?q=${coords.lat},${coords.lng}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-dna-400 hover:underline"
+                            >
+                              {label}
+                            </a>
+                          ) : (
+                            label
+                          )}
+                        </dd>
+                        <p className="text-2xs text-gray-500 dark:text-gray-400 mt-1">
+                          {source === 'gps'
+                            ? 'Device GPS at upload'
+                            : source === 'ip'
+                              ? 'Approximate from network (IP)'
+                              : 'Recorded at protect'}
+                        </p>
+                      </>
+                    );
+                  })()}
+                </div>
                 <div className="rounded-xl bg-success/5 border border-success/20 p-3">
                   <div className="flex items-center gap-2 mb-1">
                     <Lock size={12} className="text-success" />

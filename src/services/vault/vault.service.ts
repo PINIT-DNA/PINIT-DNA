@@ -67,6 +67,8 @@ export interface StoreResult {
   ivHex:              string;
   authTagHex:         string;
   createdAt:          Date;
+  /** True when POST /vault/store is replayed for a DNA that is already vaulted. */
+  alreadyStored?:     boolean;
   identityEmbedding?: {
     success:           boolean;
     methods:           string[];
@@ -117,9 +119,35 @@ export class VaultService {
     if (!dnaRecord) throw new Error(`DNA record not found: ${dnaRecordId}`);
     assertRecordOwner(dnaRecord.ownerUserId, ownerUserId, 'DNA record');
 
-    // ── Check not already vaulted ─────────────────────────────────────────
+    // ── Already vaulted: return existing so Protect can finish ────────────
+    // A second POST used to 409 while My Assets already listed the file,
+    // leaving Generate spinning on "Encrypting & storing in vault".
     const existing = await prisma.vaultRecord.findUnique({ where: { dnaRecordId } });
-    if (existing) throw new Error(`DNA record ${dnaRecordId} is already in the vault`);
+    if (existing) {
+      logger.info('Vault — already stored, returning existing record', {
+        vaultId: existing.id,
+        dnaRecordId,
+      });
+      const existingAsset = await prisma.asset.findFirst({
+        where: { dnaId: dnaRecordId },
+        select: { id: true },
+      }).catch(() => null);
+      return {
+        vaultId:             existing.id,
+        dnaRecordId:         existing.dnaRecordId,
+        assetId:             existingAsset?.id,
+        encryptedFilePath:   existing.encryptedFilePath,
+        originalFileName:    existing.originalFileName,
+        originalMimeType:    existing.originalMimeType,
+        encryptedSizeBytes:  existing.encryptedSizeBytes,
+        originalSizeBytes:   existing.originalSizeBytes,
+        encryptionAlgorithm: existing.encryptionAlgorithm,
+        ivHex:               existing.ivHex,
+        authTagHex:          existing.authTagHex,
+        createdAt:           existing.createdAt,
+        alreadyStored:       true,
+      };
+    }
 
     const vaultId = uuidv4();
     const certificateId = await identityEmbeddingPipeline.resolveCertificateId(dnaRecordId);
@@ -201,6 +229,9 @@ export class VaultService {
           imageBuffer: fileToEncrypt,
           dnaRecordId,
           ownerUserId: dnaRecord.ownerUserId ?? ownerUserId,
+          // Dense 1×1 HMAC (~minutes on megapixel images) must not block /vault/store.
+          // 8×8 HKCA still enrolls when SPATIAL_PIXEL_AUTH_ENABLED.
+          skipPixel1: true,
         });
         if (spatialEnroll) {
           logger.info('Vault — spatial auth re-enrolled on post-embed bytes', {

@@ -351,7 +351,7 @@ export class DnaOrchestrator {
         imageBuffer: image.buffer,
         dnaRecordId,
         ownerUserId: universalCtx?.ownerUserId,
-        skipPixel1: universalCtx?.skipSpatialPixel1,
+        skipPixel1: universalCtx?.skipSpatialPixel1 ?? true,
       });
     } catch {
       /* non-fatal — Spatial auth must never break DNA generation */

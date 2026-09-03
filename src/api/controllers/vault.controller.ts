@@ -176,17 +176,48 @@ export async function storeInVault(
 
   try {
     const ownerUserId = getAuthUserId(req);
-    // Subscription storage quota (edge check only — does not change encrypt/store pipeline)
-    const { entitlementService } = await import('../../services/subscription');
-    await entitlementService.assertCanUpload(ownerUserId, buffer.length);
+    const dnaId = dnaRecordId.trim();
+    const { prisma } = await import('../../lib/prisma');
+    const alreadyVaulted = await prisma.vaultRecord.findUnique({
+      where: { dnaRecordId: dnaId },
+      select: { id: true },
+    });
+    // Replay of a completed protect must not hit quota — the file is already listed.
+    if (!alreadyVaulted) {
+      const { entitlementService } = await import('../../services/subscription');
+      await entitlementService.assertCanUpload(ownerUserId, buffer.length);
+    }
 
     const result = await vaultService.store({
-      dnaRecordId:      dnaRecordId.trim(),
+      dnaRecordId:      dnaId,
       ownerUserId,
       imageBuffer:      buffer,
       originalFileName: req.file.originalname,
       originalMimeType: req.file.mimetype,
     });
+
+    if (result.alreadyStored) {
+      const row = await prisma.vaultRecord.findUnique({
+        where: { id: result.vaultId },
+        select: { contentAnalysis: true, contentLabel: true },
+      });
+      res.status(200).json({
+        success: true,
+        vaultId:             result.vaultId,
+        dnaRecordId:         result.dnaRecordId,
+        assetId:             result.assetId ?? null,
+        campaignId:          null,
+        originalFileName:    result.originalFileName,
+        originalMimeType:    result.originalMimeType,
+        encryptedSizeBytes:  result.encryptedSizeBytes,
+        originalSizeBytes:   result.originalSizeBytes,
+        encryptionAlgorithm: result.encryptionAlgorithm,
+        storedAt:            result.createdAt.toISOString(),
+        contentLabel:        row?.contentLabel ?? null,
+        contentAnalysis:     row?.contentAnalysis ?? null,
+      });
+      return;
+    }
 
     // Custody location (optional GPS from client + IP) — never written into DNA
     try {
