@@ -53,7 +53,7 @@ function BackendStatus() {
     };
 
     check();
-    const id = window.setInterval(check, 20_000);
+    const id = window.setInterval(check, 90_000);
     return () => {
       cancelled = true;
       window.clearInterval(id);

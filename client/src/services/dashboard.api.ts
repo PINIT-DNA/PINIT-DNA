@@ -927,5 +927,6 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     totalEncryptedBytes,
     fileTypeBreakdown,
     recentActivity: dnaRecords.slice(0, 8),
+    vaultRecords,
   };
 }

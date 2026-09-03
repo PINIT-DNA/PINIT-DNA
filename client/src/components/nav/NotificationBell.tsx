@@ -72,7 +72,6 @@ export function NotificationBell() {
           const data = JSON.parse(ev.data) as { unreadCount?: number };
           if (typeof data.unreadCount === 'number') {
             setUnreadCount(data.unreadCount);
-            fetchNotifs();
           }
         } catch { /* ignore */ }
       };
@@ -86,7 +85,7 @@ export function NotificationBell() {
     };
 
     connectSse();
-    const interval = setInterval(fetchNotifs, 60000);
+    const interval = setInterval(fetchNotifs, 180000);
 
     return () => {
       closed = true;

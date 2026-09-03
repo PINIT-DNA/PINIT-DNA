@@ -366,36 +366,14 @@ export function ShareViewerPage() {
       viewedSentRef.current = true;
       void track('VIEWED');
     };
-    let isHopLanding = false;
     try {
       const hopTo = sessionStorage.getItem('pinit_hop_to');
       if (hopTo && token && hopTo === token) {
-        isHopLanding = true;
         sessionStorage.removeItem('pinit_hop_to');
         sessionStorage.removeItem('pinit_hop_from');
       }
     } catch { /* ignore */ }
-    const wantsPreciseGps = Boolean(info?.requestLocation);
-    if (!wantsPreciseGps) {
-      sendViewed();
-    } else {
-      const GPS_WAIT_MS = isHopLanding ? 2_000 : 3_000;
-      const GOOD_ACCURACY_M = 60;
-      if (gpsDataRef.current && gpsDataRef.current.accuracy <= GOOD_ACCURACY_M) {
-        sendViewed();
-      } else {
-        const gpsWait = setTimeout(sendViewed, GPS_WAIT_MS);
-        const gpsCheck = setInterval(() => {
-          const g = gpsDataRef.current;
-          if (g && g.accuracy <= GOOD_ACCURACY_M) {
-            clearInterval(gpsCheck);
-            clearTimeout(gpsWait);
-            sendViewed();
-          }
-        }, 400);
-        setTimeout(() => clearInterval(gpsCheck), GPS_WAIT_MS + 300);
-      }
-    }
+    sendViewed();
 
     // ── Mouse activity / idle detection ───────────────────────────────────
     // Fires IDLE once after 60s of no mouse/keyboard/scroll activity, and

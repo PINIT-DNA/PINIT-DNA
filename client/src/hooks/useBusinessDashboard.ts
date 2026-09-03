@@ -167,7 +167,7 @@ async function fetchAll(): Promise<BusinessDashboardData> {
   return result;
 }
 
-export function useBusinessDashboard(pollMs = 60_000) {
+export function useBusinessDashboard(pollMs = 120_000) {
   const [data, setData] = useState<BusinessDashboardData>(cached ?? EMPTY);
   const [loading, setLoading] = useState(!cached);
   const [refreshing, setRefreshing] = useState(false);

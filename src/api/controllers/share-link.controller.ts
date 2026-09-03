@@ -1252,12 +1252,13 @@ export async function getGlobalShareStats(req: Request, res: Response, next: Nex
     const ownerUserId = getAuthUserId(req);
     const logs = await prisma.shareAccessLog.findMany({
       where: { shareLink: { ownerUserId } },
+      orderBy: { createdAt: 'desc' },
+      take: 2500,
       select: {
         action: true, country: true, city: true,
         sessionDurationSec: true, sessionId: true,
         riskScore: true, riskLevel: true,
         ipAddress: true, createdAt: true,
-        shareLink: { select: { dnaRecordId: true } },
       },
     });
 

@@ -46,7 +46,6 @@ import {
   buildIdentityDeterministicPackage,
   CLAIMS_DIGEST_ALGORITHM_ID,
   CONTENT_SEAL_ALGORITHM_ID,
-  isDnaDeterministicModeEnabled,
   mergeIdentityDeterministicPackage,
 } from './dna/deterministic-identity';
 import { persistEnterpriseDnaPackage } from './dna/enterprise-dna-package.service';
@@ -107,7 +106,7 @@ export class DnaOrchestrator {
       sizeBytes: image.sizeBytes,
     });
 
-    // ── Create a PENDING record in the DB immediately so callers can poll status
+    // ── Create PROCESSING record immediately so callers can poll status
     const sha256Hash = crypto.createHash('sha256').update(image.buffer).digest('hex');
     await prisma.dnaRecord.create({
       data: {
@@ -116,25 +115,19 @@ export class DnaOrchestrator {
         imageMimeType:   image.mimeType,
         imageSizeBytes:  image.sizeBytes,
         schemaVersion:   config.dna.schemaVersion,
-        status:          'PENDING',
+        status:          'PROCESSING',
         sha256Hash,
         ownerUserId:     universalCtx?.ownerUserId ?? null,
-        // Universal engine fields (null-safe for legacy callers)
         fileType:        universalCtx?.fileType    ?? null,
         engineVersion:   universalCtx?.engineVersion ?? null,
       },
     });
 
-    // ── Mark as PROCESSING ────────────────────────────────────────────────────
-    await prisma.dnaRecord.update({
-      where: { id: dnaRecordId },
-      data: { status: 'PROCESSING' },
-    });
-
+    const tLayers = Date.now();
     // ── Run layers 1–4 in parallel ────────────────────────────────────────────
     const [cryptoResult, structuralResult, perceptualResult, semanticResult] =
       await Promise.all([
-        this.runLayer(() => this.layer1.generate(image), 'layer1'),
+        this.runLayer(() => this.layer1.generate(image, sha256Hash), 'layer1'),
         this.runLayer(() => this.layer2.generate(image, dnaRecordId), 'layer2'),
         this.runLayer(() => this.layer3.generate(image), 'layer3'),
         this.runLayer(() => this.layer4.generate(image), 'layer4'),
@@ -218,8 +211,11 @@ export class DnaOrchestrator {
       evolutionResult,
     ];
 
+    const layerMs = Date.now() - tLayers;
+
     const successCount = allLayers.filter((l) => l.success).length;
 
+    const tPersist = Date.now();
     // ── Persist layers 1–10 ───────────────────────────────────────────────────
     await this.persist(dnaRecordId, {
       crypto:       cryptoResult       as CryptoLayerResult,
@@ -235,26 +231,12 @@ export class DnaOrchestrator {
       status:       'PROCESSING',
     });
 
-    // ── Layers 11–15: Advanced protection (awaited — part of full pipeline) ───
-    let advancedSuccessful = 0;
-    const ownerUserId = universalCtx?.ownerUserId;
-    if (ownerUserId) {
-      const advanced = await processAdvancedLayers(
-        dnaRecordId,
-        image.buffer,
-        image.mimeType,
-        ownerUserId,
-        image.originalName,
-      );
-      advancedSuccessful = advanced.successful;
-    } else {
-      logger.warn('Layers 11–15 skipped — no ownerUserId on DNA record', { dnaRecordId });
-    }
+    const persistMs = Date.now() - tPersist;
 
-    const totalSuccessful = successCount + advancedSuccessful;
+    // Core L1–10 is enough to vault. L11–15 + optional enhancements finish in background.
     const status =
-      totalSuccessful === TOTAL_DNA_LAYERS ? 'COMPLETE'
-        : totalSuccessful > 0 ? 'PARTIAL'
+      successCount === 10 ? 'COMPLETE'
+        : successCount > 0 ? 'PARTIAL'
         : 'FAILED';
 
     await prisma.dnaRecord.update({
@@ -262,19 +244,35 @@ export class DnaOrchestrator {
       data: { status },
     });
 
-    // ── v2.1 forensic enhancement bundle (optional, backward compatible) ─────
-    try {
-      const enhancementBundle = await withTimeoutSoft(
-        () => buildEnhancementBundle(image.buffer, {
-          mimeType: image.mimeType,
-          fileType: 'IMAGE',
-          tempPath: image.filePath,
-        }),
-        8_000,
-        'dna-enhancement-bundle',
-      );
+    const ownerUserId = universalCtx?.ownerUserId;
+    if (ownerUserId) {
+      const buf = image.buffer;
+      const mime = image.mimeType;
+      const name = image.originalName;
+      void processAdvancedLayers(dnaRecordId, buf, mime, ownerUserId, name)
+        .then(async (advanced) => {
+          const totalSuccessful = successCount + advanced.successful;
+          await prisma.dnaRecord.update({
+            where: { id: dnaRecordId },
+            data: {
+              status:
+                totalSuccessful === TOTAL_DNA_LAYERS ? 'COMPLETE'
+                  : totalSuccessful > 0 ? 'PARTIAL'
+                  : 'FAILED',
+            },
+          });
+          logger.info('Layers 11–15 background complete', {
+            dnaRecordId,
+            advancedLayers: advanced.successful,
+            totalSuccessful,
+          });
+        })
+        .catch((err) => {
+          logger.warn('Layers 11–15 background failed (non-fatal)', { dnaRecordId, error: String(err) });
+        });
+    }
 
-      // Milestone B: dual-write identityDeterministic package (no schema migration)
+    try {
       const metaData = (metadataResult as MetadataLayerResult).data;
       const stegoData = (stegoResult as StegoLayerResult).data;
       const identityPackage = buildIdentityDeterministicPackage({
@@ -301,31 +299,41 @@ export class DnaOrchestrator {
         where: { id: dnaRecordId },
         select: { universalFingerprints: true },
       });
-      let fp = mergeUniversalFingerprints(
-        rec?.universalFingerprints,
-        enhancementBundle ?? undefined,
-      );
-      fp = mergeIdentityDeterministicPackage(fp, identityPackage);
+      const fp = mergeIdentityDeterministicPackage(rec?.universalFingerprints, identityPackage);
       await prisma.dnaRecord.update({
         where: { id: dnaRecordId },
-        data: {
-          universalFingerprints: fp as Prisma.InputJsonValue,
-        },
-      });
-      logger.info('DNA identity package stored', {
-        dnaRecordId,
-        deterministic: isDnaDeterministicModeEnabled(),
-        generationStatus: identityPackage.generationStatus,
-        moduleCount: identityPackage.modules.length,
-        contentSealLen: identityPackage.contentSealHmac.length,
+        data: { universalFingerprints: fp as Prisma.InputJsonValue },
       });
     } catch (err) {
-      logger.warn('DNA enhancement/identity package skipped (non-fatal)', { dnaRecordId, error: String(err) });
+      logger.warn('DNA identity package skipped (non-fatal)', { dnaRecordId, error: String(err) });
     }
 
-    // Milestone B Step 2 — enterprise DNA package (immutable SSoT dual-write).
-    // Do not block protect UX on package sealing — identity package above is enough
-    // for vault store; enterprise package finishes in the background.
+    void (async () => {
+      try {
+        const enhancementBundle = await withTimeoutSoft(
+          () => buildEnhancementBundle(image.buffer, {
+            mimeType: image.mimeType,
+            fileType: 'IMAGE',
+            tempPath: image.filePath,
+          }),
+          8_000,
+          'dna-enhancement-bundle',
+        );
+        if (!enhancementBundle) return;
+        const rec = await prisma.dnaRecord.findUnique({
+          where: { id: dnaRecordId },
+          select: { universalFingerprints: true },
+        });
+        const fp = mergeUniversalFingerprints(rec?.universalFingerprints, enhancementBundle);
+        await prisma.dnaRecord.update({
+          where: { id: dnaRecordId },
+          data: { universalFingerprints: fp as Prisma.InputJsonValue },
+        });
+      } catch (err) {
+        logger.warn('DNA enhancement bundle skipped (non-fatal)', { dnaRecordId, error: String(err) });
+      }
+    })();
+
     void persistEnterpriseDnaPackage(dnaRecordId).catch((err) => {
       logger.warn('Enterprise DNA package persistence skipped (non-fatal)', {
         dnaRecordId,
@@ -335,27 +343,18 @@ export class DnaOrchestrator {
 
     const totalMs = Date.now() - pipelineStart;
 
-    logger.info('DNA generation complete (15 layers)', {
+    logger.info('PROTECT_DNA', {
       dnaRecordId,
       status,
       coreLayers: successCount,
-      advancedLayers: advancedSuccessful,
-      totalSuccessful,
+      layerMs,
+      persistMs,
       totalMs,
+      sizeBytes: image.sizeBytes,
     });
 
-    // Phase 1 Spatial Auth (Mode A) — additive, feature-flagged, non-fatal
-    try {
-      const { tryEnrollSpatialAuthAfterDna } = await import('./spatial/enroll.service');
-      await tryEnrollSpatialAuthAfterDna({
-        imageBuffer: image.buffer,
-        dnaRecordId,
-        ownerUserId: universalCtx?.ownerUserId,
-        skipPixel1: universalCtx?.skipSpatialPixel1 ?? true,
-      });
-    } catch {
-      /* non-fatal — Spatial auth must never break DNA generation */
-    }
+    // Vault store re-enrolls spatial auth on post-embed bytes. Skipping DNA-time
+    // enroll avoids a full RGB decode + HKCA on the protect hot path.
 
     // Forensic provenance — only for registered assets (never ephemeral probe DNA)
     if (universalCtx?.ownerUserId) {
@@ -439,8 +438,8 @@ export class DnaOrchestrator {
       generatedAt: new Date(),
       layerSummary: {
         total: TOTAL_DNA_LAYERS,
-        successful: totalSuccessful,
-        failed: TOTAL_DNA_LAYERS - totalSuccessful,
+        successful: successCount,
+        failed: Math.max(0, 10 - successCount),
       },
     };
   }

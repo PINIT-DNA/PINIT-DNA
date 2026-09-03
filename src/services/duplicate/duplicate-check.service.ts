@@ -34,7 +34,7 @@ import { withTimeoutSoft } from '../../lib/safe-runner';
 // 1.0 = exact, 0.9 = very close, 0.8 = same image resized/filtered
 const PHASH_NEAR_DUPLICATE_THRESHOLD = 0.90;
 /** Max ms for duplicate checks before DNA generate — keeps upload path in seconds */
-const DUPLICATE_CHECK_BUDGET_MS = parseInt(process.env['DUPLICATE_CHECK_BUDGET_MS'] ?? '12000', 10);
+const DUPLICATE_CHECK_BUDGET_MS = parseInt(process.env['DUPLICATE_CHECK_BUDGET_MS'] ?? '8000', 10);
 const PHASH_SCAN_LIMIT = parseInt(process.env['DUPLICATE_PHASH_SCAN_LIMIT'] ?? '400', 10);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -130,7 +130,7 @@ export class DuplicateCheckService {
           existingRecordId: rec.id,
           uploaderUserId,
         });
-        return { isDuplicate: false, isHighRisk: false };
+        return { isDuplicate: false, isHighRisk: false, sha256Hash: sha256 };
       }
 
       const ownerShortId = rec.ownerUser?.shortId ?? undefined;
@@ -170,34 +170,30 @@ export class DuplicateCheckService {
       };
     }
 
-    // ── 2. TEP Tracked Export Package (share-link download re-upload) ─────────
+    // ── 2–4. Independent detectors in parallel (same budget) ────────────────
     if (hasBudget()) {
-      const tepMatch = await withTimeoutSoft(
-        () => this._checkTepExport(buffer, mimeType, originalName, sha256, uploaderIp, req),
-        4_000,
-        'duplicate-tep',
-      );
-      if (tepMatch) return tepMatch;
-    }
-
-    // ── 3. Embedded PINIT identity (vault / share-link downloads) ─────────────
-    if (hasBudget()) {
-      const identityMatch = await withTimeoutSoft(
-        () => this._checkEmbeddedIdentity(buffer, mimeType, originalName, sha256, uploaderIp, req),
-        5_000,
-        'duplicate-embedded-identity',
-      );
-      if (identityMatch) return identityMatch;
-    }
-
-    // ── 4. PINIT vault visible signature (share-viewer screenshots / OCR) ─────
-    if (mimeType.startsWith('image/') && hasBudget()) {
-      const signatureMatch = await withTimeoutSoft(
-        () => this._checkPinitVaultSignature(buffer, mimeType, originalName, sha256, uploaderIp, req),
-        5_000,
-        'duplicate-pinit-signature',
-      );
-      if (signatureMatch) return signatureMatch;
+      const detectors: Array<Promise<DuplicateCheckResult | null | undefined>> = [
+        withTimeoutSoft(
+          () => this._checkTepExport(buffer, mimeType, originalName, sha256, uploaderIp, req),
+          3_000,
+          'duplicate-tep',
+        ),
+        withTimeoutSoft(
+          () => this._checkEmbeddedIdentity(buffer, mimeType, originalName, sha256, uploaderIp, req),
+          4_000,
+          'duplicate-embedded-identity',
+        ),
+      ];
+      if (mimeType.startsWith('image/')) {
+        detectors.push(withTimeoutSoft(
+          () => this._checkPinitVaultSignature(buffer, mimeType, originalName, sha256, uploaderIp, req),
+          4_000,
+          'duplicate-pinit-signature',
+        ));
+      }
+      const hits = await Promise.all(detectors);
+      const hit = hits.find((r) => r && r.isDuplicate);
+      if (hit) return hit;
     }
 
     // ── 5. Normalized pixel hash (images — survives metadata / re-save) ───────
@@ -221,7 +217,7 @@ export class DuplicateCheckService {
     }
 
     // ── No duplicate found ────────────────────────────────────────────────────
-    return { isDuplicate: false, isHighRisk: false };
+    return { isDuplicate: false, isHighRisk: false, sha256Hash: sha256 };
   }
 
   // ── TEP tracked export (share download → re-upload) ────────────────────────

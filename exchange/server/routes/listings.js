@@ -236,22 +236,20 @@ router.get('/', (req, res) => {
   db.get(countQuery, params, (countErr, countRow) => {
     const total = countErr ? null : Number(countRow?.total ?? 0);
 
-  db.all(pagedQuery, pagedParams, (err, rows) => {
+    db.all(pagedQuery, pagedParams, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
 
-    // Attach preview_url from hub_assets
-    db.all("SELECT asset_id, preview_url, file_type FROM hub_assets", [], (err, assets) => {
-      if (err) return res.status(500).json({ error: err.message });
+    const assetIds = [...new Set((rows || []).map((item) => item.asset_id).filter(Boolean))];
+    const attach = (assets) => {
       const assetMap = {};
-      assets.forEach(a => assetMap[a.asset_id] = a);
-
-      const enrichedRows = rows.map(item => ({
+      (assets || []).forEach((a) => { assetMap[a.asset_id] = a; });
+      const enrichedRows = rows.map((item) => ({
         ...item,
         preview_url: exchangePreviewUrl(
           item.asset_id,
           assetMap[item.asset_id]?.preview_url || PLACEHOLDER_PREVIEW,
         ),
-        file_type: assetMap[item.asset_id]?.file_type || item.vertical || 'images'
+        file_type: assetMap[item.asset_id]?.file_type || item.vertical || 'images',
       }));
 
       // The body stays a plain ARRAY and paging travels in headers.
@@ -275,8 +273,19 @@ router.get('/', (req, res) => {
         'Access-Control-Expose-Headers': 'X-Total-Count, X-Limit, X-Offset, X-Has-More',
       });
       res.json(enrichedRows);
+    };
+
+    if (!assetIds.length) return attach([]);
+    const placeholders = assetIds.map(() => '?').join(',');
+    db.all(
+      `SELECT asset_id, preview_url, file_type FROM hub_assets WHERE asset_id IN (${placeholders})`,
+      assetIds,
+      (assetErr, assets) => {
+        if (assetErr) return res.status(500).json({ error: assetErr.message });
+        attach(assets);
+      },
+    );
     });
-  });
   });
 });
 

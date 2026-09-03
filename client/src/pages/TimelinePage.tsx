@@ -507,7 +507,7 @@ export function TimelinePage() {
         .catch(() => {});
     };
     fetchLinks();
-    const id = setInterval(fetchLinks, 20_000);
+    const id = setInterval(fetchLinks, 60_000);
     return () => clearInterval(id);
   }, []);
 

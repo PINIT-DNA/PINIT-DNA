@@ -112,10 +112,14 @@ export function DashboardPage() {
   }, [user?.sub]);
 
   useEffect(() => {
+    if (stats?.vaultRecords) {
+      setVaultRecords(stats.vaultRecords);
+      return;
+    }
     listVaultRecords()
       .then(setVaultRecords)
       .catch(() => setVaultRecords([]));
-  }, [stats?.totalVaultRecords]);
+  }, [stats?.totalVaultRecords, stats?.vaultRecords]);
 
   useEffect(() => {
     const fetchTracking = () => {
@@ -127,7 +131,10 @@ export function DashboardPage() {
         .catch(() => {});
     };
     fetchTracking();
-    const id = setInterval(fetchTracking, 30_000);
+    const id = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      fetchTracking();
+    }, 90_000);
     return () => clearInterval(id);
   }, []);
 
@@ -139,7 +146,10 @@ export function DashboardPage() {
         .finally(() => setSecurityLoading(false));
     };
     loadSecurity();
-    const id = setInterval(loadSecurity, 30_000);
+    const id = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      loadSecurity();
+    }, 90_000);
     return () => clearInterval(id);
   }, []);
 
@@ -181,7 +191,10 @@ export function DashboardPage() {
 
   useEffect(() => {
     fetchShare();
-    const id = setInterval(fetchShare, 30_000);
+    const id = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      fetchShare();
+    }, 90_000);
     return () => clearInterval(id);
   }, []);
 

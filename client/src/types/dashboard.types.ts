@@ -248,6 +248,7 @@ export interface DashboardStats {
   totalEncryptedBytes: number;
   fileTypeBreakdown: { fileType: string; count: number }[];
   recentActivity: DnaRecord[];
+  vaultRecords?: VaultRecord[];
 }
 
 // ─── Certificate (Phase 2 hardened) ──────────────────────────────────────────
