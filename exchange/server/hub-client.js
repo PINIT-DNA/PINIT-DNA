@@ -4,13 +4,24 @@
  */
 
 import { publicLicensedShareUrl } from './lib/share-viewer-url.js';
+import jwt from 'jsonwebtoken';
 
 function hubApiBase() {
   return (process.env.HUB_API_URL || 'http://localhost:4000/api/v1').replace(/\/$/, '');
 }
 
+function bridgeSecrets() {
+  return [...new Set(
+    [
+      process.env.EXCHANGE_BRIDGE_SECRET,
+      process.env.HUB_BRIDGE_SECRET,
+      process.env.JWT_SECRET,
+    ].filter((s) => Boolean(s && String(s).trim())),
+  )];
+}
+
 function bridgeSecret() {
-  return process.env.EXCHANGE_BRIDGE_SECRET || process.env.HUB_BRIDGE_SECRET || '';
+  return bridgeSecrets()[0] || '';
 }
 
 /** Decode JWT payload without verification (legacy / debug only). Prefer verifyHubBridgeToken. */
@@ -36,8 +47,8 @@ export function verifyHubBridgeToken(token, purpose) {
     err.status = 401;
     throw err;
   }
-  const secret = bridgeSecret();
-  if (!secret) {
+  const secrets = bridgeSecrets();
+  if (!secrets.length) {
     console.warn('[hub-client] EXCHANGE_BRIDGE_SECRET not set — JWT signature not verified');
     const payload = decodeJwtPayload(token);
     if (!payload || payload.purpose !== purpose) {
@@ -53,20 +64,25 @@ export function verifyHubBridgeToken(token, purpose) {
     return payload;
   }
 
-  try {
-    const decoded = jwt.verify(String(token), secret);
-    if (!decoded || decoded.purpose !== purpose) {
-      const err = new Error('Invalid Hub bridge token purpose');
-      err.status = 401;
-      throw err;
+  let lastVerifyError = '';
+  for (const secret of secrets) {
+    try {
+      const decoded = jwt.verify(String(token), secret);
+      if (!decoded || decoded.purpose !== purpose) {
+        const err = new Error('Invalid Hub bridge token purpose');
+        err.status = 401;
+        throw err;
+      }
+      return decoded;
+    } catch (e) {
+      if (e.status) throw e;
+      lastVerifyError = e?.name || e?.message || 'verify_failed';
     }
-    return decoded;
-  } catch (e) {
-    if (e.status) throw e;
-    const err = new Error('Invalid or expired Hub bridge token');
-    err.status = 401;
-    throw err;
   }
+  console.warn('[hub-client] Hub SSO verify failed', { reason: lastVerifyError, purpose });
+  const err = new Error('Invalid or expired Hub bridge token');
+  err.status = 401;
+  throw err;
 }
 
 /** Fetch seller vault assets from real Pinit HUB (bridge secret). */

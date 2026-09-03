@@ -267,8 +267,6 @@ export default function App() {
 
         if (result.ok && result.data?.user) {
           setUser(result.data.user);
-          // Keep the signed token — it is what proves this browser's
-          // identity on every later request.
           saveSession(result.data.user, result.data.session_token);
           setAuthOpen(false);
           setRoleNotice('');
@@ -282,14 +280,22 @@ export default function App() {
           setRoleNotice('Hub signed in, but Exchange did not receive a user profile.');
           openAuth({ mode: 'login', intent });
         } else {
+          const alreadyIn = Boolean(readCachedUser());
           const msg =
             result.data?.message ||
             result.data?.error ||
             (result.status === 0 || result.status >= 500
               ? 'Exchange API was restarting. Wait a few seconds, then tap Continue with Hub again.'
               : 'Could not sign in with Hub.');
-          setRoleNotice(msg);
-          openAuth({ mode: 'login', intent });
+          if (alreadyIn) {
+            // Keep the existing session. A stale hub_sso in the URL must not
+            // overlay the marketplace with a failed login modal.
+            setAuthOpen(false);
+            setRoleNotice('');
+          } else {
+            setRoleNotice(msg);
+            openAuth({ mode: 'login', intent });
+          }
         }
       }
 
