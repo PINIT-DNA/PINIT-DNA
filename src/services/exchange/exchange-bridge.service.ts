@@ -420,9 +420,7 @@ export const exchangeBridgeService = {
         id: true,
         shortId: true,
         fullName: true,
-        bio: true,
         avatarUrl: true,
-        accountType: true,
         updatedAt: true,
       },
     });
@@ -453,9 +451,7 @@ export const exchangeBridgeService = {
       pinit_user_id: toUserPinitId(user.shortId),
       pinit_id: user.shortId,
       name: String(user.fullName || '').trim(),
-      bio: String(user.bio || '').trim(),
       avatar_url: String(user.avatarUrl || '').trim(),
-      account_type: String(user.accountType || 'INDIVIDUAL'),
     }));
 
     return { profiles };
@@ -940,6 +936,7 @@ export const exchangeBridgeService = {
       expiresIn?: number | null;
       maxViews?: number | null;
       allowDownload?: boolean;
+      allowPrint?: boolean;
       requireName?: boolean;
       note?: string;
       requireOtp?: boolean;
@@ -970,6 +967,7 @@ export const exchangeBridgeService = {
     const opts = input.options ?? {};
     const requestLocation = opts.requestLocation === true;
     const allowDownload = opts.allowDownload !== false;
+    const allowPrint = opts.allowPrint !== false;
 
     const existing = await prisma.shareLink.findFirst({
       where: { exchangeSealId: input.sealId, isActive: true },
@@ -983,10 +981,14 @@ export const exchangeBridgeService = {
       && !opts.recipientEmail,
     );
     if (existing && reuseExisting) {
-      if (existing.requestLocation !== requestLocation || existing.allowDownload !== allowDownload) {
+      if (
+        existing.requestLocation !== requestLocation
+        || existing.allowDownload !== allowDownload
+        || existing.allowPrint !== allowPrint
+      ) {
         await prisma.shareLink.update({
           where: { id: existing.id },
-          data: { requestLocation, allowDownload },
+          data: { requestLocation, allowDownload, allowPrint },
         });
       }
       const shareBase = input.hubAppUrl || input.baseUrl;
@@ -995,6 +997,7 @@ export const exchangeBridgeService = {
         shareUrl: buildHubShareUrl(existing.token, shareBase),
         expiresAt: existing.expiresAt ?? null,
         allowDownload,
+        allowPrint,
         maxViews: existing.maxViews ?? null,
       };
     }
@@ -1010,6 +1013,7 @@ export const exchangeBridgeService = {
       expiresIn: opts.expiresIn ?? null,
       maxViews: opts.maxViews ?? null,
       allowDownload,
+      allowPrint,
       requireName: opts.requireName ?? false,
       note: opts.note,
       requireOtp: opts.requireOtp ?? false,
@@ -1057,6 +1061,7 @@ export const exchangeBridgeService = {
       shareUrl: buildHubShareUrl(created.token, shareBase),
       expiresAt: created.expiresAt ?? null,
       allowDownload: created.allowDownload,
+      allowPrint: created.allowPrint,
       maxViews: created.maxViews ?? null,
     };
   },

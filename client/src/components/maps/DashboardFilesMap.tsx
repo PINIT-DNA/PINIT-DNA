@@ -9,6 +9,7 @@ export interface DashboardFileMapPoint {
   id?: string;
   vaultId?: string | null;
   filename: string;
+  token?: string;
   lat: number;
   lng: number;
   locationLabel: string;
@@ -23,6 +24,7 @@ interface DashboardFilesMapProps {
   height?: string;
   fill?: boolean;
   live?: boolean;
+  onSelectPoint?: (point: DashboardFileMapPoint) => void;
 }
 
 const ACTION_COLORS: Record<string, string> = {
@@ -60,7 +62,7 @@ function actionLabel(action?: string): string {
   return action.replace(/_/g, ' ').toLowerCase().replace(/^\w/, c => c.toUpperCase());
 }
 
-export function DashboardFilesMap({ points, height, fill, live }: DashboardFilesMapProps) {
+export function DashboardFilesMap({ points, height, fill, live, onSelectPoint }: DashboardFilesMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<L.Map | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -101,11 +103,14 @@ export function DashboardFilesMap({ points, height, fill, live }: DashboardFiles
           <div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:4px">${p.filename}</div>
           <div style="font-size:11px;color:#6366f1;font-weight:600;margin-bottom:4px">${actionLabel(p.action)}</div>
           <div style="font-size:11px;color:#64748b">${p.locationLabel}</div>
-          ${p.device ? `<div style="text-size:10px;color:#94a3b8;margin-top:2px">${p.device}</div>` : ''}
+          ${p.device ? `<div style="font-size:10px;color:#94a3b8;margin-top:2px">${p.device}</div>` : ''}
           ${when ? `<div style="font-size:10px;color:#94a3b8;margin-top:4px">${when}</div>` : ''}
-          <div style="font-size:10px;color:#cbd5e1;margin-top:2px">${p.source === 'gps' ? 'GPS location' : 'IP geolocation (approx)'}</div>
+          <div style="font-size:10px;color:#64748b;margin-top:2px">${p.source === 'gps' ? 'Precise GPS (permission granted)' : 'Approximate IP/network location'}</div>
         </div>
       `);
+      if (onSelectPoint) {
+        marker.on('click', () => onSelectPoint(p));
+      }
       marker.addTo(map);
     });
 

@@ -4,7 +4,7 @@
  *
  * Domain cutover (www.pinithub.com):
  *   - Landing owns the domain (this Next.js project).
- *   - Hub routes (/login, /vault, /s/…, /static/…) are reverse-proxied
+ *   - Hub routes (/login, /vault, /s/…, /share/…, /static/…) are reverse-proxied
  *     to the Hub Vercel app via vercel.json rewrites.
  *   - Set NEXT_PUBLIC_HUB_APP_URL=https://www.pinithub.com (or empty "")
  *     so Log in / Get started stay on the same domain.

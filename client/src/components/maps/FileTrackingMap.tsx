@@ -26,6 +26,8 @@ interface MapPoint {
   gpsFullAddress?: string | null;
   locationSource?: string | null;
   /** Green / blue / red pin role */
+  /** Stable viewer id for selecting from map / URL */
+  viewerId?: string;
   accessKind?: AccessKind;
   /** Screenshot, copy, recording, download — shown on the pin popup */
   actionSummary?: string;
@@ -34,6 +36,7 @@ interface MapPoint {
 interface FileTrackingMapProps {
   points: MapPoint[];
   height?: string;
+  onSelectViewer?: (viewerId: string) => void;
 }
 
 /** Pin colors: Direct Recipient = green, Direct Share = blue, Reshared = red */
@@ -114,7 +117,7 @@ function createPinIcon(hop: number, riskLevel: string, accessKind?: AccessKind):
   });
 }
 
-export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapProps) {
+export function FileTrackingMap({ points, height = '400px', onSelectViewer }: FileTrackingMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<L.Map | null>(null);
 
@@ -155,9 +158,10 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
       const kindColor = ACCESS_KIND_COLORS[kind];
       const kindLabel = ACCESS_KIND_LABELS[kind];
 
-      const locationLines = p.gpsFullAddress
+      const showVillage = p.locationSource === 'gps' || p.locationSource === 'network';
+      const locationLines = showVillage && p.gpsFullAddress
         ? p.gpsFullAddress.replace(/,/g, '<br/>')
-        : p.gpsVillage
+        : showVillage && p.gpsVillage
         ? [
             p.gpsVillage,
             [p.gpsMandal, p.gpsDistrict].filter(Boolean).join(', '),
@@ -194,6 +198,10 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
           </div>
         </div>
       `, { maxWidth: 300 });
+
+      if (p.viewerId && onSelectViewer) {
+        marker.on('click', () => onSelectViewer(p.viewerId!));
+      }
 
       marker.addTo(map);
     });
@@ -239,7 +247,7 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
         mapInstance.current = null;
       }
     };
-  }, [points]);
+  }, [points, onSelectViewer]);
 
   const validCount = points.filter(p => isValidMapCoordinate(p.lat, p.lng)).length;
 

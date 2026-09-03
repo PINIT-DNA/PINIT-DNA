@@ -134,13 +134,14 @@ export default function ExchangeHeader({
   onSearch,
   user,
   cartCount = 0,
+  wishlistCount = 0,
 }) {
   const account = resolveExchangeAccount(user);
   const seller = account.canList;
   const sellerPending = account.sellerIntent && !account.canList;
   const signedIn = Boolean(user);
   const inBuy = shopModule !== 'sell';
-  const showBuyerTools = inBuy && (!signedIn || account.canPurchase);
+  const showBuyerTools = inBuy;
   const [menu, setMenu] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [query, setQuery] = useState('');
@@ -347,7 +348,7 @@ export default function ExchangeHeader({
 
           {showBuyerTools && (
             <>
-              <IconBtn title="Saved assets" active={activePage === 'wishlist'} onClick={() => setActivePage('wishlist')}>
+              <IconBtn title="Saved assets" active={activePage === 'wishlist'} onClick={() => setActivePage('wishlist')} badge={wishlistCount}>
                 <Heart size={16} />
               </IconBtn>
               <IconBtn title="Cart" active={activePage === 'cart'} onClick={() => setActivePage('cart')} badge={cartCount}>

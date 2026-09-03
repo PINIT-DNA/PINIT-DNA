@@ -27,7 +27,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { encrypt, decrypt } from './encryption.service';
-import { uploadVaultFile, downloadVaultFile, deleteVaultFile, isSupabaseStorageConfigured, isSupabaseStorageRestricted } from '../../lib/supabase-storage';
+import { uploadVaultFile, downloadVaultFile, deleteVaultFile, findVaultFileInSupabase, isSupabaseStorageConfigured, isSupabaseStorageRestricted } from '../../lib/supabase-storage';
 import { vaultEncryptedLooksLikeLocalPath } from './vault-storage-path';
 import { assertRecordOwner } from '../../lib/tenant-scope';
 import { identityEmbeddingPipeline } from '../identity/identity-embedding-pipeline.service';
@@ -255,6 +255,23 @@ export class VaultService {
     if (USE_LOCAL) {
       encryptedFilePath = await writeLocal(vaultId, encResult.encryptedBuffer);
       logger.debug('Vault — stored locally', { vaultId, encryptedFilePath });
+      // Share links open on pinithub.com (production API). Local-only files
+      // 404 there. Mirror to Supabase whenever credentials exist.
+      if (isSupabaseStorageConfigured()) {
+        try {
+          const cloudPath = await uploadVaultFile(vaultId, encResult.encryptedBuffer, ownerUserId);
+          encryptedFilePath = cloudPath;
+          logger.info('Vault — mirrored local encrypt to Supabase for public shares', {
+            vaultId,
+            cloudPath,
+          });
+        } catch (mirrorErr) {
+          logger.warn('Vault — Supabase mirror failed; pinithub.com share links will not open this file', {
+            vaultId,
+            error: mirrorErr instanceof Error ? mirrorErr.message : String(mirrorErr),
+          });
+        }
+      }
     } else {
       try {
         encryptedFilePath = await uploadVaultFile(vaultId, encResult.encryptedBuffer, ownerUserId);
@@ -541,7 +558,10 @@ export class VaultService {
       }
     }
     if (!encryptedBuffer) {
-      throw new Error(`Vault file unavailable: ${errors.join(' | ') || 'no storage backend'}`);
+      logger.error('Vault file unavailable', { vaultId, attempts: errors });
+      throw new Error(
+        'This protected file is not in cloud storage. Protect the file again, then create a new share link.',
+      );
     }
 
     // ── Decrypt (key re-derived from vaultId + master secret) ─────────────
@@ -683,5 +703,64 @@ export class VaultService {
     logger.info('Vault — file renamed', { vaultId, originalFileName: trimmed });
 
     return { vaultId, originalFileName: trimmed };
+  }
+
+  /**
+   * pinithub.com loads files from Render, not from a laptop disk.
+   * If the encrypted blob is still local, upload it before minting a public link.
+   */
+  async ensureCloudCopyForPublicShare(vaultId: string, ownerUserId: string): Promise<void> {
+    const record = await prisma.vaultRecord.findUnique({
+      where: { id: vaultId },
+      include: { dnaRecord: { select: { ownerUserId: true } } },
+    });
+    if (!record) throw new Error(`Vault record not found: ${vaultId}`);
+    assertRecordOwner(record.dnaRecord?.ownerUserId, ownerUserId, 'Vault');
+    const owner = record.dnaRecord?.ownerUserId ?? ownerUserId;
+
+    if (isSupabaseStorageConfigured()) {
+      const found = await findVaultFileInSupabase(vaultId, {
+        ownerUserId: owner,
+        storedPath: record.encryptedFilePath,
+      });
+      if (found.exists) {
+        if (vaultEncryptedLooksLikeLocalPath(record.encryptedFilePath) && found.storagePath) {
+          await prisma.vaultRecord.update({
+            where: { id: vaultId },
+            data: { encryptedFilePath: found.storagePath },
+          });
+        }
+        return;
+      }
+    }
+
+    let buf: Buffer | undefined;
+    if (vaultEncryptedLooksLikeLocalPath(record.encryptedFilePath)) {
+      try {
+        buf = await fs.readFile(record.encryptedFilePath);
+      } catch {
+        buf = undefined;
+      }
+    }
+    if (!buf) {
+      try {
+        buf = await readLocal(vaultId);
+      } catch {
+        buf = undefined;
+      }
+    }
+
+    if (!buf || !isSupabaseStorageConfigured()) {
+      throw new Error(
+        'This protected file is not in cloud storage. Protect the file again, then create a new share link.',
+      );
+    }
+
+    const cloudPath = await uploadVaultFile(vaultId, buf, owner);
+    await prisma.vaultRecord.update({
+      where: { id: vaultId },
+      data: { encryptedFilePath: cloudPath },
+    });
+    logger.info('Vault — uploaded local encrypt so public share links can open', { vaultId, cloudPath });
   }
 }

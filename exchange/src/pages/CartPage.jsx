@@ -1,14 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { ShoppingCart, Trash2, Tag, ShieldCheck, ImageOff } from 'lucide-react';
-import { payAndSeal } from '../lib/razorpay-checkout.js';
+import { payAndSeal, CHECKOUT_CANCELLED, CHECKOUT_REDIRECTING } from '../lib/razorpay-checkout.js';
 import { apiFetch } from '../lib/api.js';
 import { formatMoney } from '../lib/money.js';
 import EmptyState from '../components/EmptyState.jsx';
 import { buyerKey } from '../lib/buyer.js';
-import { canPurchase, resolveExchangeAccount } from '../lib/roles.js';
-import BecomeBuyerPanel from '../components/BecomeBuyerPanel.jsx';
+import { canPurchase } from '../lib/roles.js';
 
-export default function CartPage({ user, onOpenAuth, onSelectListing, onCheckoutDone, onBrowse, onEnableBuyer }) {
+export default function CartPage({ user, onOpenAuth, onSelectListing, onCheckoutDone, onBrowse, onEnableBuyer, onCartChanged }) {
   const [items, setItems] = useState([]);
   const [subtotal, setSubtotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -18,13 +17,14 @@ export default function CartPage({ user, onOpenAuth, onSelectListing, onCheckout
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  const key = buyerKey(user);
-  const needsBuyer = Boolean(user && resolveExchangeAccount(user).needsBuyerEnable);
+  const resolveKey = () => buyerKey(user) || localStorage.getItem('pinit_guest_buyer') || '';
 
   const load = async () => {
-    if (!key || needsBuyer) {
+    const key = resolveKey();
+    if (!key) {
       setLoading(false);
       setItems([]);
+      setSubtotal(0);
       return;
     }
     setLoading(true);
@@ -48,17 +48,14 @@ export default function CartPage({ user, onOpenAuth, onSelectListing, onCheckout
       localStorage.setItem('pinit_guest_buyer', `GUEST-${Date.now()}`);
     }
     load();
-  }, [user?.pinit_id, user?.email, needsBuyer]);
-
-  if (needsBuyer) {
-    return <BecomeBuyerPanel onEnable={onEnableBuyer} />;
-  }
+  }, [user?.pinit_id, user?.email]);
 
   const remove = async (id) => {
-    await apiFetch(`/api/commerce/cart/${id}?buyer_key=${encodeURIComponent(key)}`, {
+    await apiFetch(`/api/commerce/cart/${id}?buyer_key=${encodeURIComponent(resolveKey())}`, {
       method: 'DELETE',
     });
-    load();
+    await load();
+    onCartChanged?.();
   };
 
   const applyCoupon = async () => {
@@ -102,7 +99,7 @@ export default function CartPage({ user, onOpenAuth, onSelectListing, onCheckout
       const data = await payAndSeal({
         mode: 'cart',
         createBody: {
-          buyer_key: key,
+          buyer_key: resolveKey(),
           buyer_name: buyerName,
           buyer_email: buyerEmail,
           buyer_org: user.org_name || '',
@@ -118,7 +115,15 @@ export default function CartPage({ user, onOpenAuth, onSelectListing, onCheckout
       setSubtotal(0);
       onCheckoutDone?.(data);
     } catch (e) {
-      setError(e.message || 'Checkout failed');
+      if (e.code === CHECKOUT_REDIRECTING) {
+        setMessage('Redirecting to Razorpay…');
+        return;
+      }
+      if (e.code === CHECKOUT_CANCELLED) {
+        setError('Payment cancelled — nothing was charged.');
+      } else {
+        setError(e.message || 'Checkout failed');
+      }
     } finally {
       setCheckingOut(false);
     }
@@ -271,7 +276,7 @@ export default function CartPage({ user, onOpenAuth, onSelectListing, onCheckout
             disabled={checkingOut}
             onClick={checkout}
           >
-            {checkingOut ? 'Auto-completing payment…' : `Checkout · ${formatMoney(total)}`}
+            {checkingOut ? 'Opening Razorpay…' : `Checkout · ${formatMoney(total)}`}
           </button>
 
           <div style={{

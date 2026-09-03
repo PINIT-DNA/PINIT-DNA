@@ -735,6 +735,7 @@ export default function Marketplace({
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ buyer_key: key, listing_id: listing.listing_id }),
                   });
+                  onCartChanged?.();
                 }}
               />
             </div>

@@ -65,10 +65,15 @@ export async function createHubGatewayOrder(input: {
       mock: false,
     };
   } catch (err: any) {
+    const status = Number(err?.statusCode || err?.status || 0);
+    const description = String(err?.error?.description || err?.message || '');
     logger.error('[hub-gateway] Razorpay order failed', {
-      status: err?.statusCode,
-      description: err?.error?.description || err?.message,
+      status,
+      description,
     });
+    if (status === 401 || /authentication failed|invalid key/i.test(description)) {
+      throw new AppError(401, 'PAYMENT_GATEWAY_AUTH_FAILED');
+    }
     throw new AppError(502, 'PAYMENT_GATEWAY_UNAVAILABLE');
   }
 }

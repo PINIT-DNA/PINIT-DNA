@@ -95,6 +95,7 @@ function accessBodyFields(body: Record<string, unknown>) {
     sessionId: b.sessionId,
     screenResolution: b.screenResolution,
     deviceFingerprint: b.deviceFingerprint,
+    scrollDepth: b.scrollDepth,
     ...parseAccessGps(body),
   };
 }
@@ -124,7 +125,7 @@ function parseUaOs(ua: string): string {
 export async function createShareLink(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const {
-      vaultId, expiresIn, maxViews, allowDownload, requireName, note,
+      vaultId, expiresIn, maxViews, allowDownload, allowPrint, requireName, note,
       oneTimeUse, maxDownloads, allowedCountries, allowedDeviceTypes, allowedIpPrefixes,
       requireOtp, recipientEmail,
       privacyMaskingEnabled, maskEmail, maskPhone, maskAadhaar, maskPan, maskAddress, maskCustomPatterns,
@@ -137,6 +138,7 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
       expiresIn?: number | null;
       maxViews?: number | null;
       allowDownload?: boolean;
+      allowPrint?: boolean;
       requireName?: boolean;
       note?: string;
       oneTimeUse?: boolean;
@@ -173,7 +175,7 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
     const recipients = (req.body as any).recipients as Array<{ label: string; email?: string }> | undefined;
 
     const { devOtp, childLinks, ...link } = await shareLinkService.create({
-      vaultId, expiresIn, maxViews, allowDownload, requireName, note,
+      vaultId, expiresIn, maxViews, allowDownload, allowPrint, requireName, note,
       oneTimeUse, maxDownloads, allowedCountries, allowedDeviceTypes, allowedIpPrefixes,
       requireOtp, recipientEmail,
       privacyMaskingEnabled, maskEmail, maskPhone, maskAadhaar, maskPan, maskAddress, maskCustomPatterns,
@@ -188,11 +190,9 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
     const shareUrl = buildShareUrl(req, link.token);
     logger.info('[SmartLink] Share URL generated', { shareUrl, token: link.token });
 
-    // Build child link URLs
-    const appUrl = process.env['PUBLIC_APP_URL'] ?? `${req.protocol}://${req.get('host')}`;
     const childLinkUrls = (childLinks ?? []).map((c: any) => ({
       ...c,
-      url: `${appUrl}/s/${c.token}`,
+      url: buildShareUrl(req, c.token),
     }));
 
     res.status(201).json({
@@ -311,7 +311,7 @@ export async function recordAccess(req: Request, res: Response, next: NextFuncti
     const token = req.params['token']!;
     const body = req.body as Record<string, unknown>;
     const {
-      action, recipientName, timezone, sessionId, screenResolution, deviceFingerprint,
+      action, recipientName, timezone, sessionId, screenResolution, deviceFingerprint, scrollDepth,
     } = accessBodyFields(body);
     const gpsFields = parseAccessGps(body);
 
@@ -322,10 +322,11 @@ export async function recordAccess(req: Request, res: Response, next: NextFuncti
     logger.debug('[IP-AUDIT] Stage-2 recordAccess', { token, action, ...dumpIpHeaders(req) });
 
     const SECURITY_EVENTS = new Set([
-      'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT',
-      'TAB_SWITCH', 'SCROLL', 'IDLE', 'ACTIVE',
+      'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT', 'SCREEN_RECORDING_ATTEMPT',
+      'TAB_SWITCH', 'SCROLL', 'IDLE', 'ACTIVE', 'LOCATION_UPDATE',
+      'DOWNLOAD_STARTED', 'DOWNLOAD_FAILED', 'SHARE_FURTHER',
     ]);
-    const isSecurityEvent = SECURITY_EVENTS.has(action ?? '');
+    const isSecurityEvent = SECURITY_EVENTS.has(action ?? '') || String(action ?? '').startsWith('SCROLL');
 
     const fullLinkEarly = await shareLinkService.getWithLogs(token);
     if (fullLinkEarly && await shareLinkService.isViewerBlocked(fullLinkEarly.id, {
@@ -541,6 +542,7 @@ export async function recordAccess(req: Request, res: Response, next: NextFuncti
       referrer:     req.headers['referer'],
       timezone, sessionId, screenResolution, deviceFingerprint,
       ...gpsFields,
+      scrollDepth,
       isVpn:        ipIntel?.isVpn ?? false,
       isTor:        ipIntel?.isTor ?? false,
       isProxy:      ipIntel?.isProxy ?? false,
@@ -1365,6 +1367,16 @@ export async function shareFurther(req: Request, res: Response, next: NextFuncti
       recipientLabel: body.recipientLabel,
       forwardedByLabel: body.forwardedByLabel,
     });
+    const parent = await shareLinkService.getWithLogs(token);
+    if (parent) {
+      await shareLinkService.recordAccess({
+        shareLinkId: parent.id,
+        action: 'SHARE_FURTHER',
+        ipAddress: resolveClientIp(req),
+        userAgent: req.headers['user-agent'],
+        referrer: req.headers['referer'],
+      });
+    }
     const url = buildShareUrl(req, hop.token);
     res.json({
       success: true,
@@ -1415,7 +1427,7 @@ export async function previewImage(req: Request, res: Response, next: NextFuncti
     }
 
     // Log this preview-image fetch as a PREVIEW_FETCH action
-    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || '';
+    const ip = resolveClientIp(req);
     const ua = req.headers['user-agent'] || '';
     try {
       await prisma.shareAccessLog.create({
@@ -1504,7 +1516,7 @@ export async function postShareReviewDecision(req: Request, res: Response, next:
       req.params.token as string,
       { decision: body.decision, comment: body.comment, approverLabel: body.approverLabel },
       {
-        ipAddress: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || null,
+        ipAddress: resolveClientIp(req),
         deviceFingerprint: (req.headers['x-device-fingerprint'] as string) || null,
       },
     );

@@ -17,7 +17,7 @@ import { recordListingView } from '../lib/recently-viewed.js';
 import { canPurchase, resolveExchangeAccount } from '../lib/roles.js';
 import { samePinitIdentity } from '../lib/pinit-identity.js';
 
-export default function ListingDetail({ listingId, onBack, onOpenCheckout, onManageListing, onOpenBuyModule, shopModule = 'buy', user, onCartChanged, onEnableBuyer, onSelectListing }) {
+export default function ListingDetail({ listingId, onBack, onOpenCheckout, onManageListing, onOpenBuyModule, onOpenCart, onOpenPurchases, shopModule = 'buy', user, onCartChanged, onEnableBuyer, onSelectListing }) {
   const [listing, setListing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedTier, setSelectedTier] = useState('');
@@ -28,6 +28,9 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
   const [reviewText, setReviewText] = useState('');
   const [reviewRating, setReviewRating] = useState(5);
   const [toast, setToast] = useState('');
+  const [inCart, setInCart] = useState(false);
+  const [wishlisted, setWishlisted] = useState(false);
+  const [alreadyLicensed, setAlreadyLicensed] = useState(false);
   const [mediaError, setMediaError] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [related, setRelated] = useState([]);
@@ -44,6 +47,35 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
       recordListingView(listingId);
     }
   }, [listingId]);
+
+  useEffect(() => {
+    if (!listingId) return undefined;
+    let cancelled = false;
+    (async () => {
+      const key = buyerKey(user) || localStorage.getItem('pinit_guest_buyer');
+      if (key) {
+        const [cart, wish] = await Promise.all([
+          apiFetch(`/api/commerce/cart?buyer_key=${encodeURIComponent(key)}`),
+          apiFetch(`/api/commerce/wishlist?buyer_key=${encodeURIComponent(key)}`),
+        ]);
+        if (cancelled) return;
+        if (cart.ok) {
+          setInCart((cart.data.items || []).some((row) => row.listing_id === listingId || row.listing?.listing_id === listingId));
+        }
+        if (wish.ok) {
+          setWishlisted((wish.data.items || []).some((row) => row.listing_id === listingId || row.listing?.listing_id === listingId));
+        }
+      }
+      if (user?.pinit_id) {
+        const lic = await apiFetch('/api/orders/my-licenses');
+        if (cancelled) return;
+        if (lic.ok) {
+          setAlreadyLicensed((lic.data.licenses || []).some((row) => row.listing_id === listingId));
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [listingId, user?.pinit_id]);
 
   useEffect(() => {
     if (!listing?.listing_id) return undefined;
@@ -115,18 +147,38 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
       }),
     });
     setToast(ok ? 'Added to cart' : publicErrorMessage(error || 'Could not add to cart'));
-    if (ok) onCartChanged?.();
+    if (ok) {
+      setInCart(true);
+      onCartChanged?.();
+    } else if (String(error || '').includes('already_licensed') || String(error || '').toLowerCase().includes('already have an active licence')) {
+      setAlreadyLicensed(true);
+    }
   };
 
   const addWishlist = async () => {
-    // Uses apiFetch (like addToCart) so a server-side failure surfaces its real
-    // message instead of a blanket "Could not save".
+    const key = ensureBuyerKey();
+    if (wishlisted) {
+      const { ok, error } = await apiFetch(
+        `/api/commerce/wishlist/${encodeURIComponent(listing.listing_id)}?buyer_key=${encodeURIComponent(key)}`,
+        { method: 'DELETE' },
+      );
+      setToast(ok ? 'Removed from wishlist' : publicErrorMessage(error || 'Could not update wishlist'));
+      if (ok) {
+        setWishlisted(false);
+        onCartChanged?.();
+      }
+      return;
+    }
     const { ok, error } = await apiFetch('/api/commerce/wishlist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ buyer_key: ensureBuyerKey(), listing_id: listing.listing_id }),
+      body: JSON.stringify({ buyer_key: key, listing_id: listing.listing_id }),
     });
     setToast(ok ? 'Saved to wishlist' : publicErrorMessage(error || 'Could not save'));
+    if (ok) {
+      setWishlisted(true);
+      onCartChanged?.();
+    }
   };
 
   const submitReview = async (e) => {
@@ -449,7 +501,7 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
                   come back once a licence is available.
                 </p>
                 <button type="button" className="ex-btn ex-btn--secondary ex-btn--block" onClick={addWishlist}>
-                  <Heart size={16} /> Add to wishlist
+                  <Heart size={16} /> {wishlisted ? 'Saved — remove' : 'Add to wishlist'}
                 </button>
               </>
             ) : (
@@ -479,18 +531,30 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
                 </div>
 
                 <div className="buy-panel__actions">
-                  <button
-                    type="button"
-                    className="ex-btn ex-btn--primary ex-btn--block"
-                    onClick={() => onOpenCheckout({ ...listing, preferredTier: activeTier.id })}
-                  >
-                    License asset — {formatMoney(activeTier.price)}
+                  {alreadyLicensed ? (
+                    <button
+                      type="button"
+                      className="ex-btn ex-btn--primary ex-btn--block"
+                      onClick={() => onOpenPurchases?.() || onOpenBuyModule?.()}
+                    >
+                      Already licensed — view purchases
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="ex-btn ex-btn--primary ex-btn--block"
+                      onClick={() => onOpenCheckout({ ...listing, preferredTier: activeTier.id })}
+                    >
+                      License asset — {formatMoney(activeTier.price)}
+                    </button>
+                  )}
+                  {!alreadyLicensed && (
+                  <button type="button" className="ex-btn ex-btn--secondary ex-btn--block" onClick={inCart ? () => onOpenCart?.() : addToCart}>
+                    <ShoppingCart size={16} /> {inCart ? 'Added — view cart' : 'Add to cart'}
                   </button>
-                  <button type="button" className="ex-btn ex-btn--secondary ex-btn--block" onClick={addToCart}>
-                    <ShoppingCart size={16} /> Add to cart
-                  </button>
+                  )}
                   <button type="button" className="ex-btn ex-btn--secondary ex-btn--block" onClick={addWishlist}>
-                    <Heart size={16} /> Add to wishlist
+                    <Heart size={16} /> {wishlisted ? 'Saved to wishlist' : 'Add to wishlist'}
                   </button>
                 </div>
                 <p className="buy-panel__fine">

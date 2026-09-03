@@ -16,7 +16,7 @@ const CURRENCIES = {
   INR: { code: 'INR', symbol: '₹', minor: 100, minimumMinor: 100 },
 };
 
-const DEFAULT_CURRENCY = 'USD';
+const DEFAULT_CURRENCY = 'INR';
 
 /**
  * The currency Exchange sells in. Overridable per-environment so a future
@@ -24,6 +24,11 @@ const DEFAULT_CURRENCY = 'USD';
  */
 export function activeCurrency() {
   const raw = String(process.env.PAYMENT_CURRENCY || DEFAULT_CURRENCY).trim().toUpperCase();
+  // Indian Razorpay merchants cannot complete USD (no UPI; domestic cards refuse).
+  // Seller activation is INR; license checkout must match unless explicitly allowed.
+  if (raw === 'USD' && String(process.env.RAZORPAY_ALLOW_USD || '').trim() !== '1') {
+    return DEFAULT_CURRENCY;
+  }
   return CURRENCIES[raw] ? raw : DEFAULT_CURRENCY;
 }
 

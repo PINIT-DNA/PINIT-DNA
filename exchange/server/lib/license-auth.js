@@ -1,6 +1,7 @@
 import { getSql } from './db.js';
 import { isLicenseDownloadable, LICENSE_STATUS } from './lifecycle.js';
 import { downloadQuotaExhausted, downloadsRemaining } from './licensing.js';
+import { samePinitFace } from './pinit-identity.js';
 
 /**
  * Authorize a licensed download. Never trust browser assetId alone.
@@ -25,7 +26,7 @@ export async function authorizeLicenseDownload({
   }
 
   const buyerOk =
-    (buyerPinitId && order.buyer_pinit_id === buyerPinitId) ||
+    (buyerPinitId && samePinitFace(order.buyer_pinit_id, buyerPinitId)) ||
     (buyerEmail && String(order.buyer_email || '').toLowerCase() === String(buyerEmail).toLowerCase());
 
   if (!buyerOk) {

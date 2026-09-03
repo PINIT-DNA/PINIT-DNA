@@ -40,6 +40,7 @@ export async function ensureLicensedShare(order, options = {}) {
       token: order.share_token,
       shareUrl: order.share_url,
       allowDownload: true,
+      allowPrint: true,
     };
   }
   const result = await createLicensedShareOnHub({
@@ -50,6 +51,7 @@ export async function ensureLicensedShare(order, options = {}) {
     licenseTier: order.license_tier,
     options: {
       allowDownload: true,
+      allowPrint: true,
       requestLocation: true,
       requireName: false,
       expiresIn: options.expiresIn ?? null,

@@ -761,11 +761,6 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               <span className={cn('text-xs font-bold px-3 py-1 rounded-full border', RISK_COLORS[report.summary.riskLevel] ?? RISK_COLORS.UNKNOWN)}>
                 Risk: {report.summary.riskLevel}
               </span>
-              {resolvedOwner.vaultId && (
-                <span className="text-xs font-semibold px-3 py-1 rounded-full border border-sky-500/40 bg-sky-500/10 text-sky-300 mono" title={resolvedOwner.vaultId}>
-                  Vault {resolvedOwner.vaultId.slice(0, 8)}…
-                </span>
-              )}
               {resolvedOwner.originalFilename && (
                 <span className="text-2xs text-gray-400 truncate max-w-[220px]" title={resolvedOwner.originalFilename}>
                   Original: {resolvedOwner.originalFilename}
@@ -793,6 +788,17 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                 </div>
               ))}
             </div>
+            {resolvedOwner.vaultId && (
+              <p className="text-2xs text-gray-500 mt-3">
+                Vault and DNA IDs are stored with the matched asset. If this file was licensed on Exchange,
+                order and license IDs are on the Hub share row (`sourceContext = exchange_license`) and appear
+                in owner Asset Activity — not on the public viewer.
+                {' '}
+                <a className="text-dna-300 hover:text-white" href={`/access-intelligence?vaultId=${encodeURIComponent(resolvedOwner.vaultId)}`}>
+                  Open Asset Activity
+                </a>
+              </p>
+            )}
           </details>
 
           {(manifest?.decisionReason || report.message) && (

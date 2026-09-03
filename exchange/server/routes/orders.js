@@ -11,9 +11,13 @@ import {
 import { sealListingSale } from '../lib/seal-order.js';
 import {
   createRazorpayOrder,
+  createRazorpayPaymentLink,
   confirmRazorpayPayment,
   getBillingPublicConfig,
   isPaymentMockMode,
+  exchangePublicOrigin,
+  verifyPaymentLinkSignature,
+  fetchRazorpayPayment,
 } from '../razorpay.js';
 import { isListingPurchasable, LICENSE_STATUS, ORDER_STATUS, BRIDGE_EVENT } from '../lib/lifecycle.js';
 import { authorizeLicenseDownload } from '../lib/license-auth.js';
@@ -24,6 +28,7 @@ import { requireBuyer, requireVerifiedIdentity } from '../lib/rbac.js';
 import { postAssetActivity, emitForSeal } from '../lib/asset-activity.js';
 import { downloadsRemaining, describeEntitlement, LICENSE_TERMS_VERSION } from '../lib/licensing.js';
 import { formatMoney, activeCurrency } from '../lib/money.js';
+import { identityMatchSql, samePinitFace } from '../lib/pinit-identity.js';
 
 const router = express.Router();
 
@@ -76,11 +81,13 @@ router.post('/create-payment', requireBuyer, async (req, res) => {
 
     const couponPercent = await resolveCouponPercent(coupon_code, listing.pinit_id);
     const pricePaid = applyCouponPercent(tierPrice(listing, license_tier), couponPercent);
-    const amountPaise = toPaise(pricePaid);
+    const payCurrency = activeCurrency();
+    const amountPaise = toPaise(pricePaid, payCurrency);
     const intentId = `PI-${randomUUID().slice(0, 8).toUpperCase()}`;
 
     const rz = await createRazorpayOrder({
       amountPaise,
+      currency: payCurrency,
       receipt: intentId,
       notes: {
         intentId,
@@ -121,11 +128,26 @@ router.post('/create-payment', requireBuyer, async (req, res) => {
         license_tier,
         String(coupon_code || '').trim().toUpperCase() || null,
         amountPaise,
-        rz.currency || activeCurrency(),
+        rz.currency || payCurrency,
         rz.orderId,
         listing_id,
       ],
     );
+
+    let checkoutUrl = null;
+    const origin = exchangePublicOrigin(req);
+    if (!rz.mock && origin) {
+      const link = await createRazorpayPaymentLink({
+        amountPaise,
+        currency: rz.currency || payCurrency,
+        description: `${listing.title} · ${license_tier} license`.slice(0, 255),
+        referenceId: intentId,
+        callbackUrl: `${origin}/exchange/checkout/return`,
+        notes: { intentId, listing_id, license_tier, product: 'pinit_exchange_license' },
+        customer: { name: buyer_name, email: buyer_email },
+      });
+      if (link?.shortUrl) checkoutUrl = link.shortUrl;
+    }
 
     res.status(201).json({
       payment_intent_id: intentId,
@@ -135,14 +157,16 @@ router.post('/create-payment', requireBuyer, async (req, res) => {
       currency: rz.currency,
       keyId: rz.keyId,
       mock: rz.mock,
+      checkoutUrl,
       listing_title: listing.title,
       license_tier,
       coupon_percent: couponPercent,
     });
   } catch (err) {
     console.error('[create-payment]', err);
-    res.status(500).json({
-      error: err.message || 'Payment create failed',
+    const status = Number(err.status) === 502 ? 502 : 500;
+    res.status(status).json({
+      error: status === 502 ? 'PAYMENT_UNAVAILABLE' : (err.message || 'Payment create failed'),
       message: err.message || 'Payment create failed',
     });
   }
@@ -159,16 +183,40 @@ router.post('/verify-payment', async (req, res) => {
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_signature,
+      razorpay_payment_link_id: paymentLinkId,
+      razorpay_payment_link_reference_id: paymentLinkRef,
+      razorpay_payment_link_status: paymentLinkStatus,
     } = req.body || {};
 
-    if (!payment_intent_id) {
+    let intent = null;
+    if (payment_intent_id) {
+      intent = await getSql('SELECT * FROM payment_intents WHERE id = ?', [payment_intent_id]);
+    }
+    if (!intent && paymentLinkRef) {
+      intent = await getSql('SELECT * FROM payment_intents WHERE id = ?', [paymentLinkRef]);
+    }
+    if (!intent && razorpay_order_id) {
+      intent = await getSql('SELECT * FROM payment_intents WHERE razorpay_order_id = ?', [razorpay_order_id]);
+    }
+    if (!intent) {
       return res.status(400).json({ error: 'payment_intent_id required' });
     }
-
-    const intent = await getSql('SELECT * FROM payment_intents WHERE id = ?', [payment_intent_id]);
-    if (!intent) return res.status(404).json({ error: 'Payment intent not found' });
     if (intent.status === 'paid') {
-      return res.status(400).json({ error: 'Payment already completed' });
+      const existing = await getSql(
+        'SELECT * FROM orders_sealed WHERE payment_intent_id = ? ORDER BY sealed_at DESC LIMIT 1',
+        [intent.id],
+      );
+      if (existing) {
+        return res.status(200).json({
+          message: 'Payment already verified — license sealed',
+          mock: isPaymentMockMode(),
+          order: publicLicenseRow(existing),
+        });
+      }
+      return res.status(200).json({
+        message: 'Payment was received, but license delivery is still being prepared.',
+        pending_delivery: true,
+      });
     }
 
     const orderId = razorpay_order_id || intent.razorpay_order_id;
@@ -180,15 +228,48 @@ router.post('/verify-payment', async (req, res) => {
       signature = signature || 'mock';
     }
 
-    if (!orderId || !paymentId) {
+    if (!paymentId) {
       return res.status(400).json({ error: 'Missing Razorpay payment fields' });
     }
 
-    const confirmed = await confirmRazorpayPayment({
-      orderId,
-      paymentId,
-      signature: signature || '',
-    });
+    const paidAlready = await getSql(
+      'SELECT * FROM orders_sealed WHERE razorpay_payment_id = ? LIMIT 1',
+      [paymentId],
+    );
+    if (paidAlready) {
+      return res.status(200).json({
+        message: 'Payment already verified — license sealed',
+        mock: isPaymentMockMode(),
+        order: publicLicenseRow(paidAlready),
+      });
+    }
+
+    let confirmed;
+    if (paymentLinkId) {
+      const linkOk = verifyPaymentLinkSignature({
+        paymentLinkId,
+        paymentLinkRef: paymentLinkRef || intent.id,
+        paymentLinkStatus: paymentLinkStatus || 'paid',
+        paymentId,
+        signature: signature || '',
+      });
+      if (!linkOk) return res.status(400).json({ error: 'Invalid payment signature' });
+      const payment = await fetchRazorpayPayment(paymentId);
+      const st = String(payment?.status || '').toLowerCase();
+      if (st && !['captured', 'authorized'].includes(st) && !payment?.mock) {
+        return res.status(400).json({ error: 'Payment was not completed' });
+      }
+      confirmed = { ok: true, payment };
+    } else {
+      if (!orderId) {
+        return res.status(400).json({ error: 'Missing Razorpay payment fields' });
+      }
+      confirmed = await confirmRazorpayPayment({
+        orderId,
+        paymentId,
+        signature: signature || '',
+      });
+    }
     if (!confirmed.ok) return res.status(400).json({ error: 'Invalid payment signature' });
 
     if (intent.kind === 'cart') {
@@ -216,6 +297,7 @@ router.post('/verify-payment', async (req, res) => {
               razorpayOrderId: orderId,
               razorpayPaymentId: paymentId,
               paymentIntentId: intent.id,
+              currency: intent.currency || confirmed.payment?.currency,
             },
           });
           results.push({ listing_id: line.listing_id, ok: true, order });
@@ -247,32 +329,47 @@ router.post('/verify-payment', async (req, res) => {
     if (!listing) return res.status(404).json({ error: 'Listing not found' });
     const couponPercent = await resolveCouponPercent(intent.coupon_code, listing.pinit_id);
 
-    const order = await sealListingSale({
-      listing,
-      licenseTier: intent.license_tier,
-      buyerName: intent.buyer_name,
-      buyerEmail: intent.buyer_email,
-      buyerOrg: intent.buyer_org,
-      buyerPinitId: intent.buyer_pinit_id,
-      couponPercent,
-      termsAcceptedAt: intent.terms_accepted_at || null,
-      payment: {
-        paymentStatus: isPaymentMockMode() ? 'mock_paid' : 'paid',
-        razorpayOrderId: orderId,
-        razorpayPaymentId: paymentId,
-        paymentIntentId: intent.id,
-      },
-    });
+    let order;
+    try {
+      order = await sealListingSale({
+        listing,
+        licenseTier: intent.license_tier,
+        buyerName: intent.buyer_name,
+        buyerEmail: intent.buyer_email,
+        buyerOrg: intent.buyer_org,
+        buyerPinitId: intent.buyer_pinit_id,
+        couponPercent,
+        termsAcceptedAt: intent.terms_accepted_at || null,
+        payment: {
+          paymentStatus: isPaymentMockMode() ? 'mock_paid' : 'paid',
+          razorpayOrderId: orderId,
+          razorpayPaymentId: paymentId,
+          paymentIntentId: intent.id,
+          currency: intent.currency || confirmed.payment?.currency,
+        },
+      });
+    } catch (sealErr) {
+      await runSql(
+        `UPDATE payment_intents SET status = 'paid', razorpay_payment_id = ? WHERE id = ?`,
+        [paymentId, intent.id],
+      );
+      console.error('[verify-payment] license seal after paid payment', sealErr);
+      return res.status(200).json({
+        message: 'Payment was received, but license delivery is still being prepared.',
+        pending_delivery: true,
+        error: 'LICENSE_PENDING',
+      });
+    }
 
     await runSql(
       `UPDATE payment_intents SET status = 'paid', razorpay_payment_id = ? WHERE id = ?`,
       [paymentId, intent.id],
     );
 
-      res.status(201).json({
+    res.status(201).json({
       message: 'Payment verified — license sealed',
       mock: isPaymentMockMode(),
-      order,
+      order: publicLicenseRow(order),
     });
   } catch (err) {
     console.error('[verify-payment]', err);
@@ -388,17 +485,17 @@ router.post('/checkout', requireBuyer, async (req, res) => {
  */
 router.get('/my-licenses', requireVerifiedIdentity, (req, res) => {
   const pinitId = req.verifiedPinitId;
+  const match = identityMatchSql('o.buyer_pinit_id', pinitId);
 
   const sql = `
     SELECT o.*, l.title as asset_title, l.badge_tier, l.tagline
     FROM orders_sealed o
     LEFT JOIN listings l ON o.listing_id = l.listing_id
-    WHERE o.buyer_pinit_id = ?
+    WHERE ${match.sql}
     ORDER BY o.sealed_at DESC LIMIT 100
   `;
-  const params = [pinitId];
 
-  db.all(sql, params, (err, rows) => {
+  db.all(sql, match.params, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ licenses: (rows || []).map(publicLicenseRow) });
   });
@@ -512,6 +609,7 @@ router.get('/my-orders', requireVerifiedIdentity, requireBuyer, async (req, res)
     // else's purchase history.
     const buyerPinitId = req.verifiedPinitId;
     if (!buyerPinitId) return res.status(400).json({ error: 'buyer identity required' });
+    const match = identityMatchSql('o.buyer_pinit_id', buyerPinitId);
 
     const rows = await allSql(
       `SELECT o.seal_id, o.order_id, o.invoice_number, o.listing_id, o.asset_id,
@@ -522,9 +620,9 @@ router.get('/my-orders', requireVerifiedIdentity, requireBuyer, async (req, res)
               l.title
          FROM orders_sealed o
          LEFT JOIN listings l ON l.listing_id = o.listing_id
-        WHERE o.buyer_pinit_id = ?
+        WHERE ${match.sql}
         ORDER BY o.sealed_at DESC`,
-      [buyerPinitId],
+      match.params,
     );
 
     res.json(rows.map((o) => ({
@@ -557,7 +655,7 @@ router.get('/invoice/:sealId', requireVerifiedIdentity, requireBuyer, async (req
       [req.params.sealId],
     );
     if (!order) return res.status(404).json({ error: 'Order not found' });
-    if (!buyerPinitId || order.buyer_pinit_id !== buyerPinitId) {
+    if (!buyerPinitId || !samePinitFace(order.buyer_pinit_id, buyerPinitId)) {
       // Same response as missing, so invoices cannot be enumerated.
       return res.status(404).json({ error: 'Order not found' });
     }

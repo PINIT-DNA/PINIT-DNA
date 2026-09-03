@@ -18,3 +18,11 @@ test('local licensed share URL uses Hub UI', () => {
   });
   assert.equal(url, 'http://localhost:3002/s/abc');
 });
+
+test('stale localhost:3000 is rewritten to Hub Vite 3002', () => {
+  const url = publicLicensedShareUrl('sl5hPt7NPH', 'http://localhost:3000', {
+    NODE_ENV: 'development',
+    HUB_APP_URL: 'http://localhost:3000',
+  });
+  assert.equal(url, 'http://localhost:3002/s/sl5hPt7NPH');
+});

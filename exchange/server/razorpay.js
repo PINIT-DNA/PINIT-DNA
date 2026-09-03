@@ -164,6 +164,18 @@ export function getBillingPublicConfig() {
   };
 }
 
+/** Public Exchange origin for Razorpay payment-link callbacks (HTTPS only). */
+export function exchangePublicOrigin(req) {
+  const env = String(process.env.EXCHANGE_APP_URL || process.env.EXCHANGE_PUBLIC_URL || '').trim().replace(/\/$/, '');
+  if (env && /^https:\/\//i.test(env)) return env;
+  const host = String(req?.headers?.['x-forwarded-host'] || req?.get?.('host') || '').split(',')[0].trim();
+  const proto = String(req?.headers?.['x-forwarded-proto'] || req?.protocol || 'https').split(',')[0].trim();
+  if (host && !/localhost|127\.0\.0\.1/i.test(host) && proto === 'https') {
+    return `https://${host.replace(/^https?:\/\//i, '')}`;
+  }
+  return '';
+}
+
 function withTimeout(promise, ms, message) {
   return Promise.race([
     promise,
@@ -331,12 +343,9 @@ export async function createRazorpayOrder({ amountPaise, receipt, notes = {}, cu
     });
     if (hub?.orderId) return hub;
   } catch (err) {
-    console.error('[payments] Hub Razorpay order:', razorpayErrorMessage(err));
-    if (err.hubPayment && Number(err.status) === 502) {
-      const wrapped = new Error(SHOPPER_PAYMENT_UNAVAILABLE);
-      wrapped.status = 502;
-      throw wrapped;
-    }
+    // Hub keys can be stale while Exchange still has a working test key
+    // (seller activation). A Hub 401/502 must not block license checkout.
+    console.warn('[payments] Hub Razorpay order unavailable, using Exchange keys:', razorpayErrorMessage(err));
   }
 
   try {

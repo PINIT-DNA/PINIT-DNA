@@ -37,6 +37,7 @@ interface ShareLink {
   id: string;
   token: string;
   vaultId?: string | null;
+  assetId?: string | null;
   filename: string;
   createdAt: string;
   isActive: boolean;
@@ -44,6 +45,19 @@ interface ShareLink {
   downloadCount: number;
   maxViews: number | null;
   expiresAt: string | null;
+  sourceContext?: string | null;
+  exchangeOrderId?: string | null;
+  exchangeSealId?: string | null;
+  licenseTier?: string | null;
+  activityStats?: {
+    uniqueViewers: number;
+    views: number;
+    downloads: number;
+    securityEvents: number;
+    countries: string[];
+    lastActivityAt: string | null;
+    hasHighRisk: boolean;
+  };
   accessLogs: Array<{
     id: string;
     action: string;
@@ -67,6 +81,7 @@ export function AccessIntelligencePage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const vaultFilter = searchParams.get('vaultId')?.trim() || null;
+  const assetFilter = searchParams.get('assetId')?.trim() || null;
   const [loadError, setLoadError] = useState('');
   const [assetMap, setAssetMap] = useState<DashboardFileMapPoint[]>([]);
   const [vaultTrack, setVaultTrack] = useState<VaultTrackingDashboard | null>(null);
@@ -125,8 +140,12 @@ export function AccessIntelligencePage() {
   // Do not auto-jump to a single token (that hid other shares of the same file).
 
   const filteredLinks = useMemo(
-    () => (vaultFilter ? links.filter((l) => l.vaultId === vaultFilter) : links),
-    [links, vaultFilter],
+    () => {
+      if (vaultFilter) return links.filter((l) => l.vaultId === vaultFilter);
+      if (assetFilter) return links.filter((l) => l.assetId === assetFilter);
+      return links;
+    },
+    [links, vaultFilter, assetFilter],
   );
 
   const filteredFileShares = useMemo(
@@ -135,18 +154,17 @@ export function AccessIntelligencePage() {
   );
 
   const activeLinks = filteredLinks.filter((l) => l.isActive);
-  const totalViews = filteredLinks.reduce((s, l) => s + (l.viewCount ?? 0), 0);
-  const uniqueCountries = new Set(filteredLinks.flatMap((l) => (l.accessLogs ?? []).map((a) => a.country).filter(Boolean)));
-  const securityActions = new Set(['COPY_ATTEMPT', 'PRINT_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'SCREEN_RECORDING_ATTEMPT', 'DOWNLOAD_FAILED', 'BLOCKED_REVOKED']);
+  const totalViews = filteredLinks.reduce((s, l) => s + (l.activityStats?.views ?? l.viewCount ?? 0), 0);
+  const uniqueCountries = new Set(filteredLinks.flatMap((l) => l.activityStats?.countries ?? []));
   const securityEvents = filteredLinks.reduce(
-    (s, l) => s + (l.accessLogs ?? []).filter((a) => securityActions.has(a.action)).length,
+    (s, l) => s + (l.activityStats?.securityEvents ?? 0),
     0,
   );
-  const uniqueViewers = new Set(
-    filteredLinks.flatMap((l) => (l.accessLogs ?? []).filter((a) => a.action === 'VIEWED').map((a) => a.ipAddress || a.id)),
-  );
+  const uniqueViewersCount = filteredLinks.reduce((s, l) => s + (l.activityStats?.uniqueViewers ?? 0), 0);
 
   const openFileShares = filteredFileShares.filter((s) => s.kind === 'file_open' && s.token);
+  const exchangeLinks = filteredLinks.filter((l) => l.sourceContext === 'exchange_license');
+  const exchangeCtx = exchangeLinks[0] ?? null;
   const activeFiles = openFileShares.filter((s) => s.status === 'ACTIVE');
   const totalFileViews = openFileShares.reduce((s, f) => s + (f.viewCount ?? 0), 0);
   const fileCountries = new Set(openFileShares.map((s) => s.geoCountry).filter(Boolean));
@@ -234,9 +252,9 @@ export function AccessIntelligencePage() {
             <Shield size={22} className="text-dna-400" />
             Asset Activity
           </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            See who accessed {vaultFilter ? 'this asset' : 'your assets'} and what happened.
-          </p>
+            <p className="text-sm text-gray-500 mt-1">
+              See who accessed {vaultFilter || assetFilter ? 'this asset' : 'your assets'} and what happened.
+            </p>
         </div>
         <button
           type="button"
@@ -255,8 +273,23 @@ export function AccessIntelligencePage() {
         </div>
       )}
 
-      {vaultFilter && (
+      {(vaultFilter || assetFilter) && (
         <div className="mb-5 space-y-4">
+          {exchangeCtx && (
+            <div className="rounded-xl border border-dna-500/30 bg-dna-500/5 px-4 py-3">
+              <p className="text-2xs font-semibold text-dna-300 uppercase tracking-wide">Commercial context</p>
+              <p className="text-sm font-semibold text-white mt-1">Pinit Exchange · licensed delivery</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-2xs text-gray-400 mt-2">
+                <span>Asset</span><span className="text-white truncate">{exchangeCtx.filename}</span>
+                <span>License</span><span className="text-white capitalize">{exchangeCtx.licenseTier || 'Licensed'}</span>
+                {exchangeCtx.exchangeOrderId ? <><span>Order</span><span className="text-white">{exchangeCtx.exchangeOrderId}</span></> : null}
+                {exchangeCtx.exchangeSealId ? <><span>License</span><span className="text-white">{exchangeCtx.exchangeSealId}</span></> : null}
+              </div>
+              <p className="text-2xs text-gray-500 mt-2">This is not shown on the public licensed viewer.</p>
+            </div>
+          )}
+          {vaultFilter && (
+          <>
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dna-500/30 bg-dna-500/10 px-3 py-2.5">
             <div className="flex items-center gap-3 min-w-0">
               <VaultFileThumbnail
@@ -292,7 +325,13 @@ export function AccessIntelligencePage() {
                 Approximate IP/network location unless the recipient allowed precise location.
               </p>
               <div className="h-56 rounded-xl overflow-hidden border border-bg-border">
-                <DashboardFilesMap points={assetMap} fill />
+                <DashboardFilesMap
+                  points={assetMap}
+                  fill
+                  onSelectPoint={(p) => {
+                    if (p.token) navigate(`/access-intelligence/${encodeURIComponent(p.token)}`);
+                  }}
+                />
               </div>
             </div>
           ) : (
@@ -302,6 +341,8 @@ export function AccessIntelligencePage() {
                 No location yet. Pins appear when someone opens a share and location is available (precise GPS only with permission; otherwise approximate IP).
               </p>
             </div>
+          )}
+          </>
           )}
         </div>
       )}
@@ -326,9 +367,9 @@ export function AccessIntelligencePage() {
       {tab === 'links' ? (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
-            <StatCard icon={<Users size={14} />} label="Viewers" value={uniqueViewers.size} color="text-cyan-400" />
+            <StatCard icon={<Users size={14} />} label="Viewers" value={uniqueViewersCount} color="text-cyan-400" />
             <StatCard icon={<Eye size={14} />} label="Views" value={totalViews} color="text-blue-400" />
-            <StatCard icon={<Clock size={14} />} label="Downloads" value={filteredLinks.reduce((s, l) => s + (l.downloadCount ?? 0), 0)} color="text-green-400" />
+            <StatCard icon={<Clock size={14} />} label="Downloads" value={filteredLinks.reduce((s, l) => s + (l.activityStats?.downloads ?? l.downloadCount ?? 0), 0)} color="text-green-400" />
             <StatCard icon={<AlertTriangle size={14} />} label="Security events" value={securityEvents} color="text-orange-400" />
             <StatCard icon={<Globe size={14} />} label="Countries" value={uniqueCountries.size} color="text-orange-400" />
           </div>
@@ -351,11 +392,11 @@ export function AccessIntelligencePage() {
                 .slice()
                 .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
                 .map((link) => {
-                  const logs = link.accessLogs ?? [];
-                  const uniqueIps = new Set(logs.filter((l) => l.action === 'VIEWED').map((l) => l.ipAddress).filter(Boolean));
-                  const hasRisk = logs.some((l) => l.riskLevel === 'HIGH' || l.riskLevel === 'CRITICAL');
-                  const countries = new Set(logs.map((l) => l.country).filter(Boolean));
-                  const lastAccess = logs.length > 0 ? logs[logs.length - 1] : null;
+                  const stats = link.activityStats;
+                  const uniqueIps = stats?.uniqueViewers ?? 0;
+                  const hasRisk = stats?.hasHighRisk ?? false;
+                  const countries = new Set(stats?.countries ?? []);
+                  const lastAccessAt = stats?.lastActivityAt ?? null;
 
                   return (
                     <button
@@ -369,6 +410,11 @@ export function AccessIntelligencePage() {
                           <div className="flex items-center gap-2 mb-1">
                             <span className={`w-2 h-2 rounded-full ${link.isActive ? 'bg-green-400' : 'bg-gray-500'}`} />
                             <p className="text-sm font-semibold text-white truncate">{link.filename}</p>
+                            {link.sourceContext === 'exchange_license' && (
+                              <span className="text-2xs text-dna-300 bg-dna-500/15 px-1.5 py-0.5 rounded">
+                                Exchange licensed delivery
+                              </span>
+                            )}
                             {hasRisk && (
                               <span className="flex items-center gap-1 text-2xs text-red-400 bg-red-500/20 px-1.5 py-0.5 rounded">
                                 <AlertTriangle size={9} /> Risk
@@ -383,11 +429,11 @@ export function AccessIntelligencePage() {
                           <div className="flex items-center gap-4 text-2xs text-gray-500 flex-wrap">
                             <span className="flex items-center gap-1">
                               <Users size={10} className="text-dna-400" />
-                              {uniqueIps.size} viewer{uniqueIps.size !== 1 ? 's' : ''}
+                              {uniqueIps} viewer{uniqueIps !== 1 ? 's' : ''}
                             </span>
                             <span className="flex items-center gap-1">
                               <Eye size={10} className="text-blue-400" />
-                              {link.viewCount} view{link.viewCount !== 1 ? 's' : ''}
+                              {stats?.views ?? link.viewCount} view{(stats?.views ?? link.viewCount) !== 1 ? 's' : ''}
                             </span>
                             <span className="flex items-center gap-1">
                               <Download size={10} className="text-green-400" />
@@ -397,10 +443,10 @@ export function AccessIntelligencePage() {
                               <Globe size={10} className="text-orange-400" />
                               {countries.size} countr{countries.size !== 1 ? 'ies' : 'y'}
                             </span>
-                            {lastAccess && (
+                            {lastAccessAt && (
                               <span className="flex items-center gap-1">
                                 <Clock size={10} />
-                                Last: {formatDistanceToNow(new Date(lastAccess.createdAt))} ago
+                                Last: {formatDistanceToNow(new Date(lastAccessAt))} ago
                               </span>
                             )}
                           </div>

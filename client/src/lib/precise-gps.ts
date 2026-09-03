@@ -202,12 +202,14 @@ export function captureBestGps(opts?: {
 }
 
 export function locationLabel(accuracy: number | null | undefined, source: string | null | undefined): string {
-  if (source === 'ip') return '🌐 IP Lookup (city / ISP — not GPS)';
-  if (accuracy != null && accuracy <= 50) return '📍 GPS (precise)';
-  if (accuracy != null && accuracy <= 150) return '📍 GPS / assisted (good)';
-  if (source === 'gps' || source === 'network') {
-    if (accuracy != null && accuracy <= 1000) return '📡 Network location (approximate — enable precise GPS on phone)';
-    return '📡 Coarse network / Wi‑Fi location (not village-accurate)';
+  if (source === 'gps' && (accuracy == null || accuracy <= 75)) {
+    return 'Precise location — permission granted';
   }
-  return '🌐 Location approximate';
+  if (source === 'gps' || source === 'network') {
+    return 'Approximate location — device/network (not guaranteed village-level)';
+  }
+  if (source === 'ip' || source === 'denied' || !source) {
+    return 'Approximate location — based on network/IP';
+  }
+  return 'Approximate location — based on network/IP';
 }

@@ -364,6 +364,7 @@ export async function getLiveTrackingMap(): Promise<{
     id: string;
     vaultId: string | null;
     filename: string;
+    token?: string;
     lat: number;
     lng: number;
     action: string;
@@ -382,6 +383,7 @@ export async function getLiveTrackingMap(): Promise<{
       id: string;
       vaultId: string | null;
       filename: string;
+      token?: string;
       lat: number;
       lng: number;
       action: string;

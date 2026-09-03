@@ -7,7 +7,7 @@
  * again. The symbol is not hardcoded at call sites.
  */
 const SYMBOLS = { USD: '$', INR: '₹' };
-const DEFAULT_CURRENCY = 'USD';
+const DEFAULT_CURRENCY = 'INR';
 
 let platformCurrency = DEFAULT_CURRENCY;
 

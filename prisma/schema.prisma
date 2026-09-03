@@ -1345,6 +1345,7 @@ model ShareLink {
   viewCount                 Int                  @default(0)
   isActive                  Boolean              @default(true)
   allowDownload             Boolean              @default(false)
+  allowPrint                Boolean              @default(false)
   requireName               Boolean              @default(false)
   note                      String?
   oneTimeUse                Boolean              @default(false)

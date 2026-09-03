@@ -27,11 +27,8 @@ export function resolveExchangeAccount(user) {
   const sellerIntent = raw === 'creator' || raw === 'seller' || raw === 'admin';
   const caps = user.capabilities || {};
   const canList = listFlag === true || listFlag === 1 || caps.sell === true;
-  const buyFlag = user.can_purchase;
-  const canPurchase = sellerIntent
-    ? (buyFlag === true || buyFlag === 1 || caps.buy === true
-      || user.buyer_enabled === true || user.buyer_enabled === 1 || user.buyer_enabled === '1')
-    : (buyFlag !== false && buyFlag !== 0);
+  const canPurchase = Boolean(user);
+
   const needsBuyerEnable = sellerIntent && !canPurchase;
 
   const displayName = user.display_name || user.name || 'Account';

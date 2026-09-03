@@ -8,18 +8,32 @@ import {
   resolveCouponPercent,
   toPaise,
 } from '../lib/pricing.js';
-import { createRazorpayOrder, isPaymentMockMode } from '../razorpay.js';
+import {
+  createRazorpayOrder,
+  createRazorpayPaymentLink,
+  exchangePublicOrigin,
+  isPaymentMockMode,
+} from '../razorpay.js';
 import { forbidSellerCommerce, requireBuyer, requireSeller, requireVerifiedIdentity, pinitIdFromReq } from '../lib/rbac.js';
 import { exchangePreviewUrl, PLACEHOLDER_PREVIEW } from '../lib/preview-url.js';
 import { createLicensedShareOnHub, recordLicensedShareCopiedOnHub } from '../hub-client.js';
 import { persistLicensedShare } from '../lib/licensed-access.js';
 import { publicLicensedShareUrl } from '../lib/share-viewer-url.js';
 import { emitForListing, emitForSeal } from '../lib/asset-activity.js';
+import { identityMatchSql } from '../lib/pinit-identity.js';
 
 const router = express.Router();
 
 function buyerKey(req) {
   return String(req.query.buyer_key || req.body?.buyer_key || req.headers['x-buyer-key'] || '').trim();
+}
+
+/** Guest keys match exactly. Pinit IDs match every prefix of the same face. */
+function ownerClause(column, key) {
+  const k = String(key || '').trim();
+  if (!k) return null;
+  if (/^PINIT-/i.test(k)) return identityMatchSql(column, k);
+  return { sql: `${column} = ?`, params: [k] };
 }
 
 /**
@@ -58,9 +72,10 @@ function enrichListings(listingIds, cb) {
 /** GET /api/commerce/cart?buyer_key= */
 router.get('/cart', (req, res) => {
   const key = buyerKey(req);
-  if (!key) return res.status(400).json({ error: 'buyer_key required' });
+  const scope = ownerClause('buyer_key', key);
+  if (!scope) return res.status(400).json({ error: 'buyer_key required' });
 
-  db.all('SELECT * FROM cart_items WHERE buyer_key = ? ORDER BY created_at DESC', [key], (err, rows) => {
+  db.all(`SELECT * FROM cart_items WHERE ${scope.sql} ORDER BY created_at DESC`, scope.params, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     const ids = (rows || []).map((r) => r.listing_id);
     enrichListings(ids, (e2, listings) => {
@@ -86,8 +101,29 @@ router.post('/cart', forbidSellerCommerce, (req, res) => {
   const tier = String(req.body?.license_tier || 'commercial').trim();
   if (!key || !listingId) return res.status(400).json({ error: 'buyer_key and listing_id required' });
 
-  // asset_id is resolved from the listing so the row carries the canonical
-  // Asset.id from the moment it is created (Phase 1 columns, Phase 2 events).
+  const licenseScope = ownerClause('buyer_pinit_id', key);
+  const rejectIfLicensed = (next) => {
+    if (!licenseScope || !/^PINIT-/i.test(key)) return next();
+    db.get(
+      `SELECT seal_id FROM orders_sealed
+        WHERE listing_id = ? AND ${licenseScope.sql}
+          AND LOWER(COALESCE(license_status, 'active')) = 'active'
+        LIMIT 1`,
+      [listingId, ...licenseScope.params],
+      (licErr, licensed) => {
+        if (licErr) return res.status(500).json({ error: licErr.message });
+        if (licensed) {
+          return res.status(409).json({
+            error: 'already_licensed',
+            message: 'You already have an active licence for this asset. Open Purchases to access it.',
+          });
+        }
+        next();
+      },
+    );
+  };
+
+  rejectIfLicensed(() => {
   db.run(
     `INSERT INTO cart_items (buyer_key, listing_id, license_tier, asset_id)
      VALUES (?, ?, ?, (SELECT asset_id FROM listings WHERE listing_id = ?))
@@ -104,16 +140,23 @@ router.post('/cart', forbidSellerCommerce, (req, res) => {
       });
     },
   );
+  });
 });
 
 /** DELETE /api/commerce/cart/:id?buyer_key= */
 router.delete('/cart/:id', (req, res) => {
   const key = buyerKey(req);
-  if (!key) return res.status(400).json({ error: 'buyer_key required' });
-  // Capture the listing before the row disappears so the event can be keyed.
-  db.get('SELECT listing_id FROM cart_items WHERE id = ? AND buyer_key = ?', [req.params.id, key], (_e, row) => {
+  const scope = ownerClause('buyer_key', key);
+  if (!scope) return res.status(400).json({ error: 'buyer_key required' });
+  db.get(
+    `SELECT listing_id FROM cart_items WHERE id = ? AND ${scope.sql}`,
+    [req.params.id, ...scope.params],
+    (_e, row) => {
     const listingId = row && row.listing_id;
-    db.run('DELETE FROM cart_items WHERE id = ? AND buyer_key = ?', [req.params.id, key], function (err) {
+    db.run(
+      `DELETE FROM cart_items WHERE id = ? AND ${scope.sql}`,
+      [req.params.id, ...scope.params],
+      function (err) {
       if (err) return res.status(500).json({ error: err.message });
       const removed = this.changes;
       res.json({ ok: true, removed });
@@ -143,7 +186,10 @@ router.post('/cart/create-payment', requireBuyer, async (req, res) => {
       return res.status(400).json({ error: 'buyer_key, buyer_name, buyer_email required' });
     }
 
-    db.all('SELECT * FROM cart_items WHERE buyer_key = ?', [key], async (err, rows) => {
+    const cartScope = ownerClause('buyer_key', key);
+    if (!cartScope) return res.status(400).json({ error: 'buyer_key required' });
+
+    db.all(`SELECT * FROM cart_items WHERE ${cartScope.sql}`, cartScope.params, async (err, rows) => {
       if (err) return res.status(500).json({ error: err.message });
       if (!rows?.length) return res.status(400).json({ error: 'Cart is empty' });
 
@@ -189,8 +235,22 @@ router.post('/cart/create-payment', requireBuyer, async (req, res) => {
             amountPaise,
             rz.orderId,
           ],
-          (insErr) => {
+          async (insErr) => {
             if (insErr) return res.status(500).json({ error: insErr.message });
+            let checkoutUrl = null;
+            const origin = exchangePublicOrigin(req);
+            if (!rz.mock && origin) {
+              const link = await createRazorpayPaymentLink({
+                amountPaise,
+                currency: rz.currency,
+                description: `Pinit Exchange cart (${lines.length} licenses)`.slice(0, 255),
+                referenceId: intentId,
+                callbackUrl: `${origin}/exchange/checkout/return`,
+                notes: { intentId, kind: 'cart', product: 'pinit_exchange_cart' },
+                customer: { name: buyer_name, email: buyer_email },
+              });
+              if (link?.shortUrl) checkoutUrl = link.shortUrl;
+            }
             res.status(201).json({
               payment_intent_id: intentId,
               orderId: rz.orderId,
@@ -199,13 +259,15 @@ router.post('/cart/create-payment', requireBuyer, async (req, res) => {
               currency: rz.currency,
               keyId: rz.keyId,
               mock: rz.mock,
+              checkoutUrl,
               lines,
             });
           },
         );
       } catch (e) {
-        res.status(500).json({
-          error: e.message,
+        const status = Number(e.status) === 502 ? 502 : 500;
+        res.status(status).json({
+          error: status === 502 ? 'PAYMENT_UNAVAILABLE' : e.message,
           message: e.message,
         });
       }
@@ -280,16 +342,16 @@ router.post('/cart/checkout', requireBuyer, async (req, res) => {
 /** Wishlist */
 router.get('/wishlist', (req, res) => {
   const key = buyerKey(req);
-  if (!key) return res.status(400).json({ error: 'buyer_key required' });
-  db.all('SELECT * FROM wishlist WHERE buyer_key = ? ORDER BY created_at DESC', [key], (err, rows) => {
+  const scope = ownerClause('buyer_key', key);
+  if (!scope) return res.status(400).json({ error: 'buyer_key required' });
+  db.all(`SELECT * FROM wishlist WHERE ${scope.sql} ORDER BY created_at DESC`, scope.params, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     const ids = (rows || []).map((r) => r.listing_id);
     enrichListings(ids, (e2, listings) => {
       if (e2) return res.status(500).json({ error: e2.message });
       const map = Object.fromEntries((listings || []).map((l) => [l.listing_id, l]));
-      res.json({
-        items: (rows || []).map((r) => ({ ...r, listing: map[r.listing_id] || null })).filter((i) => i.listing),
-      });
+      const items = (rows || []).map((r) => ({ ...r, listing: map[r.listing_id] || null })).filter((i) => i.listing);
+      res.json({ items, count: items.length });
     });
   });
 });
@@ -323,11 +385,12 @@ router.post('/wishlist', (req, res) => {
 
 router.delete('/wishlist/:listingId', (req, res) => {
   const key = buyerKey(req);
-  if (!key) return res.status(400).json({ error: 'buyer_key required' });
+  const scope = ownerClause('buyer_key', key);
+  if (!scope) return res.status(400).json({ error: 'buyer_key required' });
   const listingId = req.params.listingId;
   db.run(
-    'DELETE FROM wishlist WHERE buyer_key = ? AND listing_id = ?',
-    [key, listingId],
+    `DELETE FROM wishlist WHERE ${scope.sql} AND listing_id = ?`,
+    [...scope.params, listingId],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
       const removed = this.changes;
@@ -342,6 +405,22 @@ router.delete('/wishlist/:listingId', (req, res) => {
       }
     },
   );
+});
+
+/** Move guest cart/wishlist onto the signed-in Pinit identity. Never deletes rows. */
+router.post('/claim-guest', requireVerifiedIdentity, (req, res) => {
+  const guest = String(req.body?.guest_key || '').trim();
+  const dest = String(req.verifiedPinitId || '').trim();
+  if (!guest || !/^GUEST-/i.test(guest) || !dest) {
+    return res.status(400).json({ error: 'guest_key required' });
+  }
+  db.run('UPDATE cart_items SET buyer_key = ? WHERE buyer_key = ?', [dest, guest], (e1) => {
+    if (e1) return res.status(500).json({ error: e1.message });
+    db.run('UPDATE wishlist SET buyer_key = ? WHERE buyer_key = ?', [dest, guest], (e2) => {
+      if (e2) return res.status(500).json({ error: e2.message });
+      res.json({ ok: true });
+    });
+  });
 });
 
 /** Reviews for a seller's listings (must be before /reviews/:listingId) */
@@ -518,6 +597,7 @@ router.post('/purchases/:sealId/share', requireVerifiedIdentity, (req, res) => {
         shareUrl,
         expiresAt: result.expiresAt ?? null,
         allowDownload: result.allowDownload !== false,
+        allowPrint: result.allowPrint !== false,
         maxViews: result.maxViews ?? req.body?.options?.maxViews ?? null,
       };
       try {

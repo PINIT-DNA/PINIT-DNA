@@ -2,13 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { ShieldCheck, Download, Award, FileText, ExternalLink, Share2, Copy, X, Eye } from 'lucide-react';
 import { formatMoney } from '../lib/money.js';
 import { apiFetch } from '../lib/api.js';
-import { canPurchase, resolveExchangeAccount } from '../lib/roles.js';
-import BecomeBuyerPanel from '../components/BecomeBuyerPanel.jsx';
 import EmptyState from '../components/EmptyState.jsx';
+
+/** Hub UI is Vite :3002. Stale env used :3000, which refuses connections. */
+function liveHubShareUrl(url) {
+  return String(url || '')
+    .replace(/:\/\/localhost:3000\b/gi, '://localhost:3002')
+    .replace(/:\/\/127\.0\.0\.1:3000\b/gi, '://127.0.0.1:3002');
+}
 
 export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onBrowse }) {
   const [licenses, setLicenses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   // Surfaces download/authorisation failures inline instead of an OS alert.
   const [actionError, setActionError] = useState('');
   /** Licence currently being shared (null = modal closed). */
@@ -19,6 +25,7 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
     viewsPreset: 'unlimited',
     viewsCustom: '',
     allowDownload: true,
+    allowPrint: true,
     requireName: false,
     requestLocation: false,
   });
@@ -32,23 +39,23 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
   const [certError, setCertError] = useState('');
 
   useEffect(() => {
-    if (user && !canPurchase(user)) {
-      setLoading(false);
-      setLicenses([]);
-      return;
-    }
     fetchMyLicenses();
-  }, [user?.pinit_id, user?.email, user?.can_purchase]);
+  }, [user?.pinit_id]);
 
   const fetchMyLicenses = async () => {
     setLoading(true);
+    setLoadError('');
     try {
-      // Scoped server-side to the signed-in session, so no identity is passed
-      // in the query string. apiFetch attaches the session token.
-      const { ok, data } = await apiFetch('/api/orders/my-licenses');
+      const { ok, data, error } = await apiFetch('/api/orders/my-licenses');
       if (ok) setLicenses(data.licenses || []);
+      else {
+        setLicenses([]);
+        setLoadError(error || 'Could not load your purchases. They are still saved — try again.');
+      }
     } catch (err) {
       console.error('Error fetching licenses:', err);
+      setLicenses([]);
+      setLoadError('Could not load your purchases. They are still saved — try again.');
     } finally {
       setLoading(false);
     }
@@ -68,9 +75,10 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
       setActionError(error || 'You don\'t have access to this file.');
       return;
     }
-    const url = download
+    const raw = download
       ? (data?.download_intent_url || data?.share_url)
       : (data?.view_url || data?.share_url);
+    const url = liveHubShareUrl(raw);
     if (!url || String(url).includes('/exchange/delivery/')) {
       setActionError('Access is not ready yet. Please try again shortly.');
       return;
@@ -90,6 +98,7 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
       viewsPreset: 'unlimited',
       viewsCustom: '',
       allowDownload: true,
+      allowPrint: true,
       requireName: false,
       requestLocation: false,
     });
@@ -138,6 +147,7 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
             expiresIn: shareHours(),
             maxViews: shareMaxViews(),
             allowDownload: shareOpts.allowDownload,
+            allowPrint: shareOpts.allowPrint,
             requireName: shareOpts.requireName,
             requestLocation: shareOpts.requestLocation,
           },
@@ -146,7 +156,9 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
       if (ok && data?.shareUrl) {
         setShareResult({
           ...data,
+          shareUrl: liveHubShareUrl(data.shareUrl),
           allowDownload: data.allowDownload !== false,
+          allowPrint: data.allowPrint !== false,
           maxViews: data.maxViews ?? shareMaxViews(),
           expiresAt: data.expiresAt ?? null,
         });
@@ -200,10 +212,6 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
     }
   };
 
-  if (user && resolveExchangeAccount(user).needsBuyerEnable) {
-    return <BecomeBuyerPanel onEnable={onEnableBuyer} />;
-  }
-
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '32px 24px' }}>
       <div style={{ marginBottom: '32px' }}>
@@ -247,6 +255,14 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
             </div>
           ))}
         </div>
+      ) : loadError ? (
+        <EmptyState
+          icon={<ShieldCheck size={28} color="var(--primary)" />}
+          title="Couldn't load purchases"
+          description={loadError}
+          primaryLabel="Try again"
+          onPrimary={() => fetchMyLicenses()}
+        />
       ) : licenses.length === 0 ? (
         <EmptyState
           icon={<ShieldCheck size={28} color="var(--primary)" />}
@@ -470,6 +486,13 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
                     </label>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 8 }}>
                       <input
+                        type="checkbox" checked={shareOpts.allowPrint}
+                        onChange={(e) => setShareOpts((s) => ({ ...s, allowPrint: e.target.checked }))}
+                      />
+                      Allow print
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 8 }}>
+                      <input
                         type="checkbox" checked={shareOpts.requireName}
                         onChange={(e) => setShareOpts((s) => ({ ...s, requireName: e.target.checked }))}
                       />
@@ -527,6 +550,7 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
                   Expires: {shareResult.expiresAt ? new Date(shareResult.expiresAt).toLocaleString() : 'Never'}
                   {' · '}Views allowed: {shareResult.maxViews != null ? shareResult.maxViews : 'Unlimited'}
                   {' · '}Download: {shareResult.allowDownload ? 'Allowed' : 'Off'}
+                  {' · '}Print: {shareResult.allowPrint ? 'Allowed' : 'Off'}
                 </p>
                 <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
                   <button type="button" className="btn-primary" onClick={copyShareUrl}
@@ -539,10 +563,6 @@ export default function MyLicenses({ user, onViewCertificate, onEnableBuyer, onB
                   </a>
                   <button type="button" className="btn-secondary" onClick={() => setShareFor(null)}>Done</button>
                 </div>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: 14 }}>
-                  Copying here is recorded. Opening the same link later is tracked as a new view.
-                  External forwarding outside Pinit cannot be detected.
-                </p>
               </>
             )}
           </div>

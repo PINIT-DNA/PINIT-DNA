@@ -134,6 +134,7 @@ export default function SalesCenter({
               {cols === 'full' && <th>Invoice</th>}
               <th>Status</th>
               <th>Date</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -151,6 +152,18 @@ export default function SalesCenter({
                 {cols === 'full' && <td className="mono">{row.invoice_number || '—'}</td>}
                 <td className="cap">{row.license_status || row.status || 'licensed'}</td>
                 <td>{row.sealed_at ? new Date(row.sealed_at).toLocaleDateString() : '—'}</td>
+                <td>
+                  {row.asset_id ? (
+                    <a
+                      className="btn-secondary"
+                      href={`${HUB}/access-intelligence?assetId=${encodeURIComponent(row.asset_id)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      View asset activity
+                    </a>
+                  ) : null}
+                </td>
               </tr>
             ))}
           </tbody>

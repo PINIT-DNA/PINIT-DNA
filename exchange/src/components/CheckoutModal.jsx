@@ -1,9 +1,8 @@
 import { formatMoney, setPlatformCurrency } from '../lib/money.js';
 import React, { useState, useEffect, useRef } from 'react';
 import { X, ShieldCheck, Award, Download, Eye } from 'lucide-react';
-import { payAndSeal, CHECKOUT_CANCELLED } from '../lib/razorpay-checkout.js';
+import { payAndSeal, CHECKOUT_CANCELLED, CHECKOUT_REDIRECTING } from '../lib/razorpay-checkout.js';
 import { apiFetch } from '../lib/api.js';
-import { canPurchase } from '../lib/roles.js';
 import TestPaymentHint from './TestPaymentHint.jsx';
 
 function defaultBuyer(user) {
@@ -16,13 +15,14 @@ function defaultBuyer(user) {
   return { name, email, org: user?.org_name || '' };
 }
 
-export default function CheckoutModal({ isOpen, onClose, listing, onOrderCompleted, user }) {
+export default function CheckoutModal({ isOpen, onClose, listing, onOrderCompleted, onViewPurchases, user }) {
   const [tier, setTier] = useState('commercial');
   const [buyerName, setBuyerName] = useState('');
   const [buyerEmail, setBuyerEmail] = useState('');
   const [buyerOrg, setBuyerOrg] = useState('');
 
   const [loading, setLoading] = useState(false);
+  const [payPhase, setPayPhase] = useState('ready');
   const [completedOrder, setCompletedOrder] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [cancelMsg, setCancelMsg] = useState('');
@@ -41,6 +41,7 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
     setCompletedOrder(null);
     setErrorMsg('');
     setCancelMsg('');
+    setPayPhase('ready');
     setAcceptedTerms(false);
     const defaults = defaultBuyer(user);
     setBuyerName(defaults.name);
@@ -62,16 +63,14 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
   const runCheckout = async (name = buyerName, email = buyerEmail, org = buyerOrg) => {
     if (!acceptedTerms) {
       setErrorMsg('Please accept the licence terms before continuing.');
-      return;
-    }
-    if (user && !canPurchase(user)) {
-      setErrorMsg('Become a Buyer on this same identity to purchase.');
+      setPayPhase('failure');
       return;
     }
     const defaults = defaultBuyer(user);
     const buyer_name = String(name || defaults.name).trim();
     const buyer_email = String(email || defaults.email).trim();
     setLoading(true);
+    setPayPhase('processing');
     setErrorMsg('');
     try {
       const verified = await payAndSeal({
@@ -91,18 +90,37 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
         userContact: user?.phone || user?.contact || '',
       });
 
+      if (verified.pending_delivery && !verified.order) {
+        setPayPhase('verifying');
+        setErrorMsg('Payment was received, but license delivery is still being prepared.');
+        return;
+      }
+      if (!verified.order) {
+        setPayPhase('failure');
+        setErrorMsg('Payment could not be completed. No license was created.');
+        return;
+      }
       setCompletedOrder(verified.order);
+      setPayPhase('success');
       onOrderCompleted?.(verified.order);
     } catch (err) {
       // A buyer who closed the sheet has not failed at anything, and nothing
       // was charged. Saying "Payment cancelled" in red implied a problem with
       // their card and left them unsure whether they had been billed.
+      if (err.code === CHECKOUT_REDIRECTING) {
+        setPayPhase('processing');
+        setErrorMsg('');
+        setCancelMsg('Redirecting to Razorpay…');
+        return;
+      }
       if (err.code === CHECKOUT_CANCELLED) {
+        setPayPhase('ready');
         setErrorMsg('');
         setCancelMsg('Payment cancelled — nothing was charged. Your selection is still here.');
       } else {
+        setPayPhase('failure');
         setCancelMsg('');
-        setErrorMsg(err.message);
+        setErrorMsg(err.message || 'Payment could not be completed. No license was created.');
       }
       autoPayRef.current = false;
     } finally {
@@ -175,14 +193,16 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
             <ShieldCheck size={22} color="var(--primary)" />
             <div>
               <h3 style={{ fontSize: '1.2rem', color: '#fff' }}>
-                {completedOrder ? 'License Sealed & Delivered' : 'Checkout & Seal License'}
+                {completedOrder ? 'License sealed' : 'Checkout & Seal License'}
               </h3>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                 {completedOrder
-                  ? `Seal ID: ${completedOrder.seal_id}`
-                  : payMode === 'razorpay'
-                    ? 'Pay with Razorpay · then provenance seal'
-                    : 'Auto-filling buyer details · payment marked successful'}
+                  ? 'Payment verified · licensed delivery is ready'
+                  : payPhase === 'processing'
+                    ? 'Processing payment…'
+                    : payMode === 'razorpay'
+                      ? 'Pay with Razorpay · then provenance seal'
+                      : 'Auto-filling buyer details · payment marked successful'}
               </p>
             </div>
           </div>
@@ -194,31 +214,26 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
         {completedOrder ? (
           <div className="modal-body">
             <div className="certificate-box" style={{ marginBottom: '20px' }}>
-              <div className="certificate-stamp">VERIFIED SEAL</div>
+              <div className="certificate-stamp">LICENSE SEALED</div>
               <div style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '8px' }}>
-                Pinit Provenance License Certificate
+                Licensed asset
               </div>
               <h4 style={{ fontSize: '1.3rem', color: '#fff', marginBottom: '12px' }}>{completedOrder.title}</h4>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
-                <div>Order ID: <strong style={{ color: '#fff' }}>{completedOrder.order_id}</strong></div>
-                <div>Seal ID: <strong style={{ color: 'var(--primary)' }}>{completedOrder.seal_id}</strong></div>
-                <div>License type: <strong style={{ color: 'var(--emerald)' }}>{String(completedOrder.license_tier).toUpperCase()}</strong></div>
-                <div>Amount paid: <strong style={{ color: '#fff' }}>
+                <div>Creator: <strong style={{ color: '#fff' }}>{listing.creator_name || listing.pinit_id}</strong></div>
+                <div>License: <strong style={{ color: 'var(--emerald)' }}>{String(completedOrder.license_tier).toUpperCase()}</strong></div>
+                <div>Order: <strong style={{ color: '#fff' }}>{completedOrder.order_id}</strong></div>
+                <div>Amount: <strong style={{ color: '#fff' }}>
                   {formatMoney(completedOrder.price_paid, completedOrder.currency)}
                 </strong></div>
-                <div>Payment: <strong style={{ color: '#fff' }}>{completedOrder.payment_status || 'paid'}</strong></div>
-                <div>Buyer: <strong style={{ color: '#fff' }}>{completedOrder.buyer_name}</strong></div>
+                <div>Payment: <strong style={{ color: '#fff' }}>{completedOrder.payment_status || 'Paid'}</strong></div>
+                <div>Delivery: <strong style={{ color: '#fff' }}>{completedOrder.hub_seal?.error ? 'Preparing' : 'Ready'}</strong></div>
               </div>
 
-              {completedOrder.hub_seal?.sealId && (
-                <div style={{ marginTop: 12, fontSize: '0.82rem', color: 'var(--emerald)' }}>
-                  Hub monitoring sealed: {completedOrder.hub_seal.sealId}
-                </div>
-              )}
               {completedOrder.hub_seal?.error && (
                 <div style={{ marginTop: 12, fontSize: '0.82rem', color: 'var(--badge-gold)' }}>
-                  Sale sealed. Access link is being prepared — open Purchases in a moment.
+                  Payment was received, but license delivery is still being prepared.
                 </div>
               )}
             </div>
@@ -240,8 +255,15 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
               >
                 <Download size={16} /> Download licensed file
               </button>
-              <button type="button" className="btn-secondary" onClick={onClose}>
-                Done
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  onClose();
+                  onViewPurchases?.();
+                }}
+              >
+                View purchase
               </button>
             </div>
           </div>
@@ -336,7 +358,7 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', marginBottom: '6px' }}>
                   <span style={{ color: 'var(--text-muted)' }}>Payment rail:</span>
-                  <span style={{ color: 'var(--emerald)' }}>{payMode === 'razorpay' ? 'Razorpay test' : 'Auto-success (demo)'}</span>
+                  <span style={{ color: 'var(--emerald)' }}>{payMode === 'razorpay' ? (testMode ? 'Razorpay test' : 'Razorpay') : 'Test checkout (not live payment)'}</span>
                 </div>
                 {/* Shared with the seller activation screen, so the working
                     sandbox method is stated in one place rather than being
@@ -383,13 +405,13 @@ export default function CheckoutModal({ isOpen, onClose, listing, onOrderComplet
                 Cancel
               </button>
               <button type="submit" className="btn-primary" disabled={loading || !acceptedTerms}>
-                {loading
-                  ? payMode === 'mock'
-                    ? 'Auto-completing payment…'
-                    : 'Processing…'
-                  : payMode === 'razorpay'
-                    ? `Pay ${formatMoney(selectedPrice)} with Razorpay`
-                    : `Confirm ${formatMoney(selectedPrice)} · auto-success`}
+                {payPhase === 'processing' || loading
+                  ? (payMode === 'mock' ? 'Auto-completing payment…' : 'Processing payment…')
+                  : payPhase === 'failure'
+                    ? 'Payment failed — Try again'
+                    : payMode === 'razorpay'
+                      ? `Pay ${formatMoney(selectedPrice)} with Razorpay`
+                      : `Confirm ${formatMoney(selectedPrice)} · auto-success`}
               </button>
             </div>
           </form>

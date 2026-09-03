@@ -18,6 +18,7 @@ function isInvalidHubUrl(url) {
     || u.includes('pinit-dna-3fmw')
     || u.includes('localhost:5174')
     || u.includes('localhost:5173')
+    || u.includes('localhost:3000')
   );
 }
 
@@ -137,7 +138,7 @@ const ALIASES = {
   '/exchange/seller': 'seller_overview',
   '/exchange/seller/opportunities': 'seller_opportunities',
   '/exchange/seller/onboarding/payment': 'seller_onboarding_payment',
-  '/exchange/buyer/notifications': 'buyer_notifications',
+  '/exchange/checkout/return': 'my_licenses',
   '/exchange/buyer/payment-methods': 'buyer_payments',
   '/exchange/collections': 'collections',
   '/exchange/requirements': 'requirements',

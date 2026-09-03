@@ -118,9 +118,8 @@ export function canAccessPage(user, page) {
     return true;
   }
   if (BUYER_ONLY_PAGES.has(page)) {
-    if (!user) return true;
-    const a = resolveExchangeAccount(user);
-    return a.canPurchase || a.needsBuyerEnable;
+    if (page === 'cart' || page === 'wishlist') return true;
+    return Boolean(user);
   }
   return true;
 }

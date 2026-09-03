@@ -6,6 +6,7 @@
 import { Request, Response, NextFunction } from 'express';
 import {
   exchangeBridgeService,
+  resolveShareUrlForDeliveryToken,
   verifyServiceBridgeSecret,
 } from '../../services/exchange/exchange-bridge.service';
 import { config } from '../../config';
@@ -278,7 +279,7 @@ export async function prepareDeliveryBridge(req: Request, res: Response, next: N
   }
 }
 
-/** GET /exchange/delivery/:token — service fallback only; browsers use /share/:token */
+/** GET /exchange/delivery/:token — browsers are sent to Hub /share/:token (tracked). */
 export async function redeemDeliveryBridge(req: Request, res: Response, _next: NextFunction): Promise<void> {
   try {
     const token = String(req.params.token || '').trim();
@@ -286,15 +287,30 @@ export async function redeemDeliveryBridge(req: Request, res: Response, _next: N
       res.status(400).json({ success: false, error: 'This access link is not valid.' });
       return;
     }
-    const result = await exchangeBridgeService.redeemDelivery(token);
-    res.setHeader('Content-Type', result.originalMimeType || 'application/octet-stream');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(result.originalFileName || 'licensed-asset')}"`,
-    );
-    res.setHeader('X-PinIT-Order-Id', result.orderId || '');
-    res.setHeader('X-PinIT-Delivery', 'licensed-export');
-    res.send(result.buffer);
+    const shareUrl = await resolveShareUrlForDeliveryToken(token);
+    if (shareUrl) {
+      const wantsDownload = String(req.query.download || '') === '1';
+      const dest = wantsDownload
+        ? `${shareUrl}${shareUrl.includes('?') ? '&' : '?'}download=1`
+        : shareUrl;
+      res.redirect(302, dest);
+      return;
+    }
+    const accept = String(req.headers.accept || '');
+    const isBrowser = accept.includes('text/html') || !accept.includes('application/json');
+    if (isBrowser) {
+      res.status(410).type('html').send(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"/><title>Link expired</title></head>
+<body style="font-family:system-ui,sans-serif;background:#0F1117;color:#F5F7FA;padding:48px;max-width:40rem">
+  <h1 style="font-size:1.25rem">This download link has expired</h1>
+  <p style="color:#A7B0C0;line-height:1.5">Open <strong>Purchases</strong> in Pinit Exchange and choose View licensed asset. That opens a tracked Pinit HUB page — not this API URL.</p>
+</body></html>`);
+      return;
+    }
+    res.status(401).json({
+      success: false,
+      error: 'You don\'t have access to this file. Open Purchases and use View licensed asset.',
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.warn('[exchange-delivery] redeem failed', { message });

@@ -567,11 +567,10 @@ h1, h2, h3, h4, h5, h6 {
   border-color: rgba(255, 255, 255, 0.2);
 }
 
-/* Modal Architecture */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 500;
+body.razorpay-checkout-open .modal-overlay {
+  z-index: 1;
+  pointer-events: none;
+}
   background: rgba(0, 0, 0, 0.8);
   backdrop-filter: blur(10px);
   display: flex;

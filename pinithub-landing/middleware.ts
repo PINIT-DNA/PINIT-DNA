@@ -36,6 +36,8 @@ const HUB_EXACT = new Set([
   '/verify-certificate',
   '/admin-portal',
   '/pinithub-logo.png',
+  '/share',
+  '/help',
 ]);
 
 const HUB_PREFIXES = [
@@ -44,6 +46,7 @@ const HUB_PREFIXES = [
   '/face-auth/',
   '/extension/',
   '/s/',
+  '/share/',
   '/team/',
   '/onboarding/',
   '/business/',

@@ -130,6 +130,38 @@ export function emitShareAccessEvent(ctx: ShareAccessEventContext): void {
         body: `Print attempt on ${fileName} (${country})`,
       });
       break;
+    case 'SCREEN_RECORDING_ATTEMPT':
+      events.push({
+        ...base,
+        name: 'share.security.screen_recording_attempt',
+        severity: 'warning',
+        notificationType: 'SCREEN_RECORDING_ATTEMPT',
+        category: 'security',
+        title: 'Screen recording attempt detected',
+        body: `Screen recording attempt on ${fileName} (${country})`,
+      });
+      break;
+    case 'DOWNLOAD_STARTED':
+      events.push({
+        ...base,
+        name: 'share.link.download_started',
+        severity: 'info',
+        notificationType: 'LINK_DOWNLOADED',
+        title: 'Download started',
+        body: `${fileName} download started from ${country} · ${device}`,
+        skipAudit: true,
+      });
+      break;
+    case 'SHARE_FURTHER':
+      events.push({
+        ...base,
+        name: 'share.link.share_further',
+        severity: 'warning',
+        notificationType: 'FORWARD_DETECTED',
+        title: 'Link reshared',
+        body: `${fileName} was reshared (${country} · ${ip})`,
+      });
+      break;
     default:
       break;
   }

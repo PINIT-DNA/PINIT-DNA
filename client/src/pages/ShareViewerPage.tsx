@@ -9,7 +9,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Shield, Lock, Download, Eye, AlertTriangle, CheckCircle2, Clock, Ban, Share2, Copy } from 'lucide-react';
+import { Shield, Lock, Download, Eye, AlertTriangle, CheckCircle2, Clock, Ban, Share2, Copy, Printer } from 'lucide-react';
 import axios from 'axios';
 import { format } from 'date-fns';
 import { API_BASE_URL } from '../config/api.config';
@@ -34,6 +34,7 @@ interface LinkInfo {
   note:         string | null;
   requireName:  boolean;
   allowDownload: boolean;
+  allowPrint?: boolean;
   expiresAt:    string | null;
   maxViews:     number | null;
   viewCount:    number;
@@ -587,6 +588,11 @@ export function ShareViewerPage() {
     } finally { setDownloading(false); }
   };
 
+  const handlePrint = () => {
+    if (!info?.allowPrint) return;
+    window.print();
+  };
+
   useEffect(() => {
     if (!autoDownload || autoDownloadFired.current) return;
     if (!info?.allowDownload || !info.isActive || !trackingReady) return;
@@ -645,12 +651,13 @@ export function ShareViewerPage() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const status = (err as any)?.response?.status;
         const msg    = await extractApiError(err);
-        if (status === 403) {
+        const storageMissing = /ENOENT|Vault file unavailable|Object not found|not in cloud storage|opt[/\\]render|vault[/\\]encrypted/i.test(msg || '');
+        if (storageMissing || status === 503) {
+          setFileLoadError('This file is not in cloud storage. Protect it again in Pinit HUB, then create a new share link.');
+        } else if (status === 403) {
           setFileLoadError(msg ?? 'Access denied: your country, device, or IP is not permitted by the sender\'s policy.');
         } else if (status === 410) {
           setFileLoadError(msg ?? 'This link has been revoked or has reached its download limit.');
-        } else if (status === 503) {
-          setFileLoadError(msg ?? 'The file could not be loaded from vault storage. The server may need configuration.');
         } else {
           setFileLoadError(msg ?? 'Failed to load the file. The server may be unreachable.');
         }
@@ -857,9 +864,6 @@ export function ShareViewerPage() {
         <p className="text-gray-400 text-sm">
           This protected file is no longer available through this link.
         </p>
-        <div className="mt-4 px-4 py-2 bg-bg-elevated rounded-lg border border-bg-border inline-block">
-          <p className="text-2xs text-gray-500 mono">{token}</p>
-        </div>
       </div>
     </div>
   );
@@ -1018,24 +1022,18 @@ export function ShareViewerPage() {
             aria-labelledby="loc-perm-title"
             aria-describedby="loc-perm-desc"
           >
-            <div className="px-4 pt-3.5 pb-2 flex gap-3">
-              <div className="w-5 h-5 mt-0.5 rounded-full bg-[#1a73e8] flex items-center justify-center shrink-0 text-white text-[10px] font-bold">
-                P
-              </div>
-              <div className="min-w-0">
-                <p id="loc-perm-title" className="text-[13px] leading-snug text-[#202124] font-medium">
-                  Allow location access?
+            <div className="px-4 pt-3 pb-1">
+              <p id="loc-perm-title" className="text-[14px] text-[#202124] font-medium">
+                Share your location?
+              </p>
+              <p id="loc-perm-desc" className="text-[13px] text-[#5f6368] mt-1">
+                Optional. Helps the owner see where this file was opened.
+              </p>
+              {locationDenied && (
+                <p className="text-[12px] text-[#d93025] mt-2">
+                  Blocked in the browser. Allow location in the address bar, then try again.
                 </p>
-                <p id="loc-perm-desc" className="text-[13px] leading-snug text-[#202124] mt-0.5">
-                  The sender requested precise location to help verify where this
-                  protected asset is being accessed.
-                </p>
-                {locationDenied && (
-                  <p className="text-[11px] text-[#d93025] mt-2 leading-snug">
-                    Location was blocked. Allow it in the address bar, then try again.
-                  </p>
-                )}
-              </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-1 px-2 pb-2 pt-1">
@@ -1046,17 +1044,17 @@ export function ShareViewerPage() {
                   setLocationDenied(false);
                   setLocationDone(true);
                 }}
-                className="min-w-[64px] h-9 px-3 rounded text-[13px] font-medium text-[#1a73e8] hover:bg-[#f1f3f4] disabled:opacity-50"
+                className="h-9 px-3 rounded text-[13px] font-medium text-[#5f6368] hover:bg-[#f1f3f4] disabled:opacity-50"
               >
-                Continue without precise location
+                Not now
               </button>
               <button
                 type="button"
                 disabled={locationAsked}
                 onClick={handleAllow}
-                className="min-w-[64px] h-9 px-3 rounded text-[13px] font-medium text-[#1a73e8] hover:bg-[#f1f3f4] disabled:opacity-50"
+                className="h-9 px-3 rounded text-[13px] font-medium text-[#1a73e8] hover:bg-[#f1f3f4] disabled:opacity-50"
               >
-                {locationAsked ? '…' : 'Allow location'}
+                {locationAsked ? '…' : 'Allow'}
               </button>
             </div>
           </div>
@@ -1086,13 +1084,19 @@ export function ShareViewerPage() {
       onContextMenu={e => e.preventDefault()}  // Block right-click
     >
       {/* ── Print-hide style: hides content from browser print dialog ────── */}
-      <style>{`@media print { .print-hide { display: none !important; } }`}</style>
+      <style>{`
+        @media print {
+          .print-hide { display: none !important; }
+          .print-asset { display: flex !important; }
+          .print-asset img, .print-asset iframe { max-width: 100% !important; max-height: none !important; }
+        }
+      `}</style>
 
       {/* ── Idle blur overlay — shown after 60s of no activity ─────────────
            Clicking anywhere dismisses it (resetIdle fires via document listener) */}
       {isIdleBlur && (
         <div
-          className="fixed inset-0 z-50 flex flex-col items-center justify-center"
+          className="print-hide fixed inset-0 z-50 flex flex-col items-center justify-center"
           style={{ backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)', background: 'rgba(15,23,42,0.55)' }}
         >
           <div className="text-center">
@@ -1106,7 +1110,7 @@ export function ShareViewerPage() {
       )}
 
       {/* Header bar */}
-      <div className="bg-bg-card border-b border-bg-border px-4 py-3 flex items-center gap-3">
+      <div className="print-hide bg-bg-card border-b border-bg-border px-4 py-3 flex items-center gap-3">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 bg-dna-500/20 rounded-lg flex items-center justify-center">
             <Lock size={13} className="text-dna-400" />
@@ -1129,7 +1133,6 @@ export function ShareViewerPage() {
               Expires {format(new Date(info.expiresAt), 'MMM d')}
             </div>
           )}
-          {/* Max views */}
           {info.maxViews && (
             <div className="flex items-center gap-1 text-2xs text-gray-500 border border-bg-border rounded px-2 py-1">
               <Eye size={10} />
@@ -1165,24 +1168,53 @@ export function ShareViewerPage() {
               {downloading ? 'Downloading…' : 'Download licensed file'}
             </button>
           )}
+          {info.allowPrint && (
+            <button type="button" onClick={handlePrint}
+              className="btn btn-secondary btn-sm text-xs">
+              <Printer size={12} />
+              Print
+            </button>
+          )}
         </div>
       </div>
 
       {downloadNotice === 'failed' && (
-        <div className="mx-4 mt-3 rounded-xl border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger">
+        <div className="print-hide mx-4 mt-3 rounded-xl border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger">
           Download failed. Try again, or contact the owner if this keeps happening.
         </div>
       )}
       {downloadNotice === 'success' && (
-        <div className="mx-4 mt-3 rounded-xl border border-success/30 bg-success/10 px-4 py-2 text-sm text-success">
+        <div className="print-hide mx-4 mt-3 rounded-xl border border-success/30 bg-success/10 px-4 py-2 text-sm text-success">
           Download started.
         </div>
       )}
 
       {/* Note from sender */}
-      {info.note && (
-        <div className="bg-dna-500/5 border-b border-dna-500/20 px-4 py-2">
-          <p className="text-xs text-dna-300">📝 {info.note}</p>
+      {info.sourceContext === 'exchange_license' && (
+        <div className="print-hide mx-4 mt-3 rounded-xl border border-bg-border bg-bg-elevated px-4 py-3">
+          <p className="text-xs font-semibold text-white">Licensed Exchange delivery</p>
+          <p className="text-sm text-white mt-1 truncate">{info.filename}</p>
+          <div className="flex flex-wrap items-center gap-2 mt-2">
+            <span className="text-2xs text-success border border-success/30 bg-success/5 rounded px-2 py-0.5">
+              Verified Pinit asset
+            </span>
+            <span className="text-2xs text-gray-300 border border-bg-border rounded px-2 py-0.5 capitalize">
+              {info.licenseTier ? `${info.licenseTier} license` : 'Licensed'}
+            </span>
+            <span className="text-2xs text-gray-400">
+              {info.allowDownload ? 'Download allowed' : 'View only'}
+              {info.allowPrint ? ' · Print allowed' : ''}
+            </span>
+          </div>
+          <details className="mt-3">
+            <summary className="text-2xs text-gray-400 cursor-pointer hover:text-white">License details</summary>
+            <div className="mt-2 text-2xs text-gray-400 space-y-1">
+              <p>License type: <span className="text-white capitalize">{info.licenseTier || 'Licensed'}</span></p>
+              <p>Download: <span className="text-white">{info.allowDownload ? 'Allowed' : 'Not allowed'}</span></p>
+              <p>Print: <span className="text-white">{info.allowPrint ? 'Allowed' : 'Not allowed'}</span></p>
+              <p>Access: <span className="text-white">{info.isActive && !info.isExpired && !info.isExhausted ? 'Allowed' : 'Restricted'}</span></p>
+            </div>
+          </details>
         </div>
       )}
 
@@ -1235,8 +1267,8 @@ export function ShareViewerPage() {
         </div>
       )}
 
-      {/* File viewer area — print-hide hides content from browser print dialog */}
-      <div className="print-hide flex-1 flex items-start justify-center p-4 overflow-auto"
+      {/* File viewer area — print-hide hides content unless print is allowed */}
+      <div className={`${info.allowPrint ? 'print-asset' : 'print-hide'} flex-1 flex items-start justify-center p-4 overflow-auto`}
         style={{ userSelect: 'none', position: 'relative' }}
       >
         {fileLoadError ? (
@@ -1244,7 +1276,9 @@ export function ShareViewerPage() {
             <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
               <Ban size={28} className="text-red-400" />
             </div>
-            <h2 className="text-white font-bold text-lg mb-2">Access Blocked</h2>
+            <h2 className="text-white font-bold text-lg mb-2">
+              {/not in cloud storage/i.test(fileLoadError) ? 'File unavailable' : 'Access Blocked'}
+            </h2>
             <p className="text-gray-400 text-sm">{fileLoadError}</p>
             <p className="text-2xs text-gray-600 mt-3 border border-bg-border rounded-lg px-3 py-2 inline-block">
               Contact the file owner if you believe this is a mistake.
@@ -1345,7 +1379,7 @@ export function ShareViewerPage() {
           </div>
         ) : isHtml ? (
           /* ── HTML: render as a real webpage (browser-like) ── */
-          <div className="w-full flex-1 flex flex-col print-hide" style={{ minHeight: 'calc(100vh - 120px)' }}>
+          <div className="w-full flex-1 flex flex-col" style={{ minHeight: 'calc(100vh - 120px)' }}>
             {htmlPreviewUrl ? (
               <iframe
                 src={htmlPreviewUrl}
@@ -1456,11 +1490,10 @@ export function ShareViewerPage() {
           so the feature can be reinstated by re-adding the UI. */}
 
       {/* Footer */}
-      <div className="bg-bg-card border-t border-bg-border px-4 py-2 flex items-center justify-between">
+      <div className="print-hide bg-bg-card border-t border-bg-border px-4 py-2 flex items-center justify-between">
         <p className="text-2xs text-gray-600">
-          Protected by Pinit HUB Smart Links · Access is tracked and logged
+          Protected by Pinit HUB · Access is tracked for the asset owner
         </p>
-        <p className="text-2xs text-gray-600 mono">{token}</p>
       </div>
     </div>
   );

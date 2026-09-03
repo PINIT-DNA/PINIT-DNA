@@ -4,14 +4,11 @@ import { Heart, Trash2, ShoppingCart } from 'lucide-react';
 import { buyerKey } from '../lib/buyer.js';
 import { apiFetch } from '../lib/api.js';
 import EmptyState from '../components/EmptyState.jsx';
-import BecomeBuyerPanel from '../components/BecomeBuyerPanel.jsx';
-import { resolveExchangeAccount } from '../lib/roles.js';
 
-export default function WishlistPage({ user, onOpenAuth, onSelectListing, onAddToCart, onBrowse, onEnableBuyer }) {
+export default function WishlistPage({ user, onOpenAuth, onSelectListing, onAddToCart, onBrowse, onEnableBuyer, onWishlistChanged }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const key = buyerKey(user);
-  const needsBuyer = Boolean(user && resolveExchangeAccount(user).needsBuyerEnable);
 
   const load = async () => {
     if (!key) {
@@ -36,12 +33,9 @@ export default function WishlistPage({ user, onOpenAuth, onSelectListing, onAddT
     await apiFetch(`/api/commerce/wishlist/${encodeURIComponent(listingId)}?buyer_key=${encodeURIComponent(key)}`, {
       method: 'DELETE',
     });
-    load();
+    await load();
+    onWishlistChanged?.();
   };
-
-  if (needsBuyer) {
-    return <BecomeBuyerPanel onEnable={onEnableBuyer} />;
-  }
 
   if (!key) {
     return (

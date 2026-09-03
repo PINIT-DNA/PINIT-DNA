@@ -120,11 +120,14 @@ export function errorMiddleware(
     || /egress_quota|project is restricted/i.test(err.message)
   ) {
     const quota = /egress_quota|project is restricted|Failed to create storage bucket/i.test(err.message);
+    const missing = /not in cloud storage|Object not found|Vault file unavailable/i.test(err.message);
     res.status(503).json({
       success: false,
       error: quota
-        ? 'Vault storage is temporarily unavailable (Supabase quota). In local dev the file is saved on disk instead — click Protect again.'
-        : err.message,
+        ? 'Vault storage is temporarily unavailable (Supabase quota). Protect the file again after storage is restored.'
+        : missing
+          ? 'This protected file is not in cloud storage. Protect the file again, then create a new share link.'
+          : 'The file could not be loaded. Try again or ask the owner to share a new link.',
     });
     return;
   }

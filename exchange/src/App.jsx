@@ -51,6 +51,9 @@ import { buyerKey } from './lib/buyer.js';
 import { applyPageMeta, pageFromPath, pathForPage, portfolioSlugFromPath, resolveHubAppUrl } from './lib/exchange-routes.js';
 import { moduleFromPage } from './lib/exchange-module.js';
 import PublicPortfolioPage from './pages/PublicPortfolio.jsx';
+import {
+  payReturnParams, storedPayIntent, clearPayReturnQuery, PAY_INTENT_STORAGE_KEY,
+} from './lib/razorpay-checkout.js';
 
 const HUB_APP_URL = resolveHubAppUrl();
 
@@ -99,15 +102,35 @@ export default function App() {
   const [user, setUser] = useState(() => readCachedUser());
   const [sessionReady, setSessionReady] = useState(() => Boolean(readCachedUser()));
   const [cartCount, setCartCount] = useState(0);
+  const [wishlistCount, setWishlistCount] = useState(0);
+  const [payReturnNotice, setPayReturnNotice] = useState('');
 
   const refreshCartCount = async () => {
     const key = buyerKey(user) || localStorage.getItem('pinit_guest_buyer');
     if (!key) {
       setCartCount(0);
+      setWishlistCount(0);
       return;
     }
-    const { ok, data } = await apiFetch(`/api/commerce/cart?buyer_key=${encodeURIComponent(key)}`);
-    if (ok) setCartCount(data.count || 0);
+    const [cart, wish] = await Promise.all([
+      apiFetch(`/api/commerce/cart?buyer_key=${encodeURIComponent(key)}`),
+      apiFetch(`/api/commerce/wishlist?buyer_key=${encodeURIComponent(key)}`),
+    ]);
+    if (cart.ok) setCartCount(Number(cart.data.count || 0));
+    else setCartCount(0);
+    if (wish.ok) setWishlistCount(Number(wish.data.count ?? wish.data.items?.length ?? 0));
+    else setWishlistCount(0);
+  };
+
+  const claimGuestCommerce = async (signedInUser) => {
+    const guest = localStorage.getItem('pinit_guest_buyer');
+    if (!guest || !signedInUser?.pinit_id || !/^GUEST-/i.test(guest)) return;
+    await apiFetch('/api/commerce/claim-guest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guest_key: guest }),
+    });
+    localStorage.removeItem('pinit_guest_buyer');
   };
 
   useEffect(() => {
@@ -149,8 +172,58 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    refreshCartCount();
+    (async () => {
+      if (user?.pinit_id) await claimGuestCommerce(user);
+      await refreshCartCount();
+    })();
   }, [user?.pinit_id, user?.email]);
+
+  useEffect(() => {
+    if (!sessionReady) return;
+    const params = payReturnParams();
+    const path = window.location.pathname.replace(/\/+$/, '');
+    if (!params && path !== '/exchange/checkout/return') return;
+
+    const stored = storedPayIntent();
+    const intentId = params?.razorpay_payment_link_reference_id || stored?.payment_intent_id;
+    if (!params?.razorpay_payment_id || !intentId) {
+      if (path === '/exchange/checkout/return') {
+        setPayReturnNotice('Payment status is being verified… Open Purchases if you already paid.');
+        navigate('my_licenses', { replace: true });
+      }
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      setPayReturnNotice('Payment status is being verified…');
+      navigate('my_licenses', { replace: true });
+      const parsed = await apiFetch('/api/orders/verify-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payment_intent_id: intentId,
+          razorpay_order_id: params.razorpay_order_id || stored?.orderId,
+          razorpay_payment_id: params.razorpay_payment_id,
+          razorpay_signature: params.razorpay_signature,
+          razorpay_payment_link_id: params.razorpay_payment_link_id,
+          razorpay_payment_link_reference_id: params.razorpay_payment_link_reference_id || intentId,
+          razorpay_payment_link_status: params.razorpay_payment_link_status,
+        }),
+      });
+      if (cancelled) return;
+      try { sessionStorage.removeItem(PAY_INTENT_STORAGE_KEY); } catch { /* ignore */ }
+      clearPayReturnQuery();
+      if (parsed.ok && parsed.data?.pending_delivery) {
+        setPayReturnNotice('Payment was received, but license delivery is still being prepared.');
+      } else if (parsed.ok) {
+        setPayReturnNotice('Payment successful. Your license is in Purchases.');
+      } else {
+        setPayReturnNotice(parsed.error || 'Payment could not be completed. No license was created.');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [sessionReady]);
 
   const openAuth = ({ mode = 'welcome', intent = null } = {}) => {
     setAuthMode(mode);
@@ -534,10 +607,10 @@ export default function App() {
     && !account.canList
     && !account.sellerIntent,
   );
-  const notice = roleNotice ? (
+  const notice = (roleNotice || payReturnNotice) ? (
     <div className="exchange-role-notice" role="status">
-      {roleNotice}
-      <button type="button" onClick={() => setRoleNotice('')}>Dismiss</button>
+      {payReturnNotice || roleNotice}
+      <button type="button" onClick={() => { setRoleNotice(''); setPayReturnNotice(''); }}>Dismiss</button>
     </div>
   ) : null;
 
@@ -591,6 +664,8 @@ export default function App() {
             onOpenBuyModule={openBuyModule}
             user={user}
             onCartChanged={refreshCartCount}
+            onOpenCart={() => navigate('cart')}
+            onOpenPurchases={() => navigate('my_licenses')}
             onEnableBuyer={enableBuyer}
             onSelectListing={handleSelectListing}
           />
@@ -603,6 +678,7 @@ export default function App() {
             onSelectListing={handleSelectListing}
             onEnableBuyer={enableBuyer}
             onBrowse={(page) => navigate(page || 'marketplace')}
+            onCartChanged={refreshCartCount}
             onCheckoutDone={() => {
               refreshCartCount();
               navigate('my_licenses');
@@ -617,6 +693,7 @@ export default function App() {
             onSelectListing={handleSelectListing}
             onEnableBuyer={enableBuyer}
             onBrowse={(page) => navigate(page || 'marketplace')}
+            onWishlistChanged={refreshCartCount}
             onAddToCart={async (listing) => {
               if (user && !canPurchase(user)) {
                 setRoleNotice('Become a Buyer on this same identity to use cart.');
@@ -830,6 +907,7 @@ export default function App() {
           listing={checkoutListing}
           user={user}
           onOrderCompleted={(order) => console.log('Order sealed:', order)}
+          onViewPurchases={() => navigate('my_licenses')}
         />
       </>
     );
@@ -862,6 +940,7 @@ export default function App() {
         }}
         user={user}
         cartCount={cartCount}
+        wishlistCount={wishlistCount}
       />
       {notice}
       <main style={{ flex: 1 }}>
@@ -898,6 +977,7 @@ export default function App() {
         listing={checkoutListing}
         user={user}
         onOrderCompleted={(order) => console.log('Order sealed:', order)}
+        onViewPurchases={() => navigate('my_licenses')}
       />
 
       <AuthModal

@@ -34,6 +34,8 @@ export function isBuyerCapabilityEnabled(row) {
   if (!row) return false;
   if (isAdminRole(row.role)) return true;
   if (normalizeRole(row.role) === EXCHANGE_ROLES.BUYER) return true;
+  // Same Pinit identity: creators can license others’ work without a second account.
+  if (isSellerRole(row.role)) return true;
   const v = row.buyer_enabled;
   return v === true || v === 1 || v === '1';
 }

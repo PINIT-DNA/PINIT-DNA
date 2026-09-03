@@ -49,6 +49,18 @@
       "destination": "https://pinit-dna.vercel.app/s/:path*"
     },
     {
+      "source": "/share",
+      "destination": "https://pinit-dna.vercel.app/share"
+    },
+    {
+      "source": "/share/:path*",
+      "destination": "https://pinit-dna.vercel.app/share/:path*"
+    },
+    {
+      "source": "/help",
+      "destination": "https://pinit-dna.vercel.app/help"
+    },
+    {
       "source": "/team/:path*",
       "destination": "https://pinit-dna.vercel.app/team/:path*"
     },

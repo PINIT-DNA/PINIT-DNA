@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2, Mail, Search, ShieldCheck, Star, ArrowRight, Briefcase, Users,
 } from 'lucide-react';
-import { apiFetch } from '../lib/api.js';
+import { apiFetch, verticalLabel } from '../lib/api.js';
 import { listingPreviewUrl } from '../lib/listing-preview.js';
 
 const CATEGORIES = [
@@ -65,15 +65,14 @@ function mapCreator(row) {
     .filter(Boolean);
   const portfolio = (row.portfolio || []).map((item) => listingPreviewUrl(item) || item.preview_url).filter(Boolean);
   const name = row.name || 'PINIT Creator';
-  const bio = /connected via pinit/i.test(row.bio || '') ? '' : (row.bio || '');
   return {
     pinit_id: row.pinit_id,
     // row.user_id (raw Hub User.id) is no longer sent and is not mapped here —
     // pinit_user_id / pinit_id are the public creator identifiers.
     pinit_user_id: row.pinit_user_id || '',
     name,
-    bio,
-    specialties: verticals.length ? verticals.map((v) => v.replace(/_/g, ' ')) : ['Creative'],
+    bio: '',
+    specialties: verticals.length ? [...new Set(verticals.map((v) => verticalLabel(v)))] : ['Creative'],
     categoryIds: verticals,
     sales: Number(row.sales || 0),
     assets: Number(row.assets || 0),
@@ -259,8 +258,6 @@ export default function CreatorPassports({ onNavigate, onOpenAuth, user }) {
                   </div>
                 </div>
 
-                {c.bio ? <p className="creator-card__bio">{c.bio}</p> : null}
-
                 {/* Rating shows only when the directory actually returns one.
                     Assets and licensed sales are real counts and always shown. */}
                 <div className="creator-card__decision">
@@ -359,7 +356,6 @@ export default function CreatorPassports({ onNavigate, onOpenAuth, user }) {
 
             <div className="modal-body creator-profile__body">
               <div className="creator-card__specs" style={{ marginBottom: 8 }}>{selected.specialties.join(' · ')}</div>
-              <p style={{ color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.55 }}>{selected.bio}</p>
 
               <div className="creator-profile__actions">
                 <button type="button" className="btn-primary" onClick={() => goHireFlow(selected)}>

@@ -20,6 +20,11 @@ export function publicErrorMessage(raw, status = 0) {
   if (status === 502 && (lower.includes('payment') || lower.includes('razorpay') || lower.includes('gateway'))) {
     return text.length > 160 ? "Payment couldn't be started. Try Pay again." : (text || "Payment couldn't be started. Try Pay again.");
   }
+  if (lower.includes('payment') && (lower.includes('unavailable') || lower.includes('charged') || lower.includes('provider'))) {
+    return text.length > 160
+      ? 'Payment temporarily unavailable. You have not been charged. Please try again.'
+      : (text || 'Payment temporarily unavailable. You have not been charged. Please try again.');
+  }
   if (status >= 500) return 'Pinit Exchange is temporarily waking up.';
   if (lower.includes('payment') && (lower.includes('fail') || lower.includes('could not') || lower.includes('verification'))) {
     return "Payment couldn't be completed.";

@@ -66,6 +66,11 @@ export function resolveShareViewerOrigin(
     if (!origin) continue;
     if (isShareApiHost(origin)) continue;
     if (prod && isLocalShareHost(origin)) continue;
+    // Local Protect stores the file on this machine. pinithub.com talks to
+    // Render, which cannot read that disk unless the blob is in Supabase.
+    if (!prod && /pinithub\.com/i.test(origin) && env['SHARE_USE_PRODUCTION_VIEWER'] !== 'true') {
+      continue;
+    }
     return origin;
   }
 

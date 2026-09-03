@@ -61,7 +61,8 @@ function applyHubProfile(base, hub) {
   return {
     ...base,
     name: !isPlaceholderName(hubName) ? hubName : (!isPlaceholderName(localName) ? localName : (hubName || localName || 'PINIT Creator')),
-    bio: String(hub?.bio || '').trim() || base.bio || '',
+    bio: '',
+    // Public creator cards: Hub name/avatar only — not bio, job title, or business.
     // user_id (raw Hub User.id) intentionally omitted — public payload.
     pinit_user_id: hub?.pinit_user_id || toUserPinitId(code || base.pinit_id),
     avatar_url: hub?.avatar_url || base.avatar_url || '',
@@ -203,7 +204,15 @@ router.get('/directory', (req, res) => {
           const g = grouped[code];
           g.assets += 1;
           g.views += Number(item.views || 0);
-          if (item.vertical && !g.verticals.includes(item.vertical)) g.verticals.push(item.vertical);
+          const vertical = String(item.vertical || '').toLowerCase().trim();
+          const MARKET_VERTICALS = new Set([
+            'images', 'image', 'photography', 'video', 'videos', 'audio', 'music',
+            'documents', 'document', 'docs', 'pdf', 'ui_ux', 'design', 'graphics',
+            'concepts', 'other', 'illustration', '3d', '3d_models',
+          ]);
+          if (vertical && MARKET_VERTICALS.has(vertical) && !g.verticals.includes(vertical)) {
+            g.verticals.push(vertical);
+          }
           if (g.portfolio.length < 3) g.portfolio.push(withPreview(item));
         });
 

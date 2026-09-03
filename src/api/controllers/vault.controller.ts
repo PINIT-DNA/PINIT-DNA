@@ -222,9 +222,7 @@ export async function storeInVault(
     // Custody location (optional GPS from client + IP) — never written into DNA
     try {
       const { forensicProvenanceService } = await import('../../services/forensics/forensic-provenance.service');
-      const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-        || req.socket.remoteAddress
-        || null;
+      const ip = resolveClientIp(req);
       const country = (req.headers['cf-ipcountry'] as string) || null;
       const gpsLat = parseFloat(String((req.body as { gpsLat?: string })?.gpsLat ?? ''));
       const gpsLng = parseFloat(String((req.body as { gpsLng?: string })?.gpsLng ?? ''));

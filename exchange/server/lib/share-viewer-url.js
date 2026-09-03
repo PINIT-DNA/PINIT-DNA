@@ -36,6 +36,11 @@ export function isLocalShareHost(url) {
   return /localhost|127\.0\.0\.1/i.test(originOnly(url));
 }
 
+/** Hub Vite is port 3002. :3000 is a stale env value and nothing is listening. */
+export function isStaleLocalHubOrigin(url) {
+  return /localhost:3000\b|127\.0\.0\.1:3000\b/i.test(originOnly(url));
+}
+
 export function isProductionShareEnv(env = process.env) {
   return env.NODE_ENV === 'production' || Boolean(env.RENDER);
 }
@@ -55,7 +60,11 @@ export function resolveShareViewerOrigin(preferred, env = process.env) {
     const origin = originOnly(String(raw));
     if (!origin) continue;
     if (isShareApiHost(origin)) continue;
+    if (isStaleLocalHubOrigin(origin)) continue;
     if (prod && isLocalShareHost(origin)) continue;
+    if (!prod && /pinithub\.com/i.test(origin) && env.SHARE_USE_PRODUCTION_VIEWER !== 'true') {
+      continue;
+    }
     return origin;
   }
   return fallback;

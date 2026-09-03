@@ -17,6 +17,7 @@
  * story in this codebase rather than two.
  */
 import { readSessionCookie } from './session-cookie.js';
+import crypto from 'node:crypto';
 
 /** Sessions last 30 days; refresh/rotation happens on /me and Hub SSO. */
 const DEFAULT_TTL_SEC = 30 * 86400;
@@ -112,8 +113,12 @@ export function sessionTokenFromReq(req) {
  * Never falls back to a client-supplied id — that is the whole point.
  */
 export function verifiedPinitIdFromReq(req) {
-  const result = verifySessionToken(sessionTokenFromReq(req));
-  return result.ok ? result.pinitId : '';
+  try {
+    const result = verifySessionToken(sessionTokenFromReq(req));
+    return result.ok ? result.pinitId : '';
+  } catch {
+    return '';
+  }
 }
 
 export { DEFAULT_TTL_SEC };

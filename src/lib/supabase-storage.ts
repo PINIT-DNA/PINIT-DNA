@@ -68,7 +68,7 @@ export async function uploadVaultFile(vaultId: string, buffer: Buffer, ownerUser
     .from(BUCKET)
     .upload(storagePath, buffer, {
       contentType: 'application/octet-stream',
-      upsert:      false,
+      upsert:      true,
     });
 
   if (error) throw new Error(`Supabase upload failed: ${error.message}`);

@@ -209,7 +209,7 @@ export async function sealListingSale({
       orderId,
       buyerPinitId: buyerId,
       licenseTier,
-      options: { allowDownload: true, requestLocation: false, requireName: false, expiresIn: null },
+      options: { allowDownload: true, allowPrint: true, requestLocation: true, requireName: false, expiresIn: null },
     });
     await persistLicensedShare(sealId, licensedShare);
   } catch (shareErr) {

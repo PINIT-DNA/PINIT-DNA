@@ -72,3 +72,20 @@ export function sellerMatchClause(column, sellerId) {
   }
   return { sql: ` AND ${column} = ?`, params: [id] };
 }
+
+/** Same face code across PINIT-EX / PINIT-USER / PINIT-ORG / PINIT- prefixes. */
+export function identityMatchSql(column, pinitId) {
+  const id = String(pinitId || '').trim();
+  const code = extractPinitCode(id);
+  if (code) {
+    return { sql: `${pinitCodeExpr(column)} = ?`, params: [code] };
+  }
+  return { sql: `${column} = ?`, params: [id] };
+}
+
+export function samePinitFace(a, b) {
+  const ca = extractPinitCode(a);
+  const cb = extractPinitCode(b);
+  if (ca && cb) return ca === cb;
+  return Boolean(a) && String(a).trim() === String(b || '').trim();
+}

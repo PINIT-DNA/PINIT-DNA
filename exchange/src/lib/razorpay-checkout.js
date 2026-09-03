@@ -54,6 +54,42 @@ export function loadRazorpayScript() {
 /** Closing the sheet is a choice, not a fault. Callers check this code so a
  *  deliberate exit is not reported to the customer as an error. */
 export const CHECKOUT_CANCELLED = 'CHECKOUT_CANCELLED';
+export const CHECKOUT_REDIRECTING = 'CHECKOUT_REDIRECTING';
+export const PAY_INTENT_STORAGE_KEY = 'pinit_pay_intent';
+
+export function payReturnParams() {
+  if (typeof window === 'undefined') return null;
+  const q = new URLSearchParams(window.location.search);
+  const paymentId = q.get('razorpay_payment_id');
+  if (!paymentId) return null;
+  return {
+    razorpay_payment_id: paymentId,
+    razorpay_order_id: q.get('razorpay_order_id') || '',
+    razorpay_signature: q.get('razorpay_signature') || '',
+    razorpay_payment_link_id: q.get('razorpay_payment_link_id') || '',
+    razorpay_payment_link_reference_id: q.get('razorpay_payment_link_reference_id') || '',
+    razorpay_payment_link_status: q.get('razorpay_payment_link_status') || '',
+  };
+}
+
+export function storedPayIntent() {
+  try {
+    const raw = sessionStorage.getItem(PAY_INTENT_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPayReturnQuery() {
+  if (typeof window === 'undefined') return;
+  window.history.replaceState({}, '', window.location.pathname);
+}
+
+function setCheckoutOverlay(open) {
+  if (typeof document === 'undefined') return;
+  document.body.classList.toggle('razorpay-checkout-open', Boolean(open));
+}
 
 function checkoutError(message, code) {
   const err = new Error(message);
@@ -109,6 +145,7 @@ export async function openRazorpayCheckout({
     const finish = (fn, value) => {
       if (settled) return;
       settled = true;
+      setCheckoutOverlay(false);
       clearTimeout(watchdog);
       fn(value);
     };
@@ -116,6 +153,7 @@ export async function openRazorpayCheckout({
       finish(reject, new Error('Payment window did not complete. Click Pay to try again.'));
     }, 5 * 60 * 1000);
 
+    setCheckoutOverlay(true);
     const rzp = new window.Razorpay({
       key: keyId,
       amount,
@@ -170,6 +208,20 @@ export async function payAndSeal({
   if (created.mock) {
     razorpay_payment_id = `pay_mock_${Date.now()}`;
     razorpay_signature = 'mock';
+  } else if (created.checkoutUrl) {
+    try {
+      sessionStorage.setItem(PAY_INTENT_STORAGE_KEY, JSON.stringify({
+        payment_intent_id: created.payment_intent_id,
+        orderId: created.orderId,
+        mode,
+      }));
+    } catch {
+      /* ignore */
+    }
+    window.location.assign(created.checkoutUrl);
+    const err = new Error('Redirecting to Razorpay…');
+    err.code = CHECKOUT_REDIRECTING;
+    throw err;
   } else {
     if (!created.keyId || !created.orderId) {
       throw new Error(created.message || 'Payment is not configured. Cannot charge without a Razorpay order.');

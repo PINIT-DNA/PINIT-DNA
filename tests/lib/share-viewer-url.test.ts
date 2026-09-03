@@ -34,4 +34,19 @@ describe('share viewer URL', () => {
     } as NodeJS.ProcessEnv;
     expect(buildShareViewerUrl('tok', undefined, env)).toBe('http://localhost:3002/s/tok');
   });
+
+  test('local skips pinithub.com unless SHARE_USE_PRODUCTION_VIEWER', () => {
+    const env = {
+      NODE_ENV: 'development',
+      HUB_APP_URL: 'https://www.pinithub.com',
+      PUBLIC_APP_URL: 'https://www.pinithub.com',
+    } as NodeJS.ProcessEnv;
+    expect(buildShareViewerUrl('tok', undefined, env)).toBe('http://localhost:3002/s/tok');
+    expect(
+      buildShareViewerUrl('tok', undefined, {
+        ...env,
+        SHARE_USE_PRODUCTION_VIEWER: 'true',
+      }),
+    ).toBe('https://www.pinithub.com/s/tok');
+  });
 });
