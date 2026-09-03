@@ -16,13 +16,13 @@
  * (which Pinit ID you are), and mirrors preview-token.js so there is one signing
  * story in this codebase rather than two.
  */
-import crypto from 'crypto';
+import { readSessionCookie } from './session-cookie.js';
 
-/** Sessions last a day; long enough to shop, short enough to bound a leak. */
-const DEFAULT_TTL_SEC = 86400;
+/** Sessions last 30 days; refresh/rotation happens on /me and Hub SSO. */
+const DEFAULT_TTL_SEC = 30 * 86400;
 
 /** Reject absurd lifetimes even if a caller passes one. */
-const MAX_TTL_SEC = 604800;
+const MAX_TTL_SEC = 30 * 86400;
 
 function signingSecret() {
   // Same fallback chain as the bridge and preview signer, so existing
@@ -98,11 +98,13 @@ export function verifySessionToken(token) {
   return match ? { ok: true, pinitId } : { ok: false, reason: 'bad signature' };
 }
 
-/** Read a bearer token from the Authorization header or X-Session-Token. */
+/** Read a bearer token from the Authorization header, X-Session-Token, or cookie. */
 export function sessionTokenFromReq(req) {
   const auth = String(req.headers?.authorization || '').trim();
   if (auth.toLowerCase().startsWith('bearer ')) return auth.slice(7).trim();
-  return String(req.headers?.['x-session-token'] || '').trim();
+  const header = String(req.headers?.['x-session-token'] || '').trim();
+  if (header) return header;
+  return readSessionCookie(req);
 }
 
 /**

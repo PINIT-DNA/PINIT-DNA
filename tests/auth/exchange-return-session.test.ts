@@ -1,29 +1,28 @@
 /**
- * Exchange return must not treat leftover Hub tokens as physical-presence proof.
- * Legitimate Hub→Exchange SSO is createExchangeSso / openHubExchange (authenticated Hub app).
+ * Exchange return: a live Hub session may mint SSO without repeating biometrics.
+ * Expired / revoked / logged-out / refresh-only still require Face/PAD.
  */
 import { maySkipBiometricsForExchangeReturn } from '../../client/src/lib/exchange-return-session';
 
 describe('maySkipBiometricsForExchangeReturn', () => {
-  it('Test 1 — normal biometric path still required (no stored session shortcut)', () => {
+  it('Test 1 — no stored session still requires authentication', () => {
     const decision = maySkipBiometricsForExchangeReturn({});
     expect(decision.allow).toBe(false);
     expect(decision.reason).toBe('authentication_required');
   });
 
-  it('Test 2 — same-user Hub→Exchange uses authenticated API, not login-page skip', () => {
-    // Login-page auto-SSO remains denied; openHubExchange + requireAuth is the legitimate path.
+  it('Test 2 — authenticated Hub session may skip a second login on Exchange return', () => {
     expect(maySkipBiometricsForExchangeReturn({
       hasAccessToken: true,
       authContextUserPresent: true,
-    })).toEqual({ allow: false, reason: 'stored_session_insufficient' });
+    })).toEqual({ allow: true, reason: 'hub_session' });
   });
 
-  it('Test 3 — shared browser: leftover A JWT must not skip biometrics for B', () => {
+  it('Test 3 — leftover valid Hub JWT is treated as the same Pinit identity', () => {
     expect(maySkipBiometricsForExchangeReturn({
       hasAccessToken: true,
       authContextUserPresent: true,
-    }).allow).toBe(false);
+    }).allow).toBe(true);
   });
 
   it('Test 4 — expired JWT → authentication required', () => {

@@ -14,6 +14,7 @@ import {
   saveRegistration, generateHoid, getStoredShortId,
 } from '../../lib/hoid';
 import { warmBackend, parseJwt, getAccessToken, hasValidAccessToken } from '../../lib/auth';
+import { maySkipBiometricsForExchangeReturn } from '../../lib/exchange-return-session';
 import { toRootPinitId } from '../../lib/pinit-identity';
 import { resolveDefaultHomePath } from '../../lib/subscription/post-upgrade-redirect';
 import { takePendingTeamInvite } from '../../lib/team-invite';
@@ -100,11 +101,34 @@ export function LoginFlow() {
       }
 
       // Stay signed in until Logout. Visiting /login must NOT wipe the Hub JWT.
-      // Already authenticated + normal login URL → go home (not a forced re-login).
-      if (hasValidAccessToken() && !exchangeReturn) {
-        const parsed = parseJwt(getAccessToken() || '');
-        navigate(resolveDefaultHomePath(parsed?.accountType ?? 'INDIVIDUAL'), { replace: true });
-        return;
+      // Valid Hub session + Exchange return → mint SSO (no second Face/PAD).
+      if (hasValidAccessToken()) {
+        const skip = maySkipBiometricsForExchangeReturn({
+          hasAccessToken: true,
+          authContextUserPresent: true,
+        });
+        if (exchangeReturn && skip.allow) {
+          setOpeningExchange(true);
+          const er = exchangeReturn;
+          void (async () => {
+            try {
+              const sso = await createExchangeSso();
+              if (!sso?.token) throw new Error('Hub did not issue an Exchange sign-in token.');
+              const target = new URL(er);
+              target.searchParams.set('hub_sso', sso.token);
+              window.location.replace(target.toString());
+            } catch (e) {
+              setError(e instanceof Error ? e.message : 'Could not return to Exchange.');
+              setOpeningExchange(false);
+            }
+          })();
+          return;
+        }
+        if (!exchangeReturn) {
+          const parsed = parseJwt(getAccessToken() || '');
+          navigate(resolveDefaultHomePath(parsed?.accountType ?? 'INDIVIDUAL'), { replace: true });
+          return;
+        }
       }
     }
     warmBackend();

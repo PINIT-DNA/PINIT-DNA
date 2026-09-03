@@ -1,4 +1,5 @@
 export const SESSION_KEY = 'pinit_exchange_session';
+const AUTH_EVENT_KEY = 'pinit_exchange_auth_event';
 
 export function readSession() {
   try {
@@ -17,32 +18,35 @@ export function readCachedUser() {
 }
 
 /**
- * Persist the session.
- *
- * `token` is the signed session token minted by Hub SSO. It is what actually
- * proves who this browser is — the stored pinit_id alone proves nothing, since
- * Pinit IDs are public. Pass it on sign-in; omit it on profile updates and the
- * existing token is preserved rather than dropped.
+ * Persist a non-secret profile cache. The session credential is the HttpOnly
+ * cookie (plus a Bearer fallback only while a legacy token is still in storage).
  */
-export function writeSession(user, token) {
+export function writeSession(user, _token) {
   if (!user?.pinit_id) return;
-  const existing = readSession();
   localStorage.setItem(
     SESSION_KEY,
     JSON.stringify({
       pinit_id: user.pinit_id,
       user,
-      token: token || existing?.token || null,
       at: Date.now(),
     }),
   );
 }
 
-/** The signed session token, or '' when this browser has not signed in. */
+/** Legacy Bearer fallback while cookies roll out. */
 export function readSessionToken() {
   return readSession()?.token || '';
 }
 
+export function broadcastExchangeAuth(type) {
+  try {
+    localStorage.setItem(AUTH_EVENT_KEY, JSON.stringify({ type, t: Date.now() }));
+  } catch {
+    /* ignore */
+  }
+}
+
 export function clearSession() {
   localStorage.removeItem(SESSION_KEY);
+  broadcastExchangeAuth('logout');
 }

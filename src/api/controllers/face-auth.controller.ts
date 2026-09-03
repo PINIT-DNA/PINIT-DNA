@@ -13,6 +13,7 @@ import { AppError } from '../middleware/error.middleware';
 import { resolveClientIp } from '../../lib/request-utils';
 import { biometricAuthService } from '../../services/auth/biometric-auth.service';
 import { issuePadChallenge, type PadEvidence } from '../../services/auth/face-liveness.service';
+import { setRefreshCookie } from '../../lib/auth-cookies';
 
 function clientMeta(req: Request) {
   return {
@@ -58,6 +59,7 @@ export async function faceRegister(req: Request, res: Response, next: NextFuncti
       return;
     }
 
+    setRefreshCookie(req, res, result.tokens.refreshToken);
     res.status(201).json({
       success: true,
       message: result.message ?? 'Face registered successfully',
@@ -69,7 +71,6 @@ export async function faceRegister(req: Request, res: Response, next: NextFuncti
         authMethod: 'biometric',
       },
       accessToken: result.tokens.accessToken,
-      refreshToken: result.tokens.refreshToken,
     });
   } catch (err) {
     next(err);
@@ -121,6 +122,7 @@ export async function faceLogin(req: Request, res: Response, next: NextFunction)
       return;
     }
 
+    setRefreshCookie(req, res, result.tokens.refreshToken);
     res.status(200).json({
       success: true,
       matched: true,
@@ -133,7 +135,6 @@ export async function faceLogin(req: Request, res: Response, next: NextFunction)
         role: result.user.role,
       },
       accessToken: result.tokens.accessToken,
-      refreshToken: result.tokens.refreshToken,
     });
   } catch (err) {
     next(err);
@@ -172,6 +173,7 @@ export async function faceIdentify(req: Request, res: Response, next: NextFuncti
       return;
     }
 
+    setRefreshCookie(req, res, result.tokens.refreshToken);
     res.status(200).json({
       success: true,
       matched: true,
@@ -184,7 +186,6 @@ export async function faceIdentify(req: Request, res: Response, next: NextFuncti
         role: result.user.role,
       },
       accessToken: result.tokens.accessToken,
-      refreshToken: result.tokens.refreshToken,
     });
   } catch (err) {
     next(err);

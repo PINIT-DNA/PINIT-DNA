@@ -125,6 +125,17 @@ export default function App() {
       applyPageMeta(page);
     };
     const onStorage = (e) => {
+      if (e.key === 'pinit_exchange_auth_event') {
+        try {
+          const parsed = JSON.parse(e.newValue || '{}');
+          if (parsed.type === 'logout') {
+            setUser(null);
+            return;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
       if (e.key !== 'pinit_exchange_session') return;
       setUser(readCachedUser());
     };
@@ -148,6 +159,7 @@ export default function App() {
   };
 
   const handleSignOut = () => {
+    void apiFetch('/api/auth/logout', { method: 'POST' });
     clearSession();
     try {
       sessionStorage.removeItem(INTENT_KEY);
@@ -167,20 +179,19 @@ export default function App() {
       const session = readSession();
       if (session?.user) setUser(session.user);
       const pinitId = session?.pinit_id;
-      if (!pinitId) return;
-      // apiFetch attaches the session token, so the server can resolve "me"
-      // from the session rather than trusting the id in the query string.
-      const res = await apiFetch(`/api/auth/me?pinit_id=${encodeURIComponent(pinitId)}`);
+      const path = pinitId
+        ? `/api/auth/me?pinit_id=${encodeURIComponent(pinitId)}`
+        : '/api/auth/me';
+      const res = await apiFetch(path);
       if (res.ok) {
         const fresh = res.data;
         if (fresh?.pinit_id) {
           setUser(fresh);
-          writeSession(fresh, fresh.session_token);
+          writeSession(fresh);
         }
         return;
       }
-      // Network / 5xx: keep the cached login. Only drop it if the account is gone.
-      if (res.status === 401 || res.status === 404) {
+      if (res.status === 401 || res.status === 403 || res.status === 404) {
         clearSession();
         setUser(null);
       }
@@ -192,7 +203,7 @@ export default function App() {
   const waitForExchangeApi = async ({ attempts = 12, delayMs = 500 } = {}) => {
     for (let i = 0; i < attempts; i += 1) {
       try {
-        const res = await fetch('/api/health', { cache: 'no-store' });
+        const res = await fetch('/api/health', { cache: 'no-store', credentials: 'include' });
         if (res.ok) return true;
       } catch {
         /* API still restarting */
@@ -209,6 +220,7 @@ export default function App() {
         const res = await fetch('/api/auth/hub-sso', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({ token, intent }),
         });
         let data = null;
@@ -313,7 +325,9 @@ export default function App() {
           sessionStorage.setItem('pinit_hub_list_token', hubList);
           if (data.asset?.pinit_id) {
             try {
-              const me = await fetch(`/api/auth/me?pinit_id=${encodeURIComponent(data.asset.pinit_id)}`);
+              const me = await fetch(`/api/auth/me?pinit_id=${encodeURIComponent(data.asset.pinit_id)}`, {
+                credentials: 'include',
+              });
               if (me.ok) {
                 const u = await me.json();
                 setUser(u);

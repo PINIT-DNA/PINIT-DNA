@@ -21,7 +21,7 @@ async function postFace(path: string, body: unknown): Promise<{ status: number; 
   let lastErr: unknown;
   for (let i = 0; i < 4; i++) {
     try {
-      const res = await axios.post(`${BASE}${path}`, body, { timeout: 70000 });
+      const res = await axios.post(`${BASE}${path}`, body, { timeout: 70000, withCredentials: true });
       return { status: res.status, data: res.data as FaceAuthResponse };
     } catch (e: unknown) {
       lastErr = e;

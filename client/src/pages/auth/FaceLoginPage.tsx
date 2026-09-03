@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { FaceAuth } from '../../components/auth/FaceAuth';
+import { applyFaceAuthTokens } from '../../lib/auth';
 import { Dna, Shield, Fingerprint } from 'lucide-react';
 
 export function FaceLoginPage() {
@@ -11,10 +12,10 @@ export function FaceLoginPage() {
   const navigate = useNavigate();
   const handleSuccess = (data: Record<string, unknown>) => {
     if (typeof data.accessToken === 'string') {
-      localStorage.setItem('pinit_access_token', data.accessToken);
-      if (typeof data.refreshToken === 'string') {
-        localStorage.setItem('pinit_refresh_token', data.refreshToken);
-      }
+      applyFaceAuthTokens({
+        accessToken: data.accessToken,
+        refreshToken: typeof data.refreshToken === 'string' ? data.refreshToken : undefined,
+      });
     }
     setTimeout(() => { window.location.href = '/'; }, 1200);
   };

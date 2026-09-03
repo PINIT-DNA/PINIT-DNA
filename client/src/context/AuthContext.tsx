@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import {
   AuthUser, getAccessToken, parseJwt, clearTokens,
-  apiLogout, refreshAccessToken, applyFaceAuthTokens,
+  apiLogout, refreshAccessToken, applyFaceAuthTokens, apiFetchMe,
+  hasValidAccessToken, subscribeAuthEvents,
 } from '../lib/auth';
 import { syncServerAccountTypeOnboarding } from '../lib/account-onboarding';
 
@@ -16,32 +17,100 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+function userFromToken(token: string | null): AuthUser | null {
+  if (!token || !hasValidAccessToken(token)) return null;
+  return parseJwt(token);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser]       = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = getAccessToken();
-    if (!token) { setLoading(false); return; }
+    let cancelled = false;
 
-    const parsed = parseJwt(token);
-    if (!parsed) { clearTokens(); setLoading(false); return; }
+    async function bootstrap() {
+      try {
+        let token = getAccessToken();
+        if (!hasValidAccessToken(token)) {
+          const next = await refreshAccessToken();
+          token = next;
+        }
 
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    if (payload.exp && payload.exp * 1000 < Date.now()) {
-      refreshAccessToken().then(t => {
-        if (t) {
-          const parsed = parseJwt(t);
-          if (parsed) syncServerAccountTypeOnboarding(parsed);
+        if (!hasValidAccessToken(token)) {
+          if (!cancelled) setUser(null);
+          return;
+        }
+
+        try {
+          const me = await apiFetchMe();
+          if (cancelled) return;
+          if (me) {
+            syncServerAccountTypeOnboarding(me);
+            setUser(me);
+            return;
+          }
+        } catch (e: unknown) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const status = (e as any)?.response?.status as number | undefined;
+          if (!status) {
+            // Network / backend waking: keep a locally valid JWT rather than bounce to login.
+            const parsed = userFromToken(token);
+            if (!cancelled && parsed) {
+              syncServerAccountTypeOnboarding(parsed);
+              setUser(parsed);
+            }
+            return;
+          }
+          if (status === 401) {
+            const next = await refreshAccessToken();
+            if (next) {
+              try {
+                const me = await apiFetchMe();
+                if (!cancelled && me) {
+                  syncServerAccountTypeOnboarding(me);
+                  setUser(me);
+                  return;
+                }
+              } catch { /* fall through */ }
+              const parsed = userFromToken(next);
+              if (!cancelled && parsed) {
+                setUser(parsed);
+                return;
+              }
+            }
+            if (!cancelled) {
+              clearTokens();
+              setUser(null);
+            }
+            return;
+          }
+        }
+
+        const parsed = userFromToken(token);
+        if (!cancelled && parsed) {
+          syncServerAccountTypeOnboarding(parsed);
           setUser(parsed);
-        } else { clearTokens(); setUser(null); }
-        setLoading(false);
-      });
-    } else {
-      setUser(parsed);
-      syncServerAccountTypeOnboarding(parsed);
-      setLoading(false);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
+
+    void bootstrap();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    return subscribeAuthEvents((type) => {
+      if (type === 'logout') {
+        clearTokens();
+        setUser(null);
+        return;
+      }
+      const parsed = userFromToken(getAccessToken());
+      if (parsed) setUser(parsed);
+    });
   }, []);
 
   function loginWithFaceResponse(data: { accessToken?: string; refreshToken?: string }) {

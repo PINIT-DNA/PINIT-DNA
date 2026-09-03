@@ -5,6 +5,7 @@ import { extractPinitCode, identityCandidates, toExchangePinitId } from '../lib/
 import { enrichPublicUser, isSellerRole } from '../lib/roles.js';
 import { findUserByPinitId, resolveIdentity, requireVerifiedIdentity, requireSeller } from '../lib/rbac.js';
 import { mintSessionToken } from '../lib/session-token.js';
+import { setSessionCookie, clearSessionCookie } from '../lib/session-cookie.js';
 import { initialCreatorOnboardingStatus, ONBOARDING } from '../lib/seller-onboarding.js';
 
 const router = express.Router();
@@ -15,6 +16,12 @@ function mintExchangeId() {
 
 function publicUser(row) {
   return enrichPublicUser(row);
+}
+
+function issueSession(req, res, pinitId) {
+  const sessionToken = mintSessionToken(pinitId);
+  if (sessionToken) setSessionCookie(req, res, sessionToken);
+  return sessionToken;
 }
 
 let userColumnsReady = false;
@@ -61,6 +68,18 @@ function ensureUserColumns(cb) {
 router.get('/me', (req, res) => {
   const { pinitId: identityId, verified } = resolveIdentity(req);
   const requested = String(req.query.pinit_id || '').trim();
+  const browserOrigin = String(req.headers.origin || '').trim();
+
+  if (!verified) {
+    // Browser clients must present a session. Server-to-server Hub lookups
+    // (no Origin) may read a public profile by Pinit ID but must not mint a session.
+    if (browserOrigin || !requested) {
+      return res.status(401).json({
+        error: 'SESSION_REQUIRED',
+        message: 'Sign in with Pinit HUB to continue.',
+      });
+    }
+  }
 
   if (verified && requested) {
     const code = (v) => String(v || '').toUpperCase().split('-').pop();
@@ -73,7 +92,6 @@ router.get('/me', (req, res) => {
   }
 
   const pinitId = verified ? identityId : requested;
-  if (!pinitId) return res.status(400).json({ error: 'pinit_id is required' });
   ensureUserColumns(() => {
     const candidates = identityCandidates(pinitId);
     const ids = candidates.length ? candidates : [pinitId];
@@ -85,15 +103,11 @@ router.get('/me', (req, res) => {
       if (err) return res.status(500).json({ error: err.message });
       if (!user) return res.status(404).json({ error: 'User not found' });
 
-      // Without a proven session this is an unauthenticated lookup by a public
-      // Pinit ID, so it may only return what the marketplace already shows
-      // publicly. The full row — email, KYC state, payment customer id —
-      // requires a verified session.
-      const sessionToken = mintSessionToken(user.pinit_id);
       if (!verified) {
-        return res.json({ ...publicUser(user), session_token: sessionToken });
+        return res.json(publicUser(user));
       }
 
+      const sessionToken = issueSession(req, res, user.pinit_id);
       res.json({ ...publicUser(user), session_token: sessionToken });
     });
   });
@@ -158,7 +172,7 @@ router.post('/hub-sso', (req, res) => {
       // This is the only place identity is genuinely proven — the Hub token
       // above was signature-checked — so it is the only place a session token
       // is minted. Nothing that merely takes a Pinit ID may issue one.
-      const sessionToken = mintSessionToken(user?.pinit_id);
+      const sessionToken = issueSession(req, res, user?.pinit_id);
       res.json({
         message: isCreator
           ? 'Signed in with Pinit HUB biometric — protect vault assets, then list them on Exchange.'
@@ -341,7 +355,7 @@ router.post('/become-creator', requireVerifiedIdentity, async (req, res) => {
               ? 'Creator account restored. Your activation is already paid — you can list straight away.'
               : 'Seller capability added. Pay the ₹2,500 subscription to start listing. Buying on this account is unchanged.',
             user: publicUser(updated),
-            session_token: mintSessionToken(updated.pinit_id),
+            session_token: issueSession(req, res, updated.pinit_id),
             next_step: paid
               ? { action: 'start_listing', path: '/exchange/seller/listings' }
               : { action: 'verify_payment_method', path: '/exchange/seller/onboarding/payment' },
@@ -374,7 +388,7 @@ router.post('/enable-buyer', requireSeller, (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         db.get('SELECT * FROM users WHERE pinit_id = ?', [existing.pinit_id], (err2, updated) => {
           if (err2) return res.status(500).json({ error: err2.message });
-          const sessionToken = mintSessionToken(updated.pinit_id);
+          const sessionToken = issueSession(req, res, updated.pinit_id);
           res.json({
             message: 'Buyer access is on for this Pinit identity. Listings and seller tools are unchanged.',
             user: publicUser(updated),
@@ -432,6 +446,11 @@ router.post('/onboard-seller', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+router.post('/logout', (req, res) => {
+  clearSessionCookie(req, res);
+  res.json({ ok: true, success: true });
 });
 
 export default router;

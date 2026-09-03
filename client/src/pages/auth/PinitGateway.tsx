@@ -14,9 +14,8 @@ function Booting() {
 }
 
 /**
- * Exchange SSO entry — always run Face/PAD/Passkey for exchange_return.
- * Leftover Hub JWT/refresh in localStorage must not skip biometrics.
- * Hub→Exchange while already inside Hub still uses openHubExchange / createExchangeSso.
+ * Exchange SSO entry. If a live Hub session already exists, LoginFlow mints
+ * hub_sso without repeating Face/PAD. Otherwise the biometric path runs.
  */
 export function PinitGateway() {
   const { loading } = useAuth();
@@ -35,7 +34,7 @@ export function RegisterGateway() {
   const er = resolveExchangeReturn(searchParams.get('exchange_return'));
   if (er) stashExchangeReturn(er);
 
-  // Existing Hub session + Exchange return → biometric login (never silent SSO).
+  // Existing Hub session + Exchange return → LoginFlow (may silent-SSO).
   if (er && user) {
     return <Navigate to={`/login?exchange_return=${encodeURIComponent(er)}`} replace />;
   }

@@ -8,7 +8,7 @@ import axios from 'axios';
 import { formatDistanceToNow } from 'date-fns';
 import { API_BASE_URL } from '../config/api.config';
 import { vaultPreviewBlobLooksLikeJson } from '../lib/vault-preview-bytes';
-import { refreshAccessToken, clearTokens } from '../lib/auth';
+import { refreshAccessToken, clearTokens, getAccessToken } from '../lib/auth';
 import type {
   DnaRecord, VaultRecord, SupportedTypesResponse,
   ComparisonResult, DashboardStats,
@@ -48,6 +48,7 @@ export const api = axios.create({
    * page. Individual calls still set their own longer timeouts where needed.
    */
   timeout: 75_000,
+  withCredentials: true,
 });
 
 /** Human-readable message for failed API calls (proxy offline, 5xx, etc.) */
@@ -96,7 +97,7 @@ api.interceptors.request.use((config) => {
     );
   }
 
-  const token = localStorage.getItem('pinit_access_token');
+  const token = getAccessToken();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   if (token) (config.headers as any)['Authorization'] = `Bearer ${token}`;
   return config;
@@ -110,9 +111,14 @@ api.interceptors.response.use(
     if (!config) throw error;
 
     if (!config._authRetried && error.response?.status === 401) {
+      const failedUrl = String(config.url ?? '');
+      if (failedUrl.includes('/auth/refresh') || failedUrl.includes('/auth/logout')) {
+        throw error;
+      }
       config._authRetried = true;
       const newToken = await refreshAccessToken();
       if (!newToken) {
+        if (!error.response) throw error;
         clearTokens();
         if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
           window.location.href = '/login';
@@ -793,7 +799,7 @@ export async function unifiedInvestigateStream(
 ): Promise<{ success: boolean; report: Record<string, unknown> }> {
   const form = new FormData();
   form.append('image', file);
-  const token = localStorage.getItem('pinit_access_token');
+  const token = getAccessToken();
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), 600_000);
   const endpoint = options?.admin

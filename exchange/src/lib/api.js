@@ -77,7 +77,7 @@ export async function apiFetch(url, options = {}) {
       headers['X-Pinit-Id'] = pid;
     }
     if (!headers.Accept && !headers.accept) headers.Accept = 'application/json';
-    const res = await fetch(url, { ...options, headers });
+    const res = await fetch(url, { ...options, headers, credentials: 'include' });
     const parsed = await parseJsonSafe(res);
     if (!parsed.ok) {
       const code = parsed.data?.error;
