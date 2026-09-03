@@ -550,7 +550,7 @@ export class ShareLinkService {
   private async _createChildLinks(
     parentLinkId: string,
     parent: { token: string; vaultId: string; dnaRecordId: string; filename: string; mimeType: string;
-              expiresAt: Date | null; maxViews: number | null; allowDownload: boolean; requireName: boolean;
+              expiresAt: Date | null; maxViews: number | null; allowDownload: boolean; allowPrint?: boolean; requireName: boolean;
               note: string | null; oneTimeUse: boolean; maxDownloads: number | null;
               allowedCountries: string[]; allowedDeviceTypes: string[]; allowedIpPrefixes: string[];
               requireOtp: boolean; privacyMaskingEnabled: boolean; maskEmail: boolean; maskPhone: boolean;
@@ -1125,7 +1125,6 @@ export class ShareLinkService {
       viewerRevoked,
       sourceContext: link.sourceContext ?? 'hub',
       licenseTier:   link.licenseTier ?? null,
-      allowDownload: link.allowDownload,
       // Order/seal IDs stay on the share_links row. They are not returned on
       // this public endpoint so recipients cannot read them from the page or
       // the network response. Owner APIs still return them.
