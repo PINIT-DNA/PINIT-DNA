@@ -25,6 +25,8 @@ import { postAssetActivity, emitForSeal } from '../lib/asset-activity.js';
 import { downloadsRemaining, describeEntitlement, LICENSE_TERMS_VERSION } from '../lib/licensing.js';
 import { formatMoney, activeCurrency } from '../lib/money.js';
 
+const router = express.Router();
+
 function publicLicenseRow(row) {
   if (!row) return row;
   const rest = { ...row };
