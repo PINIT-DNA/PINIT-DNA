@@ -5011,3 +5011,46 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .bb-invite__pick { color: var(--text-dim); flex: none; }
 .bb-invite.is-on .bb-invite__pick { color: var(--emerald); }
+
+/* â”€â”€ Section tabs: label plus a count badge, as drawn in the mockup â”€â”€â”€â”€â”€â”€ */
+.opp-sections { display: flex; gap: 7px; flex-wrap: wrap; margin: 4px 0 18px; }
+.opp-sectiontab {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 0.8rem; font-weight: 500; padding: 7px 14px; cursor: pointer;
+  border-radius: var(--radius-full); border: 1px solid var(--border-subtle);
+  background: var(--bg-card); color: var(--text-muted);
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.opp-sectiontab:hover { color: var(--text-main); border-color: var(--border-glow); }
+.opp-sectiontab.is-on {
+  background: var(--primary); border-color: var(--primary);
+  color: #fff; font-weight: 600;
+}
+.opp-sectiontab__n {
+  font-size: 0.68rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  padding: 1px 6px; border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.09); color: inherit;
+}
+.opp-sectiontab.is-on .opp-sectiontab__n { background: rgba(255, 255, 255, 0.22); }
+.opp-sectiontab:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* Category filters ride on the header row rather than taking a row of their own. */
+.opp-filters--inline { margin-bottom: 0; margin-left: auto; justify-content: flex-end; }
+.opp-head > .opp-filters--inline { flex: 0 1 auto; }
+
+/* Two actions per card: open it, or answer it. */
+.opp-brief__act { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+.opp-brief__act .btn-secondary,
+.opp-brief__act .btn-primary { font-size: 0.78rem; padding: 7px 14px; white-space: nowrap; }
+.opp-brief__foot > button:last-child { margin-left: 0; }
+
+/* A deadline inside three days is worth seeing before the budget. */
+.opp-facts strong.is-soon { color: var(--badge-gold); }
+
+@media (max-width: 620px) {
+  .opp-head { align-items: flex-start; }
+  .opp-filters--inline { margin-left: 0; justify-content: flex-start; }
+  .opp-brief__act { width: 100%; }
+  .opp-brief__act .btn-secondary,
+  .opp-brief__act .btn-primary { flex: 1; justify-content: center; }
+}

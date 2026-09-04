@@ -189,25 +189,33 @@ router.get('/briefs', requireSeller, async (req, res) => {
     );
     const reqIds = briefs.map((b) => b.req_id);
 
-    const [counts, invites, mine, myVerticals] = await Promise.all([
+    const mineScope = identityMatchSql('pinit_id', me);
+    const [counts, invites, mine, myVerticals, buyerRecord] = await Promise.all([
       proposalCounts(reqIds),
       allSql('SELECT req_id, status FROM brief_invites WHERE creator_pinit_id = ?', [me]),
       allSql('SELECT req_id, status, created_at FROM proposals WHERE creator_pinit_id = ?', [me]),
+      allSql(`SELECT DISTINCT vertical FROM hub_assets WHERE ${mineScope.sql}`, mineScope.params),
+      // How many briefs this buyer has actually awarded. A creator deciding
+      // whether a brief is worth answering wants to know the buyer finishes;
+      // like the creator credentials, it is counted, not claimed.
       allSql(
-        `SELECT DISTINCT vertical FROM hub_assets WHERE ${identityMatchSql('pinit_id', me).sql}`,
-        identityMatchSql('pinit_id', me).params,
+        `SELECT ${pinitCodeExpr('buyer_pinit_id')} AS code, COUNT(*) AS n
+         FROM requirements WHERE status = 'awarded' AND buyer_pinit_id IS NOT NULL
+         GROUP BY ${pinitCodeExpr('buyer_pinit_id')}`,
       ),
     ]);
 
     const invited = new Map(invites.map((i) => [i.req_id, i.status]));
     const proposed = new Map(mine.map((p) => [p.req_id, p]));
     const works = new Set(myVerticals.map((v) => v.vertical).filter(Boolean));
+    const awardedBy = new Map(buyerRecord.map((r) => [String(r.code || ''), Number(r.n) || 0]));
 
     const rows = briefs.map((b) => ({
       ...b,
       proposals_count: counts.get(b.req_id) || 0,
       invited: invited.has(b.req_id),
       my_proposal_status: proposed.get(b.req_id)?.status || null,
+      buyer_briefs_awarded: awardedBy.get(extractPinitCode(b.buyer_pinit_id)) || 0,
     }));
 
     const rank = (b) => (b.invited ? 0 : works.has(b.vertical) ? 1 : 2);

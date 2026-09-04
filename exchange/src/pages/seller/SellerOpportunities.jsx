@@ -4,7 +4,6 @@ import {
   MessageSquare, Search, ShieldCheck, Sparkles, Users, X,
 } from 'lucide-react';
 import StudioPage from '../../components/workspace/StudioPage.jsx';
-import SellerContextNav from '../../components/SellerContextNav.jsx';
 import { OPPORTUNITY_SECTIONS } from '../../lib/seller-workspace.js';
 import { formatMoney } from '../../lib/money.js';
 import { verticalLabel } from '../../lib/api.js';
@@ -71,9 +70,18 @@ function Credentials({ c }) {
 
 /* ══ Open work ══════════════════════════════════════════════════════════ */
 
+/**
+ * One brief in the list.
+ *
+ * Two actions, not one. Opening the brief and answering it are different
+ * intents, and the primary button says what actually happens — attaching
+ * protected work — rather than "express interest", which gives a buyer nothing
+ * to judge.
+ */
 function BriefCard({ brief, onOpen }) {
   const days = daysLeft(brief.deadline);
   const answered = brief.my_proposal_status === 'submitted';
+  const closing = days != null && days <= 3;
   return (
     <article className={`opp-brief${brief.invited ? ' is-invited' : ''}`}>
       <div className="opp-brief__top">
@@ -88,12 +96,15 @@ function BriefCard({ brief, onOpen }) {
 
       <div className="opp-facts">
         <div><span>Budget</span><strong>{formatMoney(brief.budget)}</strong></div>
-        {Number(brief.creators_needed) > 1 && (
-          <div><span>Creators needed</span><strong>{brief.creators_needed}</strong></div>
-        )}
+        <div>
+          <span>Creators needed</span>
+          <strong>{Number(brief.creators_needed) || 1}</strong>
+        </div>
         <div>
           <span>Closes</span>
-          <strong>{when(brief.deadline)}{days != null ? ` · ${days}d` : ''}</strong>
+          <strong className={closing ? 'is-soon' : undefined}>
+            {when(brief.deadline)}{days != null ? ` · ${days}d` : ''}
+          </strong>
         </div>
         <div><span>Proposals</span><strong>{brief.proposals_count}</strong></div>
       </div>
@@ -101,10 +112,19 @@ function BriefCard({ brief, onOpen }) {
       <div className="opp-brief__foot">
         <span className="opp-by">
           Posted by <b>{brief.buyer_org || brief.buyer_name || 'A buyer on Exchange'}</b>
+          {/* Counted from awarded briefs — a buyer cannot type this in either. */}
+          {brief.buyer_briefs_awarded > 0 && (
+            <> · {brief.buyer_briefs_awarded} brief{brief.buyer_briefs_awarded === 1 ? '' : 's'} awarded on Exchange</>
+          )}
         </span>
-        <button type="button" className="btn-primary" onClick={() => onOpen(brief.req_id)}>
-          {answered ? 'View your proposal' : 'Open brief'} <ArrowRight size={14} />
-        </button>
+        <span className="opp-brief__act">
+          <button type="button" className="btn-secondary" onClick={() => onOpen(brief.req_id)}>
+            Open brief
+          </button>
+          <button type="button" className="btn-primary" onClick={() => onOpen(brief.req_id)}>
+            {answered ? 'Update proposal' : 'Submit protected work'}
+          </button>
+        </span>
       </div>
     </article>
   );
@@ -793,12 +813,20 @@ export default function SellerOpportunities({ user, onNavigate }) {
         </button>
       )}
     >
-      <SellerContextNav
-        label="Opportunities"
-        items={sections.map(([sid, label, n]) => [sid, n ? `${label} (${n})` : label])}
-        value={section}
-        onChange={(s) => { setSection(s); setOpenBrief(null); }}
-      />
+      <div className="opp-sections">
+        {sections.map(([sid, label, n]) => (
+          <button
+            key={sid}
+            type="button"
+            className={`opp-sectiontab${section === sid ? ' is-on' : ''}`}
+            onClick={() => { setSection(sid); setOpenBrief(null); }}
+            aria-pressed={section === sid}
+          >
+            {label}
+            {n ? <span className="opp-sectiontab__n">{n}</span> : null}
+          </button>
+        ))}
+      </div>
 
       <Notice notice={notice} onClose={() => setNotice(null)} />
 
@@ -815,25 +843,21 @@ export default function SellerOpportunities({ user, onNavigate }) {
           <div className="opp-head">
             <div>
               <h2>Open work</h2>
-              <p>
-                Briefs from buyers, ranked for you — invited first, then the work
-                you already do.
-              </p>
+              <p>Briefs from buyers. Sorted for you — invited first, then your verticals.</p>
             </div>
-          </div>
-
-          <div className="opp-filters">
-            {CATEGORIES.map(([cid, label]) => (
-              <button
-                key={cid}
-                type="button"
-                className={`opp-chip${vertical === cid ? ' is-on' : ''}`}
-                onClick={() => setVertical(cid)}
-                aria-pressed={vertical === cid}
-              >
-                {label}
-              </button>
-            ))}
+            <div className="opp-filters opp-filters--inline">
+              {CATEGORIES.map(([cid, label]) => (
+                <button
+                  key={cid}
+                  type="button"
+                  className={`opp-chip${vertical === cid ? ' is-on' : ''}`}
+                  onClick={() => setVertical(cid)}
+                  aria-pressed={vertical === cid}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {loading ? <p className="studio-empty">Loading open work…</p>
