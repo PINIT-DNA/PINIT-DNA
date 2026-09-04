@@ -5434,3 +5434,100 @@ input[type="range"]::-webkit-slider-thumb {
 .pp-form .pp-btn--solid { align-self: flex-start; margin-top: 4px; }
 .pp-quiet { font-size: 0.78rem; color: var(--pp-faint); text-decoration: none; }
 .pp-quiet:hover { color: var(--pp-ink); }
+
+/* ══ Seller · your portfolio ═══════════════════════════════════════════════
+   Not a builder. HUB owns the editor; this is where a seller checks what the
+   public sees, copies the link, and decides who can reach it. */
+
+.sp { display: flex; flex-direction: column; gap: 16px; }
+
+.sp-notice { display: flex; align-items: center; gap: 12px; margin-bottom: 2px; }
+.sp-notice button {
+  margin-left: auto; background: none; border: 0; cursor: pointer;
+  color: inherit; font-size: 1.1rem; line-height: 1; padding: 0 4px;
+}
+
+.sp-head {
+  display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start;
+  padding: 22px 24px; border-radius: var(--radius-md);
+}
+.sp-head__main { flex: 1; min-width: 260px; }
+.sp-eyebrow {
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 0.6rem; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--text-dim); margin: 0 0 8px;
+}
+.sp-head h2 {
+  font-family: var(--font-heading); font-size: 1.5rem; font-weight: 600;
+  letter-spacing: -0.02em; margin: 0 0 5px; color: var(--text-main);
+}
+.sp-sub { color: var(--text-muted); font-size: 0.86rem; margin: 0 0 18px; }
+
+.sp-link { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; }
+.sp-link code {
+  font-family: ui-monospace, "SFMono-Regular", monospace; font-size: 0.78rem;
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm); padding: 9px 13px; color: var(--text-main);
+  overflow-x: auto; max-width: 100%; white-space: nowrap;
+}
+.sp-link .btn-secondary {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.76rem; padding: 8px 13px; text-decoration: none;
+}
+
+.sp-verified {
+  display: inline-flex; align-items: center; gap: 7px; margin: 16px 0 0;
+  font-size: 0.79rem; color: var(--emerald);
+}
+.sp-edit { flex: none; display: inline-flex; align-items: center; gap: 7px; }
+
+/* who can see it */
+.sp-vis { padding: 20px 24px; border-radius: var(--radius-md); }
+.sp-vis h3 {
+  font-family: var(--font-heading); font-size: 1rem; font-weight: 600;
+  margin: 0 0 14px; color: var(--text-main);
+}
+.sp-vis__opts { display: grid; gap: 10px; grid-template-columns: 1fr; }
+@media (min-width: 720px) { .sp-vis__opts { grid-template-columns: repeat(3, 1fr); } }
+.sp-opt {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 5px;
+  cursor: pointer; text-align: left;
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm); padding: 14px 15px; color: var(--text-muted);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.sp-opt:hover:not(:disabled) { border-color: var(--border-glow); }
+.sp-opt:disabled { opacity: 0.6; cursor: default; }
+.sp-opt.is-on { border-color: var(--primary); background: var(--primary-glow); }
+.sp-opt b { font-size: 0.9rem; font-weight: 600; color: var(--text-main); }
+.sp-opt em { font-style: normal; font-size: 0.76rem; color: var(--text-dim); line-height: 1.45; }
+
+/* live preview */
+.sp-preview {
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.sp-preview__bar {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 12px 16px; background: var(--bg-card);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.8rem; font-weight: 600; color: var(--text-main);
+}
+.sp-preview__hint { font-weight: 400; color: var(--text-dim); font-size: 0.75rem; }
+
+.sp-empty {
+  border: 1px dashed var(--border-subtle); border-radius: var(--radius-md);
+  padding: 44px 24px; text-align: center; color: var(--text-dim);
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
+.sp-empty h3 {
+  font-family: var(--font-heading); font-size: 1.05rem; font-weight: 600;
+  color: var(--text-main); margin: 4px 0 0;
+}
+.sp-empty p { margin: 0; font-size: 0.88rem; color: var(--text-muted); max-width: 46ch; }
+.sp-empty .btn-primary { display: inline-flex; align-items: center; gap: 7px; margin-top: 6px; }
+
+@media (max-width: 560px) {
+  .sp-head, .sp-vis { padding: 18px 16px; }
+  .sp-link code { font-size: 0.72rem; }
+}

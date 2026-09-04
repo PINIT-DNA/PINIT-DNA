@@ -204,7 +204,11 @@ export function PortfolioEditor() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [publicUrl, setPublicUrl] = useState('');
+  const [exchangeUrl, setExchangeUrl] = useState('');
   const [copied, setCopied] = useState(false);
+  const [showPreview, setShowPreview] = useState(true);
+  /** Bumped after a save so the preview iframe refetches the real page. */
+  const [previewKey, setPreviewKey] = useState(0);
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -252,6 +256,7 @@ export function PortfolioEditor() {
           contact_note: p.contact?.note || '',
         });
         if (data?.public_url) setPublicUrl(data.public_url);
+        if (data?.exchange_app_url) setExchangeUrl(String(data.exchange_app_url).replace(/\/$/, ''));
       } catch (err) {
         toast.error('Could not load your portfolio.');
         console.error('[portfolio] load failed', err);
@@ -279,7 +284,10 @@ export function PortfolioEditor() {
         project_groups: form.project_groups,
       });
       if (data?.public_url) setPublicUrl(data.public_url);
+      if (data?.exchange_app_url) setExchangeUrl(String(data.exchange_app_url).replace(/\/$/, ''));
       if (data?.slug) set('slug', data.slug);
+      // The preview is the real page, so it only changes once the save lands.
+      setPreviewKey((k) => k + 1);
       toast.success(publish ? 'Portfolio published' : 'Saved');
     } catch (err: any) {
       const d = err?.response?.data;
@@ -292,11 +300,18 @@ export function PortfolioEditor() {
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(publicUrl);
+      await navigator.clipboard.writeText(liveUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
     } catch { setCopied(false); }
   };
+
+  /**
+   * Prefer whatever the server told us, but fall back to building the link from
+   * the slug. The buttons used to hang off public_url alone, so a portfolio that
+   * had not been saved yet showed no way to look at it.
+   */
+  const liveUrl = publicUrl || (form.slug && exchangeUrl ? `${exchangeUrl}/p/${form.slug}` : '');
 
   const collection = useMemo(
     () => form.project_groups.find((c) => c.id === openCollection) || null,
@@ -315,20 +330,28 @@ export function PortfolioEditor() {
   }
 
   return (
-    <div className="pe">
+    <div className={`pe${showPreview && liveUrl ? ' pe--split' : ''}`}>
       <header className="pe-top">
         <div>
           <h2>Portfolio</h2>
           <p>One portfolio, built from the work you already protected here.</p>
         </div>
         <div className="pe-top__act">
-          {publicUrl ? (
+          {liveUrl ? (
             <>
+              <button
+                type="button"
+                className={`pe-btn${showPreview ? ' is-on' : ''}`}
+                onClick={() => setShowPreview((v) => !v)}
+                aria-pressed={showPreview}
+              >
+                <Eye size={13} /> {showPreview ? 'Hide preview' : 'Preview'}
+              </button>
               <button type="button" className="pe-btn" onClick={copy}>
                 {copied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy link</>}
               </button>
-              <a className="pe-btn" href={publicUrl} target="_blank" rel="noreferrer">
-                Preview <ArrowUpRight size={13} />
+              <a className="pe-btn" href={liveUrl} target="_blank" rel="noreferrer">
+                Open <ArrowUpRight size={13} />
               </a>
             </>
           ) : null}
@@ -629,6 +652,29 @@ export function PortfolioEditor() {
             </>
           )}
         </div>
+
+        {/*
+          The preview is the published page in an iframe, not a second renderer.
+          We deleted the duplicate renderer precisely so a preview could never
+          disagree with what a visitor sees — which means it shows the last SAVED
+          state, and says so rather than pretending to be live.
+        */}
+        {showPreview && liveUrl ? (
+          <aside className="pe-preview">
+            <div className="pe-preview__bar">
+              <span>Preview</span>
+              <em>Last saved version</em>
+              <a href={liveUrl} target="_blank" rel="noreferrer">Open in a tab</a>
+            </div>
+            <iframe
+              key={previewKey}
+              className="pe-preview__frame"
+              src={`${liveUrl}?preview=1`}
+              title="Portfolio preview"
+              loading="lazy"
+            />
+          </aside>
+        ) : null}
       </div>
     </div>
   );

@@ -1331,3 +1331,34 @@ html.dark .pe-pane h3 { color: var(--pe-ink); }
 .pe-vis button em { font-style: normal; font-size: 0.74rem; color: var(--pe-faint); }
 
 .pe-publish { align-self: flex-start; }
+
+/* Preview — the published page in an iframe, never a second renderer. */
+.pe--split .pe-main { grid-template-columns: 1fr; }
+@media (min-width: 1180px) {
+  .pe--split .pe-main { grid-template-columns: 190px minmax(0, 1fr) minmax(360px, 0.85fr); }
+}
+.pe-btn.is-on {
+  background: var(--pe-accent-wash); border-color: var(--pe-accent-line);
+  color: var(--pe-accent-ink);
+}
+.pe-preview {
+  border: 1px solid var(--pe-line); border-radius: 14px; overflow: hidden;
+  background: var(--pe-panel); display: flex; flex-direction: column;
+  position: sticky; top: 16px; max-height: calc(100vh - 120px);
+}
+.pe-preview__bar {
+  display: flex; align-items: baseline; gap: 9px;
+  padding: 11px 14px; border-bottom: 1px solid var(--pe-line);
+  font-size: 0.78rem; font-weight: 600; color: var(--pe-ink);
+}
+.pe-preview__bar em {
+  font-style: normal; font-weight: 400; font-size: 0.72rem; color: var(--pe-faint);
+}
+.pe-preview__bar a {
+  margin-left: auto; font-size: 0.74rem; font-weight: 600;
+  color: var(--pe-accent-ink); text-decoration: none;
+}
+.pe-preview__bar a:hover { text-decoration: underline; }
+.pe-preview__frame {
+  flex: 1; width: 100%; min-height: 520px; border: 0; background: #fff;
+}
