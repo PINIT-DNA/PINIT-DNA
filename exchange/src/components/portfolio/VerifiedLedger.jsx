@@ -106,7 +106,8 @@ export default function VerifiedLedger({ verified, name }) {
             <tr>
               <th>Piece</th>
               <th>Protected</th>
-              <th>DNA record</th>
+              <th>Certificate</th>
+              <th>DNA</th>
               <th>Tier</th>
               <th>Human</th>
             </tr>
@@ -116,6 +117,9 @@ export default function VerifiedLedger({ verified, name }) {
               <tr key={e.asset_id}>
                 <td className="pv-t">{e.title}</td>
                 <td className="pv-d">{when(e.protected_at)}</td>
+                {/* The asset id is the real certificate reference. Nothing is
+                    invented here — a made-up number would undo the whole page. */}
+                <td>{e.certificate || e.asset_id}</td>
                 <td>{e.dna || '—'}</td>
                 <td>{e.badge_tier || '—'}</td>
                 <td>{Number.isFinite(e.human_percent) ? `${e.human_percent}%` : '—'}</td>

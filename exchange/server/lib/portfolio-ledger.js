@@ -36,6 +36,9 @@ function shortHash(value) {
 function toEntry(row) {
   return {
     asset_id: row.asset_id,
+    // The certificate reference a visitor can quote back to us. It is the
+    // asset's real id, not a decorative number.
+    certificate: row.asset_id,
     title: row.title || 'Untitled',
     vertical: row.vertical || '',
     file_type: row.file_type || '',
