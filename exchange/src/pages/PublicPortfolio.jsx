@@ -1,7 +1,28 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Copy, QrCode, Share2, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, Copy, QrCode, Share2, ShieldCheck, X } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
-import PortfolioSite from '../components/portfolio/PortfolioSite.jsx';
+import { HUB_APP_URL } from '../lib/exchange-routes.js';
+import PortfolioPages from '../components/portfolio/PortfolioPages.jsx';
+
+function isPreviewVisit() {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('preview') === '1';
+}
+
+function leavePreview() {
+  const editor = `${HUB_APP_URL.replace(/\/$/, '')}/profile?tab=portfolio`;
+  try {
+    if (window.opener && !window.opener.closed) {
+      window.opener.focus();
+      window.close();
+    }
+  } catch {
+    /* ignore */
+  }
+  window.setTimeout(() => {
+    if (!window.closed) window.location.assign(editor);
+  }, 80);
+}
 
 export default function PublicPortfolioPage({
   slug,
@@ -75,11 +96,18 @@ export default function PublicPortfolioPage({
   };
 
   return (
-    <div className="ps-shell">
+    <div className={`ps-shell${portfolio?.theme ? ` ps-theme-${portfolio.theme}` : ''}`}>
       <header className="ps-chrome">
-        <button type="button" className="ps-brand" onClick={() => onNavigate('marketplace')}>
-          <ShieldCheck size={17} /> Pinit
-        </button>
+        <div className="ps-chrome__start">
+          {isPreviewVisit() && (
+            <button type="button" className="ps-btn" onClick={leavePreview}>
+              <ArrowLeft size={14} /> Back
+            </button>
+          )}
+          <button type="button" className="ps-brand" onClick={() => onNavigate('marketplace')}>
+            <ShieldCheck size={17} /> Pinit
+          </button>
+        </div>
         <button type="button" className="ps-btn" onClick={() => setShareOpen(true)}>
           <Share2 size={14} /> Share
         </button>
@@ -88,13 +116,12 @@ export default function PublicPortfolioPage({
       {error && <div className="ps-empty">This portfolio is not available.</div>}
       {!error && !portfolio && <div className="ps-empty">Loading…</div>}
       {portfolio && (
-        <PortfolioSite
+        <PortfolioPages
           portfolio={portfolio}
           onNavigate={onNavigate}
           onSelectListing={onSelectListing}
           onContact={contact}
           onHire={hire}
-          onShare={() => setShareOpen(true)}
         />
       )}
 

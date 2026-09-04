@@ -2638,10 +2638,14 @@ input[type="range"]::-webkit-slider-thumb {
   border-bottom: 1px solid rgba(255,255,255,0.08);
 }
 .ps-shell { min-height: 100vh; background: #090b10; color: #f3f5f8; }
+.ps-shell.ps-theme-atelier { background: #f4efe6; color: #2a241c; }
+.ps-shell.ps-theme-studio { background: #0a0a0a; color: #f5f5f5; }
+.ps-shell.ps-theme-spectrum { background: #120814; color: #fff7fb; }
 .ps-chrome {
   display: flex; justify-content: space-between; align-items: center; padding: 16px 28px;
   position: sticky; top: 0; z-index: 20; background: rgba(9,11,16,0.72); backdrop-filter: blur(16px);
 }
+.ps-chrome__start { display: flex; align-items: center; gap: 10px; }
 .ps-brand { background: none; border: 0; color: #fff; display: inline-flex; gap: 8px; align-items: center; font-size: 1rem; cursor: pointer; }
 .ps-empty { padding: 80px 24px; text-align: center; color: #9aa6b8; }
 .ps { max-width: 1120px; margin: 0 auto; padding-bottom: 80px; }
@@ -2714,6 +2718,34 @@ input[type="range"]::-webkit-slider-thumb {
   .ps-shot--lead { min-height: 280px; }
   .ps-hero__copy { padding: 32px 18px 40px; }
 }
+.ps-theme-atelier { color: #2a241c; }
+.ps-theme-atelier .ps-hero__photo--plain { background: radial-gradient(circle at 20% 10%, #e8d8c4, #d4c4ae 70%); }
+.ps-theme-atelier .ps-hero__veil { background: linear-gradient(180deg, rgba(244,239,230,0.08), rgba(244,239,230,0.94)); }
+.ps-theme-atelier .ps-kicker,
+.ps-theme-atelier .ps-label { color: #8a5a3b; }
+.ps-theme-atelier .ps-headline,
+.ps-theme-atelier .ps-prose,
+.ps-theme-atelier .ps-place,
+.ps-theme-atelier .ps-muted { color: #5a4e42; }
+.ps-theme-atelier .ps-btn { border-color: rgba(42,36,28,0.22); color: #2a241c; }
+.ps-theme-atelier .ps-btn--solid { background: #2a241c; color: #f4efe6; border-color: #2a241c; }
+.ps-theme-atelier .ps-pills span { border-color: rgba(42,36,28,0.18); }
+.ps-theme-atelier .ps-shot { background: #e4d8c8; }
+.ps-theme-atelier h1,
+.ps-theme-atelier h2,
+.ps-theme-atelier h3 { font-family: Georgia, 'Times New Roman', serif; font-weight: 600; }
+.ps-theme-studio .ps-kicker,
+.ps-theme-studio .ps-label { color: #a3a3a3; letter-spacing: 0.28em; }
+.ps-theme-studio h1 { font-weight: 800; letter-spacing: -0.07em; text-transform: uppercase; }
+.ps-theme-studio .ps-hero__photo--plain { background: #111; }
+.ps-theme-studio .ps-editorial { gap: 4px; }
+.ps-theme-spectrum .ps-kicker,
+.ps-theme-spectrum .ps-label { color: #fb7185; }
+.ps-theme-spectrum .ps-btn--solid { background: linear-gradient(90deg, #f43f5e, #f97316); color: #fff; border-color: transparent; }
+.ps-theme-spectrum .ps-hero__photo--plain { background: radial-gradient(circle at 80% 10%, #7c2d6b, #120814 62%); }
+.ps-shell.ps-theme-atelier .ps-chrome { background: rgba(244,239,230,0.82); color: #2a241c; }
+.ps-shell.ps-theme-atelier .ps-brand,
+.ps-shell.ps-theme-atelier .ps-btn { color: #2a241c; }
 .pf-brand, .pf-btn {
   display: inline-flex; align-items: center; gap: 8px; border: 1px solid rgba(255,255,255,0.12);
   background: rgba(255,255,255,0.04); color: #fff; border-radius: 999px; padding: 8px 14px;
@@ -5012,7 +5044,7 @@ input[type="range"]::-webkit-slider-thumb {
 .bb-invite__pick { color: var(--text-dim); flex: none; }
 .bb-invite.is-on .bb-invite__pick { color: var(--emerald); }
 
-/* â”€â”€ Section tabs: label plus a count badge, as drawn in the mockup â”€â”€â”€â”€â”€â”€ */
+/* ── Section tabs: label plus a count badge, as drawn in the mockup ────── */
 .opp-sections { display: flex; gap: 7px; flex-wrap: wrap; margin: 4px 0 18px; }
 .opp-sectiontab {
   display: inline-flex; align-items: center; gap: 7px;

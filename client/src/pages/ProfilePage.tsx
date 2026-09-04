@@ -3,10 +3,11 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   User, Shield, Bell, Clock, Activity, Save, RefreshCw,
   Dna, Archive, Share2, Award, Eye, Radio, Trash2,
-  Sun, Moon, Monitor, ShieldCheck, Download,
+  Sun, Moon, Monitor, ShieldCheck, Download, Briefcase,
 } from 'lucide-react';
 import { api, listVaultRecords, retrieveFromVault } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
+import { PortfolioEditor } from './profile/PortfolioEditor';
 import { useTheme } from '../hooks/useTheme';
 import { useAccountViewMode } from '../hooks/useAccountViewMode';
 import { BusinessProfileHub } from './business/BusinessProfileHub';
@@ -22,10 +23,11 @@ import {
   resolveNotificationDeepLink,
 } from '../lib/notification-config';
 
-type Tab = 'profile' | 'security' | 'notifications' | 'activity' | 'settings';
+type Tab = 'profile' | 'portfolio' | 'security' | 'notifications' | 'activity' | 'settings';
 
 const BASE_TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'profile', label: 'Profile', icon: <User size={14} /> },
+  { id: 'portfolio', label: 'Portfolio', icon: <Briefcase size={14} /> },
   { id: 'security', label: 'Security', icon: <Shield size={14} /> },
   { id: 'notifications', label: 'Notifications', icon: <Bell size={14} /> },
   { id: 'activity', label: 'Activity', icon: <Clock size={14} /> },
@@ -34,6 +36,7 @@ const BASE_TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 
 export function ProfilePage() {
   const [params] = useSearchParams();
+  const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>((params.get('tab') as Tab) || 'profile');
   const { profile: cachedProfile, loading: profileHookLoading } = useUserProfile();
   const [profile, setProfile] = useState<any>(cachedProfile);
@@ -117,8 +120,8 @@ export function ProfilePage() {
   }
 
   return (
-    <div className="page-shell w-full max-w-5xl">
-      {/* Header with stats */}
+    <div className={`page-shell w-full ${tab === 'portfolio' ? 'max-w-6xl' : 'max-w-5xl'}`}>
+      {tab !== 'portfolio' && (
       <div className="card mb-6">
         <div className="flex items-start gap-4 flex-wrap">
           <div className="w-16 h-16 rounded-full bg-gradient-to-br from-dna-500 to-purple flex items-center justify-center text-xl font-bold text-white shrink-0">
@@ -147,13 +150,17 @@ export function ProfilePage() {
           </div>
         )}
       </div>
+      )}
 
       {/* Tab bar */}
       <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
         {tabs.map(t => (
           <button
             key={t.id}
-            onClick={() => setTab(t.id)}
+            onClick={() => {
+              setTab(t.id);
+              navigate(`/profile?tab=${t.id}`);
+            }}
             className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
               tab === t.id ? 'bg-dna-500/20 text-dna-400 border border-dna-500/30' : 'text-gray-500 hover:text-white hover:bg-bg-elevated'
             }`}
@@ -165,6 +172,7 @@ export function ProfilePage() {
 
       {/* Tab content */}
       {tab === 'profile' && <ProfileTab profile={profile} onUpdate={setProfile} />}
+      {tab === "portfolio" && <PortfolioEditor />}
       {tab === 'security'      && <SecurityTab profile={profile} />}
       {tab === 'notifications' && <NotificationsTab profile={profile} onUpdate={setProfile} />}
       {tab === 'activity'      && <ActivityTab />}
