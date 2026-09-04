@@ -5531,3 +5531,20 @@ input[type="range"]::-webkit-slider-thumb {
   .sp-head, .sp-vis { padding: 18px 16px; }
   .sp-link code { font-size: 0.72rem; }
 }
+
+/* One continuous page: the six headings are anchors down a single scroll,
+   not six views. Sections need rhythm so the scroll reads as one document. */
+.pp-section { padding-top: 54px; padding-bottom: 54px; }
+.pp-section + .pp-section { border-top: 1px solid var(--pp-line); }
+.pp-section--last { padding-bottom: 80px; }
+.pp-section__h {
+  font-family: var(--font-heading), sans-serif; font-weight: 600;
+  font-size: 0.7rem; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--pp-faint); margin: 0 0 22px;
+}
+/* The first section leads with the name, so it needs no label above it. */
+#pp-overview { padding-top: 40px; }
+#pp-overview .pp-intro { margin-bottom: 32px; }
+@media (max-width: 560px) {
+  .pp-section { padding-top: 38px; padding-bottom: 38px; }
+}

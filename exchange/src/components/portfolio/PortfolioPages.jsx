@@ -71,11 +71,12 @@ function allWork(portfolio) {
 /* ── pages ─────────────────────────────────────────────────────────────── */
 
 function Overview({ portfolio, work, go, sealed }) {
+  // The intro directly above already carries the headline, so an empty wall
+  // says what is missing instead of repeating it.
   if (work.length === 0) {
     return (
       <div className="pp-empty">
-        <p>{portfolio.identity?.headline || 'Portfolio in progress.'}</p>
-        {portfolio.identity?.about ? <p className="pp-prose">{portfolio.identity.about}</p> : null}
+        <p>No work published yet.</p>
       </div>
     );
   }
@@ -385,13 +386,24 @@ function Contact({ portfolio, onContact }) {
 export default function PortfolioPages({
   portfolio, onNavigate, onSelectListing, onContact, onHire,
 }) {
-  const [page, setPage] = useState('overview');
+  /**
+   * One continuous page, not six.
+   *
+   * The six headings are the information architecture, but they are anchors
+   * down a single scroll rather than separate views. A wall-only landing page
+   * works for someone with three hundred photographs; with a handful it reads
+   * as a stack of near-empty slides, which is exactly what it looked like.
+   *
+   * A collection and a single piece are the exception — those are genuinely
+   * different content, so they replace the page and have their own address.
+   */
   const [openId, setOpenId] = useState(null);
+  const [active, setActive] = useState('overview');
 
   const work = useMemo(() => allWork(portfolio || {}), [portfolio]);
 
-  // Headings only exist when they lead somewhere. Shop disappears entirely for
-  // someone with nothing listed — an empty shop is worse than no shop.
+  // A heading only exists when it leads somewhere. Shop disappears entirely
+  // for someone with nothing listed — an empty shop is worse than no shop.
   const nav = useMemo(() => {
     const items = [['overview', 'Overview'], ['work', 'Work']];
     if (asArray(portfolio?.marketplace).length > 0) items.push(['shop', 'Shop']);
@@ -401,38 +413,79 @@ export default function PortfolioPages({
     return items;
   }, [portfolio]);
 
-  // The section is part of the address, so a collection link is sendable and
-  // the browser's back button behaves.
+  const scrollTo = (key) => {
+    const el = document.getElementById(`pp-${key}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setActive(key);
+    try { window.history.replaceState(null, '', `#/${key}`); } catch { /* ignore */ }
+  };
+
+  const openCollection = (id) => {
+    setOpenId(id);
+    try { window.location.hash = `#/work/${id}`; } catch { /* ignore */ }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const closeCollection = () => {
+    setOpenId(null);
+    try { window.location.hash = '#/work'; } catch { /* ignore */ }
+  };
+
+  // A shared link still lands where it says it will.
   useEffect(() => {
     const read = () => {
       const h = (window.location.hash || '').replace(/^#\/?/, '');
-      const [p, id] = h.split('/');
-      if (p && nav.some(([k]) => k === p)) { setPage(p); setOpenId(id || null); }
-      else if (!h) { setPage('overview'); setOpenId(null); }
+      const [section, id] = h.split('/');
+      if (section === 'work' && id) { setOpenId(id); return; }
+      setOpenId(null);
+      if (section && nav.some(([k]) => k === section)) {
+        // Wait for layout before measuring the anchor.
+        window.setTimeout(() => {
+          const el = document.getElementById(`pp-${section}`);
+          if (el) el.scrollIntoView({ block: 'start' });
+          setActive(section);
+        }, 60);
+      }
     };
     read();
     window.addEventListener('hashchange', read);
     return () => window.removeEventListener('hashchange', read);
   }, [nav]);
 
-  const go = (p, id) => {
-    setPage(p);
-    setOpenId(id || null);
-    try {
-      window.location.hash = id ? `#/${p}/${id}` : `#/${p}`;
-    } catch { /* ignore */ }
-  };
+  // Light the heading you are actually looking at.
+  useEffect(() => {
+    if (openId) return undefined;
+    const seen = new Map();
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) seen.set(e.target.id, e.intersectionRatio);
+        let best = null; let bestRatio = 0;
+        for (const [id, ratio] of seen) {
+          if (ratio > bestRatio) { best = id; bestRatio = ratio; }
+        }
+        if (best && bestRatio > 0) setActive(best.replace(/^pp-/, ''));
+      },
+      { threshold: [0.15, 0.4, 0.75], rootMargin: '-72px 0px -45% 0px' },
+    );
+    for (const [key] of nav) {
+      const el = document.getElementById(`pp-${key}`);
+      if (el) io.observe(el);
+    }
+    return () => io.disconnect();
+  }, [nav, openId]);
 
   if (!portfolio) return null;
   const identity = portfolio.identity || {};
   const collection = openId
-    ? asArray(portfolio.projects).find((p) => String(p.id) === String(openId))
+    ? asArray(portfolio.projects).find((c) => String(c.id) === String(openId))
     : null;
+  const sealed = Boolean(portfolio.verified?.entries?.length);
+  const has = (key) => nav.some(([k]) => k === key);
 
   return (
     <article className={`pp pp-theme-${portfolio.theme || 'editorial'}`}>
       <header className="pp-nav">
-        <button type="button" className="pp-logo" onClick={() => go('overview')}>
+        <button type="button" className="pp-logo" onClick={() => scrollTo('overview')}>
           {identity.name}
         </button>
         <nav className="pp-links">
@@ -440,8 +493,8 @@ export default function PortfolioPages({
             <button
               key={key}
               type="button"
-              className={`${page === key ? 'is-on' : ''}${key === 'verified' ? ' is-seal' : ''}`}
-              onClick={() => go(key)}
+              className={`${!openId && active === key ? 'is-on' : ''}${key === 'verified' ? ' is-seal' : ''}`}
+              onClick={() => { setOpenId(null); window.setTimeout(() => scrollTo(key), 0); }}
             >
               {key === 'verified' ? <><BadgeCheck size={13} /> {label}</> : label}
             </button>
@@ -449,53 +502,52 @@ export default function PortfolioPages({
         </nav>
       </header>
 
-      {page === 'overview' && (
+      {/* A collection replaces the scroll — it is a different thing to read. */}
+      {collection ? (
         <div className="pp-body pp-body--wide">
-          <div className="pp-intro">
-            <h1 className="pp-name">{identity.name}</h1>
-            {asArray(identity.categories).length > 0 && (
-              <p className="pp-role">{identity.categories.join(' · ')}</p>
-            )}
-            {identity.headline ? <p className="pp-prose">{identity.headline}</p> : null}
-            <VerifiedStats verified={portfolio.verified} compact />
-          </div>
-          <Overview
-            portfolio={portfolio}
-            work={work}
-            go={go}
-            sealed={Boolean(portfolio.verified?.entries?.length)}
-          />
+          <Collection collection={collection} onBack={closeCollection} />
         </div>
-      )}
+      ) : (
+        <>
+          <section id="pp-overview" className="pp-body pp-body--wide pp-section">
+            <div className="pp-intro">
+              <h1 className="pp-name">{identity.name}</h1>
+              {asArray(identity.categories).length > 0 && (
+                <p className="pp-role">{identity.categories.join(' · ')}</p>
+              )}
+              {identity.headline ? <p className="pp-prose">{identity.headline}</p> : null}
+              <VerifiedStats verified={portfolio.verified} compact />
+            </div>
+            <Overview portfolio={portfolio} work={work} go={() => scrollTo('work')} sealed={sealed} />
+          </section>
 
-      {page === 'work' && (
-        <div className="pp-body pp-body--wide">
-          {collection
-            ? <Collection collection={collection} onBack={() => go('work')} />
-            : <Work portfolio={portfolio} work={work} openCollection={(id) => go('work', id)} />}
-        </div>
-      )}
+          <section id="pp-work" className="pp-body pp-body--wide pp-section">
+            <h2 className="pp-section__h">Work</h2>
+            <Work portfolio={portfolio} work={work} openCollection={openCollection} />
+          </section>
 
-      {page === 'shop' && (
-        <div className="pp-body pp-body--wide">
-          <Shop portfolio={portfolio} onSelectListing={onSelectListing} />
-        </div>
-      )}
+          {has('shop') && (
+            <section id="pp-shop" className="pp-body pp-body--wide pp-section">
+              <h2 className="pp-section__h">Shop</h2>
+              <Shop portfolio={portfolio} onSelectListing={onSelectListing} />
+            </section>
+          )}
 
-      {page === 'about' && (
-        <div className="pp-body"><About portfolio={portfolio} /></div>
-      )}
+          <section id="pp-about" className="pp-body pp-section">
+            <h2 className="pp-section__h">About</h2>
+            <About portfolio={portfolio} />
+          </section>
 
-      {page === 'verified' && (
-        <div className="pp-body">
-          <VerifiedLedger verified={portfolio.verified} name={(identity.name || '').split(' ')[0]} />
-        </div>
-      )}
+          {has('verified') && (
+            <section id="pp-verified" className="pp-body pp-section">
+              <VerifiedLedger verified={portfolio.verified} name={(identity.name || '').split(' ')[0]} />
+            </section>
+          )}
 
-      {page === 'contact' && (
-        <div className="pp-body">
-          <Contact portfolio={portfolio} onContact={onContact || onHire} />
-        </div>
+          <section id="pp-contact" className="pp-body pp-section pp-section--last">
+            <Contact portfolio={portfolio} onContact={onContact || onHire} />
+          </section>
+        </>
       )}
     </article>
   );
