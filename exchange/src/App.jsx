@@ -15,6 +15,7 @@ import Marketplace from './pages/Marketplace.jsx';
 import ListingDetail from './pages/ListingDetail.jsx';
 import Collections from './pages/Collections.jsx';
 import RequirementsExchange from './pages/RequirementsExchange.jsx';
+import SellerOpportunities from './pages/seller/SellerOpportunities.jsx';
 import CreatorPassports from './pages/CreatorPassports.jsx';
 import Collectors from './pages/Collectors.jsx';
 import EnterpriseLicensing from './pages/EnterpriseLicensing.jsx';
@@ -732,9 +733,11 @@ export default function App() {
             onNavigateMarketplace={() => navigate('marketplace')}
           />
         )}
-        {(activePage === 'requirements' || activePage === 'seller_opportunities') && (
+        {activePage === 'seller_opportunities' && (
+          <SellerOpportunities user={user} onNavigate={navigate} />
+        )}
+        {activePage === 'requirements' && (
           <RequirementsExchange
-            mode={activePage === 'seller_opportunities' ? 'seller' : 'buyer'}
             onNavigate={navigate}
             user={user}
             onOpenAuth={openAuth}

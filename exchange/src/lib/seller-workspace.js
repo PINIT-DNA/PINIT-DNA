@@ -53,11 +53,20 @@ export const LISTING_SECTIONS = [
   ['activity', 'Activity'],
 ];
 
+/**
+ * Three sections, not four.
+ *
+ * These four tabs used to render and do nothing — `oppSection` was set and
+ * never read, so Discover, Buyer requests, Proposals and Submitted all showed
+ * the same page. Rebuilt around what the two of them actually are: work you
+ * can answer, people you can work with, and your own state.
+ *
+ * "For You" is not a section — it is Open work, ranked, which the API does.
+ */
 export const OPPORTUNITY_SECTIONS = [
-  ['discover', 'Discover'],
-  ['requests', 'Buyer requests'],
-  ['proposals', 'Proposals'],
-  ['submitted', 'Submitted'],
+  ['open', 'Open work'],
+  ['collaborate', 'Collaborate'],
+  ['activity', 'My activity'],
 ];
 
 const SALES_PAGES = new Set([
