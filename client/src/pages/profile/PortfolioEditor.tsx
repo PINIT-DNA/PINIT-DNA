@@ -252,8 +252,9 @@ export function PortfolioEditor() {
           contact_note: p.contact?.note || '',
         });
         if (data?.public_url) setPublicUrl(data.public_url);
-      } catch {
+      } catch (err) {
         toast.error('Could not load your portfolio.');
+        console.error('[portfolio] load failed', err);
       }
       try { setVault(await listVaultRecords()); } catch { /* vault is optional to load */ }
       setLoading(false);
@@ -281,7 +282,10 @@ export function PortfolioEditor() {
       if (data?.slug) set('slug', data.slug);
       toast.success(publish ? 'Portfolio published' : 'Saved');
     } catch (err: any) {
-      toast.error(err?.response?.data?.error || 'Could not save.');
+      const d = err?.response?.data;
+      toast.error(d?.error || d?.message || err?.message || 'Could not save.');
+      // Keep the full body in the console — a toast has no room for a stack.
+      console.error('[portfolio] save failed', err?.response?.status, d);
     }
     setSaving(false);
   }, [form]);

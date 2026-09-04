@@ -175,6 +175,11 @@ export async function initPostgresSchema(db) {
   // the two schemas cannot drift the way `requirements.buyer_pinit_id` did.
   await ensureOpportunities(db);
 
+  // Portfolio columns. These were added to the SQLite schema only, so on
+  // Postgres every save failed with "column does not exist" — the same drift
+  // that left requirements.buyer_pinit_id on one side and not the other.
+  await ensurePortfolioColumns(db);
+
   // Optional RLS (non-fatal if policies conflict)
   const rlsPath = path.join(__dirname, '..', 'schema', 'exchange.rls.sql');
   if (fs.existsSync(rlsPath)) {
@@ -342,6 +347,23 @@ export async function ensureOpportunities(db) {
       await db.query(stmt);
     } catch (err) {
       console.warn('[exchange-pg] opportunities alter:', err.message);
+    }
+  }
+}
+
+
+/** Portfolio columns, additive and idempotent. Safe on every boot. */
+export async function ensurePortfolioColumns(db) {
+  const columns = [
+    ['theme', 'TEXT'],
+    ['template', 'TEXT'],
+    ['collaborations', 'TEXT'],
+  ];
+  for (const [name, type] of columns) {
+    try {
+      await db.query(`ALTER TABLE exchange.portfolio_profiles ADD COLUMN IF NOT EXISTS ${name} ${type}`);
+    } catch (err) {
+      console.warn('[exchange-pg] portfolio column:', name, err.message);
     }
   }
 }
