@@ -2042,7 +2042,37 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .creator-card { padding: 22px; display: flex; flex-direction: column; gap: 12px; }
 .creator-card__head { display: flex; gap: 12px; align-items: flex-start; }
-.creator-card__avatar { width: 52px; height: 52px; font-size: 1.15rem; flex-shrink: 0; }
+.creator-card__avatar {
+  width: 52px; height: 52px; font-size: 1.15rem; flex-shrink: 0;
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: rgba(59, 130, 246, 0.2); color: #fff; font-weight: 700;
+}
+.collector-id { color: var(--text-muted); font-size: 0.78rem; margin: 4px 0 0; }
+.collector-stats {
+  display: flex; flex-wrap: wrap; gap: 12px; color: var(--text-muted); font-size: 0.82rem;
+}
+.collector-stats span { display: inline-flex; align-items: center; gap: 6px; }
+.collectors-rail { margin: 8px 0 28px; }
+.collectors-rail__head {
+  display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
+  gap: 12px; margin-bottom: 14px;
+}
+.collectors-rail__sub { color: var(--text-muted); font-size: 0.82rem; margin-top: 4px; }
+.collectors-rail__row {
+  display: flex; gap: 12px; overflow-x: auto; padding-bottom: 6px;
+}
+.collector-chip {
+  flex: 0 0 200px; text-align: left; cursor: pointer;
+  background: rgba(14, 20, 33, 0.75); border: 1px solid var(--border-subtle);
+  border-radius: 14px; padding: 14px 14px 12px; color: inherit;
+}
+.collector-chip:hover { border-color: rgba(59, 130, 246, 0.45); }
+.collector-chip__avatar {
+  width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center;
+  justify-content: center; background: rgba(59, 130, 246, 0.22); font-weight: 700; margin-bottom: 8px;
+}
+.collector-chip__name { display: block; color: #fff; font-weight: 600; font-size: 0.92rem; }
+.collector-chip__meta { display: block; color: var(--text-muted); font-size: 0.75rem; margin-top: 4px; }
 .creator-card__name-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .creator-card__name-row h3 { color: #fff; margin: 0; font-size: 1.1rem; }
 .creator-card__verified {
@@ -4431,3 +4461,189 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .pay-hint--demo > svg { color: #f0796d; }
 .pay-hint--demo strong { color: #f0796d; }
+
+/* ── Seller Overview ───────────────────────────────────────────────────────
+   Built around the seller's journey rather than a grid of equal cards.
+   Uses the existing tokens only — no new colours.                          */
+
+.so-journey {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+}
+@media (max-width: 860px) { .so-journey { grid-template-columns: repeat(2, 1fr); } }
+
+.so-stage {
+  position: relative;
+  display: flex; flex-direction: column; gap: 6px;
+  text-align: left;
+  padding: 16px 16px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  color: var(--text-main);
+  cursor: pointer;
+  transition: background .18s ease, border-color .18s ease, transform .18s ease;
+}
+.so-stage:hover { background: var(--bg-card-hover); transform: translateY(-1px); }
+.so-stage:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* Stages already cleared read as quiet confirmation. */
+.so-stage.is-done { border-color: rgba(16, 185, 129, 0.22); }
+.so-stage.is-done .so-stage__top { color: var(--emerald); }
+
+/* The stage they are standing on is the only lit thing on the row. */
+.so-stage.is-now {
+  border-color: var(--border-glow);
+  background: linear-gradient(180deg, rgba(59,130,246,.09), rgba(59,130,246,.02));
+  box-shadow: var(--shadow-glow);
+}
+.so-stage.is-now .so-stage__top { color: var(--primary); }
+
+.so-stage__top {
+  display: inline-flex; align-items: center; gap: 7px;
+  color: var(--text-dim);
+  font-size: .74rem; letter-spacing: .06em; text-transform: uppercase; font-weight: 600;
+}
+.so-stage__value {
+  font-family: var(--font-heading);
+  font-size: 1.75rem; font-weight: 600; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.so-stage__hint { font-size: .78rem; color: var(--text-dim); }
+
+/* ── The single next action ──────────────────────────────────────────── */
+.so-next {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-glow);
+  background: linear-gradient(135deg, rgba(59,130,246,.10), rgba(99,102,241,.05));
+}
+.so-next__icon {
+  display: grid; place-items: center;
+  width: 34px; height: 34px; flex: none;
+  border-radius: var(--radius-full);
+  background: var(--primary-glow); color: var(--primary);
+}
+.so-next__body { flex: 1 1 320px; min-width: 0; }
+.so-next__body h3 {
+  margin: 0 0 3px; font-size: .97rem; font-weight: 600; color: var(--text-main);
+}
+.so-next__body p { margin: 0; font-size: .84rem; color: var(--text-muted); max-width: 68ch; }
+.so-next__cta { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+
+/* ── Two-up ─────────────────────────────────────────────────────────── */
+.so-grid {
+  display: grid; gap: 14px;
+  grid-template-columns: 1fr 1fr;
+  margin-bottom: 14px;
+}
+@media (max-width: 860px) { .so-grid { grid-template-columns: 1fr; } }
+
+.so-panel { padding: 18px; }
+.so-panel h2 { margin: 0 0 12px; font-size: 1rem; }
+.so-panel .studio-section__head h2 { margin: 0; }
+
+/* ── Earnings ───────────────────────────────────────────────────────── */
+.so-money { display: flex; flex-direction: column; gap: 3px; }
+.so-money__label {
+  font-size: .74rem; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-dim); font-weight: 600;
+}
+.so-money__net {
+  font-family: var(--font-heading);
+  font-size: 2.1rem; font-weight: 600; line-height: 1.05;
+  color: var(--emerald); font-variant-numeric: tabular-nums;
+}
+.so-money__gross { font-size: .82rem; color: var(--text-dim); }
+.so-money__meta {
+  display: flex; gap: 14px; flex-wrap: wrap;
+  margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: .8rem; color: var(--text-muted);
+}
+.so-money__meta span { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ── Worth your time ────────────────────────────────────────────────── */
+.so-todo { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.so-todo button {
+  width: 100%;
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-card-solid);
+  color: var(--text-main);
+  cursor: pointer; text-align: left;
+  transition: background .18s ease, border-color .18s ease;
+}
+.so-todo button:hover { background: var(--bg-card-hover); border-color: var(--border-glow); }
+.so-todo button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.so-todo__n {
+  flex: none; min-width: 30px; height: 30px; padding: 0 7px;
+  display: grid; place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--primary-glow); color: var(--primary);
+  font-weight: 700; font-size: .9rem; font-variant-numeric: tabular-nums;
+}
+.so-todo button > span:nth-child(2) { flex: 1; min-width: 0; display: block; }
+.so-todo b { display: block; font-size: .88rem; font-weight: 600; }
+.so-todo em { display: block; font-style: normal; font-size: .78rem; color: var(--text-dim); }
+.so-todo svg { flex: none; color: var(--text-dim); }
+.so-todo__clear {
+  display: flex; align-items: center; gap: 9px;
+  padding: 12px; font-size: .85rem; color: var(--text-dim);
+}
+.so-todo__clear svg { color: var(--emerald); }
+
+/* ── Recent sales ───────────────────────────────────────────────────── */
+.so-sales { margin-bottom: 14px; }
+.so-salelist { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.so-salelist li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center; gap: 14px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: .87rem;
+}
+.so-salelist li:last-child { border-bottom: 0; }
+.so-salelist__title { color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.so-salelist__buyer { color: var(--text-dim); font-size: .8rem; }
+.so-salelist__price {
+  color: var(--emerald); font-weight: 600; font-variant-numeric: tabular-nums;
+}
+@media (max-width: 620px) {
+  .so-salelist li { grid-template-columns: 1fr auto; }
+  .so-salelist__buyer { display: none; }
+}
+
+/* ── Jump to — navigation, deliberately quiet ───────────────────────── */
+.so-jump { display: flex; flex-wrap: wrap; gap: 8px; }
+.so-jump button {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 13px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: .84rem; cursor: pointer;
+  transition: color .18s ease, border-color .18s ease, background .18s ease;
+}
+.so-jump button:hover {
+  color: var(--text-main); border-color: var(--border-glow); background: var(--bg-card);
+}
+.so-jump button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .so-stage, .so-todo button, .so-jump button { transition: none; }
+  .so-stage:hover { transform: none; }
+}
+
+/* The seller hero reuses .market-hero, but sits inside a workspace page that
+   already has its own heading — so it needs less breathing room below. */
+.so-hero { margin-bottom: 20px; }
+.so-hero .market-hero__title { font-size: clamp(1.9rem, 3.6vw, 2.7rem); }

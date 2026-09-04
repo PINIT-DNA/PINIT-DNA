@@ -79,6 +79,7 @@ export const PUBLIC_PAGES = new Set([
   'home',
   'marketplace',
   'collections',
+  'collectors',
   'passports',
   'requirements',
   'listing_detail',

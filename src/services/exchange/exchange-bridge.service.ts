@@ -519,6 +519,52 @@ export const exchangeBridgeService = {
     }
   },
 
+  async getSellerDeskSummary(ownerUserId: string) {
+    const role = await this.getExchangeMarketplaceRole(ownerUserId);
+    const empty = {
+      pinitId: role.pinitId,
+      can_list: Boolean(role.can_list),
+      unavailable: Boolean(role.unavailable),
+      metrics: {
+        total_net_revenue: 0,
+        sealed_sales_count: 0,
+        active_listings_count: 0,
+        listings_count: 0,
+        total_views: 0,
+        total_saves: 0,
+      },
+    };
+    if (!role.can_list || role.unavailable) return empty;
+    try {
+      const res = await fetch(
+        `${config.exchange.apiUrl}/api/hub/seller-desk?pinitId=${encodeURIComponent(role.pinitId)}`,
+        {
+          headers: { 'X-PinIT-Bridge-Secret': config.exchange.bridgeSecret },
+        },
+      );
+      if (!res.ok) {
+        return { ...empty, unavailable: true };
+      }
+      const data = (await res.json()) as { metrics?: Record<string, number> };
+      const m = data.metrics || {};
+      return {
+        pinitId: role.pinitId,
+        can_list: true,
+        unavailable: false,
+        metrics: {
+          total_net_revenue: Number(m.total_net_revenue || 0),
+          sealed_sales_count: Number(m.sealed_sales_count || 0),
+          active_listings_count: Number(m.active_listings_count || 0),
+          listings_count: Number(m.listings_count || 0),
+          total_views: Number(m.total_views || 0),
+          total_saves: Number(m.total_saves || 0),
+        },
+      };
+    } catch {
+      return { ...empty, unavailable: true };
+    }
+  },
+
   async createListIntent(ownerUserId: string, vaultId: string) {
     const user = await prisma.user.findUnique({
       where: { id: ownerUserId },

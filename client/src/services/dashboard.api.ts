@@ -688,6 +688,24 @@ export async function getExchangeRole(): Promise<{
   return data;
 }
 
+export async function getExchangeSellerSummary(): Promise<{
+  success: boolean;
+  pinitId: string;
+  can_list: boolean;
+  unavailable?: boolean;
+  metrics: {
+    total_net_revenue: number;
+    sealed_sales_count: number;
+    active_listings_count: number;
+    listings_count: number;
+    total_views: number;
+    total_saves: number;
+  };
+}> {
+  const { data } = await api.get(`${API_BASE_URL}/exchange/seller-summary`);
+  return data;
+}
+
 export async function createExchangeSso(): Promise<{
   success: boolean;
   token: string;

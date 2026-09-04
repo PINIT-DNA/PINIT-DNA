@@ -27,6 +27,7 @@ import { uploadFile, uploadSingle } from '../middleware/upload.middleware';
 import {
   getExchangeConfig,
   getExchangeRole,
+  getExchangeSellerSummary,
   createExchangeSso,
   listExchangeAssets,
   listExchangeAssetsBridge,
@@ -57,6 +58,7 @@ function uploadProtect(req: any, res: any, next: any) {
 
 router.get('/config', requireAuth, getExchangeConfig);
 router.get('/role', requireAuth, getExchangeRole);
+router.get('/seller-summary', requireAuth, getExchangeSellerSummary);
 router.post('/sso', requireAuth, createExchangeSso);
 router.get('/listable-assets', requireAuth, listExchangeAssets);
 router.get('/listable-assets-bridge', listExchangeAssetsBridge);

@@ -429,4 +429,74 @@ router.get('/assets/:assetId/activity', requireSeller, (req, res) => {
   );
 });
 
+/** Public collector directory — Pinit IDs and Hub names only, no emails. */
+router.get('/collectors', (req, res) => {
+  db.all(
+    `SELECT buyer_pinit_id AS pinit_id, COUNT(*) AS licenses
+       FROM orders_sealed
+      WHERE buyer_pinit_id IS NOT NULL AND TRIM(buyer_pinit_id) != ''
+      GROUP BY buyer_pinit_id`,
+    [],
+    (err, saleRows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      db.all(
+        `SELECT buyer_key, COUNT(*) AS saves FROM wishlist GROUP BY buyer_key`,
+        [],
+        async (wishErr, wishRows) => {
+          if (wishErr) return res.status(500).json({ error: wishErr.message });
+          const grouped = {};
+          const bump = (raw, field, n) => {
+            const id = String(raw || '').trim();
+            if (!id || /^GUEST-/i.test(id)) return;
+            const code = extractPinitCode(id);
+            if (!code) return;
+            if (!grouped[code]) {
+              grouped[code] = {
+                pinit_id: id,
+                pinit_user_id: toUserPinitId(code),
+                name: 'Collector',
+                licenses: 0,
+                saves: 0,
+              };
+            }
+            grouped[code][field] += Number(n) || 0;
+          };
+          (saleRows || []).forEach((row) => bump(row.pinit_id, 'licenses', row.licenses));
+          (wishRows || []).forEach((row) => bump(row.buyer_key, 'saves', row.saves));
+
+          const list = Object.values(grouped);
+          try {
+            const { profiles } = await fetchHubProfiles(list.map((c) => c.pinit_id));
+            const byCode = {};
+            (profiles || []).forEach((profile) => {
+              const code = extractPinitCode(profile.pinit_id || profile.pinit_user_id);
+              if (code) byCode[code] = profile;
+            });
+            list.forEach((c, i) => {
+              const code = extractPinitCode(c.pinit_id);
+              list[i] = applyHubProfile(c, byCode[code]);
+              if (isPlaceholderName(list[i].name)) list[i].name = 'Collector';
+            });
+          } catch (hubErr) {
+            console.warn('[creator/collectors] Hub profiles unavailable:', hubErr.message);
+          }
+
+          const collectors = list
+            .sort((a, b) => (b.licenses + b.saves) - (a.licenses + a.saves))
+            .slice(0, 48)
+            .map((c) => ({
+              pinit_id: c.pinit_user_id || c.pinit_id,
+              name: c.name || 'Collector',
+              licenses: Number(c.licenses || 0),
+              saves: Number(c.saves || 0),
+              avatar: String(c.name || 'C')[0].toUpperCase(),
+            }));
+
+          res.json({ collectors });
+        },
+      );
+    },
+  );
+});
+
 export default router;

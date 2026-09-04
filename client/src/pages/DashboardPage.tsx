@@ -4,12 +4,14 @@ import {
   Database, Archive, Zap,
   AlertTriangle, RefreshCw,
   Eye, Globe, Plus, Link2, Radio, Download, Shield, FileText,
+  Store, IndianRupee, LayoutGrid,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useApi, formatBytes } from '../hooks/useApi';
 import {
   getDashboardStats, api, listVaultRecords, getLiveTrackingMap, deriveFileType,
   getDashboardSecurityInsights, type DashboardSecurityInsights,
+  getExchangeSellerSummary, createExchangeSso,
 } from '../services/dashboard.api';
 import type { VaultRecord } from '../types/dashboard.types';
 import { DashboardFilesMap, type DashboardFileMapPoint } from '../components/maps/DashboardFilesMap';
@@ -73,6 +75,16 @@ function openNotificationBell() {
   window.dispatchEvent(new Event(OPEN_NOTIFICATION_BELL_EVENT));
 }
 
+function formatInr(amount: number): string {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return '₹0';
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: Math.abs(n % 1) > 0.005 ? 2 : 0,
+  }).format(n);
+}
+
 export function DashboardPage() {
   const { user } = useAuth();
   const { firstName, displayName } = useUserProfile();
@@ -96,6 +108,18 @@ export function DashboardPage() {
   const [trackingMeta, setTrackingMeta] = useState({ recent: 0, total: 0 });
   const [securityInsights, setSecurityInsights] = useState<DashboardSecurityInsights | null>(null);
   const [securityLoading, setSecurityLoading] = useState(true);
+  const [exchangeSelling, setExchangeSelling] = useState<{
+    can_list: boolean;
+    unavailable?: boolean;
+    metrics: {
+      total_net_revenue: number;
+      sealed_sales_count: number;
+      active_listings_count: number;
+      listings_count: number;
+      total_views: number;
+      total_saves: number;
+    };
+  } | null>(null);
   const [welcomePlan, setWelcomePlan] = useState<PlanCode | null>(null);
 
   const vaultByDnaId = useMemo(
@@ -165,6 +189,27 @@ export function DashboardPage() {
       .catch(() => {});
   };
 
+  const fetchExchangeSelling = () => {
+    getExchangeSellerSummary()
+      .then((data) => setExchangeSelling({
+        can_list: data.can_list,
+        unavailable: data.unavailable,
+        metrics: data.metrics,
+      }))
+      .catch(() => setExchangeSelling(null));
+  };
+
+  const openExchangeSeller = async () => {
+    try {
+      const result = await createExchangeSso();
+      const url = new URL(result.exchangeUrl);
+      url.pathname = '/exchange/seller';
+      window.open(url.toString(), 'pinit-exchange', 'noopener,noreferrer');
+    } catch {
+      /* Hub SSO failed — Home still works */
+    }
+  };
+
   const handleRefresh = () => {
     refetch();
     setSecurityLoading(true);
@@ -172,6 +217,7 @@ export function DashboardPage() {
       .then(setSecurityInsights)
       .finally(() => setSecurityLoading(false));
     fetchShare();
+    fetchExchangeSelling();
     listVaultRecords()
       .then(setVaultRecords)
       .catch(() => setVaultRecords([]));
@@ -191,9 +237,11 @@ export function DashboardPage() {
 
   useEffect(() => {
     fetchShare();
+    fetchExchangeSelling();
     const id = setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return;
       fetchShare();
+      fetchExchangeSelling();
     }, 90_000);
     return () => clearInterval(id);
   }, []);
@@ -349,6 +397,61 @@ export function DashboardPage() {
             />
           </>
         ) : null}
+        </div>
+      </section>
+
+      <section>
+        <div className="flex flex-wrap items-end justify-between gap-2 mb-3">
+          <div>
+            <h2 className="text-sm font-semibold text-white">Exchange selling</h2>
+            <p className="text-2xs text-gray-500 mt-0.5">
+              {exchangeSelling?.unavailable
+                ? 'Marketplace numbers will appear when Exchange is reachable.'
+                : 'Same live counts as Exchange Overview. Protection stays in Hub.'}
+            </p>
+          </div>
+          <button type="button" className="btn btn-secondary btn-sm gap-2" onClick={() => void openExchangeSeller()}>
+            <Store size={13} />
+            Open Exchange
+          </button>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <button type="button" className="text-left" onClick={() => void openExchangeSeller()}>
+            <StatCard
+              icon={<IndianRupee size={18} className="text-white" />}
+              variant="green"
+              label="Revenue"
+              value={formatInr(exchangeSelling?.metrics.total_net_revenue ?? 0)}
+              sub="Creator net"
+            />
+          </button>
+          <button type="button" className="text-left" onClick={() => void openExchangeSeller()}>
+            <StatCard
+              icon={<Store size={18} className="text-white" />}
+              variant="blue"
+              label="Orders"
+              value={exchangeSelling?.metrics.sealed_sales_count ?? 0}
+              sub="Sealed licenses"
+            />
+          </button>
+          <button type="button" className="text-left" onClick={() => void openExchangeSeller()}>
+            <StatCard
+              icon={<LayoutGrid size={18} className="text-white" />}
+              variant="purple"
+              label="Live listings"
+              value={exchangeSelling?.metrics.active_listings_count ?? 0}
+              sub={`${exchangeSelling?.metrics.listings_count ?? 0} total offers`}
+            />
+          </button>
+          <button type="button" className="text-left" onClick={() => void openExchangeSeller()}>
+            <StatCard
+              icon={<Eye size={18} className="text-white" />}
+              variant="orange"
+              label="Listing views"
+              value={exchangeSelling?.metrics.total_views ?? 0}
+              sub={`${exchangeSelling?.metrics.total_saves ?? 0} saves`}
+            />
+          </button>
         </div>
       </section>
 

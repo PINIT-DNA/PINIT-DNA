@@ -36,6 +36,16 @@ export async function getExchangeRole(req: Request, res: Response, next: NextFun
   }
 }
 
+/** GET /exchange/seller-summary — Hub Home selling KPIs from Exchange desk */
+export async function getExchangeSellerSummary(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const result = await exchangeBridgeService.getSellerDeskSummary(userId(req));
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 /** GET /exchange/config — public-safe URLs for Hub UI */
 export async function getExchangeConfig(_req: Request, res: Response): Promise<void> {
   res.json({

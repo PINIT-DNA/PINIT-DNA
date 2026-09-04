@@ -10,6 +10,7 @@ const COLUMNS = [
       { label: 'Marketplace', page: 'marketplace' },
       { label: 'Collections', page: 'collections' },
       { label: 'Creators', page: 'passports' },
+      { label: 'Collectors', page: 'collectors' },
     ],
   },
   {

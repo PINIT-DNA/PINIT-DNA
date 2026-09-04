@@ -16,6 +16,7 @@ import ListingDetail from './pages/ListingDetail.jsx';
 import Collections from './pages/Collections.jsx';
 import RequirementsExchange from './pages/RequirementsExchange.jsx';
 import CreatorPassports from './pages/CreatorPassports.jsx';
+import Collectors from './pages/Collectors.jsx';
 import EnterpriseLicensing from './pages/EnterpriseLicensing.jsx';
 import TrustCenter from './pages/TrustCenter.jsx';
 import KnowledgeGuide from './pages/KnowledgeGuide.jsx';
@@ -746,6 +747,9 @@ export default function App() {
             onNavigate={navigate}
             onOpenAuth={openAuth}
           />
+        )}
+        {activePage === 'collectors' && (
+          <Collectors onNavigate={navigate} />
         )}
         {activePage === 'creator_program' && (
           <CreatorProgramPage onNavigate={navigate} onOpenAuth={openAuth} />

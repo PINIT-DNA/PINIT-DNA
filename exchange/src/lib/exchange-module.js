@@ -4,6 +4,7 @@ export const BUY_PAGES = new Set([
   'home',
   'marketplace',
   'collections',
+  'collectors',
   'passports',
   'cart',
   'wishlist',

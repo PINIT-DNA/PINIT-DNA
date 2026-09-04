@@ -360,4 +360,61 @@ router.post('/protect', (_req, res) => {
   });
 });
 
+function listingWhere(match) {
+  return `WHERE ${String(match.sql || '').replace(/^\s*AND\s+/i, '')}`;
+}
+
+function requireBridgeSecret(req, res, next) {
+  const got = String(req.headers['x-pinit-bridge-secret'] || req.headers['x-exchange-bridge-secret'] || '').trim();
+  const accepted = new Set(
+    [
+      process.env.EXCHANGE_BRIDGE_SECRET,
+      process.env.HUB_BRIDGE_SECRET,
+      process.env.JWT_SECRET,
+    ].filter((s) => Boolean(s && String(s).trim())),
+  );
+  if (!got || !accepted.has(got)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  return next();
+}
+
+/** Hub Home KPIs — metrics only, no buyer PII. */
+router.get('/seller-desk', requireBridgeSecret, (req, res) => {
+  const pinitId = String(req.query.pinitId || req.query.pinit_id || '').trim();
+  if (!pinitId) return res.status(400).json({ error: 'pinitId is required' });
+
+  const listingScope = sellerMatchClause('pinit_id', pinitId);
+  const salesScope = sellerMatchClause('seller_pinit_id', pinitId);
+
+  db.all(
+    `SELECT status, views, saves FROM listings ${listingWhere(listingScope)}`,
+    listingScope.params,
+    (err, listings) => {
+      if (err) return res.status(500).json({ error: err.message });
+      db.all(
+        `SELECT creator_net, price_paid FROM orders_sealed ${listingWhere(salesScope)}`,
+        salesScope.params,
+        (salesErr, sales) => {
+          if (salesErr) return res.status(500).json({ error: salesErr.message });
+          const rows = listings || [];
+          const sealed = sales || [];
+          const totalNet = sealed.reduce((acc, s) => acc + (Number(s.creator_net) || 0), 0);
+          const live = rows.filter((l) => l.status === 'live' || l.status === 'published').length;
+          res.json({
+            metrics: {
+              total_net_revenue: Math.round(totalNet * 100) / 100,
+              sealed_sales_count: sealed.length,
+              active_listings_count: live,
+              listings_count: rows.length,
+              total_views: rows.reduce((acc, l) => acc + (Number(l.views) || 0), 0),
+              total_saves: rows.reduce((acc, l) => acc + (Number(l.saves) || 0), 0),
+            },
+          });
+        },
+      );
+    },
+  );
+});
+
 export default router;

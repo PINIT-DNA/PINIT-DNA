@@ -152,6 +152,7 @@ export default function ExchangeHeader({
     ['marketplace', 'Discover'],
     ['collections', 'Collections'],
     ['passports', 'Creators'],
+    ['collectors', 'Collectors'],
   ];
   if (signedIn && account.canPurchase) {
     buyLinks.push(['my_licenses', 'Purchases']);

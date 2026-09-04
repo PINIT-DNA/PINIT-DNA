@@ -107,10 +107,18 @@ export default function Marketplace({
   const [editForm, setEditForm] = useState({});
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState('');
+  const [collectors, setCollectors] = useState([]);
 
   useEffect(() => {
     if (buyView && selectedVertical === 'mine') setSelectedVertical('all');
   }, [buyView, selectedVertical]);
+
+  useEffect(() => {
+    (async () => {
+      const { ok, data } = await apiFetch('/api/creator/collectors');
+      setCollectors(ok ? (data.collectors || []).slice(0, 8) : []);
+    })();
+  }, []);
 
   useEffect(() => {
     if (resetFiltersToken) {
@@ -809,9 +817,43 @@ export default function Marketplace({
         </section>
       )}
 
+      {!loading && !loadError && !resultsMode && collectors.length > 0 && (
+        <section className="ex-section collectors-rail">
+          <div className="collectors-rail__head">
+            <div>
+              <h2 className="ex-h2">Collectors on the marketplace</h2>
+              <p className="collectors-rail__sub">People licensing and saving Hub-protected work.</p>
+            </div>
+            <button type="button" className="btn-secondary" onClick={() => onNavigate?.('collectors')}>
+              View all collectors
+            </button>
+          </div>
+          <div className="collectors-rail__row">
+            {collectors.map((c) => (
+              <button
+                key={c.pinit_id}
+                type="button"
+                className="collector-chip"
+                onClick={() => onNavigate?.('collectors')}
+              >
+                <span className="collector-chip__avatar">{c.avatar || 'C'}</span>
+                <span className="collector-chip__name">{c.name}</span>
+                <span className="collector-chip__meta">
+                  {c.licenses} licensed · {c.saves} saved
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       {!loading && !loadError && !resultsMode && (
         <section className="ex-section market-explore">
           <div className="market-explore__row">
+            <button type="button" className="market-explore__card" onClick={() => onNavigate?.('collectors')}>
+              <h3>Collectors</h3>
+              <p>See who is licensing and saving protected work across Exchange.</p>
+            </button>
             <button type="button" className="market-explore__card" onClick={() => onNavigate?.('passports')}>
               <h3>Explore Creators</h3>
               <p>Meet the people behind protected work on Pinit Exchange.</p>

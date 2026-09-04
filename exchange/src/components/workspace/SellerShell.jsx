@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   ShieldCheck, LayoutDashboard, Images, LayoutGrid, ListTree, PlusCircle, BadgeDollarSign,
   Receipt, Wallet, Star, LineChart, Megaphone, ClipboardList, Bell, Lock,
-  ExternalLink, Settings, LogOut, Store,
+  ExternalLink, Settings, LogOut, Store, Users,
 } from 'lucide-react';
 
 const HUB_APP_URL = (import.meta.env.VITE_HUB_APP_URL || 'http://localhost:3002').replace(/\/$/, '');
@@ -21,6 +21,7 @@ const NAV = [
   { id: 'seller_reviews', label: 'Reviews', icon: Star },
   { heading: 'Buy' },
   { id: 'marketplace', label: 'Discover', icon: Store },
+  { id: 'collectors', label: 'Collectors', icon: Users },
   { id: 'cart', label: 'Cart', icon: Receipt },
   { id: 'my_licenses', label: 'Purchases', icon: BadgeDollarSign },
   { id: 'seller_opportunities', label: 'Opportunities', icon: ClipboardList },
