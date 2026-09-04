@@ -31,7 +31,24 @@ export interface ForensicScanResult {
     cropPercent?: number;
     missingPercent?: number;
     matches?: number;
+    probeCoveragePercent?: number;
+    vaultCoveragePercent?: number;
+    probeRegion?: { xPercent: number; yPercent: number; widthPercent: number; heightPercent: number };
+    vaultRegion?: { xPercent: number; yPercent: number; widthPercent: number; heightPercent: number };
   };
+  blockComposition?: {
+    protectedFromAssetPercent: number;
+    aiGeneratedPercent: number;
+    otherPercent: number;
+    overlayPngBase64?: string;
+    blockSize?: number;
+    matchedBlocks?: number;
+    aiBlocks?: number;
+    otherBlocks?: number;
+    probeRegion?: { xPercent: number; yPercent: number; widthPercent: number; heightPercent: number };
+    grid?: { rows: number; cols: number; labels: string };
+  };
+  pixelSource?: Record<string, unknown>;
   tamperLocalization?: {
     modifiedPercent?: number;
     visiblePercent?: number;
@@ -141,6 +158,8 @@ export class ForensicScannerService {
       candidates,
       features: result.features,
       cropDetection: result.cropDetection,
+      blockComposition: result.blockComposition as ForensicScanResult['blockComposition'],
+      pixelSource: result.pixelSource,
       tamperLocalization: result.tamperLocalization,
       screenshotDetection: result.screenshotDetection,
       aiManipulation: result.aiManipulation,

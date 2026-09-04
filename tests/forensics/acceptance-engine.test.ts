@@ -41,7 +41,7 @@ describe('AcceptanceEngine', () => {
     expect(d.verdict).toBe('INSUFFICIENT_EVIDENCE');
     expect(d.retrievalConfidence).toBe(0);
     expect(d.retainCandidate).toBe(false);
-    expect(d.displayLabel).toMatch(/Manual Review|Insufficient/i);
+    expect(d.displayLabel).toMatch(/Incomplete|Insufficient/i);
   });
 
   it('returns NOT_PINIT when no candidate', () => {
@@ -234,7 +234,7 @@ describe('AcceptanceEngine', () => {
       tamperDetected: false,
     }));
     expect(d.verdict).toBe('POSSIBLE_MATCH');
-    expect(d.displayLabel).toMatch(/Manual Review/i);
+    expect(d.displayLabel).toMatch(/Protected original identified/i);
   });
 
   it('uses acceptance-policy-v1.2 and 15-layer-v1 versions', () => {

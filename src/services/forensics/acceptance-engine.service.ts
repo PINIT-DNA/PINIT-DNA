@@ -58,9 +58,9 @@ const POSSIBLE_SIMILARITY_MIN = POSSIBLE_MIN;
 export const ACCEPTANCE_VERDICT_LABELS: Record<AcceptanceVerdict, string> = {
   VERIFIED_ORIGINAL: 'Ownership Verified',
   VERIFIED_DERIVATIVE: 'Ownership Verified (Derivative)',
-  POSSIBLE_MATCH: 'Likely Match – Manual Review Recommended',
+  POSSIBLE_MATCH: 'Protected original identified',
   NOT_PINIT: 'Unknown Asset',
-  INSUFFICIENT_EVIDENCE: 'Investigation Incomplete — Manual Review Recommended',
+  INSUFFICIENT_EVIDENCE: 'Investigation incomplete',
 };
 
 function channelContribution(weight: number, channel: EvidenceChannel): ScorecardChannelResult {
@@ -206,7 +206,7 @@ function closestSimilarityLabel(evidence: AcceptanceEvidence, scorecard: Accepta
 
 function noVerifiedOwnerMessage(evidence: AcceptanceEvidence, scorecard: AcceptanceScorecard): string {
   const closest = closestSimilarityLabel(evidence, scorecard);
-  return `No verified vault owner found. Closest similarity: ${closest}%. Manual investigation recommended.`;
+  return `No verified vault owner found. Closest similarity: ${closest}%.`;
 }
 
 function decide(evidence: AcceptanceEvidence, scorecard: AcceptanceScorecard): AcceptanceVerdict {
@@ -376,7 +376,7 @@ function displayLabelFor(
   if (verdict !== 'POSSIBLE_MATCH') return ACCEPTANCE_VERDICT_LABELS[verdict];
   const band = closestSimilarityLabel(evidence, scorecard);
   if (band >= LIKELY_OWNER_MIN) {
-    return 'Likely Match – Manual Review Recommended';
+    return 'Protected original identified';
   }
   return 'Possible Similarity – Top Candidates Only';
 }
@@ -389,7 +389,7 @@ function reasonFor(
   switch (verdict) {
     case 'INSUFFICIENT_EVIDENCE':
       return evidence.failureReason
-        ?? 'Investigation could not complete analysis — manual review recommended';
+        ?? 'Investigation could not complete analysis';
     case 'NOT_PINIT':
       return noVerifiedOwnerMessage(evidence, scorecard);
     case 'VERIFIED_ORIGINAL':

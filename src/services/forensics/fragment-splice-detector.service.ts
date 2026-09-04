@@ -48,7 +48,12 @@ interface IslandMatch {
 export interface FragmentSpliceOptions {
   /** Exclude the vault the orchestrator already accepted as the whole-image match */
   excludeVaultId?: string;
+  /** Always search this vault first so a crop pasted into AI art is measured */
+  preferVaultId?: string;
   maxCandidates?: number;
+  minPatchMatches?: number;
+  /** Skip the "too large to be a splice" filter; still report area % */
+  forComposition?: boolean;
 }
 
 function round1(n: number): number {
@@ -83,6 +88,53 @@ function unionRect(a: Rect, b: Rect): Rect {
   const x2 = Math.max(a.x + a.w, b.x + b.w);
   const y2 = Math.max(a.y + a.h, b.y + b.h);
   return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+}
+
+function median(values: number[]): number {
+  const s = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  if (!s.length) return 0;
+  return s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
+}
+
+function estimateIslandSimilarity(island: IslandMatch[]): {
+  sx: number; sy: number; tx: number; ty: number; ok: boolean;
+} {
+  const scalesX: number[] = [];
+  const scalesY: number[] = [];
+  for (let i = 0; i < island.length; i++) {
+    for (let j = i + 1; j < island.length; j++) {
+      const dvx = island[j]!.vaultRect.x - island[i]!.vaultRect.x;
+      const dvy = island[j]!.vaultRect.y - island[i]!.vaultRect.y;
+      const dpx = island[j]!.probeRect.x - island[i]!.probeRect.x;
+      const dpy = island[j]!.probeRect.y - island[i]!.probeRect.y;
+      if (Math.abs(dvx) >= 16) scalesX.push(dpx / dvx);
+      if (Math.abs(dvy) >= 16) scalesY.push(dpy / dvy);
+    }
+  }
+  const sx = scalesX.length ? median(scalesX) : 1;
+  const sy = scalesY.length ? median(scalesY) : sx;
+  const ok = Number.isFinite(sx) && Number.isFinite(sy) && sx > 0.12 && sx < 4 && sy > 0.12 && sy < 4;
+  const tx = median(island.map((m) => m.probeRect.x - sx * m.vaultRect.x));
+  const ty = median(island.map((m) => m.probeRect.y - sy * m.vaultRect.y));
+  return { sx, sy, tx, ty, ok };
+}
+
+function mapVaultRectToProbe(
+  vault: Rect,
+  t: { sx: number; sy: number; tx: number; ty: number },
+  probeW: number,
+  probeH: number,
+): Rect {
+  let x = t.sx * vault.x + t.tx;
+  let y = t.sy * vault.y + t.ty;
+  let w = t.sx * vault.w;
+  let h = t.sy * vault.h;
+  if (x < 0) { w += x; x = 0; }
+  if (y < 0) { h += y; y = 0; }
+  if (x + w > probeW) w = probeW - x;
+  if (y + h > probeH) h = probeH - y;
+  return { x, y, w: Math.max(0, w), h: Math.max(0, h) };
 }
 
 function rectsClose(a: Rect, b: Rect, margin: number): boolean {
@@ -157,25 +209,39 @@ export class FragmentSpliceDetectorService {
     if (!probeGrid.patches.length || !probeGrid.imageWidth || !probeGrid.imageHeight) return [];
 
     const probeArea = probeGrid.imageWidth * probeGrid.imageHeight;
+    const minPatches = options?.minPatchMatches
+      ?? (options?.forComposition ? 3 : cfg.minPatchMatches);
+    const maxBBox = options?.forComposition ? 95 : cfg.maxProbeBBoxAreaPercent;
 
-    const indexes = await prisma.localFeatureIndex.findMany({
+    const patchSelect = {
+      patchIndex: true, gridX: true, gridY: true, scale: true, pHash16: true,
+      dHash8: true, aHash8: true, edgeSignature: true, colorVector: true,
+      frequencySig: true, textureSig: true,
+    } as const;
+    const include = {
+      patches: { select: patchSelect },
+      dnaRecord: { select: { imageFilename: true } },
+    };
+
+    const preferred = options?.preferVaultId
+      ? await prisma.localFeatureIndex.findMany({
+          where: { ownerUserId, status: 'COMPLETE', vaultId: options.preferVaultId },
+          include,
+          take: 1,
+        })
+      : [];
+
+    const rest = await prisma.localFeatureIndex.findMany({
       where: {
         ownerUserId,
         status: 'COMPLETE',
         ...(options?.excludeVaultId ? { vaultId: { not: options.excludeVaultId } } : {}),
+        ...(options?.preferVaultId ? { vaultId: { not: options.preferVaultId } } : {}),
       },
-      include: {
-        patches: {
-          select: {
-            patchIndex: true, gridX: true, gridY: true, scale: true, pHash16: true,
-            dHash8: true, aHash8: true, edgeSignature: true, colorVector: true,
-            frequencySig: true, textureSig: true,
-          },
-        },
-        dnaRecord: { select: { imageFilename: true } },
-      },
+      include,
       take: options?.maxCandidates ?? 20,
     });
+    const indexes = [...preferred, ...rest];
 
     const findings: FragmentReuseFinding[] = [];
 
@@ -215,7 +281,7 @@ export class FragmentSpliceDetectorService {
         }
       }
 
-      if (matched.length < cfg.minPatchMatches) continue;
+      if (matched.length < minPatches) continue;
 
       // Note: a raw match count isn't a reliable "this is a whole-image match" signal on
       // its own — a busy/repetitive background can rack up many spurious per-patch hash
@@ -225,7 +291,7 @@ export class FragmentSpliceDetectorService {
       // and get filtered by maxProbeBBoxAreaPercent there instead.
       const islands = clusterIslands(matched);
       for (const island of islands) {
-        if (island.length < cfg.minPatchMatches) continue;
+        if (island.length < minPatches) continue;
 
         let probeBBox: Rect | null = null;
         let vaultBBox: Rect | null = null;
@@ -263,7 +329,7 @@ export class FragmentSpliceDetectorService {
           probeBBoxAreaPct: Math.round(probeBBoxAreaPct * 10) / 10,
           spatialConsistency: Math.round(spatialConsistency * 100) / 100,
         });
-        if (probeBBoxAreaPct > cfg.maxProbeBBoxAreaPercent) continue;
+        if (probeBBoxAreaPct > maxBBox) continue;
 
         const confidence = Math.min(95, Math.round(
           40
@@ -272,6 +338,22 @@ export class FragmentSpliceDetectorService {
           + Math.max(0, 10 - probeBBoxAreaPct / 5),
         ));
 
+        const vaultArea = idx.imageWidth * idx.imageHeight;
+        let reportProbeBBox = probeBBox;
+        const geom = estimateIslandSimilarity(island);
+        if (geom.ok && spatialConsistency >= 0.35) {
+          const mapped = mapVaultRectToProbe(vaultBBox, geom, probeGrid.imageWidth, probeGrid.imageHeight);
+          const mappedPct = ((mapped.w * mapped.h) / probeArea) * 100;
+          if (mappedPct >= 1 && mappedPct <= 70 && mappedPct > probeBBoxAreaPct * 1.5) {
+            reportProbeBBox = mapped;
+          }
+        }
+        const reportProbePct = ((reportProbeBBox.w * reportProbeBBox.h) / probeArea) * 100;
+        const probeCoveragePercent = round1(reportProbePct);
+        const vaultCoveragePercent = vaultArea > 0
+          ? round1(((vaultBBox.w * vaultBBox.h) / vaultArea) * 100)
+          : 0;
+
         findings.push({
           vaultId: idx.vaultId,
           dnaRecordId: idx.dnaRecordId,
@@ -279,10 +361,10 @@ export class FragmentSpliceDetectorService {
           patchMatchCount: island.length,
           confidence,
           probeRegion: {
-            xPercent: round1((probeBBox.x / probeGrid.imageWidth) * 100),
-            yPercent: round1((probeBBox.y / probeGrid.imageHeight) * 100),
-            widthPercent: round1((probeBBox.w / probeGrid.imageWidth) * 100),
-            heightPercent: round1((probeBBox.h / probeGrid.imageHeight) * 100),
+            xPercent: round1((reportProbeBBox.x / probeGrid.imageWidth) * 100),
+            yPercent: round1((reportProbeBBox.y / probeGrid.imageHeight) * 100),
+            widthPercent: round1((reportProbeBBox.w / probeGrid.imageWidth) * 100),
+            heightPercent: round1((reportProbeBBox.h / probeGrid.imageHeight) * 100),
           },
           vaultRegion: {
             xPercent: round1((vaultBBox.x / idx.imageWidth) * 100),
@@ -290,6 +372,8 @@ export class FragmentSpliceDetectorService {
             widthPercent: round1((vaultBBox.w / idx.imageWidth) * 100),
             heightPercent: round1((vaultBBox.h / idx.imageHeight) * 100),
           },
+          probeCoveragePercent,
+          vaultCoveragePercent,
         });
       }
     }

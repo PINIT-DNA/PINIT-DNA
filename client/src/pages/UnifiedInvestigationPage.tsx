@@ -10,6 +10,7 @@ import { InvestigationScanner } from '../components/InvestigationScanner';
 import { InvestigationProcessingCard } from '../components/InvestigationProcessingCard';
 import { InvestigationLivePanel } from '../components/InvestigationLivePanel';
 import { InvestigationSideBySideCompare } from '../components/InvestigationSideBySideCompare';
+import { InvestigationCompositionPanel } from '../components/InvestigationCompositionPanel';
 import type { SpatialInvestigationViewModel, SpatialHierarchyViewModel } from '../components/SpatialAuthInvestigationPanel';
 import type { InvestigationLiveSnapshot } from '../services/dashboard.api';
 import {
@@ -117,8 +118,70 @@ interface InvestigationReport {
       confidence: number;
       probeRegion: { xPercent: number; yPercent: number; widthPercent: number; heightPercent: number };
       vaultRegion: { xPercent: number; yPercent: number; widthPercent: number; heightPercent: number };
+      probeCoveragePercent?: number;
+      vaultCoveragePercent?: number;
     }>;
   };
+  composition?: {
+    protectedFromAssetPercent: number;
+    aiGeneratedPercent: number;
+    otherPercent: number;
+    originalUsedPercent: number | null;
+    quantifiable: boolean;
+    estimate: boolean;
+    reason: string;
+    overlayPngBase64?: string;
+    maskPngBase64?: string;
+    blockGrid?: { rows: number; cols: number; labels: string };
+    labels: Array<{ key: 'protected' | 'ai' | 'other'; label: string; percent: number; color: string }>;
+    probeRegion?: { xPercent: number; yPercent: number; widthPercent: number; heightPercent: number };
+    vaultRegion?: { xPercent: number; yPercent: number; widthPercent: number; heightPercent: number };
+    aiModelAvailable: boolean;
+    vaultId?: string;
+    vaultFilename?: string;
+    pixelSource?: {
+      originalPixels: number;
+      aiSuspectedPixels: number;
+      unknownPixels: number;
+      totalPixels: number;
+      homographyVaultToProbe?: number[] | null;
+      regions?: Array<{
+        type: string;
+        uploadedBounds: { x: number; y: number; width: number; height: number };
+        vaultBounds?: { x: number; y: number; width: number; height: number };
+        confidence: number;
+        coveragePercent: number;
+      }>;
+      method?: string;
+    };
+  };
+  blockDna?: {
+    available: boolean;
+    overallMatch: number;
+    originalBlockPercent: number;
+    modifiedBlockPercent: number;
+    unknownBlockPercent: number;
+    totalBlocks: number;
+    matchedBlocks: number;
+    modifiedBlocks: number;
+    unknownBlocks: number;
+    algorithm: string;
+    blockSize: number;
+    authenticationStatus: string;
+    imageId: string;
+    vaultMatchId: string;
+    investigationId: string;
+    packed?: {
+      rows: number;
+      cols: number;
+      labels: string;
+      vaultDnaHex16: string;
+      calcDnaHex16: string;
+      pixelSimPct: string;
+      structSimPct: string;
+      dnaOk: string;
+    };
+  } | null;
   provenance?: {
     authorizationStatus: 'AUTHORIZED' | 'UNKNOWN_ORIGIN' | 'NOT_APPLICABLE';
   };
@@ -629,6 +692,25 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
           report.summary as StoredInvestigationReport['summary'],
         );
         const dnaLayerScore = report.summary.dnaMatchPercent;
+        // Whole-image comparison can come back "no verified owner" (e.g. a small
+        // fragment reused inside an otherwise-unrelated image drags the overall
+        // score below the acceptance bar), while the dedicated fragment detector
+        // still has a strong, specific finding. Fall back to that finding's own
+        // matched original so the comparison panel isn't just silently omitted.
+        const topFragmentMatch = report.fragmentReuseAnalysis?.findings?.[0];
+        const showComparison = hasVaultMatch || !!topFragmentMatch;
+        const compareVaultId = report.composition?.vaultId
+          ?? resolvedOwner.vaultId
+          ?? topFragmentMatch?.vaultId
+          ?? null;
+        const compareDnaRecordId = resolvedOwner.dnaRecordId ?? topFragmentMatch?.dnaRecordId ?? null;
+        const compareOriginalFilename = report.composition?.vaultFilename
+          ?? resolvedOwner.originalFilename
+          ?? report.dnaComparison?.fileA?.filename
+          ?? topFragmentMatch?.ownerFilename
+          ?? null;
+        const compareReportState = hasVaultMatch ? reportState : (topFragmentMatch ? 'POSSIBLE' : reportState);
+        const compareMatchConfidence = hasVaultMatch ? displayMatchScore : (topFragmentMatch?.confidence ?? displayMatchScore);
         const pdfExportOptions: InvestigationReportPdfOptions = {
           probeFile: file,
           vaultId: resolvedOwner.vaultId,
@@ -707,22 +789,45 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
             </div>
           )}
 
-          {hasVaultMatch && (
+          {report.composition && (
+            <InvestigationCompositionPanel
+              composition={report.composition}
+              previewUrl={previewUrl}
+            />
+          )}
+
+          {/* Even when the whole-image ownership check can't confirm a full-file match (e.g. a small
+              fragment reused inside an otherwise-unrelated image), a positive fragment finding is a
+              distinct, meaningful signal on its own — surface it up top so it isn't missed below the
+              "no verified owner" verdict, instead of only appearing buried in Tamper Analysis. */}
+          {report.fragmentReuseAnalysis?.detected && (
+            <div className="card border border-purple-500/30 bg-purple-500/5 text-purple-600 p-3 text-xs">
+              Fragment of protected content detected
+              {report.fragmentReuseAnalysis.findings[0]
+                ? ` — ${report.fragmentReuseAnalysis.findings[0].confidence}% confidence`
+                : ''}
+              <p className="mt-1 opacity-80">
+                {report.fragmentReuseAnalysis.summary}
+                {report.fragmentReuseAnalysis.findings[0]?.ownerFilename
+                  ? ` Matched original: ${report.fragmentReuseAnalysis.findings[0].ownerFilename}.`
+                  : ''}
+              </p>
+            </div>
+          )}
+
+          {showComparison && (
             <InvestigationSideBySideCompare
-              vaultId={resolvedOwner.vaultId}
+              vaultId={compareVaultId}
               probePreviewUrl={previewUrl}
               probeFileName={file?.name ?? report.dnaComparison?.fileB?.filename}
               probeMimeType={file?.type ?? report.dnaComparison?.fileB?.mimeType}
-              originalFilename={
-                resolvedOwner.originalFilename
-                ?? report.dnaComparison?.fileA?.filename
-              }
-              ownerPinitId={resolvedOwner.ownerPinitId}
+              originalFilename={compareOriginalFilename}
+              ownerPinitId={hasVaultMatch ? resolvedOwner.ownerPinitId : null}
               dnaMatchPercent={dnaLayerScore}
-              matchConfidence={displayMatchScore}
-              reportState={report.summary.reportState}
-              dnaRecordId={resolvedOwner.dnaRecordId}
-              certificateId={resolvedOwner.certificateId}
+              matchConfidence={compareMatchConfidence}
+              reportState={compareReportState}
+              dnaRecordId={compareDnaRecordId}
+              certificateId={hasVaultMatch ? resolvedOwner.certificateId : null}
               differenceHeatmapBase64={report.tamperAnalysis.overlayPngBase64}
               modifiedPercent={report.tamperAnalysis.modifiedPercent}
               insertedRegions={report.tamperAnalysis.insertedRegions}
@@ -750,7 +855,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                   ? `${report.summary.dnaMatchPercent}%`
                   : report.summary.reportState === 'POSSIBLE'
                     ? (typeof dnaLayerScore === 'number' && dnaLayerScore >= 40
-                        ? `${dnaLayerScore}% (review)`
+                        ? `${dnaLayerScore}%`
                         : `${displayMatchScore}% match · DNA layer ${dnaLayerScore ?? 0}%`)
                     : '—' },
                 { label: 'Trust Score', value: `${report.summary.trustScore ?? report.identityRecovery?.compositeScores.trustScore ?? '—'}${typeof report.summary.trustScore === 'number' ? '%' : ''}` },
@@ -799,7 +904,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                     ?? 'Original identity recovered from multi-layer forensic signals')
                   : (report.identityRecoveryReport?.message
                     ?? report.summary.decisionReason
-                    ?? 'Candidate vault found — ownership not verified. Manual review recommended.')}
+                    ?? 'Protected original identified from forensic signals.')}
               </p>
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                 {Object.entries({
@@ -986,12 +1091,12 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                     className="p-3 rounded-lg border border-orange-500/35 bg-orange-500/10"
                   >
                     <div className="flex items-center justify-between gap-2 mb-1">
-                      <span className="text-sm font-semibold text-orange-300">{c.type}</span>
-                      <span className="text-2xs mono text-orange-400/80">{c.confidence}% conf.</span>
+                      <span className="text-sm font-semibold text-orange-700">{c.type}</span>
+                      <span className="text-2xs mono text-orange-700">{c.confidence}% conf.</span>
                     </div>
-                    <p className="text-xs text-white/90">{c.detail}</p>
+                    <p className="text-xs text-gray-700">{c.detail}</p>
                     {c.where && (
-                      <p className="text-2xs text-gray-400 mt-1">Where: {c.where}</p>
+                      <p className="text-2xs text-gray-500 mt-1">Where: {c.where}</p>
                     )}
                   </div>
                 ))}
@@ -1075,24 +1180,24 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                 <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
                   Fragment reuse detected
                 </p>
-                <p className="text-xs text-white/80 mb-1">{report.fragmentReuseAnalysis.summary}</p>
+                <p className="text-xs text-gray-700 mb-1">{report.fragmentReuseAnalysis.summary}</p>
                 {report.fragmentReuseAnalysis.findings.map((f) => (
                   <div
                     key={f.vaultId}
                     className="p-3 rounded-lg border border-purple-500/40 bg-purple-500/10"
                   >
                     <div className="flex items-center justify-between gap-2 mb-1">
-                      <span className="text-sm font-semibold text-purple-300">
+                      <span className="text-sm font-semibold text-purple-700">
                         Matches protected original{f.ownerFilename ? `: ${f.ownerFilename}` : ''}
                       </span>
-                      <span className="text-2xs mono text-purple-400/80">{f.confidence}% conf.</span>
+                      <span className="text-2xs mono text-purple-700">{f.confidence}% conf.</span>
                     </div>
-                    <p className="text-xs text-white/90">
+                    <p className="text-xs text-gray-700">
                       {f.patchMatchCount} matching patches in a localized region of the uploaded image
                     </p>
-                    <div className="relative w-full mt-2 rounded border border-purple-500/30 bg-black/30" style={{ aspectRatio: '4 / 3' }}>
+                    <div className="relative w-full mt-2 rounded border border-purple-500/30 bg-black/10" style={{ aspectRatio: '4 / 3' }}>
                       <div
-                        className="absolute border-2 border-purple-400 bg-purple-400/20"
+                        className="absolute border-2 border-purple-500 bg-purple-500/25"
                         style={{
                           left: `${f.probeRegion.xPercent}%`,
                           top: `${f.probeRegion.yPercent}%`,
@@ -1100,7 +1205,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                           height: `${f.probeRegion.heightPercent}%`,
                         }}
                       />
-                      <span className="absolute bottom-1 right-1 text-2xs text-gray-500">approx. region in uploaded image</span>
+                      <span className="absolute bottom-1 right-1 text-2xs text-gray-600">approx. region in uploaded image</span>
                     </div>
                   </div>
                 ))}
@@ -1163,7 +1268,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                   className={cn(
                     'text-xs px-2 py-1.5 rounded-lg border',
                     v.detected
-                      ? 'border-orange-500/40 text-orange-400 bg-orange-500/10'
+                      ? 'border-orange-500/40 text-orange-700 bg-orange-500/10'
                       : 'border-bg-border text-gray-500',
                   )}
                 >
@@ -1173,11 +1278,11 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                       {v.detected ? ' ✓' : ' — Clear'}
                     </span>
                     {v.detected && v.confidence != null && v.confidence > 0 && (
-                      <span className="text-2xs mono opacity-70">{v.confidence}%</span>
+                      <span className="text-2xs mono">{v.confidence}%</span>
                     )}
                   </div>
                   {v.detected && v.evidence && v.evidence.length > 0 && (
-                    <p className="text-2xs text-orange-300/70 mt-0.5 leading-snug">{v.evidence[0]}</p>
+                    <p className="text-2xs text-orange-700 mt-0.5 leading-snug">{v.evidence[0]}</p>
                   )}
                 </div>
               ))}

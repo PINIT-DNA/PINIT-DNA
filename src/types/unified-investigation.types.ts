@@ -248,6 +248,10 @@ export interface FragmentReuseFinding {
   probeRegion: { xPercent: number; yPercent: number; widthPercent: number; heightPercent: number };
   /** Normalized bounding box (0-100) of the corresponding region in the protected original */
   vaultRegion: { xPercent: number; yPercent: number; widthPercent: number; heightPercent: number };
+  /** Bounding-box area of the fragment as % of the uploaded image */
+  probeCoveragePercent?: number;
+  /** Bounding-box area of the reused region as % of the protected original */
+  vaultCoveragePercent?: number;
 }
 
 export interface FragmentReuseSection {
@@ -407,6 +411,13 @@ export interface UnifiedInvestigationReport {
   forensicEvidence?: ForensicEvidenceSection;
   /** Small-fragment reuse / splice detection — additive, does not affect the whole-image ownership verdict */
   fragmentReuseAnalysis?: FragmentReuseSection;
+  /**
+   * Spatial mix of the uploaded file: protected pixels vs AI vs other (sums to 100),
+   * plus how much of the vault original was reused.
+   */
+  composition?: import('./investigation-composition.types').ImageCompositionBreakdown;
+  /** Per-block HMAC authentication vs the retrieved vault original. */
+  blockDna?: import('./block-dna.types').BlockDnaInvestigationResult | null;
   /** Provenance/authorization verdict — computed from existing share/TEP records,
    * not a new detection. AUTHORIZED means this probe traces back to a specific
    * share or export event this platform issued; UNKNOWN_ORIGIN means a real DNA

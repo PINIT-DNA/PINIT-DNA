@@ -8,6 +8,13 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../middleware/error.middleware';
 import { getHealthReport } from '../../lib/health';
+import {
+  extractPinitCode,
+  toRootPinitId,
+  toUserPinitId,
+  toOrgPinitId,
+  toExchangePinitId,
+} from '../../lib/pinit-identity';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -294,6 +301,47 @@ export async function getUserProfile(req: Request, res: Response, next: NextFunc
           },
           take: 20,
         },
+        userSessions: {
+          select: {
+            id: true, createdAt: true, ip: true, userAgent: true,
+            expiresAt: true, revokedAt: true, lastActiveAt: true, deviceId: true,
+          },
+          orderBy: { lastActiveAt: 'desc' },
+          take: 30,
+        },
+        userDevices: {
+          select: {
+            id: true, deviceLabel: true, deviceFingerprint: true,
+            isTrusted: true, registeredAt: true, lastSeenAt: true,
+          },
+          orderBy: { lastSeenAt: 'desc' },
+          take: 30,
+        },
+        ownedOrganization: {
+          select: {
+            id: true, shortId: true, name: true, industry: true, organizationSize: true,
+            country: true, createdAt: true,
+            _count: { select: { members: true, workspaces: true } },
+          },
+        },
+        organizationMemberships: {
+          select: {
+            role: true, joinedAt: true,
+            organization: { select: { id: true, shortId: true, name: true } },
+          },
+          orderBy: { joinedAt: 'desc' },
+        },
+        subscription: {
+          select: {
+            status: true, currentPeriodStart: true, currentPeriodEnd: true, cancelAtPeriodEnd: true,
+            plan: { select: { code: true, name: true } },
+            billingHistory: {
+              select: { id: true, amountCents: true, currency: true, provider: true, status: true, createdAt: true },
+              orderBy: { createdAt: 'desc' },
+              take: 20,
+            },
+          },
+        },
       },
     });
 
@@ -308,7 +356,109 @@ export async function getUserProfile(req: Request, res: Response, next: NextFunc
       take: 50,
     });
 
-    res.json({ ...user, tepPackages });
+    const activity = await prisma.platformEvent.findMany({
+      where: { ownerUserId: user.id },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+
+    res.json({
+      ...user,
+      tepPackages,
+      activity,
+      identity: resolvePinitIdentity(user.shortId),
+      exchange: { bridgeAvailable: false },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+function resolvePinitIdentity(shortId: string) {
+  const code = extractPinitCode(shortId);
+  return {
+    code,
+    root: toRootPinitId(code),
+    individual: toUserPinitId(code),
+    business: toOrgPinitId(code),
+    exchange: toExchangePinitId(code),
+  };
+}
+
+export async function globalSearch(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    if (q.length < 2) {
+      res.json({ query: q, results: [] });
+      return;
+    }
+
+    const code = extractPinitCode(q);
+    const idVariants = code ? [toRootPinitId(code), toUserPinitId(code), toOrgPinitId(code), toExchangePinitId(code)] : [];
+
+    const [users, orgs, dnaRecords] = await Promise.all([
+      prisma.user.findMany({
+        where: {
+          OR: [
+            ...(idVariants.length ? [{ shortId: { in: idVariants } }] : []),
+            { shortId: { contains: q, mode: 'insensitive' as const } },
+            { fullName: { contains: q, mode: 'insensitive' as const } },
+            { email: { contains: q, mode: 'insensitive' as const } },
+          ],
+        },
+        select: { id: true, shortId: true, fullName: true, email: true, role: true },
+        take: 6,
+      }),
+      prisma.organization.findMany({
+        where: {
+          OR: [
+            ...(idVariants.length ? [{ shortId: { in: idVariants } }] : []),
+            { shortId: { contains: q, mode: 'insensitive' as const } },
+            { name: { contains: q, mode: 'insensitive' as const } },
+          ],
+        },
+        select: { id: true, shortId: true, name: true },
+        take: 6,
+      }),
+      prisma.dnaRecord.findMany({
+        where: {
+          OR: [
+            { id: q },
+            { imageFilename: { contains: q, mode: 'insensitive' as const } },
+            { sha256Hash: { startsWith: q } },
+          ],
+        },
+        select: { id: true, imageFilename: true, fileType: true, status: true, ownerUser: { select: { shortId: true } } },
+        take: 6,
+      }),
+    ]);
+
+    res.json({
+      query: q,
+      results: [
+        ...users.map((u) => ({
+          type: 'user' as const,
+          id: u.id,
+          title: u.fullName ?? u.shortId,
+          subtitle: `${u.shortId}${u.email ? ` · ${u.email}` : ''} · ${u.role}`,
+          href: `/users/${u.id}`,
+        })),
+        ...orgs.map((o) => ({
+          type: 'organization' as const,
+          id: o.id,
+          title: o.name ?? o.shortId,
+          subtitle: o.shortId,
+          href: `/organizations/${o.id}`,
+        })),
+        ...dnaRecords.map((d) => ({
+          type: 'asset' as const,
+          id: d.id,
+          title: d.imageFilename,
+          subtitle: `${d.fileType ?? 'FILE'} · ${d.status} · owner ${d.ownerUser?.shortId ?? '—'}`,
+          href: `/dna?highlight=${d.id}`,
+        })),
+      ],
+    });
   } catch (err) {
     next(err);
   }
@@ -420,7 +570,7 @@ export async function listAllDna(req: Request, res: Response, next: NextFunction
         status: true,
         sha256Hash: true,
         createdAt: true,
-        ownerUser: { select: { shortId: true, fullName: true } },
+        ownerUser: { select: { id: true, shortId: true, fullName: true } },
         vaultRecord: { select: { id: true } },
       },
       orderBy: { createdAt: 'desc' },

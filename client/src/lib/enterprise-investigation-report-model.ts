@@ -249,9 +249,9 @@ function recommendedActionsFor(
     actions.push('Preserve vault DNA package and investigation export');
     actions.push('Attach signed PDF to legal or compliance workflow');
   } else if (reportState === 'POSSIBLE' || /POSSIBLE/i.test(verdict)) {
-    actions.push('Manual review recommended — do not treat as verified ownership');
-    actions.push('Compare side-by-side images and layer analysis before action');
-    actions.push('Re-run investigation with original-quality probe if available');
+    actions.push('Protected original identified — treat as a composite or crop, not a full-file twin');
+    actions.push('Use composition labels and side-by-side comparison as the system finding');
+    actions.push('Re-run with a higher-quality probe if the outlined crop looks incomplete');
   } else {
     actions.push('No verified vault match — treat as unknown asset');
     actions.push('Expand vault search or upload original to vault before re-investigation');

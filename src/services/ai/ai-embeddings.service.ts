@@ -295,6 +295,8 @@ export class AIEmbeddingsService {
     }>;
     features?: Record<string, unknown>;
     cropDetection?: Record<string, unknown>;
+    blockComposition?: Record<string, unknown>;
+    pixelSource?: Record<string, unknown>;
     tamperLocalization?: Record<string, unknown>;
     screenshotDetection?: Record<string, unknown>;
     aiManipulation?: Record<string, unknown>;
@@ -323,6 +325,8 @@ export class AIEmbeddingsService {
         candidates: d.candidates ?? tileSearch.candidates ?? [],
         features: d.features,
         cropDetection: d.cropDetection ?? undefined,
+        blockComposition: d.blockComposition ?? undefined,
+        pixelSource: d.pixelSource ?? undefined,
         tamperLocalization: d.tamperLocalization ?? undefined,
         screenshotDetection: d.screenshotDetection ?? undefined,
         aiManipulation: d.aiManipulation ?? undefined,
@@ -332,6 +336,50 @@ export class AIEmbeddingsService {
       };
     } catch (err) {
       this.logError('cv/forensic-scan', err);
+      return null;
+    }
+  }
+
+  async forensicLocalSourceScore(
+    probe: Buffer,
+    reference: Buffer,
+    mimeType = 'image/jpeg',
+  ): Promise<{
+    localScore: number;
+    inliers: number;
+    vaultKeypoints?: number;
+    probeKeypoints?: number;
+    goodMatches?: number;
+    templateScore?: number;
+    estimatedCoveragePercent?: number;
+    homographyFound?: boolean;
+    detector?: string;
+    method?: string;
+  } | null> {
+    try {
+      const FormData = require('form-data');
+      const form = new FormData();
+      form.append('probe', probe, { filename: 'probe.jpg', contentType: mimeType });
+      form.append('reference', reference, { filename: 'ref.jpg', contentType: mimeType });
+      const { data } = await client.post('/cv/local-source-score', form, {
+        headers: form.getHeaders(),
+        timeout: 25_000,
+      });
+      if (!data?.success) return null;
+      return {
+        localScore: Number(data.localScore) || 0,
+        inliers: Number(data.inliers) || 0,
+        vaultKeypoints: Number(data.vaultKeypoints) || 0,
+        probeKeypoints: Number(data.probeKeypoints) || 0,
+        goodMatches: Number(data.goodMatches) || 0,
+        templateScore: Number(data.templateScore) || 0,
+        estimatedCoveragePercent: Number(data.estimatedCoveragePercent) || 0,
+        homographyFound: Boolean(data.homographyFound),
+        detector: data.detector,
+        method: data.method,
+      };
+    } catch (err) {
+      this.logError('cv/local-source-score', err);
       return null;
     }
   }

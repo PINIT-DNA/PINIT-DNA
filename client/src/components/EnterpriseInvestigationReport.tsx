@@ -387,7 +387,7 @@ export function EnterpriseInvestigationReport({
               and acceptance policy {String(vm.acceptance.policyVersion.value)}.
               {vm.originalAsset.ownershipVerified
                 ? ' Ownership has been verified under acceptance rules.'
-                : ' Ownership has not been verified — manual review is required before legal action.'}
+                : ' This upload was not accepted as a full-file identity match. Composition and fragment findings above are the system result.'}
             </p>
             <p className="text-2xs text-slate-600 mt-3 mono">
               Verdict: {String(vm.acceptance.verdict.value).replace(/_/g, ' ')} ·

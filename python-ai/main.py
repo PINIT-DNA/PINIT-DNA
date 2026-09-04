@@ -437,6 +437,26 @@ async def cv_match_descriptors(
 
 # ── Enterprise Forensic Scanner ───────────────────────────────────────────────
 
+@app.post("/cv/local-source-score")
+async def cv_local_source_score(
+    probe: UploadFile = File(...),
+    reference: UploadFile = File(...),
+):
+    """Local feature/template score: is this vault the source of a pasted crop?"""
+    from services.forensic_scanner import forensic_scanner_service
+
+    start = time.time()
+    probe_bytes = await probe.read()
+    ref_bytes = await reference.read()
+    result = forensic_scanner_service.score_local_correspondence(probe_bytes, ref_bytes)
+    if not result.success:
+        raise HTTPException(503, result.message or "Local source score failed")
+    return {
+        "success": True,
+        **result.data,
+        "processingMs": round((time.time() - start) * 1000, 1),
+    }
+
 @app.post("/cv/forensic-scan")
 async def cv_forensic_scan(
     probe: UploadFile = File(...),

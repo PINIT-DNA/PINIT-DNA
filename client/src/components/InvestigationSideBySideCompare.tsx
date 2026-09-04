@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ImageIcon, FileWarning, Loader2, ShieldCheck } from 'lucide-react';
-import { retrieveFromVault } from '../services/dashboard.api';
+import { retrieveFromVault, previewVaultFile } from '../services/dashboard.api';
 import { cn } from './ui/utils';
 import {
   SpatialAuthInvestigationPanel,
@@ -120,11 +120,13 @@ function ComparePanel({
                 preload="metadata"
               />
             ) : (
-              <img
-                src={mediaUrl!}
-                alt={filename ?? title}
-                className="max-w-full max-h-[280px] object-contain"
-              />
+              <div className="relative inline-block max-h-[280px] max-w-full">
+                <img
+                  src={mediaUrl!}
+                  alt={filename ?? title}
+                  className="block max-w-full max-h-[280px] h-auto w-auto"
+                />
+              </div>
             )}
           </div>
         ) : (
@@ -185,8 +187,12 @@ export function InvestigationSideBySideCompare({
     let objectUrl: string | null = null;
     setLoadState('loading');
 
-    retrieveFromVault(vaultId)
+    previewVaultFile(vaultId)
+      .catch(() => retrieveFromVault(vaultId))
       .then((blob) => {
+        if (blob.type?.includes('json') || blob.size === 0) {
+          throw new Error('empty');
+        }
         objectUrl = URL.createObjectURL(blob);
         setOriginalUrl(objectUrl);
         setOriginalMime(blob.type || null);
@@ -211,7 +217,7 @@ export function InvestigationSideBySideCompare({
   const scoreHeadline = reportState === 'VERIFIED'
     ? `${headlineScore}% DNA match`
     : reportState === 'POSSIBLE'
-      ? `${headlineScore}% similarity — needs review`
+      ? `${headlineScore}% match to protected original`
       : headlineScore != null
         ? `${headlineScore}% similarity`
         : null;
@@ -240,8 +246,8 @@ export function InvestigationSideBySideCompare({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <ComparePanel
-          title="Original (Vault)"
-          badge={reportState === 'VERIFIED' ? 'AUTHORITATIVE' : 'TOP CANDIDATE'}
+          title="Original / Vault Reference"
+          badge={reportState === 'VERIFIED' ? 'AUTHORITATIVE' : 'MATCHED ORIGINAL'}
           badgeClass={reportState === 'VERIFIED'
             ? 'border-dna-500/40 text-dna-400 bg-dna-500/10'
             : 'border-yellow-500/40 text-yellow-400 bg-yellow-500/10'}
@@ -250,6 +256,7 @@ export function InvestigationSideBySideCompare({
           filename={originalFilename ?? undefined}
           variant="original"
           meta={[
+            { label: 'Original file', value: originalFilename ?? null },
             { label: 'Owner', value: ownerPinitId ?? null },
             { label: 'Vault ID', value: vaultId ? `${vaultId.slice(0, 8)}…` : null },
             { label: 'DNA ID', value: dnaRecordId ? `${dnaRecordId.slice(0, 8)}…` : null },
@@ -265,14 +272,13 @@ export function InvestigationSideBySideCompare({
             ) : (
               <div className="flex items-center gap-1 text-2xs text-green-400">
                 <ShieldCheck size={12} />
-                {reportState === 'VERIFIED' ? 'Stored in your vault' : 'Top candidate vault — review recommended'}
+                {reportState === 'VERIFIED' ? 'Stored in your vault' : 'Matched protected original'}
               </div>
             )
           }
         />
-
         <ComparePanel
-          title="Suspect / Probe"
+          title="Uploaded / Under Investigation"
           badge="UNDER INVESTIGATION"
           badgeClass="border-yellow-500/40 text-yellow-400 bg-yellow-500/10"
           mediaUrl={probeIsImage || probeIsVideo ? probePreviewUrl : null}
@@ -283,34 +289,6 @@ export function InvestigationSideBySideCompare({
             { label: 'Probe file', value: probeFileName },
             { label: 'Type', value: probeMimeType ?? (probeIsImage ? 'image' : 'file') },
           ]}
-          footer={
-            (dnaMatchPercent != null || matchConfidence != null) ? (
-              <p className="text-2xs text-gray-400">
-                {typeof dnaMatchPercent === 'number' && dnaMatchPercent >= 40 ? (
-                  <>
-                    Match score:{' '}
-                    <span className={cn(
-                      'font-bold',
-                      reportState === 'VERIFIED' ? 'text-white' : 'text-dna-400',
-                    )}>
-                      {dnaMatchPercent}%
-                    </span>
-                    {reportState === 'POSSIBLE' && (
-                      <span className="text-gray-500"> — crop/compress possible; review recommended</span>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    Live retrieval:{' '}
-                    <span className="font-bold text-dna-400">{matchConfidence ?? dnaMatchPercent}%</span>
-                    {reportState === 'POSSIBLE' && (
-                      <span className="text-gray-500"> — ownership not fully verified yet</span>
-                    )}
-                  </>
-                )}
-              </p>
-            ) : undefined
-          }
         />
       </div>
 

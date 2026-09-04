@@ -96,6 +96,12 @@ import {
 } from './tamper-analysis.service';
 import { fragmentSpliceDetectorService } from './fragment-splice-detector.service';
 import type { FragmentReuseFinding, FragmentReuseSection } from '../../types/unified-investigation.types';
+import {
+  buildInvestigationComposition,
+  resolveAiProbabilityFromScan,
+} from './investigation-composition.service';
+import { enrichInvestigationWithBlockDna } from '../block-dna/enrich-investigation';
+import { pickCompositionSourceVault } from './local-source-vault.service';
 import { DNA_LAYER_REGISTRY } from '../../constants/dna-layer-registry';
 import { DocumentLineageService } from '../lineage/document-lineage.service';
 
@@ -1064,7 +1070,7 @@ export class UnifiedInvestigationOrchestrator {
             state: 'NO_SIGNATURE' as const,
             candidate: null,
             displayLabel: 'Unknown Asset',
-            decisionReason: `No verified vault owner found. Closest similarity: ${closest}%. Manual investigation recommended.`,
+            decisionReason: `No verified vault owner found. Closest similarity: ${closest}%.`,
             retrievalConfidence: closest,
             acceptanceConfidence: closest,
           };
@@ -1449,7 +1455,7 @@ export class UnifiedInvestigationOrchestrator {
           const [rescan, dims] = await Promise.all([
             withTimeoutSoft(
               () => forensicScannerService.scanProbe(buffer, mimeType, vaultFile.originalBuffer),
-              30_000,
+              90_000,
               'forensic_tamper_localize',
             ),
             withTimeoutSoft(async () => {
@@ -1499,7 +1505,10 @@ export class UnifiedInvestigationOrchestrator {
         // does comparable per-patch DB + matching work, so the 12s vault-retrieve budget
         // was cutting it off before it finished, silently returning [] on every call.
         return await withTimeoutSoft(
-          () => fragmentSpliceDetectorService.detectSplicedFragments(buffer, ownerUserId, mimeType),
+          () => fragmentSpliceDetectorService.detectSplicedFragments(buffer, ownerUserId, mimeType, {
+            preferVaultId: match.vaultId,
+            forComposition: true,
+          }),
           investigationPerformanceConfig.localDnaTimeoutMs,
           'fragment_splice_detect',
         ) ?? [];
@@ -1868,7 +1877,7 @@ export class UnifiedInvestigationOrchestrator {
       ? `${reportOutcome.displayLabel}. ${reportOutcome.decisionReason}${forensicReasons.length ? ` Reason: ${forensicReasons.join('; ')}.` : ''}`
       : (reportOutcome.decisionReason.startsWith('No verified vault owner')
         ? reportOutcome.decisionReason
-        : `No verified vault owner found. Closest similarity: ${Math.round(retrievalConfidence || dnaPct || reportOutcome.acceptanceConfidence || 0)}%. Manual investigation recommended.`);
+        : `No verified vault owner found. Closest similarity: ${Math.round(retrievalConfidence || dnaPct || reportOutcome.acceptanceConfidence || 0)}%.`);
 
     logInvestigationDecision('final_report', reportOutcome, { dnaMatchPercent: dnaPct, certificateStatus: certStatus, revealOwner });
 
@@ -2085,6 +2094,57 @@ export class UnifiedInvestigationOrchestrator {
     });
     const relatedLineage = await documentLineageService.getLineage(match.dnaRecordId).catch(() => ({ nodes: [], edges: [] }));
 
+    const sourcePick = await pickCompositionSourceVault({
+      ownerUserId,
+      probeBuffer: buffer,
+      probeMimeType: mimeType,
+      embeddingVaultId: match.vaultId,
+      embeddingFilename: resolvedOriginalFilename ?? originalFilename ?? undefined,
+      fragmentFindings: fragmentReuseFindings,
+      rankedCandidates,
+    }).catch(() => null);
+
+    const compositionVaultId = sourcePick?.vaultId ?? match.vaultId;
+    const compositionVaultFilename = sourcePick?.filename ?? resolvedOriginalFilename ?? originalFilename ?? undefined;
+
+    let compositionVaultBuffer: Buffer | undefined;
+    if (compositionVaultId) {
+      try {
+        const vf = await withTimeoutSoft(
+          () => vaultService.retrieve(compositionVaultId, ownerUserId),
+          investigationPerformanceConfig.vaultRetrieveTimeoutMs,
+          'vault_retrieve_composition',
+        );
+        compositionVaultBuffer = vf?.originalBuffer;
+      } catch {
+        /* overlay uses scan if retrieve fails */
+      }
+    }
+    let composition = await buildInvestigationComposition({
+      probeBuffer: buffer,
+      probeMimeType: mimeType,
+      vaultBuffer: compositionVaultBuffer,
+      vaultId: compositionVaultId,
+      vaultFilename: compositionVaultFilename,
+      fragmentFindings: fragmentReuseFindings,
+      localDnaHit: authAsset?.localDnaHit ?? null,
+      aiProbability: resolveAiProbabilityFromScan(forensicScan),
+      scan: forensicScan,
+    });
+    const blockDnaEnrich = await enrichInvestigationWithBlockDna({
+      composition,
+      probeBuffer: buffer,
+      probeMimeType: mimeType,
+      vaultBuffer: compositionVaultBuffer,
+      vaultImageId: match.dnaRecordId,
+      vaultMatchId: match.vaultId,
+      investigationId,
+      retrievalScore: Math.max((dnaPct || 0) / 100, match.visualSimilarity ?? 0),
+      fragmentFindings: fragmentReuseFindings,
+    });
+    composition = blockDnaEnrich.composition;
+    const blockDna = blockDnaEnrich.blockDna;
+
     const report: UnifiedInvestigationReport = {
       success: true,
       investigationId,
@@ -2178,6 +2238,8 @@ export class UnifiedInvestigationOrchestrator {
       stageTimings,
       progressTimeline,
       fragmentReuseAnalysis: buildFragmentReuseSection(fragmentReuseFindings),
+      composition,
+      blockDna,
       provenance: { authorizationStatus },
       relatedLineage,
     };
@@ -2795,6 +2857,10 @@ export class UnifiedInvestigationOrchestrator {
         fragmentReuseFindings = await withTimeoutSoft(
           () => fragmentSpliceDetectorService.detectSplicedFragments(
             params.probe!.buffer, params.ownerUserId, params.probe!.mimeType,
+            {
+              preferVaultId: params.enterprise?.authoritativeAsset?.vaultId,
+              forComposition: true,
+            },
           ),
           investigationPerformanceConfig.localDnaTimeoutMs,
           'fragment_splice_detect_partial',
@@ -3027,7 +3093,7 @@ export class UnifiedInvestigationOrchestrator {
           };
 
     const closestLive = Math.round(Math.max(liveConf, similarityScore, realDna ?? 0));
-    const partialReviewNote = `No verified vault owner found. Closest similarity: ${closestLive}%. Manual investigation recommended.`;
+    const partialReviewNote = `No verified vault owner found. Closest similarity: ${closestLive}%.`;
 
     const dnaDisplay = hasRealDna
       ? realDna!
@@ -3136,6 +3202,64 @@ export class UnifiedInvestigationOrchestrator {
       ? await documentLineageService.getLineage(dnaRecordId).catch(() => ({ nodes: [], edges: [] }))
       : { nodes: [], edges: [] };
 
+    const sourcePick = params.probe?.buffer && params.probe.mimeType?.startsWith('image/')
+      ? await pickCompositionSourceVault({
+        ownerUserId: params.ownerUserId,
+        probeBuffer: params.probe.buffer,
+        probeMimeType: params.probe.mimeType,
+        embeddingVaultId: vaultId,
+        embeddingFilename: originalFilename ?? undefined,
+        fragmentFindings: fragmentReuseFindings,
+        rankedCandidates: params.enterprise?.candidates,
+      }).catch(() => null)
+      : null;
+    const compositionVaultId = sourcePick?.vaultId ?? vaultId;
+    const compositionVaultFilename = sourcePick?.filename ?? originalFilename ?? undefined;
+
+    let compositionScan = params.enterprise?.auditContext?.forensicScan ?? null;
+    let compositionVaultBuffer: Buffer | undefined;
+    if (
+      compositionVaultId
+      && params.ownerUserId
+      && params.probe?.buffer
+      && params.probe.mimeType?.startsWith('image/')
+    ) {
+      try {
+        const vf = await withTimeoutSoft(
+          () => vaultService.retrieve(compositionVaultId, params.ownerUserId),
+          investigationPerformanceConfig.vaultRetrieveTimeoutMs,
+          'vault_retrieve_composition_partial',
+        );
+        compositionVaultBuffer = vf?.originalBuffer;
+      } catch {
+        /* composition overlay optional */
+      }
+    }
+    let composition = await buildInvestigationComposition({
+      probeBuffer: params.probe?.buffer,
+      probeMimeType: params.probe?.mimeType,
+      vaultBuffer: compositionVaultBuffer,
+      vaultId: compositionVaultId,
+      vaultFilename: compositionVaultFilename,
+      fragmentFindings: fragmentReuseFindings,
+      localDnaHit: params.enterprise?.authoritativeAsset?.localDnaHit ?? null,
+      aiProbability: resolveAiProbabilityFromScan(compositionScan),
+      scan: compositionScan,
+    });
+    const blockDnaEnrich = await enrichInvestigationWithBlockDna({
+      composition,
+      probeBuffer: params.probe?.buffer,
+      probeMimeType: params.probe?.mimeType,
+      vaultBuffer: compositionVaultBuffer,
+      vaultImageId: dnaRecordId,
+      vaultMatchId: vaultId,
+      investigationId: params.investigationId,
+      retrievalScore: Math.max(conf, dnaDisplay, closestLive) / 100,
+      fragmentFindings: fragmentReuseFindings,
+    });
+    composition = blockDnaEnrich.composition;
+    const blockDna = blockDnaEnrich.blockDna;
+
     const report: UnifiedInvestigationReport = {
       success: reportState !== 'NO_SIGNATURE',
       investigationId: params.investigationId,
@@ -3187,6 +3311,8 @@ export class UnifiedInvestigationOrchestrator {
       layerAnalysis,
       tamperAnalysis,
       fragmentReuseAnalysis: buildFragmentReuseSection(fragmentReuseFindings),
+      composition,
+      blockDna,
       provenance: { authorizationStatus },
       relatedLineage,
       timeline: timelineEvents,
@@ -3442,6 +3568,10 @@ export class UnifiedInvestigationOrchestrator {
       try {
         fragmentReuseFindings = await fragmentSpliceDetectorService.detectSplicedFragments(
           probeBuffer, _ownerUserId, probeMimeType,
+          {
+            preferVaultId: enterprise?.authoritativeAsset?.vaultId,
+            forComposition: true,
+          },
         );
       } catch (e) {
         logger.warn('[UnifiedInvestigation] Fragment splice detection failed (no-match path)', { error: String(e) });
@@ -3492,6 +3622,25 @@ export class UnifiedInvestigationOrchestrator {
 
     const noMatchMessage = customMessage ?? noSignatureOutcome.decisionReason;
 
+    let aiProbability = resolveAiProbabilityFromScan(enterprise?.auditContext?.forensicScan ?? null);
+    if (aiProbability == null && probeBuffer && probeMimeType?.startsWith('image/')) {
+      const aiScan = await withTimeoutSoft(
+        () => forensicScannerService.scanProbe(probeBuffer, probeMimeType),
+        12_000,
+        'composition_ai_scan_nomatch',
+      );
+      aiProbability = resolveAiProbabilityFromScan(aiScan);
+    }
+    const composition = await buildInvestigationComposition({
+      probeBuffer,
+      probeMimeType,
+      fragmentFindings: fragmentReuseFindings,
+      localDnaHit: enterprise?.authoritativeAsset?.localDnaHit ?? null,
+      aiProbability,
+      scan: enterprise?.auditContext?.forensicScan ?? null,
+    });
+    const blockDna = null;
+
     return {
       success: false,
       investigationId,
@@ -3531,6 +3680,8 @@ export class UnifiedInvestigationOrchestrator {
       layerAnalysis: [],
       tamperAnalysis: buildTamperAnalysis({ comparison: null, leakVerify, fragmentReuse: fragmentReuseFindings }),
       fragmentReuseAnalysis: buildFragmentReuseSection(fragmentReuseFindings),
+      composition,
+      blockDna,
       timeline: timelineEvents,
       accessIntelligence: leakVerify.accessHistory ?? [],
       leakIntelligence: { hasPublicLeak: false, entries: [], message: 'No public leak detected.' },

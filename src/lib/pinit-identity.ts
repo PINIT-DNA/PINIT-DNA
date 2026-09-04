@@ -4,6 +4,7 @@
  * Root biometric account:  PINIT-{CODE}
  * Individual mode label:   PINIT-USER-{CODE}
  * Business / org label:    PINIT-ORG-{CODE}
+ * Exchange account:        PINIT-EX-{CODE}
  *
  * CODE is the same 8-char suffix for both modes of the same face.
  */
@@ -17,7 +18,7 @@ export function extractPinitCode(shortId: string | null | undefined): string {
   if (!raw) return '';
 
   // PINIT-USER-XXXXXXXX / PINIT-ORG-XXXXXXXX / PINIT-WS-XXXXXX
-  const prefixed = raw.match(/^PINIT-(?:USER|ORG|WS)-([A-Z0-9]+)$/);
+  const prefixed = raw.match(/^PINIT-(?:USER|ORG|WS|EX)-([A-Z0-9]+)$/);
   if (prefixed?.[1] && CODE_RE.test(prefixed[1])) return prefixed[1];
 
   // PINIT-XXXXXXXX (root biometric id)
@@ -43,6 +44,11 @@ export function toUserPinitId(shortIdOrCode: string | null | undefined): string 
 export function toOrgPinitId(shortIdOrCode: string | null | undefined): string {
   const code = extractPinitCode(shortIdOrCode);
   return code ? `PINIT-ORG-${code}` : '';
+}
+
+export function toExchangePinitId(shortIdOrCode: string | null | undefined): string {
+  const code = extractPinitCode(shortIdOrCode);
+  return code ? `PINIT-EX-${code}` : '';
 }
 
 /** Mode-aware label for UI (Individual vs Business shell). */

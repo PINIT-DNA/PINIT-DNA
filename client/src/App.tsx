@@ -24,6 +24,7 @@ export default function App() {
   const [session, setSession] = useState<DnaSession | null>(null);
   const [custodyLocation, setCustodyLocation] = useState<CustodyLocation | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [stalled, setStalled] = useState(false);
   const [duplicateInfo, setDuplicateInfo] = useState<{
     existingRecordId?: string;
     existingFilename?: string;
@@ -50,6 +51,18 @@ export default function App() {
       if (session?.protectedBlobUrl) URL.revokeObjectURL(session.protectedBlobUrl);
     };
   }, [session?.protectedBlobUrl]);
+
+  // The encrypt/vault network calls each time out at 90s server-side, but a
+  // stuck browser tab, a swallowed rejection, or any future regression in the
+  // completion callback can still leave this screen spinning with nothing to
+  // show for it — indefinitely, since there was previously no upper bound on
+  // how long a user would silently wait. Guarantee a visible way out instead.
+  useEffect(() => {
+    setStalled(false);
+    if (stage !== 'encrypting' && stage !== 'vaulting') return;
+    const timer = setTimeout(() => setStalled(true), 100_000);
+    return () => clearTimeout(timer);
+  }, [stage]);
 
   const handleGenerate = useCallback(async () => {
     if (!selectedFile) return;
@@ -210,6 +223,27 @@ export default function App() {
                 dnaRecordId={session?.dnaRecordId}
                 previewUrl={previewUrl}
               />
+              {stalled && (
+                <div className="mt-4 max-w-lg mx-auto px-4">
+                  <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-4 text-center">
+                    <p className="text-sm text-yellow-400 font-medium mb-2">
+                      This is taking longer than expected.
+                    </p>
+                    <p className="text-xs text-gray-400 mb-3">
+                      Protection usually finishes in under a minute. If this screen hasn't moved on,
+                      the file may already be protected on the server — check your Vault directly
+                      rather than keep waiting here.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/vault')}
+                      className="btn btn-secondary"
+                    >
+                      Check Vault
+                    </button>
+                  </div>
+                </div>
+              )}
               {stage === 'encrypting' && session && (
                 <div className="sr-only" aria-hidden>
                   <EncryptionStep dnaRecordId={session.dnaRecordId} onComplete={handleEncryptionComplete} />

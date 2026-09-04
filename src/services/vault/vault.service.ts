@@ -299,6 +299,26 @@ export class VaultService {
       });
     }).catch(() => {});
 
+    // Local DNA patches must be built for every protect path (Hub vault, Asset
+    // protect, Publish Guardian) — crop-in-AI investigation depends on them.
+    if (originalMimeType.startsWith('image/')) {
+      import('../forensics/local-dna-index.service').then(({ localDnaIndexService }) => {
+        void localDnaIndexService.buildIndex({
+          buffer: fileToEncrypt,
+          mimeType: originalMimeType,
+          dnaRecordId,
+          vaultId: record.id,
+          ownerUserId: dnaRecord.ownerUserId ?? ownerUserId,
+        });
+      }).catch(() => {});
+      import('../block-dna/investigate').then(({ enrollBlockDnaForVaultImage }) => {
+        void enrollBlockDnaForVaultImage({
+          imageBuffer: fileToEncrypt,
+          dnaRecordId,
+        });
+      }).catch(() => {});
+    }
+
     return {
       vaultId:            record.id,
       dnaRecordId:        record.dnaRecordId,
