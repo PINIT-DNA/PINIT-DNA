@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight, ArrowUpRight, Briefcase, Check, ChevronDown, Clock, Handshake,
-  MessageSquare, Search, ShieldCheck, Sparkles, Users, X,
+  MessageSquare, PlusCircle, Search, ShieldCheck, Sparkles, Users, X,
 } from 'lucide-react';
 import StudioPage from '../../components/workspace/StudioPage.jsx';
+import BuyerBriefs from '../../components/BuyerBriefs.jsx';
 import { OPPORTUNITY_SECTIONS } from '../../lib/seller-workspace.js';
 import { formatMoney } from '../../lib/money.js';
 import { verticalLabel } from '../../lib/api.js';
@@ -596,6 +597,122 @@ function Collaborate({ onNotice }) {
   );
 }
 
+/* == Posting an opportunity =========================================== */
+
+/** Four weeks out, rather than a date fixed when this was written. */
+function defaultDeadline() {
+  const d = new Date();
+  d.setDate(d.getDate() + 28);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * A creator posting work for other creators.
+ *
+ * This is the same object an agency posts - a Brief - because it is the same
+ * thing: someone needs work made, creators answer with protected work, one is
+ * awarded. It is deliberately not a Collab, which is a partner on a shared
+ * project with a split rather than a paid commission.
+ */
+function PostBriefModal({ user, onClose, onPosted }) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [vertical, setVertical] = useState('images');
+  const [budget, setBudget] = useState(5000);
+  const [creatorsNeeded, setCreatorsNeeded] = useState(1);
+  const [deadline, setDeadline] = useState(defaultDeadline);
+  const [busy, setBusy] = useState(false);
+
+  const send = async () => {
+    setBusy(true);
+    const { ok, data, error } = await opp.postBrief({
+      title,
+      description,
+      vertical,
+      budget: Number(budget) || 0,
+      creatorsNeeded: Number(creatorsNeeded) || 1,
+      deadline,
+      name: user?.display_name || user?.name || user?.pinit_id,
+      org: user?.org || user?.display_name || user?.name || 'Independent creator',
+    });
+    setBusy(false);
+    onPosted(ok
+      ? { kind: 'ok', text: 'Posted. Creators can answer it with work they already protect.' }
+      : { kind: 'error', text: data?.message || data?.error || error || 'Could not post that.' });
+    if (ok) onClose();
+  };
+
+  const ready = title.trim() && description.trim() && Number(budget) > 0;
+
+  return (
+    <div className="modal-overlay" onClick={onClose} role="presentation">
+      <div className="modal-content" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()} role="dialog">
+        <div className="modal-header">
+          <h3 style={{ color: '#fff' }}>Post an opportunity</h3>
+          <button type="button" className="btn-secondary" style={{ padding: 8 }} onClick={onClose}>
+            <X size={14} />
+          </button>
+        </div>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <p className="opp-hint" style={{ margin: 0 }}>
+            Need photographs, an edit or an illustrator for your own project? Post it
+            here and creators answer with work already protected in Pinit HUB.
+          </p>
+          <input
+            className="form-input"
+            placeholder="What do you need? e.g. Product photography for a catalogue"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+          <textarea
+            className="form-textarea"
+            rows={3}
+            placeholder="Usage, deliverables, style, anything a creator needs to judge it."
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+          <select className="form-select" value={vertical} onChange={(e) => setVertical(e.target.value)}>
+            {CATEGORIES.filter(([cid]) => cid !== 'all').map(([cid, label]) => (
+              <option key={cid} value={cid}>{label}</option>
+            ))}
+          </select>
+          <div className="opp-postgrid">
+            <label>
+              <span>Budget</span>
+              <input
+                type="number" min="1" className="form-input"
+                value={budget} onChange={(e) => setBudget(e.target.value)}
+              />
+            </label>
+            <label>
+              <span>Creators needed</span>
+              <input
+                type="number" min="1" max="20" className="form-input"
+                value={creatorsNeeded} onChange={(e) => setCreatorsNeeded(e.target.value)}
+              />
+            </label>
+            <label>
+              <span>Closes</span>
+              <input
+                type="date" className="form-input"
+                value={deadline} onChange={(e) => setDeadline(e.target.value)}
+              />
+            </label>
+          </div>
+          <button type="button" className="btn-primary" onClick={send} disabled={busy || !ready}>
+            {busy ? 'Posting...' : 'Post opportunity'}
+          </button>
+          {!ready && (
+            <p className="opp-hint" style={{ margin: 0 }}>
+              A title, a description and a budget are what make this answerable.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ══ My activity ════════════════════════════════════════════════════════ */
 
 function MyActivity({ onNotice, onOpenBrief, onCounts }) {
@@ -802,15 +919,26 @@ export default function SellerOpportunities({ user, onNavigate }) {
     return [sid, label, null];
   }), [counts.open, activityCounts]);
 
+  const [posting, setPosting] = useState(false);
+  const [postedAt, setPostedAt] = useState(0);
+
   const goBrief = (reqId) => { setSection('open'); setOpenBrief(reqId); };
 
   return (
     <StudioPage
       title="Opportunities"
       actions={(
-        <button type="button" className="btn-secondary" onClick={() => onNavigate?.('seller_assets')}>
-          My assets
-        </button>
+        <>
+          <button type="button" className="btn-secondary" onClick={() => onNavigate?.('seller_assets')}>
+            My assets
+          </button>
+          {/* A creator hiring a creator is the same act as an agency hiring
+              one, so it gets the same primary action rather than a detour
+              through the Buy side. */}
+          <button type="button" className="btn-primary" onClick={() => setPosting(true)}>
+            <PlusCircle size={14} /> Post an opportunity
+          </button>
+        </>
       )}
     >
       <div className="opp-sections">
@@ -890,7 +1018,27 @@ export default function SellerOpportunities({ user, onNavigate }) {
 
       {section === 'collaborate' && <Collaborate onNotice={setNotice} />}
       {section === 'activity' && (
-        <MyActivity onNotice={setNotice} onOpenBrief={goBrief} onCounts={setActivityCounts} />
+        <>
+          <MyActivity onNotice={setNotice} onOpenBrief={goBrief} onCounts={setActivityCounts} />
+          <section className="opp-posted">
+            <h3>Opportunities you posted</h3>
+            {/* The same review-and-award screen a buyer gets. One poster side,
+                not a second one built for creators. */}
+            <BuyerBriefs
+              key={postedAt}
+              onNotice={setNotice}
+              onPostBrief={() => setPosting(true)}
+            />
+          </section>
+        </>
+      )}
+
+      {posting && (
+        <PostBriefModal
+          user={user}
+          onClose={() => setPosting(false)}
+          onPosted={(n) => { setNotice(n); setPostedAt(Date.now()); }}
+        />
       )}
     </StudioPage>
   );

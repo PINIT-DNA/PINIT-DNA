@@ -25,6 +25,8 @@ await initDatabase();
 const RAVI = 'PINIT-EX-RAVI0001';   // creator, has assets
 const SNEHA = 'PINIT-EX-SNEH0002';  // creator, has assets
 const BUYER = 'PINIT-EX-BUYR0003';  // buyer, owns the brief
+const ARUN = 'PINIT-EX-ARUN0004';   // creator, uninvolved
+let MINE = '';                      // the brief a creator posts, below
 const REQ = 'REQ-T100';
 
 await runSql(
@@ -38,6 +40,10 @@ await runSql(
 await runSql(
   `INSERT INTO users (pinit_id, exchange_id, name, email, role, kyc_status, biometric_verified, buyer_enabled)
    VALUES (?, 'PX-3', 'Meridian Studio', 'buy@example.com', 'buyer', 'verified', 1, 1)`, [BUYER],
+);
+await runSql(
+  `INSERT INTO users (pinit_id, exchange_id, name, email, role, kyc_status, biometric_verified, seller_plan)
+   VALUES (?, 'PX-4', 'Arun T', 'arun@example.com', 'creator', 'verified', 1, 'pro')`, [ARUN],
 );
 
 const asset = (assetId, owner, title, vertical) => runSql(
@@ -312,4 +318,73 @@ test('proposal counts are derived, never trusted from the column', async () => {
   const list = await call('GET', '/api/requirements', null);
   const brief = list.body.find((b) => b.req_id === REQ);
   assert.equal(brief.proposals_count, 2, 'the rows win over the stored column');
+});
+
+/* == A creator posting an opportunity ================================== */
+
+test('a creator can post an opportunity, not only a buyer', async () => {
+  // Ravi needs photographs for his own project. Nothing about that is
+  // different from an agency needing them.
+  const r = await call('POST', '/api/requirements', RAVI, {
+    buyer_name: 'Ravi K',
+    buyer_org: 'Independent creator',
+    title: 'Need still photographs for a short film',
+    description: 'Three shoot days, behind the scenes stills.',
+    vertical: 'images',
+    budget: 15000,
+    deadline: '2026-10-30',
+    creators_needed: 1,
+  });
+  assert.equal(r.status, 201, 'a creator posting must not be refused as a non-buyer');
+  assert.ok(r.body.requirement.req_id);
+  MINE = r.body.requirement.req_id;
+});
+
+test('your own posting is not open work to you', async () => {
+  const mine = await call('GET', '/api/opportunities/briefs', RAVI);
+  assert.ok(
+    !mine.body.briefs.some((b) => b.req_id === MINE),
+    'a creator must not see their own opportunity in the list they answer',
+  );
+
+  // But everyone else does.
+  const theirs = await call('GET', '/api/opportunities/briefs', SNEHA);
+  assert.ok(theirs.body.briefs.some((b) => b.req_id === MINE));
+});
+
+test('you cannot answer your own opportunity', async () => {
+  const r = await call('POST', `/api/opportunities/briefs/${MINE}/propose`, RAVI, {
+    asset_ids: ['HA-R1'],
+  });
+  assert.equal(r.status, 403);
+  assert.equal(r.body.error, 'YOUR_OWN_BRIEF');
+});
+
+test('you cannot invite yourself to your own opportunity', async () => {
+  const r = await call('POST', `/api/opportunities/briefs/${MINE}/invite`, RAVI, {
+    pinit_ids: [RAVI, SNEHA],
+  });
+  assert.equal(r.body.invited, 1, 'only the other creator is invited');
+  assert.match(r.body.skipped[0].why, /cannot invite yourself/i);
+});
+
+test('the creator who posted reviews and awards it like any other poster', async () => {
+  const sent = await call('POST', `/api/opportunities/briefs/${MINE}/propose`, SNEHA, {
+    asset_ids: ['HA-S1'], note: 'Happy to shoot these.',
+  });
+  assert.equal(sent.status, 201);
+
+  const review = await call('GET', `/api/opportunities/briefs/${MINE}/proposals`, RAVI);
+  assert.equal(review.status, 200, 'the poster can review proposals on what they posted');
+  assert.equal(review.body.proposals.length, 1);
+  assert.equal(review.body.proposals[0].creator.name, 'Sneha M');
+
+  const award = await call('POST', `/api/opportunities/briefs/${MINE}/award`, RAVI, {
+    proposal_id: review.body.proposals[0].proposal_id,
+  });
+  assert.equal(award.status, 200);
+
+  // And a stranger still cannot.
+  const nosy = await call('GET', `/api/opportunities/briefs/${MINE}/proposals`, ARUN);
+  assert.equal(nosy.status, 403);
 });

@@ -5054,3 +5054,22 @@ input[type="range"]::-webkit-slider-thumb {
   .opp-brief__act .btn-secondary,
   .opp-brief__act .btn-primary { flex: 1; justify-content: center; }
 }
+
+/* ── Posting an opportunity ───────────────────────────────────────────── */
+.opp-postgrid { display: grid; gap: 10px; grid-template-columns: 1fr; }
+@media (min-width: 520px) { .opp-postgrid { grid-template-columns: 1fr 1fr 1fr; } }
+.opp-postgrid label { display: flex; flex-direction: column; gap: 5px; }
+.opp-postgrid label span {
+  font-size: 0.68rem; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-dim);
+}
+.opp-postgrid .form-input { width: 100%; }
+
+.opp-posted { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--border-subtle); }
+.opp-posted h3 {
+  font-family: var(--font-heading); font-size: 1rem; font-weight: 600;
+  color: var(--text-main); margin: 0 0 4px;
+}
+
+/* Two actions in the page header need to sit side by side, not stack. */
+.studio-mod__actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }

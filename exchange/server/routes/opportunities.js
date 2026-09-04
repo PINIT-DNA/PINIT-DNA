@@ -184,9 +184,13 @@ router.get('/briefs', requireSeller, async (req, res) => {
     let where = "WHERE status = 'open'";
     if (vertical && vertical !== 'all') { where += ' AND vertical = ?'; params.push(vertical); }
 
-    const briefs = await allSql(
+    const all = await allSql(
       `SELECT * FROM requirements ${where} ORDER BY created_at DESC LIMIT 200`, params,
     );
+    // A creator can post an opportunity too — they need photographs for their
+    // own project like anyone else. What they must not do is answer it, so
+    // their own postings are not open work to them.
+    const briefs = all.filter((b) => !samePinitFace(b.buyer_pinit_id, me));
     const reqIds = briefs.map((b) => b.req_id);
 
     const mineScope = identityMatchSql('pinit_id', me);
@@ -298,6 +302,12 @@ router.post('/briefs/:reqId/propose', requireSeller, async (req, res) => {
       return res.status(409).json({
         error: 'BRIEF_CLOSED',
         message: 'This brief is no longer taking proposals.',
+      });
+    }
+    if (samePinitFace(brief.buyer_pinit_id, me)) {
+      return res.status(403).json({
+        error: 'YOUR_OWN_BRIEF',
+        message: 'This is your own opportunity. Review the proposals on it instead.',
       });
     }
 
@@ -559,6 +569,10 @@ router.post('/briefs/:reqId/invite', requireBuyer, async (req, res) => {
     const skipped = [];
 
     for (const target of targets) {
+      if (samePinitFace(target, by)) {
+        skipped.push({ pinit_id: target, why: 'You cannot invite yourself.' });
+        continue;
+      }
       const user = await findUserByPinitId(target);
       if (!user) { skipped.push({ pinit_id: target, why: 'No creator with that Pinit ID.' }); continue; }
       const already = await getSql(

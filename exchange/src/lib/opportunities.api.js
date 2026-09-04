@@ -38,7 +38,28 @@ export function askQuestion(reqId, body) {
   return apiFetch(`/api/opportunities/briefs/${encodeURIComponent(reqId)}/questions`, json({ body }));
 }
 
-/* ── The buyer's side ─────────────────────────────────────────────────── */
+/* ── Posting an opportunity ───────────────────────────────────────────── */
+
+/**
+ * Anyone signed in can post — a creator who needs photographs for their own
+ * project is in exactly the same position as an agency. The account already
+ * permits it (a seller has the buyer capability on the same Pinit identity);
+ * what was missing was a way to do it from the Sell workspace.
+ */
+export function postBrief({ title, description, vertical, budget, deadline, creatorsNeeded, name, org }) {
+  return apiFetch('/api/requirements', json({
+    title,
+    description,
+    vertical,
+    budget,
+    deadline,
+    creators_needed: creatorsNeeded,
+    buyer_name: name,
+    buyer_org: org,
+  }));
+}
+
+/* ── The poster's side ────────────────────────────────────────────────── */
 
 export function listMyBriefs() {
   return apiFetch('/api/opportunities/my-briefs');
