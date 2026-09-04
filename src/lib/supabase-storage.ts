@@ -6,7 +6,8 @@
  * only for the Storage API (bucket: vault-files).
  */
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { type SupabaseClient } from '@supabase/supabase-js';
+import { createSupabaseNodeClient } from './supabase-node';
 import { logger } from './logger';
 
 const BUCKET = 'vault-files';
@@ -27,7 +28,7 @@ function getClient(): SupabaseClient {
     throw new Error('SUPABASE_URL and a Supabase key (SERVICE or ANON) must be set for vault storage');
   }
 
-  _client = createClient(url, key, { auth: { persistSession: false } });
+  _client = createSupabaseNodeClient(url, key);
   logger.info('[Storage] Supabase Storage client initialised');
   return _client;
 }

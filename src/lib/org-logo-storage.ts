@@ -3,7 +3,8 @@
  * Bucket is private; store object path in DB and mint signed URLs for the UI.
  */
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { type SupabaseClient } from '@supabase/supabase-js';
+import { createSupabaseNodeClient } from './supabase-node';
 import { logger } from './logger';
 
 const BUCKET = 'vault-files';
@@ -20,7 +21,7 @@ function getClient(): SupabaseClient {
   if (!url || !key) {
     throw new Error('Supabase storage not configured for org logos');
   }
-  _client = createClient(url, key, { auth: { persistSession: false } });
+  _client = createSupabaseNodeClient(url, key);
   return _client;
 }
 

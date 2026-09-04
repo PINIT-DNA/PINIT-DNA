@@ -36,7 +36,7 @@ import { API_BASE_URL } from '../config/api.config';
 import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, renameVaultRecord, createExchangeListIntent, getExchangeRole, getExchangeConfig, type VaultTrackingDashboard } from '../services/dashboard.api';
 import { useAuth } from '../context/AuthContext';
 import { ShareQrBlock } from './ShareQrBlock';
-import { AuthenticityReportCard } from './AuthenticityReportCard';
+import { AuthenticityReportCard, verdictBadgeVariant } from './AuthenticityReportCard';
 import type { VaultContentAnalysis, VaultRecord } from '../types/dashboard.types';
 import { formatSourcePlatform, vaultSourceCaption } from '../lib/source-platform';
 import {
@@ -644,6 +644,18 @@ export function VaultDetailSidePanel({
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <Badge variant="success" dot>Protected</Badge>
+            {analysis && (
+              <>
+                <Badge variant={verdictBadgeVariant(String(analysis.verdict ?? analysis.label))}>
+                  {analysis.verdictDisplay ?? analysis.labelDisplay ?? analysis.verdict ?? analysis.label}
+                </Badge>
+                <Badge variant={(analysis.scores?.tamperScore ?? 0) < 15 ? 'success' : 'warning'}>
+                  {(analysis.scores?.tamperScore ?? 0) < 15
+                    ? 'Not tampered'
+                    : `Tamper ${Math.round(analysis.scores?.tamperScore ?? 0)}%`}
+                </Badge>
+              </>
+            )}
             <span className="text-2xs text-gray-500 mono">{record.id.slice(0, 12)}…</span>
           </div>
         </div>
@@ -676,6 +688,11 @@ export function VaultDetailSidePanel({
                 <dl className="space-y-2 text-xs">
                   {[
                     ['Status', 'Protected'],
+                    ['Content', analysis?.verdictDisplay ?? analysis?.labelDisplay ?? (analysis ? String(analysis.verdict ?? analysis.label) : '—')],
+                    ['Tamper', analysis?.scores
+                      ? `${Math.round(analysis.scores.tamperScore)}%${analysis.scores.tamperScore < 15 ? ' · none found' : ''}`
+                      : '—'],
+                    ['Authenticity', analysis?.scores ? `${Math.round(analysis.scores.authenticityScore)}%` : '—'],
                     ['Access', 'Only you control'],
                     ['Verified', 'Yes'],
                   ].map(([k, v]) => (

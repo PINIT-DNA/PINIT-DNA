@@ -35,7 +35,7 @@ function Meter({
   );
 }
 
-function verdictBadgeVariant(
+export function verdictBadgeVariant(
   verdict: string,
 ): 'success' | 'warning' | 'danger' | 'info' | 'muted' {
   const v = verdict.toUpperCase();
@@ -85,11 +85,32 @@ export function AuthenticityReportCard({
     return true;
   });
 
+  const tamperScore = scores?.tamperScore ?? 0;
+  const verdictKey = String(analysis.verdict ?? analysis.label ?? '').toUpperCase();
+  const showHeatmap = Boolean(
+    !compact
+    && analysis.heatmapPngBase64
+    && (tamperScore >= 15 || ['TAMPERED', 'EDITED', 'LIKELY_EDITED', 'SUSPICIOUS'].includes(verdictKey)),
+  );
+
   return (
     <div className="rounded-xl border border-bg-border bg-bg-elevated p-3.5 space-y-3">
       <div className="flex items-center gap-2">
         <Microscope size={14} className="text-dna-400 shrink-0" />
         <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">{title}</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-lg border border-success/20 bg-success/5 p-2">
+          <p className="text-2xs text-gray-500 uppercase tracking-wider">Content</p>
+          <p className="text-xs font-semibold text-white mt-0.5">{verdict}</p>
+        </div>
+        <div className="rounded-lg border border-bg-border bg-bg-muted p-2">
+          <p className="text-2xs text-gray-500 uppercase tracking-wider">Tamper</p>
+          <p className="text-xs font-semibold text-white mt-0.5">
+            {tamperScore < 15 ? `None · ${Math.round(tamperScore)}%` : `${Math.round(tamperScore)}%`}
+          </p>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -222,17 +243,25 @@ export function AuthenticityReportCard({
         </div>
       )}
 
-      {!compact && analysis.heatmapPngBase64 && (
+      {showHeatmap && (
         <div>
           <p className="text-2xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider mb-1.5">
-            Suspicion heatmap
+            Tamper region map
+          </p>
+          <p className="text-2xs text-gray-500 mb-1.5">
+            Warm blocks are where the scan found weaker texture — check those areas, they are not a proven edit.
           </p>
           <img
             src={`data:image/png;base64,${analysis.heatmapPngBase64}`}
-            alt="Forensic suspicion heatmap"
+            alt="Tamper region map"
             className="w-full rounded-lg border border-bg-border"
           />
         </div>
+      )}
+      {!compact && analysis.heatmapPngBase64 && !showHeatmap && (
+        <p className="text-2xs text-gray-500">
+          No tamper map shown — this protected file reads as original (tamper {Math.round(tamperScore)}%).
+        </p>
       )}
     </div>
   );
