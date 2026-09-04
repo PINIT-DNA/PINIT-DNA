@@ -3,6 +3,8 @@
  *
  * Owner auth (Hub JWT):
  *   GET  /exchange/config
+ *   GET  /exchange/seller-summary
+ *   GET  /exchange/listed-assets
  *   POST /exchange/sso
  *   GET  /exchange/listable-assets
  *   POST /exchange/list-intent
@@ -28,6 +30,7 @@ import {
   getExchangeConfig,
   getExchangeRole,
   getExchangeSellerSummary,
+  getExchangeListedAssets,
   createExchangeSso,
   listExchangeAssets,
   listExchangeAssetsBridge,
@@ -59,6 +62,7 @@ function uploadProtect(req: any, res: any, next: any) {
 router.get('/config', requireAuth, getExchangeConfig);
 router.get('/role', requireAuth, getExchangeRole);
 router.get('/seller-summary', requireAuth, getExchangeSellerSummary);
+router.get('/listed-assets', requireAuth, getExchangeListedAssets);
 router.post('/sso', requireAuth, createExchangeSso);
 router.get('/listable-assets', requireAuth, listExchangeAssets);
 router.get('/listable-assets-bridge', listExchangeAssetsBridge);

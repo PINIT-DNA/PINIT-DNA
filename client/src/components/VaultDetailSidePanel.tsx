@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { VaultFileThumbnail } from './VaultFileThumbnail';
+import { ExchangeListedTag } from './ExchangeListedTag';
 import { Badge } from './ui/Badge';
 import { cn } from './ui/utils';
 import { formatBytes } from '../hooks/useApi';
@@ -32,7 +33,7 @@ import {
 } from '../lib/file-type-utils';
 import { buildShareFileAttachment } from '../lib/share-file-open';
 import { API_BASE_URL } from '../config/api.config';
-import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, renameVaultRecord, createExchangeListIntent, getExchangeRole, type VaultTrackingDashboard } from '../services/dashboard.api';
+import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, renameVaultRecord, createExchangeListIntent, getExchangeRole, getExchangeConfig, type VaultTrackingDashboard } from '../services/dashboard.api';
 import { useAuth } from '../context/AuthContext';
 import { ShareQrBlock } from './ShareQrBlock';
 import { AuthenticityReportCard } from './AuthenticityReportCard';
@@ -69,6 +70,8 @@ interface VaultShareLink {
 
 interface VaultDetailSidePanelProps {
   record: VaultRecord;
+  listedOnExchange?: boolean;
+  exchangeListingId?: string | null;
   onClose: () => void;
   onShare: () => void;
   onDelete: () => void;
@@ -113,6 +116,8 @@ function QuickAction({
 
 export function VaultDetailSidePanel({
   record,
+  listedOnExchange = false,
+  exchangeListingId = null,
   onClose,
   onShare,
   onDelete,
@@ -491,7 +496,28 @@ export function VaultDetailSidePanel({
   };
 
   const handleListOnExchange = async () => {
-    if (listingOnExchange || !canListOnExchange) return;
+    if (listingOnExchange) return;
+    if (listedOnExchange) {
+      setListingOnExchange(true);
+      try {
+        const cfg = await getExchangeConfig();
+        const appUrl = String(cfg?.appUrl || '').replace(/\/$/, '');
+        const url = exchangeListingId && appUrl
+          ? `${appUrl}/listing/${encodeURIComponent(exchangeListingId)}`
+          : appUrl || null;
+        if (!url) {
+          toast.error('Exchange listing URL is not available');
+          return;
+        }
+        window.open(url, '_blank', 'noopener,noreferrer');
+      } catch {
+        toast.error('Could not open Exchange listing');
+      } finally {
+        setListingOnExchange(false);
+      }
+      return;
+    }
+    if (!canListOnExchange) return;
     setListingOnExchange(true);
     try {
       const result = await createExchangeListIntent(record.id);
@@ -596,6 +622,7 @@ export function VaultDetailSidePanel({
             ) : (
               <div className="flex items-start gap-2">
                 <h2 className="text-base font-bold text-white break-words flex-1">{displayName}</h2>
+                {listedOnExchange && <ExchangeListedTag compact className="shrink-0 mt-1" />}
                 <button
                   type="button"
                   onClick={startRename}
@@ -930,11 +957,17 @@ export function VaultDetailSidePanel({
                   <div className="flex items-center gap-2 mb-1">
                     <Lock size={12} className="text-success" />
                     <p className="text-xs font-semibold text-success">
-                      {canListOnExchange ? 'Protected in your vault' : 'Private · Protected by Pinit HUB'}
+                      {listedOnExchange
+                        ? 'Listed on Pinit Exchange'
+                        : canListOnExchange
+                          ? 'Protected in your vault'
+                          : 'Private · Protected by Pinit HUB'}
                     </p>
                   </div>
                   <p className="text-2xs text-gray-400">
-                    {canListOnExchange
+                    {listedOnExchange
+                      ? 'This file is live for sale on Exchange. The original stays locked in your vault.'
+                      : canListOnExchange
                       ? 'Only you can open the original. Eligible assets can be listed on Exchange.'
                       : 'This is a personal Hub asset. Having a file in HUB does not list it on Exchange.'}
                   </p>
@@ -1097,7 +1130,7 @@ export function VaultDetailSidePanel({
           </div>
           )}
 
-          {canListOnExchange ? (
+          {canListOnExchange || listedOnExchange ? (
             <>
           <button
             type="button"
@@ -1106,10 +1139,12 @@ export function VaultDetailSidePanel({
             className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-dna-600 hover:bg-dna-500 text-white text-sm font-semibold disabled:opacity-60 shadow-lg shadow-dna-600/20"
           >
             {listingOnExchange ? <RefreshCw size={18} className="animate-spin" /> : <Store size={18} />}
-            {listingOnExchange ? 'Opening Exchange…' : 'List on Exchange'}
+            {listingOnExchange ? 'Opening Exchange…' : listedOnExchange ? 'Open on Exchange' : 'List on Exchange'}
           </button>
           <p className="text-2xs text-gray-500 text-center -mt-1">
-            Opens Pinit Exchange so you can set a price and publish this protected file for sale.
+            {listedOnExchange
+              ? 'Opens the live listing on Pinit Exchange.'
+              : 'Opens Pinit Exchange so you can set a price and publish this protected file for sale.'}
           </p>
             </>
           ) : (
@@ -1130,10 +1165,10 @@ export function VaultDetailSidePanel({
               label={sharingFile ? 'Preparing…' : shareReady ? 'Share now' : 'Share File'}
               onClick={() => { if (!sharingFile) void handleShareFile(); }}
             />
-            {canListOnExchange && (
+            {(canListOnExchange || listedOnExchange) && (
             <QuickAction
               icon={listingOnExchange ? <RefreshCw size={18} className="animate-spin" /> : <Store size={18} />}
-              label={listingOnExchange ? 'Opening…' : 'List on Exchange'}
+              label={listingOnExchange ? 'Opening…' : listedOnExchange ? 'Open listing' : 'List on Exchange'}
               onClick={() => { if (!listingOnExchange) void handleListOnExchange(); }}
             />
             )}

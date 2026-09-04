@@ -565,6 +565,52 @@ export const exchangeBridgeService = {
     }
   },
 
+  async getListedVaultsForOwner(ownerUserId: string): Promise<{
+    unavailable: boolean;
+    listed: Array<{ vaultId: string; listingId: string; status: string }>;
+  }> {
+    const empty = { unavailable: false, listed: [] as Array<{ vaultId: string; listingId: string; status: string }> };
+    const role = await this.getExchangeMarketplaceRole(ownerUserId);
+    if (role.unavailable || !role.pinitId) return { ...empty, unavailable: Boolean(role.unavailable) };
+
+    let rows: Array<{ listing_id?: string; asset_id?: string; status?: string }> = [];
+    try {
+      const res = await fetch(
+        `${config.exchange.apiUrl}/api/hub/seller-listings?pinitId=${encodeURIComponent(role.pinitId)}`,
+        { headers: { 'X-PinIT-Bridge-Secret': config.exchange.bridgeSecret } },
+      );
+      if (!res.ok) return { unavailable: true, listed: [] };
+      const data = (await res.json()) as { listings?: typeof rows };
+      rows = Array.isArray(data.listings) ? data.listings : [];
+    } catch {
+      return { unavailable: true, listed: [] };
+    }
+
+    const exchangeIds = [...new Set(rows.map((r) => String(r.asset_id || '').trim()).filter(Boolean))];
+    if (exchangeIds.length === 0) return empty;
+
+    const resolved = await Promise.all(exchangeIds.map((id) => resolveVaultIdFromExchangeId(id)));
+    const vaultByExchangeId = new Map<string, string>();
+    exchangeIds.forEach((id, i) => {
+      const vaultId = resolved[i]?.vaultId;
+      if (vaultId) vaultByExchangeId.set(id, vaultId);
+    });
+
+    const listed: Array<{ vaultId: string; listingId: string; status: string }> = [];
+    const seen = new Set<string>();
+    for (const row of rows) {
+      const vaultId = vaultByExchangeId.get(String(row.asset_id || '').trim());
+      if (!vaultId || seen.has(vaultId)) continue;
+      seen.add(vaultId);
+      listed.push({
+        vaultId,
+        listingId: String(row.listing_id || ''),
+        status: String(row.status || 'live'),
+      });
+    }
+    return { unavailable: false, listed };
+  },
+
   async createListIntent(ownerUserId: string, vaultId: string) {
     const user = await prisma.user.findUnique({
       where: { id: ownerUserId },

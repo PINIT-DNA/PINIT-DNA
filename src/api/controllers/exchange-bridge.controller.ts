@@ -46,6 +46,17 @@ export async function getExchangeSellerSummary(req: Request, res: Response, next
   }
 }
 
+/** GET /exchange/listed-assets — vault ids currently live on Exchange */
+export async function getExchangeListedAssets(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const result = await exchangeBridgeService.getListedVaultsForOwner(userId(req));
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 /** GET /exchange/config — public-safe URLs for Hub UI */
 export async function getExchangeConfig(_req: Request, res: Response): Promise<void> {
   res.json({

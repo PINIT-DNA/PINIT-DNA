@@ -379,6 +379,32 @@ function requireBridgeSecret(req, res, next) {
   return next();
 }
 
+/** Hub My Assets — which vault/asset ids are currently listed for sale. */
+router.get('/seller-listings', requireBridgeSecret, (req, res) => {
+  const pinitId = String(req.query.pinitId || req.query.pinit_id || '').trim();
+  if (!pinitId) return res.status(400).json({ error: 'pinitId is required' });
+
+  const listingScope = sellerMatchClause('pinit_id', pinitId);
+  db.all(
+    `SELECT listing_id, asset_id, status FROM listings ${listingWhere(listingScope)}`,
+    listingScope.params,
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      const listings = (rows || [])
+        .filter((row) => {
+          const status = String(row.status || '').toLowerCase();
+          return status === 'live' || status === 'published';
+        })
+        .map((row) => ({
+          listing_id: row.listing_id,
+          asset_id: row.asset_id,
+          status: row.status,
+        }));
+      res.json({ listings });
+    },
+  );
+});
+
 /** Hub Home KPIs — metrics only, no buyer PII. */
 router.get('/seller-desk', requireBridgeSecret, (req, res) => {
   const pinitId = String(req.query.pinitId || req.query.pinit_id || '').trim();

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Archive, Search, RefreshCw, Eye, Check, Clock, ShieldCheck, MapPin, LayoutGrid, List, Cpu } from 'lucide-react';
 import { VaultFileThumbnail } from '../components/VaultFileThumbnail';
 import { VaultDetailSidePanel } from '../components/VaultDetailSidePanel';
+import { ExchangeListedTag } from '../components/ExchangeListedTag';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
@@ -11,6 +12,7 @@ import {
   protectedDownloadFromVault,
   deleteVaultRecord,
   api,
+  getExchangeListedAssets,
 } from '../services/dashboard.api';
 import { SkeletonTable, SkeletonCard } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -171,10 +173,12 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
 function VaultGalleryCard({
   record,
   selected,
+  listed,
   onSelect,
 }: {
   record: VaultRecord;
   selected: boolean;
+  listed: boolean;
   onSelect: () => void;
 }) {
   const source = vaultSourceCaption(record);
@@ -201,7 +205,10 @@ function VaultGalleryCard({
         )}
       </div>
       <div className="p-3 space-y-1">
-        <p className="text-sm font-semibold text-white truncate">{record.originalFileName}</p>
+        <div className="flex items-start gap-1.5 min-w-0">
+          <p className="text-sm font-semibold text-white truncate flex-1">{record.originalFileName}</p>
+          {listed && <ExchangeListedTag compact className="shrink-0 mt-0.5" />}
+        </div>
         <p className="text-xs text-gray-500 truncate">
           {getVaultFileTypeDisplay(record.originalMimeType, record.originalFileName)}
           {source ? ` · ${source}` : ''}
@@ -219,6 +226,7 @@ export function VaultPage() {
   const [params] = useSearchParams();
   const focusId = params.get('id');
   const { data: records, loading, error, refetch, setData: setRecords } = useApi(listVaultRecords, [], { cacheKey: 'vault-records' });
+  const [listedByVault, setListedByVault] = useState<Record<string, { listingId: string }>>({});
   const [search, setSearch]     = useState('');
   const [selected, setSelected] = useState<VaultRecord | null>(null);
   const [protecting, setProtecting] = useState<VaultRecord | null>(null);
@@ -228,6 +236,23 @@ export function VaultPage() {
   const [viewMode, setViewMode] = useState<'gallery' | 'list'>('gallery');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getExchangeListedAssets()
+      .then((result) => {
+        if (cancelled || !Array.isArray(result.listed)) return;
+        const next: Record<string, { listingId: string }> = {};
+        for (const row of result.listed) {
+          if (row.vaultId) next[row.vaultId] = { listingId: row.listingId };
+        }
+        setListedByVault(next);
+      })
+      .catch(() => {
+        /* keep last known listing badges */
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (!focusId || !records?.length || selected?.id === focusId) return;
@@ -338,9 +363,29 @@ export function VaultPage() {
             <div className="flex items-center gap-2">
               <Badge variant="purple">{records.length} files</Badge>
               <Badge variant="success" dot>Protected</Badge>
+              {Object.keys(listedByVault).length > 0 && (
+                <Badge variant="orange">{Object.keys(listedByVault).length} on Exchange</Badge>
+              )}
             </div>
           )}
-          <button onClick={refetch} disabled={loading} className="btn btn-secondary btn-sm" title="Refresh">
+          <button
+            onClick={() => {
+              refetch();
+              void getExchangeListedAssets()
+                .then((result) => {
+                  if (!Array.isArray(result.listed)) return;
+                  const next: Record<string, { listingId: string }> = {};
+                  for (const row of result.listed) {
+                    if (row.vaultId) next[row.vaultId] = { listingId: row.listingId };
+                  }
+                  setListedByVault(next);
+                })
+                .catch(() => undefined);
+            }}
+            disabled={loading}
+            className="btn btn-secondary btn-sm"
+            title="Refresh"
+          >
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
@@ -480,6 +525,7 @@ export function VaultPage() {
                     key={r.id}
                     record={r}
                     selected={selected?.id === r.id}
+                    listed={Boolean(listedByVault[r.id])}
                     onSelect={() => setSelected(prev => (prev?.id === r.id ? null : r))}
                   />
                 ))}
@@ -538,6 +584,11 @@ export function VaultPage() {
                           <p className="text-xs text-gray-500">
                             {getVaultFileTypeDisplay(r.originalMimeType, r.originalFileName)}
                           </p>
+                          {listedByVault[r.id] && (
+                            <div className="mt-1">
+                              <ExchangeListedTag compact />
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -575,7 +626,10 @@ export function VaultPage() {
                       <span className="mono text-xs">{formatBytes(r.originalSizeBytes)}</span>
                     </td>
                     <td>
-                      <Badge variant="success">Protected</Badge>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge variant="success">Protected</Badge>
+                        {listedByVault[r.id] && <Badge variant="orange">On Exchange</Badge>}
+                      </div>
                     </td>
                     <td>
                       <span className="text-xs text-gray-400">
@@ -604,6 +658,8 @@ export function VaultPage() {
         {selected && (
           <VaultDetailSidePanel
             record={selected}
+            listedOnExchange={Boolean(listedByVault[selected.id])}
+            exchangeListingId={listedByVault[selected.id]?.listingId || null}
             onClose={() => setSelected(null)}
             onShare={() => handleShare(selected)}
             onDelete={() => handleDelete(selected)}

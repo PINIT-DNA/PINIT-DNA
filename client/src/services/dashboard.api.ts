@@ -706,6 +706,30 @@ export async function getExchangeSellerSummary(): Promise<{
   return data;
 }
 
+export async function getExchangeListedAssets(): Promise<{
+  success: boolean;
+  unavailable?: boolean;
+  listed: Array<{ vaultId: string; listingId: string; status: string }>;
+}> {
+  const { data } = await api.get(`${API_BASE_URL}/exchange/listed-assets`, {
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  const listed = Array.isArray(data?.listed) ? data.listed : null;
+  if (!listed) {
+    throw new Error('listed-assets payload missing');
+  }
+  return {
+    success: Boolean(data?.success),
+    unavailable: Boolean(data?.unavailable),
+    listed,
+  };
+}
+
+export async function getExchangeConfig(): Promise<{ success: boolean; appUrl: string; apiUrl: string }> {
+  const { data } = await api.get(`${API_BASE_URL}/exchange/config`);
+  return data;
+}
+
 export async function createExchangeSso(): Promise<{
   success: boolean;
   token: string;

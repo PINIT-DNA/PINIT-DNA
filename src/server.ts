@@ -1,6 +1,6 @@
 /**
  * PINIT-DNA — HTTP server bootstrap (single listen per process)
- * Reload: spatial auth env flags (SPATIAL_*).
+ * Reload: spatial auth env flags (SPATIAL_*); Exchange listed-assets route.
  *
  * Use this entry for dev (ts-node-dev) and production (node dist/server.js).
  * app.ts exports the Express app only — no app.listen() there.
