@@ -7,9 +7,9 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
 
 function ensureNodeWebSocket(): void {
-  const g = globalThis as { WebSocket?: typeof WebSocket };
+  const g = globalThis as unknown as { WebSocket?: unknown };
   if (typeof g.WebSocket === 'undefined') {
-    g.WebSocket = WebSocket as unknown as typeof g.WebSocket;
+    g.WebSocket = WebSocket;
   }
 }
 
