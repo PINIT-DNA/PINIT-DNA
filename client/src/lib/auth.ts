@@ -136,6 +136,12 @@ export function clearUserSessionCaches() {
     sessionStorage.removeItem('pinit_dna_reports');
     sessionStorage.removeItem('pinit_session');
     localStorage.removeItem('pinit_forensic_reports');
+    const sessionKeys: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (k?.startsWith('pinit_account_view')) sessionKeys.push(k);
+    }
+    for (const k of sessionKeys) sessionStorage.removeItem(k);
   } catch { /* SSR / privacy mode */ }
   try {
     const keysToRemove: string[] = [];

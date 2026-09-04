@@ -16,6 +16,8 @@ import { API_BASE_URL } from '../config/api.config';
 import { saveTokens } from '../lib/auth';
 import {
   getAccountViewMode,
+  peekSessionAccountViewMode,
+  resolveLoginWorkspaceMode,
   setAccountViewMode,
   type AccountViewMode,
 } from '../lib/account-view-mode';
@@ -68,7 +70,10 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
   const accessResolved = Boolean(user?.sub) && !authLoading;
 
   const [mode, setMode] = useState<AccountViewMode>(() =>
-    getAccountViewMode(user?.sub, hasBusinessAccess ? 'BUSINESS' : 'INDIVIDUAL'),
+    getAccountViewMode(user?.sub, 'INDIVIDUAL', {
+      hasPersonalWorkspace: true,
+      hasBusinessWorkspace: hasBusinessAccess,
+    }),
   );
   const [switching, setSwitching] = useState(false);
 
@@ -77,37 +82,43 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!accessResolved || !user?.sub) return;
 
-    const preferred = getAccountViewMode(
-      user.sub,
-      hasBusinessAccess ? 'BUSINESS' : 'INDIVIDUAL',
-    );
+    const sessionMode = peekSessionAccountViewMode(user.sub);
 
-    // Pure individual accounts cannot stay in Business view — only after access is resolved.
-    //
-    // `hasBusinessAccess` is false for a moment on every cold load: the JWT does
-    // not carry accountType, so it is unknown until the subscription request
-    // lands. Acting on that transient false wiped a genuine BUSINESS preference
-    // and bounced the user off any /business/* deep link (team, settings,
-    // clients…) before the truth arrived. Wait for the subscription to resolve
-    // before demoting anyone.
-    if (!hasBusinessAccess) {
-      if (!subscriptionReady) return;
-      if (preferred === 'BUSINESS') {
+    // Keep an in-session Business switch across refresh even while subscription loads.
+    if (sessionMode === 'BUSINESS') {
+      if (!hasBusinessAccess) {
+        if (!subscriptionReady) {
+          setMode('BUSINESS');
+          return;
+        }
         setAccountViewMode(user.sub, 'INDIVIDUAL');
+        setMode('INDIVIDUAL');
+        return;
       }
-      setMode('INDIVIDUAL');
-      return;
-    }
-
-    // Reloading on a Business URL should keep Business shell (heals a bad INDIVIDUAL wipe)
-    if (preferred === 'INDIVIDUAL' && isBusinessPath(location.pathname)) {
-      setAccountViewMode(user.sub, 'BUSINESS');
       setMode('BUSINESS');
       return;
     }
 
-    setMode(preferred);
-  }, [user?.sub, hasBusinessAccess, accessResolved, subscriptionReady, location.pathname]);
+    if (!hasBusinessAccess) {
+      if (!subscriptionReady) return;
+      setAccountViewMode(user.sub, 'INDIVIDUAL');
+      setMode('INDIVIDUAL');
+      return;
+    }
+
+    // Fresh login / new tab: Personal first. Do not infer Business from URL or last visit.
+    if (sessionMode === 'INDIVIDUAL') {
+      setMode('INDIVIDUAL');
+      return;
+    }
+
+    const loginDefault = resolveLoginWorkspaceMode({
+      hasPersonalWorkspace: true,
+      hasBusinessWorkspace: hasBusinessAccess,
+    });
+    setAccountViewMode(user.sub, loginDefault);
+    setMode(loginDefault);
+  }, [user?.sub, hasBusinessAccess, accessResolved, subscriptionReady]);
 
   // Keep URL and shell aligned — never mix Individual nav with Business pages
   useEffect(() => {

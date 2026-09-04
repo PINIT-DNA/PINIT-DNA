@@ -16,7 +16,8 @@ import {
 import { warmBackend, parseJwt, getAccessToken, hasValidAccessToken } from '../../lib/auth';
 import { maySkipBiometricsForExchangeReturn } from '../../lib/exchange-return-session';
 import { toRootPinitId } from '../../lib/pinit-identity';
-import { resolveDefaultHomePath } from '../../lib/subscription/post-upgrade-redirect';
+import { resolveLoginHomePath } from '../../lib/subscription/post-upgrade-redirect';
+import { applyLoginWorkspaceDefault } from '../../lib/account-view-mode';
 import { takePendingTeamInvite } from '../../lib/team-invite';
 import { loginWithFace, identifyWithFace, type FacePadEvidence } from '../../lib/face-api-client';
 import { collectFingerprint } from '../../lib/device-fingerprint';
@@ -125,8 +126,7 @@ export function LoginFlow() {
           return;
         }
         if (!exchangeReturn) {
-          const parsed = parseJwt(getAccessToken() || '');
-          navigate(resolveDefaultHomePath(parsed?.accountType ?? 'INDIVIDUAL'), { replace: true });
+          navigate(resolveLoginHomePath(), { replace: true });
           return;
         }
       }
@@ -176,7 +176,13 @@ export function LoginFlow() {
 
     const token = getAccessToken();
     const parsed = token ? parseJwt(token) : null;
-    navigate(resolveDefaultHomePath(parsed?.accountType ?? 'INDIVIDUAL'), { replace: true });
+    if (parsed?.sub) {
+      applyLoginWorkspaceDefault(parsed.sub, {
+        hasPersonalWorkspace: true,
+        hasBusinessWorkspace: parsed.accountType === 'BUSINESS',
+      });
+    }
+    navigate(resolveLoginHomePath(), { replace: true });
   }
 
   if (openingExchange && exchangeReturn) {
