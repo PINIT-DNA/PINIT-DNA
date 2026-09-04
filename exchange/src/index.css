@@ -5073,3 +5073,92 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* Two actions in the page header need to sit side by side, not stack. */
 .studio-mod__actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* ══ Portfolio · verified ledger ═══════════════════════════════════════════
+   Set like a record, not like a feature. A ledger that looks like marketing
+   stops being believed, and being believed is the entire value of it.
+   Inherits each theme through the .ps-* variables already in use. */
+
+.pv-h {
+  font-size: 1.35rem; font-weight: 600; letter-spacing: -0.02em;
+  margin: 0 0 6px; color: inherit;
+}
+.pv-sub { color: var(--text-muted); font-size: 0.9rem; margin: 0 0 20px; max-width: 62ch; }
+
+.pv-mark {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 0.72rem; letter-spacing: 0.06em;
+  border: 1px solid currentColor; border-radius: 999px;
+  padding: 4px 12px; margin: 12px 0 0; color: var(--emerald);
+}
+
+.pv-stats { display: flex; gap: 32px; flex-wrap: wrap; margin-bottom: 24px; }
+.pv-stats--compact { gap: 22px; margin-bottom: 0; }
+.pv-stat { display: flex; flex-direction: column; gap: 2px; }
+.pv-stat b {
+  font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.pv-stats--compact .pv-stat b { font-size: 1.15rem; }
+.pv-stat span {
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 0.6rem; letter-spacing: 0.11em; text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* Assets protected per year. Deliberately small — it is evidence, not a chart. */
+.pv-timeline {
+  display: flex; align-items: flex-end; gap: 14px;
+  height: 96px; margin-bottom: 26px; padding-bottom: 4px;
+  overflow-x: auto;
+}
+.pv-year {
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  gap: 4px; min-width: 42px; height: 100%;
+}
+.pv-bar {
+  width: 22px; border-radius: 2px; background: var(--emerald);
+  opacity: 0.75; flex: none; min-height: 6px;
+}
+.pv-year b {
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 0.7rem; font-variant-numeric: tabular-nums;
+}
+.pv-yr {
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 0.62rem; color: var(--text-dim); letter-spacing: 0.04em;
+}
+
+/* Wide table scrolls in its own container so the page never moves sideways. */
+.pv-scroll { overflow-x: auto; }
+.pv-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.pv-table th {
+  text-align: left; font-weight: 500; white-space: nowrap;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 0.6rem; letter-spacing: 0.11em; text-transform: uppercase;
+  color: var(--text-dim);
+  padding: 0 16px 9px 0; border-bottom: 1px solid var(--border-subtle);
+}
+.pv-table td {
+  padding: 10px 16px 10px 0; border-bottom: 1px solid var(--border-subtle);
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 0.72rem; color: var(--text-muted); white-space: nowrap;
+}
+.pv-table td.pv-t {
+  font-family: inherit; font-size: 0.85rem; font-weight: 600;
+  color: var(--text-main); white-space: normal; min-width: 190px;
+}
+/* The protection date is the argument, so it is the one coloured column. */
+.pv-table td.pv-d { color: var(--emerald); }
+.pv-table tbody tr:last-child td { border-bottom: 0; }
+
+.pv-more {
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 0.68rem; color: var(--text-dim); margin: 12px 0 0;
+}
+
+@media (max-width: 560px) {
+  .pv-stats { gap: 20px; }
+  .pv-timeline { height: 76px; gap: 10px; }
+}
