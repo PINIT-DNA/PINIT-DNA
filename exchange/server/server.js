@@ -16,6 +16,7 @@ import listingsRoutes from './routes/listings.js';
 import ordersRoutes from './routes/orders.js';
 import creatorRoutes from './routes/creator.js';
 import requirementsRoutes from './routes/requirements.js';
+import opportunitiesRoutes from './routes/opportunities.js';
 import commerceRoutes from './routes/commerce.js';
 import portfolioRoutes from './routes/portfolio.js'; // public /p/:slug + seller builder API
 import sellerOnboardingRoutes from './routes/seller-onboarding.js';
@@ -96,6 +97,7 @@ app.use('/api/listings', listingsRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/creator', creatorRoutes);
 app.use('/api/requirements', requirementsRoutes);
+app.use('/api/opportunities', opportunitiesRoutes);
 app.use('/api/commerce', commerceRoutes);
 app.use('/api/portfolio', portfolioRoutes);
 app.use('/api/seller/onboarding', sellerOnboardingRoutes);

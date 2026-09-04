@@ -7,6 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import pg from 'pg';
 import { sqliteSqlToPostgres, qmarkToDollar } from '../lib/sql-dialect.js';
+import { opportunityCreates, opportunityAlters } from '../schema/opportunities.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -169,6 +170,11 @@ export async function initPostgresSchema(db) {
   // acceptance, download entitlement tracking and invoice numbering.
   await ensureCommerceReadiness(db);
 
+  // Opportunities: proposals, invites, brief questions, collabs, team splits.
+  // Same definitions the SQLite path applies, translated for this driver, so
+  // the two schemas cannot drift the way `requirements.buyer_pinit_id` did.
+  await ensureOpportunities(db);
+
   // Optional RLS (non-fatal if policies conflict)
   const rlsPath = path.join(__dirname, '..', 'schema', 'exchange.rls.sql');
   if (fs.existsSync(rlsPath)) {
@@ -312,5 +318,30 @@ export async function ensureCommerceReadiness(db) {
     }
   } catch (err) {
     console.warn('[exchange-pg] legacy currency stamp:', err.message);
+  }
+}
+
+
+/**
+ * Opportunities tables and columns. Additive and idempotent — safe on boot.
+ * Failures are logged rather than thrown: a marketplace that cannot serve
+ * briefs should still serve listings.
+ */
+export async function ensureOpportunities(db) {
+  for (const stmt of opportunityCreates('postgres')) {
+    try {
+      await db.query(stmt);
+    } catch (err) {
+      if (!/already exists/i.test(err.message)) {
+        console.warn('[exchange-pg] opportunities create:', err.message);
+      }
+    }
+  }
+  for (const stmt of opportunityAlters('postgres')) {
+    try {
+      await db.query(stmt);
+    } catch (err) {
+      console.warn('[exchange-pg] opportunities alter:', err.message);
+    }
   }
 }

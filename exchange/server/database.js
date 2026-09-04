@@ -9,6 +9,7 @@ import { createPostgresDatabase, initPostgresSchema } from './drivers/postgres.j
 import { ensureExchangeBuckets } from './lib/exchange-storage.js';
 import { toExchangePinitId } from './lib/pinit-identity.js';
 import { resolveDatabaseConfig } from './lib/db-config.js';
+import { opportunityCreates, opportunityAlters } from './schema/opportunities.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -289,6 +290,9 @@ function applyTrustHardeningSchema() {
     `ALTER TABLE listings ADD COLUMN protection_attempts INTEGER DEFAULT 0`,
     `ALTER TABLE hub_assets ADD COLUMN protection_status TEXT DEFAULT 'protected'`,
     `ALTER TABLE requirements ADD COLUMN buyer_pinit_id TEXT`,
+    // Present in the Postgres schema but never in the SQLite one. creator.js
+    // already writes to it, so on SQLite that UPDATE has been failing silently.
+    `ALTER TABLE users ADD COLUMN display_name TEXT`,
     `ALTER TABLE users ADD COLUMN seller_onboarding_status TEXT DEFAULT 'SELLER_ACTIVE'`,
     `ALTER TABLE users ADD COLUMN razorpay_customer_id TEXT`,
     `ALTER TABLE users ADD COLUMN buyer_enabled INTEGER`,
@@ -479,11 +483,20 @@ function applyTrustHardeningSchema() {
       `ALTER TABLE seller_earnings ADD COLUMN payout_id TEXT`,
     ];
 
+    // Opportunities: proposals, invites, brief questions, collabs, teams.
+    // Creates run before the alters because two of the alters target tables
+    // these creates do not own (requirements, orders_sealed) but the rest of
+    // the chain expects every table to exist first.
+    const oppCreates = opportunityCreates('sqlite');
+    const oppAlters = opportunityAlters('sqlite');
+
     runNext(alters, 0, () => {
       runNext(creates, 0, () => {
        runNext(assetLinkageAlters, 0, () => {
         runNext(commerceReadinessAlters, 0, () => {
         runNext(financeCreates, 0, () => {
+        runNext(oppCreates, 0, () => {
+        runNext(oppAlters, 0, () => {
         db.run(`UPDATE listings SET status = 'published' WHERE status = 'live'`, () => {
           db.run(
             `UPDATE users SET seller_onboarding_status = 'SELLER_ACTIVE'
@@ -491,6 +504,8 @@ function applyTrustHardeningSchema() {
                AND (seller_onboarding_status IS NULL OR seller_onboarding_status = '')`,
             () => resolve(),
           );
+        });
+        });
         });
         });
         });
