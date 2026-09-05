@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { Camera, Loader2, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Loader2, Pencil, Trash2, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '../../services/dashboard.api';
 import { API_BASE_URL } from '../../config/api.config';
@@ -17,8 +17,19 @@ export function ProfilePhotoPicker({
   compact?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
   const letter = (name || 'P').trim().charAt(0).toUpperCase() || 'P';
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
 
   const pick = async (file: File | undefined) => {
     if (!file) return;
@@ -31,6 +42,7 @@ export function ProfilePhotoPicker({
       return;
     }
     setBusy(true);
+    setOpen(false);
     try {
       const body = new FormData();
       body.append('avatar', file);
@@ -50,6 +62,7 @@ export function ProfilePhotoPicker({
 
   const remove = async () => {
     setBusy(true);
+    setOpen(false);
     try {
       await api.delete(`${API_BASE_URL}/profile/avatar`);
       onChange('');
@@ -62,33 +75,40 @@ export function ProfilePhotoPicker({
   };
 
   return (
-    <div className={compact ? 'flex items-center gap-3' : 'pe-photo'}>
-      <button
-        type="button"
-        className={compact ? 'relative w-16 h-16 rounded-full overflow-hidden shrink-0 border border-bg-border' : 'pe-photo__face'}
-        onClick={() => inputRef.current?.click()}
-        disabled={busy}
-        aria-label="Change profile photo"
-      >
-        {photoUrl
-          ? <img src={photoUrl} alt="" className={compact ? 'w-full h-full object-cover' : 'pe-photo__img'} />
-          : <span className={compact ? 'w-full h-full flex items-center justify-center bg-gradient-to-br from-dna-500 to-purple text-white text-xl font-bold' : 'pe-photo__letter'}>{letter}</span>}
-        {busy ? (
-          <span className={compact ? 'absolute inset-0 bg-black/50 flex items-center justify-center' : 'pe-photo__busy'}>
-            <Loader2 size={16} className="animate-spin text-white" />
-          </span>
-        ) : null}
-      </button>
-      <div className={compact ? 'flex flex-col gap-1' : 'pe-photo__act'}>
-        <button type="button" className={compact ? 'btn btn-secondary btn-sm text-xs' : 'pe-btn'} onClick={() => inputRef.current?.click()} disabled={busy}>
-          <Camera size={13} /> {photoUrl ? 'Change photo' : 'Add photo'}
+    <div ref={wrapRef} className={compact ? 'pe-photo pe-photo--compact' : 'pe-photo'}>
+      <div className="pe-photo__wrap">
+        <span className="pe-photo__face">
+          {photoUrl
+            ? <img src={photoUrl} alt="" className="pe-photo__img" />
+            : <span className="pe-photo__letter">{letter}</span>}
+          {busy ? (
+            <span className="pe-photo__busy">
+              <Loader2 size={16} className="animate-spin text-white" />
+            </span>
+          ) : null}
+        </span>
+        <button
+          type="button"
+          className="pe-photo__pencil"
+          onClick={() => setOpen((v) => !v)}
+          disabled={busy}
+          aria-label="Edit profile photo"
+          aria-expanded={open}
+        >
+          <Pencil size={compact ? 12 : 14} />
         </button>
-        {photoUrl ? (
-          <button type="button" className={compact ? 'text-xs text-gray-500 hover:text-red-400' : 'pe-btn pe-photo__remove'} onClick={remove} disabled={busy}>
-            <Trash2 size={13} /> Remove
-          </button>
+        {open ? (
+          <div className="pe-photo__menu" role="menu">
+            <button type="button" role="menuitem" onClick={() => inputRef.current?.click()} disabled={busy}>
+              <Upload size={14} /> Upload
+            </button>
+            {photoUrl ? (
+              <button type="button" role="menuitem" className="is-danger" onClick={() => void remove()} disabled={busy}>
+                <Trash2 size={14} /> Remove
+              </button>
+            ) : null}
+          </div>
         ) : null}
-        {!compact ? <span className="pe-field__hint">Shown on your portfolio and in the Hub. JPG, PNG, or WEBP, under 3 MB.</span> : null}
       </div>
       <input
         ref={inputRef}

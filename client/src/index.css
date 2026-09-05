@@ -1205,23 +1205,46 @@ html.dark .pe-pane h3 { color: var(--pe-ink); }
   border: 1px dashed var(--pe-line); border-radius: 10px; font-size: 0.85rem;
 }
 
-.pe-photo { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.pe-photo { display: flex; align-items: flex-start; }
+.pe-photo__wrap { position: relative; width: 88px; height: 88px; }
+.pe-photo--compact .pe-photo__wrap { width: 64px; height: 64px; }
 .pe-photo__face {
-  position: relative; width: 88px; height: 88px; padding: 0; border: 1px solid var(--pe-line);
-  border-radius: 50%; overflow: hidden; background: var(--pe-sunk); cursor: pointer;
+  position: relative; display: block; width: 100%; height: 100%;
+  border: 1px solid var(--pe-line); border-radius: 50%; overflow: hidden; background: var(--pe-sunk);
 }
 .pe-photo__img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .pe-photo__letter {
   display: flex; width: 100%; height: 100%; align-items: center; justify-content: center;
   font-size: 1.6rem; font-weight: 700; color: var(--pe-ink);
 }
+.pe-photo--compact .pe-photo__letter { font-size: 1.25rem; }
 .pe-photo__busy {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   background: rgba(0,0,0,0.45);
 }
-.pe-photo__act { display: flex; flex-direction: column; gap: 8px; min-width: 180px; flex: 1; }
-.pe-photo__remove { color: var(--pe-faint); }
-.pe-photo__remove:hover { color: var(--pe-bad); }
+.pe-photo__pencil {
+  position: absolute; right: -2px; bottom: -2px; z-index: 1;
+  width: 28px; height: 28px; border-radius: 50%; padding: 0; cursor: pointer;
+  display: grid; place-items: center;
+  border: 2px solid var(--pe-panel); background: var(--pe-accent); color: #fff;
+}
+.pe-photo--compact .pe-photo__pencil { width: 24px; height: 24px; }
+.pe-photo__pencil:hover { filter: brightness(1.08); }
+.pe-photo__pencil:disabled { opacity: 0.6; cursor: default; }
+.pe-photo__menu {
+  position: absolute; left: calc(100% + 10px); top: 8px; z-index: 5;
+  min-width: 140px; padding: 6px; border-radius: 10px;
+  border: 1px solid var(--pe-line); background: var(--pe-panel);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.28);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.pe-photo__menu button {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: none; border: 0; border-radius: 7px; cursor: pointer;
+  padding: 8px 10px; font-size: 0.84rem; color: var(--pe-ink); text-align: left;
+}
+.pe-photo__menu button:hover { background: var(--pe-sunk); }
+.pe-photo__menu button.is-danger { color: var(--pe-bad); }
 
 .pe-field { display: flex; flex-direction: column; gap: 6px; }
 .pe-field__label {

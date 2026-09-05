@@ -579,9 +579,6 @@ export function PortfolioEditor() {
           <div hidden={section !== 'identity'}>
             <>
               <h3>Identity</h3>
-              <p className="pe-lead">
-                Your name comes from your Pinit account. Add a photo and the line people read first.
-              </p>
               <div className="pe-field">
                 <span className="pe-field__label">Photo</span>
                 <ProfilePhotoPicker
