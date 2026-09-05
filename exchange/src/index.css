@@ -5548,3 +5548,21 @@ input[type="range"]::-webkit-slider-thumb {
 @media (max-width: 560px) {
   .pp-section { padding-top: 38px; padding-bottom: 38px; }
 }
+
+/* About: give the detail blocks room. Experience and the tag lists shared one
+   cramped grid, so a job title wrapped a word per line beside stacked lists. */
+.pp-about__detail {
+  display: grid; gap: 30px 40px; grid-template-columns: 1fr; margin-top: 8px;
+}
+@media (min-width: 780px) {
+  .pp-about__detail { grid-template-columns: minmax(260px, 1fr) minmax(240px, 0.9fr); }
+}
+.pp-about__detail > section { min-width: 0; }
+.pp-about__detail .pp-row { gap: 16px; align-items: flex-start; }
+.pp-about__detail .pp-yr { min-width: 62px; padding-top: 1px; }
+.pp-about__detail .pp-row > div { min-width: 0; }
+.pp-about__detail .pp-row b { display: block; line-height: 1.35; }
+.pp-about__detail .pp-row p { line-height: 1.45; }
+/* The portrait was a tall empty slab when there is no photo yet. */
+.pp-portrait { max-height: 340px; }
+.pp-portrait .pp-media { object-position: center top; }

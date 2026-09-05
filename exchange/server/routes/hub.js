@@ -12,6 +12,12 @@ import { verifyPreviewToken } from '../lib/preview-token.js';
 import { rateLimit } from '../lib/rate-limit.js';
 import { requireSeller, requireActiveSeller } from '../lib/rbac.js';
 import { identityCandidates, sellerMatchClause, listingUserJoinSql } from '../lib/pinit-identity.js';
+import {
+  assemblePortfolio,
+  ensurePortfolioUser,
+  ensureProfile,
+  saveProfile,
+} from '../lib/portfolio.js';
 
 const router = express.Router();
 
@@ -275,6 +281,44 @@ router.post('/protect-upload', requireActiveSeller, (req, res) => {
   });
 });
 
+/**
+ * Is this vault/asset id shown in someone's published portfolio?
+ *
+ * Parses the stored collections instead of running a LIKE over the JSON, so a
+ * substring cannot accidentally grant access to an id nobody selected.
+ */
+async function inPublishedPortfolio(assetId) {
+  if (!assetId) return false;
+  const rows = await new Promise((resolve) => {
+    db.all(
+      `SELECT project_groups, featured_listing_ids
+         FROM portfolio_profiles
+        WHERE visibility IN ('public', 'unlisted')`,
+      [],
+      (err, out) => resolve(err ? [] : (out || [])),
+    );
+  });
+
+  for (const row of rows) {
+    let groups = [];
+    try {
+      groups = JSON.parse(row.project_groups || '[]');
+    } catch {
+      groups = [];
+    }
+    if (!Array.isArray(groups)) continue;
+    for (const g of groups) {
+      const ids = [
+        ...(Array.isArray(g?.vault_ids) ? g.vault_ids : []),
+        g?.hub_vault_id,
+        g?.vault_id,
+      ];
+      if (ids.some((id) => String(id || '') === assetId)) return true;
+    }
+  }
+  return false;
+}
+
 /** Stream Hub vault preview for marketplace (video/image playable in browser) */
 router.get('/preview/:assetId', previewLimiter, async (req, res) => {
   const assetId = String(req.params.assetId || '').trim();
@@ -308,7 +352,19 @@ router.get('/preview/:assetId', previewLimiter, async (req, res) => {
       (err, row) => resolve(Boolean(row)),
     );
   });
-  if (!allow) return res.status(404).json({ error: 'Asset not found on Exchange' });
+  // A portfolio piece is not necessarily for sale. Requiring a published
+  // listing meant any work a creator showed but did not sell could never
+  // render an image, which is why portfolios looked broken.
+  //
+  // This stays an allow-list — the grant is membership of a published
+  // portfolio, checked by parsing the stored collections rather than by
+  // pattern-matching the id. Being previewable still does not make the master
+  // file downloadable; this endpoint only ever streams the derived preview.
+  const allowedByPortfolio = allow ? false : await inPublishedPortfolio(assetId);
+
+  if (!allow && !allowedByPortfolio) {
+    return res.status(404).json({ error: 'Asset not found on Exchange' });
+  }
 
   try {
     const preview = await fetchPreviewFromHub(assetId);
@@ -378,6 +434,49 @@ function requireBridgeSecret(req, res, next) {
   }
   return next();
 }
+
+/** Shared Portfolio for Hub Profile editor — same records as /p/:slug. */
+router.get('/portfolio', requireBridgeSecret, async (req, res) => {
+  const pinitId = String(req.query.pinitId || req.query.pinit_id || '').trim();
+  if (!pinitId) return res.status(400).json({ error: 'pinitId is required' });
+  try {
+    const user = await ensurePortfolioUser(pinitId, {
+      name: req.query.name,
+      email: req.query.email,
+      bio: req.query.bio,
+    });
+    const profile = await ensureProfile(user);
+    const payload = await assemblePortfolio(user, profile, { ownerView: true });
+    if (!payload) return res.status(500).json({ error: 'Unable to load portfolio' });
+    return res.json({ portfolio: payload, ...payload });
+  } catch (err) {
+    return res.status(Number(err.status) || 500).json({ error: err.message || 'Unable to load portfolio' });
+  }
+});
+
+router.put('/portfolio', requireBridgeSecret, async (req, res) => {
+  const pinitId = String(req.body?.pinitId || req.body?.pinit_id || '').trim();
+  if (!pinitId) return res.status(400).json({ error: 'pinitId is required' });
+  try {
+    const user = await ensurePortfolioUser(pinitId, {
+      name: req.body?.name,
+      email: req.body?.email,
+      bio: req.body?.bio,
+    });
+    const publish = Boolean(req.body?.publish);
+    const profile = await saveProfile(user.pinit_id, req.body || {}, { publish });
+    const payload = await assemblePortfolio(user, profile, { ownerView: true });
+    if (!payload) return res.status(500).json({ error: 'Unable to save portfolio' });
+    return res.json({
+      message: publish ? 'Portfolio published' : 'Portfolio saved',
+      portfolio: payload,
+      ...payload,
+    });
+  } catch (err) {
+    const status = Number(err.status) || 500;
+    return res.status(status).json({ error: err.message || 'Unable to save portfolio' });
+  }
+});
 
 /** Hub My Assets — which vault/asset ids are currently listed for sale. */
 router.get('/seller-listings', requireBridgeSecret, (req, res) => {

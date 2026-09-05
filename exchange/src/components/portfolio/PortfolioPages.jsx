@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { BadgeCheck, MapPin } from 'lucide-react';
 import { listingPreviewUrl } from '../../lib/listing-preview.js';
-import VerifiedLedger, { VerifiedStats } from './VerifiedLedger.jsx';
+import VerifiedLedger, { VerifiedStats, LicenseBadge } from './VerifiedLedger.jsx';
 
 /**
  * The public portfolio, as a site rather than one long scroll.
@@ -112,7 +112,10 @@ function Work({ portfolio, work, openCollection }) {
     <div className="pp-cols">
       {collections.map((c) => (
         <button key={c.id} type="button" className="pp-col" onClick={() => openCollection(c.id)}>
-          <Media src={c.cover_url} alt={c.title} />
+          <span className="pp-col__media">
+            <Media src={c.cover_url} alt={c.title} />
+            {c.hub_protected ? <span className="pp-seal"><BadgeCheck size={11} /> Sealed</span> : null}
+          </span>
           <h3>{c.title}</h3>
           <p>
             {[c.category, c.year].filter(Boolean).join(' · ')}
@@ -149,6 +152,9 @@ function Collection({ collection, onBack }) {
             return src ? (
               <figure key={`${collection.id}-${i}`} className="pp-tile">
                 <Media src={src} alt={collection.title} />
+                {collection.hub_protected ? (
+                  <figcaption className="pp-seal"><BadgeCheck size={11} /> Sealed</figcaption>
+                ) : null}
               </figure>
             ) : null;
           })}
@@ -193,8 +199,7 @@ function About({ portfolio }) {
   const experience = asArray(portfolio.experience);
   const services = asArray(portfolio.services);
   const clients = asArray(portfolio.clients);
-  // Awards, certifications and exhibitions are one idea to a reader, so they
-  // are one block here rather than three headings that are usually empty.
+  const collaborations = asArray(portfolio.collaborations);
   const recognition = [...asArray(portfolio.awards), ...asArray(portfolio.certifications)];
   const testimonials = asArray(portfolio.testimonials);
 
@@ -229,9 +234,17 @@ function About({ portfolio }) {
               <b>{portfolio.available_for.map((a) => labelOf(a, 'label', 'name')).filter(Boolean).join(' · ')}</b>
             </div>
           ) : null}
+          {Number(portfolio.client_count) > 0 ? (
+            <div><span>Clients worked with</span><b>{portfolio.client_count}</b></div>
+          ) : null}
+          {asArray(portfolio.languages).length > 0 ? (
+            <div><span>Languages</span><b>{portfolio.languages.join(', ')}</b></div>
+          ) : null}
         </div>
 
-        <div className="pp-two">
+        <LicenseBadge license={portfolio.license} />
+
+        <div className="pp-about__detail">
           {experience.length > 0 && (
             <section>
               <p className="pp-label">Experience</p>
@@ -275,6 +288,16 @@ function About({ portfolio }) {
                 <div className="pp-tags">
                   {clients.map((c, i) => (
                     <span key={i}>{labelOf(c, 'name', 'title', 'client') || 'Client'}</span>
+                  ))}
+                </div>
+              </>
+            )}
+            {collaborations.length > 0 && (
+              <>
+                <p className="pp-label pp-label--gap">Collaborations</p>
+                <div className="pp-tags">
+                  {collaborations.map((c, i) => (
+                    <span key={i}>{labelOf(c, 'with', 'partner', 'name', 'title') || 'Studio'}</span>
                   ))}
                 </div>
               </>
@@ -417,29 +440,40 @@ export default function PortfolioPages({
     const el = document.getElementById(`pp-${key}`);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     setActive(key);
-    try { window.history.replaceState(null, '', `#/${key}`); } catch { /* ignore */ }
+    const slug = portfolio.slug;
+    if (slug) {
+      try { window.history.replaceState(null, '', `/p/${slug}${key === 'overview' ? '' : `/${key}`}`); } catch { /* ignore */ }
+    }
   };
 
   const openCollection = (id) => {
     setOpenId(id);
-    try { window.location.hash = `#/work/${id}`; } catch { /* ignore */ }
+    const slug = portfolio.slug;
+    if (slug) {
+      try { window.history.pushState(null, '', `/p/${slug}/work/${encodeURIComponent(id)}`); } catch { /* ignore */ }
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const closeCollection = () => {
     setOpenId(null);
-    try { window.location.hash = '#/work'; } catch { /* ignore */ }
+    const slug = portfolio.slug;
+    if (slug) {
+      try { window.history.pushState(null, '', `/p/${slug}/work`); } catch { /* ignore */ }
+    }
   };
 
   // A shared link still lands where it says it will.
   useEffect(() => {
     const read = () => {
-      const h = (window.location.hash || '').replace(/^#\/?/, '');
-      const [section, id] = h.split('/');
+      const path = window.location.pathname.replace(/\/+$/, '');
+      const parts = path.split('/').filter(Boolean);
+      // /p/:slug/:section/:piece
+      const section = (parts[2] || '').toLowerCase();
+      const id = parts[3] ? decodeURIComponent(parts[3]) : '';
       if (section === 'work' && id) { setOpenId(id); return; }
       setOpenId(null);
       if (section && nav.some(([k]) => k === section)) {
-        // Wait for layout before measuring the anchor.
         window.setTimeout(() => {
           const el = document.getElementById(`pp-${section}`);
           if (el) el.scrollIntoView({ block: 'start' });
@@ -448,8 +482,8 @@ export default function PortfolioPages({
       }
     };
     read();
-    window.addEventListener('hashchange', read);
-    return () => window.removeEventListener('hashchange', read);
+    window.addEventListener('popstate', read);
+    return () => window.removeEventListener('popstate', read);
   }, [nav]);
 
   // Light the heading you are actually looking at.
@@ -540,7 +574,7 @@ export default function PortfolioPages({
 
           {has('verified') && (
             <section id="pp-verified" className="pp-body pp-section">
-              <VerifiedLedger verified={portfolio.verified} name={(identity.name || '').split(' ')[0]} />
+              <VerifiedLedger verified={portfolio.verified} name={(identity.name || '').split(' ')[0]} license={portfolio.license} />
             </section>
           )}
 
