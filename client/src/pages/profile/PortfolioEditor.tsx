@@ -198,55 +198,6 @@ function buildPayload(form: Form) {
   };
 }
 
-/** Local sample copy for testing the public page. Does not invent vault IDs or certificates. */
-function sampleStory(vaultIds: string[], existing: Collection[]): Partial<Form> {
-  const collections = existing.length
-    ? existing.map((c, i) => ({
-      ...c,
-      title: c.title || ['Jewellery', 'Food & Table', 'Editorial'][i] || `Collection ${i + 1}`,
-      category: c.category || 'Photography',
-      year: c.year || '2023—2026',
-      description: c.description || 'Catalogue and campaign work. Studio and location, shot for commerce and print.',
-    }))
-    : vaultIds.length
-      ? [{
-        id: uid(),
-        title: 'Jewellery',
-        category: 'Photography',
-        year: '2023—2026',
-        description: 'Catalogue and campaign work for jewellery brands. Mostly studio, mostly macro.',
-        vault_ids: vaultIds.slice(0, Math.min(6, vaultIds.length)),
-      }]
-      : [];
-
-  return {
-    headline: 'Photographer — product, jewellery, and editorial',
-    location: 'Hyderabad, India',
-    about:
-      'I photograph objects the way people hold them — close, quiet, and a little too honest. '
-      + 'Most of my week is jewellery and still life for brands that need both a commerce frame and a print frame. '
-      + 'This page is sample copy for testing; replace it before you publish for real clients.',
-    skills: ['Photography', 'Retouching', 'Art direction', 'Studio lighting', 'Macro'],
-    services: ['Brand campaigns', 'Catalogue', 'Lookbooks', 'Art direction'],
-    clients: ['Atelier Mira', 'Northline Goods', 'Kala Studio', 'Harbor Press'],
-    collaborations: ['Studio Cinder', 'Frame & Grain', 'Lumen Agency'],
-    languages: ['English', 'Telugu', 'Hindi'],
-    client_count: '18',
-    available_for: ['Freelance', 'Collaboration'],
-    template: 'creator',
-    experience: [
-      { id: uid(), title: 'Photographer', org: 'Independent', period: '2021 — now', note: 'Product and jewellery commissions.' },
-      { id: uid(), title: 'Retoucher', org: 'Northline Goods', period: '2019 — 2021', note: 'In-house still life and e-commerce sets.' },
-    ],
-    awards: [
-      { id: uid(), title: 'IPA Honourable Mention', org: 'Still life, professional', period: '2024', note: 'Sample award for layout testing.' },
-      { id: uid(), title: 'Hyderabad Photo Week', org: 'Selected series', period: '2025', note: '' },
-    ],
-    contact_note: 'Currently taking freelance. Catalogue shoots book about three weeks out. This line is sample text.',
-    project_groups: collections,
-  };
-}
-
 /* ── small inputs ───────────────────────────────────────────────────────── */
 
 function Field({ label, hint, children }: {
@@ -565,15 +516,6 @@ export function PortfolioEditor() {
   const patchCollection = (id: string, patch: Partial<Collection>) =>
     set('project_groups', form.project_groups.map((c) => (c.id === id ? { ...c, ...patch } : c)));
 
-  const fillSample = () => {
-    setForm((f) => ({
-      ...f,
-      ...sampleStory(vault.map((v) => v.id), f.project_groups),
-    }));
-    setSection('about');
-    toast.success('Sample text filled. Review it, then Save.');
-  };
-
   if (loading) {
     return (
       <div className="pe-loading">
@@ -608,7 +550,6 @@ export function PortfolioEditor() {
           >
             <Eye size={13} /> Preview
           </button>
-          <button type="button" className="pe-btn" onClick={fillSample}>Fill sample</button>
           <button type="button" className="pe-btn" onClick={() => void saveDraft()} disabled={saving}>
             {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
             {justSaved ? 'Saved' : 'Save draft'}
