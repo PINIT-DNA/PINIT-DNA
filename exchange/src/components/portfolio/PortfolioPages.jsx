@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { listingPreviewUrl } from '../../lib/listing-preview.js';
 import LicensesCertificates from './LicensesCertificates.jsx';
-import CVPrintDocument, { printPortfolioCv } from './CVPrintDocument.jsx';
+import { downloadPortfolioCv } from './CVPrintDocument.jsx';
 
 /**
  * The public portfolio.
@@ -102,6 +102,20 @@ function Hero({ portfolio, onContact, onDownloadCv }) {
   const available = flatten(portfolio.available_for, 'label', 'name');
   const languages = flatten(portfolio.languages, 'label', 'name');
   const kicker = asArray(id.categories).join(' · ');
+  const [downloading, setDownloading] = useState(false);
+
+  const download = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      await onDownloadCv?.();
+    } catch (err) {
+      console.warn('[portfolio] CV download failed', err);
+      window.alert('Could not download the CV. Please try again.');
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <header className="pf-hero" id="pf-overview">
@@ -135,8 +149,8 @@ function Hero({ portfolio, onContact, onDownloadCv }) {
           ) : null}
 
           <div className="pf-hero__cta">
-            <button type="button" className="pf-btn" onClick={onDownloadCv}>
-              <Download size={14} /> Download CV
+            <button type="button" className="pf-btn" onClick={download} disabled={downloading} aria-busy={downloading}>
+              <Download size={14} /> {downloading ? 'Downloading…' : 'Download CV'}
             </button>
             <button type="button" className="pf-btn pf-btn--go" onClick={onContact}>
               <Send size={14} /> Let&rsquo;s Collaborate
@@ -790,7 +804,7 @@ export default function PortfolioPages({
           <Hero
             portfolio={portfolio}
             onContact={contact}
-            onDownloadCv={() => printPortfolioCv(portfolio)}
+            onDownloadCv={() => downloadPortfolioCv(portfolio)}
           />
           <FeaturedWork portfolio={portfolio} openCollection={openCollection} sealed={sealed} ownerView={ownerView} />
           <AboutMe portfolio={portfolio} openCollection={openCollection} onShare={onShare} />
@@ -803,8 +817,6 @@ export default function PortfolioPages({
           <Contact portfolio={portfolio} onContact={contact} />
         </>
       )}
-
-      <CVPrintDocument portfolio={portfolio} />
 
       <footer className="pf-foot">
         <span className="pf-logo"><BadgeCheck size={15} /> Pinit</span>

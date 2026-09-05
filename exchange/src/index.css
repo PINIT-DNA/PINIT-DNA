@@ -5667,6 +5667,7 @@ input[type="range"]::-webkit-slider-thumb {
   border: 1px solid var(--f-line); background: var(--f-panel); color: var(--f-ink);
   cursor: pointer; text-decoration: none; white-space: nowrap;
 }
+.pf-btn:disabled { opacity: 0.55; cursor: wait; }
 .pf-btn:hover { border-color: var(--f-faint); }
 .pf-btn--sm { padding: 8px 14px; font-size: 0.8rem; }
 .pf-btn--dark { background: var(--f-dark); border-color: var(--f-dark); color: var(--f-on-dark); }

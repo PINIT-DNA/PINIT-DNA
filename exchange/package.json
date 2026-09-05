@@ -18,6 +18,7 @@
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.3",
+    "jspdf": "^4.2.1",
     "lucide-react": "^0.380.0",
     "multer": "^2.2.0",
     "pg": "^8.22.0",
