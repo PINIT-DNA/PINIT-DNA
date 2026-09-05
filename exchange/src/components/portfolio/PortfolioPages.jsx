@@ -1,21 +1,22 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { BadgeCheck, MapPin } from 'lucide-react';
+import {
+  ArrowRight, ArrowUpRight, Award, BadgeCheck, Camera, Download, Globe,
+  Handshake, Languages, Mail, MapPin, Palette, PenTool, Send, Share2, Star, Trophy,
+} from 'lucide-react';
 import { listingPreviewUrl } from '../../lib/listing-preview.js';
-import VerifiedLedger, { VerifiedStats, LicenseBadge } from './VerifiedLedger.jsx';
+import VerifiedLedger from './VerifiedLedger.jsx';
 
 /**
- * The public portfolio, as a site rather than one long scroll.
+ * The public portfolio.
  *
- * Six headings across the top and everything else nested under them. Six is the
- * limit — past that a nav becomes a menu nobody reads — so Awards, Exhibitions,
- * Services, Clients and Testimonials all sit inside About, and Videos sit inside
- * the collection they belong to.
+ * One continuous editorial page. The six headings are the agreed information
+ * architecture and they anchor down this scroll rather than splitting it into
+ * views — six near-empty pages read as slides, which is what they were.
  *
- * A section that would render empty is dropped from the nav entirely. A heading
- * that opens onto nothing costs more than it gives.
- *
- * Built as its own component rather than as changes to PortfolioSite, which is
- * still what the builder's live preview uses.
+ * A section with nothing in it is not rendered and not in the nav. A heading
+ * that opens onto an empty shelf costs more than it gives, so Shop disappears
+ * for someone with nothing listed and Certificates for someone with none.
+ * Nothing here invents content to fill a layout.
  */
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
@@ -28,408 +29,396 @@ function labelOf(item, ...keys) {
   return '';
 }
 
-/** Skills arrive as strings, as {name}, or as grouped {items:[]}. */
-function flatSkills(skills) {
-  return asArray(skills).flatMap((s) => {
+/** Values arrive as strings, as {name}, or grouped as {items:[]}. */
+function flatten(list, ...keys) {
+  return asArray(list).flatMap((s) => {
     if (typeof s === 'string') return [s];
     if (Array.isArray(s?.items)) return s.items.filter((i) => typeof i === 'string' && i);
-    const one = labelOf(s, 'name', 'title', 'label');
+    const one = labelOf(s, ...keys);
     return one ? [one] : [];
-  });
+  }).filter(Boolean);
 }
 
 function Media({ src, alt = '', className = '' }) {
-  if (!src) return <span className={`pp-media pp-media--empty ${className}`} />;
+  if (!src) return <span className={`pf-media pf-media--empty ${className}`} />;
   if (/\.(mp4|webm|mov)(\?|$)/i.test(src)) {
-    return <video className={`pp-media ${className}`} src={src} muted playsInline loop />;
+    return <video className={`pf-media ${className}`} src={src} muted playsInline loop />;
   }
-  return <img className={`pp-media ${className}`} src={src} alt={alt} loading="lazy" />;
+  return <img className={`pf-media ${className}`} src={src} alt={alt} loading="lazy" />;
 }
 
-/** Everything with a picture, flattened — what the Overview wall draws. */
-function allWork(portfolio) {
-  const out = [];
-  for (const w of asArray(portfolio.selected_work)) {
-    const src = listingPreviewUrl(w) || w.cover_url || w.preview_url || '';
-    if (src) out.push({ id: `s-${w.listing_id || w.id || out.length}`, src, title: w.title || '' });
-  }
-  for (const p of asArray(portfolio.projects)) {
-    if (p.cover_url) out.push({ id: `p-${p.id}`, src: p.cover_url, title: p.title || '' });
-    for (const [i, g] of asArray(p.gallery).entries()) {
-      const src = typeof g === 'string' ? g : g?.url || g?.src || '';
-      if (src) out.push({ id: `g-${p.id}-${i}`, src, title: p.title || '' });
-    }
-  }
-  for (const m of asArray(portfolio.marketplace)) {
-    const src = listingPreviewUrl(m) || '';
-    if (src) out.push({ id: `m-${m.listing_id || out.length}`, src, title: m.title || '' });
-  }
-  const seen = new Set();
-  return out.filter((w) => (seen.has(w.src) ? false : seen.add(w.src)));
-}
+/** The data carries no icon of its own, so services rotate through a set. */
+const SERVICE_ICONS = [Camera, PenTool, Palette, Handshake];
+const AWARD_ICONS = [Trophy, Star, Award];
 
-/* ── pages ─────────────────────────────────────────────────────────────── */
+/* ── sections ───────────────────────────────────────────────────────────── */
 
-function Overview({ portfolio, work, go, sealed }) {
-  // The intro directly above already carries the headline, so an empty wall
-  // says what is missing instead of repeating it.
-  if (work.length === 0) {
-    return (
-      <div className="pp-empty">
-        <p>No work published yet.</p>
-      </div>
-    );
-  }
-  return (
-    <div className="pp-wall">
-      {work.slice(0, 18).map((w) => (
-        <figure key={w.id} className="pp-tile" onClick={() => go('work')}>
-          <Media src={w.src} alt={w.title} />
-          {/* The seal sits on every image from the first screen, so it reads as
-              a property of the work rather than a claim made about it. */}
-          {sealed ? <figcaption className="pp-seal"><BadgeCheck size={11} /> Sealed</figcaption> : null}
-        </figure>
-      ))}
-    </div>
-  );
-}
-
-function Work({ portfolio, work, openCollection }) {
-  const collections = asArray(portfolio.projects);
-
-  // No named collections yet — show the work rather than an empty page.
-  if (collections.length === 0) {
-    return (
-      <div className="pp-wall">
-        {work.map((w) => (
-          <figure key={w.id} className="pp-tile"><Media src={w.src} alt={w.title} /></figure>
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <div className="pp-cols">
-      {collections.map((c) => (
-        <button key={c.id} type="button" className="pp-col" onClick={() => openCollection(c.id)}>
-          <span className="pp-col__media">
-            <Media src={c.cover_url} alt={c.title} />
-            {c.hub_protected ? <span className="pp-seal"><BadgeCheck size={11} /> Sealed</span> : null}
-          </span>
-          <h3>{c.title}</h3>
-          <p>
-            {[c.category, c.year].filter(Boolean).join(' · ')}
-            {asArray(c.gallery).length ? ` · ${asArray(c.gallery).length} pieces` : ''}
-          </p>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function Collection({ collection, onBack }) {
-  const gallery = asArray(collection.gallery);
-  return (
-    <div className="pp-collection">
-      <button type="button" className="pp-back" onClick={onBack}>← All work</button>
-      <h2 className="pp-h">{collection.title}</h2>
-      <p className="pp-meta">
-        {[collection.category, collection.year, collection.client].filter(Boolean).join(' · ')}
-      </p>
-      {collection.description ? <p className="pp-prose">{collection.description}</p> : null}
-      {collection.outcome ? <p className="pp-prose pp-prose--dim">{collection.outcome}</p> : null}
-
-      {asArray(collection.tools).length > 0 && (
-        <div className="pp-tags">
-          {collection.tools.map((t) => <span key={t}>{t}</span>)}
-        </div>
-      )}
-
-      {gallery.length > 0 && (
-        <div className="pp-wall pp-wall--tight">
-          {gallery.map((g, i) => {
-            const src = typeof g === 'string' ? g : g?.url || g?.src || '';
-            return src ? (
-              <figure key={`${collection.id}-${i}`} className="pp-tile">
-                <Media src={src} alt={collection.title} />
-                {collection.hub_protected ? (
-                  <figcaption className="pp-seal"><BadgeCheck size={11} /> Sealed</figcaption>
-                ) : null}
-              </figure>
-            ) : null;
-          })}
-        </div>
-      )}
-
-      {collection.hub_protected && (
-        <p className="pp-sealed"><BadgeCheck size={13} /> Protected in Pinit HUB</p>
-      )}
-    </div>
-  );
-}
-
-function Shop({ portfolio, onSelectListing }) {
-  const items = asArray(portfolio.marketplace);
-  return (
-    <>
-      <p className="pp-lead">
-        Licensed through Pinit Exchange, sealed in Pinit HUB. Rights and terms are on each listing.
-      </p>
-      <div className="pp-shop">
-        {items.map((m) => (
-          <button
-            key={m.listing_id}
-            type="button"
-            className="pp-item"
-            onClick={() => onSelectListing?.(m)}
-          >
-            <Media src={listingPreviewUrl(m)} alt={m.title} />
-            <h4>{m.title}</h4>
-            {m.price ? <span className="pp-price">{m.price}</span> : null}
-          </button>
-        ))}
-      </div>
-    </>
-  );
-}
-
-function About({ portfolio }) {
+function Hero({ portfolio, onContact }) {
   const id = portfolio.identity || {};
-  const skills = flatSkills(portfolio.skills);
-  const experience = asArray(portfolio.experience);
-  const services = asArray(portfolio.services);
-  const clients = asArray(portfolio.clients);
-  const collaborations = asArray(portfolio.collaborations);
-  const recognition = [...asArray(portfolio.awards), ...asArray(portfolio.certifications)];
-  const testimonials = asArray(portfolio.testimonials);
+  const stats = portfolio.verified?.summary;
+  const available = flatten(portfolio.available_for, 'label', 'name');
+  const languages = flatten(portfolio.languages, 'label', 'name');
+  const kicker = asArray(id.categories).join(' · ');
 
   return (
-    <div className="pp-about">
-      <div className="pp-portrait">
-        {id.photo_url
-          ? <Media src={id.photo_url} alt={id.name} />
-          : <span className="pp-portrait__letter">{(id.name || 'C')[0]}</span>}
+    <header className="pf-hero" id="pf-overview">
+      <div className="pf-hero__inner">
+        <div className="pf-portrait">
+          {id.photo_url
+            ? <Media src={id.photo_url} alt={id.name} />
+            : <span className="pf-portrait__letter">{(id.name || 'P')[0]}</span>}
+          <span className="pf-portrait__mark">Create<br />Protect<br />Share</span>
+        </div>
+
+        <div className="pf-hero__copy">
+          {kicker ? <p className="pf-kicker">{kicker}</p> : null}
+          <h1 className="pf-name">{id.name}</h1>
+          {id.headline ? <p className="pf-tagline">{id.headline}</p> : null}
+          {id.about ? <p className="pf-bio">{id.about}</p> : null}
+
+          <div className="pf-meta">
+            {id.location ? <span><MapPin size={13} /> {id.location}</span> : null}
+            {available.length
+              ? <span><Globe size={13} /> Available for {available.join(', ').toLowerCase()}</span>
+              : null}
+            {languages.length ? <span><Languages size={13} /> {languages.join(', ')}</span> : null}
+          </div>
+
+          <div className="pf-hero__foot">
+            {stats?.assets_protected ? (
+              <div className="pf-stats">
+                <div><b>{stats.assets_protected}</b><span>Assets Protected</span></div>
+                {stats.since ? <div><b>{stats.since}</b><span>Protecting Since</span></div> : null}
+                {Number.isFinite(stats.avg_human_percent)
+                  ? <div><b>{stats.avg_human_percent}%</b><span>Human, on Average</span></div>
+                  : null}
+              </div>
+            ) : <span />}
+
+            <div className="pf-hero__cta">
+              <button type="button" className="pf-btn" onClick={() => window.print()}>
+                <Download size={14} /> Download CV
+              </button>
+              <button type="button" className="pf-btn pf-btn--go" onClick={onContact}>
+                <Send size={14} /> Let&rsquo;s Collaborate
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Only shown when the person actually wrote something to quote. */}
+        {portfolio.contact?.note ? (
+          <aside className="pf-quote">
+            <p>&ldquo;{String(portfolio.contact.note).split('.')[0]}.&rdquo;</p>
+            <span className="pf-quote__sign">{(id.name || '').split(' ')[0]}</span>
+          </aside>
+        ) : null}
+      </div>
+    </header>
+  );
+}
+
+function SectionHead({ title, sub }) {
+  return (
+    <div className="pf-head">
+      <h2>{title}</h2>
+      {sub ? <p>{sub}</p> : null}
+    </div>
+  );
+}
+
+function FeaturedWork({ portfolio, openCollection, sealed }) {
+  const collections = asArray(portfolio.projects);
+  if (collections.length === 0) return null;
+
+  return (
+    <section className="pf-section" id="pf-work">
+      <SectionHead
+        title="Featured Work"
+        sub="A selection of recent projects across photography, design and brand collaborations."
+      />
+      <div className="pf-work">
+        {collections.map((c) => {
+          const tags = [c.category, ...asArray(c.tools)].filter(Boolean).slice(0, 3);
+          return (
+            <article key={c.id} className="pf-card">
+              <button type="button" className="pf-card__img" onClick={() => openCollection(c.id)}>
+                <Media src={c.cover_url} alt={c.title} />
+                {sealed && c.hub_protected
+                  ? <span className="pf-sealed"><BadgeCheck size={11} /> Sealed</span>
+                  : null}
+                <span className="pf-card__go"><ArrowUpRight size={15} /></span>
+              </button>
+              <div className="pf-card__body">
+                <div className="pf-card__top">
+                  <h3>{c.title}</h3>
+                  {c.year ? <span className="pf-year">{c.year}</span> : null}
+                </div>
+                {tags.length ? (
+                  <div className="pf-pills">{tags.map((t) => <span key={t}>{t}</span>)}</div>
+                ) : null}
+                {c.description ? <p>{c.description}</p> : null}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ServicesSkills({ portfolio }) {
+  const services = flatten(portfolio.services, 'title', 'name', 'label');
+  const skills = flatten(portfolio.skills, 'name', 'title', 'label');
+  if (!services.length && !skills.length) return null;
+
+  return (
+    <section className="pf-section pf-split">
+      <div>
+        {services.length ? (
+          <>
+            <SectionHead title="Services" sub="What I can help you with." />
+            <div className="pf-services">
+              {services.map((s, i) => {
+                const Icon = SERVICE_ICONS[i % SERVICE_ICONS.length];
+                return (
+                  <article key={s} className={`pf-service pf-service--${i % 4}`}>
+                    <span className="pf-service__icon"><Icon size={17} /></span>
+                    <h3>{s}</h3>
+                  </article>
+                );
+              })}
+            </div>
+          </>
+        ) : null}
       </div>
 
-      <div className="pp-bio">
-        <h2 className="pp-name">{id.name}</h2>
-        {asArray(id.categories).length > 0 && (
-          <p className="pp-role">{id.categories.join(' · ')}</p>
-        )}
-        {id.headline ? <p className="pp-prose">{id.headline}</p> : null}
-        {id.about ? <p className="pp-prose">{id.about}</p> : null}
+      <div>
+        {skills.length ? (
+          <>
+            <SectionHead title="Skills" sub="Tools and skills I work with." />
+            <div className="pf-tags">{skills.map((s) => <span key={s}>{s}</span>)}</div>
+          </>
+        ) : null}
+      </div>
+    </section>
+  );
+}
 
-        <div className="pp-facts">
-          {id.location ? (
-            <div><span>Based in</span><b><MapPin size={11} /> {id.location}</b></div>
-          ) : null}
-          {portfolio.verified?.summary?.since ? (
-            <div><span>Protecting since</span><b>{portfolio.verified.summary.since}</b></div>
-          ) : id.creator_since ? (
-            <div><span>Creating since</span><b>{id.creator_since}</b></div>
-          ) : null}
-          {asArray(portfolio.available_for).length > 0 ? (
-            <div>
-              <span>Available for</span>
-              <b>{portfolio.available_for.map((a) => labelOf(a, 'label', 'name')).filter(Boolean).join(' · ')}</b>
-            </div>
-          ) : null}
-          {Number(portfolio.client_count) > 0 ? (
-            <div><span>Clients worked with</span><b>{portfolio.client_count}</b></div>
-          ) : null}
-          {asArray(portfolio.languages).length > 0 ? (
-            <div><span>Languages</span><b>{portfolio.languages.join(', ')}</b></div>
-          ) : null}
-        </div>
+function AboutMe({ portfolio }) {
+  const id = portfolio.identity || {};
+  const available = flatten(portfolio.available_for, 'label', 'name');
+  const languages = flatten(portfolio.languages, 'label', 'name');
+  const experience = asArray(portfolio.experience);
+  if (!id.about && !experience.length) return null;
 
-        <LicenseBadge license={portfolio.license} />
+  return (
+    <section className="pf-section pf-about" id="pf-about">
+      <div className="pf-about__bio">
+        <h2>About Me</h2>
+        {id.about ? <p>{id.about}</p> : null}
+      </div>
 
-        <div className="pp-about__detail">
-          {experience.length > 0 && (
-            <section>
-              <p className="pp-label">Experience</p>
-              <div className="pp-rows">
-                {experience.map((job, i) => (
-                  <div key={job.id || i} className="pp-row">
-                    <span className="pp-yr">
-                      {[job.start, job.end].filter(Boolean).join(' — ') || job.year || ''}
-                    </span>
-                    <div>
-                      <b>{labelOf(job, 'company', 'title', 'role') || 'Role'}</b>
-                      {job.role && job.company ? <p>{job.role}</p> : null}
-                      {job.summary ? <p>{job.summary}</p> : null}
-                    </div>
+      <div className="pf-about__facts">
+        {id.location ? (
+          <div><MapPin size={14} /><span>Based in</span><b>{id.location}</b></div>
+        ) : null}
+        {available.length ? (
+          <div><Globe size={14} /><span>Available for</span><b>{available.join(' · ')}</b></div>
+        ) : null}
+        {languages.length ? (
+          <div><Languages size={14} /><span>Languages</span><b>{languages.join(', ')}</b></div>
+        ) : null}
+      </div>
+
+      {experience.length ? (
+        <div className="pf-about__exp">
+          <SectionHead title="Experience" />
+          <ol className="pf-timeline">
+            {experience.map((job, i) => {
+              const org = labelOf(job, 'company', 'org');
+              const role = labelOf(job, 'role', 'title');
+              return (
+                <li key={job.id || i}>
+                  <span className="pf-dot" />
+                  <span className="pf-when">
+                    {[job.start, job.end].filter(Boolean).join(' — ') || job.year || ''}
+                  </span>
+                  <div>
+                    <b>{org || role}</b>
+                    {org && role ? <p>{role}</p> : null}
+                    {job.summary ? <p className="pf-dim">{job.summary}</p> : null}
                   </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          <section>
-            {skills.length > 0 && (
-              <>
-                <p className="pp-label">Skills</p>
-                <div className="pp-tags">{skills.map((s) => <span key={s}>{s}</span>)}</div>
-              </>
-            )}
-            {services.length > 0 && (
-              <>
-                <p className="pp-label pp-label--gap">Services</p>
-                <div className="pp-tags">
-                  {services.map((s, i) => (
-                    <span key={i}>{labelOf(s, 'title', 'name', 'label') || 'Service'}</span>
-                  ))}
-                </div>
-              </>
-            )}
-            {clients.length > 0 && (
-              <>
-                <p className="pp-label pp-label--gap">Clients</p>
-                <div className="pp-tags">
-                  {clients.map((c, i) => (
-                    <span key={i}>{labelOf(c, 'name', 'title', 'client') || 'Client'}</span>
-                  ))}
-                </div>
-              </>
-            )}
-            {collaborations.length > 0 && (
-              <>
-                <p className="pp-label pp-label--gap">Collaborations</p>
-                <div className="pp-tags">
-                  {collaborations.map((c, i) => (
-                    <span key={i}>{labelOf(c, 'with', 'partner', 'name', 'title') || 'Studio'}</span>
-                  ))}
-                </div>
-              </>
-            )}
-            {recognition.length > 0 && (
-              <>
-                <p className="pp-label pp-label--gap">Recognition</p>
-                <div className="pp-rows">
-                  {recognition.map((r, i) => (
-                    <div key={i} className="pp-row">
-                      <span className="pp-yr">{r.year || ''}</span>
-                      <div>
-                        <b>{labelOf(r, 'title', 'name', 'award') || 'Recognition'}</b>
-                        {r.issuer || r.body ? <p>{r.issuer || r.body}</p> : null}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </section>
+                </li>
+              );
+            })}
+          </ol>
         </div>
+      ) : null}
+    </section>
+  );
+}
 
-        {testimonials.length > 0 && (
-          <section>
-            <p className="pp-label pp-label--gap">What clients say</p>
-            <div className="pp-quotes">
-              {testimonials.slice(0, 4).map((t, i) => (
-                <blockquote key={i}>
-                  <p>{t.comment || t.quote || t.body}</p>
-                  <cite>{t.buyer_name || t.author || 'Client'}</cite>
-                </blockquote>
+function AwardsCerts({ portfolio }) {
+  const awards = asArray(portfolio.awards);
+  const certs = asArray(portfolio.certifications);
+  if (!awards.length && !certs.length) return null;
+
+  return (
+    <section className="pf-section pf-split">
+      <div>
+        {awards.length ? (
+          <>
+            <SectionHead title="Awards & Recognition" sub="Milestones and achievements." />
+            <div className="pf-awards">
+              {awards.map((a, i) => {
+                const Icon = AWARD_ICONS[i % AWARD_ICONS.length];
+                return (
+                  <article key={a.id || i} className="pf-award">
+                    <span className="pf-award__icon"><Icon size={16} /></span>
+                    <b>{labelOf(a, 'title', 'name')}</b>
+                    {labelOf(a, 'issuer', 'org', 'body')
+                      ? <p>{labelOf(a, 'issuer', 'org', 'body')}</p> : null}
+                    {a.year ? <span className="pf-year">{a.year}</span> : null}
+                  </article>
+                );
+              })}
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      <div>
+        {certs.length ? (
+          <>
+            <SectionHead title="Certificates" sub="Professional certifications and courses." />
+            <div className="pf-certs">
+              {certs.map((c, i) => (
+                <article key={c.id || i} className="pf-cert">
+                  <span className="pf-cert__doc" />
+                  <b>{labelOf(c, 'title', 'name')}</b>
+                  {labelOf(c, 'issuer', 'org') ? <p>{labelOf(c, 'issuer', 'org')}</p> : null}
+                </article>
               ))}
             </div>
-          </section>
-        )}
+          </>
+        ) : null}
       </div>
-    </div>
+    </section>
+  );
+}
+
+function ShopCollabs({ portfolio, onSelectListing }) {
+  const items = asArray(portfolio.marketplace);
+  const collabs = flatten(portfolio.collaborations, 'with', 'name', 'title');
+  if (!items.length && !collabs.length) return null;
+
+  return (
+    <section className="pf-section pf-split" id="pf-shop">
+      <div>
+        {items.length ? (
+          <>
+            <SectionHead
+              title="Shop — Available on Pinit Exchange"
+              sub="Licensed listings and prints. Each item is sealed and protected."
+            />
+            <div className="pf-shop">
+              {items.map((m) => (
+                <button
+                  key={m.listing_id}
+                  type="button"
+                  className="pf-listing"
+                  onClick={() => onSelectListing?.(m)}
+                >
+                  <Media src={listingPreviewUrl(m)} alt={m.title} />
+                  <b>{m.title}</b>
+                  {m.price ? <span>{m.price}</span> : null}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      <div>
+        {collabs.length ? (
+          <>
+            <SectionHead title="Collaborations" sub="People and brands I've worked with." />
+            <div className="pf-collabs">
+              {collabs.slice(0, 3).map((c) => <span key={c}>{c}</span>)}
+              {collabs.length > 3
+                ? <span className="pf-collabs__more">+{collabs.length - 3} more</span>
+                : null}
+            </div>
+          </>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
 function Contact({ portfolio, onContact }) {
   const c = portfolio.contact || {};
-  const cta = portfolio.cta || {};
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [body, setBody] = useState('');
-
-  const submit = (e) => {
-    e.preventDefault();
-    // Hand off to whatever the host page already does for contact — a mail
-    // client when an address is published, the Pinit route otherwise. The form
-    // exists so the visitor knows what to say, not to invent a second inbox.
-    if (c.email) {
-      const subject = `Project with ${portfolio.identity?.name || 'you'}`;
-      window.location.href =
-        `mailto:${c.email}?subject=${encodeURIComponent(subject)}`
-        + `&body=${encodeURIComponent(`${body}\n\n— ${name} (${email})`)}`;
-      return;
-    }
-    onContact?.();
-  };
   return (
-    <div className="pp-contact">
-      <div>
-        <h2 className="pp-h">Let's talk about the work</h2>
-        <p className="pp-prose">
-          {c.note || `Work with ${portfolio.identity?.name} on a commission, collaboration or licence.`}
-        </p>
-        <div className="pp-facts">
-          {portfolio.identity?.location ? (
-            <div><span>Based in</span><b>{portfolio.identity.location}</b></div>
-          ) : null}
-          {asArray(portfolio.available_for).length > 0 ? (
-            <div>
-              <span>Available for</span>
-              <b>{portfolio.available_for.map((a) => labelOf(a, 'label', 'name')).filter(Boolean).join(' · ')}</b>
-            </div>
+    <section className="pf-contact" id="pf-contact">
+      <div className="pf-contact__inner">
+        <div>
+          <h2>Let&rsquo;s talk about the work</h2>
+          <p>{c.note || 'Open to freelance projects, creative assignments and collaborations.'}</p>
+        </div>
+        <div className="pf-contact__act">
+          <button type="button" className="pf-btn pf-btn--dark" onClick={onContact}>
+            <Send size={14} /> Send a Message
+          </button>
+          {/* An address appears only when it was deliberately published. */}
+          {c.email ? (
+            <a className="pf-btn" href={`mailto:${c.email}`}><Mail size={14} /> {c.email}</a>
           ) : null}
         </div>
       </div>
-      {/* A form, not a published address. contact_email stays private unless
-          the person chose to publish it, which is the same rule the creator
-          directory follows. */}
-      <form className="pp-form" onSubmit={submit}>
-        <label>
-          <span>Your name</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} required />
-        </label>
-        <label>
-          <span>Email</span>
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        </label>
-        <label>
-          <span>What do you need?</span>
-          <textarea rows={4} value={body} onChange={(e) => setBody(e.target.value)} required />
-        </label>
-        <button type="submit" className="pp-btn pp-btn--solid">
-          {cta.primary && cta.primary !== 'Connect' ? cta.primary : 'Send message'}
-        </button>
-        {c.email ? <a className="pp-quiet" href={`mailto:${c.email}`}>or email {c.email}</a> : null}
-      </form>
-    </div>
+    </section>
   );
 }
 
-/* ── shell ─────────────────────────────────────────────────────────────── */
+function CollectionView({ collection, onBack, sealed }) {
+  const gallery = asArray(collection.gallery);
+  return (
+    <section className="pf-section">
+      <button type="button" className="pf-back" onClick={onBack}>← All work</button>
+      <h2 className="pf-collection__h">{collection.title}</h2>
+      <p className="pf-collection__meta">
+        {[collection.category, collection.year, collection.client].filter(Boolean).join(' · ')}
+      </p>
+      {collection.description ? <p className="pf-collection__desc">{collection.description}</p> : null}
+      {gallery.length ? (
+        <div className="pf-gallery">
+          {gallery.map((g, i) => {
+            const src = typeof g === 'string' ? g : g?.url || g?.src || '';
+            return src ? (
+              <figure key={`${collection.id}-${i}`}>
+                <Media src={src} alt={collection.title} />
+                {sealed ? <figcaption className="pf-sealed"><BadgeCheck size={11} /> Sealed</figcaption> : null}
+              </figure>
+            ) : null;
+          })}
+        </div>
+      ) : <p className="pf-dim">No pieces published in this collection yet.</p>}
+    </section>
+  );
+}
+
+/* ── shell ──────────────────────────────────────────────────────────────── */
 
 export default function PortfolioPages({
-  portfolio, onNavigate, onSelectListing, onContact, onHire,
+  portfolio, onSelectListing, onContact, onHire, onShare,
 }) {
-  /**
-   * One continuous page, not six.
-   *
-   * The six headings are the information architecture, but they are anchors
-   * down a single scroll rather than separate views. A wall-only landing page
-   * works for someone with three hundred photographs; with a handful it reads
-   * as a stack of near-empty slides, which is exactly what it looked like.
-   *
-   * A collection and a single piece are the exception — those are genuinely
-   * different content, so they replace the page and have their own address.
-   */
   const [openId, setOpenId] = useState(null);
   const [active, setActive] = useState('overview');
 
-  const work = useMemo(() => allWork(portfolio || {}), [portfolio]);
-
-  // A heading only exists when it leads somewhere. Shop disappears entirely
-  // for someone with nothing listed — an empty shop is worse than no shop.
   const nav = useMemo(() => {
-    const items = [['overview', 'Overview'], ['work', 'Work']];
-    if (asArray(portfolio?.marketplace).length > 0) items.push(['shop', 'Shop']);
+    const items = [['overview', 'Overview']];
+    if (asArray(portfolio?.projects).length) items.push(['work', 'Work']);
+    if (asArray(portfolio?.marketplace).length) items.push(['shop', 'Shop']);
     items.push(['about', 'About']);
     if (portfolio?.verified?.entries?.length) items.push(['verified', 'Verified']);
     items.push(['contact', 'Contact']);
@@ -437,152 +426,121 @@ export default function PortfolioPages({
   }, [portfolio]);
 
   const scrollTo = (key) => {
-    const el = document.getElementById(`pp-${key}`);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    setActive(key);
-    const slug = portfolio.slug;
-    if (slug) {
-      try { window.history.replaceState(null, '', `/p/${slug}${key === 'overview' ? '' : `/${key}`}`); } catch { /* ignore */ }
-    }
+    setOpenId(null);
+    window.setTimeout(() => {
+      document.getElementById(`pf-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setActive(key);
+      try { window.history.replaceState(null, '', `#/${key}`); } catch { /* ignore */ }
+    }, 0);
   };
 
-  const openCollection = (id) => {
-    setOpenId(id);
-    const slug = portfolio.slug;
-    if (slug) {
-      try { window.history.pushState(null, '', `/p/${slug}/work/${encodeURIComponent(id)}`); } catch { /* ignore */ }
-    }
+  const openCollection = (cid) => {
+    setOpenId(cid);
+    try { window.location.hash = `#/work/${cid}`; } catch { /* ignore */ }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const closeCollection = () => {
-    setOpenId(null);
-    const slug = portfolio.slug;
-    if (slug) {
-      try { window.history.pushState(null, '', `/p/${slug}/work`); } catch { /* ignore */ }
-    }
-  };
-
-  // A shared link still lands where it says it will.
   useEffect(() => {
     const read = () => {
-      const path = window.location.pathname.replace(/\/+$/, '');
-      const parts = path.split('/').filter(Boolean);
-      // /p/:slug/:section/:piece
-      const section = (parts[2] || '').toLowerCase();
-      const id = parts[3] ? decodeURIComponent(parts[3]) : '';
-      if (section === 'work' && id) { setOpenId(id); return; }
+      const h = (window.location.hash || '').replace(/^#\/?/, '');
+      const [section, cid] = h.split('/');
+      if (section === 'work' && cid) { setOpenId(cid); return; }
       setOpenId(null);
       if (section && nav.some(([k]) => k === section)) {
         window.setTimeout(() => {
-          const el = document.getElementById(`pp-${section}`);
-          if (el) el.scrollIntoView({ block: 'start' });
+          document.getElementById(`pf-${section}`)?.scrollIntoView({ block: 'start' });
           setActive(section);
         }, 60);
       }
     };
     read();
-    window.addEventListener('popstate', read);
-    return () => window.removeEventListener('popstate', read);
+    window.addEventListener('hashchange', read);
+    return () => window.removeEventListener('hashchange', read);
   }, [nav]);
 
-  // Light the heading you are actually looking at.
+  // Light the heading the reader is actually on.
   useEffect(() => {
     if (openId) return undefined;
-    const seen = new Map();
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) seen.set(e.target.id, e.intersectionRatio);
-        let best = null; let bestRatio = 0;
-        for (const [id, ratio] of seen) {
-          if (ratio > bestRatio) { best = id; bestRatio = ratio; }
-        }
-        if (best && bestRatio > 0) setActive(best.replace(/^pp-/, ''));
-      },
-      { threshold: [0.15, 0.4, 0.75], rootMargin: '-72px 0px -45% 0px' },
-    );
+    const ratios = new Map();
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) ratios.set(e.target.id, e.intersectionRatio);
+      let best = null; let top = 0;
+      for (const [key, r] of ratios) if (r > top) { best = key; top = r; }
+      if (best && top > 0) setActive(best.replace(/^pf-/, ''));
+    }, { threshold: [0.15, 0.4, 0.75], rootMargin: '-80px 0px -45% 0px' });
     for (const [key] of nav) {
-      const el = document.getElementById(`pp-${key}`);
+      const el = document.getElementById(`pf-${key}`);
       if (el) io.observe(el);
     }
     return () => io.disconnect();
   }, [nav, openId]);
 
   if (!portfolio) return null;
-  const identity = portfolio.identity || {};
+  const id = portfolio.identity || {};
+  const sealed = Boolean(portfolio.verified?.entries?.length);
   const collection = openId
     ? asArray(portfolio.projects).find((c) => String(c.id) === String(openId))
     : null;
-  const sealed = Boolean(portfolio.verified?.entries?.length);
-  const has = (key) => nav.some(([k]) => k === key);
+  const contact = onContact || onHire;
 
   return (
-    <article className={`pp pp-theme-${portfolio.theme || 'editorial'}`}>
-      <header className="pp-nav">
-        <button type="button" className="pp-logo" onClick={() => scrollTo('overview')}>
-          {identity.name}
+    <article className={`pf pf-theme-${portfolio.theme || 'editorial'}`}>
+      <nav className="pf-nav">
+        <button type="button" className="pf-logo" onClick={() => scrollTo('overview')}>
+          <BadgeCheck size={17} /> Pinit
         </button>
-        <nav className="pp-links">
+        <div className="pf-links">
           {nav.map(([key, label]) => (
             <button
               key={key}
               type="button"
-              className={`${!openId && active === key ? 'is-on' : ''}${key === 'verified' ? ' is-seal' : ''}`}
-              onClick={() => { setOpenId(null); window.setTimeout(() => scrollTo(key), 0); }}
+              className={!openId && active === key ? 'is-on' : ''}
+              onClick={() => scrollTo(key)}
             >
-              {key === 'verified' ? <><BadgeCheck size={13} /> {label}</> : label}
+              {label}
             </button>
           ))}
-        </nav>
-      </header>
-
-      {/* A collection replaces the scroll — it is a different thing to read. */}
-      {collection ? (
-        <div className="pp-body pp-body--wide">
-          <Collection collection={collection} onBack={closeCollection} />
         </div>
+        <div className="pf-nav__act">
+          {onShare ? (
+            <button type="button" className="pf-btn pf-btn--sm" onClick={onShare}>
+              <Share2 size={13} /> Share
+            </button>
+          ) : null}
+          <button type="button" className="pf-btn pf-btn--sm pf-btn--dark" onClick={contact}>
+            <BadgeCheck size={13} /> Connect
+          </button>
+        </div>
+      </nav>
+
+      {collection ? (
+        <CollectionView collection={collection} onBack={() => scrollTo('work')} sealed={sealed} />
       ) : (
         <>
-          <section id="pp-overview" className="pp-body pp-body--wide pp-section">
-            <div className="pp-intro">
-              <h1 className="pp-name">{identity.name}</h1>
-              {asArray(identity.categories).length > 0 && (
-                <p className="pp-role">{identity.categories.join(' · ')}</p>
-              )}
-              {identity.headline ? <p className="pp-prose">{identity.headline}</p> : null}
-              <VerifiedStats verified={portfolio.verified} compact />
-            </div>
-            <Overview portfolio={portfolio} work={work} go={() => scrollTo('work')} sealed={sealed} />
-          </section>
-
-          <section id="pp-work" className="pp-body pp-body--wide pp-section">
-            <h2 className="pp-section__h">Work</h2>
-            <Work portfolio={portfolio} work={work} openCollection={openCollection} />
-          </section>
-
-          {has('shop') && (
-            <section id="pp-shop" className="pp-body pp-body--wide pp-section">
-              <h2 className="pp-section__h">Shop</h2>
-              <Shop portfolio={portfolio} onSelectListing={onSelectListing} />
+          <Hero portfolio={portfolio} onContact={contact} />
+          <FeaturedWork portfolio={portfolio} openCollection={openCollection} sealed={sealed} />
+          <ServicesSkills portfolio={portfolio} />
+          <AboutMe portfolio={portfolio} />
+          <AwardsCerts portfolio={portfolio} />
+          <ShopCollabs portfolio={portfolio} onSelectListing={onSelectListing} />
+          {sealed ? (
+            <section className="pf-section" id="pf-verified">
+              <VerifiedLedger
+                verified={portfolio.verified}
+                license={portfolio.license}
+                name={(id.name || '').split(' ')[0]}
+              />
             </section>
-          )}
-
-          <section id="pp-about" className="pp-body pp-section">
-            <h2 className="pp-section__h">About</h2>
-            <About portfolio={portfolio} />
-          </section>
-
-          {has('verified') && (
-            <section id="pp-verified" className="pp-body pp-section">
-              <VerifiedLedger verified={portfolio.verified} name={(identity.name || '').split(' ')[0]} license={portfolio.license} />
-            </section>
-          )}
-
-          <section id="pp-contact" className="pp-body pp-section pp-section--last">
-            <Contact portfolio={portfolio} onContact={onContact || onHire} />
-          </section>
+          ) : null}
+          <Contact portfolio={portfolio} onContact={contact} />
         </>
       )}
+
+      <footer className="pf-foot">
+        <span className="pf-logo"><BadgeCheck size={15} /> Pinit</span>
+        <span className="pf-foot__mid">Protected · Verified · Creators First</span>
+        <span>© {new Date().getFullYear()} {id.name}. Powered by Pinit.</span>
+      </footer>
     </article>
   );
 }

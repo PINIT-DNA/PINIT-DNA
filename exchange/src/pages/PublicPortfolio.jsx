@@ -97,21 +97,13 @@ export default function PublicPortfolioPage({
 
   return (
     <div className={`ps-shell${portfolio?.theme ? ` ps-theme-${portfolio.theme}` : ''}`}>
-      <header className="ps-chrome">
-        <div className="ps-chrome__start">
-          {isPreviewVisit() && (
-            <button type="button" className="ps-btn" onClick={leavePreview}>
-              <ArrowLeft size={14} /> Back
-            </button>
-          )}
-          <button type="button" className="ps-brand" onClick={() => onNavigate('marketplace')}>
-            <ShieldCheck size={17} /> Pinit
+      {isPreviewVisit() && (
+        <div className="ps-previewbar">
+          <button type="button" className="ps-btn" onClick={leavePreview}>
+            <ArrowLeft size={14} /> Back to the editor
           </button>
         </div>
-        <button type="button" className="ps-btn" onClick={() => setShareOpen(true)}>
-          <Share2 size={14} /> Share
-        </button>
-      </header>
+      )}
 
       {error && <div className="ps-empty">This portfolio is not available.</div>}
       {!error && !portfolio && <div className="ps-empty">Loading…</div>}
@@ -122,6 +114,7 @@ export default function PublicPortfolioPage({
           onSelectListing={onSelectListing}
           onContact={contact}
           onHire={hire}
+          onShare={() => setShareOpen(true)}
         />
       )}
 

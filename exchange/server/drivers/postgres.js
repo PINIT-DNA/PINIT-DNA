@@ -20,7 +20,7 @@ export function createPostgresDatabase(connectionString) {
     connectionString,
     ssl: connectionString.includes('localhost') || connectionString.includes('127.0.0.1') ? false : { rejectUnauthorized: false },
     max: 10,
-    connectionTimeoutMillis: 8_000,
+    connectionTimeoutMillis: 30_000,
   });
 
   async function withClient(fn) {
@@ -358,6 +358,7 @@ export async function ensurePortfolioColumns(db) {
     ['theme', 'TEXT'],
     ['template', 'TEXT'],
     ['collaborations', 'TEXT'],
+    ['languages', 'TEXT'],
   ];
   for (const [name, type] of columns) {
     try {
