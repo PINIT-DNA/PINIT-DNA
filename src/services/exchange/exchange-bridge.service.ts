@@ -14,6 +14,7 @@ import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { deriveMarketplacePreview } from './marketplace-preview.service';
 import { extractPinitCode, toExchangePinitId, toRootPinitId, toUserPinitId } from '../../lib/pinit-identity';
+import { publicAvatarUrl } from '../../lib/avatar-storage';
 import { AppError } from '../../api/middleware/error.middleware';
 import { VaultService } from '../vault/vault.service';
 import { buildShareViewerUrl } from '../../lib/share-viewer-url';
@@ -421,6 +422,9 @@ export const exchangeBridgeService = {
         shortId: true,
         fullName: true,
         avatarUrl: true,
+        bio: true,
+        jobTitle: true,
+        country: true,
         updatedAt: true,
       },
     });
@@ -451,7 +455,18 @@ export const exchangeBridgeService = {
       pinit_user_id: toUserPinitId(user.shortId),
       pinit_id: user.shortId,
       name: String(user.fullName || '').trim(),
-      avatar_url: String(user.avatarUrl || '').trim(),
+      // Versioned by updatedAt. The avatar always writes to the same object
+      // path, so an unversioned URL served whatever the browser cached last —
+      // which is how a freshly uploaded photo kept showing the previous one.
+      avatar_url: user.avatarUrl
+        ? publicAvatarUrl(
+          user.shortId,
+          user.updatedAt instanceof Date ? user.updatedAt.getTime() : undefined,
+        )
+        : '',
+      bio: String(user.bio || '').trim(),
+      job_title: String(user.jobTitle || '').trim(),
+      location: String(user.country || '').trim(),
     }));
 
     return { profiles };
