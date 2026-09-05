@@ -1,13 +1,14 @@
 import {
   isPubliclyReadable,
   parseEditorBody,
-  slugifyName,
   stripPublicSecrets,
 } from '../src/services/portfolio/portfolio-document';
 
 describe('portfolio phase 1 ownership helpers', () => {
-  test('slugify matches Exchange (letters and numbers only)', () => {
-    expect(slugifyName('Ashwitha Reddy')).toBe('ashwithareddy');
+  test('empty slug in the editor is ignored so a real URL is not replaced with creator', () => {
+    const parsed = parseEditorBody({ slug: '', headline: 'Hi' });
+    expect(parsed.slug).toBeUndefined();
+    expect(parsed.profile.headline).toBe('Hi');
   });
 
   test('public endpoint rules: draft never public', () => {

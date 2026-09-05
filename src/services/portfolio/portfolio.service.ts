@@ -87,7 +87,7 @@ export function verifyPreviewToken(token: string, slug: string): { sub: string }
 }
 
 async function uniquePortfolioSlug(base: string, userId: string): Promise<string> {
-  const root = slugifyName(base);
+  const root = slugifyName(base) || `p${userId.replace(/[^a-z0-9]/gi, '').slice(0, 10).toLowerCase()}` || 'portfolio';
   for (let n = 0; n < 30; n += 1) {
     const candidate = n === 0 ? root : `${root}${n}`;
     const taken = await prisma.portfolio.findFirst({
@@ -117,8 +117,9 @@ async function replaceDraft(portfolioId: string, ownerUserId: string, body: Edit
   const current = await prisma.portfolio.findUnique({ where: { id: portfolioId } });
   if (!current) throw new AppError(404, 'Portfolio not found');
 
-  const slug = parsed.slug
-    ? await uniquePortfolioSlug(parsed.slug, ownerUserId)
+  const requested = parsed.slug && parsed.slug !== 'creator' ? parsed.slug : undefined;
+  const slug = requested
+    ? await uniquePortfolioSlug(requested, ownerUserId)
     : current.slug;
 
   const allVaults = parsed.projects.flatMap((p) => p.vaultIds);
@@ -316,6 +317,14 @@ export const portfolioService = {
           profile: { create: { headline: '', about: '', location: '' } },
         },
       });
+      return row;
+    }
+    const named = slugifyName(identity.fullName || identity.shortId);
+    if (named && row.slug === 'creator') {
+      const slug = await uniquePortfolioSlug(identity.fullName || identity.shortId, userId);
+      if (slug !== row.slug) {
+        row = await prisma.portfolio.update({ where: { id: row.id }, data: { slug } });
+      }
     }
     return row;
   },

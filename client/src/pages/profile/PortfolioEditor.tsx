@@ -494,10 +494,15 @@ export function PortfolioEditor() {
   }, []);
 
   const copy = async () => {
+    const url = publishState === 'PUBLISHED' ? liveUrl : (previewUrl || liveUrl);
+    if (!url) return;
     try {
-      await navigator.clipboard.writeText(liveUrl);
+      await navigator.clipboard.writeText(url);
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
+      if (publishState !== 'PUBLISHED') {
+        toast('Copied a private preview. Publish so anyone can open the public link.');
+      }
     } catch { setCopied(false); }
   };
 
@@ -534,7 +539,12 @@ export function PortfolioEditor() {
             {justPublished ? 'Published' : publishState === 'PUBLISHED' ? 'Published' : 'Draft'}
             {publishedVersion > 0 && publishState === 'PUBLISHED' ? ` · v${publishedVersion}` : ''}
           </p>
-          {liveUrl ? <code className="pe-toolbar__url">{liveUrl.replace(/^https?:\/\//, '')}</code> : null}
+          {liveUrl ? (
+            <code className="pe-toolbar__url">
+              {liveUrl.replace(/^https?:\/\//, '')}
+              {publishState !== 'PUBLISHED' ? ' · unpublished' : ''}
+            </code>
+          ) : null}
         </div>
         <div className="pe-toolbar__act">
           {liveUrl ? (
@@ -912,7 +922,7 @@ export function PortfolioEditor() {
             <iframe
               key={previewKey}
               className="pe-preview__frame"
-              src={previewUrl || `${liveUrl}?preview=1`}
+              src={previewUrl || (liveUrl ? `${liveUrl}${liveUrl.includes('?') ? '&' : '?'}preview=1` : undefined)}
               title="Portfolio preview"
               loading="lazy"
             />

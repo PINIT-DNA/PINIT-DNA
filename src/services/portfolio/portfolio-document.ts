@@ -173,7 +173,12 @@ export function parseEditorBody(body: EditorBody) {
   }).filter((s) => s.url);
 
   return {
-    slug: body.slug != null ? slugifyName(String(body.slug)) : undefined,
+    slug: (() => {
+      if (body.slug == null || !String(body.slug).trim()) return undefined;
+      const cleaned = slugifyName(String(body.slug));
+      if (!cleaned || cleaned === 'creator') return undefined;
+      return cleaned;
+    })(),
     visibility: body.visibility != null ? normalizeVisibility(body.visibility) : undefined,
     theme: body.theme != null ? normalizeTheme(body.theme) : undefined,
     template: body.template != null ? normalizeTemplate(body.template) : undefined,
@@ -341,7 +346,7 @@ export function assemblePresentation(
       sortOrder: number;
       items: Array<{ projectId: string | null; vaultId: string | null; sortOrder: number }>;
     }>;
-    services: Array<{ name: string }>;
+    services: Array<{ name: string; description?: string }>;
     skills: Array<{ name: string }>;
     experience: Array<{ role: string; company: string; startDate: string; endDate: string; description: string; location: string }>;
     awards: Array<{ title: string; organization: string; year: string; description: string }>;
@@ -350,12 +355,15 @@ export function assemblePresentation(
       title: string;
       issuer: string;
       issuedOn: string;
+      expiresOn?: string;
       credentialId: string;
       description: string;
       documentKey?: string | null;
+      imageKey?: string | null;
+      verificationUrl?: string;
       relatedSkill?: string;
     }>;
-    collaborations: Array<{ name: string; kind: string }>;
+    collaborations: Array<{ name: string; kind: string; logoUrl?: string; website?: string }>;
     socialLinks: Array<{ label: string; url: string }>;
   },
   identity: IdentityOverlay,
@@ -392,8 +400,16 @@ export function assemblePresentation(
       };
     });
 
-  const collabs = graph.collaborations.filter((c) => c.kind !== 'client').map((c) => ({ with: c.name }));
-  const clients = graph.collaborations.filter((c) => c.kind === 'client').map((c) => ({ name: c.name }));
+  const collabs = graph.collaborations.filter((c) => c.kind !== 'client').map((c) => ({
+    with: c.name,
+    url: c.website || '',
+    logo: c.logoUrl || '',
+  }));
+  const clients = graph.collaborations.filter((c) => c.kind === 'client').map((c) => ({
+    name: c.name,
+    url: c.website || '',
+    logo: c.logoUrl || '',
+  }));
 
   return {
     slug: graph.slug,
@@ -416,7 +432,10 @@ export function assemblePresentation(
       pinit_user_id: identity.pinit_user_id,
     },
     skills: graph.skills.map((s) => s.name),
-    services: graph.services.map((s) => ({ title: s.name })),
+    services: graph.services.map((s) => ({
+      title: s.name,
+      description: s.description || '',
+    })),
     experience: graph.experience.map((e) => ({
       role: e.role,
       company: e.company,
@@ -435,11 +454,13 @@ export function assemblePresentation(
       title: c.title,
       issuer: c.issuer,
       year: c.issuedOn,
+      expires_on: c.expiresOn || '',
       credential_id: c.credentialId,
       note: c.description,
       kind: c.relatedSkill || 'certificate',
-      hub_protected: Boolean(c.documentKey),
-      media_vault_ids: c.documentKey ? [c.documentKey] : [],
+      verification_url: c.verificationUrl || '',
+      hub_protected: Boolean(c.documentKey || c.imageKey),
+      media_vault_ids: [c.imageKey, c.documentKey].filter(Boolean),
     })),
     clients,
     collaborations: collabs,
