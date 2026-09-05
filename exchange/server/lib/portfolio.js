@@ -1,4 +1,4 @@
-import { fetchHubProfiles } from '../hub-client.js';
+import { fetchHubProfiles, fetchHubPublishedPortfolio } from '../hub-client.js';
 import { allSql, getSql, runSql } from './db.js';
 import { loadVerifiedLedger, ledgerTimeline } from './portfolio-ledger.js';
 import { sellerMatchClause, extractPinitCode, toUserPinitId, toExchangePinitId } from './pinit-identity.js';
@@ -158,6 +158,12 @@ async function uniqueSlug(base, pinitId) {
     if (n === 1 && code) slug = `${slugifyName(base)}${code.toLowerCase()}`;
   }
   return `${slug}${Date.now().toString(36)}`;
+}
+
+export async function readProfileByPinitId(pinitId) {
+  if (!pinitId) return null;
+  const existing = await getSql('SELECT * FROM portfolio_profiles WHERE pinit_id = ?', [pinitId]);
+  return rowToProfile(existing);
 }
 
 export async function ensureProfile(user) {
@@ -343,6 +349,80 @@ async function loadReviews(listingIds) {
 
 function visible(sections, key) {
   return sections?.[key] !== false;
+}
+
+export async function listLegacyProfiles() {
+  const rows = await allSql('SELECT * FROM portfolio_profiles');
+  return rows.map(rowToProfile).filter(Boolean);
+}
+
+/**
+ * Hub published document + Exchange shop/verified at read time.
+ * Does not write either database.
+ */
+export async function decorateHubPortfolio(hubDoc, { ownerView = false } = {}) {
+  if (!hubDoc) return null;
+  const pinitId = hubDoc.identity?.pinit_id || '';
+  const user = pinitId ? await findUserByPinitId(pinitId) : null;
+  const listings = user ? await loadSellerListings(user.pinit_id) : [];
+  const live = listings.filter(isLiveListing);
+  const marketplace = live.slice(0, 6).map(listingCard);
+  const projects = (hubDoc.projects || []).map((group) => {
+    const vaultIds = Array.isArray(group.media_vault_ids)
+      ? group.media_vault_ids.map((id) => String(id || '')).filter(Boolean)
+      : (Array.isArray(group.vault_ids) ? group.vault_ids.map(String).filter(Boolean) : []);
+    const galleryFromVault = vaultIds
+      .map((id) => (isHubVaultId(id) ? exchangePreviewUrl(id, '') : ''))
+      .filter(Boolean);
+    return {
+      ...group,
+      cover_url: group.cover_url || galleryFromVault[0] || '',
+      gallery: (Array.isArray(group.gallery) && group.gallery.length) ? group.gallery : galleryFromVault,
+      vault_ids: ownerView ? vaultIds : undefined,
+      media_vault_ids: undefined,
+    };
+  });
+  const featuredWork = projects.filter((p) => p.featured).slice(0, 6).map((p) => ({
+    work_id: p.id,
+    title: p.title,
+    tagline: [p.category, p.role].filter(Boolean).join(' · ') || '',
+    vertical: p.category || '',
+    preview_url: p.cover_url || '',
+    year: p.year,
+    role: p.role,
+    hub_protected: Boolean(p.hub_protected),
+  }));
+  const ledger = user ? await loadVerifiedLedger(user.pinit_id) : {
+    total: 0, shown: 0, entries: [], summary: { assets_protected: 0, since: null, latest: null, avg_human_percent: null, tiers: {} },
+  };
+
+  return {
+    ...hubDoc,
+    projects,
+    selected_work: featuredWork.length ? featuredWork : (hubDoc.selected_work || []),
+    marketplace: live.length ? marketplace : [],
+    verified: {
+      total: ledger.total,
+      shown: ledger.shown,
+      entries: ledger.entries,
+      summary: ledger.summary,
+      timeline: ledgerTimeline(ledger),
+    },
+    license: ledger.total > 0 ? {
+      badge: 'Pinit Verified',
+      role: 'Creator',
+      assets_sealed: ledger.total,
+      since: ledger.summary?.since || null,
+      identity_verified: true,
+    } : (hubDoc.license || null),
+    owner_view: ownerView,
+  };
+}
+
+export async function loadPublishedFromHub(slug, previewToken) {
+  const hubDoc = await fetchHubPublishedPortfolio(slug, previewToken);
+  if (hubDoc) return decorateHubPortfolio(hubDoc, { ownerView: Boolean(previewToken) });
+  return null;
 }
 
 export async function assemblePortfolio(user, profile, { ownerView = false } = {}) {

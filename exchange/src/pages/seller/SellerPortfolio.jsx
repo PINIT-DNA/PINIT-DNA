@@ -31,7 +31,6 @@ export default function SellerPortfolio({ user, onNavigate }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [copied, setCopied] = useState(false);
-  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     const { ok, data, error: err } = await apiFetch('/api/portfolio/me');
@@ -53,31 +52,6 @@ export default function SellerPortfolio({ user, onNavigate }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
     } catch { setCopied(false); }
-  };
-
-  /**
-   * Visibility is the one thing worth changing from here — it is a decision
-   * about reach, not about content, and a seller reaches for it on the day
-   * they send the link rather than on the day they write the page.
-   */
-  const setVisibility = async (visibility) => {
-    if (!portfolio || visibility === portfolio.visibility) return;
-    setSaving(true);
-    const { ok, data, error: err } = await apiFetch('/api/portfolio/me', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ visibility }),
-    });
-    setSaving(false);
-    if (ok) {
-      const next = data?.portfolio?.identity ? data.portfolio : data;
-      setPortfolio(next?.slug ? next : { ...portfolio, visibility });
-      setNotice(visibility === 'private'
-        ? 'Your portfolio is private. The public link no longer opens.'
-        : `Your portfolio is ${visibility}.`);
-    } else {
-      setNotice(err || 'Could not change that.');
-    }
   };
 
   const editInHub = () => {
@@ -147,20 +121,18 @@ export default function SellerPortfolio({ user, onNavigate }) {
 
       <section className="glass-panel sp-vis">
         <h3>Who can see it</h3>
+        <p className="sp-preview__hint">Visibility is set in Pinit HUB. Exchange cannot change portfolio content.</p>
         <div className="sp-vis__opts">
           {VISIBILITY.map(([id, label, Icon, hint]) => (
-            <button
+            <div
               key={id}
-              type="button"
               className={`sp-opt${portfolio.visibility === id ? ' is-on' : ''}`}
-              onClick={() => setVisibility(id)}
-              disabled={saving}
-              aria-pressed={portfolio.visibility === id}
+              aria-current={portfolio.visibility === id}
             >
               <Icon size={15} />
               <b>{label}</b>
               <em>{hint}</em>
-            </button>
+            </div>
           ))}
         </div>
       </section>

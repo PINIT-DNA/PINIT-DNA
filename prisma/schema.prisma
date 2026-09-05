@@ -525,6 +525,8 @@ model User {
   assets              Asset[]
   /// Spatial auth packages (schema reconciliation — pre-existing table)
   spatialAuthPackages SpatialAuthPackage[]
+  /// One Hub-owned public portfolio per Pinit identity
+  portfolio           Portfolio?
 
   @@map("users")
 }
@@ -2888,4 +2890,271 @@ model ClientReport {
   @@index([campaignId])
   @@index([investigationId])
   @@map("client_reports")
+}
+
+/// Hub-owned professional portfolio. Exchange may read the published snapshot
+/// but never writes these rows. Identity (name, avatar, User.bio) stays on User.
+model Portfolio {
+  id                 String    @id @default(uuid())
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  userId             String    @unique
+  slug               String    @unique
+  visibility         String    @default("unlisted")
+  theme              String    @default("editorial")
+  template           String    @default("individual")
+  /// DRAFT = not publicly listed (includes unpublished). PUBLISHED = snapshot may be served.
+  publishState       String    @default("DRAFT")
+  publishedAt        DateTime?
+  publishedVersion   Int       @default(0)
+  /// Frozen public document. Public APIs read this only — never live draft rows.
+  publishedSnapshot  Json?
+  featuredListingIds Json?
+
+  user             User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile          PortfolioProfile?
+  projects         PortfolioProject[]
+  collections      PortfolioCollection[]
+  services         PortfolioService[]
+  skills           PortfolioSkill[]
+  experience       PortfolioExperience[]
+  awards           PortfolioAward[]
+  certificates     PortfolioCertificate[]
+  collaborations   PortfolioCollaboration[]
+  socialLinks      PortfolioSocialLink[]
+
+  @@index([publishState, visibility])
+  @@map("portfolios")
+}
+
+model PortfolioProfile {
+  id               String   @id @default(uuid())
+  portfolioId      String   @unique
+  headline         String   @default("")
+  /// Presentation about-copy for the public page. User.bio remains the account bio.
+  about            String   @default("") @db.Text
+  location         String   @default("")
+  coverUrl         String   @default("")
+  heroImageRef     String   @default("")
+  quote            String   @default("") @db.Text
+  cvStorageKey     String?
+  website          String   @default("")
+  contactEmail     String   @default("")
+  contactNote      String   @default("") @db.Text
+  availableFor     Json?
+  languages        Json?
+  clientCount      Int      @default(0)
+  specializations  Json?
+  sectionVisibility Json?
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@map("portfolio_profiles")
+}
+
+model PortfolioProject {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  portfolioId String
+  slug        String
+  title       String
+  year        String   @default("")
+  category    String   @default("")
+  description String   @default("") @db.Text
+  client      String   @default("")
+  role        String   @default("")
+  services    Json?
+  status      String   @default("draft")
+  visibility  String   @default("public")
+  featured    Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  coverMediaId String?
+
+  portfolio Portfolio               @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  media     PortfolioProjectMedia[]
+
+  @@unique([portfolioId, slug])
+  @@index([portfolioId, sortOrder])
+  @@map("portfolio_projects")
+}
+
+model PortfolioProjectMedia {
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+  projectId  String
+  sortOrder  Int      @default(0)
+  /// IMAGE | VIDEO | PDF | DOCUMENT | URL
+  type       String   @default("IMAGE")
+  title      String   @default("")
+  altText    String   @default("")
+  caption    String   @default("")
+  /// Reference to Hub VaultRecord.id — not a copy of the file or DNA.
+  vaultId    String?
+  /// Reference to Hub Asset.id when the vault row is linked to an Asset.
+  assetId    String?
+  externalUrl String?
+  storageKey String?
+
+  project PortfolioProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, sortOrder])
+  @@index([vaultId])
+  @@index([assetId])
+  @@map("portfolio_project_media")
+}
+
+model PortfolioCollection {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  portfolioId String
+  slug        String
+  title       String
+  description String   @default("") @db.Text
+  coverUrl    String   @default("")
+  visibility  String   @default("public")
+  sortOrder   Int      @default(0)
+
+  portfolio Portfolio                 @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  items     PortfolioCollectionItem[]
+
+  @@unique([portfolioId, slug])
+  @@index([portfolioId, sortOrder])
+  @@map("portfolio_collections")
+}
+
+model PortfolioCollectionItem {
+  id           String @id @default(uuid())
+  collectionId String
+  sortOrder    Int    @default(0)
+  projectId    String?
+  assetId      String?
+  vaultId      String?
+
+  collection PortfolioCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@index([collectionId, sortOrder])
+  @@map("portfolio_collection_items")
+}
+
+model PortfolioService {
+  id          String  @id @default(uuid())
+  portfolioId String
+  name        String
+  description String  @default("")
+  icon        String  @default("")
+  featured    Boolean @default(false)
+  sortOrder   Int     @default(0)
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId, sortOrder])
+  @@map("portfolio_services")
+}
+
+model PortfolioSkill {
+  id          String @id @default(uuid())
+  portfolioId String
+  name        String
+  sortOrder   Int    @default(0)
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId, sortOrder])
+  @@map("portfolio_skills")
+}
+
+model PortfolioExperience {
+  id          String  @id @default(uuid())
+  portfolioId String
+  company     String  @default("")
+  role        String  @default("")
+  location    String  @default("")
+  startDate   String  @default("")
+  endDate     String  @default("")
+  description String  @default("") @db.Text
+  logoUrl     String  @default("")
+  website     String  @default("")
+  sortOrder   Int     @default(0)
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId, sortOrder])
+  @@map("portfolio_experience")
+}
+
+model PortfolioAward {
+  id            String  @id @default(uuid())
+  portfolioId   String
+  title         String
+  organization  String  @default("")
+  year          String  @default("")
+  category      String  @default("")
+  description   String  @default("") @db.Text
+  imageKey      String?
+  documentKey   String?
+  externalUrl   String  @default("")
+  relatedProjectId String?
+  sortOrder     Int     @default(0)
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId, sortOrder])
+  @@map("portfolio_awards")
+}
+
+/// Creator-uploaded credentials (Adobe, etc.). Not Hub protection Certificate rows.
+model PortfolioCertificate {
+  id               String    @id @default(uuid())
+  portfolioId      String
+  title            String
+  issuer           String    @default("")
+  recipient        String    @default("")
+  issuedOn         String    @default("")
+  expiresOn        String    @default("")
+  credentialId     String    @default("")
+  description      String    @default("") @db.Text
+  imageKey         String?
+  documentKey      String?
+  verificationUrl  String    @default("")
+  relatedSkill     String    @default("")
+  sortOrder        Int       @default(0)
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId, sortOrder])
+  @@map("portfolio_certificates")
+}
+
+model PortfolioCollaboration {
+  id          String @id @default(uuid())
+  portfolioId String
+  name        String
+  /// client | collaboration
+  kind        String @default("collaboration")
+  logoUrl     String @default("")
+  role        String @default("")
+  description String @default("")
+  website     String @default("")
+  year        String @default("")
+  sortOrder   Int    @default(0)
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId, sortOrder])
+  @@map("portfolio_collaborations")
+}
+
+model PortfolioSocialLink {
+  id          String @id @default(uuid())
+  portfolioId String
+  label       String @default("")
+  url         String
+  sortOrder   Int    @default(0)
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId, sortOrder])
+  @@map("portfolio_social_links")
 }

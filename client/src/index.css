@@ -1115,6 +1115,33 @@ html.dark .pe {
 }
 html.dark .pe-loading { color: #A7B0C0; }
 
+.pe-toolbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+  padding: 10px 0 12px; margin-bottom: 14px;
+  border-bottom: 1px solid var(--pe-line);
+  background: var(--pe-bg, var(--pe-panel));
+}
+.pe-toolbar__id { min-width: 0; }
+.pe-toolbar h2 {
+  margin: 0; font-size: 1.05rem; font-weight: 700;
+  letter-spacing: -0.02em; color: var(--pe-ink);
+}
+.pe-toolbar__state {
+  margin: 2px 0 0; font-size: 0.75rem; font-weight: 600;
+  display: flex; align-items: center; gap: 6px; color: var(--pe-soft);
+}
+.pe-toolbar__dot {
+  width: 7px; height: 7px; border-radius: 50%; background: #8A8A8A; display: inline-block;
+}
+.pe-toolbar__state--published .pe-toolbar__dot { background: #00A88F; }
+.pe-toolbar__state--published { color: #00A88F; }
+.pe-toolbar__url {
+  display: block; margin-top: 2px; font-size: 0.72rem; color: var(--pe-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 42ch;
+}
+.pe-toolbar__act { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+
 .pe-top {
   display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start;
   padding-bottom: 16px; border-bottom: 1px solid var(--pe-line);
@@ -1177,6 +1204,24 @@ html.dark .pe-pane h3 { color: var(--pe-ink); }
   margin: 0; padding: 22px; text-align: center; color: var(--pe-faint);
   border: 1px dashed var(--pe-line); border-radius: 10px; font-size: 0.85rem;
 }
+
+.pe-photo { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.pe-photo__face {
+  position: relative; width: 88px; height: 88px; padding: 0; border: 1px solid var(--pe-line);
+  border-radius: 50%; overflow: hidden; background: var(--pe-sunk); cursor: pointer;
+}
+.pe-photo__img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pe-photo__letter {
+  display: flex; width: 100%; height: 100%; align-items: center; justify-content: center;
+  font-size: 1.6rem; font-weight: 700; color: var(--pe-ink);
+}
+.pe-photo__busy {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.45);
+}
+.pe-photo__act { display: flex; flex-direction: column; gap: 8px; min-width: 180px; flex: 1; }
+.pe-photo__remove { color: var(--pe-faint); }
+.pe-photo__remove:hover { color: var(--pe-bad); }
 
 .pe-field { display: flex; flex-direction: column; gap: 6px; }
 .pe-field__label {

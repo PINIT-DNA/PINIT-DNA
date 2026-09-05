@@ -417,6 +417,21 @@ export async function recordLicensedShareCopiedOnHub(token) {
 
 export { hubApiBase as HUB_API_BASE, bridgeSecret as BRIDGE_SECRET };
 
+/** Read-only: Hub published (or owner preview with token). Never writes Hub. */
+export async function fetchHubPublishedPortfolio(slug, previewToken) {
+  const q = previewToken ? `?preview_token=${encodeURIComponent(previewToken)}` : '';
+  const url = `${hubApiBase()}/public/portfolio/${encodeURIComponent(slug)}${q}`;
+  try {
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return null;
+    return data.portfolio?.identity ? data.portfolio : (data.identity ? data : null);
+  } catch (err) {
+    console.warn('[hub-client] published portfolio fetch failed', err?.message || err);
+    return null;
+  }
+}
+
 async function hubPaymentPost(path, body) {
   const secret = bridgeSecret();
   if (!secret) return { skipped: true };

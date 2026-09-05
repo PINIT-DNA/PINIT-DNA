@@ -1,10 +1,11 @@
 import express from 'express';
-import { requireSeller } from '../lib/rbac.js';
+import { requireExchangeUser } from '../lib/rbac.js';
 import {
   assemblePortfolio,
-  ensureProfile,
   findUserForSlug,
-  saveProfile,
+  listLegacyProfiles,
+  loadPublishedFromHub,
+  readProfileByPinitId,
 } from '../lib/portfolio.js';
 
 const router = express.Router();
@@ -59,6 +60,10 @@ function fail(res, err, fallbackMessage) {
 router.get('/public/:slug', async (req, res) => {
   try {
     const slug = String(req.params.slug || '').trim().toLowerCase();
+    const previewToken = String(req.query.preview_token || req.query.pt || '').trim();
+    const fromHub = await loadPublishedFromHub(slug, previewToken || undefined);
+    if (fromHub) return sendPortfolio(res, fromHub);
+    // Legacy read-only fallback until Hub backfill has a published snapshot.
     const found = await findUserForSlug(slug);
     if (!found?.user || !found?.profile) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Portfolio not found' });
@@ -73,53 +78,32 @@ router.get('/public/:slug', async (req, res) => {
   }
 });
 
-router.get('/me', requireSeller, async (req, res) => {
+router.get('/me', requireExchangeUser, async (req, res) => {
   try {
     const user = req.exchangeUser;
     if (!user?.pinit_id) {
       return res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Your session has expired.' });
     }
-    const profile = await ensureProfile(user);
-    if (!profile) {
-      return res.status(500).json({
-        error: 'PORTFOLIO_INIT_FAILED',
-        message: 'Unable to load portfolio. Please try again.',
-      });
+    const local = await readProfileByPinitId(user.pinit_id);
+    const slug = local?.slug;
+    if (slug) {
+      const fromHub = await loadPublishedFromHub(slug);
+      if (fromHub) return sendPortfolio(res, fromHub);
     }
-    const payload = await assemblePortfolio(user, profile, { ownerView: true });
-    if (!payload) {
-      return res.status(500).json({
-        error: 'PORTFOLIO_ASSEMBLE_FAILED',
-        message: 'Unable to load portfolio. Please try again.',
-      });
-    }
-    return sendPortfolio(res, payload);
+    return res.status(404).json({
+      error: 'NOT_PUBLISHED',
+      message: 'Publish your portfolio in Pinit HUB to see it here.',
+    });
   } catch (err) {
     return fail(res, err, 'Unable to load portfolio. Please try again.');
   }
 });
 
-router.put('/me', requireSeller, async (req, res) => {
-  try {
-    const user = req.exchangeUser;
-    if (!user?.pinit_id) {
-      return res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Your session has expired.' });
-    }
-    const publish = Boolean(req.body?.publish);
-    const profile = await saveProfile(user.pinit_id, req.body || {}, { publish });
-    const payload = await assemblePortfolio(user, profile, { ownerView: true });
-    if (!payload) {
-      return res.status(500).json({
-        error: 'PORTFOLIO_ASSEMBLE_FAILED',
-        message: publish ? 'Could not publish portfolio.' : 'Could not save portfolio.',
-      });
-    }
-    return sendPortfolio(res, payload, {
-      message: publish ? 'Portfolio published' : 'Portfolio saved',
-    });
-  } catch (err) {
-    return fail(res, err, req.body?.publish ? 'Could not publish portfolio.' : 'Could not save portfolio.');
-  }
+router.put('/me', requireExchangeUser, async (_req, res) => {
+  return res.status(410).json({
+    error: 'PORTFOLIO_OWNED_BY_HUB',
+    message: 'Portfolio content is owned by Pinit HUB. Open the Hub editor to save or publish.',
+  });
 });
 
 export default router;

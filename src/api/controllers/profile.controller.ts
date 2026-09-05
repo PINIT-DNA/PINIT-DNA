@@ -1,7 +1,27 @@
 import { Request, Response, NextFunction } from 'express';
+import multer from 'multer';
 import { prisma } from '../../lib/prisma';
 import bcrypt from 'bcryptjs';
 import { notifyPasswordChanged, notifySessionRevoked, notifyPhoneChanged } from '../../services/platform-events/account-events';
+import {
+  displayAvatarUrl,
+  isAvatarStorageConfigured,
+  publicAvatarUrl,
+  resolveAvatarSignedUrl,
+  uploadAvatar as storeAvatar,
+} from '../../lib/avatar-storage';
+import { extractPinitCode, toExchangePinitId, toRootPinitId, toUserPinitId } from '../../lib/pinit-identity';
+
+const AVATAR_MIMES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']);
+
+export const avatarUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 3 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (AVATAR_MIMES.has(file.mimetype.toLowerCase())) cb(null, true);
+    else cb(new Error('Use a JPG, PNG, WEBP, or GIF photo.'));
+  },
+});
 
 function userId(req: Request): string {
   return (req as any).user?.sub;
@@ -31,7 +51,86 @@ export async function getProfile(req: Request, res: Response, next: NextFunction
     const filled = fields.filter(Boolean).length;
     const completion = Math.round((filled / fields.length) * 100);
 
-    res.json({ success: true, profile: { ...user, profileCompletion: completion } });
+    res.json({
+      success: true,
+      profile: {
+        ...user,
+        avatarUrl: displayAvatarUrl(user.shortId, user.avatarUrl),
+        profileCompletion: completion,
+      },
+    });
+  } catch (err) { next(err); }
+}
+
+export async function uploadProfileAvatar(req: Request, res: Response, next: NextFunction) {
+  try {
+    if (!isAvatarStorageConfigured()) {
+      res.status(503).json({ success: false, error: 'Photo storage is not configured.' });
+      return;
+    }
+    const file = (req as Request & { file?: Express.Multer.File }).file;
+    if (!file?.buffer?.length) {
+      res.status(400).json({ success: false, error: 'Choose a photo to upload.' });
+      return;
+    }
+    const uid = userId(req);
+    const path = await storeAvatar(uid, file.buffer, file.mimetype);
+    const user = await prisma.user.update({
+      where: { id: uid },
+      data: { avatarUrl: path },
+      select: { shortId: true, avatarUrl: true, fullName: true },
+    });
+    res.json({
+      success: true,
+      profile: {
+        ...user,
+        avatarUrl: publicAvatarUrl(user.shortId, Date.now()),
+      },
+    });
+  } catch (err) { next(err); }
+}
+
+export async function deleteProfileAvatar(req: Request, res: Response, next: NextFunction) {
+  try {
+    const uid = userId(req);
+    const user = await prisma.user.update({
+      where: { id: uid },
+      data: { avatarUrl: null },
+      select: { shortId: true, fullName: true },
+    });
+    res.json({ success: true, profile: { ...user, avatarUrl: null } });
+  } catch (err) { next(err); }
+}
+
+/** Public image for the portfolio site. Looks up by Pinit short id, not the internal user id. */
+export async function getPublicAvatar(req: Request, res: Response, next: NextFunction) {
+  try {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    const raw = String(req.params.shortId || '').trim();
+    if (!raw) {
+      res.status(404).end();
+      return;
+    }
+    const decoded = decodeURIComponent(raw);
+    const code = extractPinitCode(decoded);
+    const ids = [decoded, toRootPinitId(decoded), toUserPinitId(decoded), toExchangePinitId(decoded)]
+      .filter(Boolean);
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { shortId: { in: ids } },
+          ...(code ? [{ shortId: { endsWith: `-${code}` } }] : []),
+        ],
+      },
+      select: { avatarUrl: true },
+    });
+    const signed = await resolveAvatarSignedUrl(user?.avatarUrl);
+    if (!signed) {
+      res.status(404).end();
+      return;
+    }
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.redirect(302, signed);
   } catch (err) { next(err); }
 }
 

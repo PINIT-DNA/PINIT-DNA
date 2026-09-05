@@ -12,12 +12,7 @@ import { verifyPreviewToken } from '../lib/preview-token.js';
 import { rateLimit } from '../lib/rate-limit.js';
 import { requireSeller, requireActiveSeller } from '../lib/rbac.js';
 import { identityCandidates, sellerMatchClause, listingUserJoinSql } from '../lib/pinit-identity.js';
-import {
-  assemblePortfolio,
-  ensurePortfolioUser,
-  ensureProfile,
-  saveProfile,
-} from '../lib/portfolio.js';
+import { listLegacyProfiles } from '../lib/portfolio.js';
 
 const router = express.Router();
 
@@ -435,47 +430,34 @@ function requireBridgeSecret(req, res, next) {
   return next();
 }
 
-/** Shared Portfolio for Hub Profile editor — same records as /p/:slug. */
+router.get('/portfolios', requireBridgeSecret, async (_req, res) => {
+  try {
+    const profiles = await listLegacyProfiles();
+    return res.json({ profiles });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Unable to list portfolios' });
+  }
+});
+
 router.get('/portfolio', requireBridgeSecret, async (req, res) => {
   const pinitId = String(req.query.pinitId || req.query.pinit_id || '').trim();
   if (!pinitId) return res.status(400).json({ error: 'pinitId is required' });
   try {
-    const user = await ensurePortfolioUser(pinitId, {
-      name: req.query.name,
-      email: req.query.email,
-      bio: req.query.bio,
-    });
-    const profile = await ensureProfile(user);
-    const payload = await assemblePortfolio(user, profile, { ownerView: true });
-    if (!payload) return res.status(500).json({ error: 'Unable to load portfolio' });
-    return res.json({ portfolio: payload, ...payload });
+    const profiles = await listLegacyProfiles();
+    const profile = profiles.find((p) => String(p.pinit_id) === pinitId)
+      || profiles.find((p) => String(p.pinit_id).endsWith(pinitId.replace(/^PINIT-(?:USER|EX|ORG)-/, '')));
+    if (!profile) return res.status(404).json({ error: 'NOT_FOUND' });
+    return res.json({ portfolio: profile, ...profile });
   } catch (err) {
     return res.status(Number(err.status) || 500).json({ error: err.message || 'Unable to load portfolio' });
   }
 });
 
-router.put('/portfolio', requireBridgeSecret, async (req, res) => {
-  const pinitId = String(req.body?.pinitId || req.body?.pinit_id || '').trim();
-  if (!pinitId) return res.status(400).json({ error: 'pinitId is required' });
-  try {
-    const user = await ensurePortfolioUser(pinitId, {
-      name: req.body?.name,
-      email: req.body?.email,
-      bio: req.body?.bio,
-    });
-    const publish = Boolean(req.body?.publish);
-    const profile = await saveProfile(user.pinit_id, req.body || {}, { publish });
-    const payload = await assemblePortfolio(user, profile, { ownerView: true });
-    if (!payload) return res.status(500).json({ error: 'Unable to save portfolio' });
-    return res.json({
-      message: publish ? 'Portfolio published' : 'Portfolio saved',
-      portfolio: payload,
-      ...payload,
-    });
-  } catch (err) {
-    const status = Number(err.status) || 500;
-    return res.status(status).json({ error: err.message || 'Unable to save portfolio' });
-  }
+router.put('/portfolio', requireBridgeSecret, (_req, res) => {
+  return res.status(410).json({
+    error: 'PORTFOLIO_OWNED_BY_HUB',
+    message: 'Portfolio content is owned by Pinit HUB. Exchange cannot write it.',
+  });
 });
 
 /** Hub My Assets — which vault/asset ids are currently listed for sale. */

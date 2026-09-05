@@ -45,21 +45,16 @@ export default function PublicPortfolioPage({
     if (!slug) return;
     let cancelled = false;
     (async () => {
-      const pub = await apiFetch(`/api/portfolio/public/${encodeURIComponent(slug)}`);
+      const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+      const pt = params?.get('pt') || '';
+      const qs = pt ? `?preview_token=${encodeURIComponent(pt)}` : '';
+      const pub = await apiFetch(`/api/portfolio/public/${encodeURIComponent(slug)}${qs}`);
       if (cancelled) return;
       if (pub.ok) {
         const page = pub.data?.portfolio?.identity ? pub.data.portfolio : pub.data;
         setPortfolio(page);
         setError('');
         if (page?.identity?.name) document.title = `${page.identity.name} | Pinit Portfolio`;
-        return;
-      }
-      const me = await apiFetch('/api/portfolio/me');
-      if (cancelled) return;
-      const mine = me.data?.portfolio?.identity ? me.data.portfolio : me.data;
-      if (me.ok && mine?.slug === slug) {
-        setPortfolio(mine);
-        setError('');
         return;
       }
       setPortfolio(null);

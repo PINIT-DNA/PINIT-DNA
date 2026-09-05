@@ -1,3 +1,7 @@
+/**
+ * @deprecated Phase 1: Hub owns portfolio rows. Do not PUT Exchange
+ * portfolio_profiles. Photo lives on User.avatarUrl and is resolved at read time.
+ */
 import { config } from '../../config';
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../../api/middleware/error.middleware';

@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowUpRight, Check, Copy, Eye, Globe, Loader2, Lock, Plus, Save, Trash2, X,
+  Check, Copy, Eye, Globe, Loader2, Lock, Plus, Save, Trash2, X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api, listVaultRecords, previewVaultFile } from '../../services/dashboard.api';
+import { API_BASE_URL } from '../../config/api.config';
 import type { VaultRecord } from '../../types/dashboard.types';
+import { ProfilePhotoPicker } from './ProfilePhotoPicker';
 
 /**
  * The portfolio builder. One builder, in HUB.
@@ -47,6 +49,10 @@ type Form = {
   experience: Entry[];
   awards: Entry[];
   project_groups: Collection[];
+  collaborations: string[];
+  languages: string[];
+  client_count: string;
+  template: 'individual' | 'creator' | 'business';
   contact_email: string;
   contact_note: string;
 };
@@ -68,9 +74,9 @@ const AVAILABILITY = ['Freelance', 'Contract', 'Collaboration', 'Full-time'];
 
 /** The six headings of the public site, in the order they appear on it. */
 const SECTIONS = [
-  { id: 'identity', label: 'Identity', hint: 'Name, headline, where you are' },
+  { id: 'identity', label: 'Identity', hint: 'Photo, name, headline, where you are' },
   { id: 'work', label: 'Work', hint: 'Collections, picked from your vault' },
-  { id: 'about', label: 'About', hint: 'Bio, experience, skills, clients' },
+  { id: 'about', label: 'About', hint: 'Bio, clients, collaborations, awards' },
   { id: 'contact', label: 'Contact', hint: 'How people reach you' },
   { id: 'look', label: 'Look', hint: 'Theme' },
   { id: 'publish', label: 'Publish', hint: 'Your link and who can see it' },
@@ -87,7 +93,58 @@ function emptyForm(): Form {
     headline: '', about: '', location: '',
     skills: [], services: [], clients: [], available_for: [],
     experience: [], awards: [], project_groups: [],
+    collaborations: [], languages: [], client_count: '',
+    template: 'individual',
     contact_email: '', contact_note: '',
+  };
+}
+
+/** Local sample copy for testing the public page. Does not invent vault IDs or certificates. */
+function sampleStory(vaultIds: string[], existing: Collection[]): Partial<Form> {
+  const collections = existing.length
+    ? existing.map((c, i) => ({
+      ...c,
+      title: c.title || ['Jewellery', 'Food & Table', 'Editorial'][i] || `Collection ${i + 1}`,
+      category: c.category || 'Photography',
+      year: c.year || '2023—2026',
+      description: c.description || 'Catalogue and campaign work. Studio and location, shot for commerce and print.',
+    }))
+    : vaultIds.length
+      ? [{
+        id: uid(),
+        title: 'Jewellery',
+        category: 'Photography',
+        year: '2023—2026',
+        description: 'Catalogue and campaign work for jewellery brands. Mostly studio, mostly macro.',
+        vault_ids: vaultIds.slice(0, Math.min(6, vaultIds.length)),
+      }]
+      : [];
+
+  return {
+    headline: 'Photographer — product, jewellery, and editorial',
+    location: 'Hyderabad, India',
+    about:
+      'I photograph objects the way people hold them — close, quiet, and a little too honest. '
+      + 'Most of my week is jewellery and still life for brands that need both a commerce frame and a print frame. '
+      + 'This page is sample copy for testing; replace it before you publish for real clients.',
+    skills: ['Photography', 'Retouching', 'Art direction', 'Studio lighting', 'Macro'],
+    services: ['Brand campaigns', 'Catalogue', 'Lookbooks', 'Art direction'],
+    clients: ['Atelier Mira', 'Northline Goods', 'Kala Studio', 'Harbor Press'],
+    collaborations: ['Studio Cinder', 'Frame & Grain', 'Lumen Agency'],
+    languages: ['English', 'Telugu', 'Hindi'],
+    client_count: '18',
+    available_for: ['Freelance', 'Collaboration'],
+    template: 'creator',
+    experience: [
+      { id: uid(), title: 'Photographer', org: 'Independent', period: '2021 — now', note: 'Product and jewellery commissions.' },
+      { id: uid(), title: 'Retoucher', org: 'Northline Goods', period: '2019 — 2021', note: 'In-house still life and e-commerce sets.' },
+    ],
+    awards: [
+      { id: uid(), title: 'IPA Honourable Mention', org: 'Still life, professional', period: '2024', note: 'Sample award for layout testing.' },
+      { id: uid(), title: 'Hyderabad Photo Week', org: 'Selected series', period: '2025', note: '' },
+    ],
+    contact_note: 'Currently taking freelance. Catalogue shoots book about three weeks out. This line is sample text.',
+    project_groups: collections,
   };
 }
 
@@ -209,6 +266,13 @@ export function PortfolioEditor() {
   const [showPreview, setShowPreview] = useState(true);
   /** Bumped after a save so the preview iframe refetches the real page. */
   const [previewKey, setPreviewKey] = useState(0);
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [publishState, setPublishState] = useState<'DRAFT' | 'PUBLISHED'>('DRAFT');
+  const [publishedVersion, setPublishedVersion] = useState(0);
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [justSaved, setJustSaved] = useState(false);
+  const [justPublished, setJustPublished] = useState(false);
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -216,8 +280,11 @@ export function PortfolioEditor() {
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await api.get<BridgeResponse>('/portfolio/me');
+        const { data } = await api.get<BridgeResponse>(`${API_BASE_URL}/portfolio/me`);
         const p = data?.portfolio || data || {};
+        const groups = asArray<any>(p.projects).length
+          ? asArray<any>(p.projects)
+          : asArray<any>((p as { project_groups?: unknown }).project_groups);
         setForm({
           ...emptyForm(),
           slug: p.slug || '',
@@ -244,19 +311,36 @@ export function PortfolioEditor() {
             period: a.year || '',
             note: a.note || '',
           })),
-          project_groups: asArray<any>(p.projects).map((g) => ({
+          collaborations: asArray<any>(p.collaborations).map((c) => (
+            typeof c === 'string' ? c : String(c?.with || c?.partner || c?.name || c?.title || '')
+          )).filter(Boolean),
+          languages: asArray<string>(p.languages).map(String),
+          client_count: p.client_count ? String(p.client_count) : '',
+          template: (p.template === 'creator' || p.template === 'business' ? p.template : 'individual') as Form['template'],
+          project_groups: groups.map((g) => ({
             id: g.id || uid(),
             title: g.title || '',
             category: g.category || '',
             year: g.year || '',
             description: g.description || '',
-            vault_ids: asArray<string>(g.vault_ids),
+            vault_ids: asArray<string>(g.vault_ids).length
+              ? asArray<string>(g.vault_ids)
+              : (g.hub_vault_id ? [String(g.hub_vault_id)] : []),
           })),
           contact_email: p.contact?.email || '',
           contact_note: p.contact?.note || '',
         });
         if (data?.public_url) setPublicUrl(data.public_url);
         if (data?.exchange_app_url) setExchangeUrl(String(data.exchange_app_url).replace(/\/$/, ''));
+        if (data?.preview_url) setPreviewUrl(String(data.preview_url));
+        if (data?.publish_state === 'PUBLISHED') setPublishState('PUBLISHED');
+        else setPublishState('DRAFT');
+        if (typeof data?.published_version === 'number') setPublishedVersion(data.published_version);
+        const hub = (data as { hub_identity?: { photo_url?: string; name?: string } })?.hub_identity
+          || p.identity
+          || {};
+        setPhotoUrl(String(hub.photo_url || p.identity?.photo_url || ''));
+        setDisplayName(String(hub.name || p.identity?.name || ''));
       } catch (err) {
         toast.error('Could not load your portfolio.');
         console.error('[portfolio] load failed', err);
@@ -266,34 +350,66 @@ export function PortfolioEditor() {
     })();
   }, []);
 
-  const save = useCallback(async (publish = false) => {
+  const payload = () => ({
+    ...form,
+    services: form.services.map((title) => ({ title })),
+    clients: form.clients.map((name) => ({ name })),
+    experience: form.experience.map((e) => ({
+      id: e.id, role: e.title, company: e.org, year: e.period, summary: e.note,
+    })),
+    awards: form.awards.map((a) => ({
+      id: a.id, title: a.title, issuer: a.org, year: a.period, note: a.note,
+    })),
+    collaborations: form.collaborations.map((withWho) => ({ with: withWho })),
+    languages: form.languages,
+    client_count: Number(form.client_count) || 0,
+    template: form.template,
+    project_groups: form.project_groups.map((g) => ({
+      ...g,
+      hub_vault_id: g.vault_ids[0] || '',
+      hub_protected: g.vault_ids.length > 0,
+    })),
+  });
+
+  const applyMeta = (data: BridgeResponse) => {
+    if (data?.public_url) setPublicUrl(data.public_url);
+    if (data?.exchange_app_url) setExchangeUrl(String(data.exchange_app_url).replace(/\/$/, ''));
+    if (data?.preview_url) setPreviewUrl(String(data.preview_url));
+    if (data?.slug) set('slug', data.slug);
+    if (data?.publish_state === 'PUBLISHED' || data?.published) setPublishState('PUBLISHED');
+    if (data?.unpublished) setPublishState('DRAFT');
+    if (typeof data?.published_version === 'number') setPublishedVersion(data.published_version);
+  };
+
+  const saveDraft = useCallback(async () => {
     setSaving(true);
+    setJustSaved(false);
     try {
-      const { data } = await api.put<BridgeResponse>('/portfolio/me', {
-        ...form,
-        publish,
-        // The server stores these as JSON columns; send the shapes it reads.
-        services: form.services.map((title) => ({ title })),
-        clients: form.clients.map((name) => ({ name })),
-        experience: form.experience.map((e) => ({
-          id: e.id, role: e.title, company: e.org, year: e.period, summary: e.note,
-        })),
-        awards: form.awards.map((a) => ({
-          id: a.id, title: a.title, issuer: a.org, year: a.period, note: a.note,
-        })),
-        project_groups: form.project_groups,
-      });
-      if (data?.public_url) setPublicUrl(data.public_url);
-      if (data?.exchange_app_url) setExchangeUrl(String(data.exchange_app_url).replace(/\/$/, ''));
-      if (data?.slug) set('slug', data.slug);
-      // The preview is the real page, so it only changes once the save lands.
+      const { data } = await api.put<BridgeResponse>(`${API_BASE_URL}/portfolio/me`, payload());
+      applyMeta(data);
+      setJustSaved(true);
       setPreviewKey((k) => k + 1);
-      toast.success(publish ? 'Portfolio published' : 'Saved');
+      toast.success('Saved');
     } catch (err: any) {
       const d = err?.response?.data;
-      toast.error(d?.error || d?.message || err?.message || 'Could not save.');
-      // Keep the full body in the console — a toast has no room for a stack.
-      console.error('[portfolio] save failed', err?.response?.status, d);
+      toast.error(d?.error || d?.message || 'Could not save draft.');
+    }
+    setSaving(false);
+  }, [form]);
+
+  const publish = useCallback(async () => {
+    setSaving(true);
+    setJustPublished(false);
+    try {
+      const { data } = await api.post<BridgeResponse>(`${API_BASE_URL}/portfolio/me/publish`, payload());
+      applyMeta(data);
+      setPublishState('PUBLISHED');
+      setJustPublished(true);
+      setPreviewKey((k) => k + 1);
+      toast.success('Published');
+    } catch (err: any) {
+      const d = err?.response?.data;
+      toast.error(d?.error || d?.message || 'Could not publish.');
     }
     setSaving(false);
   }, [form]);
@@ -321,6 +437,15 @@ export function PortfolioEditor() {
   const patchCollection = (id: string, patch: Partial<Collection>) =>
     set('project_groups', form.project_groups.map((c) => (c.id === id ? { ...c, ...patch } : c)));
 
+  const fillSample = () => {
+    setForm((f) => ({
+      ...f,
+      ...sampleStory(vault.map((v) => v.id), f.project_groups),
+    }));
+    setSection('about');
+    toast.success('Sample text filled. Review it, then Save.');
+  };
+
   if (loading) {
     return (
       <div className="pe-loading">
@@ -330,33 +455,38 @@ export function PortfolioEditor() {
   }
 
   return (
-    <div className={`pe${showPreview && liveUrl ? ' pe--split' : ''}`}>
-      <header className="pe-top">
-        <div>
+    <div className={`pe${showPreview && (previewUrl || liveUrl) ? ' pe--split' : ''}`}>
+      <header className="pe-toolbar">
+        <div className="pe-toolbar__id">
           <h2>Portfolio</h2>
-          <p>One portfolio, built from the work you already protected here.</p>
+          <p className={`pe-toolbar__state pe-toolbar__state--${publishState.toLowerCase()}`}>
+            <span className="pe-toolbar__dot" aria-hidden="true" />
+            {justPublished ? 'Published' : publishState === 'PUBLISHED' ? 'Published' : 'Draft'}
+            {publishedVersion > 0 && publishState === 'PUBLISHED' ? ` · v${publishedVersion}` : ''}
+          </p>
+          {liveUrl ? <code className="pe-toolbar__url">{liveUrl.replace(/^https?:\/\//, '')}</code> : null}
         </div>
-        <div className="pe-top__act">
+        <div className="pe-toolbar__act">
           {liveUrl ? (
-            <>
-              <button
-                type="button"
-                className={`pe-btn${showPreview ? ' is-on' : ''}`}
-                onClick={() => setShowPreview((v) => !v)}
-                aria-pressed={showPreview}
-              >
-                <Eye size={13} /> {showPreview ? 'Hide preview' : 'Preview'}
-              </button>
-              <button type="button" className="pe-btn" onClick={copy}>
-                {copied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy link</>}
-              </button>
-              <a className="pe-btn" href={liveUrl} target="_blank" rel="noreferrer">
-                Open <ArrowUpRight size={13} />
-              </a>
-            </>
+            <button type="button" className="pe-btn" onClick={copy}>
+              {copied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy link</>}
+            </button>
           ) : null}
-          <button type="button" className="pe-btn pe-btn--solid" onClick={() => save(false)} disabled={saving}>
-            {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Save
+          <button
+            type="button"
+            className={`pe-btn${showPreview ? ' is-on' : ''}`}
+            onClick={() => setShowPreview((v) => !v)}
+            aria-pressed={showPreview}
+          >
+            <Eye size={13} /> Preview
+          </button>
+          <button type="button" className="pe-btn" onClick={fillSample}>Fill sample</button>
+          <button type="button" className="pe-btn" onClick={() => void saveDraft()} disabled={saving}>
+            {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+            {justSaved ? 'Saved' : 'Save draft'}
+          </button>
+          <button type="button" className="pe-btn pe-btn--solid" onClick={() => void publish()} disabled={saving}>
+            Publish
           </button>
         </div>
       </header>
@@ -381,8 +511,16 @@ export function PortfolioEditor() {
             <>
               <h3>Identity</h3>
               <p className="pe-lead">
-                Your name comes from your Pinit account. This is everything beside it.
+                Your name comes from your Pinit account. Add a photo and the line people read first.
               </p>
+              <div className="pe-field">
+                <span className="pe-field__label">Photo</span>
+                <ProfilePhotoPicker
+                  photoUrl={photoUrl}
+                  name={displayName}
+                  onChange={(url) => { setPhotoUrl(url); setPreviewKey((k) => k + 1); }}
+                />
+              </div>
               <Field label="Headline" hint="One line. What you make, for whom.">
                 <input
                   value={form.headline}
@@ -545,6 +683,27 @@ export function PortfolioEditor() {
               <Field label="Skills"><TagField values={form.skills} onChange={(v) => set('skills', v)} placeholder="Add a skill…" /></Field>
               <Field label="Services"><TagField values={form.services} onChange={(v) => set('services', v)} placeholder="Add a service…" /></Field>
               <Field label="Clients"><TagField values={form.clients} onChange={(v) => set('clients', v)} placeholder="Add a client…" /></Field>
+              <Field label="How many clients" hint="For sellers and agencies. Leave blank if you prefer names only.">
+                <input
+                  inputMode="numeric"
+                  value={form.client_count}
+                  onChange={(e) => set('client_count', e.target.value.replace(/[^\d]/g, ''))}
+                  placeholder="12"
+                />
+              </Field>
+              <Field label="Collaborations" hint="Studios, agencies, and people you have worked with.">
+                <TagField values={form.collaborations} onChange={(v) => set('collaborations', v)} placeholder="Add a studio or creator…" />
+              </Field>
+              <Field label="Languages"><TagField values={form.languages} onChange={(v) => set('languages', v)} placeholder="English…" /></Field>
+              <Field label="Practice" hint="Changes the public page, not a second portfolio.">
+                <div className="pe-chips">
+                  {([['individual', 'Individual'], ['creator', 'Seller'], ['business', 'Agency']] as const).map(([id, label]) => (
+                    <button key={id} type="button" className={form.template === id ? 'is-on' : ''} onClick={() => set('template', id)}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
               <Field label="Experience">
                 <EntryList
                   items={form.experience}
@@ -642,13 +801,17 @@ export function PortfolioEditor() {
               <button
                 type="button"
                 className="pe-btn pe-btn--solid pe-publish"
-                onClick={() => save(true)}
+                onClick={() => void publish()}
                 disabled={saving}
               >
                 {saving ? <Loader2 size={13} className="animate-spin" /> : <Globe size={13} />}
                 Publish
               </button>
-              {publicUrl ? <p className="pe-lead">Live at <code>{publicUrl}</code></p> : null}
+              {publicUrl ? (
+                <p className="pe-lead">
+                  Live at <code>{publicUrl}</code>. The same page is what Exchange shares — copy the link here or from Exchange.
+                </p>
+              ) : null}
             </>
           )}
         </div>
@@ -659,17 +822,17 @@ export function PortfolioEditor() {
           disagree with what a visitor sees — which means it shows the last SAVED
           state, and says so rather than pretending to be live.
         */}
-        {showPreview && liveUrl ? (
+        {showPreview && (previewUrl || liveUrl) ? (
           <aside className="pe-preview">
             <div className="pe-preview__bar">
               <span>Preview</span>
-              <em>Last saved version</em>
-              <a href={liveUrl} target="_blank" rel="noreferrer">Open in a tab</a>
+              <em>Your draft</em>
+              {liveUrl ? <a href={liveUrl} target="_blank" rel="noreferrer">Public page</a> : null}
             </div>
             <iframe
               key={previewKey}
               className="pe-preview__frame"
-              src={`${liveUrl}?preview=1`}
+              src={previewUrl || `${liveUrl}?preview=1`}
               title="Portfolio preview"
               loading="lazy"
             />
