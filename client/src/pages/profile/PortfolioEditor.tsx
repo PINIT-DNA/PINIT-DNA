@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Check, Copy, Eye, Globe, Loader2, Lock, Plus, Save, Trash2, X,
+  Check, Copy, Eye, FileText, Globe, Loader2, Lock, Plus, Save, Trash2, X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api, listVaultRecords, previewVaultFile } from '../../services/dashboard.api';
@@ -34,6 +34,13 @@ type Collection = {
 };
 
 type Entry = { id: string; title: string; org: string; period: string; note: string };
+type PortfolioDoc = { id: string; title: string; org: string; vault_id: string; kind: 'certificate' | 'license' | 'course' | 'workshop' };
+const DOC_KINDS: Array<[PortfolioDoc['kind'], string]> = [
+  ['certificate', 'Certificate'],
+  ['license', 'License'],
+  ['course', 'Course'],
+  ['workshop', 'Workshop'],
+];
 
 type Form = {
   slug: string;
@@ -48,6 +55,7 @@ type Form = {
   available_for: string[];
   experience: Entry[];
   awards: Entry[];
+  certifications: PortfolioDoc[];
   project_groups: Collection[];
   collaborations: string[];
   languages: string[];
@@ -92,10 +100,101 @@ function emptyForm(): Form {
     slug: '', visibility: 'unlisted', theme: 'editorial',
     headline: '', about: '', location: '',
     skills: [], services: [], clients: [], available_for: [],
-    experience: [], awards: [], project_groups: [],
+    experience: [], awards: [], certifications: [], project_groups: [],
     collaborations: [], languages: [], client_count: '',
     template: 'individual',
     contact_email: '', contact_note: '',
+  };
+}
+
+function formFromApi(p: Record<string, any>): Form {
+  const groups = asArray<any>(p.project_groups).length
+    ? asArray<any>(p.project_groups)
+    : asArray<any>(p.projects);
+  return {
+    ...emptyForm(),
+    slug: p.slug || '',
+    visibility: p.visibility || 'unlisted',
+    theme: p.theme || 'editorial',
+    headline: p.headline || p.identity?.headline || '',
+    about: p.about || p.identity?.about || '',
+    location: p.location || p.identity?.location || '',
+    skills: asArray<any>(p.skills).map((s) => (typeof s === 'string' ? s : s?.name || s?.title || '')).filter(Boolean),
+    services: asArray<any>(p.services).map((s) => (typeof s === 'string' ? s : s?.title || s?.name || '')).filter(Boolean),
+    clients: asArray<any>(p.clients).map((c) => (typeof c === 'string' ? c : c?.name || '')).filter(Boolean),
+    available_for: asArray<any>(p.available_for).map((a) => (typeof a === 'string' ? a : a?.label || a?.name || '')).filter(Boolean),
+    experience: asArray<any>(p.experience).map((e) => ({
+      id: e.id || uid(),
+      title: e.role || e.title || '',
+      org: e.company || e.org || '',
+      period: [e.start, e.end].filter(Boolean).join(' — ') || e.year || e.period || '',
+      note: e.summary || e.note || '',
+    })),
+    awards: asArray<any>(p.awards).map((a) => ({
+      id: a.id || uid(),
+      title: a.title || a.name || '',
+      org: a.issuer || a.org || a.body || '',
+      period: a.year || a.period || '',
+      note: a.note || a.description || '',
+    })),
+    certifications: (asArray<any>(p.certifications).length
+      ? asArray<any>(p.certifications)
+      : asArray<any>(p.documents)
+    ).map((c) => ({
+      id: c.id || uid(),
+      title: c.title || c.name || c.originalFileName || 'Document',
+      org: c.issuer || c.org || '',
+      vault_id: String(c.vault_id || c.document_vault_id || c.documentKey || ''),
+      kind: (['license', 'course', 'workshop'].includes(String(c.kind || '').toLowerCase())
+        ? String(c.kind).toLowerCase()
+        : 'certificate') as PortfolioDoc['kind'],
+    })),
+    collaborations: asArray<any>(p.collaborations).map((c) => (
+      typeof c === 'string' ? c : String(c?.with || c?.partner || c?.name || c?.title || '')
+    )).filter(Boolean),
+    languages: asArray<any>(p.languages).map((l) => (typeof l === 'string' ? l : l?.name || '')).filter(Boolean),
+    client_count: p.client_count ? String(p.client_count) : '',
+    template: (p.template === 'creator' || p.template === 'business' ? p.template : 'individual') as Form['template'],
+    project_groups: groups.map((g) => ({
+      id: g.id || uid(),
+      title: g.title || '',
+      category: g.category || '',
+      year: g.year || '',
+      description: g.description || '',
+      vault_ids: asArray<string>(g.vault_ids).length
+        ? asArray<string>(g.vault_ids)
+        : asArray<string>(g.media_vault_ids).length
+          ? asArray<string>(g.media_vault_ids)
+          : (g.hub_vault_id ? [String(g.hub_vault_id)] : []),
+    })),
+    contact_email: p.contact_email || p.contact?.email || '',
+    contact_note: p.contact_note || p.contact?.note || '',
+  };
+}
+
+function buildPayload(form: Form) {
+  return {
+    ...form,
+    services: form.services.map((title) => ({ title })),
+    clients: form.clients.map((name) => ({ name })),
+    experience: form.experience.map((e) => ({
+      id: e.id, role: e.title, company: e.org, year: e.period, summary: e.note,
+    })),
+    awards: form.awards.map((a) => ({
+      id: a.id, title: a.title, issuer: a.org, year: a.period, note: a.note,
+    })),
+    certifications: form.certifications.map((c) => ({
+      id: c.id, title: c.title, issuer: c.org, vault_id: c.vault_id, kind: c.kind,
+    })),
+    collaborations: form.collaborations.map((withWho) => ({ with: withWho })),
+    languages: form.languages,
+    client_count: Number(form.client_count) || 0,
+    template: form.template,
+    project_groups: form.project_groups.map((g) => ({
+      ...g,
+      hub_vault_id: g.vault_ids[0] || '',
+      hub_protected: g.vault_ids.length > 0,
+    })),
   };
 }
 
@@ -227,6 +326,84 @@ function EntryList({ items, onChange, labels }: {
   );
 }
 
+function DocumentPicker({ vault, values, onChange }: {
+  vault: VaultRecord[];
+  values: PortfolioDoc[];
+  onChange: (next: PortfolioDoc[]) => void;
+}) {
+  const selected = new Set(values.map((d) => d.vault_id).filter(Boolean));
+  const patch = (id: string, key: keyof PortfolioDoc, value: string) =>
+    onChange(values.map((d) => (d.id === id ? { ...d, [key]: value } : d)));
+
+  const toggle = (record: VaultRecord) => {
+    if (selected.has(record.id)) {
+      onChange(values.filter((d) => d.vault_id !== record.id));
+      return;
+    }
+    onChange([...values, {
+      id: uid(),
+      title: record.originalFileName || 'Document',
+      org: '',
+      vault_id: record.id,
+      kind: 'certificate',
+    }]);
+  };
+
+  return (
+    <div className="pe-docs">
+      {values.map((doc) => (
+        <div key={doc.id} className="pe-doc">
+          <span className="pe-doc__icon"><FileText size={14} /></span>
+          <div className="pe-doc__fields">
+            <input value={doc.title} placeholder="Document title" onChange={(e) => patch(doc.id, 'title', e.target.value)} />
+            <input value={doc.org} placeholder="Issuer or context (optional)" onChange={(e) => patch(doc.id, 'org', e.target.value)} />
+            <div className="pe-chips">
+              {DOC_KINDS.map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={doc.kind === id ? 'is-on' : ''}
+                  onClick={() => patch(doc.id, 'kind', id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {doc.vault_id ? <em className="pe-doc__file">{vault.find((v) => v.id === doc.vault_id)?.originalFileName || 'Vault file'}</em> : null}
+          </div>
+          <button type="button" className="pe-x" onClick={() => onChange(values.filter((d) => d.id !== doc.id))}>
+            <Trash2 size={13} />
+          </button>
+        </div>
+      ))}
+      {vault.length === 0 ? (
+        <p className="pe-empty">Protect a file in Pinit HUB first — CVs, certificates, and briefs are picked from your vault, not uploaded here.</p>
+      ) : (
+        <>
+          <p className="pe-lead">Pick from your vault. Click again to remove.</p>
+          <div className="pe-vault">
+            {vault.map((v) => {
+              const on = selected.has(v.id);
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  className={`pe-thumb${on ? ' is-on' : ''}`}
+                  onClick={() => toggle(v)}
+                  title={v.originalFileName}
+                >
+                  <VaultThumb id={v.id} />
+                  {on ? <span className="pe-thumb__tick"><Check size={12} /></span> : null}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ── vault picker ───────────────────────────────────────────────────────── */
 
 function VaultThumb({ id }: { id: string }) {
@@ -273,6 +450,9 @@ export function PortfolioEditor() {
   const [previewUrl, setPreviewUrl] = useState('');
   const [justSaved, setJustSaved] = useState(false);
   const [justPublished, setJustPublished] = useState(false);
+  const formRef = useRef(form);
+  formRef.current = form;
+  const savingRef = useRef(false);
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -282,54 +462,7 @@ export function PortfolioEditor() {
       try {
         const { data } = await api.get<BridgeResponse>(`${API_BASE_URL}/portfolio/me`);
         const p = data?.portfolio || data || {};
-        const groups = asArray<any>(p.projects).length
-          ? asArray<any>(p.projects)
-          : asArray<any>((p as { project_groups?: unknown }).project_groups);
-        setForm({
-          ...emptyForm(),
-          slug: p.slug || '',
-          visibility: p.visibility || 'unlisted',
-          theme: p.theme || 'editorial',
-          headline: p.identity?.headline || '',
-          about: p.identity?.about || '',
-          location: p.identity?.location || '',
-          skills: asArray<string>(p.skills).map(String),
-          services: asArray<any>(p.services).map((s) => (typeof s === 'string' ? s : s?.title || '')).filter(Boolean),
-          clients: asArray<any>(p.clients).map((c) => (typeof c === 'string' ? c : c?.name || '')).filter(Boolean),
-          available_for: asArray<string>(p.available_for).map(String),
-          experience: asArray<any>(p.experience).map((e) => ({
-            id: e.id || uid(),
-            title: e.role || e.title || '',
-            org: e.company || e.org || '',
-            period: [e.start, e.end].filter(Boolean).join(' — ') || e.year || '',
-            note: e.summary || '',
-          })),
-          awards: asArray<any>(p.awards).map((a) => ({
-            id: a.id || uid(),
-            title: a.title || a.name || '',
-            org: a.issuer || a.body || '',
-            period: a.year || '',
-            note: a.note || '',
-          })),
-          collaborations: asArray<any>(p.collaborations).map((c) => (
-            typeof c === 'string' ? c : String(c?.with || c?.partner || c?.name || c?.title || '')
-          )).filter(Boolean),
-          languages: asArray<string>(p.languages).map(String),
-          client_count: p.client_count ? String(p.client_count) : '',
-          template: (p.template === 'creator' || p.template === 'business' ? p.template : 'individual') as Form['template'],
-          project_groups: groups.map((g) => ({
-            id: g.id || uid(),
-            title: g.title || '',
-            category: g.category || '',
-            year: g.year || '',
-            description: g.description || '',
-            vault_ids: asArray<string>(g.vault_ids).length
-              ? asArray<string>(g.vault_ids)
-              : (g.hub_vault_id ? [String(g.hub_vault_id)] : []),
-          })),
-          contact_email: p.contact?.email || '',
-          contact_note: p.contact?.note || '',
-        });
+        setForm(formFromApi(p));
         if (data?.public_url) setPublicUrl(data.public_url);
         if (data?.exchange_app_url) setExchangeUrl(String(data.exchange_app_url).replace(/\/$/, ''));
         if (data?.preview_url) setPreviewUrl(String(data.preview_url));
@@ -350,58 +483,53 @@ export function PortfolioEditor() {
     })();
   }, []);
 
-  const payload = () => ({
-    ...form,
-    services: form.services.map((title) => ({ title })),
-    clients: form.clients.map((name) => ({ name })),
-    experience: form.experience.map((e) => ({
-      id: e.id, role: e.title, company: e.org, year: e.period, summary: e.note,
-    })),
-    awards: form.awards.map((a) => ({
-      id: a.id, title: a.title, issuer: a.org, year: a.period, note: a.note,
-    })),
-    collaborations: form.collaborations.map((withWho) => ({ with: withWho })),
-    languages: form.languages,
-    client_count: Number(form.client_count) || 0,
-    template: form.template,
-    project_groups: form.project_groups.map((g) => ({
-      ...g,
-      hub_vault_id: g.vault_ids[0] || '',
-      hub_protected: g.vault_ids.length > 0,
-    })),
-  });
-
   const applyMeta = (data: BridgeResponse) => {
     if (data?.public_url) setPublicUrl(data.public_url);
     if (data?.exchange_app_url) setExchangeUrl(String(data.exchange_app_url).replace(/\/$/, ''));
     if (data?.preview_url) setPreviewUrl(String(data.preview_url));
-    if (data?.slug) set('slug', data.slug);
+    if (data?.slug) setForm((f) => (data.slug && data.slug !== f.slug ? { ...f, slug: data.slug } : f));
     if (data?.publish_state === 'PUBLISHED' || data?.published) setPublishState('PUBLISHED');
     if (data?.unpublished) setPublishState('DRAFT');
     if (typeof data?.published_version === 'number') setPublishedVersion(data.published_version);
   };
 
-  const saveDraft = useCallback(async () => {
-    setSaving(true);
-    setJustSaved(false);
+  const saveDraft = useCallback(async (opts?: { silent?: boolean }) => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    if (!opts?.silent) {
+      setSaving(true);
+      setJustSaved(false);
+    }
     try {
-      const { data } = await api.put<BridgeResponse>(`${API_BASE_URL}/portfolio/me`, payload());
+      const { data } = await api.put<BridgeResponse>(`${API_BASE_URL}/portfolio/me`, buildPayload(formRef.current));
       applyMeta(data);
       setJustSaved(true);
       setPreviewKey((k) => k + 1);
-      toast.success('Saved');
+      if (!opts?.silent) toast.success('Saved');
     } catch (err: any) {
       const d = err?.response?.data;
       toast.error(d?.error || d?.message || 'Could not save draft.');
     }
+    savingRef.current = false;
     setSaving(false);
-  }, [form]);
+  }, []);
+
+  useEffect(() => () => {
+    void api.put(`${API_BASE_URL}/portfolio/me`, buildPayload(formRef.current)).catch(() => { /* leaving the tab */ });
+  }, []);
+
+  const goSection = (id: SectionId) => {
+    if (typeof document !== 'undefined') (document.activeElement as HTMLElement | null)?.blur?.();
+    setSection(id);
+    setOpenCollection(null);
+    window.setTimeout(() => { void saveDraft({ silent: true }); }, 80);
+  };
 
   const publish = useCallback(async () => {
     setSaving(true);
     setJustPublished(false);
     try {
-      const { data } = await api.post<BridgeResponse>(`${API_BASE_URL}/portfolio/me/publish`, payload());
+      const { data } = await api.post<BridgeResponse>(`${API_BASE_URL}/portfolio/me/publish`, buildPayload(formRef.current));
       applyMeta(data);
       setPublishState('PUBLISHED');
       setJustPublished(true);
@@ -412,7 +540,7 @@ export function PortfolioEditor() {
       toast.error(d?.error || d?.message || 'Could not publish.');
     }
     setSaving(false);
-  }, [form]);
+  }, []);
 
   const copy = async () => {
     try {
@@ -498,7 +626,7 @@ export function PortfolioEditor() {
               key={s.id}
               type="button"
               className={section === s.id ? 'is-on' : ''}
-              onClick={() => { setSection(s.id); setOpenCollection(null); }}
+              onClick={() => goSection(s.id)}
             >
               <b>{s.label}</b>
               <em>{s.hint}</em>
@@ -507,7 +635,7 @@ export function PortfolioEditor() {
         </nav>
 
         <div className="pe-pane">
-          {section === 'identity' && (
+          <div hidden={section !== 'identity'}>
             <>
               <h3>Identity</h3>
               <p className="pe-lead">
@@ -554,7 +682,7 @@ export function PortfolioEditor() {
                 </div>
               </Field>
             </>
-          )}
+          </div>
 
           {section === 'work' && !collection && (
             <>
@@ -565,10 +693,17 @@ export function PortfolioEditor() {
               </p>
               <div className="pe-collections">
                 {form.project_groups.map((c) => (
-                  <button key={c.id} type="button" className="pe-collection" onClick={() => setOpenCollection(c.id)}>
-                    <b>{c.title || 'Untitled collection'}</b>
-                    <em>{c.vault_ids.length} piece{c.vault_ids.length === 1 ? '' : 's'}</em>
-                  </button>
+                  <div key={c.id} className="pe-collection-row">
+                    <button type="button" className="pe-collection" onClick={() => setOpenCollection(c.id)}>
+                      <b>{c.title || 'Untitled collection'}</b>
+                      <em>{c.vault_ids.length} piece{c.vault_ids.length === 1 ? '' : 's'}</em>
+                    </button>
+                    {c.vault_ids.length === 0 ? (
+                      <button type="button" className="pe-add" onClick={() => setOpenCollection(c.id)}>
+                        <Plus size={13} /> Add pictures
+                      </button>
+                    ) : null}
+                  </div>
                 ))}
                 <button
                   type="button"
@@ -670,7 +805,7 @@ export function PortfolioEditor() {
             </>
           )}
 
-          {section === 'about' && (
+          <div hidden={section !== 'about'}>
             <>
               <h3>About</h3>
               <p className="pe-lead">
@@ -718,10 +853,17 @@ export function PortfolioEditor() {
                   labels={{ title: 'Award or show', org: 'Who gave it', period: '2025', note: 'Detail' }}
                 />
               </Field>
+              <Field label="Licenses & certificates" hint="Pick files from your vault. They appear on the public Certificates tab — not a second upload.">
+                <DocumentPicker
+                  vault={vault}
+                  values={form.certifications}
+                  onChange={(v) => set('certifications', v)}
+                />
+              </Field>
             </>
-          )}
+          </div>
 
-          {section === 'contact' && (
+          <div hidden={section !== 'contact'}>
             <>
               <h3>Contact</h3>
               <p className="pe-lead">
@@ -745,9 +887,9 @@ export function PortfolioEditor() {
                 />
               </Field>
             </>
-          )}
+          </div>
 
-          {section === 'look' && (
+          <div hidden={section !== 'look'}>
             <>
               <h3>Look</h3>
               <p className="pe-lead">Same page, four worlds. Nothing else moves.</p>
@@ -766,9 +908,9 @@ export function PortfolioEditor() {
                 ))}
               </div>
             </>
-          )}
+          </div>
 
-          {section === 'publish' && (
+          <div hidden={section !== 'publish'}>
             <>
               <h3>Publish</h3>
               <Field label="Your link" hint="Letters, numbers and dashes.">
@@ -813,7 +955,7 @@ export function PortfolioEditor() {
                 </p>
               ) : null}
             </>
-          )}
+          </div>
         </div>
 
         {/*

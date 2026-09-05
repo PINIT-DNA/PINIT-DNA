@@ -168,14 +168,23 @@ export function normalizePathname(pathname) {
   return p;
 }
 
+export function parsePublicPortfolioPath(pathname) {
+  const m = normalizePathname(pathname).match(/^\/p\/([^/]+)(?:\/([^/]+))?(?:\/([^/]+))?$/i);
+  if (!m) return null;
+  return {
+    slug: decodeURIComponent(m[1]).toLowerCase(),
+    section: (m[2] || '').toLowerCase(),
+    piece: m[3] ? decodeURIComponent(m[3]) : '',
+  };
+}
+
 export function portfolioSlugFromPath(pathname) {
-  const m = normalizePathname(pathname).match(/^\/p\/([^/]+)$/i);
-  return m ? decodeURIComponent(m[1]).toLowerCase() : '';
+  return parsePublicPortfolioPath(pathname)?.slug || '';
 }
 
 export function pageFromPath(pathname) {
   const p = normalizePathname(pathname);
-  if (portfolioSlugFromPath(p)) return 'public_portfolio';
+  if (parsePublicPortfolioPath(p)) return 'public_portfolio';
   if (ALIASES[p]) return ALIASES[p];
   const hit = Object.entries(ROUTES).find(([, meta]) => meta.path === p);
   return hit ? hit[0] : 'not_found';
@@ -184,7 +193,11 @@ export function pageFromPath(pathname) {
 export function pathForPage(page, extra = {}) {
   if (page === 'public_portfolio') {
     const slug = extra.slug || extra.portfolioSlug || '';
-    return slug ? `/p/${encodeURIComponent(slug)}` : '/p';
+    if (!slug) return '/p';
+    let path = `/p/${encodeURIComponent(slug)}`;
+    if (extra.section) path += `/${encodeURIComponent(extra.section)}`;
+    if (extra.piece) path += `/${encodeURIComponent(extra.piece)}`;
+    return path;
   }
   return ROUTES[page]?.path || '/';
 }

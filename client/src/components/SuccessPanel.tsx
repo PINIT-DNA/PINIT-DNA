@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { CheckCircle2, Shield, Lock, Archive, Plus, Copy, Check, Download, Loader2, ArrowLeft } from 'lucide-react';
+import { CheckCircle2, Shield, Lock, Archive, Plus, Copy, Check, Download, Loader2, ArrowLeft, Briefcase } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -240,6 +240,15 @@ export function SuccessPanel({ session, onReset, campaignId }: Props) {
             <Link to={`/business/campaigns/${campaignId}`} className="btn btn-primary flex-1 py-3">
               <ArrowLeft size={16} />
               <span>Back to Campaign</span>
+            </Link>
+          )}
+          {vaultId && (
+            <Link
+              to={`/profile?tab=portfolio&addVault=${encodeURIComponent(vaultId)}`}
+              className="w-full flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-4 py-3 text-sm text-white"
+            >
+              <Briefcase size={16} />
+              Add to Portfolio
             </Link>
           )}
           <button type="button" onClick={onReset} className="btn btn-secondary flex-1 py-3">

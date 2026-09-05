@@ -24,6 +24,10 @@ export function errorMiddleware(
   res: Response,
   _next: NextFunction
 ): void {
+  if (res.headersSent) {
+    logger.error('Unhandled error after response started', { error: err.message, stack: err.stack });
+    return;
+  }
   if (err.name === 'SubscriptionRequiredError') {
     const e = err as AppError & { requiredPlan?: string; feature?: string };
     res.status(403).json({
@@ -105,7 +109,7 @@ export function errorMiddleware(
     res.status(400).json({ success: false, error: err.message });
     return;
   }
-  if (err.message.startsWith('Unsupported file type') || err.message.includes('File too large')) {
+  if (err.message.startsWith('Unsupported file type') || err.message.includes('File too large') || err.message.includes('JPG, PNG, WEBP')) {
     res.status(400).json({ success: false, error: err.message });
     return;
   }

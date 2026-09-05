@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Shield, Bell, LogOut, Settings, HelpCircle, Sun, Moon, Crown } from 'lucide-react';
+import { User, Shield, Bell, LogOut, Settings, HelpCircle, Sun, Moon, Crown, Briefcase } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../hooks/useTheme';
 import { useUserProfile, isRealDisplayName, resolveDisplayName } from '../../hooks/useUserProfile';
@@ -101,7 +101,8 @@ export function ProfileDropdown() {
 
           {/* Menu */}
           <div className="py-1">
-            <MenuItem icon={<User size={14} />} label="Account" onClick={() => go('/profile')} />
+            <MenuItem icon={<User size={14} />} label="Account" onClick={() => go('/profile?tab=profile')} />
+            <MenuItem icon={<Briefcase size={14} />} label="Portfolio" onClick={() => go('/profile?tab=portfolio')} />
             <MenuItem icon={<Shield size={14} />} label="Security" onClick={() => go('/profile?tab=security')} />
             <MenuItem icon={<Bell size={14} />} label="Notifications" onClick={() => go('/profile?tab=notifications')} />
             <MenuItem icon={<Settings size={14} />} label="Preferences" onClick={() => go('/profile?tab=settings')} />

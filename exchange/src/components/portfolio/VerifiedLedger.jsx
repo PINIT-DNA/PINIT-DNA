@@ -54,12 +54,30 @@ export function VerifiedMark({ verified }) {
   return (
     <p className="pv-mark">
       <BadgeCheck size={14} />
-      Pinit Verified · {total} asset{total === 1 ? '' : 's'} sealed
+      Pinit Verified · {total} piece{total === 1 ? '' : 's'} sealed
     </p>
   );
 }
 
-export default function VerifiedLedger({ verified, name }) {
+export function LicenseBadge({ license }) {
+  if (!license?.assets_sealed) return null;
+  return (
+    <div className="pv-license">
+      <span className="pv-license__seal"><BadgeCheck size={22} /></span>
+      <div>
+        <p className="pv-license__kicker">{license.badge}</p>
+        <h3>{license.role} license</h3>
+        <p>
+          Issued by Pinit for work sealed in HUB
+          {license.since ? ` · since ${license.since}` : ''}
+          {` · ${license.assets_sealed} protected ${license.assets_sealed === 1 ? 'piece' : 'pieces'}`}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export default function VerifiedLedger({ verified, name, license }) {
   const entries = verified?.entries || [];
 
   // A portfolio with nothing protected hides this section rather than showing
@@ -82,6 +100,7 @@ export default function VerifiedLedger({ verified, name }) {
       </p>
 
       <VerifiedStats verified={verified} />
+      <LicenseBadge license={license} />
 
       {/* Assets protected per year. It fills itself, and a record of showing up
           is worth more on a portfolio than another paragraph about passion. */}
@@ -107,7 +126,7 @@ export default function VerifiedLedger({ verified, name }) {
               <th>Piece</th>
               <th>Protected</th>
               <th>Certificate</th>
-              <th>DNA</th>
+              <th>Kind</th>
               <th>Tier</th>
               <th>Human</th>
             </tr>
@@ -119,8 +138,8 @@ export default function VerifiedLedger({ verified, name }) {
                 <td className="pv-d">{when(e.protected_at)}</td>
                 {/* The asset id is the real certificate reference. Nothing is
                     invented here — a made-up number would undo the whole page. */}
-                <td>{e.certificate || e.asset_id}</td>
-                <td>{e.dna || '—'}</td>
+                <td>{e.certificate || '—'}</td>
+                <td>{e.vertical || e.file_type || '—'}</td>
                 <td>{e.badge_tier || '—'}</td>
                 <td>{Number.isFinite(e.human_percent) ? `${e.human_percent}%` : '—'}</td>
               </tr>

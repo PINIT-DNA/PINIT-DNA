@@ -138,6 +138,30 @@ export async function requireOnboardingPayer(req, res, next) {
   }
 }
 
+/** Any signed-in Exchange/Hub identity — portfolio is not seller-only. */
+export async function requireExchangeUser(req, res, next) {
+  try {
+    const pinitId = pinitIdFromReq(req);
+    if (!pinitId) {
+      return res.status(401).json({
+        error: 'AUTH_REQUIRED',
+        message: 'Sign in to edit your portfolio.',
+      });
+    }
+    const user = await findUserByPinitId(pinitId);
+    if (!user) {
+      return res.status(401).json({
+        error: 'AUTH_REQUIRED',
+        message: 'Sign in to edit your portfolio.',
+      });
+    }
+    req.exchangeUser = user;
+    next();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 export async function requireSeller(req, res, next) {
   try {
     const pinitId = pinitIdFromReq(req);

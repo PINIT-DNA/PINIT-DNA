@@ -421,10 +421,32 @@ export const portfolioService = {
   async importFromExchangeIfEmpty(userId: string): Promise<boolean> {
     const row = await prisma.portfolio.findUnique({
       where: { userId },
-      include: { projects: true, profile: true },
+      include: {
+        projects: true,
+        profile: true,
+        skills: true,
+        services: true,
+        experience: true,
+        awards: true,
+        collaborations: true,
+        certificates: true,
+      },
     });
     if (!row) return false;
-    const hasContent = Boolean(row.profile?.headline || row.profile?.about || row.projects.length);
+    const touched = row.updatedAt.getTime() - row.createdAt.getTime() > 3000;
+    const hasContent = Boolean(
+      touched
+      || row.profile?.headline
+      || row.profile?.about
+      || row.profile?.location
+      || row.projects.length
+      || row.skills.length
+      || row.services.length
+      || row.experience.length
+      || row.awards.length
+      || row.collaborations.length
+      || row.certificates.length
+    );
     if (hasContent) return false;
     try {
       const profiles = await fetchExchangeProfiles();

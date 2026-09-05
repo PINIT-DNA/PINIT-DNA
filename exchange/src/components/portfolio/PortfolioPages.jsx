@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowRight, ArrowUpRight, Award, BadgeCheck, Camera, Download, Globe,
+  ArrowUpRight, Award, BadgeCheck, Camera, Download, Globe, ImagePlus,
   Handshake, Languages, Mail, MapPin, Palette, PenTool, Send, Share2, Star, Trophy,
 } from 'lucide-react';
 import { listingPreviewUrl } from '../../lib/listing-preview.js';
-import VerifiedLedger from './VerifiedLedger.jsx';
+import LicensesCertificates from './LicensesCertificates.jsx';
 
 /**
  * The public portfolio.
@@ -39,12 +39,30 @@ function flatten(list, ...keys) {
   }).filter(Boolean);
 }
 
-function Media({ src, alt = '', className = '' }) {
-  if (!src) return <span className={`pf-media pf-media--empty ${className}`} />;
-  if (/\.(mp4|webm|mov)(\?|$)/i.test(src)) {
-    return <video className={`pf-media ${className}`} src={src} muted playsInline loop />;
+function Media({ src, alt = '', className = '', kind = 'work' }) {
+  const [failed, setFailed] = useState(false);
+  if (src && !failed) {
+    if (/\.(mp4|webm|mov)(\?|$)/i.test(src)) {
+      return <video className={`pf-media ${className}`} src={src} muted playsInline loop />;
+    }
+    return (
+      <img
+        className={`pf-media ${className}`}
+        src={src}
+        alt={alt}
+        loading="lazy"
+        onError={() => setFailed(true)}
+      />
+    );
   }
-  return <img className={`pf-media ${className}`} src={src} alt={alt} loading="lazy" />;
+  const letter = (alt || 'P').trim().charAt(0).toUpperCase() || 'P';
+  return (
+    <span className={`pf-media pf-media--dummy pf-media--${kind} ${className}`} role="img" aria-label={alt || 'Placeholder'}>
+      {kind === 'portrait'
+        ? <em>{letter}</em>
+        : <span>Work in progress</span>}
+    </span>
+  );
 }
 
 /** The data carries no icon of its own, so services rotate through a set. */
@@ -64,9 +82,7 @@ function Hero({ portfolio, onContact }) {
     <header className="pf-hero" id="pf-overview">
       <div className="pf-hero__inner">
         <div className="pf-portrait">
-          {id.photo_url
-            ? <Media src={id.photo_url} alt={id.name} />
-            : <span className="pf-portrait__letter">{(id.name || 'P')[0]}</span>}
+          <Media src={id.photo_url} alt={id.name} kind="portrait" />
           <span className="pf-portrait__mark">Create<br />Protect<br />Share</span>
         </div>
 
@@ -74,7 +90,6 @@ function Hero({ portfolio, onContact }) {
           {kicker ? <p className="pf-kicker">{kicker}</p> : null}
           <h1 className="pf-name">{id.name}</h1>
           {id.headline ? <p className="pf-tagline">{id.headline}</p> : null}
-          {id.about ? <p className="pf-bio">{id.about}</p> : null}
 
           <div className="pf-meta">
             {id.location ? <span><MapPin size={13} /> {id.location}</span> : null}
@@ -84,32 +99,29 @@ function Hero({ portfolio, onContact }) {
             {languages.length ? <span><Languages size={13} /> {languages.join(', ')}</span> : null}
           </div>
 
-          <div className="pf-hero__foot">
-            {stats?.assets_protected ? (
-              <div className="pf-stats">
-                <div><b>{stats.assets_protected}</b><span>Assets Protected</span></div>
-                {stats.since ? <div><b>{stats.since}</b><span>Protecting Since</span></div> : null}
-                {Number.isFinite(stats.avg_human_percent)
-                  ? <div><b>{stats.avg_human_percent}%</b><span>Human, on Average</span></div>
-                  : null}
-              </div>
-            ) : <span />}
-
-            <div className="pf-hero__cta">
-              <button type="button" className="pf-btn" onClick={() => window.print()}>
-                <Download size={14} /> Download CV
-              </button>
-              <button type="button" className="pf-btn pf-btn--go" onClick={onContact}>
-                <Send size={14} /> Let&rsquo;s Collaborate
-              </button>
+          {stats?.assets_protected ? (
+            <div className="pf-stats">
+              <div><b>{stats.assets_protected}</b><span>Assets Protected</span></div>
+              {stats.since ? <div><b>{stats.since}</b><span>Protecting Since</span></div> : null}
+              {Number.isFinite(stats.avg_human_percent)
+                ? <div><b>{stats.avg_human_percent}%</b><span>Human, on Average</span></div>
+                : null}
             </div>
+          ) : null}
+
+          <div className="pf-hero__cta">
+            <button type="button" className="pf-btn" onClick={() => window.print()}>
+              <Download size={14} /> Download CV
+            </button>
+            <button type="button" className="pf-btn pf-btn--go" onClick={onContact}>
+              <Send size={14} /> Let&rsquo;s Collaborate
+            </button>
           </div>
         </div>
 
-        {/* Only shown when the person actually wrote something to quote. */}
         {portfolio.contact?.note ? (
           <aside className="pf-quote">
-            <p>&ldquo;{String(portfolio.contact.note).split('.')[0]}.&rdquo;</p>
+            <p>&ldquo;{String(portfolio.contact.note).split('.')[0].trim()}.&rdquo;</p>
             <span className="pf-quote__sign">{(id.name || '').split(' ')[0]}</span>
           </aside>
         ) : null}
@@ -127,7 +139,15 @@ function SectionHead({ title, sub }) {
   );
 }
 
-function FeaturedWork({ portfolio, openCollection, sealed }) {
+function coverOf(collection) {
+  if (collection?.cover_url) return collection.cover_url;
+  const gallery = asArray(collection?.gallery);
+  const first = gallery[0];
+  if (typeof first === 'string') return first;
+  return first?.url || first?.src || '';
+}
+
+function FeaturedWork({ portfolio, openCollection, sealed, ownerView }) {
   const collections = asArray(portfolio.projects);
   if (collections.length === 0) return null;
 
@@ -140,14 +160,21 @@ function FeaturedWork({ portfolio, openCollection, sealed }) {
       <div className="pf-work">
         {collections.map((c) => {
           const tags = [c.category, ...asArray(c.tools)].filter(Boolean).slice(0, 3);
+          const cover = coverOf(c);
+          const empty = !cover && asArray(c.gallery).length === 0;
           return (
             <article key={c.id} className="pf-card">
               <button type="button" className="pf-card__img" onClick={() => openCollection(c.id)}>
-                <Media src={c.cover_url} alt={c.title} />
+                <Media src={cover} alt={c.title} kind="work" />
                 {sealed && c.hub_protected
                   ? <span className="pf-sealed"><BadgeCheck size={11} /> Sealed</span>
                   : null}
                 <span className="pf-card__go"><ArrowUpRight size={15} /></span>
+                {empty && ownerView ? (
+                  <span className="pf-card__add">
+                    <ImagePlus size={14} /> Add pictures
+                  </span>
+                ) : null}
               </button>
               <div className="pf-card__body">
                 <div className="pf-card__top">
@@ -167,143 +194,108 @@ function FeaturedWork({ portfolio, openCollection, sealed }) {
   );
 }
 
-function ServicesSkills({ portfolio }) {
-  const services = flatten(portfolio.services, 'title', 'name', 'label');
-  const skills = flatten(portfolio.skills, 'name', 'title', 'label');
-  if (!services.length && !skills.length) return null;
-
-  return (
-    <section className="pf-section pf-split">
-      <div>
-        {services.length ? (
-          <>
-            <SectionHead title="Services" sub="What I can help you with." />
-            <div className="pf-services">
-              {services.map((s, i) => {
-                const Icon = SERVICE_ICONS[i % SERVICE_ICONS.length];
-                return (
-                  <article key={s} className={`pf-service pf-service--${i % 4}`}>
-                    <span className="pf-service__icon"><Icon size={17} /></span>
-                    <h3>{s}</h3>
-                  </article>
-                );
-              })}
-            </div>
-          </>
-        ) : null}
-      </div>
-
-      <div>
-        {skills.length ? (
-          <>
-            <SectionHead title="Skills" sub="Tools and skills I work with." />
-            <div className="pf-tags">{skills.map((s) => <span key={s}>{s}</span>)}</div>
-          </>
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
 function AboutMe({ portfolio }) {
   const id = portfolio.identity || {};
   const available = flatten(portfolio.available_for, 'label', 'name');
   const languages = flatten(portfolio.languages, 'label', 'name');
   const experience = asArray(portfolio.experience);
-  if (!id.about && !experience.length) return null;
+  const awards = asArray(portfolio.awards);
+  const services = flatten(portfolio.services, 'title', 'name', 'label');
+  const skills = flatten(portfolio.skills, 'name', 'title', 'label');
+  if (!id.about && !experience.length && !awards.length && !services.length && !skills.length) return null;
 
   return (
     <section className="pf-section pf-about" id="pf-about">
-      <div className="pf-about__bio">
-        <h2>About Me</h2>
-        {id.about ? <p>{id.about}</p> : null}
-      </div>
-
-      <div className="pf-about__facts">
-        {id.location ? (
-          <div><MapPin size={14} /><span>Based in</span><b>{id.location}</b></div>
-        ) : null}
-        {available.length ? (
-          <div><Globe size={14} /><span>Available for</span><b>{available.join(' · ')}</b></div>
-        ) : null}
-        {languages.length ? (
-          <div><Languages size={14} /><span>Languages</span><b>{languages.join(', ')}</b></div>
-        ) : null}
-      </div>
-
-      {experience.length ? (
-        <div className="pf-about__exp">
-          <SectionHead title="Experience" />
-          <ol className="pf-timeline">
-            {experience.map((job, i) => {
-              const org = labelOf(job, 'company', 'org');
-              const role = labelOf(job, 'role', 'title');
-              return (
-                <li key={job.id || i}>
-                  <span className="pf-dot" />
-                  <span className="pf-when">
-                    {[job.start, job.end].filter(Boolean).join(' — ') || job.year || ''}
-                  </span>
-                  <div>
-                    <b>{org || role}</b>
-                    {org && role ? <p>{role}</p> : null}
-                    {job.summary ? <p className="pf-dim">{job.summary}</p> : null}
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
+      <div className="pf-about__main">
+        <div className="pf-about__story">
+          <h2>About</h2>
+          {id.about ? <p>{id.about}</p> : null}
+          <div className="pf-about__facts">
+            {id.location ? (
+              <div><MapPin size={14} /><span>Based in</span><b>{id.location}</b></div>
+            ) : null}
+            {available.length ? (
+              <div><Globe size={14} /><span>Available for</span><b>{available.join(' · ')}</b></div>
+            ) : null}
+            {languages.length ? (
+              <div><Languages size={14} /><span>Languages</span><b>{languages.join(', ')}</b></div>
+            ) : null}
+          </div>
         </div>
-      ) : null}
-    </section>
-  );
-}
 
-function AwardsCerts({ portfolio }) {
-  const awards = asArray(portfolio.awards);
-  const certs = asArray(portfolio.certifications);
-  if (!awards.length && !certs.length) return null;
-
-  return (
-    <section className="pf-section pf-split">
-      <div>
-        {awards.length ? (
-          <>
-            <SectionHead title="Awards & Recognition" sub="Milestones and achievements." />
-            <div className="pf-awards">
-              {awards.map((a, i) => {
-                const Icon = AWARD_ICONS[i % AWARD_ICONS.length];
+        {experience.length ? (
+          <div className="pf-about__exp">
+            <SectionHead title="Experience" />
+            <ol className="pf-timeline">
+              {experience.map((job, i) => {
+                const org = labelOf(job, 'company', 'org');
+                const role = labelOf(job, 'role', 'title');
                 return (
-                  <article key={a.id || i} className="pf-award">
-                    <span className="pf-award__icon"><Icon size={16} /></span>
-                    <b>{labelOf(a, 'title', 'name')}</b>
-                    {labelOf(a, 'issuer', 'org', 'body')
-                      ? <p>{labelOf(a, 'issuer', 'org', 'body')}</p> : null}
-                    {a.year ? <span className="pf-year">{a.year}</span> : null}
-                  </article>
+                  <li key={job.id || i}>
+                    <span className="pf-dot" />
+                    <span className="pf-when">
+                      {[job.start, job.end].filter(Boolean).join(' — ') || job.year || ''}
+                    </span>
+                    <div>
+                      <b>{org || role}</b>
+                      {org && role ? <p>{role}</p> : null}
+                      {job.summary ? <p className="pf-dim">{job.summary}</p> : null}
+                      {job.location ? <p className="pf-dim">{job.location}</p> : null}
+                    </div>
+                  </li>
                 );
               })}
-            </div>
-          </>
+            </ol>
+          </div>
         ) : null}
       </div>
 
-      <div>
-        {certs.length ? (
-          <>
-            <SectionHead title="Certificates" sub="Professional certifications and courses." />
-            <div className="pf-certs">
-              {certs.map((c, i) => (
-                <article key={c.id || i} className="pf-cert">
-                  <span className="pf-cert__doc" />
-                  <b>{labelOf(c, 'title', 'name')}</b>
-                  {labelOf(c, 'issuer', 'org') ? <p>{labelOf(c, 'issuer', 'org')}</p> : null}
-                </article>
-              ))}
+      {(services.length || skills.length) ? (
+        <div className="pf-about__practice">
+          {services.length ? (
+            <div>
+              <SectionHead title="Services" sub="What I can help you with." />
+              <div className="pf-services">
+                {services.map((s, i) => {
+                  const Icon = SERVICE_ICONS[i % SERVICE_ICONS.length];
+                  return (
+                    <article key={s} className={`pf-service pf-service--${i % 4}`}>
+                      <span className="pf-service__icon"><Icon size={17} /></span>
+                      <h3>{s}</h3>
+                    </article>
+                  );
+                })}
+              </div>
             </div>
-          </>
-        ) : null}
-      </div>
+          ) : null}
+          {skills.length ? (
+            <div>
+              <SectionHead title="Skills" sub="Tools and skills I work with." />
+              <div className="pf-tags">{skills.map((s) => <span key={s}>{s}</span>)}</div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {awards.length ? (
+        <div className="pf-about__awards">
+          <SectionHead title="Awards & Recognition" sub="Milestones and achievements." />
+          <div className="pf-awards">
+            {awards.map((a, i) => {
+              const Icon = AWARD_ICONS[i % AWARD_ICONS.length];
+              return (
+                <article key={a.id || i} className="pf-award">
+                  <span className="pf-award__icon"><Icon size={16} /></span>
+                  <b>{labelOf(a, 'title', 'name')}</b>
+                  {labelOf(a, 'issuer', 'org', 'body')
+                    ? <p>{labelOf(a, 'issuer', 'org', 'body')}</p> : null}
+                  {a.year ? <span className="pf-year">{a.year}</span> : null}
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -380,8 +372,11 @@ function Contact({ portfolio, onContact }) {
   );
 }
 
-function CollectionView({ collection, onBack, sealed }) {
-  const gallery = asArray(collection.gallery);
+function CollectionView({ collection, onBack, sealed, ownerView }) {
+  const gallery = asArray(collection.gallery).filter((g) => {
+    const src = typeof g === 'string' ? g : g?.url || g?.src || '';
+    return Boolean(src);
+  });
   return (
     <section className="pf-section">
       <button type="button" className="pf-back" onClick={onBack}>← All work</button>
@@ -394,15 +389,20 @@ function CollectionView({ collection, onBack, sealed }) {
         <div className="pf-gallery">
           {gallery.map((g, i) => {
             const src = typeof g === 'string' ? g : g?.url || g?.src || '';
-            return src ? (
+            return (
               <figure key={`${collection.id}-${i}`}>
-                <Media src={src} alt={collection.title} />
+                <Media src={src} alt={collection.title} kind="work" />
                 {sealed ? <figcaption className="pf-sealed"><BadgeCheck size={11} /> Sealed</figcaption> : null}
               </figure>
-            ) : null;
+            );
           })}
         </div>
-      ) : <p className="pf-dim">No pieces published in this collection yet.</p>}
+      ) : ownerView ? (
+        <div className="pf-gallery-empty">
+          <Media src="" alt={collection.title} kind="work" />
+          <p>No pictures in this collection yet. Open Portfolio → Work in Pinit HUB and pick files from your vault.</p>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -420,7 +420,10 @@ export default function PortfolioPages({
     if (asArray(portfolio?.projects).length) items.push(['work', 'Work']);
     if (asArray(portfolio?.marketplace).length) items.push(['shop', 'Shop']);
     items.push(['about', 'About']);
-    if (portfolio?.verified?.entries?.length) items.push(['verified', 'Verified']);
+    const hasCredentials = asArray(portfolio?.certifications).length
+      || asArray(portfolio?.awards).length
+      || asArray(portfolio?.verified?.entries).length;
+    if (hasCredentials) items.push(['certificates', 'Certificates']);
     items.push(['contact', 'Contact']);
     return items;
   }, [portfolio]);
@@ -443,7 +446,8 @@ export default function PortfolioPages({
   useEffect(() => {
     const read = () => {
       const h = (window.location.hash || '').replace(/^#\/?/, '');
-      const [section, cid] = h.split('/');
+      const [raw, cid] = h.split('/');
+      const section = raw === 'verified' ? 'certificates' : raw;
       if (section === 'work' && cid) { setOpenId(cid); return; }
       setOpenId(null);
       if (section && nav.some(([k]) => k === section)) {
@@ -478,6 +482,7 @@ export default function PortfolioPages({
   if (!portfolio) return null;
   const id = portfolio.identity || {};
   const sealed = Boolean(portfolio.verified?.entries?.length);
+  const ownerView = Boolean(portfolio.owner_view);
   const collection = openId
     ? asArray(portfolio.projects).find((c) => String(c.id) === String(openId))
     : null;
@@ -514,24 +519,18 @@ export default function PortfolioPages({
       </nav>
 
       {collection ? (
-        <CollectionView collection={collection} onBack={() => scrollTo('work')} sealed={sealed} />
+        <CollectionView collection={collection} onBack={() => scrollTo('work')} sealed={sealed} ownerView={ownerView} />
       ) : (
         <>
           <Hero portfolio={portfolio} onContact={contact} />
-          <FeaturedWork portfolio={portfolio} openCollection={openCollection} sealed={sealed} />
-          <ServicesSkills portfolio={portfolio} />
+          <FeaturedWork portfolio={portfolio} openCollection={openCollection} sealed={sealed} ownerView={ownerView} />
           <AboutMe portfolio={portfolio} />
-          <AwardsCerts portfolio={portfolio} />
           <ShopCollabs portfolio={portfolio} onSelectListing={onSelectListing} />
-          {sealed ? (
-            <section className="pf-section" id="pf-verified">
-              <VerifiedLedger
-                verified={portfolio.verified}
-                license={portfolio.license}
-                name={(id.name || '').split(' ')[0]}
-              />
-            </section>
-          ) : null}
+          <LicensesCertificates
+            portfolio={portfolio}
+            onShare={onShare}
+            name={(id.name || '').split(' ')[0]}
+          />
           <Contact portfolio={portfolio} onContact={contact} />
         </>
       )}

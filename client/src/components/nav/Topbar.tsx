@@ -39,8 +39,11 @@ export function Topbar({ onMenu }: TopbarProps) {
   const location = useLocation();
   const { isBusinessShell } = useAccountViewMode();
   const notificationsOpen = location.pathname === '/profile' && new URLSearchParams(location.search).get('tab') === 'notifications';
+  const portfolioOpen = location.pathname === '/profile' && new URLSearchParams(location.search).get('tab') === 'portfolio';
   const meta = notificationsOpen
     ? { title: 'Notifications', subtitle: 'Choose what we notify you about' }
+    : portfolioOpen
+    ? { title: 'Portfolio', subtitle: 'Showcase your work and professional story' }
     : (PAGE_META[location.pathname]
     ?? (/^\/vault\/assets\/[^/]+\/shares\//.test(location.pathname)
       ? { title: 'Manage share', subtitle: 'Secure link details and actions' }

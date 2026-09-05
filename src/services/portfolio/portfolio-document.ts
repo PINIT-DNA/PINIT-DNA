@@ -124,17 +124,25 @@ export function parseEditorBody(body: EditorBody) {
     };
   }).filter((a) => a.title);
 
-  const certificates = asArray(body.certifications).map((raw, index) => {
+  const certificateSource = asArray(body.certifications).length
+    ? asArray(body.certifications)
+    : asArray(body.documents);
+  const certificates = certificateSource.map((raw, index) => {
     const c = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    const vaultId = String(c.vault_id || c.document_vault_id || c.documentKey || '').trim();
     return {
-      title: String(c.title || c.name || ''),
+      title: String(c.title || c.name || c.originalFileName || '').trim() || (vaultId ? 'Document' : ''),
       issuer: String(c.issuer || c.org || ''),
-      issuedOn: String(c.year || c.date || ''),
-      credentialId: String(c.credential_id || c.id || ''),
+      issuedOn: String(c.year || c.date || c.period || ''),
+      credentialId: String(c.credential_id || '').trim(),
       description: String(c.note || c.description || ''),
+      documentKey: vaultId || null,
+      relatedSkill: ['license', 'course', 'workshop', 'award'].includes(String(c.kind || c.relatedSkill || '').toLowerCase())
+        ? String(c.kind || c.relatedSkill).toLowerCase()
+        : 'certificate',
       sortOrder: index,
     };
-  }).filter((c) => c.title);
+  }).filter((c) => c.title || c.documentKey);
 
   const collaborations = [
     ...asArray(body.collaborations).map((raw, index) => {
@@ -225,6 +233,16 @@ export function editorFormFromGraph(graph: {
   skills: Array<{ name: string }>;
   experience: Array<{ role: string; company: string; startDate: string; endDate: string; description: string }>;
   awards: Array<{ id: string; title: string; organization: string; year: string; description: string }>;
+  certificates?: Array<{
+    id: string;
+    title: string;
+    issuer: string;
+    issuedOn: string;
+    credentialId: string;
+    description: string;
+    documentKey?: string | null;
+    relatedSkill?: string;
+  }>;
   collaborations: Array<{ name: string; kind: string }>;
 }): Record<string, unknown> {
   const p = graph.profile;
@@ -258,6 +276,15 @@ export function editorFormFromGraph(graph: {
       org: a.organization,
       period: a.year,
       note: a.description,
+    })),
+    certifications: (graph.certificates || []).map((c) => ({
+      id: c.id,
+      title: c.title,
+      org: c.issuer,
+      period: c.issuedOn,
+      note: c.description,
+      vault_id: c.documentKey || '',
+      kind: c.relatedSkill || 'certificate',
     })),
     project_groups: graph.projects.map((proj) => ({
       id: proj.id,
@@ -318,7 +345,16 @@ export function assemblePresentation(
     skills: Array<{ name: string }>;
     experience: Array<{ role: string; company: string; startDate: string; endDate: string; description: string; location: string }>;
     awards: Array<{ title: string; organization: string; year: string; description: string }>;
-    certificates: Array<{ title: string; issuer: string; issuedOn: string; credentialId: string; description: string }>;
+    certificates: Array<{
+      id?: string;
+      title: string;
+      issuer: string;
+      issuedOn: string;
+      credentialId: string;
+      description: string;
+      documentKey?: string | null;
+      relatedSkill?: string;
+    }>;
     collaborations: Array<{ name: string; kind: string }>;
     socialLinks: Array<{ label: string; url: string }>;
   },
@@ -395,11 +431,15 @@ export function assemblePresentation(
       note: a.description,
     })),
     certifications: graph.certificates.map((c) => ({
+      id: c.id,
       title: c.title,
       issuer: c.issuer,
       year: c.issuedOn,
       credential_id: c.credentialId,
       note: c.description,
+      kind: c.relatedSkill || 'certificate',
+      hub_protected: Boolean(c.documentKey),
+      media_vault_ids: c.documentKey ? [c.documentKey] : [],
     })),
     clients,
     collaborations: collabs,
@@ -436,5 +476,13 @@ export function stripPublicSecrets(doc: Record<string, unknown>): Record<string,
     return p;
   });
   copy.projects = projects;
+  const certs = asArray(copy.certifications).map((raw) => {
+    const c = { ...(raw as Record<string, unknown>) };
+    delete c.vault_id;
+    delete c.media_vault_ids;
+    delete c.documentKey;
+    return c;
+  });
+  copy.certifications = certs;
   return copy;
 }

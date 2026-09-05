@@ -20,6 +20,7 @@ import {
   Microscope,
   Pencil,
   Store,
+  Briefcase,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { VaultFileThumbnail } from './VaultFileThumbnail';
@@ -1169,6 +1170,15 @@ export function VaultDetailSidePanel({
               Private Hub asset. Become a Creator on Pinit Exchange to list marketplace inventory.
             </p>
           )}
+
+          <button
+            type="button"
+            onClick={() => navigate(`/profile?tab=portfolio&addVault=${encodeURIComponent(record.id)}`)}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-white/10 text-white text-sm font-semibold hover:bg-white/5"
+          >
+            <Briefcase size={18} />
+            Add to Portfolio
+          </button>
 
           <div className="grid grid-cols-2 gap-2">
             <QuickAction

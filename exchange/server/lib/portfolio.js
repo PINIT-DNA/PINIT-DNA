@@ -392,6 +392,20 @@ export async function decorateHubPortfolio(hubDoc, { ownerView = false } = {}) {
     role: p.role,
     hub_protected: Boolean(p.hub_protected),
   }));
+  const certifications = (Array.isArray(hubDoc.certifications) ? hubDoc.certifications : []).map((c) => {
+    const vaultIds = Array.isArray(c.media_vault_ids)
+      ? c.media_vault_ids.map((id) => String(id || '')).filter(Boolean)
+      : [];
+    const preview = vaultIds
+      .map((id) => (isHubVaultId(id) ? exchangePreviewUrl(id, '') : ''))
+      .find(Boolean) || c.preview_url || '';
+    return {
+      ...c,
+      preview_url: preview,
+      hub_protected: vaultIds.length > 0 || Boolean(c.hub_protected),
+      media_vault_ids: ownerView ? vaultIds : undefined,
+    };
+  });
   const ledger = user ? await loadVerifiedLedger(user.pinit_id) : {
     total: 0, shown: 0, entries: [], summary: { assets_protected: 0, since: null, latest: null, avg_human_percent: null, tiers: {} },
   };
@@ -399,6 +413,7 @@ export async function decorateHubPortfolio(hubDoc, { ownerView = false } = {}) {
   return {
     ...hubDoc,
     projects,
+    certifications,
     selected_work: featuredWork.length ? featuredWork : (hubDoc.selected_work || []),
     marketplace: live.length ? marketplace : [],
     verified: {

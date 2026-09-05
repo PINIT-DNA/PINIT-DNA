@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { logger } from '../../lib/logger';
 import { realtimeHub } from '../../services/platform-events/realtime-hub';
 import { BELL_NOTIFICATION_CLASS_WHERE } from '../../services/platform-events/notification-policy';
 import { notificationInboxWhere } from '../../services/platform-events/notification-inbox';
@@ -207,18 +208,22 @@ export async function streamNotifications(req: Request, res: Response, next: Nex
     }
 
     const push = async () => {
-      const inboxUser = await prisma.user.findUnique({
-        where: { id: uid },
-        select: { notificationInboxClearedAt: true },
-      });
-      const unreadCount = await prisma.notification.count({
-        where: {
-          userId: uid, read: false, archived: false,
-          ...BELL_NOTIFICATION_CLASS_WHERE,
-          ...notificationInboxWhere(inboxUser?.notificationInboxClearedAt),
-        },
-      });
-      res.write(`data: ${JSON.stringify({ unreadCount, ts: Date.now() })}\n\n`);
+      try {
+        const inboxUser = await prisma.user.findUnique({
+          where: { id: uid },
+          select: { notificationInboxClearedAt: true },
+        });
+        const unreadCount = await prisma.notification.count({
+          where: {
+            userId: uid, read: false, archived: false,
+            ...BELL_NOTIFICATION_CLASS_WHERE,
+            ...notificationInboxWhere(inboxUser?.notificationInboxClearedAt),
+          },
+        });
+        if (!res.writableEnded) res.write(`data: ${JSON.stringify({ unreadCount, ts: Date.now() })}\n\n`);
+      } catch (pushErr) {
+        logger.warn('Notification stream push failed', { error: (pushErr as Error).message });
+      }
     };
 
     await push();

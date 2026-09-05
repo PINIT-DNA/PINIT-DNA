@@ -8,6 +8,7 @@ import {
 import { api, listVaultRecords, retrieveFromVault } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
 import { PortfolioEditor } from './profile/PortfolioEditor';
+import { ProfilePhotoPicker } from './profile/ProfilePhotoPicker';
 import { useTheme } from '../hooks/useTheme';
 import { useAccountViewMode } from '../hooks/useAccountViewMode';
 import { BusinessProfileHub } from './business/BusinessProfileHub';
@@ -124,8 +125,10 @@ export function ProfilePage() {
       {tab !== 'portfolio' && (
       <div className="card mb-6">
         <div className="flex items-start gap-4 flex-wrap">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-dna-500 to-purple flex items-center justify-center text-xl font-bold text-white shrink-0">
-            {profile?.fullName?.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2) || 'P'}
+          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-dna-500 to-purple flex items-center justify-center text-xl font-bold text-white shrink-0 overflow-hidden">
+            {profile?.avatarUrl
+              ? <img src={profile.avatarUrl} alt="" className="w-full h-full object-cover" />
+              : (profile?.fullName?.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2) || 'P')}
           </div>
           <div className="flex-1 min-w-0">
             <h1 className="text-lg font-bold text-white">{profile?.fullName}</h1>
@@ -218,6 +221,13 @@ function ProfileTab({ profile, onUpdate }: { profile: any; onUpdate: (p: any) =>
   return (
     <div className="card space-y-4">
       <h2 className="text-sm font-semibold text-white flex items-center gap-2"><User size={14} className="text-dna-400" /> Personal Information</h2>
+
+      <ProfilePhotoPicker
+        compact
+        photoUrl={profile?.avatarUrl || ''}
+        name={form.fullName || profile?.fullName || ''}
+        onChange={(url) => onUpdate({ ...profile, avatarUrl: url || null })}
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Field label="Full Name" value={form.fullName} onChange={v => setForm({ ...form, fullName: v })} />

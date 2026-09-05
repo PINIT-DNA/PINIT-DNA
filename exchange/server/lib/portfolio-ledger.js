@@ -22,33 +22,22 @@ const LEDGER_FIELDS = [
   'human_percent', 'ai_percent', 'dna_record_id', 'created_at',
 ];
 
-/**
- * A DNA record id is a real identifier, so it is shown — but truncated. A
- * visitor should be able to see that a record exists and check it, without the
- * page becoming a dump of full hashes nobody reads.
- */
-function shortHash(value) {
-  const s = String(value || '').trim();
-  if (!s) return '';
-  return s.length <= 12 ? s : `${s.slice(0, 10)}…`;
+function publicCertificate(assetId) {
+  const raw = String(assetId || '').replace(/-/g, '');
+  if (raw.length < 6) return '';
+  return `PX-${raw.slice(-6).toUpperCase()}`;
 }
 
 function toEntry(row) {
   return {
     asset_id: row.asset_id,
-    // The certificate reference a visitor can quote back to us. It is the
-    // asset's real id, not a decorative number.
-    certificate: row.asset_id,
+    certificate: publicCertificate(row.asset_id),
     title: row.title || 'Untitled',
     vertical: row.vertical || '',
     file_type: row.file_type || '',
     badge_tier: row.badge_tier || '',
-    // human_percent is already on every asset. Showing it is a stance: in a year
-    // when every client quietly wonders what was generated, hiding it would
-    // eventually read as an answer.
     human_percent: Number.isFinite(Number(row.human_percent)) ? Number(row.human_percent) : null,
     ai_percent: Number.isFinite(Number(row.ai_percent)) ? Number(row.ai_percent) : null,
-    dna: shortHash(row.dna_record_id),
     protected_at: row.created_at || null,
   };
 }

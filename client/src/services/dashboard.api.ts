@@ -703,7 +703,20 @@ export async function getExchangeSellerSummary(): Promise<{
   };
 }> {
   const { data } = await api.get(`${API_BASE_URL}/exchange/seller-summary`);
-  return data;
+  return data as {
+    success: boolean;
+    pinitId: string;
+    can_list: boolean;
+    unavailable?: boolean;
+    metrics: {
+      total_net_revenue: number;
+      sealed_sales_count: number;
+      active_listings_count: number;
+      listings_count: number;
+      total_views: number;
+      total_saves: number;
+    };
+  };
 }
 
 export async function getExchangeListedAssets(): Promise<{
@@ -714,20 +727,21 @@ export async function getExchangeListedAssets(): Promise<{
   const { data } = await api.get(`${API_BASE_URL}/exchange/listed-assets`, {
     headers: { 'Cache-Control': 'no-cache' },
   });
-  const listed = Array.isArray(data?.listed) ? data.listed : null;
+  const payload = data as { listed?: unknown; success?: boolean; unavailable?: boolean };
+  const listed = Array.isArray(payload.listed) ? payload.listed as Array<{ vaultId: string; listingId: string; status: string }> : null;
   if (!listed) {
     throw new Error('listed-assets payload missing');
   }
   return {
-    success: Boolean(data?.success),
-    unavailable: Boolean(data?.unavailable),
+    success: Boolean(payload.success),
+    unavailable: Boolean(payload.unavailable),
     listed,
   };
 }
 
 export async function getExchangeConfig(): Promise<{ success: boolean; appUrl: string; apiUrl: string }> {
   const { data } = await api.get(`${API_BASE_URL}/exchange/config`);
-  return data;
+  return data as { success: boolean; appUrl: string; apiUrl: string };
 }
 
 export async function createExchangeSso(): Promise<{

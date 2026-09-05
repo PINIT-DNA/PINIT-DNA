@@ -34,8 +34,23 @@ describe('portfolio phase 1 ownership helpers', () => {
     const stripped = stripPublicSecrets({
       owner_view: true,
       projects: [{ title: 'A', vault_ids: ['secret'] }],
+      certifications: [{ title: 'CV', media_vault_ids: ['secret'], vault_id: 'secret' }],
     });
     expect(stripped.owner_view).toBeUndefined();
     expect((stripped.projects as Array<{ vault_ids?: string[] }>)[0].vault_ids).toBeUndefined();
+    expect((stripped.certifications as Array<{ vault_id?: string }>)[0].vault_id).toBeUndefined();
+  });
+
+  test('documents from vault become certificates with a vault pointer', () => {
+    const parsed = parseEditorBody({
+      certifications: [{
+        title: 'CV 2026',
+        issuer: 'Self',
+        vault_id: 'vault-cv',
+      }],
+    });
+    expect(parsed.certificates).toHaveLength(1);
+    expect(parsed.certificates[0].title).toBe('CV 2026');
+    expect(parsed.certificates[0].documentKey).toBe('vault-cv');
   });
 });
