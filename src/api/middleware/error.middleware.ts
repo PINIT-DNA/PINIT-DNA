@@ -4,6 +4,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { MulterError } from 'multer';
+import { Prisma } from '@prisma/client';
 import { config } from '../../config';
 import { logger } from '../../lib/logger';
 
@@ -134,6 +135,29 @@ export function errorMiddleware(
           : 'The file could not be loaded. Try again or ask the owner to share a new link.',
     });
     return;
+  }
+
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    logger.error('Prisma error', { code: err.code, meta: err.meta, error: err.message });
+    if (err.code === 'P2002') {
+      res.status(409).json({ success: false, error: 'That portfolio URL is already taken.' });
+      return;
+    }
+    if (err.code === 'P2028' || err.code === 'P2034') {
+      res.status(503).json({ success: false, error: 'Save timed out. Please try again.' });
+      return;
+    }
+    if (err.code === 'P2021' || err.code === 'P2022') {
+      res.status(503).json({
+        success: false,
+        error: 'Portfolio storage is still updating. Wait a minute, refresh, and try again.',
+      });
+      return;
+    }
+    if (err.code === 'P2003') {
+      res.status(400).json({ success: false, error: 'One of the selected files is no longer in your vault.' });
+      return;
+    }
   }
 
   logger.error('Unhandled error', { error: err.message, stack: err.stack });

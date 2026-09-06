@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import jwt from 'jsonwebtoken';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { config } from '../../config';
 import { AppError } from '../../api/middleware/error.middleware';
@@ -125,7 +126,7 @@ async function replaceDraft(portfolioId: string, ownerUserId: string, body: Edit
   const allVaults = parsed.projects.flatMap((p) => p.vaultIds);
   const assetByVault = await resolveAssetIds(allVaults, ownerUserId);
 
-  await prisma.$transaction(async (tx) => {
+  const run = () => prisma.$transaction(async (tx) => {
     await tx.portfolioProjectMedia.deleteMany({ where: { project: { portfolioId } } });
     await tx.portfolioCollectionItem.deleteMany({ where: { collection: { portfolioId } } });
     await tx.portfolioProject.deleteMany({ where: { portfolioId } });
@@ -218,30 +219,79 @@ async function replaceDraft(portfolioId: string, ownerUserId: string, body: Edit
     }
     if (parsed.experience.length) {
       await tx.portfolioExperience.createMany({
-        data: parsed.experience.map((e) => ({ id: randomUUID(), portfolioId, ...e })),
+        data: parsed.experience.map((e) => ({
+          id: randomUUID(),
+          portfolioId,
+          role: e.role,
+          company: e.company,
+          location: e.location,
+          startDate: e.startDate,
+          endDate: e.endDate,
+          description: e.description,
+          sortOrder: e.sortOrder,
+        })),
       });
     }
     if (parsed.awards.length) {
       await tx.portfolioAward.createMany({
-        data: parsed.awards.map((a) => ({ id: randomUUID(), portfolioId, ...a })),
+        data: parsed.awards.map((a) => ({
+          id: randomUUID(),
+          portfolioId,
+          title: a.title,
+          organization: a.organization,
+          year: a.year,
+          description: a.description,
+          sortOrder: a.sortOrder,
+        })),
       });
     }
     if (parsed.certificates.length) {
       await tx.portfolioCertificate.createMany({
-        data: parsed.certificates.map((c) => ({ id: randomUUID(), portfolioId, ...c })),
+        data: parsed.certificates.map((c) => ({
+          id: randomUUID(),
+          portfolioId,
+          title: c.title,
+          issuer: c.issuer,
+          issuedOn: c.issuedOn,
+          credentialId: c.credentialId,
+          description: c.description,
+          documentKey: c.documentKey,
+          relatedSkill: c.relatedSkill,
+          sortOrder: c.sortOrder,
+        })),
       });
     }
     if (parsed.collaborations.length) {
       await tx.portfolioCollaboration.createMany({
-        data: parsed.collaborations.map((c) => ({ id: randomUUID(), portfolioId, ...c })),
+        data: parsed.collaborations.map((c) => ({
+          id: randomUUID(),
+          portfolioId,
+          name: c.name,
+          kind: c.kind,
+          sortOrder: c.sortOrder,
+        })),
       });
     }
     if (parsed.socialLinks.length) {
       await tx.portfolioSocialLink.createMany({
-        data: parsed.socialLinks.map((s) => ({ id: randomUUID(), portfolioId, ...s })),
+        data: parsed.socialLinks.map((s) => ({
+          id: randomUUID(),
+          portfolioId,
+          label: s.label,
+          url: s.url,
+          sortOrder: s.sortOrder,
+        })),
       });
     }
-  });
+  }, { maxWait: 10_000, timeout: 25_000 });
+
+  try {
+    await run();
+  } catch (err) {
+    const timedOut = err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2028';
+    if (!timedOut) throw err;
+    await run();
+  }
 }
 
 function toOwnerPayload(graph: Graph, identity: IdentityOverlay, extra: Record<string, unknown> = {}) {
@@ -291,15 +341,20 @@ async function findUserForImportedPinitId(pinitId: string) {
 }
 
 async function fetchExchangeProfiles(): Promise<EditorBody[]> {
-  const res = await fetch(`${config.exchange.apiUrl}/api/hub/portfolios`, {
-    headers: {
-      Accept: 'application/json',
-      'X-PinIT-Bridge-Secret': config.exchange.bridgeSecret,
-    },
-  });
-  if (!res.ok) return [];
-  const data = await res.json().catch(() => ({})) as { profiles?: EditorBody[] };
-  return Array.isArray(data.profiles) ? data.profiles : [];
+  try {
+    const res = await fetch(`${config.exchange.apiUrl}/api/hub/portfolios`, {
+      headers: {
+        Accept: 'application/json',
+        'X-PinIT-Bridge-Secret': config.exchange.bridgeSecret,
+      },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json().catch(() => ({})) as { profiles?: EditorBody[] };
+    return Array.isArray(data.profiles) ? data.profiles : [];
+  } catch {
+    return [];
+  }
 }
 
 export const portfolioService = {
@@ -321,9 +376,13 @@ export const portfolioService = {
     }
     const named = slugifyName(identity.fullName || identity.shortId);
     if (named && row.slug === 'creator') {
-      const slug = await uniquePortfolioSlug(identity.fullName || identity.shortId, userId);
-      if (slug !== row.slug) {
-        row = await prisma.portfolio.update({ where: { id: row.id }, data: { slug } });
+      try {
+        const slug = await uniquePortfolioSlug(identity.fullName || identity.shortId, userId);
+        if (slug !== row.slug) {
+          row = await prisma.portfolio.update({ where: { id: row.id }, data: { slug } });
+        }
+      } catch (err) {
+        if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002')) throw err;
       }
     }
     return row;
