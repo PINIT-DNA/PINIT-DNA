@@ -1,8 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import {
-  Award, Building2, CheckCircle2, Download, ExternalLink, Fingerprint,
-  Link2, Lock, Share2, Shield,
-} from 'lucide-react';
+import { BadgeCheck, ChevronLeft, ChevronRight, Download, ExternalLink, FileText, X } from 'lucide-react';
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
 
@@ -16,7 +13,10 @@ function labelOf(item, ...keys) {
 
 function kindOf(item) {
   const raw = String(item?.kind || item?.relatedSkill || '').toLowerCase();
-  if (raw === 'license' || raw === 'course' || raw === 'workshop' || raw === 'award') return raw;
+  if (raw === 'license' || raw === 'course' || raw === 'workshop' || raw === 'award' || raw === 'recognition') {
+    return raw;
+  }
+  if (raw === 'certification') return 'certificate';
   return 'certificate';
 }
 
@@ -27,28 +27,60 @@ function when(iso) {
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+function yearOf(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    const n = Number(String(iso).slice(0, 4));
+    return Number.isFinite(n) ? n : null;
+  }
+  return d.getFullYear();
+}
+
+const KIND_LABEL = {
+  award: 'Award',
+  license: 'License',
+  course: 'Course',
+  workshop: 'Workshop',
+  certificate: 'Certification',
+  recognition: 'Recognition',
+};
+
 const FILTERS = [
-  ['all', 'All Certificates'],
+  ['all', 'All'],
   ['award', 'Awards'],
   ['license', 'Licenses'],
   ['course', 'Courses'],
   ['workshop', 'Workshops'],
+  ['certificate', 'Certifications'],
 ];
 
-function CertificatePaper({ title, name, issuer }) {
+function sealFromPercent(percent) {
+  if (!Number.isFinite(percent)) return null;
+  if (percent >= 90) return { headline: 'HUMAN VERIFIED', tier: 'gold', percent };
+  if (percent >= 75) return { headline: 'VERIFIED', tier: 'silver', percent };
+  if (percent >= 50) return { headline: 'REVIEWED', tier: 'bronze', percent };
+  return null;
+}
+
+function CredentialSeal({ seal }) {
+  if (!seal) return null;
+  const color = seal.tier === 'gold' ? '#D9A441' : seal.tier === 'silver' ? '#C5CDD8' : '#C4845A';
   return (
-    <div className="pf-certpaper" aria-hidden="true">
-      <span className="pf-certpaper__ribbon">Pinit</span>
-      <span className="pf-certpaper__seal">Pinit</span>
-      <p className="pf-certpaper__kicker">Certificate</p>
-      <p className="pf-certpaper__of">OF ACHIEVEMENT</p>
-      <p className="pf-certpaper__to">PROUDLY PRESENTED TO</p>
-      <p className="pf-certpaper__name">{name || 'Recipient'}</p>
-      <p className="pf-certpaper__title">{title}</p>
-      {issuer ? <p className="pf-certpaper__issuer">{issuer}</p> : null}
-      <span className="pf-certpaper__wave" />
+    <div className="pf-cseal" style={{ borderColor: `${color}66`, boxShadow: `0 6px 16px -10px ${color}` }} aria-label={`${seal.headline} ${seal.percent}%`}>
+      <span className="pf-cseal__dot" style={{ background: color }} />
+      <span className="pf-cseal__h" style={{ color }}>{seal.headline}</span>
+      <span className="pf-cseal__t" style={{ color }}>{seal.tier}</span>
     </div>
   );
+}
+
+function publicCredentialId(id) {
+  const trimmed = String(id || '').trim();
+  if (!trimmed) return '';
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed)) return '';
+  if (trimmed.length > 32) return '';
+  return trimmed;
 }
 
 export default function LicensesCertificates({
@@ -56,54 +88,72 @@ export default function LicensesCertificates({
 }) {
   const id = portfolio?.identity || {};
   const displayName = name || id.name || '';
-  const humanAvg = portfolio?.verified?.summary?.avg_human_percent;
   const [filter, setFilter] = useState('all');
   const [sort, setSort] = useState('newest');
-  const [selectedId, setSelectedId] = useState(null);
+  const [previewId, setPreviewId] = useState(null);
+  const [verifyId, setVerifyId] = useState(null);
 
   const items = useMemo(() => {
-    const creds = asArray(portfolio?.certifications).map((c, i) => ({
+    const ledger = asArray(portfolio?.verified?.entries);
+    const byVault = new Map();
+    for (const e of ledger) {
+      if (e?.asset_id) byVault.set(e.asset_id, e);
+      if (e?.vault_id) byVault.set(e.vault_id, e);
+    }
+    const attachHub = (row, vaultId) => {
+      const e = vaultId ? byVault.get(vaultId) : null;
+      if (!e) return row;
+      return {
+        ...row,
+        hub_protected: true,
+        human_percent: Number.isFinite(row.human_percent) ? row.human_percent : (Number.isFinite(e.human_percent) ? e.human_percent : null),
+        credential_id: row.credential_id || e.certificate || '',
+        fingerprinted: true,
+      };
+    };
+    const creds = asArray(portfolio?.certifications).map((c, i) => attachHub({
       id: c.id || `cert-${i}`,
-      source: 'credential',
       kind: kindOf(c),
       title: labelOf(c, 'title', 'name') || 'Certificate',
       issuer: labelOf(c, 'issuer', 'org') || '',
       year: c.year || c.issuedOn || c.period || '',
-      note: c.note || c.description || '',
       credential_id: c.credential_id || '',
       preview_url: c.preview_url || '',
       hub_protected: Boolean(c.hub_protected),
-      human_percent: null,
+      human_percent: Number.isFinite(c.human_percent) ? c.human_percent : null,
       verification_url: c.verification_url || c.external_url || '',
-    }));
-    const awards = asArray(portfolio?.awards).map((a, i) => ({
+      fingerprinted: Boolean(c.hub_protected || c.dna_id || c.vault_id),
+    }, c.vault_id || c.documentKey));
+    const awards = asArray(portfolio?.awards).map((a, i) => attachHub({
       id: a.id || `award-${i}`,
-      source: 'award',
       kind: 'award',
       title: labelOf(a, 'title', 'name') || 'Award',
       issuer: labelOf(a, 'issuer', 'org', 'body') || '',
       year: a.year || a.period || '',
-      note: a.note || a.description || '',
       credential_id: '',
       preview_url: '',
-      hub_protected: false,
-      human_percent: null,
+      hub_protected: Boolean(a.hub_protected || a.vault_id),
+      human_percent: Number.isFinite(a.human_percent) ? a.human_percent : null,
       verification_url: '',
-    }));
-    const ledgerDocs = asArray(portfolio?.verified?.entries).map((e) => ({
-        id: e.asset_id,
-        source: 'hub',
+      fingerprinted: Boolean(a.vault_id),
+    }, a.vault_id));
+    const listedIds = new Set([...creds, ...awards].map((x) => x.id));
+    const ledgerDocs = asArray(portfolio?.verified?.entries)
+      .filter((e) => e.certificate || e.credential_id)
+      .map((e) => ({
+        id: e.certificate || e.asset_id,
         kind: 'certificate',
-        title: e.title || 'Protected file',
-        issuer: 'Pinit HUB',
+        title: e.title || 'Protected credential',
+        issuer: e.issuer || '',
         year: when(e.protected_at),
-        note: 'Fingerprinted and dated in Pinit HUB before it was shown here.',
-        credential_id: e.certificate || '',
+        credential_id: e.certificate || e.credential_id || '',
         preview_url: '',
         hub_protected: true,
         human_percent: Number.isFinite(e.human_percent) ? e.human_percent : null,
         verification_url: '',
-      }));
+        fingerprinted: true,
+      }))
+      .filter((row) => !listedIds.has(row.id));
     return [...creds, ...awards, ...ledgerDocs];
   }, [portfolio]);
 
@@ -117,52 +167,62 @@ export default function LicensesCertificates({
     return copy;
   }, [items, filter, sort]);
 
-  const selected = visible.find((it) => it.id === selectedId) || visible[0] || null;
+  const humanVerifiedCount = items.filter((it) => Number.isFinite(it.human_percent) && it.human_percent >= 90).length;
+  const protectedCount = items.filter((it) => it.hub_protected).length;
+  const years = items.map((it) => yearOf(it.year)).filter((y) => y != null);
+  const sinceYear = years.length ? Math.min(...years) : null;
 
-  if (!items.length) return null;
+  const preview = visible.find((it) => it.id === previewId) || null;
+  const verify = items.find((it) => it.id === verifyId) || null;
+  const previewIndex = preview ? visible.findIndex((it) => it.id === preview.id) : -1;
 
-  const share = () => {
-    if (onShare) {
+  const share = async (card) => {
+    const url = card?.verification_url
+      || (card?.credential_id ? `${window.location.origin}${window.location.pathname}` : window.location.href);
+    if (onShare && !card) {
       onShare();
       return;
     }
     try {
-      navigator.clipboard.writeText(window.location.href);
+      await navigator.clipboard.writeText(url);
     } catch { /* ignore */ }
   };
 
+  if (!items.length) {
+    return (
+      <section className="pf-certs-page" id="pf-certificates">
+        <h2>Certificates</h2>
+        <p className="pf-certs-lead">No credentials have been added yet.</p>
+      </section>
+    );
+  }
+
   return (
     <section className="pf-certs-page" id="pf-certificates">
-      <div className="pf-certs-hero">
+      <div className="pf-certs-head">
         <div>
-          <p className="pf-certs-kicker">Certificates &amp; Licenses</p>
-          <h2>Certified. <em>Verified.</em> Human.</h2>
+          <h2>Certificates</h2>
           <p className="pf-certs-lead">
-            Credentials you added from your vault, plus documents fingerprinted in Pinit HUB.
-            Nothing here is invented to fill the page.
+            Credentials, recognitions and licenses connected to this Pinit identity.
           </p>
-          <div className="pf-certs-feats">
-            <span><Shield size={15} /><b>Human verified</b><em>{Number.isFinite(humanAvg) ? `${humanAvg}% human on sealed files` : 'Shown only when a file was analysed in HUB'}</em></span>
-            <span><Building2 size={15} /><b>Named issuers</b><em>The organisations you listed</em></span>
-            <span><Fingerprint size={15} /><b>Fingerprinted</b><em>HUB DNA — not a decorative seal</em></span>
-            <span><Award size={15} /><b>Career ready</b><em>Share the same page a client sees</em></span>
-          </div>
         </div>
-        <aside className="pf-certs-standard">
-          <span className="pf-certs-gold">Human<br />Verified</span>
-          <p>Pinit certification standard</p>
-          <em>A gold mark appears only on files protected in HUB, or analysed as human-made. It is not printed on every card.</em>
-        </aside>
+      </div>
+
+      <div className="pf-certs-metrics">
+        <div><em>Credentials</em><b>{items.length}</b></div>
+        <div><em>Human Verified</em><b>{humanVerifiedCount}</b></div>
+        <div><em>Protected</em><b>{protectedCount}</b></div>
+        {sinceYear != null ? <div><em>Since</em><b>{sinceYear}</b></div> : null}
       </div>
 
       <div className="pf-certs-bar">
         <div className="pf-certs-tabs">
-          {FILTERS.map(([id, label]) => (
+          {FILTERS.map(([fid, label]) => (
             <button
-              key={id}
+              key={fid}
               type="button"
-              className={filter === id ? 'is-on' : ''}
-              onClick={() => { setFilter(id); setSelectedId(null); }}
+              className={filter === fid ? 'is-on' : ''}
+              onClick={() => setFilter(fid)}
             >
               {label}
             </button>
@@ -177,91 +237,142 @@ export default function LicensesCertificates({
         </label>
       </div>
 
-      <div className="pf-certs-layout">
-        <div className="pf-certs-grid">
-          {visible.length === 0 ? (
-            <p className="pf-dim">Nothing in this filter yet.</p>
-          ) : visible.map((card) => {
-            const sealed = card.hub_protected || Number.isFinite(card.human_percent);
-            return (
-              <article
-                key={card.id}
-                className={`pf-cred${selected?.id === card.id ? ' is-on' : ''}`}
-              >
-                <button type="button" className="pf-cred__visual" onClick={() => setSelectedId(card.id)}>
-                  {card.preview_url
-                    ? <img src={card.preview_url} alt="" />
-                    : <CertificatePaper title={card.title} name={displayName} issuer={card.issuer} />}
-                  {sealed ? <span className="pf-certs-gold pf-certs-gold--mini">Human<br />Verified</span> : null}
-                </button>
-                <div className="pf-cred__body">
-                  <h3>{card.title}</h3>
-                  <p className="pf-cred__meta">
-                    {card.issuer ? <b>{card.issuer}</b> : null}
-                    <span>{card.kind}</span>
-                    {card.year ? <span>{card.year}</span> : null}
-                  </p>
-                  {card.note ? <p className="pf-cred__note">{card.note}</p> : null}
-                  <div className="pf-cred__act">
-                    {card.preview_url || card.verification_url ? (
-                      <a
-                        className="pf-btn pf-btn--sm"
-                        href={card.preview_url || card.verification_url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        View credential <ExternalLink size={12} />
-                      </a>
-                    ) : (
-                      <button type="button" className="pf-btn pf-btn--sm" onClick={() => setSelectedId(card.id)}>
-                        View details
-                      </button>
-                    )}
-                    <button type="button" className="pf-btn pf-btn--sm" onClick={share} aria-label="Copy link">
-                      <Link2 size={13} />
-                    </button>
-                  </div>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-
-        {selected ? (
-          <aside className="pf-certs-side">
-            <div className="pf-certs-panel">
-              <p className="pf-certs-panel__h"><CheckCircle2 size={15} /> Verification details</p>
-              <dl>
-                <div><dt>Verified by</dt><dd>{selected.hub_protected ? 'Pinit HUB' : 'Issuer record'}</dd></div>
-                <div><dt>Issuer</dt><dd>{selected.issuer || '—'}</dd></div>
-                <div><dt>Issue date</dt><dd>{selected.year || '—'}</dd></div>
-                <div><dt>Credential ID</dt><dd>{selected.credential_id || '—'}</dd></div>
-                {Number.isFinite(selected.human_percent) ? (
-                  <div><dt>Human</dt><dd>{selected.human_percent}%</dd></div>
+      <div className="pf-certs-grid pf-certs-grid--compact">
+        {visible.length === 0 ? (
+          <p className="pf-dim">Nothing in this filter yet.</p>
+        ) : visible.map((card) => {
+          const seal = sealFromPercent(card.human_percent);
+          return (
+            /*
+             * A credential list is scanned, not read. The card used to carry the
+             * whole record — tier, kind, awarded-to, issue date, credential id,
+             * human percentage and three buttons — so six of them were a wall.
+             *
+             * What tells one credential from another is its name, who issued it
+             * and when. Everything else is available on opening it, so the row
+             * stays quiet and only offers View under the cursor.
+             */
+            <button
+              key={card.id}
+              type="button"
+              className="pf-cred"
+              onClick={() => setPreviewId(card.id)}
+              title={`Open ${card.title}`}
+            >
+              <span className="pf-cred__rule" aria-hidden="true" />
+              <span className="pf-cred__row">
+                <span className="pf-cred__icon"><FileText size={15} /></span>
+                <span className="pf-cred__text">
+                  <span className="pf-cred__title">{card.title}</span>
+                  {card.issuer ? <span className="pf-cred__issuer">{card.issuer}</span> : null}
+                  <span className="pf-cred__foot">
+                    {card.year ? <span className="pf-cred__year">{card.year}</span> : null}
+                    {/* Hidden until the row is hovered or focused — the promise
+                        of the section is that every card opens the document. */}
+                    <span className="pf-cred__view"><FileText size={13} /> View</span>
+                  </span>
+                </span>
+                {seal && card.hub_protected ? (
+                  <span
+                    className="pf-cred__seal"
+                    title={`${seal.headline} · ${seal.tier}`}
+                    aria-label={`${seal.headline}, ${seal.tier}`}
+                  >
+                    <BadgeCheck size={14} />
+                  </span>
                 ) : null}
-              </dl>
-              <span className={`pf-certs-status${selected.hub_protected ? ' is-ok' : ''}`}>
-                {selected.hub_protected ? 'Protected' : 'Listed'}
               </span>
-              {selected.verification_url ? (
-                <a className="pf-btn pf-btn--dark" href={selected.verification_url} target="_blank" rel="noreferrer">
-                  View on issuer website <ExternalLink size={13} />
+            </button>
+          );
+        })}
+      </div>
+
+      {preview ? (
+        <div className="pf-clight" role="dialog" aria-modal="true" aria-label="Certificate Preview" onClick={() => setPreviewId(null)}>
+          <div className="pf-clight__panel" onClick={(e) => e.stopPropagation()}>
+            <div className="pf-clight__bar">
+              <h3>Certificate Preview</h3>
+              <button type="button" className="pf-clight__x" onClick={() => setPreviewId(null)} aria-label="Close"><X size={16} /></button>
+            </div>
+            <div className="pf-clight__stage">
+              {previewIndex > 0 ? (
+                <button type="button" className="pf-clight__nav pf-clight__nav--l" onClick={() => setPreviewId(visible[previewIndex - 1].id)} aria-label="Previous">
+                  <ChevronLeft size={18} />
+                </button>
+              ) : null}
+              {preview.preview_url ? (
+                <img src={preview.preview_url} alt="" className="pf-clight__art" />
+              ) : (
+                <div className="pf-clight__fallback">
+                  <p>{preview.title}</p>
+                  {preview.issuer ? <span>{preview.issuer}</span> : null}
+                  <em>Artwork is shown here when a certificate document is available.</em>
+                </div>
+              )}
+              {previewIndex >= 0 && previewIndex < visible.length - 1 ? (
+                <button type="button" className="pf-clight__nav pf-clight__nav--r" onClick={() => setPreviewId(visible[previewIndex + 1].id)} aria-label="Next">
+                  <ChevronRight size={18} />
+                </button>
+              ) : null}
+            </div>
+            <dl className="pf-clight__facts">
+              <div><dt>Title</dt><dd>{preview.title}</dd></div>
+              {displayName ? <div><dt>Recipient</dt><dd>{displayName}</dd></div> : null}
+              {preview.issuer ? <div><dt>Issuer</dt><dd>{preview.issuer}</dd></div> : null}
+              {preview.year ? <div><dt>Issue date</dt><dd>{preview.year}</dd></div> : null}
+              {preview.credential_id ? <div><dt>Credential ID</dt><dd>{preview.credential_id}</dd></div> : null}
+            </dl>
+            <div className="pf-clight__act">
+              <button type="button" className="pf-btn" onClick={() => setPreviewId(null)}>Close</button>
+              <button type="button" className="pf-btn pf-btn--dark" onClick={() => { setPreviewId(null); setVerifyId(preview.id); }}>
+                Open verification
+              </button>
+              {preview.preview_url ? (
+                <a className="pf-btn" href={preview.preview_url} target="_blank" rel="noreferrer">
+                  <Download size={14} /> Download certificate
                 </a>
               ) : null}
             </div>
-            <div className="pf-certs-panel">
-              <p className="pf-certs-panel__h"><Share2 size={15} /> Share this certificate</p>
-              <button type="button" className="pf-btn" onClick={share}>Copy page link</button>
+          </div>
+        </div>
+      ) : null}
+
+      {verify ? (
+        <div className="pf-clight" role="dialog" aria-modal="true" aria-label="Verification details" onClick={() => setVerifyId(null)}>
+          <div className="pf-clight__panel pf-clight__panel--narrow" onClick={(e) => e.stopPropagation()}>
+            <div className="pf-clight__bar">
+              <h3>Verification details</h3>
+              <button type="button" className="pf-clight__x" onClick={() => setVerifyId(null)} aria-label="Close"><X size={16} /></button>
             </div>
-            {selected.preview_url ? (
-              <a className="pf-btn pf-btn--dark" href={selected.preview_url} target="_blank" rel="noreferrer">
-                <Download size={14} /> Download certificate
-              </a>
-            ) : null}
-            <p className="pf-certs-lock"><Lock size={12} /> Vault files are never re-uploaded here. The public page only shows what was already protected.</p>
-          </aside>
-        ) : null}
-      </div>
+            <ul className="pf-cchecks">
+              {Number.isFinite(verify.human_percent) && verify.human_percent >= 90 ? <li>✓ Human verified</li> : null}
+              {Number.isFinite(verify.human_percent) && verify.human_percent < 90 ? <li>✓ Human signal {verify.human_percent}%</li> : null}
+              {verify.hub_protected ? <li>✓ Protected in Pinit HUB</li> : null}
+              {verify.fingerprinted ? <li>✓ Fingerprinted</li> : null}
+              {verify.credential_id ? <li>✓ Credential recorded</li> : null}
+            </ul>
+            <dl className="pf-clight__facts">
+              <div><dt>Verified by</dt><dd>{verify.hub_protected ? 'Pinit HUB' : 'Issuer record'}</dd></div>
+              {verify.issuer ? <div><dt>Issuer</dt><dd>{verify.issuer}</dd></div> : null}
+              {verify.year ? <div><dt>Issue date</dt><dd>{verify.year}</dd></div> : null}
+              {verify.credential_id ? <div><dt>Credential ID</dt><dd>{verify.credential_id}</dd></div> : null}
+              {Number.isFinite(verify.human_percent) ? <div><dt>Human signal</dt><dd>{verify.human_percent}%</dd></div> : null}
+              {verify.hub_protected ? <div><dt>Protection</dt><dd>Protected</dd></div> : null}
+            </dl>
+            <div className="pf-clight__act">
+              <button type="button" className="pf-btn" onClick={() => setVerifyId(null)}>Close</button>
+              <button type="button" className="pf-btn pf-btn--dark" onClick={() => { setVerifyId(null); setPreviewId(verify.id); }}>
+                Preview certificate
+              </button>
+              {verify.verification_url ? (
+                <a className="pf-btn" href={verify.verification_url} target="_blank" rel="noreferrer">
+                  Open verification <ExternalLink size={12} />
+                </a>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

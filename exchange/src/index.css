@@ -3468,20 +3468,34 @@ input[type="range"]::-webkit-slider-thumb {
 /* A returning buyer does not need the pitch again; they need the catalogue.
    The full hero stays for logged-out visitors, where selling the idea matters. */
 .market-hero--compact {
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1.4fr) minmax(160px, 240px);
   min-height: 0;
   padding: 20px 24px;
   margin-bottom: 20px;
+  align-items: center;
+  gap: 12px 16px;
 }
-/* The art collage stays in the band when signed in. It used to be hidden for
-   logged-in users, which left the hero rectangle empty on the creator side —
-   the gap the listing-preview collage was added to fill. It is scaled down
-   rather than removed, so the compact band keeps its shorter height. */
-.market-hero--compact .market-hero__art { height: 250px; }
+/* Keep the collage in a small right column — same as Discover — not a full-width fan. */
+.market-hero--compact .market-hero__art {
+  height: 168px;
+  max-width: 240px;
+  width: 100%;
+  justify-self: end;
+}
 .market-hero--compact h1 { font-size: clamp(1.5rem, 3vw, 2rem); margin-bottom: 6px; }
 .market-hero--compact .market-hero__sub { font-size: .95rem; margin-bottom: 16px; }
 .market-hero--compact .market-hero__ctas { margin-top: 4px; }
 .market-hero--compact .market-hero__badge { margin-bottom: 12px; }
+@media (max-width: 820px) {
+  .market-hero--compact {
+    grid-template-columns: 1fr;
+  }
+  .market-hero--compact .market-hero__art {
+    height: 140px;
+    max-width: 280px;
+    justify-self: start;
+  }
+}
 
 /* ---- Catalogue-aware grid ------------------------------------------------ */
 /* A four-up grid holding two items reads as an empty shop. Below six listings
@@ -4145,7 +4159,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .market-hero--compact {
   min-height: 0;
-  padding: 28px 32px;
+  padding: 20px 24px;
   align-content: start;
 }
 .market-hero--compact .market-hero__badge { margin-bottom: 20px; }
@@ -4796,7 +4810,8 @@ input[type="range"]::-webkit-slider-thumb {
 /* The seller hero reuses .market-hero, but sits inside a workspace page that
    already has its own heading — so it needs less breathing room below. */
 .so-hero { margin-bottom: 20px; }
-.so-hero .market-hero__title { font-size: clamp(1.9rem, 3.6vw, 2.7rem); }
+.so-hero .market-hero__title { font-size: clamp(1.35rem, 2.4vw, 1.8rem); }
+.so-hero .market-hero__copy { max-width: 36rem; }
 
 /* ══ Opportunities ═════════════════════════════════════════════════════════
    Briefs, collabs and the buyer proposal review. Uses the existing tokens
@@ -6650,3 +6665,51 @@ a.pf-about__org:hover { color: #42D6B0; }
   border: 1px solid var(--f-line); background: var(--f-panel); color: var(--f-soft);
 }
 .pf-social a:hover { color: var(--f-ink); border-color: var(--f-faint); }
+
+/* ── Credentials ───────────────────────────────────────────────────────────
+   A credential list is scanned, not read. A rule, a name, an issuer, a year —
+   and View appears only under the cursor, because every row opens its
+   document and saying so on all of them at once is noise. */
+.pf-certs-grid--compact { display: grid; gap: 30px 34px; grid-template-columns: 1fr; }
+@media (min-width: 700px) { .pf-certs-grid--compact { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 1040px) { .pf-certs-grid--compact { grid-template-columns: repeat(3, 1fr); } }
+
+.pf-cred {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  background: none; border: 0; padding: 0; color: inherit; font: inherit;
+}
+.pf-cred__rule {
+  display: block; height: 1px; background: var(--f-line);
+  margin-bottom: 16px; transition: background 0.18s ease;
+}
+.pf-cred:hover .pf-cred__rule,
+.pf-cred:focus-visible .pf-cred__rule { background: var(--f-accent); }
+
+.pf-cred__row { display: flex; gap: 12px; align-items: flex-start; }
+.pf-cred__icon { color: var(--f-faint); flex: none; margin-top: 2px; }
+.pf-cred__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.pf-cred__title {
+  font-size: 0.95rem; font-weight: 600; color: var(--f-ink);
+  line-height: 1.35; letter-spacing: -0.005em;
+}
+.pf-cred__issuer { font-size: 0.85rem; color: var(--f-soft); }
+.pf-cred__foot { display: flex; align-items: center; gap: 14px; margin-top: 2px; min-height: 20px; }
+.pf-cred__year {
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 0.76rem; color: var(--f-faint); letter-spacing: 0.04em;
+}
+.pf-cred__view {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.8rem; font-weight: 600; color: var(--f-accent);
+  opacity: 0; transition: opacity 0.16s ease;
+}
+.pf-cred:hover .pf-cred__view,
+.pf-cred:focus-visible .pf-cred__view { opacity: 1; }
+/* A keyboard user never hovers, so focus has to reveal it too. */
+.pf-cred:focus-visible { outline: 2px solid var(--f-accent); outline-offset: 6px; border-radius: 4px; }
+.pf-cred__seal { color: var(--f-accent); flex: none; margin-top: 2px; }
+
+@media (hover: none) {
+  /* No cursor to hover with, so the affordance is always shown. */
+  .pf-cred__view { opacity: 1; }
+}
