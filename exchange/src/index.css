@@ -6713,3 +6713,34 @@ a.pf-about__org:hover { color: #42D6B0; }
   /* No cursor to hover with, so the affordance is always shown. */
   .pf-cred__view { opacity: 1; }
 }
+
+/* The portfolio paints its own ground. Without this the page inherits the host
+   app's dark surface, so a light theme puts near-black text on it and the
+   credential names disappear. */
+.pf { background: var(--f-bg) !important; }
+.pf-section, .pf-contact, .pf-foot { background: transparent; }
+
+/* The credential name is what a reader scans for, so it leads the row. */
+.pf-cred__title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--f-ink);
+  letter-spacing: -0.01em;
+  /* Long filenames must wrap rather than clip — many of these are documents. */
+  overflow-wrap: anywhere;
+}
+/*
+ * The name does not react to the cursor.
+ *
+ * Lighting the hovered title accent made every other row read as dimmed —
+ * the eye judges these against each other, so recolouring one greys out the
+ * rest of the list. A reader has to be able to scan all the names at once,
+ * so the row's response to the cursor lives entirely in the rule above it
+ * and in View appearing; the title holds full ink the whole time.
+ */
+.pf-cred .pf-cred__title,
+.pf-cred:hover .pf-cred__title,
+.pf-cred:focus-visible .pf-cred__title {
+  color: var(--f-ink);
+  opacity: 1;
+}

@@ -138,8 +138,26 @@ export default function LicensesCertificates({
       fingerprinted: Boolean(a.vault_id),
     }, a.vault_id));
     const listedIds = new Set([...creds, ...awards].map((x) => x.id));
+
+    /*
+     * Only the work that is actually on sale.
+     *
+     * Every protected vault asset carries a certificate, so pulling the whole
+     * ledger in here turned the section into a file listing — Ocean.jpg and a
+     * build-plan .docx sat beside real credentials. A visitor reads this page
+     * to check the work they can license, so the ledger contributes only the
+     * assets that reached the Shop.
+     *
+     * Certificates and awards the person added by hand are untouched: those
+     * were curated deliberately and are not tied to a listing.
+     */
+    const shopAssetIds = new Set(
+      asArray(portfolio?.marketplace).map((m) => m?.asset_id).filter(Boolean),
+    );
+
     const ledgerDocs = asArray(portfolio?.verified?.entries)
       .filter((e) => e.certificate || e.credential_id)
+      .filter((e) => shopAssetIds.has(e.asset_id))
       .map((e) => ({
         id: e.certificate || e.asset_id,
         kind: 'certificate',
