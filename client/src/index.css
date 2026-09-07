@@ -1269,6 +1269,13 @@ html.dark .pe-pane h3 { color: var(--pe-ink); }
 .pe-two { display: grid; gap: 14px; grid-template-columns: 1fr; }
 @media (min-width: 620px) { .pe-two { grid-template-columns: 1fr 1fr; } }
 
+/* Issuer and year share a line — a year is a handful of characters and does
+   not deserve a full-width field beside a name like "Adobe Certified Expert". */
+.pe-doc__pair { display: grid; gap: 10px; grid-template-columns: 1fr; }
+@media (min-width: 560px) {
+  .pe-doc__pair { grid-template-columns: 1fr 110px; }
+}
+
 /* chips + tags */
 .pe-chips { display: flex; gap: 7px; flex-wrap: wrap; }
 .pe-chips button {

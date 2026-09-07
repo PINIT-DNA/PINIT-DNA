@@ -6284,6 +6284,22 @@ a.pf-about__org:hover { color: #42D6B0; }
   color: #F5F7FA;
   padding: 48px 30px 64px;
   border-top: 1px solid #252C38;
+
+  /*
+   * This section paints its own dark ground regardless of the portfolio's
+   * theme, so it has to carry the ink that belongs on a dark ground too.
+   *
+   * Without this the credential names took --f-ink from the page theme. On
+   * editorial or atelier that is near-black, which put black text on #080A0F
+   * and made every name invisible — while the heading and dates, which use
+   * literal light colours, stayed readable. Redefining the tokens here means
+   * anything inside the section resolves against the surface it is actually
+   * drawn on.
+   */
+  --f-ink: #F5F7FA;
+  --f-soft: #9AA6B8;
+  --f-faint: #6B7688;
+  --f-line: #252C38;
 }
 .pf-certs-head { max-width: 1180px; margin: 0 auto 20px; }
 .pf-certs-head h2, .pf-certs-page > h2 {

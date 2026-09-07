@@ -36,7 +36,10 @@ type Collection = {
 };
 
 type Entry = { id: string; title: string; org: string; period: string; note: string };
-type PortfolioDoc = { id: string; title: string; org: string; vault_id: string; kind: 'certificate' | 'license' | 'course' | 'workshop' };
+type PortfolioDoc = {
+  id: string; title: string; org: string; year: string; vault_id: string;
+  kind: 'certificate' | 'license' | 'course' | 'workshop';
+};
 const DOC_KINDS: Array<[PortfolioDoc['kind'], string]> = [
   ['certificate', 'Certificate'],
   ['license', 'License'],
@@ -146,6 +149,7 @@ function formFromApi(p: Record<string, any>): Form {
       id: c.id || uid(),
       title: c.title || c.name || c.originalFileName || 'Document',
       org: c.issuer || c.org || '',
+      year: String(c.year || c.issuedOn || c.period || ''),
       vault_id: String(c.vault_id || c.document_vault_id || c.documentKey || ''),
       kind: (['license', 'course', 'workshop'].includes(String(c.kind || '').toLowerCase())
         ? String(c.kind).toLowerCase()
@@ -186,7 +190,7 @@ function buildPayload(form: Form) {
       id: a.id, title: a.title, issuer: a.org, year: a.period, note: a.note,
     })),
     certifications: form.certifications.map((c) => ({
-      id: c.id, title: c.title, issuer: c.org, vault_id: c.vault_id, kind: c.kind,
+      id: c.id, title: c.title, issuer: c.org, year: c.year, vault_id: c.vault_id, kind: c.kind,
     })),
     collaborations: form.collaborations.map((withWho) => ({ with: withWho })),
     languages: form.languages,
@@ -297,6 +301,7 @@ function DocumentPicker({ vault, values, onChange }: {
       id: uid(),
       title: record.originalFileName || 'Document',
       org: '',
+      year: '',
       vault_id: record.id,
       kind: 'certificate',
     }]);
@@ -309,7 +314,12 @@ function DocumentPicker({ vault, values, onChange }: {
           <span className="pe-doc__icon"><FileText size={14} /></span>
           <div className="pe-doc__fields">
             <input value={doc.title} placeholder="Document title" onChange={(e) => patch(doc.id, 'title', e.target.value)} />
-            <input value={doc.org} placeholder="Issuer or context (optional)" onChange={(e) => patch(doc.id, 'org', e.target.value)} />
+            <div className="pe-doc__pair">
+              <input value={doc.org} placeholder="Issuer or context (optional)" onChange={(e) => patch(doc.id, 'org', e.target.value)} />
+              <input value={doc.year} placeholder="Year" onChange={(e) => patch(doc.id, 'year', e.target.value)} />
+            </div>
+            {/* The public page groups credentials under these four, so the
+                choice has to be made here — it is not inferable from a file. */}
             <div className="pe-chips">
               {DOC_KINDS.map(([id, label]) => (
                 <button
@@ -329,6 +339,25 @@ function DocumentPicker({ vault, values, onChange }: {
           </button>
         </div>
       ))}
+      {/*
+        * Not every credential is a file you hold.
+        *
+        * A course, a workshop or a licence issued elsewhere often has nothing
+        * to protect in the vault, and picking a vault file was the only way to
+        * create a row — so those three kinds were unreachable even though the
+        * public page has a tab for each. This adds one with no file attached;
+        * it renders the same, minus the protected seal.
+        */}
+      <button
+        type="button"
+        className="pe-add"
+        onClick={() => onChange([...values, {
+          id: uid(), title: '', org: '', year: '', vault_id: '', kind: 'course',
+        }])}
+      >
+        <Plus size={13} /> Add a course, workshop or licence
+      </button>
+
       {vault.length === 0 ? (
         <p className="pe-empty">Protect a file in Pinit HUB first — CVs, certificates, and briefs are picked from your vault, not uploaded here.</p>
       ) : (
@@ -890,14 +919,14 @@ export function PortfolioEditor() {
                   labels={{ title: 'Role', org: 'Company', period: '2023 — now', note: 'What you did' }}
                 />
               </Field>
-              <Field label="Recognition" hint="Awards, exhibitions, press. Hidden until you add one.">
+              <Field label="Awards & recognition" hint="Awards, exhibitions, press. They show under the Awards tab on your Certificates page. Hidden until you add one.">
                 <EntryList
                   items={form.awards}
                   onChange={(v) => set('awards', v)}
                   labels={{ title: 'Award or show', org: 'Who gave it', period: '2025', note: 'Detail' }}
                 />
               </Field>
-              <Field label="Licenses & certificates" hint="Pick files from your vault. They appear on the public Certificates tab — not a second upload.">
+              <Field label="Certificates, licences, courses & workshops" hint="Pick a vault file for anything you hold a document for, or add one without a file. Tag each with its kind — that is what the tabs on your public Certificates page filter by.">
                 <DocumentPicker
                   vault={vault}
                   values={form.certifications}
