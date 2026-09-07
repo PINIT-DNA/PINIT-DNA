@@ -388,8 +388,30 @@ export async function getVaultRecord(
 }
 
 /**
+ * GET /vault/:id/content-analysis
+ * Return persisted image analysis. Starts a job only if this vault version was never analyzed.
+ */
+export async function getVaultContentAnalysis(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  const { id } = req.params;
+  try {
+    const userId = getAuthUserId(req);
+    const snap = await vaultContentAnalysisService.getOrStart(id, userId, { force: false });
+    res.status(200).json({ success: true, ...snap });
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('not found')) {
+      return next(new AppError(404, err.message));
+    }
+    next(err);
+  }
+}
+
+/**
  * POST /vault/:id/analyze-content
- * Run (or re-run) image analysis and store on the vault record.
+ * Idempotent: returns stored analysis. Pass force=true to retry after failure.
  */
 export async function analyzeVaultContent(
   req: Request,
@@ -399,35 +421,34 @@ export async function analyzeVaultContent(
   const { id } = req.params;
   try {
     const userId = getAuthUserId(req);
+    const force = req.query.force === '1' || req.query.force === 'true'
+      || (req.body && (req.body.force === true || req.body.force === 'true'));
     const { isInvestigationBusy } = await import('../../services/forensics/investigation-busy.guard');
-    if (isInvestigationBusy()) {
-      const { prisma } = await import('../../lib/prisma');
-      const cached = await prisma.vaultRecord.findFirst({
-        where: { id, dnaRecord: { ownerUserId: userId } },
-        select: { contentAnalysis: true, contentLabel: true },
-      });
+    if (isInvestigationBusy() && !force) {
+      const cached = await vaultContentAnalysisService.getSnapshot(id);
       if (cached?.contentAnalysis) {
         res.status(200).json({
           success: true,
-          contentLabel: cached.contentLabel ?? 'UNKNOWN',
-          contentAnalysis: cached.contentAnalysis,
           deferred: true,
+          ...cached,
         });
         return;
       }
     }
-    const retrieved = await vaultService.retrieve(id, userId);
-    const analysis = await vaultContentAnalysisService.analyzeAndStore({
-      vaultId: id,
-      dnaRecordId: retrieved.dnaRecordId,
-      buffer: retrieved.originalBuffer,
-      mimeType: retrieved.originalMimeType,
-      filename: retrieved.originalFileName,
-    });
-    if (!analysis) {
-      return next(new AppError(500, 'Content analysis failed'));
+    const snap = await vaultContentAnalysisService.getOrStart(id, userId, { force });
+    if (snap.status === 'COMPLETED' && snap.contentAnalysis) {
+      res.status(200).json({ success: true, ...snap });
+      return;
     }
-    res.status(200).json({ success: true, contentLabel: analysis.label, contentAnalysis: analysis });
+    if (snap.started) {
+      await vaultContentAnalysisService.waitForInflight(id);
+      const next = await vaultContentAnalysisService.getSnapshot(id);
+      if (next) {
+        res.status(200).json({ success: true, ...next });
+        return;
+      }
+    }
+    res.status(200).json({ success: true, ...snap });
   } catch (err) {
     if (err instanceof Error && err.message.includes('not found')) {
       return next(new AppError(404, err.message));

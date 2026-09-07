@@ -50,6 +50,16 @@ export async function previewMyPortfolio(req: Request, res: Response, next: Next
   }
 }
 
+export async function containsVaultInPortfolio(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const vaultId = String(req.params.vaultId || '').trim();
+    const inPortfolio = await portfolioService.containsVault(userId(req), vaultId);
+    res.json({ success: true, in_portfolio: inPortfolio });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getPublicPortfolio(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const slug = String(req.params.slug || '').trim();

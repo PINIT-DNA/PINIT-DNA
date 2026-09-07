@@ -539,6 +539,16 @@ export const portfolioService = {
     }
   },
 
+  async containsVault(userId: string, vaultId: string): Promise<boolean> {
+    const clean = String(vaultId || '').trim();
+    if (!clean) return false;
+    const hit = await prisma.portfolioProjectMedia.findFirst({
+      where: { vaultId: clean, project: { portfolio: { userId } } },
+      select: { id: true },
+    });
+    return Boolean(hit);
+  },
+
   async backfillAllFromExchange() {
     const profiles = await fetchExchangeProfiles();
     const results: Array<{ pinit_id: string; userId?: string; slug?: string; status: string }> = [];

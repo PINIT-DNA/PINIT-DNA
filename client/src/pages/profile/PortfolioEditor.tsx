@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Check, Copy, Eye, FileText, Globe, Loader2, Lock, Plus, Save, Trash2, X,
 } from 'lucide-react';
@@ -7,6 +8,7 @@ import { api, listVaultRecords, previewVaultFile } from '../../services/dashboar
 import { API_BASE_URL } from '../../config/api.config';
 import type { VaultRecord } from '../../types/dashboard.types';
 import { ProfilePhotoPicker } from './ProfilePhotoPicker';
+import { addVaultToNamedCollection, planAddVaultToPortfolio } from '../../lib/portfolio-add-vault';
 
 /**
  * The portfolio builder. One builder, in HUB.
@@ -382,7 +384,9 @@ function VaultThumb({ id }: { id: string }) {
 type BridgeResponse = Record<string, any>;
 
 export function PortfolioEditor() {
+  const [params, setParams] = useSearchParams();
   const [form, setForm] = useState<Form>(emptyForm);
+  const [pendingAddVault, setPendingAddVault] = useState<string | null>(null);
   const [section, setSection] = useState<SectionId>('identity');
   const [vault, setVault] = useState<VaultRecord[]>([]);
   const [openCollection, setOpenCollection] = useState<string | null>(null);
@@ -410,10 +414,12 @@ export function PortfolioEditor() {
 
   useEffect(() => {
     (async () => {
+      let nextForm = emptyForm();
+      let vaultRows: VaultRecord[] = [];
       try {
         const { data } = await api.get<BridgeResponse>(`${API_BASE_URL}/portfolio/me`);
         const p = data?.portfolio || data || {};
-        setForm(formFromApi(p));
+        nextForm = formFromApi(p);
         if (data?.public_url) setPublicUrl(data.public_url);
         if (data?.exchange_app_url) setExchangeUrl(String(data.exchange_app_url).replace(/\/$/, ''));
         if (data?.preview_url) setPreviewUrl(String(data.preview_url));
@@ -429,9 +435,45 @@ export function PortfolioEditor() {
         toast.error('Could not load your portfolio.');
         console.error('[portfolio] load failed', err);
       }
-      try { setVault(await listVaultRecords()); } catch { /* vault is optional to load */ }
+      try { vaultRows = await listVaultRecords(); setVault(vaultRows); } catch { /* vault is optional to load */ }
+
+      const addVault = params.get('addVault')?.trim() || '';
+      if (addVault) {
+        const file = vaultRows.find((v) => v.id === addVault);
+        const fallbackTitle = (file?.originalFileName || 'Work').replace(/\.[^.]+$/, '');
+        const plan = planAddVaultToPortfolio(nextForm.project_groups, addVault, fallbackTitle, uid);
+        nextForm = { ...nextForm, project_groups: plan.groups };
+        setSection('work');
+        if (plan.collectionId) setOpenCollection(plan.collectionId);
+        if (plan.needsCollectionChoice) {
+          setPendingAddVault(addVault);
+          toast('Choose a collection to add this file.');
+        } else if (plan.already) {
+          toast('This file is already in your portfolio.');
+        } else if (plan.added) {
+          formRef.current = nextForm;
+          try {
+            const { data } = await api.put<BridgeResponse>(`${API_BASE_URL}/portfolio/me`, buildPayload(nextForm));
+            applyMeta(data);
+            setJustSaved(true);
+            setPreviewKey((k) => k + 1);
+            toast.success('Added to your portfolio.');
+          } catch (err: any) {
+            const d = err?.response?.data;
+            toast.error(d?.error || d?.message || "Couldn't add this asset to your portfolio.");
+          }
+        }
+        const nextParams = new URLSearchParams(params);
+        nextParams.delete('addVault');
+        setParams(nextParams, { replace: true });
+      }
+
+      setForm(nextForm);
+      formRef.current = nextForm;
       setLoading(false);
     })();
+    // consume addVault once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const applyMeta = (data: BridgeResponse) => {
@@ -639,10 +681,38 @@ export function PortfolioEditor() {
                 Group your protected work into collections. Each one becomes a page
                 with its own link, so you can send a client just the relevant set.
               </p>
+              {pendingAddVault ? (
+                <p className="pe-lead">This protected file is ready to add. Pick a collection, or create a new one. It will not be duplicated if it is already in that set.</p>
+              ) : null}
               <div className="pe-collections">
                 {form.project_groups.map((c) => (
                   <div key={c.id} className="pe-collection-row">
-                    <button type="button" className="pe-collection" onClick={() => setOpenCollection(c.id)}>
+                    <button type="button" className="pe-collection" onClick={() => {
+                      if (pendingAddVault) {
+                        const result = addVaultToNamedCollection(form.project_groups, c.id, pendingAddVault);
+                        const next = { ...form, project_groups: result.groups };
+                        setForm(next);
+                        formRef.current = next;
+                        setPendingAddVault(null);
+                        if (result.already) {
+                          toast('This file is already in your portfolio.');
+                        } else {
+                          void (async () => {
+                            try {
+                              const { data } = await api.put<BridgeResponse>(`${API_BASE_URL}/portfolio/me`, buildPayload(next));
+                              applyMeta(data);
+                              setJustSaved(true);
+                              setPreviewKey((k) => k + 1);
+                              toast.success('Added to your portfolio.');
+                            } catch (err: any) {
+                              const d = err?.response?.data;
+                              toast.error(d?.error || d?.message || "Couldn't add this asset to your portfolio.");
+                            }
+                          })();
+                        }
+                      }
+                      setOpenCollection(c.id);
+                    }}>
                       <b>{c.title || 'Untitled collection'}</b>
                       <em>{c.vault_ids.length} piece{c.vault_ids.length === 1 ? '' : 's'}</em>
                     </button>
@@ -657,9 +727,35 @@ export function PortfolioEditor() {
                   type="button"
                   className="pe-add"
                   onClick={() => {
-                    const c: Collection = { id: uid(), title: '', category: '', year: '', description: '', vault_ids: [] };
-                    set('project_groups', [...form.project_groups, c]);
+                    const incoming = pendingAddVault;
+                    const c: Collection = {
+                      id: uid(),
+                      title: '',
+                      category: '',
+                      year: '',
+                      description: '',
+                      vault_ids: incoming ? [incoming] : [],
+                    };
+                    const groups = [...form.project_groups, c];
+                    const next = { ...form, project_groups: groups };
+                    set('project_groups', groups);
+                    formRef.current = next;
                     setOpenCollection(c.id);
+                    setPendingAddVault(null);
+                    if (incoming) {
+                      void (async () => {
+                        try {
+                          const { data } = await api.put<BridgeResponse>(`${API_BASE_URL}/portfolio/me`, buildPayload(next));
+                          applyMeta(data);
+                          setJustSaved(true);
+                          setPreviewKey((k) => k + 1);
+                          toast.success('Added to your portfolio.');
+                        } catch (err: any) {
+                          const d = err?.response?.data;
+                          toast.error(d?.error || d?.message || "Couldn't add this asset to your portfolio.");
+                        }
+                      })();
+                    }
                   }}
                 >
                   <Plus size={13} /> New collection

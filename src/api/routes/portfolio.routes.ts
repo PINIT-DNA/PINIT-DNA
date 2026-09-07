@@ -6,6 +6,7 @@ import {
   publishMyPortfolio,
   unpublishMyPortfolio,
   previewMyPortfolio,
+  containsVaultInPortfolio,
   getPublicPortfolio,
 } from '../controllers/portfolio.controller';
 
@@ -16,6 +17,7 @@ router.put('/me', requireAuth, saveMyPortfolio);
 router.post('/me/publish', requireAuth, publishMyPortfolio);
 router.post('/me/unpublish', requireAuth, unpublishMyPortfolio);
 router.get('/me/preview', requireAuth, previewMyPortfolio);
+router.get('/me/contains/:vaultId', requireAuth, containsVaultInPortfolio);
 router.get('/public/:slug', getPublicPortfolio);
 
 export { router as portfolioRouter };

@@ -20,7 +20,7 @@ import {
   Microscope,
   Pencil,
   Store,
-  Briefcase,
+  Plus,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { VaultFileThumbnail } from './VaultFileThumbnail';
@@ -34,7 +34,7 @@ import {
 } from '../lib/file-type-utils';
 import { buildShareFileAttachment } from '../lib/share-file-open';
 import { API_BASE_URL } from '../config/api.config';
-import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, renameVaultRecord, createExchangeListIntent, getExchangeRole, getExchangeConfig, type VaultTrackingDashboard } from '../services/dashboard.api';
+import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, renameVaultRecord, createExchangeListIntent, getExchangeRole, getExchangeConfig, getPortfolioContainsVault, getVaultContentAnalysis, type VaultTrackingDashboard } from '../services/dashboard.api';
 import { useAuth } from '../context/AuthContext';
 import { ShareQrBlock } from './ShareQrBlock';
 import { AuthenticityReportCard, verdictBadgeVariant } from './AuthenticityReportCard';
@@ -90,27 +90,35 @@ const TABS: { id: PanelTab; label: string }[] = [
 function QuickAction({
   icon,
   label,
+  hint,
   onClick,
-  variant = 'default',
+  disabled = false,
+  emphasis = false,
 }: {
   icon: React.ReactNode;
   label: string;
+  hint?: string;
   onClick: () => void;
-  variant?: 'default' | 'danger';
+  disabled?: boolean;
+  emphasis?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={cn(
-        'flex flex-col items-center justify-center gap-2 p-3 rounded-xl border text-center transition-colors min-h-[72px]',
-        variant === 'danger'
-          ? 'border-red-500/20 bg-red-500/5 hover:bg-red-500/10 text-red-400'
-          : 'border-bg-border bg-bg-elevated hover:border-dna-500/30 hover:bg-dna-500/5 text-gray-300 hover:text-white',
+        'flex flex-col items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl border text-center transition-colors min-h-[72px] max-h-[84px]',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-dna-500 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-card',
+        'disabled:opacity-60 disabled:pointer-events-none',
+        emphasis
+          ? 'border-dna-500/35 bg-dna-500/10 text-white hover:border-dna-400/50 hover:bg-dna-500/15'
+          : 'border-bg-border bg-bg-elevated text-gray-300 hover:border-dna-500/30 hover:bg-dna-500/5 hover:text-white',
       )}
     >
       <span className="text-dna-400">{icon}</span>
       <span className="text-2xs font-medium leading-tight">{label}</span>
+      {hint ? <span className="text-[10px] leading-tight text-gray-500">{hint}</span> : null}
     </button>
   );
 }
@@ -136,6 +144,7 @@ export function VaultDetailSidePanel({
   const [sharingFile, setSharingFile] = useState(false);
   const [listingOnExchange, setListingOnExchange] = useState(false);
   const [canListOnExchange, setCanListOnExchange] = useState(false);
+  const [inPortfolio, setInPortfolio] = useState(false);
   /** Prepared Share File attachment — share() must run on a fresh click (user gesture). */
   const [shareReady, setShareReady] = useState(false);
   const [readyShareUrl, setReadyShareUrl] = useState<string | null>(null);
@@ -143,6 +152,11 @@ export function VaultDetailSidePanel({
     record.contentAnalysis ?? null,
   );
   const [analyzing, setAnalyzing] = useState(false);
+  const [analysisStatus, setAnalysisStatus] = useState<
+    'NOT_ANALYZED' | 'PENDING' | 'ANALYZING' | 'COMPLETED' | 'FAILED' | 'NOT_APPLICABLE' | null
+  >(record.contentAnalysis ? 'COMPLETED' : null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [analysisRetrying, setAnalysisRetrying] = useState(false);
   const preparedShareRef = useRef<{
     recordId: string;
     file: File;
@@ -184,6 +198,21 @@ export function VaultDetailSidePanel({
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    setInPortfolio(false);
+    void getPortfolioContainsVault(record.id)
+      .then((present) => {
+        if (!cancelled) setInPortfolio(present);
+      })
+      .catch(() => {
+        if (!cancelled) setInPortfolio(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [record.id]);
+
+  useEffect(() => {
     setTab('overview');
     setDisplayName(record.originalFileName);
     setRenaming(false);
@@ -194,6 +223,9 @@ export function VaultDetailSidePanel({
     setTracking(null);
     setAnalysis(record.contentAnalysis ?? null);
     setAnalyzing(false);
+    setAnalysisStatus(record.contentAnalysis ? 'COMPLETED' : null);
+    setAnalysisError(null);
+    setAnalysisRetrying(false);
     preparedShareRef.current = null;
     setShareReady(false);
     setReadyShareUrl(null);
@@ -219,33 +251,48 @@ export function VaultDetailSidePanel({
         setLoadingTracking(false);
       }
     })();
+  }, [record.id]);
 
-    // Image-only: refresh when missing latest authenticity analysis or old false-100% AI mix
-    const mix = record.contentAnalysis?.composition;
-    const score = record.contentAnalysis?.signals?.deepfakeScore;
-    const looksBroken =
-      isImageRecord && (
-        !record.contentAnalysis
-        || record.contentAnalysis.version !== 'authenticity-v7'
-        || !record.contentAnalysis.scores
-        || !mix
-        || (mix.aiGeneratedPercent >= 90 && mix.manualPercent === 0)
-        || (record.contentLabel === 'AI_GENERATED' && typeof score === 'number' && score < 70)
-      );
-    if (looksBroken) {
-      void (async () => {
-        setAnalyzing(true);
-        try {
-          const data = await analyzeVaultContent(record.id);
-          setAnalysis(data.contentAnalysis ?? null);
-        } catch {
-          /* keep empty — new protects always store analysis automatically */
-        } finally {
-          setAnalyzing(false);
-        }
-      })();
+  useEffect(() => {
+    if (!isImageRecord) {
+      setAnalysis(null);
+      setAnalyzing(false);
+      setAnalysisStatus('NOT_APPLICABLE');
+      return;
     }
-  }, [record.id, record.contentAnalysis, isImageRecord]);
+    let cancelled = false;
+    let timer: number | undefined;
+
+    const applySnap = (snap: Awaited<ReturnType<typeof getVaultContentAnalysis>>) => {
+      if (cancelled) return;
+      setAnalysisStatus(snap.status);
+      setAnalysis(snap.contentAnalysis ?? null);
+      setAnalysisError(snap.error ?? null);
+      setAnalyzing(snap.status === 'ANALYZING' || snap.status === 'PENDING');
+    };
+
+    const poll = async () => {
+      try {
+        const snap = await getVaultContentAnalysis(record.id);
+        applySnap(snap);
+        if (!cancelled && (snap.status === 'ANALYZING' || snap.status === 'PENDING')) {
+          timer = window.setTimeout(() => { void poll(); }, 2500);
+        }
+      } catch {
+        if (!cancelled) {
+          setAnalyzing(false);
+          setAnalysisStatus((prev) => prev ?? 'FAILED');
+          setAnalysisError("Analysis couldn't be completed.");
+        }
+      }
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [record.id, isImageRecord]);
 
   const copyTep = async (code: string) => {
     try {
@@ -482,6 +529,27 @@ export function VaultDetailSidePanel({
     }
   };
 
+  const handleRetryImageAnalysis = async () => {
+    if (analysisRetrying || !isImageRecord) return;
+    setAnalysisRetrying(true);
+    setAnalysisStatus('ANALYZING');
+    setAnalyzing(true);
+    setAnalysisError(null);
+    try {
+      const data = await analyzeVaultContent(record.id, { force: true });
+      setAnalysisStatus((data.status as typeof analysisStatus) || (data.contentAnalysis ? 'COMPLETED' : 'FAILED'));
+      setAnalysis(data.contentAnalysis ?? null);
+      setAnalysisError(data.error ?? null);
+      setAnalyzing(data.status === 'ANALYZING' || data.status === 'PENDING');
+    } catch {
+      setAnalysisStatus('FAILED');
+      setAnalysisError("Analysis couldn't be completed.");
+      setAnalyzing(false);
+    } finally {
+      setAnalysisRetrying(false);
+    }
+  };
+
   const gatePremium = (path: string) => {
     navigate(path);
   };
@@ -518,20 +586,30 @@ export function VaultDetailSidePanel({
       }
       return;
     }
-    if (!canListOnExchange) return;
+    if (!canListOnExchange) {
+      toast.error('Private Hub asset. Become a Creator on Pinit Exchange to list marketplace inventory.');
+      return;
+    }
     setListingOnExchange(true);
     try {
       const result = await createExchangeListIntent(record.id);
-      toast.success('Opening Pinit Exchange to list this protected asset…');
+      if (!result?.listUrl) {
+        toast.error("Couldn't create the Exchange listing.");
+        return;
+      }
       window.open(result.listUrl, '_blank', 'noopener,noreferrer');
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-        (err instanceof Error ? err.message : 'Could not start Exchange listing');
-      toast.error(msg);
+        (err instanceof Error ? err.message : '');
+      toast.error(msg || "Couldn't create the Exchange listing.");
     } finally {
       setListingOnExchange(false);
     }
+  };
+
+  const handleAddToPortfolio = () => {
+    navigate(`/profile?tab=portfolio&addVault=${encodeURIComponent(record.id)}`);
   };
 
   useEffect(() => {
@@ -887,17 +965,37 @@ export function VaultDetailSidePanel({
 
           {tab === 'details' && (
             <div className="space-y-3">
-              {isImageRecord && analyzing && !analysis ? (
+              {isImageRecord && analysis && analysisStatus !== 'FAILED' ? (
+                <AuthenticityReportCard analysis={analysis} title="Image analysis" />
+              ) : isImageRecord && (analyzing || analysisStatus === 'ANALYZING' || analysisStatus === 'PENDING') ? (
                 <div className="rounded-xl border border-bg-border bg-bg-elevated p-3">
                   <div className="flex items-center gap-2">
                     <Microscope size={14} className="text-dna-400" />
                     <p className="text-xs font-semibold text-white">Image analysis</p>
                     <RefreshCw size={11} className="animate-spin text-gray-500 ml-auto" />
                   </div>
-                  <p className="text-2xs text-gray-500 mt-2">Analyzing image automatically…</p>
+                  <p className="text-2xs text-gray-500 mt-2">
+                    {analysisStatus === 'PENDING' ? 'Analysis queued...' : 'Analysis in progress...'}
+                  </p>
                 </div>
-              ) : isImageRecord && analysis ? (
-                <AuthenticityReportCard analysis={analysis} title="Image authenticity analysis" />
+              ) : isImageRecord && analysisStatus === 'FAILED' ? (
+                <div className="rounded-xl border border-bg-border bg-bg-elevated p-3">
+                  <div className="flex items-center gap-2">
+                    <Microscope size={14} className="text-dna-400" />
+                    <p className="text-xs font-semibold text-white">Image analysis</p>
+                  </div>
+                  <p className="text-2xs text-gray-500 mt-2">
+                    {analysisError || "Analysis couldn't be completed."}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => { void handleRetryImageAnalysis(); }}
+                    disabled={analysisRetrying}
+                    className="mt-2 text-2xs font-semibold text-dna-400 hover:text-white disabled:opacity-60"
+                  >
+                    {analysisRetrying ? 'Retrying…' : 'Retry analysis'}
+                  </button>
+                </div>
               ) : (
                 <div className="rounded-xl border border-bg-border bg-bg-elevated p-3">
                   <div className="flex items-center gap-2">
@@ -906,8 +1004,8 @@ export function VaultDetailSidePanel({
                   </div>
                   <p className="text-2xs text-gray-500 mt-2">
                     {isImageRecord
-                      ? 'Image analysis runs automatically when the image goes through DNA.'
-                      : 'Detailed image analysis graph is only shown for image files that go through DNA.'}
+                      ? 'Checking stored analysis…'
+                      : 'Detailed image analysis is only shown for image files.'}
                   </p>
                 </div>
               )}
@@ -1085,7 +1183,7 @@ export function VaultDetailSidePanel({
           )}
         </div>
 
-        <div className="p-4 border-t border-bg-border space-y-3">
+        <div className="p-3 border-t border-bg-border space-y-2.5">
           <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">Quick Actions</h3>
           {shareReady && readyShareUrl && (
             <>
@@ -1148,57 +1246,41 @@ export function VaultDetailSidePanel({
           </div>
           )}
 
-          {canListOnExchange || listedOnExchange ? (
-            <>
-          <button
-            type="button"
-            onClick={() => { if (!listingOnExchange) void handleListOnExchange(); }}
-            disabled={listingOnExchange}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-dna-600 hover:bg-dna-500 text-white text-sm font-semibold disabled:opacity-60 shadow-lg shadow-dna-600/20"
-          >
-            {listingOnExchange ? <RefreshCw size={18} className="animate-spin" /> : <Store size={18} />}
-            {listingOnExchange ? 'Opening Exchange…' : listedOnExchange ? 'Open on Exchange' : 'List on Exchange'}
-          </button>
-          <p className="text-2xs text-gray-500 text-center -mt-1">
-            {listedOnExchange
-              ? 'Opens the live listing on Pinit Exchange.'
-              : 'Opens Pinit Exchange so you can set a price and publish this protected file for sale.'}
-          </p>
-            </>
-          ) : (
-            <p className="text-2xs text-gray-500 text-center">
-              Private Hub asset. Become a Creator on Pinit Exchange to list marketplace inventory.
-            </p>
-          )}
-
-          <button
-            type="button"
-            onClick={() => navigate(`/profile?tab=portfolio&addVault=${encodeURIComponent(record.id)}`)}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-white/10 text-white text-sm font-semibold hover:bg-white/5"
-          >
-            <Briefcase size={18} />
-            Add to Portfolio
-          </button>
-
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2.5">
+            <QuickAction
+              emphasis
+              icon={<Plus size={18} />}
+              label={inPortfolio ? 'In Portfolio' : 'Add to Portfolio'}
+              hint={inPortfolio ? 'Manage in Hub' : undefined}
+              onClick={handleAddToPortfolio}
+            />
+            <QuickAction
+              emphasis
+              icon={listingOnExchange ? <RefreshCw size={18} className="animate-spin" /> : <Store size={18} />}
+              label={
+                listingOnExchange
+                  ? (listedOnExchange ? 'Opening…' : 'Listing…')
+                  : listedOnExchange
+                    ? 'View on Exchange'
+                    : 'List on Exchange'
+              }
+              hint={listedOnExchange ? 'Listed on Exchange' : undefined}
+              disabled={listingOnExchange}
+              onClick={() => { if (!listingOnExchange) void handleListOnExchange(); }}
+            />
             <QuickAction
               icon={protectDownloading ? <RefreshCw size={18} className="animate-spin" /> : <Download size={18} />}
-              label="Download Protected"
-              onClick={handleProtectedDownload}
+              label={protectDownloading ? 'Preparing…' : 'Download Protected'}
+              disabled={protectDownloading}
+              onClick={() => { if (!protectDownloading) void handleProtectedDownload(); }}
             />
             <QuickAction icon={<Share2 size={18} />} label="Share Secure Link" onClick={onShare} />
             <QuickAction
               icon={sharingFile ? <RefreshCw size={18} className="animate-spin" /> : <Send size={18} />}
               label={sharingFile ? 'Preparing…' : shareReady ? 'Share now' : 'Share File'}
+              disabled={sharingFile}
               onClick={() => { if (!sharingFile) void handleShareFile(); }}
             />
-            {(canListOnExchange || listedOnExchange) && (
-            <QuickAction
-              icon={listingOnExchange ? <RefreshCw size={18} className="animate-spin" /> : <Store size={18} />}
-              label={listingOnExchange ? 'Opening…' : listedOnExchange ? 'Open listing' : 'List on Exchange'}
-              onClick={() => { if (!listingOnExchange) void handleListOnExchange(); }}
-            />
-            )}
             <QuickAction
               icon={<FileSearch size={18} />}
               label="Intelligence Report"

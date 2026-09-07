@@ -208,13 +208,32 @@ export async function getVaultRecord(id: string) {
   return data.vault ?? data;
 }
 
-/** Run / re-run image analysis for Vault Explorer Details. */
-export async function analyzeVaultContent(vaultId: string) {
+export async function getVaultContentAnalysis(vaultId: string) {
+  const { data } = await api.get<{
+    success: boolean;
+    status: 'NOT_ANALYZED' | 'PENDING' | 'ANALYZING' | 'COMPLETED' | 'FAILED' | 'NOT_APPLICABLE';
+    contentLabel: string | null;
+    contentAnalysis: VaultRecord['contentAnalysis'];
+    analyzedAt: string | null;
+    error: string | null;
+    started?: boolean;
+  }>(`${API_BASE_URL}/vault/${vaultId}/content-analysis`);
+  return data;
+}
+
+/** Run / re-run image analysis for Vault Explorer Details. Pass force to retry a failed job. */
+export async function analyzeVaultContent(vaultId: string, opts?: { force?: boolean }) {
   const { data } = await api.post<{
     success: boolean;
+    status?: string;
     contentLabel: string;
     contentAnalysis: VaultRecord['contentAnalysis'];
-  }>(`${API_BASE_URL}/vault/${vaultId}/analyze-content`);
+    analyzedAt?: string | null;
+    error?: string | null;
+  }>(`${API_BASE_URL}/vault/${vaultId}/analyze-content`, { force: Boolean(opts?.force) }, {
+    params: opts?.force ? { force: '1' } : undefined,
+    timeout: 180_000,
+  });
   return data;
 }
 
@@ -717,6 +736,13 @@ export async function getExchangeSellerSummary(): Promise<{
       total_saves: number;
     };
   };
+}
+
+export async function getPortfolioContainsVault(vaultId: string): Promise<boolean> {
+  const { data } = await api.get<{ success?: boolean; in_portfolio?: boolean }>(
+    `${API_BASE_URL}/portfolio/me/contains/${encodeURIComponent(vaultId)}`,
+  );
+  return Boolean(data?.in_portfolio);
 }
 
 export async function getExchangeListedAssets(): Promise<{

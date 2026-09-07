@@ -25,9 +25,80 @@ import {
   type VaultContentAnalysis,
 } from './authenticity.types';
 import { probeAiGeneration } from './ai-generation.engine';
+import {
+  isCompletedAnalysisPayload,
+  resolveImageAnalysisStatus,
+  type ImageAnalysisStatus,
+} from './image-analysis-lifecycle';
 
 export type { VaultContentAnalysis, AuthenticityVerdict };
 export { VERDICT_DISPLAY };
+
+const inflightByVault = new Map<string, Promise<VaultContentAnalysis | null>>();
+const claimedVaults = new Set<string>();
+
+export type ImageAnalysisSnapshot = {
+  status: ImageAnalysisStatus;
+  contentAnalysis: VaultContentAnalysis | null;
+  contentLabel: string | null;
+  analyzedAt: string | null;
+  error: string | null;
+  started: boolean;
+};
+
+async function writeAnalysisStatus(
+  vaultId: string,
+  data: {
+    contentAnalysisStatus: ImageAnalysisStatus;
+    contentAnalysisError?: string | null;
+    contentAnalyzedAt?: Date | null;
+  },
+): Promise<void> {
+  try {
+    await prisma.vaultRecord.update({
+      where: { id: vaultId },
+      data: {
+        contentAnalysisStatus: data.contentAnalysisStatus,
+        contentAnalysisError: data.contentAnalysisError === undefined ? undefined : data.contentAnalysisError,
+        contentAnalyzedAt: data.contentAnalyzedAt === undefined ? undefined : data.contentAnalyzedAt,
+      },
+    });
+  } catch (err) {
+    logger.warn('[ImageAnalysis] status persist skipped', {
+      vaultId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+function snapshotFromRow(row: {
+  originalMimeType: string;
+  originalFileName: string;
+  contentAnalysis: unknown;
+  contentLabel: string | null;
+  contentAnalysisStatus?: string | null;
+  contentAnalysisError?: string | null;
+  contentAnalyzedAt?: Date | null;
+}): ImageAnalysisSnapshot {
+  const status = resolveImageAnalysisStatus({
+    mimeType: row.originalMimeType,
+    filename: row.originalFileName,
+    storedStatus: row.contentAnalysisStatus,
+    contentAnalysis: row.contentAnalysis,
+    analyzingStartedAt: row.contentAnalyzedAt,
+  });
+  const completed = isCompletedAnalysisPayload(row.contentAnalysis)
+    ? (row.contentAnalysis as VaultContentAnalysis)
+    : null;
+  return {
+    status,
+    contentAnalysis: completed,
+    contentLabel: row.contentLabel,
+    analyzedAt: completed?.analyzedAt || (row.contentAnalyzedAt ? row.contentAnalyzedAt.toISOString() : null),
+    error: status === 'FAILED' ? (row.contentAnalysisError || 'Analysis couldn\'t be completed.') : null,
+    started: false,
+  };
+}
 
 const COURSE_KEYWORDS = [
   'internship', 'offer letter', 'syllabus', 'assignment', 'course', 'curriculum',
@@ -518,6 +589,9 @@ export const vaultContentAnalysisService = {
         data: {
           contentLabel: null,
           contentAnalysis: Prisma.DbNull,
+          contentAnalysisStatus: 'NOT_APPLICABLE',
+          contentAnalysisError: null,
+          contentAnalyzedAt: null,
         },
       });
       await prisma.dnaRecord.update({
@@ -536,6 +610,9 @@ export const vaultContentAnalysisService = {
         data: {
           contentLabel: analysis.verdict,
           contentAnalysis: analysis as unknown as Prisma.InputJsonValue,
+          contentAnalysisStatus: 'COMPLETED',
+          contentAnalysisError: null,
+          contentAnalyzedAt: new Date(analysis.analyzedAt),
         },
       });
       await prisma.dnaRecord.update({
@@ -545,6 +622,10 @@ export const vaultContentAnalysisService = {
           fileAnalysis: analysis as unknown as Prisma.InputJsonValue,
         },
       }).catch(() => {});
+      logger.info('[ImageAnalysis] ANALYSIS_COMPLETED', {
+        vaultId: params.vaultId,
+        verdict: analysis.verdict,
+      });
       logger.info('[Authenticity] stored on vault', {
         vaultId: params.vaultId,
         verdict: analysis.verdict,
@@ -552,6 +633,15 @@ export const vaultContentAnalysisService = {
       });
       return analysis;
     } catch (err) {
+      logger.warn('[ImageAnalysis] ANALYSIS_FAILED', {
+        vaultId: params.vaultId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await writeAnalysisStatus(params.vaultId, {
+        contentAnalysisStatus: 'FAILED',
+        contentAnalysisError: err instanceof Error ? err.message : 'Analysis couldn\'t be completed.',
+        contentAnalyzedAt: new Date(),
+      });
       logger.warn('[Authenticity] vault store failed', { error: err });
       return null;
     }
@@ -606,6 +696,9 @@ export const vaultContentAnalysisService = {
         data: {
           contentLabel: dna.fileAnalysisLabel ?? null,
           contentAnalysis: dna.fileAnalysis as unknown as Prisma.InputJsonValue,
+          contentAnalysisStatus: 'COMPLETED',
+          contentAnalysisError: null,
+          contentAnalyzedAt: new Date(),
         },
       });
       return true;
@@ -1108,6 +1201,150 @@ export const vaultContentAnalysisService = {
     };
 
     return analysis;
+  },
+
+  async getSnapshot(vaultId: string): Promise<ImageAnalysisSnapshot | null> {
+    try {
+      const row = await prisma.vaultRecord.findUnique({
+        where: { id: vaultId },
+        select: {
+          originalMimeType: true,
+          originalFileName: true,
+          contentAnalysis: true,
+          contentLabel: true,
+          contentAnalysisStatus: true,
+          contentAnalysisError: true,
+          contentAnalyzedAt: true,
+        },
+      });
+      if (!row) return null;
+      return snapshotFromRow(row);
+    } catch {
+      const row = await prisma.vaultRecord.findUnique({
+        where: { id: vaultId },
+        select: {
+          originalMimeType: true,
+          originalFileName: true,
+          contentAnalysis: true,
+          contentLabel: true,
+        },
+      });
+      if (!row) return null;
+      return snapshotFromRow(row);
+    }
+  },
+
+  async getOrStart(
+    vaultId: string,
+    ownerUserId: string,
+    opts: { force?: boolean } = {},
+  ): Promise<ImageAnalysisSnapshot> {
+    const force = Boolean(opts.force);
+    const selectFull = {
+      id: true,
+      dnaRecordId: true,
+      originalMimeType: true,
+      originalFileName: true,
+      contentAnalysis: true,
+      contentLabel: true,
+      contentAnalysisStatus: true,
+      contentAnalysisError: true,
+      contentAnalyzedAt: true,
+      dnaRecord: { select: { fileAnalysis: true, fileAnalysisLabel: true } },
+    } as const;
+    let row = await prisma.vaultRecord.findUnique({
+      where: { id: vaultId },
+      select: selectFull,
+    }).catch(() => prisma.vaultRecord.findUnique({
+      where: { id: vaultId },
+      select: {
+        id: true,
+        dnaRecordId: true,
+        originalMimeType: true,
+        originalFileName: true,
+        contentAnalysis: true,
+        contentLabel: true,
+        dnaRecord: { select: { fileAnalysis: true, fileAnalysisLabel: true } },
+      },
+    }));
+    if (!row) {
+      throw new Error('Vault record not found');
+    }
+
+    const current = snapshotFromRow(row);
+    if (current.status === 'NOT_APPLICABLE') return current;
+
+    if (!force && current.status === 'COMPLETED' && current.contentAnalysis) {
+      logger.info('[ImageAnalysis] ANALYSIS_CACHE_HIT', { vaultId });
+      return current;
+    }
+    if (!force && current.status === 'FAILED') {
+      return current;
+    }
+    if (!force && (current.status === 'ANALYZING' || current.status === 'PENDING' || inflightByVault.has(vaultId) || claimedVaults.has(vaultId))) {
+      logger.info('[ImageAnalysis] ANALYSIS_ALREADY_RUNNING', { vaultId });
+      return { ...current, status: current.status === 'PENDING' ? 'PENDING' : 'ANALYZING' };
+    }
+
+    claimedVaults.add(vaultId);
+
+    logger.info('[ImageAnalysis] ANALYSIS_STARTED', { vaultId, force });
+    const job = (async (): Promise<VaultContentAnalysis | null> => {
+      try {
+        await writeAnalysisStatus(vaultId, {
+          contentAnalysisStatus: 'ANALYZING',
+          contentAnalysisError: null,
+          contentAnalyzedAt: new Date(),
+        });
+        if (!force && row.dnaRecord.fileAnalysis && isCompletedAnalysisPayload(row.dnaRecord.fileAnalysis)) {
+          const copied = await this.copyDnaAnalysisToVault(vaultId, row.dnaRecordId);
+          if (copied) {
+            const snap = await this.getSnapshot(vaultId);
+            return snap?.contentAnalysis ?? (row.dnaRecord.fileAnalysis as unknown as VaultContentAnalysis);
+          }
+        }
+        const { VaultService } = await import('./vault.service');
+        const vaultService = new VaultService();
+        const retrieved = await vaultService.retrieve(vaultId, ownerUserId);
+        return await this.analyzeAndStore({
+          vaultId,
+          dnaRecordId: retrieved.dnaRecordId,
+          buffer: retrieved.originalBuffer,
+          mimeType: retrieved.originalMimeType,
+          filename: retrieved.originalFileName,
+        });
+      } catch (err) {
+        logger.warn('[ImageAnalysis] ANALYSIS_FAILED', {
+          vaultId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        await writeAnalysisStatus(vaultId, {
+          contentAnalysisStatus: 'FAILED',
+          contentAnalysisError: err instanceof Error ? err.message : 'Analysis couldn\'t be completed.',
+          contentAnalyzedAt: new Date(),
+        });
+        return null;
+      } finally {
+        inflightByVault.delete(vaultId);
+        claimedVaults.delete(vaultId);
+      }
+    })();
+
+    inflightByVault.set(vaultId, job);
+    return {
+      status: 'ANALYZING',
+      contentAnalysis: force ? null : current.contentAnalysis,
+      contentLabel: current.contentLabel,
+      analyzedAt: current.analyzedAt,
+      error: null,
+      started: true,
+    };
+  },
+
+  async waitForInflight(vaultId: string): Promise<VaultContentAnalysis | null> {
+    const job = inflightByVault.get(vaultId);
+    if (!job) return null;
+    return job;
   },
 
   async reanalyzeVault(vaultId: string, buffer: Buffer): Promise<VaultContentAnalysis | null> {

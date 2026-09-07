@@ -97,7 +97,14 @@ export function AuthenticityReportCard({
     <div className="rounded-xl border border-bg-border bg-bg-elevated p-3.5 space-y-3">
       <div className="flex items-center gap-2">
         <Microscope size={14} className="text-dna-400 shrink-0" />
-        <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">{title}</p>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">{title}</p>
+          {analysis.analyzedAt ? (
+            <p className="text-2xs text-gray-500 mt-0.5">
+              Analyzed {new Date(analysis.analyzedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+            </p>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2">

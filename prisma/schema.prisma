@@ -431,6 +431,10 @@ model VaultRecord {
   contentLabel        String?
   /// Full file-analysis snapshot shown in Vault Explorer Details
   contentAnalysis     Json?
+  /// NOT_ANALYZED | PENDING | ANALYZING | COMPLETED | FAILED | NOT_APPLICABLE
+  contentAnalysisStatus String  @default("NOT_ANALYZED")
+  contentAnalysisError  String? @db.Text
+  contentAnalyzedAt     DateTime?
   dnaRecord           DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
 
   @@index([contentLabel])

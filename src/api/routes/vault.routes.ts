@@ -26,6 +26,7 @@ import {
   deleteVaultRecord,
   renameVaultRecord,
   analyzeVaultContent,
+  getVaultContentAnalysis,
   reanalyzeAllVaultContent,
 } from '../controllers/vault.controller';
 import { vaultIntegrityCheck } from '../controllers/integrity.controller';
@@ -89,7 +90,10 @@ router.get('/:id/preview', requireAuth, requireVaultOwnership, previewVaultFile)
  */
 router.post('/:id/retrieve', requireAuth, requireVaultOwnership, retrieveFromVault);
 
-/** POST /vault/:id/analyze-content — whole-file analysis for Details tab */
+/** GET /vault/:id/content-analysis — persisted analysis (starts once if never analyzed) */
+router.get('/:id/content-analysis', requireAuth, requireVaultOwnership, getVaultContentAnalysis);
+
+/** POST /vault/:id/analyze-content — idempotent; force=true retries a failed job */
 router.post('/:id/analyze-content', requireAuth, requireVaultOwnership, analyzeVaultContent);
 
 /**

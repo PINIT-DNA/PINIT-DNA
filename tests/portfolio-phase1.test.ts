@@ -3,6 +3,10 @@ import {
   parseEditorBody,
   stripPublicSecrets,
 } from '../src/services/portfolio/portfolio-document';
+import {
+  addVaultToNamedCollection,
+  planAddVaultToPortfolio,
+} from '../client/src/lib/portfolio-add-vault';
 
 describe('portfolio phase 1 ownership helpers', () => {
   test('empty slug in the editor is ignored so a real URL is not replaced with creator', () => {
@@ -55,3 +59,38 @@ describe('portfolio phase 1 ownership helpers', () => {
     expect(parsed.certificates[0].documentKey).toBe('vault-cv');
   });
 });
+
+describe('add vault to Hub portfolio without duplicating', () => {
+  const col = (id: string, vaults: string[]) => ({
+    id, title: id, category: '', year: '', description: '', vault_ids: vaults,
+  });
+
+  test('does not duplicate a vault already in a collection', () => {
+    const plan = planAddVaultToPortfolio([col('a', ['v1'])], 'v1', 'Work', () => 'new');
+    expect(plan.already).toBe(true);
+    expect(plan.added).toBe(false);
+    expect(plan.groups[0].vault_ids).toEqual(['v1']);
+  });
+
+  test('creates a collection when the portfolio has none', () => {
+    const plan = planAddVaultToPortfolio([], 'v2', 'Sunset', () => 'c1');
+    expect(plan.added).toBe(true);
+    expect(plan.groups[0].vault_ids).toEqual(['v2']);
+    expect(plan.groups[0].title).toBe('Sunset');
+  });
+
+  test('asks the user to pick when there are multiple collections', () => {
+    const plan = planAddVaultToPortfolio([col('a', []), col('b', [])], 'v3', 'Work', () => 'x');
+    expect(plan.needsCollectionChoice).toBe(true);
+    expect(plan.added).toBe(false);
+  });
+
+  test('named collection add skips duplicates', () => {
+    const once = addVaultToNamedCollection([col('a', ['v1'])], 'a', 'v1');
+    expect(once.already).toBe(true);
+    const twice = addVaultToNamedCollection([col('a', ['v1'])], 'a', 'v2');
+    expect(twice.already).toBe(false);
+    expect(twice.groups[0].vault_ids).toEqual(['v1', 'v2']);
+  });
+});
+
