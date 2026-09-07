@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowUpRight, BadgeCheck, Download, FileText, Globe, ImagePlus,
-  Languages, Mail, MapPin, Send, Share2, X,
+  ArrowUpRight, BadgeCheck, Download, FileText, Globe, ImagePlus, Instagram, Languages, Link2, Linkedin, Mail, MapPin, Send, Share2, Twitter, X, Youtube,
 } from 'lucide-react';
 import { listingPreviewUrl } from '../../lib/listing-preview.js';
 import LicensesCertificates from './LicensesCertificates.jsx';
@@ -169,11 +168,47 @@ function Hero({ portfolio, onContact, onDownloadCv }) {
   );
 }
 
-function SectionHead({ title, sub }) {
+/**
+ * Social links, however they were stored — a bare URL, or an object with any
+ * of the usual key names. The icon is inferred from the host rather than from
+ * a label the person typed, so a link is never shown under the wrong mark.
+ */
+const SOCIAL_ICONS = [
+  [/instagram\./i, Instagram, 'Instagram'],
+  [/(linkedin\.|lnkd\.in)/i, Linkedin, 'LinkedIn'],
+  [/(twitter\.|x\.com)/i, Twitter, 'X'],
+  [/(youtube\.|youtu\.be)/i, Youtube, 'YouTube'],
+];
+
+function socialLinks(list) {
+  return asArray(list)
+    .map((item) => {
+      const url = typeof item === 'string'
+        ? item
+        : String(item?.url || item?.href || item?.link || item?.value || '');
+      const clean = url.trim();
+      if (!clean) return null;
+      const withScheme = /^https?:\/\//i.test(clean) ? clean : `https://${clean}`;
+      const found = SOCIAL_ICONS.find(([re]) => re.test(withScheme));
+      const [, Icon, label] = found || [null, Globe, 'Website'];
+      return { url: withScheme, Icon, label };
+    })
+    .filter(Boolean);
+}
+
+function SectionHead({ title, sub, action, onAction }) {
   return (
     <div className="pf-head">
-      <h2>{title}</h2>
-      {sub ? <p>{sub}</p> : null}
+      <div className="pf-head__text">
+        <h2>{title}</h2>
+        {sub ? <p>{sub}</p> : null}
+      </div>
+      {/* Only offered when there is somewhere for it to go. */}
+      {action && onAction ? (
+        <button type="button" className="pf-viewall" onClick={onAction}>
+          {action} <ArrowRight size={14} />
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -620,6 +655,7 @@ function ShopCollabs({ portfolio, onSelectListing }) {
 
 function Contact({ portfolio, onContact }) {
   const c = portfolio.contact || {};
+  const links = socialLinks(portfolio.social_links);
   return (
     <section className="pf-contact" id="pf-contact">
       <div className="pf-contact__inner">
@@ -634,6 +670,22 @@ function Contact({ portfolio, onContact }) {
           {/* An address appears only when it was deliberately published. */}
           {c.email ? (
             <a className="pf-btn" href={`mailto:${c.email}`}><Mail size={14} /> {c.email}</a>
+          ) : null}
+          {links.length ? (
+            <div className="pf-social">
+              {links.map(({ url, Icon, label }) => (
+                <a
+                  key={url}
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  aria-label={label}
+                  title={label}
+                >
+                  <Icon size={17} />
+                </a>
+              ))}
+            </div>
           ) : null}
         </div>
       </div>
