@@ -201,15 +201,9 @@ export function captureBestGps(opts?: {
   });
 }
 
-export function locationLabel(accuracy: number | null | undefined, source: string | null | undefined): string {
-  if (source === 'gps' && (accuracy == null || accuracy <= 75)) {
-    return 'Precise location — permission granted';
-  }
-  if (source === 'gps' || source === 'network') {
-    return 'Approximate location — device/network (not guaranteed village-level)';
-  }
-  if (source === 'ip' || source === 'denied' || !source) {
-    return 'Approximate location — based on network/IP';
-  }
-  return 'Approximate location — based on network/IP';
+export function locationLabel(_accuracy: number | null | undefined, source: string | null | undefined): string {
+  if (source === 'gps') return 'GPS';
+  if (source === 'network') return 'Device location';
+  if (source === 'ip') return 'IP location';
+  return 'Location';
 }

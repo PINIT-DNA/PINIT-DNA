@@ -12,7 +12,7 @@ import {
   type AccessKind,
   ACCESS_KIND_LABELS,
 } from '../components/maps/FileTrackingMap';
-import { isValidMapCoordinate, sanitizeCoordinatePair, isPrivateIp } from '../lib/geo-coords';
+import { isValidMapCoordinate, sanitizeCoordinatePair } from '../lib/geo-coords';
 import { locationLabel } from '../lib/precise-gps';
 
 interface AccessLog {
@@ -380,7 +380,7 @@ const ACTION_CONFIG: Record<string, { icon: React.ReactNode; label: string; colo
 
 export function LinkIntelligencePage() {
   const { token } = useParams<{ token: string }>();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const [link, setLink] = useState<LinkInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -388,6 +388,16 @@ export function LinkIntelligencePage() {
   const [revoking, setRevoking] = useState(false);
   const [revoked, setRevoked] = useState(false);
   const [blockingViewer, setBlockingViewer] = useState<string | null>(null);
+
+  const selectViewer = (id: string | null) => {
+    setSelectedViewer(id);
+    try {
+      const url = new URL(window.location.href);
+      if (id) url.searchParams.set('viewer', id);
+      else url.searchParams.delete('viewer');
+      window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}`);
+    } catch { /* ignore */ }
+  };
 
   useEffect(() => {
     const fromUrl = searchParams.get('viewer');
@@ -596,7 +606,7 @@ export function LinkIntelligencePage() {
         <Link to="/access-intelligence" className="text-dna-400 text-sm hover:underline flex items-center gap-1">
           <ArrowLeft size={14} /> Back
         </Link>
-        <button onClick={load} className="btn btn-secondary btn-sm">Try again</button>
+        <button onClick={() => load()} className="btn btn-secondary btn-sm">Try again</button>
       </div>
     </div>
   );
@@ -645,7 +655,7 @@ export function LinkIntelligencePage() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={load} className="text-gray-400 hover:text-white transition-colors">
+          <button onClick={() => load()} className="text-gray-400 hover:text-white transition-colors">
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
           </button>
           {link.isActive && !revoked ? (
@@ -692,19 +702,9 @@ export function LinkIntelligencePage() {
         <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-4">
           <Globe size={14} className="text-dna-400" /> Where this asset was accessed
         </h2>
-        <p className="text-2xs text-gray-500 -mt-2 mb-4">
-          Precise GPS only when the recipient allowed it. Other pins are approximate IP/network location.
-        </p>
 
         <FileTrackingMap
-          onSelectViewer={(id) => {
-            setSelectedViewer(id);
-            setSearchParams((prev) => {
-              const next = new URLSearchParams(prev);
-              next.set('viewer', id);
-              return next;
-            }, { replace: true });
-          }}
+          onSelectViewer={(id) => selectViewer(id)}
           points={viewers
             .filter(v => isValidMapCoordinate(v.lat, v.lng))
             .map(v => ({
@@ -732,19 +732,6 @@ export function LinkIntelligencePage() {
           }))}
           height="420px"
         />
-
-        {viewers.length > 0 && viewers.every(v => !isValidMapCoordinate(v.lat, v.lng)) && (
-          <p className="text-2xs text-yellow-500/90 mt-3 italic">
-            {viewers.some(v => isPrivateIp(v.ip))
-              ? 'Testing on localhost — IP geolocation is unavailable for local/private networks.'
-              : 'No map coordinates yet. Turn ON GPS Location Tracking when sharing, then open the link and Allow location for street / village / mandal detail.'}
-          </p>
-        )}
-        {viewers.some(v => isValidMapCoordinate(v.lat, v.lng) && v.locationSource === 'ip') && (
-          <p className="text-2xs text-yellow-500/90 mt-3 italic">
-            Some pins are IP-approximate (city/ISP). For exact street, latitude/longitude, district &amp; mandal: create the share with <strong className="text-yellow-300">GPS Location Tracking ON</strong> and Allow location in the browser when opening the link.
-          </p>
-        )}
 
         {/* Country breakdown below map */}
         {Object.keys(countryStats).length > 0 && (
@@ -783,13 +770,7 @@ export function LinkIntelligencePage() {
             <button
               onClick={() => {
                 const next = v.id === selectedViewer ? null : v.id;
-                setSelectedViewer(next);
-                setSearchParams((prev) => {
-                  const q = new URLSearchParams(prev);
-                  if (next) q.set('viewer', next);
-                  else q.delete('viewer');
-                  return q;
-                }, { replace: true });
+                selectViewer(next);
               }}
               className={`w-full text-left border rounded-lg p-3 transition-all ${
                 !v.isBlocked
@@ -988,7 +969,7 @@ export function LinkIntelligencePage() {
                     <MapPin size={12} className={
                       activeViewer.locationSource === 'gps' && (activeViewer.gpsAccuracy == null || activeViewer.gpsAccuracy <= 75)
                         ? 'text-green-400'
-                        : 'text-yellow-400'
+                        : 'text-dna-400'
                     } />
                     <span className="text-2xs font-semibold text-white">
                       {locationLabel(activeViewer.gpsAccuracy, activeViewer.locationSource)}
@@ -1022,9 +1003,6 @@ export function LinkIntelligencePage() {
                         <div className="pt-1 border-t border-bg-border mt-1 flex flex-wrap items-center gap-2">
                           <span className="text-gray-500">Coordinates:</span>{' '}
                           <span className="text-dna-400 font-mono">{formatCoords(activeViewer.lat, activeViewer.lng)}</span>
-                          {activeViewer.locationSource === 'ip' && (
-                            <span className="text-yellow-500">(IP approximate)</span>
-                          )}
                           <a
                             href={googleMapsUrl(activeViewer.lat!, activeViewer.lng!)}
                             target="_blank"
@@ -1052,8 +1030,7 @@ export function LinkIntelligencePage() {
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                       <div><span className="text-gray-500">Country:</span> <span className="text-white">{activeViewer.country}</span></div>
                       {activeViewer.region && <div><span className="text-gray-500">State:</span> <span className="text-white">{activeViewer.region}</span></div>}
-                      <div><span className="text-gray-500">City (IP):</span> <span className="text-yellow-400">{activeViewer.city ?? 'Unknown'}</span></div>
-                      <div className="col-span-full text-2xs text-yellow-500 italic">Approximate location from network/IP. Village/locality is shown only when a geolocation provider or GPS reverse-geocode actually returned it.</div>
+                      {activeViewer.city && <div><span className="text-gray-500">City:</span> <span className="text-white">{activeViewer.city}</span></div>}
                     </div>
                   )}
                   {activeViewer.timezone && <div className="mt-1"><span className="text-gray-500">Timezone:</span> <span className="text-white">{activeViewer.timezone}</span></div>}
@@ -1095,9 +1072,6 @@ export function LinkIntelligencePage() {
 
               {/* Action timeline */}
               <div className="space-y-1">
-                <p className="text-2xs text-gray-500 mb-2">
-                  Screenshot and copy events are best-effort browser signals. OS-level captures without a key event are not detectable.
-                </p>
                 {activeViewer.actions.slice().reverse().map((log) => {
                   const cfg = ACTION_CONFIG[log.action] ?? (
                     log.action.startsWith('SCROLL')
@@ -1115,7 +1089,6 @@ export function LinkIntelligencePage() {
                     : [log.city, log.region, log.country].filter(Boolean).join(', ');
                   const coords = formatCoords(logLat, logLng);
                   const line = [logPlace, log.device, [log.browser, log.os].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
-                  const isSecurity = /COPY|SCREENSHOT|PRINT|SCREEN_RECORDING|BLOCKED|FORWARDING|SHARE_FURTHER/.test(log.action);
                   return (
                     <details key={log.id} className="bg-bg-elevated rounded-lg px-3 py-2 border border-bg-border">
                       <summary className="flex items-center gap-3 cursor-pointer list-none">
@@ -1140,7 +1113,6 @@ export function LinkIntelligencePage() {
                         {log.ipAddress && <div>IP: <span className="text-white font-mono">{log.ipAddress}</span></div>}
                         {log.sessionId && <div>Session: <span className="text-white font-mono">{log.sessionId.slice(0, 8)}…</span></div>}
                         {log.riskLevel && <div>Risk: <span className="text-white">{log.riskLevel}{log.riskScore != null ? ` (${log.riskScore})` : ''}</span></div>}
-                        {isSecurity && <div className="col-span-2 text-yellow-500/90">Policy/risk classification is from the risk engine on this event, not a guarantee of intent.</div>}
                       </div>
                     </details>
                   );

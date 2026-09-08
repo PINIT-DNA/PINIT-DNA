@@ -115,9 +115,13 @@ function parseUaBrowser(ua: string): string {
     /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Unknown';
 }
 function parseUaOs(ua: string): string {
-  return /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'macOS' :
-    /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' :
-    /Linux/.test(ua) ? 'Linux' : 'Unknown';
+  if (/iPhone|iPad|iPod/.test(ua)) return 'iOS';
+  if (/Android/.test(ua)) return 'Android';
+  if (/Windows/.test(ua)) return 'Windows';
+  if (/Mac OS/.test(ua) && /Mobile\//.test(ua)) return 'iOS';
+  if (/Mac OS/.test(ua)) return 'macOS';
+  if (/Linux/.test(ua)) return 'Linux';
+  return 'Unknown';
 }
 
 // ── Create share link ─────────────────────────────────────────────────────────

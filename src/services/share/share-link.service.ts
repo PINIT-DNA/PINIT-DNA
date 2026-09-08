@@ -261,15 +261,17 @@ function parseUserAgent(ua: string): { browser: string; os: string; device: stri
     /OPR\//.test(ua)     ? 'Opera' : 'Unknown';
 
   const os =
+    /iPhone|iPad|iPod/.test(ua) ? 'iOS' :
+    /Android/.test(ua) ? 'Android' :
     /Windows/.test(ua)  ? 'Windows' :
+    (/Mac OS/.test(ua) && /Mobile\//.test(ua)) ? 'iOS' :
     /Mac OS/.test(ua)   ? 'macOS' :
-    /Linux/.test(ua)    ? 'Linux' :
-    /Android/.test(ua)  ? 'Android' :
-    /iPhone|iPad/.test(ua) ? 'iOS' : 'Unknown';
+    /Linux/.test(ua)    ? 'Linux' : 'Unknown';
 
   const device =
-    /Mobi|Android/.test(ua) ? 'mobile' :
-    /Tablet|iPad/.test(ua)  ? 'tablet' : 'desktop';
+    /iPhone|iPod|Android.+Mobile|Mobile\//.test(ua) ? 'mobile' :
+    /iPad|Tablet/.test(ua)  ? 'tablet' :
+    /Mobi|Android/.test(ua) ? 'mobile' : 'desktop';
 
   return { browser, os, device };
 }
@@ -1245,6 +1247,10 @@ export class ShareLinkService {
     } else {
       finalDevice = finalDevice === 'mobile' ? 'Mobile' : finalDevice === 'tablet' ? 'Tablet' : 'Desktop';
     }
+    let finalOs = input.os ?? os;
+    if (finalDevice === 'Mobile' && (finalOs === 'macOS' || finalOs === 'Unknown')) {
+      finalOs = 'iOS';
+    }
 
     // Auto-geolocate if country not provided
     let country = input.country ?? null;
@@ -1312,7 +1318,7 @@ export class ShareLinkService {
       action: input.action,
       country, city, region, device: finalDevice,
       browser: input.browser ?? browser,
-      os: input.os ?? os,
+      os: finalOs,
       ipAddress: input.ipAddress ?? null,
       gpsLat: input.gpsLat ?? null,
       gpsLng: input.gpsLng ?? null,
@@ -1379,7 +1385,7 @@ export class ShareLinkService {
         ipAddress:     input.ipAddress ?? null,
         userAgent:     ua.slice(0, 500),
         browser:       input.browser ?? browser,
-        os:            input.os ?? os,
+        os:            finalOs,
         device:        finalDevice,
         country,
         city,

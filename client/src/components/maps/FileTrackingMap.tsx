@@ -309,7 +309,7 @@ export function FileTrackingMap({ points, height = '400px', onSelectViewer }: Fi
     <div className="relative">
       <div
         ref={mapRef}
-        style={{ height, width: '100%', borderRadius: '12px', overflow: 'hidden' }}
+        style={{ height, width: '100%', borderRadius: '12px' }}
         className="border border-bg-border"
       />
       <div className="absolute bottom-3 left-3 z-[1000] flex flex-wrap gap-2 rounded-lg bg-black/70 backdrop-blur-sm px-2.5 py-2 border border-white/10">

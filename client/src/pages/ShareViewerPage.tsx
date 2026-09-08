@@ -269,14 +269,11 @@ export function ShareViewerPage() {
     }
   }, [info, locationDone]);
 
-  // Background GPS refine — after Allow, or when GPS not required (best-effort, no gate)
+  // Background GPS refine after Allow (iPhone often needs a longer second pass)
   useEffect(() => {
-    if (!info) return;
-    if (info.requestLocation && !locationDone) return;
+    if (!info?.requestLocation || !locationDone) return;
     let cancelled = false;
     void (async () => {
-      // Only run browser GPS when owner required it (after Allow)
-      if (!info.requestLocation) return;
       const best = await captureBestGps({ targetAccuracyM: 45, maxWaitMs: 28_000, minSamples: 1 });
       if (cancelled || !best) return;
       setGpsData((prev) => {
@@ -289,7 +286,6 @@ export function ShareViewerPage() {
 
   useEffect(() => {
     if (!viewedSentRef.current || !token || !gpsData) return;
-    if (gpsData.accuracy > 75) return;
     void axios.post(`${API_BASE_URL}/share/${token}/access`, {
       action: 'LOCATION_UPDATE',
       recipientName: nameRef.current || undefined,
@@ -1093,31 +1089,37 @@ export function ShareViewerPage() {
       setLocationAsked(true);
       setLocationDenied(false);
 
+      const applyFix = (pos: GeolocationPosition) => {
+        const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+        setGpsData({
+          lat,
+          lng,
+          accuracy,
+          timestamp: new Date(pos.timestamp).toISOString(),
+          locationSource: accuracy <= 75 ? 'gps' : 'network',
+        });
+        setLocationDone(true);
+        void captureQuickGps(20_000).then((quick) => {
+          if (quick) setGpsData(quick);
+        });
+      };
+
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const { latitude: lat, longitude: lng, accuracy } = pos.coords;
-          setGpsData({
-            lat,
-            lng,
-            accuracy,
-            timestamp: new Date(pos.timestamp).toISOString(),
-            locationSource: accuracy <= 75 ? 'gps' : 'network',
-          });
-          setLocationDone(true);
-          void captureQuickGps(8_000).then((quick) => {
-            if (quick) setGpsData(quick);
-          });
-        },
+        applyFix,
         (err) => {
           if (isGeolocationPermissionDenied(err)) {
             setLocationAsked(false);
             setLocationDenied(true);
             return;
           }
-          // Timeout / unavailable — still open; IP geo on server
-          setLocationDone(true);
+          // iPhone often needs longer than 3s — retry without forcing GPS chip
+          navigator.geolocation.getCurrentPosition(
+            applyFix,
+            () => setLocationDone(true),
+            { enableHighAccuracy: false, maximumAge: 60_000, timeout: 20_000 },
+          );
         },
-        { enableHighAccuracy: true, maximumAge: 120_000, timeout: 3_500 },
+        { enableHighAccuracy: true, maximumAge: 15_000, timeout: 20_000 },
       );
     };
 

@@ -361,6 +361,18 @@
   .dashboard-map-fill .leaflet-control-attribution {
     display: none !important;
   }
+  .leaflet-popup-pane {
+    z-index: 1200 !important;
+  }
+  .leaflet-popup-content-wrapper,
+  .leaflet-popup-tip {
+    background: #fff !important;
+    color: #0f172a !important;
+  }
+  .leaflet-popup-content,
+  .leaflet-popup-content * {
+    color: #0f172a;
+  }
 
   /* ── Buttons ─────────────────────────────────────────────────────────────── */
   .btn {
