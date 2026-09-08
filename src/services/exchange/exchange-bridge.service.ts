@@ -273,6 +273,23 @@ async function loadOwnedVault(vaultId: string, ownerUserId: string) {
   return vault;
 }
 
+/** One sealed purchase, as the Exchange buyer-desk bridge returns it. */
+export type ExchangePurchase = {
+  seal_id: string;
+  order_id: string;
+  asset_id: string;
+  listing_id: string;
+  title: string;
+  seller_pinit_id: string;
+  license_tier: string;
+  price_paid: number;
+  status: string;
+  license_status: string;
+  license_expires_at: string | null;
+  sealed_at: string;
+  has_delivery: boolean;
+};
+
 export const exchangeBridgeService = {
   async createSsoToken(ownerUserId: string) {
     const user = await prisma.user.findUnique({
@@ -531,6 +548,54 @@ export const exchangeBridgeService = {
         can_purchase: false,
         unavailable: true,
       };
+    }
+  },
+
+  /**
+   * What this person has bought on Exchange.
+   *
+   * The seller desk answers how their work is doing on the market; this is the
+   * other half — what they licensed and whether it is still theirs to use. Home
+   * shows both, so someone who both creates and buys never has to cross into
+   * Exchange to find out that a licence is about to lapse.
+   *
+   * Exchange being unreachable degrades Home rather than breaking it, so the
+   * failure path returns the same shape with `unavailable` set.
+   */
+  async getBuyerDeskSummary(ownerUserId: string) {
+    const role = await this.getExchangeMarketplaceRole(ownerUserId);
+    const empty = {
+      pinitId: role.pinitId,
+      unavailable: Boolean(role.unavailable),
+      metrics: { purchases_count: 0, total_spent: 0, active_licenses_count: 0 },
+      purchases: [] as ExchangePurchase[],
+    };
+    if (!role.pinitId || role.unavailable) return empty;
+
+    try {
+      const res = await fetch(
+        `${config.exchange.apiUrl}/api/hub/buyer-desk?pinitId=${encodeURIComponent(role.pinitId)}`,
+        { headers: { 'X-PinIT-Bridge-Secret': config.exchange.bridgeSecret } },
+      );
+      if (!res.ok) return { ...empty, unavailable: true };
+
+      const data = (await res.json()) as {
+        metrics?: Record<string, number>;
+        purchases?: ExchangePurchase[];
+      };
+      const m = data.metrics || {};
+      return {
+        pinitId: role.pinitId,
+        unavailable: false,
+        metrics: {
+          purchases_count: Number(m.purchases_count || 0),
+          total_spent: Number(m.total_spent || 0),
+          active_licenses_count: Number(m.active_licenses_count || 0),
+        },
+        purchases: Array.isArray(data.purchases) ? data.purchases : [],
+      };
+    } catch {
+      return { ...empty, unavailable: true };
     }
   },
 

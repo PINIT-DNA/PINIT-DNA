@@ -707,6 +707,41 @@ export async function getExchangeRole(): Promise<{
   return data;
 }
 
+/** One sealed purchase — what this person licensed, and whether it still holds. */
+export type ExchangePurchase = {
+  seal_id: string;
+  order_id: string;
+  asset_id: string;
+  listing_id: string;
+  title: string;
+  seller_pinit_id: string;
+  license_tier: string;
+  price_paid: number;
+  status: string;
+  license_status: string;
+  license_expires_at: string | null;
+  sealed_at: string;
+  has_delivery: boolean;
+};
+
+export type ExchangeBuyerSummary = {
+  success: boolean;
+  pinitId: string;
+  unavailable?: boolean;
+  metrics: {
+    purchases_count: number;
+    total_spent: number;
+    active_licenses_count: number;
+  };
+  purchases: ExchangePurchase[];
+};
+
+/** The other half of the seller desk: what this person has bought. */
+export async function getExchangeBuyerSummary(): Promise<ExchangeBuyerSummary> {
+  const { data } = await api.get<ExchangeBuyerSummary>(`${API_BASE_URL}/exchange/buyer-summary`);
+  return data;
+}
+
 export async function getExchangeSellerSummary(): Promise<{
   success: boolean;
   pinitId: string;

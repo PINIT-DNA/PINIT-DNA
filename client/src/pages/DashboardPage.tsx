@@ -1,24 +1,24 @@
 import { Link } from 'react-router-dom';
 import { useState, useEffect, useMemo } from 'react';
 import {
-  Database, Archive, Zap,
+  Archive, Zap,
   AlertTriangle, RefreshCw,
   Eye, Globe, Plus, Link2, Radio, Download, Shield, FileText,
-  Store, IndianRupee, LayoutGrid,
+  Store,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useApi, formatBytes } from '../hooks/useApi';
 import {
   getDashboardStats, api, listVaultRecords, getLiveTrackingMap, deriveFileType,
   getDashboardSecurityInsights, type DashboardSecurityInsights,
-  getExchangeSellerSummary, createExchangeSso,
+  getExchangeSellerSummary, getExchangeBuyerSummary, createExchangeSso,
+  type ExchangeBuyerSummary,
 } from '../services/dashboard.api';
 import type { VaultRecord } from '../types/dashboard.types';
 import { DashboardFilesMap, type DashboardFileMapPoint } from '../components/maps/DashboardFilesMap';
 import { VaultFileThumbnail } from '../components/VaultFileThumbnail';
 import { Badge, FileTypeBadge, ClassificationBadge } from '../components/ui/Badge';
 import { FORENSIC_REPORTS_UPDATED_EVENT } from '../lib/forensic-reports-storage';
-import { SkeletonCard } from '../components/ui/Skeleton';
 import { toUserPinitId } from '../lib/pinit-identity';
 import { API_BASE_URL } from '../config/api.config';
 import { useAuth } from '../context/AuthContext';
@@ -40,36 +40,8 @@ interface ShareStats {
   pageCompletion: null; forwardChains: null; leakIncidents: null; leakSources: null;
 }
 
-type StatVariant = 'blue' | 'purple' | 'green' | 'orange';
 
-const STAT_VARIANTS: Record<StatVariant, { card: string; icon: string; value: string }> = {
-  blue:   { card: 'stat-card stat-card-blue',   icon: 'stat-icon stat-icon-blue',   value: 'text-gray-900' },
-  purple: { card: 'stat-card stat-card-purple', icon: 'stat-icon stat-icon-purple', value: 'text-gray-900' },
-  green:  { card: 'stat-card stat-card-green',  icon: 'stat-icon stat-icon-green',  value: 'text-gray-900' },
-  orange: { card: 'stat-card stat-card-orange', icon: 'stat-icon stat-icon-orange', value: 'text-gray-900' },
-};
 
-function StatCard({
-  icon, label, value, sub, variant, to,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-  sub?: string;
-  variant: StatVariant;
-  to?: string;
-}) {
-  const v = STAT_VARIANTS[variant];
-  const content = (
-    <div className={`${v.card} group h-full ${to ? 'cursor-pointer' : ''}`}>
-      <div className={v.icon}>{icon}</div>
-      <p className={`text-xl font-extrabold mt-2 mb-0.5 tracking-tight ${v.value}`}>{value}</p>
-      <p className="text-xs font-semibold text-slate-600">{label}</p>
-      {sub && <p className="text-2xs text-slate-500 mt-1">{sub}</p>}
-    </div>
-  );
-  return to ? <Link to={to}>{content}</Link> : <div>{content}</div>;
-}
 
 function openNotificationBell() {
   window.dispatchEvent(new Event(OPEN_NOTIFICATION_BELL_EVENT));
@@ -120,6 +92,10 @@ export function DashboardPage() {
       total_saves: number;
     };
   } | null>(null);
+  // The other half of the marketplace: what this person has licensed. Selling
+  // and buying sit together at the top of Home so neither requires a trip into
+  // Exchange to check on.
+  const [exchangeBuying, setExchangeBuying] = useState<ExchangeBuyerSummary | null>(null);
   const [welcomePlan, setWelcomePlan] = useState<PlanCode | null>(null);
 
   const vaultByDnaId = useMemo(
@@ -189,6 +165,12 @@ export function DashboardPage() {
       .catch(() => {});
   };
 
+  const fetchExchangeBuying = () => {
+    getExchangeBuyerSummary()
+      .then(setExchangeBuying)
+      .catch(() => setExchangeBuying(null));
+  };
+
   const fetchExchangeSelling = () => {
     getExchangeSellerSummary()
       .then((data) => setExchangeSelling({
@@ -218,6 +200,7 @@ export function DashboardPage() {
       .finally(() => setSecurityLoading(false));
     fetchShare();
     fetchExchangeSelling();
+    fetchExchangeBuying();
     listVaultRecords()
       .then(setVaultRecords)
       .catch(() => setVaultRecords([]));
@@ -238,35 +221,111 @@ export function DashboardPage() {
   useEffect(() => {
     fetchShare();
     fetchExchangeSelling();
+    fetchExchangeBuying();
     const id = setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return;
       fetchShare();
       fetchExchangeSelling();
+    fetchExchangeBuying();
     }, 90_000);
     return () => clearInterval(id);
   }, []);
 
-  const attention = useMemo(() => {
-    const suspiciousAccess = securityInsights?.duplicateAttempts.count ?? 0;
-    const monitoringMatches = securityInsights?.crawlerAlerts.count ?? 0;
-    const soon = Date.now() + 72 * 60 * 60 * 1000;
-    let expiringShares = 0;
+  /**
+   * Home's attention list, as events rather than counts.
+   *
+   * A number tells you something happened; it does not tell you to which asset,
+   * or what to do about it. Each row here names the thing, says what happened,
+   * and carries the action inline, so the page can be acted on without first
+   * being decoded. Exchange licences are folded in for the same reason: a
+   * licence lapsing is the buyer's problem whether or not they are in Exchange.
+   */
+  const attentionFeed = useMemo(() => {
+    const now = Date.now();
+    const soon = now + 72 * 60 * 60 * 1000;
+    const items: Array<{
+      key: string;
+      tone: 'warn' | 'info';
+      title: string;
+      strong: string;
+      detail: string;
+      to: string;
+      action: string;
+    }> = [];
+
     for (const link of shareLinks) {
       if (!link.isActive || !link.expiresAt) continue;
       const exp = new Date(link.expiresAt).getTime();
-      if (!Number.isNaN(exp) && exp <= soon && exp >= Date.now()) expiringShares += 1;
+      if (Number.isNaN(exp) || exp > soon || exp < now) continue;
+      const opens = link.accessLogs?.length ?? 0;
+      items.push({
+        key: `share-${link.token}`,
+        tone: 'info',
+        title: 'Your share of',
+        strong: link.filename,
+        detail: `Expires ${formatDistanceToNow(new Date(exp), { addSuffix: true })}`
+          + (opens ? ` · opened ${opens} ${opens === 1 ? 'time' : 'times'}` : ' · not opened yet'),
+        to: `/link-intelligence/${link.token}`,
+        action: 'Review link',
+      });
     }
-    const securityEvents = (shareStats?.riskDistribution.HIGH ?? 0)
-      + (shareStats?.riskDistribution.CRITICAL ?? 0);
-    const rows = [
-      { label: 'Suspicious access', value: suspiciousAccess },
-      { label: 'Expiring shares', value: expiringShares },
-      { label: 'Security events', value: securityEvents },
-      { label: 'Monitoring matches', value: monitoringMatches },
-    ];
-    const total = rows.reduce((s, r) => s + r.value, 0);
-    return { total, rows };
-  }, [securityInsights, shareLinks, shareStats]);
+
+    for (const p of exchangeBuying?.purchases ?? []) {
+      if (!p.license_expires_at) continue;
+      const exp = Date.parse(p.license_expires_at);
+      if (Number.isNaN(exp) || exp > soon || exp < now) continue;
+      items.push({
+        key: `licence-${p.seal_id}`,
+        tone: 'warn',
+        title: 'Your licence for',
+        strong: p.title,
+        detail: `${p.license_tier} licence · expires ${formatDistanceToNow(new Date(exp), { addSuffix: true })}`,
+        to: '/certificates',
+        action: 'View licence',
+      });
+    }
+
+    const suspicious = securityInsights?.duplicateAttempts.count ?? 0;
+    if (suspicious > 0) {
+      items.push({
+        key: 'suspicious',
+        tone: 'warn',
+        title: 'Access worth a look on',
+        strong: `${suspicious} ${suspicious === 1 ? 'asset' : 'assets'}`,
+        detail: 'Someone tried to protect a file that matches work you already own',
+        to: '/duplicate-attempts',
+        action: 'Review access',
+      });
+    }
+
+    const matches = securityInsights?.crawlerAlerts.count ?? 0;
+    if (matches > 0) {
+      items.push({
+        key: 'monitoring',
+        tone: 'warn',
+        title: 'Monitoring found',
+        strong: `${matches} ${matches === 1 ? 'match' : 'matches'}`,
+        detail: 'Content resembling your work appeared on a watched surface',
+        to: '/monitoring',
+        action: 'Investigate',
+      });
+    }
+
+    const risky = (shareStats?.riskDistribution.HIGH ?? 0) + (shareStats?.riskDistribution.CRITICAL ?? 0);
+    if (risky > 0) {
+      items.push({
+        key: 'risk',
+        tone: 'warn',
+        title: 'Security events on',
+        strong: `${risky} ${risky === 1 ? 'viewer' : 'viewers'}`,
+        detail: 'Rated high or critical risk while viewing a share',
+        to: '/security-center',
+        action: 'See activity',
+      });
+    }
+
+    return items.slice(0, 5);
+  }, [shareLinks, exchangeBuying, securityInsights, shareStats]);
 
   const activitySnapshot = useMemo(() => {
     const views = shareStats?.totalViews ?? 0;
@@ -310,8 +369,35 @@ export function DashboardPage() {
           <h1 className="text-xl sm:text-2xl font-bold text-gradient tracking-tight">
             {welcomeName ? `Hi ${welcomeName}` : 'Your account at a glance'}
           </h1>
-          <p className="text-sm text-gray-500 mt-1 max-w-xl">
-            Your assets are protected and under control.
+          {/*
+            * These were four stat cards. They are context, not decisions — the
+            * page's job is to surface what needs acting on, and a storage figure
+            * never does. As a line they still answer "how much have I got" while
+            * leaving the cards above for things that can actually be acted on.
+            */}
+          <p className="text-sm text-gray-500 mt-1.5 max-w-2xl">
+            {loading || !stats ? (
+              'Your assets are protected and under control.'
+            ) : (
+              <>
+                <span className="text-gray-300 font-medium">{stats.totalVaultRecords}</span>
+                {stats.totalVaultRecords === 1 ? ' asset' : ' assets'} protected
+                <span className="text-gray-700 mx-2">·</span>
+                <span className="text-gray-300 font-medium">{formatBytes(stats.totalEncryptedBytes)}</span>
+                <span className="text-gray-700 mx-2">·</span>
+                <span className="text-gray-300 font-medium">
+                  {securityInsights?.activeShares.count ?? shareLinks.filter((l) => l.isActive).length}
+                </span>
+                {' active shares'}
+                {geoLine ? (
+                  <>
+                    <span className="text-gray-700 mx-2">·</span>
+                    <span className="text-gray-300 font-medium">{trackingMeta.total}</span>
+                    {' access points across '}{geoLine}
+                  </>
+                ) : null}
+              </>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -329,85 +415,69 @@ export function DashboardPage() {
       <section className="rounded-xl border border-bg-border bg-bg-card px-4 py-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-white">Needs attention</h2>
+            <h2 className="text-sm font-semibold text-white">Needs your attention</h2>
             {securityLoading && !securityInsights ? (
               <div className="skeleton h-4 w-40 mt-2 rounded" />
-            ) : attention.total === 0 ? (
-              <p className="text-sm text-gray-400 mt-1">You&apos;re all caught up.</p>
+            ) : attentionFeed.length === 0 ? (
+              <p className="text-sm text-gray-400 mt-1">
+                Nothing to act on. No expiring shares, no monitoring matches, no security events.
+              </p>
             ) : (
               <p className="text-sm text-gray-400 mt-1">
-                {attention.total} {attention.total === 1 ? 'item needs' : 'items need'} your attention
+                {attentionFeed.length} {attentionFeed.length === 1 ? 'thing' : 'things'} today.
+                Everything else is quiet.
               </p>
             )}
           </div>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={openNotificationBell}
-          >
+          <button type="button" className="btn btn-secondary btn-sm" onClick={openNotificationBell}>
             Review notifications
           </button>
         </div>
-        {!securityLoading && attention.total > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
-            {attention.rows.map((row) => (
-              <div key={row.label} className="rounded-lg border border-bg-border bg-bg-elevated px-3 py-2">
-                <p className="text-lg font-bold text-white tabular-nums">{row.value}</p>
-                <p className="text-2xs text-gray-500">{row.label}</p>
+
+        {attentionFeed.length > 0 && (
+          <div className="mt-3 divide-y divide-bg-border">
+            {attentionFeed.map((item) => (
+              <div key={item.key} className="flex flex-wrap items-center gap-3 py-3">
+                <span
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                    item.tone === 'warn'
+                      ? 'bg-warning/10 text-warning'
+                      : 'bg-dna-500/10 text-dna-400'
+                  }`}
+                >
+                  {item.tone === 'warn' ? <AlertTriangle size={15} /> : <Link2 size={15} />}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-gray-300">
+                    {item.title} <span className="font-semibold text-white">{item.strong}</span>
+                  </p>
+                  <p className="text-2xs text-gray-500 mt-0.5">{item.detail}</p>
+                </div>
+                <Link to={item.to} className="btn btn-secondary btn-sm shrink-0">
+                  {item.action}
+                </Link>
               </div>
             ))}
           </div>
         )}
       </section>
 
-      <section>
-        <h2 className="text-sm font-semibold text-white mb-3">Asset overview</h2>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {loading ? (
-          Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
-        ) : stats ? (
-          <>
-            <StatCard
-              icon={<Archive size={18} className="text-white" />}
-              variant="purple"
-              label="Protected assets"
-              value={stats.totalVaultRecords}
-              to="/vault"
-            />
-            <StatCard
-              icon={<Database size={18} className="text-white" />}
-              variant="blue"
-              label="Storage used"
-              value={formatBytes(stats.totalEncryptedBytes)}
-              to="/vault"
-            />
-            <StatCard
-              icon={<Link2 size={18} className="text-white" />}
-              variant="green"
-              label="Active shares"
-              value={securityInsights?.activeShares.count ?? shareLinks.filter((l) => l.isActive).length}
-              to="/access-intelligence"
-            />
-            <StatCard
-              icon={<Radio size={18} className="text-white" />}
-              variant="orange"
-              label="Monitoring matches"
-              value={securityInsights?.crawlerAlerts.count ?? 0}
-              to="/monitoring"
-            />
-          </>
-        ) : null}
-        </div>
-      </section>
-
-      <section>
-        <div className="flex flex-wrap items-end justify-between gap-2 mb-3">
+      {/*
+        * Marketplace, both directions.
+        *
+        * Selling was already here; buying was not, which meant a licence about
+        * to lapse was only discoverable inside Exchange. A person who both
+        * creates and licenses should see both sides of their market in one
+        * place, near the top, without leaving Hub.
+        */}
+      <section className="rounded-xl border border-bg-border bg-bg-card p-4">
+        <div className="flex flex-wrap items-end justify-between gap-2 mb-4">
           <div>
-            <h2 className="text-sm font-semibold text-white">Exchange selling</h2>
+            <h2 className="text-sm font-semibold text-white">Marketplace</h2>
             <p className="text-2xs text-gray-500 mt-0.5">
-              {exchangeSelling?.unavailable
+              {exchangeSelling?.unavailable && exchangeBuying?.unavailable
                 ? 'Marketplace numbers will appear when Exchange is reachable.'
-                : 'Same live counts as Exchange Overview. Protection stays in Hub.'}
+                : 'What you are selling and what you have licensed. Protection stays in Hub.'}
             </p>
           </div>
           <button type="button" className="btn btn-secondary btn-sm gap-2" onClick={() => void openExchangeSeller()}>
@@ -415,45 +485,99 @@ export function DashboardPage() {
             Open Exchange
           </button>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <button type="button" className="text-left" onClick={() => void openExchangeSeller()}>
-            <StatCard
-              icon={<IndianRupee size={18} className="text-white" />}
-              variant="green"
-              label="Revenue"
-              value={formatInr(exchangeSelling?.metrics.total_net_revenue ?? 0)}
-              sub="Creator net"
-            />
-          </button>
-          <button type="button" className="text-left" onClick={() => void openExchangeSeller()}>
-            <StatCard
-              icon={<Store size={18} className="text-white" />}
-              variant="blue"
-              label="Orders"
-              value={exchangeSelling?.metrics.sealed_sales_count ?? 0}
-              sub="Sealed licenses"
-            />
-          </button>
-          <button type="button" className="text-left" onClick={() => void openExchangeSeller()}>
-            <StatCard
-              icon={<LayoutGrid size={18} className="text-white" />}
-              variant="purple"
-              label="Live listings"
-              value={exchangeSelling?.metrics.active_listings_count ?? 0}
-              sub={`${exchangeSelling?.metrics.listings_count ?? 0} total offers`}
-            />
-          </button>
-          <button type="button" className="text-left" onClick={() => void openExchangeSeller()}>
-            <StatCard
-              icon={<Eye size={18} className="text-white" />}
-              variant="orange"
-              label="Listing views"
-              value={exchangeSelling?.metrics.total_views ?? 0}
-              sub={`${exchangeSelling?.metrics.total_saves ?? 0} saves`}
-            />
-          </button>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+          {/* ── selling ──────────────────────────────────────────── */}
+          <div className="rounded-lg border border-bg-border bg-bg-elevated p-4">
+            <p className="text-2xs font-semibold tracking-wider text-gray-500 uppercase mb-3">Selling</p>
+            <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
+              <div>
+                <p className="text-xl font-bold text-white tabular-nums">
+                  {formatInr(exchangeSelling?.metrics.total_net_revenue ?? 0)}
+                </p>
+                <p className="text-2xs text-gray-500">Creator net</p>
+              </div>
+              <div>
+                <p className="text-xl font-bold text-white tabular-nums">
+                  {exchangeSelling?.metrics.active_listings_count ?? 0}
+                </p>
+                <p className="text-2xs text-gray-500">Live listings</p>
+              </div>
+              <div>
+                <p className="text-xl font-bold text-white tabular-nums">
+                  {exchangeSelling?.metrics.total_views ?? 0}
+                </p>
+                <p className="text-2xs text-gray-500">
+                  Views · {exchangeSelling?.metrics.total_saves ?? 0} saves
+                </p>
+              </div>
+            </div>
+            {/* A zero that explains itself is worth more than a zero that does not. */}
+            {(exchangeSelling?.metrics.sealed_sales_count ?? 0) === 0
+              && (exchangeSelling?.metrics.total_views ?? 0) > 0 ? (
+              <p className="text-2xs text-gray-400 mt-3 leading-relaxed">
+                People are looking, but nobody has licensed yet — views without a sale usually points
+                at the price or the licence terms.
+              </p>
+            ) : null}
+          </div>
+
+          {/* ── buying ───────────────────────────────────────────── */}
+          <div className="rounded-lg border border-bg-border bg-bg-elevated p-4">
+            <p className="text-2xs font-semibold tracking-wider text-gray-500 uppercase mb-3">Buying</p>
+            <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
+              <div>
+                <p className="text-xl font-bold text-white tabular-nums">
+                  {exchangeBuying?.metrics.purchases_count ?? 0}
+                </p>
+                <p className="text-2xs text-gray-500">Purchases</p>
+              </div>
+              <div>
+                <p className="text-xl font-bold text-white tabular-nums">
+                  {exchangeBuying?.metrics.active_licenses_count ?? 0}
+                </p>
+                <p className="text-2xs text-gray-500">Active licences</p>
+              </div>
+              <div>
+                <p className="text-xl font-bold text-white tabular-nums">
+                  {formatInr(exchangeBuying?.metrics.total_spent ?? 0)}
+                </p>
+                <p className="text-2xs text-gray-500">Spent</p>
+              </div>
+            </div>
+
+            {(exchangeBuying?.purchases.length ?? 0) > 0 ? (
+              <div className="mt-3 divide-y divide-bg-border">
+                {exchangeBuying!.purchases.slice(0, 3).map((purchase) => (
+                  <div key={purchase.seal_id} className="flex items-center gap-3 py-2">
+                    <FileText size={13} className="text-gray-500 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-white truncate">{purchase.title}</p>
+                      <p className="text-2xs text-gray-500">
+                        {purchase.license_tier} licence
+                        {purchase.sealed_at
+                          ? ` · ${formatDistanceToNow(new Date(purchase.sealed_at), { addSuffix: true })}`
+                          : ''}
+                      </p>
+                    </div>
+                    <Badge variant={purchase.license_status === 'active' ? 'success' : 'muted'}>
+                      {purchase.license_status === 'active' ? 'Active' : purchase.license_status}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-2xs text-gray-400 mt-3 leading-relaxed">
+                Nothing licensed yet. Work you buy on Exchange appears here with its licence terms
+                and expiry.
+              </p>
+            )}
+          </div>
+
         </div>
       </section>
+
 
       <section className="card space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-2">

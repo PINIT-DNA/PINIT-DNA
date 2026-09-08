@@ -30,6 +30,7 @@ import {
   getExchangeConfig,
   getExchangeRole,
   getExchangeSellerSummary,
+  getExchangeBuyerSummary,
   getExchangeListedAssets,
   createExchangeSso,
   listExchangeAssets,
@@ -62,6 +63,7 @@ function uploadProtect(req: any, res: any, next: any) {
 router.get('/config', requireAuth, getExchangeConfig);
 router.get('/role', requireAuth, getExchangeRole);
 router.get('/seller-summary', requireAuth, getExchangeSellerSummary);
+router.get('/buyer-summary', requireAuth, getExchangeBuyerSummary);
 router.get('/listed-assets', requireAuth, getExchangeListedAssets);
 router.post('/sso', requireAuth, createExchangeSso);
 router.get('/listable-assets', requireAuth, listExchangeAssets);

@@ -524,4 +524,72 @@ router.get('/seller-desk', requireBridgeSecret, (req, res) => {
   );
 });
 
+/**
+ * GET /api/hub/buyer-desk — what this person has bought, for Hub's home page.
+ *
+ * The seller desk answers "how is my work doing on the market"; this answers
+ * the other half, "what did I license and is it still mine to use". Hub shows
+ * both at the top of Home, so a person who creates and buys does not have to
+ * cross into Exchange to learn that a licence is about to lapse.
+ *
+ * Purchases are matched on buyer_pinit_id through the same identity clause the
+ * seller side uses, so the Root / Individual / Business / Exchange labels one
+ * person holds all resolve to the same buyer.
+ */
+router.get('/buyer-desk', requireBridgeSecret, (req, res) => {
+  const pinitId = String(req.query.pinitId || req.query.pinit_id || '').trim();
+  if (!pinitId) return res.status(400).json({ error: 'pinitId is required' });
+
+  const scope = sellerMatchClause('o.buyer_pinit_id', pinitId);
+
+  db.all(
+    `SELECT o.seal_id, o.order_id, o.asset_id, o.listing_id, o.seller_pinit_id,
+            o.license_tier, o.price_paid, o.status, o.sealed_at,
+            o.license_status, o.license_expires_at, o.delivery_url,
+            l.title AS listing_title
+       FROM orders_sealed o
+       LEFT JOIN listings l ON l.listing_id = o.listing_id
+      ${listingWhere(scope)}
+      ORDER BY o.sealed_at DESC
+      LIMIT 25`,
+    scope.params,
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      const orders = rows || [];
+      const spent = orders.reduce((acc, o) => acc + (Number(o.price_paid) || 0), 0);
+      // A licence counts as active unless it has been revoked or has lapsed.
+      const now = Date.now();
+      const active = orders.filter((o) => {
+        if (String(o.license_status || 'active') !== 'active') return false;
+        if (!o.license_expires_at) return true;
+        const t = Date.parse(o.license_expires_at);
+        return Number.isNaN(t) ? true : t > now;
+      });
+
+      res.json({
+        metrics: {
+          purchases_count: orders.length,
+          total_spent: Math.round(spent * 100) / 100,
+          active_licenses_count: active.length,
+        },
+        purchases: orders.map((o) => ({
+          seal_id: o.seal_id,
+          order_id: o.order_id,
+          asset_id: o.asset_id,
+          listing_id: o.listing_id,
+          title: o.listing_title || o.asset_id,
+          seller_pinit_id: o.seller_pinit_id,
+          license_tier: o.license_tier,
+          price_paid: Number(o.price_paid) || 0,
+          status: o.status,
+          license_status: o.license_status || 'active',
+          license_expires_at: o.license_expires_at || null,
+          sealed_at: o.sealed_at,
+          has_delivery: Boolean(o.delivery_url),
+        })),
+      });
+    },
+  );
+});
+
 export default router;
