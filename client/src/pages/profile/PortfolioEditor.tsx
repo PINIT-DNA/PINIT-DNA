@@ -424,9 +424,6 @@ export function PortfolioEditor() {
   const [publicUrl, setPublicUrl] = useState('');
   const [exchangeUrl, setExchangeUrl] = useState('');
   const [copied, setCopied] = useState(false);
-  const [showPreview, setShowPreview] = useState(true);
-  /** Bumped after a save so the preview iframe refetches the real page. */
-  const [previewKey, setPreviewKey] = useState(0);
   const [photoUrl, setPhotoUrl] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [publishState, setPublishState] = useState<'DRAFT' | 'PUBLISHED'>('DRAFT');
@@ -485,7 +482,6 @@ export function PortfolioEditor() {
             const { data } = await api.put<BridgeResponse>(`${API_BASE_URL}/portfolio/me`, buildPayload(nextForm));
             applyMeta(data);
             setJustSaved(true);
-            setPreviewKey((k) => k + 1);
             toast.success('Added to your portfolio.');
           } catch (err: any) {
             const d = err?.response?.data;
@@ -516,7 +512,7 @@ export function PortfolioEditor() {
   };
 
   const saveDraft = useCallback(async (opts?: { silent?: boolean }) => {
-    if (savingRef.current) return;
+    if (savingRef.current) return undefined;
     savingRef.current = true;
     if (!opts?.silent) {
       setSaving(true);
@@ -526,14 +522,17 @@ export function PortfolioEditor() {
       const { data } = await api.put<BridgeResponse>(`${API_BASE_URL}/portfolio/me`, buildPayload(formRef.current));
       applyMeta(data);
       setJustSaved(true);
-      setPreviewKey((k) => k + 1);
       if (!opts?.silent) toast.success('Saved');
+      savingRef.current = false;
+      setSaving(false);
+      return data;
     } catch (err: any) {
       const d = err?.response?.data;
-      toast.error(d?.error || d?.message || 'Could not save draft.');
+      toast.error(d?.error || d?.message || 'Could not save.');
+      savingRef.current = false;
+      setSaving(false);
+      return undefined;
     }
-    savingRef.current = false;
-    setSaving(false);
   }, []);
 
   useEffect(() => () => {
@@ -555,7 +554,6 @@ export function PortfolioEditor() {
       applyMeta(data);
       setPublishState('PUBLISHED');
       setJustPublished(true);
-      setPreviewKey((k) => k + 1);
       toast.success('Published');
     } catch (err: any) {
       const d = err?.response?.data;
@@ -584,6 +582,16 @@ export function PortfolioEditor() {
    */
   const liveUrl = publicUrl || (form.slug && exchangeUrl ? `${exchangeUrl}/p/${form.slug}` : '');
 
+  const openFullPreview = async () => {
+    const saved = await saveDraft({ silent: true });
+    const url = String(saved?.preview_url || previewUrl || liveUrl || '').trim();
+    if (!url) {
+      toast.error('Save the portfolio first, then preview.');
+      return;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const collection = useMemo(
     () => form.project_groups.find((c) => c.id === openCollection) || null,
     [form.project_groups, openCollection],
@@ -601,7 +609,7 @@ export function PortfolioEditor() {
   }
 
   return (
-    <div className={`pe${showPreview && (previewUrl || liveUrl) ? ' pe--split' : ''}`}>
+    <div className="pe">
       <header className="pe-toolbar">
         <div className="pe-toolbar__id">
           <h2>Portfolio</h2>
@@ -625,15 +633,15 @@ export function PortfolioEditor() {
           ) : null}
           <button
             type="button"
-            className={`pe-btn${showPreview ? ' is-on' : ''}`}
-            onClick={() => setShowPreview((v) => !v)}
-            aria-pressed={showPreview}
+            className="pe-btn"
+            onClick={() => { void openFullPreview(); }}
+            disabled={saving}
           >
             <Eye size={13} /> Preview
           </button>
           <button type="button" className="pe-btn" onClick={() => void saveDraft()} disabled={saving}>
             {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-            {justSaved ? 'Saved' : 'Save draft'}
+            {justSaved ? 'Saved' : 'Save'}
           </button>
           <button type="button" className="pe-btn pe-btn--solid" onClick={() => void publish()} disabled={saving}>
             Publish
@@ -665,7 +673,7 @@ export function PortfolioEditor() {
                 <ProfilePhotoPicker
                   photoUrl={photoUrl}
                   name={displayName}
-                  onChange={(url) => { setPhotoUrl(url); setPreviewKey((k) => k + 1); }}
+                  onChange={(url) => { setPhotoUrl(url); }}
                 />
               </div>
               <Field label="Headline" hint="One line. What you make, for whom.">
@@ -731,7 +739,6 @@ export function PortfolioEditor() {
                               const { data } = await api.put<BridgeResponse>(`${API_BASE_URL}/portfolio/me`, buildPayload(next));
                               applyMeta(data);
                               setJustSaved(true);
-                              setPreviewKey((k) => k + 1);
                               toast.success('Added to your portfolio.');
                             } catch (err: any) {
                               const d = err?.response?.data;
@@ -777,7 +784,6 @@ export function PortfolioEditor() {
                           const { data } = await api.put<BridgeResponse>(`${API_BASE_URL}/portfolio/me`, buildPayload(next));
                           applyMeta(data);
                           setJustSaved(true);
-                          setPreviewKey((k) => k + 1);
                           toast.success('Added to your portfolio.');
                         } catch (err: any) {
                           const d = err?.response?.data;
@@ -1030,29 +1036,6 @@ export function PortfolioEditor() {
             </>
           </div>
         </div>
-
-        {/*
-          The preview is the published page in an iframe, not a second renderer.
-          We deleted the duplicate renderer precisely so a preview could never
-          disagree with what a visitor sees — which means it shows the last SAVED
-          state, and says so rather than pretending to be live.
-        */}
-        {showPreview && (previewUrl || liveUrl) ? (
-          <aside className="pe-preview">
-            <div className="pe-preview__bar">
-              <span>Preview</span>
-              <em>Your draft</em>
-              {liveUrl ? <a href={liveUrl} target="_blank" rel="noreferrer">Public page</a> : null}
-            </div>
-            <iframe
-              key={previewKey}
-              className="pe-preview__frame"
-              src={previewUrl || (liveUrl ? `${liveUrl}${liveUrl.includes('?') ? '&' : '?'}preview=1` : undefined)}
-              title="Portfolio preview"
-              loading="lazy"
-            />
-          </aside>
-        ) : null}
       </div>
     </div>
   );

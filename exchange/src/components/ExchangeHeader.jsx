@@ -52,11 +52,18 @@ function AccountMenuBody({
         {account.pinitId ? <span className="studio-menu__id">{account.pinitId}</span> : null}
       </div>
 
+      <MenuGroup label="Account">
+        <button type="button" onClick={() => closeGo('settings')}>Account</button>
+        <button type="button" onClick={() => closeGo('my_licenses')}>My purchases</button>
+        <button type="button" onClick={() => closeGo('collections')}>My collections</button>
+        <button type="button" onClick={() => closeGo('wishlist')}>Marketplace activity</button>
+      </MenuGroup>
+
       <MenuGroup label="Buy">
         <button type="button" onClick={() => closeGo('marketplace')}>Discover</button>
+        <button type="button" onClick={() => closeGo('passports')}>Creators</button>
         {account.canPurchase ? (
           <>
-            <button type="button" onClick={() => closeGo('my_licenses')}>Purchases</button>
             <button type="button" onClick={() => closeGo('cart')}>Cart</button>
             <button type="button" onClick={() => closeGo('wishlist')}>Wishlist</button>
           </>
@@ -71,6 +78,10 @@ function AccountMenuBody({
             Become a Buyer
           </button>
         ) : null}
+      </MenuGroup>
+
+      <MenuGroup label="Secondary">
+        <button type="button" onClick={() => closeGo('collectors')}>Collectors</button>
       </MenuGroup>
 
       <MenuGroup label="Sell">
@@ -108,8 +119,7 @@ function AccountMenuBody({
         )}
       </MenuGroup>
 
-      <MenuGroup label="Account">
-        <button type="button" onClick={() => closeGo('settings')}>Profile</button>
+      <MenuGroup label="Settings">
         <button type="button" onClick={() => closeGo('settings')}>Settings</button>
         <a href={HUB_APP_URL} target="_blank" rel="noreferrer">Open Pinit Hub</a>
         <button type="button" onClick={() => { onClose?.(); onSignOut?.(); }}>
@@ -152,11 +162,8 @@ export default function ExchangeHeader({
     ['marketplace', 'Discover'],
     ['collections', 'Collections'],
     ['passports', 'Creators'],
-    ['collectors', 'Collectors'],
+    ['my_licenses', 'Purchases'],
   ];
-  if (signedIn && account.canPurchase) {
-    buyLinks.push(['my_licenses', 'Purchases']);
-  }
   const sellLinks = seller
     ? [
       ['seller_overview', 'Overview'],
@@ -336,7 +343,7 @@ export default function ExchangeHeader({
               Finish selling
             </button>
           )}
-          {seller && (
+          {seller && !inBuy && (
             <button
               type="button"
               className="btn-primary nav-primary-action"
@@ -410,6 +417,18 @@ export default function ExchangeHeader({
             <nav className="ex-drawer__links" aria-label="Marketplace view">
               <button type="button" className={inBuy ? 'is-active' : ''} onClick={() => { setDrawer(false); onOpenBuyModule?.(); }}>Buy</button>
               <button type="button" className={!inBuy ? 'is-active' : ''} onClick={() => { setDrawer(false); onOpenSellModule?.(); }}>Sell</button>
+            </nav>
+            <nav className="ex-drawer__links" aria-label="Primary">
+              {links.map(([page, label]) => (
+                <button
+                  key={`drawer-${page}`}
+                  type="button"
+                  className={isActive(page) ? 'is-active' : ''}
+                  onClick={() => closeGo(page)}
+                >
+                  {label}
+                </button>
+              ))}
             </nav>
             {user ? (
               <AccountMenuBody {...menuProps} />

@@ -312,6 +312,13 @@ function applyTrustHardeningSchema() {
       seal_id TEXT,
       locked_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
+    `CREATE TABLE IF NOT EXISTS creator_follows (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      buyer_key TEXT NOT NULL,
+      creator_pinit_id TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(buyer_key, creator_pinit_id)
+    )`,
     `CREATE TABLE IF NOT EXISTS hub_bridge_events (
       id TEXT PRIMARY KEY,
       event_type TEXT NOT NULL,

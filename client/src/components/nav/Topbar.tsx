@@ -15,7 +15,7 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   '/dna-records':         { title: 'Protected Files', subtitle: 'Files you have protected in Pinit HUB' },
   '/timeline':            { title: 'Timeline', subtitle: 'Complete chronological history of the asset' },
   '/reports':             { title: 'Reports', subtitle: 'Investigation and comparison reports' },
-  '/certificates':        { title: 'Certificates', subtitle: 'Ownership proof you can share' },
+  '/certificates':        { title: 'Certificates', subtitle: 'Professional credentials and verified achievements' },
   '/verify-certificate':  { title: 'Verify certificate', subtitle: 'Check if a certificate is still valid' },
   '/search':              { title: 'Search', subtitle: 'Find files and activity' },
   '/forensic-diff':       { title: 'Compare files', subtitle: 'See what changed between two files' },

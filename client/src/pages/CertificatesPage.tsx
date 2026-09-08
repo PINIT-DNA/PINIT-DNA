@@ -1,50 +1,60 @@
 /**
- * PINIT-DNA — Certificates Page with Full Lifecycle Management
+ * PINIT-DNA — Credential registry
  *
- * Shows all ownership certificates with:
- * - ACTIVE (green) / REVOKED (red) / EXPIRED (orange) status
- * - Revoke button with confirmation dialog + reason input
- * - Revocation timestamp and reason display
- * - PDF/JSON export
- * - Auto-refresh after revocation
+ * Information cards for issued certificates and portfolio credentials.
+ * Certificate artwork is shown only in Preview.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Award, Download, Printer, Archive, Dna,
-  CheckCircle2, Calendar, FileText, XCircle,
-  AlertTriangle, RefreshCw, Ban,
+  Award, Ban, Plus, RefreshCw,
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { Link } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 
 import {
   listVaultRecords,
   issueCertificate,
   listCertificates,
   revokeCertificate,
+  api,
 } from '../services/dashboard.api';
-import { exportCertificatePDF, exportDNACertificateJSON } from '../services/report-generator';
+import { API_BASE_URL } from '../config/api.config';
 import { useAuth } from '../context/AuthContext';
-import { Badge } from '../components/ui/Badge';
 import { EmptyState } from '../components/ui/EmptyState';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { Modal } from '../components/ui/Modal';
 import { cn } from '../components/ui/utils';
-import { formatBytes } from '../hooks/useApi';
-import type { VaultRecord, IssuedCertificate } from '../types/dashboard.types';
+import { CredentialPreviewModal } from '../components/certificates/CredentialPreviewModal';
+import { CredentialDetailsModal } from '../components/certificates/CredentialDetailsModal';
+import { AddCredentialModal } from '../components/certificates/AddCredentialModal';
+import { CredentialBadge } from '../components/certificates/CredentialBadge';
+import {
+  KIND_LABEL,
+  buildRegistryCredentials,
+  compactCredentialId,
+  credentialSeal,
+  earliestYear,
+  parsePortfolioHints,
+  registryMetrics,
+  sortCredentials,
+  type CredentialKind,
+  type RegistryCredential,
+} from '../lib/credential-registry';
+import type { IssuedCertificate, VaultRecord } from '../types/dashboard.types';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+type FilterTab = 'all' | CredentialKind;
+type SortKey = 'newest' | 'oldest' | 'verified' | 'alpha';
 
-interface CertificateWithVault {
-  vault:       VaultRecord;
-  certificate: IssuedCertificate | null;
-  loading:     boolean;
-}
-
-// ─── Revocation Confirmation Dialog ──────────────────────────────────────────
+const TABS: Array<{ key: FilterTab; label: string }> = [
+  { key: 'all', label: 'All' },
+  { key: 'award', label: 'Awards' },
+  { key: 'license', label: 'Licenses' },
+  { key: 'course', label: 'Courses' },
+  { key: 'workshop', label: 'Workshops' },
+  { key: 'certificate', label: 'Certifications' },
+];
 
 function RevokeDialog({
   certId,
@@ -52,10 +62,10 @@ function RevokeDialog({
   onConfirm,
   onCancel,
 }: {
-  certId:    string;
-  filename:  string;
+  certId: string;
+  filename: string;
   onConfirm: (reason: string) => void;
-  onCancel:  () => void;
+  onCancel: () => void;
 }) {
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(false);
@@ -68,472 +78,386 @@ function RevokeDialog({
 
   return (
     <Modal open title="Revoke Certificate" onClose={onCancel} size="md">
-      <div className="p-6 space-y-5">
-        {/* Warning banner */}
-        <div className="rounded-xl bg-danger/10 border border-danger/30 p-4 flex gap-3">
-          <AlertTriangle size={18} className="text-danger shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-semibold text-danger">This action cannot be undone</p>
-            <p className="text-xs text-gray-400 mt-1">
-              Revoking this certificate will permanently mark it as invalid.
-              Anyone verifying <span className="text-white font-medium">{certId}</span> will see it as <span className="text-danger font-semibold">REVOKED</span>.
-            </p>
-          </div>
-        </div>
-
-        {/* File being revoked */}
-        <div className="bg-bg-elevated rounded-xl p-3 border border-bg-border">
-          <p className="text-2xs text-gray-500 mb-1">Certificate for asset</p>
-          <p className="text-sm font-medium text-white truncate">{filename}</p>
-          <p className="text-2xs text-gray-500 mono mt-1">{certId}</p>
-        </div>
-
-        {/* Reason input */}
-        <div>
-          <label className="text-xs font-semibold text-gray-300 block mb-2">
-            Revocation Reason <span className="text-danger">*</span>
-          </label>
+      <div className="p-1 space-y-5">
+        <p className="text-sm text-gray-400">
+          Revoking <span className="text-white font-medium">{filename}</span> marks credential{' '}
+          <span className="font-mono text-xs">{certId}</span> as invalid.
+        </p>
+        <label className="block">
+          <span className="text-xs font-semibold text-gray-300">Revocation reason</span>
           <textarea
             value={reason}
-            onChange={e => setReason(e.target.value)}
-            placeholder="Enter the reason for revocation (e.g. File was compromised, Certificate issued in error...)"
+            onChange={(e) => setReason(e.target.value)}
             rows={3}
-            className="input resize-none text-sm"
+            className="input resize-none text-sm mt-2"
           />
-          <p className="text-2xs text-gray-600 mt-1">This reason will be permanently stored and visible to anyone verifying the certificate.</p>
-        </div>
-
-        {/* Actions */}
-        <div className="flex gap-3 pt-1">
-          <button
-            onClick={handle}
-            disabled={loading || !reason.trim()}
-            className="btn btn-danger flex-1"
-          >
-            {loading ? <RefreshCw size={14} className="animate-spin" /> : <Ban size={14} />}
+        </label>
+        <div className="flex gap-3">
+          <button type="button" onClick={handle} disabled={loading || !reason.trim()} className="btn btn-danger flex-1">
             {loading ? 'Revoking…' : 'Revoke Certificate'}
           </button>
-          <button onClick={onCancel} className="btn btn-secondary">Cancel</button>
+          <button type="button" onClick={onCancel} className="btn btn-secondary">Cancel</button>
         </div>
       </div>
     </Modal>
   );
 }
 
-// ─── Certificate Card ─────────────────────────────────────────────────────────
+function formatIssued(raw: string | null): string {
+  if (!raw) return 'Date not recorded';
+  const parsed = Date.parse(raw);
+  if (Number.isFinite(parsed)) return format(new Date(parsed), 'd MMM yyyy');
+  return raw;
+}
 
-function CertificateCard({
+function CredentialCard({
   item,
-  onRevoked,
+  onPreview,
+  onDetails,
+  onShare,
+  onRevoke,
 }: {
-  item:      CertificateWithVault;
-  onRevoked: (certId: string, cert: IssuedCertificate) => void;
+  item: RegistryCredential;
+  onPreview: () => void;
+  onDetails: () => void;
+  onShare: () => void;
+  onRevoke: () => void;
 }) {
-  const { vault, certificate, loading } = item;
-  const { user } = useAuth();
-  const [revoking, setRevoking]         = useState(false);
-  const [exporting, setExporting]       = useState(false);
-
-  const cert       = certificate;
-  const status     = cert?.status ?? 'ACTIVE';
-  const certId     = cert?.certificateId ?? `CERT-DNA-${vault.id.slice(0, 8).toUpperCase()}`;
-  const issueDate  = cert?.issuedAt
-    ? format(new Date(cert.issuedAt), 'MMMM d, yyyy')
-    : format(new Date(vault.createdAt), 'MMMM d, yyyy');
-
-  const isRevoked  = status === 'REVOKED';
-  const isExpired  = status === 'EXPIRED';
-  const isActive   = status === 'ACTIVE';
-
-  // Status badge config
-  const statusCfg = isRevoked
-    ? { variant: 'danger'  as const, label: 'Revoked',  icon: <XCircle size={11} /> }
-    : isExpired
-    ? { variant: 'warning' as const, label: 'Expired',  icon: <AlertTriangle size={11} /> }
-    : { variant: 'success' as const, label: 'Verified', icon: <CheckCircle2 size={11} /> };
-
-  // Card border changes with status
-  const cardBorder = isRevoked ? 'border-danger/30 bg-danger/3'
-    : isExpired ? 'border-warning/30'
-    : 'border-bg-border hover:border-dna-500/30';
-
-  // Ribbon gradient changes with status
-  const ribbonClass = isRevoked
-    ? 'from-danger via-danger/70 to-red-900'
-    : isExpired
-    ? 'from-warning via-warning/70 to-orange-900'
-    : 'from-dna-600 via-purple to-dna-400';
-
-  const handleRevoke = async (reason: string) => {
-    setRevoking(false);
-    const loadingToast = toast.loading('Processing revocation…');
-    try {
-      // Step 1: Issue certificate to get real backend ID (idempotent)
-      const issued = await issueCertificate(vault.dnaRecordId, vault.id);
-      const finalCertId = issued.certificateId;
-      // Step 2: Revoke it
-      const updated = await revokeCertificate(finalCertId, reason);
-      onRevoked(finalCertId, updated);
-      toast.dismiss(loadingToast);
-      toast.success('Certificate revoked successfully');
-    } catch (err) {
-      toast.dismiss(loadingToast);
-      // Show the actual error message
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
-        ?? (err instanceof Error ? err.message : 'Unknown error');
-      toast.error(`Revocation failed: ${msg}`, { duration: 6000 });
-      console.error('Revoke error:', err);
-    }
-  };
-
-  if (loading) return <SkeletonCard />;
+  const cert = item.certificate;
+  const isRevoked = cert?.status === 'REVOKED';
+  const seal = credentialSeal(item.human);
+  const credId = compactCredentialId(cert?.certificateId);
 
   return (
-    <>
-      <motion.div
-        layout
-        className={cn('card overflow-hidden transition-all duration-200', cardBorder)}
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        {/* Ribbon */}
-        <div className={cn('h-1.5 bg-gradient-to-r -mx-6 -mt-6 mb-5', ribbonClass)} />
-
-        {/* Header */}
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className={cn(
-              'w-10 h-10 rounded-xl border flex items-center justify-center',
-              isRevoked ? 'bg-danger/15 border-danger/20' :
-              isExpired ? 'bg-warning/15 border-warning/20' :
-                         'bg-dna-500/15 border-dna-500/20'
-            )}>
-              <Award size={18} className={isRevoked ? 'text-danger' : isExpired ? 'text-warning' : 'text-dna-400'} />
-            </div>
-            <div>
-              <p className={cn('text-xs font-bold mono', isRevoked ? 'text-danger' : isExpired ? 'text-warning' : 'text-dna-400')}>
-                {certId}
+    <article className="rounded-xl border border-[#252C38] bg-[#11151D] hover:bg-[#161C27] p-5 flex flex-col gap-4 transition-colors">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <CredentialBadge human={item.human} size={64} />
+          <div className="min-w-0">
+            {seal.tier && (
+              <p className="text-[10px] tracking-[0.18em] uppercase font-semibold" style={{ color: seal.tier === 'gold' ? '#D9A441' : seal.tier === 'silver' ? '#C5CDD8' : '#C4845A' }}>
+                {seal.headline} · {seal.tier}
               </p>
-              <p className="text-xs text-gray-500">Ownership Certificate</p>
-            </div>
-          </div>
-          <Badge variant={statusCfg.variant} dot>
-            {statusCfg.label}
-          </Badge>
-        </div>
-
-        {/* Revoked / Expired alert */}
-        <AnimatePresence>
-          {(isRevoked || isExpired) && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              className={cn(
-                'rounded-xl p-3 mb-4 border',
-                isRevoked ? 'bg-danger/10 border-danger/30' : 'bg-warning/10 border-warning/30'
-              )}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                {isRevoked
-                  ? <XCircle size={13} className="text-danger shrink-0" />
-                  : <AlertTriangle size={13} className="text-warning shrink-0" />}
-                <p className={cn('text-xs font-semibold', isRevoked ? 'text-danger' : 'text-warning')}>
-                  Certificate {isRevoked ? 'Revoked' : 'Expired'}
-                </p>
-              </div>
-              {isRevoked && cert?.revokedAt && (
-                <p className="text-2xs text-gray-400">
-                  Revoked {format(new Date(cert.revokedAt), 'MMM d, yyyy HH:mm')}
-                </p>
-              )}
-              {isRevoked && cert?.revocationReason && (
-                <p className="text-2xs text-gray-300 mt-1 italic">
-                  &ldquo;{cert.revocationReason}&rdquo;
-                </p>
-              )}
-              {isExpired && cert?.expiresAt && (
-                <p className="text-2xs text-gray-400">
-                  Expired {format(new Date(cert.expiresAt), 'MMM d, yyyy')}
-                </p>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* File info */}
-        <div className="space-y-2 mb-4">
-          <div className="flex items-start gap-2">
-            <Dna size={12} className={cn('mt-0.5 shrink-0', isRevoked ? 'text-danger/70' : 'text-dna-400')} />
-            <div className="min-w-0">
-              <p className="text-xs text-gray-400">Registered Asset</p>
-              <p className="text-sm font-semibold text-white truncate">{vault.originalFileName}</p>
-              <p className="text-2xs text-gray-600 mono mt-0.5">{formatBytes(vault.originalSizeBytes)}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* IDs */}
-        <div className="space-y-1.5 mb-4">
-          <div className="flex items-center gap-2">
-            <span className="text-2xs text-gray-600 w-24 shrink-0">DNA Record</span>
-            <span className="mono text-2xs text-dna-400 truncate">{vault.dnaRecordId}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-2xs text-gray-600 w-24 shrink-0">Asset ID</span>
-            <span className="mono text-2xs text-purple truncate">{vault.id}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Calendar size={10} className="text-gray-600" />
-            <span className="text-2xs text-gray-500">Issued {issueDate}</span>
-          </div>
-          {cert?.certificateId && (
-            <div className="flex items-center gap-2">
-              <Award size={10} className={isRevoked ? 'text-danger/60' : 'text-dna-500/60'} />
-              <span className={cn('text-2xs mono truncate', isRevoked ? 'text-danger/70' : 'text-gray-400')}>
-                {cert.certificateId}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Actions */}
-        <div className="flex gap-2 pt-4 border-t border-bg-border">
-          {/* PDF download — disabled when revoked */}
-          <button
-            onClick={async () => {
-              setExporting(true);
-              toast.loading('Generating PDF…');
-              try {
-                await exportCertificatePDF(vault, user ?? undefined);
-                toast.dismiss(); toast.success('PDF downloaded');
-              } catch {
-                toast.dismiss(); toast.error('PDF generation failed');
-              } finally { setExporting(false); }
-            }}
-            disabled={exporting || isRevoked}
-            className={cn(
-              'btn btn-sm flex-1 text-xs',
-              isRevoked ? 'btn-secondary opacity-40 cursor-not-allowed' : 'btn-primary'
             )}
-            title={isRevoked ? 'Certificate is revoked — PDF download disabled' : 'Download PDF Certificate'}
-          >
-            {exporting ? <RefreshCw size={12} className="animate-spin" /> : <FileText size={12} />}
-            {isRevoked ? 'Revoked' : 'Download PDF'}
-          </button>
-
-          <button
-            onClick={() => { exportDNACertificateJSON(vault, user ?? undefined); toast.success('JSON exported'); }}
-            className="btn btn-secondary btn-sm text-xs"
-            title="Export as JSON (raw data)"
-          >
-            <Download size={12} /> JSON
-          </button>
-
-          <button
-            onClick={() => window.print()}
-            className="btn btn-ghost btn-sm text-xs"
-            title="Print"
-          >
-            <Printer size={12} />
-          </button>
-
-          {/* Revoke button — shows for ACTIVE certs (uses cert.certificateId OR derived certId) */}
-          {isActive && (
-            <button
-              onClick={() => setRevoking(true)}
-              className="btn btn-sm text-xs bg-danger/10 hover:bg-danger/20 border border-danger/30 text-danger"
-              title="Revoke this certificate"
-            >
-              <Ban size={12} />
-              <span className="hidden sm:inline">Revoke</span>
-            </button>
-          )}
+            <span className="inline-block mt-1 text-[10px] tracking-[0.14em] uppercase text-[#9AA6B8] border border-[#252C38] rounded-full px-2 py-0.5">
+              {KIND_LABEL[item.kind]}
+            </span>
+          </div>
         </div>
-      </motion.div>
+        {item.protectedInHub && (
+          <span className="shrink-0 text-[11px] text-[#32D583]">✓ Pinit HUB Protected</span>
+        )}
+      </div>
 
-      {/* Revoke confirmation dialog — uses cert.certificateId if loaded, else derived certId */}
-      {revoking && (
-        <RevokeDialog
-          certId={cert?.certificateId ?? certId}
-          filename={vault.originalFileName}
-          onConfirm={handleRevoke}
-          onCancel={() => setRevoking(false)}
-        />
+      <div>
+        <h3 className="text-[15px] font-semibold text-[#F5F7FA] leading-snug">{item.title}</h3>
+        <p className="text-[13px] text-[#9AA6B8] mt-1">
+          {KIND_LABEL[item.kind]}
+          {item.issuer ? ` · ${item.issuer}` : ''}
+        </p>
+      </div>
+
+      {item.recipientName && (
+        <div>
+          <p className="text-[11px] uppercase tracking-wider text-[#9AA6B8]">Awarded to</p>
+          <p className="text-[14px] text-[#F5F7FA] mt-0.5">{item.recipientName}</p>
+        </div>
       )}
-    </>
+
+      <dl className="border-t border-[#252C38] pt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[13px]">
+        <div>
+          <dt className="text-[#9AA6B8] text-[11px]">Issued</dt>
+          <dd className="text-[#F5F7FA] mt-0.5">{formatIssued(item.issuedAt)}</dd>
+        </div>
+        {credId && (
+          <div>
+            <dt className="text-[#9AA6B8] text-[11px]">Credential</dt>
+            <dd className="text-[#F5F7FA] mt-0.5 font-mono text-[12px] break-all">{credId}</dd>
+          </div>
+        )}
+        {seal.percent != null && (
+          <div>
+            <dt className="text-[#9AA6B8] text-[11px]">Human</dt>
+            <dd className="text-[#F5F7FA] mt-0.5">{seal.percent}%</dd>
+          </div>
+        )}
+      </dl>
+
+      {isRevoked && (
+        <p className="text-xs text-danger">This Pinit certificate is revoked</p>
+      )}
+
+      <div className="flex flex-wrap gap-2 mt-auto">
+        <button type="button" className="btn btn-primary btn-sm" onClick={onPreview}>
+          Preview certificate
+        </button>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={onDetails}>
+          View verification
+        </button>
+        {cert?.certificateId && (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onShare}>
+            Share credential
+          </button>
+        )}
+        {cert?.status === 'ACTIVE' && (
+          <button type="button" className="btn btn-ghost btn-sm text-danger" onClick={onRevoke}>
+            Revoke
+          </button>
+        )}
+      </div>
+    </article>
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
 export function CertificatesPage() {
-  const [items,    setItems]   = useState<CertificateWithVault[]>([]);
-  const [loading,  setLoading] = useState(true);
-  const [error,    setError]   = useState<string | null>(null);
-  const [filter,   setFilter]  = useState<'ALL' | 'ACTIVE' | 'REVOKED'>('ALL');
+  const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const [vaults, setVaults] = useState<VaultRecord[]>([]);
+  const [items, setItems] = useState<RegistryCredential[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<FilterTab>('all');
+  const [sort, setSort] = useState<SortKey>('newest');
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [detailsId, setDetailsId] = useState<string | null>(null);
+  const [revokeItem, setRevokeItem] = useState<RegistryCredential | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      // Load vaults + existing certificates in parallel
-      const [vaults, certs] = await Promise.all([
+      const [vaultRows, certs, portfolioRes] = await Promise.all([
         listVaultRecords(),
         listCertificates().catch((): IssuedCertificate[] => []),
+        api.get(`${API_BASE_URL}/portfolio/me`).catch(() => ({ data: null })),
       ]);
-
-      // Build a map: vaultId → certificate
-      const certByVault = new Map<string, IssuedCertificate>(certs.map((c: IssuedCertificate) => [c.vaultId, c]));
-
-      // Build initial items — show immediately with whatever we have
-      const initial: CertificateWithVault[] = vaults.map((v: VaultRecord) => ({
-        vault: v,
-        certificate: certByVault.get(v.id) ?? null,
-        loading: !certByVault.has(v.id),
+      setVaults(vaultRows);
+      const hints = parsePortfolioHints(portfolioRes.data);
+      setItems(buildRegistryCredentials({
+        vaults: vaultRows,
+        certificates: certs,
+        hints,
+        recipientName: user?.name || null,
       }));
-      setItems(initial);
-      setLoading(false);
-
-      // For vaults without certificates, auto-issue in batches of 3 to avoid 429
-      const toIssue = vaults.filter((v: VaultRecord) => !certByVault.has(v.id));
-      if (toIssue.length > 0) {
-        const BATCH = 3;
-        const allResults: PromiseSettledResult<IssuedCertificate>[] = [];
-        for (let i = 0; i < toIssue.length; i += BATCH) {
-          const batch = toIssue.slice(i, i + BATCH);
-          const batchResults = await Promise.allSettled(
-            batch.map((v: VaultRecord) => issueCertificate(v.dnaRecordId, v.id))
-          );
-          allResults.push(...batchResults);
-          // Update UI after each batch
-          setItems(prev => prev.map(item => {
-            const idx = toIssue.findIndex((v: VaultRecord) => v.id === item.vault.id);
-            if (idx === -1 || idx >= allResults.length) return item;
-            const r = allResults[idx];
-            return {
-              ...item,
-              certificate: r.status === 'fulfilled' ? r.value : null,
-              loading: false,
-            };
-          }));
-          // Small delay between batches
-          if (i + BATCH < toIssue.length) await new Promise(r => setTimeout(r, 300));
-        }
-      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load certificates');
+      setError(err instanceof Error ? err.message : 'Failed to load credentials');
+    } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.name]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
-  // Update a certificate in state after revocation (no full reload needed)
-  const handleRevoked = useCallback((certId: string, updated: IssuedCertificate) => {
-    setItems(prev => prev.map(item =>
-      item.certificate?.certificateId === certId
-        ? { ...item, certificate: updated }
-        : item
-    ));
-  }, []);
+  useEffect(() => {
+    const deep = searchParams.get('id');
+    if (!deep || !items.length) return;
+    const match = items.find((i) => i.certificate?.certificateId === deep || i.id === deep);
+    if (match) setDetailsId(match.id);
+  }, [searchParams, items]);
 
-  const filtered = items.filter(item => {
-    if (filter === 'ALL')     return true;
-    if (filter === 'ACTIVE')  return (item.certificate?.status ?? 'ACTIVE') === 'ACTIVE';
-    if (filter === 'REVOKED') return item.certificate?.status === 'REVOKED';
-    return true;
-  });
+  const filtered = useMemo(() => {
+    const byTab = filter === 'all' ? items : items.filter((i) => i.kind === filter);
+    return sortCredentials(byTab, sort);
+  }, [items, filter, sort]);
 
-  const activeCount  = items.filter(i => (i.certificate?.status ?? 'ACTIVE') === 'ACTIVE').length;
-  const revokedCount = items.filter(i => i.certificate?.status === 'REVOKED').length;
+  const metrics = registryMetrics(items);
+  const sinceYear = earliestYear(items);
+  const previewItem = items.find((i) => i.id === previewId) ?? null;
+  const detailsItem = items.find((i) => i.id === detailsId) ?? null;
+
+  const shareCredential = async (item: RegistryCredential) => {
+    const id = item.certificate?.certificateId;
+    if (!id) { toast.error('No public credential URL until a Pinit certificate is issued'); return; }
+    const url = `${window.location.origin}/verify-certificate?id=${encodeURIComponent(id)}`;
+    await navigator.clipboard.writeText(url);
+    toast.success('Verification link copied');
+  };
+
+  const handleRevoke = async (reason: string) => {
+    const item = revokeItem;
+    setRevokeItem(null);
+    if (!item?.vault) return;
+    const loadingToast = toast.loading('Processing revocation…');
+    try {
+      const issued = item.certificate ?? await issueCertificate(item.vault.dnaRecordId, item.vault.id);
+      const updated = await revokeCertificate(issued.certificateId, reason);
+      setItems((prev) => prev.map((row) => (
+        row.id === item.id || row.vault?.id === item.vault?.id
+          ? { ...row, certificate: updated }
+          : row
+      )));
+      toast.dismiss(loadingToast);
+      toast.success('Certificate revoked');
+    } catch (err) {
+      toast.dismiss(loadingToast);
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+        ?? (err instanceof Error ? err.message : 'Unknown error');
+      toast.error(`Revocation failed: ${msg}`, { duration: 6000 });
+    }
+  };
+
+  const emptyCopy = () => {
+    if (filter === 'award') return { title: 'No awards added yet.', description: 'Awards you record in Pinit will appear here.' };
+    if (filter === 'license') return { title: 'No licenses added yet.', description: 'Licenses linked to protected documents will appear here.' };
+    if (filter === 'course') return { title: 'No courses added yet.', description: 'Course credentials will appear here.' };
+    if (filter === 'workshop') return { title: 'No workshops added yet.', description: 'Workshop credentials will appear here.' };
+    if (filter === 'certificate') return { title: 'No certificates yet', description: 'Certificates, awards and other professional achievements will appear here.' };
+    return {
+      title: 'No credentials have been added yet.',
+      description: 'Certificates, awards and licenses connected to your Pinit identity will appear here.',
+    };
+  };
 
   return (
-    <div className="page-shell space-y-5 animate-fade-in">
-
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+    <div className="page-shell max-w-[1280px] space-y-6 animate-fade-in pb-10">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-white">Ownership Certificates</h1>
+          <h1 className="text-xl font-bold text-[#F5F7FA]">Certificates</h1>
+          <p className="text-sm text-[#9AA6B8] mt-1">Credentials, recognitions and licenses connected to your Pinit identity.</p>
         </div>
         <div className="flex items-center gap-2">
-          {!loading && (
-            <>
-              <Badge variant="dna">{items.length} total</Badge>
-              {revokedCount > 0 && <Badge variant="danger">{revokedCount} revoked</Badge>}
-            </>
-          )}
-          <button onClick={load} disabled={loading} className="btn btn-secondary btn-sm">
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => setAddOpen(true)}>
+            <Plus size={14} /> Add credential
+          </button>
+          <button type="button" onClick={() => void load()} disabled={loading} className="btn btn-secondary btn-sm" aria-label="Refresh credentials">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
 
-      {/* Status filter tabs */}
       {!loading && items.length > 0 && (
-        <div className="flex items-center gap-2">
-          {[
-            { key: 'ALL',     label: `All (${items.length})` },
-            { key: 'ACTIVE',  label: `Active (${activeCount})` },
-            { key: 'REVOKED', label: `Revoked (${revokedCount})` },
-          ].map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setFilter(tab.key as typeof filter)}
-              className={cn(
-                'text-xs px-4 py-2 rounded-full border transition-all',
-                filter === tab.key
-                  ? 'bg-dna-500/20 border-dna-500/40 text-dna-400'
-                  : 'border-bg-border text-gray-500 hover:text-white hover:border-gray-600'
-              )}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="rounded-lg border border-[#252C38] bg-[#11151D] px-3 py-2.5">
+            <p className="text-[11px] text-[#9AA6B8]">Credentials</p>
+            <p className="text-lg font-semibold text-[#F5F7FA]">{metrics.total}</p>
+          </div>
+          <div className="rounded-lg border border-[#252C38] bg-[#11151D] px-3 py-2.5">
+            <p className="text-[11px] text-[#9AA6B8]">Human Verified</p>
+            <p className="text-lg font-semibold text-[#F5F7FA]">{metrics.humanVerifiedCount}</p>
+          </div>
+          <div className="rounded-lg border border-[#252C38] bg-[#11151D] px-3 py-2.5">
+            <p className="text-[11px] text-[#9AA6B8]">Protected</p>
+            <p className="text-lg font-semibold text-[#F5F7FA]">{metrics.protectedCount}</p>
+          </div>
+          {sinceYear != null && (
+            <div className="rounded-lg border border-[#252C38] bg-[#11151D] px-3 py-2.5">
+              <p className="text-[11px] text-[#9AA6B8]">Since</p>
+              <p className="text-lg font-semibold text-[#F5F7FA]">{sinceYear}</p>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Content */}
+      {!loading && items.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-1">
+            {TABS.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setFilter(tab.key)}
+                className={cn(
+                  'text-xs px-3 py-1.5 rounded-md border transition-colors',
+                  filter === tab.key
+                    ? 'bg-[#1C2130] border-[#35D6A2]/50 text-[#F5F7FA]'
+                    : 'border-transparent text-[#A7B0C0] hover:text-white',
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <label className="text-xs text-[#A7B0C0] flex items-center gap-2">
+            <span className="sr-only">Sort credentials</span>
+            <select
+              className="bg-[#171B24] border border-[#2A3040] rounded-md px-2 py-1 text-xs text-[#F5F7FA]"
+              value={sort}
+              onChange={(e) => setSort(e.target.value as SortKey)}
+            >
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="verified">Most recently verified</option>
+              <option value="alpha">Alphabetical</option>
+            </select>
+          </label>
+        </div>
+      )}
+
       {error ? (
-        <div className="card text-center">
+        <div className="rounded-xl border border-[#2A3040] bg-[#171B24] p-6 text-center">
           <p className="text-danger text-sm mb-3">{error}</p>
-          <button onClick={load} className="btn btn-secondary btn-sm">
+          <button type="button" onClick={() => void load()} className="btn btn-secondary btn-sm">
             <RefreshCw size={13} /> Retry
           </button>
         </div>
       ) : loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} />)}
+          {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="card">
-          <EmptyState
-            icon={filter === 'REVOKED' ? Ban : Archive}
-            title={filter === 'REVOKED' ? 'No revoked certificates' : 'No certificates yet'}
-            description={
-              filter === 'REVOKED'
-                ? 'No certificates have been revoked'
-                : 'Store a file in the vault to generate its ownership certificate'
-            }
-            action={filter === 'ALL' ? (
-              <Link to="/generate" className="btn btn-primary btn-sm">
-                <Dna size={14} /> Generate DNA & Vault
-              </Link>
-            ) : undefined}
-          />
-        </div>
+        <EmptyState
+          icon={filter === 'all' ? Award : Ban}
+          title={emptyCopy().title}
+          description={emptyCopy().description}
+          action={(
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => setAddOpen(true)}>
+              <Plus size={14} /> Add credential
+            </button>
+          )}
+        />
       ) : (
-        <motion.div
-          layout
-          className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
-        >
-          {filtered.map(item => (
-            <CertificateCard
-              key={item.vault.id}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {filtered.map((item) => (
+            <CredentialCard
+              key={item.id}
               item={item}
-              onRevoked={handleRevoked}
+              onPreview={() => setPreviewId(item.id)}
+              onDetails={() => setDetailsId(item.id)}
+              onShare={() => void shareCredential(item)}
+              onRevoke={() => setRevokeItem(item)}
             />
           ))}
-        </motion.div>
+        </div>
+      )}
+
+      {previewItem && (
+        <CredentialPreviewModal
+          item={previewItem}
+          onClose={() => setPreviewId(null)}
+          onViewDetails={() => { setPreviewId(null); setDetailsId(previewItem.id); }}
+          onPrev={(() => {
+            const i = filtered.findIndex((row) => row.id === previewItem.id);
+            if (i <= 0) return undefined;
+            return () => setPreviewId(filtered[i - 1].id);
+          })()}
+          onNext={(() => {
+            const i = filtered.findIndex((row) => row.id === previewItem.id);
+            if (i < 0 || i >= filtered.length - 1) return undefined;
+            return () => setPreviewId(filtered[i + 1].id);
+          })()}
+        />
+      )}
+      {detailsItem && (
+        <CredentialDetailsModal
+          item={detailsItem}
+          onClose={() => setDetailsId(null)}
+          onPreview={() => { setDetailsId(null); setPreviewId(detailsItem.id); }}
+          onHumanUpdate={(next) => {
+            setItems((prev) => prev.map((row) => (row.id === next.id ? next : row)));
+          }}
+        />
+      )}
+      {revokeItem && (
+        <RevokeDialog
+          certId={revokeItem.certificate?.certificateId || revokeItem.id}
+          filename={revokeItem.title}
+          onConfirm={(reason) => void handleRevoke(reason)}
+          onCancel={() => setRevokeItem(null)}
+        />
+      )}
+      {addOpen && (
+        <AddCredentialModal vaults={vaults} onClose={() => setAddOpen(false)} onAdded={() => void load()} />
       )}
     </div>
   );

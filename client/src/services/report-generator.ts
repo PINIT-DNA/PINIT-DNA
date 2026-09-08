@@ -9,7 +9,6 @@
 import type { ComparisonResult, VaultRecord, DnaRecord } from '../types/dashboard.types';
 import type { AuthUser } from '../lib/auth';
 import { classifyTampering, explainLayer } from './forensic-analysis';
-import { formatBytes } from '../hooks/useApi';
 import { DNA_GENERATOR_VERSION } from '../config/dna-versions';
 
 // ─── Report metadata ──────────────────────────────────────────────────────────
@@ -333,99 +332,106 @@ export async function exportComparisonPDF(result: ComparisonResult): Promise<voi
 
 // ─── Certificate PDF ───────────────────────────────────────────────────────────
 
-export async function exportCertificatePDF(vault: VaultRecord, user?: AuthUser): Promise<void> {
+export async function exportCertificatePDF(
+  vault: VaultRecord,
+  user?: AuthUser,
+  opts?: {
+    certificateId?: string;
+    title?: string;
+    issuer?: string | null;
+    humanLabel?: string;
+    protectedInHub?: boolean;
+    recipient?: string | null;
+  },
+): Promise<void> {
   const { default: jsPDF } = await import('jspdf');
-  const certId = `CERT-DNA-${vault.id.slice(0, 8).toUpperCase()}`;
+  const certId = opts?.certificateId || `CERT-DNA-${vault.id.slice(0, 8).toUpperCase()}`;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const W = 210; const MARGIN = 20;
+  const W = 210;
+  const title = opts?.title || vault.originalFileName.replace(/\.[^.]+$/, '');
+  const issuer = (opts?.issuer && opts.issuer.trim()) ? opts.issuer.trim() : 'Issuer not recorded';
+  const recipient = opts?.recipient || user?.name || null;
+  const protectedInHub = opts?.protectedInHub ?? true;
+  const humanLabel = opts?.humanLabel;
 
-  // Background
-  doc.setFillColor(8, 11, 20);
+  doc.setFillColor(245, 243, 238);
   doc.rect(0, 0, W, 297, 'F');
+  doc.setFillColor(53, 214, 162);
+  doc.rect(0, 0, 3, 297, 'F');
 
-  // Border
-  doc.setDrawColor(99, 102, 241);
-  doc.setLineWidth(1.5);
-  doc.rect(10, 10, W - 20, 277);
+  doc.setTextColor(98, 104, 117);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.text('PINIT HUB', 18, 22);
+  doc.text('CREDENTIAL RECORD', 18, 28);
 
-  // Top stripe
-  doc.setFillColor(22, 33, 100);
-  doc.rect(10, 10, W - 20, 30, 'F');
+  if (humanLabel && humanLabel !== 'Not assessed') {
+    doc.setDrawColor(17, 19, 24);
+    doc.rect(150, 16, 42, 22);
+    doc.setFontSize(6);
+    doc.text('PINIT', 171, 22, { align: 'center' });
+    doc.setFontSize(8);
+    doc.setTextColor(17, 19, 24);
+    const badgeLines = doc.splitTextToSize(humanLabel.toUpperCase(), 36);
+    doc.text(badgeLines, 171, 28, { align: 'center' });
+  }
 
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(18); doc.setFont('helvetica', 'bold');
-  doc.text('PINIT-DNA', W / 2, 26, { align: 'center' });
-  doc.setFontSize(10); doc.setFont('helvetica', 'normal');
-  doc.text('Universal File DNA Ownership Certificate', W / 2, 34, { align: 'center' });
+  doc.setTextColor(17, 19, 24);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(22);
+  const titleLines = doc.splitTextToSize(title, 174);
+  doc.text(titleLines, 18, 52);
 
-  // Certificate ID
-  doc.setFontSize(11); doc.setFont('helvetica', 'bold');
-  doc.setTextColor(148, 130, 240);
-  doc.text(certId, W / 2, 52, { align: 'center' });
+  let y = 52 + titleLines.length * 10 + 8;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(11);
+  if (recipient) {
+    doc.setTextColor(98, 104, 117);
+    doc.text('Awarded to', 18, y);
+    doc.setTextColor(17, 19, 24);
+    doc.text(recipient, 18, y + 6);
+    y += 16;
+  }
+  doc.setTextColor(98, 104, 117);
+  doc.setFontSize(8);
+  doc.text('ISSUED BY', 18, y);
+  doc.setFontSize(12);
+  doc.setTextColor(17, 19, 24);
+  doc.text(issuer, 18, y + 7);
+  y += 18;
+  doc.setFontSize(8);
+  doc.setTextColor(98, 104, 117);
+  doc.text('ISSUED', 18, y);
+  doc.setFontSize(11);
+  doc.setTextColor(17, 19, 24);
+  doc.text(new Date(vault.createdAt).toLocaleDateString(), 18, y + 7);
+  y += 24;
 
-  // Verified badge
-  doc.setFillColor(16, 185, 129);
-  doc.roundedRect(W / 2 - 25, 56, 50, 10, 3, 3, 'F');
-  doc.setTextColor(255, 255, 255); doc.setFontSize(9);
-  doc.text('VERIFIED', W / 2, 63, { align: 'center' });
+  doc.setDrawColor(216, 212, 204);
+  doc.line(18, y, 192, y);
+  y += 10;
+  if (humanLabel) {
+    doc.setFontSize(10);
+    doc.setTextColor(17, 19, 24);
+    doc.text(humanLabel, 18, y);
+    y += 7;
+  }
+  if (protectedInHub) {
+    doc.setFontSize(10);
+    doc.text('Protected & recorded in Pinit HUB', 18, y);
+    y += 10;
+  }
+  doc.setFontSize(8);
+  doc.setTextColor(98, 104, 117);
+  doc.setFont('courier', 'normal');
+  doc.text(certId, 18, y);
 
-  let y = 78;
-  const field = (label: string, value: string) => {
-    doc.setFontSize(8); doc.setTextColor(100, 120, 150); doc.setFont('helvetica', 'normal');
-    doc.text(label.toUpperCase(), MARGIN, y);
-    doc.setFontSize(10); doc.setTextColor(220, 225, 235); doc.setFont('helvetica', 'bold');
-    doc.text(value, MARGIN, y + 5);
-    y += 14;
-  };
-
-  const sectionDivider = (title: string) => {
-    y += 2;
-    doc.setFillColor(22, 33, 100);
-    doc.rect(MARGIN, y, W - MARGIN * 2, 7, 'F');
-    doc.setFontSize(8); doc.setFont('helvetica', 'bold');
-    doc.setTextColor(148, 130, 240);
-    doc.text(title, MARGIN + 2, y + 5);
-    y += 12;
-  };
-
-  // ── Owner Section ───────────────────────────────────────────────────────────
-  sectionDivider('OWNER INFORMATION');
-  field('Owner Name',    user?.name    ?? 'Unknown');
-  field('Owner ID',      user?.sub     ?? 'Unknown');
-  field('Short ID',      user?.shortId ?? 'Unknown');
-
-  // ── File Section ────────────────────────────────────────────────────────────
-  sectionDivider('FILE INFORMATION');
-  field('Registered Asset',  vault.originalFileName);
-  field('MIME Type',        vault.originalMimeType);
-  field('Original Size',    formatBytes(vault.originalSizeBytes));
-  field('Encrypted Size',   formatBytes(vault.encryptedSizeBytes));
-  field('Registration Date', new Date(vault.createdAt).toLocaleString());
-
-  // ── Identity Section ────────────────────────────────────────────────────────
-  sectionDivider('IDENTITY & SECURITY');
-  field('DNA Record ID', vault.dnaRecordId);
-  field('Vault ID',      vault.id);
-  field('Encryption',    `${vault.encryptionAlgorithm} · ${vault.keyDerivation}`);
-  field('DNA Layers',    '6 layers · SHA-256, Structural, Perceptual, Semantic, Metadata, HMAC');
-
-  // ── Legal Statement ─────────────────────────────────────────────────────────
-  y += 4;
-  doc.setFontSize(8); doc.setTextColor(140); doc.setFont('helvetica', 'normal');
-  const ownerLabel = user?.name ?? user?.shortId ?? 'the registered owner';
-  const stmt =
-    `This certificate confirms that the file "${vault.originalFileName}" was registered ` +
-    `in the PINIT-DNA system on ${new Date(vault.createdAt).toLocaleDateString()} ` +
-    `by ${ownerLabel} (User ID: ${user?.sub ?? 'unknown'}). ` +
-    `The file has been cryptographically fingerprinted across 10 independent layers ` +
-    `and securely stored with AES-256-GCM encryption. ` +
-    `This certificate was generated on ${new Date().toLocaleDateString()}.`;
-  const stmtLines = doc.splitTextToSize(stmt, W - MARGIN * 2);
-  doc.text(stmtLines, MARGIN, y);
-
-  // Footer
-  doc.setFontSize(8); doc.setTextColor(70);
-  doc.text('PINIT-DNA Universal File DNA Engine v2.0', W / 2, 282, { align: 'center' });
+  doc.setFillColor(53, 214, 162);
+  doc.circle(186, 270, 5, 'F');
+  doc.setTextColor(17, 19, 24);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.text('P', 186, 272, { align: 'center' });
 
   doc.save(`${certId}.pdf`);
 }

@@ -670,6 +670,8 @@ export default function App() {
             onOpenPurchases={() => navigate('my_licenses')}
             onEnableBuyer={enableBuyer}
             onSelectListing={handleSelectListing}
+            onNavigate={navigate}
+            onOpenAuth={openAuth}
           />
         )}
 

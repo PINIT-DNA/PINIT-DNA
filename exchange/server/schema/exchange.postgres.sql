@@ -183,6 +183,14 @@ CREATE TABLE IF NOT EXISTS exchange.wishlist (
   UNIQUE (buyer_key, listing_id)
 );
 
+CREATE TABLE IF NOT EXISTS exchange.creator_follows (
+  id SERIAL PRIMARY KEY,
+  buyer_key TEXT NOT NULL,
+  creator_pinit_id TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (buyer_key, creator_pinit_id)
+);
+
 CREATE TABLE IF NOT EXISTS exchange.reviews (
   id SERIAL PRIMARY KEY,
   listing_id TEXT NOT NULL,

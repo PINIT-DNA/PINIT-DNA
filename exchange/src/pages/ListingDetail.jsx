@@ -3,6 +3,7 @@ import {
   Award, ArrowLeft, Check, Download, Heart, ImageOff, Minus,
   ShieldCheck, ShoppingCart,
 } from 'lucide-react';
+import FollowCreatorButton from '../components/FollowCreatorButton.jsx';
 import { formatMoney } from '../lib/money.js';
 import { availableTiers } from '../lib/licensing.js';
 import { buyerKey } from '../lib/buyer.js';
@@ -17,7 +18,7 @@ import { recordListingView } from '../lib/recently-viewed.js';
 import { canPurchase, resolveExchangeAccount } from '../lib/roles.js';
 import { samePinitIdentity } from '../lib/pinit-identity.js';
 
-export default function ListingDetail({ listingId, onBack, onOpenCheckout, onManageListing, onOpenBuyModule, onOpenCart, onOpenPurchases, shopModule = 'buy', user, onCartChanged, onEnableBuyer, onSelectListing }) {
+export default function ListingDetail({ listingId, onBack, onOpenCheckout, onManageListing, onOpenBuyModule, onOpenCart, onOpenPurchases, shopModule = 'buy', user, onCartChanged, onEnableBuyer, onSelectListing, onNavigate, onOpenAuth }) {
   const [listing, setListing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedTier, setSelectedTier] = useState('');
@@ -427,21 +428,49 @@ export default function ListingDetail({ listingId, onBack, onOpenCheckout, onMan
               Asset UUID that used to sit here is an internal database
               identifier and is no longer surfaced to buyers. */}
           <div className="ex-card ex-card--pad creator-chip">
-            <div className="creator-chip__avatar" aria-hidden="true">
-              {String(listing.creator_name || 'C').trim().charAt(0).toUpperCase()}
-            </div>
-            <div className="creator-chip__id">
-              <span className="creator-chip__name">
-                {listing.creator_name || 'Creator'}
-                <ShieldCheck size={13} />
-              </span>
-              <span className="creator-chip__pid">{listing.pinit_id}</span>
-            </div>
+            <button
+              type="button"
+              className="creator-chip__open"
+              onClick={() => {
+                if (!listing.pinit_id) return;
+                try { sessionStorage.setItem('pinit_open_creator', listing.pinit_id); } catch { /* ignore */ }
+                onNavigate?.('passports');
+              }}
+            >
+              <div className="creator-chip__avatar" aria-hidden="true">
+                {String(listing.creator_name || 'C').trim().charAt(0).toUpperCase()}
+              </div>
+              <div className="creator-chip__id">
+                <span className="creator-chip__name">
+                  {listing.creator_name || 'Creator'}
+                  <ShieldCheck size={13} />
+                </span>
+                <span className="creator-chip__hint">View creator profile</span>
+              </div>
+            </button>
+            <FollowCreatorButton
+              user={user}
+              creatorPinitId={listing.pinit_id}
+              onOpenAuth={onOpenAuth}
+            />
           </div>
 
           <div className="ex-card ex-card--pad buy-panel">
             <h1 className="ex-h1 buy-panel__asset-title">{listing.title}</h1>
-            <p className="buy-panel__by">by {listing.creator_name || 'Verified creator'}</p>
+            <p className="buy-panel__by">
+              by{' '}
+              <button
+                type="button"
+                className="buy-panel__creator-link"
+                onClick={() => {
+                  if (!listing.pinit_id) return;
+                  try { sessionStorage.setItem('pinit_open_creator', listing.pinit_id); } catch { /* ignore */ }
+                  onNavigate?.('passports');
+                }}
+              >
+                {listing.creator_name || 'Verified creator'}
+              </button>
+            </p>
             <div className="asset-card__chips" style={{ marginBottom: 12 }}>
               <span>{assetKindLabel(listing)}</span>
               <span><ShieldCheck size={11} /> HUB Protected</span>

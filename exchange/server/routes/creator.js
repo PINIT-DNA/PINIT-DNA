@@ -238,17 +238,38 @@ router.get('/directory', (req, res) => {
             };
           });
 
-        creators.forEach((c) => {
-          if (!c.pinit_id || isPlaceholderName(c.name)) return;
-          const match = sellerMatchClause('pinit_id', c.pinit_id);
-          db.run(
-            `UPDATE users SET name = ?, display_name = ? ${whereClause(match)}`,
-            [c.name, c.name, ...match.params],
-            () => {},
-          );
-        });
+        db.all(
+          `SELECT pinit_id, slug, visibility FROM portfolio_profiles WHERE LOWER(COALESCE(visibility, '')) IN ('public', 'unlisted')`,
+          [],
+          (portErr, portRows) => {
+            if (portErr) {
+              console.warn('[creator/directory] portfolio slugs unavailable:', portErr.message);
+              res.json({ creators });
+              return;
+            }
+            const slugByCode = {};
+            (portRows || []).forEach((p) => {
+              const code = extractPinitCode(p.pinit_id);
+              if (code && p.slug) slugByCode[code] = p.slug;
+            });
+            const withPortfolios = creators.map((c) => ({
+              ...c,
+              portfolio_slug: slugByCode[extractPinitCode(c.pinit_id)] || null,
+            }));
 
-        res.json({ creators });
+            withPortfolios.forEach((c) => {
+              if (!c.pinit_id || isPlaceholderName(c.name)) return;
+              const match = sellerMatchClause('pinit_id', c.pinit_id);
+              db.run(
+                `UPDATE users SET name = ?, display_name = ? ${whereClause(match)}`,
+                [c.name, c.name, ...match.params],
+                () => {},
+              );
+            });
+
+            res.json({ creators: withPortfolios });
+          },
+        );
       },
     );
   });

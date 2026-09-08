@@ -3,14 +3,14 @@ import {
   Search, Filter, ShieldCheck, Pencil, X, Check,
 } from 'lucide-react';
 import ListingCard from '../components/ListingCard.jsx';
-import EmptyState from '../components/EmptyState.jsx';
 import DiscoverHeroArt from '../components/DiscoverHeroArt.jsx';
+import EmptyState from '../components/EmptyState.jsx';
 import { apiFetch, unwrapList } from '../lib/api.js';
-import { formatFrom, formatMoney } from '../lib/money.js';
+import { formatMoney } from '../lib/money.js';
 import { buyerKey } from '../lib/buyer.js';
-import { canList, canPurchase } from '../lib/roles.js';
+import { canList } from '../lib/roles.js';
 import { isImageListing, isVideoListing } from '../lib/media.js';
-import { samePinitIdentity } from '../lib/pinit-identity.js';
+import { samePinitIdentity, extractPinitCode } from '../lib/pinit-identity.js';
 import { resolveHubAppUrl } from '../lib/exchange-routes.js';
 
 // One hue per vertical. Colour is information here, not decoration — it
@@ -40,7 +40,7 @@ const VERTICAL_INK = {
 };
 
 const VERTICALS = [
-  { id: 'all', name: 'All Assets' },
+  { id: 'all', name: 'All' },
   { id: 'images', name: 'Images' },
   { id: 'video', name: 'Video' },
   { id: 'audio', name: 'Audio' },
@@ -99,25 +99,27 @@ export default function Marketplace({
   const [priceMin, setPriceMin] = useState('');
   const [priceMax, setPriceMax] = useState('');
   const [creatorQuery, setCreatorQuery] = useState('');
-  // Incremented when a filter is committed, so the fetch runs on apply rather
-  // than on every keystroke in the price boxes.
   const [filterToken, setFilterToken] = useState(0);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [savedIds, setSavedIds] = useState(() => new Set());
+  const [followedCodes, setFollowedCodes] = useState(() => new Set());
   const [editing, setEditing] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState('');
-  const [collectors, setCollectors] = useState([]);
 
   useEffect(() => {
     if (buyView && selectedVertical === 'mine') setSelectedVertical('all');
   }, [buyView, selectedVertical]);
 
   useEffect(() => {
-    (async () => {
-      const { ok, data } = await apiFetch('/api/creator/collectors');
-      setCollectors(ok ? (data.collectors || []).slice(0, 8) : []);
-    })();
+    try {
+      const name = sessionStorage.getItem('pinit_discover_creator');
+      if (!name) return;
+      sessionStorage.removeItem('pinit_discover_creator');
+      setCreatorQuery(name);
+      setFilterToken((t) => t + 1);
+    } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
@@ -167,6 +169,26 @@ export default function Marketplace({
   useEffect(() => {
     fetchListings();
   }, [selectedVertical, selectedBadge, sortOption, searchToken, filterToken, resetFiltersToken, user?.pinit_id]);
+
+  useEffect(() => {
+    const key = buyerKey(user) || localStorage.getItem('pinit_guest_buyer');
+    if (!key) {
+      setSavedIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    apiFetch(`/api/commerce/wishlist?buyer_key=${encodeURIComponent(key)}`).then(({ ok, data }) => {
+      if (cancelled || !ok) return;
+      setSavedIds(new Set((data.items || []).map((row) => row.listing_id).filter(Boolean)));
+    });
+    apiFetch(`/api/commerce/follows?buyer_key=${encodeURIComponent(key)}`).then(({ ok, data }) => {
+      if (cancelled || !ok) return;
+      setFollowedCodes(new Set(
+        (data.items || []).map((row) => extractPinitCode(row.creator_pinit_id)).filter(Boolean),
+      ));
+    });
+    return () => { cancelled = true; };
+  }, [user?.pinit_id, user?.email]);
 
   useEffect(() => {
     if (!focusListingId || !listings.length) return;
@@ -279,12 +301,19 @@ export default function Marketplace({
 
   const isOwner = (item) => samePinitIdentity(user?.pinit_id, item.pinit_id);
 
-  const visibleListings = listings.filter((item) => {
-    if (buyView && user?.pinit_id && samePinitIdentity(user.pinit_id, item.pinit_id)) return false;
-    if (selectedVertical === 'images') return isImageListing(item);
-    if (selectedVertical === 'video') return isVideoListing(item);
-    return true;
-  });
+  const visibleListings = listings
+    .filter((item) => {
+      if (buyView && user?.pinit_id && samePinitIdentity(user.pinit_id, item.pinit_id)) return false;
+      if (selectedVertical === 'images') return isImageListing(item);
+      if (selectedVertical === 'video') return isVideoListing(item);
+      return true;
+    })
+    .slice()
+    .sort((a, b) => {
+      const aOn = followedCodes.has(extractPinitCode(a.pinit_id)) ? 1 : 0;
+      const bOn = followedCodes.has(extractPinitCode(b.pinit_id)) ? 1 : 0;
+      return bOn - aOn;
+    });
 
   // ---- Search-results mode ------------------------------------------------
   // Someone who has searched or filtered is no longer browsing: they have a
@@ -303,19 +332,6 @@ export default function Marketplace({
   // repeat the very tiles sitting directly above them — the same asset three
   // times on one screen. Redundancy reads as padding, so the rails stay hidden
   // until there is genuinely more to surface.
-  const RAIL_MIN_CATALOGUE = 8;
-  const railsWorthShowing = !resultsMode && listings.length >= RAIL_MIN_CATALOGUE;
-
-  // "Featured" is Gold-badged work — a real signal from the listing record,
-  // not a hand-picked or invented set.
-  const featured = railsWorthShowing
-    ? listings.filter((l) => String(l.badge_tier || '').toLowerCase() === 'gold').slice(0, 4)
-    : [];
-
-  // Newest first is how the default query already sorts, so this needs no
-  // extra request and no fabricated "trending" metric.
-  const recentlyListed = railsWorthShowing ? listings.slice(0, 6) : [];
-
   const exploreCreators = !resultsMode
     ? Object.values(listings.reduce((acc, item) => {
       const id = item.pinit_id || item.creator_exchange_id;
@@ -326,7 +342,7 @@ export default function Marketplace({
         preview: item.preview_url,
       };
       return acc;
-    }, {})).slice(0, 8)
+    }, {})).slice(0, 6)
     : [];
 
   const activeFilters = [];
@@ -395,12 +411,8 @@ export default function Marketplace({
   };
 
   return (
-    <div style={{ maxWidth: '1320px', margin: '0 auto', padding: '32px 24px' }}>
-      {/* A returning shopper does not need the pitch again — they need the
-          catalogue. Signed-in users get a compact band so tiles sit near the
-          top; logged-out visitors keep the full hero, where selling the idea
-          is the job. */}
-      <div className={`glass-panel market-hero${user ? ' market-hero--compact' : ''}`}>
+    <div className="market-page">
+      <div className="glass-panel market-hero market-hero--compact">
         <div className="market-hero__copy">
           <div className="market-hero__badge">
             <ShieldCheck size={16} />
@@ -408,29 +420,14 @@ export default function Marketplace({
           </div>
           <h1 className="market-hero__title">Discover protected creative work</h1>
           <p className="market-hero__sub">
-            Explore, license and collect creative work protected by Pinit HUB.
+            Explore and license creative work protected by Pinit HUB.
           </p>
-          <div className="market-hero__ctas">
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => document.getElementById('browse-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-            >
-              Explore assets
-            </button>
-            <button type="button" className="btn-secondary" onClick={onOpenListFromHub}>
-              List from Pinit HUB
-            </button>
-          </div>
         </div>
         <DiscoverHeroArt />
       </div>
 
-      <div id="browse-section" style={{ marginBottom: '32px' }}>
-        <div style={{
-          display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '12px',
-          marginBottom: '20px', borderBottom: '1px solid var(--border-subtle)',
-        }}>
+      <div id="browse-section" className="market-browse">
+        <div className="market-cats">
           {VERTICALS.map((v) => (
             <button
               key={v.id}
@@ -448,8 +445,8 @@ export default function Marketplace({
           ))}
         </div>
 
-        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center' }}>
-          <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '10px', flex: 1, minWidth: '300px' }}>
+        <div className="market-search-row">
+          <form onSubmit={handleSearchSubmit} className="market-search-form">
             <div style={{ position: 'relative', flex: 1 }}>
               <Search size={18} color="var(--text-muted)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
               <input
@@ -472,9 +469,33 @@ export default function Marketplace({
               aria-controls="market-filters"
               onClick={() => setFiltersOpen((o) => !o)}
             >
-              <Filter size={15} /> Type · Price · License · Creator
+              <Filter size={15} /> Price
               {activeFilters.length > 0 && <span className="filter-toggle__count">{activeFilters.length}</span>}
             </button>
+            <select
+              className="form-select"
+              value={media}
+              onChange={(e) => { setMedia(e.target.value); setFilterToken((t) => t + 1); }}
+              aria-label="Type"
+              style={{ width: 'auto', minWidth: '96px' }}
+            >
+              <option value="">Type</option>
+              <option value="image">Images</option>
+              <option value="video">Video</option>
+            </select>
+            <select
+              className="form-select"
+              value={licence}
+              onChange={(e) => { setLicence(e.target.value); setFilterToken((t) => t + 1); }}
+              aria-label="License"
+              style={{ width: 'auto', minWidth: '110px' }}
+            >
+              <option value="">License</option>
+              <option value="personal">Personal</option>
+              <option value="commercial">Commercial</option>
+              <option value="exclusive">Exclusive</option>
+              <option value="enterprise">Enterprise</option>
+            </select>
             <input
               className="form-input market-toolbar__creator"
               placeholder="Creator"
@@ -629,11 +650,12 @@ export default function Marketplace({
       {loading ? (
         <div className="listing-grid" aria-busy="true" aria-label="Loading listings">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="listing-card listing-card--skeleton" aria-hidden="true">
-              <div className="sk sk-media" />
-              <div className="sk sk-line sk-line--title" />
-              <div className="sk sk-line sk-line--meta" />
-              <div className="sk sk-line sk-line--price" />
+            <div key={i} className="asset-card listing-card--skeleton" aria-hidden="true">
+              <div className="sk sk-media" style={{ aspectRatio: '4 / 3' }} />
+              <div className="asset-card__body">
+                <div className="sk sk-line sk-line--title" />
+                <div className="sk sk-line sk-line--meta" />
+              </div>
             </div>
           ))}
         </div>
@@ -690,12 +712,12 @@ export default function Marketplace({
         {!resultsMode && (
           <div className="ex-section-head market-discover-head">
             <div>
-              <h2 className="ex-h2">Featured / Discover</h2>
-              <div className="ex-h2-sub">Interesting work, who created it, what it costs, and the license you get.</div>
+              <h2 className="ex-h2">Discover</h2>
+              <div className="ex-h2-sub">Protected creative work, ready to license.</div>
             </div>
           </div>
         )}
-        <div className={`listing-grid${visibleListings.length < 6 ? ' listing-grid--sparse' : ''}`}>
+        <div className="listing-grid">
           {visibleListings.map((item) => (
             <div
               key={item.listing_id}
@@ -715,35 +737,42 @@ export default function Marketplace({
               <ListingCard
                 item={item}
                 user={user}
+                wishlisted={savedIds.has(item.listing_id)}
                 onSelect={onSelectListing}
-                onAddToCart={async (listing) => {
-                  if (user && !canPurchase(user)) return;
-                  const key = buyerKey(user) || localStorage.getItem('pinit_guest_buyer') || `GUEST-${Date.now()}`;
-                  if (!localStorage.getItem('pinit_guest_buyer') && !user) {
-                    localStorage.setItem('pinit_guest_buyer', key);
-                  }
-                  const { ok } = await apiFetch('/api/commerce/cart', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      buyer_key: key,
-                      listing_id: listing.listing_id,
-                      license_tier: 'commercial',
-                    }),
-                  });
-                  if (ok) onCartChanged?.();
+                onOpenCreator={(id) => {
+                  try { sessionStorage.setItem('pinit_open_creator', id); } catch { /* ignore */ }
+                  onNavigate?.('passports');
                 }}
                 onWishlist={async (listing) => {
                   const key = buyerKey(user) || localStorage.getItem('pinit_guest_buyer') || `GUEST-${Date.now()}`;
                   if (!localStorage.getItem('pinit_guest_buyer') && !user) {
                     localStorage.setItem('pinit_guest_buyer', key);
                   }
-                  await apiFetch('/api/commerce/wishlist', {
+                  const already = savedIds.has(listing.listing_id);
+                  if (already) {
+                    const { ok } = await apiFetch(
+                      `/api/commerce/wishlist/${encodeURIComponent(listing.listing_id)}?buyer_key=${encodeURIComponent(key)}`,
+                      { method: 'DELETE' },
+                    );
+                    if (ok) {
+                      setSavedIds((prev) => {
+                        const next = new Set(prev);
+                        next.delete(listing.listing_id);
+                        return next;
+                      });
+                      onCartChanged?.();
+                    }
+                    return;
+                  }
+                  const { ok } = await apiFetch('/api/commerce/wishlist', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ buyer_key: key, listing_id: listing.listing_id }),
                   });
-                  onCartChanged?.();
+                  if (ok) {
+                    setSavedIds((prev) => new Set(prev).add(listing.listing_id));
+                    onCartChanged?.();
+                  }
                 }}
               />
             </div>
@@ -752,123 +781,32 @@ export default function Marketplace({
         </>
       )}
 
-      {/* Section rails. Both read from the listings already loaded above, so
-          they add no request and can never disagree with the grid. Each is
-          hidden unless there is genuinely something to show. */}
-      {!loading && !loadError && featured.length > 0 && (
-        <section className="ex-section">
+      {!loading && !loadError && !resultsMode && exploreCreators.length > 0 && (
+        <section className="ex-section market-creators">
           <div className="ex-section-head">
             <div>
-              <h2 className="ex-h2">Featured</h2>
-              <div className="ex-h2-sub">Gold-verified, human-authenticated work</div>
+              <h2 className="ex-h2">Explore creators</h2>
+              <div className="ex-h2-sub">Meet the creators behind protected work.</div>
             </div>
+            <button type="button" className="ex-text-link" onClick={() => onNavigate?.('passports')}>
+              View all creators →
+            </button>
           </div>
-          <div className="rail">
-            {featured.map((item) => (
+          <div className="market-creators__row">
+            {exploreCreators.map((c) => (
               <button
-                key={`f-${item.listing_id}`}
+                key={c.id}
                 type="button"
-                className="rail-card"
-                onClick={() => onSelectListing?.(item.listing_id)}
+                className="market-creator-chip"
+                onClick={() => {
+                  try { sessionStorage.setItem('pinit_open_creator', c.id); } catch { /* ignore */ }
+                  onNavigate?.('passports');
+                }}
               >
-                <div className="rail-card__art">
-                  {item.preview_url ? (
-                    <img src={item.preview_url} alt="" className="pinit-protected-media" draggable={false} />
-                  ) : null}
-                </div>
-                <div className="rail-card__body">
-                  <span className="rail-card__title">{item.title}</span>
-                  <span className="rail-card__price">{formatFrom(item.price_personal ?? item.price_commercial ?? 0)}</span>
-                </div>
+                <span className="market-creator-chip__avatar">{String(c.name).charAt(0).toUpperCase()}</span>
+                <span className="market-creator-chip__name">{c.name}</span>
               </button>
             ))}
-          </div>
-        </section>
-      )}
-
-      {!loading && !loadError && recentlyListed.length > 0 && (
-        <section className="ex-section">
-          <div className="ex-section-head">
-            <div>
-              <h2 className="ex-h2">Recently added</h2>
-              <div className="ex-h2-sub">Newest offers on the marketplace</div>
-            </div>
-          </div>
-          <div className="rail rail--compact">
-            {recentlyListed.map((item) => (
-              <button
-                key={`r-${item.listing_id}`}
-                type="button"
-                className="rail-card"
-                onClick={() => onSelectListing?.(item.listing_id)}
-              >
-                <div className="rail-card__art">
-                  {item.preview_url ? (
-                    <img src={item.preview_url} alt="" className="pinit-protected-media" draggable={false} />
-                  ) : null}
-                </div>
-                <div className="rail-card__body">
-                  <span className="rail-card__title">{item.title}</span>
-                  <span className="rail-card__price">{formatFrom(item.price_personal ?? item.price_commercial ?? 0)}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {!loading && !loadError && !resultsMode && collectors.length > 0 && (
-        <section className="ex-section collectors-rail">
-          <div className="collectors-rail__head">
-            <div>
-              <h2 className="ex-h2">Collectors on the marketplace</h2>
-              <p className="collectors-rail__sub">People licensing and saving Hub-protected work.</p>
-            </div>
-            <button type="button" className="btn-secondary" onClick={() => onNavigate?.('collectors')}>
-              View all collectors
-            </button>
-          </div>
-          <div className="collectors-rail__row">
-            {collectors.map((c) => (
-              <button
-                key={c.pinit_id}
-                type="button"
-                className="collector-chip"
-                onClick={() => onNavigate?.('collectors')}
-              >
-                <span className="collector-chip__avatar">{c.avatar || 'C'}</span>
-                <span className="collector-chip__name">{c.name}</span>
-                <span className="collector-chip__meta">
-                  {c.licenses} licensed · {c.saves} saved
-                </span>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {!loading && !loadError && !resultsMode && (
-        <section className="ex-section market-explore">
-          <div className="market-explore__row">
-            <button type="button" className="market-explore__card" onClick={() => onNavigate?.('collectors')}>
-              <h3>Collectors</h3>
-              <p>See who is licensing and saving protected work across Exchange.</p>
-            </button>
-            <button type="button" className="market-explore__card" onClick={() => onNavigate?.('passports')}>
-              <h3>Explore Creators</h3>
-              <p>Meet the people behind protected work on Pinit Exchange.</p>
-              {exploreCreators.length > 0 && (
-                <div className="market-explore__faces">
-                  {exploreCreators.slice(0, 5).map((c) => (
-                    <span key={c.id} title={c.name}>{String(c.name).charAt(0).toUpperCase()}</span>
-                  ))}
-                </div>
-              )}
-            </button>
-            <button type="button" className="market-explore__card" onClick={() => onNavigate?.('collections')}>
-              <h3>Popular Collections</h3>
-              <p>Browse work by type, saved lists, and recently viewed assets.</p>
-            </button>
           </div>
         </section>
       )}

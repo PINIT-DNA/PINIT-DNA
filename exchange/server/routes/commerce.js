@@ -20,7 +20,7 @@ import { createLicensedShareOnHub, recordLicensedShareCopiedOnHub } from '../hub
 import { persistLicensedShare } from '../lib/licensed-access.js';
 import { publicLicensedShareUrl } from '../lib/share-viewer-url.js';
 import { emitForListing, emitForSeal } from '../lib/asset-activity.js';
-import { identityMatchSql } from '../lib/pinit-identity.js';
+import { identityMatchSql, extractPinitCode } from '../lib/pinit-identity.js';
 
 const router = express.Router();
 
@@ -407,6 +407,64 @@ router.delete('/wishlist/:listingId', (req, res) => {
   );
 });
 
+/** Follow a creator — buyer identity, persisted. New listings from followed creators surface first on Discover. */
+router.get('/follows', (req, res) => {
+  const key = buyerKey(req);
+  const scope = ownerClause('buyer_key', key);
+  if (!scope) return res.status(400).json({ error: 'buyer_key required' });
+  db.all(
+    `SELECT creator_pinit_id, created_at FROM creator_follows WHERE ${scope.sql} ORDER BY created_at DESC`,
+    scope.params,
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ items: rows || [], count: (rows || []).length });
+    },
+  );
+});
+
+router.post('/follows', (req, res) => {
+  const key = String(req.body?.buyer_key || '').trim();
+  const creatorId = String(req.body?.creator_pinit_id || '').trim();
+  if (!key || !creatorId) return res.status(400).json({ error: 'buyer_key and creator_pinit_id required' });
+  if (extractPinitCode(key) && extractPinitCode(key) === extractPinitCode(creatorId)) {
+    return res.status(400).json({ error: 'You cannot follow your own account.' });
+  }
+  db.run(
+    `INSERT OR IGNORE INTO creator_follows (buyer_key, creator_pinit_id) VALUES (?, ?)`,
+    [key, creatorId],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.status(201).json({ ok: true, following: true });
+    },
+  );
+});
+
+router.delete('/follows/:creatorId', (req, res) => {
+  const key = buyerKey(req);
+  const scope = ownerClause('buyer_key', key);
+  if (!scope) return res.status(400).json({ error: 'buyer_key required' });
+  const creatorId = String(req.params.creatorId || '').trim();
+  if (!creatorId) return res.status(400).json({ error: 'creator_pinit_id required' });
+  db.all(
+    `SELECT creator_pinit_id FROM creator_follows WHERE ${scope.sql}`,
+    scope.params,
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      const match = (rows || []).find((r) => extractPinitCode(r.creator_pinit_id) === extractPinitCode(creatorId)
+        || r.creator_pinit_id === creatorId);
+      if (!match) return res.json({ ok: true, following: false });
+      db.run(
+        `DELETE FROM creator_follows WHERE ${scope.sql} AND creator_pinit_id = ?`,
+        [...scope.params, match.creator_pinit_id],
+        function (delErr) {
+          if (delErr) return res.status(500).json({ error: delErr.message });
+          res.json({ ok: true, following: false });
+        },
+      );
+    },
+  );
+});
+
 /** Move guest cart/wishlist onto the signed-in Pinit identity. Never deletes rows. */
 router.post('/claim-guest', requireVerifiedIdentity, (req, res) => {
   const guest = String(req.body?.guest_key || '').trim();
@@ -418,7 +476,10 @@ router.post('/claim-guest', requireVerifiedIdentity, (req, res) => {
     if (e1) return res.status(500).json({ error: e1.message });
     db.run('UPDATE wishlist SET buyer_key = ? WHERE buyer_key = ?', [dest, guest], (e2) => {
       if (e2) return res.status(500).json({ error: e2.message });
-      res.json({ ok: true });
+      db.run('UPDATE creator_follows SET buyer_key = ? WHERE buyer_key = ?', [dest, guest], (e3) => {
+        if (e3) return res.status(500).json({ error: e3.message });
+        res.json({ ok: true });
+      });
     });
   });
 });

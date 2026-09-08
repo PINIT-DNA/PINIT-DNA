@@ -68,7 +68,7 @@ export default function Collectors({ onNavigate }) {
                     <h3>{c.name}</h3>
                     <ShieldCheck size={14} className="text-emerald" />
                   </div>
-                  <p className="collector-id">{c.pinit_id}</p>
+      <p className="collector-id">Public collector</p>
                 </div>
               </div>
               <div className="collector-stats">

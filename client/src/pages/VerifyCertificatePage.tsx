@@ -6,7 +6,8 @@
  * DOES NOT modify any existing logic.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Shield, CheckCircle2, XCircle, AlertTriangle,
   Dna, Lock, Award, RefreshCw, Copy, Ban,
@@ -121,12 +122,18 @@ const STATUS_CFG = {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function VerifyCertificatePage() {
+  const [searchParams] = useSearchParams();
   const [dnaId,    setDnaId]    = useState('');
   const [vaultId,  setVaultId]  = useState('');
   const [certId,   setCertId]   = useState('');  // direct certificate ID lookup
   const [loading,  setLoading]  = useState(false);
   const [result,   setResult]   = useState<VerificationResult | null>(null);
   const [certResult, setCertResult] = useState<CertVerificationResult | null>(null);
+
+  useEffect(() => {
+    const fromQuery = searchParams.get('id') || searchParams.get('certificateId') || '';
+    if (fromQuery) setCertId(fromQuery);
+  }, [searchParams]);
 
   const handleVerify = async () => {
     setLoading(true);
