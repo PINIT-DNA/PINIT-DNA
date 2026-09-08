@@ -115,9 +115,17 @@ export function BusinessDashboardPage() {
         </div>
       )}
 
-      <QuickActionsBar />
-
-      <ClientsOverviewSection />
+      <OrgOverviewGrid
+        protectedAssets={subscription?.protectedAssetCount ?? dashboard.stats?.totalVaultRecords ?? 0}
+        dnaGenerated={dashboard.stats?.totalDnaRecords ?? 0}
+        activeInvestigations={dashboard.investigations.length}
+        threatAlerts={threatAlerts}
+        storageUsed={subscription?.storageUsedBytes ?? dashboard.stats?.totalEncryptedBytes ?? 0}
+        storageLimit={subscription?.storageLimitBytes ?? null}
+        teamDisplay={teamDisplay}
+        sharedAssets={dashboard.shareLinks.filter((l) => l.isActive).length}
+        certificates={dashboard.certificates.length}
+      />
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
         <div className="xl:col-span-2">
@@ -131,17 +139,9 @@ export function BusinessDashboardPage() {
         />
       </div>
 
-      <OrgOverviewGrid
-        protectedAssets={subscription?.protectedAssetCount ?? dashboard.stats?.totalVaultRecords ?? 0}
-        dnaGenerated={dashboard.stats?.totalDnaRecords ?? 0}
-        activeInvestigations={dashboard.investigations.length}
-        threatAlerts={threatAlerts}
-        storageUsed={subscription?.storageUsedBytes ?? dashboard.stats?.totalEncryptedBytes ?? 0}
-        storageLimit={subscription?.storageLimitBytes ?? null}
-        teamDisplay={teamDisplay}
-        sharedAssets={dashboard.shareLinks.filter((l) => l.isActive).length}
-        certificates={dashboard.certificates.length}
-      />
+      <QuickActionsBar />
+
+      <ClientsOverviewSection />
 
       {!organization?.setupCompletedAt && (
         <div className="rounded-xl border border-dna-500/25 bg-dna-500/5 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">

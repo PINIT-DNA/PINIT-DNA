@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  Shield, Archive, Dna, AlertTriangle, HardDrive, Users, Share2, Award,
+  Archive, Dna, AlertTriangle, Users, Share2, Award,
   Activity, Bell, FileSearch, Radio, FileText, ChevronRight, RefreshCw,
   Upload, UserPlus, Globe, Eye, Download, Building2, Crown,
   Briefcase, Search, Filter, Zap, KeyRound, BarChart2,
@@ -61,41 +61,6 @@ function SectionCard({
   );
 }
 
-function MetricTile({
-  label,
-  value,
-  sub,
-  icon,
-  to,
-  accent = 'dna',
-}: {
-  label: string;
-  value: string | number;
-  sub?: string;
-  icon: React.ReactNode;
-  to?: string;
-  accent?: 'dna' | 'emerald' | 'amber' | 'purple' | 'rose' | 'cyan';
-}) {
-  const accents = {
-    dna: 'text-dna-400 bg-dna-500/10 border-dna-500/20',
-    emerald: 'text-dna-400 bg-dna-500/10 border-dna-500/20',
-    amber: 'text-dna-400 bg-dna-500/10 border-dna-500/20',
-    purple: 'text-dna-400 bg-dna-500/10 border-dna-500/20',
-    rose: 'text-dna-400 bg-dna-500/10 border-dna-500/20',
-    cyan: 'text-dna-400 bg-dna-500/10 border-dna-500/20',
-  };
-  const inner = (
-    <div className={cn('rounded-xl border p-3.5 h-full transition-colors hover:bg-bg-elevated/50', accents[accent].split(' ').slice(2).join(' '))}>
-      <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center mb-2', accents[accent].split(' ').slice(0, 2).join(' '))}>
-        {icon}
-      </div>
-      <p className="text-2xs text-gray-500 uppercase tracking-wide">{label}</p>
-      <p className="text-xl font-bold text-white mt-0.5 tabular-nums">{value}</p>
-      {sub && <p className="text-2xs text-gray-500 mt-0.5">{sub}</p>}
-    </div>
-  );
-  return to ? <Link to={to}>{inner}</Link> : inner;
-}
 
 function EmptyHint({ text }: { text: string }) {
   return (
@@ -132,16 +97,40 @@ export function OrgOverviewGrid({
     ? `${formatBytes(storageUsed)} / ${formatBytes(storageLimit)}`
     : formatBytes(storageUsed);
 
+  /*
+   * Eight tiles became one strip.
+   *
+   * These are standing totals — how much is protected, how much room is left,
+   * how many people are on the team. They are worth knowing and almost never
+   * worth acting on, so they read as a line rather than competing for attention
+   * with the alerts and the activity feed above them. Each figure still links
+   * where it did before.
+   */
+  const cells: Array<{ label: string; value: string | number; to: string }> = [
+    { label: 'Protected', value: protectedAssets, to: '/vault' },
+    { label: 'DNA generated', value: dnaGenerated, to: '/dna-records' },
+    { label: 'Investigations', value: activeInvestigations, to: BRAND.investigationPath },
+    { label: 'Threat alerts', value: threatAlerts, to: '/monitoring' },
+    { label: 'Storage', value: storageLabel, to: '/vault' },
+    { label: 'Team', value: teamDisplay, to: '/business/team' },
+    { label: 'Shared', value: sharedAssets, to: '/access-intelligence' },
+    { label: 'Certificates', value: certificates, to: '/certificates' },
+  ];
+
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
-      <MetricTile label="Protected Assets" value={protectedAssets} icon={<Shield size={16} />} to="/vault" accent="dna" />
-      <MetricTile label="DNA Generated" value={dnaGenerated} icon={<Dna size={16} />} to="/dna-records" accent="dna" />
-      <MetricTile label="Investigations" value={activeInvestigations} icon={<FileSearch size={16} />} to={BRAND.investigationPath} accent="dna" />
-      <MetricTile label="Threat Alerts" value={threatAlerts} icon={<AlertTriangle size={16} />} to="/monitoring" accent="dna" />
-      <MetricTile label="Storage Used" value={storageLabel} icon={<HardDrive size={16} />} to="/vault" accent="dna" />
-      <MetricTile label="Team members" value={teamDisplay} icon={<Users size={16} />} to="/business/team" accent="dna" />
-      <MetricTile label="Shared Assets" value={sharedAssets} icon={<Share2 size={16} />} to="/access-intelligence" accent="dna" />
-      <MetricTile label="Certificates" value={certificates} icon={<Award size={16} />} to="/certificates" accent="dna" />
+    <div className="rounded-xl border border-bg-border bg-bg-card divide-y sm:divide-y-0 sm:divide-x divide-bg-border grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8">
+      {cells.map((cell) => (
+        <Link
+          key={cell.label}
+          to={cell.to}
+          className="px-3 py-3 hover:bg-bg-elevated transition-colors first:rounded-l-xl last:rounded-r-xl"
+        >
+          <p className="text-base font-bold text-white tabular-nums leading-tight truncate">
+            {cell.value}
+          </p>
+          <p className="text-2xs text-gray-500 mt-0.5 truncate">{cell.label}</p>
+        </Link>
+      ))}
     </div>
   );
 }

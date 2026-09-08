@@ -6,12 +6,12 @@
  */
 import { useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Users, Megaphone, Archive, ExternalLink, Plus, ChevronRight, Briefcase } from 'lucide-react';
+import { Users, Megaphone, Plus, ChevronRight, Briefcase } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useApi, invalidateApiCache } from '../../../hooks/useApi';
 import { getBusinessOverview, type BusinessOverview, type BusinessClient } from '../../../services/business.api';
 import { Badge } from '../../ui/Badge';
-import { StatTile, SectionCard, EmptyHint, SkeletonRows, SkeletonTiles } from '../clients/BusinessKit';
+import { SectionCard, EmptyHint, SkeletonRows } from '../clients/BusinessKit';
 import { ClientFormModal } from '../clients/ClientFormModal';
 
 export function ClientsOverviewSection() {
@@ -43,15 +43,29 @@ export function ClientsOverviewSection() {
 
   return (
     <div className="space-y-4">
+      {/*
+        * These four were tiles. The panels directly below already name the
+        * clients and campaigns they were counting, so as tiles they said the
+        * same thing twice and pushed the actual work further down the page.
+        */}
       {loading && !data ? (
-        <SkeletonTiles count={4} />
+        <div className="skeleton h-4 w-64 rounded" />
       ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <StatTile label="Clients" value={data?.clientCount ?? 0} icon={Users} accent="dna" to="/business/clients" />
-          <StatTile label="Campaigns" value={data?.campaignCount ?? 0} icon={Megaphone} accent="cyan" to="/business/clients" />
-          <StatTile label="Campaign assets" value={data?.assetCount ?? 0} icon={Archive} accent="emerald" />
-          <StatTile label="External creators" value={data?.creatorCount ?? 0} icon={ExternalLink} accent="purple" />
-        </div>
+        <p className="text-sm text-gray-500">
+          <Link to="/business/clients" className="text-gray-300 font-medium hover:underline">
+            {data?.clientCount ?? 0} {(data?.clientCount ?? 0) === 1 ? 'client' : 'clients'}
+          </Link>
+          <span className="text-gray-700 mx-2">·</span>
+          <Link to="/business/clients" className="text-gray-300 font-medium hover:underline">
+            {data?.campaignCount ?? 0} {(data?.campaignCount ?? 0) === 1 ? 'campaign' : 'campaigns'}
+          </Link>
+          <span className="text-gray-700 mx-2">·</span>
+          <span className="text-gray-300 font-medium">{data?.assetCount ?? 0}</span>
+          {(data?.assetCount ?? 0) === 1 ? ' campaign asset' : ' campaign assets'}
+          <span className="text-gray-700 mx-2">·</span>
+          <span className="text-gray-300 font-medium">{data?.creatorCount ?? 0}</span>
+          {(data?.creatorCount ?? 0) === 1 ? ' external creator' : ' external creators'}
+        </p>
       )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
