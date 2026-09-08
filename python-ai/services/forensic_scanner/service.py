@@ -95,6 +95,7 @@ class ForensicScannerService(EnterpriseAIService):
                 "tamper_localization",
                 "explainable_match_reasons",
                 "clip_semantic_search",
+                "pixel_source_classification",
             ],
             "tileIndexSize": self._tile_index.ntotal if self._tile_index else 0,
         }
@@ -629,6 +630,23 @@ class ForensicScannerService(EnterpriseAIService):
         if len(good) < 8:
             match_ratio = len(good) / max(len(kp1), len(kp2), 1)
             visible = round(min(100, match_ratio * 200), 1)
+            loc = None
+            vault_loc = None
+            probe_pts = None
+            ref_pts = None
+            if len(good) >= 4:
+                probe_pts = np.float32([kp1[m.queryIdx].pt for m in good])
+                ref_pts = np.float32([kp2[m.trainIdx].pt for m in good])
+                ph, pw = pg.shape[:2]
+                rh, rw = rg.shape[:2]
+                loc = self._bbox_percents(probe_pts, pw, ph)
+                vault_loc = self._bbox_percents(ref_pts, rw, rh)
+            located = self._locate_protected_pixels(
+                pg, rg,
+                probe_pts if probe_pts is not None else np.zeros((0, 2)),
+                ref_pts if ref_pts is not None else np.zeros((0, 2)),
+            )
+            loc = self._pick_probe_location(loc, located)
             return ServiceResult(True, {
                 "homographyFound": False,
                 "sharedRegionPercent": visible,
@@ -636,6 +654,11 @@ class ForensicScannerService(EnterpriseAIService):
                 "missingPercent": round(100 - visible, 1),
                 "visiblePercent": visible,
                 "matches": len(good),
+                "method": loc.get("method") if loc else None,
+                "probeCoveragePercent": loc["coveragePercent"] if loc else 0,
+                "vaultCoveragePercent": vault_loc["coveragePercent"] if vault_loc else 0,
+                "probeRegion": loc["region"] if loc else None,
+                "vaultRegion": vault_loc["region"] if vault_loc else None,
             }, "Few matches", self.name)
 
         src_pts = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
@@ -647,6 +670,29 @@ class ForensicScannerService(EnterpriseAIService):
         shared = round(min(100, inlier_ratio * 100 + (inliers / max(len(kp1), 1)) * 40), 1)
         crop = round(max(0, 100 - shared), 1)
 
+        if mask is not None:
+            inlier_probe = src_pts[mask.ravel() == 1].reshape(-1, 2)
+            inlier_ref = dst_pts[mask.ravel() == 1].reshape(-1, 2)
+        else:
+            inlier_probe = src_pts.reshape(-1, 2)
+            inlier_ref = dst_pts.reshape(-1, 2)
+        ph, pw = pg.shape[:2]
+        rh, rw = rg.shape[:2]
+        loc = self._bbox_percents(inlier_probe, pw, ph)
+        vault_loc = self._bbox_percents(inlier_ref, rw, rh)
+
+        located = self._locate_protected_pixels(pg, rg, inlier_probe, inlier_ref)
+        H_ref_to_probe = None
+        if len(inlier_ref) >= 4 and len(inlier_probe) >= 4:
+            H_ref_to_probe, _ = cv2.findHomography(
+                inlier_ref.reshape(-1, 1, 2),
+                inlier_probe.reshape(-1, 1, 2),
+                cv2.RANSAC,
+                5.0,
+            )
+        warped = self._warp_agreement_region(pg, rg, H_ref_to_probe) if H_ref_to_probe is not None else None
+        loc = self._pick_probe_location(loc, located, warped)
+
         return ServiceResult(True, {
             "homographyFound": H is not None,
             "sharedRegionPercent": shared,
@@ -654,8 +700,715 @@ class ForensicScannerService(EnterpriseAIService):
             "cropPercent": crop,
             "missingPercent": crop,
             "matches": inliers,
-            "method": "orb_ransac_homography",
+            "method": loc.get("method", "orb_ransac_homography") if loc else "orb_ransac_homography",
+            "probeCoveragePercent": loc["coveragePercent"] if loc else 0,
+            "vaultCoveragePercent": vault_loc["coveragePercent"] if vault_loc else 0,
+            "probeRegion": loc["region"] if loc else None,
+            "vaultRegion": vault_loc["region"] if vault_loc else None,
         }, "OK", self.name)
+
+    @staticmethod
+    def _pick_probe_location(*cands: dict[str, Any] | None) -> dict[str, Any] | None:
+        order = {"warp_ncc": 0, "tile_template": 1, "template_full": 2}
+        ranked = [
+            c for c in cands
+            if c and 1.0 <= float(c.get("coveragePercent") or 0) <= 70
+        ]
+        if not ranked:
+            return next((c for c in cands if c), None)
+        ranked.sort(key=lambda c: (
+            order.get(str(c.get("method") or ""), 9),
+            -float(c.get("coveragePercent") or 0),
+        ))
+        return ranked[0]
+
+    def _locate_protected_pixels(
+        self,
+        probe_gray: np.ndarray,
+        ref_gray: np.ndarray,
+        inlier_probe: np.ndarray,
+        inlier_ref: np.ndarray,
+    ) -> dict[str, Any] | None:
+        """Find the pasted crop on the probe — not the bbox of a few distinctive keypoints."""
+        tiled = self._tile_template_region(probe_gray, ref_gray)
+        if tiled and tiled["coveragePercent"] >= 1.0:
+            return tiled
+        ph, pw = probe_gray.shape[:2]
+        rh, rw = ref_gray.shape[:2]
+        if inlier_probe is None or len(inlier_probe) < 4:
+            return self._template_full_ref_region(probe_gray, ref_gray)
+        loc = self._bbox_percents(inlier_probe, pw, ph)
+        if not loc:
+            return self._template_full_ref_region(probe_gray, ref_gray)
+        vault_loc = (
+            self._bbox_percents(inlier_ref, rw, rh, pad=0.02)
+            if inlier_ref is not None and len(inlier_ref) >= 4
+            else None
+        )
+        if vault_loc and loc["coveragePercent"] < 1.5 and vault_loc["coveragePercent"] >= 8:
+            grown = self._template_full_ref_region(probe_gray, ref_gray)
+            if grown and grown["coveragePercent"] >= 1.0:
+                return grown
+        if loc["coveragePercent"] >= 1.5:
+            return loc
+        return self._template_full_ref_region(probe_gray, ref_gray)
+
+    def _warp_agreement_region(
+        self,
+        probe_gray: np.ndarray,
+        ref_gray: np.ndarray,
+        H_ref_to_probe: np.ndarray,
+    ) -> dict[str, Any] | None:
+        import cv2
+
+        ph, pw = probe_gray.shape[:2]
+        warped = cv2.warpPerspective(
+            ref_gray, H_ref_to_probe, (pw, ph),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        )
+        valid = cv2.warpPerspective(
+            np.ones(ref_gray.shape[:2], np.uint8) * 255,
+            H_ref_to_probe, (pw, ph),
+            flags=cv2.INTER_NEAREST,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        ) > 0
+        if int(valid.sum()) < 256:
+            return None
+        pg = probe_gray.astype(np.float32)
+        wg = warped.astype(np.float32)
+        p_mu = cv2.GaussianBlur(pg, (0, 0), 5)
+        w_mu = cv2.GaussianBlur(wg, (0, 0), 5)
+        p0 = pg - p_mu
+        w0 = wg - w_mu
+        num = cv2.GaussianBlur(p0 * w0, (0, 0), 5)
+        den = np.sqrt(
+            cv2.GaussianBlur(p0 * p0, (0, 0), 5) * cv2.GaussianBlur(w0 * w0, (0, 0), 5)
+        ) + 1e-3
+        ncc = num / den
+        agree = ((ncc > 0.22) & valid).astype(np.uint8) * 255
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (13, 13))
+        agree = cv2.morphologyEx(agree, cv2.MORPH_CLOSE, kernel, iterations=2)
+        agree = cv2.morphologyEx(agree, cv2.MORPH_OPEN, kernel)
+        n_labels, _labels, stats, _ = cv2.connectedComponentsWithStats(agree, connectivity=8)
+        if n_labels <= 1:
+            return None
+        largest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+        area = int(stats[largest, cv2.CC_STAT_AREA])
+        coverage = area / float(pw * ph) * 100.0
+        if coverage < 1.0 or coverage > 75:
+            return None
+        x = int(stats[largest, cv2.CC_STAT_LEFT])
+        y = int(stats[largest, cv2.CC_STAT_TOP])
+        w = int(stats[largest, cv2.CC_STAT_WIDTH])
+        h = int(stats[largest, cv2.CC_STAT_HEIGHT])
+        return {
+            "coveragePercent": round(min(100.0, coverage), 1),
+            "method": "warp_ncc",
+            "region": {
+                "xPercent": round(x / pw * 100, 1),
+                "yPercent": round(y / ph * 100, 1),
+                "widthPercent": round(w / pw * 100, 1),
+                "heightPercent": round(h / ph * 100, 1),
+            },
+        }
+
+    def _template_full_ref_region(self, probe_gray: np.ndarray, ref_gray: np.ndarray) -> dict[str, Any] | None:
+        import cv2
+
+        ph, pw = probe_gray.shape[:2]
+        rh, rw = ref_gray.shape[:2]
+        best: dict[str, Any] | None = None
+        for scale in (0.12, 0.18, 0.24, 0.3, 0.38, 0.46, 0.55, 0.68, 0.82):
+            tw, th = int(rw * scale), int(rh * scale)
+            if tw < 28 or th < 28 or tw >= pw or th >= ph:
+                continue
+            templ = cv2.resize(ref_gray, (tw, th), interpolation=cv2.INTER_AREA)
+            res = cv2.matchTemplate(probe_gray, templ, cv2.TM_CCOEFF_NORMED)
+            _minv, maxv, _minl, maxl = cv2.minMaxLoc(res)
+            if best is None or maxv > best["score"]:
+                best = {"score": float(maxv), "x": int(maxl[0]), "y": int(maxl[1]), "w": tw, "h": th}
+        if not best or best["score"] < 0.36:
+            return None
+        coverage = (best["w"] * best["h"]) / float(pw * ph) * 100.0
+        if coverage < 1.0 or coverage > 75:
+            return None
+        return {
+            "coveragePercent": round(min(100.0, coverage), 1),
+            "method": "template_full",
+            "region": {
+                "xPercent": round(best["x"] / pw * 100, 1),
+                "yPercent": round(best["y"] / ph * 100, 1),
+                "widthPercent": round(best["w"] / pw * 100, 1),
+                "heightPercent": round(best["h"] / ph * 100, 1),
+            },
+        }
+
+    def _tile_template_region(self, probe_gray: np.ndarray, ref_gray: np.ndarray) -> dict[str, Any] | None:
+        """Union of vault tiles that strongly match the probe — locates a crop even when
+        the rest of the original (field, sky) is not in the collage."""
+        import cv2
+
+        ph, pw = probe_gray.shape[:2]
+        rh, rw = ref_gray.shape[:2]
+        tile_w = max(48, int(rw * 0.42))
+        tile_h = max(48, int(rh * 0.42))
+        hits: list[tuple[int, int, int, int, float]] = []
+        for fy in (0.0, 0.28, 0.58):
+            for fx in (0.0, 0.28, 0.58):
+                x0, y0 = int(fx * rw), int(fy * rh)
+                x1, y1 = min(rw, x0 + tile_w), min(rh, y0 + tile_h)
+                tile = ref_gray[y0:y1, x0:x1]
+                th, tw = tile.shape[:2]
+                if tw < 32 or th < 32:
+                    continue
+                best_local: dict[str, Any] | None = None
+                for scale in (0.35, 0.5, 0.7, 0.95, 1.15):
+                    cw, ch = int(tw * scale), int(th * scale)
+                    if cw < 24 or ch < 24 or cw >= pw or ch >= ph:
+                        continue
+                    templ = cv2.resize(tile, (cw, ch), interpolation=cv2.INTER_AREA)
+                    res = cv2.matchTemplate(probe_gray, templ, cv2.TM_CCOEFF_NORMED)
+                    _minv, maxv, _minl, maxl = cv2.minMaxLoc(res)
+                    if best_local is None or maxv > best_local["score"]:
+                        best_local = {
+                            "score": float(maxv),
+                            "x": int(maxl[0]),
+                            "y": int(maxl[1]),
+                            "w": cw,
+                            "h": ch,
+                        }
+                if best_local and best_local["score"] >= 0.48:
+                    hits.append((
+                        best_local["x"], best_local["y"],
+                        best_local["w"], best_local["h"],
+                        best_local["score"],
+                    ))
+        if len(hits) < 2:
+            return self._template_full_ref_region(probe_gray, ref_gray)
+        xs0 = min(h[0] for h in hits)
+        ys0 = min(h[1] for h in hits)
+        xs1 = max(h[0] + h[2] for h in hits)
+        ys1 = max(h[1] + h[3] for h in hits)
+        w = max(1, xs1 - xs0)
+        h = max(1, ys1 - ys0)
+        coverage = (w * h) / float(pw * ph) * 100.0
+        if coverage < 1.0 or coverage > 75:
+            return self._template_full_ref_region(probe_gray, ref_gray)
+        return {
+            "coveragePercent": round(min(100.0, coverage), 1),
+            "method": "tile_template",
+            "region": {
+                "xPercent": round(xs0 / pw * 100, 1),
+                "yPercent": round(ys0 / ph * 100, 1),
+                "widthPercent": round(w / pw * 100, 1),
+                "heightPercent": round(h / ph * 100, 1),
+            },
+        }
+
+    @staticmethod
+    def _bbox_percents(pts: np.ndarray, width: int, height: int, pad: float = 0.04) -> dict[str, Any] | None:
+        if pts is None or len(pts) < 4 or width <= 0 or height <= 0:
+            return None
+        xs = pts[:, 0]
+        ys = pts[:, 1]
+        x0 = float(max(0, xs.min() - pad * width))
+        y0 = float(max(0, ys.min() - pad * height))
+        x1 = float(min(width, xs.max() + pad * width))
+        y1 = float(min(height, ys.max() + pad * height))
+        w = max(1.0, x1 - x0)
+        h = max(1.0, y1 - y0)
+        coverage = round(min(100.0, (w * h) / (width * height) * 100), 1)
+        return {
+            "coveragePercent": coverage,
+            "region": {
+                "xPercent": round(x0 / width * 100, 1),
+                "yPercent": round(y0 / height * 100, 1),
+                "widthPercent": round(w / width * 100, 1),
+                "heightPercent": round(h / height * 100, 1),
+            },
+        }
+
+    def _homography_vault_to_probe(self, probe_g: np.ndarray, ref_g: np.ndarray):
+        import cv2
+
+        def try_detector(name: str):
+            if name == "orb":
+                det = cv2.ORB_create(nfeatures=5000)
+                norm = cv2.NORM_HAMMING
+            elif name == "akaze":
+                det = cv2.AKAZE_create()
+                norm = cv2.NORM_HAMMING
+            else:
+                try:
+                    det = cv2.SIFT_create()
+                    norm = cv2.NORM_L2
+                except Exception:
+                    return None, 0, 0, 0, 0
+            kp_ref, des_ref = det.detectAndCompute(ref_g, None)
+            kp_pr, des_pr = det.detectAndCompute(probe_g, None)
+            n_ref = 0 if kp_ref is None else len(kp_ref)
+            n_pr = 0 if kp_pr is None else len(kp_pr)
+            if des_ref is None or des_pr is None or n_ref < 8 or n_pr < 8:
+                return None, 0, n_ref, n_pr, 0
+            bf = cv2.BFMatcher(norm)
+            try:
+                knn = bf.knnMatch(des_ref, des_pr, k=2)
+            except Exception:
+                return None, 0, n_ref, n_pr, 0
+            good = []
+            for pair in knn:
+                if len(pair) < 2:
+                    continue
+                a, b = pair
+                if a.distance < 0.75 * b.distance:
+                    good.append(a)
+            if len(good) < 8:
+                return None, len(good), n_ref, n_pr, 0
+            src = np.float32([kp_ref[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
+            dst = np.float32([kp_pr[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
+            H, mask = cv2.findHomography(src, dst, cv2.RANSAC, 5.0)
+            inliers = int(mask.ravel().sum()) if mask is not None else 0
+            if H is None or inliers < 8:
+                return None, len(good), n_ref, n_pr, inliers
+            return H, len(good), n_ref, n_pr, inliers
+
+        best = (None, 0, 0, 0, 0)
+        for name in ("orb", "akaze", "sift"):
+            H, good, n_ref, n_pr, inliers = try_detector(name)
+            if inliers > best[4]:
+                best = (H, good, n_ref, n_pr, inliers)
+            if H is not None and inliers >= 12:
+                return H, inliers, {"detector": name, "vaultKeypoints": n_ref, "probeKeypoints": n_pr, "goodMatches": good, "inliers": inliers}
+        H, good, n_ref, n_pr, inliers = best
+        return H, inliers, {"detector": "best", "vaultKeypoints": n_ref, "probeKeypoints": n_pr, "goodMatches": good, "inliers": inliers}
+
+    def _encode_png_rgba(self, rgba: np.ndarray) -> str:
+        buf = io.BytesIO()
+        Image.fromarray(rgba, "RGBA").save(buf, format="PNG", optimize=True)
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+
+    def _encode_png_gray(self, gray: np.ndarray) -> str:
+        buf = io.BytesIO()
+        Image.fromarray(gray, "L").save(buf, format="PNG", optimize=True)
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+
+    def _paint_paste_pixels(
+        self,
+        probe_rgb: np.ndarray,
+        ref_rgb: np.ndarray,
+        class_map: np.ndarray,
+        paste: dict[str, Any],
+        green_max: float = 22.0,
+        orange_min: float = 48.0,
+    ) -> None:
+        import cv2
+
+        x, y, w, h = int(paste["x"]), int(paste["y"]), int(paste["w"]), int(paste["h"])
+        ph, pw = probe_rgb.shape[:2]
+        x = max(0, min(x, pw - 1))
+        y = max(0, min(y, ph - 1))
+        w = max(1, min(w, pw - x))
+        h = max(1, min(h, ph - y))
+        vx = int(paste.get("vx", 0))
+        vy = int(paste.get("vy", 0))
+        vw = int(paste.get("vw", ref_rgb.shape[1]))
+        vh = int(paste.get("vh", ref_rgb.shape[0]))
+        rh, rw = ref_rgb.shape[:2]
+        vx = max(0, min(vx, rw - 1))
+        vy = max(0, min(vy, rh - 1))
+        vw = max(1, min(vw, rw - vx))
+        vh = max(1, min(vh, rh - vy))
+        crop = ref_rgb[vy:vy + vh, vx:vx + vw]
+        if crop.size == 0:
+            return
+        warped = cv2.resize(crop, (w, h), interpolation=cv2.INTER_LINEAR)
+        region = probe_rgb[y:y + h, x:x + w]
+        dist = np.mean(np.abs(region.astype(np.int16) - warped.astype(np.int16)), axis=2)
+        green = dist <= green_max
+        modified = dist >= orange_min
+        sl = class_map[y:y + h, x:x + w]
+        sl[green] = 1
+        sl[modified & ~green] = 2
+
+    def score_local_correspondence(self, probe_bytes: bytes, reference_bytes: bytes) -> ServiceResult:
+        """Fast local-match score for choosing which vault image is the crop source."""
+        if not self.is_available():
+            return ServiceResult(False, {}, "OpenCV not available", self.name)
+        import cv2
+
+        probe_rgb = self._decode_rgb(probe_bytes, max_dim=960)
+        ref_rgb = self._decode_rgb(reference_bytes, max_dim=960)
+        if probe_rgb is None or ref_rgb is None:
+            return ServiceResult(False, {}, "Failed to decode", self.name)
+        probe_g = cv2.cvtColor(probe_rgb, cv2.COLOR_RGB2GRAY)
+        ref_g = cv2.cvtColor(ref_rgb, cv2.COLOR_RGB2GRAY)
+        H, inliers, diag = self._homography_vault_to_probe(probe_g, ref_g)
+        paste = self._locate_vault_paste(probe_g, ref_g)
+        tiled = self._tile_template_region(probe_g, ref_g)
+        full = self._template_full_ref_region(probe_g, ref_g)
+        template_score = 0.0
+        coverage = 0.0
+        method = "none"
+        if paste:
+            template_score = float(paste.get("score") or 0)
+            ph, pw = probe_g.shape[:2]
+            coverage = max(coverage, (paste["w"] * paste["h"]) / (pw * ph) * 100)
+            method = "template_strip"
+        for cand in (tiled, full):
+            if cand and cand.get("coveragePercent"):
+                coverage = max(coverage, float(cand["coveragePercent"]))
+                method = str(cand.get("method") or method)
+                template_score = max(template_score, 0.4)
+        local_score = max(
+            inliers * 2.0,
+            template_score * 100,
+            coverage * 3,
+        )
+        return ServiceResult(True, {
+            **diag,
+            "homographyFound": H is not None,
+            "inliers": inliers,
+            "templateScore": round(template_score, 4),
+            "estimatedCoveragePercent": round(coverage, 2),
+            "localScore": round(local_score, 2),
+            "method": method,
+        }, "OK", self.name)
+
+    def classify_pixel_sources(self, probe_bytes: bytes, reference_bytes: bytes) -> ServiceResult:
+        """1×1 source map: GREEN = vault-origin pixels on the upload, ORANGE = non-vault, GREY = unknown.
+
+        Homography maps vault coordinates onto the upload. HMAC/block DNA is not used here.
+        """
+        if not self.is_available():
+            return ServiceResult(False, {}, "OpenCV not available", self.name)
+
+        import cv2
+
+        probe_rgb = self._decode_rgb(probe_bytes, max_dim=1280)
+        ref_rgb = self._decode_rgb(reference_bytes, max_dim=1280)
+        if probe_rgb is None or ref_rgb is None:
+            return ServiceResult(False, {}, "Failed to decode images", self.name)
+
+        ph, pw = probe_rgb.shape[:2]
+        rh, rw = ref_rgb.shape[:2]
+        probe_g = cv2.cvtColor(probe_rgb, cv2.COLOR_RGB2GRAY)
+        ref_g = cv2.cvtColor(ref_rgb, cv2.COLOR_RGB2GRAY)
+        class_map = np.zeros((ph, pw), dtype=np.uint8)
+
+        H, inliers, match_diag = self._homography_vault_to_probe(probe_g, ref_g)
+        homography = None
+        if H is not None:
+            homography = [float(v) for v in H.reshape(-1)]
+            warped = cv2.warpPerspective(
+                ref_rgb, H, (pw, ph),
+                flags=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=0,
+            )
+            valid = cv2.warpPerspective(
+                np.ones((rh, rw), np.uint8) * 255,
+                H, (pw, ph),
+                flags=cv2.INTER_NEAREST,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=0,
+            ) > 0
+            dist = np.mean(np.abs(probe_rgb.astype(np.int16) - warped.astype(np.int16)), axis=2)
+            class_map[valid & (dist <= 22)] = 1
+            class_map[valid & (dist >= 48)] = 2
+
+        paste = self._locate_vault_paste(probe_g, ref_g)
+        tiled = self._tile_template_region(probe_g, ref_g)
+        full = self._template_full_ref_region(probe_g, ref_g)
+        paste_box: dict[str, Any] | None = None
+        if paste:
+            paste_box = {
+                "x": paste["x"], "y": paste["y"], "w": paste["w"], "h": paste["h"],
+                "vx": 0, "vy": 0, "vw": rw, "vh": rh,
+                "score": paste.get("score", 0),
+                "method": "vault_strip_template",
+            }
+            # Strip match used a vertical slice of the vault, not the full frame.
+            # Approximate vault x from relative width.
+            paste_box["vw"] = max(1, int(rw * (paste["w"] / max(pw * 0.35, paste["w"]))))
+        if tiled and tiled.get("region"):
+            r = tiled["region"]
+            cand = {
+                "x": int(r["xPercent"] / 100 * pw),
+                "y": int(r["yPercent"] / 100 * ph),
+                "w": int(r["widthPercent"] / 100 * pw),
+                "h": int(r["heightPercent"] / 100 * ph),
+                "vx": 0, "vy": 0, "vw": rw, "vh": rh,
+                "score": 0.5,
+                "method": tiled.get("method", "tile_template"),
+            }
+            if paste_box is None or cand["w"] * cand["h"] > paste_box["w"] * paste_box["h"] * 0.8:
+                paste_box = cand
+        if full and full.get("region") and (paste_box is None or (full.get("coveragePercent") or 0) >= 1):
+            r = full["region"]
+            cand = {
+                "x": int(r["xPercent"] / 100 * pw),
+                "y": int(r["yPercent"] / 100 * ph),
+                "w": int(r["widthPercent"] / 100 * pw),
+                "h": int(r["heightPercent"] / 100 * ph),
+                "vx": 0, "vy": 0, "vw": rw, "vh": rh,
+                "score": 0.45,
+                "method": "template_full",
+            }
+            if paste_box is None:
+                paste_box = cand
+
+        if paste_box:
+            self._paint_paste_pixels(probe_rgb, ref_rgb, class_map, paste_box)
+
+        n_green = int((class_map == 1).sum())
+        total = ph * pw
+        green_pct = n_green / max(total, 1) * 100.0
+        remainder = class_map == 0
+        collage = green_pct >= 0.4
+        identity = green_pct >= 85
+        if identity:
+            class_map[remainder] = 2
+        elif collage:
+            class_map[remainder] = 2
+        else:
+            class_map[:] = 0
+
+        n_green = int((class_map == 1).sum())
+        n_orange = int((class_map == 2).sum())
+        n_grey = int((class_map == 0).sum())
+
+        overlay = np.zeros((ph, pw, 4), dtype=np.uint8)
+        overlay[class_map == 1] = (16, 185, 129, 118)
+        overlay[class_map == 2] = (245, 158, 11, 118)
+        overlay[class_map == 0] = (148, 163, 184, 70)
+        mask = np.zeros((ph, pw), dtype=np.uint8)
+        mask[class_map == 1] = 255
+        mask[class_map == 2] = 128
+
+        regions: list[dict[str, Any]] = []
+        bin_g = (class_map == 1).astype(np.uint8) * 255
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        bin_g = cv2.morphologyEx(bin_g, cv2.MORPH_CLOSE, kernel)
+        n_lab, _lab, stats, _ = cv2.connectedComponentsWithStats(bin_g, connectivity=8)
+        for i in range(1, n_lab):
+            area = int(stats[i, cv2.CC_STAT_AREA])
+            if area < 64:
+                continue
+            x = int(stats[i, cv2.CC_STAT_LEFT])
+            y = int(stats[i, cv2.CC_STAT_TOP])
+            w = int(stats[i, cv2.CC_STAT_WIDTH])
+            h = int(stats[i, cv2.CC_STAT_HEIGHT])
+            regions.append({
+                "type": "VAULT_MATCH",
+                "uploadedBounds": {"x": x, "y": y, "width": w, "height": h},
+                "vaultBounds": {
+                    "x": int(paste_box["vx"]) if paste_box else 0,
+                    "y": int(paste_box["vy"]) if paste_box else 0,
+                    "width": int(paste_box["vw"]) if paste_box else rw,
+                    "height": int(paste_box["vh"]) if paste_box else rh,
+                },
+                "confidence": round(min(0.99, 0.55 + green_pct / 200), 3),
+                "coveragePercent": round(area / total * 100, 2),
+            })
+        regions.sort(key=lambda r: r["coveragePercent"], reverse=True)
+
+        ys, xs = np.where(class_map == 1)
+        probe_region = None
+        if len(xs) >= 16:
+            x0, x1 = int(xs.min()), int(xs.max()) + 1
+            y0, y1 = int(ys.min()), int(ys.max()) + 1
+            probe_region = {
+                "xPercent": round(x0 / pw * 100, 1),
+                "yPercent": round(y0 / ph * 100, 1),
+                "widthPercent": round((x1 - x0) / pw * 100, 1),
+                "heightPercent": round((y1 - y0) / ph * 100, 1),
+            }
+
+        g_pct = round(n_green / total * 100, 1)
+        a_pct = round(n_orange / total * 100, 1)
+        u_pct = round(max(0.0, 100.0 - g_pct - a_pct), 1)
+        vault_used = round(n_green / max(rh * rw, 1) * 100, 1)
+
+        return ServiceResult(True, {
+            "width": pw,
+            "height": ph,
+            "vaultWidth": rw,
+            "vaultHeight": rh,
+            "originalPixels": n_green,
+            "aiSuspectedPixels": n_orange,
+            "unknownPixels": n_grey,
+            "totalPixels": total,
+            "protectedFromAssetPercent": g_pct,
+            "aiGeneratedPercent": a_pct,
+            "otherPercent": u_pct,
+            "originalUsedPercent": min(100.0, vault_used),
+            "homographyVaultToProbe": homography,
+            "homographyInliers": inliers,
+            "matchDiagnostics": match_diag,
+            "regions": regions[:8],
+            "probeRegion": probe_region,
+            "method": "pixel_source_homography_ncc",
+            "maskPngBase64": self._encode_png_gray(mask),
+            "overlayPngBase64": self._encode_png_rgba(overlay),
+            "grid": None,
+        }, "OK", self.name)
+
+    def classify_probe_blocks(self, probe_bytes: bytes, reference_bytes: bytes) -> ServiceResult:
+        """Green = vault paste on the probe; amber = AI host. Never leave the collage all-amber if a paste exists."""
+        if not self.is_available():
+            return ServiceResult(False, {}, "OpenCV not available", self.name)
+
+        import cv2
+
+        probe_rgb = self._decode_rgb(probe_bytes, max_dim=640)
+        ref_rgb = self._decode_rgb(reference_bytes, max_dim=640)
+        if probe_rgb is None or ref_rgb is None:
+            return ServiceResult(False, {}, "Failed to decode images", self.name)
+
+        probe_g = cv2.cvtColor(probe_rgb, cv2.COLOR_RGB2GRAY)
+        ref_g = cv2.cvtColor(ref_rgb, cv2.COLOR_RGB2GRAY)
+        ph, pw = probe_g.shape[:2]
+        block = 12 if min(ph, pw) >= 240 else 10
+        rows = (ph + block - 1) // block
+        cols = (pw + block - 1) // block
+
+        pyramids = [ref_g]
+        rh, rw = ref_g.shape[:2]
+        for scale in (0.5, 0.75, 1.25, 1.6):
+            tw, th = max(32, int(rw * scale)), max(32, int(rh * scale))
+            pyramids.append(cv2.resize(ref_g, (tw, th), interpolation=cv2.INTER_AREA))
+
+        scores = np.full((rows, cols), -1.0, dtype=np.float32)
+        for r in range(rows):
+            for c in range(cols):
+                y, x = r * block, c * block
+                y2, x2 = min(y + block, ph), min(x + block, pw)
+                tile = probe_g[y:y2, x:x2]
+                th, tw = tile.shape[:2]
+                if th < 8 or tw < 8:
+                    continue
+                best = -1.0
+                for vg in pyramids:
+                    vh, vw = vg.shape[:2]
+                    if th >= vh or tw >= vw:
+                        continue
+                    res = cv2.matchTemplate(vg, tile, cv2.TM_CCOEFF_NORMED)
+                    best = max(best, float(res.max()))
+                scores[r, c] = best
+
+        located = self._locate_vault_paste(probe_g, ref_g)
+        mask = np.zeros((rows, cols), dtype=bool)
+        if located:
+            x0, y0, bw, bh = located["x"], located["y"], located["w"], located["h"]
+            for r in range(rows):
+                for c in range(cols):
+                    cx = c * block + block / 2
+                    cy = r * block + block / 2
+                    if x0 <= cx <= x0 + bw and y0 <= cy <= y0 + bh:
+                        mask[r, c] = True
+
+        for r in range(rows):
+            for c in range(cols):
+                if float(scores[r, c]) >= 0.40:
+                    mask[r, c] = True
+
+        for c in range(cols):
+            seeds = [r for r in range(rows) if mask[r, c] or float(scores[r, c]) >= 0.38]
+            if not seeds:
+                continue
+            r0, r1 = min(seeds), max(seeds)
+            while r0 > 0 and float(scores[r0 - 1, c]) >= 0.20:
+                r0 -= 1
+            while r1 < rows - 1 and float(scores[r1 + 1, c]) >= 0.20:
+                r1 += 1
+            for r in range(r0, r1 + 1):
+                if mask[r, c] or float(scores[r, c]) >= 0.20:
+                    mask[r, c] = True
+
+        chars: list[str] = []
+        n_g = n_a = 0
+        for r in range(rows):
+            for c in range(cols):
+                if mask[r, c]:
+                    chars.append("G")
+                    n_g += 1
+                else:
+                    chars.append("A")
+                    n_a += 1
+
+        total = max(n_g + n_a, 1)
+        probe_region = None
+        if located:
+            probe_region = {
+                "xPercent": round(located["x"] / pw * 100, 1),
+                "yPercent": round(located["y"] / ph * 100, 1),
+                "widthPercent": round(located["w"] / pw * 100, 1),
+                "heightPercent": round(located["h"] / ph * 100, 1),
+            }
+        return ServiceResult(True, {
+            "protectedFromAssetPercent": round(n_g / total * 100, 1),
+            "aiGeneratedPercent": round(n_a / total * 100, 1),
+            "otherPercent": 0,
+            "blockSize": block,
+            "matchedBlocks": n_g,
+            "aiBlocks": n_a,
+            "otherBlocks": 0,
+            "probeRegion": probe_region,
+            "grid": {"rows": rows, "cols": cols, "labels": "".join(chars)},
+            "pasteScore": located["score"] if located else 0,
+        }, "OK", self.name)
+
+    def _locate_vault_paste(self, probe_g: np.ndarray, ref_g: np.ndarray) -> dict[str, Any] | None:
+        """Find a tall vault slice pasted into the probe."""
+        import cv2
+
+        ph, pw = probe_g.shape[:2]
+        rh, rw = ref_g.shape[:2]
+        probe_e = cv2.Canny(probe_g, 40, 130)
+        ref_e = cv2.Canny(ref_g, 40, 130)
+        best: dict[str, Any] | None = None
+
+        def consider(score: float, x: int, y: int, w: int, h: int) -> None:
+            nonlocal best
+            if w < 16 or h < 24 or w >= pw or h >= ph:
+                return
+            if best is None or score > best["score"]:
+                best = {"score": score, "x": x, "y": y, "w": w, "h": h}
+
+        slices = (
+            (0.22, 0.58), (0.28, 0.72), (0.35, 0.78),
+            (0.12, 0.48), (0.48, 0.88), (0.0, 0.42), (0.58, 1.0),
+        )
+        scales = (0.10, 0.14, 0.18, 0.22, 0.28, 0.34, 0.42, 0.52, 0.64, 0.78)
+        for src_g, src_e in ((ref_g, ref_e),):
+            rh2, rw2 = src_g.shape[:2]
+            for x0f, x1f in slices:
+                x0, x1 = int(rw2 * x0f), int(rw2 * x1f)
+                if x1 - x0 < 20:
+                    continue
+                strip = src_g[:, x0:x1]
+                strip_e = src_e[:, x0:x1]
+                sh, sw = strip.shape[:2]
+                for scale in scales:
+                    tw, th = int(sw * scale), int(sh * scale)
+                    if tw < 18 or th < 28 or tw >= pw or th >= ph:
+                        continue
+                    templ = cv2.resize(strip, (tw, th), interpolation=cv2.INTER_AREA)
+                    res = cv2.matchTemplate(probe_g, templ, cv2.TM_CCOEFF_NORMED)
+                    _mn, maxv, _ml, maxl = cv2.minMaxLoc(res)
+                    consider(float(maxv), int(maxl[0]), int(maxl[1]), tw, th)
+                    et = cv2.resize(strip_e, (tw, th), interpolation=cv2.INTER_AREA)
+                    if et.std() > 4:
+                        res_e = cv2.matchTemplate(probe_e, et, cv2.TM_CCOEFF_NORMED)
+                        _mn2, maxe, _ml2, maxle = cv2.minMaxLoc(res_e)
+                        consider(float(maxe) * 0.95, int(maxle[0]), int(maxle[1]), tw, th)
+
+        if not best or best["score"] < 0.18:
+            return None
+        return best
 
     def forensic_scan(self, image_bytes: bytes, reference_bytes: bytes | None = None) -> ServiceResult:
         """Full enterprise scan: features + pyramid tile FAISS + CLIP + tamper + explainability."""
@@ -702,6 +1455,8 @@ class ForensicScannerService(EnterpriseAIService):
 
         crop_data: dict[str, Any] = {}
         tamper_localization: dict[str, Any] = {}
+        block_composition: dict[str, Any] = {}
+        pixel_source: dict[str, Any] = {}
         if reference_bytes:
             try:
                 crop = self.detect_crop_homography(image_bytes, reference_bytes)
@@ -715,6 +1470,30 @@ class ForensicScannerService(EnterpriseAIService):
                     tamper_localization = loc.data
             except Exception:
                 pass
+            try:
+                pix = self.classify_pixel_sources(image_bytes, reference_bytes)
+                if pix.success:
+                    pixel_source = pix.data
+                    block_composition = {
+                        "protectedFromAssetPercent": pix.data.get("protectedFromAssetPercent"),
+                        "aiGeneratedPercent": pix.data.get("aiGeneratedPercent"),
+                        "otherPercent": pix.data.get("otherPercent"),
+                        "overlayPngBase64": pix.data.get("overlayPngBase64"),
+                        "probeRegion": pix.data.get("probeRegion"),
+                        "matchedBlocks": pix.data.get("originalPixels"),
+                        "aiBlocks": pix.data.get("aiSuspectedPixels"),
+                        "otherBlocks": pix.data.get("unknownPixels"),
+                        "blockSize": 1,
+                    }
+            except Exception:
+                pixel_source = {}
+            if not block_composition:
+                try:
+                    blocks = self.classify_probe_blocks(image_bytes, reference_bytes)
+                    if blocks.success:
+                        block_composition = blocks.data
+                except Exception:
+                    pass
 
         # Merge tile + CLIP candidates by vaultId
         merged: dict[str, dict[str, Any]] = {}
@@ -782,6 +1561,8 @@ class ForensicScannerService(EnterpriseAIService):
             "authenticityEnsemble": authenticity_ensemble,
             "cropDetection": crop_data or None,
             "tamperLocalization": tamper_localization or None,
+            "blockComposition": block_composition or None,
+            "pixelSource": pixel_source or None,
             "candidates": candidates,
             "topCandidate": top,
             "overallConfidence": overall,

@@ -21,7 +21,7 @@ function shortId(id?: string): string {
 
 function phaseLabel(phase: InvestigationLiveSnapshot['phase'], strongMatch: boolean, confidence?: number | null): string {
   if (!strongMatch && (confidence == null || confidence < STRONG_CANDIDATE_MIN)) {
-    if (phase === 'final') return 'Needs manual review';
+    if (phase === 'final') return 'Finishing analysis';
     return 'Refining candidates…';
   }
   if (phase === 1) return strongMatch ? 'Strong candidate — verifying' : 'Weak lead — refining';
@@ -55,9 +55,9 @@ export function InvestigationLivePanel({ snapshot, file, previewUrl }: Props) {
         ? '✓ Strong candidate lead — verifying'
         : phaseNum >= 4
           ? (midBandCandidate
-            ? '⚠ Possible PINIT candidate — manual review'
+            ? '⚠ Protected original identified'
             : confidence != null && confidence < STRONG_CANDIDATE_MIN
-              ? '⚠ Needs Manual Review — low confidence'
+              ? '⚠ Weak lookalike — continuing analysis'
               : 'No PINIT Signature Found')
           : snapshot.signatureFound || midBandCandidate
             ? 'Candidate found — verifying…'

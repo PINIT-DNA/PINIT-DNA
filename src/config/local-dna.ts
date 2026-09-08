@@ -59,8 +59,16 @@ export const localDnaConfig = {
    */
   fragmentDetection: {
     enabled: flag('PINIT_FRAGMENT_DETECTION_ENABLED', true),
-    /** Min patches in a spatially-coherent island to call it a fragment hit */
-    minPatchMatches: intEnv('PINIT_FRAGMENT_MIN_PATCHES', 3),
+    /**
+     * Min patches in a spatially-coherent island to call it a fragment hit.
+     * 3 was too permissive: a low-texture candidate (e.g. a mostly-blank
+     * rasterized document page) can rack up 3 coincidental patch matches
+     * against an unrelated probe purely by chance, producing a ~68%-confidence
+     * false positive. Confirmed true positives in testing clustered at 14-15
+     * matched patches (~80% confidence); 6 gives real fragments comfortable
+     * headroom while rejecting 3-patch coincidences.
+     */
+    minPatchMatches: intEnv('PINIT_FRAGMENT_MIN_PATCHES', 6),
     /** Island's probe bounding-box area must be <= this % of the probe canvas (else it's a crop, not a splice) */
     maxProbeBBoxAreaPercent: parseFloat(process.env['PINIT_FRAGMENT_MAX_BBOX_PCT'] ?? '35'),
     /** Min internal spatial consistency (translation agreement) within the island */

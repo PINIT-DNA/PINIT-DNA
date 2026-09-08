@@ -835,7 +835,7 @@ export async function listAllDna(req: Request, res: Response, next: NextFunction
         status: true,
         sha256Hash: true,
         createdAt: true,
-        ownerUser: { select: { shortId: true, fullName: true } },
+        ownerUser: { select: { id: true, shortId: true, fullName: true } },
         vaultRecord: { select: { id: true } },
       },
       orderBy: { createdAt: 'desc' },

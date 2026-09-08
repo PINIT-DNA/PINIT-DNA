@@ -404,7 +404,7 @@ export const ENTERPRISE_ACCEPTANCE_LABELS: Record<EnterpriseAcceptanceVerdict, s
   VERIFIED_OWNER: 'Ownership Verified (Original)',
   VERIFIED_COPY: 'Ownership Verified (Copy)',
   DERIVATIVE: 'Ownership Verified (Derivative)',
-  POSSIBLE_MATCH: 'Possible Match – Manual Review Recommended',
+  POSSIBLE_MATCH: 'Protected original identified',
   INSUFFICIENT_EVIDENCE: 'Insufficient Evidence',
   NO_MATCH: 'No Match',
   INVALID_PACKAGE: 'Invalid DNA Package',
