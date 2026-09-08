@@ -4,7 +4,7 @@ import {
   Archive, Zap,
   AlertTriangle, RefreshCw,
   Eye, Globe, Plus, Link2, Radio, Download, Shield, FileText,
-  Store,
+  Store, Search, Activity,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useApi, formatBytes } from '../hooks/useApi';
@@ -12,13 +12,17 @@ import {
   getDashboardStats, api, listVaultRecords, getLiveTrackingMap, deriveFileType,
   getDashboardSecurityInsights, type DashboardSecurityInsights,
   getExchangeSellerSummary, getExchangeBuyerSummary, createExchangeSso,
+  getMonitoringStatus, type MonitoringStatus,
   type ExchangeBuyerSummary,
 } from '../services/dashboard.api';
 import type { VaultRecord } from '../types/dashboard.types';
 import { DashboardFilesMap, type DashboardFileMapPoint } from '../components/maps/DashboardFilesMap';
 import { VaultFileThumbnail } from '../components/VaultFileThumbnail';
 import { Badge, FileTypeBadge, ClassificationBadge } from '../components/ui/Badge';
-import { FORENSIC_REPORTS_UPDATED_EVENT } from '../lib/forensic-reports-storage';
+import {
+  FORENSIC_REPORTS_UPDATED_EVENT, listForensicReports,
+  type StoredForensicReport,
+} from '../lib/forensic-reports-storage';
 import { toUserPinitId } from '../lib/pinit-identity';
 import { API_BASE_URL } from '../config/api.config';
 import { useAuth } from '../context/AuthContext';
@@ -96,6 +100,8 @@ export function DashboardPage() {
   // and buying sit together at the top of Home so neither requires a trip into
   // Exchange to check on.
   const [exchangeBuying, setExchangeBuying] = useState<ExchangeBuyerSummary | null>(null);
+  const [monitoringStatus, setMonitoringStatus] = useState<MonitoringStatus | null>(null);
+  const [reports, setReports] = useState<StoredForensicReport[]>([]);
   const [welcomePlan, setWelcomePlan] = useState<PlanCode | null>(null);
 
   const vaultByDnaId = useMemo(
@@ -165,6 +171,10 @@ export function DashboardPage() {
       .catch(() => {});
   };
 
+  const fetchMonitoringStatus = () => {
+    getMonitoringStatus().then(setMonitoringStatus).catch(() => setMonitoringStatus(null));
+  };
+
   const fetchExchangeBuying = () => {
     getExchangeBuyerSummary()
       .then(setExchangeBuying)
@@ -201,6 +211,7 @@ export function DashboardPage() {
     fetchShare();
     fetchExchangeSelling();
     fetchExchangeBuying();
+    fetchMonitoringStatus();
     listVaultRecords()
       .then(setVaultRecords)
       .catch(() => setVaultRecords([]));
@@ -213,7 +224,11 @@ export function DashboardPage() {
   };
 
   useEffect(() => {
-    const onReportsUpdated = () => refetch();
+    const readReports = () => {
+      try { setReports(listForensicReports().slice(0, 4)); } catch { setReports([]); }
+    };
+    readReports();
+    const onReportsUpdated = () => { refetch(); readReports(); };
     window.addEventListener(FORENSIC_REPORTS_UPDATED_EVENT, onReportsUpdated);
     return () => window.removeEventListener(FORENSIC_REPORTS_UPDATED_EVENT, onReportsUpdated);
   }, [refetch]);
@@ -222,11 +237,13 @@ export function DashboardPage() {
     fetchShare();
     fetchExchangeSelling();
     fetchExchangeBuying();
+    fetchMonitoringStatus();
     const id = setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return;
       fetchShare();
       fetchExchangeSelling();
     fetchExchangeBuying();
+    fetchMonitoringStatus();
     }, 90_000);
     return () => clearInterval(id);
   }, []);
@@ -265,7 +282,7 @@ export function DashboardPage() {
         strong: link.filename,
         detail: `Expires ${formatDistanceToNow(new Date(exp), { addSuffix: true })}`
           + (opens ? ` · opened ${opens} ${opens === 1 ? 'time' : 'times'}` : ' · not opened yet'),
-        to: `/link-intelligence/${link.token}`,
+        to: `/access-intelligence/${link.token}`,
         action: 'Review link',
       });
     }
@@ -285,27 +302,43 @@ export function DashboardPage() {
       });
     }
 
-    const suspicious = securityInsights?.duplicateAttempts.count ?? 0;
-    if (suspicious > 0) {
+    // Someone else trying to protect work this person already owns is the
+    // sharpest signal Hub produces, so it names the file rather than counting.
+    const dupes = securityInsights?.duplicateAttempts;
+    for (const item of (dupes?.items ?? []).slice(0, 2)) {
       items.push({
-        key: 'suspicious',
+        key: `dupe-${item.filename}-${item.ago}`,
         tone: 'warn',
-        title: 'Access worth a look on',
-        strong: `${suspicious} ${suspicious === 1 ? 'asset' : 'assets'}`,
-        detail: 'Someone tried to protect a file that matches work you already own',
+        title: 'Someone else tried to protect',
+        strong: item.filename,
+        detail: `${item.matchType} match · ${item.riskLevel} risk · ${item.ago}`,
         to: '/duplicate-attempts',
-        action: 'Review access',
+        action: 'Review attempt',
+      });
+    }
+    const dupeRest = (dupes?.count ?? 0) - Math.min(2, dupes?.items.length ?? 0);
+    if (dupeRest > 0) {
+      items.push({
+        key: 'dupe-rest',
+        tone: 'warn',
+        title: 'And',
+        strong: `${dupeRest} more upload ${dupeRest === 1 ? 'attempt' : 'attempts'}`,
+        detail: 'Other people tried to protect files matching work you own',
+        to: '/duplicate-attempts',
+        action: 'Review all',
       });
     }
 
-    const matches = securityInsights?.crawlerAlerts.count ?? 0;
-    if (matches > 0) {
+    const crawler = securityInsights?.crawlerAlerts;
+    for (const item of (crawler?.items ?? []).slice(0, 2)) {
+      let where = item.url;
+      try { where = new URL(item.url).hostname; } catch { /* keep the raw value */ }
       items.push({
-        key: 'monitoring',
+        key: `match-${item.filename}-${item.url}`,
         tone: 'warn',
-        title: 'Monitoring found',
-        strong: `${matches} ${matches === 1 ? 'match' : 'matches'}`,
-        detail: 'Content resembling your work appeared on a watched surface',
+        title: 'Monitoring matched',
+        strong: item.filename,
+        detail: `${Math.round(item.similarity)}% similar · ${item.matchType} · found on ${where}`,
         to: '/monitoring',
         action: 'Investigate',
       });
@@ -319,7 +352,7 @@ export function DashboardPage() {
         title: 'Security events on',
         strong: `${risky} ${risky === 1 ? 'viewer' : 'viewers'}`,
         detail: 'Rated high or critical risk while viewing a share',
-        to: '/security-center',
+        to: '/access-intelligence',
         action: 'See activity',
       });
     }
@@ -726,6 +759,139 @@ export function DashboardPage() {
           </div>
         </section>
       )}
+
+      {/*
+        * Investigation and monitoring were reachable from the sidebar but never
+        * reported on. A paused crawler is not the same as one that found
+        * nothing, and an investigation you ran yesterday should be one click
+        * away rather than something you go looking for.
+        */}
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        <div className="card flex flex-col">
+          <div className="flex items-start justify-between gap-2 mb-3">
+            <div>
+              <h2 className="text-sm font-semibold text-white">Monitoring</h2>
+              <p className="text-2xs text-gray-500 mt-0.5">
+                Watching enrolled assets on authorised surfaces
+              </p>
+            </div>
+            <Link to="/monitoring" className="btn btn-secondary btn-sm shrink-0">Open</Link>
+          </div>
+
+          <div className="flex items-center gap-2.5 mb-3">
+            <span
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                monitoringStatus?.monitoringEnabled ? 'bg-success' : 'bg-warning'
+              }`}
+            />
+            <p className="text-sm text-white">
+              {monitoringStatus === null
+                ? 'Status unavailable'
+                : monitoringStatus.monitoringEnabled
+                  ? 'Active — crawler is running'
+                  : 'Paused — configuration kept'}
+            </p>
+          </div>
+          <p className="text-2xs text-gray-500 leading-relaxed">
+            {monitoringStatus === null
+              ? 'Monitoring status could not be read just now.'
+              : monitoringStatus.monitoringEnabled
+                ? 'Your monitors run on schedule. Matches appear above and in Monitoring.'
+                : 'Your monitors and their surfaces are saved. Nothing is being crawled until '
+                  + 'monitoring is switched back on — a quiet panel here means paused, not clear.'}
+          </p>
+
+          {monitoringStatus?.readiness?.platforms ? (
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              {Object.entries(monitoringStatus.readiness.platforms).map(([name, ready]) => (
+                <span
+                  key={name}
+                  className={`text-2xs px-2 py-1 rounded border ${
+                    ready
+                      ? 'border-success/25 text-success bg-success/5'
+                      : 'border-bg-border text-gray-600'
+                  }`}
+                >
+                  {name}
+                </span>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="flex items-center gap-4 mt-auto pt-3 border-t border-bg-border">
+            <div>
+              <p className="text-base font-bold text-white tabular-nums">
+                {monitoringStatus?.activeMonitors ?? 0}
+              </p>
+              <p className="text-2xs text-gray-500">Active monitors</p>
+            </div>
+            <div>
+              <p className="text-base font-bold text-white tabular-nums">
+                {securityInsights?.crawlerAlerts.count ?? 0}
+              </p>
+              <p className="text-2xs text-gray-500">Matches found</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="card flex flex-col">
+          <div className="flex items-start justify-between gap-2 mb-3">
+            <div>
+              <h2 className="text-sm font-semibold text-white">Investigation reports</h2>
+              <p className="text-2xs text-gray-500 mt-0.5">
+                Saved in this browser · evidence you can reopen
+              </p>
+            </div>
+            <Link to="/reports" className="btn btn-secondary btn-sm shrink-0">All reports</Link>
+          </div>
+
+          {reports.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
+              <Search size={20} className="text-gray-600 mb-2" />
+              <p className="text-sm text-gray-400">No investigations yet</p>
+              <p className="text-2xs text-gray-500 mt-1 max-w-xs">
+                Investigate a file to compare it against your protected work and produce an
+                evidence report.
+              </p>
+              <Link to="/pinit-hub/investigation" className="btn btn-secondary btn-sm mt-3">
+                Investigate a file
+              </Link>
+            </div>
+          ) : (
+            <div className="divide-y divide-bg-border">
+              {reports.map((report) => {
+                const isInvestigation = report.kind === 'investigation';
+                const name = isInvestigation ? report.filename : 'Comparison';
+                const verdict = isInvestigation
+                  ? (report.data.summary?.forensicVerdict
+                     || report.data.summary?.riskLevel
+                     || 'Report')
+                  : 'Comparison';
+                return (
+                  <Link
+                    to="/reports"
+                    key={report.id}
+                    className="flex items-center gap-3 py-2.5 hover:opacity-80"
+                  >
+                    <Activity size={13} className="text-dna-400 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-white truncate">{name}</p>
+                      <p className="text-2xs text-gray-500">
+                        {String(verdict)}
+                        {report.savedAt
+                          ? ` · ${formatDistanceToNow(new Date(report.savedAt), { addSuffix: true })}`
+                          : ''}
+                      </p>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+      </section>
 
       <section>
         <h2 className="text-sm font-semibold text-white mb-3">Quick actions</h2>

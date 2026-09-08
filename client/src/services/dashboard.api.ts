@@ -707,6 +707,38 @@ export async function getExchangeRole(): Promise<{
   return data;
 }
 
+export type MonitoringStatus = {
+  success: boolean;
+  monitoringEnabled: boolean;
+  crawlerEngineEnabled: boolean;
+  readiness?: {
+    monitoringEnabled: boolean;
+    crawlerEngineEnabled: boolean;
+    platforms: Record<string, boolean>;
+  };
+  totalMonitors?: number;
+  activeMonitors?: number;
+  totalAlerts?: number;
+  unreadAlerts?: number;
+};
+
+/**
+ * Whether monitoring is actually watching, and what it is configured to watch.
+ *
+ * A paused crawler is not the same as an unconfigured one, and the dashboard
+ * has to be able to tell a person which of the two they are looking at —
+ * otherwise a quiet monitoring panel reads as "nothing found" when it means
+ * "nothing is running".
+ */
+export async function getMonitoringStatus(): Promise<MonitoringStatus | null> {
+  try {
+    const { data } = await api.get<MonitoringStatus>(`${API_BASE_URL}/monitoring/stats`);
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 /** One sealed purchase — what this person licensed, and whether it still holds. */
 export type ExchangePurchase = {
   seal_id: string;
