@@ -327,35 +327,113 @@ export function ShareViewerPage() {
     const screenRes = getScreenResolution();
     const fingerprint = computeDeviceFingerprint();
 
-    const track = (action: string, extra?: Record<string, string>) => {
+    const accessUrl = `${API_BASE_URL}/share/${token}/access`;
+    const queueKey = `pinit_share_track:${token}`;
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+    const readQueue = (): Record<string, unknown>[] => {
+      try { return JSON.parse(sessionStorage.getItem(queueKey) || '[]') as Record<string, unknown>[]; }
+      catch { return []; }
+    };
+    const writeQueue = (items: Record<string, unknown>[]) => {
+      try { sessionStorage.setItem(queueKey, JSON.stringify(items.slice(-40))); } catch { /* quota */ }
+    };
+
+    const buildTrackPayload = (action: string, extra?: Record<string, string>) => {
       const gps = gpsDataRef.current;
-      return axios.post(`${API_BASE_URL}/share/${token}/access`, {
-        action, recipientName: nameRef.current || undefined,
-        timezone: tz, sessionId: sid,
-        screenResolution: screenRes, deviceFingerprint: fingerprint,
+      return {
+        action,
+        recipientName: nameRef.current || undefined,
+        timezone: tz,
+        sessionId: sid,
+        screenResolution: screenRes,
+        deviceFingerprint: fingerprint,
         ...buildGpsPayload(gps, info?.requestLocation, locationDone || !info?.requestLocation),
         ...extra,
-      }).then((res) => {
-        const data = res.data as { redirectToken?: string; grandchildToken?: string };
-        const next = data.redirectToken || data.grandchildToken;
-        // New person opened this URL → server minted a hop link; move them onto it
-        // so their timeline stays separate from the previous recipient.
-        if (
-          action === 'VIEWED' &&
-          next &&
-          token &&
-          next !== token &&
-          !hopRedirecting.current
-        ) {
-          hopRedirecting.current = true;
-          try {
-            sessionStorage.setItem('pinit_hop_from', token);
-            sessionStorage.setItem('pinit_hop_to', next);
-          } catch { /* ignore */ }
-          window.location.replace(`/s/${next}`);
-        }
+      };
+    };
+
+    const handleTrackResponse = (action: string, data: { redirectToken?: string; grandchildToken?: string }) => {
+      const next = data.redirectToken || data.grandchildToken;
+      if (
+        action === 'VIEWED' &&
+        next &&
+        token &&
+        next !== token &&
+        !hopRedirecting.current
+      ) {
+        hopRedirecting.current = true;
+        try {
+          sessionStorage.setItem('pinit_hop_from', token);
+          sessionStorage.setItem('pinit_hop_to', next);
+        } catch { /* ignore */ }
+        window.location.replace(`/s/${next}`);
+      }
+    };
+
+    const flushQueued = () => {
+      const queued = readQueue();
+      if (!queued.length) return;
+      writeQueue([]);
+      for (const payload of queued) {
+        void fetch(accessUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          keepalive: true,
+          credentials: 'same-origin',
+        }).catch(() => {
+          writeQueue([...readQueue(), payload]);
+        });
+      }
+    };
+
+    const track = (action: string, extra?: Record<string, string>) => {
+      const payload = {
+        ...buildTrackPayload(action, extra),
+        qid: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      };
+      const { qid, ...bodyPayload } = payload;
+      const body = JSON.stringify(bodyPayload);
+      const dropQid = () => writeQueue(readQueue().filter((row) => row['qid'] !== qid));
+
+      const urgent = action === 'COPY_ATTEMPT'
+        || action === 'SCREENSHOT_ATTEMPT'
+        || action === 'SCREEN_RECORDING_ATTEMPT'
+        || action === 'PRINT_ATTEMPT'
+        || document.hidden;
+
+      if (urgent) {
+        writeQueue([...readQueue(), payload]);
+        try {
+          if (document.hidden && typeof navigator.sendBeacon === 'function') {
+            const ok = navigator.sendBeacon(accessUrl, new Blob([body], { type: 'application/json' }));
+            if (ok) {
+              dropQid();
+              return Promise.resolve();
+            }
+          }
+        } catch { /* fall through to fetch */ }
+        return fetch(accessUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+          keepalive: true,
+          credentials: 'same-origin',
+        }).then((res) => {
+          dropQid();
+          return res.json().then((data: { redirectToken?: string; grandchildToken?: string }) => {
+            handleTrackResponse(action, data);
+          }).catch(() => undefined);
+        }).catch((err: { message?: string }) => {
+          // eslint-disable-next-line no-console
+          console.warn('[SmartLink] track failed', action, err?.message);
+        });
+      }
+
+      return axios.post(accessUrl, payload).then((res) => {
+        handleTrackResponse(action, res.data as { redirectToken?: string; grandchildToken?: string });
         return res;
-      }).catch((err) => {
+      }).catch((err: { message?: string }) => {
         // eslint-disable-next-line no-console
         console.warn('[SmartLink] track failed', action, err?.message);
       });
@@ -423,16 +501,20 @@ export function ShareViewerPage() {
     window.addEventListener('scroll', onScroll, { passive: true });
 
     // ── Copy attempt detection ─────────────────────────────────────────────
-    // The 'copy' DOM event only fires when there's an active selection to
-    // copy — and the viewer intentionally sets `user-select: none`, so it
-    // may never fire. Detect the keyboard shortcut directly as the primary
-    // signal, and also keep the native 'copy' event as a backup.
-    const onCopy = () => track('COPY_ATTEMPT');
-    document.addEventListener('copy', onCopy);
-
-    // ── Keyboard-based detection: copy, screenshot, devtools ──────────────
+    // Desktop: Ctrl/Cmd+C. Mobile: long-press Copy / cut (capture phase so
+    // select-none on the overlay does not swallow the event).
     const copyCooldown = { last: 0 };
     const screenshotCooldown = { last: 0 };
+    const onCopy = () => {
+      const now = Date.now();
+      if (now - copyCooldown.last < 1000) return;
+      copyCooldown.last = now;
+      track('COPY_ATTEMPT');
+    };
+    document.addEventListener('copy', onCopy, true);
+    document.addEventListener('cut', onCopy, true);
+
+    // ── Keyboard-based detection: copy, screenshot, devtools ──────────────
     const onKeyDown = (e: KeyboardEvent) => {
       const now = Date.now();
       const key = e.key?.toLowerCase?.() ?? '';
@@ -487,10 +569,41 @@ export function ShareViewerPage() {
     document.addEventListener('keyup', onKeyUp);
 
     // ── Tab switch / visibility change ────────────────────────────────────
+    // Mobile hardware screenshots do not emit PrintScreen. iOS/Android often
+    // flash `hidden` for a few hundred ms; a longer hide is an app switch.
+    let hiddenAt = 0;
     const onVisibility = () => {
-      if (document.hidden) track('TAB_SWITCH');
+      if (document.hidden) {
+        hiddenAt = Date.now();
+        if (!isMobile) track('TAB_SWITCH');
+        return;
+      }
+      const dur = hiddenAt ? Date.now() - hiddenAt : 0;
+      hiddenAt = 0;
+      if (isMobile && dur > 40 && dur < 800) {
+        const now = Date.now();
+        if (now - screenshotCooldown.last > 1000) {
+          screenshotCooldown.last = now;
+          track('SCREENSHOT_ATTEMPT');
+        }
+      } else if (isMobile && dur >= 800) {
+        track('TAB_SWITCH');
+      }
+      flushQueued();
     };
     document.addEventListener('visibilitychange', onVisibility);
+
+    const onPageHide = () => {
+      flushQueued();
+      const leftover = readQueue();
+      for (const payload of leftover) {
+        try {
+          navigator.sendBeacon?.(accessUrl, new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+        } catch { /* ignore */ }
+      }
+    };
+    window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('online', flushQueued);
 
     // ── Removed: the "brief window blur = OS screenshot" heuristic.
     //
@@ -534,10 +647,13 @@ export function ShareViewerPage() {
 
     return () => {
       window.removeEventListener('scroll', onScroll);
-      document.removeEventListener('copy', onCopy);
+      document.removeEventListener('copy', onCopy, true);
+      document.removeEventListener('cut', onCopy, true);
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('keyup', onKeyUp);
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('online', flushQueued);
       window.removeEventListener('beforeprint', onPrint);
       mql?.removeEventListener?.('change', onPrintMql);
       displayPerm?.removeEventListener?.('change', onDisplayCapture);

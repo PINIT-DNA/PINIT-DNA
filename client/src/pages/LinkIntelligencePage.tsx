@@ -394,30 +394,43 @@ export function LinkIntelligencePage() {
     if (fromUrl) setSelectedViewer(fromUrl);
   }, [searchParams]);
 
-  const load = () => {
+  const load = (quiet = false) => {
     if (!token) return;
-    setLoading(true);
-    setLoadError(null);
+    if (!quiet) {
+      setLoading(true);
+      setLoadError(null);
+    }
     api.get(`${API_BASE_URL}/share/${encodeURIComponent(token)}/logs`)
       .then(r => {
         const payload = r.data as { link?: LinkInfo; success?: boolean };
         const linkData = payload?.link ?? null;
         if (linkData?.token) {
           setLink({ ...linkData, accessLogs: linkData.accessLogs ?? [], blockedViewers: linkData.blockedViewers ?? [] });
-        } else {
+        } else if (!quiet) {
           setLink(null);
           setLoadError('Invalid response from server');
         }
-        setLoading(false);
+        if (!quiet) setLoading(false);
       })
       .catch((err: { response?: { data?: { error?: string }; status?: number } }) => {
-        setLink(null);
+        if (!quiet) {
+          setLink(null);
           setLoadError(err?.response?.data?.error ?? "Couldn't load activity for this asset.");
-        setLoading(false);
+          setLoading(false);
+        }
       });
   };
 
-  useEffect(load, [token]);
+  useEffect(() => { load(); }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    const id = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      load(true);
+    }, 12_000);
+    return () => window.clearInterval(id);
+  }, [token]);
 
   // Group logs by unique viewer (IP + fingerprint)
   const viewers: Viewer[] = (() => {
@@ -431,7 +444,15 @@ export function LinkIntelligencePage() {
       .filter(l => isTrackedViewerAction(l.action))
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-    for (const log of sorted) {
+    const isAnchor = (action: string) =>
+      action === 'VIEWED' || action === 'FORWARDING_DETECTED' || action.startsWith('BLOCKED_');
+    // Attach copy/screenshot after VIEWED so mobile events logged before GPS view are kept.
+    const ordered = [
+      ...sorted.filter((l) => isAnchor(l.action)),
+      ...sorted.filter((l) => !isAnchor(l.action)),
+    ];
+
+    for (const log of ordered) {
       const key = viewerGroupKey(log);
       if (!map.has(key)) {
         // Only anchor a new viewer on a real open / forward — not scroll/idle alone
@@ -688,6 +709,7 @@ export function LinkIntelligencePage() {
             .filter(v => isValidMapCoordinate(v.lat, v.lng))
             .map(v => ({
             viewerId: v.id,
+            filename: link.filename,
             lat: v.lat!, lng: v.lng!,
             label: `Hop ${v.hopNumber}`,
             hopNumber: v.hopNumber,

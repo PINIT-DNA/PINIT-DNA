@@ -25,6 +25,8 @@ interface MapPoint {
   gpsAccuracy?: number | null;
   gpsFullAddress?: string | null;
   locationSource?: string | null;
+  /** File name shown on the pin popup */
+  filename?: string;
   /** Green / blue / red pin role */
   /** Stable viewer id for selecting from map / URL */
   viewerId?: string;
@@ -51,6 +53,35 @@ export const ACCESS_KIND_LABELS: Record<AccessKind, string> = {
   direct_share: 'Direct Share',
   reshared: 'Reshared',
 };
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function pointsSignature(points: MapPoint[]): string {
+  return points
+    .map((p) =>
+      [
+        p.viewerId ?? '',
+        p.lat,
+        p.lng,
+        p.hopNumber,
+        p.ip,
+        p.filename ?? '',
+        p.country,
+        p.city ?? '',
+        p.riskLevel,
+        p.locationSource ?? '',
+        p.accessKind ?? '',
+        p.totalActions,
+      ].join('|'),
+    )
+    .join(';');
+}
 
 function resolveAccessKind(hop: number, kind?: AccessKind): AccessKind {
   if (kind) return kind;
@@ -120,6 +151,9 @@ function createPinIcon(hop: number, riskLevel: string, accessKind?: AccessKind):
 export function FileTrackingMap({ points, height = '400px', onSelectViewer }: FileTrackingMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<L.Map | null>(null);
+  const onSelectRef = useRef(onSelectViewer);
+  onSelectRef.current = onSelectViewer;
+  const pointsSig = pointsSignature(points);
 
   useEffect(() => {
     const validPoints = spreadOverlappingPoints(
@@ -176,8 +210,13 @@ export function FileTrackingMap({ points, height = '400px', onSelectViewer }: Fi
           ? `<div style="font-size:10px;color:#eab308;margin-top:2px">🌐 IP-based location (approximate)</div>`
           : '';
 
+      const fileLine = p.filename
+        ? `<div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:6px;word-break:break-word">${escapeHtml(p.filename)}</div>`
+        : '';
+
       marker.bindPopup(`
         <div style="font-family:Inter,system-ui,sans-serif;min-width:220px">
+          ${fileLine}
           <div style="font-size:13px;font-weight:700;color:#333;margin-bottom:6px">
             Hop ${p.hopNumber} — ${kindLabel}
             ${riskBadge}
@@ -187,21 +226,22 @@ export function FileTrackingMap({ points, height = '400px', onSelectViewer }: Fi
           </div>
           <div style="font-size:11px;color:#666;line-height:1.5">
             <div style="margin-bottom:4px">📍 <strong>${locationLines}</strong></div>
-            <div>🌐 IP: <code style="background:#f1f5f9;padding:1px 4px;border-radius:3px">${p.ip}</code></div>
-            <div>📱 ${p.device}</div>
+            <div>🌐 IP: <code style="background:#f1f5f9;padding:1px 4px;border-radius:3px">${escapeHtml(p.ip || '—')}</code></div>
+            <div>📱 ${escapeHtml(p.device || '—')}</div>
             <div>👁 ${p.totalActions} action${p.totalActions > 1 ? 's' : ''}</div>
-            ${p.actionSummary ? `<div style="font-size:10px;color:#7c3aed;margin-top:4px">${p.actionSummary}</div>` : ''}
+            ${p.actionSummary ? `<div style="font-size:10px;color:#7c3aed;margin-top:4px">${escapeHtml(p.actionSummary)}</div>` : ''}
             ${accuracyBadge}
-            <div style="font-size:10px;color:#999;margin-top:4px">
-              ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}
+            <div style="font-size:10px;color:#64748b;margin-top:6px">
+              GPS: ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}
             </div>
           </div>
         </div>
-      `, { maxWidth: 300 });
+      `, { maxWidth: 320, autoClose: false, closeOnClick: false });
 
-      if (p.viewerId && onSelectViewer) {
-        marker.on('click', () => onSelectViewer(p.viewerId!));
-      }
+      marker.on('click', () => {
+        if (p.viewerId) onSelectRef.current?.(p.viewerId);
+        marker.openPopup();
+      });
 
       marker.addTo(map);
     });
@@ -247,7 +287,10 @@ export function FileTrackingMap({ points, height = '400px', onSelectViewer }: Fi
         mapInstance.current = null;
       }
     };
-  }, [points, onSelectViewer]);
+    // Rebuild only when pin data actually changes — not when the parent re-renders
+    // after selecting a viewer (that used to close the popup immediately).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pointsSig, height]);
 
   const validCount = points.filter(p => isValidMapCoordinate(p.lat, p.lng)).length;
 
