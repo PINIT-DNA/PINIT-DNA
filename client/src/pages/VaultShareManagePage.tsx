@@ -201,7 +201,7 @@ export function VaultShareManagePage() {
       <nav className="flex flex-wrap items-center gap-1.5 text-2xs text-gray-500">
         <span className="text-gray-400">{BRAND.name}</span>
         <ChevronRight size={10} />
-        <Link to="/vault" className="hover:text-white transition-colors">Vault</Link>
+        <Link to="/vault" className="hover:text-white transition-colors">My Assets</Link>
         <ChevronRight size={10} />
         <Link
           to={`/vault/assets/${assetId}/share`}

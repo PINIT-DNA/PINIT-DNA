@@ -321,7 +321,7 @@ function InvestigationDetailModal({
           )}
           {ownerFields.vaultId && (
             <p className="text-2xs text-gray-500 mt-1 mono truncate">
-              Vault: {ownerFields.vaultId}
+              Asset: {ownerFields.vaultId}
             </p>
           )}
           {ownerFields.originalFilename && (
@@ -518,14 +518,14 @@ export function ReportsPage() {
           <EmptyState
             icon={Shield}
             title="No evidence yet"
-            description="Run Intelligence or a file comparison to generate evidence you can reopen here"
+            description="Evidence will appear as your asset lifecycle develops."
             action={
               <div className="flex gap-2">
                 <Link to={BRAND.investigationPath} className="btn btn-primary btn-sm">
                   <Shield size={14} /> Open Intelligence
                 </Link>
                 <Link to="/compare" className="btn btn-secondary btn-sm">
-                  <GitCompare size={14} /> Compare DNA
+                  <GitCompare size={14} /> Compare files
                 </Link>
               </div>
             }
@@ -575,7 +575,7 @@ export function ReportsPage() {
                         <p className="text-sm text-gray-300 truncate">{entry.filename}</p>
                         {(o.ownerPinitId || o.vaultId) && (
                           <p className="text-2xs text-dna-400 mono mt-0.5 truncate">
-                            {[o.ownerPinitId, o.vaultId ? `Vault ${o.vaultId.slice(0, 8)}…` : null].filter(Boolean).join(' · ')}
+                            {[o.ownerPinitId, o.vaultId ? `Asset ${o.vaultId.slice(0, 8)}…` : null].filter(Boolean).join(' · ')}
                           </p>
                         )}
                         <p className="text-xs text-gray-500 mt-1.5 line-clamp-2">

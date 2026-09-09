@@ -73,7 +73,7 @@ export function SuccessPanel({ session, onReset, campaignId }: Props) {
       setDownloadDone(true);
       toast.success('Protected file downloaded');
     } catch (err) {
-      setDownloadError(err instanceof Error ? err.message : 'Download failed. Try again from Vault.');
+      setDownloadError(err instanceof Error ? err.message : 'Download failed. Try again from My Assets.');
     } finally {
       setDownloading(false);
     }
@@ -162,7 +162,7 @@ export function SuccessPanel({ session, onReset, campaignId }: Props) {
             {[
               { icon: Shield, label: 'Identity', value: 'Ready' },
               { icon: Lock, label: 'Security', value: 'Locked' },
-              { icon: Archive, label: 'Vault', value: vaultId ? 'Stored' : 'Ready' },
+              { icon: Archive, label: 'My Assets', value: vaultId ? 'Stored' : 'Ready' },
               {
                 icon: Download,
                 label: 'Download',

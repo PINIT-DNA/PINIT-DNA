@@ -8,16 +8,16 @@ const TOPICS = [
   {
     icon: Shield,
     title: 'Protect a file',
-    body: 'Use Protect New to store the original in your vault. The master file stays in Hub — you share a controlled link, not the raw file.',
+    body: 'Use Protect New to store the original with your assets. The master file stays in Hub — you share a controlled link, not the raw file.',
     to: '/generate',
     cta: 'Protect New',
   },
   {
     icon: Share2,
     title: 'Share and track access',
-    body: 'From Vault, create a share link. Views, downloads, copy, screenshot, and reshare attempts are logged for that link.',
+    body: 'From My Assets, create a share link. Views, downloads, copy, screenshot, and reshare attempts are logged for that link.',
     to: '/vault',
-    cta: 'Vault',
+    cta: 'My Assets',
   },
   {
     icon: MapPin,

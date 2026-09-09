@@ -13,16 +13,16 @@ export const HOME_ACTIVITY_TABS: Array<{
   moreTo?: string;
   moreLabel?: string;
 }> = [
-  { id: 'all', label: 'All Activity', empty: 'No activity yet.', moreTo: '/timeline', moreLabel: 'Asset timeline' },
+  { id: 'all', label: 'All Activity', empty: 'No activity yet.', moreTo: '/timeline', moreLabel: 'Open activity' },
   { id: 'mine', label: 'My Activity', empty: 'You have not recorded any actions yet.' },
-  { id: 'assets', label: 'Assets', empty: 'No asset activity yet.', moreTo: '/vault', moreLabel: 'Open Vault' },
+  { id: 'assets', label: 'Assets', empty: 'No assets yet. Protect your first asset to start building your protected library.', moreTo: '/generate', moreLabel: 'Protect New' },
   { id: 'projects', label: 'Projects', empty: 'No project activity yet.', moreTo: '/profile?tab=portfolio', moreLabel: 'Open Portfolio' },
   { id: 'portfolio', label: 'Portfolio', empty: 'No portfolio activity yet.', moreTo: '/profile?tab=portfolio', moreLabel: 'Open Portfolio' },
   { id: 'clients', label: 'Clients', empty: 'No client activity yet.', moreTo: '/business/clients', moreLabel: 'Open Clients' },
-  { id: 'sharing', label: 'Sharing', empty: 'No sharing activity yet.', moreTo: '/access-intelligence', moreLabel: 'Open Sharing' },
+  { id: 'sharing', label: 'Sharing', empty: 'No shares yet. Create a secure link to share an asset.', moreTo: '/vault', moreLabel: 'Open My Assets' },
   { id: 'exchange', label: 'Exchange', empty: 'No marketplace activity yet.' },
   { id: 'protection', label: 'Protection', empty: 'No protection activity yet.', moreTo: '/generate', moreLabel: 'Protect New' },
-  { id: 'evidence', label: 'Evidence', empty: 'No evidence activity yet.', moreTo: '/reports', moreLabel: 'Open Evidence' },
+  { id: 'evidence', label: 'Evidence', empty: 'No evidence yet. Evidence will appear as your asset lifecycle develops.', moreTo: '/reports', moreLabel: 'Open Evidence' },
 ];
 
 function fileHint(detail: string | undefined): string {
@@ -71,7 +71,7 @@ export function homeActivityFilter(ev: HomeActivityEvent, filter: string): boole
   if (filter === 'all') return true;
   if (filter === 'mine') return SELF_TYPES.has(ev.type);
   if (filter === 'assets') return ev.type === 'VAULT_UPLOAD' || ev.type === 'DNA_GENERATED';
-  if (filter === 'projects') return false;
+  if (filter === 'projects') return ev.type === 'PORTFOLIO_UPDATED' || ev.type === 'PORTFOLIO_VIEWED';
   if (filter === 'portfolio') return ev.type === 'PORTFOLIO_UPDATED' || ev.type === 'PORTFOLIO_VIEWED';
   if (filter === 'clients') return false;
   if (filter === 'sharing') return ev.type === 'SHARE_CREATED' || ev.type.startsWith('ACCESS_');

@@ -139,7 +139,7 @@ export function AddCredentialModal({
             ))}
           </select>
           <p className="text-2xs text-gray-500 mt-1">
-            Pick an existing protected file. Do not re-upload. PDF, JPG, PNG and DOCX already in Vault can be linked.
+            Pick an existing protected file. Do not re-upload. PDF, JPG, PNG and DOCX already in My Assets can be linked.
           </p>
         </label>
         <p className="text-xs text-gray-500">

@@ -124,9 +124,9 @@ export const NOTIFICATION_SEVERITY_BORDER: Record<string, string> = {
 export const NOTIFICATION_CATEGORY_LABELS: Record<string, string> = {
   sharing: 'Secure Share',
   security: 'Security',
-  vault: 'Vault',
+  vault: 'My Assets',
   monitoring: 'Monitoring',
-  certificates: 'Certificates',
+  certificates: 'Credentials',
   investigation: 'Investigation',
   account: 'Account',
   automation: 'Automation',

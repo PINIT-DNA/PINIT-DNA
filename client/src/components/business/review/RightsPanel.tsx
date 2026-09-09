@@ -149,7 +149,7 @@ function RightsCard({ asset: a }: { asset: AssetRights }) {
           <dl className="space-y-1.5">
             <Row label="DNA record" value={a.protection.hasDna ? 'Present' : 'None'}
               good={a.protection.hasDna} />
-            <Row label="Vault" value={a.protection.hasVault ? 'Stored' : 'Not stored'}
+            <Row label="Asset" value={a.protection.hasVault ? 'Stored' : 'Not stored'}
               good={a.protection.hasVault} />
             <Row
               label="Certificate"

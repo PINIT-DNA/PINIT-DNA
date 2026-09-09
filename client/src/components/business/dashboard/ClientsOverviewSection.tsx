@@ -1,17 +1,12 @@
 /**
- * Business Overview — the client/campaign lead section.
- *
- * Sits above the existing asset/investigation/team snapshots and answers
- * "what's happening across my client work right now" before the detail below.
+ * Business Overview — clients and campaigns on Home.
  */
 import { useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Users, Megaphone, Plus, ChevronRight, Briefcase } from 'lucide-react';
+import { Users, Megaphone, Plus, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useApi, invalidateApiCache } from '../../../hooks/useApi';
 import { getBusinessOverview, type BusinessOverview, type BusinessClient } from '../../../services/business.api';
-import { Badge } from '../../ui/Badge';
-import { SectionCard, EmptyHint, SkeletonRows } from '../clients/BusinessKit';
 import { ClientFormModal } from '../clients/ClientFormModal';
 
 export function ClientsOverviewSection() {
@@ -29,125 +24,121 @@ export function ClientsOverviewSection() {
     navigate(`/business/clients/${client.id}`);
   }, [refetch, navigate]);
 
-  // A failed overview fetch must never blank the rest of the dashboard.
   if (error) {
     return (
-      <SectionCard title="Client work" icon={Briefcase}>
+      <section className="hub-home-block">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <p className="text-xs text-gray-500">Could not load client data.</p>
-          <button onClick={refetch} className="btn btn-secondary btn-sm">Retry</button>
+          <p className="hub-home-body">Could not load client data.</p>
+          <button type="button" onClick={refetch} className="btn btn-secondary btn-sm">Retry</button>
         </div>
-      </SectionCard>
+      </section>
     );
   }
 
   return (
     <div className="space-y-4">
-      {/*
-        * These four were tiles. The panels directly below already name the
-        * clients and campaigns they were counting, so as tiles they said the
-        * same thing twice and pushed the actual work further down the page.
-        */}
       {loading && !data ? (
         <div className="skeleton h-4 w-64 rounded" />
       ) : (
-        <p className="text-sm text-gray-500">
-          <Link to="/business/clients" className="text-gray-300 font-medium hover:underline">
+        <p className="hub-home-meta">
+          <Link to="/business/clients" className="hub-home-link">
             {data?.clientCount ?? 0} {(data?.clientCount ?? 0) === 1 ? 'client' : 'clients'}
           </Link>
-          <span className="text-gray-700 mx-2">·</span>
-          <Link to="/business/clients" className="text-gray-300 font-medium hover:underline">
+          <span className="mx-2">·</span>
+          <Link to="/business/clients" className="hub-home-link">
             {data?.campaignCount ?? 0} {(data?.campaignCount ?? 0) === 1 ? 'campaign' : 'campaigns'}
           </Link>
-          <span className="text-gray-700 mx-2">·</span>
-          <span className="text-gray-300 font-medium">{data?.assetCount ?? 0}</span>
-          {(data?.assetCount ?? 0) === 1 ? ' campaign asset' : ' campaign assets'}
-          <span className="text-gray-700 mx-2">·</span>
-          <span className="text-gray-300 font-medium">{data?.creatorCount ?? 0}</span>
-          {(data?.creatorCount ?? 0) === 1 ? ' external creator' : ' external creators'}
+          <span className="mx-2">·</span>
+          {(data?.assetCount ?? 0) === 1 ? '1 campaign asset' : `${data?.assetCount ?? 0} campaign assets`}
+          <span className="mx-2">·</span>
+          {(data?.creatorCount ?? 0) === 1 ? '1 external creator' : `${data?.creatorCount ?? 0} external creators`}
         </p>
       )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <SectionCard
-          title="Your clients"
-          icon={Users}
-          action={
-            <button onClick={() => setAddOpen(true)} className="btn-ghost btn-sm text-xs text-dna-400">
+        <section className="hub-home-block">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <h2 className="hub-home-section flex items-center gap-2">
+              <Users size={16} className="text-dna-500" /> Your clients
+            </h2>
+            <button type="button" onClick={() => setAddOpen(true)} className="hub-home-link inline-flex items-center gap-1">
               <Plus size={12} /> New client
             </button>
-          }
-        >
+          </div>
           {loading && !data ? (
-            <SkeletonRows rows={3} />
+            <div className="skeleton h-20 rounded-xl" />
           ) : !data || data.recentClients.length === 0 ? (
-            <EmptyHint
-              text="No clients yet — add your first to start organizing campaigns and assets."
-              action={
-                <button onClick={() => setAddOpen(true)} className="btn btn-primary btn-sm">
-                  <Plus size={14} /> Add client
-                </button>
-              }
-            />
+            <div className="py-2">
+              <p className="hub-home-body">No clients yet.</p>
+              <button type="button" onClick={() => setAddOpen(true)} className="btn btn-primary btn-sm mt-4 inline-flex gap-2">
+                <Plus size={14} /> Add client
+              </button>
+            </div>
           ) : (
             <>
-              <ul className="divide-y divide-bg-border -mx-1">
+              <ul className="space-y-1">
                 {data.recentClients.map((c) => (
                   <li key={c.id}>
                     <Link
                       to={`/business/clients/${c.id}`}
-                      className="flex items-center gap-3 px-1 py-2.5 hover:bg-bg-elevated/50 rounded-lg transition-colors group"
+                      className="hub-home-row flex items-center gap-3 px-3 py-2.5 group"
                     >
-                      <span className="w-8 h-8 rounded-lg bg-dna-500/10 text-dna-400 border border-dna-500/20 flex items-center justify-center text-2xs font-bold shrink-0">
+                      <span className="w-8 h-8 rounded-lg bg-dna-50 text-dna-600 dark:bg-dna-500/10 dark:text-dna-400 flex items-center justify-center text-[11px] font-bold shrink-0">
                         {initials(c.name)}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm text-white truncate">{c.name}</p>
-                        <p className="text-2xs text-gray-500">
+                        <p className="hub-home-card-title truncate">{c.name}</p>
+                        <p className="hub-home-meta">
                           {c.campaignCount} campaign{c.campaignCount === 1 ? '' : 's'}
                         </p>
                       </div>
-                      <ChevronRight size={15} className="text-gray-600 group-hover:text-dna-400 transition-colors shrink-0" />
+                      <ChevronRight size={15} className="text-slate-400 group-hover:text-dna-500 shrink-0" />
                     </Link>
                   </li>
                 ))}
               </ul>
               {data.clientCount > data.recentClients.length && (
-                <Link to="/business/clients" className="text-xs text-dna-400 hover:text-dna-300 mt-3 inline-flex items-center gap-1">
+                <Link to="/business/clients" className="hub-home-link mt-3 inline-flex items-center gap-1">
                   View all {data.clientCount} clients <ChevronRight size={12} />
                 </Link>
               )}
             </>
           )}
-        </SectionCard>
+        </section>
 
-        <SectionCard title="Active campaigns" icon={Megaphone}>
+        <section className="hub-home-block">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <h2 className="hub-home-section flex items-center gap-2">
+              <Megaphone size={16} className="text-dna-500" /> Active campaigns
+            </h2>
+            <Link to="/business/clients" className="hub-home-link">View all</Link>
+          </div>
           {loading && !data ? (
-            <SkeletonRows rows={3} />
+            <div className="skeleton h-20 rounded-xl" />
           ) : !data || data.recentCampaigns.length === 0 ? (
-            <EmptyHint text="No campaigns yet. Open a client to create their first campaign." />
+            <p className="hub-home-body">No campaigns yet. Open a client to create their first campaign.</p>
           ) : (
-            <ul className="divide-y divide-bg-border -mx-1">
+            <ul className="space-y-1">
               {data.recentCampaigns.map((c) => (
                 <li key={c.id}>
                   <Link
                     to={`/business/campaigns/${c.id}`}
-                    className="flex items-center gap-3 px-1 py-2.5 hover:bg-bg-elevated/50 rounded-lg transition-colors group"
+                    className="hub-home-row flex items-center gap-3 px-3 py-2.5 group"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm text-white truncate">{c.name}</p>
-                      <p className="text-2xs text-gray-500 truncate">{c.clientName}</p>
+                      <p className="hub-home-card-title truncate">{c.name}</p>
+                      <p className="hub-home-meta truncate">{c.clientName}</p>
                     </div>
-                    <Badge variant={c.assetCount > 0 ? 'dna' : 'muted'} className="shrink-0 hidden sm:inline-flex">
-                      {c.assetCount} assets
-                    </Badge>
-                    <ChevronRight size={15} className="text-gray-600 group-hover:text-dna-400 transition-colors shrink-0" />
+                    <span className="hub-home-meta shrink-0 hidden sm:inline">
+                      {c.assetCount} {c.assetCount === 1 ? 'asset' : 'assets'}
+                    </span>
+                    <ChevronRight size={15} className="text-slate-400 group-hover:text-dna-500 shrink-0" />
                   </Link>
                 </li>
               ))}
             </ul>
           )}
-        </SectionCard>
+        </section>
       </div>
 
       <ClientFormModal open={addOpen} onClose={() => setAddOpen(false)} onSaved={handleSaved} />

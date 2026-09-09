@@ -236,7 +236,7 @@ export function DnaRecordsPage() {
                     Status <SortIcon field="status" />
                   </button>
                 </th>
-                <th>Vault</th>
+                <th>Asset</th>
                 <th>
                   <button onClick={() => toggleSort('createdAt')} className="flex items-center gap-1 hover:text-white">
                     Created <SortIcon field="createdAt" />

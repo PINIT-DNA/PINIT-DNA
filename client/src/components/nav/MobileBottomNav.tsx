@@ -19,7 +19,7 @@ export function MobileBottomNav({ onOpenMenu }: Props) {
     { to: homeTo, icon: HomeIcon, label: 'Home', end: true as const },
     { to: '/generate', icon: Dna, label: 'Protect' },
     { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Intelligence' },
-    { to: '/vault', icon: Archive, label: 'Vault' },
+    { to: '/vault', icon: Archive, label: 'Assets' },
   ];
 
   return (

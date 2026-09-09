@@ -7,21 +7,21 @@ import { BRAND } from '../../config/brand.config';
 import { useAccountViewMode } from '../../hooks/useAccountViewMode';
 
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
-  '/':                    { title: 'Home', subtitle: 'Protect, share, and understand your assets' },
-  '/business':            { title: 'Home', subtitle: 'Team operations' },
+  '/':                    { title: 'Home', subtitle: 'Protect, store, share, track, and prove' },
+  '/business':            { title: 'Home', subtitle: 'Protect, store, share, track, and prove' },
   '/generate':            { title: 'Protect New', subtitle: 'Upload a file to give it identity, protection, and evidence' },
-  '/vault':               { title: 'Vault', subtitle: 'Your protected files — share and track' },
+  '/vault':               { title: 'My Assets', subtitle: 'Your protected files — share and track' },
   '/vault-integrity':     { title: 'Security Check', subtitle: 'Confirm your files are stored safely' },
   '/dna-records':         { title: 'Protected Files', subtitle: 'Files you have protected in Pinit HUB' },
-  '/timeline':            { title: 'Asset Timeline', subtitle: 'Complete chronological history of the asset' },
+  '/timeline':            { title: 'Asset Activity', subtitle: 'What happened to your protected assets' },
   '/reports':             { title: 'Evidence', subtitle: 'Investigation findings and comparison reports' },
-  '/certificates':        { title: 'Certificates', subtitle: 'Professional credentials and verified achievements' },
+  '/certificates':        { title: 'Credentials', subtitle: 'Certificates, awards, licenses and professional achievements connected to your Pinit identity.' },
   '/verify-certificate':  { title: 'Verify certificate', subtitle: 'Check if a certificate is still valid' },
   '/search':              { title: 'Search', subtitle: 'Find files and activity' },
   '/forensic-diff':       { title: 'Compare files', subtitle: 'See what changed between two files' },
   '/monitoring':          { title: 'Monitoring', subtitle: 'Watch for copies of your files online' },
-  '/protected-posts':     { title: 'Vault', subtitle: 'Your protected files' },
-  '/assets':              { title: 'Vault', subtitle: 'Your protected files' },
+  '/protected-posts':     { title: 'My Assets', subtitle: 'Your protected files' },
+  '/assets':              { title: 'My Assets', subtitle: 'Your protected files' },
   '/access-intelligence': { title: 'Sharing', subtitle: 'Who opened your links and what they did' },
   '/unmask-requests':     { title: 'Access Requests', subtitle: 'Approve sensitive data reveal requests' },
   '/duplicate-attempts':  { title: 'Duplicate Checks', subtitle: 'When someone tried to re-upload your file' },
@@ -53,7 +53,7 @@ export function Topbar({ onMenu }: TopbarProps) {
         : location.pathname.startsWith('/access-intelligence/')
           ? { title: 'Asset Activity', subtitle: 'See who accessed this asset and what happened' }
           : location.pathname.startsWith('/protected-posts/') || location.pathname.startsWith('/assets/')
-            ? { title: 'Vault', subtitle: 'Your protected files' }
+            ? { title: 'My Assets', subtitle: 'Your protected files' }
             : location.pathname.startsWith('/business/clients')
               ? { title: 'Clients', subtitle: 'Campaigns, reviews and deliveries' }
               : location.pathname.startsWith('/business/campaigns')

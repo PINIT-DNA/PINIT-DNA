@@ -329,15 +329,15 @@ function FileHistoryCard({ history, expanded, onToggle }: { history: FileHistory
       >
         <FileTypeBadge type={history.fileType} />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-white truncate">{history.filename}</p>
-          <p className="text-xs text-gray-500 mono mt-0.5">
-            {history.dnaRecordId.slice(0, 16)}� · {history.events.length} events
+          <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{history.filename}</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {history.events.length} {history.events.length === 1 ? 'event' : 'events'}
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
           <div className="flex items-center gap-1">
             {history.events.some(e => e.type === 'VAULT_STORED') && (
-              <Badge variant="success">Vaulted</Badge>
+              <Badge variant="success">Protected</Badge>
             )}
             {history.events.some(e => e.type === 'COMPARED') && (
               <Badge variant="info">Compared</Badge>
@@ -346,6 +346,26 @@ function FileHistoryCard({ history, expanded, onToggle }: { history: FileHistory
           <span className="text-xs text-gray-500">
             {formatDistanceToNow(new Date(history.lastActivity), { addSuffix: true })}
           </span>
+          {history.vaultId && (
+            <span
+              role="link"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/vault?id=${encodeURIComponent(history.vaultId!)}`);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  navigate(`/vault?id=${encodeURIComponent(history.vaultId!)}`);
+                }
+              }}
+              className="text-xs font-semibold text-dna-600 dark:text-blue-300 hover:underline"
+            >
+              Open asset
+            </span>
+          )}
           {expanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
         </div>
       </button>
@@ -372,8 +392,8 @@ function FileHistoryCard({ history, expanded, onToggle }: { history: FileHistory
                   <div className="flex-1 min-w-0 pb-4">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-white">{event.title}</p>
-                        <p className="text-xs text-gray-400 mt-0.5">{event.detail}</p>
+                        <p className="text-sm font-semibold text-slate-900 dark:text-white">{event.title}</p>
+                        <p className="text-xs text-slate-500 dark:text-gray-400 mt-0.5">{event.detail}</p>
                       </div>
                       <span className="text-2xs text-gray-600 mono shrink-0 mt-0.5">
                         {format(new Date(event.timestamp), 'MMM d, HH:mm')}
@@ -632,7 +652,7 @@ export function TimelinePage() {
         <div className="stat-grid-4 gap-3">
           {[
             { icon: <Dna size={16} className="text-dna-400" />, label: 'Files Tracked', value: (focusVaultId || focusDnaId ? filtered : histories).length },
-            { icon: <Lock size={16} className="text-success" />, label: 'Files Vaulted', value: (focusVaultId || focusDnaId ? filtered : histories).filter(h => h.vaultId).length },
+            { icon: <Lock size={16} className="text-success" />, label: 'Files stored', value: (focusVaultId || focusDnaId ? filtered : histories).filter(h => h.vaultId).length },
             { icon: <GitCompare size={16} className="text-cyan" />, label: 'Comparisons', value: comparisons.length },
             { icon: <Shield size={16} className="text-purple" />, label: 'Total Events', value: (focusVaultId || focusDnaId ? filtered.reduce((s, h) => s + h.events.length, 0) : totalEvents) },
           ].map(item => (
@@ -720,8 +740,8 @@ export function TimelinePage() {
         <div className="card">
           <EmptyState
             icon={Clock}
-            title="No timeline events"
-            description="Protect New to start building its activity history"
+            title="No activity yet"
+            description="Protect your first asset to start building its history."
           />
         </div>
       ) : (

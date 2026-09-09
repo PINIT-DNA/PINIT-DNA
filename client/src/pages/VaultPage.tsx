@@ -274,7 +274,7 @@ export function VaultPage() {
   };
 
   const handleDelete = async (record: VaultRecord) => {
-    if (!window.confirm(`Remove "${record.originalFileName}" from Vault?`)) return;
+    if (!window.confirm(`Remove "${record.originalFileName}" from My Assets?`)) return;
     const previous = records;
     setDeletingId(record.id);
     // Optimistic UI — remove card + close panel immediately
@@ -353,7 +353,7 @@ export function VaultPage() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div className="min-w-0">
           <p className="text-xs font-medium text-gray-500 mb-1">Protect</p>
-          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Vault</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">My Assets</h1>
           <p className="text-sm text-gray-500 mt-1 max-w-xl">
             All your protected files in one place — Hub uploads and extension captures
           </p>
@@ -510,8 +510,8 @@ export function VaultPage() {
             ) : filtered.length === 0 ? (
               <EmptyState
                 icon={Archive}
-                title="No protected assets yet"
-                description="Protect New to store it here — then share and track who opens it"
+                title="No assets yet"
+                description="Protect your first asset to start building your protected library."
               />
             ) : (
               <div className={cn(
@@ -555,8 +555,8 @@ export function VaultPage() {
                   <td colSpan={8}>
                     <EmptyState
                       icon={Archive}
-                      title="No protected assets yet"
-                      description="Protect New to store it here — then share and track who opens it"
+                      title="No assets yet"
+                      description="Protect your first asset to start building your protected library."
                     />
                   </td>
                 </tr>
@@ -660,7 +660,14 @@ export function VaultPage() {
             record={selected}
             listedOnExchange={Boolean(listedByVault[selected.id])}
             exchangeListingId={listedByVault[selected.id]?.listingId || null}
-            onClose={() => setSelected(null)}
+            onClose={() => {
+              setSelected(null);
+              // Deep links keep ?id= in the URL; leaving it there re-opens this panel.
+              if (focusId && focusId === selected.id) {
+                if (window.history.length > 1) navigate(-1);
+                else navigate('/vault', { replace: true });
+              }
+            }}
             onShare={() => handleShare(selected)}
             onDelete={() => handleDelete(selected)}
             onRenamed={handleRenamed}

@@ -489,7 +489,7 @@ export function VaultExplorerSnapshot({
 
   return (
     <SectionCard
-      title="Vault Explorer"
+      title="My Assets"
       icon={<Archive size={16} className="text-dna-400" />}
       action={
         <Link to="/vault" className="text-2xs text-dna-400 hover:text-dna-300 flex items-center gap-1">
@@ -714,7 +714,7 @@ export function CertificatesSnapshot({ count, recent }: { count: number; recent:
 
 const QUICK_ACTIONS = [
   { to: '/generate', icon: Dna, label: 'Protect New', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
-  { to: '/vault', icon: Upload, label: 'Vault', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
+  { to: '/vault', icon: Upload, label: 'My Assets', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
   { to: BRAND.investigationPath, icon: FileSearch, label: 'Intelligence', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
   { to: '/business/settings', icon: UserPlus, label: 'Invite Member', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
   { to: '/vault', icon: Share2, label: 'Share Asset', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },

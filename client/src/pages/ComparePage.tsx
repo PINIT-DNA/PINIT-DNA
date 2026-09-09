@@ -124,7 +124,7 @@ function AutoMatchIdentityBanner({ autoResult }: { autoResult: Record<string, an
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card border-dna-500/20">
       <div className="flex items-center gap-2 mb-1 flex-wrap">
         <Shield size={16} className="text-dna-400" />
-        <h3 className="text-sm font-semibold text-white">Auto-Matched from Vault</h3>
+        <h3 className="text-sm font-semibold text-white">Auto-matched from My Assets</h3>
         <Badge variant={autoResult.matchConfidence === 'EXACT' ? 'success' : autoResult.matchConfidence === 'HIGH' ? 'dna' : autoResult.probableMatch || autoResult.matchConfidence === 'PROBABLE' ? 'warning' : 'warning'}>
           {autoResult.matchConfidence === 'EXACT'
             ? 'Exact Match'

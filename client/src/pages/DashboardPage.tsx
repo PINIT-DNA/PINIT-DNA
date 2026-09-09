@@ -364,7 +364,7 @@ export function DashboardPage() {
         strong: item.filename,
         detail: `${Math.round(item.similarity)}% similar · ${friendlyMatchLabel(item.matchType)} · found on ${where}`,
         to: '/monitoring',
-        action: 'Investigate',
+        action: 'Review match',
       });
     }
 

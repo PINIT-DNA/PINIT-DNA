@@ -11,7 +11,7 @@ interface ModalProps {
   children: React.ReactNode;
   /** Sticky action bar below the scrollable body (always visible). */
   footer?: React.ReactNode;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
 }
 
 const SIZE = {
@@ -19,6 +19,7 @@ const SIZE = {
   md: 'sm:max-w-lg',
   lg: 'sm:max-w-2xl',
   xl: 'sm:max-w-4xl',
+  '2xl': 'sm:max-w-[1100px]',
 };
 
 export function Modal({ open, onClose, title, children, footer, size = 'md' }: ModalProps) {
@@ -90,7 +91,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: M
             exit={{ opacity: 0, y: 24 }}
             transition={{ duration: 0.18 }}
             className={cn(
-              'relative flex flex-col w-full max-h-[min(92dvh,880px)] sm:max-h-[min(90vh,880px)]',
+              'relative flex flex-col w-full max-h-[min(94dvh,960px)] sm:max-h-[min(92vh,960px)]',
               'bg-bg-card border border-bg-border shadow-2xl overflow-hidden',
               'rounded-t-2xl sm:rounded-2xl',
               SIZE[size],

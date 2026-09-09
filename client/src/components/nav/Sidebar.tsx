@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  LayoutDashboard, Shield, Archive, FileSearch,
+  LayoutDashboard, Shield, FileSearch,
   Award, ChevronDown, Bell,
   Radio, X,
   CreditCard, Settings, Users, Briefcase,
@@ -118,7 +118,6 @@ const PERSONAL_NAV: NavGroup[] = [
     label: 'Protect',
     items: [
       { to: '/generate', icon: Shield, label: 'Protect New' },
-      { to: '/vault', icon: Archive, label: 'Vault' },
       { to: '/vault', icon: FolderKanban, label: 'My Assets' },
     ],
   },
@@ -135,13 +134,14 @@ const PERSONAL_NAV: NavGroup[] = [
       { to: '/reports', icon: FileText, label: 'Evidence', feature: FeatureKey.FEATURE_INVESTIGATION },
     ],
   },
-  {
-    label: 'Share',
-    items: [
-      { to: '/access-intelligence', icon: Share2, label: 'Sharing' },
-      { to: '/certificates', icon: Award, label: 'Certificates' },
-    ],
-  },
+    {
+      label: 'Share',
+      items: [
+        { to: '/access-intelligence', icon: Share2, label: 'Sharing' },
+        { to: '/timeline', icon: Activity, label: 'Asset Activity' },
+        { to: '/certificates', icon: Award, label: 'Credentials' },
+      ],
+    },
 ];
 
 const BUSINESS_NAV: NavGroup[] = [
@@ -151,7 +151,6 @@ const BUSINESS_NAV: NavGroup[] = [
       { to: '/generate', icon: Shield, label: 'Protect New' },
       { to: '/business/clients', icon: Briefcase, label: 'Clients' },
       { to: '/business', icon: FolderKanban, label: 'Campaigns' },
-      { to: '/vault', icon: Archive, label: 'Vault' },
       { to: '/vault', icon: FolderKanban, label: 'My Assets' },
     ],
   },
@@ -176,13 +175,14 @@ const BUSINESS_NAV: NavGroup[] = [
       { to: '/reports', icon: FileText, label: 'Evidence', feature: FeatureKey.FEATURE_INVESTIGATION },
     ],
   },
-  {
-    label: 'Share',
-    items: [
-      { to: '/access-intelligence', icon: Share2, label: 'Sharing' },
-      { to: '/certificates', icon: Award, label: 'Certificates' },
-    ],
-  },
+    {
+      label: 'Share',
+      items: [
+        { to: '/access-intelligence', icon: Share2, label: 'Sharing' },
+        { to: '/timeline', icon: Activity, label: 'Asset Activity' },
+        { to: '/certificates', icon: Award, label: 'Credentials' },
+      ],
+    },
 ];
 
 const ACCOUNT_LINKS: NavItem[] = [

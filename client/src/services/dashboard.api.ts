@@ -638,6 +638,34 @@ export async function listCertificates(): Promise<IssuedCertificate[]> {
   return data.certificates ?? [];
 }
 
+export type HubCredential = {
+  id: string;
+  type: 'CERTIFICATE' | 'AWARD' | 'LICENSE' | 'COURSE' | 'WORKSHOP';
+  title: string;
+  issuer: string;
+  recipientName: string | null;
+  trustState: 'PINIT_VERIFIED' | 'PINIT_ISSUED' | 'SELF_ADDED' | 'SELF_ADDED_EVIDENCE_PROTECTED' | 'COMING_SOON';
+  lifecycleStatus: 'ACTIVE' | 'EXPIRED' | 'REVOKED' | 'ARCHIVED';
+  issuedAt: string | null;
+  expiresAt: string | null;
+  relatedAsset: { id: string; title: string; href: string } | null;
+  source: { type: 'PINIT_CERTIFICATE'; id: string };
+};
+
+export async function listMyHubCredentials(): Promise<{
+  credentials: HubCredential[];
+  counts: { total: number; pinitVerified: number };
+}> {
+  const { data } = await api.get<{
+    credentials?: HubCredential[];
+    counts?: { total: number; pinitVerified: number };
+  }>(`${API_BASE_URL}/credentials/me`);
+  return {
+    credentials: data.credentials ?? [],
+    counts: data.counts ?? { total: 0, pinitVerified: 0 },
+  };
+}
+
 /** Verify a certificate by its certificateId */
 export async function verifyCertificateApi(certificateId: string): Promise<CertVerificationResult> {
   const { data } = await api.get<CertVerificationResult>(`${API_BASE_URL}/certificates/verify/${certificateId}`);

@@ -47,6 +47,7 @@ export interface ShareLinkPreview {
   downloadCount: number;
   isActive: boolean;
   createdAt: string;
+  expiresAt?: string | null;
   accessLogs: Array<{
     country: string | null;
     device: string | null;

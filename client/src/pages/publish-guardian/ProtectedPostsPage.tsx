@@ -288,7 +288,7 @@ export function ProtectedPostsPage() {
                           <Eye size={14} />
                         </Link>
                         {p.vaultId && (
-                          <Link to="/vault" className="btn-ghost btn-icon" title="Vault">
+                          <Link to="/vault" className="btn-ghost btn-icon" title="My Assets">
                             <Archive size={14} />
                           </Link>
                         )}

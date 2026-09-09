@@ -365,7 +365,7 @@ export function GenerationProgress({
             <ol className="space-y-2.5 text-xs text-gray-400">
               <li className="flex gap-2">
                 <Archive size={14} className="text-dna-400 shrink-0 mt-0.5" />
-                <span>Store encrypted original in Vault</span>
+                <span>Store encrypted original in My Assets</span>
               </li>
               <li className="flex gap-2">
                 <Shield size={14} className="text-dna-400 shrink-0 mt-0.5" />

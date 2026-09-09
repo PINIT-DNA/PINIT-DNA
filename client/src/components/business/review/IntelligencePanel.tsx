@@ -287,7 +287,7 @@ export function IntelligencePanel({ campaignId }: { campaignId: string }) {
                   <td className="py-2 pr-3">
                     <span className="inline-flex gap-1">
                       <Dot on={a.protection.dna} title="DNA record" />
-                      <Dot on={a.protection.vault} title="Vault" />
+                      <Dot on={a.protection.vault} title="Asset" />
                       <Dot on={a.protection.certificate} title="Certificate" />
                     </span>
                   </td>

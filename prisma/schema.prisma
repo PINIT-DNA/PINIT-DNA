@@ -492,6 +492,7 @@ model User {
   webauthnCredentials WebAuthnCredential[]
 
   certificates        Certificate[]
+  credentials         Credential[]
   dnaRecords          DnaRecord[]
   localFeatureIndexes LocalFeatureIndex[]
   evidenceRecords     EvidenceRecord[]
@@ -1166,6 +1167,64 @@ model Certificate {
   @@index([vaultId])
   @@index([assetId])
   @@map("certificates")
+}
+
+/// Hub credential projection. Does not own Certificate, Vault, DNA, Asset, or Exchange orders.
+enum CredentialType {
+  CERTIFICATE
+  AWARD
+  LICENSE
+  COURSE
+  WORKSHOP
+}
+
+enum CredentialSourceType {
+  PINIT_CERTIFICATE
+  USER_AWARD
+  EXCHANGE_LICENSE
+  PINIT_CAREER
+  PINIT_BUSINESS
+}
+
+enum CredentialTrustState {
+  PINIT_VERIFIED
+  PINIT_ISSUED
+  SELF_ADDED
+  SELF_ADDED_EVIDENCE_PROTECTED
+  COMING_SOON
+}
+
+enum CredentialLifecycleStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+  ARCHIVED
+}
+
+model Credential {
+  id              String                    @id @default(uuid())
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+  userId          String
+  type            CredentialType
+  sourceType      CredentialSourceType
+  sourceId        String
+  trustState      CredentialTrustState
+  lifecycleStatus CredentialLifecycleStatus @default(ACTIVE)
+  issuedAt        DateTime?
+  expiresAt       DateTime?
+  /// Copied from Certificate.assetId when that relationship already exists. Never invented.
+  assetId         String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceType, sourceId])
+  @@index([userId, type])
+  @@index([userId, createdAt])
+  @@index([lifecycleStatus])
+  @@index([issuedAt])
+  @@index([assetId])
+  @@map("credentials")
 }
 
 model OcrRecord {

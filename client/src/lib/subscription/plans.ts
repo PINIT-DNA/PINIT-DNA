@@ -74,7 +74,7 @@ export const FALLBACK_PLANS: PlanDefinition[] = [
 export const PLAN_HIGHLIGHTS: Record<string, string[]> = {
   FREE: [
     'Full platform access',
-    'Generate DNA & Vault',
+    'Protect files and store originals',
     'Investigation & Access Intelligence',
     'Configurable asset quota',
     '2 GB storage',
@@ -103,7 +103,7 @@ export const COMPARISON_ROWS: Array<{
 }> = [
   { label: 'Protected assets', free: String(SUBSCRIPTION_DEFAULTS.freeAssetLimit), pro: 'Unlimited', enterprise: 'Unlimited' },
   { label: 'Storage', free: '2 GB', pro: '100 GB', enterprise: 'Unlimited' },
-  { label: 'DNA & Vault', free: true, pro: true, enterprise: true },
+  { label: 'My Assets', free: true, pro: true, enterprise: true },
   { label: 'Certificates', free: true, pro: true, enterprise: true },
   { label: 'Investigation', free: true, pro: true, enterprise: true },
   { label: 'View in Timeline', free: true, pro: true, enterprise: true },

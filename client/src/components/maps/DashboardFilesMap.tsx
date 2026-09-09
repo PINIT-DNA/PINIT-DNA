@@ -154,7 +154,7 @@ export function DashboardFilesMap({ points, height, fill, live, onSelectPoint }:
         <div className="text-center px-4">
           <p className="text-xs text-gray-500">No share access locations yet</p>
           <p className="text-2xs text-gray-600 mt-1">
-            Share a file from Vault — when someone opens the link, their location appears here live
+            Share a file from My Assets — when someone opens the link, their location appears here live
           </p>
         </div>
       </div>

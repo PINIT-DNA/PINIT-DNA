@@ -115,7 +115,7 @@ export function AssetDetailPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { label: 'Vault', value: asset.vaultId?.slice(0, 8) || '—' },
+          { label: 'Asset', value: asset.vaultId?.slice(0, 8) || '—' },
           { label: 'DNA', value: asset.dnaId?.slice(0, 8) || '—' },
           { label: 'Certificate', value: asset.certificateId?.slice(0, 12) || '—' },
           { label: 'Monitor', value: asset.monitorStatus },

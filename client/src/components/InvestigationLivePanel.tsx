@@ -125,7 +125,7 @@ export function InvestigationLivePanel({ snapshot, file, previewUrl }: Props) {
               {snapshot.vaultId && (
                 <div className="flex items-center gap-2 min-w-0">
                   <Shield size={12} className="text-gray-500 shrink-0" />
-                  <span className="text-gray-500">Vault</span>
+                  <span className="text-gray-500">Asset</span>
                   <span className="text-white mono">{shortId(snapshot.vaultId)}</span>
                 </div>
               )}

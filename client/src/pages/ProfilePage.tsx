@@ -145,7 +145,7 @@ export function ProfilePage() {
         {stats && (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mt-4">
             <StatMini icon={<Dna size={12} />} label="DNA" value={stats.dnaGenerated} />
-            <StatMini icon={<Archive size={12} />} label="Vault" value={stats.filesProtected} />
+            <StatMini icon={<Archive size={12} />} label="Assets" value={stats.filesProtected} />
             <StatMini icon={<Share2 size={12} />} label="Shares" value={stats.activeShares} />
             <StatMini icon={<Eye size={12} />} label="Access" value={stats.accessEvents} />
             <StatMini icon={<Radio size={12} />} label="Monitor" value={stats.monitoringJobs} />
@@ -374,7 +374,7 @@ function NotificationPreferences({ profile, onUpdate }: { profile: any; onUpdate
   };
 
   const items = [
-    { key: 'notifyVault', label: 'Vault', desc: 'Storage issues, protected downloads, and file events' },
+    { key: 'notifyVault', label: 'My Assets', desc: 'Storage issues, protected downloads, and file events' },
     { key: 'notifyDna', label: 'DNA', desc: 'DNA generated, verification results, and mismatches' },
     { key: 'notifyCertificates', label: 'Certificates', desc: 'Issued, revoked, expired, and validation failures' },
     { key: 'notifyShareAccess', label: 'Secure Share', desc: 'Link views, downloads, forwards, revokes, and expiry' },
@@ -589,7 +589,7 @@ function ActivityTab() {
 
   const typeConfig: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
     DNA_GENERATED: { icon: <Dna size={12} />, color: 'text-dna-400 bg-dna-500/20', label: 'DNA Generated' },
-    VAULT_UPLOAD:  { icon: <Archive size={12} />, color: 'text-green-400 bg-green-500/20', label: 'Vault Upload' },
+    VAULT_UPLOAD:  { icon: <Archive size={12} />, color: 'text-green-400 bg-green-500/20', label: 'Asset saved' },
     SHARE_CREATED: { icon: <Share2 size={12} />, color: 'text-blue-400 bg-blue-500/20', label: 'Share Created' },
     CERT_GENERATED:{ icon: <Award size={12} />, color: 'text-purple-400 bg-purple-500/20', label: 'Certificate Generated' },
     ACCESS_VIEWED: { icon: <Eye size={12} />, color: 'text-yellow-400 bg-yellow-500/20', label: 'File Viewed' },

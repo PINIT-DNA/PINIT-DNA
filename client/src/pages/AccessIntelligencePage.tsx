@@ -378,12 +378,12 @@ export function AccessIntelligencePage() {
             <div className="card text-center py-16">
               <Shield size={40} className="text-gray-500 mx-auto mb-3" />
               <p className="text-sm text-gray-500">
-                {vaultFilter ? 'No activity yet' : 'No share links yet'}
+                {vaultFilter ? 'No activity yet' : 'No shares yet'}
               </p>
               <p className="text-2xs text-gray-500 mt-1">
                 {vaultFilter
                   ? 'Activity will appear here when someone accesses or interacts with your shared asset.'
-                  : 'Go to Vault → Share to create your first tracked link'}
+                  : 'Create a secure link to share an asset.'}
               </p>
             </div>
           ) : (
@@ -493,9 +493,9 @@ export function AccessIntelligencePage() {
           {openFileShares.length === 0 ? (
             <div className="card text-center py-16">
               <Send size={40} className="text-gray-500 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">No shared assets tracked yet</p>
+              <p className="text-sm text-gray-500">No shares yet</p>
               <p className="text-2xs text-gray-500 mt-1">
-                From Vault, use Share File. When someone opens it in Pinit, activity shows up here.
+                Create a secure link to share an asset.
               </p>
             </div>
           ) : (

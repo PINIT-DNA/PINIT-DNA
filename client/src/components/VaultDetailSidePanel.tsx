@@ -933,7 +933,7 @@ export function VaultDetailSidePanel({
                     <dd className="text-gray-900 dark:text-gray-100 text-right">{format(new Date(record.createdAt), 'PPpp')}</dd>
                   </div>
                   <div className="flex justify-between gap-2">
-                    <dt className="text-gray-600 dark:text-gray-300">Vault</dt>
+                    <dt className="text-gray-600 dark:text-gray-300">Asset</dt>
                     <dd className="text-dna-400 mono text-right truncate max-w-[180px]">{record.id.slice(0, 16)}…</dd>
                   </div>
                   {record.location?.status === 'AVAILABLE' && (
@@ -1300,7 +1300,7 @@ export function VaultDetailSidePanel({
             className="w-full flex items-center justify-center gap-2 text-xs text-red-400 hover:text-red-300 py-2 disabled:opacity-60"
           >
             {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-            {deleting ? 'Removing…' : 'Remove from Vault'}
+            {deleting ? 'Removing…' : 'Remove from My Assets'}
           </button>
         </div>
       </div>

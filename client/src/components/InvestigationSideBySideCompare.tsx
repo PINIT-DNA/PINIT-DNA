@@ -258,7 +258,7 @@ export function InvestigationSideBySideCompare({
           meta={[
             { label: 'Original file', value: originalFilename ?? null },
             { label: 'Owner', value: ownerPinitId ?? null },
-            { label: 'Vault ID', value: vaultId ? `${vaultId.slice(0, 8)}…` : null },
+            { label: 'Asset ID', value: vaultId ? `${vaultId.slice(0, 8)}…` : null },
             { label: 'DNA ID', value: dnaRecordId ? `${dnaRecordId.slice(0, 8)}…` : null },
             { label: 'Certificate', value: certificateId ? `${certificateId.slice(0, 12)}…` : null },
           ]}

@@ -581,7 +581,7 @@ export function MonitoringPage() {
           <p className="font-semibold text-amber-200">Online monitoring paused</p>
           <p className="text-xs text-amber-100/70 mt-1">
             YouTube, Reddit, GitHub, and web crawlers are kept off until monitoring is rebuilt and stable.
-            Code is still in the project — not removed. Vault, DNA, share, and tracking keep working as usual.
+            Code is still in the project — not removed. Your assets, sharing, and tracking keep working as usual.
           </p>
         </div>
       )}
@@ -791,7 +791,7 @@ export function MonitoringPage() {
               title={monitoringLive ? 'No files being monitored' : 'Monitoring on hold'}
               description={
                 monitoringLive
-                  ? 'Enroll files to start monitoring them for unauthorized copies'
+                  ? 'Protect an asset, then enroll it here to watch for copies online.'
                   : 'Online crawlers (YouTube · Reddit · web) stay off until the monitoring build is ready. Your protected files and DNA are unaffected.'
               }
               action={

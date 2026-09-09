@@ -1,60 +1,59 @@
 /**
- * PINIT-DNA — Credential registry
+ * PINIT HUB — Credentials
  *
- * Information cards for issued certificates and portfolio credentials.
- * Certificate artwork is shown only in Preview.
+ * Phase 1: Pinit-issued certificates only.
+ * Portfolio awards/certificates are not shown here.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Award, Ban, Plus, RefreshCw,
-} from 'lucide-react';
+import { Award, Ban, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 
-import {
-  listVaultRecords,
-  issueCertificate,
-  listCertificates,
-  revokeCertificate,
-  api,
-} from '../services/dashboard.api';
-import { API_BASE_URL } from '../config/api.config';
+import { listMyHubCredentials, revokeCertificate, type HubCredential } from '../services/dashboard.api';
 import { useAuth } from '../context/AuthContext';
+import { toRootPinitId } from '../lib/pinit-identity';
 import { EmptyState } from '../components/ui/EmptyState';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { Modal } from '../components/ui/Modal';
 import { cn } from '../components/ui/utils';
 import { CredentialPreviewModal } from '../components/certificates/CredentialPreviewModal';
 import { CredentialDetailsModal } from '../components/certificates/CredentialDetailsModal';
-import { AddCredentialModal } from '../components/certificates/AddCredentialModal';
-import { CredentialBadge } from '../components/certificates/CredentialBadge';
-import {
-  KIND_LABEL,
-  buildRegistryCredentials,
-  compactCredentialId,
-  credentialSeal,
-  earliestYear,
-  parsePortfolioHints,
-  registryMetrics,
-  sortCredentials,
-  type CredentialKind,
-  type RegistryCredential,
-} from '../lib/credential-registry';
-import type { IssuedCertificate, VaultRecord } from '../types/dashboard.types';
 
-type FilterTab = 'all' | CredentialKind;
-type SortKey = 'newest' | 'oldest' | 'verified' | 'alpha';
+type FilterTab = 'all' | 'certificate' | 'award' | 'license' | 'course' | 'workshop';
 
 const TABS: Array<{ key: FilterTab; label: string }> = [
   { key: 'all', label: 'All' },
+  { key: 'certificate', label: 'Certificates' },
   { key: 'award', label: 'Awards' },
   { key: 'license', label: 'Licenses' },
   { key: 'course', label: 'Courses' },
   { key: 'workshop', label: 'Workshops' },
-  { key: 'certificate', label: 'Certifications' },
 ];
+
+function trustLabel(state: HubCredential['trustState']): string {
+  if (state === 'PINIT_VERIFIED') return 'Pinit Verified';
+  if (state === 'PINIT_ISSUED') return 'Pinit Issued';
+  if (state === 'SELF_ADDED_EVIDENCE_PROTECTED') return 'Self-added · Evidence protected';
+  if (state === 'SELF_ADDED') return 'Self-added';
+  return 'Coming soon';
+}
+
+function formatIssued(raw: string | null): string {
+  if (!raw) return 'Date not recorded';
+  const parsed = Date.parse(raw);
+  if (Number.isFinite(parsed)) return format(new Date(parsed), 'd MMM yyyy');
+  return raw;
+}
+
+function publicCertId(item: HubCredential): string | null {
+  return item.source?.id || null;
+}
+
+function matchesDeepLink(item: HubCredential, deep: string): boolean {
+  return item.id === deep || item.source.id === deep;
+}
 
 function RevokeDialog({
   certId,
@@ -79,12 +78,12 @@ function RevokeDialog({
   return (
     <Modal open title="Revoke Certificate" onClose={onCancel} size="md">
       <div className="p-1 space-y-5">
-        <p className="text-sm text-gray-400">
-          Revoking <span className="text-white font-medium">{filename}</span> marks credential{' '}
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          Revoking <span className="text-slate-900 dark:text-white font-medium">{filename}</span> marks credential{' '}
           <span className="font-mono text-xs">{certId}</span> as invalid.
         </p>
         <label className="block">
-          <span className="text-xs font-semibold text-gray-300">Revocation reason</span>
+          <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">Revocation reason</span>
           <textarea
             value={reason}
             onChange={(e) => setReason(e.target.value)}
@@ -103,104 +102,81 @@ function RevokeDialog({
   );
 }
 
-function formatIssued(raw: string | null): string {
-  if (!raw) return 'Date not recorded';
-  const parsed = Date.parse(raw);
-  if (Number.isFinite(parsed)) return format(new Date(parsed), 'd MMM yyyy');
-  return raw;
-}
-
 function CredentialCard({
   item,
   onPreview,
   onDetails,
-  onShare,
   onRevoke,
 }: {
-  item: RegistryCredential;
+  item: HubCredential;
   onPreview: () => void;
   onDetails: () => void;
-  onShare: () => void;
   onRevoke: () => void;
 }) {
-  const cert = item.certificate;
-  const isRevoked = cert?.status === 'REVOKED';
-  const seal = credentialSeal(item.human);
-  const credId = compactCredentialId(cert?.certificateId);
+  const isRevoked = item.lifecycleStatus === 'REVOKED';
+  const certId = publicCertId(item);
 
   return (
-    <article className="rounded-xl border border-[#252C38] bg-[#11151D] hover:bg-[#161C27] p-5 flex flex-col gap-4 transition-colors">
+    <article className="rounded-xl border border-slate-200 dark:border-[#252C38] bg-white dark:bg-[#11151D] p-5 flex flex-col gap-4">
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <CredentialBadge human={item.human} size={64} />
-          <div className="min-w-0">
-            {seal.tier && (
-              <p className="text-[10px] tracking-[0.18em] uppercase font-semibold" style={{ color: seal.tier === 'gold' ? '#D9A441' : seal.tier === 'silver' ? '#C5CDD8' : '#C4845A' }}>
-                {seal.headline} · {seal.tier}
-              </p>
-            )}
-            <span className="inline-block mt-1 text-[10px] tracking-[0.14em] uppercase text-[#9AA6B8] border border-[#252C38] rounded-full px-2 py-0.5">
-              {KIND_LABEL[item.kind]}
-            </span>
-          </div>
-        </div>
-        {item.protectedInHub && (
-          <span className="shrink-0 text-[11px] text-[#32D583]">✓ Pinit HUB Protected</span>
-        )}
+        <span className="inline-block text-[10px] tracking-[0.14em] uppercase text-slate-600 dark:text-[#9AA6B8] border border-slate-200 dark:border-[#252C38] rounded-full px-2 py-0.5">
+          Certificate
+        </span>
+        <span className="shrink-0 text-[11px] font-medium text-emerald-700 dark:text-[#32D583]">
+          ✓ {trustLabel(item.trustState)}
+        </span>
       </div>
 
       <div>
-        <h3 className="text-[15px] font-semibold text-[#F5F7FA] leading-snug">{item.title}</h3>
-        <p className="text-[13px] text-[#9AA6B8] mt-1">
-          {KIND_LABEL[item.kind]}
-          {item.issuer ? ` · ${item.issuer}` : ''}
-        </p>
+        <h3 className="text-[15px] font-semibold text-slate-900 dark:text-[#F5F7FA] leading-snug">{item.title}</h3>
+        <p className="text-[13px] text-slate-600 dark:text-[#9AA6B8] mt-1">{item.issuer}</p>
       </div>
 
-      {item.recipientName && (
+      <dl className="border-t border-slate-200 dark:border-[#252C38] pt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[13px]">
         <div>
-          <p className="text-[11px] uppercase tracking-wider text-[#9AA6B8]">Awarded to</p>
-          <p className="text-[14px] text-[#F5F7FA] mt-0.5">{item.recipientName}</p>
+          <dt className="text-slate-500 dark:text-[#9AA6B8] text-[11px]">Issued</dt>
+          <dd className="text-slate-900 dark:text-[#F5F7FA] mt-0.5">{formatIssued(item.issuedAt)}</dd>
         </div>
-      )}
-
-      <dl className="border-t border-[#252C38] pt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[13px]">
         <div>
-          <dt className="text-[#9AA6B8] text-[11px]">Issued</dt>
-          <dd className="text-[#F5F7FA] mt-0.5">{formatIssued(item.issuedAt)}</dd>
+          <dt className="text-slate-500 dark:text-[#9AA6B8] text-[11px]">Status</dt>
+          <dd className="text-slate-900 dark:text-[#F5F7FA] mt-0.5 capitalize">{item.lifecycleStatus.toLowerCase()}</dd>
         </div>
-        {credId && (
-          <div>
-            <dt className="text-[#9AA6B8] text-[11px]">Credential</dt>
-            <dd className="text-[#F5F7FA] mt-0.5 font-mono text-[12px] break-all">{credId}</dd>
-          </div>
-        )}
-        {seal.percent != null && (
-          <div>
-            <dt className="text-[#9AA6B8] text-[11px]">Human</dt>
-            <dd className="text-[#F5F7FA] mt-0.5">{seal.percent}%</dd>
-          </div>
-        )}
       </dl>
 
       {isRevoked && (
         <p className="text-xs text-danger">This Pinit certificate is revoked</p>
       )}
 
-      <div className="flex flex-wrap gap-2 mt-auto">
-        <button type="button" className="btn btn-primary btn-sm" onClick={onPreview}>
+      <div className="mt-auto flex items-center gap-1 overflow-x-auto pb-0.5">
+        <button
+          type="button"
+          className="shrink-0 h-7 min-h-0 px-2 rounded-md bg-[#2f7cf6] text-[10px] font-medium leading-none whitespace-nowrap"
+          style={{ color: '#fff' }}
+          onClick={onPreview}
+        >
           Preview certificate
         </button>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={onDetails}>
+        <button
+          type="button"
+          className="shrink-0 h-7 min-h-0 px-2 rounded-md border border-slate-300 bg-white text-[10px] font-medium text-slate-800 leading-none whitespace-nowrap dark:border-[#2A3040] dark:bg-[#171B24] dark:text-[#F5F7FA]"
+          onClick={onDetails}
+        >
           View verification
         </button>
-        {cert?.certificateId && (
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onShare}>
-            Share credential
-          </button>
+        {item.relatedAsset?.href && (
+          <Link
+            to={item.relatedAsset.href}
+            className="shrink-0 h-7 min-h-0 px-2 rounded-md border border-slate-300 bg-white text-[10px] font-medium text-slate-800 leading-none whitespace-nowrap inline-flex items-center dark:border-[#2A3040] dark:bg-[#171B24] dark:text-[#F5F7FA]"
+          >
+            View protected asset
+          </Link>
         )}
-        {cert?.status === 'ACTIVE' && (
-          <button type="button" className="btn btn-ghost btn-sm text-danger" onClick={onRevoke}>
+        {item.lifecycleStatus === 'ACTIVE' && certId && (
+          <button
+            type="button"
+            className="shrink-0 h-7 min-h-0 px-2 rounded-md text-[10px] font-medium text-danger leading-none whitespace-nowrap"
+            onClick={onRevoke}
+          >
             Revoke
           </button>
         )}
@@ -212,81 +188,55 @@ function CredentialCard({
 export function CertificatesPage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
-  const [vaults, setVaults] = useState<VaultRecord[]>([]);
-  const [items, setItems] = useState<RegistryCredential[]>([]);
+  const [items, setItems] = useState<HubCredential[]>([]);
+  const [counts, setCounts] = useState({ total: 0, pinitVerified: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterTab>('all');
-  const [sort, setSort] = useState<SortKey>('newest');
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [detailsId, setDetailsId] = useState<string | null>(null);
-  const [revokeItem, setRevokeItem] = useState<RegistryCredential | null>(null);
-  const [addOpen, setAddOpen] = useState(false);
+  const [revokeItem, setRevokeItem] = useState<HubCredential | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [vaultRows, certs, portfolioRes] = await Promise.all([
-        listVaultRecords(),
-        listCertificates().catch((): IssuedCertificate[] => []),
-        api.get(`${API_BASE_URL}/portfolio/me`).catch(() => ({ data: null })),
-      ]);
-      setVaults(vaultRows);
-      const hints = parsePortfolioHints(portfolioRes.data);
-      setItems(buildRegistryCredentials({
-        vaults: vaultRows,
-        certificates: certs,
-        hints,
-        recipientName: user?.name || null,
-      }));
+      const result = await listMyHubCredentials();
+      setItems(result.credentials);
+      setCounts(result.counts);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load credentials');
     } finally {
       setLoading(false);
     }
-  }, [user?.name]);
+  }, []);
 
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
     const deep = searchParams.get('id');
     if (!deep || !items.length) return;
-    const match = items.find((i) => i.certificate?.certificateId === deep || i.id === deep);
+    const match = items.find((i) => matchesDeepLink(i, deep));
     if (match) setDetailsId(match.id);
   }, [searchParams, items]);
 
   const filtered = useMemo(() => {
-    const byTab = filter === 'all' ? items : items.filter((i) => i.kind === filter);
-    return sortCredentials(byTab, sort);
-  }, [items, filter, sort]);
+    if (filter === 'all' || filter === 'certificate') return items;
+    return [];
+  }, [items, filter]);
 
-  const metrics = registryMetrics(items);
-  const sinceYear = earliestYear(items);
   const previewItem = items.find((i) => i.id === previewId) ?? null;
   const detailsItem = items.find((i) => i.id === detailsId) ?? null;
-
-  const shareCredential = async (item: RegistryCredential) => {
-    const id = item.certificate?.certificateId;
-    if (!id) { toast.error('No public credential URL until a Pinit certificate is issued'); return; }
-    const url = `${window.location.origin}/verify-certificate?id=${encodeURIComponent(id)}`;
-    await navigator.clipboard.writeText(url);
-    toast.success('Verification link copied');
-  };
 
   const handleRevoke = async (reason: string) => {
     const item = revokeItem;
     setRevokeItem(null);
-    if (!item?.vault) return;
+    const certId = item ? publicCertId(item) : null;
+    if (!certId) return;
     const loadingToast = toast.loading('Processing revocation…');
     try {
-      const issued = item.certificate ?? await issueCertificate(item.vault.dnaRecordId, item.vault.id);
-      const updated = await revokeCertificate(issued.certificateId, reason);
-      setItems((prev) => prev.map((row) => (
-        row.id === item.id || row.vault?.id === item.vault?.id
-          ? { ...row, certificate: updated }
-          : row
-      )));
+      await revokeCertificate(certId, reason);
+      await load();
       toast.dismiss(loadingToast);
       toast.success('Certificate revoked');
     } catch (err) {
@@ -298,123 +248,119 @@ export function CertificatesPage() {
   };
 
   const emptyCopy = () => {
-    if (filter === 'award') return { title: 'No awards added yet.', description: 'Awards you record in Pinit will appear here.' };
-    if (filter === 'license') return { title: 'No licenses added yet.', description: 'Licenses linked to protected documents will appear here.' };
-    if (filter === 'course') return { title: 'No courses added yet.', description: 'Course credentials will appear here.' };
-    if (filter === 'workshop') return { title: 'No workshops added yet.', description: 'Workshop credentials will appear here.' };
-    if (filter === 'certificate') return { title: 'No certificates yet', description: 'Certificates, awards and other professional achievements will appear here.' };
+    if (filter === 'award') {
+      return {
+        title: 'Awards come in the next phase',
+        description: 'You will be able to add achievements and optionally protect their supporting evidence with Pinit.',
+      };
+    }
+    if (filter === 'license') {
+      return {
+        title: 'No Exchange licenses yet',
+        description: 'Licenses from your Pinit Exchange purchases will appear here.',
+      };
+    }
+    if (filter === 'course') {
+      return {
+        title: 'Courses are coming soon',
+        description: 'Learning credentials from Pinit Career will appear here when available.',
+      };
+    }
+    if (filter === 'workshop') {
+      return {
+        title: 'Workshops are coming soon',
+        description: 'Workshop credentials from Pinit Business will appear here.',
+      };
+    }
+    if (filter === 'certificate') {
+      return {
+        title: 'No Pinit certificates yet.',
+        description: 'Certificates issued by Pinit will appear here.',
+      };
+    }
     return {
-      title: 'No credentials have been added yet.',
-      description: 'Certificates, awards and licenses connected to your Pinit identity will appear here.',
+      title: 'No credentials yet.',
+      description: 'Certificates issued by Pinit for your protected assets will appear here.',
     };
   };
 
   return (
-    <div className="page-shell max-w-[1280px] space-y-6 animate-fade-in pb-10">
+    <div className="page-shell max-w-[1600px] space-y-6 animate-fade-in pb-10">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-[#F5F7FA]">Certificates</h1>
-          <p className="text-sm text-[#9AA6B8] mt-1">Credentials, recognitions and licenses connected to your Pinit identity.</p>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Credentials</h1>
+          <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
+            Certificates, awards, licenses and professional achievements connected to your Pinit identity.
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setAddOpen(true)}>
-            <Plus size={14} /> Add credential
-          </button>
-          <button type="button" onClick={() => void load()} disabled={loading} className="btn btn-secondary btn-sm" aria-label="Refresh credentials">
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-          </button>
+        <button type="button" onClick={() => void load()} disabled={loading} className="btn btn-secondary btn-sm" aria-label="Refresh credentials">
+          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="rounded-lg border border-slate-200 dark:border-[#252C38] bg-white dark:bg-[#11151D] px-3 py-2.5 h-16 animate-pulse" />
+          <div className="rounded-lg border border-slate-200 dark:border-[#252C38] bg-white dark:bg-[#11151D] px-3 py-2.5 h-16 animate-pulse" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="rounded-lg border border-slate-200 dark:border-[#252C38] bg-white dark:bg-[#11151D] px-3 py-2.5">
+            <p className="text-[11px] text-slate-500 dark:text-[#9AA6B8]">Total credentials</p>
+            <p className="text-lg font-semibold text-slate-900 dark:text-[#F5F7FA]">{counts.total}</p>
+          </div>
+          <div className="rounded-lg border border-slate-200 dark:border-[#252C38] bg-white dark:bg-[#11151D] px-3 py-2.5">
+            <p className="text-[11px] text-slate-500 dark:text-[#9AA6B8]">Pinit verified</p>
+            <p className="text-lg font-semibold text-slate-900 dark:text-[#F5F7FA]">{counts.pinitVerified}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-1">
+          {TABS.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setFilter(tab.key)}
+              className={cn(
+                'text-xs px-3 py-1.5 rounded-md border transition-colors',
+                filter === tab.key
+                  ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-[#1C2130] dark:border-[#35D6A2]/50 dark:text-[#F5F7FA]'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-[#F5F7FA]',
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {!loading && items.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <div className="rounded-lg border border-[#252C38] bg-[#11151D] px-3 py-2.5">
-            <p className="text-[11px] text-[#9AA6B8]">Credentials</p>
-            <p className="text-lg font-semibold text-[#F5F7FA]">{metrics.total}</p>
-          </div>
-          <div className="rounded-lg border border-[#252C38] bg-[#11151D] px-3 py-2.5">
-            <p className="text-[11px] text-[#9AA6B8]">Human Verified</p>
-            <p className="text-lg font-semibold text-[#F5F7FA]">{metrics.humanVerifiedCount}</p>
-          </div>
-          <div className="rounded-lg border border-[#252C38] bg-[#11151D] px-3 py-2.5">
-            <p className="text-[11px] text-[#9AA6B8]">Protected</p>
-            <p className="text-lg font-semibold text-[#F5F7FA]">{metrics.protectedCount}</p>
-          </div>
-          {sinceYear != null && (
-            <div className="rounded-lg border border-[#252C38] bg-[#11151D] px-3 py-2.5">
-              <p className="text-[11px] text-[#9AA6B8]">Since</p>
-              <p className="text-lg font-semibold text-[#F5F7FA]">{sinceYear}</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {!loading && items.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-1">
-            {TABS.map((tab) => (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setFilter(tab.key)}
-                className={cn(
-                  'text-xs px-3 py-1.5 rounded-md border transition-colors',
-                  filter === tab.key
-                    ? 'bg-[#1C2130] border-[#35D6A2]/50 text-[#F5F7FA]'
-                    : 'border-transparent text-[#A7B0C0] hover:text-white',
-                )}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-          <label className="text-xs text-[#A7B0C0] flex items-center gap-2">
-            <span className="sr-only">Sort credentials</span>
-            <select
-              className="bg-[#171B24] border border-[#2A3040] rounded-md px-2 py-1 text-xs text-[#F5F7FA]"
-              value={sort}
-              onChange={(e) => setSort(e.target.value as SortKey)}
-            >
-              <option value="newest">Newest first</option>
-              <option value="oldest">Oldest first</option>
-              <option value="verified">Most recently verified</option>
-              <option value="alpha">Alphabetical</option>
-            </select>
-          </label>
-        </div>
-      )}
-
       {error ? (
-        <div className="rounded-xl border border-[#2A3040] bg-[#171B24] p-6 text-center">
+        <div className="rounded-xl border border-slate-200 dark:border-[#2A3040] bg-white dark:bg-[#171B24] p-6 text-center">
           <p className="text-danger text-sm mb-3">{error}</p>
           <button type="button" onClick={() => void load()} className="btn btn-secondary btn-sm">
             <RefreshCw size={13} /> Retry
           </button>
         </div>
       ) : loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
         </div>
       ) : filtered.length === 0 ? (
         <EmptyState
-          icon={filter === 'all' ? Award : Ban}
+          icon={filter === 'all' || filter === 'certificate' ? Award : Ban}
           title={emptyCopy().title}
           description={emptyCopy().description}
-          action={(
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => setAddOpen(true)}>
-              <Plus size={14} /> Add credential
-            </button>
-          )}
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           {filtered.map((item) => (
             <CredentialCard
               key={item.id}
               item={item}
               onPreview={() => setPreviewId(item.id)}
               onDetails={() => setDetailsId(item.id)}
-              onShare={() => void shareCredential(item)}
               onRevoke={() => setRevokeItem(item)}
             />
           ))}
@@ -424,40 +370,27 @@ export function CertificatesPage() {
       {previewItem && (
         <CredentialPreviewModal
           item={previewItem}
+          recipientName={user?.name || previewItem.recipientName}
+          recipientPinitId={toRootPinitId(user?.shortId) || user?.shortId || null}
           onClose={() => setPreviewId(null)}
           onViewDetails={() => { setPreviewId(null); setDetailsId(previewItem.id); }}
-          onPrev={(() => {
-            const i = filtered.findIndex((row) => row.id === previewItem.id);
-            if (i <= 0) return undefined;
-            return () => setPreviewId(filtered[i - 1].id);
-          })()}
-          onNext={(() => {
-            const i = filtered.findIndex((row) => row.id === previewItem.id);
-            if (i < 0 || i >= filtered.length - 1) return undefined;
-            return () => setPreviewId(filtered[i + 1].id);
-          })()}
         />
       )}
       {detailsItem && (
         <CredentialDetailsModal
           item={detailsItem}
+          recipientName={user?.name || detailsItem.recipientName}
           onClose={() => setDetailsId(null)}
           onPreview={() => { setDetailsId(null); setPreviewId(detailsItem.id); }}
-          onHumanUpdate={(next) => {
-            setItems((prev) => prev.map((row) => (row.id === next.id ? next : row)));
-          }}
         />
       )}
-      {revokeItem && (
+      {revokeItem && publicCertId(revokeItem) && (
         <RevokeDialog
-          certId={revokeItem.certificate?.certificateId || revokeItem.id}
+          certId={publicCertId(revokeItem)!}
           filename={revokeItem.title}
           onConfirm={(reason) => void handleRevoke(reason)}
           onCancel={() => setRevokeItem(null)}
         />
-      )}
-      {addOpen && (
-        <AddCredentialModal vaults={vaults} onClose={() => setAddOpen(false)} onAdded={() => void load()} />
       )}
     </div>
   );
