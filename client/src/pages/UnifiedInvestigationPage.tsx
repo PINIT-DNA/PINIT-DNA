@@ -612,9 +612,9 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
           <Microscope size={20} className="text-dna-400" />
         </div>
         <div>
-          <h1 className="text-lg font-bold text-white">Investigate a File</h1>
+          <h1 className="text-lg font-bold text-white">Intelligence</h1>
           <p className="text-xs text-gray-500">
-            Find out whether a file is connected to protected work.
+            Find out whether a file is connected to protected work. Results are saved as Evidence.
           </p>
         </div>
       </div>
@@ -1691,7 +1691,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               </p>
             )}
             <p className="text-2xs text-gray-600 mt-3">
-              PDFs are archived to Forensic Reports automatically when an investigation finishes — you do not need to download first.
+              PDFs are archived to Evidence automatically when an investigation finishes — you do not need to download first.
               Evidence ZIP includes PDF reports, JSON artifacts, pipeline logs, and screenshot folder placeholder.
               Legal Evidence Bundle — coming soon.
             </p>

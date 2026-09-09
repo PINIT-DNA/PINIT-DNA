@@ -18,8 +18,8 @@ export function MobileBottomNav({ onOpenMenu }: Props) {
   const tabs = [
     { to: homeTo, icon: HomeIcon, label: 'Home', end: true as const },
     { to: '/generate', icon: Dna, label: 'Protect' },
-    { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Investigate' },
-    { to: '/vault', icon: Archive, label: 'Assets' },
+    { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Intelligence' },
+    { to: '/vault', icon: Archive, label: 'Vault' },
   ];
 
   return (

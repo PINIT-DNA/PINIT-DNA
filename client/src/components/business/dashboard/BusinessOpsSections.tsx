@@ -109,7 +109,7 @@ export function OrgOverviewGrid({
   const cells: Array<{ label: string; value: string | number; to: string }> = [
     { label: 'Protected', value: protectedAssets, to: '/vault' },
     { label: 'DNA generated', value: dnaGenerated, to: '/dna-records' },
-    { label: 'Investigations', value: activeInvestigations, to: BRAND.investigationPath },
+    { label: 'Intelligence', value: activeInvestigations, to: BRAND.investigationPath },
     { label: 'Threat alerts', value: threatAlerts, to: '/monitoring' },
     { label: 'Storage', value: storageLabel, to: '/vault' },
     { label: 'Team', value: teamDisplay, to: '/business/team' },
@@ -437,7 +437,7 @@ export function InvestigationSnapshot({ investigations }: { investigations: Stor
   const recent = investigations.slice(0, 4);
   return (
     <SectionCard
-      title="Unified Investigation"
+      title="Intelligence"
       icon={<FileSearch size={16} className="text-dna-400" />}
       action={
         <Link to={BRAND.investigationPath} className="text-2xs text-dna-400 hover:text-dna-300 flex items-center gap-1">
@@ -650,21 +650,21 @@ export function MonitoringSnapshot({
 export function ReportsSnapshot({ reportCount }: { reportCount: number }) {
   return (
     <SectionCard
-      title="Reports"
+      title="Evidence"
       icon={<BarChart2 size={16} className="text-dna-400" />}
       action={
         <Link to="/reports" className="text-2xs text-dna-400 hover:text-dna-300 flex items-center gap-1">
-          All reports <ChevronRight size={12} />
+          All evidence <ChevronRight size={12} />
         </Link>
       }
     >
       <div className="flex items-center justify-between gap-4">
         <div>
           <p className="text-2xl font-bold text-white tabular-nums">{reportCount}</p>
-          <p className="text-2xs text-gray-500">Forensic & investigation reports</p>
+          <p className="text-2xs text-gray-500">Intelligence findings and evidence records</p>
         </div>
         <div className="text-2xs text-gray-500 space-y-1">
-          <p>· Investigation summaries</p>
+          <p>· Intelligence summaries</p>
           <p>· Monitoring evidence</p>
           <p>· Certificate exports</p>
           <p>· Download audit trails</p>
@@ -675,7 +675,7 @@ export function ReportsSnapshot({ reportCount }: { reportCount: number }) {
         className="mt-3 inline-flex items-center gap-1 text-xs text-dna-400 hover:text-dna-300"
       >
         <FileText size={14} />
-        View organization reports
+        View organization evidence
       </Link>
     </SectionCard>
   );
@@ -713,13 +713,13 @@ export function CertificatesSnapshot({ count, recent }: { count: number; recent:
 // ─── 11. Quick Actions ────────────────────────────────────────────────────────
 
 const QUICK_ACTIONS = [
-  { to: '/generate', icon: Dna, label: 'Generate DNA', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
-  { to: '/generate', icon: Upload, label: 'Upload Asset', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
-  { to: BRAND.investigationPath, icon: FileSearch, label: 'Start Investigation', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
+  { to: '/generate', icon: Dna, label: 'Protect New', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
+  { to: '/vault', icon: Upload, label: 'Vault', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
+  { to: BRAND.investigationPath, icon: FileSearch, label: 'Intelligence', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
   { to: '/business/settings', icon: UserPlus, label: 'Invite Member', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
   { to: '/vault', icon: Share2, label: 'Share Asset', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
   { to: '/certificates', icon: Award, label: 'Generate Certificate', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
-  { to: '/monitoring', icon: Radio, label: 'Run Monitoring', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
+  { to: '/monitoring', icon: Radio, label: 'Monitoring', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
 ] as const;
 
 export function QuickActionsBar() {

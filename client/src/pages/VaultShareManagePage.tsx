@@ -190,7 +190,7 @@ export function VaultShareManagePage() {
       <div className="page-shell animate-fade-in space-y-4">
         <p className="text-sm text-danger">{error}</p>
         <Link to="/vault" className="btn btn-secondary btn-sm inline-flex">
-          <ArrowLeft size={14} /> Back to My Assets
+          <ArrowLeft size={14} /> Back to Vault
         </Link>
       </div>
     );
@@ -201,7 +201,7 @@ export function VaultShareManagePage() {
       <nav className="flex flex-wrap items-center gap-1.5 text-2xs text-gray-500">
         <span className="text-gray-400">{BRAND.name}</span>
         <ChevronRight size={10} />
-        <Link to="/vault" className="hover:text-white transition-colors">My Assets</Link>
+        <Link to="/vault" className="hover:text-white transition-colors">Vault</Link>
         <ChevronRight size={10} />
         <Link
           to={`/vault/assets/${assetId}/share`}

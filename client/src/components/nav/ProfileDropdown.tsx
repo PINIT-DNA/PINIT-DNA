@@ -101,7 +101,7 @@ export function ProfileDropdown() {
 
           {/* Menu */}
           <div className="py-1">
-            <MenuItem icon={<User size={14} />} label="Account" onClick={() => go('/profile?tab=profile')} />
+            <MenuItem icon={<User size={14} />} label="Profile" onClick={() => go('/profile?tab=profile')} />
             <MenuItem icon={<Briefcase size={14} />} label="Portfolio" onClick={() => go('/profile?tab=portfolio')} />
             <MenuItem icon={<Shield size={14} />} label="Security" onClick={() => go('/profile?tab=security')} />
             <MenuItem icon={<Bell size={14} />} label="Notifications" onClick={() => go('/profile?tab=notifications')} />

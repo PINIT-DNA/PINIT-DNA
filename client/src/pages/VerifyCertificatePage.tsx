@@ -71,7 +71,7 @@ async function verifyInputs(
       const res = await getVaultRecord(vaultId.trim());
       vaultRecord = res;
       checks.push({
-        label: 'Stored in My Assets',
+        label: 'Stored in Vault',
         passed: true,
         detail: 'Protected file found in storage',
       });

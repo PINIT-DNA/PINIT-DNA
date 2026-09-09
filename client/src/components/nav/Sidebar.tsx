@@ -1,11 +1,12 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   LayoutDashboard, Shield, Archive, FileSearch,
-  Award, ChevronRight, Bell,
+  Award, ChevronDown, Bell,
   Radio, X,
   CreditCard, Settings, Users, Briefcase,
   HelpCircle, FolderKanban, ClipboardCheck, Activity,
+  User, Share2, FileText,
 } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { useAuth } from '../../context/AuthContext';
@@ -98,18 +99,27 @@ type NavItem = {
   feature?: string;
 };
 
-const PERSONAL_NAV: Array<{ label: string; items: NavItem[] }> = [
-  {
-    label: 'Core',
-    items: [
-      { to: '/', icon: LayoutDashboard, label: 'Home', end: true },
-    ],
-  },
+type NavGroup = {
+  label: string;
+  items: NavItem[];
+};
+
+const GROUP_ICON: Record<string, typeof LayoutDashboard> = {
+  Protect: Shield,
+  Watch: Radio,
+  Intelligence: FileSearch,
+  Share: Share2,
+  Work: Briefcase,
+  Account: User,
+};
+
+const PERSONAL_NAV: NavGroup[] = [
   {
     label: 'Protect',
     items: [
       { to: '/generate', icon: Shield, label: 'Protect New' },
-      { to: '/vault', icon: Archive, label: 'My Assets' },
+      { to: '/vault', icon: Archive, label: 'Vault' },
+      { to: '/vault', icon: FolderKanban, label: 'My Assets' },
     ],
   },
   {
@@ -119,33 +129,30 @@ const PERSONAL_NAV: Array<{ label: string; items: NavItem[] }> = [
     ],
   },
   {
-    label: 'Investigate',
+    label: 'Intelligence',
     items: [
-      { to: BRAND.investigationPath, icon: FileSearch, label: 'Investigate a File', feature: FeatureKey.FEATURE_INVESTIGATION },
-      { to: '/reports', icon: Shield, label: 'Reports', feature: FeatureKey.FEATURE_INVESTIGATION },
+      { to: BRAND.investigationPath, icon: FileSearch, label: 'Intelligence', feature: FeatureKey.FEATURE_INVESTIGATION },
+      { to: '/reports', icon: FileText, label: 'Evidence', feature: FeatureKey.FEATURE_INVESTIGATION },
     ],
   },
   {
     label: 'Share',
     items: [
+      { to: '/access-intelligence', icon: Share2, label: 'Sharing' },
       { to: '/certificates', icon: Award, label: 'Certificates' },
     ],
   },
 ];
 
-const BUSINESS_NAV: Array<{ label: string; items: NavItem[] }> = [
-  {
-    label: 'Core',
-    items: [
-      { to: '/business', icon: LayoutDashboard, label: 'Home', end: true },
-    ],
-  },
+const BUSINESS_NAV: NavGroup[] = [
   {
     label: 'Protect',
     items: [
+      { to: '/generate', icon: Shield, label: 'Protect New' },
       { to: '/business/clients', icon: Briefcase, label: 'Clients' },
       { to: '/business', icon: FolderKanban, label: 'Campaigns' },
-      { to: '/vault', icon: Archive, label: 'My Assets' },
+      { to: '/vault', icon: Archive, label: 'Vault' },
+      { to: '/vault', icon: FolderKanban, label: 'My Assets' },
     ],
   },
   {
@@ -157,17 +164,31 @@ const BUSINESS_NAV: Array<{ label: string; items: NavItem[] }> = [
     ],
   },
   {
-    label: 'Investigate',
+    label: 'Watch',
     items: [
-      { to: BRAND.investigationPath, icon: FileSearch, label: 'Investigate a File', feature: FeatureKey.FEATURE_INVESTIGATION },
-      { to: '/reports', icon: Shield, label: 'Reports', feature: FeatureKey.FEATURE_INVESTIGATION },
       { to: '/monitoring', icon: Radio, label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },
+    ],
+  },
+  {
+    label: 'Intelligence',
+    items: [
+      { to: BRAND.investigationPath, icon: FileSearch, label: 'Intelligence', feature: FeatureKey.FEATURE_INVESTIGATION },
+      { to: '/reports', icon: FileText, label: 'Evidence', feature: FeatureKey.FEATURE_INVESTIGATION },
+    ],
+  },
+  {
+    label: 'Share',
+    items: [
+      { to: '/access-intelligence', icon: Share2, label: 'Sharing' },
+      { to: '/certificates', icon: Award, label: 'Certificates' },
     ],
   },
 ];
 
 const ACCOUNT_LINKS: NavItem[] = [
-  { to: '/profile', icon: Settings, label: 'Settings' },
+  { to: '/profile', icon: User, label: 'Profile' },
+  { to: '/profile?tab=portfolio', icon: Briefcase, label: 'Portfolio' },
+  { to: '/profile?tab=settings', icon: Settings, label: 'Settings' },
   { to: '/profile?tab=notifications', icon: Bell, label: 'Notifications' },
   { to: '/upgrade', icon: Award, label: 'Plans' },
   { to: '/subscription', icon: CreditCard, label: 'Billing' },
@@ -190,11 +211,16 @@ function navActive(to: string, pathname: string, search: string, end?: boolean) 
     }
     return true;
   }
-  if (path === '/profile') {
-    return pathname === '/profile' && new URLSearchParams(search).get('tab') !== 'notifications';
+  if (path === '/profile' && !query) {
+    const tab = new URLSearchParams(search).get('tab');
+    return pathname === '/profile' && tab !== 'notifications' && tab !== 'settings' && tab !== 'portfolio';
   }
   if (end) return pathname === path;
   return pathname === path || pathname.startsWith(`${path}/`);
+}
+
+function groupHasActive(items: NavItem[], pathname: string, search: string) {
+  return items.some((item) => navActive(item.to, pathname, search, item.end));
 }
 
 export function Sidebar({ open = false, onClose }: SidebarProps) {
@@ -202,11 +228,35 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   const { subscription } = useSubscription();
   const { isBusinessShell } = useAccountViewMode();
   const location = useLocation();
+  const homeTo = isBusinessShell ? '/business' : '/';
+  const homeActive = navActive(homeTo, location.pathname, location.search, true);
 
-  const navGroups = useMemo(
-    () => (isBusinessShell ? BUSINESS_NAV : PERSONAL_NAV),
+  const navGroups = useMemo<NavGroup[]>(
+    () => [
+      ...(isBusinessShell ? BUSINESS_NAV : PERSONAL_NAV),
+      { label: 'Account', items: ACCOUNT_LINKS },
+    ],
     [isBusinessShell],
   );
+
+  const activeGroupLabel = useMemo(
+    () => navGroups.find((group) => groupHasActive(group.items, location.pathname, location.search))?.label ?? null,
+    [navGroups, location.pathname, location.search],
+  );
+
+  const [openGroup, setOpenGroup] = useState<string | null>(homeActive ? null : activeGroupLabel);
+  const routeKey = `${location.pathname}${location.search}`;
+  const lastRouteKey = useRef(routeKey);
+
+  useEffect(() => {
+    if (lastRouteKey.current === routeKey) return;
+    lastRouteKey.current = routeKey;
+    if (homeActive) {
+      setOpenGroup(null);
+      return;
+    }
+    if (activeGroupLabel) setOpenGroup(activeGroupLabel);
+  }, [routeKey, activeGroupLabel, homeActive]);
 
   return (
     <aside
@@ -238,87 +288,103 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         <WorkspaceSwitcher />
       </div>
 
-      <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-4">
-        {navGroups.map((group) => (
-          <div key={group.label}>
-            <p className="text-2xs font-bold uppercase tracking-widest px-2 mb-1 text-slate-400">
-              {group.label}
-            </p>
-            <ul className="space-y-0.5">
-              {group.items.map(({ to, icon: Icon, label, end }, idx) => (
-                <li key={`${group.label}-${label}-${idx}`}>
-                  <NavLink
-                    to={to}
-                    end={end}
-                    onClick={onClose}
-                    className={() => {
-                      const isActive = navActive(to, location.pathname, location.search, end);
-                      return cn(
-                        'group flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-colors duration-150',
-                        'focus:outline-none focus-visible:ring-2 focus-visible:ring-dna-500',
-                        isActive
-                          ? 'bg-dna-50 text-dna-700 border border-dna-100'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent',
-                      );
-                    }}
-                  >
-                    {() => {
-                      const isActive = navActive(to, location.pathname, location.search, end);
-                      return (
-                      <>
-                        <Icon size={15} className={cn('shrink-0', isActive ? 'text-dna-600' : 'text-slate-400 group-hover:text-dna-600')} />
-                        <span className="flex-1 text-[13px]">{label}</span>
-                        {isActive && <ChevronRight size={11} className="text-dna-500 shrink-0" aria-hidden />}
-                      </>
-                      );
-                    }}
-                  </NavLink>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+      <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-1">
+        <p className="px-3 pt-1 pb-1 text-[10px] font-semibold tracking-[0.14em] uppercase text-slate-400">Core</p>
+        <NavLink
+          to={homeTo}
+          end
+          onClick={() => {
+            setOpenGroup(null);
+            onClose?.();
+          }}
+          className={() =>
+            cn(
+              'group flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-colors',
+              'focus:outline-none focus-visible:ring-2 focus-visible:ring-dna-500',
+              homeActive
+                ? 'bg-dna-50 text-dna-700 border border-dna-100'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent',
+            )
+          }
+        >
+          <LayoutDashboard size={15} className={cn('shrink-0', homeActive ? 'text-dna-600' : 'text-slate-400')} />
+          <span className="text-[13px]">Home</span>
+        </NavLink>
+        {navGroups.map((group) => {
+          const GroupIcon = GROUP_ICON[group.label] ?? LayoutDashboard;
+          const isOpen = openGroup === group.label;
+          const childActive = groupHasActive(group.items, location.pathname, location.search);
+          const panelId = `sidebar-${group.label.toLowerCase()}-links`;
 
-        <div>
-          <p className="text-2xs font-bold uppercase tracking-widest px-2 mb-1 text-slate-400">Account</p>
-          <ul className="space-y-0.5">
-            {ACCOUNT_LINKS.map(({ to, icon: Icon, label }) => (
-              <li key={to}>
-                  <NavLink
-                  to={to}
-                  onClick={onClose}
-                  className={() => {
-                    const isActive = navActive(to, location.pathname, location.search);
-                    return cn(
-                      'group flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-colors',
-                      'focus:outline-none focus-visible:ring-2 focus-visible:ring-dna-500',
-                      isActive
-                        ? 'bg-dna-50 text-dna-700 border border-dna-100'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent',
-                    );
-                  }}
-                >
-                  <Icon size={15} className="text-slate-400" />
-                  <span className="text-[13px]">{label}</span>
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-        </div>
+          return (
+            <div key={group.label}>
+              <button
+                type="button"
+                onClick={() => setOpenGroup((current) => (current === group.label ? null : group.label))}
+                aria-expanded={isOpen}
+                aria-controls={panelId}
+                className={cn(
+                  'w-full group flex items-center gap-3 px-3 py-2 rounded-xl transition-colors',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-dna-500',
+                  isOpen || childActive
+                    ? 'text-slate-900 dark:text-slate-100'
+                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-100',
+                )}
+              >
+                <GroupIcon size={15} className={cn('shrink-0', isOpen || childActive ? 'text-dna-600' : 'text-slate-400')} />
+                <span className="flex-1 text-left text-[11px] font-semibold tracking-[0.12em] uppercase">{group.label}</span>
+                <ChevronDown
+                  size={14}
+                  className={cn(
+                    'shrink-0 text-slate-400 transition-transform duration-150',
+                    isOpen && 'rotate-180',
+                  )}
+                  aria-hidden
+                />
+              </button>
+              {isOpen && (
+                <ul id={panelId} className="mt-0.5 ml-3 pl-3 border-l border-slate-200/70 dark:border-white/10 space-y-0.5">
+                  {group.items.map(({ to, icon: Icon, label, end }, idx) => (
+                    <li key={`${group.label}-${label}-${idx}`}>
+                      <NavLink
+                        to={to}
+                        end={end}
+                        onClick={onClose}
+                        className={() => {
+                          const isActive = navActive(to, location.pathname, location.search, end);
+                          return cn(
+                            'group flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-colors',
+                            'focus:outline-none focus-visible:ring-2 focus-visible:ring-dna-500',
+                            isActive
+                              ? 'bg-dna-50 text-dna-700 border border-dna-100'
+                              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent',
+                          );
+                        }}
+                      >
+                        <Icon size={15} className="text-slate-400" />
+                        <span className="text-[13px]">{label}</span>
+                      </NavLink>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        })}
       </nav>
 
-      <div className="shrink-0 p-3 border-t border-slate-100 space-y-2">
+      <div className="shrink-0 p-3 border-t border-slate-200/80 dark:border-white/10 space-y-2">
         {user && (
-          <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
-            <p className="text-2xs text-slate-400 font-medium">
-              {isBusinessShell ? 'Business workspace' : 'Personal workspace'}
+          <div className="rounded-xl px-3 py-2">
+            <p className="text-[12px] text-slate-500 font-medium">
+              {isBusinessShell ? 'Business' : 'Personal'}
             </p>
             {subscription && (
-              <p className="text-2xs text-slate-500 mt-0.5">{subscription.planName} plan</p>
+              <p className="text-[12px] text-slate-500 mt-0.5">{subscription.planName} plan</p>
             )}
           </div>
         )}
-        <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+        <div className="rounded-xl px-3 py-2">
           <BackendStatus />
         </div>
       </div>

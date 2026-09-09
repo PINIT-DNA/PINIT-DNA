@@ -432,7 +432,7 @@ function InvestigationDetailModal({
               try {
                 await downloadInvestigationReportPdf(report as unknown as InvestigationReportExport);
                 toast.dismiss();
-                toast.success('PDF downloaded & saved to Forensic Reports');
+                toast.success('PDF downloaded & saved to Evidence');
                 void reloadArtifacts();
               } catch {
                 toast.dismiss();
@@ -479,9 +479,9 @@ export function ReportsPage() {
     <div className="page-shell space-y-5 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white">Forensic Reports</h1>
+          <h1 className="text-xl font-bold text-white">Evidence</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            Unified investigations, DNA comparisons, and archived PDF/ZIP exports
+            Intelligence findings, comparisons, and archived PDF/ZIP exports
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -517,12 +517,12 @@ export function ReportsPage() {
         <div className="card">
           <EmptyState
             icon={Shield}
-            title="No forensic reports yet"
-            description="Run a unified investigation or DNA comparison to generate a forensic report"
+            title="No evidence yet"
+            description="Run Intelligence or a file comparison to generate evidence you can reopen here"
             action={
               <div className="flex gap-2">
                 <Link to={BRAND.investigationPath} className="btn btn-primary btn-sm">
-                  <Shield size={14} /> Start Investigation
+                  <Shield size={14} /> Open Intelligence
                 </Link>
                 <Link to="/compare" className="btn btn-secondary btn-sm">
                   <GitCompare size={14} /> Compare DNA

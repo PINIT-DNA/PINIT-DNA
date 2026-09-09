@@ -313,7 +313,7 @@ export function CampaignWorkspacePage() {
       {tab === 'sharing' && (
         <SectionCard title="Sharing" icon={Share2}>
           {!assets || assets.length === 0 ? (
-            <EmptyHint text="Protect New into this campaign first — then share it from My Assets with full tracking." />
+            <EmptyHint text="Protect New into this campaign first — then share it from Vault with full tracking." />
           ) : (
             <div className="space-y-3">
               <p className="text-xs text-gray-400">

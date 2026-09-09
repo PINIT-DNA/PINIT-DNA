@@ -16,7 +16,7 @@
     width: 100%;
     max-width: 100%;
     overflow-x: hidden;
-    background-color: #eef2f7;
+    background-color: #f6f7fb;
     background-image: none;
     color: #0f172a;
     color-scheme: light;
@@ -34,7 +34,7 @@
   ::-webkit-scrollbar-thumb  { background: #94a3b8; border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: #64748b; }
 
-  h1,h2,h3,h4,h5,h6 { font-weight: 700; letter-spacing: -0.02em; color: #020617; }
+  h1,h2,h3,h4,h5,h6 { font-weight: 600; letter-spacing: -0.025em; color: #0b1b33; }
 
   /* Light remaps — darker fonts for readability */
   .text-white   { color: #020617 !important; }
@@ -98,7 +98,7 @@
 
   /* ── Dark — layered premium SaaS (not pure black) ───────────────────────── */
   html.dark, html.dark body, html.dark #root {
-    background-color: #0F1117;
+    background-color: #0B111A;
     background-image: none;
     color: #F5F7FA;
     color-scheme: dark;
@@ -125,11 +125,11 @@
   html.dark .hover\:text-white:hover { color: #ffffff !important; }
   html.dark .hover\:bg-white\/5:hover { background-color: rgba(255,255,255,0.05) !important; }
 
-  html.dark .bg-bg-base     { background-color: #0F1117 !important; }
-  html.dark .bg-bg-surface  { background-color: #12151C !important; }
-  html.dark .bg-bg-card     { background-color: #171B24 !important; }
-  html.dark .bg-bg-elevated { background-color: #1C2130 !important; }
-  html.dark .bg-bg-muted    { background-color: #1C2130 !important; }
+  html.dark .bg-bg-base     { background-color: #0B111A !important; }
+  html.dark .bg-bg-surface  { background-color: #101722 !important; }
+  html.dark .bg-bg-card     { background-color: #151C28 !important; }
+  html.dark .bg-bg-elevated { background-color: #1A2332 !important; }
+  html.dark .bg-bg-muted    { background-color: #1A2332 !important; }
   html.dark .border-bg-border { border-color: #2A3040 !important; }
   /* `bg-bg-base/70` etc. are different classes — they kept the light #eef2f7 fill
      so Overview/Details text (forced light) sat on a pale box and vanished. */
@@ -138,7 +138,7 @@
   html.dark [class*="bg-bg-card/"] { background-color: rgba(23, 27, 36, 0.92) !important; }
   html.dark [class*="bg-bg-elevated/"] { background-color: rgba(28, 33, 48, 0.92) !important; }
   html.dark [class*="bg-bg-muted/"] { background-color: rgba(28, 33, 48, 0.92) !important; }
-  html.dark .hub-header { background-color: #141821 !important; }
+  html.dark .hub-header { background-color: #121A26 !important; }
 
   html.dark .btn-primary,
   html.dark .btn-primary *,
@@ -240,8 +240,8 @@
   html.dark .border-dna-100 { border-color: rgba(47,124,246,0.28) !important; }
   html.dark .border-slate-100,
   html.dark .border-slate-200 { border-color: #2A3040 !important; }
-  html.dark .hub-sidebar { background-color: #12151C !important; }
-  html.dark .hub-header { background-color: #141821 !important; }
+  html.dark .hub-sidebar { background-color: #101722 !important; }
+  html.dark .hub-header { background-color: #121A26 !important; }
   /* Prevent light-mode bg-card token (#fff) leaking into dark gradients */
   html.dark .from-bg-card {
     --tw-gradient-from: #171B24 var(--tw-gradient-from-position) !important;
@@ -272,12 +272,14 @@
 
   /* ── Cards ──────────────────────────────────────────────────────────────── */
   .card {
-    @apply bg-bg-card border border-bg-border rounded-2xl p-6;
-    box-shadow: 0 1px 2px rgba(17,24,39,0.03);
+    @apply bg-bg-card rounded-2xl p-6;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
   }
   .card-sm {
-    @apply bg-bg-card border border-bg-border rounded-2xl p-4;
-    box-shadow: 0 1px 2px rgba(17,24,39,0.03);
+    @apply bg-bg-card rounded-2xl p-4;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.035);
   }
   .card-hover {
     @apply card transition-all duration-200 hover:border-dna-400/35 cursor-pointer;
@@ -446,7 +448,7 @@
     opacity: 0.7;
   }
   .btn-secondary {
-    @apply btn bg-white hover:bg-bg-elevated border border-bg-border text-gray-700
+    @apply btn bg-white hover:bg-bg-elevated border border-slate-300 text-gray-800
            hover:text-dna-600 hover:border-dna-400/40 px-4 py-2.5 focus:ring-dna-400/40;
     box-shadow: none;
     transition: transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
@@ -687,6 +689,140 @@
     background-image: linear-gradient(90deg, #e8eaee 0%, #f5f6f8 40%, #e8eaee 80%);
     animation: shimmer 1.5s infinite linear;
   }
+
+  /* Home workspace — presentation tokens only */
+  .hub-home {
+    font-family: Inter, system-ui, sans-serif;
+  }
+  .hub-home-kicker {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #475569;
+  }
+  .hub-home-hero-title {
+    font-size: clamp(1.75rem, 2.4vw, 2.25rem);
+    line-height: 1.15;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: #0b1b33;
+  }
+  .hub-home-lede {
+    font-size: 15px;
+    line-height: 1.55;
+    font-weight: 400;
+    color: #475569;
+    max-width: 36rem;
+  }
+  .hub-home-section {
+    font-size: 18px;
+    line-height: 1.3;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: #0b1b33;
+  }
+  .hub-home-card-title {
+    font-size: 15px;
+    line-height: 1.35;
+    font-weight: 700;
+    color: #0b1b33;
+  }
+  .hub-home-body {
+    font-size: 14px;
+    line-height: 1.5;
+    font-weight: 400;
+    color: #1e293b;
+  }
+  .hub-home-meta {
+    font-size: 13px;
+    line-height: 1.45;
+    font-weight: 500;
+    color: #475569;
+  }
+  .hub-home-metric {
+    font-size: 28px;
+    line-height: 1.1;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: #0b1b33;
+  }
+  .hub-home-panel {
+    background: #ffffff;
+    border-radius: 1.25rem;
+    border: 1px solid #d5dce6;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 28px rgba(15, 23, 42, 0.06);
+  }
+  .hub-home-block {
+    background: #ffffff;
+    border-radius: 1.25rem;
+    border: 1px solid #d5dce6;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    padding: 1.15rem 1.25rem 1.25rem;
+  }
+  .hub-home-stat {
+    border: 1px solid #d5dce6;
+    border-radius: 1rem;
+    background: #f8fafc;
+    padding: 0.7rem 0.85rem;
+  }
+  .hub-home-row {
+    border: 1px solid #d5dce6;
+    border-radius: 0.9rem;
+    background: #ffffff;
+  }
+  .hub-home-link {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1d4ed8;
+  }
+  .hub-home-link:hover {
+    color: #1d4ed8;
+  }
+  .hub-home-link:focus-visible,
+  .hub-home button:focus-visible,
+  .hub-home a:focus-visible {
+    outline: 2px solid #2f7cf6;
+    outline-offset: 2px;
+  }
+}
+
+html.dark .hub-home-kicker,
+html.dark .hub-home-meta {
+  color: #c5d0de !important;
+}
+html.dark .hub-home-hero-title,
+html.dark .hub-home-section,
+html.dark .hub-home-card-title,
+html.dark .hub-home-metric {
+  color: #f7fafc !important;
+}
+html.dark .hub-home-lede,
+html.dark .hub-home-body {
+  color: #e8eef6 !important;
+}
+html.dark .hub-home-panel {
+  background: #151c28 !important;
+  border-color: rgba(148, 163, 184, 0.28) !important;
+  box-shadow: none !important;
+}
+html.dark .hub-home-block,
+html.dark .hub-home-row {
+  background: #151c28 !important;
+  border-color: rgba(148, 163, 184, 0.28) !important;
+}
+html.dark .hub-home-stat {
+  background: #1a2332 !important;
+  border-color: rgba(148, 163, 184, 0.28) !important;
+}
+html.dark .hub-home-link {
+  color: #7eb6ff !important;
+}
+html.dark .hub-home-link:hover {
+  color: #bfdbfe !important;
+}
+html.dark .skeleton {
+  background-image: linear-gradient(90deg, #151c28 0%, #1c2534 40%, #151c28 80%);
 }
 
 /* ── Shimmer keyframe ────────────────────────────────────────────────────────── */

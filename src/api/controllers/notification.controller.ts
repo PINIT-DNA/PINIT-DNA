@@ -33,8 +33,7 @@ export async function getNotifications(req: Request, res: Response, next: NextFu
      *   alerts   ALERT only
      *   (unset)  everything, for the full notification page
      *
-     * Rows written before the class existed are null, and are treated as
-     * NOTIFICATION so nothing that used to appear silently disappears.
+     * Legacy rows with a null class stay in history. They are not badged.
      */
     const view = typeof req.query.view === 'string' ? req.query.view : undefined;
     const classWhere: Prisma.NotificationWhereInput =

@@ -44,12 +44,9 @@ import { platformEvents } from './platform-event.engine';
 
 export type NotificationClass = 'ACTIVITY' | 'NOTIFICATION' | 'ALERT';
 
-/** Bell + unread badge: NOTIFICATION, ALERT, and pre-policy rows (null class). */
+/** Bell + unread badge: persisted NOTIFICATION and ALERT rows only. */
 export const BELL_NOTIFICATION_CLASS_WHERE: Prisma.NotificationWhereInput = {
-  OR: [
-    { notificationClass: { in: ['NOTIFICATION', 'ALERT'] } },
-    { notificationClass: null },
-  ],
+  notificationClass: { in: ['NOTIFICATION', 'ALERT'] },
 };
 
 /** Everything a definition may need. Services pass what applies. */

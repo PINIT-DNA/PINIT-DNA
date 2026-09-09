@@ -110,7 +110,7 @@ export const COMPARISON_ROWS: Array<{
   { label: 'Monitoring & Crawler', free: true, pro: true, enterprise: true },
   { label: 'Access Intelligence', free: true, pro: true, enterprise: true },
   { label: 'Smart Share links', free: true, pro: true, enterprise: true },
-  { label: 'Forensic Reports', free: true, pro: true, enterprise: true },
+  { label: 'Evidence', free: true, pro: true, enterprise: true },
   { label: 'Teams & org workspace', free: `${SUBSCRIPTION_DEFAULTS.businessFreeTeamLimit} admin`, pro: 'Team members', enterprise: 'Unlimited' },
   { label: 'API access', free: false, pro: false, enterprise: true },
   { label: 'Priority support', free: false, pro: false, enterprise: true },

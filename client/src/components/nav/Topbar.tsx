@@ -7,28 +7,28 @@ import { BRAND } from '../../config/brand.config';
 import { useAccountViewMode } from '../../hooks/useAccountViewMode';
 
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
-  '/':                    { title: 'Home', subtitle: 'What needs your attention' },
+  '/':                    { title: 'Home', subtitle: 'Protect, share, and understand your assets' },
   '/business':            { title: 'Home', subtitle: 'Team operations' },
-  '/generate':            { title: 'Protect New Asset', subtitle: 'Upload your file and we’ll create its protected identity' },
-  '/vault':               { title: 'My Assets', subtitle: 'Your protected files — share and track' },
+  '/generate':            { title: 'Protect New', subtitle: 'Upload a file to give it identity, protection, and evidence' },
+  '/vault':               { title: 'Vault', subtitle: 'Your protected files — share and track' },
   '/vault-integrity':     { title: 'Security Check', subtitle: 'Confirm your files are stored safely' },
   '/dna-records':         { title: 'Protected Files', subtitle: 'Files you have protected in Pinit HUB' },
-  '/timeline':            { title: 'Timeline', subtitle: 'Complete chronological history of the asset' },
-  '/reports':             { title: 'Reports', subtitle: 'Investigation and comparison reports' },
+  '/timeline':            { title: 'Asset Timeline', subtitle: 'Complete chronological history of the asset' },
+  '/reports':             { title: 'Evidence', subtitle: 'Investigation findings and comparison reports' },
   '/certificates':        { title: 'Certificates', subtitle: 'Professional credentials and verified achievements' },
   '/verify-certificate':  { title: 'Verify certificate', subtitle: 'Check if a certificate is still valid' },
   '/search':              { title: 'Search', subtitle: 'Find files and activity' },
   '/forensic-diff':       { title: 'Compare files', subtitle: 'See what changed between two files' },
   '/monitoring':          { title: 'Monitoring', subtitle: 'Watch for copies of your files online' },
-  '/protected-posts':     { title: 'My Assets', subtitle: 'Your protected files' },
-  '/assets':              { title: 'My Assets', subtitle: 'Your protected files' },
-  '/access-intelligence': { title: 'Asset Activity', subtitle: 'See who accessed this asset and what happened' },
+  '/protected-posts':     { title: 'Vault', subtitle: 'Your protected files' },
+  '/assets':              { title: 'Vault', subtitle: 'Your protected files' },
+  '/access-intelligence': { title: 'Sharing', subtitle: 'Who opened your links and what they did' },
   '/unmask-requests':     { title: 'Access Requests', subtitle: 'Approve sensitive data reveal requests' },
   '/duplicate-attempts':  { title: 'Duplicate Checks', subtitle: 'When someone tried to re-upload your file' },
-  '/profile':             { title: 'Account', subtitle: 'Your account and preferences' },
+  '/profile':             { title: 'Profile', subtitle: 'Your account, portfolio, and preferences' },
   '/upgrade':             { title: 'Plans', subtitle: 'Choose the plan that fits you' },
   '/subscription':        { title: 'Billing', subtitle: 'Billing and plan details' },
-  [BRAND.investigationPath]: { title: 'Investigate a File', subtitle: 'Find out whether a file is connected to protected work' },
+  [BRAND.investigationPath]: { title: 'Intelligence', subtitle: 'Find out whether a file is connected to protected work' },
 };
 
 interface TopbarProps {
@@ -38,11 +38,12 @@ interface TopbarProps {
 export function Topbar({ onMenu }: TopbarProps) {
   const location = useLocation();
   const { isBusinessShell } = useAccountViewMode();
-  const notificationsOpen = location.pathname === '/profile' && new URLSearchParams(location.search).get('tab') === 'notifications';
-  const portfolioOpen = location.pathname === '/profile' && new URLSearchParams(location.search).get('tab') === 'portfolio';
-  const meta = notificationsOpen
+  const profileTab = location.pathname === '/profile' ? new URLSearchParams(location.search).get('tab') : null;
+  const meta = profileTab === 'notifications'
     ? { title: 'Notifications', subtitle: 'Choose what we notify you about' }
-    : portfolioOpen
+    : profileTab === 'settings'
+    ? { title: 'Settings', subtitle: 'Preferences for your Hub account' }
+    : profileTab === 'portfolio'
     ? { title: 'Portfolio', subtitle: 'Showcase your work and professional story' }
     : (PAGE_META[location.pathname]
     ?? (/^\/vault\/assets\/[^/]+\/shares\//.test(location.pathname)
@@ -52,7 +53,7 @@ export function Topbar({ onMenu }: TopbarProps) {
         : location.pathname.startsWith('/access-intelligence/')
           ? { title: 'Asset Activity', subtitle: 'See who accessed this asset and what happened' }
           : location.pathname.startsWith('/protected-posts/') || location.pathname.startsWith('/assets/')
-            ? { title: 'My Assets', subtitle: 'Your protected files' }
+            ? { title: 'Vault', subtitle: 'Your protected files' }
             : location.pathname.startsWith('/business/clients')
               ? { title: 'Clients', subtitle: 'Campaigns, reviews and deliveries' }
               : location.pathname.startsWith('/business/campaigns')

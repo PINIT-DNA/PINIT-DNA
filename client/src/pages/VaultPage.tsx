@@ -274,7 +274,7 @@ export function VaultPage() {
   };
 
   const handleDelete = async (record: VaultRecord) => {
-    if (!window.confirm(`Remove "${record.originalFileName}" from My Assets?`)) return;
+    if (!window.confirm(`Remove "${record.originalFileName}" from Vault?`)) return;
     const previous = records;
     setDeletingId(record.id);
     // Optimistic UI — remove card + close panel immediately
@@ -352,8 +352,8 @@ export function VaultPage() {
       {/* Header */}
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-medium text-gray-500 mb-1">Library</p>
-          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">My Assets</h1>
+          <p className="text-xs font-medium text-gray-500 mb-1">Protect</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Vault</h1>
           <p className="text-sm text-gray-500 mt-1 max-w-xl">
             All your protected files in one place — Hub uploads and extension captures
           </p>

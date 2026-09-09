@@ -250,7 +250,7 @@ export function AccessIntelligencePage() {
           </p>
           <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
             <Shield size={22} className="text-dna-400" />
-            Asset Activity
+            Sharing
           </h1>
             <p className="text-sm text-gray-500 mt-1">
               See who accessed {vaultFilter || assetFilter ? 'this asset' : 'your assets'} and what happened.
@@ -383,7 +383,7 @@ export function AccessIntelligencePage() {
               <p className="text-2xs text-gray-500 mt-1">
                 {vaultFilter
                   ? 'Activity will appear here when someone accesses or interacts with your shared asset.'
-                  : 'Go to My Assets → Share to create your first tracked link'}
+                  : 'Go to Vault → Share to create your first tracked link'}
               </p>
             </div>
           ) : (
@@ -495,7 +495,7 @@ export function AccessIntelligencePage() {
               <Send size={40} className="text-gray-500 mx-auto mb-3" />
               <p className="text-sm text-gray-500">No shared assets tracked yet</p>
               <p className="text-2xs text-gray-500 mt-1">
-                From My Assets, use Share File. When someone opens it in Pinit, activity shows up here.
+                From Vault, use Share File. When someone opens it in Pinit, activity shows up here.
               </p>
             </div>
           ) : (

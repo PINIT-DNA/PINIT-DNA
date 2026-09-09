@@ -39,20 +39,29 @@ function groupByDay(rows: NotificationItem[]): [string, NotificationItem[]][] {
 export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadCount, setUnreadCount] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+
+  const applyPersistedUnread = (value: unknown) => {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+      setUnreadCount(null);
+      return;
+    }
+    setUnreadCount(Math.floor(value));
+  };
 
   const fetchNotifs = useCallback(() => {
     // view=bell returns NOTIFICATION and ALERT only. Activity belongs in the
     // dashboard timeline and must never raise a badge here.
     api.get(`${API_BASE_URL}/notifications?limit=30&view=bell`).then(r => {
-      const data = r.data as { notifications?: NotificationItem[]; unreadCount?: number };
+      const data = r.data as { notifications?: NotificationItem[]; unreadCount?: number; success?: boolean };
       setNotifications(data.notifications ?? []);
-      setUnreadCount(data.unreadCount ?? 0);
+      applyPersistedUnread(data.unreadCount);
     }).catch((err: unknown) => {
       const code = (err as { response?: { data?: { code?: string } } })?.response?.data?.code;
       if (code === 'BACKEND_OFFLINE') return;
+      setUnreadCount(null);
     });
   }, []);
 
@@ -70,9 +79,7 @@ export function NotificationBell() {
       es.onmessage = (ev) => {
         try {
           const data = JSON.parse(ev.data) as { unreadCount?: number };
-          if (typeof data.unreadCount === 'number') {
-            setUnreadCount(data.unreadCount);
-          }
+          if ('unreadCount' in data) applyPersistedUnread(data.unreadCount);
         } catch { /* ignore */ }
       };
       es.onerror = () => {
@@ -128,14 +135,14 @@ export function NotificationBell() {
   const markRead = async (id: string) => {
     await api.put(`${API_BASE_URL}/notifications/${id}/read`);
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
-    setUnreadCount(prev => Math.max(0, prev - 1));
+    setUnreadCount((prev) => Math.max(0, (prev ?? 0) - 1));
   };
 
   const deleteNotif = async (id: string) => {
     const was = notifications.find(n => n.id === id);
     await api.delete(`${API_BASE_URL}/notifications/${id}`);
     setNotifications(prev => prev.filter(n => n.id !== id));
-    if (was && !was.read) setUnreadCount(prev => Math.max(0, prev - 1));
+    if (was && !was.read) setUnreadCount((prev) => Math.max(0, (prev ?? 0) - 1));
   };
 
   const handleClick = (n: NotificationItem) => {
@@ -151,10 +158,10 @@ export function NotificationBell() {
         className="btn-icon btn-ghost relative"
         aria-label="Notifications"
       >
-        <Bell size={16} className={unreadCount > 0 ? 'text-dna-400' : 'text-gray-400'} />
-        {unreadCount > 0 && (
+        <Bell size={16} className={(unreadCount ?? 0) > 0 ? 'text-dna-400' : 'text-gray-400'} />
+        {(unreadCount ?? 0) > 0 && notifications.length > 0 && (
           <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center animate-pulse">
-            {unreadCount > 99 ? '99+' : unreadCount}
+            {unreadCount! > 99 ? '99+' : unreadCount}
           </span>
         )}
       </button>
@@ -173,7 +180,7 @@ export function NotificationBell() {
               <div className="flex items-center gap-2 min-w-0">
                 <Bell size={14} className="text-dna-400 shrink-0" />
                 <h3 className="text-sm font-semibold text-white">Notifications</h3>
-                {unreadCount > 0 && (
+                {(unreadCount ?? 0) > 0 && (
                   <span className="text-2xs bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-medium shrink-0">
                     {unreadCount} new
                   </span>
@@ -183,8 +190,8 @@ export function NotificationBell() {
                 <X size={12} />
               </button>
             </div>
-            <div className="flex items-center gap-2 mt-2 flex-wrap">
-              {unreadCount > 0 && (
+            {(unreadCount ?? 0) > 0 && (
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
                 <button
                   type="button"
                   onClick={() => void markAllRead()}
@@ -192,15 +199,8 @@ export function NotificationBell() {
                 >
                   <CheckCheck size={10} /> Mark all as read
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => void clearInbox()}
-                className="text-2xs text-gray-300 hover:text-white flex items-center gap-1 px-2 py-1 rounded border border-bg-border hover:bg-bg-elevated transition-colors"
-              >
-                <BellOff size={10} /> Clear all
-              </button>
-            </div>
+              </div>
+            )}
           </div>
 
           <div className="max-h-96 overflow-y-auto">
@@ -273,13 +273,15 @@ export function NotificationBell() {
           </div>
 
             <div className="px-4 py-2 border-t border-bg-border shrink-0 flex items-center justify-center gap-3 flex-wrap">
-              <button
-                type="button"
-                onClick={() => void clearInbox()}
-                className="text-2xs text-gray-400 hover:text-white flex items-center gap-1 transition-colors"
-              >
-                <BellOff size={10} /> Clear all
-              </button>
+              {notifications.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void clearInbox()}
+                  className="text-2xs text-gray-400 hover:text-white flex items-center gap-1 transition-colors"
+                >
+                  <BellOff size={10} /> Clear all
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => { setOpen(false); navigate('/profile?tab=notifications'); }}

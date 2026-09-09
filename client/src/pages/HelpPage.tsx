@@ -15,23 +15,23 @@ const TOPICS = [
   {
     icon: Share2,
     title: 'Share and track access',
-    body: 'From My Assets, create a share link. Views, downloads, copy, screenshot, and reshare attempts are logged for that link.',
+    body: 'From Vault, create a share link. Views, downloads, copy, screenshot, and reshare attempts are logged for that link.',
     to: '/vault',
-    cta: 'My Assets',
+    cta: 'Vault',
   },
   {
     icon: MapPin,
     title: 'See who opened it (map)',
     body: 'Open Asset Activity, then the share. Pins use GPS when the viewer allows location; otherwise Hub shows approximate city from IP.',
     to: '/access-intelligence',
-    cta: 'Asset Activity',
+    cta: 'Sharing',
   },
   {
     icon: Radio,
     title: 'Licensed Exchange files',
-                body: 'Purchases open a Hub share page — never a raw API/JWT URL. Activity for those links appears under Asset Activity for the vault owner.',
+                body: 'Purchases open a Hub share page — never a raw API/JWT URL. Activity for those links appears under Sharing for the vault owner.',
     to: '/access-intelligence',
-    cta: 'Asset Activity',
+    cta: 'Sharing',
   },
 ];
 

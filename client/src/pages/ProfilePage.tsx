@@ -374,16 +374,16 @@ function NotificationPreferences({ profile, onUpdate }: { profile: any; onUpdate
   };
 
   const items = [
-    { key: 'notifyVault', label: 'My Assets', desc: 'Storage issues, protected downloads, and file events' },
+    { key: 'notifyVault', label: 'Vault', desc: 'Storage issues, protected downloads, and file events' },
     { key: 'notifyDna', label: 'DNA', desc: 'DNA generated, verification results, and mismatches' },
     { key: 'notifyCertificates', label: 'Certificates', desc: 'Issued, revoked, expired, and validation failures' },
     { key: 'notifyShareAccess', label: 'Secure Share', desc: 'Link views, downloads, forwards, revokes, and expiry' },
     { key: 'notifyMonitoring', label: 'Monitoring & Crawler', desc: 'Matches, scan completion, and crawler errors' },
     { key: 'notifyRiskAlerts', label: 'AI Detection & Risk', desc: 'Policy blocks, tampering, copy/screenshot attempts' },
-    { key: 'notifyInvestigation', label: 'Investigation', desc: 'Investigation started, completed, and failed' },
+    { key: 'notifyInvestigation', label: 'Intelligence', desc: 'Investigation started, completed, and failed' },
     { key: 'notifyAutomation', label: 'Automation', desc: 'Scheduled scans and automated task completion' },
     { key: 'notifySecurity', label: 'Security', desc: 'Login events, password changes, and session revokes' },
-    { key: 'notifyReports', label: 'Reports', desc: 'Report generated, downloaded, and shared' },
+    { key: 'notifyReports', label: 'Evidence', desc: 'Evidence generated, downloaded, and shared' },
     { key: 'notifySystem', label: 'System', desc: 'Registration, storage warnings, and maintenance notices' },
     { key: 'notifyUpdates', label: 'Product Updates', desc: 'News about Pinit HUB features and improvements' },
   ];
