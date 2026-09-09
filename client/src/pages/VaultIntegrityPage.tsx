@@ -138,13 +138,7 @@ export function VaultIntegrityPage() {
     <div className="page-shell space-y-6 animate-fade-in">
 
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-white">Vault Integrity Monitor</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Verify encrypted files exist on disk and match stored metadata
-          </p>
-        </div>
+      <div className="flex items-center justify-end flex-wrap gap-3">
         <button
           onClick={handleCheck}
           disabled={loading}

@@ -117,7 +117,7 @@ function CredentialCard({
   const certId = publicCertId(item);
 
   return (
-    <article className="rounded-xl border border-slate-200 dark:border-[#252C38] bg-white dark:bg-[#11151D] p-5 flex flex-col gap-4">
+    <article className="h-full rounded-xl border border-slate-200 dark:border-[#252C38] bg-white dark:bg-[#11151D] p-4 flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
         <span className="inline-block text-[10px] tracking-[0.14em] uppercase text-slate-600 dark:text-[#9AA6B8] border border-slate-200 dark:border-[#252C38] rounded-full px-2 py-0.5">
           Certificate
@@ -128,11 +128,11 @@ function CredentialCard({
       </div>
 
       <div>
-        <h3 className="text-[15px] font-semibold text-slate-900 dark:text-[#F5F7FA] leading-snug">{item.title}</h3>
+        <h3 className="text-[15px] font-semibold text-slate-900 dark:text-[#F5F7FA] leading-snug line-clamp-2" title={item.title}>{item.title}</h3>
         <p className="text-[13px] text-slate-600 dark:text-[#9AA6B8] mt-1">{item.issuer}</p>
       </div>
 
-      <dl className="border-t border-slate-200 dark:border-[#252C38] pt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[13px]">
+      <dl className="border-t border-slate-200 dark:border-[#252C38] pt-2.5 grid grid-cols-2 gap-x-4 gap-y-1 text-[13px]">
         <div>
           <dt className="text-slate-500 dark:text-[#9AA6B8] text-[11px]">Issued</dt>
           <dd className="text-slate-900 dark:text-[#F5F7FA] mt-0.5">{formatIssued(item.issuedAt)}</dd>
@@ -147,7 +147,7 @@ function CredentialCard({
         <p className="text-xs text-danger">This Pinit certificate is revoked</p>
       )}
 
-      <div className="mt-auto flex items-center gap-1 overflow-x-auto pb-0.5">
+      <div className="mt-auto flex items-center gap-1 overflow-x-auto">
         <button
           type="button"
           className="shrink-0 h-7 min-h-0 px-2 rounded-md bg-[#2f7cf6] text-[10px] font-medium leading-none whitespace-nowrap"
@@ -285,34 +285,27 @@ export function CertificatesPage() {
   };
 
   return (
-    <div className="page-shell max-w-[1600px] space-y-6 animate-fade-in pb-10">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Credentials</h1>
-          <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
-            Certificates, awards, licenses and professional achievements connected to your Pinit identity.
-          </p>
-        </div>
-        <button type="button" onClick={() => void load()} disabled={loading} className="btn btn-secondary btn-sm" aria-label="Refresh credentials">
-          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-        </button>
-      </div>
-
+    <div className="page-shell max-w-[1600px] space-y-4 animate-fade-in pb-10">
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div className="rounded-lg border border-slate-200 dark:border-[#252C38] bg-white dark:bg-[#11151D] px-3 py-2.5 h-16 animate-pulse" />
           <div className="rounded-lg border border-slate-200 dark:border-[#252C38] bg-white dark:bg-[#11151D] px-3 py-2.5 h-16 animate-pulse" />
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <div className="rounded-lg border border-slate-200 dark:border-[#252C38] bg-white dark:bg-[#11151D] px-3 py-2.5">
-            <p className="text-[11px] text-slate-500 dark:text-[#9AA6B8]">Total credentials</p>
-            <p className="text-lg font-semibold text-slate-900 dark:text-[#F5F7FA]">{counts.total}</p>
+        <div className="flex items-end justify-between gap-3 flex-wrap">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 flex-1 min-w-0">
+            <div className="rounded-lg border border-slate-200 dark:border-[#252C38] bg-white dark:bg-[#11151D] px-3 py-2.5">
+              <p className="text-[11px] text-slate-500 dark:text-[#9AA6B8]">Total credentials</p>
+              <p className="text-lg font-semibold text-slate-900 dark:text-[#F5F7FA]">{counts.total}</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 dark:border-[#252C38] bg-white dark:bg-[#11151D] px-3 py-2.5">
+              <p className="text-[11px] text-slate-500 dark:text-[#9AA6B8]">Pinit verified</p>
+              <p className="text-lg font-semibold text-slate-900 dark:text-[#F5F7FA]">{counts.pinitVerified}</p>
+            </div>
           </div>
-          <div className="rounded-lg border border-slate-200 dark:border-[#252C38] bg-white dark:bg-[#11151D] px-3 py-2.5">
-            <p className="text-[11px] text-slate-500 dark:text-[#9AA6B8]">Pinit verified</p>
-            <p className="text-lg font-semibold text-slate-900 dark:text-[#F5F7FA]">{counts.pinitVerified}</p>
-          </div>
+          <button type="button" onClick={() => void load()} disabled={loading} className="btn btn-secondary btn-sm shrink-0" aria-label="Refresh credentials">
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+          </button>
         </div>
       )}
 

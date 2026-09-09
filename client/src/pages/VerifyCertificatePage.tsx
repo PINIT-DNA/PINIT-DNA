@@ -179,15 +179,6 @@ export function VerifyCertificatePage() {
 
   return (
     <div className="page-shell space-y-3 mx-auto animate-fade-in">
-
-      {/* Header */}
-      <div>
-        <h1 className="text-xl font-bold text-white">Certificate Verification Portal</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
-          Verify the authenticity of any PINIT-DNA certificate in real time
-        </p>
-      </div>
-
       {/* Input form */}
       <div className="card space-y-4">
         <div className="flex items-center gap-2 mb-2">

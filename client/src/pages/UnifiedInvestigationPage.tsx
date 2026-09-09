@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import {
   Shield, Upload, AlertTriangle, RefreshCw, ScanLine,
   ChevronDown, ChevronUp, Fingerprint, Dna, User, Clock, Activity,
-  FileDown, Globe, Lock, Eye, Download, Microscope,
+  FileDown, Globe, Lock, Eye, Download,
 } from 'lucide-react';
 import { unifiedInvestigateStream, getVaultRecord } from '../services/dashboard.api';
 import { cn } from '../components/ui/utils';
@@ -607,18 +607,6 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
 
   return (
     <div className="page-shell w-full max-w-5xl space-y-6 min-w-0">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-dna-500/20 flex items-center justify-center">
-          <Microscope size={20} className="text-dna-400" />
-        </div>
-        <div>
-          <h1 className="text-lg font-bold text-white">Intelligence</h1>
-          <p className="text-xs text-gray-500">
-            Find out whether a file is connected to protected work. Results are saved as Evidence.
-          </p>
-        </div>
-      </div>
-
       {contextVaultId && (
         <div className="rounded-xl border border-dna-500/30 bg-dna-500/10 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">

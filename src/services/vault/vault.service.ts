@@ -24,6 +24,7 @@ import path from 'path';
 import fs   from 'fs/promises';
 import { v4 as uuidv4 } from 'uuid';
 
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { encrypt, decrypt } from './encryption.service';
@@ -40,6 +41,20 @@ const USE_LOCAL =
   (process.env['NODE_ENV'] !== 'production' && process.env['VAULT_USE_SUPABASE'] !== 'true');
 
 const LOCAL_DIR = path.resolve(process.env['VAULT_STORAGE_DIR'] ?? './vault/encrypted');
+
+/** Keep JSON snapshots in sync with the display name. Encrypted blob paths stay vaultId-keyed. */
+function jsonWithDisplayFilename(value: unknown, filename: string): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const rec = { ...(value as Record<string, unknown>) };
+  let changed = false;
+  for (const key of ['filename', 'originalFileName', 'originalFilename', 'imageFilename'] as const) {
+    if (typeof rec[key] === 'string') {
+      rec[key] = filename;
+      changed = true;
+    }
+  }
+  return changed ? rec : null;
+}
 
 async function writeLocal(vaultId: string, buffer: Buffer): Promise<string> {
   await fs.mkdir(LOCAL_DIR, { recursive: true });
@@ -700,7 +715,7 @@ export class VaultService {
 
     const record = await prisma.vaultRecord.findUnique({
       where: { id: vaultId },
-      include: { dnaRecord: { select: { ownerUserId: true, id: true } } },
+      include: { dnaRecord: { select: { ownerUserId: true, id: true, fileAnalysis: true } } },
     });
     if (!record) throw new Error(`Vault record not found: ${vaultId}`);
     assertRecordOwner(record.dnaRecord?.ownerUserId, ownerUserId, 'Vault');
@@ -709,16 +724,45 @@ export class VaultService {
       return { vaultId, originalFileName: trimmed };
     }
 
-    await prisma.$transaction([
-      prisma.vaultRecord.update({
+    const analysisPatch = jsonWithDisplayFilename(record.contentAnalysis, trimmed);
+    const dnaAnalysisPatch = jsonWithDisplayFilename(record.dnaRecord?.fileAnalysis, trimmed);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.vaultRecord.update({
         where: { id: vaultId },
-        data: { originalFileName: trimmed },
-      }),
-      prisma.dnaRecord.update({
+        data: {
+          originalFileName: trimmed,
+          ...(analysisPatch ? { contentAnalysis: analysisPatch as Prisma.InputJsonValue } : {}),
+        },
+      });
+      await tx.dnaRecord.update({
         where: { id: record.dnaRecordId },
-        data: { imageFilename: trimmed },
-      }),
-    ]);
+        data: {
+          imageFilename: trimmed,
+          ...(dnaAnalysisPatch ? { fileAnalysis: dnaAnalysisPatch as Prisma.InputJsonValue } : {}),
+        },
+      });
+      // Display name only — storage remains `${vaultId}.enc` / encryptedFilePath.
+      await tx.asset.updateMany({
+        where: {
+          ownerUserId,
+          OR: [{ vaultId }, { dnaId: record.dnaRecordId }],
+        },
+        data: { originalFilename: trimmed },
+      });
+      await tx.shareLink.updateMany({
+        where: { vaultId },
+        data: { filename: trimmed },
+      });
+      await tx.monitorRecord.updateMany({
+        where: { dnaRecordId: record.dnaRecordId },
+        data: { filename: trimmed },
+      });
+      await tx.assetVersion.updateMany({
+        where: { vaultId, supersededAt: null },
+        data: { originalFilename: trimmed },
+      });
+    });
 
     logger.info('Vault — file renamed', { vaultId, originalFileName: trimmed });
 

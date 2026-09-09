@@ -135,7 +135,7 @@ describe('credential projection mapping', () => {
     expect(dto.lifecycleStatus).toBe('REVOKED');
     expect(dto.relatedAsset).toEqual({
       id: 'asset-1',
-      title: 'Summer Campaign',
+      title: 'Ocean',
       href: '/vault?id=vault-owned-1',
     });
     expect(JSON.stringify(dto.relatedAsset)).not.toMatch(/vaultId/);
@@ -143,6 +143,10 @@ describe('credential projection mapping', () => {
 
   test('title comes from a real filename, not a fabricated label when a file exists', () => {
     expect(certificateDisplayTitle({ vaultFileName: 'The_beach.png' })).toBe('The beach');
+    expect(certificateDisplayTitle({
+      assetFileName: 'Old_name.jpg',
+      vaultFileName: 'Kochi.jpg',
+    })).toBe('Kochi');
     expect(certificateDisplayTitle({})).toBe('Pinit Protected Asset Certificate');
   });
 });

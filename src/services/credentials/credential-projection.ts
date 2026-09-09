@@ -18,15 +18,15 @@ export function titleFromProtectedFileName(filename: string | null | undefined):
   return stripped || raw;
 }
 
-/** Prefer a real asset filename when the certificate already has an Asset.id. Never invent one. */
+/** Prefer the live vault display name (what rename updates). Fall back to Asset. Never invent one. */
 export function certificateDisplayTitle(params: {
   assetFileName?: string | null;
   vaultFileName?: string | null;
 }): string {
-  const fromAsset = titleFromProtectedFileName(params.assetFileName);
-  if (fromAsset) return fromAsset;
   const fromVault = titleFromProtectedFileName(params.vaultFileName);
   if (fromVault) return fromVault;
+  const fromAsset = titleFromProtectedFileName(params.assetFileName);
+  if (fromAsset) return fromAsset;
   return 'Pinit Protected Asset Certificate';
 }
 
@@ -74,7 +74,10 @@ export function toCertificateCredentialDto(params: {
     params.assetId && params.assetOwned && params.vaultFocusId
       ? {
           id: params.assetId,
-          title: titleFromProtectedFileName(params.assetFileName) || 'Protected asset',
+          title:
+            titleFromProtectedFileName(params.vaultFileName) ||
+            titleFromProtectedFileName(params.assetFileName) ||
+            'Protected asset',
           href: `/vault?id=${encodeURIComponent(params.vaultFocusId)}`,
         }
       : null;

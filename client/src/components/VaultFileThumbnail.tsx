@@ -127,6 +127,12 @@ export function VaultFileThumbnail({
   }, [visible]);
 
   useEffect(() => {
+    setFailed(false);
+    setImgError(false);
+    setVideoError(false);
+  }, [fileName, vaultId]);
+
+  useEffect(() => {
     if (!visible || !shouldLoad || preview || failed) return;
 
     let cancelled = false;
@@ -223,7 +229,7 @@ export function VaultFileThumbnail({
         className={`relative ${frameClass} bg-bg-elevated border border-bg-border flex items-center justify-center overflow-hidden`}
         title={fileName}
       >
-        {loading || visible ? (
+        {loading ? (
           <div className="w-full h-full animate-pulse bg-bg-border/60" />
         ) : (
           <span className={`${variant === 'gallery' ? 'text-3xl' : 'text-lg'} opacity-60`} aria-hidden>{icon}</span>

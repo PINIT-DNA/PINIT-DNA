@@ -351,14 +351,7 @@ export function VaultPage() {
       <div className="space-y-5 min-w-0">
       {/* Header */}
       <div className="flex items-end justify-between flex-wrap gap-3">
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-gray-500 mb-1">Protect</p>
-          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">My Assets</h1>
-          <p className="text-sm text-gray-500 mt-1 max-w-xl">
-            All your protected files in one place — Hub uploads and extension captures
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 ml-auto">
           {!loading && records && (
             <div className="flex items-center gap-2">
               <Badge variant="purple">{records.length} files</Badge>

@@ -257,13 +257,7 @@ export function ForensicDiffPage() {
   return (
     <div className="page-shell space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-white">Forensic Difference Engine</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Explains WHAT changed, WHERE, and HOW SEVERELY — not just similarity scores
-          </p>
-        </div>
+      <div className="flex items-center justify-end">
         {report && (
           <button onClick={() => { setReport(null); setFileA(null); setFileB(null); }}
             className="btn btn-secondary btn-sm">

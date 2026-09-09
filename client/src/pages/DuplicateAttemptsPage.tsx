@@ -67,16 +67,7 @@ export function DuplicateAttemptsPage() {
     <div className="page-shell space-y-5 animate-fade-in">
 
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <Shield size={20} className="text-red-400" />
-            Duplicate Upload Attempts
-          </h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            All blocked duplicate upload attempts — security history
-          </p>
-        </div>
+      <div className="flex items-center justify-end flex-wrap gap-3">
         <div className="flex items-center gap-2">
           {!loading && attempts && (
             <>

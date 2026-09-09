@@ -568,15 +568,7 @@ export function TimelinePage() {
     <div className="page-shell space-y-5 animate-fade-in">
 
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-white">Timeline</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {focusVaultId || focusDnaId
-              ? 'Chronological history for this asset'
-              : 'Complete chronological history of your assets'}
-          </p>
-        </div>
+      <div className="flex items-center justify-end flex-wrap gap-3">
         <div className="flex items-center gap-2">
           {!loading && <Badge variant="dna">{(focusVaultId || focusDnaId ? filtered : histories).length} files · {(focusVaultId || focusDnaId ? filtered.reduce((s, h) => s + h.events.length, 0) : totalEvents)} events</Badge>}
           <button onClick={refetch} disabled={loading} className="btn btn-secondary btn-sm">

@@ -243,19 +243,7 @@ export function AccessIntelligencePage() {
 
   return (
     <div className="page-shell w-full max-w-5xl">
-      <div className="flex items-end justify-between mb-6 gap-3">
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-gray-500 mb-1">
-            {vaultFilter ? 'This asset' : 'All assets'}
-          </p>
-          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-            <Shield size={22} className="text-dna-400" />
-            Sharing
-          </h1>
-            <p className="text-sm text-gray-500 mt-1">
-              See who accessed {vaultFilter || assetFilter ? 'this asset' : 'your assets'} and what happened.
-            </p>
-        </div>
+      <div className="flex items-end justify-end mb-6 gap-3">
         <button
           type="button"
           onClick={() => (tab === 'links' ? loadLinks() : loadFileShares())}

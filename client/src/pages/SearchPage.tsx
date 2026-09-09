@@ -119,13 +119,7 @@ export function SearchPage() {
     <div className="page-shell space-y-5 animate-fade-in">
 
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-white">AI Semantic Search</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Hybrid search · Sentence Transformers + FAISS · Only 50%+ matches shown
-          </p>
-        </div>
+      <div className="flex items-center justify-end flex-wrap gap-3">
         <div className="flex items-center gap-2">
           {isOnline && (
             <button onClick={handleReindex} disabled={reindexing}

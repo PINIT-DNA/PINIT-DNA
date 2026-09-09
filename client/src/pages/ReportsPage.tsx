@@ -477,13 +477,7 @@ export function ReportsPage() {
 
   return (
     <div className="page-shell space-y-5 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-white">Evidence</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Intelligence findings, comparisons, and archived PDF/ZIP exports
-          </p>
-        </div>
+      <div className="flex items-center justify-end">
         <div className="flex items-center gap-2">
           {investigationCount > 0 && (
             <Badge variant="dna">{investigationCount} investigations</Badge>

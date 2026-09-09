@@ -530,10 +530,7 @@ export function ComparePage() {
   return (
     <div className="page-shell space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-white">DNA Comparison</h1>
-        </div>
+      <div className="flex items-center justify-end">
         {(result || autoResult) && (
           <button onClick={handleReset} className="btn btn-secondary btn-sm">
             <RefreshCw size={13} /> New Comparison

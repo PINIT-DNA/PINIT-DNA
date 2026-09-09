@@ -26,15 +26,7 @@ export function ClientsPage() {
     <BusinessPage>
       <Breadcrumbs items={[{ label: 'Business', to: '/business' }, { label: 'Clients' }]} />
 
-      <div className="flex items-end justify-between flex-wrap gap-3">
-        <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-            <Users size={20} className="text-dna-400" /> Clients
-          </h1>
-          <p className="text-sm text-gray-500 mt-1 max-w-xl">
-            The businesses and brands you create work for. Campaigns and assets live inside each one.
-          </p>
-        </div>
+      <div className="flex items-end justify-end flex-wrap gap-3">
         <div className="flex items-center gap-2 shrink-0">
           <button onClick={refetch} disabled={loading} className="btn btn-secondary btn-sm" title="Refresh">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />

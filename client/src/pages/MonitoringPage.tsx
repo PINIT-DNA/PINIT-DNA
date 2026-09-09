@@ -525,13 +525,7 @@ export function MonitoringPage() {
     <div className="page-shell space-y-5 animate-fade-in">
 
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-white">Monitoring & Crawler</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Production-grade monitoring for PDF · DOCX · TXT · Images · Audio · Video
-          </p>
-        </div>
+      <div className="flex items-center justify-end flex-wrap gap-3">
         <div className="flex items-center gap-2">
           <button
             onClick={async () => {

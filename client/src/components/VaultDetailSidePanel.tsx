@@ -337,6 +337,7 @@ export function VaultDetailSidePanel({
     try {
       const result = await renameVaultRecord(record.id, nextName);
       setDisplayName(result.originalFileName);
+      setLinks((prev) => prev.map((l) => ({ ...l, filename: result.originalFileName })));
       onRenamed?.(record.id, result.originalFileName);
       setRenaming(false);
       toast.success('File renamed');
