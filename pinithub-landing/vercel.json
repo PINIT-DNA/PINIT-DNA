@@ -17,6 +17,22 @@
       "destination": "https://pinit-dna.vercel.app/pinithub-logo.png"
     },
     {
+      "source": "/pinit-hub-emblem-cut.png",
+      "destination": "https://pinit-dna.vercel.app/pinit-hub-emblem-cut.png"
+    },
+    {
+      "source": "/pinit-hub-seal-cut.png",
+      "destination": "https://pinit-dna.vercel.app/pinit-hub-seal-cut.png"
+    },
+    {
+      "source": "/pinit-hub-emblem.png",
+      "destination": "https://pinit-dna.vercel.app/pinit-hub-emblem.png"
+    },
+    {
+      "source": "/pinit-hub-seal.png",
+      "destination": "https://pinit-dna.vercel.app/pinit-hub-seal.png"
+    },
+    {
       "source": "/login",
       "destination": "https://pinit-dna.vercel.app/login"
     },
