@@ -188,6 +188,10 @@ export function ShareViewerPage() {
   const [locationAsked, setLocationAsked] = useState(false);
   const [locationDone, setLocationDone] = useState(false);
   const [locationDenied, setLocationDenied] = useState(false);
+  /** Browser has no geolocation at all — this link cannot be opened here. */
+  const [locationUnsupported, setLocationUnsupported] = useState(false);
+  /** A fix was requested but never arrived; worth another try. */
+  const [locationFailed, setLocationFailed] = useState(false);
   const [gpsData, setGpsData] = useState<GpsCapture | null>(null);
   const gpsDataRef = useRef<GpsCapture | null>(null);
 
@@ -1083,7 +1087,9 @@ export function ShareViewerPage() {
   if (info.requestLocation && !locationDone) {
     const handleAllow = () => {
       if (!navigator.geolocation) {
-        setLocationDone(true);
+        // The owner made location a condition of opening this file. A browser
+        // that cannot provide one is a dead end, not a reason to waive it.
+        setLocationUnsupported(true);
         return;
       }
       setLocationAsked(true);
@@ -1115,7 +1121,12 @@ export function ShareViewerPage() {
           // iPhone often needs longer than 3s — retry without forcing GPS chip
           navigator.geolocation.getCurrentPosition(
             applyFix,
-            () => setLocationDone(true),
+            () => {
+              // A timeout is not consent. Let them try again rather than
+              // opening the file on a fix that never arrived.
+              setLocationAsked(false);
+              setLocationFailed(true);
+            },
             { enableHighAccuracy: false, maximumAge: 60_000, timeout: 20_000 },
           );
         },
@@ -1140,39 +1151,46 @@ export function ShareViewerPage() {
             aria-labelledby="loc-perm-title"
             aria-describedby="loc-perm-desc"
           >
-            <div className="px-4 pt-3 pb-1">
+            <div className="px-4 pt-3.5 pb-1">
               <p id="loc-perm-title" className="text-[14px] text-[#202124] font-medium">
-                Share your location?
+                This file needs your location to open
               </p>
-              <p id="loc-perm-desc" className="text-[13px] text-[#5f6368] mt-1">
-                Optional. Helps the owner see where this file was opened.
+              <p id="loc-perm-desc" className="text-[13px] text-[#5f6368] mt-1 leading-snug">
+                The owner made location a condition of access. Your approximate
+                coordinates are recorded once, with the time and device, and are
+                visible only to them.
               </p>
-              {locationDenied && (
-                <p className="text-[12px] text-[#d93025] mt-2">
-                  Blocked in the browser. Allow location in the address bar, then try again.
+
+              {locationUnsupported ? (
+                <p className="text-[12px] text-[#d93025] mt-2 leading-snug">
+                  This browser cannot provide a location, so the link cannot be opened
+                  here. Try another browser or device.
                 </p>
-              )}
+              ) : locationDenied ? (
+                <p className="text-[12px] text-[#d93025] mt-2 leading-snug">
+                  Location is blocked for this site. Allow it from the icon in your
+                  address bar, then choose Share location again.
+                </p>
+              ) : locationFailed ? (
+                <p className="text-[12px] text-[#b06000] mt-2 leading-snug">
+                  Your location did not come through. Check that location services are
+                  on, then try again.
+                </p>
+              ) : null}
             </div>
 
-            <div className="flex items-center justify-end gap-1 px-2 pb-2 pt-1">
+            <div className="flex items-center justify-end px-2 pb-2 pt-1.5">
               <button
                 type="button"
-                disabled={locationAsked}
-                onClick={() => {
-                  setLocationDenied(false);
-                  setLocationDone(true);
-                }}
-                className="h-9 px-3 rounded text-[13px] font-medium text-[#5f6368] hover:bg-[#f1f3f4] disabled:opacity-50"
-              >
-                Not now
-              </button>
-              <button
-                type="button"
-                disabled={locationAsked}
+                disabled={locationAsked || locationUnsupported}
                 onClick={handleAllow}
-                className="h-9 px-3 rounded text-[13px] font-medium text-[#1a73e8] hover:bg-[#f1f3f4] disabled:opacity-50"
+                className="h-9 px-3.5 rounded text-[13px] font-medium text-[#1a73e8] hover:bg-[#f1f3f4] disabled:opacity-50"
               >
-                {locationAsked ? '…' : 'Allow'}
+                {locationAsked
+                  ? 'Getting location…'
+                  : locationDenied || locationFailed
+                    ? 'Try again'
+                    : 'Share location and open'}
               </button>
             </div>
           </div>

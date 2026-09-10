@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Archive, Search, RefreshCw, Eye, Check, Clock, ShieldCheck, MapPin, LayoutGrid, List, Cpu } from 'lucide-react';
 import { VaultFileThumbnail } from '../components/VaultFileThumbnail';
 import { VaultDetailSidePanel } from '../components/VaultDetailSidePanel';
+import { ShareLinkDialog } from '../components/share/ShareLinkDialog';
 import { ExchangeListedTag } from '../components/ExchangeListedTag';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -260,10 +261,13 @@ export function VaultPage() {
     if (match) setSelected(match);
   }, [focusId, records, selected?.id]);
 
+  /** Sharing happens here now — the full policy page is one click deeper. */
+  const [sharing, setSharing] = useState<VaultRecord | null>(null);
+
   const handleShare = (record: VaultRecord) => {
     setSelected(null);
     setProtecting(null);
-    navigate(`/vault/assets/${record.id}/share`);
+    setSharing(record);
   };
 
   const handleRenamed = (vaultId: string, originalFileName: string) => {
@@ -667,6 +671,15 @@ export function VaultPage() {
             deleting={deletingId === selected.id}
           />
         )}
+
+      {sharing && (
+        <ShareLinkDialog
+          vaultId={sharing.id}
+          filename={sharing.originalFileName}
+          sizeBytes={sharing.originalSizeBytes}
+          onClose={() => setSharing(null)}
+        />
+      )}
 
       {protecting && (
         <ProtectedDownloadModal record={protecting} onClose={() => setProtecting(null)} />

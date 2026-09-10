@@ -10,8 +10,7 @@ import {
   MapPin,
   RefreshCw,
   Share2,
-  ShieldCheck,
-} from 'lucide-react';
+  ShieldCheck, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Badge } from '../components/ui/Badge';
 import { BRAND } from '../config/brand.config';
@@ -136,6 +135,9 @@ export function VaultSharePage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [existingLinks, setExistingLinks] = useState<any[]>([]);
   const [loadingLinks, setLoadingLinks] = useState(true);
+  /** The link just created here, shown in place rather than on a second page. */
+  const [created, setCreated] = useState<{ token: string; shareUrl: string } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -267,31 +269,12 @@ export function VaultSharePage() {
       if (!token || !shareUrl) throw new Error('Missing share response');
 
       toast.success('Secure link created');
-      navigate(`/vault/assets/${record.id}/shares/${encodeURIComponent(token)}`, {
-        replace: true,
-        state: {
-          shareUrl,
-          token,
-          shareId: d.id ?? token,
-          expiresIn: expiresIn || null,
-          maxViews: maxViews || null,
-          allowDownload,
-          requireName,
-          requestLocation,
-          privacyMaskingEnabled,
-          reviewMode:         review.reviewMode,
-          allowComments:      review.allowComments,
-          allowChangeRequest: review.allowChangeRequest,
-          allowApproval:      review.allowApproval,
-          watermark: true,
-          tracking: true,
-          createdAt: new Date().toISOString(),
-          filename: record.originalFileName,
-          devOtp: d.devOtp,
-          devOtpNote: d.devOtpNote,
-          childLinks: d.childLinks ?? [],
-        },
-      });
+      // Stay here. Creating a link is one step, and sending the sender to a second
+      // page to read a URL cost them the settings they had just chosen and the list
+      // of links they already had. The link appears beside the form instead.
+      setCreated({ token, shareUrl });
+      setCopied(false);
+      void fetchLinks(record.id);
     } catch {
       toast.error('Failed to create share link');
     } finally {
@@ -659,8 +642,61 @@ export function VaultSharePage() {
           </button>
         </section>
 
-        {/* RIGHT — asset summary */}
-        <aside className="card space-y-1 order-1 xl:order-2 xl:sticky xl:top-20">
+        {/* RIGHT — the new link, then the asset summary */}
+        <div className="order-1 xl:order-2 space-y-4 xl:sticky xl:top-20">
+        {created && (
+          <aside className="card space-y-3 border-success/40">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 size={16} className="text-success shrink-0" />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-white leading-tight">Secure link ready</p>
+                <p className="text-2xs text-gray-500 leading-tight">
+                  Every open appears in Tracking
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-bg-border bg-bg-elevated px-3 py-2">
+              <p className="text-2xs text-gray-500 mb-1">Generated secure URL</p>
+              <p className="text-xs text-dna-400 mono break-all leading-relaxed">{created.shareUrl}</p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(created.shareUrl);
+                    setCopied(true);
+                    toast.success('Link copied');
+                    window.setTimeout(() => setCopied(false), 2000);
+                  } catch {
+                    toast.error('Could not copy — select the link and copy it manually');
+                  }
+                }}
+                className="btn btn-primary btn-sm flex-1 min-w-[7rem]"
+              >
+                {copied ? 'Copied' : 'Copy link'}
+              </button>
+              <Link
+                to={`/vault/assets/${record.id}/shares/${encodeURIComponent(created.token)}`}
+                className="btn btn-secondary btn-sm flex-1 min-w-[7rem] text-center"
+              >
+                QR &amp; details
+              </Link>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setCreated(null)}
+              className="text-2xs text-gray-500 hover:text-white w-full text-center pt-0.5"
+            >
+              Create another link
+            </button>
+          </aside>
+        )}
+
+        <aside className="card space-y-1">
           <div className="flex items-center gap-3 pb-3 border-b border-bg-border mb-1">
             <div className="w-10 h-10 rounded-xl bg-success/15 flex items-center justify-center shrink-0">
               <Lock size={16} className="text-success" />
@@ -687,6 +723,7 @@ export function VaultSharePage() {
             }
           />
         </aside>
+        </div>
       </div>
     </div>
   );
