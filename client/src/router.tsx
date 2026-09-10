@@ -86,6 +86,12 @@ export const router = createBrowserRouter([
   { path: '/handover/:token', element: <HandoverPage /> },
   // Public too — the report token is the authority, and the page sends no auth.
   { path: '/client-report/:token', element: <ClientReportPage /> },
+  // Public by design: a certificate's whole purpose is that someone who did not
+  // issue it can confirm it. The backend has always served
+  // GET /certificates/verify/:id unauthenticated; only this route was left inside
+  // the signed-in shell, so the QR printed on every certificate led a buyer, a
+  // client or a court to a login wall.
+  { path: '/verify-certificate', element: <VerifyCertificatePage /> },
 
   // ── Team invite join (remembers token if login is required) ────────────────
   { path: '/team/join/:token', element: <TeamJoinPage /> },
@@ -165,7 +171,7 @@ export const router = createBrowserRouter([
       { path: 'link/:token', element: <LinkIntelligencePage /> },
       { path: 'help', element: <HelpPage /> },
       { path: 'certificates', element: <CertificatesPage /> },
-      { path: 'verify-certificate', element: <VerifyCertificatePage /> },
+      { path: 'verify-certificate', element: <Navigate to="/verify-certificate" replace /> },
       // 'admin-portal' retired — duplicate of the Master Admin console (master-admin/, port 3003).
       { path: '*', element: <NotFoundPage /> },
     ],

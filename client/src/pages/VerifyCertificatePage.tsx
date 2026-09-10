@@ -6,11 +6,11 @@
  * DOES NOT modify any existing logic.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Shield, CheckCircle2, XCircle, AlertTriangle,
-  Dna, Lock, Award, RefreshCw, Copy, Ban,
+  Dna, Lock, Award, RefreshCw, Copy, Ban, ShieldCheck,
 } from 'lucide-react';
 import { verifyCertificateApi } from '../services/dashboard.api';
 import type { CertVerificationResult } from '../types/dashboard.types';
@@ -130,6 +130,9 @@ export function VerifyCertificatePage() {
   const [result,   setResult]   = useState<VerificationResult | null>(null);
   const [certResult, setCertResult] = useState<CertVerificationResult | null>(null);
 
+  /** The last certificate id we auto-verified, so a re-render never re-runs it. */
+  const autoVerifiedRef = useRef<string | null>(null);
+
   useEffect(() => {
     const fromQuery = searchParams.get('id') || searchParams.get('certificateId') || '';
     if (fromQuery) setCertId(fromQuery);
@@ -170,6 +173,20 @@ export function VerifyCertificatePage() {
     }
   };
 
+  // Arriving from a certificate QR code means the answer is already known: the id
+  // is in the URL. Landing on a filled-in form and asking the person to press
+  // Verify is friction with no purpose — someone holding a certificate wants to
+  // know whether it is genuine, not to operate a form. Run it for them.
+  useEffect(() => {
+    const fromQuery = searchParams.get('id') || searchParams.get('certificateId') || '';
+    if (!fromQuery || certId !== fromQuery) return;
+    if (autoVerifiedRef.current === fromQuery) return;
+    autoVerifiedRef.current = fromQuery;
+    void handleVerify();
+    // handleVerify is re-created every render; keying on the id keeps this to one run.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [certId, searchParams]);
+
   const copy = (text: string) => {
     navigator.clipboard.writeText(text);
     toast.success('Copied to clipboard');
@@ -179,6 +196,25 @@ export function VerifyCertificatePage() {
 
   return (
     <div className="page-shell space-y-3 mx-auto animate-fade-in">
+      {/*
+        This page is reached publicly, by scanning the QR on a certificate. Whoever
+        scans it has no Pinit account and no other context, so the page has to say
+        where they have landed — an unbranded form is a poor place to be told that
+        something is authentic. Signed-in users reach the same page and lose
+        nothing by seeing it.
+      */}
+      <div className="flex items-center gap-2.5 px-1 pb-1">
+        <div className="w-8 h-8 rounded-lg bg-dna-500/20 flex items-center justify-center shrink-0">
+          <ShieldCheck size={16} className="text-dna-400" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-white leading-tight">Pinit HUB</p>
+          <p className="text-2xs text-gray-500 leading-tight">
+            Certificate verification · independent of the certificate holder
+          </p>
+        </div>
+      </div>
+
       {/* Input form */}
       <div className="card space-y-4">
         <div className="flex items-center gap-2 mb-2">
@@ -469,6 +505,10 @@ export function VerifyCertificatePage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <p className="text-2xs text-gray-600 text-center pt-2 pb-4">
+        Verified against Pinit HUB records · a certificate can be checked by anyone who holds it
+      </p>
     </div>
   );
 }
