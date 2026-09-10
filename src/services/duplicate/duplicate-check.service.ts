@@ -17,6 +17,7 @@
  */
 
 import crypto from 'crypto';
+import { Prisma } from '@prisma/client';
 import { Request } from 'express';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
@@ -28,6 +29,8 @@ import { pinitSignatureDetector } from './pinit-signature-detector.service';
 import { PerceptualLayer } from '../layers/layer3.perceptual';
 import { CryptographicLayer } from '../layers/layer1.cryptographic';
 import { withTimeoutSoft } from '../../lib/safe-runner';
+import { buildVideoAssetDna } from '../assets/video-asset-dna.service';
+import { compareVideoFrameHashes } from '../forensics/video-dna-enhancements.service';
 
 // ─── Configurable near-duplicate threshold ────────────────────────────────────
 // Hamming similarity ≥ this → considered a near-duplicate for images.
@@ -36,6 +39,16 @@ const PHASH_NEAR_DUPLICATE_THRESHOLD = 0.90;
 /** Max ms for duplicate checks before DNA generate — keeps upload path in seconds */
 const DUPLICATE_CHECK_BUDGET_MS = parseInt(process.env['DUPLICATE_CHECK_BUDGET_MS'] ?? '8000', 10);
 const PHASH_SCAN_LIMIT = parseInt(process.env['DUPLICATE_PHASH_SCAN_LIMIT'] ?? '400', 10);
+/**
+ * Video gets its own budget. Decoding keyframes from the probe needs ffmpeg and can
+ * take several seconds on its own — well past the 8s shared image budget. Video
+ * protect is already the slowest path, and a bounded few seconds here is what stops
+ * a re-encoded copy being minted a second identity.
+ */
+const DUPLICATE_VIDEO_BUDGET_MS = parseInt(process.env['DUPLICATE_VIDEO_BUDGET_MS'] ?? '15000', 10);
+/** Share of probe keyframes that must strongly match before it counts as the same video. */
+const VIDEO_FRAME_MATCH_THRESHOLD = parseFloat(process.env['DUPLICATE_VIDEO_FRAME_THRESHOLD'] ?? '0.6');
+const VIDEO_SCAN_LIMIT = parseInt(process.env['DUPLICATE_VIDEO_SCAN_LIMIT'] ?? '300', 10);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -43,6 +56,7 @@ export type DuplicateMatchType =
   | 'EXACT_HASH'
   | 'NORMALIZED_HASH'
   | 'NEAR_DUPLICATE_PHASH'
+  | 'NEAR_DUPLICATE_VIDEO_FRAMES'
   | 'EMBEDDED_IDENTITY'
   | 'TEP_TRACKED_EXPORT'
   | 'PINIT_VAULT_SIGNATURE';
@@ -109,14 +123,20 @@ export class DuplicateCheckService {
 
     // ── 1. SHA-256 exact match (all file types) ───────────────────────────────
     // Cross-account: block. Same account: allow re-upload (new DNA allowed).
+    // Only owned records can establish that a file already belongs to someone.
+    // Unowned probe/verification rows are excluded here as well as guarded below.
     let exactMatchRecord = await prisma.dnaRecord.findFirst({
-      where: { sha256Hash: sha256, status: { in: ['COMPLETE', 'PARTIAL', 'PROCESSING'] } },
+      where: {
+        sha256Hash: sha256,
+        status: { in: ['COMPLETE', 'PARTIAL', 'PROCESSING'] },
+        ownerUserId: { not: null },
+      },
       select: recordSelect,
     });
 
     if (!exactMatchRecord) {
       const cryptoMatch = await prisma.cryptoLayer.findFirst({
-        where: { sha256Hash: sha256 },
+        where: { sha256Hash: sha256, dnaRecord: { is: { ownerUserId: { not: null } } } },
         include: { dnaRecord: { select: recordSelect } },
       });
       if (cryptoMatch) exactMatchRecord = cryptoMatch.dnaRecord;
@@ -124,6 +144,14 @@ export class DuplicateCheckService {
 
     if (exactMatchRecord) {
       const rec = exactMatchRecord;
+      if (this._isUnownedRecord(rec.ownerUserId)) {
+        logger.info('[DuplicateCheck] Match on an unowned record — not a claim, allowing', {
+          sha256: sha256.slice(0, 16) + '…',
+          existingRecordId: rec.id,
+          existingFilename: rec.imageFilename,
+        });
+        return { isDuplicate: false, isHighRisk: false, sha256Hash: sha256 };
+      }
       if (this._isSameAccount(rec.ownerUserId, uploaderUserId)) {
         logger.info('[DuplicateCheck] Same-account re-upload allowed (EXACT_HASH)', {
           sha256: sha256.slice(0, 16) + '…',
@@ -216,8 +244,108 @@ export class DuplicateCheckService {
       if (nearMatch) return nearMatch;
     }
 
+    // ── 7. Video keyframe near-duplicate (survives re-encode) ────────────────
+    // Images have three perceptual detectors; video had none, so a re-encoded copy
+    // uploaded to another account was caught by nothing at all.
+    if (mimeType.startsWith('video/')) {
+      const videoMatch = await withTimeoutSoft(
+        () => this._checkVideoFrameDuplicate(buffer, sha256, req, originalName, mimeType, uploaderIp),
+        DUPLICATE_VIDEO_BUDGET_MS,
+        'duplicate-video-frames',
+      );
+      if (videoMatch) return videoMatch;
+    }
+
     // ── No duplicate found ────────────────────────────────────────────────────
     return { isDuplicate: false, isHighRisk: false, sha256Hash: sha256 };
+  }
+
+  // ── Video keyframe near-duplicate ──────────────────────────────────────────
+
+  /**
+   * Catch a video whose bytes changed but whose pictures did not.
+   *
+   * Re-encoding rewrites every byte and strips the container tail, so the exact-hash
+   * and embedded-identity detectors both miss it. Decoded keyframes survive that,
+   * which is the same signal `partial-video-recovery` uses during an investigation.
+   *
+   * Stored hashes come from `Asset.fingerprints`, already written for every
+   * Hub-protected video, so nothing has to be decrypted to run this.
+   */
+  private async _checkVideoFrameDuplicate(
+    buffer: Buffer,
+    sha256: string,
+    req: Request,
+    originalName: string,
+    mimeType: string,
+    uploaderIp: string,
+  ): Promise<DuplicateCheckResult | null> {
+    try {
+      const probe = await buildVideoAssetDna(buffer);
+      const probeHashes = probe.framePHashes ?? [];
+      if (!probeHashes.length) {
+        // No ffmpeg, or the file yielded no decodable frames. Never guess from
+        // container bytes — a wrong block here refuses someone their own upload.
+        logger.info('[DuplicateCheck] Video frame check skipped — no probe keyframes', {
+          ffmpegAvailable: probe.ffmpegAvailable,
+          originalName,
+        });
+        return null;
+      }
+
+      const candidates = await prisma.asset.findMany({
+        where: {
+          assetType: 'VIDEO',
+          fingerprints: { not: Prisma.DbNull },
+          dnaId: { not: null },
+        },
+        select: { dnaId: true, fingerprints: true },
+        orderBy: { createdAt: 'desc' },
+        take: VIDEO_SCAN_LIMIT,
+      });
+
+      let best: { dnaId: string; similarity: number } | null = null;
+      for (const c of candidates) {
+        if (!c.dnaId) continue;
+        const stored = (c.fingerprints as { framePHashes?: string[] } | null)?.framePHashes;
+        const { similarity } = compareVideoFrameHashes(probeHashes, stored);
+        if (similarity >= VIDEO_FRAME_MATCH_THRESHOLD && (!best || similarity > best.similarity)) {
+          best = { dnaId: c.dnaId, similarity };
+        }
+      }
+      if (!best) return null;
+
+      const rec = await prisma.dnaRecord.findUnique({
+        where: { id: best.dnaId },
+        select: {
+          id: true, imageFilename: true, createdAt: true, ownerUserId: true,
+          ownerUser: { select: { shortId: true } },
+        },
+      });
+      if (!rec) return null;
+
+      logger.info('[DuplicateCheck] Video keyframe match', {
+        existingRecordId: rec.id,
+        similarity: best.similarity,
+        probeFrames: probeHashes.length,
+      });
+
+      // Ownership policy (unowned ignored, same account allowed, cross-account
+      // blocked) is inherited from the shared path rather than restated here.
+      return this._finalizeMatch({
+        rec,
+        sha256,
+        originalName,
+        mimeType,
+        uploaderIp,
+        req,
+        matchType: 'NEAR_DUPLICATE_VIDEO_FRAMES',
+        pHashSimilarity: best.similarity,
+      });
+    } catch (err) {
+      logger.warn('[DuplicateCheck] Video frame check failed (non-fatal)', { error: String(err) });
+      return null;
+    }
   }
 
   // ── TEP tracked export (share download → re-upload) ────────────────────────
@@ -472,7 +600,10 @@ export class DuplicateCheckService {
       if (!probe.success || !probe.data.normalizedHash) return null;
 
       const cryptoMatch = await prisma.cryptoLayer.findFirst({
-        where: { normalizedHash: probe.data.normalizedHash },
+        where: {
+          normalizedHash: probe.data.normalizedHash,
+          dnaRecord: { is: { ownerUserId: { not: null } } },
+        },
         include: {
           dnaRecord: {
             select: {
@@ -513,6 +644,7 @@ export class DuplicateCheckService {
       const probe = await this.perceptualLayer.computeFingerprints(buffer);
 
       const stored = await prisma.perceptualLayer.findMany({
+        where: { dnaRecord: { is: { ownerUserId: { not: null } } } },
         select: { pHash64: true, aHash64: true, dHash64: true, dnaRecordId: true },
         orderBy: { dnaRecord: { createdAt: 'desc' } },
         take: PHASH_SCAN_LIMIT,
@@ -581,6 +713,14 @@ export class DuplicateCheckService {
     const { rec, sha256, originalName, mimeType, uploaderIp, req, matchType, pHashSimilarity } = params;
     const uploaderUserId = (req as { user?: { sub?: string } }).user?.sub;
 
+    if (this._isUnownedRecord(rec.ownerUserId)) {
+      logger.info(`[DuplicateCheck] ${matchType} matched an unowned record — not a claim, allowing`, {
+        existingRecordId: rec.id,
+        existingFilename: rec.imageFilename,
+      });
+      return { isDuplicate: false, isHighRisk: false };
+    }
+
     if (this._isSameAccount(rec.ownerUserId, uploaderUserId)) {
       logger.info(`[DuplicateCheck] Same-account re-upload allowed (${matchType})`, {
         existingRecordId: rec.id,
@@ -632,6 +772,18 @@ export class DuplicateCheckService {
   private _isSameAccount(originalOwnerId: string | null | undefined, uploaderUserId?: string): boolean {
     if (!originalOwnerId || !uploaderUserId) return false;
     return originalOwnerId === uploaderUserId;
+  }
+
+  /**
+   * A record with no owner cannot establish that a file belongs to anybody.
+   *
+   * Verification probes and other internal artifacts are written without an
+   * ownerUserId. They are neither the uploader's account nor another user's, so
+   * blocking on them tells a real owner their own file belongs to a stranger who
+   * cannot be named. Never block on an unowned record.
+   */
+  private _isUnownedRecord(originalOwnerId: string | null | undefined): boolean {
+    return !originalOwnerId;
   }
 
   // ── Cross-user: different PINIT account re-uploading an existing file ────────

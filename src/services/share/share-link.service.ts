@@ -1081,14 +1081,18 @@ export class ShareLinkService {
     if (!signatureValid) inactiveReason = 'tampered';
     else if (isExpired) inactiveReason = 'expired';
     else if (isExhausted) inactiveReason = 'exhausted';
-    else if (!link.isActive && !isParent) {
+    else if (!link.isActive) {
+      // A parent consumed by oneTimeUse is a forwarding hub, not a revocation.
+      // Every other inactive link — including a parent — is revoked, and must say so.
       inactiveReason = link.oneTimeUse ? 'one_time' : 'revoked';
-    } else if (!link.isActive && isParent && link.oneTimeUse) {
-      inactiveReason = 'one_time';
     }
 
-    // PARENT links stay open for new devices to mint hop URLs even after oneTimeUse consumed the row.
-    const parentAcceptsForwards = isParent && !isExpired && !isExhausted && signatureValid;
+    // PARENT links stay open for new devices to mint hop URLs even after oneTimeUse
+    // consumed the row. That carve-out exists for oneTimeUse ONLY: a parent that was
+    // deliberately revoked, or deactivated because its vault was deleted, is dead like
+    // any other link and must not keep forwarding.
+    const parentAcceptsForwards =
+      isParent && link.oneTimeUse && !isExpired && !isExhausted && signatureValid;
     const linkAccessible =
       !isExpired &&
       !isExhausted &&

@@ -99,6 +99,27 @@ export async function listDnaRecords(
 
 // ─── POST /dna/generate ───────────────────────────────────────────────────────
 
+/**
+ * Explain a duplicate refusal without asserting more than is known.
+ *
+ * Only claim the file belongs to another account when a shortId is actually in
+ * hand. A match can come from a record with no owner, and telling a user their own
+ * file belongs to an account that cannot be named leaves them with no way forward.
+ */
+export function buildDuplicateMessage(
+  matchType: string | undefined,
+  ownerShortId: string | null | undefined,
+): string {
+  if (matchType === 'PINIT_VAULT_SIGNATURE') {
+    return ownerShortId
+      ? `Protected PINIT content detected. This file belongs to ${ownerShortId}. DNA cannot be generated from watermarked or share-viewer captures owned by another account.`
+      : 'Protected PINIT content detected. This file carries PINIT-DNA vault watermarks or share-link signatures, so new DNA cannot be generated from it.';
+  }
+  return ownerShortId
+    ? `This file already exists under another PINIT account. This file belongs to ${ownerShortId}. Duplicate DNA cannot be generated across accounts.`
+    : 'This file is already registered on Pinit, so new DNA cannot be generated for it. If you believe this file is yours, contact support with the file name.';
+}
+
 export async function generateDna(
   req: Request,
   res: Response,
@@ -127,15 +148,7 @@ export async function generateDna(
   if (dupResult.isDuplicate) {
     await fs.unlink(req.file.path).catch(() => {});
 
-    const ownerLabel = dupResult.ownerShortId
-      ? ` This file belongs to ${dupResult.ownerShortId}.`
-      : dupResult.matchType === 'PINIT_VAULT_SIGNATURE'
-        ? ' This image contains PINIT-DNA vault watermarks or share-link signatures.'
-        : '';
-
-    const duplicateReason = dupResult.matchType === 'PINIT_VAULT_SIGNATURE'
-      ? `Protected PINIT content detected.${ownerLabel} DNA cannot be generated from watermarked or share-viewer captures owned by another account.`
-      : `This file already exists under another PINIT account.${ownerLabel} Duplicate DNA cannot be generated across accounts.`;
+    const duplicateReason = buildDuplicateMessage(dupResult.matchType, dupResult.ownerShortId);
 
     logger.warn('[DNA] Duplicate upload blocked (cross-account)', {
       matchType:        dupResult.matchType,

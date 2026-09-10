@@ -28,6 +28,33 @@ import { isSupabaseStorageConfigured } from '../../lib/supabase-storage';
 import { AppError } from '../middleware/error.middleware';
 
 /**
+ * Turn an inactive-link reason into something a recipient can act on.
+ *
+ * A link that was revoked, expired or exhausted is a normal end state, not a
+ * server fault: it answers 410 Gone. A tampered token is a security signal and
+ * stays 403. Never return a generic 500 or list every possibility at once — the
+ * recipient cannot tell which applies and it reads as a broken system.
+ */
+export function describeUnavailableShare(
+  reason: 'tampered' | 'expired' | 'exhausted' | 'revoked' | 'one_time' | null,
+): { status: number; error: string } {
+  switch (reason) {
+    case 'tampered':
+      return { status: 403, error: 'This link could not be verified. Ask the sender for a new one.' };
+    case 'expired':
+      return { status: 410, error: 'This link has expired. Ask the sender for a new one.' };
+    case 'exhausted':
+      return { status: 410, error: 'This link has reached its view limit. Ask the sender for a new one.' };
+    case 'one_time':
+      return { status: 410, error: 'This link was single-use and has already been opened.' };
+    case 'revoked':
+      return { status: 410, error: 'This link was turned off by the owner.' };
+    default:
+      return { status: 410, error: 'This link is no longer available.' };
+  }
+}
+
+/**
  * Tracking gate that exempts Exchange licensed shares.
  *
  * A buyer who paid for a license has already paid for the visibility — requiring
@@ -639,7 +666,8 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
     const info  = await shareLinkService.getPublicInfo(token);
 
     if (!info || !info.isActive) {
-      res.status(403).json({ success: false, error: 'Link is inactive, expired, or exhausted' });
+      const { status, error } = describeUnavailableShare(info?.inactiveReason ?? null);
+      res.status(status).json({ success: false, error, reason: info?.inactiveReason ?? null });
       return;
     }
 
@@ -717,6 +745,23 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
 
     if (!fullLink.ownerUserId) {
       throw new AppError(403, 'This share is not bound to an owner.');
+    }
+
+    // The vault file can be gone while the link row survives (legacy data, or a
+    // vault removed outside the delete path). That is an expected end state, not a
+    // server fault — say so plainly instead of letting retrieve() throw a 500.
+    const vaultStillExists = await prisma.vaultRecord.findUnique({
+      where: { id: fullLink.vaultId },
+      select: { id: true },
+    });
+    if (!vaultStillExists) {
+      logger.info('[SmartLink] Share points at a removed vault file', { token, vaultId: fullLink.vaultId });
+      res.status(410).json({
+        success: false,
+        error: 'This link is no longer available — the owner removed the file.',
+        reason: 'file_removed',
+      });
+      return;
     }
 
     // Retrieve after explicit share validation — owner comes from the share record, never the client.
