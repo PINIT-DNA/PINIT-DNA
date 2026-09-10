@@ -32,6 +32,21 @@ interface AssetDetail {
   discoveriesCount: number;
   fingerprints: unknown;
   createdAt: string;
+  campaign: {
+    id: string;
+    name: string;
+    status: string;
+    client: { id: string; name: string } | null;
+    organization: { id: string; name: string } | null;
+  } | null;
+  ownerUser: { id: string; fullName: string | null; shortId: string | null } | null;
+  versions: Array<{
+    id: string;
+    versionNumber: number;
+    originalFilename: string;
+    createdAt: string;
+    certificateId: string | null;
+  }>;
   timeline: Array<{
     id: string;
     createdAt: string;
@@ -113,19 +128,96 @@ export function AssetDetailPage() {
         </div>
       </div>
 
+      {/*
+        * These four cards showed truncated identifiers — eight characters of a
+        * vault UUID, eight of a DNA UUID, twelve of a certificate UUID. None of
+        * them meant anything to the person reading the page. They now answer
+        * what the asset is, who holds it, what it belongs to and whether it is
+        * protected; the identifiers move into the collapsed block below for the
+        * cases where someone genuinely needs them.
+        */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { label: 'Asset', value: asset.vaultId?.slice(0, 8) || '—' },
-          { label: 'DNA', value: asset.dnaId?.slice(0, 8) || '—' },
-          { label: 'Certificate', value: asset.certificateId?.slice(0, 12) || '—' },
-          { label: 'Monitor', value: asset.monitorStatus },
+          {
+            label: 'Identity',
+            value: asset.originalFilename,
+            sub: asset.dnaId ? 'Asset DNA generated' : 'No DNA on record',
+          },
+          {
+            label: 'Owner',
+            value: asset.ownerUser?.fullName || asset.ownerUser?.shortId || 'You',
+            sub: asset.capturedVia === 'hub_protect_file' ? 'Protected in Hub' : asset.capturedVia,
+          },
+          {
+            label: 'Belongs to',
+            value: asset.campaign?.name || 'Not campaign work',
+            sub: asset.campaign?.client?.name
+              ? `for ${asset.campaign.client.name}`
+              : asset.campaign
+                ? asset.campaign.status
+                : 'No campaign linked',
+          },
+          {
+            label: 'Protection',
+            value: asset.certificateId ? 'Certified' : 'Protected',
+            sub: `Monitoring ${asset.monitorStatus.toLowerCase()}`,
+          },
         ].map((c) => (
           <div key={c.label} className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
             <div className="text-xs uppercase text-gray-500">{c.label}</div>
-            <div className="mt-1 font-mono text-sm text-gray-900 dark:text-white">{c.value}</div>
+            <div className="mt-1 truncate text-sm font-semibold text-gray-900 dark:text-white" title={c.value}>
+              {c.value}
+            </div>
+            <div className="mt-0.5 truncate text-xs text-gray-500">{c.sub}</div>
           </div>
         ))}
       </div>
+
+      {/* Lineage — only when this asset actually has earlier versions. */}
+      {asset.versions.length > 0 && (
+        <section className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">Lineage</h2>
+          <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+            {asset.versions.map((v) => (
+              <li key={v.id} className="flex items-center gap-3 py-2">
+                <span className="w-12 shrink-0 text-xs font-semibold text-gray-500">v{v.versionNumber}</span>
+                <span className="min-w-0 flex-1 truncate text-sm text-gray-900 dark:text-white">
+                  {v.originalFilename}
+                </span>
+                {v.certificateId && <Badge variant="success">Certified</Badge>}
+                <span className="shrink-0 text-xs text-gray-500">
+                  {new Date(v.createdAt).toLocaleDateString()}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* The identifiers, kept for the cases that need them. */}
+      <details className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+        <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wide text-gray-500">
+          Technical identifiers
+        </summary>
+        <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+          {[
+            ['Asset', asset.id],
+            ['Vault', asset.vaultId],
+            ['DNA', asset.dnaId],
+            ['Certificate', asset.certificateId],
+            ['Content hash', asset.contentHash],
+          ]
+            .filter(([, v]) => Boolean(v))
+            .map(([label, value]) => (
+              <div key={String(label)} className="min-w-0">
+                <dt className="text-xs uppercase text-gray-500">{label}</dt>
+                <dd className="truncate font-mono text-xs text-gray-900 dark:text-white" title={String(value)}>
+                  {value}
+                </dd>
+              </div>
+            ))}
+        </dl>
+      </details>
 
       <section className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">Linked Protected Posts</h2>

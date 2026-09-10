@@ -57,12 +57,31 @@ export async function protectAsset(req: Request, res: Response, next: NextFuncti
 export async function listAssets(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const ownerUserId = getAuthUserId(req);
+    const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
     const assets = await assetService.list(ownerUserId, {
-      assetType: typeof req.query.assetType === 'string' ? req.query.assetType : undefined,
-      status: typeof req.query.status === 'string' ? req.query.status : undefined,
+      assetType: str(req.query.assetType),
+      status: str(req.query.status),
       limit: req.query.limit ? Number(req.query.limit) : 50,
+      // Relationship filters — what the asset belongs to, not what it is called.
+      campaignId: str(req.query.campaignId),
+      clientId: str(req.query.clientId),
+      hasCampaign:
+        req.query.hasCampaign === 'true' ? true
+        : req.query.hasCampaign === 'false' ? false
+        : undefined,
     });
     res.json({ success: true, assets });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** GET /assets/:id/graph — the asset's real connections, grouped. */
+export async function getAssetGraph(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const ownerUserId = getAuthUserId(req);
+    const graph = await assetService.getRelationshipGraph(ownerUserId, req.params.id);
+    res.json({ success: true, ...graph });
   } catch (err) {
     next(err);
   }

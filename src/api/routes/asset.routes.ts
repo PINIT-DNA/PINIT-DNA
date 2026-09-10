@@ -14,6 +14,7 @@ import {
   listAssets,
   getAsset,
   getAssetStats,
+  getAssetGraph,
   transitionAsset,
 } from '../controllers/asset.controller';
 
@@ -53,6 +54,7 @@ function uploadMedia(req: Parameters<typeof protectAsset>[0], res: Parameters<ty
 router.post('/assets/protect', requireAuth, uploadMedia, protectAsset);
 router.get('/assets/stats', requireAuth, getAssetStats);
 router.get('/assets', requireAuth, listAssets);
+router.get('/assets/:id/graph', requireAuth, requireAssetOwnership, getAssetGraph);
 router.get('/assets/:id', requireAuth, requireAssetOwnership, getAsset);
 router.patch('/assets/:id/status', requireAuth, requireAssetOwnership, transitionAsset);
 

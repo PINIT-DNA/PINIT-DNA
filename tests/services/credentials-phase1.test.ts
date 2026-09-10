@@ -9,7 +9,7 @@ jest.mock('../../src/lib/prisma', () => ({
     certificate: { findMany: jest.fn() },
     credential: { findMany: jest.fn(), upsert: jest.fn() },
     vaultRecord: { findMany: jest.fn() },
-    asset: { findMany: jest.fn() },
+    asset: { findMany: jest.fn(), findFirst: jest.fn(), create: jest.fn() },
     user: { findUnique: jest.fn() },
   },
 }));
@@ -203,6 +203,9 @@ describe('certificate → credential projection', () => {
   });
 
   test('list returns only projected certificates — no portfolio rows', async () => {
+    // listMyCredentials now gives older files their Asset identity first;
+    // an owner with no vaults makes that a no-op.
+    vaultFindMany.mockResolvedValueOnce([]);
     certFindMany
       .mockResolvedValueOnce([{
         certificateId: CERT_A, status: 'ACTIVE', issuedAt: new Date('2026-09-03'), expiresAt: null, assetId: null,
@@ -251,6 +254,9 @@ describe('certificate → credential projection', () => {
   });
 
   test('issues a real Pinit certificate for a live vault that does not have one yet', async () => {
+    // listMyCredentials now gives older files their Asset identity first;
+    // an owner with no vaults makes that a no-op.
+    vaultFindMany.mockResolvedValueOnce([]);
     vaultFindMany
       .mockResolvedValueOnce([{ id: 'vault-new', dnaRecordId: 'dna-new' }])
       .mockResolvedValueOnce([{ id: 'vault-new', originalFileName: 'Fourth.jpg' }]);
@@ -276,6 +282,28 @@ describe('certificate → credential projection', () => {
     }));
     expect(result.credentials).toHaveLength(1);
     expect(result.credentials[0].title).toBe('Fourth');
+  });
+
+  test('does not re-issue when the vault already has a revoked certificate', async () => {
+    // keep this test about re-issue only — the identity backfill is a no-op here
+    vaultFindMany.mockResolvedValueOnce([]);
+    // A revoked certificate is a deliberate act. Auto-issuing a fresh one on the
+    // next page load would silently undo it, and would mint another on every
+    // load after that.
+    vaultFindMany
+      .mockResolvedValueOnce([{ id: 'vault-rev', dnaRecordId: 'dna-rev' }])
+      .mockResolvedValueOnce([{ id: 'vault-rev', originalFileName: 'Revoked.jpg' }]);
+    certFindMany
+      .mockResolvedValueOnce([{ vaultId: 'vault-rev', status: 'REVOKED' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    credFindMany.mockResolvedValueOnce([]);
+    assetFindMany.mockResolvedValueOnce([]);
+    userFindUnique.mockResolvedValueOnce({ fullName: 'Ashwithareddy' });
+
+    await listMyCredentials(USER_A);
+
+    expect(issueCert).not.toHaveBeenCalled();
   });
 
   test('user B cannot read user A credential by id', async () => {

@@ -767,6 +767,33 @@ export async function getMonitoringStatus(): Promise<MonitoringStatus | null> {
   }
 }
 
+/** One group of real connections on an asset. Empty groups are never returned. */
+export type AssetGraphGroup = {
+  kind: string;
+  label: string;
+  items: Array<{ id: string; label: string; sub?: string; href?: string }>;
+};
+
+export type AssetGraph = {
+  success: boolean;
+  asset: { id: string; title: string; assetType: string; status: string };
+  groups: AssetGraphGroup[];
+  totalConnections: number;
+};
+
+/**
+ * What this asset is actually connected to.
+ *
+ * The server omits any group with no members, so the caller renders whatever
+ * comes back without deciding what counts as empty.
+ */
+export async function getAssetGraph(assetId: string): Promise<AssetGraph> {
+  const { data } = await api.get<AssetGraph>(
+    `${API_BASE_URL}/assets/${encodeURIComponent(assetId)}/graph`,
+  );
+  return data;
+}
+
 /** One sealed purchase — what this person licensed, and whether it still holds. */
 export type ExchangePurchase = {
   seal_id: string;

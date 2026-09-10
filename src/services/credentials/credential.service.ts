@@ -162,14 +162,22 @@ async function ensureCertificatesForLiveVaults(userId: string): Promise<void> {
 
   const existing = await prisma.certificate.findMany({
     where: { ownerUserId: userId, vaultId: { in: vaults.map((v) => v.id) } },
-    select: { vaultId: true, status: true },
+    select: { vaultId: true },
   });
-  const hasActive = new Set(
-    existing.filter((c) => c.status === 'ACTIVE').map((c) => c.vaultId),
-  );
+  /*
+   * A vault is "already certified" if it has any certificate at all, not only an
+   * active one.
+   *
+   * Gating on ACTIVE meant a revoked or expired certificate left the vault
+   * looking uncertified, so opening Credentials minted a replacement — silently
+   * undoing the revocation, and minting another on every load after that.
+   * Re-issuing after a revocation is a deliberate act, not a side effect of
+   * viewing a page.
+   */
+  const certified = new Set(existing.map((c) => c.vaultId));
 
   for (const vault of vaults) {
-    if (hasActive.has(vault.id)) continue;
+    if (certified.has(vault.id)) continue;
     try {
       await certificateService.issue({
         dnaRecordId: vault.dnaRecordId,
@@ -187,6 +195,14 @@ export async function listMyCredentials(userId: string): Promise<{
   credentials: CredentialDto[];
   counts: { total: number; pinitVerified: number };
 }> {
+  // Give older protected files their Asset identity first: a certificate can
+  // only offer "View protected asset" once the Asset exists to point at.
+  try {
+    const { assetService } = await import('../assets/asset.service');
+    await assetService.ensureAssetIdentityForOwner(userId);
+  } catch {
+    /* identity is additive — Credentials still lists from Certificate + Vault */
+  }
   await ensureCertificatesForLiveVaults(userId);
   await syncCertificateProjections(userId);
 

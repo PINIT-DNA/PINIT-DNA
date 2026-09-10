@@ -75,6 +75,10 @@ export async function listVaultRecords(
           prisma.asset.findMany({
             where: { vaultId: { in: vaultIds } },
             select: {
+              // The canonical Asset id, so a vault row can reach its own
+              // relationship graph. This join already ran for source metadata;
+              // selecting the id costs nothing and duplicates nothing.
+              id: true,
               vaultId: true,
               sourcePlatform: true,
               sourceUrl: true,
@@ -122,6 +126,8 @@ export async function listVaultRecords(
 
         return {
           id:                  r.id,
+          /** Null for files protected before Vault created an Asset identity. */
+          assetId:             asset?.id ?? null,
           dnaRecordId:         r.dnaRecordId,
           originalFileName:    r.originalFileName,
           originalMimeType:    r.originalMimeType,

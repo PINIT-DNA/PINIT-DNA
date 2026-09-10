@@ -34,7 +34,9 @@ import {
 } from '../lib/file-type-utils';
 import { buildShareFileAttachment } from '../lib/share-file-open';
 import { API_BASE_URL } from '../config/api.config';
-import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, renameVaultRecord, createExchangeListIntent, getExchangeRole, getExchangeConfig, getPortfolioContainsVault, getVaultContentAnalysis, type VaultTrackingDashboard } from '../services/dashboard.api';
+import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, renameVaultRecord, createExchangeListIntent, getExchangeRole, getExchangeConfig, getPortfolioContainsVault, getVaultContentAnalysis, type VaultTrackingDashboard,
+  getAssetGraph, type AssetGraph,
+} from '../services/dashboard.api';
 import { useAuth } from '../context/AuthContext';
 import { ShareQrBlock } from './ShareQrBlock';
 import { AuthenticityReportCard, verdictBadgeVariant } from './AuthenticityReportCard';
@@ -136,6 +138,13 @@ export function VaultDetailSidePanel({
   const navigate = useNavigate();
   const { user } = useAuth();
   const [tab, setTab] = useState<PanelTab>('overview');
+  /*
+   * What this file is connected to. Keyed on the canonical Asset id, which the
+   * vault list now carries; files protected before Asset identity existed have
+   * none, and for those the section simply does not appear.
+   */
+  const [graph, setGraph] = useState<AssetGraph | null>(null);
+  const [graphLoading, setGraphLoading] = useState(false);
   const [links, setLinks] = useState<VaultShareLink[]>([]);
   const [loadingLinks, setLoadingLinks] = useState(true);
   const [tracking, setTracking] = useState<VaultTrackingDashboard | null>(null);
@@ -211,6 +220,24 @@ export function VaultDetailSidePanel({
       cancelled = true;
     };
   }, [record.id]);
+
+  /* Relationships load on their own, so an asset without an identity cannot
+     short-circuit the panel's other reset work. */
+  useEffect(() => {
+    setGraph(null);
+    const assetId = record.assetId;
+    if (!assetId) {
+      setGraphLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setGraphLoading(true);
+    getAssetGraph(assetId)
+      .then((g) => { if (!cancelled) setGraph(g); })
+      .catch(() => { if (!cancelled) setGraph(null); })
+      .finally(() => { if (!cancelled) setGraphLoading(false); });
+    return () => { cancelled = true; };
+  }, [record.id, record.assetId]);
 
   useEffect(() => {
     setTab('overview');
@@ -783,6 +810,80 @@ export function VaultDetailSidePanel({
                   ))}
                 </dl>
               </section>
+              {/*
+                * What this file is connected to.
+                *
+                * The server returns only groups that have members, so there is
+                * no empty-state to render here — if an asset is connected to
+                * nothing, the whole section stays away rather than showing a
+                * row of blank headings.
+                */}
+              {graphLoading && (
+                <section>
+                  <h3 className="text-2xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider mb-2">
+                    Relationships
+                  </h3>
+                  <div className="skeleton h-12 rounded-lg" />
+                </section>
+              )}
+
+              {!graphLoading && graph && graph.groups.length > 0 && (
+                <section>
+                  <div className="flex items-baseline justify-between gap-2 mb-2">
+                    <h3 className="text-2xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                      Relationships
+                    </h3>
+                    <span className="text-2xs text-gray-500">
+                      {graph.totalConnections}{' '}
+                      {graph.totalConnections === 1 ? 'connection' : 'connections'}
+                    </span>
+                  </div>
+
+                  <div className="space-y-3">
+                    {graph.groups.map((group) => (
+                      <div key={group.kind}>
+                        <p className="text-2xs text-gray-500 mb-1">{group.label}</p>
+                        <ul className="space-y-1">
+                          {group.items.map((item) => {
+                            const body = (
+                              <>
+                                <span className="min-w-0 flex-1 truncate text-gray-900 dark:text-gray-100">
+                                  {item.label}
+                                </span>
+                                {item.sub && (
+                                  <span className="shrink-0 truncate text-2xs text-gray-500 max-w-[45%]">
+                                    {item.sub}
+                                  </span>
+                                )}
+                              </>
+                            );
+                            const cls =
+                              'flex items-center gap-2 text-xs rounded-lg px-2 py-1.5 '
+                              + 'bg-gray-50 dark:bg-white/[0.03]';
+                            return (
+                              <li key={`${group.kind}-${item.id}`}>
+                                {item.href ? (
+                                  <a
+                                    href={item.href}
+                                    target={item.href.startsWith('http') ? '_blank' : undefined}
+                                    rel="noreferrer noopener"
+                                    className={`${cls} hover:bg-gray-100 dark:hover:bg-white/[0.06]`}
+                                  >
+                                    {body}
+                                  </a>
+                                ) : (
+                                  <div className={cls}>{body}</div>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
               <section>
                 <h3 className="text-2xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider mb-2">
                   Where it came from

@@ -130,6 +130,8 @@ export interface VaultContentAnalysis {
 
 export interface VaultRecord {
   id: string;
+  /** Canonical Asset id. Null for files protected before Asset identity existed. */
+  assetId?: string | null;
   dnaRecordId: string;
   originalFileName: string;
   originalMimeType: string;
