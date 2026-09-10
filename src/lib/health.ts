@@ -33,6 +33,7 @@ export interface HealthReport {
     encryption: ComponentHealth;
     supabase:   ComponentHealth;
     memory:     ComponentHealth;
+    mediaTools: ComponentHealth;
   };
 }
 
@@ -43,24 +44,28 @@ export async function getHealthReport(): Promise<HealthReport> {
     checkStorageDirectory(),
     checkEncryptionConfig(),
     checkSupabaseStorage(),
+    checkMediaTools(),
     checkMemory(),
   ]);
 
-  const [database, vault, storage, encryption, supabase, memory] = checks.map(r =>
+  const [database, vault, storage, encryption, supabase, mediaTools, memory] = checks.map(r =>
     r.status === 'fulfilled' ? r.value : { status: 'unhealthy' as const, message: String((r as PromiseRejectedResult).reason) }
   );
 
-  const allHealthy = [database, vault, storage, encryption, supabase, memory]
-    .every(c => c.status === 'healthy');
-  const anyUnhealthy = [database, vault, storage, encryption, supabase, memory]
-    .some(c => c.status === 'unhealthy');
+  // mediaTools is reported but deliberately excluded from the overall verdict.
+  // ffmpeg is an optional capability — without it images, vaulting, sharing and
+  // certificates all work — and letting it turn the whole service "degraded"
+  // would answer 207 to the platform health gate over a video feature.
+  const core = [database, vault, storage, encryption, supabase, memory];
+  const allHealthy = core.every(c => c.status === 'healthy');
+  const anyUnhealthy = core.some(c => c.status === 'unhealthy');
 
   return {
     status:    allHealthy ? 'healthy' : anyUnhealthy ? 'unhealthy' : 'degraded',
     timestamp: new Date().toISOString(),
     uptime:    Math.round(process.uptime()),
     version:   config.dna.engineVersion,
-    components: { database, vault, storage, encryption, supabase, memory },
+    components: { database, vault, storage, encryption, supabase, memory, mediaTools },
   };
 }
 
@@ -137,4 +142,30 @@ function checkMemory(): ComponentHealth {
     return { status: 'degraded',  message: `Memory high: ${usedPct}% used, ${freeMb}MB free` };
   }
   return { status: 'healthy', message: `Memory OK: ${usedPct}% used, ${freeMb}MB free` };
+}
+
+
+/**
+ * ffmpeg / ffprobe availability.
+ *
+ * Reported because their absence is otherwise invisible: video keyframe DNA and
+ * the video duplicate check both degrade to "no frames" rather than failing, so a
+ * re-encoded video would be accepted with nothing in the logs to say why.
+ * Degraded, not unhealthy — the rest of the platform works fine without them.
+ */
+async function checkMediaTools(): Promise<ComponentHealth> {
+  try {
+    const { getMediaToolStatus } = await import('../services/forensics/media-tools.service');
+    const t = await getMediaToolStatus();
+    if (t.ffmpeg && t.ffprobe) {
+      return { status: 'healthy', message: 'ffmpeg and ffprobe available — video DNA active' };
+    }
+    const missing = [!t.ffmpeg && 'ffmpeg', !t.ffprobe && 'ffprobe'].filter(Boolean).join(', ');
+    return {
+      status: 'degraded',
+      message: `${missing} unavailable — video keyframe DNA and video duplicate detection are off`,
+    };
+  } catch (err) {
+    return { status: 'degraded', message: `Media tool check failed: ${String(err).slice(0, 80)}` };
+  }
 }

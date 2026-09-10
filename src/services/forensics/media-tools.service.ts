@@ -31,16 +31,44 @@ function isBundledBinary(cmd: string): boolean {
   return path.isAbsolute(cmd) || cmd.includes('\\') || cmd.includes('/');
 }
 
+/**
+ * A bundled binary that exists but cannot be executed is not available.
+ *
+ * `fs.access` defaults to F_OK — file present. npm does not reliably preserve the
+ * execute bit on the platform binaries it unpacks, so on Linux the ffmpeg that
+ * ships with `ffmpeg-static` is routinely present and non-executable. Checking
+ * only for existence made `isFfmpegAvailable()` answer true while every execFile
+ * failed with EACCES: video keyframe extraction returned zero frames, silently,
+ * and the duplicate check declined rather than guessing. Correct behaviour on a
+ * false premise.
+ *
+ * Try to restore the bit ourselves before giving up — it is our own dependency in
+ * our own node_modules, and a chmod is cheaper than a broken protection path.
+ */
+async function isExecutable(cmd: string): Promise<boolean> {
+  try {
+    await fs.promises.access(cmd, fs.constants.X_OK);
+    return true;
+  } catch {
+    // Present but not executable? Fix it rather than degrade.
+    try {
+      await fs.promises.access(cmd, fs.constants.F_OK);
+      await fs.promises.chmod(cmd, 0o755);
+      await fs.promises.access(cmd, fs.constants.X_OK);
+      logger.warn('Media tool was not executable — restored the execute bit', { cmd });
+      return true;
+    } catch (err) {
+      logger.warn('Media tool is unusable', { cmd, error: String(err) });
+      return false;
+    }
+  }
+}
+
 async function isBinaryResolvable(cmd: string): Promise<boolean> {
   if (availabilityCache.has(cmd)) return availabilityCache.get(cmd)!;
   let ok = false;
   if (isBundledBinary(cmd)) {
-    try {
-      await fs.promises.access(cmd);
-      ok = true;
-    } catch {
-      ok = false;
-    }
+    ok = await isExecutable(cmd);
   } else {
     try {
       const check = process.platform === 'win32' ? 'where' : 'which';
@@ -171,7 +199,12 @@ export async function extractVideoFrameSamples(
     }
     return frames;
   } catch (err) {
-    logger.debug('FFmpeg batch frame extract failed', { error: String(err) });
+    // Was debug. A silent [] here disables video duplicate detection entirely and
+    // looks identical to "this video has no frames", so it must be visible.
+    logger.warn('FFmpeg frame extraction failed — video keyframe DNA unavailable', {
+      ffmpegPath: dnaPhase2.ffmpegPath,
+      error: String(err),
+    });
     return [];
   } finally {
     await safeUnlink(tmpIn);
@@ -200,4 +233,23 @@ export async function probeVideoFps(buffer: Buffer, ext = 'mp4'): Promise<number
   } finally {
     await safeUnlink(tmpIn);
   }
+}
+
+/** Media tool availability, for health reporting and remote diagnosis. */
+export async function getMediaToolStatus(): Promise<{
+  ffmpeg: boolean;
+  ffprobe: boolean;
+  ffmpegPath: string;
+  ffprobePath: string;
+}> {
+  const [ffmpeg, ffprobe] = await Promise.all([
+    isBinaryResolvable(dnaPhase2.ffmpegPath),
+    isBinaryResolvable(dnaPhase2.ffprobePath),
+  ]);
+  return {
+    ffmpeg,
+    ffprobe,
+    ffmpegPath: dnaPhase2.ffmpegPath,
+    ffprobePath: dnaPhase2.ffprobePath,
+  };
 }
