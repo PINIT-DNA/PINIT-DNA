@@ -3,6 +3,7 @@
  * Uses file paths — graceful fallback when binaries unavailable.
  */
 import { execFile } from 'child_process';
+import crypto from 'crypto';
 import { promisify } from 'util';
 import fs from 'fs';
 import os from 'os';
@@ -11,6 +12,19 @@ import { logger } from '../../lib/logger';
 import { dnaPhase2 } from '../../config/dna-phase2';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * A temp name that is unique per call, not per millisecond.
+ *
+ * `Date.now()` alone collides whenever two media jobs start in the same
+ * millisecond — routine when several users protect a video at once. Two videos then
+ * share one input path or one frame directory, so one overwrites the other and the
+ * wrong pictures get fingerprinted; worse, the `finally` cleanup deletes a directory
+ * another job is still reading.
+ */
+function uniqueTempName(prefix: string, suffix = ''): string {
+  return path.join(os.tmpdir(), `${prefix}-${Date.now()}-${crypto.randomUUID()}${suffix}`);
+}
 const availabilityCache = new Map<string, boolean>();
 
 function isBundledBinary(cmd: string): boolean {
@@ -53,7 +67,7 @@ export async function isFpcalcAvailable(): Promise<boolean> {
 }
 
 async function writeTempFile(buffer: Buffer, ext: string): Promise<string> {
-  const tmp = path.join(os.tmpdir(), `pinit-dna-${Date.now()}.${ext}`);
+  const tmp = uniqueTempName('pinit-dna', `.${ext}`);
   await fs.promises.writeFile(tmp, buffer);
   return tmp;
 }
@@ -65,7 +79,7 @@ async function safeUnlink(p: string): Promise<void> {
 export async function extractAudioSample(buffer: Buffer, ext = 'mp4'): Promise<Buffer | null> {
   if (!(await isFfmpegAvailable())) return null;
   const tmpIn = await writeTempFile(buffer, ext);
-  const tmpOut = path.join(os.tmpdir(), `pinit-dna-audio-${Date.now()}.raw`);
+  const tmpOut = uniqueTempName('pinit-dna-audio', '.raw');
   try {
     await execFileAsync(dnaPhase2.ffmpegPath, [
       '-hide_banner', '-loglevel', 'error', '-y',
@@ -128,7 +142,7 @@ export async function extractVideoFrameSamples(
 ): Promise<Buffer[]> {
   if (!(await isFfmpegAvailable())) return [];
   const tmpIn = await writeTempFile(buffer, ext);
-  const tmpDir = path.join(os.tmpdir(), `pinit-frames-${Date.now()}`);
+  const tmpDir = uniqueTempName('pinit-frames');
   const outPattern = path.join(tmpDir, 'frame-%03d.jpg');
 
   try {

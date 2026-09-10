@@ -6,6 +6,7 @@
 import crypto from 'crypto';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { logger } from '../../lib/logger';
 import { AppError } from '../../api/middleware/error.middleware';
 import { publishGuardianService } from '../publish-guardian/publish-guardian.service';
 import { assertAssetTransition, inferAssetType, ASSET_STATUS } from './lifecycle';
@@ -128,6 +129,61 @@ export class AssetService {
     };
   }
 
+  /**
+   * Attach the video / document adapter fingerprints to an Asset.
+   *
+   * The image layers (perceptual, structural, stego …) cannot run on an mp4 or a
+   * PDF, so those media types have their own adapters. Publish Guardian already
+   * calls them inline; the Hub upload path did not, which left `Asset.fingerprints`
+   * null for every Hub-protected video and document.
+   *
+   * Reuses the existing adapters — no new protection system. Returns the stored
+   * value, or null when the media type has no adapter or the adapter failed.
+   */
+  async attachMediaFingerprints(opts: {
+    assetId: string;
+    ownerUserId: string;
+    buffer: Buffer;
+    mimeType: string;
+    originalFilename: string;
+    dnaId?: string | null;
+  }): Promise<Prisma.InputJsonValue | null> {
+    const assetType = inferAssetType(opts.mimeType, opts.originalFilename);
+    if (assetType !== 'VIDEO' && assetType !== 'DOCUMENT') return null;
+
+    let fingerprints: Prisma.InputJsonValue;
+    try {
+      fingerprints = assetType === 'VIDEO'
+        ? (await buildVideoAssetDna(opts.buffer)) as unknown as Prisma.InputJsonValue
+        : (await buildDocumentAssetDna({
+            buffer: opts.buffer,
+            mimeType: opts.mimeType,
+            originalFilename: opts.originalFilename,
+            dnaRecordId: opts.dnaId ?? null,
+          })) as unknown as Prisma.InputJsonValue;
+    } catch (err) {
+      // Record the failure rather than silently leaving the column null, so a
+      // missing fingerprint is distinguishable from one that was never attempted.
+      logger.warn('[Asset] media fingerprint generation failed', {
+        assetId: opts.assetId,
+        assetType,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      fingerprints = {
+        engine: assetType === 'VIDEO' ? 'video' : 'document',
+        error: 'generation_failed',
+      } as unknown as Prisma.InputJsonValue;
+    }
+
+    // Scoped to the owner like every other asset write.
+    await prisma.asset.updateMany({
+      where: { id: opts.assetId, ownerUserId: opts.ownerUserId },
+      data: { fingerprints },
+    });
+
+    return fingerprints;
+  }
+
   /** Called from Publish Guardian after a successful protect (idempotent). */
   async ensureAssetFromProtect(opts: {
     ownerUserId: string;
@@ -238,6 +294,83 @@ export class AssetService {
    * Associate one of many platform URLs with an Asset.
    * Viewing a URL is never enough — only call after protect / late-bind publish.
    */
+  /**
+   * Give every protected file of this owner its canonical Asset identity.
+   *
+   * Files protected before Vault started creating an Asset row have only a
+   * VaultRecord and a DnaRecord, so nothing can hang off them: Credentials
+   * cannot offer "View protected asset", and Exchange refuses the listing with
+   * "contact support to backfill it". The user is left carrying a gap the
+   * system can close by itself.
+   *
+   * Nothing is invented here. Every field is read off records that already
+   * exist, and the clientRequestId is the same `hub:<dnaId>` key the live
+   * protect path writes — so ensureAssetFromProtect's existing lookup makes a
+   * re-run a no-op rather than a second Asset.
+   */
+  async ensureAssetIdentityForOwner(ownerUserId: string): Promise<{
+    created: number;
+    alreadyLinked: number;
+    skipped: number;
+  }> {
+    const vaults = await prisma.vaultRecord.findMany({
+      where: { dnaRecord: { ownerUserId } },
+      select: {
+        id: true,
+        dnaRecordId: true,
+        originalFileName: true,
+        originalMimeType: true,
+        originalSizeBytes: true,
+        dnaRecord: { select: { sha256Hash: true } },
+      },
+    });
+    if (!vaults.length) return { created: 0, alreadyLinked: 0, skipped: 0 };
+
+    const linked = await prisma.asset.findMany({
+      where: { ownerUserId, vaultId: { in: vaults.map((v) => v.id) } },
+      select: { vaultId: true },
+    });
+    const hasAsset = new Set(linked.map((a) => a.vaultId));
+
+    let created = 0;
+    let skipped = 0;
+    for (const vault of vaults) {
+      if (hasAsset.has(vault.id)) continue;
+      try {
+        await this.ensureAssetFromProtect({
+          ownerUserId,
+          assetType: inferAssetType(vault.originalMimeType, vault.originalFileName),
+          originalFilename: vault.originalFileName,
+          mimeType: vault.originalMimeType,
+          sizeBytes: vault.originalSizeBytes,
+          contentHash: vault.dnaRecord?.sha256Hash || '',
+          vaultId: vault.id,
+          dnaId: vault.dnaRecordId,
+          certificateId: null,
+          monitorRecordId: null,
+          monitorStatus: 'PENDING',
+          sourcePlatform: 'hub',
+          sourceUrl: null,
+          capturedVia: 'hub_protect_file',
+          clientRequestId: `hub:${vault.dnaRecordId}`,
+          status: ASSET_STATUS.PROTECTED,
+          protectedPostId: '',
+        });
+        created += 1;
+      } catch (err) {
+        // A file that cannot be given an identity stays as it is. Vault and DNA
+        // remain the source of truth, so this degrades rather than breaks.
+        skipped += 1;
+        logger.warn('Asset identity backfill skipped a vault record', {
+          vaultId: vault.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    return { created, alreadyLinked: hasAsset.size, skipped };
+  }
+
   async upsertPlatformLink(opts: {
     assetId: string;
     platform: string;
@@ -280,17 +413,55 @@ export class AssetService {
     });
   }
 
-  async list(ownerUserId: string, opts?: { assetType?: string; status?: string; limit?: number }) {
+  /**
+   * List an owner's assets, optionally by what they belong to rather than what
+   * they are called.
+   *
+   * "Show me the campaign assets for this brand" is a question the data can
+   * already answer — Asset.campaignId reaches Campaign, and Campaign.clientId
+   * reaches the client the work was made for. Only filename and type were
+   * exposed before, so answering it meant remembering a filename. Nothing new
+   * is stored to support this; it reads relations that already exist.
+   */
+  async list(ownerUserId: string, opts?: {
+    assetType?: string;
+    status?: string;
+    limit?: number;
+    campaignId?: string;
+    clientId?: string;
+    hasCampaign?: boolean;
+  }) {
     const take = Math.min(opts?.limit ?? 50, 100);
+
+    // clientId filters through the campaign relation; a campaign always has a
+    // client, so an asset with no campaign can never match one.
+    const campaignScope =
+      opts?.campaignId ? { campaignId: opts.campaignId }
+      : opts?.clientId ? { campaign: { is: { clientId: opts.clientId } } }
+      : opts?.hasCampaign === true ? { campaignId: { not: null } }
+      : opts?.hasCampaign === false ? { campaignId: null }
+      : {};
+
     return prisma.asset.findMany({
       where: {
         ownerUserId,
         ...(opts?.assetType ? { assetType: opts.assetType as never } : {}),
         ...(opts?.status ? { status: opts.status as never } : {}),
+        ...campaignScope,
       },
       orderBy: { createdAt: 'desc' },
       take,
       include: {
+        // The campaign and the client it was made for, so a listing can say what
+        // an asset belongs to instead of only what it is called.
+        campaign: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            client: { select: { id: true, name: true } },
+          },
+        },
         _count: { select: { discoveries: true, protectedPosts: true, timeline: true } },
       },
     });
@@ -317,10 +488,169 @@ export class AssetService {
         dnaRecord: {
           select: { id: true, imageFilename: true, fileType: true, sha256Hash: true, status: true },
         },
+        /*
+         * Context, ownership and lineage were all reachable from Asset and none
+         * of them were loaded, so the asset view could only describe the file
+         * itself — type, size, and truncated identifiers. These say what the
+         * asset belongs to, who holds it, and what came before it.
+         */
+        campaign: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            client: { select: { id: true, name: true } },
+            organization: { select: { id: true, name: true } },
+          },
+        },
+        ownerUser: { select: { id: true, fullName: true, shortId: true } },
+        versions: {
+          orderBy: { versionNumber: 'desc' },
+          take: 20,
+          select: {
+            id: true,
+            versionNumber: true,
+            originalFilename: true,
+            createdAt: true,
+            certificateId: true,
+          },
+        },
       },
     });
     if (!asset) throw new AppError(404, 'Asset not found');
     return asset;
+  }
+
+  /**
+   * The asset's real connections, in one shape.
+   *
+   * Every edge here already exists in the database — owner, campaign and the
+   * client it was made for, earlier versions, the platforms it was published
+   * to, where it has been discovered, and the evidence collected against its
+   * DNA. What did not exist was anywhere that assembled them, so answering
+   * "what is this asset connected to?" meant visiting six screens.
+   *
+   * A group is omitted entirely when it has no members. An empty section is a
+   * worse answer than no section, and it invites the reader to assume the
+   * system looked and found nothing when it simply has nothing to show.
+   */
+  async getRelationshipGraph(ownerUserId: string, assetId: string) {
+    const asset = await prisma.asset.findFirst({
+      where: { id: assetId, ownerUserId },
+      include: {
+        ownerUser: { select: { id: true, fullName: true, shortId: true } },
+        campaign: {
+          select: {
+            id: true, name: true, status: true,
+            client: { select: { id: true, name: true } },
+            organization: { select: { id: true, name: true } },
+          },
+        },
+        versions: {
+          orderBy: { versionNumber: 'desc' },
+          take: 20,
+          select: { id: true, versionNumber: true, originalFilename: true, createdAt: true },
+        },
+        platformLinks: {
+          orderBy: [{ isOriginal: 'desc' }, { createdAt: 'asc' }],
+          take: 25,
+        },
+        discoveries: { orderBy: { lastSeen: 'desc' }, take: 25 },
+        protectedPosts: {
+          select: { id: true, platform: true, postUrl: true, status: true },
+          take: 25,
+        },
+      },
+    });
+    if (!asset) throw new AppError(404, 'Asset not found');
+
+    // Evidence hangs off the DNA record rather than the asset, so it is only
+    // reachable once this asset actually has DNA.
+    const evidence = asset.dnaId
+      ? await prisma.evidenceRecord.findMany({
+          where: { dnaRecordId: asset.dnaId, ownerUserId },
+          orderBy: { collectedAt: 'desc' },
+          take: 25,
+          select: {
+            id: true, evidenceCode: true, evidenceType: true,
+            description: true, collectedAt: true,
+          },
+        })
+      : [];
+
+    type Node = { id: string; label: string; sub?: string; href?: string };
+    const groups: Array<{ kind: string; label: string; items: Node[] }> = [];
+    const add = (kind: string, label: string, items: Node[]) => {
+      if (items.length) groups.push({ kind, label, items });
+    };
+
+    add('OWNER', 'Owner', asset.ownerUser ? [{
+      id: asset.ownerUser.id,
+      label: asset.ownerUser.fullName || asset.ownerUser.shortId || 'Owner',
+      sub: asset.ownerUser.shortId || undefined,
+    }] : []);
+
+    add('CAMPAIGN', 'Campaign', asset.campaign ? [{
+      id: asset.campaign.id,
+      label: asset.campaign.name,
+      sub: asset.campaign.status,
+      href: `/business/clients`,
+    }] : []);
+
+    add('CLIENT', 'Client', asset.campaign?.client ? [{
+      id: asset.campaign.client.id,
+      label: asset.campaign.client.name,
+      href: `/business/clients`,
+    }] : []);
+
+    add('ORGANIZATION', 'Organisation', asset.campaign?.organization ? [{
+      id: asset.campaign.organization.id,
+      label: asset.campaign.organization.name || 'Organisation',
+    }] : []);
+
+    add('VERSION', 'Versions', asset.versions.map((v) => ({
+      id: v.id,
+      label: v.originalFilename,
+      sub: `v${v.versionNumber}`,
+    })));
+
+    add('PLATFORM', 'Published to', asset.platformLinks.map((l) => ({
+      id: l.id,
+      label: l.platform,
+      sub: l.isOriginal ? 'original' : undefined,
+      href: l.url || undefined,
+    })));
+
+    add('POST', 'Protected posts', asset.protectedPosts.map((p) => ({
+      id: p.id,
+      label: p.platform,
+      sub: p.status,
+      href: p.postUrl || undefined,
+    })));
+
+    add('DISCOVERY', 'Found elsewhere', asset.discoveries.map((d) => ({
+      id: d.id,
+      label: d.platform || 'Discovery',
+      sub: d.url || undefined,
+      href: d.url || undefined,
+    })));
+
+    add('EVIDENCE', 'Evidence', evidence.map((e) => ({
+      id: e.id,
+      label: e.evidenceType,
+      sub: e.description,
+    })));
+
+    return {
+      asset: {
+        id: asset.id,
+        title: asset.originalFilename,
+        assetType: asset.assetType,
+        status: asset.status,
+      },
+      groups,
+      totalConnections: groups.reduce((n, g) => n + g.items.length, 0),
+    };
   }
 
   async getStats(ownerUserId: string) {

@@ -199,11 +199,20 @@ export class VaultWatermarkEngine {
     return { buffer: out, method: 'zip-comment+embedded-manifest', embedded: true };
   }
 
+  /**
+   * Audio and video carry an appended container tag, not an in-signal embed.
+   *
+   * The method name is reported to callers and surfaced in provenance, so it must
+   * describe what actually ran. These append a tag after the media payload: it
+   * survives copying and re-hosting, but NOT re-encoding, transcoding or remuxing.
+   * Frequency-domain (audio) and keyframe (video) embedding are not implemented —
+   * naming them here would assert protection the file does not carry.
+   */
   private embedAudio(buffer: Buffer, payload: string, hash: string): VaultWatermarkResult {
     const tag = Buffer.from(`PINIT-VAULT-AUDIO|${payload}\n`, 'utf8');
     return {
       buffer: Buffer.concat([buffer, tag]),
-      method: 'audio-frequency-tail',
+      method: 'audio-container-tail',
       watermarkHash: hash,
       embedded: true,
     };
@@ -213,7 +222,7 @@ export class VaultWatermarkEngine {
     const tag = Buffer.from(`PINIT-VAULT-VIDEO|${payload}\n`, 'utf8');
     return {
       buffer: Buffer.concat([buffer, tag]),
-      method: 'video-keyframe-tail+metadata',
+      method: 'video-container-tail',
       watermarkHash: hash,
       embedded: true,
     };
