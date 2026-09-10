@@ -351,6 +351,27 @@ export class VaultService {
           protectedPostId: '',
         });
         createdAssetId = createdAsset.id;
+
+        // Video and document adapters carry the fingerprints the image layers
+        // cannot produce for those media types. Publish Guardian already runs
+        // them; the Hub path did not, leaving Asset.fingerprints null for every
+        // Hub-protected video and document. Fire-and-forget so keyframe work
+        // never blocks the protect response — same idiom as the PDF page upgrade.
+        const assetIdForFingerprints = createdAsset.id;
+        const ownerForFingerprints = dnaRecord.ownerUserId;
+        void assetService.attachMediaFingerprints({
+          assetId: assetIdForFingerprints,
+          ownerUserId: ownerForFingerprints,
+          buffer: imageBuffer,
+          mimeType: originalMimeType,
+          originalFilename: originalFileName,
+          dnaId: dnaRecordId,
+        }).catch((fpErr) => {
+          logger.warn('Vault — media fingerprint attach failed (non-fatal)', {
+            assetId: assetIdForFingerprints,
+            error: fpErr instanceof Error ? fpErr.message : String(fpErr),
+          });
+        });
       } catch (assetErr) {
         // Non-fatal — Vault/DNA are the source of truth; Asset is an additional identity layer.
         logger.warn('Vault — Asset identity creation failed (non-fatal)', {
@@ -421,21 +442,33 @@ export class VaultService {
     // Local DNA patches must be built for every protect path (Hub vault, Asset
     // protect, Publish Guardian) — crop-in-AI investigation depends on them.
     if (originalMimeType.startsWith('image/')) {
-      import('../forensics/local-dna-index.service').then(({ localDnaIndexService }) => {
-        void localDnaIndexService.buildIndex({
+      // The `.catch` must sit on the WORK, not just on the dynamic import: a
+      // corrupt or truncated image makes these reject, and `void` without a
+      // handler surfaces that as an unhandled rejection — which Node terminates
+      // the process for. Indexing is best-effort; it must never take the API down.
+      import('../forensics/local-dna-index.service').then(({ localDnaIndexService }) =>
+        localDnaIndexService.buildIndex({
           buffer: fileToEncrypt,
           mimeType: originalMimeType,
           dnaRecordId,
           vaultId: record.id,
           ownerUserId: dnaRecord.ownerUserId ?? ownerUserId,
+        }),
+      ).catch((err) => {
+        logger.warn('Vault — local DNA index build failed (non-fatal)', {
+          vaultId: record.id, error: err instanceof Error ? err.message : String(err),
         });
-      }).catch(() => {});
-      import('../block-dna/investigate').then(({ enrollBlockDnaForVaultImage }) => {
-        void enrollBlockDnaForVaultImage({
+      });
+      import('../block-dna/investigate').then(({ enrollBlockDnaForVaultImage }) =>
+        enrollBlockDnaForVaultImage({
           imageBuffer: fileToEncrypt,
           dnaRecordId,
+        }),
+      ).catch((err) => {
+        logger.warn('Vault — block DNA enrollment failed (non-fatal)', {
+          vaultId: record.id, error: err instanceof Error ? err.message : String(err),
         });
-      }).catch(() => {});
+      });
     }
 
     return {
@@ -645,13 +678,29 @@ export class VaultService {
     const dnaRecordId = record.dnaRecordId;
     const originalFileName = record.originalFileName;
 
-    await prisma.shareLink.updateMany({
-      where: { vaultId },
-      data: { isActive: false },
+    // An Asset keeps its identity when the vault file goes — DNA, certificate and
+    // timeline all survive. But `Asset.vaultId` is a plain column, not a relation,
+    // so nothing clears it the way `dnaId`'s `onDelete: SetNull` does. Left alone
+    // it points at a row that no longer exists, and every later read fails
+    // silently. Clear the pointer in the same transaction as the delete so the
+    // two can never disagree.
+    const linkedAssets = await prisma.asset.findMany({
+      where: { vaultId, ownerUserId: storageOwner },
+      select: { id: true },
     });
 
-    // Vault file only — never delete the DNA record
-    await prisma.vaultRecord.delete({ where: { id: vaultId } });
+    await prisma.$transaction([
+      prisma.shareLink.updateMany({
+        where: { vaultId },
+        data: { isActive: false },
+      }),
+      prisma.asset.updateMany({
+        where: { vaultId, ownerUserId: storageOwner },
+        data: { vaultId: null },
+      }),
+      // Vault file only — never delete the DNA record
+      prisma.vaultRecord.delete({ where: { id: vaultId } }),
+    ]);
 
     // Storage cleanup after DB delete (do not block the API response on slow Supabase I/O)
     void (async () => {
@@ -670,6 +719,28 @@ export class VaultService {
     })();
 
     // Keep DNA searchable in AI index — vault removal must not erase identity
+
+    // Record why the vault link disappeared. Without this the asset simply stops
+    // having a vault one day with nothing to explain it.
+    if (linkedAssets.length) {
+      void (async () => {
+        try {
+          const { assetService } = await import('../assets/asset.service');
+          for (const linked of linkedAssets) {
+            await assetService.appendTimeline(linked.id, {
+              eventType: 'STATUS_CHANGE',
+              title: 'Vault file removed',
+              detail: `${originalFileName} — DNA and certificate retained`,
+            });
+          }
+        } catch (err) {
+          logger.warn('Vault — could not record removal on the asset timeline', {
+            vaultId,
+            error: String(err),
+          });
+        }
+      })();
+    }
 
     try {
       const { forensicProvenanceService } = await import('../forensics/forensic-provenance.service');
