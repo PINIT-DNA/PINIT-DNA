@@ -6,7 +6,7 @@ import {
   Radio, X,
   CreditCard, Settings, Users, Briefcase,
   HelpCircle, FolderKanban, ClipboardCheck, Activity,
-  User, Share2, FileText,
+  User, Share2, FileText, ShieldCheck, BadgeCheck,
 } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { useAuth } from '../../context/AuthContext';
@@ -132,6 +132,10 @@ const PERSONAL_NAV: NavGroup[] = [
     items: [
       { to: BRAND.investigationPath, icon: FileSearch, label: 'Intelligence', feature: FeatureKey.FEATURE_INVESTIGATION },
       { to: '/reports', icon: FileText, label: 'Evidence', feature: FeatureKey.FEATURE_INVESTIGATION },
+      // Not gated behind investigation: confirming your files are stored safely and
+      // checking a certificate are basic protection checks, not premium forensics.
+      { to: '/vault-integrity', icon: ShieldCheck, label: 'Security Check' },
+      { to: '/verify-certificate', icon: BadgeCheck, label: 'Verify Certificate' },
     ],
   },
     {
@@ -173,6 +177,10 @@ const BUSINESS_NAV: NavGroup[] = [
     items: [
       { to: BRAND.investigationPath, icon: FileSearch, label: 'Intelligence', feature: FeatureKey.FEATURE_INVESTIGATION },
       { to: '/reports', icon: FileText, label: 'Evidence', feature: FeatureKey.FEATURE_INVESTIGATION },
+      // Not gated behind investigation: confirming your files are stored safely and
+      // checking a certificate are basic protection checks, not premium forensics.
+      { to: '/vault-integrity', icon: ShieldCheck, label: 'Security Check' },
+      { to: '/verify-certificate', icon: BadgeCheck, label: 'Verify Certificate' },
     ],
   },
     {

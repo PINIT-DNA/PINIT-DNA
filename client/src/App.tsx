@@ -180,10 +180,17 @@ export default function App() {
                     <p className="text-sm text-danger font-medium mb-3">{error}</p>
                     <button
                       type="button"
-                      onClick={() => { setError(null); setDuplicateInfo(null); }}
+                      onClick={() => {
+                        setError(null);
+                        // A refused duplicate can never succeed, so send the user
+                        // back to an empty upload zone. A transient error is worth
+                        // retrying with the same file, so that selection stays.
+                        if (duplicateInfo) setSelectedFile(null);
+                        setDuplicateInfo(null);
+                      }}
                       className="btn btn-secondary"
                     >
-                      {duplicateInfo ? 'Different File' : 'Retry'}
+                      {duplicateInfo ? 'Choose a different file' : 'Retry'}
                     </button>
                   </div>
                 </motion.div>

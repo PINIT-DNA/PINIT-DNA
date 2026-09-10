@@ -4,41 +4,72 @@
     {
       "name": "pinit-dna",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 4000,
       "autoPort": false
     },
     {
       "name": "mockups",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["serve", "-l", "5555", "mockups"],
+      "runtimeArgs": [
+        "serve",
+        "-l",
+        "5555",
+        "mockups"
+      ],
       "port": 5555
     },
     {
       "name": "client",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "client", "run", "dev"],
-      "port": 3000,
+      "runtimeArgs": [
+        "--prefix",
+        "client",
+        "run",
+        "dev"
+      ],
+      "port": 3002,
       "autoPort": false
     },
     {
       "name": "exchange",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "exchange", "run", "client"],
+      "runtimeArgs": [
+        "--prefix",
+        "exchange",
+        "run",
+        "client"
+      ],
       "port": 5174,
       "autoPort": false
     },
     {
       "name": "exchange-server",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "exchange", "run", "server"],
+      "runtimeArgs": [
+        "--prefix",
+        "exchange",
+        "run",
+        "server"
+      ],
       "port": 5000,
       "autoPort": false
     },
     {
       "name": "landing",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "pinithub-landing", "run", "dev", "--", "-p", "3002"],
+      "runtimeArgs": [
+        "--prefix",
+        "pinithub-landing",
+        "run",
+        "dev",
+        "--",
+        "-p",
+        "3002"
+      ],
       "port": 3002,
       "autoPort": false
     }
