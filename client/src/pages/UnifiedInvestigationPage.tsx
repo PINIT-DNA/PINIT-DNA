@@ -1123,7 +1123,17 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
 
           <Section title="4. 15-Layer DNA Analysis" icon={Dna} defaultOpen={false}>
             {report.layerAnalysis.length === 0 ? (
-              <p className="text-xs text-gray-500">No layer comparison — vault match required.</p>
+              // "vault match required" is wrong on a report that already shows one.
+              // When the file was identified by its embedded export code, a
+              // layer-by-layer comparison is not needed to prove identity — so say
+              // that, rather than implying a step was missed.
+              <p className="text-xs text-gray-500">
+                {report.matchMethod
+                  ? `Not needed — this file was identified by its embedded Pinit identity (${report.matchMethod}), `
+                    + 'which proves origin without comparing layers. Layer analysis runs when a file has to be '
+                    + 'matched against the vault original by content.'
+                  : 'No layer comparison ran — this file was not matched against a vault original.'}
+              </p>
             ) : (
               <div className="space-y-2">
                 {report.pipeline.some((s) => s.id === 'dna_compare' && s.detail?.includes('estimated')) && (

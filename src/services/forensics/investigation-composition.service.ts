@@ -395,7 +395,21 @@ export function applyBlockDnaToComposition(
   composition: ImageCompositionBreakdown,
   blockDna: BlockDnaInvestigationResult | null | undefined,
 ): ImageCompositionBreakdown {
-  if (!blockDna?.available || blockDna.totalBlocks < 1) return composition;
+  if (!blockDna?.available || blockDna.totalBlocks < 1) {
+    // Without a per-block manifest for the vault original there is nothing to
+    // compare pixels against — which is not the same as having compared them and
+    // found nothing protected. Originals protected before block DNA existed have
+    // no manifest, and saying "no protected region was detected" about them reads
+    // as a finding when it is an absence of evidence.
+    return {
+      ...composition,
+      reason:
+        'Pixel-level comparison needs a per-block record of the original, and this '
+        + 'file does not have one — it was protected before block-level enrolment. '
+        + 'Ownership above is established by the other evidence in this report. '
+        + 'Files protected from now on carry this record and will show a pixel map.',
+    };
+  }
   const parts = {
     protectedFromAssetPercent: blockDna.originalBlockPercent,
     aiGeneratedPercent: blockDna.modifiedBlockPercent,

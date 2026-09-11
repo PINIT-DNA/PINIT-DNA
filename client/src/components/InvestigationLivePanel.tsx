@@ -115,7 +115,10 @@ export function InvestigationLivePanel({ snapshot, file, previewUrl }: Props) {
               {(strongMatch || midBandCandidate) && (snapshot.ownerName || snapshot.ownerPinitId) && (
                 <div className="flex items-center gap-2 min-w-0">
                   <User size={12} className="text-gray-500 shrink-0" />
-                  <span className="text-gray-500">{strongMatch ? 'Possible Owner' : 'Vault Registrant'}</span>
+                  {/* A found signature is proof of identity, not a guess — the phase
+                      label above already says whether verification is still running.
+                      A mid-band candidate is the one that is genuinely "possible". */}
+                  <span className="text-gray-500">{strongMatch ? 'Owner' : 'Possible owner'}</span>
                   <span className="text-white truncate">
                     {snapshot.ownerName ?? snapshot.ownerPinitId}
                     {snapshot.ownerName && snapshot.ownerPinitId ? ` (${snapshot.ownerPinitId})` : ''}
