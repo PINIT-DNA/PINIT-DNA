@@ -45,7 +45,7 @@ const PHASH_SCAN_LIMIT = parseInt(process.env['DUPLICATE_PHASH_SCAN_LIMIT'] ?? '
  * protect is already the slowest path, and a bounded few seconds here is what stops
  * a re-encoded copy being minted a second identity.
  */
-const DUPLICATE_VIDEO_BUDGET_MS = parseInt(process.env['DUPLICATE_VIDEO_BUDGET_MS'] ?? '15000', 10);
+const DUPLICATE_VIDEO_BUDGET_MS = parseInt(process.env['DUPLICATE_VIDEO_BUDGET_MS'] ?? '45000', 10);
 /** Share of probe keyframes that must strongly match before it counts as the same video. */
 const VIDEO_FRAME_MATCH_THRESHOLD = parseFloat(process.env['DUPLICATE_VIDEO_FRAME_THRESHOLD'] ?? '0.6');
 const VIDEO_SCAN_LIMIT = parseInt(process.env['DUPLICATE_VIDEO_SCAN_LIMIT'] ?? '300', 10);
@@ -248,11 +248,22 @@ export class DuplicateCheckService {
     // Images have three perceptual detectors; video had none, so a re-encoded copy
     // uploaded to another account was caught by nothing at all.
     if (mimeType.startsWith('video/')) {
+      const startedAt = Date.now();
       const videoMatch = await withTimeoutSoft(
         () => this._checkVideoFrameDuplicate(buffer, sha256, req, originalName, mimeType, uploaderIp),
         DUPLICATE_VIDEO_BUDGET_MS,
         'duplicate-video-frames',
       );
+      // withTimeoutSoft returns null both for "checked, not a duplicate" and for
+      // "gave up". Those are opposite outcomes — one is protection working, the
+      // other is protection silently absent — so the timeout has to say so.
+      if (videoMatch === null && Date.now() - startedAt >= DUPLICATE_VIDEO_BUDGET_MS - 250) {
+        logger.warn('[DuplicateCheck] Video frame check timed out — upload NOT screened', {
+          elapsedMs: Date.now() - startedAt,
+          budgetMs: DUPLICATE_VIDEO_BUDGET_MS,
+          originalName,
+        });
+      }
       if (videoMatch) return videoMatch;
     }
 
@@ -286,7 +297,7 @@ export class DuplicateCheckService {
       if (!probeHashes.length) {
         // No ffmpeg, or the file yielded no decodable frames. Never guess from
         // container bytes — a wrong block here refuses someone their own upload.
-        logger.info('[DuplicateCheck] Video frame check skipped — no probe keyframes', {
+        logger.warn('[DuplicateCheck] No probe keyframes — video NOT screened for duplicates', {
           ffmpegAvailable: probe.ffmpegAvailable,
           originalName,
         });
@@ -305,14 +316,28 @@ export class DuplicateCheckService {
       });
 
       let best: { dnaId: string; similarity: number } | null = null;
+      let bestSeen = 0;
+      let comparable = 0;
       for (const c of candidates) {
         if (!c.dnaId) continue;
         const stored = (c.fingerprints as { framePHashes?: string[] } | null)?.framePHashes;
+        if (stored?.length) comparable++;
         const { similarity } = compareVideoFrameHashes(probeHashes, stored);
+        if (similarity > bestSeen) bestSeen = similarity;
         if (similarity >= VIDEO_FRAME_MATCH_THRESHOLD && (!best || similarity > best.similarity)) {
           best = { dnaId: c.dnaId, similarity };
         }
       }
+
+      logger.info('[DuplicateCheck] Video frame scan complete', {
+        probeFrames: probeHashes.length,
+        candidates: candidates.length,
+        comparable,
+        bestSimilarity: Number(bestSeen.toFixed(2)),
+        threshold: VIDEO_FRAME_MATCH_THRESHOLD,
+        matched: !!best,
+      });
+
       if (!best) return null;
 
       const rec = await prisma.dnaRecord.findUnique({
