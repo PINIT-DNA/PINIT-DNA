@@ -6,6 +6,9 @@ const config: Config = {
   roots: ['<rootDir>/tests'],
   testMatch: ['**/*.test.ts'],
   setupFiles: ['<rootDir>/tests/jest.env.setup.ts'],
+  moduleNameMapper: {
+    '^jspdf$': '<rootDir>/client/node_modules/jspdf/dist/jspdf.node.min.js',
+  },
   transformIgnorePatterns: ['/node_modules/(?!@noble/)'],
   collectCoverageFrom: [
     'src/**/*.ts',

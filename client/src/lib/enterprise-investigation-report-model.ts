@@ -231,7 +231,19 @@ function evidenceStrengthFrom(
   layersAvailable: boolean,
 ): EnterpriseInvestigationViewModel['evidenceStrength'] {
   if (!layersAvailable && conf < 40) return 'Insufficient';
-  const matched = cards.filter((c) => c.matched && c.availability === 'available').length;
+  const available = cards.filter((c) => c.availability === 'available');
+  const matched = available.filter((c) => c.matched).length;
+
+  // A recovered Pinit watermark, or an exact hash, settles origin on its own —
+  // it is the strongest evidence the system can produce. Counting how many
+  // *other* methods also agreed marked such a case "Weak" simply because the
+  // rest were not applicable, which read as doubt on a 100% verified report.
+  const decisive = available.some(
+    (c) => c.matched && (c.id === 'watermark' || c.id === 'hash'),
+  );
+  if (decisive && conf >= 85) return 'Strong';
+  if (decisive) return 'Medium';
+
   if (matched >= 4 && conf >= 85) return 'Strong';
   if (matched >= 2 && conf >= 55) return 'Medium';
   if (matched >= 1 || conf >= 40) return 'Weak';
@@ -363,8 +375,14 @@ function reportStatus(report: LooseReport, stages: EnterpriseReportStage[]): str
   });
 
   if (summary.acceptanceVerdict === 'INSUFFICIENT_EVIDENCE') return 'Incomplete';
-  if (isVerified && !criticalFailed) {
-    return softWarned ? 'Investigation complete' : 'Investigation complete';
+  // Ownership either was or was not established. When it was, that is the
+  // headline; a stage that could not run is a qualifier, not a contradiction.
+  // "Completed with failures" above a VERIFIED ORIGINAL at 100% made the
+  // document argue with itself.
+  if (isVerified) {
+    return criticalFailed || softWarned
+      ? 'Complete — some checks unavailable'
+      : 'Investigation complete';
   }
   if (criticalFailed) return 'Completed with failures';
   if (softWarned) return 'Completed with warnings';

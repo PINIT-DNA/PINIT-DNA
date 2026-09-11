@@ -1,8 +1,16 @@
 /**
- * Whole-file authenticity report — one score panel + WHY evidence.
+ * Whole-file authenticity report.
  * Used after DNA protect (SuccessPanel) and Digital Assets Details.
+ *
+ * The scores and the mix bar answer the question people actually have — is this
+ * original, was it touched, how much of it is AI. The supporting evidence and the
+ * engine list are the justification behind that answer: real, but not what you
+ * want to read every time you open a file, so they sit behind one disclosure.
+ * Nothing here is discarded — the full analysis is persisted server-side on the
+ * vault record regardless of what this card chooses to render.
  */
-import { Microscope, ChevronRight, Shield, AlertTriangle, Sparkles } from 'lucide-react';
+import { useState } from 'react';
+import { Microscope, ChevronRight, Shield, AlertTriangle, Sparkles, ChevronDown } from 'lucide-react';
 import { Badge } from './ui/Badge';
 import type { VaultContentAnalysis } from '../types/dashboard.types';
 
@@ -87,6 +95,10 @@ export function AuthenticityReportCard({
 
   const tamperScore = scores?.tamperScore ?? 0;
   const verdictKey = String(analysis.verdict ?? analysis.label ?? '').toUpperCase();
+  const [showWhy, setShowWhy] = useState(false);
+  const hasWhy = !!evidenceItems.length || !!analysis.reasons?.length
+    || (!compact && !!analysis.engines?.length);
+
   const showHeatmap = Boolean(
     !compact
     && analysis.heatmapPngBase64
@@ -177,7 +189,22 @@ export function AuthenticityReportCard({
         </div>
       </div>
 
-      {!!evidenceItems.length && (
+      {hasWhy && (
+        <button
+          type="button"
+          onClick={() => setShowWhy((v) => !v)}
+          aria-expanded={showWhy}
+          className="flex items-center gap-1.5 text-2xs text-gray-500 hover:text-gray-300 transition-colors"
+        >
+          <ChevronDown
+            size={11}
+            className={showWhy ? 'rotate-180 transition-transform' : 'transition-transform'}
+          />
+          {showWhy ? 'Hide the evidence behind this' : 'Why this result'}
+        </button>
+      )}
+
+      {showWhy && !!evidenceItems.length && (
         <div>
           <div className="flex items-center gap-1.5 mb-1.5">
             <AlertTriangle size={11} className="text-amber-400" />
@@ -199,7 +226,7 @@ export function AuthenticityReportCard({
         </div>
       )}
 
-      {!evidenceItems.length && !!analysis.reasons?.length && (
+      {showWhy && !evidenceItems.length && !!analysis.reasons?.length && (
         <div>
           <p className="text-2xs text-gray-600 dark:text-gray-300 mb-1">Findings</p>
           <ul className="space-y-1">
@@ -213,7 +240,7 @@ export function AuthenticityReportCard({
         </div>
       )}
 
-      {!compact && !!analysis.engines?.length && (
+      {showWhy && !compact && !!analysis.engines?.length && (
         <div>
           <div className="flex items-center gap-1.5 mb-1.5">
             <Sparkles size={11} className="text-dna-400" />
