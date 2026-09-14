@@ -1,3 +1,6 @@
+// First: some browsers throw on any read of localStorage. Swap in a fallback
+// before any module below gets a chance to touch it during render.
+import './lib/storage-fallback';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { RouterProvider } from 'react-router-dom';
