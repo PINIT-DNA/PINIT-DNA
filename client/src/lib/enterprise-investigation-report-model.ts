@@ -746,7 +746,10 @@ export function buildEnterpriseInvestigationViewModel(
       ownershipVerified,
     },
     suspectAsset: {
-      filename: field(str(fileB.filename) ?? str(probe.filename), '—'),
+      filename: field(
+        str(fileB.filename) ?? str(probe.filename) ?? str((r as LooseReport).currentFileName),
+        '—',
+      ),
       mimeType: field(str(fileB.mimeType) ?? str(probe.mimeType), '—'),
       sizeBytes: field(num(fileB.sizeBytes) ?? num(probe.sizeBytes), null as number | null),
       sha256: field(str(r.currentFileHash) ?? str(probe.sha256) ?? str(recovery.currentHash), '—'),

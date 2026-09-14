@@ -29,6 +29,7 @@ export type EvidencePdfInput = {
   recovery?: { tepCode?: string | null; protectedDownloadDate?: string };
   pinithubLogo?: PdfImageAsset | null;
   comparisonImages?: { original?: PdfImageAsset; probe?: PdfImageAsset };
+  examinedFileName?: string | null;
   leakMessage?: string | null;
   currentFileHash?: string | null;
 };
@@ -504,7 +505,7 @@ export function drawInvestigationEvidencePdf(
     (
       [
         ['ORIGINAL ASSET', input.comparisonImages.original, vm.originalAsset.originalFilename.value, CONTENT_L],
-        ['EXAMINED FILE', input.comparisonImages.probe, vm.suspectAsset.filename.value, CONTENT_L + boxW + 6],
+        ['EXAMINED FILE', input.comparisonImages.probe, input.examinedFileName || vm.suspectAsset.filename.value, CONTENT_L + boxW + 6],
       ] as const
     ).forEach(([label, img, caption, x]) => {
       rgb(doc, C.muted);

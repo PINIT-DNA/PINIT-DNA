@@ -531,22 +531,35 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
         }
       }, { admin: adminMode });
       const investigation = r as unknown as InvestigationReport;
-      setReport(investigation);
       const toStore = mergeLiveSnapshotIntoReport(
         investigation as unknown as StoredInvestigationReport,
         liveSnapshotRef.current,
       );
-      saveInvestigationReport(toStore, f.name);
-      // Auto-archive all PDFs into Forensic Reports (no download required).
+      // Unlock the generating spinner before localStorage + PDF archive.
+      setReport(investigation);
+      setLoading(false);
+      setLiveSnapshot(null);
+      liveSnapshotRef.current = null;
+      try {
+        saveInvestigationReport(toStore, f.name);
+      } catch {
+        /* report is already on screen */
+      }
       const archiveOwner = resolveInvestigationOwner(toStore);
-      void archiveInvestigationForensicExports(
-        asExportReport(toStore as unknown as InvestigationReport),
-        { probeFile: f, vaultId: archiveOwner.vaultId },
-      ).catch(() => { /* archive is best-effort; investigation result is already saved */ });
+      window.setTimeout(() => {
+        const tPdf = performance.now();
+        void archiveInvestigationForensicExports(
+          asExportReport(toStore as unknown as InvestigationReport),
+          { probeFile: f, vaultId: archiveOwner.vaultId, examinedFileName: f.name },
+        ).then(() => {
+          console.info('[InvestigationTiming] pdfArchiveMs', Math.round(performance.now() - tPdf));
+        }).catch(() => {
+          /* archive is best-effort; investigation result is already saved */
+        });
+      }, 0);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Investigation failed';
       setError(msg);
-    } finally {
       setLoading(false);
       setLiveSnapshot(null);
       liveSnapshotRef.current = null;
@@ -753,6 +766,9 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
         const pdfExportOptions: InvestigationReportPdfOptions = {
           probeFile: file,
           vaultId: resolvedOwner.vaultId,
+          examinedFileName: file?.name
+            ?? report.dnaComparison?.fileB?.filename
+            ?? null,
         };
         const verdictLabel = reportState === 'VERIFIED'
           ? REPORT_STATE_LABELS.VERIFIED

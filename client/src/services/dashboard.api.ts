@@ -1011,6 +1011,18 @@ export async function unifiedInvestigateStream(
   const endpoint = options?.admin
     ? `${API_BASE_URL}/super-admin/unified-investigate?stream=true`
     : `${API_BASE_URL}/forensics/unified-investigate?stream=true`;
+  const streamStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  let verificationCompleteAt: number | null = null;
+  let reportAssemblyTimedOut = false;
+  let reportAssemblyTimer: number | undefined;
+  const armReportAssemblyWatchdog = () => {
+    if (reportAssemblyTimer != null) return;
+    reportAssemblyTimer = window.setTimeout(() => {
+      reportAssemblyTimedOut = true;
+      controller.abort();
+    }, 180_000);
+  };
+
   let res: Response;
   try {
     res = await fetch(endpoint, {
@@ -1021,8 +1033,13 @@ export async function unifiedInvestigateStream(
     });
   } catch (e) {
     window.clearTimeout(timeoutId);
+    if (reportAssemblyTimer != null) window.clearTimeout(reportAssemblyTimer);
     if (e instanceof DOMException && e.name === 'AbortError') {
-      throw new Error('Investigation timed out after 10 minutes — try a smaller file or retry');
+      throw new Error(
+        reportAssemblyTimedOut
+          ? 'Verification finished, but the investigation report did not arrive within 3 minutes. Retry the investigation.'
+          : 'Investigation timed out after 10 minutes — try a smaller file or retry',
+      );
     }
     throw new Error('Connection lost during investigation — ensure the backend is running (npm run dev)');
   }
@@ -1039,31 +1056,71 @@ export async function unifiedInvestigateStream(
   let buffer = '';
   let finalReport: Record<string, unknown> | null = null;
 
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
+  try {
+    for (;;) {
+      let chunk: ReadableStreamReadResult<Uint8Array>;
       try {
-        const event = JSON.parse(line.slice(6)) as InvestigationProgressEvent & { report?: Record<string, unknown> };
-        if (event.type === 'complete' && event.report) {
-          finalReport = event.report;
-        } else if (event.type === 'error') {
-          throw new Error((event as { message?: string }).message ?? 'Investigation failed');
-        } else {
-          onProgress(event);
-        }
+        chunk = await reader.read();
       } catch (e) {
-        if (e instanceof SyntaxError) continue;
+        if (e instanceof DOMException && e.name === 'AbortError') {
+          throw new Error(
+            reportAssemblyTimedOut
+              ? 'Verification finished, but the investigation report did not arrive within 3 minutes. Retry the investigation.'
+              : 'Investigation timed out after 10 minutes — try a smaller file or retry',
+          );
+        }
         throw e;
       }
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6)) as InvestigationProgressEvent & { report?: Record<string, unknown> };
+          if (event.type === 'complete' && event.report) {
+            finalReport = event.report;
+            if (reportAssemblyTimer != null) window.clearTimeout(reportAssemblyTimer);
+          } else if (event.type === 'error') {
+            throw new Error((event as { message?: string }).message ?? 'Investigation failed');
+          } else {
+            if (
+              verificationCompleteAt == null
+              && (
+                event.snapshot?.phase === 'final'
+                || /generating investigation report/i.test(`${event.snapshot?.statusMessage ?? ''} ${event.detail ?? ''}`)
+              )
+            ) {
+              verificationCompleteAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+              armReportAssemblyWatchdog();
+            }
+            onProgress(event);
+          }
+        } catch (e) {
+          if (e instanceof SyntaxError) continue;
+          throw e;
+        }
+      }
     }
+  } finally {
+    if (reportAssemblyTimer != null) window.clearTimeout(reportAssemblyTimer);
   }
 
-  if (!finalReport) throw new Error('Investigation ended without a report');
+  if (!finalReport) {
+    throw new Error(
+      reportAssemblyTimedOut
+        ? 'Verification finished, but the investigation report did not arrive within 3 minutes. Retry the investigation.'
+        : 'Investigation ended without a report',
+    );
+  }
+  const doneAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  console.info('[InvestigationTiming]', {
+    streamMs: Math.round(doneAt - streamStartedAt),
+    verificationToReportMs: verificationCompleteAt != null
+      ? Math.round(doneAt - verificationCompleteAt)
+      : null,
+  });
   return { success: true, report: finalReport };
 }
 

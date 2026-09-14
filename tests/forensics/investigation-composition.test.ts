@@ -164,4 +164,44 @@ describe('investigation composition', () => {
     expect(result.blockGrid?.labels).toBe('GAAA');
     expect(result.probeRegion?.heightPercent).toBe(72);
   });
+
+  it('does not re-run Python scanProbe when pixelSource is already on the scan', async () => {
+    const scanProbe = jest.fn();
+    jest.resetModules();
+    jest.doMock('../../src/services/forensics/forensic-scanner.service', () => ({
+      forensicScannerService: { scanProbe },
+    }));
+    const { buildInvestigationComposition } = await import(
+      '../../src/services/forensics/investigation-composition.service'
+    );
+    const result = await buildInvestigationComposition({
+      probeBuffer: Buffer.from([0xff, 0xd8, 0xff, 0xd9]),
+      vaultBuffer: Buffer.from([0xff, 0xd8, 0xff, 0xd9]),
+      probeMimeType: 'image/jpeg',
+      fragmentFindings: [],
+      scan: {
+        available: true,
+        overallConfidence: 90,
+        candidates: [],
+        pixelSource: {
+          width: 10,
+          height: 10,
+          vaultWidth: 10,
+          vaultHeight: 10,
+          originalPixels: 80,
+          aiSuspectedPixels: 10,
+          unknownPixels: 10,
+          totalPixels: 100,
+          protectedFromAssetPercent: 80,
+          aiGeneratedPercent: 10,
+          otherPercent: 10,
+          originalUsedPercent: 80,
+          regions: [],
+          method: 'test',
+        },
+      },
+    });
+    expect(scanProbe).not.toHaveBeenCalled();
+    expect(result.protectedFromAssetPercent).toBe(80);
+  });
 });

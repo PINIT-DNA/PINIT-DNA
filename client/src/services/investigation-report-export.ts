@@ -19,6 +19,7 @@ import {
 import { BRAND } from '../config/brand.config';
 import {
   saveForensicPdfArtifact,
+  getForensicPdfArtifact,
   type ForensicPdfKind,
 } from '../lib/forensic-pdf-artifacts';
 import { attachForensicPdfArtifactMeta } from '../lib/forensic-reports-storage';
@@ -127,9 +128,15 @@ export interface InvestigationReportExport {
   pipelineAudit?: {
     vaultRecordsLoaded?: number;
     candidateRanking?: Array<{ rank?: number; vaultId: string; dnaRecordId: string; selected?: boolean; scores?: { composite?: number } }>;
+    probeImage?: { filename?: string; mimeType?: string; sizeBytes?: number; sha256?: string };
   };
   progressTimeline?: Array<{ label?: string; stepId?: string; status: string; detail?: string }>;
   evidenceTimeline?: Array<{ eventType?: string; summary?: string; timestamp?: string }>;
+  composition?: {
+    overlayPngBase64?: string;
+    maskPngBase64?: string;
+    vaultFilename?: string;
+  };
 }
 
 const MARGIN = 14;
@@ -301,6 +308,7 @@ function applySignedFooter(doc: jsPDF, manifest: SignedReportManifest, qrDataUrl
 export interface InvestigationReportPdfOptions {
   probeFile?: File | Blob | null;
   vaultId?: string | null;
+  examinedFileName?: string | null;
 }
 
 type PdfImageAsset = {
@@ -469,10 +477,33 @@ async function mediaBlobToPdfImage(
   throw new Error(`Unsupported preview type: ${mime || 'unknown'}`);
 }
 
+async function pngBase64ToPdfImage(raw: string | null | undefined): Promise<PdfImageAsset | undefined> {
+  if (!raw || raw.length < 32) return undefined;
+  try {
+    const dataUrl = raw.startsWith('data:') ? raw : `data:image/png;base64,${raw}`;
+    const res = await fetch(dataUrl);
+    if (!res.ok) return undefined;
+    return await blobToPdfImage(await res.blob());
+  } catch {
+    return undefined;
+  }
+}
+
+function examinedFileNameFrom(report: InvestigationReportExport, options?: InvestigationReportPdfOptions): string {
+  const fromOpt = options?.examinedFileName?.trim();
+  if (fromOpt) return fromOpt;
+  if (options?.probeFile instanceof File && options.probeFile.name) return options.probeFile.name;
+  const fromB = report.dnaComparison?.fileB?.filename?.trim();
+  if (fromB) return fromB;
+  const fromAudit = report.pipelineAudit?.probeImage?.filename?.trim();
+  if (fromAudit) return fromAudit;
+  return 'Examined upload';
+}
+
 async function loadReportComparisonImages(
   report: InvestigationReportExport,
   options?: InvestigationReportPdfOptions,
-): Promise<{ original?: PdfImageAsset; probe?: PdfImageAsset }> {
+): Promise<{ original?: PdfImageAsset; probe?: PdfImageAsset; examinedFileName: string }> {
   const vaultId = options?.vaultId
     ?? report.identityProof.vaultId
     ?? report.owner.vaultId
@@ -481,14 +512,14 @@ async function loadReportComparisonImages(
 
   let original: PdfImageAsset | undefined;
   let probe: PdfImageAsset | undefined;
+  const examinedFileName = examinedFileNameFrom(report, options);
 
   const originalName = report.owner.originalFilename
     ?? report.identityRecoveryReport?.originalFilename
     ?? null;
-  const probeFileName = options?.probeFile instanceof File ? options.probeFile.name : null;
-  const probeName = report.dnaComparison?.fileB?.filename ?? probeFileName;
   const probeMime = report.dnaComparison?.fileB?.mimeType
     ?? (options?.probeFile instanceof File ? options.probeFile.type : null)
+    ?? report.pipelineAudit?.probeImage?.mimeType
     ?? null;
 
   if (vaultId) {
@@ -507,14 +538,47 @@ async function loadReportComparisonImages(
     try {
       probe = await mediaBlobToPdfImage(options.probeFile, {
         mimeType: options.probeFile instanceof File ? options.probeFile.type : probeMime,
-        filename: options.probeFile instanceof File ? options.probeFile.name : probeName,
+        filename: options.probeFile instanceof File ? options.probeFile.name : examinedFileName,
       });
+    } catch {
+      try {
+        probe = await blobToPdfImage(options.probeFile);
+      } catch {
+        probe = undefined;
+      }
+    }
+    if (probe) {
+      const jpeg = await fetch(probe.dataUrl).then((r) => r.blob()).catch(() => options.probeFile as Blob);
+      if (jpeg) {
+        void saveForensicPdfArtifact(
+          report.investigationId,
+          'probe_preview',
+          jpeg,
+          examinedFileName,
+        ).catch(() => { /* cache is optional */ });
+      }
+    }
+  }
+
+  if (!probe) {
+    try {
+      const stored = await getForensicPdfArtifact(report.investigationId, 'probe_preview');
+      if (stored?.blob) {
+        probe = await mediaBlobToPdfImage(stored.blob, {
+          mimeType: stored.blob.type,
+          filename: examinedFileName,
+        });
+      }
     } catch {
       probe = undefined;
     }
   }
 
-  return { original, probe };
+  if (!probe) {
+    probe = await pngBase64ToPdfImage(report.composition?.overlayPngBase64);
+  }
+
+  return { original, probe, examinedFileName };
 }
 
 export { forensicExportBaseName, forensicReportFilename };
@@ -536,6 +600,7 @@ export async function buildInvestigationReportPdf(
     recovery: report.identityRecoveryReport,
     pinithubLogo,
     comparisonImages,
+    examinedFileName: comparisonImages.examinedFileName,
     leakMessage: report.leakIntelligence?.message ?? null,
     currentFileHash: report.currentFileHash ?? null,
   });
@@ -811,6 +876,7 @@ export async function archiveInvestigationForensicExports(
   report: InvestigationReportExport,
   options?: InvestigationReportPdfOptions,
 ): Promise<void> {
+  const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
   const base = forensicExportBaseName(report);
   const [invPdf, dnaPdf, timelinePdf] = await Promise.all([
     buildInvestigationReportPdf(report, options),
@@ -824,4 +890,6 @@ export async function archiveInvestigationForensicExports(
     persistForensicExport(report.investigationId, 'timeline', timelinePdf, forensicReportFilename(report, 'Timeline Report')),
     persistForensicExport(report.investigationId, 'json', jsonBlob, `${base} - Evidence Data.json`),
   ]);
+  const done = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  console.info('[InvestigationTiming] forensicExportBuildMs', Math.round(done - t0));
 }

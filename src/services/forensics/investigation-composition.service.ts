@@ -219,10 +219,18 @@ export async function buildInvestigationComposition(input: {
 }): Promise<ImageCompositionBreakdown> {
   let scan = input.scan ?? null;
   const mime = input.probeMimeType ?? '';
+  // Tamper localization already ran scanProbe on these same buffers. A second
+  // Python forensic pass was the post-verification hang (up to 90s) and does
+  // not change overlay data when pixel/block composition is already present.
+  const scanAlreadyHasOverlay = !!(
+    scan?.available
+    && (scan.pixelSource || scan.blockComposition)
+  );
   if (
     input.probeBuffer
     && input.vaultBuffer
     && mime.startsWith('image/')
+    && !scanAlreadyHasOverlay
   ) {
     try {
       const { forensicScannerService } = await import('./forensic-scanner.service');
