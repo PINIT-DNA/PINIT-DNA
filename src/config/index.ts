@@ -71,6 +71,32 @@ function resolveExchangeAppUrl(): string {
   return PRODUCTION_EXCHANGE_URL;
 }
 
+/** Exchange API service used when EXCHANGE_API_URL is not configured in production. */
+const PRODUCTION_EXCHANGE_API_URL = 'https://pinit-dna-3fmw.onrender.com';
+
+/**
+ * Resolve the Exchange API origin — same rule as the app URL above.
+ *
+ * The localhost default made every server-side Exchange call in production
+ * (listed-assets, role, seller desk) quietly fail, so My Assets lost its
+ * Exchange tags while localhost — where an Exchange server really does run on
+ * :5000 — kept showing them.
+ */
+function resolveExchangeApiUrl(): string {
+  const explicit = process.env.EXCHANGE_API_URL?.trim();
+  if (explicit) return explicit.replace(/\/$/, '');
+
+  const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+  if (!isProd) return 'http://localhost:5000';
+
+  // eslint-disable-next-line no-console
+  console.warn(
+    '[config] EXCHANGE_API_URL is not set in production — falling back to ' +
+      `${PRODUCTION_EXCHANGE_API_URL}. Set EXCHANGE_API_URL explicitly on the backend service.`,
+  );
+  return PRODUCTION_EXCHANGE_API_URL;
+}
+
 export const config = {
   env: optional('NODE_ENV', 'development') as 'development' | 'production' | 'test',
   port: optionalInt('PORT', 4000),
@@ -224,7 +250,7 @@ export const config = {
     // which sent every "Exchange" click to a machine the user does not have —
     // so production falls back to the real marketplace instead, and warns.
     appUrl: resolveExchangeAppUrl(),
-    apiUrl: optional('EXCHANGE_API_URL', 'http://localhost:5000').replace(/\/$/, ''),
+    apiUrl: resolveExchangeApiUrl(),
     bridgeSecret: optional(
       'EXCHANGE_BRIDGE_SECRET',
       optional('JWT_SECRET', 'dev_jwt_secret_change_in_prod_min_32_chars_long!!'),

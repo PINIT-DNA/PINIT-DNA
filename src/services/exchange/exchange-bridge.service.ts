@@ -19,6 +19,26 @@ import { AppError } from '../../api/middleware/error.middleware';
 import { VaultService } from '../vault/vault.service';
 import { buildShareViewerUrl } from '../../lib/share-viewer-url';
 
+/**
+ * Every Hub → Exchange call used to swallow its failure and return an empty
+ * result, so a wrong EXCHANGE_API_URL and a mismatched bridge secret looked
+ * identical to "nothing listed". Say which one it was. Never logs the secret.
+ */
+function logExchangeBridgeFailure(call: string, reason: string, err?: unknown): void {
+  let host = config.exchange.apiUrl;
+  try {
+    host = new URL(config.exchange.apiUrl).host;
+  } catch {
+    /* keep raw value */
+  }
+  logger.warn('[ExchangeBridge] call failed', {
+    call,
+    reason,
+    exchangeHost: host,
+    error: err instanceof Error ? err.message : undefined,
+  });
+}
+
 const LIST_INTENT_EXPIRES = '15m';
 const SSO_EXPIRES = '10m';
 
@@ -511,6 +531,8 @@ export const exchangeBridgeService = {
         };
       }
       if (!res.ok) {
+        const reason = `exchange_error_${res.status}`;
+        logExchangeBridgeFailure('role', reason);
         return {
           pinitId,
           registered: false,
@@ -519,6 +541,7 @@ export const exchangeBridgeService = {
           can_list: false,
           can_purchase: false,
           unavailable: true,
+          reason,
         };
       }
       const data = (await res.json()) as {
@@ -538,7 +561,8 @@ export const exchangeBridgeService = {
         can_list: canList,
         can_purchase: Boolean(data.can_purchase) || exchangeRole === 'buyer' || exchangeRole === 'admin',
       };
-    } catch {
+    } catch (err) {
+      logExchangeBridgeFailure('role', 'exchange_unreachable', err);
       return {
         pinitId,
         registered: false,
@@ -547,6 +571,7 @@ export const exchangeBridgeService = {
         can_list: false,
         can_purchase: false,
         unavailable: true,
+        reason: 'exchange_unreachable',
       };
     }
   },
@@ -647,11 +672,16 @@ export const exchangeBridgeService = {
 
   async getListedVaultsForOwner(ownerUserId: string): Promise<{
     unavailable: boolean;
+    /** Why Exchange could not answer — shown in the response so a missing tag is diagnosable. */
+    reason?: string;
     listed: Array<{ vaultId: string; listingId: string; status: string }>;
   }> {
     const empty = { unavailable: false, listed: [] as Array<{ vaultId: string; listingId: string; status: string }> };
     const role = await this.getExchangeMarketplaceRole(ownerUserId);
-    if (role.unavailable || !role.pinitId) return { ...empty, unavailable: Boolean(role.unavailable) };
+    if (role.unavailable) {
+      return { ...empty, unavailable: true, reason: 'reason' in role ? role.reason : undefined };
+    }
+    if (!role.pinitId) return empty;
 
     let rows: Array<{ listing_id?: string; asset_id?: string; status?: string }> = [];
     try {
@@ -659,11 +689,18 @@ export const exchangeBridgeService = {
         `${config.exchange.apiUrl}/api/hub/seller-listings?pinitId=${encodeURIComponent(role.pinitId)}`,
         { headers: { 'X-PinIT-Bridge-Secret': config.exchange.bridgeSecret } },
       );
-      if (!res.ok) return { unavailable: true, listed: [] };
+      if (!res.ok) {
+        // 401 here and nowhere else means the two services hold different
+        // EXCHANGE_BRIDGE_SECRET values: /api/auth/me needs no secret, this does.
+        const reason = res.status === 401 ? 'exchange_rejected_bridge_secret' : `exchange_error_${res.status}`;
+        logExchangeBridgeFailure('seller-listings', reason);
+        return { unavailable: true, reason, listed: [] };
+      }
       const data = (await res.json()) as { listings?: typeof rows };
       rows = Array.isArray(data.listings) ? data.listings : [];
-    } catch {
-      return { unavailable: true, listed: [] };
+    } catch (err) {
+      logExchangeBridgeFailure('seller-listings', 'exchange_unreachable', err);
+      return { unavailable: true, reason: 'exchange_unreachable', listed: [] };
     }
 
     const exchangeIds = [...new Set(rows.map((r) => String(r.asset_id || '').trim()).filter(Boolean))];
