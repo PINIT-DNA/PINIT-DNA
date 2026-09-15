@@ -20,6 +20,7 @@ import { Modal } from '../components/ui/Modal';
 import { cn } from '../components/ui/utils';
 import { CredentialPreviewModal } from '../components/certificates/CredentialPreviewModal';
 import { CredentialDetailsModal } from '../components/certificates/CredentialDetailsModal';
+import { DownloadCertificateButton } from '../components/certificates/DownloadCertificateButton';
 
 type FilterTab = 'all' | 'certificate' | 'award' | 'license' | 'course' | 'workshop';
 
@@ -104,11 +105,15 @@ function RevokeDialog({
 
 function CredentialCard({
   item,
+  recipientName,
+  recipientPinitId,
   onPreview,
   onDetails,
   onRevoke,
 }: {
   item: HubCredential;
+  recipientName?: string | null;
+  recipientPinitId?: string | null;
   onPreview: () => void;
   onDetails: () => void;
   onRevoke: () => void;
@@ -147,7 +152,8 @@ function CredentialCard({
         <p className="text-xs text-danger">This Pinit certificate is revoked</p>
       )}
 
-      <div className="mt-auto flex items-center gap-1 overflow-x-auto">
+      {/* Wraps rather than scrolling: a clipped "View pro…" hides the action it names. */}
+      <div className="mt-auto flex flex-wrap items-center gap-1.5">
         <button
           type="button"
           className="shrink-0 h-7 min-h-0 px-2 rounded-md bg-[#2f7cf6] text-[10px] font-medium leading-none whitespace-nowrap"
@@ -156,6 +162,14 @@ function CredentialCard({
         >
           Preview certificate
         </button>
+        <DownloadCertificateButton
+          item={item}
+          recipientName={recipientName}
+          recipientPinitId={recipientPinitId}
+          label="Download"
+          iconSize={11}
+          className="shrink-0 h-7 min-h-0 px-2 rounded-md border border-slate-300 bg-white text-[10px] font-medium text-slate-800 leading-none whitespace-nowrap inline-flex items-center gap-1 disabled:opacity-60 dark:border-[#2A3040] dark:bg-[#171B24] dark:text-[#F5F7FA]"
+        />
         <button
           type="button"
           className="shrink-0 h-7 min-h-0 px-2 rounded-md border border-slate-300 bg-white text-[10px] font-medium text-slate-800 leading-none whitespace-nowrap dark:border-[#2A3040] dark:bg-[#171B24] dark:text-[#F5F7FA]"
@@ -225,6 +239,7 @@ export function CertificatesPage() {
     return [];
   }, [items, filter]);
 
+  const recipientPinitId = toRootPinitId(user?.shortId) || user?.shortId || null;
   const previewItem = items.find((i) => i.id === previewId) ?? null;
   const detailsItem = items.find((i) => i.id === detailsId) ?? null;
 
@@ -352,6 +367,8 @@ export function CertificatesPage() {
             <CredentialCard
               key={item.id}
               item={item}
+              recipientName={user?.name || item.recipientName}
+              recipientPinitId={recipientPinitId}
               onPreview={() => setPreviewId(item.id)}
               onDetails={() => setDetailsId(item.id)}
               onRevoke={() => setRevokeItem(item)}
@@ -364,7 +381,7 @@ export function CertificatesPage() {
         <CredentialPreviewModal
           item={previewItem}
           recipientName={user?.name || previewItem.recipientName}
-          recipientPinitId={toRootPinitId(user?.shortId) || user?.shortId || null}
+          recipientPinitId={recipientPinitId}
           onClose={() => setPreviewId(null)}
           onViewDetails={() => { setPreviewId(null); setDetailsId(previewItem.id); }}
         />
@@ -373,6 +390,7 @@ export function CertificatesPage() {
         <CredentialDetailsModal
           item={detailsItem}
           recipientName={user?.name || detailsItem.recipientName}
+          recipientPinitId={recipientPinitId}
           onClose={() => setDetailsId(null)}
           onPreview={() => { setDetailsId(null); setPreviewId(detailsItem.id); }}
         />

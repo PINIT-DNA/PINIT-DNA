@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
 import { Modal } from '../ui/Modal';
 import type { HubCredential } from '../../services/dashboard.api';
+import { DownloadCertificateButton } from './DownloadCertificateButton';
 
 function formatIssued(raw: string | null): string | null {
   if (!raw) return null;
@@ -14,11 +15,13 @@ function formatIssued(raw: string | null): string | null {
 export function CredentialDetailsModal({
   item,
   recipientName,
+  recipientPinitId,
   onClose,
   onPreview,
 }: {
   item: HubCredential;
   recipientName?: string | null;
+  recipientPinitId?: string | null;
   onClose: () => void;
   onPreview: () => void;
 }) {
@@ -82,6 +85,12 @@ export function CredentialDetailsModal({
           <button type="button" className="btn btn-primary btn-sm" onClick={onPreview}>
             Preview
           </button>
+          <DownloadCertificateButton
+            item={item}
+            recipientName={name}
+            recipientPinitId={recipientPinitId}
+            className="btn btn-secondary btn-sm"
+          />
           <Link
             to={`/verify-certificate?id=${encodeURIComponent(certId)}`}
             className="btn btn-secondary btn-sm"

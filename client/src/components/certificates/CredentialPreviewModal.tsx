@@ -1,6 +1,7 @@
 import { format } from 'date-fns';
 import { Modal } from '../ui/Modal';
 import { PinitCredentialDocument } from './PinitCredentialDocument';
+import { DownloadCertificateButton } from './DownloadCertificateButton';
 import type { HubCredential } from '../../services/dashboard.api';
 
 function formatIssued(raw: string | null): string | null {
@@ -40,7 +41,13 @@ export function CredentialPreviewModal({
         />
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" className="btn btn-primary btn-sm" onClick={onViewDetails}>
+          <DownloadCertificateButton
+            item={item}
+            recipientName={recipientName}
+            recipientPinitId={recipientPinitId}
+            className="btn btn-primary btn-sm"
+          />
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onViewDetails}>
             View verification
           </button>
         </div>
