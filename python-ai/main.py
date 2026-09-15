@@ -56,7 +56,14 @@ MODEL_CACHE_DIR.mkdir(exist_ok=True)
 DIMENSION = EMBEDDING_DIMENSION
 
 log.info("Loading sentence-transformer model (%s)…", EMBEDDING_MODEL)
-model = SentenceTransformer(EMBEDDING_MODEL, cache_folder=str(MODEL_CACHE_DIR))
+# transformers 4.44 warns that this tokenizer default will change in a later
+# release. Pinning today's value (True) keeps embeddings exactly as they are,
+# so stored vectors stay comparable, and removes the FutureWarning at startup.
+model = SentenceTransformer(
+    EMBEDDING_MODEL,
+    cache_folder=str(MODEL_CACHE_DIR),
+    tokenizer_kwargs={"clean_up_tokenization_spaces": True},
+)
 log.info("Model loaded.")
 
 
