@@ -4,7 +4,7 @@
  *
  * Override via VITE_PLATFORM_OWNER_SHORT_IDS=PINIT-xxx,PINIT-yyy (comma-separated).
  */
-const DEFAULT_OWNER_SHORT_IDS = ['PINIT-324BMMSL'] as const;
+const DEFAULT_OWNER_SHORT_IDS = ['PINIT-324BMMSL', 'PINIT-DSPUSQ76'] as const;
 
 function parseOwnerIds(): string[] {
   const fromEnv = (import.meta.env.VITE_PLATFORM_OWNER_SHORT_IDS as string | undefined)?.trim();
