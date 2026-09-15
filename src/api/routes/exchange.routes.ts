@@ -25,7 +25,7 @@
 
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.middleware';
-import { uploadFile, uploadSingle } from '../middleware/upload.middleware';
+import { uploadAsset, uploadAssetFile } from '../middleware/upload.middleware';
 import {
   getExchangeConfig,
   getExchangeRole,
@@ -54,9 +54,9 @@ import {
 const router = Router();
 
 function uploadProtect(req: any, res: any, next: any) {
-  uploadFile(req, res, (err: any) => {
+  uploadAssetFile(req, res, (err: any) => {
     if (err || req.file) return next(err);
-    uploadSingle(req, res, next);
+    uploadAsset(req, res, next);
   });
 }
 

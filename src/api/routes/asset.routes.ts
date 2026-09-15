@@ -34,7 +34,8 @@ const upload = multer({
       cb(null, `asset_${timestamp}_${random}${ext}`);
     },
   }),
-  limits: { fileSize: config.upload.maxFileSizeBytes ?? 500 * 1024 * 1024 },
+  // No fixed size limit: protection is limited by the owner's Vault storage,
+  // checked in publishProtect before any work starts.
 });
 
 function uploadMedia(req: Parameters<typeof protectAsset>[0], res: Parameters<typeof protectAsset>[1], next: Parameters<typeof protectAsset>[2]) {

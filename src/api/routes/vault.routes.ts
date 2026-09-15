@@ -7,7 +7,7 @@
  */
 
 import { Router } from 'express';
-import { uploadSingle } from '../middleware/upload.middleware';
+import { uploadAsset, uploadSingle } from '../middleware/upload.middleware';
 import {
   listVaultRecords,
   storeInVault,
@@ -58,7 +58,7 @@ router.get('/integrity-check', requireAuth, vaultIntegrityCheck);
 /** GET /vault/protected-shares — Share File / protected-download tracking (not share links) */
 router.get('/protected-shares', requireAuth, listProtectedFileShares);
 router.post('/local-dna/backfill', requireAuth, backfillLocalDnaIndex);
-router.post('/store', requireAuth, uploadSingle, storeInVault);
+router.post('/store', requireAuth, uploadAsset, storeInVault);
 /** POST /vault/reanalyze-all — refresh content analysis for all accessible vault files */
 router.post('/reanalyze-all', requireAuth, reanalyzeAllVaultContent);
 

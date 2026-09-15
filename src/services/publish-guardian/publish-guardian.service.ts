@@ -130,6 +130,11 @@ export class PublishGuardianService {
       }
     }
 
+    // Any file size is allowed; the owner's remaining Vault storage is the limit.
+    // Checked before any work, so a file that cannot be stored is refused up front.
+    const { entitlementService } = await import('../subscription');
+    await entitlementService.assertStorageAvailable(input.ownerUserId, input.buffer.length);
+
     const dup = await duplicateCheckService.check(
       input.buffer,
       input.mimeType,

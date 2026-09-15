@@ -90,6 +90,24 @@ export const uploadInvestigation = investigationMulter.single('image');
 export const uploadFile = multerInstance.single('file');
 
 /**
+ * Asset protection uploads — no fixed per-file size limit.
+ *
+ * Product decision: an asset may be any size. What limits protection is the
+ * owner's available Vault storage, which the protect handlers check against the
+ * real file size before any work starts (entitlementService.assertStorageAvailable).
+ * Files still stream to disk, so the parser holds no upload in memory.
+ *
+ * Every other upload route keeps uploadSingle / uploadFile and their existing limit.
+ */
+const assetMulterInstance = multer({ storage, fileFilter });
+
+/** Asset protection upload — field name "image". */
+export const uploadAsset = assetMulterInstance.single('image');
+
+/** Asset protection upload — field name "file". */
+export const uploadAssetFile = assetMulterInstance.single('file');
+
+/**
  * uploadComparison — two fields: "fileA" and "fileB"
  * Used exclusively by POST /api/v1/dna/compare
  */

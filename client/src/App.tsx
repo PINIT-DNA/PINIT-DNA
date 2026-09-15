@@ -157,6 +157,9 @@ export default function App() {
     setCustodyLocation(null);
   };
 
+  // The file did not fit in the owner's Vault storage; retrying cannot help.
+  const storageLimited = Boolean(error?.startsWith('Not enough Vault storage'));
+
   const isWorking =
     stage === 'processing'
     || stage === 'encrypting'
@@ -178,6 +181,15 @@ export default function App() {
                 >
                   <div className="rounded-xl border border-danger/30 bg-danger/5 p-4 text-center">
                     <p className="text-sm text-danger font-medium mb-3">{error}</p>
+                    {storageLimited && (
+                      <button
+                        type="button"
+                        onClick={() => navigate('/upgrade?from=storage&return=/generate')}
+                        className="btn btn-primary mb-2 mr-2"
+                      >
+                        Upgrade storage
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {

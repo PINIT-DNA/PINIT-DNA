@@ -44,14 +44,19 @@ export function errorMiddleware(
     const e = err as AppError & {
       usedBytes?: number;
       limitBytes?: number;
+      incomingBytes?: number;
+      remainingBytes?: number;
       requiredPlan?: string;
     };
     res.status(403).json({
       success: false,
+      code: 'STORAGE_LIMIT_EXCEEDED',
       error: err.message,
       requiredPlan: e.requiredPlan ?? 'PRO',
       usedBytes: e.usedBytes,
       limitBytes: e.limitBytes,
+      fileBytes: e.incomingBytes,
+      remainingBytes: e.remainingBytes,
     });
     return;
   }

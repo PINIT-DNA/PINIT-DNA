@@ -129,6 +129,16 @@ export async function generateDna(
     return next(new AppError(400, 'No file provided. Use multipart field name "image".'));
   }
 
+  // Refuse a file that cannot fit in the owner's Vault before any work starts.
+  // There is no fixed size limit, so available storage is the only limit.
+  try {
+    const { entitlementService } = await import('../../services/subscription');
+    await entitlementService.assertStorageAvailable(getAuthUserId(req), req.file.size);
+  } catch (err) {
+    await fs.unlink(req.file.path).catch(() => {});
+    return next(err);
+  }
+
   let buffer: Buffer;
   try {
     buffer = await fs.readFile(req.file.path);
