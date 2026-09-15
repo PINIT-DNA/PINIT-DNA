@@ -21,6 +21,7 @@ import {
   type PatchFingerprint,
 } from './local-dna-patch-generator.service';
 import { forensicComputationCache } from './forensic-computation-cache.service';
+import { unpackPatchesFromArchive } from './local-dna-patch-packer.service';
 import type { FragmentReuseFinding } from '../../types/unified-investigation.types';
 
 interface VaultPatchRow {
@@ -209,6 +210,29 @@ function patchesMatch(probe: PatchFingerprint, vault: VaultPatchRow): boolean {
   return patchDenseMatch(probe, toVaultPatch(vault));
 }
 
+/**
+ * Resolve an index's patches from whichever storage it actually has: the
+ * new packed archive (one row, unpacked here in memory) for indexes built
+ * after that was added, or the older per-row `patches` for everything
+ * before — both round-trip to the identical shape, so matching logic below
+ * doesn't need to know which one it got.
+ */
+function resolveVaultPatches(idx: {
+  patches: VaultPatchRow[];
+  patchArchive: { blob: Buffer } | null;
+}): VaultPatchRow[] {
+  if (idx.patches.length) return idx.patches;
+  if (idx.patchArchive) {
+    try {
+      return unpackPatchesFromArchive(idx.patchArchive.blob) as VaultPatchRow[];
+    } catch (err) {
+      logger.warn('[FragmentSplice] Failed to unpack patch archive (non-fatal)', { error: String(err) });
+      return [];
+    }
+  }
+  return [];
+}
+
 export class FragmentSpliceDetectorService {
   async detectSplicedFragments(
     probeBuffer: Buffer,
@@ -240,6 +264,10 @@ export class FragmentSpliceDetectorService {
     } as const;
     const include = {
       patches: { select: patchSelect },
+      // New compact storage — one row per index instead of one per patch.
+      // Populated for indexes built after this was added; older indexes
+      // still have `patches` populated instead (left as-is, both are read).
+      patchArchive: { select: { blob: true } },
       dnaRecord: { select: { imageFilename: true } },
     };
 
@@ -271,9 +299,10 @@ export class FragmentSpliceDetectorService {
     const findings: FragmentReuseFinding[] = [];
 
     for (const idx of indexes) {
-      if (!idx.vaultId || !idx.patches.length || !idx.imageWidth || !idx.imageHeight) continue;
+      if (!idx.vaultId || !idx.imageWidth || !idx.imageHeight) continue;
+      const vaultPatches = resolveVaultPatches(idx);
+      if (!vaultPatches.length) continue;
 
-      const vaultPatches = idx.patches as VaultPatchRow[];
       const vaultByPrefix = new Map<string, VaultPatchRow[]>();
       for (const vp of vaultPatches) {
         const prefix = vp.pHash16.slice(0, 4);

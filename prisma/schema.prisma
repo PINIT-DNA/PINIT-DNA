@@ -187,11 +187,38 @@ model LocalFeatureIndex {
   indexVersion   String          @default("2.0.0")
   status         String          @default("COMPLETE")
   patches        LocalDnaPatch[]
+  /// Packed, Merkle-rooted alternative to `patches` — one row instead of
+  /// one-per-patch. New writes use this; existing `LocalDnaPatch` rows from
+  /// before this field was added are left as-is, untouched.
+  patchArchive   LocalDnaPatchArchive?
   dnaRecord      DnaRecord       @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
   ownerUser      User            @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
 
   @@index([ownerUserId])
   @@map("local_feature_indexes")
+}
+
+/// Compact, single-row replacement for exploding `LocalDnaPatch` into one
+/// row per patch tile — same principle `SpatialAuthPackage.blockBlob`
+/// already uses for the HKCA pixel-auth engine. Detection capability is
+/// unchanged: `blob` unpacks to the exact same patch fingerprints, just
+/// stored as one gzip-compressed binary column instead of hundreds to
+/// thousands of individually-indexed rows (each of which previously carried
+/// four secondary B-tree indexes of its own).
+model LocalDnaPatchArchive {
+  id          String            @id @default(uuid())
+  createdAt   DateTime          @default(now())
+  indexId     String            @unique
+  patchCount  Int
+  /// Merkle root over the individual patch records (tamper-evidence parity
+  /// with SpatialAuthPackage.merkleRoot, not a new authentication primitive).
+  merkleRoot  String            @db.Char(64)
+  format      String            @default("PDPA1")
+  compression String            @default("gzip")
+  blob        Bytes
+  index       LocalFeatureIndex @relation(fields: [indexId], references: [id], onDelete: Cascade)
+
+  @@map("local_dna_patch_archives")
 }
 
 model LocalDnaPatch {
