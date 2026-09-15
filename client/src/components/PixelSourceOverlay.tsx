@@ -14,14 +14,15 @@ interface Props {
   overlayPngBase64?: string | null;
   maskPngBase64?: string | null;
   homographyVaultToProbe?: number[] | null;
+  evidenceRadius?: number;
   alt?: string;
   maxHeightClass?: string;
 }
 
 function classFromMask(v: number): { label: string; reason: string } {
-  if (v >= 200) return { label: 'ORIGINAL / VAULT', reason: 'Pixel matches aligned vault content' };
-  if (v >= 80) return { label: 'AI / NON-VAULT', reason: 'No vault correspondence at this pixel' };
-  return { label: 'UNKNOWN', reason: 'Insufficient correspondence' };
+  if (v >= 200) return { label: 'VAULT (region)', reason: 'Pixel-resolution localization: this pixel sits in a mapped vault region. Authentication is the surrounding authenticated patch, not an ID stored in this RGB sample.' };
+  if (v >= 80) return { label: 'NON_VAULT', reason: 'Mapped region is confidently not from this Vault original. This is not by itself proof of AI generation.' };
+  return { label: 'UNKNOWN', reason: 'Insufficient evidence. An isolated pixel is not uniquely identifiable.' };
 }
 
 function invertH(h: number[]): number[] | null {
@@ -64,6 +65,7 @@ export function PixelSourceOverlay({
   overlayPngBase64,
   maskPngBase64,
   homographyVaultToProbe,
+  evidenceRadius = 16,
   alt,
   maxHeightClass = 'max-h-[28rem]',
 }: Props) {
@@ -117,12 +119,22 @@ export function PixelSourceOverlay({
     }
     let vaultX: number | undefined;
     let vaultY: number | undefined;
-    if (invH && classification.startsWith('ORIGINAL')) {
+    const isVault = classification.startsWith('VAULT') || classification.startsWith('ORIGINAL');
+    if (invH && isVault) {
       const mapped = applyH(invH, nx * (maskRef.current?.width ?? img.naturalWidth), ny * (maskRef.current?.height ?? img.naturalHeight));
       vaultX = Math.round(mapped.x);
       vaultY = Math.round(mapped.y);
     }
-    setHover({ x, y, classification, vaultX, vaultY, reason });
+    setHover({
+      x,
+      y,
+      classification,
+      vaultX,
+      vaultY,
+      reason: isVault
+        ? `${reason} Evidence radius ${evidenceRadius}×${evidenceRadius} around this pixel — not a Vault ID stored in the RGB sample.`
+        : reason,
+    });
   };
 
   return (
@@ -135,13 +147,13 @@ export function PixelSourceOverlay({
         ref={imgRef}
         src={imageUrl}
         alt={alt ?? 'Pixel-level vault source map'}
-        className={`block max-w-full ${maxHeightClass} h-auto w-auto`}
+        className={`block max-w-full ${maxHeightClass} h-auto w-auto object-contain`}
       />
       {overlayUrl && (
         <img
           src={overlayUrl}
           alt=""
-          className={`absolute left-0 top-0 w-full h-full object-fill pointer-events-none ${maxHeightClass}`}
+          className="absolute inset-0 h-full w-full object-contain pointer-events-none"
         />
       )}
       <canvas ref={canvasRef} className="hidden" />

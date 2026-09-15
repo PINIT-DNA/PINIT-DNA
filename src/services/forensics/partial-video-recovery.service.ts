@@ -8,7 +8,7 @@ import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { VaultService } from '../vault/vault.service';
 import { computeBmHash64 } from './perceptual-enhancements';
-import { extractVideoFrameSamples, extractAudioSample, isFfmpegAvailable } from './media-tools.service';
+import { extractVideoFrameSamples, extractAudioSample, isFfmpegAvailable, probeVideoDuration } from './media-tools.service';
 import { localFeatureMatchService } from './local-feature-match.service';
 import { aiService } from '../ai/ai-embeddings.service';
 import type { VaultSimilarityVector, SimilarityVectorScores } from './vault-similarity-vector.service';
@@ -25,6 +25,65 @@ export interface PartialVideoFrameMatch {
   probeIndex: number;
   vaultIndex: number;
   perceptual: number;
+  /** Approximate timestamp (ms) of the matched vault keyframe within the vault
+   *  video, derived from the even-spacing extraction fps. Set only when the
+   *  vault video's protected frames were resolved (see vaultDnaRecordId). */
+  vaultTimestampMs?: number;
+  /** Id of the persisted, pixel-protected frame DnaRecord (a child of the
+   *  vault video's own DnaRecord via videoDnaRecordId) nearest in time to
+   *  vaultTimestampMs — the concrete frame downstream composition should
+   *  compare the matched probe frame against, instead of just a similarity
+   *  score. Undefined if the vault video was never pixel-protected. */
+  matchedFrameDnaRecordId?: string;
+}
+
+/**
+ * Resolve each frame match's evenly-spaced vaultIndex to the nearest
+ * persisted, pixel-protected frame DnaRecord for that vault video (frames
+ * created by videoPageProtectionService at a fixed SAMPLE RATE, e.g. 1fps —
+ * a different sampling grid than the fixed COUNT used here for cheap
+ * perceptual-hash matching). Mutates frameMatches in place. No-ops silently
+ * if the vault video has no protected frames or duration can't be probed.
+ */
+async function resolveFrameMatchesToProtectedFrames(
+  frameMatches: PartialVideoFrameMatch[],
+  vaultDnaRecordId: string,
+  vaultBuffer: Buffer,
+  vaultExt: string,
+  vaultFrameCount: number,
+): Promise<void> {
+  if (!frameMatches.length) return;
+
+  const protectedFrames = await prisma.dnaRecord.findMany({
+    where: { videoDnaRecordId: vaultDnaRecordId },
+    select: { id: true, frameTimestampMs: true },
+  });
+  if (!protectedFrames.length) return;
+
+  const durationSec = await probeVideoDuration(vaultBuffer, vaultExt);
+  if (!durationSec) return;
+
+  // Mirrors the fps computation extractVideoFrameSamples uses internally for
+  // even-count keyframe extraction, so vaultIndex -> approximate timestamp.
+  const fps = vaultFrameCount <= 1
+    ? 1
+    : Math.max(0.08, (vaultFrameCount - 1) / Math.max(durationSec - 0.15, 0.5));
+
+  for (const match of frameMatches) {
+    const vaultTimestampMs = Math.round((match.vaultIndex / fps) * 1000);
+    match.vaultTimestampMs = vaultTimestampMs;
+
+    let nearest = protectedFrames[0];
+    let bestDiff = Infinity;
+    for (const pf of protectedFrames) {
+      const diff = Math.abs((pf.frameTimestampMs ?? 0) - vaultTimestampMs);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        nearest = pf;
+      }
+    }
+    if (nearest) match.matchedFrameDnaRecordId = nearest.id;
+  }
 }
 
 export interface PartialVideoMatchResult {
@@ -231,6 +290,11 @@ export async function comparePartialVideoProbeToVault(
     vaultFrameCount?: number;
     enrichOrbClip?: boolean;
     skipAudio?: boolean;
+    /** The vault video's own DnaRecord id — when provided, matched frames are
+     *  resolved to their nearest persisted, pixel-protected frame DnaRecord
+     *  (see resolveFrameMatchesToProtectedFrames) so downstream composition
+     *  can compare against a concrete protected frame. */
+    vaultDnaRecordId?: string;
   },
 ): Promise<PartialVideoMatchResult> {
   const ext = extFromFile(probeMime, probeName);
@@ -254,6 +318,23 @@ export async function comparePartialVideoProbeToVault(
     probe: audioProbe,
     vault: audioVault,
   });
+
+  if (options?.vaultDnaRecordId && result.frameMatches.length) {
+    try {
+      const vaultExt = extFromFile(vaultMime, vaultName);
+      await resolveFrameMatchesToProtectedFrames(
+        result.frameMatches,
+        options.vaultDnaRecordId,
+        vaultBuffer,
+        vaultExt,
+        vaultFramesTarget,
+      );
+    } catch (err) {
+      logger.debug('[PartialVideoRecovery] Protected-frame resolution failed (non-fatal)', {
+        error: String(err),
+      });
+    }
+  }
 
   if (enrichOrbClip && result.bestProbeFrame && result.bestVaultFrame) {
     try {
@@ -477,6 +558,7 @@ export async function partialVideoVaultSearch(
           vaultFrameCount: vaultFrameTarget,
           enrichOrbClip: !lightMode,
           skipAudio: lightMode,
+          vaultDnaRecordId: row.id,
         },
       );
 

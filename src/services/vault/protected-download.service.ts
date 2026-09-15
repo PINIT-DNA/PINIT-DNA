@@ -179,7 +179,7 @@ export class ProtectedDownloadService {
         label: 'Spatial-exact export',
         status: 'complete',
         detail:
-          'Serving exact vault bytes (no second embed) so spatial 64×64→1×1 matches protected downloads',
+          'Serving exact vault bytes (no second embed / no DNA-B watermark) so spatial 64×64→8×8 matches protected downloads. Provenance remains in the vault DNA record.',
       });
       logger.info('Protected download — skipped re-embed for spatial auth package', {
         vaultId,
@@ -197,6 +197,24 @@ export class ProtectedDownloadService {
       outBuffer = embedded.buffer;
       identityTokenEmbedded = embedded.identityEmbedded;
       watermarkMethod = embedded.methods.join(', ') || undefined;
+
+      if (retrieved.originalMimeType.startsWith('image/')) {
+        try {
+          const { embedRobustProvenanceWatermark } = await import('../dna-vnext/robust-watermark');
+          const wm = await embedRobustProvenanceWatermark({
+            buffer: outBuffer,
+            mimeType: retrieved.originalMimeType,
+            vaultId,
+            dnaRecordId: record.dnaRecordId,
+          });
+          if (wm.embedded) {
+            outBuffer = wm.buffer;
+            watermarkMethod = [watermarkMethod, wm.method].filter(Boolean).join(', ');
+          }
+        } catch {
+          /* DNA B is additive */
+        }
+      }
 
       if (identityTokenEmbedded) {
         steps.push({

@@ -33,6 +33,7 @@ import { vaultEncryptedLooksLikeLocalPath } from './vault-storage-path';
 import { assertRecordOwner } from '../../lib/tenant-scope';
 import { identityEmbeddingPipeline } from '../identity/identity-embedding-pipeline.service';
 import { documentPageProtectionService } from '../documents/document-page-protection.service';
+import { videoPageProtectionService } from '../videos/video-page-protection.service';
 
 // Local disk in development by default. Supabase is often quota-limited locally;
 // set VAULT_USE_SUPABASE=true to force cloud storage in non-production.
@@ -404,6 +405,26 @@ export class VaultService {
       });
     }
 
+    // ── Video: sample frames and pixel-protect each one in the background ──
+    // Unlike PDFs, the vaulted file itself is never modified/reassembled — this
+    // only enrolls per-frame DnaRecords for later investigation. Same
+    // fire-and-forget rationale: sampling + protecting every frame of even a
+    // short video is a multi-minute job that must never block this response.
+    if (originalMimeType.startsWith('video/') || /\.(mp4|mov|avi|mkv|webm|mpeg|mpg)$/i.test(originalFileName)) {
+      void videoPageProtectionService.protectVideoFrames({
+        videoDnaRecordId: dnaRecordId,
+        buffer: imageBuffer,
+        originalName: originalFileName,
+        ownerUserId: dnaRecord.ownerUserId ?? ownerUserId,
+      }).catch((err) => {
+        logger.warn('Vault — video frame protection failed (video remains vaulted, unprotected per-frame)', {
+          vaultId,
+          dnaRecordId,
+          error: String(err),
+        });
+      });
+    }
+
     try {
       const { forensicProvenanceService } = await import('../forensics/forensic-provenance.service');
       forensicProvenanceService.appendAsync({
@@ -464,11 +485,28 @@ export class VaultService {
           imageBuffer: fileToEncrypt,
           dnaRecordId,
         }),
-      ).catch((err) => {
-        logger.warn('Vault — block DNA enrollment failed (non-fatal)', {
-          vaultId: record.id, error: err instanceof Error ? err.message : String(err),
-        });
-      });
+      ).then(
+        () => import('../dna-vnext/enroll')
+          .then(({ enrollDnaVnextForVaultImage }) =>
+            enrollDnaVnextForVaultImage({
+              imageBuffer: fileToEncrypt,
+              dnaRecordId,
+              vaultId: record.id,
+              certificateId: certificateId ?? null,
+              mimeType: originalMimeType,
+            }),
+          )
+          .catch((err) => {
+            logger.warn('Vault — DNA vNext enrollment failed (non-fatal)', {
+              vaultId: record.id, error: err instanceof Error ? err.message : String(err),
+            });
+          }),
+        (err) => {
+          logger.warn('Vault — block DNA enrollment failed (non-fatal)', {
+            vaultId: record.id, error: err instanceof Error ? err.message : String(err),
+          });
+        },
+      );
     }
 
     return {

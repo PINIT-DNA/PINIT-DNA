@@ -3,6 +3,7 @@ import type { ImageCompositionBreakdown } from '../../types/investigation-compos
 import type { BlockDnaInvestigationResult } from '../../types/block-dna.types';
 import type { FragmentReuseFinding } from '../../types/unified-investigation.types';
 import { investigateBlockDna } from './investigate';
+import { applyHmacToComposition } from '../forensics/forensic-result-state';
 
 export async function enrichInvestigationWithBlockDna(params: {
   composition: ImageCompositionBreakdown;
@@ -35,7 +36,10 @@ export async function enrichInvestigationWithBlockDna(params: {
       fragmentFindings: params.fragmentFindings,
     });
     return {
-      composition: params.composition,
+      composition: applyHmacToComposition(
+        params.composition,
+        Boolean(blockDna?.available && (blockDna.matchedBlocks ?? 0) > 0),
+      ),
       blockDna,
     };
   } catch (err) {

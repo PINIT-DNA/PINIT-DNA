@@ -1,5 +1,6 @@
 import {
   buildCompositionLabels,
+  buildHowWeKnow,
   protectedAreaFromSignals,
   regionAreaPercent,
   round1,
@@ -26,8 +27,9 @@ describe('investigation composition', () => {
   it('splits probe so protected pixels are never counted as AI', () => {
     const parts = splitProbeComposition(12, 85);
     expect(parts.protectedFromAssetPercent).toBe(12);
-    expect(parts.aiGeneratedPercent).toBe(74.8);
-    expect(parts.otherPercent).toBe(13.2);
+    expect(parts.aiGeneratedPercent).toBe(0);
+    expect(parts.otherPercent).toBe(88);
+    expect(parts.aiSuspectedPercent).toBe(85);
     expect(round1(
       parts.protectedFromAssetPercent + parts.aiGeneratedPercent + parts.otherPercent,
     )).toBe(100);
@@ -39,6 +41,7 @@ describe('investigation composition', () => {
       protectedFromAssetPercent: 12,
       aiGeneratedPercent: 0,
       otherPercent: 88,
+      aiSuspectedPercent: null,
     });
   });
 
@@ -60,12 +63,13 @@ describe('investigation composition', () => {
     expect(spatial.originalUsedPercent).toBe(8);
   });
 
-  it('treats unmatched collage pixels as AI, not as classifier-score × remainder', () => {
-    const parts = splitProbeComposition(18, 23.7, { collageRemainderIsAi: true });
+  it('keeps unmatched collage pixels GREY unless a separate AI detector is used', () => {
+    const parts = splitProbeComposition(18, 23.7, { collageRemainderIsUnknown: true });
     expect(parts).toEqual({
       protectedFromAssetPercent: 18,
-      aiGeneratedPercent: 82,
-      otherPercent: 0,
+      aiGeneratedPercent: 0,
+      otherPercent: 82,
+      aiSuspectedPercent: 23.7,
     });
   });
 
@@ -132,6 +136,7 @@ describe('investigation composition', () => {
       otherPercent: 7,
     });
     expect(labels.map((l) => l.key)).toEqual(['protected', 'ai', 'other']);
+    expect(labels[1]?.label).toBe('Non-Vault');
     expect(labels[0]?.color).toBe('#10B981');
     expect(labels[1]?.color).toBe('#F59E0B');
     expect(labels[2]?.color).toBe('#94A3B8');
@@ -203,5 +208,19 @@ describe('investigation composition', () => {
     });
     expect(scanProbe).not.toHaveBeenCalled();
     expect(result.protectedFromAssetPercent).toBe(80);
+  });
+
+  it('explains Vault origin without claiming a Vault ID lives in the pixel', () => {
+    const know = buildHowWeKnow({
+      vaultId: 'vault-abc',
+      vaultFilename: 'OIP (2).jpg',
+      dnaRecordId: 'dna-1',
+      certificateId: 'cert-9',
+      protectedPercent: 4.72,
+      regionCount: 1,
+    });
+    expect(know.independentPixelContainsVaultId).toBe(false);
+    expect(know.narrative).toContain('Vault ID vault-abc');
+    expect(know.narrative).toContain('does not contain a Vault ID');
   });
 });

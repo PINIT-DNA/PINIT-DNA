@@ -257,7 +257,7 @@ function StatusIcon({ status }: { status: SpatialCellStatus }) {
 
 function asStatus(s?: string): SpatialCellStatus {
   if (s === 'AUTHENTIC' || s === 'TAMPERED' || s === 'UNKNOWN') return s;
-  return 'TAMPERED';
+  return 'UNKNOWN';
 }
 
 export function SpatialAuthInvestigationPanel({
@@ -292,8 +292,16 @@ export function SpatialAuthInvestigationPanel({
   const imageW = investigation?.overlay?.imageWidth || investigation?.stats?.imageWidth || 400;
   const imageH = investigation?.overlay?.imageHeight || investigation?.stats?.imageHeight || 400;
 
+  const globalMismatch = useMemo(() => {
+    const total = investigation?.stats?.total64x64Blocks ?? 0;
+    const failed = investigation?.stats?.tampered64x64Blocks ?? 0;
+    if (total <= 0) return false;
+    return failed / total >= 0.85;
+  }, [investigation]);
+
   const overlayRects: OverlayRect[] = useMemo(() => {
     if (!investigation?.overlay) return [];
+    if (globalMismatch) return [];
     if (view === '64') {
       return (investigation.overlay.coarseRects ?? [])
         .filter((r) => r.status === 'TAMPERED')
@@ -335,16 +343,18 @@ export function SpatialAuthInvestigationPanel({
       }));
     }
     if (view === '1') {
-      return (hierarchy?.pixel1?.tamperedPixels ?? []).map((p) => ({
-        x: p.x,
-        y: p.y,
-        width: Math.max(1, p.width ?? 1),
-        height: Math.max(1, p.height ?? 1),
-        status: asStatus(p.status),
-      }));
+      return (hierarchy?.pixel1?.tamperedPixels ?? [])
+        .map((p) => ({
+          x: p.x,
+          y: p.y,
+          width: Math.max(1, p.width ?? 1),
+          height: Math.max(1, p.height ?? 1),
+          status: asStatus(p.status),
+        }))
+        .filter((r) => r.status === 'TAMPERED');
     }
     return [];
-  }, [investigation, hierarchy, view, selectedBlock]);
+  }, [investigation, hierarchy, view, selectedBlock, globalMismatch]);
 
   const viewMeta = useMemo(() => {
     const tabs: Array<{ id: ViewMode; label: string; available: boolean; hint?: string }> = [
@@ -365,20 +375,13 @@ export function SpatialAuthInvestigationPanel({
       {
         id: '1',
         label: '1×1',
-        available: !!hierarchy?.pixel1,
+        available: Boolean(hierarchy?.pixel1?.trusted),
         hint: hierarchy?.pixel1?.unavailableReason ?? (!hierarchy?.pixel1 ? 'No 1×1 data' : undefined),
       },
       { id: 'regions', label: 'Regions', available: true },
     ];
     return tabs;
   }, [hierarchy]);
-
-  const globalMismatch = useMemo(() => {
-    const total = investigation?.stats?.total64x64Blocks ?? 0;
-    const failed = investigation?.stats?.tampered64x64Blocks ?? 0;
-    if (total <= 0) return false;
-    return failed / total >= 0.85;
-  }, [investigation]);
 
   const syntheticRegions = useMemo(() => {
     const fromApi = investigation?.regions ?? [];
@@ -431,7 +434,7 @@ export function SpatialAuthInvestigationPanel({
       if (cancelled) return;
 
       // Global mismatch: one clear wash instead of hundreds of overlapping tiny boxes
-      if (globalMismatch && (view === '64' || view === '8' || view === '4' || view === '2')) {
+      if (globalMismatch && (view === '64' || view === '8' || view === '4' || view === '2' || view === '1')) {
         ctx.fillStyle = 'rgba(239,68,68,0.35)';
         ctx.fillRect(0, 0, w, h);
         ctx.strokeStyle = 'rgba(248,113,113,1)';
@@ -740,6 +743,11 @@ export function SpatialAuthInvestigationPanel({
             <p className="text-2xs text-amber-400/90">
               {hierarchy?.pixel1?.unavailableReason
                 ?? '1×1 layer not trusted yet (needs enrolled tags + vault reference).'}
+            </p>
+          ) : globalMismatch ? (
+            <p className="text-2xs text-amber-400/90">
+              Spatial 1×1 is listing a full-frame hash mismatch (pixels from 0,0), not your painted pixel.
+              Use the pixel-level vault source map for the local red-dot edit.
             </p>
           ) : pixelList.length === 0 ? (
             <p className="text-2xs text-gray-500">No failed 1×1 pixels in this run.</p>

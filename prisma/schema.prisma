@@ -75,9 +75,19 @@ model DnaRecord {
   /// Spatial auth package (schema reconciliation — pre-existing table)
   spatialAuthPackage SpatialAuthPackage?
 
+  /// Video frame pixel-protection — a sampled frame is its own DnaRecord
+  /// (full image pipeline reused as-is), linked back to the parent video
+  /// DnaRecord via these fields. Mirrors documentDnaRecordId/pageNumber.
+  videoDnaRecordId  String?
+  frameIndex        Int?
+  frameTimestampMs  Int?
+  videoDnaRecord    DnaRecord?  @relation("VideoFrames", fields: [videoDnaRecordId], references: [id], onDelete: Cascade)
+  frames            DnaRecord[] @relation("VideoFrames")
+
   @@index([organizationId])
   @@index([ownerUserId])
   @@index([documentDnaRecordId])
+  @@index([videoDnaRecordId])
   @@map("dna_records")
 }
 

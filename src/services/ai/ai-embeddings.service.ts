@@ -387,8 +387,8 @@ export class AIEmbeddingsService {
         templateScore: Number(data.templateScore) || 0,
         estimatedCoveragePercent: Number(data.estimatedCoveragePercent) || 0,
         homographyFound: Boolean(data.homographyFound),
-        detector: data.detector,
-        method: data.method,
+        detector: data.detector as string | undefined,
+        method: data.method as string | undefined,
       };
     } catch (err) {
       this.logError('cv/local-source-score', err);

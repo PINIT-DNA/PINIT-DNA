@@ -12,10 +12,25 @@ export const PIXEL_CLASS = {
 
 export interface PixelSourceRegion {
   type: 'VAULT_MATCH';
+  id?: string;
+  sourceVaultId?: string;
   uploadedBounds: { x: number; y: number; width: number; height: number };
   vaultBounds: { x: number; y: number; width: number; height: number };
   confidence: number;
   coveragePercent: number;
+  transformation?: {
+    labels?: string[];
+    scale?: number | null;
+    rotationDeg?: number | null;
+    translation?: { x: number; y: number } | null;
+  };
+  scale?: number | null;
+  rotationDeg?: number | null;
+  matchedFeatures?: number;
+  ransacInliers?: number;
+  pixelSimilarity?: number | null;
+  evidenceRadius?: number;
+  method?: string;
 }
 
 export interface PixelSourceAnalysis {
@@ -37,6 +52,8 @@ export interface PixelSourceAnalysis {
   overlayPngBase64?: string;
   homographyVaultToProbe?: number[] | null;
   method: string;
+  evidenceRadius?: number;
+  transformation?: PixelSourceRegion['transformation'];
 }
 
 function round1(n: number): number {
@@ -251,5 +268,7 @@ export function fromPythonPixelSource(raw: Record<string, unknown> | undefined |
       ? raw.homographyVaultToProbe as number[]
       : null,
     method: String(raw.method ?? 'python_pixel_source'),
+    evidenceRadius: typeof raw.evidenceRadius === 'number' ? raw.evidenceRadius : undefined,
+    transformation: raw.transformation as PixelSourceAnalysis['transformation'],
   };
 }

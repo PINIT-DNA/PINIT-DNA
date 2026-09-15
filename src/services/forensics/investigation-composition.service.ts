@@ -10,6 +10,10 @@ import type {
 import type { ForensicScanResult } from './forensic-scanner.service';
 import type { BlockDnaInvestigationResult } from '../../types/block-dna.types';
 import { fromPythonPixelSource } from './pixel-source-map.service';
+import { PIXEL_EVIDENCE_POLICY } from '../../types/dna-vnext.types';
+import { pixelSourceConfig } from '../../config/pixel-source';
+import type { CompositionHowWeKnow } from '../../types/investigation-composition.types';
+import { stampRegionForensicFields } from './forensic-result-state';
 
 export const COMPOSITION_COLORS = {
   protected: '#10B981',
@@ -56,42 +60,24 @@ function clampPct(n: number): number {
  * Protected pixels win over the AI model (a pasted crop of a real photo is not "AI").
  *
  * Whole-image AI probability is a classifier score, not a pixel fraction.
- * For a located collage (crop pasted into a new scene), unmatched pixels are
- * the host image — counted as AI, not "other × probability".
+ * Collage host pixels default to GREY (unknown) unless a separate AI detector
+ * is confidently positive — never auto-paint remainder orange.
  */
 export function splitProbeComposition(
   protectedAreaPercent: number,
   aiProbability: number | null,
-  options?: { collageRemainderIsAi?: boolean },
-): { protectedFromAssetPercent: number; aiGeneratedPercent: number; otherPercent: number } {
+  options?: { collageRemainderIsUnknown?: boolean },
+): { protectedFromAssetPercent: number; aiGeneratedPercent: number; otherPercent: number; aiSuspectedPercent: number | null } {
   const protectedPct = round1(clampPct(protectedAreaPercent));
   const remaining = round1(Math.max(0, 100 - protectedPct));
-  if (options?.collageRemainderIsAi && protectedPct >= MIN_PROTECTED_PCT) {
-    return {
-      protectedFromAssetPercent: protectedPct,
-      aiGeneratedPercent: remaining,
-      otherPercent: 0,
-    };
-  }
-  if (aiProbability == null) {
-    return {
-      protectedFromAssetPercent: protectedPct,
-      aiGeneratedPercent: 0,
-      otherPercent: remaining,
-    };
-  }
-  const aiShare = clampPct(aiProbability) / 100;
-  const aiPct = round1(remaining * aiShare);
-  let otherPct = round1(100 - protectedPct - aiPct);
-  if (otherPct < 0) otherPct = 0;
-  const drift = round1(protectedPct + aiPct + otherPct - 100);
-  if (Math.abs(drift) > 0.05) {
-    otherPct = round1(otherPct - drift);
-  }
+  const aiSuspectedPercent = aiProbability == null ? null : round1(clampPct(aiProbability));
+  // Mask buckets only. AI detector score is independent and must not fill orange.
+  void options;
   return {
     protectedFromAssetPercent: protectedPct,
-    aiGeneratedPercent: aiPct,
-    otherPercent: Math.max(0, otherPct),
+    aiGeneratedPercent: 0,
+    otherPercent: remaining,
+    aiSuspectedPercent,
   };
 }
 
@@ -109,7 +95,7 @@ export function buildCompositionLabels(parts: {
     },
     {
       key: 'ai',
-      label: 'AI / Non-Vault content',
+      label: 'Non-Vault',
       percent: parts.aiGeneratedPercent,
       color: COMPOSITION_COLORS.ai,
     },
@@ -120,6 +106,43 @@ export function buildCompositionLabels(parts: {
       color: COMPOSITION_COLORS.other,
     },
   ];
+}
+
+function evidencePolicy() {
+  return {
+    ...PIXEL_EVIDENCE_POLICY,
+    evidenceRadiusPx: pixelSourceConfig.evidenceRadiusPx,
+    minAuthenticableAreaPx: pixelSourceConfig.minAuthenticableAreaPx,
+    maskEncoding: pixelSourceConfig.maskEncoding,
+  } as const;
+}
+
+export function buildHowWeKnow(input: {
+  vaultId?: string;
+  vaultFilename?: string;
+  dnaRecordId?: string;
+  certificateId?: string;
+  protectedPercent: number;
+  regionCount: number;
+}): CompositionHowWeKnow {
+  const hasSource = (input.protectedPercent >= 0.4) && Boolean(input.vaultId);
+  const narrative = hasSource
+    ? `This protected source was enrolled in PinIT Hub`
+      + (input.vaultId ? ` under Vault ID ${input.vaultId}` : '')
+      + (input.dnaRecordId ? `, DNA Record ${input.dnaRecordId}` : '')
+      + (input.certificateId ? `, and Certificate ${input.certificateId}` : '')
+      + `. The investigation identified a spatial correspondence between the suspect image and the enrolled Vault source`
+      + (input.vaultFilename ? ` (${input.vaultFilename})` : '')
+      + `. Mapped regions passed available spatial similarity tests. Highlighted pixels are classified as Vault-origin because they sit in a sufficiently authenticated region — a pixel does not contain a Vault ID.`
+    : 'No verified Vault-origin region was established. Grey means insufficient evidence. Orange is used only where a mapped region is confidently not from this Vault. That is not the same as “definitely AI generated.”';
+  return {
+    narrative,
+    vaultId: input.vaultId,
+    vaultFilename: input.vaultFilename,
+    dnaRecordId: input.dnaRecordId,
+    certificateId: input.certificateId,
+    independentPixelContainsVaultId: false,
+  };
 }
 
 type SpatialPick = {
@@ -150,6 +173,17 @@ export function protectedAreaFromSignals(input: {
   fragmentFindings: FragmentReuseFinding[];
   localDnaHit?: { matchRatio: number; coverageRatio: number; patchMatchCount: number } | null;
   cropDetection?: ForensicScanResult['cropDetection'] | null;
+  /**
+   * Skip the LOCALIZED_MAX_PCT (70%) ceiling on the fragment pick. That
+   * ceiling exists to route "this basically covers the whole probe" matches
+   * to the whole-image comparison path instead (a near-100% fragment match
+   * on a photo usually means it isn't really a small pasted fragment). It
+   * does not apply when the probe is ITSELF already a crop of the vault
+   * original with no whole-image comparison available (different aspect
+   * ratios by definition) — there, a match spanning the full probe canvas
+   * is the expected, correct signal, not a sign the fragment pick is wrong.
+   */
+  allowFullFragmentCoverage?: boolean;
 }): SpatialPick {
   const top = input.fragmentFindings[0];
   const crop = input.cropDetection;
@@ -157,6 +191,9 @@ export function protectedAreaFromSignals(input: {
     ? coverageOf(top.probeCoveragePercent, top.probeRegion)
     : 0;
   const cropPct = coverageOf(crop?.probeCoveragePercent, crop?.probeRegion);
+  const fragCoverageOk = input.allowFullFragmentCoverage
+    ? fragPct >= MIN_PROTECTED_PCT
+    : isLocalizedCoverage(fragPct);
 
   const cropPick: SpatialPick | null = crop?.probeRegion && isLocalizedCoverage(cropPct)
     ? {
@@ -168,7 +205,7 @@ export function protectedAreaFromSignals(input: {
       }
     : null;
 
-  const fragPick: SpatialPick | null = top && isLocalizedCoverage(fragPct)
+  const fragPick: SpatialPick | null = top && fragCoverageOk
     ? {
         protectedAreaPercent: fragPct,
         originalUsedPercent: top.vaultCoveragePercent
@@ -212,10 +249,19 @@ export async function buildInvestigationComposition(input: {
   vaultBuffer?: Buffer;
   vaultId?: string;
   vaultFilename?: string;
+  dnaRecordId?: string;
+  certificateId?: string;
+  ownerUserId?: string;
+  candidateSources?: ImageCompositionBreakdown['candidateSources'];
   fragmentFindings: FragmentReuseFinding[];
   localDnaHit?: { matchRatio: number; coverageRatio: number; patchMatchCount: number } | null;
   aiProbability?: number | null;
   scan?: ForensicScanResult | null;
+  /** See protectedAreaFromSignals — set when the probe is itself already a
+   *  crop with no whole-image comparison available (e.g. a spatially
+   *  cropped video frame), so a fragment match spanning the whole probe
+   *  canvas is expected and correct, not a "not really a fragment" signal. */
+  allowFullFragmentCoverage?: boolean;
 }): Promise<ImageCompositionBreakdown> {
   let scan = input.scan ?? null;
   const mime = input.probeMimeType ?? '';
@@ -258,13 +304,61 @@ export async function buildInvestigationComposition(input: {
       cropDetection: scan?.cropDetection,
     });
     const vaultPct = parts.protectedFromAssetPercent;
-    const reason = vaultPct >= 50
-      ? 'Majority of the image matches the authenticated Vault content.'
+    const aiSuspectedPercent = resolveAiProbabilityFromScan(scan);
+    const stampedRegions = (pixelSource.regions ?? []).map((r) => stampRegionForensicFields({
+      ...r,
+      sourceVaultId: input.vaultId,
+    }, {
+      hmacVerified: false,
+      provenanceDetected: Boolean(input.certificateId || input.dnaRecordId),
+      aiDetectorPositive: (aiSuspectedPercent ?? 0) >= 70,
+    }));
+
+    if (input.ownerUserId && input.probeBuffer && input.candidateSources?.length) {
+      try {
+        const { VaultService } = await import('../vault/vault.service');
+        const { forensicScannerService } = await import('./forensic-scanner.service');
+        const extraVault = new VaultService();
+        for (const src of input.candidateSources.slice(0, 2)) {
+          if (!src.vaultId || src.vaultId === input.vaultId) continue;
+          const vf = await extraVault.retrieve(src.vaultId, input.ownerUserId);
+          if (!vf?.originalBuffer) continue;
+          const extra = await forensicScannerService.scanProbe(input.probeBuffer, mime, vf.originalBuffer);
+          const extraPix = fromPythonPixelSource(extra.pixelSource ?? null);
+          if (!extraPix?.regions?.length) continue;
+          for (const r of extraPix.regions.slice(0, 4)) {
+            if ((r.coveragePercent ?? 0) < 0.4) continue;
+            stampedRegions.push(stampRegionForensicFields({
+              ...r,
+              id: r.id ? `${src.vaultId.slice(0, 6)}-${r.id}` : `src-${src.vaultId.slice(0, 6)}`,
+              sourceVaultId: src.vaultId,
+            }, {
+              hmacVerified: false,
+              provenanceDetected: Boolean(src.dnaRecordId),
+              aiDetectorPositive: false,
+            }));
+          }
+        }
+      } catch {
+        /* extra vault regions optional */
+      }
+    }
+
+    const extraNames = (input.candidateSources ?? [])
+      .map((s) => s.filename)
+      .filter(Boolean)
+      .slice(0, 3);
+    const reason = extraNames.length
+      ? `Multiple Vault sources located separately: ${input.vaultFilename ?? 'primary'}${extraNames.map((n) => `, ${n}`).join('')}. Each region keeps its own vault identity.`
+      : vaultPct >= 50
+      ? 'Majority of the image matches the authenticated Vault content. Percents are pixel-mask coverage, not retrieval similarity.'
       : vaultPct >= 0.4
-        ? `A protected region from ${input.vaultFilename ?? 'the vault original'} was located. Remaining pixels are non-vault or unknown based on this source match — not retrieval confidence.`
-        : 'No verified protected Vault region was detected. Remaining content is classified as non-Vault/AI-suspected or unknown based on available evidence.';
+        ? `A protected region from ${input.vaultFilename ?? 'the vault original'} was located. Remaining pixels are non-vault (orange, mapped mismatch) or unknown (grey). Not retrieval confidence.`
+        : 'No verified protected Vault region was detected. Grey = insufficient evidence. Orange is not automatically “AI generated.”';
     return {
       ...parts,
+      nonVaultPercent: parts.aiGeneratedPercent,
+      aiSuspectedPercent,
       originalUsedPercent: pixelSource.originalUsedPercent,
       quantifiable: true,
       estimate: false,
@@ -277,15 +371,29 @@ export async function buildInvestigationComposition(input: {
       aiModelAvailable: true,
       vaultId: input.vaultId,
       vaultFilename: input.vaultFilename,
+      dnaRecordId: input.dnaRecordId,
+      certificateId: input.certificateId,
+      candidateSources: input.candidateSources,
+      howWeKnow: buildHowWeKnow({
+        vaultId: input.vaultId,
+        vaultFilename: input.vaultFilename,
+        dnaRecordId: input.dnaRecordId,
+        certificateId: input.certificateId,
+        protectedPercent: vaultPct,
+        regionCount: stampedRegions.length,
+      }),
       pixelSource: {
         originalPixels: pixelSource.originalPixels,
         aiSuspectedPixels: pixelSource.aiSuspectedPixels,
         unknownPixels: pixelSource.unknownPixels,
         totalPixels: pixelSource.totalPixels,
         homographyVaultToProbe: pixelSource.homographyVaultToProbe,
-        regions: pixelSource.regions,
+        regions: stampedRegions,
         method: pixelSource.method,
+        evidenceRadius: pixelSource.evidenceRadius ?? pixelSourceConfig.evidenceRadiusPx,
+        transformation: pixelSource.transformation,
       },
+      evidenceModel: evidencePolicy(),
     };
   }
 
@@ -326,6 +434,18 @@ export async function buildInvestigationComposition(input: {
       aiModelAvailable: true,
       vaultId: input.vaultId,
       vaultFilename: input.vaultFilename,
+      dnaRecordId: input.dnaRecordId,
+      certificateId: input.certificateId,
+      candidateSources: input.candidateSources,
+      howWeKnow: buildHowWeKnow({
+        vaultId: input.vaultId,
+        vaultFilename: input.vaultFilename,
+        dnaRecordId: input.dnaRecordId,
+        certificateId: input.certificateId,
+        protectedPercent: parts.protectedFromAssetPercent,
+        regionCount: 0,
+      }),
+      evidenceModel: evidencePolicy(),
     };
   }
 
@@ -333,6 +453,7 @@ export async function buildInvestigationComposition(input: {
     fragmentFindings: input.fragmentFindings,
     localDnaHit: input.localDnaHit,
     cropDetection: scan?.cropDetection,
+    allowFullFragmentCoverage: input.allowFullFragmentCoverage,
   });
 
   let aiProbability = input.aiProbability ?? resolveAiProbabilityFromScan(scan);
@@ -362,13 +483,9 @@ export async function buildInvestigationComposition(input: {
       || Boolean(scan?.cropDetection?.probeRegion)
     );
 
-  if (collageLocated && (aiProbability == null || aiProbability < 55)) {
-    aiProbability = Math.max(aiProbability ?? 0, 80);
-  }
-
   const aiModelAvailable = aiProbability != null;
   const parts = splitProbeComposition(spatial.protectedAreaPercent, aiProbability, {
-    collageRemainderIsAi: collageLocated,
+    collageRemainderIsUnknown: collageLocated,
   });
   const hasImage = Boolean(input.probeBuffer && mime.startsWith('image/'));
   const quantifiable = hasImage;
@@ -381,11 +498,12 @@ export async function buildInvestigationComposition(input: {
   } else if (input.fragmentFindings.length > 0 && parts.protectedFromAssetPercent < MIN_PROTECTED_PCT) {
     reason = 'Protected content may be present, but no verified pixel-level vault region was outlined on this run.';
   } else {
-    reason = 'No verified protected Vault region was detected. Remaining content is classified as non-Vault/AI-suspected or unknown based on available evidence.';
+    reason = 'No verified protected Vault region was detected. Grey = insufficient evidence. A non-Vault photograph is not classified as AI-generated.';
   }
 
   return {
     ...parts,
+    nonVaultPercent: parts.aiGeneratedPercent,
     originalUsedPercent: spatial.originalUsedPercent,
     quantifiable,
     estimate: true,
@@ -396,6 +514,18 @@ export async function buildInvestigationComposition(input: {
     aiModelAvailable,
     vaultId: input.vaultId,
     vaultFilename: input.vaultFilename,
+    dnaRecordId: input.dnaRecordId,
+    certificateId: input.certificateId,
+    candidateSources: input.candidateSources,
+    howWeKnow: buildHowWeKnow({
+      vaultId: input.vaultId,
+      vaultFilename: input.vaultFilename,
+      dnaRecordId: input.dnaRecordId,
+      certificateId: input.certificateId,
+      protectedPercent: parts.protectedFromAssetPercent,
+      regionCount: 0,
+    }),
+    evidenceModel: evidencePolicy(),
   };
 }
 
@@ -431,6 +561,7 @@ export function applyBlockDnaToComposition(
     reason: blockDna.narrative,
     blockGrid: blockDna.blockGrid,
     labels: buildCompositionLabels(parts),
+    evidenceModel: composition.evidenceModel ?? PIXEL_EVIDENCE_POLICY,
   };
 }
 
