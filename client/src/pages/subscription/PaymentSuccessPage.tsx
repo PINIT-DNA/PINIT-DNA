@@ -89,7 +89,7 @@ export function PaymentSuccessPage() {
         </div>
         <h1 className="text-2xl font-bold text-white mb-2">Plan activated</h1>
         <p className="text-gray-400 text-sm mb-8">
-          Welcome to PINITHub {payment?.planName ?? subscription?.planName ?? planCode}. Your premium features are unlocked.
+          Welcome to Pinit HUB {payment?.planName ?? subscription?.planName ?? planCode}. Your premium features are unlocked.
         </p>
 
         <div className="rounded-2xl border border-bg-border bg-bg-card p-5 text-left mb-6 space-y-3">

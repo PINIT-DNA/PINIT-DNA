@@ -130,6 +130,8 @@ export interface VaultContentAnalysis {
 
 export interface VaultRecord {
   id: string;
+  /** Canonical Asset id. Null for files protected before Asset identity existed. */
+  assetId?: string | null;
   dnaRecordId: string;
   originalFileName: string;
   originalMimeType: string;
@@ -248,6 +250,7 @@ export interface DashboardStats {
   totalEncryptedBytes: number;
   fileTypeBreakdown: { fileType: string; count: number }[];
   recentActivity: DnaRecord[];
+  vaultRecords?: VaultRecord[];
 }
 
 // ─── Certificate (Phase 2 hardened) ──────────────────────────────────────────

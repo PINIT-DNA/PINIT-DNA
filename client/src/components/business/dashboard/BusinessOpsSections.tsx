@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  Shield, Archive, Dna, AlertTriangle, HardDrive, Users, Share2, Award,
+  Archive, Dna, AlertTriangle, Users, Share2, Award,
   Activity, Bell, FileSearch, Radio, FileText, ChevronRight, RefreshCw,
   Upload, UserPlus, Globe, Eye, Download, Building2, Crown,
   Briefcase, Search, Filter, Zap, KeyRound, BarChart2,
@@ -61,41 +61,6 @@ function SectionCard({
   );
 }
 
-function MetricTile({
-  label,
-  value,
-  sub,
-  icon,
-  to,
-  accent = 'dna',
-}: {
-  label: string;
-  value: string | number;
-  sub?: string;
-  icon: React.ReactNode;
-  to?: string;
-  accent?: 'dna' | 'emerald' | 'amber' | 'purple' | 'rose' | 'cyan';
-}) {
-  const accents = {
-    dna: 'text-dna-400 bg-dna-500/10 border-dna-500/20',
-    emerald: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-    amber: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
-    purple: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
-    rose: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
-    cyan: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
-  };
-  const inner = (
-    <div className={cn('rounded-xl border p-3.5 h-full transition-colors hover:bg-bg-elevated/50', accents[accent].split(' ').slice(2).join(' '))}>
-      <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center mb-2', accents[accent].split(' ').slice(0, 2).join(' '))}>
-        {icon}
-      </div>
-      <p className="text-2xs text-gray-500 uppercase tracking-wide">{label}</p>
-      <p className="text-xl font-bold text-white mt-0.5 tabular-nums">{value}</p>
-      {sub && <p className="text-2xs text-gray-500 mt-0.5">{sub}</p>}
-    </div>
-  );
-  return to ? <Link to={to}>{inner}</Link> : inner;
-}
 
 function EmptyHint({ text }: { text: string }) {
   return (
@@ -132,16 +97,40 @@ export function OrgOverviewGrid({
     ? `${formatBytes(storageUsed)} / ${formatBytes(storageLimit)}`
     : formatBytes(storageUsed);
 
+  /*
+   * Eight tiles became one strip.
+   *
+   * These are standing totals — how much is protected, how much room is left,
+   * how many people are on the team. They are worth knowing and almost never
+   * worth acting on, so they read as a line rather than competing for attention
+   * with the alerts and the activity feed above them. Each figure still links
+   * where it did before.
+   */
+  const cells: Array<{ label: string; value: string | number; to: string }> = [
+    { label: 'Protected', value: protectedAssets, to: '/vault' },
+    { label: 'DNA generated', value: dnaGenerated, to: '/dna-records' },
+    { label: 'Intelligence', value: activeInvestigations, to: BRAND.investigationPath },
+    { label: 'Threat alerts', value: threatAlerts, to: '/monitoring' },
+    { label: 'Storage', value: storageLabel, to: '/vault' },
+    { label: 'Team', value: teamDisplay, to: '/business/team' },
+    { label: 'Shared', value: sharedAssets, to: '/access-intelligence' },
+    { label: 'Certificates', value: certificates, to: '/certificates' },
+  ];
+
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
-      <MetricTile label="Protected Assets" value={protectedAssets} icon={<Shield size={16} />} to="/vault" accent="dna" />
-      <MetricTile label="DNA Generated" value={dnaGenerated} icon={<Dna size={16} />} to="/dna-records" accent="purple" />
-      <MetricTile label="Investigations" value={activeInvestigations} icon={<FileSearch size={16} />} to={BRAND.investigationPath} accent="cyan" />
-      <MetricTile label="Threat Alerts" value={threatAlerts} icon={<AlertTriangle size={16} />} to="/monitoring" accent="amber" />
-      <MetricTile label="Storage Used" value={storageLabel} icon={<HardDrive size={16} />} to="/vault" accent="emerald" />
-      <MetricTile label="Team Members" value={teamDisplay} icon={<Users size={16} />} to="/business/settings" accent="purple" />
-      <MetricTile label="Shared Assets" value={sharedAssets} icon={<Share2 size={16} />} to="/access-intelligence" accent="cyan" />
-      <MetricTile label="Certificates" value={certificates} icon={<Award size={16} />} to="/certificates" accent="rose" />
+    <div className="rounded-xl border border-bg-border bg-bg-card divide-y sm:divide-y-0 sm:divide-x divide-bg-border grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8">
+      {cells.map((cell) => (
+        <Link
+          key={cell.label}
+          to={cell.to}
+          className="px-3 py-3 hover:bg-bg-elevated transition-colors first:rounded-l-xl last:rounded-r-xl"
+        >
+          <p className="text-base font-bold text-white tabular-nums leading-tight truncate">
+            {cell.value}
+          </p>
+          <p className="text-2xs text-gray-500 mt-0.5 truncate">{cell.label}</p>
+        </Link>
+      ))}
     </div>
   );
 }
@@ -260,10 +249,10 @@ export function ActiveAlertsPanel({
 
   const catColors: Record<AlertItem['category'], string> = {
     security: 'text-red-400',
-    investigation: 'text-cyan-400',
+    investigation: 'text-dna-400',
     monitoring: 'text-amber-400',
-    billing: 'text-purple-400',
-    storage: 'text-emerald-400',
+    billing: 'text-dna-400',
+    storage: 'text-dna-400',
     system: 'text-gray-400',
   };
 
@@ -348,10 +337,19 @@ export function BusinessNotificationsPanel({
             </span>
           )}
           <button type="button" onClick={() => void markAllRead()} className="text-2xs text-gray-400 hover:text-white">
-            Mark all read
+            Mark all as read
           </button>
-          <Link to="/profile" className="text-2xs text-dna-400 hover:text-dna-300">
-            View all
+          <button
+            type="button"
+            onClick={() => {
+              void api.put(`${API_BASE_URL}/notifications/clear-inbox`).then(() => onRefresh());
+            }}
+            className="text-2xs text-gray-400 hover:text-white"
+          >
+            Clear all
+          </button>
+          <Link to="/profile?tab=notifications" className="text-2xs text-dna-400 hover:text-dna-300">
+            View notification history
           </Link>
         </div>
       }
@@ -439,8 +437,8 @@ export function InvestigationSnapshot({ investigations }: { investigations: Stor
   const recent = investigations.slice(0, 4);
   return (
     <SectionCard
-      title="Unified Investigation"
-      icon={<FileSearch size={16} className="text-cyan-400" />}
+      title="Intelligence"
+      icon={<FileSearch size={16} className="text-dna-400" />}
       action={
         <Link to={BRAND.investigationPath} className="text-2xs text-dna-400 hover:text-dna-300 flex items-center gap-1">
           Open module <ChevronRight size={12} />
@@ -457,7 +455,7 @@ export function InvestigationSnapshot({ investigations }: { investigations: Stor
               <li key={r.id} className="rounded-lg border border-bg-border bg-bg-elevated/40 px-3 py-2">
                 <p className="text-xs font-medium text-white truncate">{r.filename}</p>
                 <p className="text-2xs text-gray-500">{investigationListSubtitle(r.data, r.filename)}</p>
-                <p className="text-2xs text-cyan-400/80 mt-0.5">
+                <p className="text-2xs text-dna-400/80 mt-0.5">
                   {investigationVerdictLabel(r.data)} · {fmtAgo(r.savedAt)}
                 </p>
               </li>
@@ -491,8 +489,8 @@ export function VaultExplorerSnapshot({
 
   return (
     <SectionCard
-      title="Vault Explorer"
-      icon={<Archive size={16} className="text-emerald-400" />}
+      title="My Assets"
+      icon={<Archive size={16} className="text-dna-400" />}
       action={
         <Link to="/vault" className="text-2xs text-dna-400 hover:text-dna-300 flex items-center gap-1">
           Open explorer <ChevronRight size={12} />
@@ -652,21 +650,21 @@ export function MonitoringSnapshot({
 export function ReportsSnapshot({ reportCount }: { reportCount: number }) {
   return (
     <SectionCard
-      title="Reports"
-      icon={<BarChart2 size={16} className="text-purple-400" />}
+      title="Evidence"
+      icon={<BarChart2 size={16} className="text-dna-400" />}
       action={
         <Link to="/reports" className="text-2xs text-dna-400 hover:text-dna-300 flex items-center gap-1">
-          All reports <ChevronRight size={12} />
+          All evidence <ChevronRight size={12} />
         </Link>
       }
     >
       <div className="flex items-center justify-between gap-4">
         <div>
           <p className="text-2xl font-bold text-white tabular-nums">{reportCount}</p>
-          <p className="text-2xs text-gray-500">Forensic & investigation reports</p>
+          <p className="text-2xs text-gray-500">Intelligence findings and evidence records</p>
         </div>
         <div className="text-2xs text-gray-500 space-y-1">
-          <p>· Investigation summaries</p>
+          <p>· Intelligence summaries</p>
           <p>· Monitoring evidence</p>
           <p>· Certificate exports</p>
           <p>· Download audit trails</p>
@@ -677,7 +675,7 @@ export function ReportsSnapshot({ reportCount }: { reportCount: number }) {
         className="mt-3 inline-flex items-center gap-1 text-xs text-dna-400 hover:text-dna-300"
       >
         <FileText size={14} />
-        View organization reports
+        View organization evidence
       </Link>
     </SectionCard>
   );
@@ -687,7 +685,7 @@ export function CertificatesSnapshot({ count, recent }: { count: number; recent:
   return (
     <SectionCard
       title="Certificates"
-      icon={<Award size={16} className="text-rose-400" />}
+      icon={<Award size={16} className="text-dna-400" />}
       action={
         <Link to="/certificates" className="text-2xs text-dna-400 hover:text-dna-300 flex items-center gap-1">
           Certificate manager <ChevronRight size={12} />
@@ -715,13 +713,13 @@ export function CertificatesSnapshot({ count, recent }: { count: number; recent:
 // ─── 11. Quick Actions ────────────────────────────────────────────────────────
 
 const QUICK_ACTIONS = [
-  { to: '/generate', icon: Dna, label: 'Generate DNA', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
-  { to: '/generate', icon: Upload, label: 'Upload Asset', accent: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25' },
-  { to: BRAND.investigationPath, icon: FileSearch, label: 'Start Investigation', accent: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/25' },
-  { to: '/business/settings', icon: UserPlus, label: 'Invite Member', accent: 'bg-purple-500/15 text-purple-300 border-purple-500/25' },
-  { to: '/vault', icon: Share2, label: 'Share Asset', accent: 'bg-blue-500/15 text-blue-300 border-blue-500/25' },
-  { to: '/certificates', icon: Award, label: 'Generate Certificate', accent: 'bg-rose-500/15 text-rose-300 border-rose-500/25' },
-  { to: '/monitoring', icon: Radio, label: 'Run Monitoring', accent: 'bg-amber-500/15 text-amber-300 border-amber-500/25' },
+  { to: '/generate', icon: Dna, label: 'Protect New', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
+  { to: '/vault', icon: Upload, label: 'My Assets', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
+  { to: BRAND.investigationPath, icon: FileSearch, label: 'Intelligence', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
+  { to: '/business/settings', icon: UserPlus, label: 'Invite Member', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
+  { to: '/vault', icon: Share2, label: 'Share Asset', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
+  { to: '/certificates', icon: Award, label: 'Generate Certificate', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
+  { to: '/monitoring', icon: Radio, label: 'Monitoring', accent: 'bg-dna-500/15 text-dna-300 border-dna-500/25' },
 ] as const;
 
 export function QuickActionsBar() {
@@ -759,13 +757,13 @@ export function TeamSnapshotPanel({
     { role: 'Owner', icon: Crown, count: 1, names: ownerName, active: true },
     { role: 'Managers', icon: Briefcase, count: 0, names: '—', active: false },
     { role: 'Investigators', icon: FileSearch, count: 0, names: '—', active: false },
-    { role: 'Members', icon: Users, count: 0, names: '—', active: false },
+    { role: 'Team members', icon: Users, count: 0, names: '—', active: false },
   ];
 
   return (
     <SectionCard
       title="Team Snapshot"
-      icon={<Users size={16} className="text-purple-400" />}
+      icon={<Users size={16} className="text-dna-400" />}
       action={
         planCode === 'FREE' ? (
           <Link to="/upgrade" className="text-2xs text-amber-400 hover:text-amber-300">
@@ -787,11 +785,11 @@ export function TeamSnapshotPanel({
             key={role}
             className={cn(
               'rounded-lg border px-3 py-2.5',
-              active ? 'border-purple-500/30 bg-purple-500/5' : 'border-bg-border bg-bg-elevated/30 opacity-70',
+              active ? 'border-dna-500/30 bg-dna-500/5' : 'border-bg-border bg-bg-elevated/30 opacity-70',
             )}
           >
             <div className="flex items-center gap-2 mb-1">
-              <Icon size={14} className={active ? 'text-purple-400' : 'text-gray-600'} />
+              <Icon size={14} className={active ? 'text-dna-400' : 'text-gray-600'} />
               <span className="text-xs font-semibold text-white">{role}</span>
               <span className="text-2xs text-gray-500 ml-auto">{count}</span>
             </div>
@@ -837,17 +835,20 @@ export function OpsDashboardHeader({
         <h1 className="text-2xl sm:text-3xl font-bold text-white">
           {greeting}
         </h1>
-        <p className="text-sm text-gray-400 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="text-white/90 font-medium">{orgName}</span>
-          <span className="text-gray-600">·</span>
+        {/* Every colour here must be one the light-mode remap in index.css covers.
+            `text-white/90` is NOT remapped (only bare `.text-white` is), so on the
+            light page background the org name rendered white-on-white. */}
+        <p className="text-sm text-gray-300 font-medium mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-white font-semibold">{orgName}</span>
+          <span className="text-gray-500" aria-hidden="true">·</span>
           <span>{workspaceLabel}</span>
           {orgShortId && (
             <>
-              <span className="text-gray-600">·</span>
-              <span className="font-mono text-dna-400/80">{orgShortId}</span>
+              <span className="text-gray-500" aria-hidden="true">·</span>
+              <span className="font-mono font-semibold text-dna-400">{orgShortId}</span>
             </>
           )}
-          <span className="text-gray-600">·</span>
+          <span className="text-gray-500" aria-hidden="true">·</span>
           <span className="px-2 py-0.5 rounded-full bg-bg-elevated border border-bg-border text-2xs">{planName}</span>
         </p>
       </div>

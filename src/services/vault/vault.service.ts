@@ -24,10 +24,12 @@ import path from 'path';
 import fs   from 'fs/promises';
 import { v4 as uuidv4 } from 'uuid';
 
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { encrypt, decrypt } from './encryption.service';
-import { uploadVaultFile, downloadVaultFile, deleteVaultFile, isSupabaseStorageConfigured } from '../../lib/supabase-storage';
+import { uploadVaultFile, downloadVaultFile, deleteVaultFile, findVaultFileInSupabase, isSupabaseStorageConfigured, isSupabaseStorageRestricted } from '../../lib/supabase-storage';
+import { vaultEncryptedLooksLikeLocalPath } from './vault-storage-path';
 import { assertRecordOwner } from '../../lib/tenant-scope';
 import { identityEmbeddingPipeline } from '../identity/identity-embedding-pipeline.service';
 import { documentPageProtectionService } from '../documents/document-page-protection.service';
@@ -40,6 +42,20 @@ const USE_LOCAL =
   (process.env['NODE_ENV'] !== 'production' && process.env['VAULT_USE_SUPABASE'] !== 'true');
 
 const LOCAL_DIR = path.resolve(process.env['VAULT_STORAGE_DIR'] ?? './vault/encrypted');
+
+/** Keep JSON snapshots in sync with the display name. Encrypted blob paths stay vaultId-keyed. */
+function jsonWithDisplayFilename(value: unknown, filename: string): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const rec = { ...(value as Record<string, unknown>) };
+  let changed = false;
+  for (const key of ['filename', 'originalFileName', 'originalFilename', 'imageFilename'] as const) {
+    if (typeof rec[key] === 'string') {
+      rec[key] = filename;
+      changed = true;
+    }
+  }
+  return changed ? rec : null;
+}
 
 async function writeLocal(vaultId: string, buffer: Buffer): Promise<string> {
   await fs.mkdir(LOCAL_DIR, { recursive: true });
@@ -56,6 +72,8 @@ async function readLocal(vaultId: string): Promise<Buffer> {
 export interface StoreResult {
   vaultId:            string;
   dnaRecordId:        string;
+  /** Canonical Asset.id, when Asset identity creation succeeded (owned uploads only). */
+  assetId?:           string;
   encryptedFilePath:  string;
   originalFileName:   string;
   originalMimeType:   string;
@@ -65,6 +83,8 @@ export interface StoreResult {
   ivHex:              string;
   authTagHex:         string;
   createdAt:          Date;
+  /** True when POST /vault/store is replayed for a DNA that is already vaulted. */
+  alreadyStored?:     boolean;
   identityEmbedding?: {
     success:           boolean;
     methods:           string[];
@@ -115,9 +135,35 @@ export class VaultService {
     if (!dnaRecord) throw new Error(`DNA record not found: ${dnaRecordId}`);
     assertRecordOwner(dnaRecord.ownerUserId, ownerUserId, 'DNA record');
 
-    // ── Check not already vaulted ─────────────────────────────────────────
+    // ── Already vaulted: return existing so Protect can finish ────────────
+    // A second POST used to 409 while My Assets already listed the file,
+    // leaving Generate spinning on "Encrypting & storing in vault".
     const existing = await prisma.vaultRecord.findUnique({ where: { dnaRecordId } });
-    if (existing) throw new Error(`DNA record ${dnaRecordId} is already in the vault`);
+    if (existing) {
+      logger.info('Vault — already stored, returning existing record', {
+        vaultId: existing.id,
+        dnaRecordId,
+      });
+      const existingAsset = await prisma.asset.findFirst({
+        where: { dnaId: dnaRecordId },
+        select: { id: true },
+      }).catch(() => null);
+      return {
+        vaultId:             existing.id,
+        dnaRecordId:         existing.dnaRecordId,
+        assetId:             existingAsset?.id,
+        encryptedFilePath:   existing.encryptedFilePath,
+        originalFileName:    existing.originalFileName,
+        originalMimeType:    existing.originalMimeType,
+        encryptedSizeBytes:  existing.encryptedSizeBytes,
+        originalSizeBytes:   existing.originalSizeBytes,
+        encryptionAlgorithm: existing.encryptionAlgorithm,
+        ivHex:               existing.ivHex,
+        authTagHex:          existing.authTagHex,
+        createdAt:           existing.createdAt,
+        alreadyStored:       true,
+      };
+    }
 
     const vaultId = uuidv4();
     const certificateId = await identityEmbeddingPipeline.resolveCertificateId(dnaRecordId);
@@ -147,6 +193,9 @@ export class VaultService {
           ownerUserId: dnaRecord.ownerUserId ?? ownerUserId,
           certificateId,
         },
+        // Protect UX: signature + manifest are enough to seal the vault file.
+        // Heavy invisible watermark + re-verify run on protected download / share.
+        { includeWatermark: false, verify: false },
       );
 
       if (pipelineResult.success) {
@@ -196,6 +245,9 @@ export class VaultService {
           imageBuffer: fileToEncrypt,
           dnaRecordId,
           ownerUserId: dnaRecord.ownerUserId ?? ownerUserId,
+          // Dense 1×1 HMAC (~minutes on megapixel images) must not block /vault/store.
+          // 8×8 HKCA still enrolls when SPATIAL_PIXEL_AUTH_ENABLED.
+          skipPixel1: true,
         });
         if (spatialEnroll) {
           logger.info('Vault — spatial auth re-enrolled on post-embed bytes', {
@@ -219,9 +271,39 @@ export class VaultService {
     if (USE_LOCAL) {
       encryptedFilePath = await writeLocal(vaultId, encResult.encryptedBuffer);
       logger.debug('Vault — stored locally', { vaultId, encryptedFilePath });
+      // Share links open on pinithub.com (production API). Local-only files
+      // 404 there. Mirror to Supabase whenever credentials exist.
+      if (isSupabaseStorageConfigured()) {
+        try {
+          const cloudPath = await uploadVaultFile(vaultId, encResult.encryptedBuffer, ownerUserId);
+          encryptedFilePath = cloudPath;
+          logger.info('Vault — mirrored local encrypt to Supabase for public shares', {
+            vaultId,
+            cloudPath,
+          });
+        } catch (mirrorErr) {
+          logger.warn('Vault — Supabase mirror failed; pinithub.com share links will not open this file', {
+            vaultId,
+            error: mirrorErr instanceof Error ? mirrorErr.message : String(mirrorErr),
+          });
+        }
+      }
     } else {
-      encryptedFilePath = await uploadVaultFile(vaultId, encResult.encryptedBuffer, ownerUserId);
-      logger.debug('Vault — uploaded to Supabase Storage', { vaultId, encryptedFilePath });
+      try {
+        encryptedFilePath = await uploadVaultFile(vaultId, encResult.encryptedBuffer, ownerUserId);
+        logger.debug('Vault — uploaded to Supabase Storage', { vaultId, encryptedFilePath });
+      } catch (uploadErr) {
+        if (process.env['NODE_ENV'] !== 'production' && isSupabaseStorageRestricted(uploadErr)) {
+          encryptedFilePath = await writeLocal(vaultId, encResult.encryptedBuffer);
+          logger.warn('Vault — Supabase storage restricted; stored locally for this session', {
+            vaultId,
+            encryptedFilePath,
+            reason: uploadErr instanceof Error ? uploadErr.message : String(uploadErr),
+          });
+        } else {
+          throw uploadErr;
+        }
+      }
     }
 
     // ── Persist vault record ───────────────────────────────────────────────
@@ -242,6 +324,64 @@ export class VaultService {
     });
 
     logger.info('Vault — storage complete', { vaultId, dnaRecordId });
+
+    // ── Canonical Asset identity (assetId != vaultId != dnaId) ────────────
+    // Skipped for anonymous protections (no ownerUserId) — Asset.ownerUserId is required.
+    let createdAssetId: string | undefined;
+    if (dnaRecord.ownerUserId) {
+      try {
+        const { assetService } = await import('../assets/asset.service');
+        const { inferAssetType, ASSET_STATUS } = await import('../assets/lifecycle');
+        const createdAsset = await assetService.ensureAssetFromProtect({
+          ownerUserId: dnaRecord.ownerUserId,
+          assetType: inferAssetType(originalMimeType, originalFileName),
+          originalFilename: originalFileName,
+          mimeType: originalMimeType,
+          sizeBytes: encResult.originalSizeBytes,
+          contentHash: dnaRecord.sha256Hash || '',
+          vaultId: record.id,
+          dnaId: dnaRecordId,
+          certificateId: certificateId ?? null,
+          monitorRecordId: null,
+          monitorStatus: 'PENDING',
+          sourcePlatform: 'hub',
+          sourceUrl: null,
+          capturedVia: 'hub_protect_file',
+          clientRequestId: `hub:${dnaRecordId}`,
+          status: ASSET_STATUS.PROTECTED,
+          protectedPostId: '',
+        });
+        createdAssetId = createdAsset.id;
+
+        // Video and document adapters carry the fingerprints the image layers
+        // cannot produce for those media types. Publish Guardian already runs
+        // them; the Hub path did not, leaving Asset.fingerprints null for every
+        // Hub-protected video and document. Fire-and-forget so keyframe work
+        // never blocks the protect response — same idiom as the PDF page upgrade.
+        const assetIdForFingerprints = createdAsset.id;
+        const ownerForFingerprints = dnaRecord.ownerUserId;
+        void assetService.attachMediaFingerprints({
+          assetId: assetIdForFingerprints,
+          ownerUserId: ownerForFingerprints,
+          buffer: imageBuffer,
+          mimeType: originalMimeType,
+          originalFilename: originalFileName,
+          dnaId: dnaRecordId,
+        }).catch((fpErr) => {
+          logger.warn('Vault — media fingerprint attach failed (non-fatal)', {
+            assetId: assetIdForFingerprints,
+            error: fpErr instanceof Error ? fpErr.message : String(fpErr),
+          });
+        });
+      } catch (assetErr) {
+        // Non-fatal — Vault/DNA are the source of truth; Asset is an additional identity layer.
+        logger.warn('Vault — Asset identity creation failed (non-fatal)', {
+          vaultId,
+          dnaRecordId,
+          error: assetErr instanceof Error ? assetErr.message : String(assetErr),
+        });
+      }
+    }
 
     // ── PDF: upgrade to per-page pixel-protected version in the background ──
     // Fire-and-forget so this multi-minute, multi-page job never blocks the
@@ -323,21 +463,31 @@ export class VaultService {
     // Local DNA patches must be built for every protect path (Hub vault, Asset
     // protect, Publish Guardian) — crop-in-AI investigation depends on them.
     if (originalMimeType.startsWith('image/')) {
-      import('../forensics/local-dna-index.service').then(({ localDnaIndexService }) => {
-        void localDnaIndexService.buildIndex({
+      // The `.catch` must sit on the WORK, not just on the dynamic import: a
+      // corrupt or truncated image makes these reject, and `void` without a
+      // handler surfaces that as an unhandled rejection — which Node terminates
+      // the process for. Indexing is best-effort; it must never take the API down.
+      import('../forensics/local-dna-index.service').then(({ localDnaIndexService }) =>
+        localDnaIndexService.buildIndex({
           buffer: fileToEncrypt,
           mimeType: originalMimeType,
           dnaRecordId,
           vaultId: record.id,
           ownerUserId: dnaRecord.ownerUserId ?? ownerUserId,
+        }),
+      ).catch((err) => {
+        logger.warn('Vault — local DNA index build failed (non-fatal)', {
+          vaultId: record.id, error: err instanceof Error ? err.message : String(err),
         });
-      }).catch(() => {});
-      import('../block-dna/investigate').then(({ enrollBlockDnaForVaultImage }) => {
-        void enrollBlockDnaForVaultImage({
+      });
+      import('../block-dna/investigate').then(({ enrollBlockDnaForVaultImage }) =>
+        enrollBlockDnaForVaultImage({
           imageBuffer: fileToEncrypt,
           dnaRecordId,
-        }).then(() =>
-          import('../dna-vnext/enroll').then(({ enrollDnaVnextForVaultImage }) =>
+        }),
+      ).then(
+        () => import('../dna-vnext/enroll')
+          .then(({ enrollDnaVnextForVaultImage }) =>
             enrollDnaVnextForVaultImage({
               imageBuffer: fileToEncrypt,
               dnaRecordId,
@@ -345,14 +495,24 @@ export class VaultService {
               certificateId: certificateId ?? null,
               mimeType: originalMimeType,
             }),
-          ),
-        );
-      }).catch(() => {});
+          )
+          .catch((err) => {
+            logger.warn('Vault — DNA vNext enrollment failed (non-fatal)', {
+              vaultId: record.id, error: err instanceof Error ? err.message : String(err),
+            });
+          }),
+        (err) => {
+          logger.warn('Vault — block DNA enrollment failed (non-fatal)', {
+            vaultId: record.id, error: err instanceof Error ? err.message : String(err),
+          });
+        },
+      );
     }
 
     return {
       vaultId:            record.id,
       dnaRecordId:        record.dnaRecordId,
+      assetId:            createdAssetId,
       encryptedFilePath:  record.encryptedFilePath,
       originalFileName:   record.originalFileName,
       originalMimeType:   record.originalMimeType,
@@ -466,33 +626,48 @@ export class VaultService {
    * Reads the encrypted file, decrypts it in-memory, returns original bytes.
    * If the auth tag is invalid (file tampered), AES-GCM will throw automatically.
    */
-  async retrieve(vaultId: string, requestingUserId?: string): Promise<RetrieveResult> {
+  async retrieve(vaultId: string, requestingUserId: string): Promise<RetrieveResult> {
     logger.info('Vault — retrieving encrypted image', { vaultId });
+
+    if (!requestingUserId) {
+      throw new Error('Vault retrieval requires an authenticated owner or a validated share.');
+    }
 
     const record = await prisma.vaultRecord.findUnique({
       where: { id: vaultId },
       include: { dnaRecord: { select: { ownerUserId: true } } },
     });
     if (!record) throw new Error(`Vault record not found: ${vaultId}`);
-    if (requestingUserId) {
-      assertRecordOwner(record.dnaRecord?.ownerUserId, requestingUserId, 'Vault');
-    }
-    const ownerUserId = record.dnaRecord?.ownerUserId ?? undefined;
+    assertRecordOwner(record.dnaRecord?.ownerUserId, requestingUserId, 'Vault');
+    const ownerUserId = record.dnaRecord?.ownerUserId ?? requestingUserId;
 
-    // ── Download encrypted file (local in dev, Supabase in production) ──
-    let encryptedBuffer: Buffer;
-    try {
-      if (USE_LOCAL) {
-        encryptedBuffer = await readLocal(vaultId);
-      } else {
-        encryptedBuffer = await downloadVaultFile(
-          vaultId,
-          ownerUserId,
-          record.encryptedFilePath ? [record.encryptedFilePath] : [],
-        );
+    // Local-first in dev, but files vaulted in production live in Supabase.
+    // Always fall through: local miss must not blank the gallery.
+    const storedPath = record.encryptedFilePath || '';
+    const attempts: Array<() => Promise<Buffer>> = [];
+    if (vaultEncryptedLooksLikeLocalPath(storedPath)) {
+      attempts.push(() => fs.readFile(storedPath));
+    }
+    attempts.push(() => readLocal(vaultId));
+    if (isSupabaseStorageConfigured()) {
+      attempts.push(() => downloadVaultFile(vaultId, ownerUserId, storedPath ? [storedPath] : []));
+    }
+
+    let encryptedBuffer: Buffer | undefined;
+    const errors: string[] = [];
+    for (const attempt of attempts) {
+      try {
+        encryptedBuffer = await attempt();
+        break;
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : String(err));
       }
-    } catch (err) {
-      throw new Error(`Vault file unavailable: ${String(err)}`);
+    }
+    if (!encryptedBuffer) {
+      logger.error('Vault file unavailable', { vaultId, attempts: errors });
+      throw new Error(
+        'This protected file is not in cloud storage. Protect the file again, then create a new share link.',
+      );
     }
 
     // ── Decrypt (key re-derived from vaultId + master secret) ─────────────
@@ -541,13 +716,29 @@ export class VaultService {
     const dnaRecordId = record.dnaRecordId;
     const originalFileName = record.originalFileName;
 
-    await prisma.shareLink.updateMany({
-      where: { vaultId },
-      data: { isActive: false },
+    // An Asset keeps its identity when the vault file goes — DNA, certificate and
+    // timeline all survive. But `Asset.vaultId` is a plain column, not a relation,
+    // so nothing clears it the way `dnaId`'s `onDelete: SetNull` does. Left alone
+    // it points at a row that no longer exists, and every later read fails
+    // silently. Clear the pointer in the same transaction as the delete so the
+    // two can never disagree.
+    const linkedAssets = await prisma.asset.findMany({
+      where: { vaultId, ownerUserId: storageOwner },
+      select: { id: true },
     });
 
-    // Vault file only — never delete the DNA record
-    await prisma.vaultRecord.delete({ where: { id: vaultId } });
+    await prisma.$transaction([
+      prisma.shareLink.updateMany({
+        where: { vaultId },
+        data: { isActive: false },
+      }),
+      prisma.asset.updateMany({
+        where: { vaultId, ownerUserId: storageOwner },
+        data: { vaultId: null },
+      }),
+      // Vault file only — never delete the DNA record
+      prisma.vaultRecord.delete({ where: { id: vaultId } }),
+    ]);
 
     // Storage cleanup after DB delete (do not block the API response on slow Supabase I/O)
     void (async () => {
@@ -566,6 +757,28 @@ export class VaultService {
     })();
 
     // Keep DNA searchable in AI index — vault removal must not erase identity
+
+    // Record why the vault link disappeared. Without this the asset simply stops
+    // having a vault one day with nothing to explain it.
+    if (linkedAssets.length) {
+      void (async () => {
+        try {
+          const { assetService } = await import('../assets/asset.service');
+          for (const linked of linkedAssets) {
+            await assetService.appendTimeline(linked.id, {
+              eventType: 'STATUS_CHANGE',
+              title: 'Vault file removed',
+              detail: `${originalFileName} — DNA and certificate retained`,
+            });
+          }
+        } catch (err) {
+          logger.warn('Vault — could not record removal on the asset timeline', {
+            vaultId,
+            error: String(err),
+          });
+        }
+      })();
+    }
 
     try {
       const { forensicProvenanceService } = await import('../forensics/forensic-provenance.service');
@@ -611,7 +824,7 @@ export class VaultService {
 
     const record = await prisma.vaultRecord.findUnique({
       where: { id: vaultId },
-      include: { dnaRecord: { select: { ownerUserId: true, id: true } } },
+      include: { dnaRecord: { select: { ownerUserId: true, id: true, fileAnalysis: true } } },
     });
     if (!record) throw new Error(`Vault record not found: ${vaultId}`);
     assertRecordOwner(record.dnaRecord?.ownerUserId, ownerUserId, 'Vault');
@@ -620,19 +833,107 @@ export class VaultService {
       return { vaultId, originalFileName: trimmed };
     }
 
-    await prisma.$transaction([
-      prisma.vaultRecord.update({
+    const analysisPatch = jsonWithDisplayFilename(record.contentAnalysis, trimmed);
+    const dnaAnalysisPatch = jsonWithDisplayFilename(record.dnaRecord?.fileAnalysis, trimmed);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.vaultRecord.update({
         where: { id: vaultId },
-        data: { originalFileName: trimmed },
-      }),
-      prisma.dnaRecord.update({
+        data: {
+          originalFileName: trimmed,
+          ...(analysisPatch ? { contentAnalysis: analysisPatch as Prisma.InputJsonValue } : {}),
+        },
+      });
+      await tx.dnaRecord.update({
         where: { id: record.dnaRecordId },
-        data: { imageFilename: trimmed },
-      }),
-    ]);
+        data: {
+          imageFilename: trimmed,
+          ...(dnaAnalysisPatch ? { fileAnalysis: dnaAnalysisPatch as Prisma.InputJsonValue } : {}),
+        },
+      });
+      // Display name only — storage remains `${vaultId}.enc` / encryptedFilePath.
+      await tx.asset.updateMany({
+        where: {
+          ownerUserId,
+          OR: [{ vaultId }, { dnaId: record.dnaRecordId }],
+        },
+        data: { originalFilename: trimmed },
+      });
+      await tx.shareLink.updateMany({
+        where: { vaultId },
+        data: { filename: trimmed },
+      });
+      await tx.monitorRecord.updateMany({
+        where: { dnaRecordId: record.dnaRecordId },
+        data: { filename: trimmed },
+      });
+      await tx.assetVersion.updateMany({
+        where: { vaultId, supersededAt: null },
+        data: { originalFilename: trimmed },
+      });
+    });
 
     logger.info('Vault — file renamed', { vaultId, originalFileName: trimmed });
 
     return { vaultId, originalFileName: trimmed };
+  }
+
+  /**
+   * pinithub.com loads files from Render, not from a laptop disk.
+   * If the encrypted blob is still local, upload it before minting a public link.
+   */
+  async ensureCloudCopyForPublicShare(vaultId: string, ownerUserId: string): Promise<void> {
+    const record = await prisma.vaultRecord.findUnique({
+      where: { id: vaultId },
+      include: { dnaRecord: { select: { ownerUserId: true } } },
+    });
+    if (!record) throw new Error(`Vault record not found: ${vaultId}`);
+    assertRecordOwner(record.dnaRecord?.ownerUserId, ownerUserId, 'Vault');
+    const owner = record.dnaRecord?.ownerUserId ?? ownerUserId;
+
+    if (isSupabaseStorageConfigured()) {
+      const found = await findVaultFileInSupabase(vaultId, {
+        ownerUserId: owner,
+        storedPath: record.encryptedFilePath,
+      });
+      if (found.exists) {
+        if (vaultEncryptedLooksLikeLocalPath(record.encryptedFilePath) && found.storagePath) {
+          await prisma.vaultRecord.update({
+            where: { id: vaultId },
+            data: { encryptedFilePath: found.storagePath },
+          });
+        }
+        return;
+      }
+    }
+
+    let buf: Buffer | undefined;
+    if (vaultEncryptedLooksLikeLocalPath(record.encryptedFilePath)) {
+      try {
+        buf = await fs.readFile(record.encryptedFilePath);
+      } catch {
+        buf = undefined;
+      }
+    }
+    if (!buf) {
+      try {
+        buf = await readLocal(vaultId);
+      } catch {
+        buf = undefined;
+      }
+    }
+
+    if (!buf || !isSupabaseStorageConfigured()) {
+      throw new Error(
+        'This protected file is not in cloud storage. Protect the file again, then create a new share link.',
+      );
+    }
+
+    const cloudPath = await uploadVaultFile(vaultId, buf, owner);
+    await prisma.vaultRecord.update({
+      where: { id: vaultId },
+      data: { encryptedFilePath: cloudPath },
+    });
+    logger.info('Vault — uploaded local encrypt so public share links can open', { vaultId, cloudPath });
   }
 }

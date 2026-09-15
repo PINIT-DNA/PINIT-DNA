@@ -3,7 +3,7 @@
  *
  * Embeds a compact ownership tile (vault/DNA id, user id, upload meta hash)
  * into every spatial block across the image so that even a ~20% crop /
- * fragment that still contains one full block can recover PinIT identity.
+ * fragment that still contains one full block can recover Pinit identity.
  *
  * Tile layout (64 bytes / 512 bits):
  *   0–3   magic "PNWM"

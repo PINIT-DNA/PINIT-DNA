@@ -16,6 +16,8 @@ import { API_BASE_URL } from '../config/api.config';
 import { saveTokens } from '../lib/auth';
 import {
   getAccountViewMode,
+  peekSessionAccountViewMode,
+  resolveLoginWorkspaceMode,
   setAccountViewMode,
   type AccountViewMode,
 } from '../lib/account-view-mode';
@@ -68,7 +70,10 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
   const accessResolved = Boolean(user?.sub) && !authLoading;
 
   const [mode, setMode] = useState<AccountViewMode>(() =>
-    getAccountViewMode(user?.sub, hasBusinessAccess ? 'BUSINESS' : 'INDIVIDUAL'),
+    getAccountViewMode(user?.sub, 'INDIVIDUAL', {
+      hasPersonalWorkspace: true,
+      hasBusinessWorkspace: hasBusinessAccess,
+    }),
   );
   const [switching, setSwitching] = useState(false);
 
@@ -77,35 +82,52 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!accessResolved || !user?.sub) return;
 
-    const preferred = getAccountViewMode(
-      user.sub,
-      hasBusinessAccess ? 'BUSINESS' : 'INDIVIDUAL',
-    );
+    const sessionMode = peekSessionAccountViewMode(user.sub);
 
-    // Pure individual accounts cannot stay in Business view — only after access is resolved
-    if (!hasBusinessAccess) {
-      if (preferred === 'BUSINESS') {
+    // Keep an in-session Business switch across refresh even while subscription loads.
+    if (sessionMode === 'BUSINESS') {
+      if (!hasBusinessAccess) {
+        if (!subscriptionReady) {
+          setMode('BUSINESS');
+          return;
+        }
         setAccountViewMode(user.sub, 'INDIVIDUAL');
+        setMode('INDIVIDUAL');
+        return;
       }
-      setMode('INDIVIDUAL');
-      return;
-    }
-
-    // Reloading on a Business URL should keep Business shell (heals a bad INDIVIDUAL wipe)
-    if (preferred === 'INDIVIDUAL' && isBusinessPath(location.pathname)) {
-      setAccountViewMode(user.sub, 'BUSINESS');
       setMode('BUSINESS');
       return;
     }
 
-    setMode(preferred);
-  }, [user?.sub, hasBusinessAccess, accessResolved, location.pathname]);
+    if (!hasBusinessAccess) {
+      if (!subscriptionReady) return;
+      setAccountViewMode(user.sub, 'INDIVIDUAL');
+      setMode('INDIVIDUAL');
+      return;
+    }
+
+    // Fresh login / new tab: Personal first. Do not infer Business from URL or last visit.
+    if (sessionMode === 'INDIVIDUAL') {
+      setMode('INDIVIDUAL');
+      return;
+    }
+
+    const loginDefault = resolveLoginWorkspaceMode({
+      hasPersonalWorkspace: true,
+      hasBusinessWorkspace: hasBusinessAccess,
+    });
+    setAccountViewMode(user.sub, loginDefault);
+    setMode(loginDefault);
+  }, [user?.sub, hasBusinessAccess, accessResolved, subscriptionReady]);
 
   // Keep URL and shell aligned — never mix Individual nav with Business pages
   useEffect(() => {
     if (!accessResolved || !user?.sub || switching) return;
 
+    // Same reasoning as above: never evict someone from a business URL on the
+    // strength of a not-yet-loaded subscription.
     if (mode === 'INDIVIDUAL' && isBusinessPath(location.pathname)) {
+      if (!subscriptionReady) return;
       navigate('/', { replace: true });
       return;
     }
@@ -121,6 +143,7 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
     switching,
     navigate,
     accessResolved,
+    subscriptionReady,
   ]);
 
   useEffect(() => {
@@ -152,10 +175,10 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
         setMode(next);
         if (next === 'BUSINESS') {
           navigate(BUSINESS_DASHBOARD_PATH, { replace: true });
-          toast.success('Business mode — same account, ORG ID');
+          toast.success('Switched to business workspace');
         } else {
           navigate('/', { replace: true });
-          toast.success('Individual mode — same account, USER ID');
+          toast.success('Switched to personal workspace');
         }
         return;
       }
@@ -167,7 +190,8 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
           `Enable Business mode on ${rootId}?\n\n` +
             'This is NOT a new account. Same face → same number:\n' +
             `• Individual: PINIT-USER-…\n` +
-            `• Business:   PINIT-ORG-…\n\n` +
+            `• Business:   PINIT-ORG-…\n` +
+            `• Exchange:   PINIT-EX-…\n\n` +
             'You can switch back to Individual anytime.',
         );
         if (!ok) return;

@@ -275,9 +275,10 @@ export function buildSpatialInvestigation(
   // Invalid / mismatch / error → no trusted fine map or overlay
   if (UNTRUSTED_STATUSES.has(status) || !verifyResult.localization) {
     const reason =
-      !verifyResult.localization
+      verifyResult.detail
+      || (!verifyResult.localization
         ? `No trusted Phase-2 localization (status=${status}).`
-        : `Verification status ${status} — fine map / overlay not trusted.`;
+        : `Verification status ${status} — fine map / overlay not trusted.`);
     return emptyUntrusted(status, reason, started);
   }
 

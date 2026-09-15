@@ -260,6 +260,25 @@ export interface FragmentReuseSection {
   summary: string;
 }
 
+/** A small fragment of a protected original found composited into an otherwise-unrelated probe image */
+export interface FragmentReuseFinding {
+  vaultId: string;
+  dnaRecordId: string;
+  ownerFilename?: string;
+  patchMatchCount: number;
+  confidence: number;
+  /** Normalized bounding box (0-100) of the matched fragment within the probe image */
+  probeRegion: { xPercent: number; yPercent: number; widthPercent: number; heightPercent: number };
+  /** Normalized bounding box (0-100) of the corresponding region in the protected original */
+  vaultRegion: { xPercent: number; yPercent: number; widthPercent: number; heightPercent: number };
+}
+
+export interface FragmentReuseSection {
+  detected: boolean;
+  findings: FragmentReuseFinding[];
+  summary: string;
+}
+
 export interface MatchReason {
   signal: string;
   label: string;

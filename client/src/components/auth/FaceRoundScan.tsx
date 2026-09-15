@@ -2,24 +2,25 @@ import { useEffect, useRef, useState } from 'react';
 import { Camera, ScanFace } from 'lucide-react';
 import { CameraStage } from './CameraStage';
 import { StepHead } from './parts';
-import { captureFaceEmbeddingFromVideo, ensureFaceModels } from '../../lib/face-capture';
-
-const HINTS = ['Look at the camera', 'Hold still…', 'Almost done…'];
+import { ensureFaceModels } from '../../lib/face-capture';
+import { runPadCapture } from '../../lib/face-liveness';
+import type { FacePadEvidence } from '../../lib/face-api-client';
 
 interface FaceRoundScanProps {
   title?: string;
   mode?: 'register' | 'login';
   onEmbedding: (emb: number[]) => void;
+  onPadEvidence?: (evidence: FacePadEvidence) => void;
   onCapture?: (img: string | null) => void;
   onNext: () => void;
   onError: (msg: string) => void;
 }
 
-/** Round-camera face scan — preview starts immediately, scan is fast (~1–2 s). */
+/** Round-camera face scan with server-issued liveness challenge. */
 export function FaceRoundScan({
   title = 'Face Enrollment',
-  mode = 'login',
   onEmbedding,
+  onPadEvidence,
   onCapture,
   onNext,
   onError,
@@ -28,21 +29,11 @@ export function FaceRoundScan({
   const [camReady, setCamReady] = useState(false);
   const [progress, setProgress] = useState(0);
   const [done, setDone] = useState(false);
-  const [hint, setHint] = useState(HINTS[0]!);
+  const [hint, setHint] = useState('Face the camera, then follow the motion prompts');
   const scanningRef = useRef(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => { void ensureFaceModels(); }, []);
-
-  useEffect(() => {
-    if (!scanning || done) return;
-    let i = 0;
-    const iv = setInterval(() => {
-      i = (i + 1) % HINTS.length;
-      setHint(HINTS[i]!);
-    }, 700);
-    return () => clearInterval(iv);
-  }, [scanning, done]);
 
   async function runCapture(video: HTMLVideoElement) {
     if (scanningRef.current) return;
@@ -50,8 +41,12 @@ export function FaceRoundScan({
     setScanning(true);
     setProgress(0);
     try {
-      const embedding = await captureFaceEmbeddingFromVideo(video, setProgress, { mode });
-      onEmbedding(embedding);
+      const result = await runPadCapture(video, {
+        onProgress: setProgress,
+        onHint: setHint,
+      });
+      onEmbedding(result.embedding);
+      onPadEvidence?.(result.padEvidence);
       setDone(true);
       setTimeout(onNext, 280);
     } catch (e) {
@@ -83,7 +78,7 @@ export function FaceRoundScan({
         subtitle={
           scanning ? hint
             : done ? 'Face captured'
-              : camReady ? 'Tap start — scan takes about 2 seconds'
+              : camReady ? 'Tap start — follow the live motion prompts'
                 : 'Starting camera…'
         }
       />

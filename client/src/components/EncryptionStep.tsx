@@ -7,27 +7,16 @@ interface Props {
   onComplete: (result: EncryptionResult) => void;
 }
 
-const STAGES_MS = [900, 1200, 600];
-
 export function EncryptionStep({ onComplete }: Props) {
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    let i = 0;
-    const advance = () => {
-      if (i >= STAGES_MS.length) {
-        onComplete({
-          algorithm: 'AES-256-GCM',
-          keyLength: 256,
-          encryptedAt: new Date().toISOString(),
-        });
-        return;
-      }
-      setProgress(Math.round(((i + 1) / STAGES_MS.length) * 100));
-      i++;
-      setTimeout(advance, STAGES_MS[i - 1]);
-    };
-    setTimeout(advance, STAGES_MS[0]);
+    setProgress(100);
+    onComplete({
+      algorithm: 'AES-256-GCM',
+      keyLength: 256,
+      encryptedAt: new Date().toISOString(),
+    });
   }, [onComplete]);
 
   return (

@@ -37,17 +37,16 @@ export class CryptographicLayer {
    *                 re-saved — only changes if actual pixel content changes.
    *                 This is the "true" content fingerprint described in the spec.
    */
-  async generate(image: ImageInput): Promise<CryptoLayerResult> {
+  async generate(image: ImageInput, knownSha256?: string): Promise<CryptoLayerResult> {
     const start = Date.now();
     logger.debug('Layer 1 — generating cryptographic hash', { file: image.originalName });
 
     try {
       // ── Hash 1: Raw file bytes ─────────────────────────────────────────────
-      // SHA-256 of the exact uploaded bytes — changes on any re-encode
-      const sha256Hash = crypto
-        .createHash('sha256')
-        .update(image.buffer)
-        .digest('hex');
+      const sha256Hash = knownSha256
+        && /^[a-f0-9]{64}$/i.test(knownSha256)
+        ? knownSha256
+        : crypto.createHash('sha256').update(image.buffer).digest('hex');
 
       // ── Hash 2: Pixel-level content hash ──────────────────────────────────
       // Extract raw RGB pixel values using sharp (strips all EXIF/metadata)

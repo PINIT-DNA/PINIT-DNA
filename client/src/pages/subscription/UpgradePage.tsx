@@ -112,7 +112,7 @@ export function UpgradePage() {
     <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-8 pb-12">
       <div className="text-center space-y-2">
         <div className="inline-flex items-center gap-2 text-dna-400 text-sm font-medium">
-          <Sparkles size={16} /> PINITHub Plans
+          <Sparkles size={16} /> Pinit HUB Plans
           {isBusiness && (
             <span className="text-2xs px-1.5 py-0.5 rounded border border-dna-500/30 text-dna-300">
               Business

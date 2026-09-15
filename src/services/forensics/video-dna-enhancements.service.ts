@@ -66,8 +66,14 @@ export async function generateInvestigationVideoDna(buffer: Buffer, _ext = 'mp4'
       frames.map(async (f) => computeBmHash64(f)),
     );
   } else {
+    // Without ffmpeg we cannot decode frames, so there are no perceptual hashes.
+    // These container-byte SHA slices are still useful as a coarse identity signal,
+    // but they must NOT be presented as framePHashes: they are 16-hex like a real
+    // Block-Mean-Hash-64, so every downstream hamming comparator would accept them
+    // and compare meaningless bits. Leaving the array empty makes "not available"
+    // distinguishable from "computed"; `algorithmVersion` records which path ran.
     keyframeHashes = binaryKeyframeHashes(buffer, count);
-    framePHashes = keyframeHashes;
+    framePHashes = [];
   }
 
   const sceneFingerprints = keyframeHashes.length >= 2
@@ -91,6 +97,57 @@ export async function generateInvestigationVideoDna(buffer: Buffer, _ext = 'mp4'
     audioFingerprint,
     ffmpegAvailable: ffmpegOk,
     algorithmVersion: ffmpegOk ? '2.2-ffmpeg' : '2.2-binary-fallback',
+  };
+}
+
+/** One probe frame matched this closely against the best stored frame. */
+const STRONG_FRAME_SIMILARITY = 0.68;
+
+export interface VideoFrameComparison {
+  /** Fraction of probe frames that found a strong match [0,1]. */
+  similarity: number;
+  strongMatches: number;
+  comparedFrames: number;
+}
+
+/**
+ * Compare two sets of keyframe perceptual hashes.
+ *
+ * Asymmetric nearest-neighbour, matching how `comparePartialVideoFrames` scores an
+ * investigation: each probe frame takes its best match among the stored frames, and
+ * the score is the share of probe frames that clear the strong threshold. Asymmetric
+ * because a trimmed or partial re-upload has fewer frames than the original, and
+ * should still score highly on the frames it does contain.
+ *
+ * Returns 0 when either side is empty — a record produced without ffmpeg carries no
+ * frame hashes, and must never be able to match anything.
+ */
+export function compareVideoFrameHashes(
+  probeHashes: string[] | undefined | null,
+  storedHashes: string[] | undefined | null,
+): VideoFrameComparison {
+  const probe = (probeHashes ?? []).filter(Boolean);
+  const stored = (storedHashes ?? []).filter(Boolean);
+  if (!probe.length || !stored.length) {
+    return { similarity: 0, strongMatches: 0, comparedFrames: 0 };
+  }
+
+  let strongMatches = 0;
+  for (const p of probe) {
+    let best = 0;
+    for (const s of stored) {
+      if (p.length !== s.length) continue;
+      const sim = hammingSim(p, s);
+      if (sim > best) best = sim;
+      if (best === 1) break;
+    }
+    if (best >= STRONG_FRAME_SIMILARITY) strongMatches++;
+  }
+
+  return {
+    similarity: strongMatches / probe.length,
+    strongMatches,
+    comparedFrames: probe.length,
   };
 }
 

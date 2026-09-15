@@ -222,7 +222,7 @@ export function notifyUserRegistered(userId: string, shortId: string): void {
     entityType: 'user',
     entityId: userId,
     notificationType: 'USER_REGISTERED',
-    title: 'Welcome to PinIT DNA',
+    title: 'Welcome to Pinit DNA',
     body: `Your account ${shortId} is ready`,
     deepLink: '/dashboard',
     skipTimeline: true,

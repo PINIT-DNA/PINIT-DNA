@@ -1,23 +1,26 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
   Briefcase, PlusCircle, Users, ArrowRight, Search,
-  ShieldCheck, CheckCircle2, FileText, Lock,
+  CheckCircle2, FileText,
 } from 'lucide-react';
 import { apiFetch, verticalLabel } from '../lib/api.js';
+import { formatMoney } from '../lib/money.js';
 import EmptyState from '../components/EmptyState.jsx';
+import { canList, canPurchase } from '../lib/roles.js';
+import BuyerBriefs from '../components/BuyerBriefs.jsx';
 
 const CATEGORIES = [
-  { id: 'all', label: 'All Categories' },
-  { id: 'images', label: 'Photography' },
+  { id: 'all', label: 'All Assets' },
+  { id: 'images', label: 'Images' },
   { id: 'video', label: 'Video' },
-  { id: 'concepts', label: 'Illustration' },
-  { id: 'ui_ux', label: 'UI/UX' },
-  { id: '3d', label: '3D' },
   { id: 'audio', label: 'Audio' },
-  { id: 'graphics', label: 'Graphics' },
+  { id: 'documents', label: 'Documents' },
+  { id: 'design', label: 'Design' },
+  { id: '3d', label: '3D' },
+  { id: 'other', label: 'Other' },
 ];
 
-const HOW_STEPS = [
+const BUYER_STEPS = [
   {
     n: '01',
     title: 'Post your brief',
@@ -34,6 +37,7 @@ const HOW_STEPS = [
     body: 'Select the asset and complete licensing securely through Exchange.',
   },
 ];
+
 
 const WHY_POINTS = [
   'Verified creator submissions',
@@ -61,10 +65,37 @@ function formatDeadline(deadline) {
 function formatBudget(budget) {
   const n = Number(budget);
   if (!Number.isFinite(n)) return '—';
-  return `$${n.toLocaleString()}`;
+  // Goes through the shared formatter so a brief budget and a listing price
+  // can never disagree about the platform currency.
+  return formatMoney(n);
 }
 
-export default function RequirementsExchange({ onNavigate }) {
+function formatPosted(createdAt) {
+  if (!createdAt) return null;
+  const d = new Date(createdAt);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** Default deadline: four weeks out, rather than a date hardcoded at build time. */
+function defaultDeadline() {
+  const d = new Date();
+  d.setDate(d.getDate() + 28);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Requirements — the buyer's side.
+ *
+ * Sellers used to share this page behind a `mode` flag, with a sub-nav whose
+ * four tabs were never wired to anything. They now have their own workspace at
+ * Opportunities, so this is one audience again: post a brief, browse what other
+ * buyers have posted, and review the proposals on your own.
+ */
+export default function RequirementsExchange({
+  onNavigate, user = null, onOpenAuth, onBecomeCreator,
+}) {
+  const [view, setView] = useState('open');
   const [requirements, setRequirements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -78,7 +109,8 @@ export default function RequirementsExchange({ onNavigate }) {
   const [description, setDescription] = useState('');
   const [vertical, setVertical] = useState('concepts');
   const [budget, setBudget] = useState(2500);
-  const [deadline, setDeadline] = useState('2026-09-15');
+  const [deadline, setDeadline] = useState(defaultDeadline);
+  const [notice, setNotice] = useState(null);
 
   const fetchRequirements = async () => {
     setLoading(true);
@@ -125,7 +157,15 @@ export default function RequirementsExchange({ onNavigate }) {
 
   const handleCreateRequirement = async (e) => {
     e.preventDefault();
-    const { ok } = await apiFetch('/api/requirements', {
+    if (!user) {
+      onOpenAuth?.({ mode: 'signup', intent: 'buyer' });
+      return;
+    }
+    if (!canPurchase(user)) {
+      setNotice({ kind: 'error', text: 'Become a Buyer on this same account to post a buyer brief.' });
+      return;
+    }
+    const { ok, error } = await apiFetch('/api/requirements', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -136,6 +176,8 @@ export default function RequirementsExchange({ onNavigate }) {
         vertical,
         budget,
         deadline,
+        pinit_id: user?.pinit_id,
+        buyer_pinit_id: user?.pinit_id,
       }),
     });
     if (ok) {
@@ -143,55 +185,99 @@ export default function RequirementsExchange({ onNavigate }) {
       fetchRequirements();
       setTitle('');
       setDescription('');
+      setNotice({ kind: 'ok', text: 'Your brief is live. Creators can now submit proposals.' });
+    } else {
+      setNotice({ kind: 'error', text: error || 'Could not publish your brief. Please try again.' });
     }
-  };
-
-  const handleSubmitWork = async (reqId) => {
-    await apiFetch(`/api/requirements/${reqId}/propose`, { method: 'POST' });
-    fetchRequirements();
   };
 
   return (
     <div className="req-page">
+      {notice && (
+        <div
+          className={`ex-alert ${notice.kind === 'ok' ? 'ex-alert--ok' : 'ex-alert--error'} req-notice`}
+          role={notice.kind === 'ok' ? 'status' : 'alert'}
+        >
+          <span>{notice.text}</span>
+          <button type="button" className="req-notice__x" onClick={() => setNotice(null)} aria-label="Dismiss">×</button>
+        </div>
+      )}
+
       {/* Hero */}
-      <section className="glass-panel req-hero">
+      <section className="ex-card req-hero">
         <div className="req-hero__eyebrow">
-          <Briefcase size={14} /> Buyer briefs
+          <Briefcase size={14} /> Requirements
         </div>
         <h1 className="req-hero__title">Find the right creative asset for your project</h1>
         <p className="req-hero__sub">
-          Post a verified creative brief and receive provenance-backed submissions from creators.
+          Post a brief and receive proposals backed by work already protected in
+          Pinit HUB — so you can judge the actual asset before you license it.
         </p>
         <div className="req-hero__cta">
-          <button type="button" className="btn-primary" onClick={() => setIsModalOpen(true)}>
-            <PlusCircle size={18} /> Post a Brief
-          </button>
+          {(!user || canPurchase(user)) && (
+            <button type="button" className="ex-btn ex-btn--primary" onClick={() => {
+              if (!user) onOpenAuth?.({ mode: 'signup', intent: 'buyer' });
+              else setIsModalOpen(true);
+            }}>
+              <PlusCircle size={18} /> Post a Brief
+            </button>
+          )}
           {onNavigate && (
-            <button type="button" className="btn-secondary" onClick={() => onNavigate('marketplace')}>
+            <button type="button" className="ex-btn ex-btn--secondary" onClick={() => onNavigate('marketplace')}>
               Browse marketplace <ArrowRight size={14} />
             </button>
           )}
         </div>
       </section>
 
-      {/* How it works */}
+      {/* A signed-in buyer's own briefs are the thing they came back for, so
+          they get a switch rather than being buried below the public list. */}
+      {canPurchase(user) && (
+        <div className="req-views">
+          <button
+            type="button"
+            className={view === 'open' ? 'is-on' : ''}
+            onClick={() => setView('open')}
+          >
+            Open briefs
+          </button>
+          <button
+            type="button"
+            className={view === 'mine' ? 'is-on' : ''}
+            onClick={() => setView('mine')}
+          >
+            My briefs
+          </button>
+        </div>
+      )}
+
+      {view === 'mine' && canPurchase(user) && (
+        <BuyerBriefs onNotice={setNotice} onPostBrief={() => setIsModalOpen(true)} />
+      )}
+
+      {/* How it works. Only on the public browse view — a buyer looking at
+          their own briefs has already done all three steps. */}
+      {view === 'open' && (
       <section className="req-how" aria-label="How it works">
         <h2 className="req-section-label">How it works</h2>
         <div className="req-how__grid">
-          {HOW_STEPS.map((step, i) => (
+          {BUYER_STEPS.map((step, i) => (
             <React.Fragment key={step.n}>
               <article className="req-how__card">
                 <span className="req-how__n">{step.n}</span>
                 <h3>{step.title}</h3>
                 <p>{step.body}</p>
               </article>
-              {i < HOW_STEPS.length - 1 && <div className="req-how__arrow" aria-hidden>→</div>}
+              {i < BUYER_STEPS.length - 1 && <div className="req-how__arrow" aria-hidden>→</div>}
             </React.Fragment>
           ))}
         </div>
       </section>
 
+      )}
+
       {/* Open briefs */}
+      {view === 'open' && (
       <section>
         <div className="section-head">
           <div>
@@ -241,8 +327,11 @@ export default function RequirementsExchange({ onNavigate }) {
             icon={<Briefcase size={32} color="var(--primary)" />}
             title="No buyer briefs available right now"
             description="Be the first to post a creative requirement and connect with verified creators."
-            primaryLabel="Post a Buyer Brief"
-            onPrimary={() => setIsModalOpen(true)}
+            primaryLabel={canPurchase(user) || !user ? 'Post a Buyer Brief' : 'Browse marketplace'}
+            onPrimary={() => {
+              if (canPurchase(user) || !user) setIsModalOpen(true);
+              else onNavigate?.('marketplace');
+            }}
             secondaryLabel="Browse existing assets → Discover Marketplace"
             onSecondary={onNavigate ? () => onNavigate('marketplace') : undefined}
           />
@@ -252,7 +341,7 @@ export default function RequirementsExchange({ onNavigate }) {
               const days = daysUntil(req.deadline);
               const open = expandedId === req.req_id;
               return (
-                <article key={req.req_id} className="glass-panel req-card">
+                <article key={req.req_id} className="ex-card req-card">
                   <div className="req-card__top">
                     <span className="brand-badge">{verticalLabel(req.vertical)}</span>
                     <span className="req-card__status">Open</span>
@@ -280,41 +369,46 @@ export default function RequirementsExchange({ onNavigate }) {
                       </strong>
                     </div>
                     <div>
-                      <span className="req-card__metric-label">License</span>
-                      <strong>Commercial</strong>
-                    </div>
-                    <div>
                       <span className="req-card__metric-label">Submissions</span>
                       <strong>{req.proposals_count || 0}</strong>
                     </div>
+                    {formatPosted(req.created_at) && (
+                      <div>
+                        <span className="req-card__metric-label">Posted</span>
+                        <strong>{formatPosted(req.created_at)}</strong>
+                      </div>
+                    )}
                   </div>
 
-                  <div className="req-card__trust">
-                    <span><CheckCircle2 size={13} /> Verified buyer</span>
-                    <span><ShieldCheck size={13} /> Protected submissions</span>
-                    <span><Lock size={13} /> License terms defined</span>
-                  </div>
+                  {/* The per-brief row that used to sit here claimed "Verified
+                      buyer" and "License terms defined" on every card. Neither
+                      is a field on a requirement — they were asserted for all
+                      briefs regardless. Platform guarantees are stated once,
+                      below, where they are true of the process rather than of
+                      any particular buyer. */}
 
                   <div className="req-card__meta">
-                    Posted by {req.buyer_org || req.buyer_name || 'Verified Business'}
+                    Posted by {req.buyer_org || req.buyer_name || 'A buyer on Exchange'}
                     {req.buyer_name && req.buyer_org ? ` · ${req.buyer_name}` : ''}
                   </div>
 
                   <div className="req-card__actions">
                     <button
                       type="button"
-                      className="btn-secondary"
+                      className="ex-btn ex-btn--secondary"
                       onClick={() => setExpandedId(open ? null : req.req_id)}
                     >
                       <FileText size={14} /> {open ? 'Hide details' : 'View Brief'}
                     </button>
+                    {canList(user) && (
                     <button
                       type="button"
-                      className="btn-primary"
-                      onClick={() => handleSubmitWork(req.req_id)}
+                      className="ex-btn ex-btn--primary"
+                      onClick={() => onNavigate?.('seller_opportunities')}
                     >
-                      <Users size={14} /> Submit Work
+                      <Users size={14} /> Answer in Opportunities
                     </button>
+                    )}
                   </div>
                 </article>
               );
@@ -323,8 +417,11 @@ export default function RequirementsExchange({ onNavigate }) {
         )}
       </section>
 
+      )}
+
       {/* Why Exchange */}
-      <section className="glass-panel req-why">
+      {view === 'open' && (
+      <section className="ex-card req-why">
         <h2>Why post a brief on Pinit Exchange?</h2>
         <p className="req-why__sub">
           Requirements connect buyers to creators — HUB protects the asset, Exchange closes the license.
@@ -338,13 +435,14 @@ export default function RequirementsExchange({ onNavigate }) {
           ))}
         </ul>
       </section>
+      )}
 
       {isModalOpen && (
         <div className="modal-overlay" onClick={() => setIsModalOpen(false)} role="presentation">
           <div className="modal-content" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()} role="dialog">
             <div className="modal-header">
               <h3 style={{ color: '#fff' }}>Post a Buyer Brief</h3>
-              <button type="button" className="btn-secondary" style={{ padding: 8 }} onClick={() => setIsModalOpen(false)}>×</button>
+              <button type="button" className="ex-btn ex-btn--secondary" style={{ padding: 8 }} onClick={() => setIsModalOpen(false)}>×</button>
             </div>
             <form onSubmit={handleCreateRequirement} className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <input className="form-input" placeholder="Your name" value={buyerName} onChange={(e) => setBuyerName(e.target.value)} required />
@@ -352,19 +450,19 @@ export default function RequirementsExchange({ onNavigate }) {
               <input className="form-input" placeholder="Brief title" value={title} onChange={(e) => setTitle(e.target.value)} required />
               <textarea className="form-textarea" rows={3} placeholder="What do you need? Usage, deliverables, style…" value={description} onChange={(e) => setDescription(e.target.value)} required />
               <select className="form-select" value={vertical} onChange={(e) => setVertical(e.target.value)}>
-                <option value="images">Photography</option>
+                <option value="images">Images</option>
                 <option value="video">Video</option>
-                <option value="concepts">Illustration</option>
-                <option value="ui_ux">UI/UX</option>
-                <option value="3d">3D</option>
                 <option value="audio">Audio</option>
-                <option value="graphics">Graphics</option>
+                <option value="documents">Documents</option>
+                <option value="design">Design</option>
+                <option value="3d">3D</option>
+                <option value="other">Other</option>
               </select>
               <label style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Budget (USD)</label>
               <input type="number" className="form-input" value={budget} onChange={(e) => setBudget(Number(e.target.value))} />
               <label style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Deadline</label>
               <input type="date" className="form-input" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
-              <button type="submit" className="btn-primary">Publish brief</button>
+              <button type="submit" className="ex-btn ex-btn--primary">Publish brief</button>
             </form>
           </div>
         </div>

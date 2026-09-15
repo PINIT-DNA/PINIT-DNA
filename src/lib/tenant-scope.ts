@@ -1,18 +1,67 @@
 /**
- * Tenant isolation helpers — every authenticated query must scope to JWT sub.
+ * Authorization identity — independent of how the user logged in.
+ *
+ * Face + liveness and WebAuthn/passkey are authentication factors only.
+ * They mint a JWT. They are never re-used as vault/asset ownership.
+ *
+ * Even if a biometric bug mis-identifies a person, every protected API still
+ * enforces: JWT.sub == resource.ownerUserId.
+ *
  * Never trust userId from req.body / query / params.
  */
 import { Request } from 'express';
 import { prisma } from './prisma';
 import { AppError } from '../api/middleware/error.middleware';
 
+/** Client fields that must never be the authorization source. */
+export const CLIENT_OWNER_KEYS = [
+  'userId',
+  'user_id',
+  'ownerId',
+  'owner_id',
+  'ownerUserId',
+  'owner_user_id',
+  'tenantId',
+  'tenant_id',
+] as const;
+
+/** JWT.sub — the only authorization principal for vault, assets, DNA, certificates. */
 export function getAuthUserId(req: Request): string {
   const userId = (req as { user?: { sub?: string } }).user?.sub;
   if (!userId) throw new AppError(401, 'Unauthorized');
   return userId;
 }
 
-/** Reject cross-tenant access. Null ownerUserId records are NOT shared — deny unless owner matches after backfill. */
+export function isPrivilegedAdminRole(role?: string | null): boolean {
+  return role === 'ADMIN' || role === 'SUPER_ADMIN';
+}
+
+/**
+ * Drop client-supplied owner/user/tenant ids so they cannot override JWT sub.
+ * Privileged admins keep these fields for explicit cross-user admin routes.
+ */
+export function stripClientOwnerIdentity(req: Request): void {
+  const role = (req as { user?: { role?: string } }).user?.role;
+  if (isPrivilegedAdminRole(role)) return;
+
+  const strip = (obj: unknown): void => {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return;
+    const rec = obj as Record<string, unknown>;
+    for (const key of CLIENT_OWNER_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(rec, key)) delete rec[key];
+    }
+  };
+
+  strip(req.body);
+  strip(req.query);
+  strip(req.params);
+}
+
+function notFound(resource: string): never {
+  throw new AppError(404, `${resource} not found`);
+}
+
+/** Reject cross-tenant access. Null ownerUserId records are NOT shared. */
 export function assertRecordOwner(ownerUserId: string | null | undefined, userId: string, resource = 'Resource'): void {
   if (!ownerUserId || ownerUserId !== userId) {
     throw new AppError(403, `${resource} access denied`);
@@ -20,40 +69,36 @@ export function assertRecordOwner(ownerUserId: string | null | undefined, userId
 }
 
 export async function assertDnaOwner(dnaRecordId: string, userId: string): Promise<void> {
-  const rec = await prisma.dnaRecord.findUnique({
-    where: { id: dnaRecordId },
-    select: { ownerUserId: true },
+  const rec = await prisma.dnaRecord.findFirst({
+    where: { id: dnaRecordId, ownerUserId: userId },
+    select: { id: true },
   });
-  if (!rec) throw new AppError(404, 'DNA record not found');
-  assertRecordOwner(rec.ownerUserId, userId, 'DNA record');
+  if (!rec) notFound('DNA record');
 }
 
 export async function assertVaultOwner(vaultId: string, userId: string): Promise<void> {
-  const vault = await prisma.vaultRecord.findUnique({
-    where: { id: vaultId },
-    select: { dnaRecord: { select: { ownerUserId: true } } },
+  const vault = await prisma.vaultRecord.findFirst({
+    where: { id: vaultId, dnaRecord: { ownerUserId: userId } },
+    select: { id: true },
   });
-  if (!vault) throw new AppError(404, 'Vault record not found');
-  assertRecordOwner(vault.dnaRecord?.ownerUserId, userId, 'Vault');
+  if (!vault) notFound('Vault record');
 }
 
 export async function assertShareLinkOwnerByToken(token: string, userId: string): Promise<string> {
-  const link = await prisma.shareLink.findUnique({
-    where: { token },
-    select: { id: true, ownerUserId: true },
+  const link = await prisma.shareLink.findFirst({
+    where: { token, ownerUserId: userId },
+    select: { id: true },
   });
-  if (!link) throw new AppError(404, 'Share link not found');
-  assertRecordOwner(link.ownerUserId, userId, 'Share link');
+  if (!link) notFound('Share link');
   return link.id;
 }
 
 export async function assertMonitorOwner(monitorId: string, userId: string): Promise<void> {
-  const mon = await prisma.monitorRecord.findUnique({
-    where: { id: monitorId },
-    select: { ownerUserId: true },
+  const mon = await prisma.monitorRecord.findFirst({
+    where: { id: monitorId, ownerUserId: userId },
+    select: { id: true },
   });
-  if (!mon) throw new AppError(404, 'Monitor not found');
-  assertRecordOwner(mon.ownerUserId, userId, 'Monitor');
+  if (!mon) notFound('Monitor');
 }
 
 export async function assertCertificateOwnerByCertId(certificateId: string, userId: string): Promise<void> {
@@ -61,25 +106,25 @@ export async function assertCertificateOwnerByCertId(certificateId: string, user
     where: { certificateId },
     select: { ownerUserId: true, dnaRecordId: true },
   });
-  if (!cert) throw new AppError(404, 'Certificate not found');
+  if (!cert) notFound('Certificate');
   if (cert.ownerUserId) {
-    assertRecordOwner(cert.ownerUserId, userId, 'Certificate');
+    if (cert.ownerUserId !== userId) notFound('Certificate');
     return;
   }
-  const dna = await prisma.dnaRecord.findUnique({
-    where: { id: cert.dnaRecordId },
-    select: { ownerUserId: true },
+  if (!cert.dnaRecordId) notFound('Certificate');
+  const dna = await prisma.dnaRecord.findFirst({
+    where: { id: cert.dnaRecordId, ownerUserId: userId },
+    select: { id: true },
   });
-  assertRecordOwner(dna?.ownerUserId, userId, 'Certificate');
+  if (!dna) notFound('Certificate');
 }
 
 export async function assertCrawlResultOwner(crawlResultId: string, userId: string): Promise<void> {
-  const cr = await prisma.crawlResult.findUnique({
-    where: { id: crawlResultId },
-    select: { monitorRecord: { select: { ownerUserId: true } } },
+  const cr = await prisma.crawlResult.findFirst({
+    where: { id: crawlResultId, monitorRecord: { ownerUserId: userId } },
+    select: { id: true },
   });
-  if (!cr) throw new AppError(404, 'Alert not found');
-  assertRecordOwner(cr.monitorRecord?.ownerUserId, userId, 'Alert');
+  if (!cr) notFound('Alert');
 }
 
 export async function assertEvidenceOwner(evidenceId: string, userId: string): Promise<void> {
@@ -87,16 +132,35 @@ export async function assertEvidenceOwner(evidenceId: string, userId: string): P
     where: { id: evidenceId },
     select: { ownerUserId: true, dnaRecordId: true },
   });
-  if (!ev) throw new AppError(404, 'Evidence record not found');
+  if (!ev) notFound('Evidence record');
   if (ev.ownerUserId) {
-    assertRecordOwner(ev.ownerUserId, userId, 'Evidence');
+    if (ev.ownerUserId !== userId) notFound('Evidence record');
     return;
   }
   if (ev.dnaRecordId) {
-    await assertDnaOwner(ev.dnaRecordId, userId);
-    return;
+    const dna = await prisma.dnaRecord.findFirst({
+      where: { id: ev.dnaRecordId, ownerUserId: userId },
+      select: { id: true },
+    });
+    if (dna) return;
   }
-  throw new AppError(403, 'Evidence access denied');
+  notFound('Evidence record');
+}
+
+export async function ownedDnaIdSet(userId: string): Promise<Set<string>> {
+  const rows = await prisma.dnaRecord.findMany({
+    where: { ownerUserId: userId },
+    select: { id: true },
+  });
+  return new Set(rows.map((r) => r.id));
+}
+
+export function filterByOwnedDna<T extends { dnaRecordId?: string | null }>(
+  items: T[] | undefined,
+  ownedIds: Set<string>,
+): T[] {
+  if (!items?.length) return [];
+  return items.filter((item) => Boolean(item.dnaRecordId && ownedIds.has(item.dnaRecordId)));
 }
 
 export const dnaOwnerWhere = (userId: string) => ({ ownerUserId: userId });
@@ -110,3 +174,13 @@ export const shareLinkOwnerWhere = (userId: string) => ({ ownerUserId: userId })
 export const monitorOwnerWhere = (userId: string) => ({ ownerUserId: userId });
 
 export const certificateOwnerWhere = (userId: string) => ({ ownerUserId: userId });
+
+export const assetOwnerWhere = (userId: string) => ({ ownerUserId: userId });
+
+export async function assertAssetOwner(assetId: string, userId: string): Promise<void> {
+  const asset = await prisma.asset.findFirst({
+    where: { id: assetId, ownerUserId: userId },
+    select: { id: true },
+  });
+  if (!asset) notFound('Asset');
+}

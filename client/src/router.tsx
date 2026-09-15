@@ -1,8 +1,11 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { DashboardLayout } from './layouts/DashboardLayout';
+import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import { OnboardingLayout } from './layouts/OnboardingLayout';
 import { GeneratePage } from './pages/GeneratePage';
 import { VaultPage } from './pages/VaultPage';
+import { VaultSharePage } from './pages/VaultSharePage';
+import { VaultShareManagePage } from './pages/VaultShareManagePage';
 import { DnaRecordsPage } from './pages/DNARecordsPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { CertificatesPage } from './pages/CertificatesPage';
@@ -31,6 +34,9 @@ import { PaymentFailedPage } from './pages/subscription/PaymentFailedPage';
 import { SubscriptionPage } from './pages/subscription/SubscriptionPage';
 import { AccountTypeOnboardingPage } from './pages/onboarding/AccountTypeOnboardingPage';
 import { BusinessDashboardPage } from './pages/business/BusinessDashboardPage';
+import { ClientsPage } from './pages/business/ClientsPage';
+import { ClientWorkspacePage } from './pages/business/ClientWorkspacePage';
+import { CampaignWorkspacePage } from './pages/business/CampaignWorkspacePage';
 import { OrganizationSettingsPage } from './pages/business/OrganizationSettingsPage';
 import { BusinessTeamPage } from './pages/business/BusinessTeamPage';
 import { BusinessAuditLogsPage } from './pages/business/BusinessAuditLogsPage';
@@ -40,19 +46,24 @@ import { HomeRedirect } from './components/subscription/HomeRedirect';
 import { RequireAccountTypeOnboarding } from './components/onboarding/RequireAccountTypeOnboarding';
 import { BRAND } from './config/brand.config';
 import { ShareViewerPage } from './pages/ShareViewerPage';
+import { HelpPage } from './pages/HelpPage';
+import { HandoverPage } from './pages/HandoverPage';
+import { ClientReportPage } from './pages/ClientReportPage';
 import { PinitGateway, RegisterGateway } from './pages/auth/PinitGateway';
 import { PreRegisterRoute } from './pages/auth/PreRegisterGateway';
 import { PreRegisterAccountTypePage } from './pages/auth/PreRegisterAccountTypePage';
 import { FaceLoginPage } from './pages/auth/FaceLoginPage';
-import { AdminPortalPage } from './pages/AdminPortalPage';
 import { RequireAuth } from './components/auth/RequireAuth';
-import { superAdminRoutes } from './admin/routes';
+// Master Admin now lives in its own app (master-admin/, port 3003) — see
+// lib/open-master-admin.ts. ./admin/* stays on disk unreferenced until that
+// app is verified end-to-end, then gets removed.
 
 export const router = createBrowserRouter([
   // ── Auth (public) ─────────────────────────────────────────────────────────
   { path: '/login', element: <PinitGateway /> },
   {
     path: '/register/account-type',
+    errorElement: <RouteErrorBoundary />,
     element: <PreRegisterRoute />,
     children: [{ index: true, element: <PreRegisterAccountTypePage /> }],
   },
@@ -60,6 +71,7 @@ export const router = createBrowserRouter([
   { path: '/face-auth', element: <FaceLoginPage /> },
   {
     path: '/extension/auth',
+    errorElement: <RouteErrorBoundary />,
     element: (
       <RequireAuth>
         <ExtensionAuthPage />
@@ -69,6 +81,17 @@ export const router = createBrowserRouter([
 
   // ── Public share viewer ───────────────────────────────────────────────────
   { path: '/s/:token', element: <ShareViewerPage /> },
+  { path: '/share/:token', element: <ShareViewerPage /> },
+  // Public, like the share viewer — the handover token is the authority.
+  { path: '/handover/:token', element: <HandoverPage /> },
+  // Public too — the report token is the authority, and the page sends no auth.
+  { path: '/client-report/:token', element: <ClientReportPage /> },
+  // Public by design: a certificate's whole purpose is that someone who did not
+  // issue it can confirm it. The backend has always served
+  // GET /certificates/verify/:id unauthenticated; only this route was left inside
+  // the signed-in shell, so the QR printed on every certificate led a buyer, a
+  // client or a court to a login wall.
+  { path: '/verify-certificate', element: <VerifyCertificatePage /> },
 
   // ── Team invite join (remembers token if login is required) ────────────────
   { path: '/team/join/:token', element: <TeamJoinPage /> },
@@ -76,6 +99,7 @@ export const router = createBrowserRouter([
   // ── Onboarding (auth required, isolated shell — no dashboard chrome) ──────
   {
     path: '/onboarding',
+    errorElement: <RouteErrorBoundary />,
     element: (
       <RequireAuth>
         <OnboardingLayout />
@@ -91,6 +115,7 @@ export const router = createBrowserRouter([
   // ── Application (auth + onboarding complete + dashboard shell) ────────────
   {
     path: '/',
+    errorElement: <RouteErrorBoundary />,
     element: (
       <RequireAuth>
         <RequireAccountTypeOnboarding>
@@ -101,16 +126,24 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <HomeRedirect /> },
       { path: 'business', element: <BusinessDashboardPage /> },
+      { path: 'business/clients', element: <ClientsPage /> },
+      { path: 'business/clients/:clientId', element: <ClientWorkspacePage /> },
+      { path: 'business/campaigns/:campaignId', element: <CampaignWorkspacePage /> },
       { path: 'business/settings', element: <OrganizationSettingsPage /> },
       { path: 'business/team', element: <BusinessTeamPage /> },
       { path: 'business/audit-logs', element: <BusinessAuditLogsPage /> },
       { path: 'business/api-keys', element: <BusinessApiKeysPage /> },
       { path: 'enterprise', element: <Navigate to="/business" replace /> },
       { path: 'generate', element: <GeneratePage /> },
+      { path: 'workspace', element: <Navigate to="/generate" replace /> },
       { path: 'vault', element: <VaultPage /> },
+      { path: 'my-assets', element: <Navigate to="/vault" replace /> },
+      { path: 'vault/assets/:assetId/share', element: <VaultSharePage /> },
+      { path: 'vault/assets/:assetId/shares/:shareId', element: <VaultShareManagePage /> },
       { path: 'vault-integrity', element: <VaultIntegrityPage /> },
       { path: 'dna-records', element: <DnaRecordsPage /> },
       { path: 'reports', element: <ReportsPage /> },
+      { path: 'evidence', element: <Navigate to="/reports" replace /> },
       { path: 'timeline', element: <TimelinePage /> },
       { path: 'forensic-diff', element: <ForensicDiffPage /> },
       { path: 'search', element: <SearchPage /> },
@@ -136,12 +169,11 @@ export const router = createBrowserRouter([
       { path: 'pinit-hub/investigation', element: <UnifiedInvestigationPage /> },
       { path: 'unified-investigation', element: <Navigate to={BRAND.investigationPath} replace /> },
       { path: 'link/:token', element: <LinkIntelligencePage /> },
+      { path: 'help', element: <HelpPage /> },
       { path: 'certificates', element: <CertificatesPage /> },
-      { path: 'verify-certificate', element: <VerifyCertificatePage /> },
-      { path: 'admin-portal', element: <AdminPortalPage /> },
+      { path: 'verify-certificate', element: <Navigate to="/verify-certificate" replace /> },
+      // 'admin-portal' retired — duplicate of the Master Admin console (master-admin/, port 3003).
       { path: '*', element: <NotFoundPage /> },
     ],
   },
-
-  superAdminRoutes,
 ]);

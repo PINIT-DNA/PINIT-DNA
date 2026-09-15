@@ -8,12 +8,14 @@
  */
 
 import { useEffect, useState, useRef } from 'react';
-import { useParams } from 'react-router-dom';
-import { Shield, Lock, Download, Eye, AlertTriangle, CheckCircle2, Clock, Ban, Share2, Copy } from 'lucide-react';
+import { useParams, useSearchParams } from 'react-router-dom';
+import { Shield, Lock, Download, Eye, AlertTriangle, CheckCircle2, Clock, Ban, Share2, Copy, Printer } from 'lucide-react';
 import axios from 'axios';
 import { format } from 'date-fns';
-import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../config/api.config';
+import { ClientReviewPanel } from '../components/share/ClientReviewPanel';
+import { getShareReview } from '../services/share-review.api';
+import type { ClientReviewContext } from '../services/share-review.api';
 import { stripPinitProtectionTailsForDisplay } from '../lib/strip-pinit-tails';
 import { isValidMapCoordinate } from '../lib/geo-coords';
 import {
@@ -32,6 +34,7 @@ interface LinkInfo {
   note:         string | null;
   requireName:  boolean;
   allowDownload: boolean;
+  allowPrint?: boolean;
   expiresAt:    string | null;
   maxViews:     number | null;
   viewCount:    number;
@@ -50,6 +53,8 @@ interface LinkInfo {
   // ── Privacy & Location ──────────────────────────────────────────────────
   privacyMaskingEnabled?: boolean;
   requestLocation?:       boolean;
+  sourceContext?:         string | null;
+  licenseTier?:           string | null;
 }
 
 // Generate a session ID for grouping events
@@ -162,6 +167,8 @@ async function extractApiError(err: unknown): Promise<string | undefined> {
 
 export function ShareViewerPage() {
   const { token } = useParams<{ token: string }>();
+  const [searchParams] = useSearchParams();
+  const autoDownload = searchParams.get('download') === '1';
   const [info, setInfo]           = useState<LinkInfo | null>(null);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState('');
@@ -169,16 +176,22 @@ export function ShareViewerPage() {
   const [nameSubmitted, setNameSubmitted] = useState(false);
   const [fileUrl, setFileUrl]     = useState('');
   const [downloading, setDownloading] = useState(false);
+  const [downloadNotice, setDownloadNotice] = useState<'success' | 'failed' | null>(null);
   const [fileLoadError, setFileLoadError] = useState<string | null>(null);
   const [shareFurtherUrl, setShareFurtherUrl] = useState<string | null>(null);
   const [shareFurtherBusy, setShareFurtherBusy] = useState(false);
   const [shareFurtherMsg, setShareFurtherMsg] = useState('');
   const hopRedirecting = useRef(false);
+  const autoDownloadFired = useRef(false);
 
   // ── GPS Location (only when owner enabled requestLocation on the share) ───
   const [locationAsked, setLocationAsked] = useState(false);
   const [locationDone, setLocationDone] = useState(false);
   const [locationDenied, setLocationDenied] = useState(false);
+  /** Browser has no geolocation at all — this link cannot be opened here. */
+  const [locationUnsupported, setLocationUnsupported] = useState(false);
+  /** A fix was requested but never arrived; worth another try. */
+  const [locationFailed, setLocationFailed] = useState(false);
   const [gpsData, setGpsData] = useState<GpsCapture | null>(null);
   const gpsDataRef = useRef<GpsCapture | null>(null);
 
@@ -188,10 +201,6 @@ export function ShareViewerPage() {
   const [unmaskStatus, setUnmaskStatus]       = useState<'NONE'|'PENDING'|'APPROVED'|'REJECTED'>('NONE');
   const [unmaskRequesting, setUnmaskRequesting] = useState(false);
   const [_unmaskRequestId, setUnmaskRequestId] = useState<string | null>(null);
-  const [ownerMsg, setOwnerMsg] = useState('');
-  const [ownerMsgSending, setOwnerMsgSending] = useState(false);
-  const [ownerMsgSent, setOwnerMsgSent] = useState(false);
-  const [ownerReply, setOwnerReply] = useState<string | null>(null);
 
   useEffect(() => { gpsDataRef.current = gpsData; }, [gpsData]);
 
@@ -245,10 +254,13 @@ export function ShareViewerPage() {
         const apiErr = (err as { response?: { data?: { error?: string; code?: string } } })?.response?.data;
         if (status === 503 || apiErr?.code === 'BACKEND_OFFLINE') {
           setError('Backend is starting. Wait a few seconds and refresh.');
+        } else if (status === 403) {
+          setError('NO_ACCESS');
         } else if (status === 404) {
-          setError('Link not found or has been removed. Check the full URL (token letters are case-sensitive).');
+          setError('UNAVAILABLE');
         } else {
-          setError(apiErr?.error || 'Could not open this link. Is the backend running on port 4000?');
+          const raw = apiErr?.error || '';
+          setError(/bridge token|expired Exchange/i.test(raw) ? 'NO_ACCESS' : 'UNAVAILABLE');
         }
       })
       .then(() => setLoading(false), () => setLoading(false));
@@ -261,14 +273,11 @@ export function ShareViewerPage() {
     }
   }, [info, locationDone]);
 
-  // Background GPS refine — after Allow, or when GPS not required (best-effort, no gate)
+  // Background GPS refine after Allow (iPhone often needs a longer second pass)
   useEffect(() => {
-    if (!info) return;
-    if (info.requestLocation && !locationDone) return;
+    if (!info?.requestLocation || !locationDone) return;
     let cancelled = false;
     void (async () => {
-      // Only run browser GPS when owner required it (after Allow)
-      if (!info.requestLocation) return;
       const best = await captureBestGps({ targetAccuracyM: 45, maxWaitMs: 28_000, minSamples: 1 });
       if (cancelled || !best) return;
       setGpsData((prev) => {
@@ -281,7 +290,6 @@ export function ShareViewerPage() {
 
   useEffect(() => {
     if (!viewedSentRef.current || !token || !gpsData) return;
-    if (gpsData.accuracy > 75) return;
     void axios.post(`${API_BASE_URL}/share/${token}/access`, {
       action: 'LOCATION_UPDATE',
       recipientName: nameRef.current || undefined,
@@ -319,35 +327,113 @@ export function ShareViewerPage() {
     const screenRes = getScreenResolution();
     const fingerprint = computeDeviceFingerprint();
 
-    const track = (action: string, extra?: Record<string, string>) => {
+    const accessUrl = `${API_BASE_URL}/share/${token}/access`;
+    const queueKey = `pinit_share_track:${token}`;
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+    const readQueue = (): Record<string, unknown>[] => {
+      try { return JSON.parse(sessionStorage.getItem(queueKey) || '[]') as Record<string, unknown>[]; }
+      catch { return []; }
+    };
+    const writeQueue = (items: Record<string, unknown>[]) => {
+      try { sessionStorage.setItem(queueKey, JSON.stringify(items.slice(-40))); } catch { /* quota */ }
+    };
+
+    const buildTrackPayload = (action: string, extra?: Record<string, string>) => {
       const gps = gpsDataRef.current;
-      return axios.post(`${API_BASE_URL}/share/${token}/access`, {
-        action, recipientName: nameRef.current || undefined,
-        timezone: tz, sessionId: sid,
-        screenResolution: screenRes, deviceFingerprint: fingerprint,
+      return {
+        action,
+        recipientName: nameRef.current || undefined,
+        timezone: tz,
+        sessionId: sid,
+        screenResolution: screenRes,
+        deviceFingerprint: fingerprint,
         ...buildGpsPayload(gps, info?.requestLocation, locationDone || !info?.requestLocation),
         ...extra,
-      }).then((res) => {
-        const data = res.data as { redirectToken?: string; grandchildToken?: string };
-        const next = data.redirectToken || data.grandchildToken;
-        // New person opened this URL → server minted a hop link; move them onto it
-        // so their timeline stays separate from the previous recipient.
-        if (
-          action === 'VIEWED' &&
-          next &&
-          token &&
-          next !== token &&
-          !hopRedirecting.current
-        ) {
-          hopRedirecting.current = true;
-          try {
-            sessionStorage.setItem('pinit_hop_from', token);
-            sessionStorage.setItem('pinit_hop_to', next);
-          } catch { /* ignore */ }
-          window.location.replace(`/s/${next}`);
-        }
+      };
+    };
+
+    const handleTrackResponse = (action: string, data: { redirectToken?: string; grandchildToken?: string }) => {
+      const next = data.redirectToken || data.grandchildToken;
+      if (
+        action === 'VIEWED' &&
+        next &&
+        token &&
+        next !== token &&
+        !hopRedirecting.current
+      ) {
+        hopRedirecting.current = true;
+        try {
+          sessionStorage.setItem('pinit_hop_from', token);
+          sessionStorage.setItem('pinit_hop_to', next);
+        } catch { /* ignore */ }
+        window.location.replace(`/s/${next}`);
+      }
+    };
+
+    const flushQueued = () => {
+      const queued = readQueue();
+      if (!queued.length) return;
+      writeQueue([]);
+      for (const payload of queued) {
+        void fetch(accessUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          keepalive: true,
+          credentials: 'same-origin',
+        }).catch(() => {
+          writeQueue([...readQueue(), payload]);
+        });
+      }
+    };
+
+    const track = (action: string, extra?: Record<string, string>) => {
+      const payload = {
+        ...buildTrackPayload(action, extra),
+        qid: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      };
+      const { qid, ...bodyPayload } = payload;
+      const body = JSON.stringify(bodyPayload);
+      const dropQid = () => writeQueue(readQueue().filter((row) => row['qid'] !== qid));
+
+      const urgent = action === 'COPY_ATTEMPT'
+        || action === 'SCREENSHOT_ATTEMPT'
+        || action === 'SCREEN_RECORDING_ATTEMPT'
+        || action === 'PRINT_ATTEMPT'
+        || document.hidden;
+
+      if (urgent) {
+        writeQueue([...readQueue(), payload]);
+        try {
+          if (document.hidden && typeof navigator.sendBeacon === 'function') {
+            const ok = navigator.sendBeacon(accessUrl, new Blob([body], { type: 'application/json' }));
+            if (ok) {
+              dropQid();
+              return Promise.resolve();
+            }
+          }
+        } catch { /* fall through to fetch */ }
+        return fetch(accessUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+          keepalive: true,
+          credentials: 'same-origin',
+        }).then((res) => {
+          dropQid();
+          return res.json().then((data: { redirectToken?: string; grandchildToken?: string }) => {
+            handleTrackResponse(action, data);
+          }).catch(() => undefined);
+        }).catch((err: { message?: string }) => {
+          // eslint-disable-next-line no-console
+          console.warn('[SmartLink] track failed', action, err?.message);
+        });
+      }
+
+      return axios.post(accessUrl, payload).then((res) => {
+        handleTrackResponse(action, res.data as { redirectToken?: string; grandchildToken?: string });
         return res;
-      }).catch((err) => {
+      }).catch((err: { message?: string }) => {
         // eslint-disable-next-line no-console
         console.warn('[SmartLink] track failed', action, err?.message);
       });
@@ -359,36 +445,14 @@ export function ShareViewerPage() {
       viewedSentRef.current = true;
       void track('VIEWED');
     };
-    let isHopLanding = false;
     try {
       const hopTo = sessionStorage.getItem('pinit_hop_to');
       if (hopTo && token && hopTo === token) {
-        isHopLanding = true;
         sessionStorage.removeItem('pinit_hop_to');
         sessionStorage.removeItem('pinit_hop_from');
       }
     } catch { /* ignore */ }
-    const wantsPreciseGps = Boolean(info?.requestLocation);
-    if (!wantsPreciseGps) {
-      sendViewed();
-    } else {
-      const GPS_WAIT_MS = isHopLanding ? 2_000 : 3_000;
-      const GOOD_ACCURACY_M = 60;
-      if (gpsDataRef.current && gpsDataRef.current.accuracy <= GOOD_ACCURACY_M) {
-        sendViewed();
-      } else {
-        const gpsWait = setTimeout(sendViewed, GPS_WAIT_MS);
-        const gpsCheck = setInterval(() => {
-          const g = gpsDataRef.current;
-          if (g && g.accuracy <= GOOD_ACCURACY_M) {
-            clearInterval(gpsCheck);
-            clearTimeout(gpsWait);
-            sendViewed();
-          }
-        }, 400);
-        setTimeout(() => clearInterval(gpsCheck), GPS_WAIT_MS + 300);
-      }
-    }
+    sendViewed();
 
     // ── Mouse activity / idle detection ───────────────────────────────────
     // Fires IDLE once after 60s of no mouse/keyboard/scroll activity, and
@@ -437,16 +501,20 @@ export function ShareViewerPage() {
     window.addEventListener('scroll', onScroll, { passive: true });
 
     // ── Copy attempt detection ─────────────────────────────────────────────
-    // The 'copy' DOM event only fires when there's an active selection to
-    // copy — and the viewer intentionally sets `user-select: none`, so it
-    // may never fire. Detect the keyboard shortcut directly as the primary
-    // signal, and also keep the native 'copy' event as a backup.
-    const onCopy = () => track('COPY_ATTEMPT');
-    document.addEventListener('copy', onCopy);
-
-    // ── Keyboard-based detection: copy, screenshot, devtools ──────────────
+    // Desktop: Ctrl/Cmd+C. Mobile: long-press Copy / cut (capture phase so
+    // select-none on the overlay does not swallow the event).
     const copyCooldown = { last: 0 };
     const screenshotCooldown = { last: 0 };
+    const onCopy = () => {
+      const now = Date.now();
+      if (now - copyCooldown.last < 1000) return;
+      copyCooldown.last = now;
+      track('COPY_ATTEMPT');
+    };
+    document.addEventListener('copy', onCopy, true);
+    document.addEventListener('cut', onCopy, true);
+
+    // ── Keyboard-based detection: copy, screenshot, devtools ──────────────
     const onKeyDown = (e: KeyboardEvent) => {
       const now = Date.now();
       const key = e.key?.toLowerCase?.() ?? '';
@@ -458,18 +526,31 @@ export function ShareViewerPage() {
         track('COPY_ATTEMPT');
       }
 
-      // Screenshot shortcuts — PrintScreen (often only fires on keyup on
-      // Windows), Win+Shift+S, Win+PrtScn, Mac Cmd+Shift+3/4/5, DevTools
+      // Screenshot shortcuts ONLY — an actual screen-capture key combination.
+      //
+      // Deliberately NOT treated as screenshots (they were, and produced false
+      // "screenshot attempt" entries against viewers who never took one):
+      //   F12 / Ctrl+Shift+I  → DevTools, a different action entirely
+      //   Ctrl+Shift+S        → not a Windows capture shortcut (that is Win+Shift+S,
+      //                         which arrives as metaKey+shift+s and is matched below)
       const isScreenshot =
         e.key === 'PrintScreen' ||
-        (e.metaKey && e.shiftKey && ['3', '4', '5', 's'].includes(key)) || // Mac
-        (e.ctrlKey && e.shiftKey && key === 's') ||                         // Win Snipping (older)
-        (e.metaKey && key === 'printscreen') ||                             // Win+PrtScn
-        (e.key === 'F12') ||                                                // DevTools
-        ((e.ctrlKey || e.metaKey) && e.shiftKey && key === 'i');            // DevTools (Ctrl+Shift+I)
+        (e.metaKey && e.shiftKey && ['3', '4', '5', 's'].includes(key)) || // Mac Cmd+Shift+3/4/5, Win+Shift+S
+        (e.metaKey && key === 'printscreen');                              // Win+PrtScn
       if (isScreenshot && now - screenshotCooldown.last > 1000) {
         screenshotCooldown.last = now;
         track('SCREENSHOT_ATTEMPT');
+        // Cmd/Win+Shift+5 is also the OS screen-recording picker on macOS/Windows.
+        if (e.metaKey && e.shiftKey && key === '5') track('SCREEN_RECORDING_ATTEMPT');
+      }
+
+      // Win+Alt+R (Xbox Game Bar) / Alt+R with Windows key
+      const isRecordingShortcut =
+        (e.altKey && (e.metaKey || e.ctrlKey) && key === 'r')
+        || (e.altKey && e.shiftKey && key === 'r');
+      if (isRecordingShortcut && now - screenshotCooldown.last > 1000) {
+        screenshotCooldown.last = now;
+        track('SCREEN_RECORDING_ATTEMPT');
       }
     };
     document.addEventListener('keydown', onKeyDown);
@@ -488,31 +569,54 @@ export function ShareViewerPage() {
     document.addEventListener('keyup', onKeyUp);
 
     // ── Tab switch / visibility change ────────────────────────────────────
+    // Mobile hardware screenshots do not emit PrintScreen. iOS/Android often
+    // flash `hidden` for a few hundred ms; a longer hide is an app switch.
+    let hiddenAt = 0;
     const onVisibility = () => {
-      if (document.hidden) track('TAB_SWITCH');
-    };
-    document.addEventListener('visibilitychange', onVisibility);
-
-    // ── Win+PrtSc heuristic: OS-level screenshot causes a very brief window
-    //    blur (<100 ms). Clipboard operations (Ctrl+C) take longer (>150ms),
-    //    so we use a tight 100ms window to avoid false positives from copy.
-    //    Also skip if a copy was recorded in the last 600ms.
-    let blurAt = 0;
-    const onWinBlur = () => { blurAt = Date.now(); };
-    const onWinFocus = () => {
-      const elapsed = Date.now() - blurAt;
-      const copyJustFired = copyCooldown.last > 0 && (Date.now() - copyCooldown.last) < 600;
-      if (blurAt > 0 && elapsed < 100 && !copyJustFired) {
+      if (document.hidden) {
+        hiddenAt = Date.now();
+        if (!isMobile) track('TAB_SWITCH');
+        return;
+      }
+      const dur = hiddenAt ? Date.now() - hiddenAt : 0;
+      hiddenAt = 0;
+      if (isMobile && dur > 40 && dur < 800) {
         const now = Date.now();
         if (now - screenshotCooldown.last > 1000) {
           screenshotCooldown.last = now;
           track('SCREENSHOT_ATTEMPT');
         }
+      } else if (isMobile && dur >= 800) {
+        track('TAB_SWITCH');
       }
-      blurAt = 0;
+      flushQueued();
     };
-    window.addEventListener('blur', onWinBlur);
-    window.addEventListener('focus', onWinFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    const onPageHide = () => {
+      flushQueued();
+      const leftover = readQueue();
+      for (const payload of leftover) {
+        try {
+          navigator.sendBeacon?.(accessUrl, new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+        } catch { /* ignore */ }
+      }
+    };
+    window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('online', flushQueued);
+
+    // ── Removed: the "brief window blur = OS screenshot" heuristic.
+    //
+    // A sub-100ms blur/focus cycle is produced by far more than screen capture:
+    // alt-tabbing, a notification toast stealing focus, clicking browser chrome,
+    // an OS dialog, even normal focus churn. It cannot distinguish those from a
+    // screenshot, so it reported SCREENSHOT_ATTEMPT against viewers who never
+    // took one — and those false hits then fed "multiple suspicious attempts"
+    // and "high event velocity", inflating the risk score off a single bad signal.
+    //
+    // Only real capture keystrokes are recorded now (see isScreenshot above).
+    // Genuine OS-level captures that emit no key event are simply not detectable
+    // from a web page; claiming otherwise is worse than not reporting it.
 
     // ── Print detection ───────────────────────────────────────────────────
     // `beforeprint` doesn't fire reliably in every browser for Ctrl+P —
@@ -527,16 +631,32 @@ export function ShareViewerPage() {
       mql.addEventListener?.('change', onPrintMql);
     } catch { /* not supported — ignore */ }
 
+    // Best-effort: this origin started a display capture (cannot see OS-level
+    // recording of other apps). Still useful when a viewer records via browser APIs.
+    let displayPerm: PermissionStatus | null = null;
+    const onDisplayCapture = () => {
+      if (displayPerm?.state === 'granted') track('SCREEN_RECORDING_ATTEMPT');
+    };
+    try {
+      void navigator.permissions?.query({ name: 'display-capture' as PermissionName }).then((status) => {
+        displayPerm = status;
+        status.addEventListener('change', onDisplayCapture);
+        if (status.state === 'granted') onDisplayCapture();
+      }).catch(() => {});
+    } catch { /* PermissionName not supported */ }
+
     return () => {
       window.removeEventListener('scroll', onScroll);
-      document.removeEventListener('copy', onCopy);
+      document.removeEventListener('copy', onCopy, true);
+      document.removeEventListener('cut', onCopy, true);
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('keyup', onKeyUp);
       document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('blur', onWinBlur);
-      window.removeEventListener('focus', onWinFocus);
+      window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('online', flushQueued);
       window.removeEventListener('beforeprint', onPrint);
       mql?.removeEventListener?.('change', onPrintMql);
+      displayPerm?.removeEventListener?.('change', onDisplayCapture);
       if (idleTimer) clearTimeout(idleTimer);
       for (const evt of activityEvents) document.removeEventListener(evt, resetIdle);
     };
@@ -546,7 +666,17 @@ export function ShareViewerPage() {
   const handleDownload = async () => {
     if (!info?.allowDownload || !token) return;
     setDownloading(true);
+    setDownloadNotice(null);
     try {
+      await axios.post(`${API_BASE_URL}/share/${token}/access`, {
+        action: 'DOWNLOAD_STARTED', recipientName: name || undefined,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        sessionId: getSessionId(),
+        screenResolution: getScreenResolution(),
+        deviceFingerprint: computeDeviceFingerprint(),
+        ...buildGpsPayload(gpsDataRef.current, info?.requestLocation, locationDone || !info?.requestLocation),
+      }).catch(() => {});
+
       const resp = await axios.get<Blob>(`${API_BASE_URL}/share/${token}/file`, {
         responseType: 'blob',
         headers: shareTrackingHeaders(),
@@ -556,7 +686,6 @@ export function ShareViewerPage() {
       a.href = url; a.download = info.filename; a.click();
       URL.revokeObjectURL(url);
 
-      // Track download
       await axios.post(`${API_BASE_URL}/share/${token}/access`, {
         action: 'DOWNLOADED', recipientName: name || undefined,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -565,10 +694,27 @@ export function ShareViewerPage() {
         deviceFingerprint: computeDeviceFingerprint(),
         ...buildGpsPayload(gpsDataRef.current, info?.requestLocation, locationDone || !info?.requestLocation),
       }).catch(() => {});
+      setDownloadNotice('success');
     } catch {
-      alert('Download failed. The file may have been removed.');
+      setDownloadNotice('failed');
+      await axios.post(`${API_BASE_URL}/share/${token}/access`, {
+        action: 'DOWNLOAD_FAILED',
+        sessionId: getSessionId(),
+      }).catch(() => {});
     } finally { setDownloading(false); }
   };
+
+  const handlePrint = () => {
+    if (!info?.allowPrint) return;
+    window.print();
+  };
+
+  useEffect(() => {
+    if (!autoDownload || autoDownloadFired.current) return;
+    if (!info?.allowDownload || !info.isActive || !trackingReady) return;
+    autoDownloadFired.current = true;
+    void handleDownload();
+  }, [autoDownload, info?.allowDownload, info?.isActive, trackingReady]);
 
   /** Mint a NEW tracked hop URL for the next person (WhatsApp / email). */
   const handleShareFurther = async () => {
@@ -621,17 +767,44 @@ export function ShareViewerPage() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const status = (err as any)?.response?.status;
         const msg    = await extractApiError(err);
-        if (status === 403) {
+        const storageMissing = /ENOENT|Vault file unavailable|Object not found|not in cloud storage|opt[/\\]render|vault[/\\]encrypted/i.test(msg || '');
+        if (storageMissing || status === 503) {
+          setFileLoadError('This file is not in cloud storage. Protect it again in Pinit HUB, then create a new share link.');
+        } else if (status === 403) {
           setFileLoadError(msg ?? 'Access denied: your country, device, or IP is not permitted by the sender\'s policy.');
         } else if (status === 410) {
           setFileLoadError(msg ?? 'This link has been revoked or has reached its download limit.');
-        } else if (status === 503) {
-          setFileLoadError(msg ?? 'The file could not be loaded from vault storage. The server may need configuration.');
         } else {
           setFileLoadError(msg ?? 'Failed to load the file. The server may be unreachable.');
         }
       });
   }, [info, nameSubmitted, token]);
+
+  // ── Review mode (Collaboration Phase 2) ────────────────────────────────
+  // Returns null for every ordinary share link, so the viewer is unchanged for
+  // the 12 links that already exist. Failure is deliberately silent: a review
+  // panel that cannot load must never block someone from reading their file.
+  const [review, setReview] = useState<ClientReviewContext | null>(null);
+  const [reviewNonce, setReviewNonce] = useState(0);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    setReviewError(null);
+    getShareReview(token)
+      .then((r) => { if (!cancelled) setReview(r); })
+      .catch((err) => {
+        if (cancelled) return;
+        setReview(null);
+        const status = (err as { response?: { status?: number; data?: { error?: string } } })?.response?.status;
+        const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+        if (status === 403) {
+          setReviewError(msg ?? 'This review link has been revoked or has expired.');
+        }
+      });
+    return () => { cancelled = true; };
+  }, [token, reviewNonce]);
 
   // ── Load text content when it's a text/csv/json file (not HTML — rendered in iframe) ─
   useEffect(() => {
@@ -737,38 +910,7 @@ export function ShareViewerPage() {
     finally { setUnmaskRequesting(false); }
   };
 
-  const handleSendOwnerMessage = async () => {
-    const text = ownerMsg.trim();
-    if (!text || ownerMsgSending) return;
-    setOwnerMsgSending(true);
-    try {
-      const sid = getSessionId();
-      await axios.post(`${API_BASE_URL}/share/${token}/messages`, {
-        body: text,
-        senderName: name || undefined,
-        sessionId: sid,
-      });
-      setOwnerMsg('');
-      setOwnerMsgSent(true);
-      toast.success('Message sent to the owner');
-    } catch {
-      toast.error('Could not send message — try again');
-    } finally { setOwnerMsgSending(false); }
-  };
 
-  useEffect(() => {
-    if (!token || !info?.isActive) return;
-    const sid = getSessionId();
-    axios
-      .get(`${API_BASE_URL}/share/${token}/messages/mine?sessionId=${encodeURIComponent(sid)}`)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .then(({ data }: { data: any }) => {
-        const msgs = data?.messages ?? [];
-        const withReply = msgs.find((m: { ownerReply?: string | null }) => m.ownerReply);
-        if (withReply?.ownerReply) setOwnerReply(withReply.ownerReply);
-      })
-      .catch(() => undefined);
-  }, [token, info?.isActive, ownerMsgSent]);
 
   // ── Render DOCX inline using docx-preview ─────────────────────────────────
   const docxContainerRef = useRef<HTMLDivElement>(null);
@@ -803,17 +945,29 @@ export function ShareViewerPage() {
   );
 
   // ── Error ──────────────────────────────────────────────────────────────────
-  if (error || !info) return (
+  if (error || !info) {
+    const noAccess = error === 'NO_ACCESS';
+    return (
     <div className="min-h-screen bg-bg-base flex items-center justify-center">
       <div className="text-center max-w-sm mx-auto p-6">
         <div className="w-16 h-16 bg-danger/10 rounded-full flex items-center justify-center mx-auto mb-4">
           <AlertTriangle size={28} className="text-danger" />
         </div>
-        <h1 className="text-white font-bold text-lg mb-2">Link Not Found</h1>
-        <p className="text-gray-400 text-sm">{error || 'This link does not exist or has been removed.'}</p>
+        <h1 className="text-white font-bold text-lg mb-2">
+          {noAccess ? 'You don\'t have access to this file.' : 'Link unavailable'}
+        </h1>
+        <p className="text-gray-400 text-sm">
+          {noAccess
+            ? 'You don\'t have access to this file.'
+            : 'This sharing link has expired or is no longer available.'}
+        </p>
+        <button type="button" className="btn btn-secondary btn-sm mt-4" onClick={() => window.close()}>
+          Close
+        </button>
       </div>
     </div>
-  );
+    );
+  }
 
   // ── Per-viewer revoke (owner blocked this device only) ─────────────────────
   if (info.viewerRevoked) return (
@@ -822,13 +976,10 @@ export function ShareViewerPage() {
         <div className="w-16 h-16 bg-danger/10 rounded-full flex items-center justify-center mx-auto mb-4">
           <Ban size={28} className="text-danger" />
         </div>
-        <h1 className="text-white font-bold text-lg mb-2">Access Revoked</h1>
+        <h1 className="text-white font-bold text-lg mb-2">Access has been revoked</h1>
         <p className="text-gray-400 text-sm">
-          The owner has revoked your access to this file. Other recipients are not affected.
+          This protected file is no longer available through this link.
         </p>
-        <div className="mt-4 px-4 py-2 bg-bg-elevated rounded-lg border border-bg-border inline-block">
-          <p className="text-2xs text-gray-500 mono">{token}</p>
-        </div>
       </div>
     </div>
   );
@@ -837,20 +988,14 @@ export function ShareViewerPage() {
   if (!info.isActive) {
     const reason = info.inactiveReason
       ?? (info.isExpired ? 'expired' : info.isExhausted ? 'exhausted' : 'revoked');
-    const title = reason === 'expired' ? 'Link Expired'
-      : reason === 'exhausted' ? 'View Limit Reached'
-      : reason === 'one_time' ? 'Link Already Used'
-      : reason === 'tampered' ? 'Link Invalid'
-      : 'Link Unavailable';
-    const message = reason === 'expired'
-      ? 'This share link has expired and is no longer accessible.'
-      : reason === 'exhausted'
-      ? `This link was limited to ${info.maxViews ?? '?'} views and has been exhausted.`
-      : reason === 'one_time'
-      ? 'This was a one-time link and has already been used.'
-      : reason === 'tampered'
-      ? 'This link could not be verified and may have been tampered with.'
-      : 'This share link has been revoked or is no longer active.';
+    const title = reason === 'expired' ? 'Link unavailable'
+      : reason === 'exhausted' ? 'Link unavailable'
+      : reason === 'one_time' ? 'Link unavailable'
+      : reason === 'tampered' ? 'You don\'t have access to this file.'
+      : 'Link unavailable';
+    const message = reason === 'tampered'
+      ? 'You don\'t have access to this file.'
+      : 'This sharing link has expired or is no longer available.';
     return (
     <div className="min-h-screen bg-bg-base flex items-center justify-center">
       <div className="text-center max-w-sm mx-auto p-6">
@@ -859,9 +1004,14 @@ export function ShareViewerPage() {
         </div>
         <h1 className="text-white font-bold text-lg mb-2">{title}</h1>
         <p className="text-gray-400 text-sm">{message}</p>
-        <div className="mt-4 px-4 py-2 bg-bg-elevated rounded-lg border border-bg-border inline-block">
-          <p className="text-2xs text-gray-500 mono">{token}</p>
-        </div>
+        {reason === 'expired' && (
+          <a
+            href="mailto:support@pinitdna.com"
+            className="btn btn-primary btn-sm mt-4 inline-flex"
+          >
+            Contact owner
+          </a>
+        )}
       </div>
     </div>
     );
@@ -937,41 +1087,52 @@ export function ShareViewerPage() {
   if (info.requestLocation && !locationDone) {
     const handleAllow = () => {
       if (!navigator.geolocation) {
-        setLocationDone(true);
+        // The owner made location a condition of opening this file. A browser
+        // that cannot provide one is a dead end, not a reason to waive it.
+        setLocationUnsupported(true);
         return;
       }
       setLocationAsked(true);
       setLocationDenied(false);
 
+      const applyFix = (pos: GeolocationPosition) => {
+        const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+        setGpsData({
+          lat,
+          lng,
+          accuracy,
+          timestamp: new Date(pos.timestamp).toISOString(),
+          locationSource: accuracy <= 75 ? 'gps' : 'network',
+        });
+        setLocationDone(true);
+        void captureQuickGps(20_000).then((quick) => {
+          if (quick) setGpsData(quick);
+        });
+      };
+
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const { latitude: lat, longitude: lng, accuracy } = pos.coords;
-          setGpsData({
-            lat,
-            lng,
-            accuracy,
-            timestamp: new Date(pos.timestamp).toISOString(),
-            locationSource: accuracy <= 75 ? 'gps' : 'network',
-          });
-          setLocationDone(true);
-          void captureQuickGps(8_000).then((quick) => {
-            if (quick) setGpsData(quick);
-          });
-        },
+        applyFix,
         (err) => {
           if (isGeolocationPermissionDenied(err)) {
             setLocationAsked(false);
             setLocationDenied(true);
             return;
           }
-          // Timeout / unavailable — still open; IP geo on server
-          setLocationDone(true);
+          // iPhone often needs longer than 3s — retry without forcing GPS chip
+          navigator.geolocation.getCurrentPosition(
+            applyFix,
+            () => {
+              // A timeout is not consent. Let them try again rather than
+              // opening the file on a fix that never arrived.
+              setLocationAsked(false);
+              setLocationFailed(true);
+            },
+            { enableHighAccuracy: false, maximumAge: 60_000, timeout: 20_000 },
+          );
         },
-        { enableHighAccuracy: true, maximumAge: 120_000, timeout: 3_500 },
+        { enableHighAccuracy: true, maximumAge: 15_000, timeout: 20_000 },
       );
     };
-
-    const hostLabel = typeof window !== 'undefined' ? window.location.host : 'this site';
 
     return (
       <div className="min-h-screen bg-[#f1f3f4] relative overflow-hidden">
@@ -990,45 +1151,46 @@ export function ShareViewerPage() {
             aria-labelledby="loc-perm-title"
             aria-describedby="loc-perm-desc"
           >
-            <div className="px-4 pt-3.5 pb-2 flex gap-3">
-              <div className="w-5 h-5 mt-0.5 rounded-full bg-[#1a73e8] flex items-center justify-center shrink-0 text-white text-[10px] font-bold">
-                P
-              </div>
-              <div className="min-w-0">
-                <p id="loc-perm-title" className="text-[13px] leading-snug text-[#202124] font-medium">
-                  <span className="font-normal text-[#5f6368]">{hostLabel}</span>
-                  {' '}wants to
+            <div className="px-4 pt-3.5 pb-1">
+              <p id="loc-perm-title" className="text-[14px] text-[#202124] font-medium">
+                This file needs your location to open
+              </p>
+              <p id="loc-perm-desc" className="text-[13px] text-[#5f6368] mt-1 leading-snug">
+                The owner made location a condition of access. Your approximate
+                coordinates are recorded once, with the time and device, and are
+                visible only to them.
+              </p>
+
+              {locationUnsupported ? (
+                <p className="text-[12px] text-[#d93025] mt-2 leading-snug">
+                  This browser cannot provide a location, so the link cannot be opened
+                  here. Try another browser or device.
                 </p>
-                <p id="loc-perm-desc" className="text-[13px] leading-snug text-[#202124] mt-0.5">
-                  Know your location
+              ) : locationDenied ? (
+                <p className="text-[12px] text-[#d93025] mt-2 leading-snug">
+                  Location is blocked for this site. Allow it from the icon in your
+                  address bar, then choose Share location again.
                 </p>
-                {locationDenied && (
-                  <p className="text-[11px] text-[#d93025] mt-2 leading-snug">
-                    Location was blocked. Allow it in the address bar, then try again.
-                  </p>
-                )}
-              </div>
+              ) : locationFailed ? (
+                <p className="text-[12px] text-[#b06000] mt-2 leading-snug">
+                  Your location did not come through. Check that location services are
+                  on, then try again.
+                </p>
+              ) : null}
             </div>
 
-            <div className="flex items-center justify-end gap-1 px-2 pb-2 pt-1">
+            <div className="flex items-center justify-end px-2 pb-2 pt-1.5">
               <button
                 type="button"
-                disabled={locationAsked}
-                onClick={() => {
-                  setLocationDenied(true);
-                  setLocationAsked(false);
-                }}
-                className="min-w-[64px] h-9 px-3 rounded text-[13px] font-medium text-[#1a73e8] hover:bg-[#f1f3f4] disabled:opacity-50"
-              >
-                Block
-              </button>
-              <button
-                type="button"
-                disabled={locationAsked}
+                disabled={locationAsked || locationUnsupported}
                 onClick={handleAllow}
-                className="min-w-[64px] h-9 px-3 rounded text-[13px] font-medium text-[#1a73e8] hover:bg-[#f1f3f4] disabled:opacity-50"
+                className="h-9 px-3.5 rounded text-[13px] font-medium text-[#1a73e8] hover:bg-[#f1f3f4] disabled:opacity-50"
               >
-                {locationAsked ? '…' : 'Allow'}
+                {locationAsked
+                  ? 'Getting location…'
+                  : locationDenied || locationFailed
+                    ? 'Try again'
+                    : 'Share location and open'}
               </button>
             </div>
           </div>
@@ -1058,13 +1220,19 @@ export function ShareViewerPage() {
       onContextMenu={e => e.preventDefault()}  // Block right-click
     >
       {/* ── Print-hide style: hides content from browser print dialog ────── */}
-      <style>{`@media print { .print-hide { display: none !important; } }`}</style>
+      <style>{`
+        @media print {
+          .print-hide { display: none !important; }
+          .print-asset { display: flex !important; }
+          .print-asset img, .print-asset iframe { max-width: 100% !important; max-height: none !important; }
+        }
+      `}</style>
 
       {/* ── Idle blur overlay — shown after 60s of no activity ─────────────
            Clicking anywhere dismisses it (resetIdle fires via document listener) */}
       {isIdleBlur && (
         <div
-          className="fixed inset-0 z-50 flex flex-col items-center justify-center"
+          className="print-hide fixed inset-0 z-50 flex flex-col items-center justify-center"
           style={{ backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)', background: 'rgba(15,23,42,0.55)' }}
         >
           <div className="text-center">
@@ -1078,14 +1246,18 @@ export function ShareViewerPage() {
       )}
 
       {/* Header bar */}
-      <div className="bg-bg-card border-b border-bg-border px-4 py-3 flex items-center gap-3">
+      <div className="print-hide bg-bg-card border-b border-bg-border px-4 py-3 flex items-center gap-3">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 bg-dna-500/20 rounded-lg flex items-center justify-center">
             <Lock size={13} className="text-dna-400" />
           </div>
           <div>
             <p className="text-sm font-semibold text-white truncate max-w-[200px]">{info.filename}</p>
-            <p className="text-2xs text-gray-500">PINIT-DNA Secure Viewer</p>
+            <p className="text-2xs text-gray-500">
+              {info.sourceContext === 'exchange_license'
+                ? 'Verified licensed asset'
+                : 'PINIT secure viewer'}
+            </p>
           </div>
         </div>
 
@@ -1097,7 +1269,6 @@ export function ShareViewerPage() {
               Expires {format(new Date(info.expiresAt), 'MMM d')}
             </div>
           )}
-          {/* Max views */}
           {info.maxViews && (
             <div className="flex items-center gap-1 text-2xs text-gray-500 border border-bg-border rounded px-2 py-1">
               <Eye size={10} />
@@ -1107,8 +1278,13 @@ export function ShareViewerPage() {
           {/* Verified badge */}
           <div className="flex items-center gap-1 text-2xs text-success border border-success/30 bg-success/5 rounded px-2 py-1">
             <CheckCircle2 size={10} />
-            Verified
+            Verified Pinit asset
           </div>
+          {info.sourceContext === 'exchange_license' && (
+            <div className="flex items-center gap-1 text-2xs text-gray-400 border border-bg-border rounded px-2 py-1">
+              {info.licenseTier ? `${info.licenseTier} license` : 'Licensed access'}
+            </div>
+          )}
           {/* Share further — mint a NEW hop URL for the next recipient */}
           <button
             type="button"
@@ -1125,16 +1301,56 @@ export function ShareViewerPage() {
             <button onClick={handleDownload} disabled={downloading}
               className="btn btn-secondary btn-sm text-xs">
               <Download size={12} />
-              {downloading ? 'Downloading…' : 'Download'}
+              {downloading ? 'Downloading…' : 'Download licensed file'}
+            </button>
+          )}
+          {info.allowPrint && (
+            <button type="button" onClick={handlePrint}
+              className="btn btn-secondary btn-sm text-xs">
+              <Printer size={12} />
+              Print
             </button>
           )}
         </div>
       </div>
 
+      {downloadNotice === 'failed' && (
+        <div className="print-hide mx-4 mt-3 rounded-xl border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger">
+          Download failed. Try again, or contact the owner if this keeps happening.
+        </div>
+      )}
+      {downloadNotice === 'success' && (
+        <div className="print-hide mx-4 mt-3 rounded-xl border border-success/30 bg-success/10 px-4 py-2 text-sm text-success">
+          Download started.
+        </div>
+      )}
+
       {/* Note from sender */}
-      {info.note && (
-        <div className="bg-dna-500/5 border-b border-dna-500/20 px-4 py-2">
-          <p className="text-xs text-dna-300">📝 {info.note}</p>
+      {info.sourceContext === 'exchange_license' && (
+        <div className="print-hide mx-4 mt-3 rounded-xl border border-bg-border bg-bg-elevated px-4 py-3">
+          <p className="text-xs font-semibold text-white">Licensed Exchange delivery</p>
+          <p className="text-sm text-white mt-1 truncate">{info.filename}</p>
+          <div className="flex flex-wrap items-center gap-2 mt-2">
+            <span className="text-2xs text-success border border-success/30 bg-success/5 rounded px-2 py-0.5">
+              Verified Pinit asset
+            </span>
+            <span className="text-2xs text-gray-300 border border-bg-border rounded px-2 py-0.5 capitalize">
+              {info.licenseTier ? `${info.licenseTier} license` : 'Licensed'}
+            </span>
+            <span className="text-2xs text-gray-400">
+              {info.allowDownload ? 'Download allowed' : 'View only'}
+              {info.allowPrint ? ' · Print allowed' : ''}
+            </span>
+          </div>
+          <details className="mt-3">
+            <summary className="text-2xs text-gray-400 cursor-pointer hover:text-white">License details</summary>
+            <div className="mt-2 text-2xs text-gray-400 space-y-1">
+              <p>License type: <span className="text-white capitalize">{info.licenseTier || 'Licensed'}</span></p>
+              <p>Download: <span className="text-white">{info.allowDownload ? 'Allowed' : 'Not allowed'}</span></p>
+              <p>Print: <span className="text-white">{info.allowPrint ? 'Allowed' : 'Not allowed'}</span></p>
+              <p>Access: <span className="text-white">{info.isActive && !info.isExpired && !info.isExhausted ? 'Allowed' : 'Restricted'}</span></p>
+            </div>
+          </details>
         </div>
       )}
 
@@ -1187,8 +1403,8 @@ export function ShareViewerPage() {
         </div>
       )}
 
-      {/* File viewer area — print-hide hides content from browser print dialog */}
-      <div className="print-hide flex-1 flex items-start justify-center p-4 overflow-auto"
+      {/* File viewer area — print-hide hides content unless print is allowed */}
+      <div className={`${info.allowPrint ? 'print-asset' : 'print-hide'} flex-1 flex items-start justify-center p-4 overflow-auto`}
         style={{ userSelect: 'none', position: 'relative' }}
       >
         {fileLoadError ? (
@@ -1196,7 +1412,9 @@ export function ShareViewerPage() {
             <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
               <Ban size={28} className="text-red-400" />
             </div>
-            <h2 className="text-white font-bold text-lg mb-2">Access Blocked</h2>
+            <h2 className="text-white font-bold text-lg mb-2">
+              {/not in cloud storage/i.test(fileLoadError) ? 'File unavailable' : 'Access Blocked'}
+            </h2>
             <p className="text-gray-400 text-sm">{fileLoadError}</p>
             <p className="text-2xs text-gray-600 mt-3 border border-bg-border rounded-lg px-3 py-2 inline-block">
               Contact the file owner if you believe this is a mistake.
@@ -1297,7 +1515,7 @@ export function ShareViewerPage() {
           </div>
         ) : isHtml ? (
           /* ── HTML: render as a real webpage (browser-like) ── */
-          <div className="w-full flex-1 flex flex-col print-hide" style={{ minHeight: 'calc(100vh - 120px)' }}>
+          <div className="w-full flex-1 flex flex-col" style={{ minHeight: 'calc(100vh - 120px)' }}>
             {htmlPreviewUrl ? (
               <iframe
                 src={htmlPreviewUrl}
@@ -1350,13 +1568,31 @@ export function ShareViewerPage() {
             </p>
             {info.allowDownload ? (
               <button onClick={handleDownload} disabled={downloading} className="btn btn-primary">
-                <Download size={14} /> Secure Download
+                <Download size={14} /> Download licensed file
               </button>
             ) : (
               <p className="text-xs text-gray-500 border border-bg-border rounded-lg px-3 py-2">
                 Download is disabled by the sender for this link.
               </p>
             )}
+          </div>
+        )}
+
+        {/* Review — renders only when the sender turned it on for this link. */}
+        {reviewError && (
+          <div className="w-full max-w-3xl mx-auto mt-6 print-hide">
+            <p className="text-sm text-amber-400 border border-amber-500/30 bg-amber-500/10 rounded-xl px-3 py-2">
+              {reviewError}
+            </p>
+          </div>
+        )}
+        {review && (
+          <div className="w-full max-w-3xl mx-auto mt-6 print-hide">
+            <ClientReviewPanel
+              token={token ?? ''}
+              review={review}
+              onActivity={() => setReviewNonce((n) => n + 1)}
+            />
           </div>
         )}
       </div>
@@ -1385,41 +1621,15 @@ export function ShareViewerPage() {
         </svg>
       </div>
 
-      {/* Message owner */}
-      {info.isActive && (
-        <div className="print-hide border-t border-bg-border bg-bg-card px-4 py-3 space-y-2">
-          <p className="text-xs font-semibold text-white">Message the owner</p>
-          <p className="text-2xs text-gray-500">Ask a question or leave a note about this shared file.</p>
-          {ownerReply && (
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
-              Owner reply: {ownerReply}
-            </div>
-          )}
-          <textarea
-            value={ownerMsg}
-            onChange={(e) => setOwnerMsg(e.target.value)}
-            rows={2}
-            maxLength={2000}
-            placeholder="Write a short message…"
-            className="w-full rounded-xl bg-bg-elevated border border-bg-border px-3 py-2 text-sm text-white placeholder:text-gray-600"
-          />
-          <button
-            type="button"
-            disabled={!ownerMsg.trim() || ownerMsgSending}
-            onClick={() => void handleSendOwnerMessage()}
-            className="btn btn-secondary btn-sm disabled:opacity-50"
-          >
-            {ownerMsgSending ? 'Sending…' : ownerMsgSent ? 'Sent' : 'Send message'}
-          </button>
-        </div>
-      )}
+      {/* Viewer shows the file only — the message-the-owner composer was removed.
+          The server-side messaging endpoints (/share/:token/messages) are untouched,
+          so the feature can be reinstated by re-adding the UI. */}
 
       {/* Footer */}
-      <div className="bg-bg-card border-t border-bg-border px-4 py-2 flex items-center justify-between">
+      <div className="print-hide bg-bg-card border-t border-bg-border px-4 py-2 flex items-center justify-between">
         <p className="text-2xs text-gray-600">
-          Protected by Pinit HUB Smart Links · Access is tracked and logged
+          Protected by Pinit HUB · Access is tracked for the asset owner
         </p>
-        <p className="text-2xs text-gray-600 mono">{token}</p>
       </div>
     </div>
   );

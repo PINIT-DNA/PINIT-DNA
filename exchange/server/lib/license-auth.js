@@ -1,5 +1,7 @@
 import { getSql } from './db.js';
 import { isLicenseDownloadable, LICENSE_STATUS } from './lifecycle.js';
+import { downloadQuotaExhausted, downloadsRemaining } from './licensing.js';
+import { samePinitFace } from './pinit-identity.js';
 
 /**
  * Authorize a licensed download. Never trust browser assetId alone.
@@ -24,7 +26,7 @@ export async function authorizeLicenseDownload({
   }
 
   const buyerOk =
-    (buyerPinitId && order.buyer_pinit_id === buyerPinitId) ||
+    (buyerPinitId && samePinitFace(order.buyer_pinit_id, buyerPinitId)) ||
     (buyerEmail && String(order.buyer_email || '').toLowerCase() === String(buyerEmail).toLowerCase());
 
   if (!buyerOk) {
@@ -62,10 +64,10 @@ export async function authorizeLicenseDownload({
     }
   }
 
-  if (order.delivery_expires_at) {
+  if (order.delivery_expires_at && !order.share_token) {
     const exp = new Date(order.delivery_expires_at).getTime();
     if (Number.isFinite(exp) && Date.now() > exp) {
-      const err = new Error('Download blocked: delivery token expired');
+      const err = new Error('This access link is no longer available.');
       err.status = 403;
       throw err;
     }
@@ -73,6 +75,17 @@ export async function authorizeLicenseDownload({
 
   if (order.delivery_status && ['revoked', 'expired', 'refunded'].includes(String(order.delivery_status).toLowerCase())) {
     const err = new Error(`Download blocked: delivery is ${order.delivery_status}`);
+    err.status = 403;
+    throw err;
+  }
+
+  // Tier download entitlement. Checked last so a genuinely blocked licence
+  // reports the real reason rather than a quota message.
+  if (downloadQuotaExhausted(order)) {
+    const err = new Error(
+      `Download limit reached for this licence (${order.download_limit} of ${order.download_limit} used). ` +
+      'Upgrade the licence tier for more downloads.',
+    );
     err.status = 403;
     throw err;
   }

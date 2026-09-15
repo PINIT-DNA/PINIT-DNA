@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Search, Database, RefreshCw, Eye, ChevronDown, ChevronUp, Share2, Cpu } from 'lucide-react';
 import { API_BASE_URL } from '../config/api.config';
 import { format } from 'date-fns';
@@ -9,7 +9,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { Badge, ClassificationBadge, FileTypeBadge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import type { DnaRecord } from '../types/dashboard.types';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 function DnaDetailModal({ record, onClose }: { record: DnaRecord; onClose: () => void }) {
@@ -46,7 +46,7 @@ function DnaDetailModal({ record, onClose }: { record: DnaRecord; onClose: () =>
         <div className="rounded-xl bg-dna-500/5 border border-dna-500/20 p-4">
           <p className="text-xs font-semibold text-dna-400 mb-1">Protected identity</p>
           <p className="text-2xs text-gray-400">
-            This file has a unique PinIT identity so you can prove ownership, detect copies, and stay in control after sharing.
+            This file has a unique Pinit identity so you can prove ownership, detect copies, and stay in control after sharing.
           </p>
         </div>
       </div>
@@ -58,6 +58,8 @@ type SortField = 'createdAt' | 'imageFilename' | 'fileType' | 'status';
 
 export function DnaRecordsPage() {
   const { data: records, loading, error, refetch } = useApi(listDnaRecords, [], { cacheKey: 'dna-records' });
+  const [params] = useSearchParams();
+  const focusId = params.get('id');
   const [search, setSearch]     = useState('');
   const [filter, setFilter]     = useState('ALL');
   const [sort, setSort]         = useState<SortField>('createdAt');
@@ -67,6 +69,12 @@ export function DnaRecordsPage() {
   const [aiResults, setAiResults] = useState<string[]>([]); // dnaRecordIds
   const [aiSearching, setAiSearching] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!focusId || !records?.length || selected?.id === focusId) return;
+    const match = records.find((r) => r.id === focusId);
+    if (match) setSelected(match);
+  }, [focusId, records, selected?.id]);
 
   const handleSearch = async (q: string) => {
     setSearch(q);
@@ -134,11 +142,7 @@ export function DnaRecordsPage() {
 
   return (
     <div className="page-shell space-y-5 animate-fade-in">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-white">Protected files</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Files you have protected in Pinit HUB</p>
-        </div>
+      <div className="flex items-center justify-end flex-wrap gap-3">
         <div className="flex items-center gap-2">
           {!loading && records && <Badge variant="dna">{records.length} records</Badge>}
           <button onClick={refetch} disabled={loading} className="btn btn-secondary btn-sm">
@@ -228,7 +232,7 @@ export function DnaRecordsPage() {
                     Status <SortIcon field="status" />
                   </button>
                 </th>
-                <th>Vault</th>
+                <th>Asset</th>
                 <th>
                   <button onClick={() => toggleSort('createdAt')} className="flex items-center gap-1 hover:text-white">
                     Created <SortIcon field="createdAt" />
@@ -245,7 +249,7 @@ export function DnaRecordsPage() {
                   <EmptyState
                     icon={Database}
                     title="No DNA records"
-                    description="Protect a file to see records here"
+                    description="Protect New to see records here"
                   />
                 </td></tr>
               ) : (

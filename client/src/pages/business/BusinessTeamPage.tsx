@@ -10,9 +10,10 @@ export function BusinessTeamPage() {
           <Users size={14} />
           Team Management
         </div>
-        <h1 className="text-2xl font-bold text-white">Organization Team</h1>
+        <h1 className="text-2xl font-bold text-white">Team</h1>
         <p className="text-sm text-gray-400 mt-1">
-          Create an invite link, share it, and they join automatically when they open it.
+          Organization team members can be assigned to campaigns. External creators are added per campaign
+          and do not join the organization.
         </p>
       </div>
       <TeamPanel />

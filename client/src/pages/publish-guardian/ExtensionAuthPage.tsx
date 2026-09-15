@@ -29,7 +29,7 @@ export function ExtensionAuthPage() {
 
   const issue = async () => {
     if (!extensionId) {
-      const msg = 'Missing extension ID — open this page from the PinIT extension Sign in button';
+      const msg = 'Missing extension ID — open this page from the Pinit extension Sign in button';
       setError(msg);
       toast.error(msg);
       return;

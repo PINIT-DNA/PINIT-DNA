@@ -3,14 +3,25 @@
  * Never imports Hub vault/DNA source code.
  */
 
+import { publicLicensedShareUrl } from './lib/share-viewer-url.js';
 import jwt from 'jsonwebtoken';
 
 function hubApiBase() {
   return (process.env.HUB_API_URL || 'http://localhost:4000/api/v1').replace(/\/$/, '');
 }
 
+function bridgeSecrets() {
+  return [...new Set(
+    [
+      process.env.EXCHANGE_BRIDGE_SECRET,
+      process.env.HUB_BRIDGE_SECRET,
+      process.env.JWT_SECRET,
+    ].filter((s) => Boolean(s && String(s).trim())),
+  )];
+}
+
 function bridgeSecret() {
-  return process.env.EXCHANGE_BRIDGE_SECRET || process.env.HUB_BRIDGE_SECRET || '';
+  return bridgeSecrets()[0] || '';
 }
 
 /** Decode JWT payload without verification (legacy / debug only). Prefer verifyHubBridgeToken. */
@@ -36,8 +47,8 @@ export function verifyHubBridgeToken(token, purpose) {
     err.status = 401;
     throw err;
   }
-  const secret = bridgeSecret();
-  if (!secret) {
+  const secrets = bridgeSecrets();
+  if (!secrets.length) {
     console.warn('[hub-client] EXCHANGE_BRIDGE_SECRET not set — JWT signature not verified');
     const payload = decodeJwtPayload(token);
     if (!payload || payload.purpose !== purpose) {
@@ -53,20 +64,25 @@ export function verifyHubBridgeToken(token, purpose) {
     return payload;
   }
 
-  try {
-    const decoded = jwt.verify(String(token), secret);
-    if (!decoded || decoded.purpose !== purpose) {
-      const err = new Error('Invalid Hub bridge token purpose');
-      err.status = 401;
-      throw err;
+  let lastVerifyError = '';
+  for (const secret of secrets) {
+    try {
+      const decoded = jwt.verify(String(token), secret);
+      if (!decoded || decoded.purpose !== purpose) {
+        const err = new Error('Invalid Hub bridge token purpose');
+        err.status = 401;
+        throw err;
+      }
+      return decoded;
+    } catch (e) {
+      if (e.status) throw e;
+      lastVerifyError = e?.name || e?.message || 'verify_failed';
     }
-    return decoded;
-  } catch (e) {
-    if (e.status) throw e;
-    const err = new Error('Invalid or expired Hub bridge token');
-    err.status = 401;
-    throw err;
   }
+  console.warn('[hub-client] Hub SSO verify failed', { reason: lastVerifyError, purpose });
+  const err = new Error('Invalid or expired Hub bridge token');
+  err.status = 401;
+  throw err;
 }
 
 /** Fetch seller vault assets from real Pinit HUB (bridge secret). */
@@ -228,6 +244,30 @@ export async function prepareDeliveryWithHub(payload) {
   return data;
 }
 
+/** Public Hub profile (name, user id, Pinit User ID) for Exchange creator cards. */
+export async function fetchHubProfiles(pinitIds) {
+  const secret = bridgeSecret();
+  const ids = [...new Set((pinitIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  if (!secret || !ids.length) return { profiles: [], skipped: !secret };
+
+  const url = `${hubApiBase()}/exchange/profiles-bridge?pinitIds=${encodeURIComponent(ids.join(','))}`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      'X-PinIT-Bridge-Secret': secret,
+    },
+  });
+  const contentType = String(res.headers.get('content-type') || '');
+  const data = contentType.includes('json') ? await res.json().catch(() => ({})) : {};
+  if (!res.ok || !contentType.includes('json')) {
+    throw new Error(data.error || `Hub profiles failed (${res.status})`);
+  }
+  return {
+    profiles: Array.isArray(data.profiles) ? data.profiles : [],
+  };
+}
+
 export async function fetchMonitoringSummariesFromHub(pinitId) {
   const secret = bridgeSecret();
   if (!secret) {
@@ -287,4 +327,165 @@ export async function fetchPreviewFromHub(vaultId) {
   };
 }
 
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 45000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: ctrl.signal });
+    const data = await res.json().catch(() => ({}));
+    return { res, data };
+  } catch (e) {
+    if (e?.name === 'AbortError') {
+      const err = new Error('Pinit could not create the sharing link in time. Please try again.');
+      err.status = 504;
+      throw err;
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Ask Hub to create a share link for a file the buyer licensed.
+ *
+ * Hub owns custody and tracking, so the ShareLink lives there and every view or
+ * download flows through Hub's existing share viewer + ShareAccessLog. Exchange
+ * must verify the caller owns the seal BEFORE calling this — the bridge secret
+ * authenticates the service, not the end user.
+ */
+export async function createLicensedShareOnHub({ assetId, sealId, orderId, buyerPinitId, licenseTier, options }) {
+  const secret = bridgeSecret();
+  if (!secret) {
+    const err = new Error('EXCHANGE_BRIDGE_SECRET not configured');
+    err.status = 503;
+    throw err;
+  }
+  const { res, data } = await fetchJsonWithTimeout(`${hubApiBase()}/exchange/share/create`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-PinIT-Bridge-Secret': secret,
+    },
+    body: JSON.stringify({
+      assetId,
+      sealId,
+      orderId,
+      buyerPinitId,
+      licenseTier,
+      options: options || {},
+      hubAppUrl: process.env.HUB_APP_URL || process.env.PUBLIC_APP_URL || process.env.SHARE_PUBLIC_BASE_URL || '',
+    }),
+  });
+  if (!res.ok) {
+    const raw = data.error || data.message || `Hub share creation failed (${res.status})`;
+    const friendly = /bridge token|expired Exchange/i.test(String(raw))
+      ? 'Couldn\'t create the sharing link.'
+      : String(raw);
+    const err = new Error(friendly);
+    err.status = res.status === 401 ? 502 : res.status;
+    throw err;
+  }
+  const token = data.token;
+  if (!token) {
+    const err = new Error('Couldn\'t create the sharing link.');
+    err.status = 502;
+    throw err;
+  }
+  const shareUrl = publicLicensedShareUrl(token, process.env.HUB_APP_URL);
+  return { ...data, token, shareUrl };
+}
+
+export async function recordLicensedShareCopiedOnHub(token) {
+  const safe = String(token || '').trim();
+  if (!safe) return { ok: false };
+  try {
+    const { res } = await fetchJsonWithTimeout(
+      `${hubApiBase()}/share/${encodeURIComponent(safe)}/access`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'COPIED' }),
+      },
+      8000,
+    );
+    return { ok: res.ok };
+  } catch {
+    return { ok: false };
+  }
+}
+
 export { hubApiBase as HUB_API_BASE, bridgeSecret as BRIDGE_SECRET };
+
+/** Read-only: Hub published (or owner preview with token). Never writes Hub. */
+export async function fetchHubPublishedPortfolio(slug, previewToken) {
+  const q = previewToken ? `?preview_token=${encodeURIComponent(previewToken)}` : '';
+  const url = `${hubApiBase()}/public/portfolio/${encodeURIComponent(slug)}${q}`;
+  try {
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return null;
+    return data.portfolio?.identity ? data.portfolio : (data.identity ? data : null);
+  } catch (err) {
+    console.warn('[hub-client] published portfolio fetch failed', err?.message || err);
+    return null;
+  }
+}
+
+async function hubPaymentPost(path, body) {
+  const secret = bridgeSecret();
+  if (!secret) return { skipped: true };
+  const res = await fetch(`${hubApiBase()}${path}`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'X-PinIT-Bridge-Secret': secret,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
+/** Create a Razorpay order using Hub's keys (one Razorpay account). */
+export async function createOrderViaHub({ amountPaise, currency, receipt, notes }) {
+  const result = await hubPaymentPost('/exchange/payments/create-order', {
+    amountPaise,
+    currency,
+    receipt,
+    notes,
+  });
+  if (result.skipped) return null;
+  if (!result.ok || !result.data?.orderId) {
+    const err = new Error(result.data?.error || 'Hub payment order failed');
+    err.status = result.status;
+    err.hubPayment = true;
+    throw err;
+  }
+  return {
+    orderId: result.data.orderId,
+    amount: result.data.amount,
+    currency: result.data.currency,
+    keyId: result.data.keyId,
+    mock: Boolean(result.data.mock),
+    via: 'hub',
+  };
+}
+
+/** Verify Razorpay signature + fetch payment on Hub. */
+export async function verifyPaymentViaHub({ orderId, paymentId, signature }) {
+  const result = await hubPaymentPost('/exchange/payments/verify', {
+    razorpay_order_id: orderId,
+    razorpay_payment_id: paymentId,
+    razorpay_signature: signature,
+  });
+  if (result.skipped) return null;
+  if (!result.ok) {
+    const err = new Error(result.data?.error || 'Hub payment verify failed');
+    err.status = result.status;
+    err.hubPayment = true;
+    throw err;
+  }
+  return result.data;
+}

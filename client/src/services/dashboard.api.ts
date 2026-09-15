@@ -7,7 +7,8 @@
 import axios from 'axios';
 import { formatDistanceToNow } from 'date-fns';
 import { API_BASE_URL } from '../config/api.config';
-import { refreshAccessToken, clearTokens } from '../lib/auth';
+import { vaultPreviewBlobLooksLikeJson } from '../lib/vault-preview-bytes';
+import { refreshAccessToken, clearTokens, getAccessToken } from '../lib/auth';
 import type {
   DnaRecord, VaultRecord, SupportedTypesResponse,
   ComparisonResult, DashboardStats,
@@ -39,8 +40,15 @@ export function deriveFileType(record: DnaRecord): string {
 }
 
 export const api = axios.create({
-  /** Per-request ceiling — busy backend (monitor/crawler) may need up to ~30s locally. */
-  timeout: 30_000,
+  /**
+   * Per-request ceiling — a busy backend (monitor/crawler) needs ~30s locally,
+   * but the deployed API sleeps on Render's free tier and takes roughly 50s to
+   * wake. At 30s every first request of the day failed, which surfaced as
+   * "Internal server error" and a silently downgraded plan rather than a slow
+   * page. Individual calls still set their own longer timeouts where needed.
+   */
+  timeout: 75_000,
+  withCredentials: true,
 });
 
 /** Human-readable message for failed API calls (proxy offline, 5xx, etc.) */
@@ -48,7 +56,12 @@ export function formatApiError(err: unknown): string {
   if (err && typeof err === 'object' && 'isAxiosError' in err && (err as { isAxiosError?: boolean }).isAxiosError) {
     const ax = err as unknown as { response?: { status?: number; data?: { error?: string; code?: string } }; message: string };
     const data = ax.response?.data;
-    if (data?.code === 'BACKEND_OFFLINE' || (ax.response?.status === 503 && !data?.error)) {
+    if (data?.code === 'BACKEND_OFFLINE') {
+      return import.meta.env.DEV
+        ? 'Backend starting — auto-retrying… (or run npm run dev:all from project root)'
+        : 'Backend offline — start the API from project root: npm run dev';
+    }
+    if (ax.response?.status === 503 && !data?.error && !(data as { status?: string })?.status) {
       return import.meta.env.DEV
         ? 'Backend starting — auto-retrying… (or run npm run dev:all from project root)'
         : 'Backend offline — start the API from project root: npm run dev';
@@ -71,7 +84,20 @@ export function formatApiError(err: unknown): string {
 
 // Attach JWT to every request from this instance
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('pinit_access_token');
+  // A bare '/api/v1/…' URL only resolves locally, where Vite proxies it to the
+  // backend. A production build resolves it against the site's own origin and
+  // 404s — which is how Vault check shipped broken while every other call on
+  // the page worked. The rule is in CLAUDE.md but nothing enforced it, so
+  // enforce it here, loudly, at the moment the mistake is made.
+  if (import.meta.env.DEV && config.url?.startsWith('/api/v1')) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[api] "${config.url}" is a hardcoded path and will 404 in production. ` +
+      'Use `${API_BASE_URL}/…` from config/api.config.ts instead.',
+    );
+  }
+
+  const token = getAccessToken();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   if (token) (config.headers as any)['Authorization'] = `Bearer ${token}`;
   return config;
@@ -85,9 +111,14 @@ api.interceptors.response.use(
     if (!config) throw error;
 
     if (!config._authRetried && error.response?.status === 401) {
+      const failedUrl = String(config.url ?? '');
+      if (failedUrl.includes('/auth/refresh') || failedUrl.includes('/auth/logout')) {
+        throw error;
+      }
       config._authRetried = true;
       const newToken = await refreshAccessToken();
       if (!newToken) {
+        if (!error.response) throw error;
         clearTokens();
         if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
           window.location.href = '/login';
@@ -177,13 +208,32 @@ export async function getVaultRecord(id: string) {
   return data.vault ?? data;
 }
 
-/** Run / re-run image analysis for Vault Explorer Details. */
-export async function analyzeVaultContent(vaultId: string) {
+export async function getVaultContentAnalysis(vaultId: string) {
+  const { data } = await api.get<{
+    success: boolean;
+    status: 'NOT_ANALYZED' | 'PENDING' | 'ANALYZING' | 'COMPLETED' | 'FAILED' | 'NOT_APPLICABLE';
+    contentLabel: string | null;
+    contentAnalysis: VaultRecord['contentAnalysis'];
+    analyzedAt: string | null;
+    error: string | null;
+    started?: boolean;
+  }>(`${API_BASE_URL}/vault/${vaultId}/content-analysis`);
+  return data;
+}
+
+/** Run / re-run image analysis for Vault Explorer Details. Pass force to retry a failed job. */
+export async function analyzeVaultContent(vaultId: string, opts?: { force?: boolean }) {
   const { data } = await api.post<{
     success: boolean;
+    status?: string;
     contentLabel: string;
     contentAnalysis: VaultRecord['contentAnalysis'];
-  }>(`${API_BASE_URL}/vault/${vaultId}/analyze-content`);
+    analyzedAt?: string | null;
+    error?: string | null;
+  }>(`${API_BASE_URL}/vault/${vaultId}/analyze-content`, { force: Boolean(opts?.force) }, {
+    params: opts?.force ? { force: '1' } : undefined,
+    timeout: 180_000,
+  });
   return data;
 }
 
@@ -224,8 +274,9 @@ export async function retrieveFromVault(vaultId: string): Promise<Blob> {
 }
 
 /** Clean decrypted bytes for vault gallery thumbnails (no forensic re-embedding). */
-export async function previewVaultFile(vaultId: string): Promise<Blob> {
-  const { data, headers } = await api.get<Blob>(`${API_BASE_URL}/vault/${vaultId}/preview`, {
+export async function previewVaultFile(vaultId: string, opts?: { thumb?: boolean }): Promise<Blob> {
+  const q = opts?.thumb === false ? '' : '?thumb=1';
+  const { data, headers } = await api.get<Blob>(`${API_BASE_URL}/vault/${vaultId}/preview${q}`, {
     responseType: 'blob',
     timeout: 120_000,
   });
@@ -235,20 +286,23 @@ export async function previewVaultFile(vaultId: string): Promise<Blob> {
       : Array.isArray(rawHeader) ? rawHeader[0] ?? ''
         : ''
   ).toLowerCase();
-  if (contentType.includes('application/json')) {
-    const raw = await (data as Blob).text();
+  const buf = data instanceof Blob ? await data.arrayBuffer() : (data as ArrayBuffer);
+  const bytes = new Uint8Array(buf);
+  if (contentType.includes('application/json') || vaultPreviewBlobLooksLikeJson(bytes)) {
+    const raw = new TextDecoder().decode(bytes);
     try {
       const parsed = JSON.parse(raw) as { error?: string; message?: string };
       throw new Error(parsed.error ?? parsed.message ?? 'Preview failed');
     } catch (e) {
-      if (e instanceof Error && e.message !== 'Preview failed') throw e;
+      if (e instanceof Error && e.message !== 'Preview failed' && !e.message.startsWith('{')) throw e;
       throw new Error('Preview failed');
     }
   }
-  if (!(data instanceof Blob) || data.size === 0) {
+  if (bytes.byteLength === 0) {
     throw new Error('Empty preview response');
   }
-  return data;
+  const mime = contentType.split(';')[0]?.trim() || 'application/octet-stream';
+  return new Blob([buf], { type: mime });
 }
 
 export interface ProtectedDownloadStep {
@@ -329,6 +383,7 @@ export async function getLiveTrackingMap(): Promise<{
     id: string;
     vaultId: string | null;
     filename: string;
+    token?: string;
     lat: number;
     lng: number;
     action: string;
@@ -347,6 +402,7 @@ export async function getLiveTrackingMap(): Promise<{
       id: string;
       vaultId: string | null;
       filename: string;
+      token?: string;
       lat: number;
       lng: number;
       action: string;
@@ -582,6 +638,34 @@ export async function listCertificates(): Promise<IssuedCertificate[]> {
   return data.certificates ?? [];
 }
 
+export type HubCredential = {
+  id: string;
+  type: 'CERTIFICATE' | 'AWARD' | 'LICENSE' | 'COURSE' | 'WORKSHOP';
+  title: string;
+  issuer: string;
+  recipientName: string | null;
+  trustState: 'PINIT_VERIFIED' | 'PINIT_ISSUED' | 'SELF_ADDED' | 'SELF_ADDED_EVIDENCE_PROTECTED' | 'COMING_SOON';
+  lifecycleStatus: 'ACTIVE' | 'EXPIRED' | 'REVOKED' | 'ARCHIVED';
+  issuedAt: string | null;
+  expiresAt: string | null;
+  relatedAsset: { id: string; title: string; href: string } | null;
+  source: { type: 'PINIT_CERTIFICATE'; id: string };
+};
+
+export async function listMyHubCredentials(): Promise<{
+  credentials: HubCredential[];
+  counts: { total: number; pinitVerified: number };
+}> {
+  const { data } = await api.get<{
+    credentials?: HubCredential[];
+    counts?: { total: number; pinitVerified: number };
+  }>(`${API_BASE_URL}/credentials/me`);
+  return {
+    credentials: data.credentials ?? [],
+    counts: data.counts ?? { total: 0, pinitVerified: 0 },
+  };
+}
+
 /** Verify a certificate by its certificateId */
 export async function verifyCertificateApi(certificateId: string): Promise<CertVerificationResult> {
   const { data } = await api.get<CertVerificationResult>(`${API_BASE_URL}/certificates/verify/${certificateId}`);
@@ -611,8 +695,201 @@ export async function createExchangeListIntent(vaultId: string): Promise<{
     pinit_id: string;
   };
 }> {
-  const { data } = await api.post(`${API_BASE_URL}/exchange/list-intent`, { vaultId });
+  const { data } = await api.post<{
+    success: boolean;
+    token: string;
+    listUrl: string;
+    expiresIn: string;
+    asset: {
+      asset_id: string;
+      vault_id: string;
+      dna_record_id: string;
+      title: string;
+      badge_tier: string;
+      pinit_id: string;
+    };
+  }>(`${API_BASE_URL}/exchange/list-intent`, { vaultId });
   return data;
+}
+
+export async function getExchangeRole(): Promise<{
+  success: boolean;
+  pinitId: string;
+  registered: boolean;
+  role: string | null;
+  exchange_role: string | null;
+  can_list: boolean;
+  can_purchase: boolean;
+  unavailable?: boolean;
+}> {
+  const { data } = await api.get<{
+    success: boolean;
+    pinitId: string;
+    registered: boolean;
+    role: string | null;
+    exchange_role: string | null;
+    can_list: boolean;
+    can_purchase: boolean;
+    unavailable?: boolean;
+  }>(`${API_BASE_URL}/exchange/role`);
+  return data;
+}
+
+export type MonitoringStatus = {
+  success: boolean;
+  monitoringEnabled: boolean;
+  crawlerEngineEnabled: boolean;
+  readiness?: {
+    monitoringEnabled: boolean;
+    crawlerEngineEnabled: boolean;
+    platforms: Record<string, boolean>;
+  };
+  totalMonitors?: number;
+  activeMonitors?: number;
+  totalAlerts?: number;
+  unreadAlerts?: number;
+};
+
+/**
+ * Whether monitoring is actually watching, and what it is configured to watch.
+ *
+ * A paused crawler is not the same as an unconfigured one, and the dashboard
+ * has to be able to tell a person which of the two they are looking at —
+ * otherwise a quiet monitoring panel reads as "nothing found" when it means
+ * "nothing is running".
+ */
+export async function getMonitoringStatus(): Promise<MonitoringStatus | null> {
+  try {
+    const { data } = await api.get<MonitoringStatus>(`${API_BASE_URL}/monitoring/stats`);
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+/** One group of real connections on an asset. Empty groups are never returned. */
+export type AssetGraphGroup = {
+  kind: string;
+  label: string;
+  items: Array<{ id: string; label: string; sub?: string; href?: string }>;
+};
+
+export type AssetGraph = {
+  success: boolean;
+  asset: { id: string; title: string; assetType: string; status: string };
+  groups: AssetGraphGroup[];
+  totalConnections: number;
+};
+
+/**
+ * What this asset is actually connected to.
+ *
+ * The server omits any group with no members, so the caller renders whatever
+ * comes back without deciding what counts as empty.
+ */
+export async function getAssetGraph(assetId: string): Promise<AssetGraph> {
+  const { data } = await api.get<AssetGraph>(
+    `${API_BASE_URL}/assets/${encodeURIComponent(assetId)}/graph`,
+  );
+  return data;
+}
+
+/** One sealed purchase — what this person licensed, and whether it still holds. */
+export type ExchangePurchase = {
+  seal_id: string;
+  order_id: string;
+  asset_id: string;
+  listing_id: string;
+  title: string;
+  seller_pinit_id: string;
+  license_tier: string;
+  price_paid: number;
+  status: string;
+  license_status: string;
+  license_expires_at: string | null;
+  sealed_at: string;
+  has_delivery: boolean;
+};
+
+export type ExchangeBuyerSummary = {
+  success: boolean;
+  pinitId: string;
+  unavailable?: boolean;
+  metrics: {
+    purchases_count: number;
+    total_spent: number;
+    active_licenses_count: number;
+  };
+  purchases: ExchangePurchase[];
+};
+
+/** The other half of the seller desk: what this person has bought. */
+export async function getExchangeBuyerSummary(): Promise<ExchangeBuyerSummary> {
+  const { data } = await api.get<ExchangeBuyerSummary>(`${API_BASE_URL}/exchange/buyer-summary`);
+  return data;
+}
+
+export async function getExchangeSellerSummary(): Promise<{
+  success: boolean;
+  pinitId: string;
+  can_list: boolean;
+  unavailable?: boolean;
+  metrics: {
+    total_net_revenue: number;
+    sealed_sales_count: number;
+    active_listings_count: number;
+    listings_count: number;
+    total_views: number;
+    total_saves: number;
+  };
+}> {
+  const { data } = await api.get(`${API_BASE_URL}/exchange/seller-summary`);
+  return data as {
+    success: boolean;
+    pinitId: string;
+    can_list: boolean;
+    unavailable?: boolean;
+    metrics: {
+      total_net_revenue: number;
+      sealed_sales_count: number;
+      active_listings_count: number;
+      listings_count: number;
+      total_views: number;
+      total_saves: number;
+    };
+  };
+}
+
+export async function getPortfolioContainsVault(vaultId: string): Promise<boolean> {
+  const { data } = await api.get<{ success?: boolean; in_portfolio?: boolean }>(
+    `${API_BASE_URL}/portfolio/me/contains/${encodeURIComponent(vaultId)}`,
+  );
+  return Boolean(data?.in_portfolio);
+}
+
+export async function getExchangeListedAssets(): Promise<{
+  success: boolean;
+  unavailable?: boolean;
+  listed: Array<{ vaultId: string; listingId: string; status: string }>;
+}> {
+  const { data } = await api.get(`${API_BASE_URL}/exchange/listed-assets`, {
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  const payload = data as { listed?: unknown; success?: boolean; unavailable?: boolean };
+  const listed = Array.isArray(payload.listed) ? payload.listed as Array<{ vaultId: string; listingId: string; status: string }> : null;
+  if (!listed) {
+    throw new Error('listed-assets payload missing');
+  }
+  return {
+    success: Boolean(payload.success),
+    unavailable: Boolean(payload.unavailable),
+    listed,
+  };
+}
+
+export async function getExchangeConfig(): Promise<{ success: boolean; appUrl: string; apiUrl: string }> {
+  const { data } = await api.get(`${API_BASE_URL}/exchange/config`);
+  return data as { success: boolean; appUrl: string; apiUrl: string };
 }
 
 export async function createExchangeSso(): Promise<{
@@ -621,7 +898,27 @@ export async function createExchangeSso(): Promise<{
   exchangeUrl: string;
   pinitId: string;
 }> {
-  const { data } = await api.post(`${API_BASE_URL}/exchange/sso`);
+  const { data } = await api.post<{
+    success: boolean;
+    token: string;
+    exchangeUrl: string;
+    pinitId: string;
+  }>(`${API_BASE_URL}/exchange/sso`);
+  return data;
+}
+
+export async function createAdminBridgeSso(): Promise<{
+  success: boolean;
+  token: string;
+  adminUrl: string;
+  expiresIn: string;
+}> {
+  const { data } = await api.post<{
+    success: boolean;
+    token: string;
+    adminUrl: string;
+    expiresIn: string;
+  }>(`${API_BASE_URL}/admin-bridge/sso`);
   return data;
 }
 
@@ -708,12 +1005,24 @@ export async function unifiedInvestigateStream(
 ): Promise<{ success: boolean; report: Record<string, unknown> }> {
   const form = new FormData();
   form.append('image', file);
-  const token = localStorage.getItem('pinit_access_token');
+  const token = getAccessToken();
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), 600_000);
   const endpoint = options?.admin
     ? `${API_BASE_URL}/super-admin/unified-investigate?stream=true`
     : `${API_BASE_URL}/forensics/unified-investigate?stream=true`;
+  const streamStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  let verificationCompleteAt: number | null = null;
+  let reportAssemblyTimedOut = false;
+  let reportAssemblyTimer: number | undefined;
+  const armReportAssemblyWatchdog = () => {
+    if (reportAssemblyTimer != null) return;
+    reportAssemblyTimer = window.setTimeout(() => {
+      reportAssemblyTimedOut = true;
+      controller.abort();
+    }, 180_000);
+  };
+
   let res: Response;
   try {
     res = await fetch(endpoint, {
@@ -724,8 +1033,13 @@ export async function unifiedInvestigateStream(
     });
   } catch (e) {
     window.clearTimeout(timeoutId);
+    if (reportAssemblyTimer != null) window.clearTimeout(reportAssemblyTimer);
     if (e instanceof DOMException && e.name === 'AbortError') {
-      throw new Error('Investigation timed out after 10 minutes — try a smaller file or retry');
+      throw new Error(
+        reportAssemblyTimedOut
+          ? 'Verification finished, but the investigation report did not arrive within 3 minutes. Retry the investigation.'
+          : 'Investigation timed out after 10 minutes — try a smaller file or retry',
+      );
     }
     throw new Error('Connection lost during investigation — ensure the backend is running (npm run dev)');
   }
@@ -742,31 +1056,71 @@ export async function unifiedInvestigateStream(
   let buffer = '';
   let finalReport: Record<string, unknown> | null = null;
 
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
+  try {
+    for (;;) {
+      let chunk: ReadableStreamReadResult<Uint8Array>;
       try {
-        const event = JSON.parse(line.slice(6)) as InvestigationProgressEvent & { report?: Record<string, unknown> };
-        if (event.type === 'complete' && event.report) {
-          finalReport = event.report;
-        } else if (event.type === 'error') {
-          throw new Error((event as { message?: string }).message ?? 'Investigation failed');
-        } else {
-          onProgress(event);
-        }
+        chunk = await reader.read();
       } catch (e) {
-        if (e instanceof SyntaxError) continue;
+        if (e instanceof DOMException && e.name === 'AbortError') {
+          throw new Error(
+            reportAssemblyTimedOut
+              ? 'Verification finished, but the investigation report did not arrive within 3 minutes. Retry the investigation.'
+              : 'Investigation timed out after 10 minutes — try a smaller file or retry',
+          );
+        }
         throw e;
       }
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6)) as InvestigationProgressEvent & { report?: Record<string, unknown> };
+          if (event.type === 'complete' && event.report) {
+            finalReport = event.report;
+            if (reportAssemblyTimer != null) window.clearTimeout(reportAssemblyTimer);
+          } else if (event.type === 'error') {
+            throw new Error((event as { message?: string }).message ?? 'Investigation failed');
+          } else {
+            if (
+              verificationCompleteAt == null
+              && (
+                event.snapshot?.phase === 'final'
+                || /generating investigation report/i.test(`${event.snapshot?.statusMessage ?? ''} ${event.detail ?? ''}`)
+              )
+            ) {
+              verificationCompleteAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+              armReportAssemblyWatchdog();
+            }
+            onProgress(event);
+          }
+        } catch (e) {
+          if (e instanceof SyntaxError) continue;
+          throw e;
+        }
+      }
     }
+  } finally {
+    if (reportAssemblyTimer != null) window.clearTimeout(reportAssemblyTimer);
   }
 
-  if (!finalReport) throw new Error('Investigation ended without a report');
+  if (!finalReport) {
+    throw new Error(
+      reportAssemblyTimedOut
+        ? 'Verification finished, but the investigation report did not arrive within 3 minutes. Retry the investigation.'
+        : 'Investigation ended without a report',
+    );
+  }
+  const doneAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  console.info('[InvestigationTiming]', {
+    streamMs: Math.round(doneAt - streamStartedAt),
+    verificationToReportMs: verificationCompleteAt != null
+      ? Math.round(doneAt - verificationCompleteAt)
+      : null,
+  });
   return { success: true, report: finalReport };
 }
 
@@ -836,5 +1190,6 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     totalEncryptedBytes,
     fileTypeBreakdown,
     recentActivity: dnaRecords.slice(0, 8),
+    vaultRecords,
   };
 }

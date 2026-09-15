@@ -6,7 +6,8 @@
  * only for the Storage API (bucket: vault-files).
  */
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { type SupabaseClient } from '@supabase/supabase-js';
+import { createSupabaseNodeClient } from './supabase-node';
 import { logger } from './logger';
 
 const BUCKET = 'vault-files';
@@ -27,15 +28,24 @@ function getClient(): SupabaseClient {
     throw new Error('SUPABASE_URL and a Supabase key (SERVICE or ANON) must be set for vault storage');
   }
 
-  _client = createClient(url, key, { auth: { persistSession: false } });
+  _client = createSupabaseNodeClient(url, key);
   logger.info('[Storage] Supabase Storage client initialised');
   return _client;
+}
+
+export function isSupabaseStorageRestricted(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err || '');
+  return /egress_quota|exceed_cached_egress|project is restricted|Failed to create storage bucket|Supabase upload failed/i.test(msg);
 }
 
 /** Ensure the vault-files bucket exists, creating it if not. */
 async function ensureBucket(): Promise<void> {
   const client = getClient();
-  const { data: buckets } = await client.storage.listBuckets();
+  const { data: buckets, error: listError } = await client.storage.listBuckets();
+  if (listError) {
+    logger.warn('[Storage] listBuckets failed — assuming vault-files exists', { error: listError.message });
+    return;
+  }
   const exists = buckets?.some((b) => b.name === BUCKET);
   if (!exists) {
     const { error } = await client.storage.createBucket(BUCKET, { public: false });
@@ -59,7 +69,7 @@ export async function uploadVaultFile(vaultId: string, buffer: Buffer, ownerUser
     .from(BUCKET)
     .upload(storagePath, buffer, {
       contentType: 'application/octet-stream',
-      upsert:      false,
+      upsert:      true,
     });
 
   if (error) throw new Error(`Supabase upload failed: ${error.message}`);
@@ -101,12 +111,15 @@ export async function downloadVaultFileByPath(storagePath: string): Promise<Buff
 /** Download encrypted buffer from Supabase Storage. */
 export async function downloadVaultFile(
   vaultId: string,
-  ownerUserId?: string,
+  ownerUserId: string,
   extraPaths: string[] = [],
 ): Promise<Buffer> {
+  if (!ownerUserId) {
+    throw new Error('Vault download requires verified ownerUserId');
+  }
   const paths = [
     ...extraPaths.map((p) => normalizeVaultStoragePath(p, vaultId)),
-    ownerUserId ? `${ownerUserId}/${vaultId}.enc` : null,
+    `${ownerUserId}/${vaultId}.enc`,
     `${vaultId}.enc`,
   ].filter((p, i, arr): p is string => Boolean(p) && arr.indexOf(p) === i);
 

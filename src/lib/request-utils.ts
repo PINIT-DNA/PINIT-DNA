@@ -21,6 +21,7 @@
 
 import { Request } from 'express';
 import { logger }  from './logger';
+import { buildShareViewerUrl } from './share-viewer-url';
 
 // ─── Private / loopback ranges — never store as "real" IP ────────────────────
 const PRIVATE_PREFIXES = ['127.', '10.', '192.168.', '172.16.', '172.17.',
@@ -126,8 +127,7 @@ export function resolvePublicBaseUrl(req: Request): string {
  * Build a full share viewer URL: <publicBase>/s/<token>
  */
 export function buildShareUrl(req: Request, token: string): string {
-  const base = resolvePublicBaseUrl(req);
-  return `${base}/s/${token}`;
+  return buildShareViewerUrl(token, resolvePublicBaseUrl(req));
 }
 
 /**

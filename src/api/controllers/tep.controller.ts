@@ -7,7 +7,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { tepService } from '../../services/tep/tep.service';
-import { prisma } from '../../lib/prisma';
+import { getAuthUserId, assertDnaOwner } from '../../lib/tenant-scope';
 
 export async function listTepManifests(
   req: Request,
@@ -15,7 +15,7 @@ export async function listTepManifests(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const userId = (req as { user?: { sub?: string } }).user?.sub;
+    const userId = getAuthUserId(req);
     const dnaRecordId = req.query['dnaRecordId'] as string | undefined;
 
     if (!dnaRecordId) {
@@ -23,14 +23,7 @@ export async function listTepManifests(
       return;
     }
 
-    const record = await prisma.dnaRecord.findUnique({
-      where: { id: dnaRecordId },
-      select: { ownerUserId: true },
-    });
-    if (!record || record.ownerUserId !== userId) {
-      res.status(403).json({ success: false, error: 'Not authorized for this DNA record' });
-      return;
-    }
+    await assertDnaOwner(dnaRecordId, userId);
 
     const manifests = await tepService.listByDnaRecord(dnaRecordId, userId);
 
@@ -66,17 +59,12 @@ export async function getTepManifest(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const userId = (req as { user?: { sub?: string } }).user?.sub;
+    const userId = getAuthUserId(req);
     const tepCode = req.params['tepCode']!;
 
     const manifest = await tepService.getByTepCode(tepCode);
-    if (!manifest) {
+    if (!manifest || manifest.ownerUserId !== userId) {
       res.status(404).json({ success: false, error: 'TEP manifest not found' });
-      return;
-    }
-
-    if (manifest.ownerUserId && manifest.ownerUserId !== userId) {
-      res.status(403).json({ success: false, error: 'Not authorized' });
       return;
     }
 

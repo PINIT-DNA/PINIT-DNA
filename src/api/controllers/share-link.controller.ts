@@ -27,6 +27,63 @@ import { getAuthUserId } from '../../lib/tenant-scope';
 import { isSupabaseStorageConfigured } from '../../lib/supabase-storage';
 import { AppError } from '../middleware/error.middleware';
 
+/**
+ * Turn an inactive-link reason into something a recipient can act on.
+ *
+ * A link that was revoked, expired or exhausted is a normal end state, not a
+ * server fault: it answers 410 Gone. A tampered token is a security signal and
+ * stays 403. Never return a generic 500 or list every possibility at once — the
+ * recipient cannot tell which applies and it reads as a broken system.
+ */
+export function describeUnavailableShare(
+  reason: 'tampered' | 'expired' | 'exhausted' | 'revoked' | 'one_time' | null,
+): { status: number; error: string } {
+  switch (reason) {
+    case 'tampered':
+      return { status: 403, error: 'This link could not be verified. Ask the sender for a new one.' };
+    case 'expired':
+      return { status: 410, error: 'This link has expired. Ask the sender for a new one.' };
+    case 'exhausted':
+      return { status: 410, error: 'This link has reached its view limit. Ask the sender for a new one.' };
+    case 'one_time':
+      return { status: 410, error: 'This link was single-use and has already been opened.' };
+    case 'revoked':
+      return { status: 410, error: 'This link was turned off by the owner.' };
+    default:
+      return { status: 410, error: 'This link is no longer available.' };
+  }
+}
+
+/**
+ * Tracking gate that exempts Exchange licensed shares.
+ *
+ * A buyer who paid for a license has already paid for the visibility — requiring
+ * a separate Hub subscription to see their own share's activity would double-charge.
+ * Ordinary Hub shares still require FEATURE_TRACKING.
+ */
+export function requireTrackingUnlessLicensedShare(
+  gate: (req: Request, res: Response, next: NextFunction) => void | Promise<void>,
+) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const token = String(req.params['token'] || '').trim();
+      if (token) {
+        const link = await prisma.shareLink.findUnique({
+          where: { token },
+          select: { sourceContext: true },
+        });
+        if (link?.sourceContext === 'exchange_license') {
+          next();
+          return;
+        }
+      }
+      await gate(req, res, next);
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
 /** Parse GPS + address fields from share access POST body. */
 function parseAccessGps(body: Record<string, unknown>) {
   const b = body as {
@@ -65,6 +122,7 @@ function accessBodyFields(body: Record<string, unknown>) {
     sessionId: b.sessionId,
     screenResolution: b.screenResolution,
     deviceFingerprint: b.deviceFingerprint,
+    scrollDepth: b.scrollDepth,
     ...parseAccessGps(body),
   };
 }
@@ -84,9 +142,13 @@ function parseUaBrowser(ua: string): string {
     /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Unknown';
 }
 function parseUaOs(ua: string): string {
-  return /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'macOS' :
-    /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' :
-    /Linux/.test(ua) ? 'Linux' : 'Unknown';
+  if (/iPhone|iPad|iPod/.test(ua)) return 'iOS';
+  if (/Android/.test(ua)) return 'Android';
+  if (/Windows/.test(ua)) return 'Windows';
+  if (/Mac OS/.test(ua) && /Mobile\//.test(ua)) return 'iOS';
+  if (/Mac OS/.test(ua)) return 'macOS';
+  if (/Linux/.test(ua)) return 'Linux';
+  return 'Unknown';
 }
 
 // ── Create share link ─────────────────────────────────────────────────────────
@@ -94,16 +156,20 @@ function parseUaOs(ua: string): string {
 export async function createShareLink(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const {
-      vaultId, expiresIn, maxViews, allowDownload, requireName, note,
+      vaultId, expiresIn, maxViews, allowDownload, allowPrint, requireName, note,
       oneTimeUse, maxDownloads, allowedCountries, allowedDeviceTypes, allowedIpPrefixes,
       requireOtp, recipientEmail,
       privacyMaskingEnabled, maskEmail, maskPhone, maskAadhaar, maskPan, maskAddress, maskCustomPatterns,
       requestLocation,
+      reviewMode, allowComments, allowChangeRequest, allowApproval, reviewVersionId,
+      recipientLabel, shareRecipientId,
+      vpnBlock, torBlock, oneDeviceOnly,
     } = req.body as {
       vaultId: string;
       expiresIn?: number | null;
       maxViews?: number | null;
       allowDownload?: boolean;
+      allowPrint?: boolean;
       requireName?: boolean;
       note?: string;
       oneTimeUse?: boolean;
@@ -121,6 +187,16 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
       maskAddress?: boolean;
       maskCustomPatterns?: string[];
       requestLocation?: boolean;
+      reviewMode?: boolean;
+      allowComments?: boolean;
+      allowChangeRequest?: boolean;
+      allowApproval?: boolean;
+      reviewVersionId?: string | null;
+      recipientLabel?: string;
+      shareRecipientId?: string;
+      vpnBlock?: boolean;
+      torBlock?: boolean;
+      oneDeviceOnly?: boolean;
     };
 
     if (!vaultId) { res.status(400).json({ success: false, error: 'vaultId is required' }); return; }
@@ -130,11 +206,14 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
     const recipients = (req.body as any).recipients as Array<{ label: string; email?: string }> | undefined;
 
     const { devOtp, childLinks, ...link } = await shareLinkService.create({
-      vaultId, expiresIn, maxViews, allowDownload, requireName, note,
+      vaultId, expiresIn, maxViews, allowDownload, allowPrint, requireName, note,
       oneTimeUse, maxDownloads, allowedCountries, allowedDeviceTypes, allowedIpPrefixes,
       requireOtp, recipientEmail,
       privacyMaskingEnabled, maskEmail, maskPhone, maskAadhaar, maskPan, maskAddress, maskCustomPatterns,
       requestLocation,
+      reviewMode, allowComments, allowChangeRequest, allowApproval, reviewVersionId,
+      recipientLabel, shareRecipientId,
+      vpnBlock, torBlock, oneDeviceOnly,
       ownerUserId,
       recipients,
     }) as any;
@@ -142,11 +221,9 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
     const shareUrl = buildShareUrl(req, link.token);
     logger.info('[SmartLink] Share URL generated', { shareUrl, token: link.token });
 
-    // Build child link URLs
-    const appUrl = process.env['PUBLIC_APP_URL'] ?? `${req.protocol}://${req.get('host')}`;
     const childLinkUrls = (childLinks ?? []).map((c: any) => ({
       ...c,
-      url: `${appUrl}/s/${c.token}`,
+      url: buildShareUrl(req, c.token),
     }));
 
     res.status(201).json({
@@ -160,7 +237,7 @@ export async function createShareLink(req: Request, res: Response, next: NextFun
   } catch (err) { next(err); }
 }
 
-// ── Create / reuse Share File open link (tracked via PinIT page, not PARENT list) ─
+// ── Create / reuse Share File open link (tracked via Pinit page, not PARENT list) ─
 
 export async function createFileShare(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -222,7 +299,13 @@ export async function getShareLinkInfo(req: Request, res: Response, next: NextFu
       sessionId,
       ipAddress: resolveClientIp(req),
     });
-    if (!info) { res.status(404).json({ success: false, error: 'Link not found' }); return; }
+    if (!info) {
+      res.status(404).json({
+        success: false,
+        error: 'This sharing link has expired or is no longer available.',
+      });
+      return;
+    }
     res.json({ success: true, link: info });
   } catch (err) { next(err); }
 }
@@ -259,7 +342,7 @@ export async function recordAccess(req: Request, res: Response, next: NextFuncti
     const token = req.params['token']!;
     const body = req.body as Record<string, unknown>;
     const {
-      action, recipientName, timezone, sessionId, screenResolution, deviceFingerprint,
+      action, recipientName, timezone, sessionId, screenResolution, deviceFingerprint, scrollDepth,
     } = accessBodyFields(body);
     const gpsFields = parseAccessGps(body);
 
@@ -270,10 +353,11 @@ export async function recordAccess(req: Request, res: Response, next: NextFuncti
     logger.debug('[IP-AUDIT] Stage-2 recordAccess', { token, action, ...dumpIpHeaders(req) });
 
     const SECURITY_EVENTS = new Set([
-      'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT',
-      'TAB_SWITCH', 'SCROLL', 'IDLE', 'ACTIVE',
+      'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT', 'SCREEN_RECORDING_ATTEMPT',
+      'TAB_SWITCH', 'SCROLL', 'IDLE', 'ACTIVE', 'LOCATION_UPDATE',
+      'DOWNLOAD_STARTED', 'DOWNLOAD_FAILED', 'SHARE_FURTHER',
     ]);
-    const isSecurityEvent = SECURITY_EVENTS.has(action ?? '');
+    const isSecurityEvent = SECURITY_EVENTS.has(action ?? '') || String(action ?? '').startsWith('SCROLL');
 
     const fullLinkEarly = await shareLinkService.getWithLogs(token);
     if (fullLinkEarly && await shareLinkService.isViewerBlocked(fullLinkEarly.id, {
@@ -489,6 +573,7 @@ export async function recordAccess(req: Request, res: Response, next: NextFuncti
       referrer:     req.headers['referer'],
       timezone, sessionId, screenResolution, deviceFingerprint,
       ...gpsFields,
+      scrollDepth,
       isVpn:        ipIntel?.isVpn ?? false,
       isTor:        ipIntel?.isTor ?? false,
       isProxy:      ipIntel?.isProxy ?? false,
@@ -581,7 +666,8 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
     const info  = await shareLinkService.getPublicInfo(token);
 
     if (!info || !info.isActive) {
-      res.status(403).json({ success: false, error: 'Link is inactive, expired, or exhausted' });
+      const { status, error } = describeUnavailableShare(info?.inactiveReason ?? null);
+      res.status(status).json({ success: false, error, reason: info?.inactiveReason ?? null });
       return;
     }
 
@@ -657,8 +743,29 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
       );
     }
 
-    // Retrieve decrypted file from vault and stream it (public — no owner auth gate)
-    const result = await vaultService.retrieve(fullLink.vaultId);
+    if (!fullLink.ownerUserId) {
+      throw new AppError(403, 'This share is not bound to an owner.');
+    }
+
+    // The vault file can be gone while the link row survives (legacy data, or a
+    // vault removed outside the delete path). That is an expected end state, not a
+    // server fault — say so plainly instead of letting retrieve() throw a 500.
+    const vaultStillExists = await prisma.vaultRecord.findUnique({
+      where: { id: fullLink.vaultId },
+      select: { id: true },
+    });
+    if (!vaultStillExists) {
+      logger.info('[SmartLink] Share points at a removed vault file', { token, vaultId: fullLink.vaultId });
+      res.status(410).json({
+        success: false,
+        error: 'This link is no longer available — the owner removed the file.',
+        reason: 'file_removed',
+      });
+      return;
+    }
+
+    // Retrieve after explicit share validation — owner comes from the share record, never the client.
+    const result = await vaultService.retrieve(fullLink.vaultId, fullLink.ownerUserId);
 
     await shareLinkService.recordAccess({
       shareLinkId: fullLink.id,
@@ -824,6 +931,7 @@ export async function debugReport(req: Request, res: Response, next: NextFunctio
 
     // Fetch last 3 access log IPs from DB for comparison
     const lastLogs = await prisma.shareAccessLog.findMany({
+      where: { shareLink: { ownerUserId: getAuthUserId(req) } },
       orderBy: { createdAt: 'desc' },
       take: 3,
       select: { ipAddress: true, action: true, createdAt: true, shareLink: { select: { token: true } } },
@@ -875,8 +983,13 @@ export async function getMaskedText(req: Request, res: Response, next: NextFunct
       isUnmasked = !!approved;
     }
 
-    // Decrypt the vault file (read-only — original never modified)
-    const vaultResult = await vaultService.retrieve(fullLink.vaultId);
+    if (!fullLink.ownerUserId) {
+      res.status(403).json({ success: false, error: 'This share is not bound to an owner.' });
+      return;
+    }
+
+    // Decrypt the vault file (read-only — original never modified). Owner from share record.
+    const vaultResult = await vaultService.retrieve(fullLink.vaultId, fullLink.ownerUserId);
     const buffer = vaultResult.originalBuffer;
     const mime   = fullLink.mimeType;
 
@@ -1190,12 +1303,13 @@ export async function getGlobalShareStats(req: Request, res: Response, next: Nex
     const ownerUserId = getAuthUserId(req);
     const logs = await prisma.shareAccessLog.findMany({
       where: { shareLink: { ownerUserId } },
+      orderBy: { createdAt: 'desc' },
+      take: 2500,
       select: {
         action: true, country: true, city: true,
         sessionDurationSec: true, sessionId: true,
         riskScore: true, riskLevel: true,
         ipAddress: true, createdAt: true,
-        shareLink: { select: { dnaRecordId: true } },
       },
     });
 
@@ -1302,6 +1416,16 @@ export async function shareFurther(req: Request, res: Response, next: NextFuncti
       recipientLabel: body.recipientLabel,
       forwardedByLabel: body.forwardedByLabel,
     });
+    const parent = await shareLinkService.getWithLogs(token);
+    if (parent) {
+      await shareLinkService.recordAccess({
+        shareLinkId: parent.id,
+        action: 'SHARE_FURTHER',
+        ipAddress: resolveClientIp(req),
+        userAgent: req.headers['user-agent'],
+        referrer: req.headers['referer'],
+      });
+    }
     const url = buildShareUrl(req, hop.token);
     res.json({
       success: true,
@@ -1352,7 +1476,7 @@ export async function previewImage(req: Request, res: Response, next: NextFuncti
     }
 
     // Log this preview-image fetch as a PREVIEW_FETCH action
-    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || '';
+    const ip = resolveClientIp(req);
     const ua = req.headers['user-agent'] || '';
     try {
       await prisma.shareAccessLog.create({
@@ -1395,5 +1519,136 @@ export async function previewImage(req: Request, res: Response, next: NextFuncti
     res.setHeader('Content-Type', 'image/svg+xml');
     res.setHeader('Cache-Control', 'public, max-age=3600');
     res.send(svg);
+  } catch (err) { next(err); }
+}
+
+// ── Client review through a secure link (Collaboration Phase 2) ──────────────
+// Public: the token is the authority. Scope is derived server-side from the
+// link and never read from the request body.
+
+export async function getShareReview(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { shareReviewService } = await import('../../services/share/share-review.service');
+    const review = await shareReviewService.getContext(req.params.token as string);
+    res.json({ success: true, review });
+  } catch (err) { next(err); }
+}
+
+export async function getShareReviewComments(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { shareReviewService } = await import('../../services/share/share-review.service');
+    const result = await shareReviewService.listComments(req.params.token as string);
+    res.json({ success: true, ...result });
+  } catch (err) { next(err); }
+}
+
+export async function postShareReviewComment(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { shareReviewService } = await import('../../services/share/share-review.service');
+    const comment = await shareReviewService.createComment(req.params.token as string, req.body ?? {});
+    res.status(201).json({ success: true, comment });
+  } catch (err) { next(err); }
+}
+
+/**
+ * Client decision on a version. Public — the token is the authority.
+ * Every identifier on the resulting record is derived server-side.
+ */
+export async function postShareReviewDecision(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { versionApprovalService } = await import('../../services/share/version-approval.service');
+    const body = (req.body ?? {}) as { decision?: string; comment?: unknown; approverLabel?: unknown };
+    if (body.decision !== 'APPROVED' && body.decision !== 'CHANGES_REQUESTED') {
+      throw new AppError(400, 'A decision is required');
+    }
+    const result = await versionApprovalService.decideAsClient(
+      req.params.token as string,
+      { decision: body.decision, comment: body.comment, approverLabel: body.approverLabel },
+      {
+        ipAddress: resolveClientIp(req),
+        deviceFingerprint: (req.headers['x-device-fingerprint'] as string) || null,
+      },
+    );
+    res.status(201).json({ success: true, ...result });
+  } catch (err) { next(err); }
+}
+
+export async function getShareReviewDecisions(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { resolveReviewContext } = await import('../../services/share/share-review.service');
+    const { versionApprovalService } = await import('../../services/share/version-approval.service');
+    const ctx = await resolveReviewContext(req.params.token as string);
+    const decisions = await versionApprovalService.listForVersion(ctx.organizationId, ctx.versionId);
+    res.json({ success: true, decisions });
+  } catch (err) { next(err); }
+}
+
+// ── Campaign conversation, client side (Collaboration Phase 4) ───────────────
+
+export async function getShareMessages(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { shareMessageService } = await import('../../services/share/share-message.service');
+    const result = await shareMessageService.list(req.params.token as string);
+    res.json({ success: true, ...result });
+  } catch (err) { next(err); }
+}
+
+export async function postShareMessage(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { shareMessageService } = await import('../../services/share/share-message.service');
+    const message = await shareMessageService.send(req.params.token as string, req.body ?? {});
+    res.status(201).json({ success: true, message });
+  } catch (err) { next(err); }
+}
+
+export async function markShareMessagesRead(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { shareMessageService } = await import('../../services/share/share-message.service');
+    const result = await shareMessageService.markRead(req.params.token as string);
+    res.json({ success: true, ...result });
+  } catch (err) { next(err); }
+}
+
+/**
+ * SSE stream for a client's campaign conversation.
+ *
+ * Same shape as the notification stream that already exists — it pushes a
+ * "something changed" tick, not the payload, so the page refetches through the
+ * normal authorised path and the stream can never become a second way to read
+ * data. Subscribes to the campaign channel on the existing realtimeHub.
+ */
+export async function streamShareMessages(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { shareMessageService } = await import('../../services/share/share-message.service');
+    const { channel } = await shareMessageService.channelFor(req.params.token as string);
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    if (typeof (res as { flushHeaders?: () => void }).flushHeaders === 'function') {
+      (res as { flushHeaders: () => void }).flushHeaders();
+    }
+
+    const { realtimeHub } = await import('../../services/platform-events/realtime-hub');
+    const push = () => { res.write(`data: ${JSON.stringify({ ts: Date.now() })}\n\n`); };
+
+    push();
+    const unsub = realtimeHub.subscribe(channel, push);
+    const heartbeat = setInterval(() => res.write(': keepalive\n\n'), 25000);
+
+    req.on('close', () => { clearInterval(heartbeat); unsub(); });
+  } catch (err) { next(err); }
+}
+
+/**
+ * The client's handover view. Public — the handover token is the authority.
+ * Returns only the final assets and their approval evidence.
+ */
+export async function getHandoverView(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { handoverViewService } = await import('../../services/share/handover-view.service');
+    const handover = await handoverViewService.get(req.params.token as string);
+    res.json({ success: true, handover });
   } catch (err) { next(err); }
 }

@@ -5,7 +5,7 @@ export const VOICE_PHRASES = [
   'I authorize this biometric enrollment today.',
   'This voice confirms my unique PINIT identity.',
   'Only I can access my protected digital vault.',
-  'My face, voice, and fingerprint are my keys.',
+  'My digital identity belongs only to me.',
   'I verify my identity for Pinit HUB access.',
   'This enrollment protects my creative work.',
 ] as const;

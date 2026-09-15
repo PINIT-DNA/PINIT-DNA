@@ -9,6 +9,13 @@ const ALGO = 'aes-256-gcm';
 const IV_LEN = 12;
 const TAG_LEN = 16;
 
+/**
+ * Stamped on every template written. Only one key exists today
+ * (config.biometric.encryptionKey); this marks which key a row was sealed with
+ * so a future rotation can find and re-wrap rows instead of guessing.
+ */
+export const CURRENT_ENCRYPTION_KEY_VERSION = 'v1';
+
 function deriveKey(): Buffer {
   const secret = config.biometric.encryptionKey;
   return crypto.createHash('sha256').update(secret).digest();

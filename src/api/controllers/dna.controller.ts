@@ -99,6 +99,27 @@ export async function listDnaRecords(
 
 // ─── POST /dna/generate ───────────────────────────────────────────────────────
 
+/**
+ * Explain a duplicate refusal without asserting more than is known.
+ *
+ * Only claim the file belongs to another account when a shortId is actually in
+ * hand. A match can come from a record with no owner, and telling a user their own
+ * file belongs to an account that cannot be named leaves them with no way forward.
+ */
+export function buildDuplicateMessage(
+  matchType: string | undefined,
+  ownerShortId: string | null | undefined,
+): string {
+  if (matchType === 'PINIT_VAULT_SIGNATURE') {
+    return ownerShortId
+      ? `Protected PINIT content detected. This file belongs to ${ownerShortId}. DNA cannot be generated from watermarked or share-viewer captures owned by another account.`
+      : 'Protected PINIT content detected. This file carries PINIT-DNA vault watermarks or share-link signatures, so new DNA cannot be generated from it.';
+  }
+  return ownerShortId
+    ? `This file already exists under another PINIT account. This file belongs to ${ownerShortId}. Duplicate DNA cannot be generated across accounts.`
+    : 'This file is already registered on Pinit, so new DNA cannot be generated for it. If you believe this file is yours, contact support with the file name.';
+}
+
 export async function generateDna(
   req: Request,
   res: Response,
@@ -106,6 +127,16 @@ export async function generateDna(
 ): Promise<void> {
   if (!req.file) {
     return next(new AppError(400, 'No file provided. Use multipart field name "image".'));
+  }
+
+  // Refuse a file that cannot fit in the owner's Vault before any work starts.
+  // There is no fixed size limit, so available storage is the only limit.
+  try {
+    const { entitlementService } = await import('../../services/subscription');
+    await entitlementService.assertStorageAvailable(getAuthUserId(req), req.file.size);
+  } catch (err) {
+    await fs.unlink(req.file.path).catch(() => {});
+    return next(err);
   }
 
   let buffer: Buffer;
@@ -127,15 +158,7 @@ export async function generateDna(
   if (dupResult.isDuplicate) {
     await fs.unlink(req.file.path).catch(() => {});
 
-    const ownerLabel = dupResult.ownerShortId
-      ? ` This file belongs to ${dupResult.ownerShortId}.`
-      : dupResult.matchType === 'PINIT_VAULT_SIGNATURE'
-        ? ' This image contains PINIT-DNA vault watermarks or share-link signatures.'
-        : '';
-
-    const duplicateReason = dupResult.matchType === 'PINIT_VAULT_SIGNATURE'
-      ? `Protected PINIT content detected.${ownerLabel} DNA cannot be generated from watermarked or share-viewer captures owned by another account.`
-      : `This file already exists under another PINIT account.${ownerLabel} Duplicate DNA cannot be generated across accounts.`;
+    const duplicateReason = buildDuplicateMessage(dupResult.matchType, dupResult.ownerShortId);
 
     logger.warn('[DNA] Duplicate upload blocked (cross-account)', {
       matchType:        dupResult.matchType,
@@ -163,7 +186,7 @@ export async function generateDna(
 
   try {
     // UniversalFileRouter: detects file type → routes to correct engine
-    const userId = (req as any).user?.sub;
+    const userId = getAuthUserId(req);
     const gpsLat = parseFloat(String((req.body as { gpsLat?: string })?.gpsLat ?? ''));
     const gpsLng = parseFloat(String((req.body as { gpsLng?: string })?.gpsLng ?? ''));
     const locationShared = String((req.body as { locationShared?: string })?.locationShared ?? '') === 'true';
@@ -248,7 +271,7 @@ export async function generateDna(
           });
           void orgIntegrationService.notifyAlertChannels(
             tagged.organizationId,
-            `🧬 PinIT — DNA generated for ${req.file?.originalname ?? result.dnaRecordId}`,
+            `🧬 Pinit — DNA generated for ${req.file?.originalname ?? result.dnaRecordId}`,
             {
               event: 'dna.generated',
               dnaRecordId: result.dnaRecordId,
@@ -262,22 +285,21 @@ export async function generateDna(
       }
     }
 
-    // Auto image authenticity analysis → DNA response + Vault Details
-    try {
-      const { vaultContentAnalysisService } = await import('../../services/vault/vault-content-analysis.service');
-      const fileAnalysis = await vaultContentAnalysisService.analyzeAndStoreOnDna({
-        dnaRecordId: result.dnaRecordId,
-        buffer,
-        mimeType: req.file?.mimetype ?? 'application/octet-stream',
-        filename: req.file?.originalname ?? 'file',
-      });
-      if (fileAnalysis) {
-        response.fileAnalysisLabel = fileAnalysis.verdict;
-        response.fileAnalysis = fileAnalysis;
+    // Authenticity / Python forensic labels — not part of DNA identity.
+    // Run async so protect returns as soon as DNA layers persist (vault can copy later).
+    void (async () => {
+      try {
+        const { vaultContentAnalysisService } = await import('../../services/vault/vault-content-analysis.service');
+        await vaultContentAnalysisService.analyzeAndStoreOnDna({
+          dnaRecordId: result.dnaRecordId,
+          buffer,
+          mimeType: req.file?.mimetype ?? 'application/octet-stream',
+          filename: req.file?.originalname ?? 'file',
+        });
+      } catch (err) {
+        logger.warn('[ContentAnalysis] skipped during DNA generate', { error: String(err) });
       }
-    } catch (err) {
-      logger.warn('[ContentAnalysis] skipped during DNA generate', { error: String(err) });
-    }
+    })();
 
     // Fire-and-forget: auto-index in FAISS for semantic search
     autoIndexer.indexAfterDnaGeneration({
@@ -613,7 +635,7 @@ export async function getDnaStorageAudit(
 
 /**
  * POST /dna/recover-ownership
- * Upload a full image OR a cropped fragment (~20%+) and recover PinIT ownership
+ * Upload a full image OR a cropped fragment (~20%+) and recover Pinit ownership
  * from the redundant watermark tiles embedded at generation time.
  */
 export async function recoverOwnershipFromImage(
@@ -641,14 +663,16 @@ export async function recoverOwnershipFromImage(
       res.status(200).json({
         success: true,
         isPinitFile: false,
-        message: 'No PinIT ownership watermark found in this image/fragment',
+        message: 'No Pinit ownership watermark found in this image/fragment',
         extraction: extracted,
       });
       return;
     }
 
+    const userId = getAuthUserId(req);
+
     const stego = await prisma.stegoLayer.findFirst({
-      where: { ownershipDnaFp: extracted.dnaFingerprint },
+      where: { ownershipDnaFp: extracted.dnaFingerprint, dnaRecord: { ownerUserId: userId } },
       include: {
         dnaRecord: {
           select: {
@@ -664,36 +688,40 @@ export async function recoverOwnershipFromImage(
       },
     });
 
+    const ownedMatch = stego?.dnaRecord?.ownerUserId === userId ? stego : null;
+
     res.status(200).json({
       success: true,
-      isPinitFile: true,
-      sealValid: extracted.sealValid === true,
-      confidence: extracted.confidence,
-      extraction: {
-        dnaFingerprint: extracted.dnaFingerprint,
-        ownerFingerprint: extracted.ownerFingerprint,
-        uploadedAt: extracted.uploadedAt
-          ? new Date(extracted.uploadedAt * 1000).toISOString()
-          : null,
-        metaHash: extracted.metaHash,
-      },
-      storedSignature: stego?.ownershipSignature ?? null,
-      matchedRecord: stego?.dnaRecord
+      isPinitFile: Boolean(ownedMatch),
+      sealValid: ownedMatch ? extracted.sealValid === true : false,
+      confidence: ownedMatch ? extracted.confidence : 0,
+      extraction: ownedMatch
         ? {
-            dnaRecordId: stego.dnaRecord.id,
-            ownerUserId: stego.dnaRecord.ownerUserId,
-            filename: stego.dnaRecord.imageFilename,
-            mimeType: stego.dnaRecord.imageMimeType,
-            status: stego.dnaRecord.status,
-            createdAt: stego.dnaRecord.createdAt.toISOString(),
-            sha256Hash: stego.dnaRecord.sha256Hash,
-            ownershipAlgorithm: stego.ownershipAlgorithm,
-            ownershipTileCount: stego.ownershipTileCount,
+            dnaFingerprint: extracted.dnaFingerprint,
+            ownerFingerprint: extracted.ownerFingerprint,
+            uploadedAt: extracted.uploadedAt
+              ? new Date(extracted.uploadedAt * 1000).toISOString()
+              : null,
+            metaHash: extracted.metaHash,
           }
         : null,
-      message: stego
-        ? 'PinIT ownership watermark recovered and matched to stored file signature'
-        : 'PinIT watermark found in pixels, but no matching stored signature in vault',
+      storedSignature: ownedMatch?.ownershipSignature ?? null,
+      matchedRecord: ownedMatch?.dnaRecord
+        ? {
+            dnaRecordId: ownedMatch.dnaRecord.id,
+            ownerUserId: ownedMatch.dnaRecord.ownerUserId,
+            filename: ownedMatch.dnaRecord.imageFilename,
+            mimeType: ownedMatch.dnaRecord.imageMimeType,
+            status: ownedMatch.dnaRecord.status,
+            createdAt: ownedMatch.dnaRecord.createdAt.toISOString(),
+            sha256Hash: ownedMatch.dnaRecord.sha256Hash,
+            ownershipAlgorithm: ownedMatch.ownershipAlgorithm,
+            ownershipTileCount: ownedMatch.ownershipTileCount,
+          }
+        : null,
+      message: ownedMatch
+        ? 'Pinit ownership watermark recovered and matched to stored file signature'
+        : 'No Pinit ownership watermark found in this image/fragment',
     });
   } catch (err) {
     next(err);

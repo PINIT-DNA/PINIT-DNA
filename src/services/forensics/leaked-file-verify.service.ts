@@ -134,11 +134,30 @@ export class LeakedFileVerifyService {
     fileName: string,
     options?: { ownerUserId?: string; lightweight?: boolean },
   ): Promise<LeakedFileVerifyResult> {
+    const ownerUserId = options?.ownerUserId;
+    if (!ownerUserId) {
+      return { found: false, message: 'Sign in to verify files against your vault.' };
+    }
+
+    const result = await this._verifyOwned(buffer, mimeType, fileName, ownerUserId, options);
+    if (result.identity?.ownerUserId && result.identity.ownerUserId !== ownerUserId) {
+      return { found: false, message: 'No matching document found in your vault.' };
+    }
+    return result;
+  }
+
+  private async _verifyOwned(
+    buffer: Buffer,
+    mimeType: string,
+    fileName: string,
+    ownerUserId: string,
+    options?: { ownerUserId?: string; lightweight?: boolean },
+  ): Promise<LeakedFileVerifyResult> {
     const effectiveMime = this._resolveMimeType(mimeType, fileName);
 
     // ── 0. Share-link filename registry (works for downloaded PDF/DOCX/images) ─
     try {
-      const byName = await this._resolveByShareFilename(fileName);
+      const byName = await this._resolveByShareFilename(fileName, ownerUserId);
       if (byName) return byName;
     } catch (err) {
       logger.warn('[LeakedVerify] Filename registry lookup failed', { error: String(err) });
@@ -146,7 +165,7 @@ export class LeakedFileVerifyService {
 
     // ── 0b. TEP export hash registry (exact downloaded bytes from share link) ───
     try {
-      const byExport = await this._checkTepExportRegistry(buffer);
+      const byExport = await this._checkTepExportRegistry(buffer, ownerUserId);
       if (byExport) return byExport;
     } catch (err) {
       logger.warn('[LeakedVerify] TEP export registry failed', { error: String(err) });
@@ -164,12 +183,12 @@ export class LeakedFileVerifyService {
         message: embedded.valid
           ? 'Embedded PINIT-DNA identity verified — original protected file (vault or intact download).'
           : 'Embedded identity recovered but HMAC invalid — file was modified/tampered after protection.',
-      });
+      }, ownerUserId);
     }
 
     // ── 2. Exact SHA-256 match (untouched download / identical re-upload) ───
     try {
-      const exact = await this._checkExactHash(buffer);
+      const exact = await this._checkExactHash(buffer, ownerUserId);
       if (exact) return exact;
     } catch (err) {
       logger.warn('[LeakedVerify] Exact hash check failed (non-fatal)', { error: String(err) });
@@ -211,7 +230,7 @@ export class LeakedFileVerifyService {
     // ── 3. Share-viewer screenshot (images) — OCR + DB before heavy hash scans ─
     if (effectiveMime.startsWith('image/') && !options?.lightweight) {
       try {
-        const screenshot = await this._traceScreenshotLeak(buffer, effectiveMime, fileName);
+        const screenshot = await this._traceScreenshotLeak(buffer, effectiveMime, fileName, ownerUserId);
         if (screenshot) return screenshot;
       } catch (err) {
         logger.warn('[LeakedVerify] Screenshot trace failed (non-fatal)', { error: String(err) });
@@ -220,7 +239,7 @@ export class LeakedFileVerifyService {
 
     // ── 4. Normalized pixel hash (re-saved / metadata stripped / partial tamper) ─
     try {
-      const normalized = await this._checkNormalizedHash(buffer, effectiveMime, fileName);
+      const normalized = await this._checkNormalizedHash(buffer, effectiveMime, fileName, ownerUserId);
       if (normalized) return normalized;
     } catch (err) {
       logger.warn('[LeakedVerify] Normalized hash check failed (non-fatal)', { error: String(err) });
@@ -258,7 +277,7 @@ export class LeakedFileVerifyService {
     // ── 6. pHash visual match (screenshot / recording / re-encoded tampered copy) ─
     if (effectiveMime.startsWith('image/') && !options?.lightweight) {
       try {
-        const near = await this._checkPHashMatch(buffer);
+        const near = await this._checkPHashMatch(buffer, ownerUserId);
         if (near) return near;
       } catch (err) {
         logger.warn('[LeakedVerify] pHash check failed (non-fatal)', { error: String(err) });
@@ -287,7 +306,7 @@ export class LeakedFileVerifyService {
             confidence: id.fusion.ownershipConfidence,
             message: id.tamperingSummary
               ?? `PINIT identification engine — ${id.fusion.ownershipConfidence}% ownership confidence (${m.method}).`,
-          });
+          }, ownerUserId);
         }
       } catch (err) {
         logger.warn('[LeakedVerify] Identification engine fallback failed', { error: String(err) });
@@ -323,7 +342,7 @@ export class LeakedFileVerifyService {
     return map[ext] ?? mimeType;
   }
 
-  private async _resolveByShareFilename(fileName: string): Promise<LeakedFileVerifyResult | null> {
+  private async _resolveByShareFilename(fileName: string, ownerUserId: string): Promise<LeakedFileVerifyResult | null> {
     const match =
       (fileName ? await resolveShareLinkByExactFilename(fileName) : undefined);
     if (!match) return null;
@@ -337,14 +356,15 @@ export class LeakedFileVerifyService {
       message: `File matched share link registry by filename "${fileName}" — traced to original shared file.`,
       shareToken: match.token,
       shareLinkId: match.shareLinkId,
-    });
+    }, ownerUserId);
   }
 
-  private async _checkTepExportRegistry(buffer: Buffer): Promise<LeakedFileVerifyResult | null> {
+  private async _checkTepExportRegistry(buffer: Buffer, ownerUserId: string): Promise<LeakedFileVerifyResult | null> {
     const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
 
     const manifest = await prisma.trackedExportPackage.findFirst({
       where: {
+        dnaRecord: { ownerUserId },
         OR: [{ exportSha256: sha256 }, { sourceSha256: sha256 }],
         status: { in: ['ACTIVE', 'REDISCOVERED'] },
       },
@@ -410,6 +430,7 @@ export class LeakedFileVerifyService {
     buffer: Buffer,
     mimeType: string,
     fileName: string,
+    _ownerUserId: string,
   ): Promise<LeakedFileVerifyResult | null> {
     const ocrText = await pinitSignatureDetector.extractOcrText(buffer, mimeType);
     const combined = [ocrText, fileName].filter(Boolean).join('\n');
@@ -521,9 +542,12 @@ export class LeakedFileVerifyService {
       signals?: string[];
       pHashSimilarity?: number;
     },
+    ownerUserId?: string,
   ): Promise<LeakedFileVerifyResult> {
-    const rec = await prisma.dnaRecord.findUnique({
-      where: { id: dnaRecordId },
+    const rec = await prisma.dnaRecord.findFirst({
+      where: ownerUserId
+        ? { id: dnaRecordId, ownerUserId }
+        : { id: dnaRecordId },
       select: recordSelect,
     });
     if (!rec) {
@@ -846,9 +870,10 @@ export class LeakedFileVerifyService {
     };
   }
 
-  private async _checkPHashMatch(buffer: Buffer): Promise<LeakedFileVerifyResult | null> {
+  private async _checkPHashMatch(buffer: Buffer, ownerUserId: string): Promise<LeakedFileVerifyResult | null> {
     const probe = await this.perceptualLayer.computeFingerprints(buffer);
     const stored = await prisma.perceptualLayer.findMany({
+      where: { dnaRecord: { ownerUserId } },
       select: { pHash64: true, aHash64: true, dHash64: true, dnaRecordId: true },
       take: 5000,
     });
@@ -875,20 +900,20 @@ export class LeakedFileVerifyService {
       confidence: Math.round(best.similarity * 100),
       message: `Visual fingerprint match (${(best.similarity * 100).toFixed(1)}% similar) — tampered copy, screenshot, or re-encoded leak of a protected file.`,
       pHashSimilarity: best.similarity,
-    });
+    }, ownerUserId);
   }
 
-  private async _checkExactHash(buffer: Buffer): Promise<LeakedFileVerifyResult | null> {
+  private async _checkExactHash(buffer: Buffer, ownerUserId: string): Promise<LeakedFileVerifyResult | null> {
     const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
 
     let rec = await prisma.dnaRecord.findFirst({
-      where: { sha256Hash: sha256, status: { in: ['COMPLETE', 'PARTIAL', 'PROCESSING'] } },
+      where: { sha256Hash: sha256, ownerUserId, status: { in: ['COMPLETE', 'PARTIAL', 'PROCESSING'] } },
       select: recordSelect,
     });
 
     if (!rec) {
       const cryptoMatch = await prisma.cryptoLayer.findFirst({
-        where: { sha256Hash: sha256 },
+        where: { sha256Hash: sha256, dnaRecord: { ownerUserId } },
         include: { dnaRecord: { select: recordSelect } },
       });
       rec = cryptoMatch?.dnaRecord ?? null;
@@ -903,13 +928,14 @@ export class LeakedFileVerifyService {
       tampered: false,
       confidence: 99,
       message: 'Exact byte-for-byte match with a protected PINIT-DNA file — untouched download or original upload.',
-    });
+    }, ownerUserId);
   }
 
   private async _checkNormalizedHash(
     buffer: Buffer,
     mimeType: string,
     fileName: string,
+    ownerUserId: string,
   ): Promise<LeakedFileVerifyResult | null> {
     if (!mimeType.startsWith('image/')) return null;
 
@@ -923,7 +949,7 @@ export class LeakedFileVerifyService {
     if (!probe.success || !probe.data.normalizedHash) return null;
 
     const cryptoMatch = await prisma.cryptoLayer.findFirst({
-      where: { normalizedHash: probe.data.normalizedHash },
+      where: { normalizedHash: probe.data.normalizedHash, dnaRecord: { ownerUserId } },
       include: { dnaRecord: { select: recordSelect } },
     });
     if (!cryptoMatch?.dnaRecord) return null;
@@ -940,7 +966,7 @@ export class LeakedFileVerifyService {
       message: bytesIdentical
         ? 'Same pixel content and bytes as protected file.'
         : 'Same pixel content as protected file but bytes differ — re-saved, metadata edited, compressed, or tampered.',
-    });
+    }, ownerUserId);
   }
 }
 

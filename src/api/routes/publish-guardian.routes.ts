@@ -35,7 +35,8 @@ const extensionUpload = multer({
       cb(null, `pg_${timestamp}_${random}${ext}`);
     },
   }),
-  limits: { fileSize: config.upload.maxFileSizeBytes ?? 500 * 1024 * 1024 },
+  // No fixed size limit: protection is limited by the owner's Vault storage,
+  // checked in publishProtect before any work starts.
 });
 
 /** Accept either "media" (extension) or "image" (legacy alias). */

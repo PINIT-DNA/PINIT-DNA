@@ -22,6 +22,8 @@ export interface TeamInvite {
   token?: string;
   expiresAt: string;
   createdAt: string;
+  campaignId?: string | null;
+  campaignRole?: string | null;
 }
 
 export interface CreatedTeamInvite {
@@ -29,6 +31,20 @@ export interface CreatedTeamInvite {
   token: string;
   expiresAt: string;
   role: string;
+  campaignId?: string | null;
+  campaignRole?: string | null;
+  campaignOnly?: boolean;
+  alreadyPending?: boolean;
+}
+
+/** What a Pinit ID lookup may reveal. Name and status only — never contact details. */
+export interface LookedUpAccount {
+  pinitId: string;
+  name: string;
+  alreadyMember: boolean;
+  memberRole: string | null;
+  invitePending: boolean;
+  alreadyOnCampaign?: boolean;
 }
 
 export function useOrganizationTeam() {
@@ -62,13 +78,36 @@ export function useOrganizationTeam() {
     void refresh();
   }, [refresh]);
 
-  async function invite(payload: { email?: string; inviteeShortId?: string; role?: string }): Promise<CreatedTeamInvite> {
+  async function invite(payload: {
+    email?: string; inviteeShortId?: string; role?: string;
+    /** Bind to a campaign so accepting also places them on it. */
+    campaignId?: string; campaignRole?: string;
+    /** External creator — campaign only, not organization membership. */
+    campaignOnly?: boolean;
+  }): Promise<CreatedTeamInvite> {
     const { data } = await api.post<{ invite?: CreatedTeamInvite }>(`${API_BASE_URL}/organization/team/invite`, payload);
     await refresh();
     if (!data.invite?.token) {
       throw new Error('Invite created but link was missing');
     }
     return data.invite;
+  }
+
+  /**
+   * Confirm a Pinit account before inviting it.
+   *
+   * Returns the verified display name so the sender sees who they are about to
+   * invite. A mistyped Pinit ID otherwise invites a stranger.
+   */
+  async function lookupPinitId(
+    pinitId: string,
+    opts?: { campaignId?: string },
+  ): Promise<LookedUpAccount> {
+    const { data } = await api.get<{ account: LookedUpAccount }>(
+      `${API_BASE_URL}/organization/team/lookup-pinit-id`,
+      { params: { pinitId, ...(opts?.campaignId ? { campaignId: opts.campaignId } : {}) } },
+    );
+    return data.account;
   }
 
   async function revokeInvite(inviteId: string) {
@@ -97,5 +136,6 @@ export function useOrganizationTeam() {
     revokeInvite,
     updateRole,
     removeMember,
+    lookupPinitId,
   };
 }

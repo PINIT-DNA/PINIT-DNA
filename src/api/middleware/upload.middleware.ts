@@ -45,12 +45,12 @@ const fileFilter = (
   file: Express.Multer.File,
   cb: FileFilterCallback
 ): void => {
-  if (mimeMatchesAllowed(file.mimetype, config.upload.allowedMimeTypes)) {
+  if (mimeMatchesAllowed(file.mimetype, config.upload.allowedMimeTypes, file.originalname)) {
     cb(null, true);
   } else {
     cb(
       new Error(
-        `Unsupported file type: "${file.mimetype}". ` +
+        `Unsupported file type: "${file.mimetype}" (${file.originalname}). ` +
         `Supported: IMAGE, PDF, DOCX, PPTX, TXT, HTML, CSV, JSON, ZIP, VIDEO, AUDIO. ` +
         `Check GET /api/v1/dna/supported-types for the full MIME list.`
       )
@@ -88,6 +88,24 @@ export const uploadInvestigation = investigationMulter.single('image');
  * Use this for new Universal DNA routes that are not image-specific.
  */
 export const uploadFile = multerInstance.single('file');
+
+/**
+ * Asset protection uploads — no fixed per-file size limit.
+ *
+ * Product decision: an asset may be any size. What limits protection is the
+ * owner's available Vault storage, which the protect handlers check against the
+ * real file size before any work starts (entitlementService.assertStorageAvailable).
+ * Files still stream to disk, so the parser holds no upload in memory.
+ *
+ * Every other upload route keeps uploadSingle / uploadFile and their existing limit.
+ */
+const assetMulterInstance = multer({ storage, fileFilter });
+
+/** Asset protection upload — field name "image". */
+export const uploadAsset = assetMulterInstance.single('image');
+
+/** Asset protection upload — field name "file". */
+export const uploadAssetFile = assetMulterInstance.single('file');
 
 /**
  * uploadComparison — two fields: "fileA" and "fileB"

@@ -1,10 +1,11 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Shield, Upload, AlertTriangle, RefreshCw, ScanLine,
   ChevronDown, ChevronUp, Fingerprint, Dna, User, Clock, Activity,
-  FileDown, Globe, Lock, Eye, Download, Microscope,
+  FileDown, Globe, Lock, Eye, Download,
 } from 'lucide-react';
-import { unifiedInvestigateStream } from '../services/dashboard.api';
+import { unifiedInvestigateStream, getVaultRecord } from '../services/dashboard.api';
 import { cn } from '../components/ui/utils';
 import { InvestigationScanner } from '../components/InvestigationScanner';
 import { InvestigationProcessingCard } from '../components/InvestigationProcessingCard';
@@ -140,7 +141,7 @@ interface InvestigationReport {
     aiModelAvailable: boolean;
     vaultId?: string;
     vaultFilename?: string;
-    candidateSources?: Array<{ vaultId: string; filename?: string; dnaRecordId?: string; localScore: number }>;
+    candidateSources?: Array<{ vaultId: string; filename?: string; dnaRecordId?: string; localScore: number; coveragePercent?: number }>;
     pixelSource?: {
       originalPixels: number;
       aiSuspectedPixels: number;
@@ -374,9 +375,9 @@ interface InvestigationReport {
 }
 
 const REPORT_STATE_LABELS: Record<string, string> = {
-  VERIFIED: 'Ownership Verified',
-  POSSIBLE: 'Possible Similarity – Top Candidates Only',
-  NO_SIGNATURE: 'Unknown Asset',
+  VERIFIED: 'Confirmed match',
+  POSSIBLE: 'Possible match',
+  NO_SIGNATURE: 'No match found',
 };
 
 const REPORT_STATE_STYLE: Record<string, string> = {
@@ -467,6 +468,9 @@ function Section({
 }
 
 export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: boolean }) {
+  const [searchParams] = useSearchParams();
+  const contextVaultId = searchParams.get('vaultId')?.trim() || null;
+  const [contextAssetName, setContextAssetName] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [mode, setMode] = useState<'upload' | 'scan'>('upload');
   const [loading, setLoading] = useState(false);
@@ -480,6 +484,24 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
   const [scannerKey, setScannerKey] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const reportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!contextVaultId) {
+      setContextAssetName(null);
+      return;
+    }
+    let cancelled = false;
+    getVaultRecord(contextVaultId)
+      .then((vault) => {
+        if (!cancelled) {
+          setContextAssetName(vault?.originalFileName || vault?.originalFilename || vault?.filename || null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setContextAssetName(null);
+      });
+    return () => { cancelled = true; };
+  }, [contextVaultId]);
 
   const previewUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
@@ -569,22 +591,35 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
         }
       }, { admin: adminMode });
       const investigation = r as unknown as InvestigationReport;
-      setReport(investigation);
       const toStore = mergeLiveSnapshotIntoReport(
         investigation as unknown as StoredInvestigationReport,
         liveSnapshotRef.current,
       );
-      saveInvestigationReport(toStore, f.name);
-      // Auto-archive all PDFs into Forensic Reports (no download required).
+      // Unlock the generating spinner before localStorage + PDF archive.
+      setReport(investigation);
+      setLoading(false);
+      setLiveSnapshot(null);
+      liveSnapshotRef.current = null;
+      try {
+        saveInvestigationReport(toStore, f.name);
+      } catch {
+        /* report is already on screen */
+      }
       const archiveOwner = resolveInvestigationOwner(toStore);
-      void archiveInvestigationForensicExports(
-        asExportReport(toStore as unknown as InvestigationReport),
-        { probeFile: f, vaultId: archiveOwner.vaultId },
-      ).catch(() => { /* archive is best-effort; investigation result is already saved */ });
+      window.setTimeout(() => {
+        const tPdf = performance.now();
+        void archiveInvestigationForensicExports(
+          asExportReport(toStore as unknown as InvestigationReport),
+          { probeFile: f, vaultId: archiveOwner.vaultId, examinedFileName: f.name },
+        ).then(() => {
+          console.info('[InvestigationTiming] pdfArchiveMs', Math.round(performance.now() - tPdf));
+        }).catch(() => {
+          /* archive is best-effort; investigation result is already saved */
+        });
+      }, 0);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Investigation failed';
       setError(msg);
-    } finally {
       setLoading(false);
       setLiveSnapshot(null);
       liveSnapshotRef.current = null;
@@ -636,22 +671,39 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
 
   const investigating = loading || captureProcessing;
 
-  const completedSteps = report?.pipeline.filter((s) => s.status === 'complete').length ?? 0;
-  const totalSteps = report?.pipeline.length ?? 16;
+  // `report?.pipeline.filter(...)` only guards the report: a response that
+  // arrives without `pipeline` walks into .filter on undefined and takes the
+  // route down. Same shape of crash that hit Vault check in production.
+  const pipeline = report?.pipeline ?? [];
+  const completedSteps = pipeline.filter((s) => s.status === 'complete').length;
+  const totalSteps = pipeline.length || 16;
 
   return (
     <div className="page-shell w-full max-w-5xl space-y-6 min-w-0">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-dna-500/20 flex items-center justify-center">
-          <Microscope size={20} className="text-dna-400" />
+      {contextVaultId && (
+        <div className="rounded-xl border border-dna-500/30 bg-dna-500/10 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-xs text-dna-200">Investigating in context of this asset</p>
+            <p className="text-sm font-semibold text-white truncate">
+              {contextAssetName || 'Protected asset'}
+            </p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <Link
+              to={`/access-intelligence?vaultId=${encodeURIComponent(contextVaultId)}`}
+              className="text-2xs font-semibold text-dna-300 hover:text-white"
+            >
+              Asset activity
+            </Link>
+            <Link
+              to={`/timeline?vaultId=${encodeURIComponent(contextVaultId)}`}
+              className="text-2xs font-semibold text-dna-300 hover:text-white"
+            >
+              Timeline
+            </Link>
+          </div>
         </div>
-        <div>
-          <h1 className="text-lg font-bold text-white">Unified Forensic Investigation Center</h1>
-          <p className="text-xs text-gray-500">
-            Upload or scan a suspected file — both modes run the full PINIT identity recovery pipeline.
-          </p>
-        </div>
-      </div>
+      )}
 
       {!report && investigating && (
         liveSnapshot ? (
@@ -783,6 +835,9 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
         const pdfExportOptions: InvestigationReportPdfOptions = {
           probeFile: file,
           vaultId: resolvedOwner.vaultId,
+          examinedFileName: file?.name
+            ?? report.dnaComparison?.fileB?.filename
+            ?? null,
         };
         const verdictLabel = reportState === 'VERIFIED'
           ? REPORT_STATE_LABELS.VERIFIED
@@ -794,6 +849,58 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                 : FORENSIC_VERDICT_LABELS[report.summary.forensicVerdict!] ?? report.summary.forensicVerdict));
         return (
         <div ref={reportRef} className="space-y-6 scroll-mt-6">
+          <div className="card p-5 border border-slate-200">
+            <p className="text-2xs font-bold uppercase tracking-wider text-slate-400 mb-1">Investigation result</p>
+            <p className="text-xl font-bold text-slate-900">
+              {reportState === 'VERIFIED' ? 'Confirmed Match' : reportState === 'POSSIBLE' ? 'Possible Match' : 'No Match'}
+            </p>
+            <p className="text-xs text-slate-500 mt-1">{verdictLabel}</p>
+            {hasVaultMatch && (
+              <dl className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                <div>
+                  <dt className="text-2xs uppercase tracking-wide text-slate-400">Original asset</dt>
+                  <dd className="font-semibold text-slate-800">{resolvedOwner.originalFilename || 'Protected Pinit asset'}</dd>
+                </div>
+                <div>
+                  <dt className="text-2xs uppercase tracking-wide text-slate-400">Owner</dt>
+                  <dd className="font-semibold text-slate-800">
+                    {resolvedOwner.ownershipVerified
+                      ? (resolvedOwner.ownerName || resolvedOwner.ownerPinitId || 'Registered owner')
+                      : 'Not confirmed — candidate only'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-2xs uppercase tracking-wide text-slate-400">Confidence</dt>
+                  <dd className="font-semibold text-slate-800">{displayMatchScore}%</dd>
+                </div>
+                <div>
+                  <dt className="text-2xs uppercase tracking-wide text-slate-400">Source</dt>
+                  <dd className="font-semibold text-slate-800">
+                    {(report.leakIntelligence.entries[0]?.url)
+                      || (report.leakIntelligence.hasPublicLeak ? 'Crawler / public leak' : 'Investigation upload')}
+                  </dd>
+                </div>
+              </dl>
+            )}
+            <ul className="mt-3 space-y-1 text-xs text-slate-600">
+              {hasVaultMatch && <li>Protected Pinit asset found</li>}
+              {typeof dnaLayerScore === 'number' && dnaLayerScore > 0 && (
+                <li>DNA/protection evidence matched ({dnaLayerScore}%)</li>
+              )}
+              {(report.tamperAnalysis.spatialAuthInvestigation as { verificationStatus?: string } | null)?.verificationStatus
+                && (report.tamperAnalysis.spatialAuthInvestigation as { verificationStatus?: string }).verificationStatus !== 'SKIPPED'
+                && (report.tamperAnalysis.spatialAuthInvestigation as { verificationStatus?: string }).verificationStatus !== 'DISABLED'
+                ? (
+                  <li>
+                    Spatial evidence:{' '}
+                    {(report.tamperAnalysis.spatialAuthInvestigation as { verificationStatus?: string }).verificationStatus}
+                  </li>
+                ) : null}
+              {(report.leakIntelligence?.entries?.length || report.leakIntelligence?.hasPublicLeak) ? (
+                <li>Crawler/source evidence found</li>
+              ) : null}
+            </ul>
+          </div>
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
               {(manifest?.verdict || report.summary.reportState || report.summary.forensicVerdict) && (
@@ -809,11 +916,6 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               <span className={cn('text-xs font-bold px-3 py-1 rounded-full border', RISK_COLORS[report.summary.riskLevel] ?? RISK_COLORS.UNKNOWN)}>
                 Risk: {report.summary.riskLevel}
               </span>
-              {resolvedOwner.vaultId && (
-                <span className="text-xs font-semibold px-3 py-1 rounded-full border border-sky-500/40 bg-sky-500/10 text-sky-300 mono" title={resolvedOwner.vaultId}>
-                  Vault {resolvedOwner.vaultId.slice(0, 8)}…
-                </span>
-              )}
               {resolvedOwner.originalFilename && (
                 <span className="text-2xs text-gray-400 truncate max-w-[220px]" title={resolvedOwner.originalFilename}>
                   Original: {resolvedOwner.originalFilename}
@@ -826,20 +928,33 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
             </button>
           </div>
 
-          {/* Pipeline progress */}
-          <div className="card p-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-              Investigation Pipeline — {completedSteps}/{totalSteps} complete
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2">
-              {report.pipeline.map((s) => (
+          <details className="card p-4 group">
+            <summary className="text-xs font-semibold text-slate-600 cursor-pointer list-none flex items-center justify-between">
+              View technical evidence
+              <span className="text-2xs text-slate-400 font-normal">
+                Pipeline {completedSteps}/{totalSteps}
+              </span>
+            </summary>
+            <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2">
+              {pipeline.map((s) => (
                 <div key={s.id} className="flex flex-col items-center text-center gap-1 p-2 rounded-lg bg-bg-elevated">
                   <span className={cn('w-2 h-2 rounded-full', STEP_STATUS[s.status])} title={s.detail} />
                   <span className="text-2xs text-gray-400 leading-tight">{s.label}</span>
                 </div>
               ))}
             </div>
-          </div>
+            {resolvedOwner.vaultId && (
+              <p className="text-2xs text-gray-500 mt-3">
+                Vault and DNA IDs are stored with the matched asset. If this file was licensed on Exchange,
+                order and license IDs are on the Hub share row (`sourceContext = exchange_license`) and appear
+                in owner Asset Activity — not on the public viewer.
+                {' '}
+                <a className="text-dna-300 hover:text-white" href={`/access-intelligence?vaultId=${encodeURIComponent(resolvedOwner.vaultId)}`}>
+                  Open Asset Activity
+                </a>
+              </p>
+            )}
+          </details>
 
           {(manifest?.decisionReason || report.message) && (
             <div className={cn(
@@ -902,7 +1017,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               fragment reused inside an otherwise-unrelated image), a positive fragment finding is a
               distinct, meaningful signal on its own — surface it up top so it isn't missed below the
               "no verified owner" verdict, instead of only appearing buried in Tamper Analysis. */}
-          {showFragmentReuse && (
+          {showFragmentReuse && report.fragmentReuseAnalysis && (
             <div className="card border border-purple-500/30 bg-purple-500/5 text-purple-600 p-3 text-xs">
               Fragment of protected content detected
               {report.fragmentReuseAnalysis.findings[0]
@@ -1016,7 +1131,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                   'Vault ID': resolvedOwner.vaultId,
                   'DNA ID': resolvedOwner.dnaRecordId,
                   'Certificate ID': resolvedOwner.certificateId,
-                  'Original Filename': resolvedOwner.originalFilename,
+                  'Original Assetname': resolvedOwner.originalFilename,
                   'Original Hash': report.identityRecoveryReport?.originalHash,
                   'Current Hash': report.identityRecoveryReport?.currentHash ?? report.currentFileHash,
                   'Evidence Confidence': report.identityRecoveryReport?.evidenceConfidence != null
@@ -1080,7 +1195,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                 'DNA Record ID': resolvedOwner.dnaRecordId,
                 'Certificate ID': resolvedOwner.certificateId,
                 'TEP Code': report.identityRecoveryReport?.tepCode ?? 'Not embedded on this file',
-                'Original Filename': resolvedOwner.originalFilename,
+                'Original Assetname': resolvedOwner.originalFilename,
                 'Created': report.owner.createdAt
                   ?? report.identityRecoveryReport?.registrationTimestamp
                   ?? null,
@@ -1127,7 +1242,17 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
 
           <Section title="4. 15-Layer DNA Analysis" icon={Dna} defaultOpen={false}>
             {report.layerAnalysis.length === 0 ? (
-              <p className="text-xs text-gray-500">No layer comparison — vault match required.</p>
+              // "vault match required" is wrong on a report that already shows one.
+              // When the file was identified by its embedded export code, a
+              // layer-by-layer comparison is not needed to prove identity — so say
+              // that, rather than implying a step was missed.
+              <p className="text-xs text-gray-500">
+                {report.matchMethod
+                  ? `Not needed — this file was identified by its embedded Pinit identity (${report.matchMethod}), `
+                    + 'which proves origin without comparing layers. Layer analysis runs when a file has to be '
+                    + 'matched against the vault original by content.'
+                  : 'No layer comparison ran — this file was not matched against a vault original.'}
+              </p>
             ) : (
               <div className="space-y-2">
                 {report.pipeline.some((s) => s.id === 'dna_compare' && s.detail?.includes('estimated')) && (
@@ -1278,7 +1403,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               </div>
             )}
 
-            {showFragmentReuse && (
+            {showFragmentReuse && report.fragmentReuseAnalysis && (
               <div className="mb-4 space-y-2">
                 <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
                   Fragment reuse detected
@@ -1683,7 +1808,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               </p>
             )}
             <p className="text-2xs text-gray-600 mt-3">
-              PDFs are archived to Forensic Reports automatically when an investigation finishes — you do not need to download first.
+              PDFs are archived to Evidence automatically when an investigation finishes — you do not need to download first.
               Evidence ZIP includes PDF reports, JSON artifacts, pipeline logs, and screenshot folder placeholder.
               Legal Evidence Bundle — coming soon.
             </p>

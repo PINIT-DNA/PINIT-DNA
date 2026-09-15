@@ -52,6 +52,8 @@ export class ContentExtractorService {
     });
 
     if (!record) return null;
+    const ownerUserId = record.ownerUserId;
+    if (!ownerUserId) return null;
 
     const filename = record.imageFilename;
     const mimeType = record.imageMimeType;
@@ -66,7 +68,7 @@ export class ContentExtractorService {
       // ── Try Tika first (metadata-rich) ─────────────────────────────────────
       if (record.vaultRecord && await tikaService.isAvailable()) {
         try {
-          const retrieved = await vaultService.retrieve(record.vaultRecord.id);
+          const retrieved = await vaultService.retrieve(record.vaultRecord.id, ownerUserId);
           const tikaResult = await tikaService.extract(retrieved.originalBuffer, mimeType);
           if (tikaResult.available && (tikaResult.text.length > 10 || Object.keys(tikaResult.metadata).length > 2)) {
             const norm = tikaService.normalize(tikaResult.metadata);
@@ -85,7 +87,7 @@ export class ContentExtractorService {
       // ── Text extraction for text-based files ─────────────────────────────
       if (!profile.bodyText && record.vaultRecord) {
         try {
-          const retrieved = await vaultService.retrieve(record.vaultRecord.id);
+          const retrieved = await vaultService.retrieve(record.vaultRecord.id, ownerUserId);
           const extracted = await extractDocumentText(retrieved.originalBuffer, mimeType, filename);
           if (extracted.success && extracted.wordCount > 3) {
             profile.bodyText   = extracted.text;
@@ -99,7 +101,7 @@ export class ContentExtractorService {
       // ── OCR for images via Python AI ─────────────────────────────────────
       if (!profile.bodyText && record.vaultRecord && mimeType.startsWith('image/')) {
         try {
-          const retrieved = await vaultService.retrieve(record.vaultRecord.id);
+          const retrieved = await vaultService.retrieve(record.vaultRecord.id, ownerUserId);
           const ocrResult = await aiService.extractTextOcr(
             retrieved.originalBuffer, filename, mimeType
           );

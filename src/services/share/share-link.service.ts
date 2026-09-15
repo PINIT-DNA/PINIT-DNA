@@ -11,9 +11,12 @@ import axios    from 'axios';
 import { prisma } from '../../lib/prisma';
 import { logger }  from '../../lib/logger';
 import { assertRecordOwner } from '../../lib/tenant-scope';
+import { AppError } from '../../api/middleware/error.middleware';
 import { riskEngineService, serializeRiskEvidence } from './risk-engine.service';
 import { sanitizeCoordinatePair } from '../../lib/geo-coords';
 import { getIpIntelligence } from '../forensic/ip-intelligence.service';
+import { VaultService } from '../vault/vault.service';
+import { isLocalShareHost, isProductionShareEnv, resolveShareViewerOrigin } from '../../lib/share-viewer-url';
 
 // ─── HMAC token signing (integrity layer — detects tampered/guessed tokens) ──
 const HMAC_SECRET = process.env['SHARE_HMAC_SECRET'] || 'pinit-dna-dev-secret-change-me';
@@ -45,10 +48,22 @@ function hashOtp(otp: string): string {
 // ─── IP Geolocation (ip-api.com — free, no key needed) ───────────────────────
 interface GeoInfo { country?: string; city?: string; region?: string; isp?: string; }
 
+function isPrivateOrLoopbackIp(ip: string): boolean {
+  const n = ip.replace(/^::ffff:/i, '');
+  if (!n || n === '::1' || n.startsWith('127.')) return true;
+  if (n.startsWith('10.') || n.startsWith('192.168.')) return true;
+  const m = n.match(/^172\.(\d+)\./);
+  if (m) {
+    const octet = Number(m[1]);
+    return octet >= 16 && octet <= 31;
+  }
+  return false;
+}
+
 export async function geoFromIp(ip: string): Promise<GeoInfo> {
-  // Return a local-network label for private/loopback IPs so the UI shows something useful
-  if (!ip || ip === '::1' || ip.startsWith('127.') || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
-    return { country: 'Local Network', city: 'Localhost', region: 'Private', isp: 'Local' };
+  // Private IPs have no public geolocation. Do not invent a city or village.
+  if (!ip || isPrivateOrLoopbackIp(ip)) {
+    return { country: 'Local network', isp: 'Private IP' };
   }
   try {
     const clean = ip.replace('::ffff:', ''); // strip IPv6-mapped IPv4
@@ -70,6 +85,20 @@ export interface CreateShareLinkInput {
   expiresIn?:    number | null;  // hours, null = never
   maxViews?:     number | null;
   allowDownload?: boolean;
+  allowPrint?: boolean;
+  /** Collaboration — turns the secure viewer into a review surface. Off by
+   *  default, so an ordinary share is never silently made commentable. */
+  reviewMode?: boolean;
+  allowComments?: boolean;
+  allowChangeRequest?: boolean;
+  allowApproval?: boolean;
+  /** Who this link is for. Shown to them, and used to attribute what they
+   *  write — without it an external creator is labelled "Client". */
+  recipientLabel?: string;
+  /** Links this share to a ShareRecipient so trust score and device history
+   *  accumulate against one identity across their links. */
+  shareRecipientId?: string;
+  reviewVersionId?: string | null;
   requireName?:  boolean;
   note?:         string;
 
@@ -107,8 +136,22 @@ export interface CreateShareLinkInput {
   // ── Multi-recipient child links ───────────────────────────────────────
   recipients?: Array<{ label: string; email?: string }>;
 
-  /** PARENT (default), FILE (Share File open-on-PinIT page), CHILD/GRANDCHILD (hops) */
+  /** PARENT (default), FILE (Share File open-on-Pinit page), CHILD/GRANDCHILD (hops) */
   linkType?: string;
+
+  // ── Exchange licensed share ───────────────────────────────────────────
+  /** Canonical Asset.id — the identity that crosses the Hub↔Exchange boundary. */
+  assetId?:        string;
+  /**
+   * "hub" (default) = owner sharing their own vault file.
+   * "exchange_license" = a BUYER sharing a file they licensed on Exchange. The
+   * buyer is deliberately not the vault owner, so the ownership assertion is
+   * skipped — the Exchange bridge verifies seal ownership before calling.
+   */
+  sourceContext?:   string;
+  exchangeOrderId?: string;
+  exchangeSealId?:  string;
+  licenseTier?:     string;
 }
 
 export interface ChildLinkResult {
@@ -125,6 +168,7 @@ export interface ShareLinkPublicInfo {
   note:         string | null;
   requireName:  boolean;
   allowDownload: boolean;
+  allowPrint?: boolean;
   expiresAt:    string | null;
   maxViews:     number | null;
   viewCount:    number;
@@ -142,6 +186,8 @@ export interface ShareLinkPublicInfo {
   requestLocation:  boolean;
   inactiveReason?:  'expired' | 'exhausted' | 'revoked' | 'one_time' | 'tampered' | null;
   viewerRevoked?:   boolean;
+  sourceContext?:   string | null;
+  licenseTier?:     string | null;
 }
 
 export interface AccessLogInput {
@@ -185,6 +231,8 @@ export interface AccessLogInput {
   org?:          string;
   lat?:          number;
   lng?:          number;
+  /** Viewer-reported scroll milestone, e.g. "25%". Stored on the action string. */
+  scrollDepth?:  string;
   canvasFp?:     string;
   webglFp?:      string;
   audioFp?:      string;
@@ -213,15 +261,17 @@ function parseUserAgent(ua: string): { browser: string; os: string; device: stri
     /OPR\//.test(ua)     ? 'Opera' : 'Unknown';
 
   const os =
+    /iPhone|iPad|iPod/.test(ua) ? 'iOS' :
+    /Android/.test(ua) ? 'Android' :
     /Windows/.test(ua)  ? 'Windows' :
+    (/Mac OS/.test(ua) && /Mobile\//.test(ua)) ? 'iOS' :
     /Mac OS/.test(ua)   ? 'macOS' :
-    /Linux/.test(ua)    ? 'Linux' :
-    /Android/.test(ua)  ? 'Android' :
-    /iPhone|iPad/.test(ua) ? 'iOS' : 'Unknown';
+    /Linux/.test(ua)    ? 'Linux' : 'Unknown';
 
   const device =
-    /Mobi|Android/.test(ua) ? 'mobile' :
-    /Tablet|iPad/.test(ua)  ? 'tablet' : 'desktop';
+    /iPhone|iPod|Android.+Mobile|Mobile\//.test(ua) ? 'mobile' :
+    /iPad|Tablet/.test(ua)  ? 'tablet' :
+    /Mobi|Android/.test(ua) ? 'mobile' : 'desktop';
 
   return { browser, os, device };
 }
@@ -253,7 +303,34 @@ export class ShareLinkService {
       include: { dnaRecord: { select: { id: true, imageFilename: true, imageMimeType: true, ownerUserId: true } } },
     });
     if (!vault) throw new Error(`Vault record not found: ${input.vaultId}`);
-    assertRecordOwner(vault.dnaRecord?.ownerUserId, input.ownerUserId, 'Vault');
+
+    // A licensed Exchange share is created BY THE BUYER, who is not the vault
+    // owner — so the ownership assertion cannot apply. Authorisation for that
+    // path is the seal check the Exchange bridge performs before calling
+    // (buyer_pinit_id on orders_sealed), plus the bridge secret itself.
+    // Ordinary Hub shares keep the owner assertion unconditionally.
+    const isLicensedShare = input.sourceContext === 'exchange_license';
+    if (isLicensedShare) {
+      if (!input.exchangeSealId) {
+        throw new Error('exchangeSealId is required for an exchange_license share');
+      }
+    } else {
+      assertRecordOwner(vault.dnaRecord?.ownerUserId, input.ownerUserId, 'Vault');
+    }
+
+    const vaultOwnerId = vault.dnaRecord?.ownerUserId ?? input.ownerUserId;
+    const publicViewer = isProductionShareEnv() || !isLocalShareHost(resolveShareViewerOrigin());
+    if (publicViewer && vaultOwnerId) {
+      try {
+        await new VaultService().ensureCloudCopyForPublicShare(input.vaultId, vaultOwnerId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/not in cloud storage/i.test(msg)) {
+          throw new AppError(409, msg);
+        }
+        throw err;
+      }
+    }
 
     // Generate unique token
     let token = generateToken();
@@ -283,6 +360,59 @@ export class ShareLinkService {
       });
     }
 
+    // Review mode needs the canonical Asset.id, because the client's scope is
+    // resolved through it: token -> assetId -> campaign -> organization. The
+    // share dialog creates links by vaultId, so resolve it here rather than
+    // relying on every caller to remember — a review link with a null assetId
+    // would look created but resolve to nothing.
+    let resolvedAssetId: string | null = input.assetId ?? null;
+    if (input.reviewMode && !resolvedAssetId) {
+      const asset = await prisma.asset.findFirst({
+        where: { vaultId: vault.id },
+        select: { id: true, campaignId: true },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (!asset) {
+        throw new AppError(400, 'Review needs an asset record for this file. Protect it into a campaign first.');
+      }
+      if (!asset.campaignId) {
+        throw new AppError(
+          400,
+          'Review is only available for assets in a campaign. Add this asset to a campaign, then share it again.',
+        );
+      }
+      resolvedAssetId = asset.id;
+    }
+
+    // A review link is useless without a version row. Create V1 if needed, and
+    // move DRAFT → IN_REVIEW so the team sees the request and a client change
+    // request can advance the status.
+    if (input.reviewMode && resolvedAssetId) {
+      const scoped = await prisma.asset.findUnique({
+        where: { id: resolvedAssetId },
+        select: { campaign: { select: { organizationId: true } } },
+      });
+      const orgId = scoped?.campaign?.organizationId;
+      if (orgId) {
+        const { assetVersionService } = await import('../organization/asset-version.service');
+        await assetVersionService.ensureV1(orgId, input.ownerUserId, resolvedAssetId);
+        const current = input.reviewVersionId
+          ? await prisma.assetVersion.findFirst({
+              where: { id: input.reviewVersionId, assetId: resolvedAssetId },
+            })
+          : await prisma.assetVersion.findFirst({
+              where: { assetId: resolvedAssetId, supersededAt: null },
+              orderBy: { versionNumber: 'desc' },
+            });
+        if (current?.reviewStatus === 'DRAFT') {
+          await prisma.assetVersion.update({
+            where: { id: current.id },
+            data: { reviewStatus: 'IN_REVIEW' },
+          });
+        }
+      }
+    }
+
     const link = await prisma.shareLink.create({
       data: {
         token,
@@ -291,9 +421,28 @@ export class ShareLinkService {
         dnaRecordId:  vault.dnaRecordId,
         filename:     vault.originalFileName,
         mimeType:     vault.originalMimeType,
+        assetId:         resolvedAssetId,
+        sourceContext:   input.sourceContext ?? 'hub',
+        exchangeOrderId: input.exchangeOrderId ?? null,
+        exchangeSealId:  input.exchangeSealId ?? null,
+        licenseTier:     input.licenseTier ?? null,
         expiresAt,
         maxViews:     input.maxViews ?? null,
         allowDownload: input.allowDownload ?? false,
+        allowPrint:      input.allowPrint ?? false,
+
+        // Comments only mean anything in review mode, so they are gated on it
+        // rather than trusted independently — a caller cannot enable commenting
+        // on a link that is not a review link.
+        reviewMode:         input.reviewMode ?? false,
+        allowComments:      Boolean(input.reviewMode && (input.allowComments ?? true)),
+        allowChangeRequest: Boolean(input.reviewMode && (input.allowChangeRequest ?? true)),
+        // Approval is opt-in even inside review mode: it is a decision someone
+        // may be held to, not a discussion.
+        allowApproval:      Boolean(input.reviewMode && (input.allowApproval ?? false)),
+        reviewVersionId:    input.reviewMode ? (input.reviewVersionId ?? null) : null,
+        recipientLabel:     input.recipientLabel?.trim() || null,
+        shareRecipientId:   input.shareRecipientId ?? null,
         requireName:  input.requireName ?? false,
         note:         input.note ?? null,
 
@@ -329,7 +478,7 @@ export class ShareLinkService {
         // Tenant isolation
         ownerUserId: input.ownerUserId,
 
-        // PARENT (Share Secure Link) vs FILE (Share File → open on PinIT page)
+        // PARENT (Share Secure Link) vs FILE (Share File → open on Pinit page)
         linkType: input.linkType ?? 'PARENT',
       },
     });
@@ -357,7 +506,7 @@ export class ShareLinkService {
   }
 
   /**
-   * Share File channel: open on PinIT `/s/:token` page so views are tracked.
+   * Share File channel: open on Pinit `/s/:token` page so views are tracked.
    * Reuses the latest active FILE link for the vault when available.
    */
   async createOrGetFileShare(input: {
@@ -403,15 +552,18 @@ export class ShareLinkService {
   private async _createChildLinks(
     parentLinkId: string,
     parent: { token: string; vaultId: string; dnaRecordId: string; filename: string; mimeType: string;
-              expiresAt: Date | null; maxViews: number | null; allowDownload: boolean; requireName: boolean;
+              expiresAt: Date | null; maxViews: number | null; allowDownload: boolean; allowPrint?: boolean; requireName: boolean;
               note: string | null; oneTimeUse: boolean; maxDownloads: number | null;
               allowedCountries: string[]; allowedDeviceTypes: string[]; allowedIpPrefixes: string[];
               requireOtp: boolean; privacyMaskingEnabled: boolean; maskEmail: boolean; maskPhone: boolean;
               maskAadhaar: boolean; maskPan: boolean; maskAddress: boolean; maskCustomPatterns: string | null;
-              requestLocation: boolean; ownerUserId: string | null; tokenSignature: string | null; },
+              requestLocation: boolean; ownerUserId: string | null; tokenSignature: string | null;
+              assetId: string | null; reviewMode: boolean; allowComments: boolean;
+              allowChangeRequest: boolean; allowApproval: boolean; reviewVersionId: string | null;
+              shareRecipientId: string | null; },
     recipients: Array<{ label: string; email?: string }>
   ): Promise<ChildLinkResult[]> {
-    const appUrl = process.env['PUBLIC_APP_URL'] ?? 'http://localhost:3000';
+    const appUrl = process.env['PUBLIC_APP_URL'] ?? 'http://localhost:3002';
     const results: ChildLinkResult[] = [];
 
     for (const recipient of recipients) {
@@ -431,9 +583,17 @@ export class ShareLinkService {
           dnaRecordId:  parent.dnaRecordId,
           filename:     parent.filename,
           mimeType:     parent.mimeType,
+          assetId:      parent.assetId,
           expiresAt:    parent.expiresAt,
           maxViews:     parent.maxViews,
           allowDownload: parent.allowDownload,
+          allowPrint:    parent.allowPrint,
+          reviewMode:         parent.reviewMode,
+          allowComments:      parent.allowComments,
+          allowChangeRequest: parent.allowChangeRequest,
+          allowApproval:      parent.allowApproval,
+          reviewVersionId:    parent.reviewVersionId,
+          shareRecipientId:   parent.shareRecipientId,
           requireName:  parent.requireName,
           note:         parent.note,
           oneTimeUse:   parent.oneTimeUse,
@@ -526,9 +686,17 @@ export class ShareLinkService {
         dnaRecordId: parent.dnaRecordId,
         filename: parent.filename,
         mimeType: parent.mimeType,
+        assetId: parent.assetId,
         expiresAt: parent.expiresAt,
         maxViews: null, // each hop recipient gets their own quota — don't inherit parent cap
         allowDownload: parent.allowDownload,
+        allowPrint: parent.allowPrint,
+        reviewMode: parent.reviewMode,
+        allowComments: parent.allowComments,
+        allowChangeRequest: parent.allowChangeRequest,
+        allowApproval: parent.allowApproval,
+        reviewVersionId: parent.reviewVersionId,
+        shareRecipientId: parent.shareRecipientId,
         requireName: parent.requireName,
         note: parent.note,
         oneTimeUse: false, // each hop is independent; don't inherit one-shot of parent
@@ -913,14 +1081,18 @@ export class ShareLinkService {
     if (!signatureValid) inactiveReason = 'tampered';
     else if (isExpired) inactiveReason = 'expired';
     else if (isExhausted) inactiveReason = 'exhausted';
-    else if (!link.isActive && !isParent) {
+    else if (!link.isActive) {
+      // A parent consumed by oneTimeUse is a forwarding hub, not a revocation.
+      // Every other inactive link — including a parent — is revoked, and must say so.
       inactiveReason = link.oneTimeUse ? 'one_time' : 'revoked';
-    } else if (!link.isActive && isParent && link.oneTimeUse) {
-      inactiveReason = 'one_time';
     }
 
-    // PARENT links stay open for new devices to mint hop URLs even after oneTimeUse consumed the row.
-    const parentAcceptsForwards = isParent && !isExpired && !isExhausted && signatureValid;
+    // PARENT links stay open for new devices to mint hop URLs even after oneTimeUse
+    // consumed the row. That carve-out exists for oneTimeUse ONLY: a parent that was
+    // deliberately revoked, or deactivated because its vault was deleted, is dead like
+    // any other link and must not keep forwarding.
+    const parentAcceptsForwards =
+      isParent && link.oneTimeUse && !isExpired && !isExhausted && signatureValid;
     const linkAccessible =
       !isExpired &&
       !isExhausted &&
@@ -939,6 +1111,7 @@ export class ShareLinkService {
       note:          link.note,
       requireName:   link.requireName,
       allowDownload: link.allowDownload,
+      allowPrint:    Boolean(link.allowPrint),
       expiresAt:     link.expiresAt?.toISOString() ?? null,
       maxViews:      link.maxViews,
       viewCount:     link.viewCount,
@@ -956,6 +1129,11 @@ export class ShareLinkService {
       requestLocation:       link.requestLocation,
       inactiveReason,
       viewerRevoked,
+      sourceContext: link.sourceContext ?? 'hub',
+      licenseTier:   link.licenseTier ?? null,
+      // Order/seal IDs stay on the share_links row. They are not returned on
+      // this public endpoint so recipients cannot read them from the page or
+      // the network response. Owner APIs still return them.
     };
   }
 
@@ -1073,6 +1251,10 @@ export class ShareLinkService {
     } else {
       finalDevice = finalDevice === 'mobile' ? 'Mobile' : finalDevice === 'tablet' ? 'Tablet' : 'Desktop';
     }
+    let finalOs = input.os ?? os;
+    if (finalDevice === 'Mobile' && (finalOs === 'macOS' || finalOs === 'Unknown')) {
+      finalOs = 'iOS';
+    }
 
     // Auto-geolocate if country not provided
     let country = input.country ?? null;
@@ -1109,10 +1291,8 @@ export class ShareLinkService {
       } catch { /* best-effort */ }
     }
 
-    // Override IP-based city with GPS city when available (GPS is more accurate)
-    if (input.gpsCity) {
-      city = input.gpsCity;
-    }
+    // Keep `city` as IP/network locality. GPS reverse-geocode lives in gps* fields.
+    // Mixing them made IP city look like a precise village.
 
     // ── Session duration: time elapsed since the first event of this session
     let sessionDurationSec: number | null = null;
@@ -1142,7 +1322,7 @@ export class ShareLinkService {
       action: input.action,
       country, city, region, device: finalDevice,
       browser: input.browser ?? browser,
-      os: input.os ?? os,
+      os: finalOs,
       ipAddress: input.ipAddress ?? null,
       gpsLat: input.gpsLat ?? null,
       gpsLng: input.gpsLng ?? null,
@@ -1172,16 +1352,44 @@ export class ShareLinkService {
 
     const gpsCoords = sanitizeCoordinatePair(input.gpsLat, input.gpsLng);
     const ipCoords  = sanitizeCoordinatePair(ipLat, ipLng);
+    const sourceIn = (input.locationSource ?? '').toLowerCase();
+    const hasRealGps = Boolean(gpsCoords) && sourceIn !== 'ip' && sourceIn !== 'denied';
+    const locationSource = hasRealGps
+      ? (sourceIn === 'network' ? 'network' : (sourceIn || 'gps'))
+      : ipCoords
+        ? 'ip'
+        : (sourceIn || null);
+
+    let persistedAction = input.action;
+    if (input.action === 'SCROLL' && input.scrollDepth) {
+      const depth = String(input.scrollDepth).replace(/\s/g, '').slice(0, 8);
+      persistedAction = `SCROLL:${depth}`;
+    }
+
+    const gpsLocality = hasRealGps
+      ? {
+          gpsCity:       input.gpsCity       ?? null,
+          gpsVillage:    input.gpsVillage     ?? null,
+          gpsMandal:     input.gpsMandal      ?? null,
+          gpsDistrict:   input.gpsDistrict    ?? null,
+          gpsState:      input.gpsState       ?? null,
+          gpsPincode:    input.gpsPincode     ?? null,
+          gpsFullAddress: input.gpsFullAddress ?? null,
+        }
+      : {
+          gpsCity: null, gpsVillage: null, gpsMandal: null, gpsDistrict: null,
+          gpsState: null, gpsPincode: null, gpsFullAddress: null,
+        };
 
     await prisma.shareAccessLog.create({
       data: {
         shareLinkId:   input.shareLinkId,
-        action:        input.action,
+        action:        persistedAction,
         recipientName: input.recipientName ?? null,
         ipAddress:     input.ipAddress ?? null,
         userAgent:     ua.slice(0, 500),
         browser:       input.browser ?? browser,
-        os:            input.os ?? os,
+        os:            finalOs,
         device:        finalDevice,
         country,
         city,
@@ -1196,23 +1404,13 @@ export class ShareLinkService {
         riskLevel:     risk.level,
         riskFactors:   riskEvidenceJson,
         sessionDurationSec,
-        gpsLat:        gpsCoords?.lat ?? null,
-        gpsLng:        gpsCoords?.lng ?? null,
-        gpsAccuracy:   input.gpsAccuracy   ?? null,
-        gpsCity:       input.gpsCity       ?? null,
+        gpsLat:        hasRealGps ? gpsCoords?.lat ?? null : null,
+        gpsLng:        hasRealGps ? gpsCoords?.lng ?? null : null,
+        gpsAccuracy:   hasRealGps ? (input.gpsAccuracy ?? null) : null,
         gpsTimestamp:  input.gpsTimestamp  ?? null,
         locationShared:  input.locationShared ?? false,
-        gpsVillage:      input.gpsVillage     ?? null,
-        gpsMandal:       input.gpsMandal      ?? null,
-        gpsDistrict:     input.gpsDistrict    ?? null,
-        gpsState:        input.gpsState       ?? null,
-        gpsPincode:      input.gpsPincode     ?? null,
-        gpsFullAddress:  input.gpsFullAddress ?? null,
-        locationSource:  gpsCoords
-          ? (input.locationSource ?? 'gps')
-          : ipCoords
-            ? 'ip'
-            : (input.locationSource ?? null),
+        ...gpsLocality,
+        locationSource,
         isVpn:         input.isVpn         ?? false,
         isTor:         input.isTor         ?? false,
         isProxy:       input.isProxy       ?? false,
@@ -1227,10 +1425,37 @@ export class ShareLinkService {
       },
     });
 
+    // ── Canonical asset timeline (Phase 2) ────────────────────────────────
+    // A share view/download is asset activity, so it belongs on the Asset.id
+    // timeline alongside listing and sale events. Only VIEWED and DOWNLOADED
+    // map to timeline types; the attempt/forwarding actions stay in
+    // ShareAccessLog, which is where the security detail lives.
+    //
+    // Location, IP, device fingerprint and risk data are deliberately NOT
+    // forwarded — the creator reads this timeline in Asset 360 and must not
+    // see a viewer's precise location or network identity.
+    if (link.assetId && (input.action === 'VIEWED' || input.action === 'DOWNLOADED')) {
+      import('../assets/asset-activity.service').then(({ recordAssetActivity }) => {
+        recordAssetActivity({
+          assetId: link.assetId,
+          eventType: input.action === 'VIEWED' ? 'SHARE_VIEWED' : 'SHARE_DOWNLOADED',
+          title: input.action === 'VIEWED' ? 'Shared link viewed' : 'Shared file downloaded',
+          detail: link.filename ?? undefined,
+          payload: {
+            shareToken: link.token,
+            linkType: link.linkType,
+            sourceContext: link.sourceContext,
+            country: country ?? null,
+          },
+        });
+      }).catch(() => {});
+    }
+
     // ── Platform events (notifications via Unified Event Engine) ───────────
     const NOTIFY_ACTIONS = new Set([
       'VIEWED', 'DOWNLOADED', 'FORWARDING_DETECTED',
       'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT',
+      'SCREEN_RECORDING_ATTEMPT', 'DOWNLOAD_STARTED', 'DOWNLOAD_FAILED', 'SHARE_FURTHER',
     ]);
     if (link.ownerUserId && NOTIFY_ACTIONS.has(input.action)) {
       const hopNumber = link.linkType === 'GRANDCHILD' ? 2 : link.linkType === 'CHILD' ? 1 : undefined;
@@ -1271,8 +1496,7 @@ export class ShareLinkService {
       }
     }
     if (input.action === 'DOWNLOADED') {
-      updateData['viewCount']      = { increment: 1 };
-      updateData['downloadCount']  = { increment: 1 };
+      updateData['downloadCount'] = { increment: 1 };
     }
     if (Object.keys(updateData).length > 0) {
       await prisma.shareLink.update({ where: { id: input.shareLinkId }, data: updateData });
@@ -1288,7 +1512,9 @@ export class ShareLinkService {
     // Revokes the link automatically when score ≥ 85 AND at least 2 suspicious
     // actions exist in the history (guards against single-event false positives,
     // e.g. a first-time traveller triggering "+new country" alone).
-    const SUSPICIOUS_ACTIONS = new Set(['COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT']);
+    const SUSPICIOUS_ACTIONS = new Set([
+      'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT', 'SCREEN_RECORDING_ATTEMPT',
+    ]);
     let autoRevoked = false;
     if (risk.level === 'CRITICAL' && risk.score >= 85) {
       const suspiciousCount = history.filter(h => SUSPICIOUS_ACTIONS.has(h.action)).length;
@@ -1363,8 +1589,9 @@ export class ShareLinkService {
   /** Live map pins — where shared files were opened (GPS or IP geolocation). */
   async getLiveTrackingMap(ownerUserId: string) {
     const TRACKED_ACTIONS = [
-      'VIEWED', 'DOWNLOADED', 'FORWARDING_DETECTED',
-      'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT',
+      'VIEWED', 'DOWNLOADED', 'DOWNLOAD_STARTED', 'DOWNLOAD_FAILED',
+      'FORWARDING_DETECTED', 'SHARE_FURTHER',
+      'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT', 'SCREEN_RECORDING_ATTEMPT',
     ];
 
     const logs = await prisma.shareAccessLog.findMany({
@@ -1387,7 +1614,7 @@ export class ShareLinkService {
         lng: true,
         locationSource: true,
         shareLink: {
-          select: { filename: true, vaultId: true, token: true },
+          select: { filename: true, vaultId: true, token: true, id: true },
         },
       },
     });
@@ -1396,6 +1623,7 @@ export class ShareLinkService {
       id: string;
       vaultId: string | null;
       filename: string;
+      token: string;
       lat: number;
       lng: number;
       action: string;
@@ -1418,11 +1646,12 @@ export class ShareLinkService {
         id: log.id,
         vaultId: log.shareLink.vaultId,
         filename: log.shareLink.filename ?? 'Shared file',
+        token: log.shareLink.token,
         lat: coords.lat,
         lng: coords.lng,
         action: log.action,
         locationLabel,
-        source: gps ? 'gps' : 'ip',
+        source: gps ? (log.locationSource === 'network' ? 'ip' : 'gps') : 'ip',
         timestamp: log.createdAt.toISOString(),
         device: log.device,
       });
@@ -1471,10 +1700,35 @@ export class ShareLinkService {
     if (!vault) throw new Error(`Vault record not found: ${vaultId}`);
     assertRecordOwner(vault.dnaRecord?.ownerUserId, ownerUserId, 'Vault');
 
+    // Explicit select rather than the whole row. The previous version returned
+    // all 75 columns to the browser, including otpCodeHash and tokenSignature —
+    // the OTP hash and the token's HMAC. The owner is entitled to their link,
+    // but not to have its verification secrets shipped into a page where any
+    // script or extension can read them.
     return prisma.shareLink.findMany({
       where:   { vaultId, ownerUserId, linkType: 'PARENT' },
       orderBy: { createdAt: 'desc' },
-      include: { accessLogs: { orderBy: { createdAt: 'desc' }, take: 10 } },
+      select: {
+        id: true, token: true, filename: true, mimeType: true, note: true,
+        createdAt: true, expiresAt: true, isActive: true,
+        maxViews: true, viewCount: true, maxDownloads: true, downloadCount: true,
+        allowDownload: true, requireName: true, requestLocation: true, allowPrint: true,
+        oneTimeUse: true, requireOtp: true, otpVerified: true,
+        privacyMaskingEnabled: true, watermarkCode: true,
+        forwardStatus: true, depth: true, linkType: true,
+        recipientLabel: true, recipientEmail: true,
+        reviewMode: true, allowComments: true, allowChangeRequest: true, allowApproval: true,
+        sourceContext: true, exchangeOrderId: true, exchangeSealId: true, licenseTier: true,
+        assetId: true, vaultId: true,
+        accessLogs: {
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: {
+            id: true, createdAt: true, action: true,
+            country: true, city: true, device: true, recipientName: true,
+          },
+        },
+      },
     });
   }
 
@@ -1491,7 +1745,6 @@ export class ShareLinkService {
       orderBy: { createdAt: 'desc' },
       include: {
         _count: { select: { accessLogs: true, childLinks: true } },
-        accessLogs: { orderBy: { createdAt: 'desc' } },
       },
     });
 
@@ -1522,7 +1775,143 @@ export class ShareLinkService {
       }
     }
 
-    return healed;
+    return this.attachListActivityStats(healed, userId);
+  }
+
+  /**
+   * List-page metrics from the full hop tree (not the last 8 parent logs).
+   * Counts VIEWED as views — never download rows as views.
+   */
+  private async attachListActivityStats<T extends { id: string }>(
+    parents: T[],
+    ownerUserId: string,
+  ): Promise<Array<T & {
+    viewCount: number;
+    downloadCount: number;
+    activityStats: {
+      uniqueViewers: number;
+      views: number;
+      downloads: number;
+      securityEvents: number;
+      countries: string[];
+      lastActivityAt: string | null;
+      hasHighRisk: boolean;
+    };
+    accessLogs: [];
+  }>> {
+    if (!parents.length) return [];
+
+    const ownerLinks = await prisma.shareLink.findMany({
+      where: { ownerUserId },
+      select: { id: true, parentLinkId: true },
+    });
+    const parentOf = new Map(ownerLinks.map((h) => [h.id, h.parentLinkId]));
+    const findRoot = (id: string): string => {
+      let cur = id;
+      const seen = new Set<string>();
+      while (parentOf.get(cur) && !seen.has(cur)) {
+        seen.add(cur);
+        cur = parentOf.get(cur)!;
+      }
+      return cur;
+    };
+    const treeIds = new Map<string, string[]>();
+    for (const h of ownerLinks) {
+      const root = findRoot(h.id);
+      const arr = treeIds.get(root) ?? [];
+      arr.push(h.id);
+      treeIds.set(root, arr);
+    }
+
+    const allIds = ownerLinks.map((h) => h.id);
+    const SECURITY = new Set([
+      'COPY_ATTEMPT', 'PRINT_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'SCREEN_RECORDING_ATTEMPT',
+      'DOWNLOAD_FAILED', 'FORWARDING_DETECTED',
+      'BLOCKED_REVOKED', 'BLOCKED_EXPIRED', 'BLOCKED_MAX_VIEWS', 'BLOCKED_TAMPERED',
+      'BLOCKED_POLICY', 'BLOCKED_TOR', 'BLOCKED_VPN', 'BLOCKED_COUNTRY', 'BLOCKED_DEVICE', 'BLOCKED_IP',
+    ]);
+
+    const grouped = allIds.length
+      ? await prisma.shareAccessLog.groupBy({
+          by: ['shareLinkId', 'action'],
+          where: { shareLinkId: { in: allIds } },
+          _count: { _all: true },
+        })
+      : [];
+
+    const openRows = allIds.length
+      ? await prisma.shareAccessLog.findMany({
+          where: {
+            shareLinkId: { in: allIds },
+            action: { in: ['VIEWED', 'FORWARDING_DETECTED'] },
+          },
+          select: {
+            shareLinkId: true,
+            deviceFingerprint: true,
+            ipAddress: true,
+            sessionId: true,
+            country: true,
+            createdAt: true,
+            riskLevel: true,
+          },
+        })
+      : [];
+
+    const countsByRoot = new Map<string, Map<string, number>>();
+    for (const row of grouped) {
+      const root = findRoot(row.shareLinkId);
+      const m = countsByRoot.get(root) ?? new Map<string, number>();
+      m.set(row.action, (m.get(row.action) ?? 0) + row._count._all);
+      countsByRoot.set(root, m);
+    }
+
+    const viewersByRoot = new Map<string, Set<string>>();
+    const countriesByRoot = new Map<string, Set<string>>();
+    const lastByRoot = new Map<string, Date>();
+    const riskByRoot = new Map<string, boolean>();
+    for (const row of openRows) {
+      const root = findRoot(row.shareLinkId);
+      const vset = viewersByRoot.get(root) ?? new Set<string>();
+      vset.add(row.deviceFingerprint || `${row.ipAddress ?? 'unknown'}|${row.sessionId ?? row.shareLinkId}`);
+      viewersByRoot.set(root, vset);
+      if (row.country) {
+        const cset = countriesByRoot.get(root) ?? new Set<string>();
+        cset.add(row.country);
+        countriesByRoot.set(root, cset);
+      }
+      const prev = lastByRoot.get(root);
+      if (!prev || row.createdAt > prev) lastByRoot.set(root, row.createdAt);
+      if (row.riskLevel === 'HIGH' || row.riskLevel === 'CRITICAL') riskByRoot.set(root, true);
+    }
+
+    return parents.map((p) => {
+      const actions = countsByRoot.get(p.id) ?? new Map<string, number>();
+      let views = 0;
+      let downloads = 0;
+      let securityEvents = 0;
+      for (const [action, n] of actions) {
+        if (action === 'VIEWED') views += n;
+        if (action === 'DOWNLOADED') downloads += n;
+        if (SECURITY.has(action)) securityEvents += n;
+      }
+      const countries = [...(countriesByRoot.get(p.id) ?? [])];
+      const last = lastByRoot.get(p.id);
+      return {
+        ...p,
+        viewCount: views,
+        downloadCount: downloads,
+        activityStats: {
+          uniqueViewers: viewersByRoot.get(p.id)?.size ?? 0,
+          views,
+          downloads,
+          securityEvents,
+          countries,
+          lastActivityAt: last ? last.toISOString() : null,
+          hasHighRisk: riskByRoot.get(p.id) ?? false,
+        },
+        accessLogs: [],
+      };
+    });
   }
 
   // ── Get a specific link with full logs ────────────────────────────────────
@@ -1626,6 +2015,11 @@ export class ShareLinkService {
 
     if (!rootLink) return null;
 
+    const { otpCodeHash: _otp, tokenSignature: _sig, ...safeRoot } = rootLink as typeof rootLink & {
+      otpCodeHash?: string | null;
+      tokenSignature?: string | null;
+    };
+
     const viewCount = accessLogs.filter(l => l.action === 'VIEWED').length;
     const downloadCount = accessLogs.filter(l => l.action === 'DOWNLOADED').length;
 
@@ -1641,7 +2035,7 @@ export class ShareLinkService {
     });
 
     return {
-      ...rootLink,
+      ...safeRoot,
       accessLogs,
       viewCount,
       downloadCount,

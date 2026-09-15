@@ -12,13 +12,10 @@ import {
 import { formatBytes } from '../../hooks/useApi';
 import { useAdminCapabilities } from '../context/AdminCapabilitiesContext';
 
-type Tab = 'overview' | 'activity' | 'business' | 'billing' | 'vault' | 'certificates' | 'shares' | 'logins' | 'monitoring' | 'tep';
+type Tab = 'overview' | 'vault' | 'certificates' | 'shares' | 'logins' | 'monitoring' | 'tep';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
-  { id: 'activity', label: 'Activity' },
-  { id: 'business', label: 'Business & Exchange' },
-  { id: 'billing', label: 'Billing' },
   { id: 'vault', label: 'Vault & DNA' },
   { id: 'certificates', label: 'Certificates' },
   { id: 'shares', label: 'Share Links' },
@@ -26,10 +23,6 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'logins', label: 'Sessions & Logins' },
   { id: 'monitoring', label: 'Monitoring' },
 ];
-
-function formatMoney(amountCents: number, currency: string): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'USD' }).format((amountCents ?? 0) / 100);
-}
 
 export function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -225,13 +218,6 @@ export function UserDetailPage() {
               <div><span className="text-gray-500">Certificates</span><p className="text-gray-900 font-medium">{profile.certificates?.length ?? 0}</p></div>
               <div><span className="text-gray-500">Share Links</span><p className="text-gray-900 font-medium">{profile.shareLinks?.length ?? 0}</p></div>
               <div><span className="text-gray-500">TEP Packages</span><p className="text-gray-900 font-medium">{profile.tepPackages?.length ?? 0}</p></div>
-              <div>
-                <span className="text-gray-500">Business Account</span>
-                <p className="text-gray-900 font-medium">
-                  {profile.ownedOrganization ? 'Owner' : (profile.organizationMemberships?.length ?? 0) > 0 ? 'Member' : 'None'}
-                </p>
-              </div>
-              <div><span className="text-gray-500">Activity Events</span><p className="text-gray-900 font-medium">{profile.activity?.length ?? 0}</p></div>
             </div>
             {profile.bio && <p className="text-sm text-gray-500 mt-4 border-t border-gray-100 pt-3">{profile.bio}</p>}
           </section>
@@ -257,138 +243,10 @@ export function UserDetailPage() {
               </div>
               <p className="text-[11px] text-gray-400 mt-3">
                 Exchange runs its own database with no query bridge yet — this is the id an Exchange
-                account for this person would use, not confirmation one exists. See "Business &amp; Exchange" below.
+                account for this person would use, not confirmation one exists.
               </p>
             </section>
           )}
-        </div>
-      )}
-
-      {tab === 'activity' && (
-        <div>
-          <p className="text-xs text-gray-500 mb-3">
-            Every platform event recorded against this account, newest first — the single place to see
-            everything this person has done or had happen to their assets, across every module.
-          </p>
-          {(profile.activity ?? []).length === 0 ? (
-            <div className="text-center py-16 text-sm text-gray-400 border border-gray-200 rounded-xl bg-white">
-              No activity recorded for this user yet
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {(profile.activity ?? []).map((e: any) => (
-                <div key={e.id} className="flex items-start gap-3 bg-white border border-gray-200 rounded-lg p-3">
-                  <div className="mt-0.5"><LightStatusBadge value={e.severity ?? e.category} /></div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium text-gray-900 truncate">{e.title}</p>
-                      <span className="text-[11px] text-gray-400 shrink-0">{format(new Date(e.createdAt), 'MMM d, yyyy HH:mm')}</span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-0.5">{e.body}</p>
-                    <p className="text-[10px] uppercase text-gray-400 mt-1">{e.category} · {e.entityType}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {tab === 'business' && (
-        <div className="space-y-6">
-          <section>
-            <h3 className="text-sm font-medium text-gray-900 mb-3">Business Account</h3>
-            {profile.ownedOrganization ? (
-              <div className="bg-white border border-gray-200 rounded-xl p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">{profile.ownedOrganization.name ?? 'Unnamed organization'}</p>
-                    <p className="text-xs font-mono text-gray-500">{profile.ownedOrganization.shortId}</p>
-                  </div>
-                  <LightStatusBadge value="ACTIVE" />
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                  <div><span className="text-gray-500 text-xs">Industry</span><p className="text-gray-900">{profile.ownedOrganization.industry ?? '—'}</p></div>
-                  <div><span className="text-gray-500 text-xs">Size</span><p className="text-gray-900">{profile.ownedOrganization.organizationSize ?? '—'}</p></div>
-                  <div><span className="text-gray-500 text-xs">Country</span><p className="text-gray-900">{profile.ownedOrganization.country ?? '—'}</p></div>
-                  <div><span className="text-gray-500 text-xs">Members</span><p className="text-gray-900">{profile.ownedOrganization._count?.members ?? 0}</p></div>
-                </div>
-                <p className="text-[11px] text-gray-400 mt-3">
-                  Owns this Business account since {format(new Date(profile.ownedOrganization.createdAt), 'MMM d, yyyy')}
-                  {' · '}{profile.ownedOrganization._count?.workspaces ?? 0} workspace(s)
-                </p>
-              </div>
-            ) : (profile.organizationMemberships ?? []).length > 0 ? (
-              <LightDataTable
-                rows={profile.organizationMemberships}
-                keyField={(r: any) => r.organization.id}
-                columns={[
-                  { key: 'org', header: 'Organization', render: (r: any) => r.organization.name ?? r.organization.shortId },
-                  { key: 'shortId', header: 'Org ID', className: 'font-mono text-xs', render: (r: any) => r.organization.shortId },
-                  { key: 'role', header: 'Role', render: (r: any) => <LightStatusBadge value={r.role} /> },
-                  { key: 'joined', header: 'Joined', render: (r: any) => format(new Date(r.joinedAt), 'MMM d, yyyy') },
-                ]}
-              />
-            ) : (
-              <div className="text-center py-10 text-sm text-gray-400 border border-gray-200 rounded-xl bg-white">
-                No Business account — not an owner or member of any organization
-              </div>
-            )}
-          </section>
-
-          <section>
-            <h3 className="text-sm font-medium text-gray-900 mb-1">Exchange</h3>
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-              <p className="text-sm text-amber-800 font-medium mb-1">Not available from Master Admin yet</p>
-              <p className="text-xs text-amber-700">
-                Exchange is a separate application with its own database, and there is currently no live
-                query bridge letting the Hub backend ask Exchange whether this person has a seller/creator
-                account or what they've earned there. Showing a real Exchange account status or revenue
-                figure here would mean fabricating data — so this is left honestly blank rather than guessed.
-                Their computed Exchange-format id (for reference only) is{' '}
-                <span className="font-mono">{profile.identity?.exchange}</span>.
-              </p>
-            </div>
-          </section>
-        </div>
-      )}
-
-      {tab === 'billing' && (
-        <div className="space-y-6">
-          <section>
-            <h3 className="text-sm font-medium text-gray-900 mb-3">Subscription</h3>
-            {profile.subscription ? (
-              <div className="bg-white border border-gray-200 rounded-xl p-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                <div><span className="text-gray-500 text-xs">Plan</span><p className="text-gray-900 font-medium">{profile.subscription.plan?.name ?? '—'}</p></div>
-                <div><span className="text-gray-500 text-xs">Status</span><div className="mt-0.5"><LightStatusBadge value={profile.subscription.status} /></div></div>
-                <div><span className="text-gray-500 text-xs">Renews</span><p className="text-gray-900">{profile.subscription.currentPeriodEnd ? format(new Date(profile.subscription.currentPeriodEnd), 'MMM d, yyyy') : '—'}</p></div>
-                <div><span className="text-gray-500 text-xs">Cancels at period end</span><p className="text-gray-900">{profile.subscription.cancelAtPeriodEnd ? 'Yes' : 'No'}</p></div>
-              </div>
-            ) : (
-              <div className="text-center py-10 text-sm text-gray-400 border border-gray-200 rounded-xl bg-white">
-                No subscription on record — free tier or never subscribed
-              </div>
-            )}
-          </section>
-
-          <section>
-            <h3 className="text-sm font-medium text-gray-900 mb-3">Payments to PinIt</h3>
-            <p className="text-[11px] text-gray-400 mb-2">
-              This is what this user has paid PinIt for their own subscription — not revenue they've
-              generated elsewhere (see Business &amp; Exchange for that distinction).
-            </p>
-            <LightDataTable
-              rows={profile.subscription?.billingHistory ?? []}
-              keyField="id"
-              emptyMessage="No billing history"
-              columns={[
-                { key: 'amount', header: 'Amount', render: (r: any) => formatMoney(r.amountCents, r.currency) },
-                { key: 'provider', header: 'Provider', render: (r: any) => r.provider },
-                { key: 'status', header: 'Status', render: (r: any) => <LightStatusBadge value={r.status} /> },
-                { key: 'created', header: 'Date', render: (r: any) => format(new Date(r.createdAt), 'MMM d, yyyy') },
-              ]}
-            />
-          </section>
         </div>
       )}
 

@@ -8,7 +8,7 @@
  */
 
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { format, formatDistanceToNow } from 'date-fns';
 import {
   Clock, Dna, Lock, Search, GitCompare, Award,
@@ -138,6 +138,7 @@ function buildHistory(
           COPIED:              <Copy size={14} />,
           COPY_ATTEMPT:        <Copy size={14} />,
           SCREENSHOT_ATTEMPT:  <Ban size={14} />,
+          SCREEN_RECORDING_ATTEMPT: <Ban size={14} />,
           SCROLL:              <Eye size={14} />,
           TAB_SWITCH:          <Eye size={14} />,
           PRINT_ATTEMPT:       <Ban size={14} />,
@@ -150,6 +151,7 @@ function buildHistory(
           COPIED:             'bg-dna-500/20 border-dna-500/40 text-dna-400',
           COPY_ATTEMPT:       'bg-warning/20 border-warning/40 text-warning',
           SCREENSHOT_ATTEMPT: 'bg-danger/20 border-danger/40 text-danger',
+          SCREEN_RECORDING_ATTEMPT: 'bg-danger/20 border-danger/40 text-danger',
           SCROLL:             'bg-gray-500/10 border-gray-500/20 text-gray-400',
           TAB_SWITCH:         'bg-warning/10 border-warning/20 text-warning',
           PRINT_ATTEMPT:      'bg-danger/10 border-danger/20 text-danger',
@@ -162,6 +164,11 @@ function buildHistory(
           COPIED:             'Link copied',
           COPY_ATTEMPT:       'Copy attempt',
           SCREENSHOT_ATTEMPT: 'Screenshot attempt',
+          SCREEN_RECORDING_ATTEMPT: 'Screen recording attempt',
+          DOWNLOAD_STARTED: 'Download started',
+          DOWNLOAD_FAILED: 'Download failed',
+          SHARE_FURTHER: 'Link reshared',
+          FORWARDING_DETECTED: 'Link forwarded',
           SCROLL:             'Scrolled while viewing',
           TAB_SWITCH:         'Switched away from the tab',
           PRINT_ATTEMPT:      'Print attempt',
@@ -322,15 +329,15 @@ function FileHistoryCard({ history, expanded, onToggle }: { history: FileHistory
       >
         <FileTypeBadge type={history.fileType} />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-white truncate">{history.filename}</p>
-          <p className="text-xs text-gray-500 mono mt-0.5">
-            {history.dnaRecordId.slice(0, 16)}� · {history.events.length} events
+          <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{history.filename}</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {history.events.length} {history.events.length === 1 ? 'event' : 'events'}
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
           <div className="flex items-center gap-1">
             {history.events.some(e => e.type === 'VAULT_STORED') && (
-              <Badge variant="success">Vaulted</Badge>
+              <Badge variant="success">Protected</Badge>
             )}
             {history.events.some(e => e.type === 'COMPARED') && (
               <Badge variant="info">Compared</Badge>
@@ -339,6 +346,26 @@ function FileHistoryCard({ history, expanded, onToggle }: { history: FileHistory
           <span className="text-xs text-gray-500">
             {formatDistanceToNow(new Date(history.lastActivity), { addSuffix: true })}
           </span>
+          {history.vaultId && (
+            <span
+              role="link"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/vault?id=${encodeURIComponent(history.vaultId!)}`);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  navigate(`/vault?id=${encodeURIComponent(history.vaultId!)}`);
+                }
+              }}
+              className="text-xs font-semibold text-dna-600 dark:text-blue-300 hover:underline"
+            >
+              Open asset
+            </span>
+          )}
           {expanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
         </div>
       </button>
@@ -365,8 +392,8 @@ function FileHistoryCard({ history, expanded, onToggle }: { history: FileHistory
                   <div className="flex-1 min-w-0 pb-4">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-white">{event.title}</p>
-                        <p className="text-xs text-gray-400 mt-0.5">{event.detail}</p>
+                        <p className="text-sm font-semibold text-slate-900 dark:text-white">{event.title}</p>
+                        <p className="text-xs text-slate-500 dark:text-gray-400 mt-0.5">{event.detail}</p>
                       </div>
                       <span className="text-2xs text-gray-600 mono shrink-0 mt-0.5">
                         {format(new Date(event.timestamp), 'MMM d, HH:mm')}
@@ -436,6 +463,10 @@ function FileHistoryCard({ history, expanded, onToggle }: { history: FileHistory
 // --- Page ---------------------------------------------------------------------
 
 export function TimelinePage() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const focusVaultId = searchParams.get('vaultId')?.trim() || null;
+  const focusDnaId = searchParams.get('dnaRecordId')?.trim() || null;
   const { data: dnaRecords, loading: loadDna, error: errDna, refetch } = useApi(listDnaRecords, [], { cacheKey: 'dna-records' });
   const { data: vaultRecords, loading: loadVault } = useApi(listVaultRecords, [], { cacheKey: 'vault-records' });
   const [search, setSearch]     = useState('');
@@ -496,7 +527,7 @@ export function TimelinePage() {
         .catch(() => {});
     };
     fetchLinks();
-    const id = setInterval(fetchLinks, 20_000);
+    const id = setInterval(fetchLinks, 60_000);
     return () => clearInterval(id);
   }, []);
 
@@ -505,10 +536,28 @@ export function TimelinePage() {
     return buildHistory(dnaRecords, vaultRecords, comparisons, shareEventsByDna);
   }, [dnaRecords, vaultRecords, comparisons, shareEventsByDna]);
 
-  const filtered = useMemo(() => histories.filter(h =>
-    (filterType === 'ALL' || h.fileType === filterType) &&
-    h.filename.toLowerCase().includes(search.toLowerCase())
-  ), [histories, filterType, search]);
+  const filtered = useMemo(() => {
+    const bySearch = histories.filter(h =>
+      (filterType === 'ALL' || h.fileType === filterType) &&
+      h.filename.toLowerCase().includes(search.toLowerCase())
+    );
+    if (focusVaultId) return bySearch.filter(h => h.vaultId === focusVaultId);
+    if (focusDnaId) return bySearch.filter(h => h.dnaRecordId === focusDnaId);
+    return bySearch;
+  }, [histories, filterType, search, focusVaultId, focusDnaId]);
+
+  useEffect(() => {
+    const match = histories.find(h =>
+      (focusVaultId && h.vaultId === focusVaultId) || (focusDnaId && h.dnaRecordId === focusDnaId),
+    );
+    if (!match) return;
+    setExpandedIds(prev => {
+      if (prev.has(match.dnaRecordId)) return prev;
+      const next = new Set(prev);
+      next.add(match.dnaRecordId);
+      return next;
+    });
+  }, [histories, focusVaultId, focusDnaId]);
 
   const fileTypes = useMemo(() =>
     ['ALL', ...[...new Set(histories.map(h => h.fileType))]], [histories]);
@@ -519,18 +568,30 @@ export function TimelinePage() {
     <div className="page-shell space-y-5 animate-fade-in">
 
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-white">File activity</h1>
-          <p className="text-sm text-gray-500 mt-0.5">The story of every file — who opened it, when, and what changed</p>
-        </div>
+      <div className="flex items-center justify-end flex-wrap gap-3">
         <div className="flex items-center gap-2">
-          {!loading && <Badge variant="dna">{histories.length} files · {totalEvents} events</Badge>}
+          {!loading && <Badge variant="dna">{(focusVaultId || focusDnaId ? filtered : histories).length} files · {(focusVaultId || focusDnaId ? filtered.reduce((s, h) => s + h.events.length, 0) : totalEvents)} events</Badge>}
           <button onClick={refetch} disabled={loading} className="btn btn-secondary btn-sm">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
+
+      {(focusVaultId || focusDnaId) && filtered[0] && (
+        <div className="rounded-xl border border-dna-500/30 bg-dna-500/10 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-xs text-dna-200">Showing this asset</p>
+            <p className="text-sm font-semibold text-white">{filtered[0].filename}</p>
+          </div>
+          <button
+            type="button"
+            className="text-2xs font-semibold text-dna-300 hover:text-white"
+            onClick={() => navigate('/timeline')}
+          >
+            Show all assets
+          </button>
+        </div>
+      )}
 
       {/* Legend */}
       <div className="flex items-center gap-4 flex-wrap">
@@ -554,7 +615,7 @@ export function TimelinePage() {
         <div className="relative flex-1 min-w-48">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
           <input
-            type="text" placeholder="Search by filename�"
+            type="text" placeholder="Search by filename"
             value={search} onChange={e => setSearch(e.target.value)}
             className="input pl-9 text-sm"
           />
@@ -579,13 +640,13 @@ export function TimelinePage() {
       </div>
 
       {/* Stats row */}
-      {!loading && histories.length > 0 && (
+      {!loading && (focusVaultId || focusDnaId ? filtered.length > 0 : histories.length > 0) && (
         <div className="stat-grid-4 gap-3">
           {[
-            { icon: <Dna size={16} className="text-dna-400" />, label: 'Files Tracked', value: histories.length },
-            { icon: <Lock size={16} className="text-success" />, label: 'Files Vaulted', value: histories.filter(h => h.vaultId).length },
+            { icon: <Dna size={16} className="text-dna-400" />, label: 'Files Tracked', value: (focusVaultId || focusDnaId ? filtered : histories).length },
+            { icon: <Lock size={16} className="text-success" />, label: 'Files stored', value: (focusVaultId || focusDnaId ? filtered : histories).filter(h => h.vaultId).length },
             { icon: <GitCompare size={16} className="text-cyan" />, label: 'Comparisons', value: comparisons.length },
-            { icon: <Shield size={16} className="text-purple" />, label: 'Total Events', value: totalEvents },
+            { icon: <Shield size={16} className="text-purple" />, label: 'Total Events', value: (focusVaultId || focusDnaId ? filtered.reduce((s, h) => s + h.events.length, 0) : totalEvents) },
           ].map(item => (
             <div key={item.label} className="card-sm flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-bg-elevated flex items-center justify-center">{item.icon}</div>
@@ -599,7 +660,7 @@ export function TimelinePage() {
       )}
 
       {/* Geo Intelligence + Live Session Monitoring widgets */}
-      {(geoAnalytics.length > 0 || liveSessions.live.length > 0 || liveSessions.concurrent.length > 0) && (
+      {!focusVaultId && !focusDnaId && (geoAnalytics.length > 0 || liveSessions.live.length > 0 || liveSessions.concurrent.length > 0) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {/* Geo analytics */}
           {geoAnalytics.length > 0 && (
@@ -671,8 +732,8 @@ export function TimelinePage() {
         <div className="card">
           <EmptyState
             icon={Clock}
-            title="No timeline events"
-            description="Protect a file to start building its activity history"
+            title="No activity yet"
+            description="Protect your first asset to start building its history."
           />
         </div>
       ) : (

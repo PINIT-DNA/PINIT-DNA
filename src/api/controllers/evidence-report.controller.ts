@@ -153,8 +153,19 @@ export async function listIncidents(req: Request, res: Response, next: NextFunct
 
 export async function getIncident(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const incident = await prisma.incident.findUnique({
-      where: { id: req.params['id']! },
+    const userId = getAuthUserId(req);
+    const [ownedDnaIds, ownedShareIds] = await Promise.all([
+      prisma.dnaRecord.findMany({ where: { ownerUserId: userId }, select: { id: true } }).then((r) => r.map((d) => d.id)),
+      prisma.shareLink.findMany({ where: { ownerUserId: userId }, select: { id: true } }).then((r) => r.map((s) => s.id)),
+    ]);
+    const incident = await prisma.incident.findFirst({
+      where: {
+        id: req.params['id']!,
+        OR: [
+          ...(ownedDnaIds.length ? [{ dnaRecordId: { in: ownedDnaIds } }] : []),
+          ...(ownedShareIds.length ? [{ shareLinkId: { in: ownedShareIds } }] : []),
+        ],
+      },
       include: { evidenceRecords: true },
     });
     if (!incident) {
@@ -167,6 +178,7 @@ export async function getIncident(req: Request, res: Response, next: NextFunctio
 
 export async function updateIncidentStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    const userId = getAuthUserId(req);
     const { status, resolvedNote } = req.body as { status: string; resolvedNote?: string };
     const validStatuses = ['OPEN', 'INVESTIGATING', 'RESOLVED', 'DISMISSED'];
     if (!validStatuses.includes(status)) {
@@ -174,8 +186,27 @@ export async function updateIncidentStatus(req: Request, res: Response, next: Ne
       return;
     }
 
+    const [ownedDnaIds, ownedShareIds] = await Promise.all([
+      prisma.dnaRecord.findMany({ where: { ownerUserId: userId }, select: { id: true } }).then((r) => r.map((d) => d.id)),
+      prisma.shareLink.findMany({ where: { ownerUserId: userId }, select: { id: true } }).then((r) => r.map((s) => s.id)),
+    ]);
+    const existing = await prisma.incident.findFirst({
+      where: {
+        id: req.params['id']!,
+        OR: [
+          ...(ownedDnaIds.length ? [{ dnaRecordId: { in: ownedDnaIds } }] : []),
+          ...(ownedShareIds.length ? [{ shareLinkId: { in: ownedShareIds } }] : []),
+        ],
+      },
+      select: { id: true },
+    });
+    if (!existing) {
+      res.status(404).json({ success: false, error: 'Incident not found' });
+      return;
+    }
+
     const incident = await prisma.incident.update({
-      where: { id: req.params['id']! },
+      where: { id: existing.id },
       data: {
         status,
         resolvedAt:   status === 'RESOLVED' || status === 'DISMISSED' ? new Date() : null,
@@ -188,22 +219,32 @@ export async function updateIncidentStatus(req: Request, res: Response, next: Ne
 
 export async function listRecipients(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    const userId = getAuthUserId(req);
     const { limit = '50', offset = '0' } = req.query as Record<string, string>;
+    const ownedDnaIds = (await prisma.dnaRecord.findMany({
+      where: { ownerUserId: userId },
+      select: { id: true },
+    })).map((d) => d.id);
+    const ownerFilter = ownedDnaIds.length
+      ? { watermarkProfiles: { some: { dnaRecordId: { in: ownedDnaIds } } } }
+      : { id: '__none__' };
 
     const [recipients, total] = await Promise.all([
       prisma.recipientProfile.findMany({
+        where: ownerFilter,
         orderBy: { lastSeen: 'desc' },
         take:   parseInt(limit,  10),
         skip:   parseInt(offset, 10),
         include: {
           watermarkProfiles: {
+            where: ownedDnaIds.length ? { dnaRecordId: { in: ownedDnaIds } } : { id: '__none__' },
             select: { watermarkCode: true, extractedAt: true, createdAt: true },
             orderBy: { createdAt: 'desc' },
             take: 5,
           },
         },
       }),
-      prisma.recipientProfile.count(),
+      prisma.recipientProfile.count({ where: ownerFilter }),
     ]);
 
     res.json({ success: true, total, recipients });

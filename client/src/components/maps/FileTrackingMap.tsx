@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { isValidMapCoordinate } from '../../lib/geo-coords';
+import { leafletBasemapLayer } from './leafletBasemap';
 
 export type AccessKind = 'direct_recipient' | 'direct_share' | 'reshared';
 
@@ -24,13 +25,20 @@ interface MapPoint {
   gpsAccuracy?: number | null;
   gpsFullAddress?: string | null;
   locationSource?: string | null;
+  /** File name shown on the pin popup */
+  filename?: string;
   /** Green / blue / red pin role */
+  /** Stable viewer id for selecting from map / URL */
+  viewerId?: string;
   accessKind?: AccessKind;
+  /** Screenshot, copy, recording, download — shown on the pin popup */
+  actionSummary?: string;
 }
 
 interface FileTrackingMapProps {
   points: MapPoint[];
   height?: string;
+  onSelectViewer?: (viewerId: string) => void;
 }
 
 /** Pin colors: Direct Recipient = green, Direct Share = blue, Reshared = red */
@@ -45,6 +53,35 @@ export const ACCESS_KIND_LABELS: Record<AccessKind, string> = {
   direct_share: 'Direct Share',
   reshared: 'Reshared',
 };
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function pointsSignature(points: MapPoint[]): string {
+  return points
+    .map((p) =>
+      [
+        p.viewerId ?? '',
+        p.lat,
+        p.lng,
+        p.hopNumber,
+        p.ip,
+        p.filename ?? '',
+        p.country,
+        p.city ?? '',
+        p.riskLevel,
+        p.locationSource ?? '',
+        p.accessKind ?? '',
+        p.totalActions,
+      ].join('|'),
+    )
+    .join(';');
+}
 
 function resolveAccessKind(hop: number, kind?: AccessKind): AccessKind {
   if (kind) return kind;
@@ -111,9 +148,12 @@ function createPinIcon(hop: number, riskLevel: string, accessKind?: AccessKind):
   });
 }
 
-export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapProps) {
+export function FileTrackingMap({ points, height = '400px', onSelectViewer }: FileTrackingMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<L.Map | null>(null);
+  const onSelectRef = useRef(onSelectViewer);
+  onSelectRef.current = onSelectViewer;
+  const pointsSig = pointsSignature(points);
 
   useEffect(() => {
     const validPoints = spreadOverlappingPoints(
@@ -133,11 +173,7 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
     });
     mapInstance.current = map;
 
-    // Dark tile layer
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
-      maxZoom: 18,
-    }).addTo(map);
+    leafletBasemapLayer('dark').addTo(map);
 
     const markers: L.LatLng[] = [];
 
@@ -156,9 +192,10 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
       const kindColor = ACCESS_KIND_COLORS[kind];
       const kindLabel = ACCESS_KIND_LABELS[kind];
 
-      const locationLines = p.gpsFullAddress
+      const showVillage = p.locationSource === 'gps' || p.locationSource === 'network';
+      const locationLines = showVillage && p.gpsFullAddress
         ? p.gpsFullAddress.replace(/,/g, '<br/>')
-        : p.gpsVillage
+        : showVillage && p.gpsVillage
         ? [
             p.gpsVillage,
             [p.gpsMandal, p.gpsDistrict].filter(Boolean).join(', '),
@@ -173,8 +210,13 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
           ? `<div style="font-size:10px;color:#eab308;margin-top:2px">🌐 IP-based location (approximate)</div>`
           : '';
 
+      const fileLine = p.filename
+        ? `<div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:6px;word-break:break-word">${escapeHtml(p.filename)}</div>`
+        : '';
+
       marker.bindPopup(`
         <div style="font-family:Inter,system-ui,sans-serif;min-width:220px">
+          ${fileLine}
           <div style="font-size:13px;font-weight:700;color:#333;margin-bottom:6px">
             Hop ${p.hopNumber} — ${kindLabel}
             ${riskBadge}
@@ -184,16 +226,22 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
           </div>
           <div style="font-size:11px;color:#666;line-height:1.5">
             <div style="margin-bottom:4px">📍 <strong>${locationLines}</strong></div>
-            <div>🌐 IP: <code style="background:#f1f5f9;padding:1px 4px;border-radius:3px">${p.ip}</code></div>
-            <div>📱 ${p.device}</div>
+            <div>🌐 IP: <code style="background:#f1f5f9;padding:1px 4px;border-radius:3px">${escapeHtml(p.ip || '—')}</code></div>
+            <div>📱 ${escapeHtml(p.device || '—')}</div>
             <div>👁 ${p.totalActions} action${p.totalActions > 1 ? 's' : ''}</div>
+            ${p.actionSummary ? `<div style="font-size:10px;color:#7c3aed;margin-top:4px">${escapeHtml(p.actionSummary)}</div>` : ''}
             ${accuracyBadge}
-            <div style="font-size:10px;color:#999;margin-top:4px">
-              ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}
+            <div style="font-size:10px;color:#64748b;margin-top:6px">
+              GPS: ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}
             </div>
           </div>
         </div>
-      `, { maxWidth: 300 });
+      `, { maxWidth: 320, autoClose: false, closeOnClick: false });
+
+      marker.on('click', () => {
+        if (p.viewerId) onSelectRef.current?.(p.viewerId);
+        marker.openPopup();
+      });
 
       marker.addTo(map);
     });
@@ -239,7 +287,10 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
         mapInstance.current = null;
       }
     };
-  }, [points]);
+    // Rebuild only when pin data actually changes — not when the parent re-renders
+    // after selecting a viewer (that used to close the popup immediately).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pointsSig, height]);
 
   const validCount = points.filter(p => isValidMapCoordinate(p.lat, p.lng)).length;
 
@@ -258,7 +309,7 @@ export function FileTrackingMap({ points, height = '400px' }: FileTrackingMapPro
     <div className="relative">
       <div
         ref={mapRef}
-        style={{ height, width: '100%', borderRadius: '12px', overflow: 'hidden' }}
+        style={{ height, width: '100%', borderRadius: '12px' }}
         className="border border-bg-border"
       />
       <div className="absolute bottom-3 left-3 z-[1000] flex flex-wrap gap-2 rounded-lg bg-black/70 backdrop-blur-sm px-2.5 py-2 border border-white/10">

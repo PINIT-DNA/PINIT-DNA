@@ -9,7 +9,7 @@
  */
 
 import { Router } from 'express';
-import { uploadSingle, uploadComparison } from '../middleware/upload.middleware';
+import { uploadAsset, uploadSingle, uploadComparison } from '../middleware/upload.middleware';
 import { listDnaRecords, generateDna, verifyDna, getDnaRecord, getSupportedTypes, getDuplicateAttempts, getDnaStorageAudit, recoverOwnershipFromImage } from '../controllers/dna.controller';
 import { compareDna } from '../controllers/comparison.controller';
 import { autoCompareDna } from '../controllers/auto-compare.controller';
@@ -60,7 +60,7 @@ router.get('/duplicate-attempts', requireAuth, getDuplicateAttempts);
 /** GET /dna/storage-audit — 15-layer storage integrity + linkage audit for authenticated owner */
 router.get('/storage-audit', requireAuth, getDnaStorageAudit);
 
-router.post('/generate', requireAuth, uploadSingle, generateDna);
+router.post('/generate', requireAuth, uploadAsset, generateDna);
 
 /**
  * POST /dna/recover-ownership

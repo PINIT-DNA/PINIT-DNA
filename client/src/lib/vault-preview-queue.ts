@@ -34,6 +34,10 @@ export async function withVaultPreviewRetry<T>(
       return await fn();
     } catch (err) {
       lastError = err;
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status && status >= 400 && status < 500 && status !== 429) {
+        throw err;
+      }
       if (i < attempts - 1) {
         await new Promise(r => setTimeout(r, delayMs * (i + 1)));
       }

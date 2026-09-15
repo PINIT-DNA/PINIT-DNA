@@ -8,6 +8,13 @@
  *   - A leak attribution result (watermark + recipient + timeline)
  *
  * Output: PDF buffer — caller can stream or store.
+ *
+ * THIS REPORT IS INTERNAL. It contains share tokens, IP addresses, VPN/TOR
+ * flags, watermark codes and DNA fingerprint hashes — everything a forensic
+ * analyst needs and nothing a client should ever receive. The client-facing
+ * document is a separate, redacted composition built on the drawing primitives
+ * exported below (see campaign-client-report.service.ts). One engine, two
+ * documents, different content by design.
  */
 
 import crypto from 'crypto';
@@ -18,7 +25,7 @@ import { createEvidenceRecord } from '../watermark/watermark.service';
 
 // ── Color palette ─────────────────────────────────────────────────────────────
 
-const C = {
+export const C = {
   black:      rgb(0.05, 0.05, 0.08),
   darkGray:   rgb(0.25, 0.25, 0.30),
   midGray:    rgb(0.45, 0.45, 0.50),
@@ -43,14 +50,55 @@ const C = {
   blue:       rgb(0.15, 0.40, 0.85),
 };
 
-const PAGE_W = 595;   // A4 points
-const PAGE_H = 842;
-const MARGIN = 48;
-const CONTENT_W = PAGE_W - MARGIN * 2;
+export const PAGE_W = 595;   // A4 points
+export const PAGE_H = 842;
+export const MARGIN = 48;
+export const CONTENT_W = PAGE_W - MARGIN * 2;
+
+/**
+ * Make a string safe for the standard PDF fonts.
+ *
+ * pdf-lib's StandardFonts use WinAnsi, which cannot encode most of Unicode —
+ * and it THROWS rather than substituting, so one stray character kills the
+ * whole document. That is not hypothetical: the classification banner below
+ * used a "★" and every call to generateEvidenceReport crashed on the cover
+ * page before this was added.
+ *
+ * Anything drawn here can carry user input — filenames, evidence descriptions,
+ * campaign names, URLs — so sanitising at the drawing primitives is the only
+ * place that actually holds. A report with a dropped glyph is recoverable; a
+ * report that throws is not.
+ */
+const WINANSI_EXTRAS = new Set([
+  0x2013, 0x2014, 0x2018, 0x2019, 0x201A, 0x201C, 0x201D, 0x201E,
+  0x2020, 0x2021, 0x2022, 0x2026, 0x2030, 0x2039, 0x203A, 0x20AC, 0x2122,
+  0x0152, 0x0153, 0x0160, 0x0161, 0x0178, 0x017D, 0x017E, 0x0192, 0x02C6, 0x02DC,
+]);
+
+const SUBSTITUTIONS: Record<string, string> = {
+  '★': '*', '☆': '*', '✓': 'v', '✔': 'v',
+  '✗': 'x', '✘': 'x', ' ': ' ',
+};
+
+export function winAnsi(input: unknown): string {
+  const str = String(input ?? '');
+  let out = '';
+  for (const ch of str) {
+    const sub = SUBSTITUTIONS[ch];
+    if (sub !== undefined) { out += sub; continue; }
+    const cp = ch.codePointAt(0) ?? 0;
+    if (cp === 0x0A || cp === 0x0D) { out += ' '; continue; }
+    if (cp >= 0x20 && cp <= 0xFF) { out += ch; continue; }
+    if (WINANSI_EXTRAS.has(cp)) { out += ch; continue; }
+    // Emoji, CJK, and anything else the font has no glyph for.
+    out += '';
+  }
+  return out;
+}
 
 // ── Layout helpers ────────────────────────────────────────────────────────────
 
-interface DrawCtx {
+export interface DrawCtx {
   page: PDFPage;
   doc: PDFDocument;
   regular: PDFFont;
@@ -62,18 +110,18 @@ interface DrawCtx {
   y: number;
 }
 
-function newPage(ctx: DrawCtx): DrawCtx {
+export function newPage(ctx: DrawCtx): DrawCtx {
   const page = ctx.doc.addPage([PAGE_W, PAGE_H]);
   ctx.pages.push(page);
   return { ...ctx, page, y: PAGE_H - MARGIN };
 }
 
-function needsPage(ctx: DrawCtx, height: number): DrawCtx {
+export function needsPage(ctx: DrawCtx, height: number): DrawCtx {
   if (ctx.y - height < MARGIN + 40) return newPage(ctx);
   return ctx;
 }
 
-function text(ctx: DrawCtx, str: string, x: number, y: number, opts: {
+export function text(ctx: DrawCtx, str: string, x: number, y: number, opts: {
   font?: PDFFont; size?: number; color?: RGB; maxWidth?: number; lineHeight?: number;
 } = {}): number {
   const font      = opts.font      ?? ctx.regular;
@@ -84,8 +132,8 @@ function text(ctx: DrawCtx, str: string, x: number, y: number, opts: {
 
   if (!str) return y;
 
-  // Word-wrap
-  const words = str.split(' ');
+  // Word-wrap. Sanitised here so every drawn line is encodable.
+  const words = winAnsi(str).split(' ');
   let line = '';
   let curY = y;
 
@@ -107,38 +155,39 @@ function text(ctx: DrawCtx, str: string, x: number, y: number, opts: {
   return curY;
 }
 
-function rect(ctx: DrawCtx, x: number, y: number, w: number, h: number, color: RGB, borderColor?: RGB) {
+export function rect(ctx: DrawCtx, x: number, y: number, w: number, h: number, color: RGB, borderColor?: RGB) {
   ctx.page.drawRectangle({ x, y, width: w, height: h, color, borderColor, borderWidth: borderColor ? 0.5 : 0 });
 }
 
-function hline(ctx: DrawCtx, y: number, color: RGB = C.lightGray) {
+export function hline(ctx: DrawCtx, y: number, color: RGB = C.lightGray) {
   ctx.page.drawLine({ start: { x: MARGIN, y }, end: { x: PAGE_W - MARGIN, y }, thickness: 0.5, color });
 }
 
-function sectionHeader(ctx: DrawCtx, title: string, icon?: string): DrawCtx {
+export function sectionHeader(ctx: DrawCtx, title: string, icon?: string): DrawCtx {
   let c = needsPage(ctx, 36);
   c.y -= 14;
   rect(c, MARGIN, c.y - 2, CONTENT_W, 22, C.navy);
-  const label = icon ? `${icon}  ${title}` : title;
+  const label = winAnsi(icon ? `${icon}  ${title}` : title);
   c.page.drawText(label, { x: MARGIN + 10, y: c.y + 4, size: 10, font: c.bold, color: C.white });
   c.y -= 22;
   return c;
 }
 
-function kv(ctx: DrawCtx, key: string, value: string, opts: { mono?: boolean; color?: RGB } = {}): DrawCtx {
+export function kv(ctx: DrawCtx, key: string, value: string, opts: { mono?: boolean; color?: RGB } = {}): DrawCtx {
   const c = needsPage(ctx, 18);
   const keyW = 150;
-  c.page.drawText(key, { x: MARGIN, y: c.y, size: 9, font: c.bold, color: C.darkGray });
+  c.page.drawText(winAnsi(key), { x: MARGIN, y: c.y, size: 9, font: c.bold, color: C.darkGray });
   const valFont = opts.mono ? c.mono : c.regular;
   const valColor= opts.color ?? C.black;
   text(c, value || '—', MARGIN + keyW, c.y, { font: valFont, size: 9, color: valColor, maxWidth: CONTENT_W - keyW });
   return { ...c, y: c.y - 16 };
 }
 
-function badge(ctx: DrawCtx, x: number, y: number, label: string, color: RGB) {
-  const w = ctx.bold.widthOfTextAtSize(label, 8) + 12;
+export function badge(ctx: DrawCtx, x: number, y: number, label: string, color: RGB) {
+  const safe = winAnsi(label);
+  const w = ctx.bold.widthOfTextAtSize(safe, 8) + 12;
   rect(ctx, x, y - 2, w, 14, color);
-  ctx.page.drawText(label, { x: x + 6, y: y + 1, size: 8, font: ctx.bold, color: C.white });
+  ctx.page.drawText(safe, { x: x + 6, y: y + 1, size: 8, font: ctx.bold, color: C.white });
   return x + w + 6;
 }
 
@@ -151,7 +200,7 @@ function severityColor(sev: string): RGB {
 
 // ── Cover page ────────────────────────────────────────────────────────────────
 
-function drawCover(ctx: DrawCtx, opts: {
+export function drawCover(ctx: DrawCtx, opts: {
   reportType: string;
   subject: string;
   generatedAt: string;
@@ -174,7 +223,7 @@ function drawCover(ctx: DrawCtx, opts: {
   // Classification banner
   const classColor = opts.classification === 'CONFIDENTIAL' ? C.critical : C.navy;
   page.drawRectangle({ x: 0, y: PAGE_H - 160, width: PAGE_W, height: 28, color: classColor });
-  const classLabel = `★  ${opts.classification}  ★`;
+  const classLabel = winAnsi(`* ${opts.classification} *`);
   const classW = ctx.bold.widthOfTextAtSize(classLabel, 11);
   page.drawText(classLabel, { x: (PAGE_W - classW) / 2, y: PAGE_H - 150, size: 11, font: ctx.bold, color: C.white });
 
@@ -182,9 +231,9 @@ function drawCover(ctx: DrawCtx, opts: {
   let y = PAGE_H - 230;
   page.drawText('FORENSIC EVIDENCE REPORT', { x: MARGIN, y, size: 9, font: ctx.bold, color: C.purple });
   y -= 32;
-  page.drawText(opts.reportType, { x: MARGIN, y, size: 22, font: ctx.bold, color: C.black });
+  page.drawText(winAnsi(opts.reportType), { x: MARGIN, y, size: 22, font: ctx.bold, color: C.black });
   y -= 32;
-  page.drawText(opts.subject, { x: MARGIN, y, size: 13, font: ctx.regular, color: C.darkGray, maxWidth: CONTENT_W } as any);
+  page.drawText(winAnsi(opts.subject), { x: MARGIN, y, size: 13, font: ctx.regular, color: C.darkGray, maxWidth: CONTENT_W } as any);
 
   y -= 60;
   hline({ ...ctx, y } as DrawCtx, y);
@@ -226,7 +275,7 @@ function drawCover(ctx: DrawCtx, opts: {
 
 // ── Footer on each page ───────────────────────────────────────────────────────
 
-function drawFooters(ctx: DrawCtx, reportId: string) {
+export function drawFooters(ctx: DrawCtx, reportId: string) {
   const total = ctx.pages.length;
   ctx.pages.forEach((pg, i) => {
     pg.drawLine({ start: { x: MARGIN, y: MARGIN + 18 }, end: { x: PAGE_W - MARGIN, y: MARGIN + 18 }, thickness: 0.5, color: C.lightGray });
@@ -238,7 +287,7 @@ function drawFooters(ctx: DrawCtx, reportId: string) {
 
 // ── Table helper ──────────────────────────────────────────────────────────────
 
-function tableRow(ctx: DrawCtx, cols: { text: string; width: number; color?: RGB; mono?: boolean }[], rowColor?: RGB): DrawCtx {
+export function tableRow(ctx: DrawCtx, cols: { text: string; width: number; color?: RGB; mono?: boolean }[], rowColor?: RGB): DrawCtx {
   let c = needsPage(ctx, 18);
   const rowH = 16;
   let x = MARGIN;
@@ -248,19 +297,19 @@ function tableRow(ctx: DrawCtx, cols: { text: string; width: number; color?: RGB
   for (const col of cols) {
     const font  = col.mono ? c.mono : c.regular;
     const color = col.color ?? C.black;
-    const str   = (col.text ?? '').slice(0, 80);
+    const str   = winAnsi(col.text ?? '').slice(0, 80);
     c.page.drawText(str, { x: x + 3, y: c.y, size: 8, font, color });
     x += col.width;
   }
   return { ...c, y: c.y - rowH };
 }
 
-function tableHeader(ctx: DrawCtx, cols: { label: string; width: number }[]): DrawCtx {
+export function tableHeader(ctx: DrawCtx, cols: { label: string; width: number }[]): DrawCtx {
   let c = needsPage(ctx, 20);
   rect(c, MARGIN, c.y - 14, CONTENT_W, 18, C.navyLight);
   let x = MARGIN;
   for (const col of cols) {
-    c.page.drawText(col.label, { x: x + 3, y: c.y, size: 8, font: c.bold, color: C.white });
+    c.page.drawText(winAnsi(col.label), { x: x + 3, y: c.y, size: 8, font: c.bold, color: C.white });
     x += col.width;
   }
   return { ...c, y: c.y - 18 };
@@ -461,7 +510,7 @@ async function drawShareLinkPolicy(ctx: DrawCtx, shareLink: any): Promise<DrawCt
 
 // ── Integrity block ───────────────────────────────────────────────────────────
 
-function drawIntegrityBlock(ctx: DrawCtx, reportId: string, hash: string): DrawCtx {
+export function drawIntegrityBlock(ctx: DrawCtx, reportId: string, hash: string): DrawCtx {
   let c = needsPage(ctx, 100);
   c.y -= 16;
 

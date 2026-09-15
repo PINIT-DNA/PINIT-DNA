@@ -3,7 +3,6 @@ import { useAuth } from '../../context/AuthContext';
 import { LoginFlow } from './LoginFlow';
 import { RegistrationFlow } from './RegistrationFlow';
 import { getPreRegisterAccountType } from '../../lib/pre-register';
-import { ExchangeReturnHandoff } from '../../components/auth/ExchangeReturnHandoff';
 import { resolveExchangeReturn, stashExchangeReturn } from '../../lib/exchange-return';
 
 function Booting() {
@@ -14,18 +13,16 @@ function Booting() {
   );
 }
 
-/** If already signed in, go straight to dashboard — or Exchange if exchange_return is set. */
+/**
+ * Exchange SSO entry. If a live Hub session already exists, LoginFlow mints
+ * hub_sso without repeating Face/PAD. Otherwise the biometric path runs.
+ */
 export function PinitGateway() {
-  const { user, loading } = useAuth();
+  const { loading } = useAuth();
   const [searchParams] = useSearchParams();
   if (loading) return <Booting />;
-  if (user) {
-    const er = resolveExchangeReturn(searchParams.get('exchange_return'));
-    if (er) stashExchangeReturn(er);
-    return (
-      <ExchangeReturnHandoff fallback={<Navigate to="/" replace />} />
-    );
-  }
+  const er = resolveExchangeReturn(searchParams.get('exchange_return'));
+  if (er) stashExchangeReturn(er);
   return <LoginFlow />;
 }
 
@@ -37,9 +34,15 @@ export function RegisterGateway() {
   const er = resolveExchangeReturn(searchParams.get('exchange_return'));
   if (er) stashExchangeReturn(er);
 
-  if (user) {
-    return <ExchangeReturnHandoff fallback={<Navigate to="/" replace />} />;
+  // Existing Hub session + Exchange return → LoginFlow (may silent-SSO).
+  if (er && user) {
+    return <Navigate to={`/login?exchange_return=${encodeURIComponent(er)}`} replace />;
   }
+
+  if (user) {
+    return <Navigate to="/" replace />;
+  }
+
   if (!getPreRegisterAccountType()) {
     const qs = er ? `?exchange_return=${encodeURIComponent(er)}` : '';
     return <Navigate to={`/register/account-type${qs}`} replace />;

@@ -1,5 +1,5 @@
 /**
- * Start Node backend (4000) + Vite client (3000) in one command.
+ * Start Node backend (4000) + Vite client (3002) in one command.
  * Waits until /api/v1/ping responds before opening the frontend.
  * Usage: npm run dev:all
  */
@@ -62,7 +62,7 @@ function run(name, cwd, command, args) {
 
 console.log('\n  PINIT-DNA — starting full dev stack');
 console.log('  Backend  → http://localhost:4000');
-console.log('  Frontend → http://localhost:3000');
+console.log('  Frontend → http://localhost:3002');
 console.log('  Waiting for API ping before starting Vite…\n');
 
 const backend = run('backend', root, 'npm', ['run', 'dev']);

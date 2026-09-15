@@ -4,6 +4,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { MulterError } from 'multer';
+import { Prisma } from '@prisma/client';
 import { config } from '../../config';
 import { logger } from '../../lib/logger';
 
@@ -24,6 +25,10 @@ export function errorMiddleware(
   res: Response,
   _next: NextFunction
 ): void {
+  if (res.headersSent) {
+    logger.error('Unhandled error after response started', { error: err.message, stack: err.stack });
+    return;
+  }
   if (err.name === 'SubscriptionRequiredError') {
     const e = err as AppError & { requiredPlan?: string; feature?: string };
     res.status(403).json({
@@ -39,14 +44,19 @@ export function errorMiddleware(
     const e = err as AppError & {
       usedBytes?: number;
       limitBytes?: number;
+      incomingBytes?: number;
+      remainingBytes?: number;
       requiredPlan?: string;
     };
     res.status(403).json({
       success: false,
+      code: 'STORAGE_LIMIT_EXCEEDED',
       error: err.message,
       requiredPlan: e.requiredPlan ?? 'PRO',
       usedBytes: e.usedBytes,
       limitBytes: e.limitBytes,
+      fileBytes: e.incomingBytes,
+      remainingBytes: e.remainingBytes,
     });
     return;
   }
@@ -105,7 +115,7 @@ export function errorMiddleware(
     res.status(400).json({ success: false, error: err.message });
     return;
   }
-  if (err.message.startsWith('Unsupported file type') || err.message.includes('File too large')) {
+  if (err.message.startsWith('Unsupported file type') || err.message.includes('File too large') || err.message.includes('JPG, PNG, WEBP')) {
     res.status(400).json({ success: false, error: err.message });
     return;
   }
@@ -116,9 +126,43 @@ export function errorMiddleware(
     || err.message.includes('Vault decrypt failed')
     || err.message.includes('Supabase download failed')
     || err.message.includes('SUPABASE_URL')
+    || err.message.includes('Failed to create storage bucket')
+    || /egress_quota|project is restricted/i.test(err.message)
   ) {
-    res.status(503).json({ success: false, error: err.message });
+    const quota = /egress_quota|project is restricted|Failed to create storage bucket/i.test(err.message);
+    const missing = /not in cloud storage|Object not found|Vault file unavailable/i.test(err.message);
+    res.status(503).json({
+      success: false,
+      error: quota
+        ? 'Vault storage is temporarily unavailable (Supabase quota). Protect the file again after storage is restored.'
+        : missing
+          ? 'This protected file is not in cloud storage. Protect the file again, then create a new share link.'
+          : 'The file could not be loaded. Try again or ask the owner to share a new link.',
+    });
     return;
+  }
+
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    logger.error('Prisma error', { code: err.code, meta: err.meta, error: err.message });
+    if (err.code === 'P2002') {
+      res.status(409).json({ success: false, error: 'That portfolio URL is already taken.' });
+      return;
+    }
+    if (err.code === 'P2028' || err.code === 'P2034') {
+      res.status(503).json({ success: false, error: 'Save timed out. Please try again.' });
+      return;
+    }
+    if (err.code === 'P2021' || err.code === 'P2022') {
+      res.status(503).json({
+        success: false,
+        error: 'Portfolio storage is still updating. Wait a minute, refresh, and try again.',
+      });
+      return;
+    }
+    if (err.code === 'P2003') {
+      res.status(400).json({ success: false, error: 'One of the selected files is no longer in your vault.' });
+      return;
+    }
   }
 
   logger.error('Unhandled error', { error: err.message, stack: err.stack });

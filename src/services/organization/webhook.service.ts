@@ -197,7 +197,7 @@ export const orgWebhookService = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'User-Agent': 'PinIT-Hub-Webhooks/1.0',
+          'User-Agent': 'Pinit-Hub-Webhooks/1.0',
           'X-PinIT-Event': event,
           'X-PinIT-Signature': `sha256=${signature}`,
           'X-PinIT-Delivery': payload.id,

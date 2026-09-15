@@ -2,29 +2,48 @@ import React, { useEffect, useState } from 'react';
 import { ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
 import ListingCard from '../components/ListingCard.jsx';
 import HubTrustBadge from '../components/HubTrustBadge.jsx';
-import { apiFetch } from '../lib/api.js';
+import { apiFetch, unwrapList } from '../lib/api.js';
 
 const CATEGORIES = [
-  { id: 'images', label: 'Photography' },
+  { id: 'images', label: 'Images' },
   { id: 'video', label: 'Video' },
-  { id: 'concepts', label: 'Illustration' },
-  { id: 'ui_ux', label: 'UI/UX' },
-  { id: '3d', label: '3D' },
   { id: 'audio', label: 'Audio' },
-  { id: 'graphics', label: 'Graphics' },
+  { id: 'documents', label: 'Documents' },
+  { id: 'design', label: 'Design' },
+  { id: '3d', label: '3D' },
+  { id: 'other', label: 'Other' },
 ];
 
-export default function HomePage({ onNavigate, onOpenListFromHub, onOpenAuth, user, onSelectListing }) {
+export default function HomePage({ onNavigate, onOpenAuth, user, onSelectListing, onBrowseVertical }) {
   const [featured, setFeatured] = useState([]);
+  const [query, setQuery] = useState('');
+  const [savedCount, setSavedCount] = useState(0);
+  const [purchaseCount, setPurchaseCount] = useState(0);
+  const [cartCount, setCartCount] = useState(0);
 
   useEffect(() => {
     (async () => {
-      const { ok, data } = await apiFetch('/api/listings?vertical=all&badge=all&sort=popular');
-      if (ok && Array.isArray(data)) {
-        setFeatured(data.slice(0, 6));
-      }
+      // Featured strip needs 8; ask for exactly that rather than the catalogue.
+      const { ok, data, headers } = await apiFetch('/api/listings?vertical=all&badge=all&sort=popular&limit=8');
+      if (ok) setFeatured(unwrapList(data, headers).items);
     })();
   }, []);
+
+  useEffect(() => {
+    if (!user?.pinit_id) return;
+    (async () => {
+      const key = user.pinit_id;
+      const wish = await apiFetch(`/api/commerce/wishlist?buyer_key=${encodeURIComponent(key)}`);
+      if (wish.ok) setSavedCount((wish.data.items || []).length);
+      // Real cart count. The tile that sat here previously showed the word
+      // "Open" regardless of whether the cart had anything in it.
+      const cart = await apiFetch(`/api/commerce/cart?buyer_key=${encodeURIComponent(key)}`);
+      if (cart.ok) setCartCount(Number(cart.data?.count || 0));
+      // Scoped to the signed-in session server-side; no identity in the query.
+      const lic = await apiFetch('/api/orders/my-licenses');
+      if (lic.ok) setPurchaseCount((lic.data.licenses || []).length);
+    })();
+  }, [user?.pinit_id, user?.email]);
 
   return (
     <div style={{ maxWidth: 1320, margin: '0 auto', padding: '28px 24px 48px' }}>
@@ -33,17 +52,34 @@ export default function HomePage({ onNavigate, onOpenListFromHub, onOpenAuth, us
         <div className="home-hero__eyebrow">
           <Sparkles size={14} /> Verified creative marketplace
         </div>
-        <h1 className="home-hero__title">Buy and license verified creative assets</h1>
+        <h1 className="home-hero__title">
+          {user ? `Welcome back, ${(user.display_name || user.name || 'there').split(' ')[0]}` : 'Discover protected creative work'}
+        </h1>
         <p className="home-hero__sub">
-          Photography · Video · Illustration · UI/UX · 3D · Audio · Graphics
+          Find protected creative work from creators around the world.
         </p>
+        <form
+          className="home-search"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onNavigate('marketplace');
+          }}
+        >
+          <input
+            className="form-input"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search creative work, creators, or assets…"
+          />
+          <button type="submit" className="btn-primary">Search</button>
+        </form>
         <div className="home-hero__cats">
           {CATEGORIES.map((c) => (
             <button
               key={c.id}
               type="button"
               className="home-chip"
-              onClick={() => onNavigate('marketplace')}
+              onClick={() => (onBrowseVertical ? onBrowseVertical(c.id) : onNavigate('marketplace'))}
             >
               {c.label}
             </button>
@@ -53,16 +89,15 @@ export default function HomePage({ onNavigate, onOpenListFromHub, onOpenAuth, us
           <button type="button" className="btn-primary" onClick={() => onNavigate('marketplace')}>
             Explore assets <ArrowRight size={16} />
           </button>
+          {!user && (
           <button
             type="button"
             className="btn-secondary"
-            onClick={() => {
-              if (user && Number(user.hub_linked)) onOpenListFromHub?.();
-              else onOpenAuth?.({ mode: 'signup', intent: 'creator' });
-            }}
+            onClick={() => onOpenAuth?.({ mode: 'signup', intent: 'creator' })}
           >
-            Become a creator
+            Sell on Exchange
           </button>
+          )}
         </div>
       </section>
 
@@ -77,11 +112,55 @@ export default function HomePage({ onNavigate, onOpenListFromHub, onOpenAuth, us
         <HubTrustBadge compact onOpenProvenance={() => onNavigate('trust')} />
       </section>
 
-      {/* Featured from API */}
+      {/*
+        Only real counts get a figure.
+
+        This block previously rendered six identical KPI cards, four of which
+        put a word where the number goes — "Cart: Open", "Requirements: Briefs",
+        "Payment methods: Secure", "Notifications: Inbox". A large bold value in
+        a stat card reads as a measurement, so those four looked like metrics
+        while measuring nothing. Purchases and saves are genuine counts and keep
+        their figure; the rest are navigation, and now look like navigation.
+      */}
+      {user && (
+        <section className="buyer-summary" aria-label="Your account">
+          <div className="buyer-stats">
+            <button type="button" className="ex-card buyer-stat" onClick={() => onNavigate('my_licenses')}>
+              <span className="buyer-stat__label">Purchases</span>
+              <strong className="buyer-stat__value">{purchaseCount}</strong>
+              <em className="buyer-stat__hint">Licensed assets</em>
+            </button>
+            <button type="button" className="ex-card buyer-stat" onClick={() => onNavigate('wishlist')}>
+              <span className="buyer-stat__label">Saved</span>
+              <strong className="buyer-stat__value">{savedCount}</strong>
+              <em className="buyer-stat__hint">On your wishlist</em>
+            </button>
+            <button type="button" className="ex-card buyer-stat" onClick={() => onNavigate('cart')}>
+              <span className="buyer-stat__label">In cart</span>
+              <strong className="buyer-stat__value">{cartCount ?? 0}</strong>
+              <em className="buyer-stat__hint">Ready to checkout</em>
+            </button>
+          </div>
+
+          <nav className="buyer-links" aria-label="Account shortcuts">
+            {[
+              ['requirements', 'Post a brief'],
+              ['buyer_payments', 'Payment methods'],
+              ['buyer_notifications', 'Notifications'],
+              ['settings', 'Account settings'],
+            ].map(([page, label]) => (
+              <button key={page} type="button" className="buyer-link" onClick={() => onNavigate(page)}>
+                {label} <ArrowRight size={14} />
+              </button>
+            ))}
+          </nav>
+        </section>
+      )}
+
       <section style={{ marginBottom: 48 }}>
         <div className="section-head">
           <div>
-            <h2>Featured assets</h2>
+            <h2>Recommended for you</h2>
             <p>Live listings from the marketplace — license with confidence.</p>
           </div>
           <button type="button" className="btn-secondary" onClick={() => onNavigate('marketplace')}>
@@ -98,6 +177,7 @@ export default function HomePage({ onNavigate, onOpenListFromHub, onOpenAuth, us
               <ListingCard
                 key={item.listing_id}
                 item={item}
+                user={user}
                 onSelect={(id) => (onSelectListing ? onSelectListing(id) : onNavigate('marketplace'))}
               />
             ))}
@@ -109,12 +189,12 @@ export default function HomePage({ onNavigate, onOpenListFromHub, onOpenAuth, us
         <div className="section-head">
           <div>
             <h2>Browse by category</h2>
-            <p>Find the right vertical for your next license.</p>
+            <p>Filter the marketplace — type is a filter, not the product.</p>
           </div>
         </div>
         <div className="home-cat-grid">
           {CATEGORIES.map((c) => (
-            <button key={c.id} type="button" className="home-cat-tile" onClick={() => onNavigate('marketplace')}>
+            <button key={c.id} type="button" className="home-cat-tile" onClick={() => (onBrowseVertical ? onBrowseVertical(c.id) : onNavigate('marketplace'))}>
               {c.label}
             </button>
           ))}

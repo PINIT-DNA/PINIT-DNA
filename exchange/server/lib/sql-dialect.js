@@ -7,6 +7,18 @@ export function sqliteSqlToPostgres(sql) {
 
   s = s.replace(/BEGIN\s+IMMEDIATE/gi, 'BEGIN');
 
+  // A caller may already have appended RETURNING (see the postgres driver's
+  // run(), which does so before translation). Postgres requires ON CONFLICT to
+  // come BEFORE RETURNING, so split any trailing RETURNING off, rewrite the
+  // statement, then put it back last. Without this the conflict clause lands
+  // after RETURNING and Postgres rejects it with: syntax error at or near "ON".
+  let returning = '';
+  const retMatch = s.match(/\s+(RETURNING\s+[\s\S]+?)\s*;?\s*$/i);
+  if (retMatch) {
+    returning = ` ${retMatch[1].trim()}`;
+    s = s.slice(0, retMatch.index).trim();
+  }
+
   // INSERT OR IGNORE INTO t ... → INSERT INTO t ... ON CONFLICT DO NOTHING
   if (/^INSERT\s+OR\s+IGNORE\s+INTO/i.test(s) && !/ON\s+CONFLICT/i.test(s)) {
     s = s.replace(/^INSERT\s+OR\s+IGNORE\s+INTO/i, 'INSERT INTO');
@@ -37,7 +49,7 @@ export function sqliteSqlToPostgres(sql) {
 
   // SQLite excluded. → Postgres EXCLUDED. (case-insensitive already; keep as-is)
 
-  return s;
+  return s + returning;
 }
 
 /** Convert ? placeholders to $1, $2, ... for node-pg */

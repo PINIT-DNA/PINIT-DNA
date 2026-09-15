@@ -75,6 +75,10 @@ export async function listVaultRecords(
           prisma.asset.findMany({
             where: { vaultId: { in: vaultIds } },
             select: {
+              // The canonical Asset id, so a vault row can reach its own
+              // relationship graph. This join already ran for source metadata;
+              // selecting the id costs nothing and duplicates nothing.
+              id: true,
               vaultId: true,
               sourcePlatform: true,
               sourceUrl: true,
@@ -122,6 +126,8 @@ export async function listVaultRecords(
 
         return {
           id:                  r.id,
+          /** Null for files protected before Vault created an Asset identity. */
+          assetId:             asset?.id ?? null,
           dnaRecordId:         r.dnaRecordId,
           originalFileName:    r.originalFileName,
           originalMimeType:    r.originalMimeType,
@@ -176,24 +182,53 @@ export async function storeInVault(
 
   try {
     const ownerUserId = getAuthUserId(req);
-    // Subscription storage quota (edge check only — does not change encrypt/store pipeline)
-    const { entitlementService } = await import('../../services/subscription');
-    await entitlementService.assertCanUpload(ownerUserId, buffer.length);
+    const dnaId = dnaRecordId.trim();
+    const { prisma } = await import('../../lib/prisma');
+    const alreadyVaulted = await prisma.vaultRecord.findUnique({
+      where: { dnaRecordId: dnaId },
+      select: { id: true },
+    });
+    // Replay of a completed protect must not hit quota — the file is already listed.
+    if (!alreadyVaulted) {
+      const { entitlementService } = await import('../../services/subscription');
+      await entitlementService.assertCanUpload(ownerUserId, buffer.length);
+    }
 
     const result = await vaultService.store({
-      dnaRecordId:      dnaRecordId.trim(),
+      dnaRecordId:      dnaId,
       ownerUserId,
       imageBuffer:      buffer,
       originalFileName: req.file.originalname,
       originalMimeType: req.file.mimetype,
     });
 
+    if (result.alreadyStored) {
+      const row = await prisma.vaultRecord.findUnique({
+        where: { id: result.vaultId },
+        select: { contentAnalysis: true, contentLabel: true },
+      });
+      res.status(200).json({
+        success: true,
+        vaultId:             result.vaultId,
+        dnaRecordId:         result.dnaRecordId,
+        assetId:             result.assetId ?? null,
+        campaignId:          null,
+        originalFileName:    result.originalFileName,
+        originalMimeType:    result.originalMimeType,
+        encryptedSizeBytes:  result.encryptedSizeBytes,
+        originalSizeBytes:   result.originalSizeBytes,
+        encryptionAlgorithm: result.encryptionAlgorithm,
+        storedAt:            result.createdAt.toISOString(),
+        contentLabel:        row?.contentLabel ?? null,
+        contentAnalysis:     row?.contentAnalysis ?? null,
+      });
+      return;
+    }
+
     // Custody location (optional GPS from client + IP) — never written into DNA
     try {
       const { forensicProvenanceService } = await import('../../services/forensics/forensic-provenance.service');
-      const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-        || req.socket.remoteAddress
-        || null;
+      const ip = resolveClientIp(req);
       const country = (req.headers['cf-ipcountry'] as string) || null;
       const gpsLat = parseFloat(String((req.body as { gpsLat?: string })?.gpsLat ?? ''));
       const gpsLng = parseFloat(String((req.body as { gpsLng?: string })?.gpsLng ?? ''));
@@ -230,37 +265,65 @@ export async function storeInVault(
       buffer,
     });
 
-    // Auto image analysis → Vault Details (copy from DNA generate, else analyze now)
+    // Auto image analysis → Vault Details (copy from DNA if ready; else finish async)
     let contentAnalysis = null as Awaited<ReturnType<typeof vaultContentAnalysisService.analyzeAndStore>>;
     try {
       const copied = await vaultContentAnalysisService.copyDnaAnalysisToVault(
         result.vaultId,
         result.dnaRecordId,
       );
-      if (!copied) {
-        contentAnalysis = await vaultContentAnalysisService.analyzeAndStore({
-          vaultId: result.vaultId,
-          dnaRecordId: result.dnaRecordId,
-          buffer,
-          mimeType: result.originalMimeType,
-          filename: result.originalFileName,
-        });
-      } else {
+      if (copied) {
         const { prisma } = await import('../../lib/prisma');
         const row = await prisma.vaultRecord.findUnique({
           where: { id: result.vaultId },
           select: { contentAnalysis: true },
         });
         contentAnalysis = (row?.contentAnalysis as typeof contentAnalysis) ?? null;
+      } else {
+        // Do not block vault protect on Python forensic/CLIP — Details fill in when ready
+        void vaultContentAnalysisService.analyzeAndStore({
+          vaultId: result.vaultId,
+          dnaRecordId: result.dnaRecordId,
+          buffer,
+          mimeType: result.originalMimeType,
+          filename: result.originalFileName,
+        }).catch((err) => {
+          logger.warn('[ContentAnalysis] vault store analysis failed', { error: String(err) });
+        });
       }
     } catch (err) {
       logger.warn('[ContentAnalysis] vault store analysis failed', { error: String(err) });
+    }
+
+    // Business Account — optionally attach this asset to a Campaign the user is
+    // uploading into. Reuses campaignService's own org-scoping/RBAC/audit-log —
+    // never fatal to the protect flow if the campaign link fails.
+    let campaignId: string | null = null;
+    const requestedCampaignId = (req.body as { campaignId?: string })?.campaignId?.trim();
+    if (requestedCampaignId && result.assetId) {
+      try {
+        const { getOrganizationIdForUser } = await import('../../services/organization/org-access.service');
+        const { campaignService } = await import('../../services/organization/campaign.service');
+        const organizationId = await getOrganizationIdForUser(ownerUserId);
+        if (organizationId) {
+          await campaignService.attachAsset(organizationId, ownerUserId, requestedCampaignId, result.assetId);
+          campaignId = requestedCampaignId;
+        }
+      } catch (err) {
+        logger.warn('Vault — campaign asset attach failed (non-fatal)', {
+          assetId: result.assetId,
+          requestedCampaignId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
 
     res.status(201).json({
       success: true,
       vaultId:             result.vaultId,
       dnaRecordId:         result.dnaRecordId,
+      assetId:             result.assetId ?? null,
+      campaignId,
       originalFileName:    result.originalFileName,
       originalMimeType:    result.originalMimeType,
       encryptedSizeBytes:  result.encryptedSizeBytes,
@@ -331,8 +394,30 @@ export async function getVaultRecord(
 }
 
 /**
+ * GET /vault/:id/content-analysis
+ * Return persisted image analysis. Starts a job only if this vault version was never analyzed.
+ */
+export async function getVaultContentAnalysis(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  const { id } = req.params;
+  try {
+    const userId = getAuthUserId(req);
+    const snap = await vaultContentAnalysisService.getOrStart(id, userId, { force: false });
+    res.status(200).json({ success: true, ...snap });
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('not found')) {
+      return next(new AppError(404, err.message));
+    }
+    next(err);
+  }
+}
+
+/**
  * POST /vault/:id/analyze-content
- * Run (or re-run) image analysis and store on the vault record.
+ * Idempotent: returns stored analysis. Pass force=true to retry after failure.
  */
 export async function analyzeVaultContent(
   req: Request,
@@ -342,35 +427,34 @@ export async function analyzeVaultContent(
   const { id } = req.params;
   try {
     const userId = getAuthUserId(req);
+    const force = req.query.force === '1' || req.query.force === 'true'
+      || (req.body && (req.body.force === true || req.body.force === 'true'));
     const { isInvestigationBusy } = await import('../../services/forensics/investigation-busy.guard');
-    if (isInvestigationBusy()) {
-      const { prisma } = await import('../../lib/prisma');
-      const cached = await prisma.vaultRecord.findFirst({
-        where: { id, dnaRecord: { ownerUserId: userId } },
-        select: { contentAnalysis: true, contentLabel: true },
-      });
+    if (isInvestigationBusy() && !force) {
+      const cached = await vaultContentAnalysisService.getSnapshot(id);
       if (cached?.contentAnalysis) {
         res.status(200).json({
           success: true,
-          contentLabel: cached.contentLabel ?? 'UNKNOWN',
-          contentAnalysis: cached.contentAnalysis,
           deferred: true,
+          ...cached,
         });
         return;
       }
     }
-    const retrieved = await vaultService.retrieve(id, userId);
-    const analysis = await vaultContentAnalysisService.analyzeAndStore({
-      vaultId: id,
-      dnaRecordId: retrieved.dnaRecordId,
-      buffer: retrieved.originalBuffer,
-      mimeType: retrieved.originalMimeType,
-      filename: retrieved.originalFileName,
-    });
-    if (!analysis) {
-      return next(new AppError(500, 'Content analysis failed'));
+    const snap = await vaultContentAnalysisService.getOrStart(id, userId, { force });
+    if (snap.status === 'COMPLETED' && snap.contentAnalysis) {
+      res.status(200).json({ success: true, ...snap });
+      return;
     }
-    res.status(200).json({ success: true, contentLabel: analysis.label, contentAnalysis: analysis });
+    if (snap.started) {
+      await vaultContentAnalysisService.waitForInflight(id);
+      const next = await vaultContentAnalysisService.getSnapshot(id);
+      if (next) {
+        res.status(200).json({ success: true, ...next });
+        return;
+      }
+    }
+    res.status(200).json({ success: true, ...snap });
   } catch (err) {
     if (err instanceof Error && err.message.includes('not found')) {
       return next(new AppError(404, err.message));
@@ -461,15 +545,34 @@ export async function previewVaultFile(
     const userId = getAuthUserId(req);
     const result = await vaultService.retrieve(id, userId);
 
+    let body = result.originalBuffer;
+    let contentType = result.originalMimeType || 'application/octet-stream';
+
+    const wantThumb = req.query['thumb'] === '1' || req.query['thumb'] === 'true';
+    if (wantThumb && contentType.startsWith('image/') && !/svg/i.test(contentType)) {
+      try {
+        const sharp = (await import('sharp')).default;
+        body = await sharp(result.originalBuffer)
+          .rotate()
+          .resize(480, 480, { fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 72 })
+          .toBuffer();
+        contentType = 'image/jpeg';
+      } catch {
+        body = result.originalBuffer;
+        contentType = result.originalMimeType;
+      }
+    }
+
     res.set({
-      'Content-Type':        result.originalMimeType,
-      'Content-Length':      String(result.originalBuffer.length),
+      'Content-Type':        contentType,
+      'Content-Length':      String(body.length),
       'Content-Disposition': `inline; filename="${result.originalFileName}"`,
       'X-Vault-Id':          result.vaultId,
       'Cache-Control':       'private, max-age=300',
     });
 
-    res.status(200).send(result.originalBuffer);
+    res.status(200).send(body);
   } catch (err) {
     if (err instanceof Error && err.message.includes('not found')) {
       return next(new AppError(404, err.message));
@@ -776,7 +879,15 @@ export async function scanVaultFile(req: Request, res: Response, next: NextFunct
   const { id } = req.params;
   try {
     const userId = getAuthUserId(req);
-    const result = await vaultService.retrieve(id, userId);
+
+    // Hard wall so share UI never waits forever on decrypt / PDF parse
+    const SCAN_MS = 12_000;
+    const result = await Promise.race([
+      vaultService.retrieve(id, userId),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Sensitive scan timed out')), SCAN_MS);
+      }),
+    ]);
     const mime   = result.originalMimeType;
     const buffer = result.originalBuffer;
 
@@ -811,9 +922,16 @@ export async function scanVaultFile(req: Request, res: Response, next: NextFunct
           email: false, phone: false, aadhaar: false, pan: false, address: false, hasAnyMatch: false });
         return;
       }
-    } catch {
-      res.json({ success: true, supported: false, reason: 'Could not extract text from this file.',
-        email: false, phone: false, aadhaar: false, pan: false, address: false, hasAnyMatch: false });
+    } catch (extractErr) {
+      const timedOut = extractErr instanceof Error && /timed out/i.test(extractErr.message);
+      res.json({
+        success: true,
+        supported: true,
+        reason: timedOut
+          ? 'Scan took too long — enable mask types manually if needed.'
+          : 'Could not extract text from this file.',
+        email: false, phone: false, aadhaar: false, pan: false, address: false, hasAnyMatch: false,
+      });
       return;
     }
 
@@ -821,6 +939,15 @@ export async function scanVaultFile(req: Request, res: Response, next: NextFunct
     logger.info('[Privacy] Scan complete', { vaultId: id, ...detection });
     res.json({ success: true, ...detection });
   } catch (err) {
+    if (err instanceof Error && /timed out/i.test(err.message)) {
+      res.json({
+        success: true,
+        supported: true,
+        reason: 'Scan took too long — enable mask types manually if needed.',
+        email: false, phone: false, aadhaar: false, pan: false, address: false, hasAnyMatch: false,
+      });
+      return;
+    }
     if (err instanceof Error && err.message.includes('not found')) {
       return next(new AppError(404, err.message));
     }
@@ -849,16 +976,13 @@ export async function verifyFileIdentity(req: Request, res: Response, next: Next
     }
 
     const { leakedFileVerifyService } = await import('../../services/forensics/leaked-file-verify.service');
-    let ownerUserId: string | undefined;
-    try {
-      ownerUserId = getAuthUserId(req);
-    } catch { /* public verify — no JWT */ }
+    const ownerUserId = getAuthUserId(req);
 
     const result = await leakedFileVerifyService.verify(
       buffer,
       mimeType,
       file.originalname,
-      ownerUserId ? { ownerUserId } : undefined,
+      { ownerUserId },
     );
 
     logger.info('[LeakedVerify] Scan complete', {

@@ -1,12 +1,11 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 
 const Header = () => null;
 import { UploadZone } from './components/UploadZone';
 import { EncryptionStep } from './components/EncryptionStep';
 import { VaultStep } from './components/VaultStep';
-import { ProtectReadyStep, type ProtectReadyResult } from './components/ProtectReadyStep';
 import { SuccessPanel } from './components/SuccessPanel';
 import { GenerationProgress } from './components/GenerationProgress';
 
@@ -15,10 +14,13 @@ import type { AppStage, DnaSession, EncryptionResult, VaultStoreResponse } from 
 import { DNA_GENERATOR_VERSION } from './config/dna-versions';
 import { requestCustodyLocation, type CustodyLocation } from './lib/location-consent';
 
-type FlowStage = AppStage | 'vaulting' | 'readying';
+type FlowStage = AppStage | 'vaulting';
 
 export default function App() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Business Account — protecting an asset from inside a Campaign workspace.
+  const campaignId = searchParams.get('campaignId');
   const [stage, setStage] = useState<FlowStage>('idle');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [session, setSession] = useState<DnaSession | null>(null);
@@ -70,11 +72,17 @@ export default function App() {
     setStage('processing');
 
     try {
-      // Optional custody GPS — never blocks protect if denied/unavailable
-      const loc = await requestCustodyLocation();
-      setCustodyLocation(loc);
+      // Optional custody GPS — start in parallel; never block DNA generate
+      const locPromise = requestCustodyLocation();
+      void locPromise.then(setCustodyLocation);
 
       const result = await generateDna(selectedFile);
+      // Prefer GPS if it finished during generate; otherwise continue without waiting
+      const loc = await Promise.race([
+        locPromise,
+        new Promise<CustodyLocation | null>((resolve) => setTimeout(() => resolve(null), 50)),
+      ]);
+      if (loc) setCustodyLocation(loc);
 
       setSession({
         dnaRecordId:      result.dnaRecordId,
@@ -91,7 +99,7 @@ export default function App() {
         fileAnalysis:     result.fileAnalysis ?? null,
       });
 
-      setTimeout(() => setStage('encrypting'), 400);
+      setStage('encrypting');
     } catch (err: unknown) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const anyErr = err as any;
@@ -114,7 +122,7 @@ export default function App() {
 
   const handleEncryptionComplete = useCallback((enc: EncryptionResult) => {
     setSession((prev) => (prev ? { ...prev, encryption: enc } : prev));
-    setTimeout(() => setStage('vaulting'), 400);
+    setStage('vaulting');
   }, []);
 
   const handleVaultComplete = useCallback((vault: VaultStoreResponse) => {
@@ -122,8 +130,10 @@ export default function App() {
       ...prev,
       vault,
       fileAnalysis: vault.contentAnalysis ?? prev.fileAnalysis ?? null,
+      // Download can be fetched on demand from Success — don't block protect UX.
+      downloadReady: true,
     } : prev));
-    setTimeout(() => setStage('readying'), 400);
+    setStage('success');
   }, []);
 
   const handleVaultError = useCallback((msg: string) => {
@@ -134,27 +144,6 @@ export default function App() {
     setError(msg);
     setStage('idle');
   }, [navigate]);
-
-  const handleProtectReady = useCallback((result: ProtectReadyResult) => {
-    const url = URL.createObjectURL(result.blob);
-    setSession((prev) => {
-      if (prev?.protectedBlobUrl) URL.revokeObjectURL(prev.protectedBlobUrl);
-      return prev
-        ? {
-            ...prev,
-            downloadReady: true,
-            tepCode: result.tepCode,
-            protectedBlobUrl: url,
-          }
-        : prev;
-    });
-    setTimeout(() => setStage('success'), 350);
-  }, []);
-
-  const handleProtectReadyError = useCallback(() => {
-    setSession((prev) => (prev ? { ...prev, downloadReady: !!prev.vault?.vaultId } : prev));
-    setTimeout(() => setStage('success'), 350);
-  }, []);
 
   const handleReset = () => {
     setSession((prev) => {
@@ -168,11 +157,13 @@ export default function App() {
     setCustodyLocation(null);
   };
 
+  // The file did not fit in the owner's Vault storage; retrying cannot help.
+  const storageLimited = Boolean(error?.startsWith('Not enough Vault storage'));
+
   const isWorking =
     stage === 'processing'
     || stage === 'encrypting'
-    || stage === 'vaulting'
-    || stage === 'readying';
+    || stage === 'vaulting';
 
   return (
     <div className="min-h-screen flex flex-col bg-bg-base">
@@ -190,12 +181,28 @@ export default function App() {
                 >
                   <div className="rounded-xl border border-danger/30 bg-danger/5 p-4 text-center">
                     <p className="text-sm text-danger font-medium mb-3">{error}</p>
+                    {storageLimited && (
+                      <button
+                        type="button"
+                        onClick={() => navigate('/upgrade?from=storage&return=/generate')}
+                        className="btn btn-primary mb-2 mr-2"
+                      >
+                        Upgrade storage
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => { setError(null); setDuplicateInfo(null); }}
+                      onClick={() => {
+                        setError(null);
+                        // A refused duplicate can never succeed, so send the user
+                        // back to an empty upload zone. A transient error is worth
+                        // retrying with the same file, so that selection stays.
+                        if (duplicateInfo) setSelectedFile(null);
+                        setDuplicateInfo(null);
+                      }}
                       className="btn btn-secondary"
                     >
-                      {duplicateInfo ? 'Different File' : 'Retry'}
+                      {duplicateInfo ? 'Choose a different file' : 'Retry'}
                     </button>
                   </div>
                 </motion.div>
@@ -216,7 +223,7 @@ export default function App() {
               exit={{ opacity: 0 }}
             >
               <GenerationProgress
-                phase={stage as 'processing' | 'encrypting' | 'vaulting' | 'readying'}
+                phase={stage as 'processing' | 'encrypting' | 'vaulting'}
                 fileName={selectedFile?.name ?? session?.filename}
                 fileSizeBytes={selectedFile?.size ?? session?.fileSizeBytes}
                 mimeType={selectedFile?.type ?? session?.mimeType}
@@ -255,17 +262,9 @@ export default function App() {
                     file={selectedFile}
                     dnaRecordId={session.dnaRecordId}
                     custodyLocation={custodyLocation}
+                    campaignId={campaignId}
                     onComplete={handleVaultComplete}
                     onError={handleVaultError}
-                  />
-                </div>
-              )}
-              {stage === 'readying' && session?.vault?.vaultId && (
-                <div className="sr-only" aria-hidden>
-                  <ProtectReadyStep
-                    vaultId={session.vault.vaultId}
-                    onComplete={handleProtectReady}
-                    onError={handleProtectReadyError}
                   />
                 </div>
               )}
@@ -274,7 +273,7 @@ export default function App() {
 
           {stage === 'success' && session && (
             <motion.div key="success" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <SuccessPanel session={session} onReset={handleReset} />
+              <SuccessPanel session={session} onReset={handleReset} campaignId={session.vault?.campaignId ?? campaignId} />
             </motion.div>
           )}
         </AnimatePresence>

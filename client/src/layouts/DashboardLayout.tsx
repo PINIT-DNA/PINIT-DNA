@@ -11,7 +11,7 @@ export function DashboardLayout() {
 
   return (
     <AccountViewModeProvider>
-      <div className="flex h-[100dvh] bg-transparent overflow-hidden">
+      <div className="flex h-[100dvh] bg-bg-base overflow-hidden">
         <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
 
         {navOpen && (

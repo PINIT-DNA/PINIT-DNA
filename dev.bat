@@ -16,7 +16,7 @@ echo    Python AI Service :8001
 echo.
 echo  Terminal 2 - Frontend (separate terminal)
 echo    cd client
-echo    npm run dev   ^>  http://localhost:3000
+echo    npm run dev   ^>  http://localhost:3002
 echo.
 
 call npm run dev

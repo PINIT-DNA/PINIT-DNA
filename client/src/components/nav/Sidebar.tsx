@@ -1,19 +1,20 @@
-import { NavLink, useNavigate } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  LayoutDashboard, Dna, Shield, Archive, FileSearch,
-  Award, ChevronRight, Zap,
-  Activity, Radio, Ban, LogOut, User, X,
-  Sun, Moon, CreditCard, Building2, Settings, Users, Key, ShieldCheck,
+  LayoutDashboard, Shield, FileSearch,
+  Award, ChevronDown, Bell,
+  Radio, X,
+  CreditCard, Settings, Users, Briefcase,
+  HelpCircle, FolderKanban, ClipboardCheck, Activity,
+  User, Share2, FileText, ShieldCheck, BadgeCheck,
 } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { useAuth } from '../../context/AuthContext';
-import { useTheme } from '../../hooks/useTheme';
 import { useSubscription, FeatureKey } from '../../hooks/useSubscription';
 import { useAccountViewMode } from '../../hooks/useAccountViewMode';
 import { API_BASE_URL } from '../../config/api.config';
 import { BRAND } from '../../config/brand.config';
-import { displayPinitIdForMode, toRootPinitId } from '../../lib/pinit-identity';
+import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
 function BackendStatus() {
   const [online, setOnline] = useState<boolean | null>(null);
@@ -53,10 +54,10 @@ function BackendStatus() {
     };
 
     check();
-    const id = window.setInterval(check, 20_000);
+    const id = window.setInterval(check, 90_000);
     return () => {
       cancelled = true;
-      window.clearTimeout(id);
+      window.clearInterval(id);
     };
   }, []);
 
@@ -66,268 +67,332 @@ function BackendStatus() {
   return (
     <>
       <div className="flex items-center gap-2 mb-1">
-        <span className={cn(
-          'w-1.5 h-1.5 rounded-full',
-          isChecking && 'bg-yellow-400 animate-pulse',
-          isOnline && 'bg-success animate-pulse-slow',
-          online === false && 'bg-danger',
-        )} />
-        <span className="text-xs text-gray-400 font-medium">
-          {isChecking ? 'Checking API…' : isOnline ? 'System Online' : 'Backend Offline'}
+        <span
+          className={cn(
+            'w-1.5 h-1.5 rounded-full',
+            isChecking && 'bg-amber-400 animate-pulse',
+            isOnline && 'bg-emerald-500',
+            online === false && 'bg-red-500',
+          )}
+          aria-hidden
+        />
+        <span className="text-xs text-slate-500 font-medium">
+          {isChecking ? 'Checking…' : isOnline ? 'System online' : 'Backend offline'}
         </span>
       </div>
-      <div className="flex items-center gap-1.5 text-2xs text-gray-600 mono">
-        <Zap size={10} className={isOnline ? 'text-dna-500' : 'text-danger'} />
-        <span>
-          {isChecking
-            ? (isProd ? 'Connecting to Render API…' : 'Connecting to localhost:4000')
-            : isOnline
-              ? 'All systems operational'
-              : (isProd ? 'API waking up — refresh in a moment' : 'Run npm run dev:all')}
-        </span>
-      </div>
+      <p className="text-2xs text-slate-400">
+        {isChecking
+          ? (isProd ? 'Connecting…' : 'Connecting to local API')
+          : isOnline
+            ? 'All systems operational'
+            : (isProd ? 'API waking up — refresh in a moment' : 'Run npm run dev:all')}
+      </p>
     </>
   );
 }
 
-const NAV_GROUPS: Array<{
-  label: string;
-  items: Array<{
-    to: string;
-    icon: typeof LayoutDashboard;
-    label: string;
-    end?: boolean;
-    feature?: string;
-  }>;
-}> = [
-  {
-    label: 'Core',
-    items: [
-      { to: '/',          icon: LayoutDashboard, label: 'Home',     end: true },
-      { to: '/generate',  icon: Dna,             label: 'Protect file'             },
-    ],
-  },
-  {
-    label: 'Explorer',
-    items: [
-      { to: '/vault',       icon: Archive,    label: 'Digital Assets' },
-      { to: '/dna-records', icon: FileSearch, label: 'Protected files' },
-    ],
-  },
-  {
-    label: 'Intelligence',
-    items: [
-      // Tracking / Diff / Timeline live on Files → Quick Actions (per-file)
-      // Extension-captured files live in Digital Assets (same vault) — no separate modules
-      { to: '/monitoring', icon: Radio, label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },
-    ],
-  },
-  {
-    label: 'Forensics',
-    items: [
-      { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Investigate', feature: FeatureKey.FEATURE_INVESTIGATION },
-      { to: '/reports',             icon: Shield,      label: 'Reports', feature: FeatureKey.FEATURE_INVESTIGATION },
-      { to: '/unmask-requests',     icon: Shield,      label: 'Unmask Requests'     },
-      { to: '/duplicate-attempts',  icon: Ban,         label: 'Duplicate Attempts'  },
-      { to: '/vault-integrity',     icon: Activity,    label: 'Vault check'     },
-    ],
-  },
-  {
-    label: 'Sharing',
-    items: [
-      { to: '/certificates',        icon: Award,       label: 'Certificates'        },
-      { to: '/verify-certificate',  icon: ShieldCheck, label: 'Verify Certificate'  },
-      { to: '/upgrade',             icon: Award,       label: 'Plans & Upgrade'     },
-      { to: '/subscription',        icon: CreditCard,  label: 'Subscription'      },
-    ],
-  },
-];
-
-const NAV_GROUP_COLORS: Record<string, string> = {
-  Core: 'text-gray-500',
-  Organization: 'text-gray-500',
-  Explorer: 'text-gray-500',
-  Intelligence: 'text-gray-500',
-  Forensics: 'text-gray-500',
-  Sharing: 'text-gray-500',
-};
-
-/** Business accounts — single flat nav (no duplicate Intelligence / Forensics / Sharing groups). */
-const BUSINESS_NAV_ITEMS: Array<{
+type NavItem = {
   to: string;
   icon: typeof LayoutDashboard;
   label: string;
   end?: boolean;
   feature?: string;
-}> = [
-  { to: '/business', icon: Building2, label: 'Home', end: true },
-  { to: '/generate', icon: Dna, label: 'Protect file' },
-  { to: '/vault', icon: Archive, label: 'Digital Assets' },
-  { to: BRAND.investigationPath, icon: ShieldCheck, label: 'Investigate', feature: FeatureKey.FEATURE_INVESTIGATION },
-  { to: '/reports', icon: Shield, label: 'Reports', feature: FeatureKey.FEATURE_INVESTIGATION },
-  { to: '/monitoring', icon: Radio, label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },
-  { to: '/certificates', icon: Award, label: 'Certificates' },
-  { to: '/profile?tab=team', icon: Users, label: 'Team' },
-  { to: '/profile?tab=audit', icon: FileSearch, label: 'Audit Logs' },
-  { to: '/profile?tab=api', icon: Key, label: 'API Access', feature: 'FEATURE_API_ACCESS' },
-  { to: '/profile', icon: Settings, label: 'Organization Profile' },
+};
+
+type NavGroup = {
+  label: string;
+  items: NavItem[];
+};
+
+const GROUP_ICON: Record<string, typeof LayoutDashboard> = {
+  Protect: Shield,
+  Watch: Radio,
+  Intelligence: FileSearch,
+  Share: Share2,
+  Work: Briefcase,
+  Account: User,
+};
+
+const PERSONAL_NAV: NavGroup[] = [
+  {
+    label: 'Protect',
+    items: [
+      { to: '/generate', icon: Shield, label: 'Protect New' },
+      { to: '/vault', icon: FolderKanban, label: 'My Assets' },
+    ],
+  },
+  {
+    label: 'Watch',
+    items: [
+      { to: '/monitoring', icon: Radio, label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },
+    ],
+  },
+  {
+    label: 'Intelligence',
+    items: [
+      { to: BRAND.investigationPath, icon: FileSearch, label: 'Intelligence', feature: FeatureKey.FEATURE_INVESTIGATION },
+      { to: '/reports', icon: FileText, label: 'Evidence', feature: FeatureKey.FEATURE_INVESTIGATION },
+      // Not gated behind investigation: confirming your files are stored safely and
+      // checking a certificate are basic protection checks, not premium forensics.
+      { to: '/vault-integrity', icon: ShieldCheck, label: 'Security Check' },
+      { to: '/verify-certificate', icon: BadgeCheck, label: 'Verify Certificate' },
+    ],
+  },
+    {
+      label: 'Share',
+      items: [
+        { to: '/access-intelligence', icon: Share2, label: 'Sharing' },
+        { to: '/timeline', icon: Activity, label: 'Asset Activity' },
+        { to: '/certificates', icon: Award, label: 'Credentials' },
+      ],
+    },
+];
+
+const BUSINESS_NAV: NavGroup[] = [
+  {
+    label: 'Protect',
+    items: [
+      { to: '/generate', icon: Shield, label: 'Protect New' },
+      { to: '/business/clients', icon: Briefcase, label: 'Clients' },
+      { to: '/business', icon: FolderKanban, label: 'Campaigns' },
+      { to: '/vault', icon: FolderKanban, label: 'My Assets' },
+    ],
+  },
+  {
+    label: 'Work',
+    items: [
+      { to: '/business/team', icon: Users, label: 'Creators' },
+      { to: '/business/clients', icon: ClipboardCheck, label: 'Reviews' },
+      { to: '/business/audit-logs', icon: Activity, label: 'Activity' },
+    ],
+  },
+  {
+    label: 'Watch',
+    items: [
+      { to: '/monitoring', icon: Radio, label: 'Monitoring', feature: FeatureKey.FEATURE_TRACKING },
+    ],
+  },
+  {
+    label: 'Intelligence',
+    items: [
+      { to: BRAND.investigationPath, icon: FileSearch, label: 'Intelligence', feature: FeatureKey.FEATURE_INVESTIGATION },
+      { to: '/reports', icon: FileText, label: 'Evidence', feature: FeatureKey.FEATURE_INVESTIGATION },
+      // Not gated behind investigation: confirming your files are stored safely and
+      // checking a certificate are basic protection checks, not premium forensics.
+      { to: '/vault-integrity', icon: ShieldCheck, label: 'Security Check' },
+      { to: '/verify-certificate', icon: BadgeCheck, label: 'Verify Certificate' },
+    ],
+  },
+    {
+      label: 'Share',
+      items: [
+        { to: '/access-intelligence', icon: Share2, label: 'Sharing' },
+        { to: '/timeline', icon: Activity, label: 'Asset Activity' },
+        { to: '/certificates', icon: Award, label: 'Credentials' },
+      ],
+    },
+];
+
+const ACCOUNT_LINKS: NavItem[] = [
+  { to: '/profile', icon: User, label: 'Profile' },
+  { to: '/profile?tab=portfolio', icon: Briefcase, label: 'Portfolio' },
+  { to: '/profile?tab=settings', icon: Settings, label: 'Settings' },
+  { to: '/profile?tab=notifications', icon: Bell, label: 'Notifications' },
+  { to: '/upgrade', icon: Award, label: 'Plans' },
+  { to: '/subscription', icon: CreditCard, label: 'Billing' },
+  { to: '/help', icon: HelpCircle, label: 'Help' },
 ];
 
 interface SidebarProps {
-  /** Drawer open state (mobile/APK only). */
   open?: boolean;
-  /** Close the drawer (mobile/APK only). */
   onClose?: () => void;
 }
 
-export function Sidebar({ open = false, onClose }: SidebarProps) {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
-  const { theme, toggle: toggleTheme } = useTheme();
-  const { subscription } = useSubscription();
-  const { isBusinessShell, mode } = useAccountViewMode();
-  const rootShortId = (user as { shortId?: string } | null)?.shortId ?? '';
-  const displayId = displayPinitIdForMode(rootShortId, mode) || rootShortId;
-  const accountRootId = toRootPinitId(rootShortId) || rootShortId;
-
-  const navGroups = useMemo(() => {
-    if (isBusinessShell) {
-      return [{ label: 'Organization', items: BUSINESS_NAV_ITEMS }];
+function navActive(to: string, pathname: string, search: string, end?: boolean) {
+  const [path, query] = to.split('?');
+  if (query) {
+    const want = new URLSearchParams(query);
+    const have = new URLSearchParams(search);
+    if (pathname !== path) return false;
+    for (const [k, v] of want.entries()) {
+      if (have.get(k) !== v) return false;
     }
-
-    return NAV_GROUPS.map((group) => {
-      if (group.label !== 'Core') return group;
-      return {
-        ...group,
-        items: group.items.map((item) =>
-          item.to === '/'
-            ? { ...item, label: 'Home', end: true }
-            : item,
-        ),
-      };
-    });
-  }, [isBusinessShell]);
-
-  async function handleLogout() {
-    await logout();
-    navigate('/login');
+    return true;
   }
+  if (path === '/profile' && !query) {
+    const tab = new URLSearchParams(search).get('tab');
+    return pathname === '/profile' && tab !== 'notifications' && tab !== 'settings' && tab !== 'portfolio';
+  }
+  if (end) return pathname === path;
+  return pathname === path || pathname.startsWith(`${path}/`);
+}
+
+function groupHasActive(items: NavItem[], pathname: string, search: string) {
+  return items.some((item) => navActive(item.to, pathname, search, item.end));
+}
+
+export function Sidebar({ open = false, onClose }: SidebarProps) {
+  const { user } = useAuth();
+  const { subscription } = useSubscription();
+  const { isBusinessShell } = useAccountViewMode();
+  const location = useLocation();
+  const homeTo = isBusinessShell ? '/business' : '/';
+  const homeActive = navActive(homeTo, location.pathname, location.search, true);
+
+  const navGroups = useMemo<NavGroup[]>(
+    () => [
+      ...(isBusinessShell ? BUSINESS_NAV : PERSONAL_NAV),
+      { label: 'Account', items: ACCOUNT_LINKS },
+    ],
+    [isBusinessShell],
+  );
+
+  const activeGroupLabel = useMemo(
+    () => navGroups.find((group) => groupHasActive(group.items, location.pathname, location.search))?.label ?? null,
+    [navGroups, location.pathname, location.search],
+  );
+
+  const [openGroup, setOpenGroup] = useState<string | null>(homeActive ? null : activeGroupLabel);
+  const routeKey = `${location.pathname}${location.search}`;
+  const lastRouteKey = useRef(routeKey);
+
+  useEffect(() => {
+    if (lastRouteKey.current === routeKey) return;
+    lastRouteKey.current = routeKey;
+    if (homeActive) {
+      setOpenGroup(null);
+      return;
+    }
+    if (activeGroupLabel) setOpenGroup(activeGroupLabel);
+  }, [routeKey, activeGroupLabel, homeActive]);
 
   return (
     <aside
       className={cn(
-        'fixed left-0 top-0 h-screen w-60 bg-white/85 dark:bg-bg-surface/95 backdrop-blur-xl border-r border-bg-border flex flex-col z-[90] select-none',
-        // Off-canvas drawer on mobile; always docked from lg up (desktop web unchanged).
+        'hub-sidebar fixed left-0 top-0 h-screen w-60 bg-white border-r border-slate-200 flex flex-col z-[90] select-none',
         'transform transition-transform duration-200 lg:translate-x-0',
-        open ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:shadow-none'
+        open ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:shadow-none',
       )}
     >
-
-      {/* Logo */}
-      <div className="h-14 flex items-center gap-3 px-5 border-b border-bg-border shrink-0 bg-white/60 dark:bg-bg-elevated/40">
-        <img
-          src={BRAND.logoSrc}
-          alt={BRAND.name}
-          className="w-8 h-8 rounded-xl object-contain shrink-0"
-        />
-        <div className="leading-none min-w-0">
-          <p className="font-bold text-white text-sm tracking-tight truncate">
-            {BRAND.name}
-          </p>
-          <p className="text-2xs text-gray-500 mono mt-0.5 truncate">{BRAND.version}</p>
+      <div className="px-3 pt-3 pb-3 border-b border-slate-100 shrink-0 space-y-3">
+        <div className="flex items-center gap-2.5 px-1">
+          <img
+            src={BRAND.logoSrc}
+            alt={BRAND.name}
+            className="w-8 h-8 rounded-xl object-contain shrink-0"
+          />
+          <div className="leading-tight min-w-0 flex-1">
+            <p className="font-bold text-slate-900 text-sm tracking-tight truncate">{BRAND.name}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="ml-auto lg:hidden text-slate-400 hover:text-slate-800 transition-colors rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-dna-500"
+            aria-label="Close menu"
+          >
+            <X size={18} />
+          </button>
         </div>
-        {/* Close button — mobile drawer only */}
-        <button
-          onClick={onClose}
-          className="ml-auto lg:hidden text-gray-500 hover:text-white transition-colors"
-          aria-label="Close menu"
-        >
-          <X size={18} />
-        </button>
+        <WorkspaceSwitcher />
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-4">
-        {navGroups.map(group => (
-          <div key={group.label}>
-            <p className={cn('text-2xs font-bold uppercase tracking-widest px-2 mb-1', NAV_GROUP_COLORS[group.label] ?? 'text-gray-500')}>
-              {group.label}
-            </p>
-            <ul className="space-y-0.5">
-              {group.items.map(({ to, icon: Icon, label, end }) => (
-                <li key={to}>
-                  <NavLink
-                    to={to}
-                    end={end}
-                    onClick={onClose}
-                    className={({ isActive }) => cn(
-                      'group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150',
-                      isActive
-                        ? 'bg-gradient-to-r from-dna-500/15 via-teal-500/10 to-transparent text-dna-600 dark:text-dna-400 border border-dna-200/60 dark:border-dna-500/30 shadow-sm'
-                        : 'text-gray-500 dark:text-gray-400 hover:text-dna-700 dark:hover:text-white hover:bg-dna-50/70 dark:hover:bg-bg-elevated border border-transparent'
-                    )}
-                  >
-                    {({ isActive }) => (
-                      <>
-                        <Icon size={15} className={cn('shrink-0', isActive ? 'text-dna-500' : 'text-gray-400 group-hover:text-dna-500')} />
-                        <span className="flex-1 text-[13px]">{label}</span>
-                        {isActive && <ChevronRight size={11} className="text-dna-500 shrink-0" />}
-                      </>
-                    )}
-                  </NavLink>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+      <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-1">
+        <p className="px-3 pt-1 pb-1 text-[10px] font-semibold tracking-[0.14em] uppercase text-slate-400">Core</p>
+        <NavLink
+          to={homeTo}
+          end
+          onClick={() => {
+            setOpenGroup(null);
+            onClose?.();
+          }}
+          className={() =>
+            cn(
+              'group flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-colors',
+              'focus:outline-none focus-visible:ring-2 focus-visible:ring-dna-500',
+              homeActive
+                ? 'bg-dna-50 text-dna-700 border border-dna-100'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent',
+            )
+          }
+        >
+          <LayoutDashboard size={15} className={cn('shrink-0', homeActive ? 'text-dna-600' : 'text-slate-400')} />
+          <span className="text-[13px]">Home</span>
+        </NavLink>
+        {navGroups.map((group) => {
+          const GroupIcon = GROUP_ICON[group.label] ?? LayoutDashboard;
+          const isOpen = openGroup === group.label;
+          const childActive = groupHasActive(group.items, location.pathname, location.search);
+          const panelId = `sidebar-${group.label.toLowerCase()}-links`;
+
+          return (
+            <div key={group.label}>
+              <button
+                type="button"
+                onClick={() => setOpenGroup((current) => (current === group.label ? null : group.label))}
+                aria-expanded={isOpen}
+                aria-controls={panelId}
+                className={cn(
+                  'w-full group flex items-center gap-3 px-3 py-2 rounded-xl transition-colors',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-dna-500',
+                  isOpen || childActive
+                    ? 'text-slate-900 dark:text-slate-100'
+                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-100',
+                )}
+              >
+                <GroupIcon size={15} className={cn('shrink-0', isOpen || childActive ? 'text-dna-600' : 'text-slate-400')} />
+                <span className="flex-1 text-left text-[11px] font-semibold tracking-[0.12em] uppercase">{group.label}</span>
+                <ChevronDown
+                  size={14}
+                  className={cn(
+                    'shrink-0 text-slate-400 transition-transform duration-150',
+                    isOpen && 'rotate-180',
+                  )}
+                  aria-hidden
+                />
+              </button>
+              {isOpen && (
+                <ul id={panelId} className="mt-0.5 ml-3 pl-3 border-l border-slate-200/70 dark:border-white/10 space-y-0.5">
+                  {group.items.map(({ to, icon: Icon, label, end }, idx) => (
+                    <li key={`${group.label}-${label}-${idx}`}>
+                      <NavLink
+                        to={to}
+                        end={end}
+                        onClick={onClose}
+                        className={() => {
+                          const isActive = navActive(to, location.pathname, location.search, end);
+                          return cn(
+                            'group flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-colors',
+                            'focus:outline-none focus-visible:ring-2 focus-visible:ring-dna-500',
+                            isActive
+                              ? 'bg-dna-50 text-dna-700 border border-dna-100'
+                              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent',
+                          );
+                        }}
+                      >
+                        <Icon size={15} className="text-slate-400" />
+                        <span className="text-[13px]">{label}</span>
+                      </NavLink>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        })}
       </nav>
 
-      {/* Status footer */}
-      <div className="shrink-0 p-3 border-t border-bg-border space-y-2">
-        {/* User identity */}
+      <div className="shrink-0 p-3 border-t border-slate-200/80 dark:border-white/10 space-y-2">
         {user && (
-          <div className="rounded-xl bg-bg-elevated border border-bg-border p-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="w-6 h-6 rounded-full bg-dna-500/20 flex items-center justify-center shrink-0">
-                  <User size={11} className="text-dna-400" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-2xs text-gray-500 font-medium leading-none mb-0.5">
-                    {mode === 'BUSINESS' ? 'Business ID' : 'Individual ID'}
-                  </p>
-                  <p className="text-xs text-dna-400 font-bold truncate mono" title={`Account ${accountRootId}`}>
-                    {displayId || user.sub?.slice(0, 8)}
-                  </p>
-                  {accountRootId && displayId !== accountRootId && (
-                    <p className="text-2xs text-gray-600 truncate mono mt-0.5" title="Biometric account">
-                      {accountRootId}
-                    </p>
-                  )}
-                  {subscription && (
-                    <p className="text-2xs text-gray-500 mt-0.5">{subscription.planName} plan</p>
-                  )}
-                </div>
-              </div>
-              <button
-                onClick={toggleTheme}
-                title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-                className="shrink-0 text-gray-500 hover:text-dna-400 transition-colors"
-              >
-                {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
-              </button>
-              <button
-                onClick={handleLogout}
-                title="Sign out"
-                className="shrink-0 text-gray-500 hover:text-red-400 transition-colors"
-              >
-                <LogOut size={13} />
-              </button>
-            </div>
+          <div className="rounded-xl px-3 py-2">
+            <p className="text-[12px] text-slate-500 font-medium">
+              {isBusinessShell ? 'Business' : 'Personal'}
+            </p>
+            {subscription && (
+              <p className="text-[12px] text-slate-500 mt-0.5">{subscription.planName} plan</p>
+            )}
           </div>
         )}
-
-        <div className="rounded-xl bg-bg-elevated border border-bg-border p-3">
+        <div className="rounded-xl px-3 py-2">
           <BackendStatus />
         </div>
       </div>

@@ -3,7 +3,7 @@ import { getAuthUserId } from '../../lib/tenant-scope';
 import { entitlementService, subscriptionService } from '../../services/subscription';
 import { PlanCode } from '../../services/subscription/constants/plans';
 import { AppError } from '../middleware/error.middleware';
-import { razorpayBillingService } from '../../services/subscription/billing/razorpay.service';
+import { razorpayBillingService, isMockBillingAllowed } from '../../services/subscription/billing/razorpay.service';
 import { mockBillingService } from '../../services/subscription/billing/mock-billing.service';
 import { config } from '../../config';
 
@@ -108,6 +108,9 @@ export async function getBillingHistory(req: Request, res: Response, next: NextF
 /** POST /subscription/billing/mock-complete { planCode, paymentMethod?, coupon? } */
 export async function mockCompletePayment(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    if (!isMockBillingAllowed()) {
+      throw new AppError(403, 'Simulated payments are disabled outside local/dev environments.');
+    }
     const userId = getAuthUserId(req);
     const { planCode, paymentMethod, coupon } = req.body as {
       planCode?: string;
@@ -145,14 +148,10 @@ export async function assignSubscriptionPlan(req: Request, res: Response, next: 
       throw new AppError(400, 'Valid planCode required (FREE | PRO | ENTERPRISE)');
     }
 
-    const targetUserId = userId?.trim() || callerId;
     const { prisma } = await import('../../lib/prisma');
     const caller = await prisma.user.findUnique({ where: { id: callerId }, select: { role: true } });
     const isAdmin = caller?.role === 'ADMIN' || caller?.role === 'SUPER_ADMIN';
-
-    if (targetUserId !== callerId && !isAdmin) {
-      throw new AppError(403, 'Admin access required to assign plans to other users');
-    }
+    const targetUserId = isAdmin && userId?.trim() ? userId.trim() : callerId;
 
     const paidPlan = planCode === PlanCode.PRO || planCode === PlanCode.ENTERPRISE;
     const demoAllowed =

@@ -99,6 +99,19 @@ export class EntitlementService {
     if (!this.isEnforcementEnabled()) return;
 
     await this.assertCanProtectAsset(userId);
+    await this.assertStorageAvailable(userId, incomingBytes);
+  }
+
+  /**
+   * The storage half of assertCanUpload, on its own.
+   *
+   * There is no fixed per-file size limit: an asset of any size may be protected
+   * when it fits in the owner's remaining Vault storage. Protect paths call this
+   * with the real file size before doing any work, so a file that cannot be
+   * stored is refused up front rather than after DNA has been generated for it.
+   */
+  async assertStorageAvailable(userId: string, incomingBytes: number): Promise<void> {
+    if (!this.isEnforcementEnabled()) return;
 
     const limit = await this.getStorageLimitBytes(userId);
     if (limit == null) return; // unlimited
@@ -107,7 +120,7 @@ export class EntitlementService {
     if (used + incomingBytes > limit) {
       const planCode = await this.getEffectivePlanCode(userId);
       const next = planCode === PlanCode.FREE ? PlanCode.PRO : PlanCode.ENTERPRISE;
-      throw new StorageLimitError(used, limit, next);
+      throw new StorageLimitError(used, limit, next, incomingBytes);
     }
   }
 
@@ -220,9 +233,15 @@ export class StorageLimitError extends AppError {
     public readonly usedBytes: number,
     public readonly limitBytes: number,
     public readonly requiredPlan: PlanCode,
+    /** Size of the file that did not fit. */
+    public readonly incomingBytes = 0,
   ) {
-    super(403, 'Vault storage limit reached for your plan');
+    super(403, 'Not enough Vault storage. Upgrade your storage to protect this asset.');
     this.name = 'StorageLimitError';
+  }
+
+  get remainingBytes(): number {
+    return Math.max(0, this.limitBytes - this.usedBytes);
   }
 }
 

@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { Building2, ShieldCheck, FileText, CheckCircle, ArrowRight, DollarSign } from 'lucide-react';
+import { Building2, ShieldCheck, FileText, CheckCircle, DollarSign } from 'lucide-react';
+import InfoPage, { InfoCards, InfoSteps } from '../components/InfoPage.jsx';
+import { HUB_APP_URL } from '../lib/exchange-routes.js';
 
-export default function EnterpriseLicensing() {
+export default function EnterpriseLicensing({ onNavigate }) {
   const [seats, setSeats] = useState(50);
   const [indemnity, setIndemnity] = useState('5000000');
   const [orgName, setOrgName] = useState('Global Media Corp');
@@ -19,8 +21,47 @@ export default function EnterpriseLicensing() {
   };
 
   return (
-    <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '32px 24px' }}>
-      <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+    <InfoPage
+      onNavigate={onNavigate}
+      crumbs={[{ label: 'Business', page: 'sell' }, { label: 'Enterprise' }]}
+      eyebrow="Enterprise"
+      title="Creative asset commerce built for teams"
+      subtitle="For creative teams, marketing, agencies, media companies, game studios, brands, and enterprises that need protection, licensing, and delivery in one path."
+      related={[
+        { page: 'security', label: 'Security', desc: 'Access and privacy' },
+        { page: 'trust', label: 'Trust Center', desc: 'Hub + Exchange model' },
+        { page: 'creator_support', label: 'Support', desc: 'Talk to the team' },
+      ]}
+      primaryCta={{ label: 'Talk to Pinit', onClick: () => document.getElementById('enterprise-contact')?.scrollIntoView({ behavior: 'smooth' }) }}
+      secondaryCta={{ label: 'Explore Pinit HUB', onClick: () => window.open(HUB_APP_URL, '_blank', 'noopener,noreferrer') }}
+    >
+      <InfoCards
+        items={[
+          { icon: ShieldCheck, title: 'Asset protection', body: 'Hub vaults the original. Teams license usage on Exchange.' },
+          { icon: FileText, title: 'Licensing', body: 'Personal through enterprise seats, with a sealed record per purchase.' },
+          { icon: Building2, title: 'Team collaboration', body: 'Business accounts on Hub; Exchange listings stay tied to the same identity code.' },
+          { icon: DollarSign, title: 'Secure delivery', body: 'Authorized assets come from Hub after checkout — not an open file dump.' },
+        ]}
+      />
+
+      <h2>Enterprise workflow</h2>
+      <InfoSteps
+        steps={[
+          { title: 'Create / Import', body: 'Bring work into Pinit HUB.' },
+          { title: 'Protect', body: 'Vault the asset and record Asset DNA.' },
+          { title: 'Collaborate', body: 'Review inside the team before it is offered for license.' },
+          { title: 'Approve', body: 'Decide what can be listed and at which tier.' },
+          { title: 'License', body: 'Buyers or internal teams complete Exchange checkout.' },
+          { title: 'Deliver', body: 'Hub authorizes the licensed package.' },
+          { title: 'Monitor', body: 'Keep watching for copies after delivery.' },
+        ]}
+      />
+
+      <h2 id="enterprise-contact">Request a conversation</h2>
+      <p>The form below is an estimate request already in the product. It is not a binding purchase order until Pinit confirms terms with you.</p>
+
+      <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+      <div style={{ textAlign: 'center', marginBottom: '24px' }}>
         <div style={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -35,14 +76,6 @@ export default function EnterpriseLicensing() {
         }}>
           <Building2 size={16} /> INSTITUTIONAL BULK LICENSING
         </div>
-
-        <h1 style={{ fontSize: '2.5rem', color: '#fff', marginBottom: '16px' }}>
-          Enterprise Bulk & Institutional Licensing
-        </h1>
-
-        <p style={{ color: 'var(--text-muted)', fontSize: '1.05rem', maxWidth: '700px', margin: '0 auto' }}>
-          Multi-seat team licenses, corporate PO billing, legal indemnity guarantees, and direct RAW master access powered by Pinit HUB.
-        </p>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '32px' }}>
@@ -104,13 +137,14 @@ export default function EnterpriseLicensing() {
             <h4 style={{ fontSize: '1.1rem', color: '#fff', marginBottom: '12px' }}>Enterprise SLA Package Includes</h4>
             <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.88rem', color: 'var(--text-muted)' }}>
               <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={16} color="var(--emerald)" /> Unlimited multi-seat deployment across regional offices</li>
-              <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={16} color="var(--emerald)" /> SHA-256 file DNA audit logs for licensed masters</li>
+              <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={16} color="var(--emerald)" /> SHA-256 asset DNA audit logs for licensed masters</li>
               <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={16} color="var(--emerald)" /> Net 30/60 Invoicing &amp; Corporate PO billing</li>
               <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={16} color="var(--emerald)" /> Dedicated Pinit HUB compliance officer</li>
             </ul>
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </InfoPage>
   );
 }

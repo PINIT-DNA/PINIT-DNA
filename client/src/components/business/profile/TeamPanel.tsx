@@ -140,7 +140,7 @@ export function TeamPanel() {
           <div className="mt-4 rounded-xl border border-dna-500/30 bg-dna-500/10 p-3 space-y-2">
             <p className="text-xs font-semibold text-dna-300">Share this link</p>
             <p className="text-2xs text-gray-400">
-              Anyone with a PinIT account who opens it joins as <span className="text-white font-medium">{role}</span> (one use).
+              Anyone with a Pinit account who opens it joins as <span className="text-white font-medium">{role}</span> (one use).
             </p>
             <div className="flex items-center gap-2">
               <p className="text-xs text-dna-400 mono flex-1 truncate">{lastInviteUrl}</p>
@@ -157,7 +157,7 @@ export function TeamPanel() {
         )}
       </EnterpriseCard>
 
-      <EnterpriseCard title="Members" icon={<Users size={16} />}>
+      <EnterpriseCard title="Team members" icon={<Users size={16} />}>
         <ul className="divide-y divide-bg-border -mx-1">
           {members.map((m) => {
             const Icon = roleIcon(m.role);
@@ -183,7 +183,7 @@ export function TeamPanel() {
                     </select>
                     <button
                       type="button"
-                      onClick={() => void removeMember(m.id).then(() => toast.success('Member removed'))}
+                      onClick={() => void removeMember(m.id).then(() => toast.success('Removed from team'))}
                       className="p-1.5 text-red-400 hover:bg-red-500/10 rounded-lg"
                       aria-label="Remove member"
                     >

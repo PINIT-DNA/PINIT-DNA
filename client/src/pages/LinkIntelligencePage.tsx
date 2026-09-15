@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, RefreshCw, Globe, Eye, Download, Copy, Ban,
-  Users, Clock, Smartphone, Monitor, MapPin, AlertTriangle, ExternalLink, XCircle,
+  Users, Clock, Smartphone, Monitor, MapPin, AlertTriangle, ExternalLink, XCircle, Video,
 } from 'lucide-react';
 import { api } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
@@ -12,7 +12,7 @@ import {
   type AccessKind,
   ACCESS_KIND_LABELS,
 } from '../components/maps/FileTrackingMap';
-import { isValidMapCoordinate, sanitizeCoordinatePair, isPrivateIp } from '../lib/geo-coords';
+import { isValidMapCoordinate, sanitizeCoordinatePair } from '../lib/geo-coords';
 import { locationLabel } from '../lib/precise-gps';
 
 interface AccessLog {
@@ -76,6 +76,10 @@ interface AccessLog {
   isActive: boolean;
   allowDownload: boolean;
   hopLinkCount?: number;
+  sourceContext?: string | null;
+  exchangeOrderId?: string | null;
+  exchangeSealId?: string | null;
+  licenseTier?: string | null;
   accessLogs: AccessLog[];
   blockedViewers?: BlockedViewer[];
 }
@@ -312,9 +316,30 @@ function viewerGroupKey(log: AccessLog): string {
 }
 
 const VIEWER_ACTIONS = new Set([
-  'VIEWED', 'DOWNLOADED', 'COPY_ATTEMPT', 'SCREENSHOT_ATTEMPT', 'PRINT_ATTEMPT',
-  'TAB_SWITCH', 'SCROLL', 'IDLE', 'ACTIVE', 'FORWARDING_DETECTED', 'LOCATION_UPDATE',
+  'VIEWED', 'DOWNLOADED', 'DOWNLOAD_STARTED', 'DOWNLOAD_FAILED',
+  'COPY_ATTEMPT', 'COPIED', 'SCREENSHOT_ATTEMPT', 'SCREEN_RECORDING_ATTEMPT', 'PRINT_ATTEMPT',
+  'TAB_SWITCH', 'SCROLL', 'IDLE', 'ACTIVE', 'FORWARDING_DETECTED', 'SHARE_FURTHER',
+  'HOP_MINTED', 'LOCATION_UPDATE',
+  'BLOCKED_REVOKED', 'BLOCKED_EXPIRED', 'BLOCKED_MAX_VIEWS', 'BLOCKED_TAMPERED',
+  'BLOCKED_POLICY', 'BLOCKED_TOR', 'BLOCKED_VPN', 'BLOCKED_COUNTRY', 'BLOCKED_DEVICE', 'BLOCKED_IP',
 ]);
+
+function isDeviceGpsSource(source: string | null | undefined): boolean {
+  return source === 'gps' || source === 'network';
+}
+
+function viewerIdentityLabel(v: { accessKind: AccessKind; recipientName: string | null; hopNumber: number }): string {
+  const named = v.recipientName?.trim();
+  if (named) return named;
+  if (v.accessKind === 'reshared') return `Anonymous viewer ${v.hopNumber}`;
+  return 'Anonymous viewer';
+}
+
+function isTrackedViewerAction(action: string): boolean {
+  return VIEWER_ACTIONS.has(action)
+    || action.startsWith('SCROLL')
+    || action.startsWith('BLOCKED_');
+}
 
 const RISK_COLOR: Record<string, string> = {
   LOW:      'text-green-400 bg-green-500/20',
@@ -325,20 +350,37 @@ const RISK_COLOR: Record<string, string> = {
 
 const ACTION_CONFIG: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
   VIEWED:             { icon: <Eye size={11} />,      label: 'Viewed',        color: 'text-blue-400' },
-  DOWNLOADED:         { icon: <Download size={11} />,  label: 'Downloaded',    color: 'text-green-400' },
-  COPIED:             { icon: <Copy size={11} />,      label: 'Copied',        color: 'text-yellow-400' },
-  COPY_ATTEMPT:       { icon: <Copy size={11} />,      label: 'Copy Attempt',  color: 'text-orange-400' },
-  SCREENSHOT_ATTEMPT: { icon: <Ban size={11} />,       label: 'Screenshot',    color: 'text-red-400' },
-  TAB_SWITCH:         { icon: <ExternalLink size={11}/>, label: 'Tab Switch',  color: 'text-purple-400' },
-  PRINT_ATTEMPT:      { icon: <Ban size={11} />,       label: 'Print Attempt', color: 'text-red-400' },
+  DOWNLOADED:         { icon: <Download size={11} />,  label: 'Download completed', color: 'text-green-400' },
+  DOWNLOAD_STARTED:   { icon: <Download size={11} />,  label: 'Download started', color: 'text-green-300' },
+  DOWNLOAD_FAILED:    { icon: <Ban size={11} />,       label: 'Download failed', color: 'text-red-400' },
+  COPY_ATTEMPT:       { icon: <Copy size={11} />,      label: 'Copy attempt detected',  color: 'text-orange-400' },
+  COPIED:             { icon: <Copy size={11} />,      label: 'Copy attempt detected',  color: 'text-orange-400' },
+  SCREENSHOT_ATTEMPT: { icon: <Ban size={11} />,       label: 'Screenshot attempt (best-effort)', color: 'text-red-400' },
+  SCREEN_RECORDING_ATTEMPT: { icon: <Video size={11} />, label: 'Screen recording attempt (best-effort)', color: 'text-pink-400' },
+  TAB_SWITCH:         { icon: <ExternalLink size={11}/>, label: 'Tab switch / hidden',  color: 'text-purple-400' },
+  PRINT_ATTEMPT:      { icon: <Ban size={11} />,       label: 'Print attempt', color: 'text-red-400' },
+  SHARE_FURTHER:      { icon: <ExternalLink size={11} />, label: 'Pinit secure link copied',   color: 'text-orange-400' },
+  FORWARDING_DETECTED:{ icon: <ExternalLink size={11} />, label: 'Link opened by new viewer',  color: 'text-orange-400' },
+  HOP_MINTED:         { icon: <ExternalLink size={11} />, label: 'Share hop created',  color: 'text-orange-300' },
   ACTIVE:             { icon: <Eye size={11} />,       label: 'Active',        color: 'text-dna-400' },
   IDLE:               { icon: <Clock size={11} />,     label: 'Idle',          color: 'text-gray-400' },
   SCROLL:             { icon: <Eye size={11} />,       label: 'Scrolled',      color: 'text-gray-400' },
-  LOCATION_UPDATE:   { icon: <MapPin size={11} />,    label: 'GPS Refined',   color: 'text-green-400' },
+  LOCATION_UPDATE:   { icon: <MapPin size={11} />,    label: 'GPS refined',   color: 'text-green-400' },
+  BLOCKED_REVOKED:    { icon: <Ban size={11} />, label: 'Blocked — revoked', color: 'text-red-400' },
+  BLOCKED_EXPIRED:    { icon: <Ban size={11} />, label: 'Blocked — expired', color: 'text-red-400' },
+  BLOCKED_MAX_VIEWS:  { icon: <Ban size={11} />, label: 'Blocked — view limit', color: 'text-red-400' },
+  BLOCKED_TAMPERED:   { icon: <Ban size={11} />, label: 'Blocked — invalid token', color: 'text-red-400' },
+  BLOCKED_POLICY:     { icon: <Ban size={11} />, label: 'Blocked — policy', color: 'text-red-400' },
+  BLOCKED_TOR:        { icon: <Ban size={11} />, label: 'Blocked — Tor', color: 'text-red-400' },
+  BLOCKED_VPN:        { icon: <Ban size={11} />, label: 'Blocked — VPN', color: 'text-red-400' },
+  BLOCKED_COUNTRY:    { icon: <Ban size={11} />, label: 'Blocked — country', color: 'text-red-400' },
+  BLOCKED_DEVICE:     { icon: <Ban size={11} />, label: 'Blocked — device', color: 'text-red-400' },
+  BLOCKED_IP:         { icon: <Ban size={11} />, label: 'Blocked — IP', color: 'text-red-400' },
 };
 
 export function LinkIntelligencePage() {
   const { token } = useParams<{ token: string }>();
+  const [searchParams] = useSearchParams();
   const [link, setLink] = useState<LinkInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -347,30 +389,58 @@ export function LinkIntelligencePage() {
   const [revoked, setRevoked] = useState(false);
   const [blockingViewer, setBlockingViewer] = useState<string | null>(null);
 
-  const load = () => {
+  const selectViewer = (id: string | null) => {
+    setSelectedViewer(id);
+    try {
+      const url = new URL(window.location.href);
+      if (id) url.searchParams.set('viewer', id);
+      else url.searchParams.delete('viewer');
+      window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}`);
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => {
+    const fromUrl = searchParams.get('viewer');
+    if (fromUrl) setSelectedViewer(fromUrl);
+  }, [searchParams]);
+
+  const load = (quiet = false) => {
     if (!token) return;
-    setLoading(true);
-    setLoadError(null);
+    if (!quiet) {
+      setLoading(true);
+      setLoadError(null);
+    }
     api.get(`${API_BASE_URL}/share/${encodeURIComponent(token)}/logs`)
       .then(r => {
         const payload = r.data as { link?: LinkInfo; success?: boolean };
         const linkData = payload?.link ?? null;
         if (linkData?.token) {
           setLink({ ...linkData, accessLogs: linkData.accessLogs ?? [], blockedViewers: linkData.blockedViewers ?? [] });
-        } else {
+        } else if (!quiet) {
           setLink(null);
           setLoadError('Invalid response from server');
         }
-        setLoading(false);
+        if (!quiet) setLoading(false);
       })
       .catch((err: { response?: { data?: { error?: string }; status?: number } }) => {
-        setLink(null);
-        setLoadError(err?.response?.data?.error ?? 'Failed to load link intelligence. Is the backend running?');
-        setLoading(false);
+        if (!quiet) {
+          setLink(null);
+          setLoadError(err?.response?.data?.error ?? "Couldn't load activity for this asset.");
+          setLoading(false);
+        }
       });
   };
 
-  useEffect(load, [token]);
+  useEffect(() => { load(); }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    const id = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      load(true);
+    }, 12_000);
+    return () => window.clearInterval(id);
+  }, [token]);
 
   // Group logs by unique viewer (IP + fingerprint)
   const viewers: Viewer[] = (() => {
@@ -381,14 +451,22 @@ export function LinkIntelligencePage() {
     const blocks = link.blockedViewers ?? [];
 
     const sorted = [...link.accessLogs]
-      .filter(l => VIEWER_ACTIONS.has(l.action))
+      .filter(l => isTrackedViewerAction(l.action))
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-    for (const log of sorted) {
+    const isAnchor = (action: string) =>
+      action === 'VIEWED' || action === 'FORWARDING_DETECTED' || action.startsWith('BLOCKED_');
+    // Attach copy/screenshot after VIEWED so mobile events logged before GPS view are kept.
+    const ordered = [
+      ...sorted.filter((l) => isAnchor(l.action)),
+      ...sorted.filter((l) => !isAnchor(l.action)),
+    ];
+
+    for (const log of ordered) {
       const key = viewerGroupKey(log);
       if (!map.has(key)) {
         // Only anchor a new viewer on a real open / forward — not scroll/idle alone
-        if (log.action !== 'VIEWED' && log.action !== 'FORWARDING_DETECTED') continue;
+        if (log.action !== 'VIEWED' && log.action !== 'FORWARDING_DETECTED' && !log.action.startsWith('BLOCKED_')) continue;
         hop++;
         const accessKind = classifyAccessKind(log, seenDirectOnParent);
         if (accessKind === 'direct_recipient' || accessKind === 'direct_share') {
@@ -523,12 +601,12 @@ export function LinkIntelligencePage() {
 
   if (!link) return (
     <div className="max-w-lg mx-auto text-center py-16">
-      <p className="text-sm text-gray-400 mb-2">{loadError ?? 'Link not found'}</p>
+      <p className="text-sm text-gray-400 mb-2">{loadError ?? "Couldn't load activity for this asset."}</p>
       <div className="flex items-center justify-center gap-3">
         <Link to="/access-intelligence" className="text-dna-400 text-sm hover:underline flex items-center gap-1">
-          <ArrowLeft size={14} /> Back to Tracking
+          <ArrowLeft size={14} /> Back
         </Link>
-        <button onClick={load} className="text-sm text-gray-400 hover:text-white">Retry</button>
+        <button onClick={() => load()} className="btn btn-secondary btn-sm">Try again</button>
       </div>
     </div>
   );
@@ -537,6 +615,14 @@ export function LinkIntelligencePage() {
   const trackingBackPath = link.vaultId
     ? `/access-intelligence?vaultId=${encodeURIComponent(link.vaultId)}`
     : '/access-intelligence';
+  const securityEventCount = (link.accessLogs ?? []).filter((a) => (
+    a.action === 'COPY_ATTEMPT'
+    || a.action === 'PRINT_ATTEMPT'
+    || a.action === 'SCREENSHOT_ATTEMPT'
+    || a.action === 'SCREEN_RECORDING_ATTEMPT'
+    || a.action === 'DOWNLOAD_FAILED'
+    || a.action === 'FORWARDING_DETECTED'
+  )).length;
 
   return (
     <div className="page-shell-wide w-full">
@@ -546,19 +632,30 @@ export function LinkIntelligencePage() {
           <ArrowLeft size={20} />
         </Link>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium text-gray-500 mb-0.5">Tracking</p>
+          <p className="text-xs font-medium text-gray-500 mb-0.5">Asset Activity</p>
           <h1 className="text-lg sm:text-xl font-bold text-white truncate" title={link.filename}>
             {link.filename}
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            Shared {formatDistanceToNow(new Date(link.createdAt))} ago
+            See who accessed this asset and what happened.
+            {' '}Shared {formatDistanceToNow(new Date(link.createdAt))} ago
             {(link.hopLinkCount ?? 0) > 0 && (
               <span className="text-dna-400"> · {link.hopLinkCount} forward{link.hopLinkCount === 1 ? '' : 's'} tracked</span>
             )}
           </p>
+          {link.sourceContext === 'exchange_license' && (
+            <div className="mt-3 rounded-lg border border-dna-500/30 bg-dna-500/5 px-3 py-2 text-2xs text-gray-400">
+              <p className="text-dna-300 font-semibold uppercase tracking-wide">Commercial context</p>
+              <p className="text-white mt-1">Pinit Exchange · licensed delivery</p>
+              <p className="mt-1">License: <span className="text-white capitalize">{link.licenseTier || 'Licensed'}</span>
+                {link.exchangeOrderId ? <> · Order: <span className="text-white">{link.exchangeOrderId}</span></> : null}
+                {link.exchangeSealId ? <> · License: <span className="text-white">{link.exchangeSealId}</span></> : null}
+              </p>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={load} className="text-gray-400 hover:text-white transition-colors">
+          <button onClick={() => load()} className="text-gray-400 hover:text-white transition-colors">
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
           </button>
           {link.isActive && !revoked ? (
@@ -594,8 +691,8 @@ export function LinkIntelligencePage() {
         <StatCard icon={<Globe size={14} />} label="Countries" value={Object.keys(countryStats).length} color="text-purple-400" />
         <StatCard
           icon={<AlertTriangle size={14} />}
-          label="Risk Events"
-          value={viewers.filter(v => v.riskLevel === 'HIGH' || v.riskLevel === 'CRITICAL').length}
+          label="Security events"
+          value={securityEventCount}
           color="text-red-400"
         />
       </div>
@@ -603,45 +700,38 @@ export function LinkIntelligencePage() {
       {/* Interactive World Map — file tracking visualization */}
       <div className="card mb-6">
         <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-4">
-          <Globe size={14} className="text-dna-400" /> File Tracking Map — Where Your File Traveled
+          <Globe size={14} className="text-dna-400" /> Where this asset was accessed
         </h2>
 
         <FileTrackingMap
+          onSelectViewer={(id) => selectViewer(id)}
           points={viewers
             .filter(v => isValidMapCoordinate(v.lat, v.lng))
             .map(v => ({
+            viewerId: v.id,
+            filename: link.filename,
             lat: v.lat!, lng: v.lng!,
             label: `Hop ${v.hopNumber}`,
             hopNumber: v.hopNumber,
-            country: v.country, city: v.gpsCity ?? v.city,
+            country: v.country, city: isDeviceGpsSource(v.locationSource) ? (v.gpsCity ?? v.city) : v.city,
             device: v.device, ip: v.ip,
             riskLevel: v.riskLevel,
             totalActions: v.totalActions,
-            gpsVillage: v.gpsVillage,
-            gpsMandal: v.gpsMandal,
-            gpsDistrict: v.gpsDistrict,
-            gpsState: v.gpsState,
-            gpsPincode: v.gpsPincode,
+            gpsVillage: isDeviceGpsSource(v.locationSource) ? v.gpsVillage : null,
+            gpsMandal: isDeviceGpsSource(v.locationSource) ? v.gpsMandal : null,
+            gpsDistrict: isDeviceGpsSource(v.locationSource) ? v.gpsDistrict : null,
+            gpsState: isDeviceGpsSource(v.locationSource) ? v.gpsState : null,
+            gpsPincode: isDeviceGpsSource(v.locationSource) ? v.gpsPincode : null,
             gpsAccuracy: v.gpsAccuracy,
-            gpsFullAddress: v.gpsFullAddress,
+            gpsFullAddress: isDeviceGpsSource(v.locationSource) ? v.gpsFullAddress : null,
             locationSource: v.locationSource,
             accessKind: v.accessKind,
+            actionSummary: [...new Set(v.actions.map((a) => ACTION_CONFIG[a.action]?.label || a.action))]
+              .slice(0, 8)
+              .join(' · '),
           }))}
           height="420px"
         />
-
-        {viewers.length > 0 && viewers.every(v => !isValidMapCoordinate(v.lat, v.lng)) && (
-          <p className="text-2xs text-yellow-500/90 mt-3 italic">
-            {viewers.some(v => isPrivateIp(v.ip))
-              ? 'Testing on localhost — IP geolocation is unavailable for local/private networks.'
-              : 'No map coordinates yet. Turn ON GPS Location Tracking when sharing, then open the link and Allow location for street / village / mandal detail.'}
-          </p>
-        )}
-        {viewers.some(v => isValidMapCoordinate(v.lat, v.lng) && v.locationSource === 'ip') && (
-          <p className="text-2xs text-yellow-500/90 mt-3 italic">
-            Some pins are IP-approximate (city/ISP). For exact street, latitude/longitude, district &amp; mandal: create the share with <strong className="text-yellow-300">GPS Location Tracking ON</strong> and Allow location in the browser when opening the link.
-          </p>
-        )}
 
         {/* Country breakdown below map */}
         {Object.keys(countryStats).length > 0 && (
@@ -661,7 +751,14 @@ export function LinkIntelligencePage() {
         )}
       </div>
 
-      {/* Viewers grid + activity detail */}
+          {viewers.length === 0 ? (
+            <div className="card text-center py-12 mb-6">
+              <p className="text-sm font-semibold text-white">No activity yet</p>
+              <p className="text-2xs text-gray-500 mt-1 max-w-md mx-auto">
+                Activity will appear here when someone accesses or interacts with your shared asset.
+              </p>
+            </div>
+          ) : (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Viewers list */}
         <div className="lg:col-span-1 space-y-2">
@@ -671,7 +768,10 @@ export function LinkIntelligencePage() {
           {viewers.map(v => (
             <div key={v.id} className="space-y-1">
             <button
-              onClick={() => setSelectedViewer(v.id === selectedViewer ? null : v.id)}
+              onClick={() => {
+                const next = v.id === selectedViewer ? null : v.id;
+                selectViewer(next);
+              }}
               className={`w-full text-left border rounded-lg p-3 transition-all ${
                 !v.isBlocked
                   ? (v.id === selectedViewer
@@ -692,15 +792,10 @@ export function LinkIntelligencePage() {
                   </div>
                   <div>
                     <p className="text-xs font-medium text-white flex items-center gap-1.5 flex-wrap">
-                      {v.accessKind === 'direct_recipient'
-                        ? 'Direct Recipient'
-                        : v.accessKind === 'direct_share'
-                          ? 'Direct Share'
-                          : `Viewer ${v.hopNumber}`}
+                      {viewerIdentityLabel(v)}
                       <span className={`text-2xs px-1.5 py-0.5 rounded-full border font-semibold tracking-wide ${ACCESS_KIND_BADGE[v.accessKind]}`}>
                         {v.accessKind === 'reshared' ? 'RESHARED' : ACCESS_KIND_LABELS[v.accessKind].toUpperCase()}
                       </span>
-                      {v.recipientName && <span className="text-gray-400 font-normal">· {v.recipientName}</span>}
                       {v.isBlocked && <span className="text-2xs text-red-400">Revoked</span>}
                       {(v.riskLevel === 'HIGH' || v.riskLevel === 'CRITICAL' || v.locationTrust === 'LOW') && (
                         <span className="text-2xs px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-500/30">
@@ -709,7 +804,10 @@ export function LinkIntelligencePage() {
                       )}
                     </p>
                     <p className="text-2xs text-gray-500">
-                      {v.gpsVillage ?? v.gpsCity ?? v.city ?? v.country}{v.gpsDistrict ? `, ${v.gpsDistrict}` : v.region ? `, ${v.region}` : ''} · {v.ip}
+                      {isDeviceGpsSource(v.locationSource)
+                        ? [v.gpsVillage, v.gpsDistrict, v.gpsState || v.country].filter(Boolean).join(', ') || v.country
+                        : [v.city, v.region, v.country].filter(Boolean).join(', ') || v.country}
+                      {' · '}{v.ip}
                     </p>
                     {formatCoords(v.lat, v.lng) && (
                       <p className="text-2xs text-dna-400 font-mono">{formatCoords(v.lat, v.lng)}</p>
@@ -789,7 +887,7 @@ export function LinkIntelligencePage() {
                 <div className="min-w-0">
                   <h2 className="text-sm font-semibold text-white flex items-center gap-2 flex-wrap">
                     <Eye size={14} className="text-dna-400 shrink-0" />
-                    {ACCESS_KIND_LABELS[activeViewer.accessKind]} — Activity Log
+                    {ACCESS_KIND_LABELS[activeViewer.accessKind]} — {viewerIdentityLabel(activeViewer)}
                     {activeViewer.accessKind === 'reshared' && (
                       <span className={`text-2xs px-1.5 py-0.5 rounded-full border font-semibold ${ACCESS_KIND_BADGE.reshared}`}>
                         RESHARED
@@ -799,23 +897,46 @@ export function LinkIntelligencePage() {
                   <p className="text-xs text-dna-300 mt-1 truncate" title={link.filename}>
                     File: <span className="text-white font-medium">{link.filename}</span>
                   </p>
+                  {link.sourceContext === 'exchange_license' && (
+                    <p className="text-2xs text-gray-500 mt-1">
+                      Exchange license{link.licenseTier ? ` · ${link.licenseTier}` : ''}
+                      {link.exchangeOrderId ? ` · ${link.exchangeOrderId}` : ''}
+                    </p>
+                  )}
                 </div>
                 <span className="text-2xs text-gray-500 shrink-0">
                   First seen {formatDistanceToNow(new Date(activeViewer.firstSeen))} ago
                 </span>
               </div>
 
-              {/* Viewer identity card */}
+              {/* Viewer identity — compact, then technical details */}
               <div className="bg-bg-elevated rounded-lg p-3 border border-bg-border mb-4 space-y-2 text-2xs">
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  <div><span className="text-gray-500">IP:</span> <span className="text-white font-mono">{activeViewer.ip}</span></div>
+                  <div><span className="text-gray-500">Viewer:</span> <span className="text-white">{viewerIdentityLabel(activeViewer)}{activeViewer.recipientName ? '' : ''}</span></div>
+                  <div><span className="text-gray-500">First seen:</span> <span className="text-white">{format(new Date(activeViewer.firstSeen), 'MMM d, yyyy · h:mm a')}</span></div>
+                  <div><span className="text-gray-500">Last seen:</span> <span className="text-white">{format(new Date(activeViewer.actions[activeViewer.actions.length - 1]?.createdAt ?? activeViewer.firstSeen), 'MMM d, yyyy · h:mm a')}</span></div>
+                  <div><span className="text-gray-500">Views:</span> <span className="text-white">{activeViewer.actions.filter((a) => a.action === 'VIEWED').length}</span></div>
+                  <div><span className="text-gray-500">Downloads:</span> <span className="text-white">{activeViewer.actions.filter((a) => a.action === 'DOWNLOADED').length}</span></div>
+                  <div><span className="text-gray-500">Copy attempts:</span> <span className="text-white">{activeViewer.actions.filter((a) => a.action === 'COPY_ATTEMPT').length}</span></div>
+                  <div><span className="text-gray-500">Print attempts:</span> <span className="text-white">{activeViewer.actions.filter((a) => a.action === 'PRINT_ATTEMPT').length}</span></div>
+                  <div><span className="text-gray-500">Screenshot attempts:</span> <span className="text-white">{activeViewer.actions.filter((a) => a.action === 'SCREENSHOT_ATTEMPT').length}</span></div>
+                  <div><span className="text-gray-500">Sessions:</span> <span className="text-white">{new Set(activeViewer.actions.map((a) => a.sessionId).filter(Boolean)).size || 1}</span></div>
+                  <div><span className="text-gray-500">Actions:</span> <span className="text-white">{activeViewer.totalActions}</span></div>
                   <div><span className="text-gray-500">Device:</span> <span className="text-white">{activeViewer.device}</span></div>
-                  <div><span className="text-gray-500">Browser:</span> <span className="text-white">{activeViewer.browser} · {activeViewer.os}</span></div>
-                  <div><span className="text-gray-500">Risk:</span> <span className={RISK_COLOR[activeViewer.riskLevel]?.split(' ')[0] ?? 'text-green-400'}>{activeViewer.riskLevel} ({activeViewer.riskScore})</span></div>
-                  <div><span className="text-gray-500">Location Trust:</span> <span className={
+                  <div><span className="text-gray-500">Browser / OS:</span> <span className="text-white">{activeViewer.browser} · {activeViewer.os}</span></div>
+                  <div><span className="text-gray-500">Risk:</span> <span className={RISK_COLOR[activeViewer.riskLevel]?.split(' ')[0] ?? 'text-green-400'}>{activeViewer.riskLevel}</span></div>
+                  <div><span className="text-gray-500">Location trust:</span> <span className={
                     activeViewer.locationTrust === 'HIGH' ? 'text-green-400'
                       : activeViewer.locationTrust === 'MEDIUM' ? 'text-yellow-400' : 'text-orange-400'
-                  }>{activeViewer.locationTrust} ({activeViewer.trustScore})</span></div>
+                  }>{activeViewer.locationTrust}</span></div>
+                </div>
+                <details className="border-t border-bg-border pt-2">
+                  <summary className="cursor-pointer text-xs font-semibold text-dna-300 hover:text-white">View details</summary>
+                  <div className="mt-2 space-y-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <div><span className="text-gray-500">IP:</span> <span className="text-white font-mono">{activeViewer.ip}</span></div>
+                  <div><span className="text-gray-500">Risk score:</span> <span className={RISK_COLOR[activeViewer.riskLevel]?.split(' ')[0] ?? 'text-green-400'}>{activeViewer.riskScore}</span></div>
+                  <div><span className="text-gray-500">Trust score:</span> <span className="text-white">{activeViewer.trustScore}</span></div>
                   {(activeViewer.isVpn || activeViewer.isTor || activeViewer.isProxy || activeViewer.isDatacenter) && (
                     <div className="col-span-full flex flex-wrap gap-1.5">
                       {activeViewer.isVpn && <span className="text-2xs px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-300">VPN</span>}
@@ -831,8 +952,16 @@ export function LinkIntelligencePage() {
                       </span>
                     </div>
                   )}
-                  <div><span className="text-gray-500">First Seen:</span> <span className="text-white">{format(new Date(activeViewer.firstSeen), 'MMM d, yyyy · h:mm:ss a')}</span></div>
                   {activeViewer.isp && <div><span className="text-gray-500">ISP:</span> <span className="text-white">{activeViewer.isp}</span></div>}
+                  {activeViewer.actions.some((a) => a.asn) && (
+                    <div><span className="text-gray-500">ASN:</span> <span className="text-white">{activeViewer.actions.find((a) => a.asn)?.asn}</span></div>
+                  )}
+                  {activeViewer.actions.some((a) => a.org) && (
+                    <div><span className="text-gray-500">Network:</span> <span className="text-white">{activeViewer.actions.find((a) => a.org)?.org}</span></div>
+                  )}
+                  {activeViewer.actions.some((a) => a.screenResolution) && (
+                    <div><span className="text-gray-500">Screen:</span> <span className="text-white">{activeViewer.actions.find((a) => a.screenResolution)?.screenResolution}</span></div>
+                  )}
                 </div>
                 {/* Location — GPS or IP fallback */}
                 <div className="border-t border-bg-border pt-2">
@@ -840,7 +969,7 @@ export function LinkIntelligencePage() {
                     <MapPin size={12} className={
                       activeViewer.locationSource === 'gps' && (activeViewer.gpsAccuracy == null || activeViewer.gpsAccuracy <= 75)
                         ? 'text-green-400'
-                        : 'text-yellow-400'
+                        : 'text-dna-400'
                     } />
                     <span className="text-2xs font-semibold text-white">
                       {locationLabel(activeViewer.gpsAccuracy, activeViewer.locationSource)}
@@ -852,7 +981,7 @@ export function LinkIntelligencePage() {
                     )}
                   </div>
 
-                  {activeViewer.gpsVillage || activeViewer.gpsFullAddress || activeViewer.lat != null ? (
+                  {isDeviceGpsSource(activeViewer.locationSource) && (activeViewer.gpsVillage || activeViewer.gpsFullAddress || activeViewer.lat != null) ? (
                     <div className="bg-bg-card rounded-lg p-2.5 border border-dna-500/20 space-y-1">
                       {activeViewer.gpsFullAddress && (
                         <div className="text-2xs text-white mb-1">{activeViewer.gpsFullAddress}</div>
@@ -874,9 +1003,6 @@ export function LinkIntelligencePage() {
                         <div className="pt-1 border-t border-bg-border mt-1 flex flex-wrap items-center gap-2">
                           <span className="text-gray-500">Coordinates:</span>{' '}
                           <span className="text-dna-400 font-mono">{formatCoords(activeViewer.lat, activeViewer.lng)}</span>
-                          {activeViewer.locationSource === 'ip' && (
-                            <span className="text-yellow-500">(IP approximate)</span>
-                          )}
                           <a
                             href={googleMapsUrl(activeViewer.lat!, activeViewer.lng!)}
                             target="_blank"
@@ -904,12 +1030,13 @@ export function LinkIntelligencePage() {
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                       <div><span className="text-gray-500">Country:</span> <span className="text-white">{activeViewer.country}</span></div>
                       {activeViewer.region && <div><span className="text-gray-500">State:</span> <span className="text-white">{activeViewer.region}</span></div>}
-                      <div><span className="text-gray-500">City (IP):</span> <span className="text-yellow-400">{activeViewer.city ?? 'Unknown'}</span></div>
-                      <div className="col-span-full text-2xs text-yellow-500 italic">⚠ IP-based location — accuracy ~50-200km. Viewer denied precise GPS access.</div>
+                      {activeViewer.city && <div><span className="text-gray-500">City:</span> <span className="text-white">{activeViewer.city}</span></div>}
                     </div>
                   )}
                   {activeViewer.timezone && <div className="mt-1"><span className="text-gray-500">Timezone:</span> <span className="text-white">{activeViewer.timezone}</span></div>}
                 </div>
+                  </div>
+                </details>
               </div>
 
               {activeViewer.riskFactors.filter(f => !/^No anomalies/i.test(f) && !/^GPS and IP consistent/i.test(f)).length > 0 && (
@@ -945,34 +1072,49 @@ export function LinkIntelligencePage() {
 
               {/* Action timeline */}
               <div className="space-y-1">
-                {activeViewer.actions.map((log) => {
-                  const cfg = ACTION_CONFIG[log.action] ?? { icon: <Eye size={11} />, label: log.action, color: 'text-gray-400' };
-                  const gps = sanitizeCoordinatePair(log.gpsLat, log.gpsLng);
+                {activeViewer.actions.slice().reverse().map((log) => {
+                  const cfg = ACTION_CONFIG[log.action] ?? (
+                    log.action.startsWith('SCROLL')
+                      ? { icon: <Eye size={11} />, label: `Scrolled ${log.action.split(':')[1] ?? ''}`.trim(), color: 'text-gray-400' }
+                      : { icon: <Eye size={11} />, label: log.action.replace(/_/g, ' '), color: 'text-gray-400' }
+                  );
+                  const gps = isDeviceGpsSource(log.locationSource) ? sanitizeCoordinatePair(log.gpsLat, log.gpsLng) : null;
                   const ip = sanitizeCoordinatePair(log.lat, log.lng);
                   const logLat = gps?.lat ?? ip?.lat ?? null;
                   const logLng = gps?.lng ?? ip?.lng ?? null;
-                  const logPlace = [log.gpsVillage, log.gpsMandal, log.gpsDistrict].filter(Boolean).join(', ')
-                    || log.gpsCity
-                    || log.city;
+                  const logPlace = isDeviceGpsSource(log.locationSource)
+                    ? [log.gpsVillage, log.gpsMandal, log.gpsDistrict].filter(Boolean).join(', ')
+                      || log.gpsCity
+                      || log.city
+                    : [log.city, log.region, log.country].filter(Boolean).join(', ');
+                  const coords = formatCoords(logLat, logLng);
+                  const line = [logPlace, log.device, [log.browser, log.os].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
                   return (
-                    <div key={log.id} className="flex items-center gap-3 bg-bg-elevated rounded-lg px-3 py-2 border border-bg-border">
-                      <span className={`${cfg.color}`}>{cfg.icon}</span>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-xs text-white">{cfg.label}</span>
-                        {(logPlace || formatCoords(logLat, logLng)) && (
-                          <p className="text-2xs text-gray-500 truncate">
-                            {logPlace && <span>{logPlace}</span>}
-                            {logPlace && formatCoords(logLat, logLng) && ' · '}
-                            {formatCoords(logLat, logLng) && (
-                              <span className="font-mono text-dna-400/80">{formatCoords(logLat, logLng)}</span>
-                            )}
-                          </p>
-                        )}
+                    <details key={log.id} className="bg-bg-elevated rounded-lg px-3 py-2 border border-bg-border">
+                      <summary className="flex items-center gap-3 cursor-pointer list-none">
+                        <span className={`${cfg.color}`}>{cfg.icon}</span>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-xs text-white">{cfg.label}</span>
+                          {(line || coords) && (
+                            <p className="text-2xs text-gray-500 truncate">
+                              {line}
+                              {line && coords ? ' · ' : ''}
+                              {coords && (
+                                <span className="font-mono text-dna-400/80">{coords}</span>
+                              )}
+                            </p>
+                          )}
+                        </div>
+                        <span className="text-2xs text-gray-500 whitespace-nowrap">{format(new Date(log.createdAt), 'MMM d, HH:mm:ss')}</span>
+                      </summary>
+                      <div className="mt-2 pt-2 border-t border-bg-border grid grid-cols-2 gap-1.5 text-2xs text-gray-400">
+                        <div>Result: <span className="text-white">{log.action.startsWith('BLOCKED') ? 'Blocked' : log.action === 'DOWNLOAD_FAILED' ? 'Failed' : 'Recorded'}</span></div>
+                        <div>Source: <span className="text-white">{locationLabel(log.gpsAccuracy, log.locationSource)}</span></div>
+                        {log.ipAddress && <div>IP: <span className="text-white font-mono">{log.ipAddress}</span></div>}
+                        {log.sessionId && <div>Session: <span className="text-white font-mono">{log.sessionId.slice(0, 8)}…</span></div>}
+                        {log.riskLevel && <div>Risk: <span className="text-white">{log.riskLevel}{log.riskScore != null ? ` (${log.riskScore})` : ''}</span></div>}
                       </div>
-                      {log.screenResolution && <span className="text-2xs text-gray-600">{log.screenResolution}</span>}
-                      {log.sessionDurationSec != null && <span className="text-2xs text-gray-600">{log.sessionDurationSec}s</span>}
-                      <span className="text-2xs text-gray-500 whitespace-nowrap">{format(new Date(log.createdAt), 'MMM d, h:mm:ss a')}</span>
-                    </div>
+                    </details>
                   );
                 })}
               </div>
@@ -988,6 +1130,7 @@ export function LinkIntelligencePage() {
           )}
         </div>
       </div>
+          )}
     </div>
   );
 }

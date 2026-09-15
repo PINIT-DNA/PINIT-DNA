@@ -48,11 +48,6 @@ export function SubscriptionPage() {
 
   return (
     <div className="max-w-4xl mx-auto p-4 sm:p-6 space-y-8 pb-12">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Subscription</h1>
-        <p className="text-sm text-gray-400 mt-1">Manage your plan, usage, and billing</p>
-      </div>
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-2xl border border-bg-border bg-bg-card p-5">
           <p className="text-2xs font-semibold text-gray-500 uppercase mb-2">Current plan</p>

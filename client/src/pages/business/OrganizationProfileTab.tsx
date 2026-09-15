@@ -277,7 +277,7 @@ export function OrganizationProfileTab({
               value={form.bio}
               onChange={(e) => setForm({ ...form, bio: e.target.value })}
               className="w-full px-3 py-2 bg-bg-elevated border border-bg-border rounded-lg text-xs text-white resize-none h-24 focus:outline-none focus:border-dna-500"
-              placeholder="Describe your organization, mission, and what you protect with PINITHub…"
+              placeholder="Describe your organization, mission, and what you protect with Pinit HUB…"
             />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -326,7 +326,7 @@ export function OrganizationProfileTab({
           />
           <StatCard
             icon={<Users size={14} />}
-            label="Team Members"
+            label="Team members"
             value={`${subscription?.teamMemberCount ?? 1}${subscription?.teamMemberLimit != null ? ` / ${subscription.teamMemberLimit}` : ''}`}
           />
           <StatCard icon={<Globe size={14} />} label="Renewal Date" value="—" />
@@ -350,7 +350,7 @@ export function OrganizationProfileTab({
           <StatCard icon={<Award size={14} />} label="Certificates" value={stats?.certificates ?? 0} />
           <StatCard icon={<Shield size={14} />} label="Investigations" value="—" />
           <StatCard icon={<Radio size={14} />} label="Monitoring Assets" value={stats?.monitoringJobs ?? 0} />
-          <StatCard icon={<Users size={14} />} label="Team Members" value={subscription?.teamMemberCount ?? 1} />
+          <StatCard icon={<Users size={14} />} label="Team members" value={subscription?.teamMemberCount ?? 1} />
         </div>
       </SectionCard>
 

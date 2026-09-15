@@ -14,7 +14,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma }                from '../../lib/prisma';
 import { AppError }              from '../middleware/error.middleware';
-import { getAuthUserId, assertDnaOwner, assertVaultOwner } from '../../lib/tenant-scope';
+import { getAuthUserId, assertDnaOwner, assertVaultOwner, ownedDnaIdSet } from '../../lib/tenant-scope';
 import { OcrService }            from '../../services/ocr/ocr.service';
 import { SemanticSearchService } from '../../services/semantic/semantic-search.service';
 import { DocumentLineageService } from '../../services/lineage/document-lineage.service';
@@ -142,27 +142,20 @@ export async function semanticSearch(req: Request, res: Response, next: NextFunc
 
   try {
     const userId = getAuthUserId(req);
-    const results = await searchService.search(query, topK);
-
-    const ownedIds = new Set(
-      (await prisma.dnaRecord.findMany({ where: { ownerUserId: userId }, select: { id: true } }))
-        .map((r) => r.id),
-    );
-    const filtered = results.filter((r: { dnaRecordId?: string }) =>
-      r.dnaRecordId && ownedIds.has(r.dnaRecordId),
-    );
+    const ownedIds = await ownedDnaIdSet(userId);
+    const results = await searchService.search(query, topK, ownedIds);
 
     await auditService.log({
       eventType: 'SEMANTIC_SEARCH',
-      detail: { query, resultCount: filtered.length },
+      detail: { query, resultCount: results.length },
       req,
     });
 
     res.status(200).json({
       success: true,
       query,
-      count:   filtered.length,
-      results: filtered,
+      count:   results.length,
+      results,
     });
   } catch (err) {
     next(err);

@@ -149,23 +149,46 @@ export const organizationController = {
     try {
       const userId = getAuthUserId(req);
       const orgId = await orgIdFor(req);
-      const invites = await teamService.listInvites(orgId, userId);
+      const campaignId = typeof req.query.campaignId === 'string' ? req.query.campaignId : undefined;
+      const invites = await teamService.listInvites(orgId, userId, { campaignId });
       res.json({ success: true, invites });
     } catch (err) {
       next(err);
     }
   },
 
+  async lookupPinitId(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = getAuthUserId(req);
+      const orgId = await orgIdFor(req);
+      const account = await teamService.lookupByPinitId(
+        orgId,
+        userId,
+        String(req.query.pinitId ?? ''),
+        { campaignId: typeof req.query.campaignId === 'string' ? req.query.campaignId : undefined },
+      );
+      res.json({ success: true, account });
+    } catch (err) { next(err); }
+  },
+
   async inviteMember(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = getAuthUserId(req);
       const orgId = await orgIdFor(req);
-      const { email, inviteeShortId, role } = req.body as {
+      const { email, inviteeShortId, role, campaignId, campaignRole, campaignOnly } = req.body as {
         email?: string;
         inviteeShortId?: string;
         role?: OrganizationMemberRole;
+        campaignId?: string;
+        campaignRole?: string;
+        campaignOnly?: boolean;
       };
-      const invite = await teamService.inviteMember(orgId, userId, { email, inviteeShortId, role });
+      const invite = await teamService.inviteMember(orgId, userId, {
+        email, inviteeShortId, role,
+        ...(campaignId ? { campaignId } : {}),
+        ...(campaignRole ? { campaignRole } : {}),
+        ...(campaignOnly ? { campaignOnly: true } : {}),
+      });
       res.json({ success: true, invite });
     } catch (err) {
       next(err);
@@ -182,6 +205,21 @@ export const organizationController = {
       }
       const result = await teamService.acceptInvite(userId, token.trim());
       res.json({ success: true, ...result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async previewInvite(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = getAuthUserId(req);
+      const token = String(req.params.token ?? '').trim();
+      if (!token) {
+        res.status(400).json({ success: false, error: 'token is required' });
+        return;
+      }
+      const preview = await teamService.previewInvite(userId, token);
+      res.json({ success: true, preview });
     } catch (err) {
       next(err);
     }

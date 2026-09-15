@@ -5,6 +5,8 @@ import { RequireAuth } from '../components/auth/RequireAuth';
 import { ExecutiveDashboardPage } from './pages/ExecutiveDashboardPage';
 import { UsersPage } from './pages/UsersPage';
 import { UserDetailPage } from './pages/UserDetailPage';
+import { OrganizationsPage } from './pages/OrganizationsPage';
+import { OrganizationDetailPage } from './pages/OrganizationDetailPage';
 import { AdminVaultExplorerPage } from './pages/AdminVaultExplorerPage';
 import { AdminVaultTimelinePage } from './pages/AdminVaultTimelinePage';
 import { AdminIntelligencePage } from './pages/AdminIntelligencePage';
@@ -20,6 +22,7 @@ import { AuditPage } from './pages/AuditPage';
 import { TimelinePage } from './pages/TimelinePage';
 import { SecurityCenterPage } from './pages/SecurityCenterPage';
 import { PlaceholderPage } from './components/PlaceholderPage';
+import { LightPlaceholderPage } from './components/LightPlaceholderPage';
 
 const AdminShell = (
   <RequireAuth>
@@ -36,7 +39,13 @@ export const superAdminRoutes: RouteObject = {
     { index: true, element: <ExecutiveDashboardPage /> },
     { path: 'users', element: <UsersPage /> },
     { path: 'users/:id', element: <UserDetailPage /> },
-    { path: 'organizations', element: <PlaceholderPage title="Organization Management" description="Manage organizations and tenant groups" /> },
+    { path: 'organizations', element: <OrganizationsPage /> },
+    { path: 'organizations/:id', element: <OrganizationDetailPage /> },
+    { path: 'marketplace', element: <LightPlaceholderPage title="Marketplace (Exchange)" description="Listings, orders, disputes and payouts from the Exchange app" note="Needs a Hub ↔ Exchange data bridge — planned Commerce release" /> },
+    { path: 'billing', element: <LightPlaceholderPage title="Billing & Subscriptions" description="Plans, subscriptions, revenue and billing history" note="Summary figures already appear on the Command Center" /> },
+    { path: 'credits', element: <LightPlaceholderPage title="Credits & Usage" description="Credit ledger and per-user usage metering" note="Planned Billing release" /> },
+    { path: 'network', element: <LightPlaceholderPage title="Network Intelligence" description="Entity relationship graph across orgs, creators and assets" note="A real engineering project — see the roadmap's Tier 3 section" /> },
+    { path: 'verification', element: <LightPlaceholderPage title="Identity & Verification" description="Manual KYC review and verification requests" note="Planned Identity release" /> },
     { path: 'institutions', element: <PlaceholderPage title="Institution Management" description="Manage institutions and affiliations" /> },
     { path: 'vault', element: <AdminVaultExplorerPage /> },
     { path: 'vault/:vaultId/timeline', element: <AdminVaultTimelinePage /> },

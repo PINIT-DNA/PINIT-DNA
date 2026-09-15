@@ -8,9 +8,24 @@ import {
   fetchPreviewFromHub,
 } from '../hub-client.js';
 import { exchangePreviewUrl, isHubVaultId, PLACEHOLDER_PREVIEW } from '../lib/preview-url.js';
+import { verifyPreviewToken } from '../lib/preview-token.js';
+import { rateLimit } from '../lib/rate-limit.js';
+import { requireSeller, requireActiveSeller } from '../lib/rbac.js';
+import { identityCandidates, sellerMatchClause, listingUserJoinSql } from '../lib/pinit-identity.js';
+import { listLegacyProfiles } from '../lib/portfolio.js';
 
 const router = express.Router();
-const HUB_APP_URL = (process.env.HUB_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
+
+/**
+ * Preview requests are cheap per call but decrypt a vault object on a cache
+ * miss, so an unthrottled scraper is both a cost and a bulk-download vector.
+ */
+const previewLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  message: 'Too many preview requests. Slow down.',
+});
+const HUB_APP_URL = (process.env.HUB_APP_URL || 'http://localhost:3002').replace(/\/$/, '');
 
 const IMAGE_EXTS = new Set([
   '.jpg', '.jpeg', '.jpe', '.jfif', '.png', '.webp', '.tiff', '.tif', '.gif', '.bmp',
@@ -116,8 +131,8 @@ function upsertLocalCache(asset, pinitId, cb) {
   ], () => cb?.());
 }
 
-router.get('/assets', async (req, res) => {
-  const pinitId = String(req.query.pinit_id || '').trim();
+router.get('/assets', requireSeller, async (req, res) => {
+  const pinitId = String(req.query.pinit_id || req.exchangeUser?.pinit_id || '').trim();
   if (!pinitId) {
     return res.status(400).json({
       error: 'pinit_id is required',
@@ -126,18 +141,30 @@ router.get('/assets', async (req, res) => {
     });
   }
 
+  const idsToTry = identityCandidates(pinitId);
+  const tryIds = idsToTry.length ? idsToTry : [pinitId];
+
   try {
-    const live = await fetchListableAssetsFromHub(pinitId);
-    if (!live.skipped && Array.isArray(live.assets)) {
-      const mapped = live.assets.map((a) => mapHubAsset(a, live.pinitId || pinitId));
-      mapped.forEach((asset) => upsertLocalCache(asset, live.pinitId || pinitId));
+    let mapped = null;
+    let skippedAll = true;
+    for (const id of tryIds) {
+      const live = await fetchListableAssetsFromHub(id);
+      if (live.skipped) continue;
+      skippedAll = false;
+      if (Array.isArray(live.assets)) {
+        mapped = live.assets.map((a) => mapHubAsset(a, live.pinitId || id));
+        if (mapped.length) break;
+      }
+    }
+    if (!skippedAll && Array.isArray(mapped)) {
+      mapped.forEach((asset) => upsertLocalCache(asset, pinitId));
       return res.json({
         assets: mapped,
         source: 'hub',
         empty: mapped.length === 0,
         message: mapped.length
           ? undefined
-          : 'No protected vault assets yet. Upload here (silent Hub protect) or protect in Pinit HUB.',
+          : 'No protected vault assets yet. Protect in Pinit HUB, then list from My Assets.',
         hub_protect_url: `${HUB_APP_URL}/generate`,
       });
     }
@@ -145,9 +172,10 @@ router.get('/assets', async (req, res) => {
     console.warn('[hub/assets] live Hub fetch failed, using local cache:', err.message);
   }
 
+  const match = sellerMatchClause('pinit_id', pinitId);
   db.all(
-    'SELECT * FROM hub_assets WHERE pinit_id = ? ORDER BY created_at DESC',
-    [pinitId],
+    `SELECT * FROM hub_assets WHERE ${match.sql.replace(/^\s*AND\s+/i, '')} ORDER BY created_at DESC`,
+    match.params,
     (err, rows) => {
       if (err) return res.status(500).json({ error: err.message });
       res.json({
@@ -162,7 +190,7 @@ router.get('/assets', async (req, res) => {
   );
 });
 
-router.post('/protect-upload', (req, res) => {
+router.post('/protect-upload', requireActiveSeller, (req, res) => {
   upload.single('file')(req, res, async (err) => {
     if (err) {
       return res.status(400).json({
@@ -248,20 +276,90 @@ router.post('/protect-upload', (req, res) => {
   });
 });
 
+/**
+ * Is this vault/asset id shown in someone's published portfolio?
+ *
+ * Parses the stored collections instead of running a LIKE over the JSON, so a
+ * substring cannot accidentally grant access to an id nobody selected.
+ */
+async function inPublishedPortfolio(assetId) {
+  if (!assetId) return false;
+  const rows = await new Promise((resolve) => {
+    db.all(
+      `SELECT project_groups, featured_listing_ids
+         FROM portfolio_profiles
+        WHERE visibility IN ('public', 'unlisted')`,
+      [],
+      (err, out) => resolve(err ? [] : (out || [])),
+    );
+  });
+
+  for (const row of rows) {
+    let groups = [];
+    try {
+      groups = JSON.parse(row.project_groups || '[]');
+    } catch {
+      groups = [];
+    }
+    if (!Array.isArray(groups)) continue;
+    for (const g of groups) {
+      const ids = [
+        ...(Array.isArray(g?.vault_ids) ? g.vault_ids : []),
+        g?.hub_vault_id,
+        g?.vault_id,
+      ];
+      if (ids.some((id) => String(id || '') === assetId)) return true;
+    }
+  }
+  return false;
+}
+
 /** Stream Hub vault preview for marketplace (video/image playable in browser) */
-router.get('/preview/:assetId', async (req, res) => {
+router.get('/preview/:assetId', previewLimiter, async (req, res) => {
   const assetId = String(req.params.assetId || '').trim();
   if (!assetId) return res.status(400).json({ error: 'assetId required' });
 
+  // The URL must carry a signature minted by this server. Without this, the
+  // path is guessable from the public listings API, which returns asset_id in
+  // plaintext — anyone could fetch, hotlink, or address-bar the preview.
+  const signature = verifyPreviewToken(assetId, req.query.t, req.query.e);
+  if (!signature.ok) {
+    return res.status(403).json({ error: 'Preview link is invalid or has expired' });
+  }
+
+  // Only a PUBLISHED listing may be previewed.
+  //
+  // This previously read `Boolean(row) || isHubVaultId(assetId)`. isHubVaultId
+  // only checks UUID *format*, so the `||` defeated the allow-list entirely:
+  // any well-formed UUID passed, including assets belonging to other users
+  // that were never listed on Exchange. Verified before the fix — anonymous
+  // requests returned previews for two unlisted assets owned by a different
+  // account.
   const allow = await new Promise((resolve) => {
     db.get(
-      `SELECT asset_id FROM hub_assets WHERE asset_id = ?
-       UNION SELECT asset_id FROM listings WHERE asset_id = ? LIMIT 1`,
-      [assetId, assetId],
-      (err, row) => resolve(Boolean(row) || isHubVaultId(assetId)),
+      `SELECT l.asset_id
+         FROM listings l
+         INNER JOIN users u ON ${listingUserJoinSql('l', 'u')}
+        WHERE l.asset_id = ?
+          AND l.status IN ('published', 'live', 'sold_exclusive')
+        LIMIT 1`,
+      [assetId],
+      (err, row) => resolve(Boolean(row)),
     );
   });
-  if (!allow) return res.status(404).json({ error: 'Asset not found on Exchange' });
+  // A portfolio piece is not necessarily for sale. Requiring a published
+  // listing meant any work a creator showed but did not sell could never
+  // render an image, which is why portfolios looked broken.
+  //
+  // This stays an allow-list — the grant is membership of a published
+  // portfolio, checked by parsing the stored collections rather than by
+  // pattern-matching the id. Being previewable still does not make the master
+  // file downloadable; this endpoint only ever streams the derived preview.
+  const allowedByPortfolio = allow ? false : await inPublishedPortfolio(assetId);
+
+  if (!allow && !allowedByPortfolio) {
+    return res.status(404).json({ error: 'Asset not found on Exchange' });
+  }
 
   try {
     const preview = await fetchPreviewFromHub(assetId);
@@ -269,9 +367,20 @@ router.get('/preview/:assetId', async (req, res) => {
       'Content-Type': preview.contentType,
       'Content-Length': String(preview.buffer.length),
       'Accept-Ranges': 'bytes',
-      'Cache-Control': 'private, max-age=120',
+      // Signed URLs expire, so a long-lived cached copy would outlive its
+      // grant. no-store also stops a full-page save pulling it from cache.
+      'Cache-Control': 'private, no-store, max-age=0',
+      'Pragma': 'no-cache',
       'X-Content-Type-Options': 'nosniff',
+      // No filename — the original name is the creator's, not the viewer's.
+      'Content-Disposition': 'inline',
+      'Cross-Origin-Resource-Policy': 'same-origin',
+      'Referrer-Policy': 'no-referrer',
     });
+    // The app mounts a global cors() which emits `Access-Control-Allow-Origin: *`.
+    // That is fine for JSON APIs but turns previews into hotlinkable assets any
+    // site can embed, so it is stripped on this route specifically.
+    res.removeHeader('Access-Control-Allow-Origin');
     res.status(200).send(preview.buffer);
   } catch (err) {
     console.error('[hub/preview]', err.message);
@@ -300,6 +409,187 @@ router.post('/protect', (_req, res) => {
     message: 'Upload via POST /api/hub/protect-upload — Hub silently protects, then you publish the listing.',
     hub_protect_url: `${HUB_APP_URL}/generate`,
   });
+});
+
+function listingWhere(match) {
+  return `WHERE ${String(match.sql || '').replace(/^\s*AND\s+/i, '')}`;
+}
+
+function requireBridgeSecret(req, res, next) {
+  const got = String(req.headers['x-pinit-bridge-secret'] || req.headers['x-exchange-bridge-secret'] || '').trim();
+  const accepted = new Set(
+    [
+      process.env.EXCHANGE_BRIDGE_SECRET,
+      process.env.HUB_BRIDGE_SECRET,
+      process.env.JWT_SECRET,
+    ].filter((s) => Boolean(s && String(s).trim())),
+  );
+  if (!got || !accepted.has(got)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  return next();
+}
+
+router.get('/portfolios', requireBridgeSecret, async (_req, res) => {
+  try {
+    const profiles = await listLegacyProfiles();
+    return res.json({ profiles });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Unable to list portfolios' });
+  }
+});
+
+router.get('/portfolio', requireBridgeSecret, async (req, res) => {
+  const pinitId = String(req.query.pinitId || req.query.pinit_id || '').trim();
+  if (!pinitId) return res.status(400).json({ error: 'pinitId is required' });
+  try {
+    const profiles = await listLegacyProfiles();
+    const profile = profiles.find((p) => String(p.pinit_id) === pinitId)
+      || profiles.find((p) => String(p.pinit_id).endsWith(pinitId.replace(/^PINIT-(?:USER|EX|ORG)-/, '')));
+    if (!profile) return res.status(404).json({ error: 'NOT_FOUND' });
+    return res.json({ portfolio: profile, ...profile });
+  } catch (err) {
+    return res.status(Number(err.status) || 500).json({ error: err.message || 'Unable to load portfolio' });
+  }
+});
+
+router.put('/portfolio', requireBridgeSecret, (_req, res) => {
+  return res.status(410).json({
+    error: 'PORTFOLIO_OWNED_BY_HUB',
+    message: 'Portfolio content is owned by Pinit HUB. Exchange cannot write it.',
+  });
+});
+
+/** Hub My Assets — which vault/asset ids are currently listed for sale. */
+router.get('/seller-listings', requireBridgeSecret, (req, res) => {
+  const pinitId = String(req.query.pinitId || req.query.pinit_id || '').trim();
+  if (!pinitId) return res.status(400).json({ error: 'pinitId is required' });
+
+  const listingScope = sellerMatchClause('pinit_id', pinitId);
+  db.all(
+    `SELECT listing_id, asset_id, status FROM listings ${listingWhere(listingScope)}`,
+    listingScope.params,
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      const listings = (rows || [])
+        .filter((row) => {
+          const status = String(row.status || '').toLowerCase();
+          return status === 'live' || status === 'published';
+        })
+        .map((row) => ({
+          listing_id: row.listing_id,
+          asset_id: row.asset_id,
+          status: row.status,
+        }));
+      res.json({ listings });
+    },
+  );
+});
+
+/** Hub Home KPIs — metrics only, no buyer PII. */
+router.get('/seller-desk', requireBridgeSecret, (req, res) => {
+  const pinitId = String(req.query.pinitId || req.query.pinit_id || '').trim();
+  if (!pinitId) return res.status(400).json({ error: 'pinitId is required' });
+
+  const listingScope = sellerMatchClause('pinit_id', pinitId);
+  const salesScope = sellerMatchClause('seller_pinit_id', pinitId);
+
+  db.all(
+    `SELECT status, views, saves FROM listings ${listingWhere(listingScope)}`,
+    listingScope.params,
+    (err, listings) => {
+      if (err) return res.status(500).json({ error: err.message });
+      db.all(
+        `SELECT creator_net, price_paid FROM orders_sealed ${listingWhere(salesScope)}`,
+        salesScope.params,
+        (salesErr, sales) => {
+          if (salesErr) return res.status(500).json({ error: salesErr.message });
+          const rows = listings || [];
+          const sealed = sales || [];
+          const totalNet = sealed.reduce((acc, s) => acc + (Number(s.creator_net) || 0), 0);
+          const live = rows.filter((l) => l.status === 'live' || l.status === 'published').length;
+          res.json({
+            metrics: {
+              total_net_revenue: Math.round(totalNet * 100) / 100,
+              sealed_sales_count: sealed.length,
+              active_listings_count: live,
+              listings_count: rows.length,
+              total_views: rows.reduce((acc, l) => acc + (Number(l.views) || 0), 0),
+              total_saves: rows.reduce((acc, l) => acc + (Number(l.saves) || 0), 0),
+            },
+          });
+        },
+      );
+    },
+  );
+});
+
+/**
+ * GET /api/hub/buyer-desk — what this person has bought, for Hub's home page.
+ *
+ * The seller desk answers "how is my work doing on the market"; this answers
+ * the other half, "what did I license and is it still mine to use". Hub shows
+ * both at the top of Home, so a person who creates and buys does not have to
+ * cross into Exchange to learn that a licence is about to lapse.
+ *
+ * Purchases are matched on buyer_pinit_id through the same identity clause the
+ * seller side uses, so the Root / Individual / Business / Exchange labels one
+ * person holds all resolve to the same buyer.
+ */
+router.get('/buyer-desk', requireBridgeSecret, (req, res) => {
+  const pinitId = String(req.query.pinitId || req.query.pinit_id || '').trim();
+  if (!pinitId) return res.status(400).json({ error: 'pinitId is required' });
+
+  const scope = sellerMatchClause('o.buyer_pinit_id', pinitId);
+
+  db.all(
+    `SELECT o.seal_id, o.order_id, o.asset_id, o.listing_id, o.seller_pinit_id,
+            o.license_tier, o.price_paid, o.status, o.sealed_at,
+            o.license_status, o.license_expires_at, o.delivery_url,
+            l.title AS listing_title
+       FROM orders_sealed o
+       LEFT JOIN listings l ON l.listing_id = o.listing_id
+      ${listingWhere(scope)}
+      ORDER BY o.sealed_at DESC
+      LIMIT 25`,
+    scope.params,
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      const orders = rows || [];
+      const spent = orders.reduce((acc, o) => acc + (Number(o.price_paid) || 0), 0);
+      // A licence counts as active unless it has been revoked or has lapsed.
+      const now = Date.now();
+      const active = orders.filter((o) => {
+        if (String(o.license_status || 'active') !== 'active') return false;
+        if (!o.license_expires_at) return true;
+        const t = Date.parse(o.license_expires_at);
+        return Number.isNaN(t) ? true : t > now;
+      });
+
+      res.json({
+        metrics: {
+          purchases_count: orders.length,
+          total_spent: Math.round(spent * 100) / 100,
+          active_licenses_count: active.length,
+        },
+        purchases: orders.map((o) => ({
+          seal_id: o.seal_id,
+          order_id: o.order_id,
+          asset_id: o.asset_id,
+          listing_id: o.listing_id,
+          title: o.listing_title || o.asset_id,
+          seller_pinit_id: o.seller_pinit_id,
+          license_tier: o.license_tier,
+          price_paid: Number(o.price_paid) || 0,
+          status: o.status,
+          license_status: o.license_status || 'active',
+          license_expires_at: o.license_expires_at || null,
+          sealed_at: o.sealed_at,
+          has_delivery: Boolean(o.delivery_url),
+        })),
+      });
+    },
+  );
 });
 
 export default router;

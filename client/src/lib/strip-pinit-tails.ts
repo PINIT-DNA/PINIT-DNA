@@ -1,5 +1,5 @@
 /**
- * Strip PinIT protection tails from HTML for display only.
+ * Strip Pinit protection tails from HTML for display only.
  * Manifests remain in the real vault/download bytes for tracking.
  */
 export function stripPinitProtectionTailsForDisplay(html: string): string {

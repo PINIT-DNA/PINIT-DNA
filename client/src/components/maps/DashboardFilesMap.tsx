@@ -3,11 +3,13 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { isValidMapCoordinate } from '../../lib/geo-coords';
 import { formatDistanceToNow } from 'date-fns';
+import { leafletBasemapCredit, leafletBasemapLayer } from './leafletBasemap';
 
 export interface DashboardFileMapPoint {
   id?: string;
   vaultId?: string | null;
   filename: string;
+  token?: string;
   lat: number;
   lng: number;
   locationLabel: string;
@@ -22,6 +24,7 @@ interface DashboardFilesMapProps {
   height?: string;
   fill?: boolean;
   live?: boolean;
+  onSelectPoint?: (point: DashboardFileMapPoint) => void;
 }
 
 const ACTION_COLORS: Record<string, string> = {
@@ -30,7 +33,10 @@ const ACTION_COLORS: Record<string, string> = {
   FORWARDING_DETECTED: '#f97316',
   COPY_ATTEMPT: '#eab308',
   SCREENSHOT_ATTEMPT: '#ef4444',
+  SCREEN_RECORDING_ATTEMPT: '#ec4899',
   PRINT_ATTEMPT: '#ef4444',
+  DOWNLOAD_STARTED: '#34d399',
+  SHARE_FURTHER: '#f97316',
 };
 
 function pinIcon(color: string): L.DivIcon {
@@ -56,7 +62,7 @@ function actionLabel(action?: string): string {
   return action.replace(/_/g, ' ').toLowerCase().replace(/^\w/, c => c.toUpperCase());
 }
 
-export function DashboardFilesMap({ points, height, fill, live }: DashboardFilesMapProps) {
+export function DashboardFilesMap({ points, height, fill, live, onSelectPoint }: DashboardFilesMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<L.Map | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -80,10 +86,7 @@ export function DashboardFilesMap({ points, height, fill, live }: DashboardFiles
     });
     mapInstance.current = map;
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      attribution: '',
-      maxZoom: 18,
-    }).addTo(map);
+    leafletBasemapLayer('light').addTo(map);
 
     const markers: L.LatLng[] = [];
 
@@ -100,11 +103,14 @@ export function DashboardFilesMap({ points, height, fill, live }: DashboardFiles
           <div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:4px">${p.filename}</div>
           <div style="font-size:11px;color:#6366f1;font-weight:600;margin-bottom:4px">${actionLabel(p.action)}</div>
           <div style="font-size:11px;color:#64748b">${p.locationLabel}</div>
-          ${p.device ? `<div style="text-size:10px;color:#94a3b8;margin-top:2px">${p.device}</div>` : ''}
+          ${p.device ? `<div style="font-size:10px;color:#94a3b8;margin-top:2px">${p.device}</div>` : ''}
           ${when ? `<div style="font-size:10px;color:#94a3b8;margin-top:4px">${when}</div>` : ''}
-          <div style="font-size:10px;color:#cbd5e1;margin-top:2px">${p.source === 'gps' ? 'GPS location' : 'IP geolocation (approx)'}</div>
+          <div style="font-size:10px;color:#64748b;margin-top:2px">${p.source === 'gps' ? 'Precise GPS (permission granted)' : 'Approximate IP/network location'}</div>
         </div>
       `);
+      if (onSelectPoint) {
+        marker.on('click', () => onSelectPoint(p));
+      }
       marker.addTo(map);
     });
 
@@ -148,7 +154,7 @@ export function DashboardFilesMap({ points, height, fill, live }: DashboardFiles
         <div className="text-center px-4">
           <p className="text-xs text-gray-500">No share access locations yet</p>
           <p className="text-2xs text-gray-600 mt-1">
-            Share a file from Vault — when someone opens the link, their location appears here live
+            Share a file from My Assets — when someone opens the link, their location appears here live
           </p>
         </div>
       </div>
@@ -158,7 +164,7 @@ export function DashboardFilesMap({ points, height, fill, live }: DashboardFiles
   return (
     <div
       ref={wrapRef}
-      className={`relative w-full min-h-0 ${fill ? 'flex-1 min-h-[240px]' : ''}`}
+      className={`relative w-full ${fill ? 'h-full min-h-[240px]' : ''}`}
       style={!fill && mapHeight ? { height: mapHeight } : undefined}
     >
       <div
@@ -175,7 +181,7 @@ export function DashboardFilesMap({ points, height, fill, live }: DashboardFiles
         <span>{validPoints.length} access location{validPoints.length !== 1 ? 's' : ''}</span>
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" /> Viewed</span>
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" /> Downloaded</span>
-        <span className="opacity-40 text-[10px]">© OSM · CARTO</span>
+        <span className="opacity-40 text-[10px]">{leafletBasemapCredit()}</span>
       </div>
     </div>
   );

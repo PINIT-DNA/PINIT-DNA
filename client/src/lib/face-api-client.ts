@@ -10,14 +10,18 @@ export interface FaceAuthResponse {
   accessToken?: string;
   refreshToken?: string;
   user?: { id: string; shortId: string; fullName: string; role?: string };
-  shortId?: string;
+  token?: string;
+  nonce?: string;
+  actions?: Array<'yaw_left' | 'yaw_right' | 'pitch_down'>;
+  expiresAt?: number;
+  instructions?: Record<string, string>;
 }
 
 async function postFace(path: string, body: unknown): Promise<{ status: number; data: FaceAuthResponse }> {
   let lastErr: unknown;
   for (let i = 0; i < 4; i++) {
     try {
-      const res = await axios.post(`${BASE}${path}`, body, { timeout: 70000 });
+      const res = await axios.post(`${BASE}${path}`, body, { timeout: 70000, withCredentials: true });
       return { status: res.status, data: res.data as FaceAuthResponse };
     } catch (e: unknown) {
       lastErr = e;
@@ -41,22 +45,24 @@ export async function registerFaceIdentity(payload: {
   deviceFingerprint?: string;
   accountType?: 'INDIVIDUAL' | 'BUSINESS';
   organizationName?: string;
+  padEvidence?: FacePadEvidence;
+  passkeyPendingToken?: string;
 }): Promise<FaceAuthResponse> {
-  if (!Array.isArray(payload.voiceFingerprint) || payload.voiceFingerprint.length !== 128) {
-    throw new Error('Voice fingerprint missing. Go back and complete voice verification.');
-  }
-  if (payload.voiceFingerprint.some((v) => typeof v !== 'number' || !Number.isFinite(v))) {
-    throw new Error('Voice fingerprint is invalid. Re-record your voice and try again.');
+  const voice = payload.voiceFingerprint;
+  if (voice != null) {
+    if (!Array.isArray(voice) || voice.length !== 128) {
+      throw new Error('Voice fingerprint is invalid. Re-record or skip voice.');
+    }
+    if (voice.some((v) => typeof v !== 'number' || !Number.isFinite(v))) {
+      throw new Error('Voice fingerprint is invalid. Re-record or skip voice.');
+    }
   }
 
   const { status, data } = await postFace('/register', payload);
   if (status === 409) {
-    const msg = data.shortId
-      ? (data.message?.includes(data.shortId)
-          ? data.message
-          : `This face is already registered to ${data.shortId}. Please login instead.`)
-      : (data.message ?? 'This face is already registered. Please login instead.');
-    throw new Error(msg);
+    // The backend never sends which account/modality collided — surface only its
+    // generic message, never construct one from response fields (account-enumeration guard).
+    throw new Error(data.message ?? 'This identity is already registered. Please login instead.');
   }
   if (status >= 400 || data.success === false) {
     const detail =
@@ -75,14 +81,85 @@ export async function registerFaceIdentity(payload: {
 
 export async function loginWithFace(payload: {
   embedding: number[];
+  claimedShortId?: string;
+  claimedUserId?: string;
+  padEvidence?: FacePadEvidence;
+  webauthnSession?: string;
+  passkeyPendingToken?: string;
   voiceFingerprint?: number[];
   webauthnCredentialId?: string;
   deviceFingerprint?: string;
 }): Promise<FaceAuthResponse> {
   const { data } = await postFace('/login', payload);
   if (data.success !== true || data.matched === false) {
-    throw new Error(data.message ?? 'No identity found. Please register.');
+    throw new Error(data.message ?? 'Could not verify this face for the claimed account.');
   }
   if (!data.accessToken) throw new Error('Login failed. Please try again.');
   return data;
+}
+
+/** Thrown when 1:N identify finds no confident match — the caller shows the
+ *  "Face not recognized" state rather than a generic failure. */
+export class FaceNotRecognizedError extends Error {
+  constructor(message = 'Face not recognized.') {
+    super(message);
+    this.name = 'FaceNotRecognizedError';
+  }
+}
+
+/**
+ * Sign in by face alone — no Pinit ID typed.
+ *
+ * Sends only the face and its liveness evidence: the server searches the
+ * gallery and either returns a confidently identified account or refuses.
+ * A refusal carries no distance and no hint about which faces are enrolled,
+ * so there is nothing here to tell the two apart beyond "not recognized".
+ */
+export async function identifyWithFace(payload: {
+  embedding: number[];
+  padEvidence?: FacePadEvidence;
+  deviceFingerprint?: string;
+}): Promise<FaceAuthResponse> {
+  const { data } = await postFace('/identify', payload);
+  if (data.success !== true || data.matched === false) {
+    throw new FaceNotRecognizedError(data.message ?? 'Face not recognized.');
+  }
+  if (!data.accessToken) throw new FaceNotRecognizedError();
+  return data;
+}
+
+export interface FacePadEvidence {
+  challengeToken: string;
+  samples: Array<{
+    t: number;
+    yaw: number;
+    pitch: number;
+    faceCount: number;
+    boxRatio: number;
+    brightness: number;
+  }>;
+  patches: string[];
+}
+
+export interface FaceChallenge {
+  token: string;
+  nonce: string;
+  actions: Array<'yaw_left' | 'yaw_right' | 'pitch_down'>;
+  expiresAt: number;
+  instructions: Record<string, string>;
+}
+
+export async function requestFaceChallenge(): Promise<FaceChallenge> {
+  const { status, data } = await postFace('/challenge', {});
+  const body = data as FaceAuthResponse & Partial<FaceChallenge>;
+  if (status >= 400 || !body.token || !Array.isArray(body.actions)) {
+    throw new Error(body.message ?? 'Could not start liveness check. Try again.');
+  }
+  return {
+    token: body.token,
+    nonce: body.nonce ?? '',
+    actions: body.actions,
+    expiresAt: body.expiresAt ?? Date.now() + 45_000,
+    instructions: body.instructions ?? {},
+  };
 }

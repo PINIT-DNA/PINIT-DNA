@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.middleware';
+import { clientReportController } from '../controllers/client-report.controller';
 import {
   requireShareLinkOwnership,
   requireVaultOwnership,
@@ -33,6 +34,16 @@ import {
   listShareViewerMessages,
   replyShareViewerMessage,
   getMyShareViewerMessages,
+  getShareReview,
+  getShareReviewComments,
+  postShareReviewComment,
+  postShareReviewDecision,
+  getShareReviewDecisions,
+  getShareMessages,
+  postShareMessage,
+  markShareMessagesRead,
+  streamShareMessages,
+  getHandoverView,
   debugReport,
   getGlobalShareStats,
   getLiveTrackingMap,
@@ -41,6 +52,7 @@ import {
   getLinkTree,
   shareFurther,
   previewImage,
+  requireTrackingUnlessLicensedShare,
 } from '../controllers/share-link.controller';
 
 export const shareRouter = Router();
@@ -75,8 +87,29 @@ shareRouter.post('/:token/unmask-request',     requestUnmask);            // ─
 shareRouter.get('/:token/unmask-status',       getUnmaskStatus);          // ── Privacy Masking — check approval
 shareRouter.post('/:token/messages',           postShareViewerMessage);
 shareRouter.get('/:token/messages/mine',       getMyShareViewerMessages);
+
+// ── Client review — token-scoped, no account. Gated by the link's own flags. ─
+shareRouter.get('/:token/review',              getShareReview);
+shareRouter.get('/:token/review/comments',     getShareReviewComments);
+shareRouter.post('/:token/review/comments',    postShareReviewComment);
+shareRouter.get('/:token/review/decisions',    getShareReviewDecisions);
+shareRouter.post('/:token/review/decision',    postShareReviewDecision);
+
+// ── Campaign conversation — token-scoped, no account ────────────────────────
+shareRouter.get('/:token/messages/stream',     streamShareMessages);
+shareRouter.get('/:token/campaign-messages',   getShareMessages);
+shareRouter.post('/:token/campaign-messages',  postShareMessage);
+shareRouter.post('/:token/campaign-messages/read', markShareMessagesRead);
+
+// ── Client handover bundle — token-scoped, no account ──────────────────────
+shareRouter.get('/handover/:token',            getHandoverView);
+
+// ── Client report — token-scoped, no account (Phase C, layer 6) ────────────
+// Two literal segments, so neither can be shadowed by the '/:token/...' routes.
+shareRouter.get('/client-report/:token',        clientReportController.getClientReport);
+shareRouter.get('/client-report/:token/pdf',    clientReportController.downloadClientReport);
 // Owner-only routes (require auth)
-shareRouter.get('/:token/logs',                requireAuth, requireFeature(FeatureKey.FEATURE_TRACKING), requireShareLinkOwnership, getShareLinkLogs);
+shareRouter.get('/:token/logs',                requireAuth, requireTrackingUnlessLicensedShare(requireFeature(FeatureKey.FEATURE_TRACKING)), requireShareLinkOwnership, getShareLinkLogs);
 shareRouter.get('/:token/export',              requireAuth, requireShareLinkOwnership, exportShareLogsCsv);
 shareRouter.delete('/:token',                  requireAuth, requireShareLinkOwnership, revokeShareLink);
 shareRouter.post('/:token/block-viewer',       requireAuth, requireShareLinkOwnership, blockShareViewer);

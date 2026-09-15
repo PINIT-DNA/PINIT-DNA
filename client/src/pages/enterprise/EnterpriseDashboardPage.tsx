@@ -90,7 +90,7 @@ export function EnterpriseDashboardPage() {
             sub: 'Unlimited plan',
             color: 'text-emerald-400',
           },
-          { label: 'Team Members', value: '1', sub: 'Invite your team', color: 'text-purple-400' },
+          { label: 'Team members', value: '1', sub: 'Invite your team', color: 'text-purple-400' },
         ].map((stat) => (
           <div key={stat.label} className="rounded-2xl border border-bg-border bg-bg-card p-4">
             <p className="text-2xs text-gray-500 mb-1">{stat.label}</p>

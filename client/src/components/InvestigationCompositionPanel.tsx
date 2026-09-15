@@ -55,7 +55,7 @@ interface ImageCompositionBreakdown {
     dnaRecordId?: string;
     certificateId?: string;
   };
-  candidateSources?: Array<{ vaultId: string; filename?: string; dnaRecordId?: string; localScore: number }>;
+  candidateSources?: Array<{ vaultId: string; filename?: string; dnaRecordId?: string; localScore: number; coveragePercent?: number }>;
   pixelSource?: {
     originalPixels: number;
     aiSuspectedPixels: number;

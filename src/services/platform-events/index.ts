@@ -44,5 +44,9 @@ export {
   emitVaultIntegrityIssue,
   emitTepCreated,
 } from './extended-events';
+export {
+  emitBusinessEvent, describeMatrix, EVENTS, BELL_NOTIFICATION_CLASS_WHERE,
+} from './notification-policy';
+export type { NotificationClass, EventContext, BusinessEvent } from './notification-policy';
 export { realtimeHub } from './realtime-hub';
 export { preferenceKeyForNotificationType, USER_PREF_SELECT } from './preference-map';

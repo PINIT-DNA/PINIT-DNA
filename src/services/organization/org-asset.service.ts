@@ -33,24 +33,16 @@ export async function tagDnaWithOrgContext(
   return { organizationId: ctx.organizationId, workspaceId: ctx.workspaceId };
 }
 
-/** Prisma where clause: personal assets OR org-shared assets for member. */
+/**
+ * Vault list / bulk ops — JWT.sub only.
+ * Biometric identity is not an input. A face match cannot widen this query.
+ * Org-wide sharing must use an explicit share ACL — never “all org DNA”.
+ */
 export async function vaultAccessWhere(userId: string) {
-  const orgId = await getOrganizationIdForUser(userId);
-  if (!orgId) {
-    return { dnaRecord: { ownerUserId: userId } };
-  }
-  return {
-    OR: [
-      { dnaRecord: { ownerUserId: userId } },
-      { dnaRecord: { organizationId: orgId } },
-    ],
-  };
+  return { dnaRecord: { ownerUserId: userId } };
 }
 
+/** Same owner-only rule for DNA list queries. */
 export async function dnaAccessWhere(userId: string) {
-  const orgId = await getOrganizationIdForUser(userId);
-  if (!orgId) return { ownerUserId: userId };
-  return {
-    OR: [{ ownerUserId: userId }, { organizationId: orgId }],
-  };
+  return { ownerUserId: userId };
 }

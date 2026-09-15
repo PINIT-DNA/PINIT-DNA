@@ -201,13 +201,9 @@ export function captureBestGps(opts?: {
   });
 }
 
-export function locationLabel(accuracy: number | null | undefined, source: string | null | undefined): string {
-  if (source === 'ip') return '🌐 IP Lookup (city / ISP — not GPS)';
-  if (accuracy != null && accuracy <= 50) return '📍 GPS (precise)';
-  if (accuracy != null && accuracy <= 150) return '📍 GPS / assisted (good)';
-  if (source === 'gps' || source === 'network') {
-    if (accuracy != null && accuracy <= 1000) return '📡 Network location (approximate — enable precise GPS on phone)';
-    return '📡 Coarse network / Wi‑Fi location (not village-accurate)';
-  }
-  return '🌐 Location approximate';
+export function locationLabel(_accuracy: number | null | undefined, source: string | null | undefined): string {
+  if (source === 'gps') return 'GPS';
+  if (source === 'network') return 'Device location';
+  if (source === 'ip') return 'IP location';
+  return 'Location';
 }

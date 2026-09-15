@@ -9,10 +9,9 @@ datasource db {
 }
 
 model DnaRecord {
-  id                    String                    @id @default(uuid())
-  createdAt             DateTime                  @default(now())
-  updatedAt             DateTime                  @updatedAt
-  ownerUserId           String?
+  id                    String             @id @default(uuid())
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
   imageFilename         String
   imageMimeType         String
   imageSizeBytes        Int
@@ -22,53 +21,59 @@ model DnaRecord {
   engineVersion         String?
   universalFingerprints Json?
   sha256Hash            String?
-  schemaVersion         String                    @default("1.0.0")
-  status                DnaStatus                 @default(PENDING)
+  schemaVersion         String             @default("1.0.0")
+  status                DnaStatus          @default(PENDING)
+  ownerUserId           String?
   organizationId        String?
   workspaceId           String?
   departmentId          String?
-  /// Whole-file analysis snapshot (auto-run on DNA generate)
-  fileAnalysis          Json?
-  fileAnalysisLabel     String?
-  assets                Asset[]
+  /// Document page pixel-protection — a rendered document page is its own
+  /// DnaRecord (full image pipeline reused as-is), linked back to the parent
+  /// document DnaRecord (e.g. a PDF) via these two fields.
+  documentDnaRecordId   String?
+  pageNumber            Int?
+  documentDnaRecord     DnaRecord?         @relation("DocumentPages", fields: [documentDnaRecordId], references: [id], onDelete: Cascade)
+  pages                 DnaRecord[]        @relation("DocumentPages")
   behavioralLayer       BehavioralLayer?
-  biometricBindLayer    BiometricBindLayer?
   cryptoLayer           CryptoLayer?
-  custodyLayer          CustodyLayer?
-  dctWatermarkLayer     DctWatermarkLayer?
-  deepfakeLayer         DeepfakeLayer?
-  department            Department?               @relation(fields: [departmentId], references: [id])
-  organization          Organization?             @relation(fields: [organizationId], references: [id])
-  ownerUser             User?                     @relation(fields: [ownerUserId], references: [id])
-  workspace             Workspace?                @relation(fields: [workspaceId], references: [id])
-  lineageFrom           DocumentLineage[]         @relation("LineageFrom")
-  lineageTo             DocumentLineage[]         @relation("LineageTo")
+  ownerUser             User?              @relation(fields: [ownerUserId], references: [id])
+  organization          Organization?      @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  workspace             Workspace?         @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  department            Department?        @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  lineageFrom           DocumentLineage[]  @relation("LineageFrom")
+  lineageTo             DocumentLineage[]  @relation("LineageTo")
   evolutionLayer        EvolutionLayer?
-  provenanceEvents      ForensicProvenanceEvent[]
-  localFeatureIndex     LocalFeatureIndex?
   metadataLayer         MetadataLayer?
   monitorRecords        MonitorRecord[]
   ocrRecord             OcrRecord?
   originLayer           OriginLayer?
   perceptualLayer       PerceptualLayer?
-  protectedPosts        ProtectedPost[]
   relationshipLayer     RelationshipLayer?
   semanticLayer         SemanticLayer?
-  spatialAuthPackage    SpatialAuthPackage?
   stegoLayer            StegoLayer?
   structuralLayer       StructuralLayer?
-  trackedExports        TrackedExportPackage[]
   vaultRecord           VaultRecord?
   verifications         VerificationLog[]
-  zkProofLayer          ZkProofLayer?
 
-  /// Document page pixel-protection — a rendered document page is its own
-  /// DnaRecord (full image pipeline reused as-is), linked back to the parent
-  /// document DnaRecord (e.g. a PDF) via these two fields.
-  documentDnaRecordId  String?
-  pageNumber           Int?
-  documentDnaRecord    DnaRecord?  @relation("DocumentPages", fields: [documentDnaRecordId], references: [id], onDelete: Cascade)
-  pages                DnaRecord[] @relation("DocumentPages")
+  /// Whole-file analysis snapshot (auto-run on DNA generate)
+  fileAnalysis      Json?
+  fileAnalysisLabel String?
+
+  // Layers 11-15
+  deepfakeLayer      DeepfakeLayer?
+  dctWatermarkLayer  DctWatermarkLayer?
+  custodyLayer       CustodyLayer?
+  zkProofLayer       ZkProofLayer?
+  biometricBindLayer BiometricBindLayer?
+  trackedExports     TrackedExportPackage[]
+  localFeatureIndex  LocalFeatureIndex?
+  provenanceEvents   ForensicProvenanceEvent[]
+  /// Publish Guardian — posts protected via Chrome extension (additive)
+  protectedPosts     ProtectedPost[]
+  /// Universal assets linked to this DNA (additive)
+  assets             Asset[]
+  /// Spatial auth package (schema reconciliation — pre-existing table)
+  spatialAuthPackage SpatialAuthPackage?
 
   /// Video frame pixel-protection — a sampled frame is its own DnaRecord
   /// (full image pipeline reused as-is), linked back to the parent video
@@ -86,53 +91,11 @@ model DnaRecord {
   @@map("dna_records")
 }
 
-/// Phase 1 — SpatialAuthPackage: one compact package per DNA image (no per-pixel rows)
-model SpatialAuthPackage {
-  id                String    @id @default(uuid())
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  dnaRecordId       String    @unique
-  ownerUserId       String
-  width             Int
-  height            Int
-  /// Decode policy id (file-pixel-order-v1 = no EXIF rotate, RGB removeAlpha)
-  orientationPolicy String    @default("file-pixel-order-v1")
-  /// Content-seal HMAC or sha256:… / dna:… parent binding
-  globalDnaRef      String
-  keyId             String
-  algorithmVersion  String
-  primaryScale      Int
-  scales            Int[]
-  merkleRoot        String    @db.Char(64)
-  rootMac           String    @db.Char(64)
-  /// Compact binary block leaves (SPB1)
-  blockBlob         Bytes
-  /// Phase 3A — Hierarchical Keyed Cell Auth (8×8 HKCA); nullable = Phase1/2-only packages
-  pixelAlgoVersion  String?
-  pixelScheme       String?
-  pixelKeyId        String?
-  pixelCellSize     Int?
-  pixelTagBytes     Int?
-  pixelAuthBlob     Bytes?
-  pixelAuthRoot     String?   @db.Char(64)
-  pixelRootMac      String?   @db.Char(64)
-  /// Phase 4E — dense enrolled 1×1 HMAC tags (SP1T blob; not per-pixel rows)
-  pixel1AlgoVersion String?
-  pixel1KeyId       String?
-  pixel1TagBytes    Int?
-  pixel1AuthBlob    Bytes?
-  pixel1AuthRoot    String?   @db.Char(64)
-  pixel1RootMac     String?   @db.Char(64)
-  dnaRecord         DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
-  ownerUser         User      @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
-
-  @@index([ownerUserId])
-  @@map("spatial_auth_packages")
-}
-
+// ── Forensic Provenance (append-only lifecycle events — NEVER mutates DNA) ─────
+// DNA = immutable identity. Location, downloads, tamper, investigations are events.
 model ForensicProvenanceEvent {
-  id              String     @id @default(uuid())
-  createdAt       DateTime   @default(now())
+  id              String   @id @default(uuid())
+  createdAt       DateTime @default(now())
   /// Append-only event type (DNA_GENERATED, VAULT_STORED, CERTIFICATE_ISSUED, …)
   eventType       String
   dnaRecordId     String?
@@ -146,7 +109,7 @@ model ForensicProvenanceEvent {
   /// Human-readable summary for reports
   summary         String
   /// Structured payload (geo, device, hashes, tamper flags) — never written into DNA
-  payload         Json       @default("{}")
+  payload         Json     @default("{}")
   country         String?
   region          String?
   city            String?
@@ -158,8 +121,9 @@ model ForensicProvenanceEvent {
   userAgent       String?
   device          String?
   /// Optional idempotency key to avoid duplicate appends for the same action
-  dedupeKey       String?    @unique
-  dnaRecord       DnaRecord? @relation(fields: [dnaRecordId], references: [id])
+  dedupeKey       String?  @unique
+
+  dnaRecord DnaRecord? @relation(fields: [dnaRecordId], references: [id], onDelete: SetNull)
 
   @@index([dnaRecordId, createdAt])
   @@index([vaultId, createdAt])
@@ -168,6 +132,7 @@ model ForensicProvenanceEvent {
   @@map("forensic_provenance_events")
 }
 
+// ── Local DNA Feature Index (patch-level fingerprints for crop/screenshot recovery) ──
 model LocalFeatureIndex {
   id             String          @id @default(uuid())
   createdAt      DateTime        @default(now())
@@ -227,13 +192,13 @@ model LocalDnaPatch {
   patchIndex    Int
   gridX         Int
   gridY         Int
+  scale         Int               @default(32)
   pHash16       String
+  dHash8        String?
+  aHash8        String?
   edgeSignature String?
   colorVector   Json?
   frequencySig  String?
-  aHash8        String?
-  dHash8        String?
-  scale         Int               @default(32)
   textureSig    String?
   index         LocalFeatureIndex @relation(fields: [indexId], references: [id], onDelete: Cascade)
 
@@ -244,6 +209,7 @@ model LocalDnaPatch {
   @@map("local_dna_patches")
 }
 
+// ── Layer 11: AI Deepfake Detection ──────────────────────────────────────────
 model DeepfakeLayer {
   id             String    @id @default(uuid())
   createdAt      DateTime  @default(now())
@@ -260,6 +226,7 @@ model DeepfakeLayer {
   @@map("deepfake_layers")
 }
 
+// ── Layer 12: Invisible DCT Watermark ────────────────────────────────────────
 model DctWatermarkLayer {
   id             String    @id @default(uuid())
   createdAt      DateTime  @default(now())
@@ -276,6 +243,7 @@ model DctWatermarkLayer {
   @@map("dct_watermark_layers")
 }
 
+// ── Layer 13: Legal Chain of Custody ─────────────────────────────────────────
 model CustodyLayer {
   id              String    @id @default(uuid())
   createdAt       DateTime  @default(now())
@@ -291,6 +259,7 @@ model CustodyLayer {
   @@map("custody_layers")
 }
 
+// ── Layer 14: Zero-Knowledge Ownership Proof ─────────────────────────────────
 model ZkProofLayer {
   id             String    @id @default(uuid())
   createdAt      DateTime  @default(now())
@@ -305,6 +274,7 @@ model ZkProofLayer {
   @@map("zk_proof_layers")
 }
 
+// ── Layer 15: Biometric Identity Bind ────────────────────────────────────────
 model BiometricBindLayer {
   id             String    @id @default(uuid())
   createdAt      DateTime  @default(now())
@@ -498,6 +468,10 @@ model VaultRecord {
   contentLabel        String?
   /// Full file-analysis snapshot shown in Vault Explorer Details
   contentAnalysis     Json?
+  /// NOT_ANALYZED | PENDING | ANALYZING | COMPLETED | FAILED | NOT_APPLICABLE
+  contentAnalysisStatus String  @default("NOT_ANALYZED")
+  contentAnalysisError  String? @db.Text
+  contentAnalyzedAt     DateTime?
   dnaRecord           DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
 
   @@index([contentLabel])
@@ -505,71 +479,96 @@ model VaultRecord {
 }
 
 model User {
-  id                       String                 @id @default(uuid())
-  createdAt                DateTime               @default(now())
-  updatedAt                DateTime               @updatedAt
-  shortId                  String                 @unique
-  email                    String?                @unique
+  id                       String                @id @default(uuid())
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
+  shortId                  String                @unique
+  email                    String?               @unique
   passwordHash             String?
-  fullName                 String                 @default("PINIT User")
-  role                     UserRole               @default(USER)
-  isActive                 Boolean                @default(true)
+  fullName                 String                @default("PINIT User")
+  role                     UserRole              @default(USER)
+  isActive                 Boolean               @default(true)
   lastLoginAt              DateTime?
   avatarUrl                String?
   bio                      String?
   country                  String?
   jobTitle                 String?
-  notifyCertificates       Boolean                @default(true)
-  notifyMonitoring         Boolean                @default(true)
-  notifyRiskAlerts         Boolean                @default(true)
-  notifyShareAccess        Boolean                @default(true)
-  notifyUpdates            Boolean                @default(false)
+  notifyCertificates       Boolean               @default(true)
+  notifyMonitoring         Boolean               @default(true)
+  notifyRiskAlerts         Boolean               @default(true)
+  notifyShareAccess        Boolean               @default(true)
+  notifyUpdates            Boolean               @default(false)
+  notifyVault              Boolean               @default(true)
+  notifyDna                Boolean               @default(true)
+  notifyInvestigation      Boolean               @default(true)
+  notifyAutomation         Boolean               @default(true)
+  notifySecurity           Boolean               @default(true)
+  notifyReports            Boolean               @default(true)
+  notifySystem             Boolean               @default(true)
+  /// Bell/inbox hide watermark. Does not delete notification rows.
+  notificationInboxClearedAt DateTime?
   organization             String?
-  phone                    String?
-  theme                    String                 @default("light")
-  authMethod               String                 @default("password")
-  faceEmbedding            Float[]                @default([])
-  faceRegistered           Boolean                @default(false)
-  faceRegisteredAt         DateTime?
-  deviceFingerprint        String?
-  voiceEmbedding           Float[]                @default([])
-  voiceRegistered          Boolean                @default(false)
-  webauthnCredentialId     String?
-  notifyVault              Boolean                @default(true)
-  notifyDna                Boolean                @default(true)
-  notifyInvestigation      Boolean                @default(true)
-  notifyAutomation         Boolean                @default(true)
-  notifySecurity           Boolean                @default(true)
-  notifyReports            Boolean                @default(true)
-  notifySystem             Boolean                @default(true)
-  accountType              AccountType            @default(INDIVIDUAL)
   organizationIndustry     OrganizationIndustry?
   organizationSize         OrganizationSize?
   workspaceName            String?
   businessSetupCompletedAt DateTime?
-  assets                   Asset[]
-  biometricIdentity        BiometricIdentity?
-  certificates             Certificate[]
-  dnaRecords               DnaRecord[]
-  evidenceRecords          EvidenceRecord[]
-  extensionAuthCodes       ExtensionAuthCode[]
-  localFeatureIndexes      LocalFeatureIndex[]
-  loginHistory             LoginHistory[]
-  monitorRecords           MonitorRecord[]
-  notifications            Notification[]
-  organizationMemberships  OrganizationMember[]
-  ownedOrganization        Organization?
-  platformEvents           PlatformEvent[]
-  protectedPosts           ProtectedPost[]
-  refreshTokens            RefreshToken[]
-  securityEvents           SecurityEvent[]
-  shareLinks               ShareLink[]
-  shareRecipients          ShareRecipient[]
-  spatialAuthPackages      SpatialAuthPackage[]
-  subscription             Subscription?
-  userDevices              UserDevice[]
-  userSessions             UserSession[]
-  webauthn_credentials     webauthn_credentials[]
+  phone                    String?
+  theme                    String                @default("light")
+  accountType              AccountType           @default(INDIVIDUAL)
+
+  // Face Recognition Auth
+  faceEmbedding        Float[]   @default([])
+  faceRegistered       Boolean   @default(false)
+  faceRegisteredAt     DateTime?
+  voiceEmbedding       Float[]   @default([])
+  voiceRegistered      Boolean   @default(false)
+  webauthnCredentialId String?
+  deviceFingerprint    String?
+  authMethod           String    @default("password")
+
+  webauthnCredentials WebAuthnCredential[]
+
+  certificates        Certificate[]
+  credentials         Credential[]
+  dnaRecords          DnaRecord[]
+  localFeatureIndexes LocalFeatureIndex[]
+  evidenceRecords     EvidenceRecord[]
+  loginHistory        LoginHistory[]
+  monitorRecords      MonitorRecord[]
+  notifications       Notification[]
+  platformEvents      PlatformEvent[]
+  refreshTokens       RefreshToken[]
+  shareLinks          ShareLink[]
+  shareRecipients     ShareRecipient[]
+
+  // Enterprise biometric auth (separate from business data)
+  biometricIdentity BiometricIdentity?
+  userSessions      UserSession[]
+  userDevices       UserDevice[]
+  securityEvents    SecurityEvent[]
+
+  // Freemium subscription (additive — does not affect DNA/Vault/auth)
+  subscription Subscription?
+
+  // Manual identity verification (KYC) — reviewed via Master Admin console
+  verificationRequests VerificationRequest[]
+
+  // Support tickets and disputes — reviewed via Master Admin console
+  supportTickets SupportTicket[]
+
+  // Business organization (owner on Free tier — extensible for Enterprise teams)
+  ownedOrganization       Organization?
+  organizationMemberships OrganizationMember[]
+
+  /// Publish Guardian (additive — does not affect existing modules)
+  protectedPosts      ProtectedPost[]
+  extensionAuthCodes  ExtensionAuthCode[]
+  /// Universal Asset Protection (additive — Asset-first layer)
+  assets              Asset[]
+  /// Spatial auth packages (schema reconciliation — pre-existing table)
+  spatialAuthPackages SpatialAuthPackage[]
+  /// One Hub-owned public portfolio per Pinit identity
+  portfolio           Portfolio?
 
   @@map("users")
 }
@@ -581,14 +580,9 @@ model Organization {
   shortId            String                    @unique
   name               String?
   industry           OrganizationIndustry?
-  country            String?
-  logoUrl            String?
-  ownerUserId        String                    @unique
-  setupCompletedAt   DateTime?
-  setupSkippedAt     DateTime?
-  welcomeDismissedAt DateTime?
   organizationSize   OrganizationSize?
   businessType       String?
+  country            String?
   website            String?
   registrationNumber String?
   gst                String?
@@ -601,34 +595,172 @@ model Organization {
   supportPhone       String?
   foundedYear        Int?
   linkedIn           String?
-  aboutDescription   String?
-  services           String?
-  notes              String?
-  departments        Department[]
-  dnaRecords         DnaRecord[]
-  apiKeys            OrganizationApiKey[]
-  auditLogs          OrganizationAuditLog[]
-  integrations       OrganizationIntegration[]
-  invites            OrganizationInvite[]
-  members            OrganizationMember[]
-  webhooks           OrganizationWebhook[]
+  aboutDescription   String?                   @db.Text
+  services           String?                   @db.Text
+  notes              String?                   @db.Text
+  logoUrl            String?
+  ownerUserId        String                    @unique
   ownerUser          User                      @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  setupCompletedAt   DateTime?
+  setupSkippedAt     DateTime?
+  welcomeDismissedAt DateTime?
   workspaces         Workspace[]
+  departments        Department[]
+  members            OrganizationMember[]
+  invites            OrganizationInvite[]
+  auditLogs          OrganizationAuditLog[]
+  apiKeys            OrganizationApiKey[]
+  webhooks           OrganizationWebhook[]
+  integrations       OrganizationIntegration[]
+  dnaRecords         DnaRecord[]
+  clients            Client[]
+  campaigns          Campaign[]
 
   @@index([ownerUserId])
   @@map("organizations")
+}
+
+/// A business's customer relationship — the agency operating layer's first missing
+/// piece. Distinct from the business's own internal Department/Workspace structure.
+model Client {
+  id              String       @id @default(uuid())
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String
+  companyName     String?
+  website         String?
+  contactName     String?
+  contactEmail    String?
+  notes           String?      @db.Text
+  createdByUserId String
+  campaigns       Campaign[]
+
+  @@index([organizationId])
+  @@map("clients")
+}
+
+/// Operational container for a client's work — the natural home for Assets,
+/// People and (in later phases) Approvals/Rights.
+model Campaign {
+  id              String           @id @default(uuid())
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  organizationId  String
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?          @db.Text
+  status          CampaignStatus   @default(ACTIVE)
+  startDate       DateTime?
+  endDate         DateTime?
+  budgetCents     Int?
+  createdByUserId String
+  assets          Asset[]
+  members         CampaignMember[]
+  messages        CampaignMessage[]
+  handovers       CampaignHandover[]
+
+  @@index([organizationId])
+  @@index([clientId])
+  @@map("campaigns")
+}
+
+enum CampaignStatus {
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+/// A person connected to a Campaign's work — internal staff (userId set) or a
+/// lightweight external creator/collaborator (no account, no membership tier).
+/// External creators are never OrganizationMembers; they receive access only
+/// through the existing scoped ShareLink pattern.
+/// How much of the campaign an external person can actually reach.
+///
+/// NONE is the default and the point: being listed on a campaign is a record of
+/// involvement, not a grant. Access is issued deliberately, per asset, and can
+/// be taken back without removing the person from the record.
+enum MemberAccessStatus {
+  NONE
+  INVITED
+  ACTIVE
+  REVOKED
+}
+
+model CampaignMember {
+  id            String   @id @default(uuid())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  campaignId    String
+  campaign      Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  userId        String?
+  name          String?
+  email         String?
+  platform      String?
+  profileUrl    String?
+  roleLabel     String?
+  isExternal    Boolean  @default(false)
+  addedByUserId String
+
+  /// Access for an external person. Internal staff are governed by
+  /// OrganizationMember and their org role — never by these columns.
+  accessStatus      MemberAccessStatus @default(NONE)
+  canComment        Boolean  @default(true)
+  canRequestChanges Boolean  @default(false)
+  /// Approval is a client's decision. An external creator can be granted it,
+  /// but never by default — sign-off is not part of doing the work.
+  canApprove        Boolean  @default(false)
+  /// Links this person to the share layer's identity record, so their access
+  /// carries the same trust scoring and device history as any other recipient.
+  shareRecipientId  String?
+  lastAccessAt      DateTime?
+  revokedAt         DateTime?
+
+  assetAccess CampaignMemberAsset[]
+
+  @@unique([campaignId, userId])
+  @@index([campaignId])
+  @@index([userId])
+  @@map("campaign_members")
+}
+
+/// Which assets one campaign member may actually reach.
+///
+/// This is what makes external access scoped rather than campaign-wide: a
+/// creator assigned to one asset cannot see the other eleven. Each row carries
+/// the share token issued for that pairing, so access is delivered through the
+/// existing secure-link machinery — expiry, revocation, tracking and watermarks
+/// all come for free rather than being reimplemented.
+model CampaignMemberAsset {
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+  memberId   String
+  assetId    String
+  /// The scoped review link issued for this person and this asset.
+  shareToken String?
+
+  member CampaignMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, assetId])
+  @@index([memberId])
+  @@index([assetId])
+  @@map("campaign_member_assets")
 }
 
 model Workspace {
   id             String       @id @default(uuid())
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
+  shortId        String?      @unique
   name           String       @default("Main Workspace")
   isDefault      Boolean      @default(true)
   organizationId String
-  shortId        String?      @unique
-  dnaRecords     DnaRecord[]
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  dnaRecords     DnaRecord[]
 
   @@index([organizationId])
   @@map("workspaces")
@@ -642,8 +774,8 @@ model Department {
   description    String?
   organizationId String
   organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  dnaRecords     DnaRecord[]
   members        OrganizationMember[]
+  dnaRecords     DnaRecord[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
@@ -660,9 +792,9 @@ model OrganizationMember {
   departmentId    String?
   invitedByUserId String?
   joinedAt        DateTime               @default(now())
-  department      Department?            @relation(fields: [departmentId], references: [id])
   organization    Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department      Department?            @relation(fields: [departmentId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, userId])
   @@index([userId])
@@ -684,10 +816,26 @@ model OrganizationInvite {
   expiresAt       DateTime
   acceptedAt      DateTime?
   acceptedUserId  String?
+
+  /// Optional campaign binding.
+  ///
+  /// An invite without these is what it always was: join the organization.
+  /// With them, accepting ALSO places the person on that campaign in that role,
+  /// in one step, so an owner does not have to invite and then separately
+  /// remember to assign. Nullable, so every existing invite stays valid.
+  campaignId      String?
+  campaignRole    String?
+
+  /// When true, accept places a CampaignMember with isExternal=true and does
+  /// NOT create OrganizationMember. Default false preserves Team / Pinit-ID
+  /// org invitations.
+  campaignOnly    Boolean @default(false)
+
   organization    Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, status])
   @@index([email])
+  @@index([campaignId, status])
   @@map("organization_invites")
 }
 
@@ -787,6 +935,8 @@ model LoginHistory {
   @@map("login_history")
 }
 
+// ── Enterprise Biometric Authentication ───────────────────────────────────────
+
 model BiometricIdentity {
   id                  String               @id @default(uuid())
   createdAt           DateTime             @default(now())
@@ -799,8 +949,8 @@ model BiometricIdentity {
   fusionVersion       String               @default("1.0")
   user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   faceTemplate        FaceTemplate?
-  fingerprintTemplate FingerprintTemplate?
   voiceTemplate       VoiceTemplate?
+  fingerprintTemplate FingerprintTemplate?
 
   @@map("biometric_identities")
 }
@@ -808,18 +958,21 @@ model BiometricIdentity {
 model FaceTemplate {
   id                   String            @id @default(uuid())
   createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @default(now()) @updatedAt
   biometricIdentityId  String            @unique
   templateCipher       String
   templateHash         String            @unique
   dimension            Int               @default(128)
   algorithm            String            @default("face-api-v1")
-  algorithmVersion     String            @default("1")
+  // Versioning so a future face-model upgrade can migrate/re-enroll templates
+  // deliberately instead of silently invalidating every existing one.
   embeddingVersion     String            @default("1")
-  encryptionKeyVersion String            @default("v1")
   modelVersion         String            @default("face-api-tiny-v1")
+  algorithmVersion     String            @default("1")
+  /// PAD sharpness at enrollment. Null when no server-side signal was available.
   qualityScore         Float?
   status               String            @default("ACTIVE")
-  updatedAt            DateTime          @default(now())
+  encryptionKeyVersion String            @default("v1")
   biometricIdentity    BiometricIdentity @relation(fields: [biometricIdentityId], references: [id], onDelete: Cascade)
 
   @@index([templateHash])
@@ -829,40 +982,45 @@ model FaceTemplate {
 model VoiceTemplate {
   id                   String            @id @default(uuid())
   createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @default(now()) @updatedAt
   biometricIdentityId  String            @unique
   templateCipher       String
   templateHash         String            @unique
   dimension            Int               @default(128)
   algorithm            String            @default("web-audio-fft-v1")
-  algorithmVersion     String            @default("1")
   embeddingVersion     String            @default("1")
-  encryptionKeyVersion String            @default("v1")
   modelVersion         String            @default("web-audio-fft-v1")
+  algorithmVersion     String            @default("1")
+  /// Always null today — voice quality is gated client-side and never sent to the server.
   qualityScore         Float?
   status               String            @default("ACTIVE")
-  updatedAt            DateTime          @default(now())
+  encryptionKeyVersion String            @default("v1")
   biometricIdentity    BiometricIdentity @relation(fields: [biometricIdentityId], references: [id], onDelete: Cascade)
 
   @@index([templateHash])
   @@map("voice_templates")
 }
 
+/// NOT a fingerprint biometric. This is a derived hash proxy over the WebAuthn
+/// credential id / device fingerprint — PINIT never receives or stores fingerprint
+/// images, minutiae, or any platform-authenticator biometric material.
 model FingerprintTemplate {
   id                   String            @id @default(uuid())
   createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @default(now()) @updatedAt
   biometricIdentityId  String            @unique
   templateCipher       String
   templateHash         String            @unique
   dimension            Int               @default(128)
   algorithm            String            @default("webauthn-device-v1")
   credentialId         String?
-  algorithmVersion     String            @default("1")
   embeddingVersion     String            @default("1")
-  encryptionKeyVersion String            @default("v1")
   modelVersion         String            @default("webauthn-device-v1")
+  algorithmVersion     String            @default("1")
+  /// Always null — a derived device proxy has no captured-sample quality.
   qualityScore         Float?
   status               String            @default("ACTIVE")
-  updatedAt            DateTime          @default(now())
+  encryptionKeyVersion String            @default("v1")
   biometricIdentity    BiometricIdentity @relation(fields: [biometricIdentityId], references: [id], onDelete: Cascade)
 
   @@index([templateHash])
@@ -905,6 +1063,23 @@ model UserDevice {
   @@map("user_devices")
 }
 
+model WebAuthnCredential {
+  id           String   @id @default(uuid())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  credentialId String   @unique
+  publicKey    String
+  userId       String
+  signCount    Int      @default(0)
+  deviceType   String?
+  backedUp     Boolean  @default(false)
+  transports   String[] @default([])
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("webauthn_credentials")
+}
+
 model SecurityEvent {
   id        String   @id @default(uuid())
   createdAt DateTime @default(now())
@@ -915,7 +1090,7 @@ model SecurityEvent {
   deviceId  String?
   success   Boolean  @default(true)
   detail    Json?
-  user      User?    @relation(fields: [userId], references: [id])
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([eventType])
@@ -931,24 +1106,45 @@ model Notification {
   title          String
   body           String
   severity       String   @default("info")
+  category       String   @default("system")
   read           Boolean  @default(false)
+  archived       Boolean  @default(false)
   linkToken      String?
   fileName       String?
   ip             String?
   country        String?
   device         String?
   riskLevel      String?
-  category       String   @default("system")
   deepLink       String?
   dedupeKey      String?
   aggregateCount Int      @default(1)
-  archived       Boolean  @default(false)
+
+  /// What this row IS, which decides where it surfaces:
+  ///
+  ///   ACTIVITY      something happened and is worth a timeline entry. No badge.
+  ///                 "The client opened the review link."
+  ///   NOTIFICATION  someone specific needs to know, and probably to act.
+  ///                 "Adhureddy requested changes to Version 2."
+  ///   ALERT         something is wrong and needs attention now.
+  ///                 "A confirmed external copy of Asset Y was detected."
+  ///
+  /// Nullable because every row written before this existed predates the
+  /// distinction; those are read as NOTIFICATION, which is how they already
+  /// behaved. Set from notification-policy.ts and never from a call site.
+  notificationClass String?
+
+  /// The thing this is about, so a click can land on it rather than a list page.
+  entityType     String?
+  entityId       String?
+
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, read])
   @@index([userId, createdAt])
   @@index([userId, dedupeKey])
   @@index([userId, archived])
+  @@index([userId, notificationClass, read])
+  @@index([entityType, entityId])
   @@map("notifications")
 }
 
@@ -1000,6 +1196,7 @@ model Certificate {
   revocationReason String?
   issuedByUserId   String?
   ownerUserId      String?
+  /// Canonical Asset.id — the only identifier that crosses the Hub<->Exchange boundary
   assetId          String?
   ownerUser        User?      @relation(fields: [ownerUserId], references: [id])
 
@@ -1007,6 +1204,64 @@ model Certificate {
   @@index([vaultId])
   @@index([assetId])
   @@map("certificates")
+}
+
+/// Hub credential projection. Does not own Certificate, Vault, DNA, Asset, or Exchange orders.
+enum CredentialType {
+  CERTIFICATE
+  AWARD
+  LICENSE
+  COURSE
+  WORKSHOP
+}
+
+enum CredentialSourceType {
+  PINIT_CERTIFICATE
+  USER_AWARD
+  EXCHANGE_LICENSE
+  PINIT_CAREER
+  PINIT_BUSINESS
+}
+
+enum CredentialTrustState {
+  PINIT_VERIFIED
+  PINIT_ISSUED
+  SELF_ADDED
+  SELF_ADDED_EVIDENCE_PROTECTED
+  COMING_SOON
+}
+
+enum CredentialLifecycleStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+  ARCHIVED
+}
+
+model Credential {
+  id              String                    @id @default(uuid())
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+  userId          String
+  type            CredentialType
+  sourceType      CredentialSourceType
+  sourceId        String
+  trustState      CredentialTrustState
+  lifecycleStatus CredentialLifecycleStatus @default(ACTIVE)
+  issuedAt        DateTime?
+  expiresAt       DateTime?
+  /// Copied from Certificate.assetId when that relationship already exists. Never invented.
+  assetId         String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceType, sourceId])
+  @@index([userId, type])
+  @@index([userId, createdAt])
+  @@index([lifecycleStatus])
+  @@index([issuedAt])
+  @@index([assetId])
+  @@map("credentials")
 }
 
 model OcrRecord {
@@ -1062,31 +1317,58 @@ model AuditEvent {
   @@map("audit_events")
 }
 
+/// Platform-wide log of admin-console actions (Master Admin Phase 1).
+/// Distinct from AuditEvent (per-file/DNA events) and OrganizationAuditLog
+/// (tenant-scoped) — this is "who changed what" for super-admin actions.
+/// Intended append-only: application code must never update or delete rows.
+model AdminAuditEvent {
+  id            String   @id @default(uuid())
+  createdAt     DateTime @default(now())
+  actorUserId   String
+  actorShortId  String?
+  action        String
+  targetType    String?
+  targetId      String?
+  before        Json?
+  after         Json?
+  reason        String?
+  ipAddress     String?
+  userAgent     String?
+  requestMethod String?
+  requestPath   String?
+
+  @@index([actorUserId, createdAt])
+  @@index([targetType, targetId])
+  @@index([action])
+  @@map("admin_audit_events")
+}
+
 model MonitorRecord {
   id             String          @id @default(uuid())
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
-  ownerUserId    String?
   dnaRecordId    String
   filename       String
   fileType       String          @default("UNKNOWN")
   status         String          @default("ACTIVE")
-  scanType       String          @default("DAILY")
   checkEveryHrs  Int             @default(24)
   lastCheckedAt  DateTime?
   nextCheckAt    DateTime?
   totalChecks    Int             @default(0)
   totalMatches   Int             @default(0)
-  totalFailures  Int             @default(0)
-  lastDurationMs Int?
   watchUrls      String[]
+  lastDurationMs Int?
+  scanType       String          @default("DAILY")
+  totalFailures  Int             @default(0)
+  ownerUserId    String?
+  /// Canonical Asset.id — the only identifier that crosses the Hub<->Exchange boundary
   assetId        String?
   crawlResults   CrawlResult[]
-  crawlerJobs    CrawlerJob[]
-  crawlerMatches CrawlerMatch[]
   dnaRecord      DnaRecord       @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
   ownerUser      User?           @relation(fields: [ownerUserId], references: [id])
   monitoringRuns MonitoringRun[]
+  crawlerJobs    CrawlerJob[]
+  crawlerMatches CrawlerMatch[]
 
   @@index([status])
   @@index([nextCheckAt])
@@ -1106,8 +1388,8 @@ model CrawlResult {
   matchType         String        @default("NO_MATCH")
   alertStatus       String        @default("PENDING")
   checkedAt         DateTime      @default(now())
-  evidenceGenerated Boolean       @default(false)
   contentSnapshot   String?
+  evidenceGenerated Boolean       @default(false)
   screenshotPath    String?
   monitorRecord     MonitorRecord @relation(fields: [monitorRecordId], references: [id], onDelete: Cascade)
 
@@ -1155,7 +1437,6 @@ model ShareLink {
   id                        String               @id @default(uuid())
   createdAt                 DateTime             @default(now())
   updatedAt                 DateTime             @updatedAt
-  ownerUserId               String?
   vaultId                   String
   dnaRecordId               String
   filename                  String
@@ -1166,6 +1447,7 @@ model ShareLink {
   viewCount                 Int                  @default(0)
   isActive                  Boolean              @default(true)
   allowDownload             Boolean              @default(false)
+  allowPrint                Boolean              @default(false)
   requireName               Boolean              @default(false)
   note                      String?
   oneTimeUse                Boolean              @default(false)
@@ -1188,40 +1470,59 @@ model ShareLink {
   maskAddress               Boolean              @default(false)
   maskCustomPatterns        String?
   requestLocation           Boolean              @default(false)
+  ownerUserId               String?
+  depth                     Int                  @default(0)
+  forwardedByLabel          String?
+  forwardingDetected        Boolean              @default(false)
+  intendedDeviceFingerprint String?
+  intendedIpAddress         String?
+  /// Review mode — collaboration on top of access control. Default false, so
+  /// every share link that already exists keeps behaving exactly as it did.
+  /// Approval is deliberately NOT here yet: it carries legal weight and needs
+  /// identity-bound evidence, which lands with the approvals phase.
+  reviewMode                Boolean              @default(false)
+  allowComments             Boolean              @default(false)
+  allowChangeRequest        Boolean              @default(false)
+  /// Approval carries legal weight, so it is a separate grant from commenting.
+  allowApproval             Boolean              @default(false)
+  /// Pins the link to one version. Null means "whatever is current".
+  reviewVersionId           String?
+
   linkType                  String               @default("PARENT")
   parentLinkId              String?
-  depth                     Int                  @default(0)
   recipientLabel            String?
-  intendedIpAddress         String?
-  intendedDeviceFingerprint String?
-  forwardingDetected        Boolean              @default(false)
-  forwardedByLabel          String?
+  corporateIpRanges         String[]             @default([])
+  domainRestrictions        String[]             @default([])
+  firstViewExpiresAfter     Int?
+  forwardConfidence         Int                  @default(0)
+  forwardRiskScore          Int                  @default(0)
+  forwardStatus             String               @default("CLEAN")
   oneDeviceOnly             Boolean              @default(false)
   oneIpOnly                 Boolean              @default(false)
-  vpnBlock                  Boolean              @default(false)
-  torBlock                  Boolean              @default(true)
-  firstViewExpiresAfter     Int?
-  domainRestrictions        String[]             @default([])
-  corporateIpRanges         String[]             @default([])
   shareRecipientId          String?
+  torBlock                  Boolean              @default(true)
+  vpnBlock                  Boolean              @default(false)
   watermarkCode             String?
-  forwardRiskScore          Int                  @default(0)
-  forwardConfidence         Int                  @default(0)
-  forwardStatus             String               @default("CLEAN")
+  /// Canonical Asset.id. ShareLink is otherwise keyed on vaultId/dnaRecordId;
+  /// this is the identity that crosses the Hub↔Exchange boundary and makes an
+  /// asset's full history answerable from one id.
   assetId                   String?
+  /// "hub" (owner sharing their own vault file) | "exchange_license" (buyer
+  /// sharing a file they licensed on Exchange). Licensed shares are exempt from
+  /// the FEATURE_SMART_SHARE / FEATURE_TRACKING plan gates — the purchase paid for it.
+  sourceContext             String               @default("hub")
   exchangeOrderId           String?
   exchangeSealId            String?
   licenseTier               String?
-  sourceContext             String               @default("hub")
-  blockedViewers            BlockedShareViewer[]
   forwardEvents             LinkForwardEvent[]
   accessLogs                ShareAccessLog[]
+  blockedViewers            BlockedShareViewer[]
   ownerUser                 User?                @relation(fields: [ownerUserId], references: [id])
   parentLink                ShareLink?           @relation("LinkHierarchy", fields: [parentLinkId], references: [id])
   childLinks                ShareLink[]          @relation("LinkHierarchy")
   shareRecipient            ShareRecipient?      @relation(fields: [shareRecipientId], references: [id])
-  viewerMessages            ShareViewerMessage[]
   unmaskRequests            UnmaskRequest[]
+  viewerMessages            ShareViewerMessage[]
 
   @@index([token])
   @@index([vaultId])
@@ -1231,6 +1532,7 @@ model ShareLink {
   @@index([forwardStatus])
   @@index([assetId])
   @@index([exchangeSealId])
+  @@index([reviewVersionId])
   @@map("share_links")
 }
 
@@ -1386,6 +1688,7 @@ model WatermarkProfile {
   @@map("watermark_profiles")
 }
 
+// ── TEP v3.0 — Tracked Export Package (per-recipient downloadable attribution) ─
 model TrackedExportPackage {
   id                 String    @id @default(uuid())
   createdAt          DateTime  @default(now())
@@ -1421,6 +1724,23 @@ model TrackedExportPackage {
   @@map("tracked_export_packages")
 }
 
+enum TepStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+  REDISCOVERED
+}
+
+/// An investigation.
+///
+/// This is the existing Incident model, extended rather than replaced — the
+/// crawler already opens one on a match, evidence already hangs off it, and
+/// AssetDiscovery already carries investigationId. The additions below are case
+/// management: who owns it, what it is called, and which campaign it belongs to.
+///
+/// The scoping columns are nullable because an incident can predate a campaign
+/// or be raised outside one; where campaignId is null the case is reachable
+/// through dnaRecordId as before, and nothing that already existed changes.
 model Incident {
   id              String           @id @default(uuid())
   createdAt       DateTime         @default(now())
@@ -1436,12 +1756,50 @@ model Incident {
   metadata        String?
   resolvedAt      DateTime?
   resolvedNote    String?
+
+  /// Case management. All nullable so every existing incident stays valid.
+  title            String?
+  organizationId   String?
+  campaignId       String?
+  assetId          String?
+  /// The AssetDiscovery this case was raised from, when it came from a finding.
+  findingId        String?
+  assignedToUserId String?
+  openedByUserId   String?
+  closedByUserId   String?
+  closedAt         DateTime?
+
   evidenceRecords EvidenceRecord[]
+  notes           IncidentNote[]
 
   @@index([dnaRecordId])
   @@index([severity])
   @@index([status])
+  @@index([campaignId, status])
+  @@index([organizationId, createdAt])
+  @@index([assignedToUserId])
   @@map("incidents")
+}
+
+/// A note on an investigation — the working record of what someone did or found.
+///
+/// Separate from EvidenceRecord on purpose: evidence is a collected artefact
+/// with integrity information, a note is a person's account. Conflating them
+/// would let commentary be presented to a client as evidence.
+model IncidentNote {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  incidentId  String
+  authorUserId String?
+  authorLabel String
+  body        String   @db.Text
+  /// Marks the note that recorded a status change, so the timeline reads in order.
+  isSystem    Boolean  @default(false)
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId, createdAt])
+  @@map("incident_notes")
 }
 
 model EvidenceRecord {
@@ -1449,7 +1807,6 @@ model EvidenceRecord {
   createdAt    DateTime  @default(now())
   evidenceCode String    @unique
   incidentId   String?
-  ownerUserId  String?
   dnaRecordId  String?
   shareLinkId  String?
   recipientId  String?
@@ -1459,12 +1816,79 @@ model EvidenceRecord {
   hash         String?
   storagePath  String?
   collectedAt  DateTime  @default(now())
+  ownerUserId  String?
   incident     Incident? @relation(fields: [incidentId], references: [id])
   ownerUser    User?     @relation(fields: [ownerUserId], references: [id])
 
   @@index([incidentId])
   @@index([dnaRecordId])
   @@map("evidence_records")
+}
+
+/// Manual KYC-style identity verification, reviewed through the Master Admin
+/// console. Logged and decided by an admin — there is no self-serve
+/// submission flow in the main app yet, so every row starts as an admin
+/// entry rather than a user-initiated request.
+model VerificationRequest {
+  id               String    @id @default(uuid())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  userId           String
+  requestType      String    @default("IDENTITY")
+  status           String    @default("PENDING")
+  documentType     String?
+  submittedNote    String?
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  reviewNote       String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@map("verification_requests")
+}
+
+/// Support tickets and disputes, handled through the Master Admin console.
+/// "Dispute" is just a category value here rather than a separate model —
+/// same lifecycle (open, respond, resolve) as any other ticket.
+model SupportTicket {
+  id               String    @id @default(uuid())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  userId           String
+  subject          String
+  category         String    @default("GENERAL")
+  priority         String    @default("NORMAL")
+  status           String    @default("OPEN")
+  description      String    @db.Text
+  resolvedByUserId String?
+  resolvedAt       DateTime?
+  resolutionNote   String?
+
+  user     User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages SupportTicketMessage[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("support_tickets")
+}
+
+/// Reply thread on a ticket — admin responses and internal notes.
+model SupportTicketMessage {
+  id           String   @id @default(uuid())
+  createdAt    DateTime @default(now())
+  ticketId     String
+  authorUserId String?
+  authorLabel  String
+  body         String   @db.Text
+  /// Internal admin note, never shown to the ticket's user.
+  isInternal   Boolean  @default(false)
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+  @@map("support_ticket_messages")
 }
 
 model ShareAccessLog {
@@ -1485,17 +1909,6 @@ model ShareAccessLog {
   referrer           String?
   screenResolution   String?
   deviceFingerprint  String?
-  isVpn              Boolean   @default(false)
-  isTor              Boolean   @default(false)
-  isProxy            Boolean   @default(false)
-  isDatacenter       Boolean   @default(false)
-  asn                String?
-  org                String?
-  lat                Float?
-  lng                Float?
-  canvasFp           String?
-  webglFp            String?
-  audioFp            String?
   riskScore          Int?
   riskLevel          String?
   riskFactors        String?
@@ -1508,6 +1921,17 @@ model ShareAccessLog {
   locationShared     Boolean   @default(false)
   action             String
   sessionId          String?
+  asn                String?
+  audioFp            String?
+  canvasFp           String?
+  isDatacenter       Boolean   @default(false)
+  isProxy            Boolean   @default(false)
+  isTor              Boolean   @default(false)
+  isVpn              Boolean   @default(false)
+  lat                Float?
+  lng                Float?
+  org                String?
+  webglFp            String?
   gpsDistrict        String?
   gpsFullAddress     String?
   gpsMandal          String?
@@ -1541,6 +1965,8 @@ model BlockedShareViewer {
   @@index([sessionId])
   @@map("blocked_share_viewers")
 }
+
+// ─── Monitoring & Crawler Engine (Phase 1) ───────────────────────────────────
 
 model CrawlerJob {
   id              String        @id @default(uuid())
@@ -1594,6 +2020,84 @@ model CrawlerMatch {
   @@map("crawler_matches")
 }
 
+enum AccountType {
+  INDIVIDUAL
+  BUSINESS
+}
+
+enum OrganizationIndustry {
+  MEDIA
+  LEGAL
+  EDUCATION
+  TECHNOLOGY
+  HEALTHCARE
+  AGENCY
+  OTHER
+}
+
+enum OrganizationSize {
+  SOLO
+  SMALL
+  MEDIUM
+  LARGE
+  XLARGE
+}
+
+enum OrganizationMemberRole {
+  OWNER
+  MANAGER
+  INVESTIGATOR
+  MEMBER
+  VIEWER
+}
+
+enum OrganizationInviteStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  ANALYST
+  AUDITOR
+  USER
+}
+
+// ─── Subscription & Feature Entitlement (Freemium SaaS) ───────────────────────
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+enum BillingProvider {
+  NONE
+  MANUAL
+  STRIPE
+  RAZORPAY
+  PAYPAL
+}
+
+enum BillingHistoryStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+enum UsageMetric {
+  STORAGE_BYTES
+  INVESTIGATION_RUNS
+  MONITOR_ENROLLMENTS
+  API_CALLS
+}
+
 /// Catalog of plans (FREE / PRO / ENTERPRISE). Limits live here + constants.
 model Plan {
   id                String         @id @default(uuid())
@@ -1626,9 +2130,9 @@ model Subscription {
   /// Future gateway customer id (Stripe/Razorpay/PayPal)
   externalCustomerId     String?
   externalSubscriptionId String?
-  billingHistory         BillingHistory[]
-  plan                   Plan               @relation(fields: [planId], references: [id])
   user                   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                   Plan               @relation(fields: [planId], references: [id])
+  billingHistory         BillingHistory[]
   usageRecords           UsageRecord[]
 
   @@index([planId])
@@ -1685,58 +2189,105 @@ model UsageRecord {
   @@map("usage_records")
 }
 
+enum CertStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum DnaStatus {
+  PENDING
+  PROCESSING
+  COMPLETE
+  PARTIAL
+  FAILED
+}
+
+// ── Publish Guardian (additive — does not alter existing DNA/Vault/Monitor logic) ─
+
+enum ProtectedPostStatus {
+  DRAFT
+  PUBLISHING
+  REGISTERED
+  PROTECTED
+  MONITORING
+  DISCOVERY
+  TAMPERING
+  INVESTIGATION
+  EVIDENCE
+  RESOLVED
+  FAILED
+  ARCHIVED
+}
+
+enum ProtectedPostTimelineType {
+  ORIGINAL_PUBLISHED
+  PROTECTED
+  MONITORING_STARTED
+  MONITORING_SCAN
+  DISCOVERY
+  TAMPERING
+  INVESTIGATION
+  EVIDENCE
+  ALERT
+  RESOLVED
+  STATUS_CHANGE
+  NOTE
+}
+
 model ProtectedPost {
-  id               String                       @id @default(uuid())
-  createdAt        DateTime                     @default(now())
-  updatedAt        DateTime                     @updatedAt
+  id               String              @id @default(uuid())
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
   tenantId         String?
   ownerUserId      String
+  /// Optional link to universal Asset aggregate (additive)
+  assetId          String?
   vaultId          String?
   dnaRecordId      String?
   certificateId    String?
   monitorRecordId  String?
-  platform         String
-  platformPostId   String?
-  postUrl          String?
-  ownerAccount     String?
-  mediaUrl         String?
-  mediaHash        String?
-  mediaType        String                       @default("IMAGE")
-  thumbnail        String?
-  caption          String?
-  publishedAt      DateTime?
-  registeredAt     DateTime                     @default(now())
-  watchUrls        String[]                     @default([])
   /// Monitoring profile state: PENDING | RUNNING | PAUSED | FAILED | DISABLED
-  monitorStatus    String                       @default("PENDING")
-  lastScanAt       DateTime?
-  lastDiscoveryAt  DateTime?
-  discoveriesCount Int                          @default(0)
-  tamperedCount    Int                          @default(0)
-  riskScore        Int                          @default(0)
-  status           ProtectedPostStatus          @default(REGISTERED)
-  extensionVersion String?
-  capturedVia      String                       @default("extension_publish_guardian")
-  pageTitle        String?
-  metadata         Json?
-  /// Latest known public URL (may differ from original postUrl)
-  currentUrl       String?
+  monitorStatus    String              @default("PENDING")
   /// External / internal job id for scheduler correlation
   monitorJobId     String?
   lastMonitorError String?
   nextScanAt       DateTime?
   avgScanMs        Int?
+  platform         String
+  platformPostId   String?
+  postUrl          String?
+  /// Latest known public URL (may differ from original postUrl)
+  currentUrl       String?
+  ownerAccount     String?
+  mediaUrl         String?
+  mediaHash        String?
+  mediaType        String              @default("IMAGE")
+  thumbnail        String?
+  caption          String?
+  publishedAt      DateTime?
+  registeredAt     DateTime            @default(now())
+  watchUrls        String[]            @default([])
+  lastScanAt       DateTime?
+  lastDiscoveryAt  DateTime?
+  discoveriesCount Int                 @default(0)
+  tamperedCount    Int                 @default(0)
+  riskScore        Int                 @default(0)
   /// LOW | MEDIUM | HIGH | CRITICAL
-  riskSeverity     String                       @default("LOW")
+  riskSeverity     String              @default("LOW")
+  status           ProtectedPostStatus @default(REGISTERED)
+  extensionVersion String?
+  capturedVia      String              @default("extension_publish_guardian")
+  pageTitle        String?
   /// Client idempotency key for offline queue recovery
   clientRequestId  String?
-  /// Optional link to universal Asset aggregate (additive)
-  assetId          String?
-  discoveries      ProtectedPostDiscovery[]
-  timeline         ProtectedPostTimelineEvent[]
-  asset            Asset?                       @relation(fields: [assetId], references: [id])
-  dnaRecord        DnaRecord?                   @relation(fields: [dnaRecordId], references: [id])
-  ownerUser        User                         @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  metadata         Json?
+
+  ownerUser   User                         @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  dnaRecord   DnaRecord?                   @relation(fields: [dnaRecordId], references: [id], onDelete: SetNull)
+  asset       Asset?                       @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  timeline    ProtectedPostTimelineEvent[]
+  discoveries ProtectedPostDiscovery[]
 
   @@unique([ownerUserId, clientRequestId])
   @@index([ownerUserId, createdAt])
@@ -1769,7 +2320,8 @@ model ProtectedPostTimelineEvent {
   evidenceId      String?
   crawlResultId   String?
   payload         Json?
-  protectedPost   ProtectedPost             @relation(fields: [protectedPostId], references: [id], onDelete: Cascade)
+
+  protectedPost ProtectedPost @relation(fields: [protectedPostId], references: [id], onDelete: Cascade)
 
   @@index([protectedPostId, createdAt])
   @@index([eventType])
@@ -1777,36 +2329,37 @@ model ProtectedPostTimelineEvent {
 }
 
 model ProtectedPostDiscovery {
-  id                 String        @id @default(uuid())
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  id                 String   @id @default(uuid())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
   protectedPostId    String
   platform           String?
+  sourcePlatform     String?
   discoveryUrl       String
   pageTitle          String?
-  matchType          String        @default("POSSIBLE")
-  dnaMatchPercent    Float         @default(0)
-  similarity         Float         @default(0)
-  tampered           Boolean       @default(false)
+  matchType          String   @default("POSSIBLE")
+  dnaMatchPercent    Float    @default(0)
+  similarity         Float    @default(0)
+  similarityScore    Float    @default(0)
+  tampered           Boolean  @default(false)
+  tamperingStatus    String   @default("UNKNOWN")
   tamperSummary      String?
-  confidence         Float         @default(0)
-  riskScore          Int           @default(0)
-  investigationId    String?
-  crawlResultId      String?
-  alertStatus        String        @default("PENDING")
-  evidenceReady      Boolean       @default(false)
-  thumbnailUrl       String?
-  payload            Json?
-  sourcePlatform     String?
-  similarityScore    Float         @default(0)
-  tamperingStatus    String        @default("UNKNOWN")
-  severity           String        @default("LOW")
+  confidence         Float    @default(0)
+  riskScore          Int      @default(0)
+  severity           String   @default("LOW")
   matchedVaultId     String?
   matchedDnaRecordId String?
+  investigationId    String?
   evidenceId         String?
-  firstSeenAt        DateTime      @default(now())
-  lastSeenAt         DateTime      @default(now())
-  protectedPost      ProtectedPost @relation(fields: [protectedPostId], references: [id], onDelete: Cascade)
+  crawlResultId      String?
+  alertStatus        String   @default("PENDING")
+  evidenceReady      Boolean  @default(false)
+  thumbnailUrl       String?
+  firstSeenAt        DateTime @default(now())
+  lastSeenAt         DateTime @default(now())
+  payload            Json?
+
+  protectedPost ProtectedPost @relation(fields: [protectedPostId], references: [id], onDelete: Cascade)
 
   @@index([protectedPostId, createdAt])
   @@index([alertStatus])
@@ -1831,43 +2384,428 @@ model ExtensionAuthCode {
   @@map("extension_auth_codes")
 }
 
+// ─── Universal Asset Protection (additive — does not replace ProtectedPost) ───
+
+enum AssetType {
+  IMAGE
+  VIDEO
+  DOCUMENT
+  AUDIO
+  OTHER
+}
+
+enum AssetStatus {
+  DRAFT
+  PROTECTED
+  MONITORING
+  DISCOVERY
+  INVESTIGATING
+  RESOLVED
+  ARCHIVED
+  FAILED
+}
+
+/// Review lifecycle of one AssetVersion.
+///
+/// Deliberately separate from AssetStatus, which is a protection/monitoring
+/// lifecycle (PROTECTED, MONITORING, DISCOVERY...). Overloading that enum would
+/// conflate "is this asset watched for leaks" with "has the client signed it off".
+enum ReviewStatus {
+  DRAFT
+  IN_REVIEW
+  CHANGES_REQUESTED
+  IN_PROGRESS
+  APPROVED
+  SUPERSEDED
+}
+
+/// COMMENT is discussion. CHANGE_REQUEST is work someone must act on, and is
+/// what drives the "needs attention" counters on the campaign overview.
+enum CommentKind {
+  COMMENT
+  CHANGE_REQUEST
+}
+
+/// The two things a reviewer can decide. Deliberately only two: an approval
+/// workflow with more outcomes than this becomes one nobody can reason about.
+enum ApprovalDecision {
+  APPROVED
+  CHANGES_REQUESTED
+}
+
+/// Shared by both kinds. A plain comment normally only ever sees OPEN and
+/// RESOLVED; the middle states carry a change request through its lifecycle.
+enum CommentStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  REJECTED
+  CLOSED
+}
+
+/// Where a handover has got to.
+///
+/// DRAFT is being assembled and the client can see nothing. READY has links
+/// issued and is openable. COMPLETED is the client having actually opened it —
+/// recorded from their access, not asserted by the team. REVOKED withdraws the
+/// access while keeping the record that it happened.
+enum HandoverStatus {
+  DRAFT
+  READY
+  COMPLETED
+  REVOKED
+}
+
+/// Handing finished work to the client.
+///
+/// A handover is an event with a record, not a folder: it names who received
+/// what, when they opened it, and under whose authority it was sent. The assets
+/// themselves are untouched — their DNA records, vault entries and certificates
+/// are referenced, never copied or re-protected.
+///
+/// Access is a scoped ShareLink per asset plus one bundle token, so revocation,
+/// expiry and tracking come from the sharing layer rather than a new mechanism.
+model CampaignHandover {
+  id             String   @id @default(uuid())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organizationId String
+  campaignId     String
+  clientId       String?
+
+  status         HandoverStatus @default(DRAFT)
+  title          String?
+  note           String?  @db.Text
+
+  /// Who it went to. Recorded at send time so the record survives the client
+  /// record being renamed later.
+  recipientLabel   String
+  recipientEmail   String?
+  shareRecipientId String?
+
+  /// The bundle the client opens. Unique so it cannot collide with a share token.
+  accessToken    String   @unique
+  expiresAt      DateTime?
+
+  sentAt         DateTime?
+  firstOpenedAt  DateTime?
+  completedAt    DateTime?
+  revokedAt      DateTime?
+  openCount      Int      @default(0)
+
+  createdByUserId String
+
+  campaign Campaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  assets   CampaignHandoverAsset[]
+
+  @@index([campaignId, status])
+  @@index([organizationId, createdAt])
+  @@index([accessToken])
+  @@map("campaign_handovers")
+}
+
+/// One finished asset inside a handover, pinned to the exact version handed over.
+///
+/// versionId is required: handing over "the file" without saying which version
+/// would make the record useless the moment a V4 appears.
+model CampaignHandoverAsset {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  handoverId  String
+  assetId     String
+  versionId   String
+  /// The scoped link issued for this asset in this handover.
+  shareToken  String?
+
+  handover CampaignHandover @relation(fields: [handoverId], references: [id], onDelete: Cascade)
+
+  @@unique([handoverId, assetId])
+  @@index([handoverId])
+  @@index([assetId])
+  @@map("campaign_handover_assets")
+}
+
+/// One message in a campaign conversation between the team and the client.
+///
+/// Campaign-scoped, not global: every message belongs to exactly one campaign,
+/// so two clients can never see each other and a message cannot be addressed to
+/// "the business" in the abstract. Optionally narrowed further to an asset or a
+/// version, which is what keeps "change the logo" attached to the thing it is
+/// about instead of floating in one long channel.
+///
+/// Unread is tracked per side rather than with a single flag: a message from the
+/// client is unread for the team until the team opens it, and the reverse. One
+/// shared flag would let either party mark the other's messages read.
+model CampaignMessage {
+  id             String   @id @default(uuid())
+  createdAt      DateTime @default(now())
+
+  organizationId String
+  campaignId     String
+  /// Optional narrowing. Null means the message is about the campaign itself.
+  assetId        String?
+  versionId      String?
+
+  /// Exactly one of these identifies the author, or neither when isSystem.
+  authorUserId      String?
+  authorRecipientId String?
+  /// Denormalised so a thread still reads correctly if a member later leaves.
+  authorLabel       String
+  /// System lines ("Version 3 uploaded") are part of the conversation but are
+  /// written by the platform, not a person.
+  isSystem       Boolean  @default(false)
+
+  body           String   @db.Text
+
+  readByTeamAt   DateTime?
+  readByClientAt DateTime?
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, createdAt])
+  @@index([assetId, createdAt])
+  @@index([campaignId, readByTeamAt])
+  @@index([organizationId])
+  @@map("campaign_messages")
+}
+
+/// A decision recorded against one version. Insert-only, never updated.
+///
+/// This is the audit claim — "Adhureddy approved version 3 on 25 Aug 2026" — so
+/// it stores the evidence behind the claim, not just the outcome. A row keeps
+/// the recipient, the token used, whether that token had been identity-verified,
+/// and the device and IP it came from. Without that, an approval is only proof
+/// that somebody held a URL.
+///
+/// There is no update path anywhere in the codebase. A decision is reversed by
+/// recording a new one on a new version, never by rewriting this row.
+model VersionApproval {
+  id             String   @id @default(uuid())
+  createdAt      DateTime @default(now())
+
+  organizationId String
+  clientId       String?
+  campaignId     String
+  assetId        String
+  versionId      String
+
+  decision       ApprovalDecision
+  comment        String?  @db.Text
+
+  /// Identity evidence. Exactly one of the two actor columns is set.
+  approvedByUserId      String?
+  approvedByRecipientId String?
+  approverLabel         String
+  shareToken            String?
+  otpVerified           Boolean @default(false)
+  deviceFingerprint     String?
+  ipAddress             String?
+
+  version AssetVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId, createdAt])
+  @@index([campaignId, decision])
+  @@index([organizationId, createdAt])
+  @@index([assetId])
+  @@map("version_approvals")
+}
+
+/// A comment or an actionable change request on one version of an asset.
+///
+/// Spec 13 is right that a change request is not merely a comment: it is
+/// actionable and carries its own lifecycle. That distinction is kept with a
+/// `kind` discriminator rather than a second table, so the two behave
+/// differently in the UI and in queries while the team keeps one inbox and the
+/// client keeps one mental model.
+///
+/// Always version-anchored. A comment that only names an asset becomes
+/// meaningless the moment V2 lands.
+model ReviewComment {
+  id             String   @id @default(uuid())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organizationId String
+  campaignId     String
+  assetId        String
+  versionId      String
+
+  kind           CommentKind   @default(COMMENT)
+  status         CommentStatus @default(OPEN)
+  /// null = thread root. One level of nesting only; replies never nest further.
+  parentId       String?
+
+  /// Exactly one of these identifies the author. authorRecipientId is for a
+  /// client reviewing through a share link, who has no user account.
+  authorUserId      String?
+  authorRecipientId String?
+  /// Denormalised so a thread still reads correctly if a member later leaves.
+  authorLabel       String
+
+  body           String   @db.Text
+  /// Team members named in the body, resolved at write time and notified once.
+  mentionedUserIds String[] @default([])
+
+  /// { type: "page" | "coordinate" | "timestamp" | "text", ... }
+  /// Kept as JSON so a new asset type does not need a migration.
+  anchor         Json?
+  /// Set when a later version invalidates the anchor. The quoted text stays on
+  /// the comment; the anchor is never relocated, because guessing where a
+  /// changed heading moved to is worse than admitting it moved.
+  anchorOrphaned Boolean  @default(false)
+
+  resolvedAt       DateTime?
+  resolvedByUserId String?
+
+  version  AssetVersion    @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  parent   ReviewComment?  @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  ReviewComment[] @relation("CommentThread")
+
+  @@index([versionId, createdAt])
+  @@index([assetId, versionId, createdAt])
+  @@index([campaignId, status])
+  @@index([campaignId, kind, status])
+  @@index([parentId])
+  @@map("review_comments")
+}
+
+/// One immutable revision of a logical deliverable (V1 -> V2 -> V3).
+///
+/// Each version carries its OWN dnaRecordId / vaultId / certificateId, so a new
+/// version is an INSERT and no code path ever rewrites a previous version's
+/// protection columns. Immutability is therefore structural, not conventional.
+///
+/// This is NOT EvolutionLayer. That model is keyed dnaRecordId @unique and logs
+/// fingerprint mutation *within a single file*; it cannot express a chain of
+/// distinct files, each with its own DNA record.
+///
+/// Tenancy follows the business layer (organizationId), matching Campaign rather
+/// than Asset.ownerUserId - see docs/BUSINESS_CLIENT_COLLABORATION_BLUEPRINT.md.
+model AssetVersion {
+  id             String   @id @default(uuid())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  assetId        String
+  versionNumber  Int
+  organizationId String
+  campaignId     String?
+
+  /// Protection - one immutable set per version, never reused.
+  dnaRecordId      String?
+  vaultId          String?
+  certificateId    String?
+  contentHash      String?
+  originalFilename String
+  mimeType         String   @default("application/octet-stream")
+  sizeBytes        Int      @default(0)
+
+  reviewStatus    ReviewStatus @default(DRAFT)
+  changeSummary   String?      @db.Text
+  createdByUserId String
+
+  /// Set when a later version replaces this one. Never deletes, never rewrites.
+  supersededAt   DateTime?
+  supersededById String?   @unique
+
+  asset    Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  comments  ReviewComment[]
+  approvals VersionApproval[]
+
+  @@unique([assetId, versionNumber])
+  @@index([assetId, versionNumber])
+  @@index([campaignId, reviewStatus])
+  @@index([organizationId])
+  @@index([dnaRecordId])
+  @@index([vaultId])
+  @@map("asset_versions")
+}
+
+enum AssetTimelineType {
+  CREATED
+  PROTECTED
+  CERTIFICATE
+  MONITORING_STARTED
+  MONITORING_SCAN
+  DISCOVERY
+  TAMPERING
+  INVESTIGATION
+  EVIDENCE
+  ALERT
+  RESOLVED
+  STATUS_CHANGE
+  NOTE
+  EXPORT_CAPTURE
+  /// Exchange lifecycle — keyed on Asset.id so an asset's commercial history
+  /// (listed → sold → shared → viewed) lives alongside its protection history.
+  LISTED
+  SOLD
+  SHARED
+  SHARE_VIEWED
+  SHARE_DOWNLOADED
+  /// Commerce provenance (Phase 1) — emitted going forward only.
+  /// No historical events are fabricated for pre-existing rows.
+  PAID
+  DELIVERED
+  DOWNLOADED
+  REVIEWED
+  REFUNDED
+  /// Phase 2 — marketplace engagement + license lifecycle.
+  /// Emitted from the real user action only; never backfilled from counters.
+  VIEWED
+  LIKED
+  WISHLIST_ADDED
+  WISHLIST_REMOVED
+  CART_ADDED
+  CART_REMOVED
+  LISTING_UPDATED
+  PRICE_CHANGED
+  LICENSE_CREATED
+  DISPUTED
+}
+
 /// Central aggregate for digital asset protection (image/video/document/audio).
 model Asset {
-  id               String               @id @default(uuid())
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
+  id               String      @id @default(uuid())
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
   ownerUserId      String
-  assetType        AssetType            @default(IMAGE)
-  status           AssetStatus          @default(DRAFT)
+  assetType        AssetType   @default(IMAGE)
+  status           AssetStatus @default(DRAFT)
   originalFilename String
   mimeType         String
-  sizeBytes        Int                  @default(0)
+  sizeBytes        Int         @default(0)
   contentHash      String?
   vaultId          String?
   dnaId            String?
   certificateId    String?
   monitorRecordId  String?
+  campaignId       String?
   /// Monitoring profile: PENDING | RUNNING | PAUSED | FAILED | DISABLED
-  monitorStatus    String               @default("PENDING")
+  monitorStatus    String      @default("PENDING")
   monitorJobId     String?
   sourcePlatform   String?
   sourceUrl        String?
-  capturedVia      String               @default("extension_publish_guardian")
+  capturedVia      String      @default("extension_publish_guardian")
   clientRequestId  String?
-  riskScore        Int                  @default(0)
-  riskSeverity     String               @default("LOW")
-  discoveriesCount Int                  @default(0)
+  riskScore        Int         @default(0)
+  riskSeverity     String      @default("LOW")
+  discoveriesCount Int         @default(0)
   lastScanAt       DateTime?
   lastDiscoveryAt  DateTime?
   /// Video/document DNA fingerprints and adapter metadata (additive JSON)
   fingerprints     Json?
   metadata         Json?
-  discoveries      AssetDiscovery[]
-  platformLinks    AssetPlatformLink[]
-  timeline         AssetTimelineEvent[]
-  dnaRecord        DnaRecord?           @relation(fields: [dnaId], references: [id])
-  ownerUser        User                 @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
-  protectedPosts   ProtectedPost[]
+
+  ownerUser      User                 @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  dnaRecord      DnaRecord?           @relation(fields: [dnaId], references: [id], onDelete: SetNull)
+  campaign       Campaign?            @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  protectedPosts ProtectedPost[]
+  timeline       AssetTimelineEvent[]
+  discoveries    AssetDiscovery[]
+  platformLinks  AssetPlatformLink[]
+  versions       AssetVersion[]
 
   @@unique([ownerUserId, clientRequestId])
   @@index([ownerUserId, createdAt])
@@ -1876,6 +2814,7 @@ model Asset {
   @@index([monitorStatus])
   @@index([dnaId])
   @@index([vaultId])
+  @@index([campaignId])
   @@map("assets")
 }
 
@@ -1895,7 +2834,8 @@ model AssetPlatformLink {
   /// original | published | related
   role           String   @default("published")
   metadata       Json?
-  asset          Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 
   @@unique([assetId, platform, url])
   @@index([assetId, createdAt])
@@ -1920,7 +2860,8 @@ model AssetTimelineEvent {
   investigationId String?
   evidenceId      String?
   payload         Json?
-  asset           Asset             @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 
   @@index([assetId, createdAt])
   @@index([eventType])
@@ -1952,7 +2893,8 @@ model AssetDiscovery {
   lastSeen        DateTime @default(now())
   alertStatus     String   @default("PENDING")
   payload         Json?
-  asset           Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 
   @@index([assetId, createdAt])
   @@index([url])
@@ -1961,201 +2903,358 @@ model AssetDiscovery {
   @@map("asset_discoveries")
 }
 
-model webauthn_credentials {
-  id           String   @id
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime
-  credentialId String   @unique
-  publicKey    String
-  userId       String
-  signCount    Int      @default(0)
-  deviceType   String?
-  backedUp     Boolean  @default(false)
-  transports   String[] @default([])
-  users        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+/// Schema reconciliation only — this table already exists in production with 0 rows.
+/// Declared here so `prisma migrate` stops proposing to DROP it. Nothing is created,
+/// renamed or altered by adding this model.
+model SpatialAuthPackage {
+  id                String    @id @default(uuid())
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  dnaRecordId       String    @unique
+  ownerUserId       String
+  width             Int
+  height            Int
+  /// Decode policy id (file-pixel-order-v1 = no EXIF rotate, RGB removeAlpha)
+  orientationPolicy String    @default("file-pixel-order-v1")
+  /// Content-seal HMAC or sha256:… / dna:… parent binding
+  globalDnaRef      String
+  keyId             String
+  algorithmVersion  String
+  primaryScale      Int
+  scales            Int[]
+  merkleRoot        String    @db.Char(64)
+  rootMac           String    @db.Char(64)
+  /// Compact binary block leaves (SPB1)
+  blockBlob         Bytes
+  /// Phase 3A — Hierarchical Keyed Cell Auth (8×8 HKCA); nullable = Phase1/2-only packages
+  pixelAlgoVersion  String?
+  pixelScheme       String?
+  pixelKeyId        String?
+  pixelCellSize     Int?
+  pixelTagBytes     Int?
+  pixelAuthBlob     Bytes?
+  pixelAuthRoot     String?   @db.Char(64)
+  pixelRootMac      String?   @db.Char(64)
+  /// Phase 4E — dense enrolled 1×1 HMAC tags (SP1T blob; not per-pixel rows)
+  pixel1AlgoVersion String?
+  pixel1KeyId       String?
+  pixel1TagBytes    Int?
+  pixel1AuthBlob    Bytes?
+  pixel1AuthRoot    String?   @db.Char(64)
+  pixel1RootMac     String?   @db.Char(64)
+  dnaRecord         DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
+  ownerUser         User      @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
+  @@index([ownerUserId])
+  @@map("spatial_auth_packages")
 }
 
-enum TepStatus {
-  ACTIVE
-  EXPIRED
-  REVOKED
-  REDISCOVERED
+/// A client-facing report issued from an investigation.
+///
+/// The PDF is not stored as a blob. Instead `snapshot` holds the REDACTED
+/// projection that was approved at issue time, and the PDF is rendered
+/// deterministically from it. Two reasons: a client opening the link next month
+/// sees exactly what was issued rather than whatever the database says today,
+/// and the redaction is decided once, at issue, rather than re-derived on every
+/// read where a later code change could widen it.
+///
+/// `contentHash` is the SHA-256 of that snapshot, so a client's copy can be
+/// checked against the record.
+model ClientReport {
+  id              String    @id @default(uuid())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  /// Human reference, safe to quote to a client. Never a database id.
+  reportCode      String    @unique
+  organizationId  String
+  campaignId      String
+  investigationId String
+  clientId        String?
+  title           String
+  status          String    @default("DRAFT")
+  /// Opaque access token. The client never sees any internal id.
+  accessToken     String    @unique
+  expiresAt       DateTime?
+  issuedAt        DateTime?
+  revokedAt       DateTime?
+  firstOpenedAt   DateTime?
+  lastOpenedAt    DateTime?
+  openCount       Int       @default(0)
+  generatedByUserId String?
+  evidenceCount   Int       @default(0)
+  contentHash     String?
+  /// The redacted projection, as JSON. Nothing internal is written here.
+  snapshot        String?   @db.Text
+
+  @@index([organizationId, createdAt])
+  @@index([campaignId])
+  @@index([investigationId])
+  @@map("client_reports")
 }
 
-enum AccountType {
-  INDIVIDUAL
-  BUSINESS
+/// Hub-owned professional portfolio. Exchange may read the published snapshot
+/// but never writes these rows. Identity (name, avatar, User.bio) stays on User.
+model Portfolio {
+  id                 String    @id @default(uuid())
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  userId             String    @unique
+  slug               String    @unique
+  visibility         String    @default("unlisted")
+  theme              String    @default("editorial")
+  template           String    @default("individual")
+  /// DRAFT = not publicly listed (includes unpublished). PUBLISHED = snapshot may be served.
+  publishState       String    @default("DRAFT")
+  publishedAt        DateTime?
+  publishedVersion   Int       @default(0)
+  /// Frozen public document. Public APIs read this only — never live draft rows.
+  publishedSnapshot  Json?
+  featuredListingIds Json?
+
+  user             User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile          PortfolioProfile?
+  projects         PortfolioProject[]
+  collections      PortfolioCollection[]
+  services         PortfolioService[]
+  skills           PortfolioSkill[]
+  experience       PortfolioExperience[]
+  awards           PortfolioAward[]
+  certificates     PortfolioCertificate[]
+  collaborations   PortfolioCollaboration[]
+  socialLinks      PortfolioSocialLink[]
+
+  @@index([publishState, visibility])
+  @@map("portfolios")
 }
 
-enum OrganizationIndustry {
-  MEDIA
-  LEGAL
-  EDUCATION
-  TECHNOLOGY
-  HEALTHCARE
-  AGENCY
-  OTHER
+model PortfolioProfile {
+  id               String   @id @default(uuid())
+  portfolioId      String   @unique
+  headline         String   @default("")
+  /// Presentation about-copy for the public page. User.bio remains the account bio.
+  about            String   @default("") @db.Text
+  location         String   @default("")
+  coverUrl         String   @default("")
+  heroImageRef     String   @default("")
+  quote            String   @default("") @db.Text
+  cvStorageKey     String?
+  website          String   @default("")
+  contactEmail     String   @default("")
+  contactNote      String   @default("") @db.Text
+  availableFor     Json?
+  languages        Json?
+  clientCount      Int      @default(0)
+  specializations  Json?
+  sectionVisibility Json?
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@map("portfolio_profiles")
 }
 
-enum OrganizationSize {
-  SOLO
-  SMALL
-  MEDIUM
-  LARGE
-  XLARGE
+model PortfolioProject {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  portfolioId String
+  slug        String
+  title       String
+  year        String   @default("")
+  category    String   @default("")
+  description String   @default("") @db.Text
+  client      String   @default("")
+  role        String   @default("")
+  services    Json?
+  status      String   @default("draft")
+  visibility  String   @default("public")
+  featured    Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  coverMediaId String?
+
+  portfolio Portfolio               @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  media     PortfolioProjectMedia[]
+
+  @@unique([portfolioId, slug])
+  @@index([portfolioId, sortOrder])
+  @@map("portfolio_projects")
 }
 
-enum OrganizationMemberRole {
-  OWNER
-  MANAGER
-  INVESTIGATOR
-  MEMBER
-  VIEWER
+model PortfolioProjectMedia {
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+  projectId  String
+  sortOrder  Int      @default(0)
+  /// IMAGE | VIDEO | PDF | DOCUMENT | URL
+  type       String   @default("IMAGE")
+  title      String   @default("")
+  altText    String   @default("")
+  caption    String   @default("")
+  /// Reference to Hub VaultRecord.id — not a copy of the file or DNA.
+  vaultId    String?
+  /// Reference to Hub Asset.id when the vault row is linked to an Asset.
+  assetId    String?
+  externalUrl String?
+  storageKey String?
+
+  project PortfolioProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, sortOrder])
+  @@index([vaultId])
+  @@index([assetId])
+  @@map("portfolio_project_media")
 }
 
-enum OrganizationInviteStatus {
-  PENDING
-  ACCEPTED
-  REVOKED
-  EXPIRED
+model PortfolioCollection {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  portfolioId String
+  slug        String
+  title       String
+  description String   @default("") @db.Text
+  coverUrl    String   @default("")
+  visibility  String   @default("public")
+  sortOrder   Int      @default(0)
+
+  portfolio Portfolio                 @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  items     PortfolioCollectionItem[]
+
+  @@unique([portfolioId, slug])
+  @@index([portfolioId, sortOrder])
+  @@map("portfolio_collections")
 }
 
-enum UserRole {
-  SUPER_ADMIN
-  ADMIN
-  ANALYST
-  AUDITOR
-  USER
+model PortfolioCollectionItem {
+  id           String @id @default(uuid())
+  collectionId String
+  sortOrder    Int    @default(0)
+  projectId    String?
+  assetId      String?
+  vaultId      String?
+
+  collection PortfolioCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@index([collectionId, sortOrder])
+  @@map("portfolio_collection_items")
 }
 
-enum SubscriptionStatus {
-  TRIALING
-  ACTIVE
-  PAST_DUE
-  CANCELED
-  EXPIRED
+model PortfolioService {
+  id          String  @id @default(uuid())
+  portfolioId String
+  name        String
+  description String  @default("")
+  icon        String  @default("")
+  featured    Boolean @default(false)
+  sortOrder   Int     @default(0)
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId, sortOrder])
+  @@map("portfolio_services")
 }
 
-enum BillingProvider {
-  NONE
-  MANUAL
-  STRIPE
-  RAZORPAY
-  PAYPAL
+model PortfolioSkill {
+  id          String @id @default(uuid())
+  portfolioId String
+  name        String
+  sortOrder   Int    @default(0)
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId, sortOrder])
+  @@map("portfolio_skills")
 }
 
-enum BillingHistoryStatus {
-  PENDING
-  SUCCEEDED
-  FAILED
-  REFUNDED
+model PortfolioExperience {
+  id          String  @id @default(uuid())
+  portfolioId String
+  company     String  @default("")
+  role        String  @default("")
+  location    String  @default("")
+  startDate   String  @default("")
+  endDate     String  @default("")
+  description String  @default("") @db.Text
+  logoUrl     String  @default("")
+  website     String  @default("")
+  sortOrder   Int     @default(0)
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId, sortOrder])
+  @@map("portfolio_experience")
 }
 
-enum UsageMetric {
-  STORAGE_BYTES
-  INVESTIGATION_RUNS
-  MONITOR_ENROLLMENTS
-  API_CALLS
+model PortfolioAward {
+  id            String  @id @default(uuid())
+  portfolioId   String
+  title         String
+  organization  String  @default("")
+  year          String  @default("")
+  category      String  @default("")
+  description   String  @default("") @db.Text
+  imageKey      String?
+  documentKey   String?
+  externalUrl   String  @default("")
+  relatedProjectId String?
+  sortOrder     Int     @default(0)
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId, sortOrder])
+  @@map("portfolio_awards")
 }
 
-enum CertStatus {
-  ACTIVE
-  REVOKED
-  EXPIRED
+/// Creator-uploaded credentials (Adobe, etc.). Not Hub protection Certificate rows.
+model PortfolioCertificate {
+  id               String    @id @default(uuid())
+  portfolioId      String
+  title            String
+  issuer           String    @default("")
+  recipient        String    @default("")
+  issuedOn         String    @default("")
+  expiresOn        String    @default("")
+  credentialId     String    @default("")
+  description      String    @default("") @db.Text
+  imageKey         String?
+  documentKey      String?
+  verificationUrl  String    @default("")
+  relatedSkill     String    @default("")
+  sortOrder        Int       @default(0)
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId, sortOrder])
+  @@map("portfolio_certificates")
 }
 
-enum DnaStatus {
-  PENDING
-  PROCESSING
-  COMPLETE
-  PARTIAL
-  FAILED
+model PortfolioCollaboration {
+  id          String @id @default(uuid())
+  portfolioId String
+  name        String
+  /// client | collaboration
+  kind        String @default("collaboration")
+  logoUrl     String @default("")
+  role        String @default("")
+  description String @default("")
+  website     String @default("")
+  year        String @default("")
+  sortOrder   Int    @default(0)
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId, sortOrder])
+  @@map("portfolio_collaborations")
 }
 
-enum ProtectedPostStatus {
-  REGISTERED
-  PROTECTED
-  MONITORING
-  DISCOVERY
-  TAMPERING
-  INVESTIGATION
-  EVIDENCE
-  RESOLVED
-  FAILED
-  ARCHIVED
-  DRAFT
-  PUBLISHING
-}
+model PortfolioSocialLink {
+  id          String @id @default(uuid())
+  portfolioId String
+  label       String @default("")
+  url         String
+  sortOrder   Int    @default(0)
 
-enum ProtectedPostTimelineType {
-  ORIGINAL_PUBLISHED
-  PROTECTED
-  MONITORING_STARTED
-  MONITORING_SCAN
-  DISCOVERY
-  TAMPERING
-  INVESTIGATION
-  EVIDENCE
-  ALERT
-  RESOLVED
-  STATUS_CHANGE
-  NOTE
-}
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
 
-enum AssetType {
-  IMAGE
-  VIDEO
-  DOCUMENT
-  AUDIO
-  OTHER
-}
-
-enum AssetStatus {
-  DRAFT
-  PROTECTED
-  MONITORING
-  DISCOVERY
-  INVESTIGATING
-  RESOLVED
-  ARCHIVED
-  FAILED
-}
-
-enum AssetTimelineType {
-  CREATED
-  PROTECTED
-  CERTIFICATE
-  MONITORING_STARTED
-  MONITORING_SCAN
-  DISCOVERY
-  TAMPERING
-  INVESTIGATION
-  EVIDENCE
-  ALERT
-  RESOLVED
-  STATUS_CHANGE
-  NOTE
-  EXPORT_CAPTURE
-  LISTED
-  SOLD
-  SHARED
-  SHARE_VIEWED
-  SHARE_DOWNLOADED
-  PAID
-  DELIVERED
-  DOWNLOADED
-  REVIEWED
-  REFUNDED
-  VIEWED
-  LIKED
-  WISHLIST_ADDED
-  WISHLIST_REMOVED
-  CART_ADDED
-  CART_REMOVED
-  LISTING_UPDATED
-  PRICE_CHANGED
-  LICENSE_CREATED
-  DISPUTED
+  @@index([portfolioId, sortOrder])
+  @@map("portfolio_social_links")
 }

@@ -1,72 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  CheckCircle2, Mail, Search, ShieldCheck, Star, ArrowRight, Briefcase,
+  CheckCircle2, Mail, Search, ShieldCheck, Star, Briefcase, Users,
 } from 'lucide-react';
-
-/**
- * Showcase creators for discovery UI.
- * Live seller identity will come from Hub-linked Exchange accounts when wired.
- * Stats below are profile fields used for display + Provenance Score formula.
- */
-const CREATORS = [
-  {
-    pinit_id: 'PINIT-90481234',
-    name: 'Elena Rostova',
-    specialties: ['Photography', 'Digital Art'],
-    categoryIds: ['photography', 'digital_art'],
-    bio: 'Architectural photographer specializing in high-provenance visual assets for commercial campaigns.',
-    sales: 42,
-    assets: 18,
-    reviews: 12,
-    rating: 4.9,
-    identityVerified: true,
-    hubConnected: true,
-    avatar: 'E',
-    portfolio: [
-      'https://images.unsplash.com/photo-1514565131-fce0801e5785?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=800&q=80',
-    ],
-  },
-  {
-    pinit_id: 'PINIT-33109284',
-    name: 'Marcus Vance',
-    specialties: ['Video', '3D'],
-    categoryIds: ['video', '3d'],
-    bio: 'Virtual production and verified environment design for film and interactive media.',
-    sales: 28,
-    assets: 11,
-    reviews: 9,
-    rating: 4.8,
-    identityVerified: true,
-    hubConnected: true,
-    avatar: 'M',
-    portfolio: [
-      'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1633356122544-f134324a6cee?auto=format&fit=crop&w=800&q=80',
-    ],
-  },
-  {
-    pinit_id: 'PINIT-77201945',
-    name: 'Aisha Rahman',
-    specialties: ['UI/UX', 'Digital Art'],
-    categoryIds: ['ui_ux', 'digital_art'],
-    bio: 'Product designer shipping licensed interface kits with clear commercial terms.',
-    sales: 61,
-    assets: 24,
-    reviews: 21,
-    rating: 5.0,
-    identityVerified: true,
-    hubConnected: true,
-    avatar: 'A',
-    portfolio: [
-      'https://images.unsplash.com/photo-1561070791-2526d30994b5?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1559028012-481c04fa702d?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1586717791821-3f44a563fa4c?auto=format&fit=crop&w=800&q=80',
-    ],
-  },
-];
+import { apiFetch, verticalLabel } from '../lib/api.js';
+import { listingPreviewUrl } from '../lib/listing-preview.js';
+import FollowCreatorButton from '../components/FollowCreatorButton.jsx';
 
 const CATEGORIES = [
   { id: 'all', label: 'All' },
@@ -78,25 +16,6 @@ const CATEGORIES = [
   { id: 'digital_art', label: 'Digital Art' },
 ];
 
-const WHY = [
-  {
-    title: 'Identity verification',
-    body: 'Know who you’re licensing from.',
-  },
-  {
-    title: 'Protected portfolio',
-    body: 'Assets are protected through Pinit HUB.',
-  },
-  {
-    title: 'Provenance history',
-    body: 'Understand the asset’s verification trail.',
-  },
-  {
-    title: 'Licensing history',
-    body: 'See completed marketplace activity.',
-  },
-];
-
 /**
  * Provenance Score (defined):
  * - Identity verified: +40
@@ -106,7 +25,7 @@ const WHY = [
  * - Buyer reviews: +min(5, reviews * 0.3)
  * Capped at 99.5. Not a marketing random number.
  */
-export function provenanceScore(creator) {
+function provenanceScore(creator) {
   let score = 0;
   if (creator.identityVerified) score += 40;
   if (creator.hubConnected) score += 30;
@@ -121,32 +40,106 @@ function starsLabel(rating) {
   return r.toFixed(1);
 }
 
-export default function CreatorPassports({ onNavigate, onOpenAuth }) {
+function extractCode(id) {
+  return String(id || '').replace(/^PX-/i, '').toLowerCase();
+}
+
+function mapCreator(row) {
+  const verticals = String(row.verticals || '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+  const portfolio = (row.portfolio || []).map((item) => listingPreviewUrl(item) || item.preview_url).filter(Boolean);
+  const name = row.name || 'PINIT Creator';
+  return {
+    pinit_id: row.pinit_id,
+    // row.user_id (raw Hub User.id) is no longer sent and is not mapped here —
+    // pinit_user_id / pinit_id are the public creator identifiers.
+    pinit_user_id: row.pinit_user_id || '',
+    name,
+    bio: '',
+    specialties: verticals.length ? [...new Set(verticals.map((v) => verticalLabel(v)))] : ['Creative'],
+    categoryIds: verticals,
+    sales: Number(row.sales || 0),
+    assets: Number(row.assets || 0),
+    // /creator/directory returns no rating or review count. These were
+    // previously defaulted to 5 stars / 0 reviews, which showed every creator
+    // a perfect score they had not earned. Left null so the UI can omit the
+    // stat rather than invent it.
+    reviews: row.reviews == null ? null : Number(row.reviews),
+    rating: row.rating == null ? null : Number(row.rating),
+    identityVerified: true,
+    hubConnected: true,
+    avatar: String(name || 'P')[0].toUpperCase(),
+    portfolio,
+    listings: row.portfolio || [],
+    portfolio_slug: row.portfolio_slug || null,
+  };
+}
+
+export default function CreatorPassports({ onNavigate, onOpenAuth, user }) {
   const [selected, setSelected] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [category, setCategory] = useState('all');
   const [sort, setSort] = useState('recommended');
   const [hireSent, setHireSent] = useState(false);
+  const [techOpen, setTechOpen] = useState(false);
+  const [creators, setCreators] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const { ok, data } = await apiFetch('/api/creator/directory');
+      const next = ok ? (data.creators || []).map(mapCreator) : [];
+      setCreators(next);
+      setLoading(false);
+      try {
+        const openId = sessionStorage.getItem('pinit_open_creator');
+        if (openId) {
+          sessionStorage.removeItem('pinit_open_creator');
+          const hit = next.find((c) => c.pinit_id === openId || extractCode(c.pinit_id) === extractCode(openId));
+          if (hit) setSelected(hit);
+        }
+      } catch { /* ignore */ }
+    })();
+  }, []);
 
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    let list = CREATORS.filter((c) => {
-      if (category !== 'all' && !c.categoryIds.includes(category)) return false;
+    let list = creators.filter((c) => {
+      if (category !== 'all' && !(c.categoryIds || []).some((id) => id.includes(category) || category.includes(id))) return false;
       if (!q) return true;
-      const hay = [c.name, c.bio, ...(c.specialties || [])].join(' ').toLowerCase();
+      const hay = [c.name, c.bio, c.pinit_user_id, c.pinit_id, ...(c.specialties || [])].join(' ').toLowerCase();
       return hay.includes(q);
     });
 
     list = [...list].sort((a, b) => {
-      if (sort === 'rating') return (b.rating || 0) - (a.rating || 0);
+      if (sort === 'assets') return (b.assets || 0) - (a.assets || 0);
       if (sort === 'sales') return (b.sales || 0) - (a.sales || 0);
       if (sort === 'provenance') return provenanceScore(b) - provenanceScore(a);
-      // recommended: blend rating + sales + provenance
-      const score = (c) => (c.rating || 0) * 20 + (c.sales || 0) + provenanceScore(c);
+      // Recommended blends real signals only — sales, assets and provenance.
+      // Rating is excluded because the directory does not return one.
+      const score = (c) => (c.sales || 0) * 2 + (c.assets || 0) + provenanceScore(c);
       return score(b) - score(a);
     });
     return list;
-  }, [searchQuery, category, sort]);
+  }, [searchQuery, category, sort, creators]);
+
+  const goBrowseWork = (creator = selected) => {
+    try {
+      sessionStorage.setItem('pinit_discover_creator', creator?.name || '');
+    } catch { /* ignore */ }
+    setSelected(null);
+    onNavigate?.('marketplace');
+  };
+
+  const goPortfolio = (creator = selected) => {
+    const slug = creator?.portfolio_slug;
+    if (!slug) return;
+    setSelected(null);
+    onNavigate?.('public_portfolio', { slug });
+  };
 
   const goHireFlow = (creator = selected) => {
     if (creator?.name) {
@@ -218,103 +211,77 @@ export default function CreatorPassports({ onNavigate, onOpenAuth }) {
           aria-label="Sort creators"
           style={{ width: 'auto', minWidth: 180 }}
         >
+          {/* No "Sort: Rating" — the directory returns no rating, so the option
+              would silently do nothing. */}
           <option value="recommended">Sort: Recommended</option>
-          <option value="rating">Sort: Rating</option>
           <option value="sales">Sort: Licensed sales</option>
+          <option value="assets">Sort: Most assets</option>
           <option value="provenance">Sort: Provenance score</option>
         </select>
       </div>
 
-      {filtered.length === 0 ? (
-        <div className="glass-panel" style={{ padding: 36, textAlign: 'center', color: 'var(--text-muted)' }}>
-          No creators match your filters. Try another specialty or clear search.
-        </div>
-      ) : (
-        <div className="creators-grid">
-          {filtered.map((c) => {
-            const score = provenanceScore(c);
-            return (
-              <article key={c.pinit_id} className="glass-panel creator-card">
-                <div className="creator-card__head">
-                  <div className="nav-account__avatar creator-card__avatar">{c.avatar}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="creator-card__name-row">
-                      <h3>{c.name}</h3>
-                      <span className="creator-card__verified">
-                        <CheckCircle2 size={13} /> Verified
-                      </span>
-                    </div>
-                    <div className="creator-card__specs">{c.specialties.join(' · ')}</div>
-                  </div>
-                </div>
-
-                <p className="creator-card__bio">{c.bio}</p>
-
-                <div className="creator-card__decision">
-                  <span className="creator-card__rating">
-                    <Star size={14} fill="currentColor" /> {starsLabel(c.rating)}
-                    <em>({c.reviews} reviews)</em>
-                  </span>
-                  <span className="creator-card__sales">{c.sales} licensed sales</span>
-                </div>
-
-                <div className="creator-card__portfolio">
-                  {c.portfolio.slice(0, 3).map((img) => (
-                    <img key={img} src={img} alt="" />
-                  ))}
-                </div>
-
-                <div className="creator-card__trust">
-                  <span><CheckCircle2 size={13} /> Identity verified</span>
-                  <span><ShieldCheck size={13} /> Pinit HUB protected</span>
-                  <span><CheckCircle2 size={13} /> Provenance history</span>
-                </div>
-
-                <div className="creator-card__score" title="Identity + Hub + sales + assets + reviews (capped 99.5)">
-                  <div>
-                    <span className="req-card__metric-label">Provenance score</span>
-                    <strong>{score}%</strong>
-                  </div>
-                  <div>
-                    <span className="req-card__metric-label">Verified assets</span>
-                    <strong>{c.assets}</strong>
-                  </div>
-                </div>
-
-                <div className="creator-card__actions">
-                  <button type="button" className="btn-secondary" onClick={() => { setHireSent(false); setSelected(c); }}>
-                    View Creator Profile
-                  </button>
-                  <button type="button" className="btn-primary" onClick={() => goHireFlow(c)}>
-                    Contact / Hire
-                  </button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      )}
-
-      <section className="glass-panel creators-why">
-        <h2>Why choose a verified creator?</h2>
-        <p className="creators-why__sub">
-          Pinit Exchange is built for licensed work with Hub-backed provenance — not anonymous gig listings.
-        </p>
-        <div className="creators-why__grid">
-          {WHY.map((item) => (
-            <article key={item.title}>
-              <CheckCircle2 size={16} className="req-why__check" />
-              <div>
-                <h3>{item.title}</h3>
-                <p>{item.body}</p>
+      {loading ? (
+        <div className="creators-grid" aria-busy="true" aria-label="Loading creators">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <article key={i} className="ex-card" style={{ overflow: 'hidden' }} aria-hidden="true">
+              <div className="ex-skel" style={{ height: 112, borderRadius: 0 }} />
+              <div style={{ padding: 16 }}>
+                <div className="ex-skel" style={{ width: 52, height: 52, borderRadius: 999, marginTop: -38 }} />
+                <div className="ex-skel ex-skel--line" style={{ width: '54%', marginTop: 12 }} />
+                <div className="ex-skel ex-skel--line" style={{ width: '36%' }} />
               </div>
             </article>
           ))}
         </div>
-        <p className="creators-why__formula">
-          Provenance Score = identity verification + Hub connection + licensed sales + verified assets + buyer reviews (max 99.5%).
-        </p>
-      </section>
+      ) : filtered.length === 0 ? (
+        <div className="ex-card ex-empty">
+          <div className="ex-empty__icon"><Users size={24} /></div>
+          <div className="ex-empty__title">
+            {creators.length === 0 ? 'No creators yet' : 'No creators match those filters'}
+          </div>
+          <p className="ex-empty__body">
+            {creators.length === 0
+              ? 'Creators appear here once they list a Hub-protected asset on Exchange.'
+              : 'Try another specialty, or clear the search to see everyone.'}
+          </p>
+        </div>
+      ) : (
+        <div className="creators-grid">
+          {filtered.map((c) => (
+            <article key={c.pinit_id} className="glass-panel creator-card creator-card--buyer">
+              <div className="creator-card__head">
+                <div className="nav-account__avatar creator-card__avatar">{c.avatar}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="creator-card__name-row">
+                    <h3>{c.name}</h3>
+                    {c.identityVerified && (
+                      <span className="creator-card__verified">
+                        <CheckCircle2 size={13} /> Verified
+                      </span>
+                    )}
+                  </div>
+                  <div className="creator-card__specs">{c.specialties.join(' · ')}</div>
+                </div>
+              </div>
+
+              <div className="creator-card__decision">
+                <span className="creator-card__sales">{c.assets} protected work{c.assets === 1 ? '' : 's'}</span>
+                <span className="creator-card__sales">{c.listings.length} available to license</span>
+              </div>
+
+              {c.specialties.length > 0 && (
+                <div className="creator-card__skills">{c.specialties.join(' · ')}</div>
+              )}
+
+              <div className="creator-card__actions">
+                <button type="button" className="btn-primary" onClick={() => { setHireSent(false); setSelected(c); }}>
+                  View creator
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
 
       {selected && (
         <div className="modal-overlay" onClick={() => setSelected(null)} role="presentation">
@@ -323,79 +290,106 @@ export default function CreatorPassports({ onNavigate, onOpenAuth }) {
               <div className="creator-profile__title">
                 <div className="nav-account__avatar" style={{ width: 44, height: 44 }}>{selected.avatar}</div>
                 <div>
-                  <h3 style={{ color: '#fff', margin: 0 }}>{selected.name}</h3>
-                  <div className="creator-card__verified" style={{ marginTop: 4 }}>
-                    <CheckCircle2 size={13} /> Verified Creator
-                  </div>
+                  <h3 style={{ color: '#fff', margin: 0 }}>
+                    {selected.name}
+                    {selected.identityVerified ? ' ✓' : ''}
+                  </h3>
+                  <div className="creator-card__specs" style={{ marginTop: 4 }}>{selected.specialties.join(' · ')}</div>
                 </div>
               </div>
-              <button type="button" className="btn-secondary" style={{ padding: 8 }} onClick={() => setSelected(null)}>×</button>
+              <button type="button" className="btn-secondary" style={{ padding: 8 }} onClick={() => setSelected(null)} aria-label="Close">×</button>
             </div>
 
             <div className="modal-body creator-profile__body">
-              <div className="creator-card__specs" style={{ marginBottom: 8 }}>{selected.specialties.join(' · ')}</div>
-              <p style={{ color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.55 }}>{selected.bio}</p>
-
               <div className="creator-profile__actions">
-                <button type="button" className="btn-primary" onClick={() => goHireFlow(selected)}>
-                  <Mail size={16} /> Contact / Hire Creator
+                <FollowCreatorButton
+                  user={user}
+                  creatorPinitId={selected.pinit_id}
+                  onOpenAuth={onOpenAuth}
+                />
+                <button type="button" className="btn-primary" onClick={() => goBrowseWork(selected)}>
+                  Browse available work
                 </button>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => {
-                    setSelected(null);
-                    onNavigate?.('marketplace');
-                  }}
-                >
-                  View Assets <ArrowRight size={14} />
-                </button>
+                {selected.portfolio_slug ? (
+                  <button type="button" className="btn-secondary" onClick={() => goPortfolio(selected)}>
+                    View portfolio
+                  </button>
+                ) : (
+                  <button type="button" className="btn-secondary" disabled title="This creator has not published a portfolio">
+                    Portfolio not published
+                  </button>
+                )}
               </div>
-
-              {hireSent && (
-                <p className="creator-profile__hire-note">
-                  Opening Requirements — post a brief to work with {selected.name}.
-                </p>
-              )}
-
-              <hr className="creator-profile__rule" />
 
               <h4 className="creator-profile__h">About</h4>
+              {selected.bio ? (
+                <p className="creators-hero__sub" style={{ margin: 0 }}>{selected.bio}</p>
+              ) : (
+                <p className="creators-hero__sub" style={{ margin: 0 }}>{selected.specialties.join(' · ')}</p>
+              )}
               <div className="creator-profile__stats">
                 <div>
-                  <span className="req-card__metric-label">Licensed work</span>
-                  <strong>{selected.sales} sales</strong>
+                  <span className="req-card__metric-label">Protected work</span>
+                  <strong>{selected.assets}</strong>
                 </div>
                 <div>
-                  <span className="req-card__metric-label">Portfolio</span>
-                  <strong>{selected.assets} verified assets</strong>
+                  <span className="req-card__metric-label">Available to license</span>
+                  <strong>{selected.listings.length}</strong>
                 </div>
-                <div>
-                  <span className="req-card__metric-label">Reviews</span>
-                  <strong>
-                    <Star size={12} fill="currentColor" style={{ verticalAlign: -1 }} /> {starsLabel(selected.rating)} ({selected.reviews})
-                  </strong>
-                </div>
-                <div>
-                  <span className="req-card__metric-label">Provenance</span>
-                  <strong>{provenanceScore(selected)}%</strong>
-                </div>
+                {selected.sales > 0 && (
+                  <div>
+                    <span className="req-card__metric-label">Licensed sales</span>
+                    <strong>{selected.sales}</strong>
+                  </div>
+                )}
+                {selected.rating != null && (
+                  <div>
+                    <span className="req-card__metric-label">Reviews</span>
+                    <strong>
+                      <Star size={12} fill="currentColor" style={{ verticalAlign: -1 }} /> {starsLabel(selected.rating)}
+                      {selected.reviews != null ? ` (${selected.reviews})` : ''}
+                    </strong>
+                  </div>
+                )}
               </div>
 
-              <h4 className="creator-profile__h">Verification</h4>
-              <ul className="creator-profile__checks">
-                <li><CheckCircle2 size={14} /> Identity verified</li>
-                <li><ShieldCheck size={14} /> Pinit HUB connected</li>
-                <li><CheckCircle2 size={14} /> Asset provenance history</li>
-              </ul>
-
-              <h4 className="creator-profile__h">Verified portfolio</h4>
+              <h4 className="creator-profile__h">Protected work</h4>
               <div className="creator-profile__gallery">
                 {selected.portfolio.map((img) => (
                   <img key={img} src={img} alt="" />
                 ))}
               </div>
 
+              <h4 className="creator-profile__h">Pinit verification</h4>
+              <ul className="creator-profile__checks">
+                {selected.identityVerified && <li><CheckCircle2 size={14} /> Identity verified</li>}
+                {selected.hubConnected && <li><ShieldCheck size={14} /> Work protected</li>}
+                <li><CheckCircle2 size={14} /> Provenance recorded</li>
+              </ul>
+
+              <button
+                type="button"
+                className="ex-text-link"
+                onClick={() => setTechOpen((v) => !v)}
+                aria-expanded={techOpen}
+              >
+                {techOpen ? 'Hide verification details' : 'View verification details'}
+              </button>
+              {techOpen && (
+                <dl className="creator-tech">
+                  {selected.pinit_id && (
+                    <div><dt>Creator Exchange ID</dt><dd>{selected.pinit_id}</dd></div>
+                  )}
+                  {selected.pinit_user_id && (
+                    <div><dt>Pinit ID</dt><dd>{selected.pinit_user_id}</dd></div>
+                  )}
+                  <div><dt>Provenance score</dt><dd>{provenanceScore(selected)}%</dd></div>
+                </dl>
+              )}
+
+              <button type="button" className="btn-secondary" style={{ width: '100%', marginTop: 12 }} onClick={() => goHireFlow(selected)}>
+                <Mail size={16} /> Contact / Hire
+              </button>
               <button
                 type="button"
                 className="btn-secondary"
@@ -407,11 +401,10 @@ export default function CreatorPassports({ onNavigate, onOpenAuth }) {
               >
                 <Briefcase size={14} /> Submit a requirement for this creator
               </button>
-
-              {!onNavigate && onOpenAuth && (
-                <button type="button" className="btn-secondary" style={{ width: '100%', marginTop: 8 }} onClick={() => onOpenAuth({ mode: 'welcome' })}>
-                  Sign in to hire
-                </button>
+              {hireSent && (
+                <p className="creator-profile__hire-note">
+                  Opening Requirements — post a brief to work with {selected.name}.
+                </p>
               )}
             </div>
           </div>

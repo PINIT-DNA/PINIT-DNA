@@ -6,13 +6,67 @@ import { API_BASE_URL } from '../../config/api.config';
 
 const BASE = `${API_BASE_URL}/super-admin`;
 
+export type AdminDomain = 'overview' | 'identity' | 'assets' | 'forensics' | 'operations' | 'intelligence' | 'system' | 'commerce';
+
+export type MyCapabilities = {
+  role: string;
+  isOwner: boolean;
+  capabilities: AdminDomain[];
+  domains: { key: AdminDomain; label: string; description: string }[];
+};
+
+export async function fetchMyCapabilities() {
+  const { data } = await api.get(`${BASE}/me`);
+  return data as MyCapabilities;
+}
+
 export async function fetchExecutiveOverview() {
   const { data } = await api.get(`${BASE}/overview`);
   return data;
 }
 
+export type CommandCenterSummary = {
+  kpis: {
+    totalUsers: number;
+    totalUsersDeltaPct: number | null;
+    organizations: number;
+    organizationsDeltaPct: number | null;
+    totalAssets: number;
+    totalAssetsDeltaPct: number | null;
+    dnaProtected: number;
+    dnaProtectedDeltaPct: number | null;
+    marketplaceGmvCents: number | null;
+    platformRevenueCents: number;
+  };
+  activityOverview: { date: string; users: number; assets: number; dnaProtected: number; revenueCents: number }[];
+  sentinel: {
+    totalInvestigations: number;
+    totalInvestigationsDeltaPct: number | null;
+    breakdown: { label: string; count: number; pct: number }[];
+  };
+  activityFeed: { id: string; type: string; summary: string; actor: string | null; createdAt: string }[];
+  alerts: { id: string; severity: 'warning' | 'critical'; title: string; detail: string }[];
+  revenueBreakdown: { label: string; amountCents: number }[];
+  marketplaceAvailable: boolean;
+};
+
+export async function fetchCommandCenterSummary() {
+  const { data } = await api.get(`${BASE}/command-center`);
+  return data as CommandCenterSummary;
+}
+
 export async function fetchSystemHealth() {
   const { data } = await api.get(`${BASE}/health`);
+  return data;
+}
+
+export async function fetchAllOrganizations(params?: { q?: string }) {
+  const { data } = await api.get(`${BASE}/organizations`, { params });
+  return data as { organizations: unknown[]; total: number };
+}
+
+export async function fetchOrganizationProfile(id: string) {
+  const { data } = await api.get(`${BASE}/organizations/${id}`);
   return data;
 }
 

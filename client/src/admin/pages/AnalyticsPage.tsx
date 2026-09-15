@@ -71,7 +71,7 @@ export function AnalyticsPage() {
         </section>
 
         <section className="bg-[#111113] border border-zinc-800 rounded-lg p-5 lg:col-span-2">
-          <h2 className="text-sm font-medium text-zinc-200 mb-4">DNA by File Type</h2>
+          <h2 className="text-sm font-medium text-zinc-200 mb-4">DNA by Asset Type</h2>
           {fileTypes.length ? <BarChart data={fileTypes} /> : <p className="text-sm text-zinc-500">No data</p>}
         </section>
       </div>

@@ -5,7 +5,7 @@ export function Header() {
         <span className="text-2xl dna-float select-none">🧬</span>
         <div>
           <h1 className="font-bold text-lg leading-none tracking-tight text-white">
-            PinIT<span className="text-dna-500"> Hub</span>
+            Pinit<span className="text-dna-500"> Hub</span>
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">
             Secure · Connect · Control

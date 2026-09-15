@@ -3,7 +3,12 @@ import type { AccountType } from '../account-type';
 
 export const BUSINESS_DASHBOARD_PATH = '/business';
 
-/** Home dashboard — determined ONLY by account type, never by subscription plan. */
+/** After login: Personal Hub home. Workspace shell is resolved separately (Personal first). */
+export function resolveLoginHomePath(): string {
+  return '/';
+}
+
+/** Home after account-type onboarding / paid upgrade — not the post-login default. */
 export function resolveDefaultHomePath(accountType: AccountType): string {
   if (accountType === 'BUSINESS') {
     return BUSINESS_DASHBOARD_PATH;

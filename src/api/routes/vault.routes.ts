@@ -7,7 +7,7 @@
  */
 
 import { Router } from 'express';
-import { uploadSingle } from '../middleware/upload.middleware';
+import { uploadAsset, uploadSingle } from '../middleware/upload.middleware';
 import {
   listVaultRecords,
   storeInVault,
@@ -26,6 +26,7 @@ import {
   deleteVaultRecord,
   renameVaultRecord,
   analyzeVaultContent,
+  getVaultContentAnalysis,
   reanalyzeAllVaultContent,
 } from '../controllers/vault.controller';
 import { vaultIntegrityCheck } from '../controllers/integrity.controller';
@@ -57,7 +58,7 @@ router.get('/integrity-check', requireAuth, vaultIntegrityCheck);
 /** GET /vault/protected-shares — Share File / protected-download tracking (not share links) */
 router.get('/protected-shares', requireAuth, listProtectedFileShares);
 router.post('/local-dna/backfill', requireAuth, backfillLocalDnaIndex);
-router.post('/store', requireAuth, uploadSingle, storeInVault);
+router.post('/store', requireAuth, uploadAsset, storeInVault);
 /** POST /vault/reanalyze-all — refresh content analysis for all accessible vault files */
 router.post('/reanalyze-all', requireAuth, reanalyzeAllVaultContent);
 
@@ -89,7 +90,10 @@ router.get('/:id/preview', requireAuth, requireVaultOwnership, previewVaultFile)
  */
 router.post('/:id/retrieve', requireAuth, requireVaultOwnership, retrieveFromVault);
 
-/** POST /vault/:id/analyze-content — whole-file analysis for Details tab */
+/** GET /vault/:id/content-analysis — persisted analysis (starts once if never analyzed) */
+router.get('/:id/content-analysis', requireAuth, requireVaultOwnership, getVaultContentAnalysis);
+
+/** POST /vault/:id/analyze-content — idempotent; force=true retries a failed job */
 router.post('/:id/analyze-content', requireAuth, requireVaultOwnership, analyzeVaultContent);
 
 /**
@@ -127,7 +131,7 @@ router.post('/:id/scan-sensitive', requireAuth, requireVaultOwnership, scanVault
 router.post('/:id/verify-changes', requireAuth, requireVaultOwnership, uploadSingle, verifyDocumentPages);
 
 // POST /vault/verify-identity — upload any file to extract & verify embedded PINIT-DNA owner identity
-router.post('/verify-identity', uploadSingle, verifyFileIdentity);
+router.post('/verify-identity', requireAuth, uploadSingle, verifyFileIdentity);
 
 // POST /vault/scan-verify — OCR text from camera scan → search vault files by content match
 // Uses smart matching: filters out template/common words so identity docs (Aadhaar, PAN, etc.)

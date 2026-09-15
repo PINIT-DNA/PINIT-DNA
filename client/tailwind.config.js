@@ -23,12 +23,12 @@ export default {
       colors: {
         // ── Surfaces — neat monochrome ───────────────────────────────────────
         bg: {
-          base:     '#eef2f7',
-          surface:  '#e2e8f0',
+          base:     '#f6f7fb',
+          surface:  '#eef1f6',
           card:     '#ffffff',
-          elevated: '#f1f5f9',
-          border:   '#cbd5e1',
-          muted:    '#e2e8f0',
+          elevated: '#f8fafc',
+          border:   '#e6eaf0',
+          muted:    '#eef1f6',
         },
         // ── Single accent — electric blue (token name stays dna-*) ───────────
         dna: {

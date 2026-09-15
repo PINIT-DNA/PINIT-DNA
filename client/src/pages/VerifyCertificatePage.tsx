@@ -6,10 +6,11 @@
  * DOES NOT modify any existing logic.
  */
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Shield, CheckCircle2, XCircle, AlertTriangle,
-  Dna, Lock, Award, RefreshCw, Copy, Ban,
+  Dna, Lock, Award, RefreshCw, Copy, Ban, ShieldCheck,
 } from 'lucide-react';
 import { verifyCertificateApi } from '../services/dashboard.api';
 import type { CertVerificationResult } from '../types/dashboard.types';
@@ -70,7 +71,7 @@ async function verifyInputs(
       const res = await getVaultRecord(vaultId.trim());
       vaultRecord = res;
       checks.push({
-        label: 'Stored in Digital Assets',
+        label: 'Stored with your assets',
         passed: true,
         detail: 'Protected file found in storage',
       });
@@ -87,9 +88,9 @@ async function verifyInputs(
         detail: 'File is stored securely under your control',
       });
     } catch {
-      checks.push({ label: 'Vault Record Exists', passed: false, detail: 'Vault ID not found in database' });
-      checks.push({ label: 'DNA-Vault Link Valid', passed: false, detail: 'Cannot verify — vault not found' });
-      checks.push({ label: 'Encryption Standard', passed: false, detail: 'Cannot verify — vault not found' });
+      checks.push({ label: 'Asset record exists', passed: false, detail: 'Asset ID not found' });
+      checks.push({ label: 'Asset link valid', passed: false, detail: 'Cannot verify — asset not found' });
+      checks.push({ label: 'Encryption Standard', passed: false, detail: 'Cannot verify — asset not found' });
     }
   }
 
@@ -121,12 +122,21 @@ const STATUS_CFG = {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function VerifyCertificatePage() {
+  const [searchParams] = useSearchParams();
   const [dnaId,    setDnaId]    = useState('');
   const [vaultId,  setVaultId]  = useState('');
   const [certId,   setCertId]   = useState('');  // direct certificate ID lookup
   const [loading,  setLoading]  = useState(false);
   const [result,   setResult]   = useState<VerificationResult | null>(null);
   const [certResult, setCertResult] = useState<CertVerificationResult | null>(null);
+
+  /** The last certificate id we auto-verified, so a re-render never re-runs it. */
+  const autoVerifiedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const fromQuery = searchParams.get('id') || searchParams.get('certificateId') || '';
+    if (fromQuery) setCertId(fromQuery);
+  }, [searchParams]);
 
   const handleVerify = async () => {
     setLoading(true);
@@ -163,6 +173,20 @@ export function VerifyCertificatePage() {
     }
   };
 
+  // Arriving from a certificate QR code means the answer is already known: the id
+  // is in the URL. Landing on a filled-in form and asking the person to press
+  // Verify is friction with no purpose — someone holding a certificate wants to
+  // know whether it is genuine, not to operate a form. Run it for them.
+  useEffect(() => {
+    const fromQuery = searchParams.get('id') || searchParams.get('certificateId') || '';
+    if (!fromQuery || certId !== fromQuery) return;
+    if (autoVerifiedRef.current === fromQuery) return;
+    autoVerifiedRef.current = fromQuery;
+    void handleVerify();
+    // handleVerify is re-created every render; keying on the id keeps this to one run.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [certId, searchParams]);
+
   const copy = (text: string) => {
     navigator.clipboard.writeText(text);
     toast.success('Copied to clipboard');
@@ -172,13 +196,23 @@ export function VerifyCertificatePage() {
 
   return (
     <div className="page-shell space-y-3 mx-auto animate-fade-in">
-
-      {/* Header */}
-      <div>
-        <h1 className="text-xl font-bold text-white">Certificate Verification Portal</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
-          Verify the authenticity of any PINIT-DNA certificate in real time
-        </p>
+      {/*
+        This page is reached publicly, by scanning the QR on a certificate. Whoever
+        scans it has no Pinit account and no other context, so the page has to say
+        where they have landed — an unbranded form is a poor place to be told that
+        something is authentic. Signed-in users reach the same page and lose
+        nothing by seeing it.
+      */}
+      <div className="flex items-center gap-2.5 px-1 pb-1">
+        <div className="w-8 h-8 rounded-lg bg-dna-500/20 flex items-center justify-center shrink-0">
+          <ShieldCheck size={16} className="text-dna-400" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-white leading-tight">Pinit HUB</p>
+          <p className="text-2xs text-gray-500 leading-tight">
+            Certificate verification · independent of the certificate holder
+          </p>
+        </div>
       </div>
 
       {/* Input form */}
@@ -231,7 +265,7 @@ export function VerifyCertificatePage() {
 
           <div>
             <label className="text-xs font-medium text-gray-400 block mb-1.5">
-              Vault ID <span className="text-gray-600">(optional)</span>
+              Asset ID <span className="text-gray-600">(optional)</span>
             </label>
             <div className="relative">
               <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
@@ -438,11 +472,11 @@ export function VerifyCertificatePage() {
               <div className="card">
                 <div className="flex items-center gap-2 mb-3">
                   <Lock size={16} className="text-success" />
-                  <p className="text-sm font-semibold text-white">Vault Record Details</p>
+                  <p className="text-sm font-semibold text-white">Asset details</p>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   {[
-                    { label: 'Vault ID',         value: (result.vaultRecord as Record<string,unknown>).id as string },
+                    { label: 'Asset ID',         value: (result.vaultRecord as Record<string,unknown>).id as string },
                     { label: 'Encryption',        value: (result.vaultRecord as Record<string,unknown>).encryptionAlgorithm as string },
                     { label: 'Key Derivation',    value: (result.vaultRecord as Record<string,unknown>).keyDerivation as string },
                     { label: 'Encrypted Size',    value: formatBytes((result.vaultRecord as Record<string,unknown>).encryptedSizeBytes as number) },
@@ -451,7 +485,7 @@ export function VerifyCertificatePage() {
                       <p className="text-2xs text-gray-500">{row.label}</p>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <p className="text-xs text-gray-200 mono truncate">{String(row.value ?? '—')}</p>
-                        {row.label === 'Vault ID' && row.value && (
+                        {row.label === 'Asset ID' && row.value && (
                           <button onClick={() => copy(row.value as string)} className="shrink-0">
                             <Copy size={10} className="text-gray-500 hover:text-white" />
                           </button>
@@ -471,6 +505,10 @@ export function VerifyCertificatePage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <p className="text-2xs text-gray-600 text-center pt-2 pb-4">
+        Verified against Pinit HUB records · a certificate can be checked by anyone who holds it
+      </p>
     </div>
   );
 }

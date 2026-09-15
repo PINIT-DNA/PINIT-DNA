@@ -1,4 +1,5 @@
 ﻿import { api } from '../services/dashboard.api';
+import { API_BASE_URL } from '../config/api.config';
 /**
  * PINIT-DNA — Vault Integrity Monitoring Dashboard (Phase 4.6)
  * Route: /vault-integrity
@@ -46,10 +47,48 @@ interface IntegrityReport {
   results: IntegrityResult[];
 }
 
+/**
+ * The response was previously cast straight to IntegrityReport with `as any`,
+ * so any shape the server didn't promise reached render untouched — and
+ * `report.results.filter(...)` threw "Cannot read properties of undefined",
+ * taking the whole route down with an unhandled error rather than showing a
+ * failure. Normalise here instead: a report that arrives without its arrays is
+ * still a report, just an empty one.
+ */
+function normalizeReport(raw: unknown): IntegrityReport {
+  const r = (raw ?? {}) as Partial<IntegrityReport> & { data?: Partial<IntegrityReport> };
+  // Tolerate an envelope ({ data: … }) as well as the bare report.
+  const body = (r.results || r.summary ? r : r.data ?? {}) as Partial<IntegrityReport>;
+
+  // A payload carrying neither results nor summary is not an empty vault — it
+  // is a response we could not read. Saying "All Systems Healthy · 0 files
+  // checked" to that is worse than the crash it replaced: it reads as a real
+  // all-clear on a check that never ran. Fail loudly so the caller's error
+  // path shows instead.
+  if (!Array.isArray(body.results) && !body.summary) {
+    throw new Error('Integrity check returned an unreadable response');
+  }
+
+  const results = Array.isArray(body.results) ? body.results : [];
+  const s = body.summary;
+  const summary: IntegrityReport['summary'] = {
+    total:    typeof s?.total === 'number' ? s.total : results.length,
+    healthy:  typeof s?.healthy === 'number' ? s.healthy : results.filter((x) => x.status === 'HEALTHY').length,
+    missing:  typeof s?.missing === 'number' ? s.missing : results.filter((x) => x.status === 'FILE_MISSING').length,
+    mismatch: typeof s?.mismatch === 'number' ? s.mismatch : results.filter((x) => x.status === 'SIZE_MISMATCH').length,
+    overallHealth: s?.overallHealth ?? 'HEALTHY',
+  };
+
+  return { summary, results, checkedAt: body.checkedAt ?? new Date().toISOString() };
+}
+
 async function runIntegrityCheck(): Promise<IntegrityReport> {
-  const { data } = await api.get('/api/v1/vault/integrity-check');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return data as any;
+  // Must be API_BASE_URL, not a bare '/api/v1/…' path. The literal only works
+  // locally, where Vite proxies /api/v1 to the backend; a production build
+  // resolves it against the site's own origin, so this 404'd on pinithub.com
+  // while every other call on the page succeeded.
+  const { data } = await api.get(`${API_BASE_URL}/vault/integrity-check`);
+  return normalizeReport(data);
 }
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
@@ -89,20 +128,17 @@ export function VaultIntegrityPage() {
     }
   };
 
-  const filtered = report?.results.filter(r => filter === 'ALL' || r.status === filter) ?? [];
+  // Belt-and-braces: normalizeReport already guarantees an array, but this page
+  // must never be the reason a route dies — the optional chain stopped at
+  // `report` and left `.results` unguarded.
+  const filtered = (report?.results ?? []).filter(r => filter === 'ALL' || r.status === filter);
   const healthCfg = report ? HEALTH_CFG[report.summary.overallHealth] : null;
 
   return (
     <div className="page-shell space-y-6 animate-fade-in">
 
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-white">Vault Integrity Monitor</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Verify encrypted files exist on disk and match stored metadata
-          </p>
-        </div>
+      <div className="flex items-center justify-end flex-wrap gap-3">
         <button
           onClick={handleCheck}
           disabled={loading}
@@ -154,7 +190,7 @@ export function VaultIntegrityPage() {
           <div className="flex flex-col items-center py-10">
             <RefreshCw size={32} className="text-dna-400 animate-spin mb-4" />
             <p className="text-white font-semibold">Running integrity checks…</p>
-            <p className="text-sm text-gray-500 mt-1">Verifying all vault files on disk</p>
+            <p className="text-sm text-gray-500 mt-1">Verifying all vault assets on disk</p>
           </div>
         </div>
       )}
@@ -188,7 +224,7 @@ export function VaultIntegrityPage() {
           {/* Stat cards */}
           <div className="stat-grid-4 gap-3">
             {[
-              { label: 'Total Files',   value: report.summary.total,   color: 'text-white',   icon: <HardDrive size={16} className="text-gray-400" /> },
+              { label: 'Total Assets',   value: report.summary.total,   color: 'text-white',   icon: <HardDrive size={16} className="text-gray-400" /> },
               { label: 'Healthy',       value: report.summary.healthy,  color: 'text-success', icon: <CheckCircle2 size={16} className="text-success" /> },
               { label: 'Files Missing', value: report.summary.missing,  color: 'text-danger',  icon: <XCircle size={16} className="text-danger" /> },
               { label: 'Size Mismatch', value: report.summary.mismatch, color: 'text-warning', icon: <AlertTriangle size={16} className="text-warning" /> },
@@ -228,7 +264,7 @@ export function VaultIntegrityPage() {
                 <thead>
                   <tr>
                     <th>File</th>
-                    <th>Encrypted File</th>
+                    <th>Encrypted Asset</th>
                     <th>Stored Size</th>
                     <th>Actual Size</th>
                     <th>File Exists</th>

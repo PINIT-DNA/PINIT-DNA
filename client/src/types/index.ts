@@ -73,6 +73,8 @@ export interface VaultStoreResponse {
   success: boolean;
   vaultId: string;
   dnaRecordId: string;
+  assetId?: string | null;
+  campaignId?: string | null;
   originalFileName: string;
   originalMimeType: string;
   encryptedSizeBytes: number;

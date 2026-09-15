@@ -1515,6 +1515,9 @@ export class UnifiedInvestigationOrchestrator {
     const enrichmentMs = investigationPerformanceConfig.orchestratorEnrichmentTimeoutMs;
 
     let dimensionSignal: { probeWidth: number; probeHeight: number; vaultWidth: number; vaultHeight: number } | null = null;
+    const vaultBuffers = new Map<string, Buffer>();
+
+    orchestratorTimer.start('post_verification_report');
     let photometricSignal: Awaited<ReturnType<typeof measurePhotometricShift>> = null;
 
     const tamperLocalizationPromise = (async () => {
@@ -1527,6 +1530,7 @@ export class UnifiedInvestigationOrchestrator {
           'vault_retrieve_tamper',
         );
         if (vaultFile?.originalBuffer) {
+          vaultBuffers.set(match.vaultId, vaultFile.originalBuffer);
           const [rescan, dims, photo] = await Promise.all([
             withTimeoutSoft(
               () => forensicScannerService.scanProbe(buffer, mimeType, vaultFile.originalBuffer),
@@ -2164,6 +2168,8 @@ export class UnifiedInvestigationOrchestrator {
     ];
 
     const authorizationStatus = resolveAuthorizationStatus(true, leakVerify);
+    orchestratorTimer.start('report_lineage_and_composition');
+    const relatedLineagePromise = documentLineageService.getLineage(match.dnaRecordId).catch(() => ({ nodes: [], edges: [] }));
     await recordLineageEdge({
       currentFileHash,
       matchedDnaRecordId: match.dnaRecordId,
@@ -2174,7 +2180,7 @@ export class UnifiedInvestigationOrchestrator {
       fragmentDetected: fragmentReuseFindings.length > 0,
       fragmentConfidence: fragmentReuseFindings[0]?.confidence ?? null,
     });
-    const relatedLineage = await documentLineageService.getLineage(match.dnaRecordId).catch(() => ({ nodes: [], edges: [] }));
+    const relatedLineage = await relatedLineagePromise;
 
     const dnaB = await recoverRobustProvenanceWatermark({
       buffer,
@@ -2196,8 +2202,10 @@ export class UnifiedInvestigationOrchestrator {
     const compositionVaultId = sourcePick?.vaultId ?? match.vaultId;
     const compositionVaultFilename = sourcePick?.filename ?? resolvedOriginalFilename ?? originalFilename ?? undefined;
 
-    let compositionVaultBuffer: Buffer | undefined;
-    if (compositionVaultId) {
+    let compositionVaultBuffer: Buffer | undefined = compositionVaultId
+      ? vaultBuffers.get(compositionVaultId)
+      : undefined;
+    if (compositionVaultId && !compositionVaultBuffer) {
       try {
         const vf = await withTimeoutSoft(
           () => vaultService.retrieve(compositionVaultId, ownerUserId),
@@ -2205,6 +2213,7 @@ export class UnifiedInvestigationOrchestrator {
           'vault_retrieve_composition',
         );
         compositionVaultBuffer = vf?.originalBuffer;
+        if (compositionVaultBuffer) vaultBuffers.set(compositionVaultId, compositionVaultBuffer);
       } catch {
         /* overlay uses scan if retrieve fails */
       }
@@ -2216,7 +2225,7 @@ export class UnifiedInvestigationOrchestrator {
       vaultId: compositionVaultId,
       vaultFilename: compositionVaultFilename,
       dnaRecordId: sourcePick?.dnaRecordId ?? match.dnaRecordId,
-      certificateId: resolvedCertId,
+      certificateId: resolvedCertId ?? undefined,
       ownerUserId,
       candidateSources: sourcePick?.additionalSources,
       fragmentFindings: fragmentReuseFindings,
@@ -2261,6 +2270,14 @@ export class UnifiedInvestigationOrchestrator {
         ...transformationsFromTamper(tamperAnalysis),
         ...(composition.pixelSource?.transformation?.labels ?? []),
       ].filter((v, i, a) => a.indexOf(v) === i),
+    });
+    orchestratorTimer.end('report_lineage_and_composition');
+    orchestratorTimer.end('post_verification_report');
+    logger.info('[UnifiedInvestigation] post-verification assembly', {
+      investigationId,
+      timings: orchestratorTimer.getTimings().filter((t) =>
+        t.stage === 'post_verification_report' || t.stage === 'report_lineage_and_composition',
+      ),
     });
 
     const report: UnifiedInvestigationReport = {

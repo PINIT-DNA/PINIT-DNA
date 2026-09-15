@@ -6,12 +6,66 @@
 import { Request, Response, NextFunction } from 'express';
 import {
   exchangeBridgeService,
+  resolveShareUrlForDeliveryToken,
   verifyServiceBridgeSecret,
 } from '../../services/exchange/exchange-bridge.service';
 import { config } from '../../config';
+import { logger } from '../../lib/logger';
+import { resolvePublicBaseUrl } from '../../lib/request-utils';
+import {
+  recordAssetActivityBatch,
+  type AssetActivityInput,
+} from '../../services/assets/asset-activity.service';
+import {
+  createHubGatewayOrder,
+  verifyHubGatewaySignature,
+  fetchHubGatewayPayment,
+} from '../../services/exchange/hub-gateway-payment.service';
 
 function userId(req: Request): string {
   return (req as any).user?.sub as string;
+}
+
+/** GET /exchange/role — Hub UI uses this to hide List on Exchange for buyers */
+export async function getExchangeRole(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const result = await exchangeBridgeService.getExchangeMarketplaceRole(userId(req));
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** GET /exchange/seller-summary — Hub Home selling KPIs from Exchange desk */
+export async function getExchangeSellerSummary(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const result = await exchangeBridgeService.getSellerDeskSummary(userId(req));
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** GET /exchange/buyer-summary — what this person has licensed on Exchange */
+export async function getExchangeBuyerSummary(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const result = await exchangeBridgeService.getBuyerDeskSummary(userId(req));
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** GET /exchange/listed-assets — vault ids currently live on Exchange */
+export async function getExchangeListedAssets(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const result = await exchangeBridgeService.getListedVaultsForOwner(userId(req));
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
 }
 
 /** GET /exchange/config — public-safe URLs for Hub UI */
@@ -132,8 +186,57 @@ export async function sealExchangeSale(req: Request, res: Response, next: NextFu
       listingId: req.body?.listingId || req.body?.listing_id,
       buyerPinitId: req.body?.buyerPinitId || req.body?.buyer_pinit_id,
       licenseTier: req.body?.licenseTier || req.body?.license_tier,
+      sealId: req.body?.sealId || req.body?.seal_id,
     });
     res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /exchange/licensed-shares — creator visibility.
+ * Auth: Hub JWT. Returns shares of assets THIS owner owns, created by licensees.
+ */
+export async function listLicensedSharesForOwner(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const result = await exchangeBridgeService.getLicensedSharesForOwner(userId(req));
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /exchange/share/create — buyer shares a file they licensed on Exchange.
+ * Auth: X-PinIT-Bridge-Secret. Exchange verifies the caller owns the seal before
+ * calling; Hub creates the ShareLink so all access flows through Hub's existing
+ * share viewer and ShareAccessLog tracking.
+ */
+export async function createLicensedShareBridge(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    verifyServiceBridgeSecret(
+      (req.headers['x-pinit-bridge-secret'] as string | undefined) ||
+      (req.headers['x-exchange-bridge-secret'] as string | undefined),
+    );
+    const assetId = String(req.body?.assetId || req.body?.asset_id || '').trim();
+    const sealId = String(req.body?.sealId || req.body?.seal_id || '').trim();
+    const buyerPinitId = String(req.body?.buyerPinitId || req.body?.buyer_pinit_id || '').trim();
+    if (!assetId || !sealId || !buyerPinitId) {
+      res.status(400).json({ success: false, error: 'assetId, sealId and buyerPinitId are required' });
+      return;
+    }
+    const result = await exchangeBridgeService.createLicensedShare({
+      assetId,
+      sealId,
+      orderId: req.body?.orderId || req.body?.order_id,
+      buyerPinitId,
+      licenseTier: req.body?.licenseTier || req.body?.license_tier,
+      baseUrl: resolvePublicBaseUrl(req),
+      hubAppUrl: String(req.body?.hubAppUrl || req.body?.hub_app_url || '').trim() || undefined,
+      options: req.body?.options || {},
+    });
+    res.status(201).json({ success: true, ...result });
   } catch (err) {
     next(err);
   }
@@ -208,23 +311,66 @@ export async function prepareDeliveryBridge(req: Request, res: Response, next: N
   }
 }
 
-/** GET /exchange/delivery/:token — buyer downloads licensed export (no Hub UI) */
-export async function redeemDeliveryBridge(req: Request, res: Response, next: NextFunction): Promise<void> {
+/** GET /exchange/delivery/:token — browsers are sent to Hub /share/:token (tracked). */
+export async function redeemDeliveryBridge(req: Request, res: Response, _next: NextFunction): Promise<void> {
   try {
     const token = String(req.params.token || '').trim();
     if (!token) {
-      res.status(400).json({ success: false, error: 'Delivery token required' });
+      res.status(400).json({ success: false, error: 'This access link is not valid.' });
       return;
     }
-    const result = await exchangeBridgeService.redeemDelivery(token);
-    res.setHeader('Content-Type', result.originalMimeType || 'application/octet-stream');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(result.originalFileName || 'licensed-asset')}"`,
+    const shareUrl = await resolveShareUrlForDeliveryToken(token);
+    if (shareUrl) {
+      const wantsDownload = String(req.query.download || '') === '1';
+      const dest = wantsDownload
+        ? `${shareUrl}${shareUrl.includes('?') ? '&' : '?'}download=1`
+        : shareUrl;
+      res.redirect(302, dest);
+      return;
+    }
+    const accept = String(req.headers.accept || '');
+    const isBrowser = accept.includes('text/html') || !accept.includes('application/json');
+    if (isBrowser) {
+      res.status(410).type('html').send(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"/><title>Link expired</title></head>
+<body style="font-family:system-ui,sans-serif;background:#0F1117;color:#F5F7FA;padding:48px;max-width:40rem">
+  <h1 style="font-size:1.25rem">This download link has expired</h1>
+  <p style="color:#A7B0C0;line-height:1.5">Open <strong>Purchases</strong> in Pinit Exchange and choose View licensed asset. That opens a tracked Pinit HUB page — not this API URL.</p>
+</body></html>`);
+      return;
+    }
+    res.status(401).json({
+      success: false,
+      error: 'You don\'t have access to this file. Open Purchases and use View licensed asset.',
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn('[exchange-delivery] redeem failed', { message });
+    res.status(401).json({
+      success: false,
+      error: 'You don\'t have access to this file.',
+    });
+  }
+}
+
+/**
+ * GET /exchange/profiles-bridge?pinitIds=PINIT-EX-ABC,PINIT-USER-ABC
+ * Auth: X-PinIT-Bridge-Secret
+ */
+export async function profilesBridge(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    verifyServiceBridgeSecret(
+      (req.headers['x-pinit-bridge-secret'] as string | undefined) ||
+      (req.headers['x-exchange-bridge-secret'] as string | undefined),
     );
-    res.setHeader('X-PinIT-Order-Id', result.orderId || '');
-    res.setHeader('X-PinIT-Delivery', 'licensed-export');
-    res.send(result.buffer);
+    const raw = String(req.query.pinitIds || req.query.pinit_id || req.query.pinitId || '').trim();
+    const ids = raw.split(',').map((id) => id.trim()).filter(Boolean);
+    if (!ids.length) {
+      res.status(400).json({ success: false, error: 'pinitIds is required' });
+      return;
+    }
+    const result = await exchangeBridgeService.getPublicProfilesByPinitIds(ids);
+    res.json({ success: true, ...result });
   } catch (err) {
     next(err);
   }
@@ -268,15 +414,133 @@ export async function marketplacePreviewBridge(req: Request, res: Response, next
       return;
     }
     const result = await exchangeBridgeService.getMarketplacePreview(vaultId);
+    // The body is a derived, watermarked preview — never the vault master.
+    // Headers deliberately carry nothing about the underlying asset:
+    //  - no X-Vault-Id, which leaked the internal VaultRecord UUID
+    //  - no filename, which leaked the creator's original file name
+    //  - no-store, so an expired signed URL cannot be replayed from cache
     res.set({
       'Content-Type': result.originalMimeType || 'application/octet-stream',
       'Content-Length': String(result.originalBuffer.length),
-      'Content-Disposition': `inline; filename="${result.originalFileName || 'preview'}"`,
+      'Content-Disposition': 'inline',
       'Accept-Ranges': 'bytes',
-      'Cache-Control': 'private, max-age=120',
-      'X-Vault-Id': result.vaultId,
+      'Cache-Control': 'private, no-store, max-age=0',
+      'Pragma': 'no-cache',
+      'Cross-Origin-Resource-Policy': 'same-origin',
+      'Referrer-Policy': 'no-referrer',
+      'X-Content-Type-Options': 'nosniff',
     });
     res.status(200).send(result.originalBuffer);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /exchange/activity — Exchange service callback recording asset activity.
+ * Auth: X-PinIT-Bridge-Secret
+ *
+ * Accepts one event or a batch. Every event must carry a canonical Asset.id;
+ * events whose asset cannot be resolved are counted as skipped rather than
+ * failing the request, so a marketplace action is never blocked by its own
+ * audit trail.
+ */
+export async function recordAssetActivityBridge(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    verifyServiceBridgeSecret(
+      (req.headers['x-pinit-bridge-secret'] as string | undefined) ||
+      (req.headers['x-exchange-bridge-secret'] as string | undefined),
+    );
+
+    const raw = Array.isArray(req.body?.events) ? req.body.events : [req.body];
+    const events: AssetActivityInput[] = [];
+
+    for (const e of raw) {
+      const assetId = String(e?.assetId || e?.asset_id || '').trim();
+      const eventType = String(e?.eventType || e?.event_type || '').trim().toUpperCase();
+      const title = String(e?.title || '').trim();
+      if (!assetId || !eventType || !title) continue;
+      events.push({
+        assetId,
+        eventType: eventType as AssetActivityInput['eventType'],
+        title,
+        detail: e?.detail ?? null,
+        payload: e?.payload ?? null,
+        platform: e?.platform ?? 'exchange',
+        url: e?.url ?? null,
+      });
+    }
+
+    if (events.length === 0) {
+      res.status(400).json({ success: false, error: 'at least one event with assetId, eventType and title is required' });
+      return;
+    }
+    if (events.length > 100) {
+      res.status(400).json({ success: false, error: 'at most 100 events per request' });
+      return;
+    }
+
+    const result = await recordAssetActivityBatch(events);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+function bridgeAuth(req: Request): void {
+  verifyServiceBridgeSecret(
+    (req.headers['x-pinit-bridge-secret'] as string | undefined) ||
+      (req.headers['x-exchange-bridge-secret'] as string | undefined),
+  );
+}
+
+/** POST /exchange/payments/create-order — Exchange uses Hub Razorpay keys */
+export async function createExchangeGatewayOrder(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    bridgeAuth(req);
+    const amountPaise = Number(req.body?.amountPaise || req.body?.amount);
+    const currency = String(req.body?.currency || 'INR');
+    const receipt = String(req.body?.receipt || '');
+    const notes = req.body?.notes && typeof req.body.notes === 'object' ? req.body.notes : {};
+    const order = await createHubGatewayOrder({ amountPaise, currency, receipt, notes });
+    res.json({ success: true, ...order });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** POST /exchange/payments/verify — signature + capture check on Hub keys */
+export async function verifyExchangeGatewayPayment(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    bridgeAuth(req);
+    const orderId = String(req.body?.razorpay_order_id || req.body?.orderId || '').trim();
+    const paymentId = String(req.body?.razorpay_payment_id || req.body?.paymentId || '').trim();
+    const signature = String(req.body?.razorpay_signature || req.body?.signature || '').trim();
+    if (!orderId || !paymentId || !signature) {
+      res.status(400).json({ success: false, error: 'order, payment and signature are required' });
+      return;
+    }
+    if (!verifyHubGatewaySignature({ orderId, paymentId, signature })) {
+      res.status(402).json({ success: false, error: 'PAYMENT_VERIFICATION_FAILED', verified: false });
+      return;
+    }
+    const payment = await fetchHubGatewayPayment(paymentId);
+    res.json({
+      success: true,
+      verified: true,
+      payment: {
+        id: payment.id,
+        order_id: payment.order_id,
+        status: payment.status,
+        amount: payment.amount,
+        currency: payment.currency,
+        method: payment.method,
+        token_id: (payment as { token_id?: string }).token_id,
+        card: (payment as { card?: { last4?: string; network?: string } }).card,
+        vpa: (payment as { vpa?: string }).vpa,
+        bank: (payment as { bank?: string }).bank,
+      },
+    });
   } catch (err) {
     next(err);
   }

@@ -1,103 +1,260 @@
 /**
  * Capture a normalized voice fingerprint from the microphone using Web Audio FFT bins.
+ * Voice is an optional signal — capture errors must be specific (permission vs silence).
  */
+
+export type VoiceCaptureCode =
+  | 'permission'
+  | 'unavailable'
+  | 'unsupported'
+  | 'no_stream'
+  | 'no_speech'
+  | 'empty'
+  | 'invalid'
+  | 'failed';
+
+export class VoiceCaptureError extends Error {
+  code: VoiceCaptureCode;
+  constructor(code: VoiceCaptureCode, message: string) {
+    super(message);
+    this.name = 'VoiceCaptureError';
+    this.code = code;
+  }
+}
+
+const CAPTURE_MS = 4500;
+const WARMUP_MS = 450;
+/** Absolute floor — quiet laptop mics often sit below 0.012 without AGC. */
+const MIN_SPEECH_RMS = 0.0025;
+/** FFT peak in speech band (dBFS) — backup when time-domain RMS is flat. */
+const MIN_SPEECH_FREQ_DB = -78;
+
+function rmsFromTimeDomain(buf: Float32Array): number {
+  let sumSq = 0;
+  for (let i = 0; i < buf.length; i++) sumSq += buf[i]! * buf[i]!;
+  return Math.sqrt(sumSq / buf.length);
+}
+
+/** Energy in ~200–4000 Hz using FFT bins (works when AGC flattens time-domain RMS). */
+function speechBandPeakDb(freqBins: Float32Array, sampleRate: number, fftSize: number): number {
+  const binHz = sampleRate / fftSize;
+  const lo = Math.max(1, Math.floor(200 / binHz));
+  const hi = Math.min(freqBins.length - 1, Math.ceil(4000 / binHz));
+  let peak = -Infinity;
+  for (let i = lo; i <= hi; i++) {
+    const v = freqBins[i]!;
+    if (Number.isFinite(v) && v > peak) peak = v;
+  }
+  return peak;
+}
+
+function detectSpeech(opts: {
+  rms: number;
+  peakRms: number;
+  noiseFloor: number;
+  speechDb: number;
+  elapsedMs: number;
+}): boolean {
+  if (opts.elapsedMs < WARMUP_MS) return false;
+  const adaptive = Math.max(MIN_SPEECH_RMS, opts.noiseFloor * 2.2);
+  if (opts.rms >= adaptive || opts.peakRms >= adaptive) return true;
+  if (opts.speechDb >= MIN_SPEECH_FREQ_DB) return true;
+  return false;
+}
+
+function mapGetUserMediaError(e: unknown): VoiceCaptureError {
+  if (e instanceof VoiceCaptureError) return e;
+  const name = e instanceof DOMException ? e.name : '';
+  if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+    return new VoiceCaptureError(
+      'permission',
+      'Microphone permission was denied. Allow the mic in the browser address bar, then try again.',
+    );
+  }
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+    return new VoiceCaptureError(
+      'unavailable',
+      'No microphone was found. Connect a mic and try again.',
+    );
+  }
+  if (name === 'NotReadableError' || name === 'TrackStartError') {
+    return new VoiceCaptureError(
+      'unavailable',
+      'The microphone is already in use by another app. Close it and try again.',
+    );
+  }
+  if (name === 'OverconstrainedError') {
+    return new VoiceCaptureError('unavailable', 'This microphone does not meet capture requirements.');
+  }
+  if (typeof window !== 'undefined' && !navigator.mediaDevices?.getUserMedia) {
+    return new VoiceCaptureError('unsupported', 'This browser does not support microphone capture.');
+  }
+  const msg = e instanceof Error ? e.message : 'Microphone capture failed.';
+  return new VoiceCaptureError('failed', msg);
+}
+
 export async function captureVoiceFingerprint(
   onProgress?: (pct: number) => void,
-  options?: { durationMs?: number; voicePeakThresholdDb?: number },
+  onLevel?: (level: number) => void,
 ): Promise<number[]> {
   onProgress?.(2);
 
-  const durationMs = options?.durationMs ?? 4500;
-  /** Float FFT peaks are typically negative dB; silence is near -100. */
-  const voicePeakThresholdDb = options?.voicePeakThresholdDb ?? -72;
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new VoiceCaptureError('unsupported', 'This browser does not support microphone capture.');
+  }
 
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-    },
-  });
+  let permission: PermissionState | 'unknown' = 'unknown';
+  try {
+    permission = await navigator.permissions.query({ name: 'microphone' as PermissionName }).then((p) => p.state);
+  } catch {
+    permission = 'unknown';
+  }
 
-  const ctx = new AudioContext();
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+  } catch (e) {
+    throw mapGetUserMediaError(e);
+  }
+
+  const tracks = stream.getAudioTracks();
+  const track = tracks[0];
+  if (!track || track.readyState !== 'live') {
+    stream.getTracks().forEach((t) => t.stop());
+    throw new VoiceCaptureError(
+      'no_stream',
+      'Microphone stream did not start. Check that the correct input device is selected.',
+    );
+  }
+
+  const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctx) {
+    stream.getTracks().forEach((t) => t.stop());
+    throw new VoiceCaptureError('unsupported', 'Web Audio is not available in this browser.');
+  }
+
+  const ctx = new Ctx();
   try {
     if (ctx.state === 'suspended') await ctx.resume();
 
     const source = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
-    analyser.fftSize = 512;
-    analyser.smoothingTimeConstant = 0.35;
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.3;
     source.connect(analyser);
 
-    const bins = new Float32Array(analyser.frequencyBinCount);
-    const time = new Float32Array(analyser.fftSize);
+    const sampleRate = ctx.sampleRate;
+    const freqBins = new Float32Array(analyser.frequencyBinCount);
+    const timeBuf = new Float32Array(analyser.fftSize);
     const samples: number[][] = [];
     const start = Date.now();
     let heardVoice = false;
-    let peakLevel = -Infinity;
     let peakRms = 0;
+    let peakDb = -Infinity;
+    let peakSpeechDb = -Infinity;
+    let noiseFloor = 0;
+    let noiseSamples = 0;
+    let frames = 0;
 
     await new Promise<void>((resolve, reject) => {
       function tick() {
         try {
-          analyser.getFloatFrequencyData(bins);
-          analyser.getFloatTimeDomainData(time);
+          if (track.readyState !== 'live') {
+            reject(new VoiceCaptureError('no_stream', 'Microphone stream stopped during capture.'));
+            return;
+          }
 
-          // Clamp -Infinity / NaN from silent FFT bins — otherwise normalize() yields NaN
-          // and the server rejects registration as "voice required".
-          const frame = Array.from(bins, (v) => (Number.isFinite(v) ? Math.max(-100, Math.min(0, v)) : -100));
-          samples.push(frame);
-
-          const peak = Math.max(...frame);
-          if (peak > peakLevel) peakLevel = peak;
-          if (peak > voicePeakThresholdDb) heardVoice = true;
-
-          let sumSq = 0;
-          for (let i = 0; i < time.length; i++) sumSq += time[i]! * time[i]!;
-          const rms = Math.sqrt(sumSq / time.length);
+          const elapsed = Date.now() - start;
+          analyser.getFloatTimeDomainData(timeBuf);
+          const rms = rmsFromTimeDomain(timeBuf);
           if (rms > peakRms) peakRms = rms;
-          // Time-domain RMS also counts as voice (FFT alone can miss some mics/browsers)
-          if (rms > 0.012) heardVoice = true;
+          if (elapsed < WARMUP_MS) {
+            noiseFloor += rms;
+            noiseSamples += 1;
+          }
 
-          const pct = Math.min(99, ((Date.now() - start) / durationMs) * 100);
+          analyser.getFloatFrequencyData(freqBins);
+          const speechDb = speechBandPeakDb(freqBins, sampleRate, analyser.fftSize);
+          if (speechDb > peakSpeechDb) peakSpeechDb = speechDb;
+          const frame = Array.from(freqBins, (v) => (Number.isFinite(v) ? Math.max(-100, Math.min(0, v)) : -100));
+          samples.push(frame);
+          frames += 1;
+          const peak = Math.max(...frame);
+          if (peak > peakDb) peakDb = peak;
+
+          const floor = noiseSamples > 0 ? noiseFloor / noiseSamples : 0;
+          if (detectSpeech({ rms, peakRms, noiseFloor: floor, speechDb, elapsedMs: elapsed })) {
+            heardVoice = true;
+          }
+
+          onLevel?.(Math.min(1, rms / Math.max(MIN_SPEECH_RMS * 4, floor * 4 || MIN_SPEECH_RMS * 4)));
+
+          const pct = Math.min(99, (elapsed / CAPTURE_MS) * 100);
           onProgress?.(pct);
 
-          if (Date.now() - start >= durationMs) {
+          if (elapsed >= CAPTURE_MS) {
             resolve();
             return;
           }
           requestAnimationFrame(tick);
-        } catch (e) {
-          reject(e);
+        } catch (err) {
+          reject(err);
         }
       }
       tick();
+    });
+
+    const noiseAvg = noiseSamples > 0 ? noiseFloor / noiseSamples : 0;
+
+    console.info('[VoiceCapture]', {
+      permission,
+      device: track.label || '(unnamed)',
+      readyState: track.readyState,
+      sampleRate,
+      frames,
+      chunks: samples.length,
+      durationMs: Date.now() - start,
+      noiseFloorRms: Number(noiseAvg.toFixed(5)),
+      peakRms: Number(peakRms.toFixed(5)),
+      peakDb: Number(peakDb.toFixed(1)),
+      peakSpeechDb: Number(peakSpeechDb.toFixed(1)),
+      speechDetected: heardVoice,
     });
 
     stream.getTracks().forEach((t) => t.stop());
     await ctx.close();
 
     if (!samples.length) {
-      throw new Error('Microphone did not respond. Check mic permissions.');
+      throw new VoiceCaptureError('empty', 'Microphone did not return any audio. Check mic permissions and the selected device.');
     }
 
     if (!heardVoice) {
-      throw new Error(
-        `No voice detected (peak ${peakLevel.toFixed(0)} dB, rms ${peakRms.toFixed(3)}). ` +
-          'Allow microphone access, speak louder into the mic, and start speaking as soon as recording begins.',
-      );
+      // Mic delivered frames but VAD missed — if there was any usable energy, accept (voice is optional signal).
+      const hadEnergy = peakRms >= MIN_SPEECH_RMS * 0.6 || peakSpeechDb >= MIN_SPEECH_FREQ_DB - 6;
+      if (!hadEnergy) {
+        throw new VoiceCaptureError(
+          'no_speech',
+          'Microphone is working, but no speech was detected. Speak the phrase clearly, closer to the mic, and try again.',
+        );
+      }
     }
 
     onProgress?.(100);
     const fp = normalizeVector(averageSamples(samples, 128));
     if (fp.length !== 128 || fp.some((v) => !Number.isFinite(v))) {
-      throw new Error('Voice capture produced an invalid fingerprint. Try again in a quieter place.');
+      throw new VoiceCaptureError('invalid', 'Voice capture produced an invalid fingerprint. Try again in a quieter place.');
     }
     return fp;
   } catch (e) {
     stream.getTracks().forEach((t) => t.stop());
     await ctx.close().catch(() => {});
-    throw e;
+    throw mapGetUserMediaError(e);
   }
 }
 

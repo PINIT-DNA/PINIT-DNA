@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
-import { Shield, RefreshCw, CheckCircle2, XCircle, Clock, Eye, AlertTriangle, MessageSquare } from 'lucide-react';
+import { RefreshCw, CheckCircle2, XCircle, Clock, Eye, AlertTriangle, MessageSquare } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useApi } from '../hooks/useApi';
 import { API_BASE_URL } from '../config/api.config';
@@ -108,16 +108,7 @@ export function UnmaskRequestsPage() {
 
   return (
     <div className="page-shell space-y-5 animate-fade-in">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <Shield size={20} className="text-purple-400" />
-            Share Responses
-          </h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Unmask requests and messages from people who opened your shared files
-          </p>
-        </div>
+      <div className="flex items-center justify-end flex-wrap gap-3">
         <div className="flex items-center gap-2">
           {!loading && pending.length > 0 && (
             <span className="text-xs bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 rounded-full px-3 py-1 font-semibold animate-pulse">

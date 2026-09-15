@@ -3,10 +3,12 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   User, Shield, Bell, Clock, Activity, Save, RefreshCw,
   Dna, Archive, Share2, Award, Eye, Radio, Trash2,
-  Sun, Moon, Monitor, ShieldCheck, Download,
+  Sun, Moon, Monitor, ShieldCheck, Download, Briefcase,
 } from 'lucide-react';
 import { api, listVaultRecords, retrieveFromVault } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
+import { PortfolioEditor } from './profile/PortfolioEditor';
+import { ProfilePhotoPicker } from './profile/ProfilePhotoPicker';
 import { useTheme } from '../hooks/useTheme';
 import { useAccountViewMode } from '../hooks/useAccountViewMode';
 import { BusinessProfileHub } from './business/BusinessProfileHub';
@@ -22,10 +24,11 @@ import {
   resolveNotificationDeepLink,
 } from '../lib/notification-config';
 
-type Tab = 'profile' | 'security' | 'notifications' | 'activity' | 'settings';
+type Tab = 'profile' | 'portfolio' | 'security' | 'notifications' | 'activity' | 'settings';
 
 const BASE_TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'profile', label: 'Profile', icon: <User size={14} /> },
+  { id: 'portfolio', label: 'Portfolio', icon: <Briefcase size={14} /> },
   { id: 'security', label: 'Security', icon: <Shield size={14} /> },
   { id: 'notifications', label: 'Notifications', icon: <Bell size={14} /> },
   { id: 'activity', label: 'Activity', icon: <Clock size={14} /> },
@@ -34,6 +37,7 @@ const BASE_TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 
 export function ProfilePage() {
   const [params] = useSearchParams();
+  const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>((params.get('tab') as Tab) || 'profile');
   const { profile: cachedProfile, loading: profileHookLoading } = useUserProfile();
   const [profile, setProfile] = useState<any>(cachedProfile);
@@ -117,12 +121,14 @@ export function ProfilePage() {
   }
 
   return (
-    <div className="page-shell w-full max-w-5xl">
-      {/* Header with stats */}
+    <div className={`page-shell w-full ${tab === 'portfolio' ? 'max-w-6xl' : 'max-w-5xl'}`}>
+      {tab !== 'portfolio' && (
       <div className="card mb-6">
         <div className="flex items-start gap-4 flex-wrap">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-dna-500 to-purple flex items-center justify-center text-xl font-bold text-white shrink-0">
-            {profile?.fullName?.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2) || 'P'}
+          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-dna-500 to-purple flex items-center justify-center text-xl font-bold text-white shrink-0 overflow-hidden">
+            {profile?.avatarUrl
+              ? <img src={profile.avatarUrl} alt="" className="w-full h-full object-cover" />
+              : (profile?.fullName?.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2) || 'P')}
           </div>
           <div className="flex-1 min-w-0">
             <h1 className="text-lg font-bold text-white">{profile?.fullName}</h1>
@@ -139,7 +145,7 @@ export function ProfilePage() {
         {stats && (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mt-4">
             <StatMini icon={<Dna size={12} />} label="DNA" value={stats.dnaGenerated} />
-            <StatMini icon={<Archive size={12} />} label="Vault" value={stats.filesProtected} />
+            <StatMini icon={<Archive size={12} />} label="Assets" value={stats.filesProtected} />
             <StatMini icon={<Share2 size={12} />} label="Shares" value={stats.activeShares} />
             <StatMini icon={<Eye size={12} />} label="Access" value={stats.accessEvents} />
             <StatMini icon={<Radio size={12} />} label="Monitor" value={stats.monitoringJobs} />
@@ -147,13 +153,17 @@ export function ProfilePage() {
           </div>
         )}
       </div>
+      )}
 
       {/* Tab bar */}
       <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
         {tabs.map(t => (
           <button
             key={t.id}
-            onClick={() => setTab(t.id)}
+            onClick={() => {
+              setTab(t.id);
+              navigate(`/profile?tab=${t.id}`);
+            }}
             className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
               tab === t.id ? 'bg-dna-500/20 text-dna-400 border border-dna-500/30' : 'text-gray-500 hover:text-white hover:bg-bg-elevated'
             }`}
@@ -165,6 +175,7 @@ export function ProfilePage() {
 
       {/* Tab content */}
       {tab === 'profile' && <ProfileTab profile={profile} onUpdate={setProfile} />}
+      {tab === "portfolio" && <PortfolioEditor />}
       {tab === 'security'      && <SecurityTab profile={profile} />}
       {tab === 'notifications' && <NotificationsTab profile={profile} onUpdate={setProfile} />}
       {tab === 'activity'      && <ActivityTab />}
@@ -178,6 +189,7 @@ export function ProfilePage() {
 function ProfileTab({ profile, onUpdate }: { profile: any; onUpdate: (p: any) => void }) {
   const [form, setForm] = useState({
     fullName: profile?.fullName ?? '',
+    email: profile?.email ?? '',
     phone: profile?.phone ?? '',
     organization: profile?.organization ?? '',
     jobTitle: profile?.jobTitle ?? '',
@@ -186,15 +198,23 @@ function ProfileTab({ profile, onUpdate }: { profile: any; onUpdate: (p: any) =>
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Email is unique across PINIT, so a save can legitimately fail. Show why
+  // instead of the form appearing to succeed.
+  const [saveError, setSaveError] = useState('');
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveError('');
     try {
       const { data } = await api.put(`${API_BASE_URL}/profile`, form);
       onUpdate({ ...profile, ...(data as any).profile });
       notifyProfileUpdated();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+    } catch (err: any) {
+      setSaveError(
+        err?.response?.data?.error || 'Could not save your profile. Please try again.',
+      );
     } finally { setSaving(false); }
   };
 
@@ -202,10 +222,22 @@ function ProfileTab({ profile, onUpdate }: { profile: any; onUpdate: (p: any) =>
     <div className="card space-y-4">
       <h2 className="text-sm font-semibold text-white flex items-center gap-2"><User size={14} className="text-dna-400" /> Personal Information</h2>
 
+      <ProfilePhotoPicker
+        compact
+        photoUrl={profile?.avatarUrl || ''}
+        name={form.fullName || profile?.fullName || ''}
+        onChange={(url) => onUpdate({ ...profile, avatarUrl: url || null })}
+      />
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Field label="Full Name" value={form.fullName} onChange={v => setForm({ ...form, fullName: v })} />
         <Field label="PINIT ID" value={profile?.shortId} disabled />
-        <Field label="Email" value={profile?.email ?? ''} disabled />
+        <Field
+          label="Email"
+          value={form.email}
+          onChange={v => { setForm({ ...form, email: v }); setSaveError(''); }}
+          placeholder="you@example.com"
+        />
         <Field label="Phone" value={form.phone} onChange={v => setForm({ ...form, phone: v })} placeholder="+91 9876543210" />
         <Field label="Organization" value={form.organization} onChange={v => setForm({ ...form, organization: v })} placeholder="Company name" />
         <Field label="Job Title" value={form.jobTitle} onChange={v => setForm({ ...form, jobTitle: v })} placeholder="Software Engineer" />
@@ -221,6 +253,10 @@ function ProfileTab({ profile, onUpdate }: { profile: any; onUpdate: (p: any) =>
           placeholder="Tell us about yourself..."
         />
       </div>
+
+      {saveError && (
+        <p role="alert" className="text-xs text-red-400 mb-2">{saveError}</p>
+      )}
 
       <button onClick={handleSave} disabled={saving} className="btn btn-primary btn-sm text-xs">
         {saving ? <RefreshCw size={12} className="animate-spin" /> : saved ? '✓ Saved' : <><Save size={12} /> Save Changes</>}
@@ -338,16 +374,16 @@ function NotificationPreferences({ profile, onUpdate }: { profile: any; onUpdate
   };
 
   const items = [
-    { key: 'notifyVault', label: 'Digital Assets', desc: 'Storage issues, protected downloads, and file events' },
+    { key: 'notifyVault', label: 'My Assets', desc: 'Storage issues, protected downloads, and file events' },
     { key: 'notifyDna', label: 'DNA', desc: 'DNA generated, verification results, and mismatches' },
     { key: 'notifyCertificates', label: 'Certificates', desc: 'Issued, revoked, expired, and validation failures' },
     { key: 'notifyShareAccess', label: 'Secure Share', desc: 'Link views, downloads, forwards, revokes, and expiry' },
     { key: 'notifyMonitoring', label: 'Monitoring & Crawler', desc: 'Matches, scan completion, and crawler errors' },
     { key: 'notifyRiskAlerts', label: 'AI Detection & Risk', desc: 'Policy blocks, tampering, copy/screenshot attempts' },
-    { key: 'notifyInvestigation', label: 'Investigation', desc: 'Investigation started, completed, and failed' },
+    { key: 'notifyInvestigation', label: 'Intelligence', desc: 'Investigation started, completed, and failed' },
     { key: 'notifyAutomation', label: 'Automation', desc: 'Scheduled scans and automated task completion' },
     { key: 'notifySecurity', label: 'Security', desc: 'Login events, password changes, and session revokes' },
-    { key: 'notifyReports', label: 'Reports', desc: 'Report generated, downloaded, and shared' },
+    { key: 'notifyReports', label: 'Evidence', desc: 'Evidence generated, downloaded, and shared' },
     { key: 'notifySystem', label: 'System', desc: 'Registration, storage warnings, and maintenance notices' },
     { key: 'notifyUpdates', label: 'Product Updates', desc: 'News about Pinit HUB features and improvements' },
   ];
@@ -474,7 +510,7 @@ function NotificationHistoryPanel() {
             Archived
           </label>
           <button onClick={markAllRead} className="text-2xs text-dna-400 hover:text-white px-2 py-1 rounded border border-bg-border">
-            Mark all read
+            Mark all as read
           </button>
         </div>
       </div>
@@ -553,7 +589,7 @@ function ActivityTab() {
 
   const typeConfig: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
     DNA_GENERATED: { icon: <Dna size={12} />, color: 'text-dna-400 bg-dna-500/20', label: 'DNA Generated' },
-    VAULT_UPLOAD:  { icon: <Archive size={12} />, color: 'text-green-400 bg-green-500/20', label: 'Vault Upload' },
+    VAULT_UPLOAD:  { icon: <Archive size={12} />, color: 'text-green-400 bg-green-500/20', label: 'Asset saved' },
     SHARE_CREATED: { icon: <Share2 size={12} />, color: 'text-blue-400 bg-blue-500/20', label: 'Share Created' },
     CERT_GENERATED:{ icon: <Award size={12} />, color: 'text-purple-400 bg-purple-500/20', label: 'Certificate Generated' },
     ACCESS_VIEWED: { icon: <Eye size={12} />, color: 'text-yellow-400 bg-yellow-500/20', label: 'File Viewed' },
@@ -673,7 +709,7 @@ function SettingsTab() {
             <RefreshCw size={18} className="animate-spin text-gray-500" />
           </div>
         ) : vaultFiles.length === 0 ? (
-          <p className="text-xs text-gray-500 text-center py-6">No vault files yet.</p>
+          <p className="text-xs text-gray-500 text-center py-6">No vault assets yet.</p>
         ) : (
           <ul className="space-y-2 max-h-[360px] overflow-y-auto">
             {vaultFiles.map((file) => (

@@ -47,6 +47,7 @@ export interface ShareLinkPreview {
   downloadCount: number;
   isActive: boolean;
   createdAt: string;
+  expiresAt?: string | null;
   accessLogs: Array<{
     country: string | null;
     device: string | null;
@@ -119,7 +120,7 @@ async function fetchAll(): Promise<BusinessDashboardData> {
     withTimeout(api.get(`${API_BASE_URL}/share`).catch(() => ({ data: null })), REQ_MS, { data: null }),
     withTimeout(api.get(`${API_BASE_URL}/share/analytics/global`).catch(() => ({ data: null })), REQ_MS, { data: null }),
     withTimeout(api.get(`${API_BASE_URL}/profile/activity?limit=25`).catch(() => ({ data: null })), REQ_MS, { data: null }),
-    withTimeout(api.get(`${API_BASE_URL}/notifications?limit=8&sort=createdAt`).catch(() => ({ data: null })), REQ_MS, { data: null }),
+    withTimeout(api.get(`${API_BASE_URL}/notifications?limit=8&sort=createdAt&view=bell`).catch(() => ({ data: null })), REQ_MS, { data: null }),
   ]);
   const monitorStats = monitorStatsRes.data as MonitorStats | null;
   const alertsPayload = alertsRes.data as { alerts?: CrawlAlertPreview[] } | null;
@@ -167,7 +168,7 @@ async function fetchAll(): Promise<BusinessDashboardData> {
   return result;
 }
 
-export function useBusinessDashboard(pollMs = 60_000) {
+export function useBusinessDashboard(pollMs = 120_000) {
   const [data, setData] = useState<BusinessDashboardData>(cached ?? EMPTY);
   const [loading, setLoading] = useState(!cached);
   const [refreshing, setRefreshing] = useState(false);

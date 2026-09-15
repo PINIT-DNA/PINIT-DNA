@@ -136,7 +136,7 @@ export async function pickCompositionSourceVault(params: {
     return s.localScore >= 10 || inliers >= 6 || tmpl >= 0.38 || (compact && tmpl >= 0.32);
   };
 
-  const additionalSources = scored
+  const additionalSources: NonNullable<CompositionVaultPick['additionalSources']> = scored
     .filter(looksLikeSeparatePaste)
     .slice(0, 5)
     .map((s) => ({

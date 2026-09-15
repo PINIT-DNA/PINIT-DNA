@@ -17,6 +17,10 @@ export interface UserProfileSummary {
   role?: string;
   avatarUrl?: string | null;
   profileCompletion?: number;
+  jobTitle?: string | null;
+  country?: string | null;
+  bio?: string | null;
+  organization?: string | null;
 }
 
 const PLACEHOLDER_NAMES = new Set([

@@ -7,7 +7,7 @@
  *   → pHash stored in perceptual_layers (Layer 3)
  *   → Monitor enrolled
  *   → Check Now triggered
- *   → Candidate discovery (FilenameSearch + Bing if configured)
+ *   → Candidate discovery (any configured reverse-image provider, then FilenameSearch)
  *   → Each candidate downloaded and validated (MIME, size)
  *   → pHash computed for each candidate
  *   → Hamming distance compared with stored pHash
@@ -26,7 +26,7 @@ import { prisma }               from '../../lib/prisma';
 import { logger }               from '../../lib/logger';
 import { imageCandidateService } from './image-candidate.service';
 import { FilenameSearchProvider } from './providers/filename-search.provider';
-import { BingVisualSearchProvider } from './providers/bing-visual-search.provider';
+import { SUPPORTED as REVERSE_IMAGE_PROVIDERS } from './providers/registry';
 import type { ImageSearchResult }   from './providers/image-search.provider';
 import { isBlockedCrawlerUrl, pickNavigableUrl } from './url-sanitize';
 
@@ -68,9 +68,16 @@ export interface RejectionLog {
 
 export class ImageMonitoringService {
 
-  // Providers tried in order; first configured one wins (Bing preferred if key set)
+  /**
+   * Providers tried in order; the first configured one wins.
+   *
+   * REVERSE_IMAGE_PROVIDERS is empty until a provider is chosen and paid for —
+   * see providers/registry.ts. FilenameSearch is the fallback and is NOT a
+   * substitute: it searches words, not pixels, which is why it has never
+   * produced a usable match.
+   */
   private readonly providers = [
-    new BingVisualSearchProvider(),
+    ...REVERSE_IMAGE_PROVIDERS,
     new FilenameSearchProvider(),
   ];
 

@@ -7,12 +7,14 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { requireAuth } from '../middleware/auth.middleware';
+import { requireAssetOwnership } from '../middleware/ownership.middleware';
 import { config } from '../../config';
 import {
   protectAsset,
   listAssets,
   getAsset,
   getAssetStats,
+  getAssetGraph,
   transitionAsset,
 } from '../controllers/asset.controller';
 
@@ -32,7 +34,8 @@ const upload = multer({
       cb(null, `asset_${timestamp}_${random}${ext}`);
     },
   }),
-  limits: { fileSize: config.upload.maxFileSizeBytes ?? 500 * 1024 * 1024 },
+  // No fixed size limit: protection is limited by the owner's Vault storage,
+  // checked in publishProtect before any work starts.
 });
 
 function uploadMedia(req: Parameters<typeof protectAsset>[0], res: Parameters<typeof protectAsset>[1], next: Parameters<typeof protectAsset>[2]) {
@@ -52,7 +55,8 @@ function uploadMedia(req: Parameters<typeof protectAsset>[0], res: Parameters<ty
 router.post('/assets/protect', requireAuth, uploadMedia, protectAsset);
 router.get('/assets/stats', requireAuth, getAssetStats);
 router.get('/assets', requireAuth, listAssets);
-router.get('/assets/:id', requireAuth, getAsset);
-router.patch('/assets/:id/status', requireAuth, transitionAsset);
+router.get('/assets/:id/graph', requireAuth, requireAssetOwnership, getAssetGraph);
+router.get('/assets/:id', requireAuth, requireAssetOwnership, getAsset);
+router.patch('/assets/:id/status', requireAuth, requireAssetOwnership, transitionAsset);
 
 export { router as assetRouter };

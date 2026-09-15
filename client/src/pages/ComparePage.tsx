@@ -124,7 +124,7 @@ function AutoMatchIdentityBanner({ autoResult }: { autoResult: Record<string, an
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card border-dna-500/20">
       <div className="flex items-center gap-2 mb-1 flex-wrap">
         <Shield size={16} className="text-dna-400" />
-        <h3 className="text-sm font-semibold text-white">Auto-Matched from Vault</h3>
+        <h3 className="text-sm font-semibold text-white">Auto-matched from My Assets</h3>
         <Badge variant={autoResult.matchConfidence === 'EXACT' ? 'success' : autoResult.matchConfidence === 'HIGH' ? 'dna' : autoResult.probableMatch || autoResult.matchConfidence === 'PROBABLE' ? 'warning' : 'warning'}>
           {autoResult.matchConfidence === 'EXACT'
             ? 'Exact Match'
@@ -142,7 +142,7 @@ function AutoMatchIdentityBanner({ autoResult }: { autoResult: Record<string, an
 
       {/* Original file — prominent */}
       <div className="rounded-xl border border-dna-500/25 bg-dna-500/5 p-4 mb-4">
-        <p className="text-2xs text-dna-400 font-semibold uppercase tracking-wider mb-2">Original Vault File</p>
+        <p className="text-2xs text-dna-400 font-semibold uppercase tracking-wider mb-2">Original Vault Asset</p>
         <p className="text-base font-bold text-white break-all">{originalName}</p>
         <div className="flex flex-wrap gap-2 mt-2">
           {orig.mimeType && <Badge variant="dna">{orig.mimeType}</Badge>}
@@ -530,10 +530,7 @@ export function ComparePage() {
   return (
     <div className="page-shell space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-white">DNA Comparison</h1>
-        </div>
+      <div className="flex items-center justify-end">
         {(result || autoResult) && (
           <button onClick={handleReset} className="btn btn-secondary btn-sm">
             <RefreshCw size={13} /> New Comparison

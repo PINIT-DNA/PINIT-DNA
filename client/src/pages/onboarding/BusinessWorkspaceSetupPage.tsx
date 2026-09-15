@@ -22,7 +22,7 @@ type Step = 1 | 2 | 3 | 4;
 const STEP_META: Record<Step, { title: string; subtitle: string; icon: typeof Building2 }> = {
   1: {
     title: 'Organization name',
-    subtitle: 'This is your company or team identity on PINITHub.',
+    subtitle: 'This is your company or team identity on Pinit HUB.',
     icon: Building2,
   },
   2: {

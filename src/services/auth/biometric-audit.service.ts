@@ -16,7 +16,23 @@ export type SecurityEventType =
   | 'BIOMETRIC_FAILURE'
   | 'DEVICE_ADDED'
   | 'NEW_LOCATION'
-  | 'SESSION_REVOKED';
+  | 'SESSION_REVOKED'
+  // Per-modality biometric events. detail{} carries reasons/ids only —
+  // never embeddings, raw captures, or similarity distances beyond the
+  // server-only duplicate-tuning fields already documented.
+  | 'FACE_REGISTERED'
+  | 'FACE_DUPLICATE_REJECTED'
+  | 'FACE_LOGIN_SUCCESS'
+  | 'FACE_LOGIN_FAILED'
+  /** 1:N sign-in by face alone — distinct from 1:1 login so the two can be
+   *  alerted on separately; a spike here is the brute-force signal. */
+  | 'FACE_IDENTIFY_SUCCESS'
+  | 'FACE_IDENTIFY_FAILED'
+  | 'VOICE_REGISTERED'
+  | 'VOICE_DUPLICATE_REJECTED'
+  | 'WEBAUTHN_REGISTERED'
+  | 'WEBAUTHN_LOGIN_SUCCESS'
+  | 'WEBAUTHN_LOGIN_FAILED';
 
 interface AuditContext {
   userId?: string;

@@ -8,7 +8,8 @@ export type ForensicPdfKind =
   | 'dna'
   | 'timeline'
   | 'evidence_zip'
-  | 'json';
+  | 'json'
+  | 'probe_preview';
 
 export interface ForensicPdfArtifactMeta {
   kind: ForensicPdfKind;
@@ -94,6 +95,7 @@ export async function listForensicPdfArtifacts(
     const index = tx.objectStore(STORE).index('investigationId');
     const rows = await idbReq<ForensicPdfArtifactRecord[]>(index.getAll(investigationId));
     return rows
+      .filter((r) => r.kind !== 'probe_preview')
       .map(({ kind, filename, savedAt, sizeBytes }) => ({ kind, filename, savedAt, sizeBytes }))
       .sort((a, b) => b.savedAt.localeCompare(a.savedAt));
   } finally {
@@ -176,4 +178,5 @@ export const FORENSIC_PDF_KIND_LABEL: Record<ForensicPdfKind, string> = {
   timeline: 'Timeline Report (PDF)',
   evidence_zip: 'Evidence Package (ZIP)',
   json: 'Advanced Export (JSON)',
+  probe_preview: 'Examined file preview',
 };

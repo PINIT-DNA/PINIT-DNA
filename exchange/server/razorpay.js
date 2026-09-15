@@ -1,14 +1,151 @@
 import crypto from 'crypto';
 import Razorpay from 'razorpay';
+import { activeCurrency } from './lib/money.js';
+import { createOrderViaHub, verifyPaymentViaHub } from './hub-client.js';
 
-export function isRazorpayConfigured() {
-  return Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
+function razorpayKeyId() {
+  return String(process.env.RAZORPAY_KEY_ID || '').trim();
 }
 
-/** Mock payments when keys missing, or PAYMENT_MOCK=1 */
+function razorpayKeySecret() {
+  return String(process.env.RAZORPAY_KEY_SECRET || '').trim();
+}
+
+export const SHOPPER_PAYMENT_UNAVAILABLE =
+  "Payment temporarily unavailable. We couldn't connect to our payment provider. You have not been charged. Please try again.";
+
+export function isRazorpayConfigured() {
+  return Boolean(razorpayKeyId() && razorpayKeySecret());
+}
+
+/** True when the configured key is a live (real money) key. */
+export function isLiveKey() {
+  return razorpayKeyId().startsWith('rzp_live_');
+}
+
+function flagOn(name) {
+  const v = String(process.env[name] || '').trim().toLowerCase();
+  return v === '1' || v === 'true';
+}
+
+/**
+ * Demo mode: payments are marked successful without contacting a gateway.
+ *
+ * Off unless explicitly switched on, and it cannot be switched on against a
+ * live key — a demo flag left set on a production deploy would hand out paid
+ * accounts and licences for nothing, so the live key wins the argument every
+ * time and the attempt is logged rather than honoured.
+ *
+ * PAYMENT_DEMO_MODE is the flag to use. PAYMENT_MOCK is the older spelling and
+ * still works so existing environments keep behaving as they do today.
+ */
+let demoRefusalLogged = false;
+export function isPaymentDemoMode() {
+  const requested = flagOn('PAYMENT_DEMO_MODE') || flagOn('PAYMENT_MOCK');
+  if (requested && isLiveKey()) {
+    if (!demoRefusalLogged) {
+      demoRefusalLogged = true;
+      console.error(
+        '[payments] REFUSED: demo mode requested while a live Razorpay key is configured. '
+        + 'Real checkout will be used. Unset PAYMENT_DEMO_MODE / PAYMENT_MOCK on this environment.',
+      );
+    }
+    return false;
+  }
+  return requested;
+}
+
+/**
+ * Keys present but rejected by Razorpay (wrong secret / revoked test key).
+ * Local/dev then falls back to mock so seller activation is still testable.
+ * Never armed against a live key.
+ */
+let razorpayAuthBroken = false;
+let razorpayAuthBrokenLogged = false;
+
+function isRazorpayAuthFailure(err) {
+  const status = Number(err?.statusCode || err?.status || 0);
+  const desc = String(err?.error?.description || err?.message || '').toLowerCase();
+  return status === 401 || desc.includes('authentication failed') || desc.includes('invalid key');
+}
+
+export function razorpayErrorMessage(err) {
+  return (
+    err?.error?.description ||
+    err?.error?.reason ||
+    err?.message ||
+    (typeof err === 'string' ? err : '') ||
+    'Payment provider error'
+  );
+}
+
+/**
+ * Shopper-facing copy only. Operators get the Razorpay description in logs.
+ */
+export function publicPaymentError(err) {
+  if (isRazorpayAuthFailure(err) || /authentication failed|invalid key|PAYMENT_GATEWAY/i.test(razorpayErrorMessage(err))) {
+    return SHOPPER_PAYMENT_UNAVAILABLE;
+  }
+  const raw = razorpayErrorMessage(err);
+  if (/razorpay|key_id|key_secret/i.test(raw)) return SHOPPER_PAYMENT_UNAVAILABLE;
+  return raw || 'Could not start payment';
+}
+
+/** After signature check: captured ₹2,500 INR on the expected order. */
+export function sellerSubscriptionPaymentAcceptable(payment, expectedOrderId) {
+  if (!payment) return { ok: false, reason: 'Payment not found at the gateway' };
+  if (payment.mock || String(payment.id || '').startsWith('pay_mock_')) return { ok: true };
+  if (expectedOrderId && payment.order_id && String(payment.order_id) !== String(expectedOrderId)) {
+    return { ok: false, reason: 'Payment does not match this order' };
+  }
+  const status = String(payment.status || '').toLowerCase();
+  if (status && !['captured', 'authorized'].includes(status)) {
+    return { ok: false, reason: `Payment was not completed (status: ${status})` };
+  }
+  const amount = Number(payment.amount);
+  if (Number.isFinite(amount) && amount > 0 && amount !== SELLER_SUBSCRIPTION_AMOUNT_PAISE) {
+    return { ok: false, reason: 'Payment amount does not match the seller subscription' };
+  }
+  const currency = String(payment.currency || '').toUpperCase();
+  if (currency && currency !== SELLER_SUBSCRIPTION_CURRENCY) {
+    return { ok: false, reason: 'Payment currency does not match the seller subscription' };
+  }
+  return { ok: true };
+}
+
+function allowDevMockFallback() {
+  return !isLiveKey() && process.env.NODE_ENV !== 'production';
+}
+
+function markRazorpayAuthBroken(err) {
+  if (!allowDevMockFallback() || !isRazorpayAuthFailure(err)) return false;
+  razorpayAuthBroken = true;
+  if (!razorpayAuthBrokenLogged) {
+    razorpayAuthBrokenLogged = true;
+    console.warn(
+      '[payments] Razorpay authentication failed with the configured test keys. '
+      + 'Falling back to local mock checkout. Fix RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET to use real sandbox checkout.',
+    );
+  }
+  return true;
+}
+
+/**
+ * Payments are simulated.
+ *
+ * This previously ended with `return !isRazorpayConfigured()`, so a deployment
+ * that simply lacked its keys — a typo, a missing variable after a migration —
+ * silently began accepting every payment as successful and activating accounts
+ * for free. Missing configuration is now an error surfaced at the call site,
+ * not an invitation to give the product away. Absent keys still simulate when
+ * NODE_ENV is not production, which is the local-development case that
+ * behaviour was written for.
+ */
 export function isPaymentMockMode() {
-  if (String(process.env.PAYMENT_MOCK || '').trim() === '1') return true;
-  if (String(process.env.PAYMENT_MOCK || '').toLowerCase() === 'true') return true;
+  if (isPaymentDemoMode()) return true;
+  if (isLiveKey()) return false;
+  if (razorpayAuthBroken && allowDevMockFallback()) return true;
+  if (process.env.NODE_ENV === 'production') return false;
   return !isRazorpayConfigured();
 }
 
@@ -16,10 +153,58 @@ export function getBillingPublicConfig() {
   return {
     configured: isRazorpayConfigured(),
     mock: isPaymentMockMode(),
-    keyId: isRazorpayConfigured() ? process.env.RAZORPAY_KEY_ID : null,
-    currency: 'INR',
+    keyId: isRazorpayConfigured() && !isPaymentMockMode() ? razorpayKeyId() : null,
+    currency: activeCurrency(),
+    testMode: razorpayKeyId().startsWith('rzp_test_'),
+    // Explicit demo mode, so the UI can label the payment plainly rather than
+    // letting a simulated success look like a real one.
+    demo: isPaymentDemoMode() || (razorpayAuthBroken && allowDevMockFallback()),
+    live: isLiveKey(),
     provider: isPaymentMockMode() ? 'mock' : 'razorpay',
   };
+}
+
+/** Public Exchange origin for Razorpay payment-link callbacks (HTTPS only). */
+export function exchangePublicOrigin(req) {
+  const env = String(process.env.EXCHANGE_APP_URL || process.env.EXCHANGE_PUBLIC_URL || '').trim().replace(/\/$/, '');
+  if (env && /^https:\/\//i.test(env)) return env;
+  const host = String(req?.headers?.['x-forwarded-host'] || req?.get?.('host') || '').split(',')[0].trim();
+  const proto = String(req?.headers?.['x-forwarded-proto'] || req?.protocol || 'https').split(',')[0].trim();
+  if (host && !/localhost|127\.0\.0\.1/i.test(host) && proto === 'https') {
+    return `https://${host.replace(/^https?:\/\//i, '')}`;
+  }
+  return '';
+}
+
+function withTimeout(promise, ms, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]);
+}
+
+export async function fetchRazorpayOrder(orderId) {
+  if (isPaymentMockMode() || String(orderId || '').startsWith('order_mock_')) {
+    return { id: orderId, status: 'created', mock: true };
+  }
+  const client = getClient();
+  return withTimeout(
+    client.orders.fetch(orderId),
+    12000,
+    'Timed out talking to Razorpay. Try Pay again.',
+  );
+}
+
+export async function orderStillPayable(orderId) {
+  if (!orderId) return false;
+  try {
+    const order = await fetchRazorpayOrder(orderId);
+    return String(order.status || '').toLowerCase() === 'created';
+  } catch {
+    return false;
+  }
 }
 
 function getClient() {
@@ -27,48 +212,327 @@ function getClient() {
     throw new Error('Razorpay is not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.');
   }
   return new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID,
-    key_secret: process.env.RAZORPAY_KEY_SECRET,
+    key_id: razorpayKeyId(),
+    key_secret: razorpayKeySecret(),
   });
 }
 
-export async function createRazorpayOrder({ amountPaise, receipt, notes = {} }) {
-  if (isPaymentMockMode()) {
-    const mockId = `order_mock_${Date.now()}`;
-    return {
-      orderId: mockId,
-      amount: amountPaise,
-      currency: 'INR',
-      keyId: null,
-      mock: true,
-    };
-  }
-
-  const client = getClient();
-  const order = await client.orders.create({
-    amount: amountPaise,
-    currency: 'INR',
-    receipt: String(receipt || `ex_${Date.now()}`).slice(0, 40),
-    notes,
-  });
-
+function mockOrder({ amountPaise, currency }) {
   return {
-    orderId: order.id,
-    amount: Number(order.amount),
-    currency: order.currency || 'INR',
-    keyId: process.env.RAZORPAY_KEY_ID,
-    mock: false,
+    orderId: `order_mock_${Date.now()}`,
+    amount: amountPaise,
+    currency,
+    keyId: null,
+    mock: true,
   };
 }
 
-export function verifyRazorpaySignature({ orderId, paymentId, signature }) {
-  if (isPaymentMockMode()) {
-    return String(orderId || '').startsWith('order_mock_') || String(paymentId || '').startsWith('pay_mock_');
-  }
-  const body = `${orderId}|${paymentId}`;
+function verifyHmacHex(body, signature) {
   const expected = crypto
-    .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+    .createHmac('sha256', razorpayKeySecret())
     .update(body)
     .digest('hex');
-  return expected === signature;
+  const a = Buffer.from(expected, 'utf8');
+  const b = Buffer.from(String(signature || ''), 'utf8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+/**
+ * Hosted Payment Link — the browser navigates to Razorpay, then GET-returns
+ * to our SPA. Checkout.js modals were failing silently on the live site
+ * (nothing looked like a "payment page").
+ */
+export async function createRazorpayPaymentLink({
+  amountPaise,
+  currency,
+  description,
+  referenceId,
+  callbackUrl,
+  notes = {},
+  customer = {},
+}) {
+  const payCurrency = String(currency || activeCurrency()).toUpperCase();
+  if (isPaymentMockMode()) {
+    return {
+      id: `plink_mock_${Date.now()}`,
+      shortUrl: null,
+      orderId: `order_mock_${Date.now()}`,
+      mock: true,
+    };
+  }
+  if (!callbackUrl || !/^https:\/\//i.test(callbackUrl)) {
+    return null;
+  }
+
+  try {
+    const client = getClient();
+    const customerPayload = {};
+    if (customer.name) customerPayload.name = String(customer.name).slice(0, 120);
+    if (customer.email && !/@(pinithub|buyer|pinit)\.local$/i.test(String(customer.email))) {
+      customerPayload.email = String(customer.email).slice(0, 120);
+    }
+    if (customer.contact) customerPayload.contact = String(customer.contact).slice(0, 15);
+
+    const payload = {
+      amount: amountPaise,
+      currency: payCurrency,
+      accept_partial: false,
+      description: String(description || 'Pinit Exchange').slice(0, 255),
+      reference_id: String(referenceId || '').slice(0, 40),
+      callback_url: callbackUrl,
+      callback_method: 'get',
+      reminder_enable: false,
+      notify: { sms: false, email: false },
+      notes,
+    };
+    if (Object.keys(customerPayload).length) payload.customer = customerPayload;
+
+    const link = await withTimeout(
+      client.paymentLink.create(payload),
+      15000,
+      'Timed out creating the Razorpay payment page. Try Pay again.',
+    );
+    return {
+      id: link.id,
+      shortUrl: link.short_url,
+      orderId: link.order_id || null,
+      mock: false,
+    };
+  } catch (err) {
+    if (markRazorpayAuthBroken(err)) {
+      return {
+        id: `plink_mock_${Date.now()}`,
+        shortUrl: null,
+        orderId: `order_mock_${Date.now()}`,
+        mock: true,
+      };
+    }
+    console.warn('[payments] payment link failed, checkout.js fallback:', publicPaymentError(err));
+    return null;
+  }
+}
+
+export function verifyPaymentLinkSignature({
+  paymentLinkId,
+  paymentLinkRef,
+  paymentLinkStatus,
+  paymentId,
+  signature,
+}) {
+  if (String(paymentId || '').startsWith('pay_mock_') || String(paymentLinkId || '').startsWith('plink_mock_')) {
+    return !isLiveKey();
+  }
+  if (isPaymentMockMode() || !razorpayKeySecret()) return false;
+  const body = `${paymentLinkId}|${paymentLinkRef}|${paymentLinkStatus}|${paymentId}`;
+  return verifyHmacHex(body, signature);
+}
+
+export async function createRazorpayOrder({ amountPaise, receipt, notes = {}, currency }) {
+  const payCurrency = String(currency || activeCurrency()).toUpperCase();
+  if (isPaymentMockMode()) {
+    return mockOrder({ amountPaise, currency: payCurrency });
+  }
+
+  try {
+    const hub = await createOrderViaHub({
+      amountPaise,
+      currency: payCurrency,
+      receipt: String(receipt || `ex_${Date.now()}`).slice(0, 40),
+      notes,
+    });
+    if (hub?.orderId) return hub;
+  } catch (err) {
+    // Hub keys can be stale while Exchange still has a working test key
+    // (seller activation). A Hub 401/502 must not block license checkout.
+    console.warn('[payments] Hub Razorpay order unavailable, using Exchange keys:', razorpayErrorMessage(err));
+  }
+
+  try {
+    const client = getClient();
+    const order = await withTimeout(
+      client.orders.create({
+        amount: amountPaise,
+        currency: payCurrency,
+        receipt: String(receipt || `ex_${Date.now()}`).slice(0, 40),
+        payment_capture: 1,
+        notes,
+      }),
+      15000,
+      'Timed out creating the Razorpay order. Try Pay again.',
+    );
+
+    return {
+      orderId: order.id,
+      amount: Number(order.amount),
+      currency: order.currency || payCurrency,
+      keyId: razorpayKeyId(),
+      mock: false,
+    };
+  } catch (err) {
+    if (markRazorpayAuthBroken(err)) {
+      return mockOrder({ amountPaise, currency: payCurrency });
+    }
+    console.error('[payments] local Razorpay order:', razorpayErrorMessage(err));
+    const wrapped = new Error(publicPaymentError(err));
+    wrapped.status = err?.statusCode || 502;
+    throw wrapped;
+  }
+}
+
+export function verifyRazorpaySignature({ orderId, paymentId, signature }) {
+  const mockOrderId = String(orderId || '').startsWith('order_mock_');
+  const mockPaymentId = String(paymentId || '').startsWith('pay_mock_');
+  if (mockOrderId || mockPaymentId) {
+    // Never honour mock receipts against a live key.
+    if (isLiveKey()) return false;
+    return true;
+  }
+  if (isPaymentMockMode()) {
+    return false;
+  }
+  const body = `${orderId}|${paymentId}`;
+  return verifyHmacHex(body, signature);
+}
+
+/**
+ * Server-side confirmation only. Checkout.js success is not enough to activate
+ * a seller or seal a licence.
+ */
+export async function confirmRazorpayPayment({ orderId, paymentId, signature }) {
+  const mock =
+    isPaymentMockMode()
+    || String(orderId || '').startsWith('order_mock_')
+    || String(paymentId || '').startsWith('pay_mock_');
+  if (mock) {
+    if (isLiveKey() && !isPaymentMockMode()) return { ok: false };
+    return {
+      ok: true,
+      payment: {
+        id: paymentId,
+        order_id: orderId,
+        status: 'captured',
+        mock: true,
+      },
+    };
+  }
+  try {
+    const hub = await verifyPaymentViaHub({ orderId, paymentId, signature });
+    if (hub?.verified && hub.payment) return { ok: true, payment: hub.payment, via: 'hub' };
+  } catch (err) {
+    if (Number(err.status) === 402) return { ok: false };
+    console.warn('[payments] Hub verify:', razorpayErrorMessage(err));
+  }
+  if (!verifyRazorpaySignature({ orderId, paymentId, signature })) return { ok: false };
+  const payment = await fetchRazorpayPayment(paymentId);
+  return { ok: true, payment };
+}
+
+/**
+ * Seller subscription: ₹2,500.00, expressed in paise as Razorpay requires.
+ *
+ * This was 2500 minor units of USD — $25 — which could not actually be paid.
+ * Razorpay only offers UPI on INR orders, so a USD order dropped UPI from the
+ * sheet entirely, and a USD charge on an Indian account is an international
+ * transaction, which this account has disabled. That left card-only checkout
+ * where every available card was refused: domestic cards cannot settle USD,
+ * and international cards are blocked. The activation step was unpayable.
+ *
+ * Charging in INR restores UPI and domestic cards, and matches the currency
+ * buyer orders are already charged in.
+ */
+export const SELLER_SUBSCRIPTION_AMOUNT_PAISE = 250000;
+export const SELLER_SUBSCRIPTION_CURRENCY = 'INR';
+/** @deprecated retained so existing imports keep resolving. */
+export const SELLER_SUBSCRIPTION_AMOUNT_CENTS = SELLER_SUBSCRIPTION_AMOUNT_PAISE;
+/** @deprecated use SELLER_SUBSCRIPTION_AMOUNT_PAISE */
+export const SELLER_VERIFICATION_AMOUNT_PAISE = SELLER_SUBSCRIPTION_AMOUNT_PAISE;
+
+export async function createRazorpayCustomer({ name, email, contact, notes = {} }) {
+  if (isPaymentMockMode()) {
+    return { id: `cust_mock_${Date.now()}`, mock: true };
+  }
+  try {
+    const client = getClient();
+    const customer = await withTimeout(
+      client.customers.create({
+        name: String(name || 'Pinit Seller').slice(0, 120),
+        email: String(email || '').slice(0, 120) || undefined,
+        contact: contact ? String(contact).slice(0, 15) : undefined,
+        notes,
+      }),
+      10000,
+      'Timed out creating the Razorpay customer.',
+    );
+    return { id: customer.id, mock: false };
+  } catch (err) {
+    if (markRazorpayAuthBroken(err)) {
+      return { id: `cust_mock_${Date.now()}`, mock: true };
+    }
+    const wrapped = new Error(publicPaymentError(err));
+    wrapped.status = err?.statusCode || 502;
+    throw wrapped;
+  }
+}
+
+export async function fetchRazorpayPayment(paymentId) {
+  if (isPaymentMockMode() || String(paymentId || '').startsWith('pay_mock_')) {
+    return {
+      id: paymentId,
+      method: 'card',
+      card: { last4: '4242', network: 'Visa' },
+      token_id: `token_mock_${Date.now()}`,
+      mock: true,
+    };
+  }
+  try {
+    const client = getClient();
+    return await client.payments.fetch(paymentId);
+  } catch (err) {
+    if (markRazorpayAuthBroken(err)) {
+      return {
+        id: paymentId,
+        method: 'card',
+        card: { last4: '4242', network: 'Visa' },
+        token_id: `token_mock_${Date.now()}`,
+        mock: true,
+      };
+    }
+    const wrapped = new Error(publicPaymentError(err));
+    wrapped.status = err?.statusCode || 502;
+    throw wrapped;
+  }
+}
+
+export async function refundRazorpayPayment(paymentId, amountPaise) {
+  if (isPaymentMockMode()) {
+    return { id: `rfnd_mock_${Date.now()}`, mock: true };
+  }
+  const client = getClient();
+  return client.payments.refund(paymentId, { amount: amountPaise });
+}
+
+/**
+ * Verify a Razorpay webhook signature.
+ *
+ * Mock mode no longer short-circuits this whenever a secret is configured.
+ * `isPaymentMockMode()` is true if PAYMENT_MOCK is set OR if keys are simply
+ * missing, so the old unconditional `return true` meant a single stray env var
+ * in production turned every webhook into an unauthenticated write endpoint —
+ * anyone could POST a "payment refunded" or "dispute lost" event.
+ *
+ * The bypass now applies only when there is genuinely no secret to check
+ * against, which is the local-development case it was written for.
+ */
+export function verifyRazorpayWebhookSignature(rawBody, signature) {
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET;
+  if (!secret) return isPaymentMockMode();
+  if (!signature || !rawBody) return false;
+  const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+  // Constant-time compare; length guard first because timingSafeEqual throws
+  // on mismatched buffer lengths.
+  const a = Buffer.from(expected, 'utf8');
+  const b = Buffer.from(String(signature), 'utf8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }

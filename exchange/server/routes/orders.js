@@ -11,16 +11,35 @@ import {
 import { sealListingSale } from '../lib/seal-order.js';
 import {
   createRazorpayOrder,
-  verifyRazorpaySignature,
+  createRazorpayPaymentLink,
+  confirmRazorpayPayment,
   getBillingPublicConfig,
   isPaymentMockMode,
+  exchangePublicOrigin,
+  verifyPaymentLinkSignature,
+  fetchRazorpayPayment,
 } from '../razorpay.js';
 import { isListingPurchasable, LICENSE_STATUS, ORDER_STATUS, BRIDGE_EVENT } from '../lib/lifecycle.js';
 import { authorizeLicenseDownload } from '../lib/license-auth.js';
+import { ensureLicensedShare, publicAccessFromOrder } from '../lib/licensed-access.js';
 import { recordBridgeEvent, markBridgeEventProcessed, retryDueBridgeEvents } from '../lib/bridge-events.js';
-import { getSql, runSql } from '../lib/db.js';
+import { getSql, runSql, allSql } from '../lib/db.js';
+import { requireBuyer, requireVerifiedIdentity } from '../lib/rbac.js';
+import { postAssetActivity, emitForSeal } from '../lib/asset-activity.js';
+import { downloadsRemaining, describeEntitlement, LICENSE_TERMS_VERSION } from '../lib/licensing.js';
+import { formatMoney, activeCurrency } from '../lib/money.js';
+import { identityMatchSql, samePinitFace } from '../lib/pinit-identity.js';
 
 const router = express.Router();
+
+function publicLicenseRow(row) {
+  if (!row) return row;
+  const rest = { ...row };
+  delete rest.delivery_url;
+  delete rest.delivery_token;
+  delete rest.dna_hash_summary;
+  return { ...rest, ...publicAccessFromOrder(row) };
+}
 
 /** GET /api/orders/billing/config */
 router.get('/billing/config', (_req, res) => {
@@ -31,7 +50,7 @@ router.get('/billing/config', (_req, res) => {
  * POST /api/orders/create-payment
  * Creates a payment intent + Razorpay (or mock) order. Does NOT seal yet.
  */
-router.post('/create-payment', async (req, res) => {
+router.post('/create-payment', requireBuyer, async (req, res) => {
   try {
     const {
       listing_id,
@@ -44,7 +63,7 @@ router.post('/create-payment', async (req, res) => {
       buyer_key,
     } = req.body || {};
 
-    if (!listing_id || !license_tier || !buyer_name || !buyer_email) {
+  if (!listing_id || !license_tier || !buyer_name || !buyer_email) {
       return res.status(400).json({
         error: 'Missing required fields: listing_id, license_tier, buyer_name, buyer_email',
       });
@@ -62,11 +81,13 @@ router.post('/create-payment', async (req, res) => {
 
     const couponPercent = await resolveCouponPercent(coupon_code, listing.pinit_id);
     const pricePaid = applyCouponPercent(tierPrice(listing, license_tier), couponPercent);
-    const amountPaise = toPaise(pricePaid);
+    const payCurrency = activeCurrency();
+    const amountPaise = toPaise(pricePaid, payCurrency);
     const intentId = `PI-${randomUUID().slice(0, 8).toUpperCase()}`;
 
     const rz = await createRazorpayOrder({
       amountPaise,
+      currency: payCurrency,
       receipt: intentId,
       notes: {
         intentId,
@@ -76,12 +97,26 @@ router.post('/create-payment', async (req, res) => {
       },
     });
 
+    // Licence terms must be accepted before money is taken. Recorded on the
+    // intent so the acceptance timestamp is the moment of purchase.
+    const acceptedTerms = req.body?.accept_terms === true || req.body?.accept_terms === 'true';
+    if (!acceptedTerms) {
+      return res.status(400).json({
+        error: 'Licence terms must be accepted before checkout',
+        terms_version: LICENSE_TERMS_VERSION,
+      });
+    }
+
     await runSql(
+      // A single-listing intent maps to exactly one asset, so asset_id is
+      // deterministic here. Cart intents deliberately leave it NULL — one
+      // payment can span several assets and must be resolved per order line.
       `INSERT INTO payment_intents (
         id, kind, buyer_key, buyer_name, buyer_email, buyer_org, buyer_pinit_id,
         listing_id, license_tier, coupon_code, amount_paise, currency,
-        razorpay_order_id, status
-      ) VALUES (?, 'single', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?, 'pending')`,
+        razorpay_order_id, status, asset_id, terms_accepted_at
+      ) VALUES (?, 'single', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending',
+                (SELECT asset_id FROM listings WHERE listing_id = ?), CURRENT_TIMESTAMP)`,
       [
         intentId,
         buyer_key || buyer_pinit_id || buyer_email,
@@ -93,9 +128,26 @@ router.post('/create-payment', async (req, res) => {
         license_tier,
         String(coupon_code || '').trim().toUpperCase() || null,
         amountPaise,
+        rz.currency || payCurrency,
         rz.orderId,
+        listing_id,
       ],
     );
+
+    let checkoutUrl = null;
+    const origin = exchangePublicOrigin(req);
+    if (!rz.mock && origin) {
+      const link = await createRazorpayPaymentLink({
+        amountPaise,
+        currency: rz.currency || payCurrency,
+        description: `${listing.title} · ${license_tier} license`.slice(0, 255),
+        referenceId: intentId,
+        callbackUrl: `${origin}/exchange/checkout/return`,
+        notes: { intentId, listing_id, license_tier, product: 'pinit_exchange_license' },
+        customer: { name: buyer_name, email: buyer_email },
+      });
+      if (link?.shortUrl) checkoutUrl = link.shortUrl;
+    }
 
     res.status(201).json({
       payment_intent_id: intentId,
@@ -105,13 +157,18 @@ router.post('/create-payment', async (req, res) => {
       currency: rz.currency,
       keyId: rz.keyId,
       mock: rz.mock,
+      checkoutUrl,
       listing_title: listing.title,
       license_tier,
       coupon_percent: couponPercent,
     });
   } catch (err) {
     console.error('[create-payment]', err);
-    res.status(500).json({ error: err.message || 'Payment create failed' });
+    const status = Number(err.status) === 502 ? 502 : 500;
+    res.status(status).json({
+      error: status === 502 ? 'PAYMENT_UNAVAILABLE' : (err.message || 'Payment create failed'),
+      message: err.message || 'Payment create failed',
+    });
   }
 });
 
@@ -126,16 +183,40 @@ router.post('/verify-payment', async (req, res) => {
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_signature,
+      razorpay_payment_link_id: paymentLinkId,
+      razorpay_payment_link_reference_id: paymentLinkRef,
+      razorpay_payment_link_status: paymentLinkStatus,
     } = req.body || {};
 
-    if (!payment_intent_id) {
+    let intent = null;
+    if (payment_intent_id) {
+      intent = await getSql('SELECT * FROM payment_intents WHERE id = ?', [payment_intent_id]);
+    }
+    if (!intent && paymentLinkRef) {
+      intent = await getSql('SELECT * FROM payment_intents WHERE id = ?', [paymentLinkRef]);
+    }
+    if (!intent && razorpay_order_id) {
+      intent = await getSql('SELECT * FROM payment_intents WHERE razorpay_order_id = ?', [razorpay_order_id]);
+    }
+    if (!intent) {
       return res.status(400).json({ error: 'payment_intent_id required' });
     }
-
-    const intent = await getSql('SELECT * FROM payment_intents WHERE id = ?', [payment_intent_id]);
-    if (!intent) return res.status(404).json({ error: 'Payment intent not found' });
     if (intent.status === 'paid') {
-      return res.status(400).json({ error: 'Payment already completed' });
+      const existing = await getSql(
+        'SELECT * FROM orders_sealed WHERE payment_intent_id = ? ORDER BY sealed_at DESC LIMIT 1',
+        [intent.id],
+      );
+      if (existing) {
+        return res.status(200).json({
+          message: 'Payment already verified — license sealed',
+          mock: isPaymentMockMode(),
+          order: publicLicenseRow(existing),
+        });
+      }
+      return res.status(200).json({
+        message: 'Payment was received, but license delivery is still being prepared.',
+        pending_delivery: true,
+      });
     }
 
     const orderId = razorpay_order_id || intent.razorpay_order_id;
@@ -147,16 +228,49 @@ router.post('/verify-payment', async (req, res) => {
       signature = signature || 'mock';
     }
 
-    if (!orderId || !paymentId) {
+    if (!paymentId) {
       return res.status(400).json({ error: 'Missing Razorpay payment fields' });
     }
 
-    const ok = verifyRazorpaySignature({
-      orderId,
-      paymentId,
-      signature: signature || '',
-    });
-    if (!ok) return res.status(400).json({ error: 'Invalid payment signature' });
+    const paidAlready = await getSql(
+      'SELECT * FROM orders_sealed WHERE razorpay_payment_id = ? LIMIT 1',
+      [paymentId],
+    );
+    if (paidAlready) {
+      return res.status(200).json({
+        message: 'Payment already verified — license sealed',
+        mock: isPaymentMockMode(),
+        order: publicLicenseRow(paidAlready),
+      });
+    }
+
+    let confirmed;
+    if (paymentLinkId) {
+      const linkOk = verifyPaymentLinkSignature({
+        paymentLinkId,
+        paymentLinkRef: paymentLinkRef || intent.id,
+        paymentLinkStatus: paymentLinkStatus || 'paid',
+        paymentId,
+        signature: signature || '',
+      });
+      if (!linkOk) return res.status(400).json({ error: 'Invalid payment signature' });
+      const payment = await fetchRazorpayPayment(paymentId);
+      const st = String(payment?.status || '').toLowerCase();
+      if (st && !['captured', 'authorized'].includes(st) && !payment?.mock) {
+        return res.status(400).json({ error: 'Payment was not completed' });
+      }
+      confirmed = { ok: true, payment };
+    } else {
+      if (!orderId) {
+        return res.status(400).json({ error: 'Missing Razorpay payment fields' });
+      }
+      confirmed = await confirmRazorpayPayment({
+        orderId,
+        paymentId,
+        signature: signature || '',
+      });
+    }
+    if (!confirmed.ok) return res.status(400).json({ error: 'Invalid payment signature' });
 
     if (intent.kind === 'cart') {
       const lines = JSON.parse(intent.cart_snapshot || '[]');
@@ -177,11 +291,13 @@ router.post('/verify-payment', async (req, res) => {
             buyerOrg: intent.buyer_org,
             buyerPinitId: intent.buyer_pinit_id,
             couponPercent,
+            termsAcceptedAt: intent.terms_accepted_at || null,
             payment: {
               paymentStatus: isPaymentMockMode() ? 'mock_paid' : 'paid',
               razorpayOrderId: orderId,
               razorpayPaymentId: paymentId,
               paymentIntentId: intent.id,
+              currency: intent.currency || confirmed.payment?.currency,
             },
           });
           results.push({ listing_id: line.listing_id, ok: true, order });
@@ -213,21 +329,37 @@ router.post('/verify-payment', async (req, res) => {
     if (!listing) return res.status(404).json({ error: 'Listing not found' });
     const couponPercent = await resolveCouponPercent(intent.coupon_code, listing.pinit_id);
 
-    const order = await sealListingSale({
-      listing,
-      licenseTier: intent.license_tier,
-      buyerName: intent.buyer_name,
-      buyerEmail: intent.buyer_email,
-      buyerOrg: intent.buyer_org,
-      buyerPinitId: intent.buyer_pinit_id,
-      couponPercent,
-      payment: {
-        paymentStatus: isPaymentMockMode() ? 'mock_paid' : 'paid',
-        razorpayOrderId: orderId,
-        razorpayPaymentId: paymentId,
-        paymentIntentId: intent.id,
-      },
-    });
+    let order;
+    try {
+      order = await sealListingSale({
+        listing,
+        licenseTier: intent.license_tier,
+        buyerName: intent.buyer_name,
+        buyerEmail: intent.buyer_email,
+        buyerOrg: intent.buyer_org,
+        buyerPinitId: intent.buyer_pinit_id,
+        couponPercent,
+        termsAcceptedAt: intent.terms_accepted_at || null,
+        payment: {
+          paymentStatus: isPaymentMockMode() ? 'mock_paid' : 'paid',
+          razorpayOrderId: orderId,
+          razorpayPaymentId: paymentId,
+          paymentIntentId: intent.id,
+          currency: intent.currency || confirmed.payment?.currency,
+        },
+      });
+    } catch (sealErr) {
+      await runSql(
+        `UPDATE payment_intents SET status = 'paid', razorpay_payment_id = ? WHERE id = ?`,
+        [paymentId, intent.id],
+      );
+      console.error('[verify-payment] license seal after paid payment', sealErr);
+      return res.status(200).json({
+        message: 'Payment was received, but license delivery is still being prepared.',
+        pending_delivery: true,
+        error: 'LICENSE_PENDING',
+      });
+    }
 
     await runSql(
       `UPDATE payment_intents SET status = 'paid', razorpay_payment_id = ? WHERE id = ?`,
@@ -237,7 +369,7 @@ router.post('/verify-payment', async (req, res) => {
     res.status(201).json({
       message: 'Payment verified — license sealed',
       mock: isPaymentMockMode(),
-      order,
+      order: publicLicenseRow(order),
     });
   } catch (err) {
     console.error('[verify-payment]', err);
@@ -249,7 +381,7 @@ router.post('/verify-payment', async (req, res) => {
  * Legacy checkout — creates payment then auto-verifies in mock mode.
  * With live Razorpay keys, returns payment_required so UI opens Checkout.js.
  */
-router.post('/checkout', async (req, res) => {
+router.post('/checkout', requireBuyer, async (req, res) => {
   try {
     const body = req.body || {};
     if (!body.listing_id || !body.license_tier || !body.buyer_name || !body.buyer_email) {
@@ -316,6 +448,9 @@ router.post('/checkout', async (req, res) => {
       buyerOrg: body.buyer_org,
       buyerPinitId: body.buyer_pinit_id,
       couponPercent,
+      termsAcceptedAt: (body.accept_terms === true || body.accept_terms === 'true')
+        ? new Date().toISOString()
+        : null,
       payment: {
         paymentStatus: 'mock_paid',
         razorpayOrderId: rz.orderId,
@@ -339,45 +474,45 @@ router.post('/checkout', async (req, res) => {
   }
 });
 
-router.get('/my-licenses', (req, res) => {
-  const email = String(req.query.email || '').trim();
-  const pinitId = String(req.query.pinit_id || '').trim();
-  if (!email && !pinitId) {
-    return res.status(400).json({ error: 'email or pinit_id required' });
-  }
+/**
+ * GET /api/orders/my-licenses — the caller's own licence entitlements.
+ *
+ * This route had no guard whatsoever and scoped itself by whatever `pinit_id`
+ * or `email` arrived in the query string. Because Pinit IDs are shown publicly
+ * on listings and reviews, anyone could read anyone else's licences — including
+ * the buyer_email on each order. It is now scoped to the verified session only,
+ * and the query parameters are ignored for scoping.
+ */
+router.get('/my-licenses', requireVerifiedIdentity, (req, res) => {
+  const pinitId = req.verifiedPinitId;
+  const match = identityMatchSql('o.buyer_pinit_id', pinitId);
 
-  let sql = `
+  const sql = `
     SELECT o.*, l.title as asset_title, l.badge_tier, l.tagline
     FROM orders_sealed o
     LEFT JOIN listings l ON o.listing_id = l.listing_id
-    WHERE 1=1
+    WHERE ${match.sql}
+    ORDER BY o.sealed_at DESC LIMIT 100
   `;
-  const params = [];
-  if (email) {
-    sql += ' AND lower(o.buyer_email) = lower(?)';
-    params.push(email);
-  }
-  if (pinitId) {
-    sql += ' AND o.buyer_pinit_id = ?';
-    params.push(pinitId);
-  }
-  sql += ' ORDER BY o.sealed_at DESC LIMIT 100';
 
-  db.all(sql, params, (err, rows) => {
+  db.all(sql, match.params, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json({ licenses: rows || [] });
+    res.json({ licenses: (rows || []).map(publicLicenseRow) });
   });
 });
 
-router.get('/certificate/:seal_id', async (req, res) => {
+router.get('/certificate/:seal_id', requireVerifiedIdentity, async (req, res) => {
   try {
     const sealId = req.params.seal_id;
-    const buyerPinitId = String(req.query.pinit_id || '').trim();
-    const buyerEmail = String(req.query.email || '').trim();
+    // Identity comes from the signed session, never from the query string.
+    // This route previously trusted ?pinit_id= / ?email=, which meant anyone
+    // holding a seal id and a public Pinit ID could read the certificate —
+    // and it carries the buyer's name, email and what they paid.
+    const buyerPinitId = req.verifiedPinitId;
     const order = await authorizeLicenseDownload({
       sealId,
       buyerPinitId,
-      buyerEmail,
+      buyerEmail: '',
     });
 
     const enriched = await getSql(
@@ -409,7 +544,7 @@ router.get('/certificate/:seal_id', async (req, res) => {
         org: order.buyer_org,
       },
       price_paid: order.price_paid,
-      dna_hash_summary: order.dna_hash_summary,
+      dna_hash_summary: undefined,
       note: 'Master file remains in Pinit HUB vault. Use POST /api/orders/download/authorize for delivery.',
     });
   } catch (err) {
@@ -419,28 +554,27 @@ router.get('/certificate/:seal_id', async (req, res) => {
 
 /**
  * POST /api/orders/download/authorize
- * Verify buyer owns ACTIVE license before returning Hub delivery URL.
+ * Verify buyer owns ACTIVE license, then return the Hub share URL (never a JWT API URL).
  */
-router.post('/download/authorize', async (req, res) => {
+router.post('/download/authorize', requireVerifiedIdentity, async (req, res) => {
   try {
     const sealId = String(req.body?.seal_id || req.body?.license_id || '').trim();
-    const buyerPinitId = String(req.body?.buyer_pinit_id || req.body?.pinit_id || '').trim();
-    const buyerEmail = String(req.body?.buyer_email || req.body?.email || '').trim();
+    const buyerPinitId = req.verifiedPinitId;
     const requestedAssetId = String(req.body?.asset_id || '').trim();
 
     const order = await authorizeLicenseDownload({
       sealId,
       buyerPinitId,
-      buyerEmail,
+      buyerEmail: '',
       requestedAssetId,
     });
 
-    if (!order.delivery_url) {
-      return res.status(409).json({
-        error: 'Delivery not ready',
-        message: 'Hub delivery token not prepared yet. Retry shortly.',
-      });
-    }
+    const share = await ensureLicensedShare(order);
+    const access = publicAccessFromOrder({
+      ...order,
+      share_token: share.token,
+      share_url: share.shareUrl,
+    });
 
     res.json({
       ok: true,
@@ -448,40 +582,176 @@ router.post('/download/authorize', async (req, res) => {
       asset_id: order.asset_id,
       license_status: order.license_status || LICENSE_STATUS.ACTIVE,
       delivery_status: order.delivery_status || 'active',
-      delivery_expires_at: order.delivery_expires_at,
-      download_url: order.delivery_url,
+      ...access,
+      downloads_used: Number(order.download_count || 0),
+      downloads_remaining: downloadsRemaining(order),
+      download_limit: order.download_limit ?? null,
     });
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    const msg = String(err.message || '');
+    const friendly = /bridge token|delivery token/i.test(msg)
+      ? 'You don\'t have access to this file.'
+      : msg;
+    res.status(err.status || 500).json({ error: friendly });
+  }
+});
+
+/**
+ * GET /api/orders/my-orders — buyer purchase history.
+ *
+ * Distinct from /my-licenses: this is the commercial record (what was paid,
+ * in which currency, and its payment state), not the licence entitlement.
+ * Scoped to the caller's own Pinit ID — never a client-supplied buyer id.
+ */
+router.get('/my-orders', requireVerifiedIdentity, requireBuyer, async (req, res) => {
+  try {
+    // Verified session only — a claimed Pinit ID must never select someone
+    // else's purchase history.
+    const buyerPinitId = req.verifiedPinitId;
+    if (!buyerPinitId) return res.status(400).json({ error: 'buyer identity required' });
+    const match = identityMatchSql('o.buyer_pinit_id', buyerPinitId);
+
+    const rows = await allSql(
+      `SELECT o.seal_id, o.order_id, o.invoice_number, o.listing_id, o.asset_id,
+              o.license_tier, o.price_paid, o.platform_fee, o.currency,
+              o.status, o.payment_status, o.license_status, o.delivery_status,
+              o.sealed_at, o.download_count, o.download_limit,
+              o.terms_version, o.terms_accepted_at,
+              l.title
+         FROM orders_sealed o
+         LEFT JOIN listings l ON l.listing_id = o.listing_id
+        WHERE ${match.sql}
+        ORDER BY o.sealed_at DESC`,
+      match.params,
+    );
+
+    res.json(rows.map((o) => ({
+      ...o,
+      currency: o.currency || activeCurrency(),
+      amount_display: formatMoney(o.price_paid, o.currency || activeCurrency()),
+      entitlement: describeEntitlement(o.license_tier),
+      downloads_remaining: downloadsRemaining(o),
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/orders/invoice/:sealId — invoice payload for one order.
+ *
+ * Returns only the buyer's own order. Amounts are formatted server-side in the
+ * currency the order was actually charged in, so a historical INR order never
+ * renders as USD after the platform currency changes.
+ */
+router.get('/invoice/:sealId', requireVerifiedIdentity, requireBuyer, async (req, res) => {
+  try {
+    const buyerPinitId = req.verifiedPinitId;
+    const order = await getSql(
+      `SELECT o.*, l.title
+         FROM orders_sealed o
+         LEFT JOIN listings l ON l.listing_id = o.listing_id
+        WHERE o.seal_id = ?`,
+      [req.params.sealId],
+    );
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    if (!buyerPinitId || !samePinitFace(order.buyer_pinit_id, buyerPinitId)) {
+      // Same response as missing, so invoices cannot be enumerated.
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const cur = order.currency || activeCurrency();
+    const gross = Number(order.price_paid || 0);
+    const fee = Number(order.platform_fee || 0);
+
+    res.json({
+      invoice_number: order.invoice_number || `INV-${String(order.seal_id).replace('SEAL-', '')}`,
+      issued_at: order.sealed_at,
+      seal_id: order.seal_id,
+      order_id: order.order_id,
+      status: order.status,
+      payment_status: order.payment_status,
+      seller: { pinit_id: order.seller_pinit_id, exchange_id: order.seller_exchange_id },
+      buyer: { pinit_id: order.buyer_pinit_id },
+      item: {
+        title: order.title || order.asset_id,
+        asset_id: order.asset_id,
+        listing_id: order.listing_id,
+        license_tier: order.license_tier,
+        entitlement: describeEntitlement(order.license_tier),
+      },
+      terms: {
+        version: order.terms_version || LICENSE_TERMS_VERSION,
+        accepted_at: order.terms_accepted_at || null,
+      },
+      currency: cur,
+      totals: {
+        gross,
+        platform_fee: fee,
+        total: gross,
+        gross_display: formatMoney(gross, cur),
+        platform_fee_display: formatMoney(fee, cur),
+        total_display: formatMoney(gross, cur),
+      },
+      // No tax is computed. Stated explicitly so an invoice is never mistaken
+      // for a tax document until GST handling is implemented.
+      tax: { applied: false, note: 'Tax not applied. This document is not a tax invoice.' },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
 /**
  * POST /api/orders/:sealId/refund — mark order/license refunded; block delivery (no Razorpay payout yet)
  */
-router.post('/:sealId/refund', async (req, res) => {
+router.post('/:sealId/refund', requireVerifiedIdentity, async (req, res) => {
   try {
     const sealId = req.params.sealId;
-    const actor = String(req.body?.actor_pinit_id || req.body?.pinit_id || '').trim();
+    // Actor comes from the signed session. Previously this was read from the
+    // request body and compared against the order's own parties — so the caller
+    // supplied both sides of the check. Worse, `admin: "1"` in the body skipped
+    // the comparison outright, letting any caller refund any order.
+    const actor = req.verifiedPinitId;
     const reason = String(req.body?.reason || 'buyer_refund').trim();
     const order = await getSql('SELECT * FROM orders_sealed WHERE seal_id = ?', [sealId]);
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    // Seller or buyer may initiate refund stub
+    // Only the two real parties to this order. Compared on the bare Pinit code
+    // so PINIT-EX-x and PINIT-x forms of one identity still match.
+    const code = (v) => String(v || '').trim().toUpperCase().split('-').pop();
     const allowed =
-      (actor && (actor === order.seller_pinit_id || actor === order.buyer_pinit_id)) ||
-      String(req.body?.admin || '') === '1';
-    if (!allowed) return res.status(403).json({ error: 'Forbidden: only buyer, seller, or admin can refund' });
+      code(actor) === code(order.seller_pinit_id) || code(actor) === code(order.buyer_pinit_id);
+    if (!allowed) return res.status(403).json({ error: 'Forbidden: only the buyer or seller on this order can refund it' });
 
     if (String(order.status).toLowerCase() === ORDER_STATUS.REFUNDED) {
       return res.json({ message: 'Already refunded', order });
     }
 
+    // Return the money before revoking anything. A refund that only flips
+    // database state leaves the buyer without the asset AND without the funds.
+    let gatewayRefund = null;
+    if (order.razorpay_payment_id && !isPaymentMockMode()) {
+      try {
+        gatewayRefund = await refundRazorpayPayment(
+          order.razorpay_payment_id,
+          toPaise(order.price_paid, order.currency),
+        );
+      } catch (refundErr) {
+        // Do not revoke the licence if the money could not be returned.
+        return res.status(502).json({
+          error: 'Refund failed at the payment provider',
+          message: refundErr.message,
+          hint: 'The licence has not been revoked. Retry, or refund manually in the Razorpay dashboard.',
+        });
+      }
+    }
+
     const refundId = `REF-${sealId}`;
     await runSql(
-      `INSERT OR IGNORE INTO refunds (id, order_id, seal_id, amount, reason, status)
-       VALUES (?, ?, ?, ?, ?, 'completed')`,
-      [refundId, order.order_id, sealId, order.price_paid, reason],
+      `INSERT OR IGNORE INTO refunds (id, order_id, seal_id, amount, reason, status, asset_id)
+       VALUES (?, ?, ?, ?, ?, 'completed', ?)`,
+      [refundId, order.order_id, sealId, order.price_paid, reason, order.asset_id || null],
     );
     await runSql(
       `UPDATE orders_sealed
@@ -510,6 +780,16 @@ router.post('/:sealId/refund', async (req, res) => {
       message: 'Order refunded — license and delivery blocked',
       order: updated,
       refund_id: refundId,
+      gateway_refund_id: gatewayRefund?.id || null,
+      gateway_refunded: Boolean(gatewayRefund),
+    });
+
+    postAssetActivity({
+      assetId: order.asset_id,
+      eventType: 'REFUNDED',
+      title: 'Order refunded',
+      detail: `Seal ${sealId}`,
+      payload: { sealId, orderId: order.order_id, reason, refundId },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

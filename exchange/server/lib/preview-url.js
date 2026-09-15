@@ -1,3 +1,5 @@
+import { signPreviewParams } from './preview-token.js';
+
 const PLACEHOLDER_PREVIEW =
   'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=800&q=80';
 
@@ -7,11 +9,22 @@ export function isHubVaultId(assetId) {
   );
 }
 
-/** Same-origin Hub vault preview proxy for real assets (playable video/image). */
+/**
+ * Same-origin Hub vault preview proxy for real assets.
+ *
+ * The URL carries a short-lived signature. It is minted per response, so a
+ * bare `/api/hub/preview/<asset_id>` guessed from the public listings API no
+ * longer resolves.
+ */
 export function exchangePreviewUrl(assetId, fallback = PLACEHOLDER_PREVIEW) {
-  if (isHubVaultId(assetId)) return `/api/hub/preview/${assetId}`;
+  if (isHubVaultId(assetId)) {
+    const signed = signPreviewParams(assetId);
+    return signed
+      ? `/api/hub/preview/${assetId}?e=${signed.e}&t=${signed.t}`
+      : `/api/hub/preview/${assetId}`;
+  }
   if (fallback && !String(fallback).includes('unsplash.com')) return fallback;
-  return isHubVaultId(assetId) ? `/api/hub/preview/${assetId}` : fallback || PLACEHOLDER_PREVIEW;
+  return fallback || PLACEHOLDER_PREVIEW;
 }
 
 export { PLACEHOLDER_PREVIEW };

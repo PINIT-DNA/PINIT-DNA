@@ -115,7 +115,10 @@ export function InvestigationLivePanel({ snapshot, file, previewUrl }: Props) {
               {(strongMatch || midBandCandidate) && (snapshot.ownerName || snapshot.ownerPinitId) && (
                 <div className="flex items-center gap-2 min-w-0">
                   <User size={12} className="text-gray-500 shrink-0" />
-                  <span className="text-gray-500">{strongMatch ? 'Possible Owner' : 'Vault Registrant'}</span>
+                  {/* A found signature is proof of identity, not a guess — the phase
+                      label above already says whether verification is still running.
+                      A mid-band candidate is the one that is genuinely "possible". */}
+                  <span className="text-gray-500">{strongMatch ? 'Owner' : 'Possible owner'}</span>
                   <span className="text-white truncate">
                     {snapshot.ownerName ?? snapshot.ownerPinitId}
                     {snapshot.ownerName && snapshot.ownerPinitId ? ` (${snapshot.ownerPinitId})` : ''}
@@ -125,14 +128,14 @@ export function InvestigationLivePanel({ snapshot, file, previewUrl }: Props) {
               {snapshot.vaultId && (
                 <div className="flex items-center gap-2 min-w-0">
                   <Shield size={12} className="text-gray-500 shrink-0" />
-                  <span className="text-gray-500">Vault</span>
+                  <span className="text-gray-500">Asset</span>
                   <span className="text-white mono">{shortId(snapshot.vaultId)}</span>
                 </div>
               )}
               {snapshot.originalFilename && (
                 <div className="flex items-center gap-2 min-w-0 sm:col-span-2">
                   <Fingerprint size={12} className="text-gray-500 shrink-0" />
-                  <span className="text-gray-500">Original File</span>
+                  <span className="text-gray-500">Original Asset</span>
                   <span className="text-white truncate">{snapshot.originalFilename}</span>
                 </div>
               )}

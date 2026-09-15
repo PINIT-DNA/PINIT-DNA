@@ -1,0 +1,941 @@
+import type { Request, Response, NextFunction } from 'express';
+import type { CommentKind, CommentStatus } from '@prisma/client';
+import { getAuthUserId } from '../../lib/tenant-scope';
+import { getOrganizationIdForUser } from '../../services/organization/org-access.service';
+import { clientService } from '../../services/organization/client.service';
+import { campaignService } from '../../services/organization/campaign.service';
+import { assetVersionService } from '../../services/organization/asset-version.service';
+import { reviewCommentService } from '../../services/organization/review-comment.service';
+import type {
+  InvestigationStatus, InvestigationPriority,
+} from '../../services/organization/campaign-investigation.service';
+import { AppError } from '../middleware/error.middleware';
+
+async function orgIdFor(req: Request): Promise<{ userId: string; organizationId: string }> {
+  const userId = getAuthUserId(req);
+  const organizationId = await getOrganizationIdForUser(userId);
+  if (!organizationId) throw new AppError(404, 'Business account not found');
+  return { userId, organizationId };
+}
+
+export const businessController = {
+  // ── Clients ───────────────────────────────────────────────────────────
+  async listClients(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const clients = await clientService.list(organizationId, userId);
+      res.json({ success: true, clients });
+    } catch (err) { next(err); }
+  },
+
+  async getClient(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const client = await clientService.get(organizationId, userId, req.params.clientId as string);
+      res.json({ success: true, client });
+    } catch (err) { next(err); }
+  },
+
+  async createClient(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const client = await clientService.create(organizationId, userId, req.body);
+      res.status(201).json({ success: true, client });
+    } catch (err) { next(err); }
+  },
+
+  async updateClient(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const client = await clientService.update(organizationId, userId, req.params.clientId as string, req.body);
+      res.json({ success: true, client });
+    } catch (err) { next(err); }
+  },
+
+  async deleteClient(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      await clientService.remove(organizationId, userId, req.params.clientId as string);
+      res.json({ success: true });
+    } catch (err) { next(err); }
+  },
+
+  /**
+   * Can this vault file be shared for review?
+   *
+   * The share dialog asks before offering review controls, so a sender is never
+   * shown options that would be refused at creation time. Returns only what the
+   * dialog needs to explain itself — no internal ids beyond the campaign the
+   * user already has access to.
+   */
+  async getShareReviewEligibility(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { organizationId } = await orgIdFor(req);
+      const { prisma } = await import('../../lib/prisma');
+      // Scope by the caller's organisation campaign, not Asset.ownerUserId.
+      // A teammate who did not upload the file can still send a client review
+      // link; a personal vault file in another org stays ineligible.
+      const asset = await prisma.asset.findFirst({
+        where: {
+          vaultId: req.params.vaultId as string,
+          campaign: { organizationId },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true, originalFilename: true, campaignId: true,
+          campaign: { select: { id: true, name: true, organizationId: true,
+                                client: { select: { name: true } } } },
+        },
+      });
+
+      if (!asset) {
+        res.json({ success: true, eligible: false,
+          reason: 'This file has no asset record yet.' });
+        return;
+      }
+      if (!asset.campaign || asset.campaign.organizationId !== organizationId) {
+        res.json({ success: true, eligible: false,
+          reason: 'Review is available for assets in a campaign. Add this asset to a campaign first.' });
+        return;
+      }
+
+      const versions = await prisma.assetVersion.count({ where: { assetId: asset.id } });
+      res.json({
+        success: true,
+        eligible: true,
+        campaignName: asset.campaign.name,
+        clientName: asset.campaign.client?.name ?? null,
+        versionCount: versions,
+      });
+    } catch (err) { next(err); }
+  },
+
+  // ── Campaign intelligence (Phase C, layer 3) ──────────────────────────
+  async getCampaignIntelligence(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignIntelligenceService } =
+        await import('../../services/organization/campaign-intelligence.service');
+      const intelligence = await campaignIntelligenceService.getForCampaign(
+        organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, intelligence });
+    } catch (err) { next(err); }
+  },
+
+  // ── Findings (Phase C, layer 2) ───────────────────────────────────────
+  async listCampaignFindings(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignFindingsService } = await import('../../services/organization/campaign-findings.service');
+      const { status, assetId } = req.query as { status?: string; assetId?: string };
+      const result = await campaignFindingsService.listForCampaign(
+        organizationId, userId, req.params.campaignId as string,
+        {
+          ...(status ? { status: status as 'PENDING' | 'CONFIRMED' | 'DISMISSED' } : {}),
+          ...(assetId ? { assetId } : {}),
+        },
+      );
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async getCampaignFinding(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignFindingsService } = await import('../../services/organization/campaign-findings.service');
+      const finding = await campaignFindingsService.get(
+        organizationId, userId, req.params.findingId as string);
+      res.json({ success: true, finding });
+    } catch (err) { next(err); }
+  },
+
+  async decideCampaignFinding(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignFindingsService } = await import('../../services/organization/campaign-findings.service');
+      const { status, note } = (req.body ?? {}) as { status?: string; note?: string };
+      if (status !== 'CONFIRMED' && status !== 'DISMISSED') {
+        throw new AppError(400, 'A finding can only be confirmed or dismissed');
+      }
+      const result = await campaignFindingsService.decide(
+        organizationId, userId, req.params.findingId as string, status, note);
+      res.json({ success: true, finding: result });
+    } catch (err) { next(err); }
+  },
+
+  // ── Monitoring (Phase C, layer 1) ─────────────────────────────────────
+  async listCampaignMonitoring(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignMonitoringService } = await import('../../services/organization/campaign-monitoring.service');
+      const result = await campaignMonitoringService.listForCampaign(
+        organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async enableCampaignMonitoring(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignMonitoringService } = await import('../../services/organization/campaign-monitoring.service');
+      const result = await campaignMonitoringService.enable(
+        organizationId, userId,
+        req.params.campaignId as string, req.params.assetId as string,
+        req.body ?? {});
+      res.status(201).json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async disableCampaignMonitoring(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignMonitoringService } = await import('../../services/organization/campaign-monitoring.service');
+      const result = await campaignMonitoringService.disable(
+        organizationId, userId,
+        req.params.campaignId as string, req.params.assetId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  // ── Rights and handover ───────────────────────────────────────────────
+  async listCampaignRights(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignRightsService } = await import('../../services/organization/campaign-rights.service');
+      const result = await campaignRightsService.listForCampaign(
+        organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async listHandoverCandidates(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignHandoverService } = await import('../../services/organization/campaign-handover.service');
+      const result = await campaignHandoverService.listCandidates(
+        organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async listHandovers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignHandoverService } = await import('../../services/organization/campaign-handover.service');
+      const handovers = await campaignHandoverService.list(
+        organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, handovers });
+    } catch (err) { next(err); }
+  },
+
+  async createHandover(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignHandoverService } = await import('../../services/organization/campaign-handover.service');
+      const handover = await campaignHandoverService.create(
+        organizationId, userId, req.params.campaignId as string, req.body ?? {});
+      res.status(201).json({ success: true, handover });
+    } catch (err) { next(err); }
+  },
+
+  async sendHandover(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignHandoverService } = await import('../../services/organization/campaign-handover.service');
+      const handover = await campaignHandoverService.send(
+        organizationId, userId, req.params.campaignId as string, req.params.handoverId as string);
+      res.json({ success: true, handover });
+    } catch (err) { next(err); }
+  },
+
+  async revokeHandover(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignHandoverService } = await import('../../services/organization/campaign-handover.service');
+      const handover = await campaignHandoverService.revoke(
+        organizationId, userId, req.params.campaignId as string, req.params.handoverId as string);
+      res.json({ success: true, handover });
+    } catch (err) { next(err); }
+  },
+
+  // ── Campaign people and scoped access ─────────────────────────────────
+  async listCampaignPeople(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignAccessService } = await import('../../services/organization/campaign-access.service');
+      const result = await campaignAccessService.listPeople(
+        organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async grantCampaignAccess(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignAccessService } = await import('../../services/organization/campaign-access.service');
+      const body = (req.body ?? {}) as { assetIds?: string[] } & Record<string, unknown>;
+      const result = await campaignAccessService.grantAssetAccess(
+        organizationId, userId,
+        req.params.campaignId as string, req.params.memberId as string,
+        body.assetIds ?? [],
+        {
+          canComment: body.canComment as boolean | undefined,
+          canRequestChanges: body.canRequestChanges as boolean | undefined,
+          canApprove: body.canApprove as boolean | undefined,
+          expiresInHours: body.expiresInHours as number | undefined,
+        },
+      );
+      res.status(201).json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async revokeCampaignAccess(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignAccessService } = await import('../../services/organization/campaign-access.service');
+      const { assetId } = req.query as { assetId?: string };
+      const result = await campaignAccessService.revokeAccess(
+        organizationId, userId,
+        req.params.campaignId as string, req.params.memberId as string,
+        assetId ? { assetId } : {},
+      );
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async updateCampaignAccess(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignAccessService } = await import('../../services/organization/campaign-access.service');
+      const result = await campaignAccessService.updatePermissions(
+        organizationId, userId,
+        req.params.campaignId as string, req.params.memberId as string,
+        req.body ?? {},
+      );
+      res.json({ success: true, permissions: result });
+    } catch (err) { next(err); }
+  },
+
+  async listCampaignAccessLinks(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignAccessService } = await import('../../services/organization/campaign-access.service');
+      const links = await campaignAccessService.listAccessLinks(
+        organizationId, userId,
+        req.params.campaignId as string, req.params.memberId as string);
+      res.json({ success: true, links });
+    } catch (err) { next(err); }
+  },
+
+  // ── Campaign conversation, team side ──────────────────────────────────
+  async listCampaignMessages(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignMessageService } = await import('../../services/organization/campaign-message.service');
+      const { assetId } = req.query as { assetId?: string };
+      const result = await campaignMessageService.listForTeam(
+        organizationId, userId, req.params.campaignId as string,
+        assetId ? { assetId } : {},
+      );
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async sendCampaignMessage(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignMessageService } = await import('../../services/organization/campaign-message.service');
+      const message = await campaignMessageService.sendAsTeam(
+        organizationId, userId, req.params.campaignId as string, req.body ?? {},
+      );
+      res.status(201).json({ success: true, message });
+    } catch (err) { next(err); }
+  },
+
+  async markCampaignMessagesRead(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignMessageService } = await import('../../services/organization/campaign-message.service');
+      const result = await campaignMessageService.markReadByTeam(
+        organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  /**
+   * SSE tick for a campaign conversation, team side.
+   *
+   * Subscribes to the same campaign channel the client's stream uses, on the
+   * realtimeHub that already backs notifications — no second transport.
+   */
+  async streamCampaignMessages(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignMessageService, campaignChannel } =
+        await import('../../services/organization/campaign-message.service');
+      // Authorise before opening the stream — a stream is still a read.
+      await campaignMessageService.listForTeam(organizationId, userId, req.params.campaignId as string);
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      if (typeof (res as { flushHeaders?: () => void }).flushHeaders === 'function') {
+        (res as { flushHeaders: () => void }).flushHeaders();
+      }
+
+      const { realtimeHub } = await import('../../services/platform-events/realtime-hub');
+      const channel = campaignChannel(req.params.campaignId as string);
+      const push = () => { res.write(`data: ${JSON.stringify({ ts: Date.now() })}\n\n`); };
+
+      push();
+      const unsub = realtimeHub.subscribe(channel, push);
+      const heartbeat = setInterval(() => res.write(': keepalive\n\n'), 25000);
+      req.on('close', () => { clearInterval(heartbeat); unsub(); });
+    } catch (err) { next(err); }
+  },
+
+  async getCampaignUnread(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignMessageService } = await import('../../services/organization/campaign-message.service');
+      const unread = await campaignMessageService.unreadByCampaign(organizationId, userId);
+      res.json({ success: true, unread });
+    } catch (err) { next(err); }
+  },
+
+  // ── Version approvals ─────────────────────────────────────────────────
+  async decideVersion(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { versionApprovalService } = await import('../../services/share/version-approval.service');
+      const body = (req.body ?? {}) as { decision?: string; comment?: unknown };
+      if (body.decision !== 'APPROVED' && body.decision !== 'CHANGES_REQUESTED') {
+        throw new AppError(400, 'A decision is required');
+      }
+      const result = await versionApprovalService.decideAsTeam(
+        organizationId, userId, req.params.versionId as string,
+        { decision: body.decision, comment: body.comment },
+        { ipAddress: req.ip ?? null },
+      );
+      res.status(201).json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async listVersionApprovals(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { organizationId } = await orgIdFor(req);
+      const { versionApprovalService } = await import('../../services/share/version-approval.service');
+      const decisions = await versionApprovalService.listForVersion(
+        organizationId, req.params.versionId as string);
+      res.json({ success: true, decisions });
+    } catch (err) { next(err); }
+  },
+
+  async listCampaignApprovals(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { organizationId } = await orgIdFor(req);
+      const { versionApprovalService } = await import('../../services/share/version-approval.service');
+      const decisions = await versionApprovalService.listForCampaign(
+        organizationId, req.params.campaignId as string);
+      res.json({ success: true, decisions });
+    } catch (err) { next(err); }
+  },
+
+  // ── Review comments / change requests ─────────────────────────────────
+  async listVersionComments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { status, kind } = req.query as { status?: string; kind?: string };
+      const result = await reviewCommentService.listForVersion(
+        organizationId, userId, req.params.versionId as string,
+        {
+          ...(status ? { status: status as CommentStatus } : {}),
+          ...(kind ? { kind: kind as CommentKind } : {}),
+        },
+      );
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async createVersionComment(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const comment = await reviewCommentService.create(
+        organizationId, userId, req.params.versionId as string, req.body,
+      );
+      res.status(201).json({ success: true, comment });
+    } catch (err) { next(err); }
+  },
+
+  async setCommentStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { status } = (req.body ?? {}) as { status?: string };
+      if (!status) throw new AppError(400, 'A status is required');
+      const comment = await reviewCommentService.setStatus(
+        organizationId, userId, req.params.commentId as string,
+        status as Parameters<typeof reviewCommentService.setStatus>[3],
+      );
+      res.json({ success: true, comment });
+    } catch (err) { next(err); }
+  },
+
+  async listCampaignChangeRequests(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const changeRequests = await reviewCommentService.listOpenChangeRequests(
+        organizationId, userId, req.params.campaignId as string,
+      );
+      res.json({ success: true, changeRequests });
+    } catch (err) { next(err); }
+  },
+
+  // ── Asset versions ────────────────────────────────────────────────────
+  async listAssetVersions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const result = await assetVersionService.list(organizationId, userId, req.params.assetId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async createAssetVersion(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const version = await assetVersionService.createVersion(
+        organizationId, userId, req.params.assetId as string, req.body,
+      );
+      res.status(201).json({ success: true, version });
+    } catch (err) { next(err); }
+  },
+
+  async getAssetVersion(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const version = await assetVersionService.get(organizationId, userId, req.params.versionId as string);
+      res.json({ success: true, version });
+    } catch (err) { next(err); }
+  },
+
+  async serveAssetVersionFile(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const file = await assetVersionService.getFile(
+        organizationId, userId, req.params.versionId as string,
+      );
+      const download = req.query.download === '1' || req.query.download === 'true';
+      const safeName = file.filename.replace(/[\r\n"]/g, '_');
+      res.set({
+        'Content-Type': file.mimeType,
+        'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${safeName}"`,
+        'Cache-Control': 'private, no-store',
+        'X-Version-Id': req.params.versionId as string,
+      });
+      res.status(200).send(file.buffer);
+    } catch (err) { next(err); }
+  },
+
+  async setVersionReviewStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { status, note } = (req.body ?? {}) as { status?: string; note?: string };
+      if (!status) throw new AppError(400, 'A review status is required');
+      const version = await assetVersionService.setReviewStatus(
+        organizationId, userId, req.params.versionId as string,
+        status as Parameters<typeof assetVersionService.setReviewStatus>[3],
+        { note },
+      );
+      res.json({ success: true, version });
+    } catch (err) { next(err); }
+  },
+
+  // ── Campaigns ─────────────────────────────────────────────────────────
+  async listCampaigns(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const campaigns = await campaignService.listForClient(organizationId, userId, req.params.clientId as string);
+      res.json({ success: true, campaigns });
+    } catch (err) { next(err); }
+  },
+
+  async getCampaign(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const campaign = await campaignService.get(organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, campaign });
+    } catch (err) { next(err); }
+  },
+
+  async createCampaign(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const campaign = await campaignService.create(organizationId, userId, req.params.clientId as string, req.body);
+      res.status(201).json({ success: true, campaign });
+    } catch (err) { next(err); }
+  },
+
+  async updateCampaign(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const campaign = await campaignService.update(organizationId, userId, req.params.campaignId as string, req.body);
+      res.json({ success: true, campaign });
+    } catch (err) { next(err); }
+  },
+
+  async deleteCampaign(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      await campaignService.remove(organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true });
+    } catch (err) { next(err); }
+  },
+
+  // ── Campaign people ───────────────────────────────────────────────────
+  async listCampaignMembers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const members = await campaignService.listMembers(organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, members });
+    } catch (err) { next(err); }
+  },
+
+  async addCampaignMember(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const member = await campaignService.addMember(organizationId, userId, req.params.campaignId as string, req.body);
+      res.status(201).json({ success: true, member });
+    } catch (err) { next(err); }
+  },
+
+  async removeCampaignMember(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      await campaignService.removeMember(organizationId, userId, req.params.campaignId as string, req.params.memberId as string);
+      res.json({ success: true });
+    } catch (err) { next(err); }
+  },
+
+  // ── Campaign assets ───────────────────────────────────────────────────
+  async listCampaignAssets(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const assets = await campaignService.listAssets(organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, assets });
+    } catch (err) { next(err); }
+  },
+
+  async attachCampaignAsset(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { assetId } = req.body as { assetId?: string };
+      if (!assetId) throw new AppError(400, 'assetId is required');
+      const result = await campaignService.attachAsset(organizationId, userId, req.params.campaignId as string, assetId);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  // ── Campaign activity ─────────────────────────────────────────────────
+  async listCampaignActivity(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const activity = await campaignService.listActivity(organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, activity });
+    } catch (err) { next(err); }
+  },
+
+  // ── Business Overview summary ─────────────────────────────────────────
+  async getOverview(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const [clients, allCampaigns] = await Promise.all([
+        clientService.list(organizationId, userId),
+        (async () => {
+          const { prisma } = await import('../../lib/prisma');
+          return prisma.campaign.findMany({
+            where: { organizationId },
+            include: { _count: { select: { assets: true, members: true } }, client: { select: { name: true } } },
+            orderBy: { updatedAt: 'desc' },
+            take: 5,
+          });
+        })(),
+      ]);
+      const { prisma } = await import('../../lib/prisma');
+      const [assetCount, creatorCount] = await Promise.all([
+        prisma.asset.count({ where: { ownerUserId: userId, campaignId: { not: null } } }),
+        prisma.campaignMember.count({ where: { campaign: { organizationId }, isExternal: true } }),
+      ]);
+      res.json({
+        success: true,
+        overview: {
+          clientCount: clients.length,
+          campaignCount: await prisma.campaign.count({ where: { organizationId } }),
+          assetCount,
+          creatorCount,
+          recentClients: clients.slice(0, 5),
+          recentCampaigns: allCampaigns.map((c) => ({
+            id: c.id,
+            name: c.name,
+            clientName: c.client.name,
+            assetCount: c._count.assets,
+            memberCount: c._count.members,
+            status: c.status,
+          })),
+        },
+      });
+    } catch (err) { next(err); }
+  },
+  // ── Investigations (Phase C, layer 4) ─────────────────────────────────
+  //
+  // Cases sit on the existing Incident model. Nothing here accepts an
+  // organizationId from the client — orgIdFor derives it from the session, and
+  // the service re-proves ownership of every case it touches.
+  async listCampaignInvestigations(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignInvestigationService } = await import('../../services/organization/campaign-investigation.service');
+      const { status } = req.query as { status?: string };
+      const result = await campaignInvestigationService.listForCampaign(
+        organizationId, userId, req.params.campaignId as string,
+        status ? { status: status as InvestigationStatus } : {},
+      );
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async createCampaignInvestigation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignInvestigationService } = await import('../../services/organization/campaign-investigation.service');
+      const body = (req.body ?? {}) as {
+        title?: string; description?: string; priority?: string;
+        findingId?: string; assetId?: string; assignedToUserId?: string;
+      };
+      const investigation = await campaignInvestigationService.create(
+        organizationId, userId,
+        {
+          campaignId: req.params.campaignId as string,
+          title: body.title ?? '',
+          ...(body.description ? { description: body.description } : {}),
+          ...(body.priority ? { priority: body.priority as InvestigationPriority } : {}),
+          ...(body.findingId ? { findingId: body.findingId } : {}),
+          ...(body.assetId ? { assetId: body.assetId } : {}),
+          ...(body.assignedToUserId ? { assignedToUserId: body.assignedToUserId } : {}),
+        },
+      );
+      res.status(201).json({ success: true, investigation });
+    } catch (err) { next(err); }
+  },
+
+  async getInvestigation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignInvestigationService } = await import('../../services/organization/campaign-investigation.service');
+      const investigation = await campaignInvestigationService.get(
+        organizationId, userId, req.params.investigationId as string);
+      res.json({ success: true, investigation });
+    } catch (err) { next(err); }
+  },
+
+  async addInvestigationNote(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignInvestigationService } = await import('../../services/organization/campaign-investigation.service');
+      const { body } = (req.body ?? {}) as { body?: string };
+      const note = await campaignInvestigationService.addNote(
+        organizationId, userId, req.params.investigationId as string, body ?? '');
+      res.status(201).json({ success: true, note });
+    } catch (err) { next(err); }
+  },
+
+  async updateInvestigation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignInvestigationService } = await import('../../services/organization/campaign-investigation.service');
+      const id = req.params.investigationId as string;
+      const b = (req.body ?? {}) as {
+        status?: string; resolution?: string; priority?: string;
+        assignedToUserId?: string | null; reopenReason?: string;
+      };
+
+      // Reopening is its own deliberate act, never a status edit.
+      if (b.reopenReason !== undefined) {
+        const investigation = await campaignInvestigationService.reopen(
+          organizationId, userId, id, b.reopenReason);
+        res.json({ success: true, investigation });
+        return;
+      }
+      if (b.status !== undefined) {
+        const investigation = await campaignInvestigationService.setStatus(
+          organizationId, userId, id, b.status as InvestigationStatus, b.resolution);
+        res.json({ success: true, investigation });
+        return;
+      }
+      if (b.priority !== undefined) {
+        const investigation = await campaignInvestigationService.setPriority(
+          organizationId, userId, id, b.priority as InvestigationPriority);
+        res.json({ success: true, investigation });
+        return;
+      }
+      if (b.assignedToUserId !== undefined) {
+        const investigation = await campaignInvestigationService.assign(
+          organizationId, userId, id, b.assignedToUserId);
+        res.json({ success: true, investigation });
+        return;
+      }
+      throw new AppError(400, 'Nothing to change');
+    } catch (err) { next(err); }
+  },
+  // ── Evidence on a case (Phase C, layer 5) ─────────────────────────────
+  async listInvestigationEvidence(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignEvidenceService } = await import('../../services/organization/campaign-evidence.service');
+      const result = await campaignEvidenceService.listFor(
+        organizationId, userId, req.params.investigationId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async collectInvestigationEvidence(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignEvidenceService } = await import('../../services/organization/campaign-evidence.service');
+      const b = (req.body ?? {}) as { evidenceType?: string; description?: string; sourceUrl?: string };
+      const evidence = await campaignEvidenceService.collect(
+        organizationId, userId, req.params.investigationId as string,
+        {
+          evidenceType: b.evidenceType ?? '',
+          description: b.description ?? '',
+          ...(b.sourceUrl ? { sourceUrl: b.sourceUrl } : {}),
+        },
+      );
+      res.status(201).json({ success: true, evidence });
+    } catch (err) { next(err); }
+  },
+
+  // ── Client reports (Phase C, layer 6) ─────────────────────────────────
+  async createClientReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignClientReportService } = await import('../../services/organization/campaign-client-report.service');
+      const b = (req.body ?? {}) as { title?: string; summary?: string; expiresInDays?: number };
+      const report = await campaignClientReportService.create(
+        organizationId, userId, req.params.investigationId as string, b);
+      res.status(201).json({ success: true, report });
+    } catch (err) { next(err); }
+  },
+
+  async listClientReports(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignClientReportService } = await import('../../services/organization/campaign-client-report.service');
+      const result = await campaignClientReportService.listForCampaign(
+        organizationId, userId, req.params.campaignId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async getClientReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignClientReportService } = await import('../../services/organization/campaign-client-report.service');
+      const report = await campaignClientReportService.getForBusiness(
+        organizationId, userId, req.params.reportId as string);
+      res.json({ success: true, report });
+    } catch (err) { next(err); }
+  },
+
+  async downloadClientReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignClientReportService } = await import('../../services/organization/campaign-client-report.service');
+      const { pdf, filename } = await campaignClientReportService.renderForBusiness(
+        organizationId, userId, req.params.reportId as string);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+      res.send(pdf);
+    } catch (err) { next(err); }
+  },
+
+  async updateClientReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { campaignClientReportService } = await import('../../services/organization/campaign-client-report.service');
+      const { action } = (req.body ?? {}) as { action?: string };
+      const id = req.params.reportId as string;
+      if (action === 'ISSUE') {
+        res.json({ success: true, report: await campaignClientReportService.issue(organizationId, userId, id) });
+        return;
+      }
+      if (action === 'REVOKE') {
+        res.json({ success: true, report: await campaignClientReportService.revoke(organizationId, userId, id) });
+        return;
+      }
+      throw new AppError(400, 'Unknown action');
+    } catch (err) { next(err); }
+  },
+  // ── Client-level rollups ──────────────────────────────────────────────
+  // Each one calls the same campaign service the campaign tab calls and sums
+  // the results. No per-client copy of any record exists.
+  async clientDeliveries(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { clientAggregateService } = await import('../../services/organization/client-aggregate.service');
+      const result = await clientAggregateService.deliveries(
+        organizationId, userId, req.params.clientId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async clientRights(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { clientAggregateService } = await import('../../services/organization/client-aggregate.service');
+      const result = await clientAggregateService.rights(
+        organizationId, userId, req.params.clientId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async clientActivity(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { clientAggregateService } = await import('../../services/organization/client-aggregate.service');
+      const limit = Number.parseInt(String((req.query as { limit?: string }).limit ?? '100'), 10);
+      const result = await clientAggregateService.activity(
+        organizationId, userId, req.params.clientId as string,
+        Number.isFinite(limit) ? limit : 100);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async clientIntelligence(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { clientAggregateService } = await import('../../services/organization/client-aggregate.service');
+      const result = await clientAggregateService.intelligence(
+        organizationId, userId, req.params.clientId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+  async clientAssets(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { clientAggregateService } = await import('../../services/organization/client-aggregate.service');
+      const result = await clientAggregateService.assets(
+        organizationId, userId, req.params.clientId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+
+  async clientPeople(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, organizationId } = await orgIdFor(req);
+      const { clientAggregateService } = await import('../../services/organization/client-aggregate.service');
+      const result = await clientAggregateService.people(
+        organizationId, userId, req.params.clientId as string);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  },
+};

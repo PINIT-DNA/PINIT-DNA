@@ -10,8 +10,9 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma }    from '../../lib/prisma';
 import { aiService } from '../../services/ai/ai-embeddings.service';
 import { logger }    from '../../lib/logger';
+import { getAuthUserId, dnaOwnerWhere } from '../../lib/tenant-scope';
 
-export async function reindexAll(_req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function reindexAll(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const online = await aiService.isOnline();
     if (!online) {
@@ -20,9 +21,10 @@ export async function reindexAll(_req: Request, res: Response, next: NextFunctio
     }
 
     const start = Date.now();
+    const ownerUserId = getAuthUserId(req);
 
-    // Fetch all DNA records + their OCR text in ONE query
     const records = await prisma.dnaRecord.findMany({
+      where: dnaOwnerWhere(ownerUserId),
       orderBy: { createdAt: 'desc' },
       select: {
         id:             true,

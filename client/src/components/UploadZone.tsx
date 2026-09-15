@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion } from 'framer-motion';
 import { Upload, ScanLine, Video, Mic, FileUp, Pencil, Check, X, Camera } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useSubscription } from '../hooks/useSubscription';
 import { DocumentScanner } from './DocumentScanner';
 import { MediaRecorderPanel } from './MediaRecorderPanel';
 import {
@@ -30,8 +32,6 @@ const CAPTURE_MODES: { id: CaptureMode; label: string; icon: typeof Upload }[] =
   { id: 'video', label: 'Video', icon: Video },
   { id: 'audio', label: 'Audio', icon: Mic },
 ];
-
-const MAX_BYTES = 500 * 1024 * 1024;
 
 function splitName(filename: string): { base: string; ext: string } {
   const i = filename.lastIndexOf('.');
@@ -147,11 +147,21 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
     [handleFileReady],
   );
 
+  // No fixed size limit: what decides whether a file can be protected is the
+  // owner's remaining Vault storage. The backend re-checks; this only explains.
+  const { subscription } = useSubscription();
+  const storageLimit = subscription?.enforcementEnabled ? subscription.storageLimitBytes : null;
+  const storageRemaining = storageLimit == null
+    ? null
+    : Math.max(0, storageLimit - (subscription?.storageUsedBytes ?? 0));
+  const exceedsStorage = Boolean(
+    selectedFile && storageRemaining != null && selectedFile.size > storageRemaining,
+  );
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: ACCEPT_MAP,
     maxFiles: 1,
-    maxSize: MAX_BYTES,
   });
 
   const fileLabel = selectedFile ? getFileTypeLabel(selectedFile) : '';
@@ -164,8 +174,10 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
         animate={{ opacity: 1, y: 0 }}
         className="text-center mb-8"
       >
-        <div className="text-6xl mb-4 dna-float">🧬</div>
-        <h2 className="text-3xl font-bold text-white">Protect file</h2>
+        <h2 className="text-3xl font-bold text-white">Protect New Asset</h2>
+        <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
+          Upload your file and we’ll create its protected identity.
+        </p>
       </motion.div>
 
       {!selectedFile && (
@@ -247,9 +259,12 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
                   <div className="w-16 h-16 rounded-2xl bg-dna-500/10 flex items-center justify-center mb-4">
                     <Upload size={28} className="text-dna-400" />
                   </div>
-                  <p className="text-white font-semibold text-lg mb-1">Drag & drop any file</p>
-                  <p className="text-gray-500 text-sm mb-4">or click here to browse</p>
-                  <p className="text-gray-600 text-xs">Max 500 MB</p>
+                  <p className="text-white font-semibold text-lg mb-1">Drag & drop any asset</p>
+                  <p className="text-gray-500 text-sm">or click here to browse</p>
+                  <p className="text-gray-500 text-xs mt-3 text-center max-w-sm">
+                    Any file size. Protection uses your Vault storage
+                    {storageRemaining != null ? ` — ${formatBytes(storageRemaining)} available` : ''}.
+                  </p>
                 </>
               )}
             </div>
@@ -336,6 +351,11 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
 
               <div className="flex flex-wrap gap-4 mt-2">
                 <span className="mono text-xs text-gray-400">{formatBytes(selectedFile.size)}</span>
+                {storageRemaining != null && (
+                  <span className="mono text-xs text-gray-400">
+                    {formatBytes(storageRemaining)} Vault storage available
+                  </span>
+                )}
                 <span className="mono text-xs text-gray-400">{selectedFile.type || 'unknown'}</span>
               </div>
               <p className="text-gray-500 text-xs mt-3">
@@ -362,10 +382,25 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
           animate={{ opacity: 1, y: 0 }}
           className="mt-6 flex justify-center"
         >
-          <button type="button" onClick={onGenerate} className="btn-primary text-base px-10 py-4">
-            <span>Protect This File</span>
-            <span className="text-lg">→</span>
-          </button>
+          {exceedsStorage ? (
+            <div className="max-w-lg w-full rounded-xl border border-danger/30 bg-danger/5 p-4 text-center">
+              <p className="text-sm text-danger font-medium">
+                Not enough Vault storage. Upgrade your storage to protect this asset.
+              </p>
+              <p className="text-xs text-gray-400 mt-1">
+                This file is {formatBytes(selectedFile.size)}; you have {formatBytes(storageRemaining ?? 0)} of
+                Vault storage available.
+              </p>
+              <Link to="/upgrade?from=storage&return=/generate" className="btn-primary btn-sm mt-3 inline-flex">
+                Upgrade storage
+              </Link>
+            </div>
+          ) : (
+            <button type="button" onClick={onGenerate} className="btn-primary text-base px-10 py-4">
+              <span>Protect This Asset</span>
+              <span className="text-lg">→</span>
+            </button>
+          )}
         </motion.div>
       )}
     </div>

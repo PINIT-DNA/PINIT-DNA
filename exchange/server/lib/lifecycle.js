@@ -55,6 +55,15 @@ export function publicListingSql() {
   return `(l.status = 'published' OR l.status = 'live')`;
 }
 
+/**
+ * Marketplace must not show listings whose Exchange seller account is gone.
+ * A user delete that only removed the users row used to leave published
+ * orphans on Discover with broken Hub previews ("Preview unavailable").
+ */
+export function publicListingWithSellerSql() {
+  return `${publicListingSql()} AND u.pinit_id IS NOT NULL`;
+}
+
 export function isLicenseDownloadable(licenseStatus) {
   return String(licenseStatus || LICENSE_STATUS.ACTIVE).toLowerCase() === LICENSE_STATUS.ACTIVE;
 }

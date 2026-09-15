@@ -34,11 +34,11 @@ async function loadVaultPreview(vaultId: string, declaredMime: string, fileName:
   if (pending) return pending;
 
   const promise = runVaultPreviewQueued(() =>
-    withVaultPreviewRetry(() => previewVaultFile(vaultId)),
+    withVaultPreviewRetry(() => previewVaultFile(vaultId, { thumb: true })),
   )
     .then(async blob => {
       const effectiveMime = resolveVaultFileMime(blob.type, declaredMime, fileName);
-      const typedBlob = blob.type === effectiveMime ? blob : new Blob([blob], { type: effectiveMime });
+      const typedBlob = new Blob([blob], { type: effectiveMime });
       const url = URL.createObjectURL(typedBlob);
 
       let textSnippet: string | undefined;
@@ -79,7 +79,7 @@ export function VaultFileThumbnail({
   className,
 }: VaultFileThumbnailProps) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(false);
+  const [visible, setVisible] = useState(true);
   const [preview, setPreview] = useState<CachedPreview | null>(() => thumbCache.get(vaultId) ?? null);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -93,27 +93,44 @@ export function VaultFileThumbnail({
 
   const frameClass = className ?? (
     variant === 'gallery'
-      ? 'w-full h-full min-h-[140px]'
+      ? 'absolute inset-0 w-full h-full'
       : 'w-10 h-10 rounded-lg shrink-0'
   );
 
   useEffect(() => {
     const el = rootRef.current;
-    if (!el) return;
+    if (!el || visible) return;
+
+    const reveal = () => setVisible(true);
+    const rect = el.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      reveal();
+      return;
+    }
 
     const observer = new IntersectionObserver(
       entries => {
-        if (entries.some(e => e.isIntersecting)) {
-          setVisible(true);
+        if (entries.some(e => e.isIntersecting || (e.intersectionRatio > 0))) {
+          reveal();
           observer.disconnect();
         }
       },
-      { rootMargin: '200px' },
+      { root: null, rootMargin: '240px', threshold: 0 },
     );
 
     observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+    const fallback = window.setTimeout(reveal, 250);
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(fallback);
+    };
+  }, [visible]);
+
+  useEffect(() => {
+    setFailed(false);
+    setImgError(false);
+    setVideoError(false);
+  }, [fileName, vaultId]);
 
   useEffect(() => {
     if (!visible || !shouldLoad || preview || failed) return;
@@ -153,6 +170,15 @@ export function VaultFileThumbnail({
     }).catch(() => {});
   }, [preview, fileName, variant]);
 
+  const retry = () => {
+    thumbCache.delete(vaultId);
+    inflight.delete(vaultId);
+    setFailed(false);
+    setImgError(false);
+    setVideoError(false);
+    setPreview(null);
+  };
+
   const lockBadge = (
     <span className={`absolute z-10 ${variant === 'gallery' ? 'bottom-2 right-2 w-6 h-6' : 'bottom-0.5 right-0.5 w-3.5 h-3.5'} rounded bg-black/70 flex items-center justify-center`}>
       <Lock size={variant === 'gallery' ? 11 : 8} className="text-success" />
@@ -161,25 +187,46 @@ export function VaultFileThumbnail({
 
   const fallback = (
     <div
-      className={`${frameClass} bg-bg-elevated border border-bg-border flex flex-col items-center justify-center gap-1 ${variant === 'gallery' ? 'p-4' : ''}`}
+      className={`relative ${frameClass} bg-bg-elevated border border-bg-border flex flex-col items-center justify-center gap-1.5 ${variant === 'gallery' ? 'p-4' : ''}`}
       title={fileName}
     >
       <span className={variant === 'gallery' ? 'text-4xl' : 'text-lg'} aria-hidden>{icon}</span>
       {variant === 'gallery' && (
-        <p className="text-2xs text-gray-500 text-center line-clamp-2 px-2">{fileName}</p>
+        <p className="text-2xs text-gray-500 text-center px-2">
+          {failed || imgError || videoError ? 'Preview unavailable' : fileName}
+        </p>
       )}
+      {(failed || imgError || videoError) && (
+        <button
+          type="button"
+          className="text-2xs text-dna-400 hover:text-white"
+          onClick={(e) => { e.stopPropagation(); retry(); }}
+        >
+          Retry
+        </button>
+      )}
+      {lockBadge}
     </div>
   );
 
-  if (!shouldLoad || failed || (imgError && isImageMime(effectiveMime, fileName)) || (videoError && isVideoMime(effectiveMime, fileName))) {
-    return <div ref={rootRef}>{fallback}</div>;
+  if (!shouldLoad) {
+    return (
+      <div ref={rootRef} className={`relative ${frameClass} bg-bg-elevated border border-bg-border flex flex-col items-center justify-center gap-1`}>
+        <span className={variant === 'gallery' ? 'text-4xl' : 'text-lg'} aria-hidden>{icon}</span>
+        {lockBadge}
+      </div>
+    );
+  }
+
+  if (failed || (imgError && isImageMime(effectiveMime, fileName)) || (videoError && isVideoMime(effectiveMime, fileName))) {
+    return <div ref={rootRef} className="contents">{fallback}</div>;
   }
 
   if (!preview) {
     return (
       <div
         ref={rootRef}
-        className={`${frameClass} bg-bg-elevated border border-bg-border flex items-center justify-center overflow-hidden`}
+        className={`relative ${frameClass} bg-bg-elevated border border-bg-border flex items-center justify-center overflow-hidden`}
         title={fileName}
       >
         {loading ? (
@@ -187,6 +234,7 @@ export function VaultFileThumbnail({
         ) : (
           <span className={`${variant === 'gallery' ? 'text-3xl' : 'text-lg'} opacity-60`} aria-hidden>{icon}</span>
         )}
+        {lockBadge}
       </div>
     );
   }
@@ -199,9 +247,12 @@ export function VaultFileThumbnail({
         <img
           src={url}
           alt=""
-          className="w-full h-full object-cover"
+          className="w-full h-full object-cover pinit-protected-media"
           loading="lazy"
           decoding="async"
+          draggable={false}
+          onDragStart={(e) => e.preventDefault()}
+          onContextMenu={(e) => e.preventDefault()}
           onError={() => setImgError(true)}
         />
         {lockBadge}
@@ -213,12 +264,20 @@ export function VaultFileThumbnail({
     return (
       <div ref={rootRef} className={`relative ${frameClass} overflow-hidden border border-bg-border bg-black`} title={fileName}>
         <video
-          src={`${url}#t=0.5`}
+          src={url}
           className="w-full h-full object-cover"
           muted
           playsInline
-          preload="auto"
+          preload="metadata"
           onError={() => setVideoError(true)}
+          onLoadedMetadata={(e) => {
+            // A #t= URL fragment only seeks on network-served video, not on
+            // blob: URLs, so the thumbnail always showed frame 0 (often a
+            // black flash-frame). Seeking here after metadata loads works
+            // for blob: URLs and gives a real mid-clip preview frame.
+            const el = e.currentTarget;
+            el.currentTime = Math.min(0.5, (el.duration || 1) / 2);
+          }}
         />
         {lockBadge}
       </div>

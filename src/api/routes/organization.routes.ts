@@ -15,7 +15,10 @@ organizationRouter.get('/team', requireAuth, organizationController.getTeam);
 organizationRouter.get('/team/members', requireAuth, organizationController.listMembers);
 organizationRouter.get('/team/invites', requireAuth, organizationController.listInvites);
 organizationRouter.post('/team/invite', requireAuth, organizationController.inviteMember);
+organizationRouter.get('/team/invites/preview/:token', requireAuth, organizationController.previewInvite);
 organizationRouter.post('/team/accept', requireAuth, organizationController.acceptInvite);
+// Confirm a Pinit account exists before inviting it — name only, nothing more.
+organizationRouter.get('/team/lookup-pinit-id', requireAuth, organizationController.lookupPinitId);
 organizationRouter.delete('/team/invites/:id', requireAuth, organizationController.revokeInvite);
 organizationRouter.patch('/team/members/:id/role', requireAuth, organizationController.updateMemberRole);
 organizationRouter.delete('/team/members/:id', requireAuth, organizationController.removeMember);

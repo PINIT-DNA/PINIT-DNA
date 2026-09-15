@@ -203,7 +203,7 @@ export function ProtectedPostsPage() {
         <EmptyState
           icon={Shield}
           title="No protected posts yet"
-          description="Install the PinIT Chrome extension and enable Publish Guardian on Instagram, X, or other supported sites. New publishes will appear here automatically."
+          description="Install the Pinit Chrome extension and enable Publish Guardian on Instagram, X, or other supported sites. New publishes will appear here automatically."
         />
       ) : (
         <div className="rounded-xl border border-bg-border overflow-hidden bg-bg-card">
@@ -288,7 +288,7 @@ export function ProtectedPostsPage() {
                           <Eye size={14} />
                         </Link>
                         {p.vaultId && (
-                          <Link to="/vault" className="btn-ghost btn-icon" title="Vault">
+                          <Link to="/vault" className="btn-ghost btn-icon" title="My Assets">
                             <Archive size={14} />
                           </Link>
                         )}

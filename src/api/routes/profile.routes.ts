@@ -3,10 +3,14 @@ import { requireAuth } from '../middleware/auth.middleware';
 import {
   getProfile, updateProfile, updateNotificationPrefs, changePassword,
   getProfileStats, getActivityTimeline, getSessions, revokeSession, revokeAllSessions,
+  avatarUpload, uploadProfileAvatar, deleteProfileAvatar, getPublicAvatar,
 } from '../controllers/profile.controller';
 
 const router = Router();
 
+router.get('/avatar/:shortId', getPublicAvatar);
+router.post('/avatar',         requireAuth, avatarUpload.single('avatar'), uploadProfileAvatar);
+router.delete('/avatar',       requireAuth, deleteProfileAvatar);
 router.get('/',              requireAuth, getProfile);
 router.put('/',              requireAuth, updateProfile);
 router.put('/notifications', requireAuth, updateNotificationPrefs);

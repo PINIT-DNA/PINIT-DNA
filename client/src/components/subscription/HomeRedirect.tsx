@@ -3,24 +3,19 @@ import { useAuth } from '../../context/AuthContext';
 import { DashboardPage } from '../../pages/DashboardPage';
 import { BUSINESS_DASHBOARD_PATH } from '../../lib/subscription/post-upgrade-redirect';
 import { useAccountViewMode } from '../../context/AccountViewModeContext';
-import { getAccountViewMode } from '../../lib/account-view-mode';
 
 /**
- * Home `/` — personal forensic dashboard unless Business shell is active.
+ * Home `/` — personal forensic dashboard unless the user is in Business shell this session.
  */
 export function HomeRedirect() {
-  const { user, loading: authLoading } = useAuth();
+  const { loading: authLoading } = useAuth();
   const { isBusinessShell } = useAccountViewMode();
-
-  const prefersBusiness =
-    Boolean(user?.sub) &&
-    getAccountViewMode(user?.sub, user?.accountType === 'BUSINESS' ? 'BUSINESS' : 'INDIVIDUAL') === 'BUSINESS';
 
   if (authLoading) {
     return null;
   }
 
-  if (prefersBusiness || isBusinessShell) {
+  if (isBusinessShell) {
     return <Navigate to={BUSINESS_DASHBOARD_PATH} replace />;
   }
 

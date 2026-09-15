@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { authService } from '../../services/auth/auth.service';
+import { stripClientOwnerIdentity } from '../../lib/tenant-scope';
 
 function extractToken(req: Request): string | null {
   const header = req.headers.authorization;
@@ -18,6 +19,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const payload = authService.verifyAccess(token);
     (req as any).user = payload;
+    stripClientOwnerIdentity(req);
     next();
   } catch {
     res.status(401).json({ success: false, error: 'Invalid or expired token' });

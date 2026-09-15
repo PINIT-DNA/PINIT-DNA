@@ -20,6 +20,15 @@ export async function ensureFaceModels(): Promise<void> {
   await modelsReady;
 }
 
+export async function waitForVideoFrames(video: HTMLVideoElement, maxMs = 5000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    if (video.readyState >= 2 && video.videoWidth >= 160 && video.videoHeight >= 120) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error('Camera not ready. Allow camera access and try again.');
+}
+
 function normalize(values: Float32Array | number[]): number[] {
   const out = new Float32Array(128);
   let norm = 0;
@@ -31,15 +40,6 @@ function normalize(values: Float32Array | number[]): number[] {
 
 export type FaceCaptureMode = 'register' | 'login';
 
-async function waitForVideoFrames(video: HTMLVideoElement, maxMs = 5000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < maxMs) {
-    if (video.readyState >= 2 && video.videoWidth >= 160 && video.videoHeight >= 120) return;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  throw new Error('Camera not ready. Allow camera access and try again.');
-}
-
 /** Fast face capture — register averages more frames; rejects 0 or 2+ faces. */
 export async function captureFaceEmbeddingFromVideo(
   video: HTMLVideoElement,
@@ -50,19 +50,19 @@ export async function captureFaceEmbeddingFromVideo(
   await waitForVideoFrames(video);
 
   const mode = opts.mode ?? 'login';
-  const need = opts.samples ?? (mode === 'register' ? 5 : 3);
-  const timeoutMs = opts.timeoutMs ?? (mode === 'register' ? 16000 : 12000);
+  const need = opts.samples ?? (mode === 'register' ? 3 : 2);
+  const timeoutMs = opts.timeoutMs ?? (mode === 'register' ? 20000 : 14000);
   const samples: Float32Array[] = [];
   const started = Date.now();
-  const scoreThreshold = mode === 'register' ? 0.5 : 0.45;
-  const detector = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold });
+  const scoreThreshold = mode === 'register' ? 0.32 : 0.38;
+  const detector = new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold });
 
   onProgress?.(8);
 
   while (samples.length < need) {
     if (Date.now() - started > timeoutMs) {
-      if (samples.length >= (mode === 'register' ? 3 : 1)) break;
-      throw new Error('Face not detected. Move closer to the camera and try again.');
+      if (samples.length >= (mode === 'register' ? 2 : 1)) break;
+      throw new Error('Face not detected. Face the camera in good light, then tap Start Face Scan again.');
     }
 
     const all = await faceapi

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, CheckCheck, Trash2, X, ExternalLink } from 'lucide-react';
+import { Bell, CheckCheck, Trash2, X, ExternalLink, BellOff } from 'lucide-react';
 import { api } from '../../services/dashboard.api';
 import { API_BASE_URL } from '../../config/api.config';
 import { getAccessToken } from '../../lib/auth';
@@ -10,23 +10,58 @@ import {
   notificationTypeConfig,
   NOTIFICATION_SEVERITY_BORDER,
   resolveNotificationDeepLink,
+  OPEN_NOTIFICATION_BELL_EVENT,
 } from '../../lib/notification-config';
+
+/**
+ * Split rows into Today and Earlier.
+ *
+ * Two buckets rather than a full date breakdown: the question a person opens
+ * the bell to answer is "is there anything new", and more headings than that
+ * just adds scrolling.
+ */
+function groupByDay(rows: NotificationItem[]): [string, NotificationItem[]][] {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+
+  const today: NotificationItem[] = [];
+  const earlier: NotificationItem[] = [];
+  for (const n of rows) {
+    (new Date(n.createdAt) >= startOfToday ? today : earlier).push(n);
+  }
+
+  const out: [string, NotificationItem[]][] = [];
+  if (today.length) out.push(['Today', today]);
+  if (earlier.length) out.push(['Earlier', earlier]);
+  return out;
+}
 
 export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadCount, setUnreadCount] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
+  const applyPersistedUnread = (value: unknown) => {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+      setUnreadCount(null);
+      return;
+    }
+    setUnreadCount(Math.floor(value));
+  };
+
   const fetchNotifs = useCallback(() => {
-    api.get(`${API_BASE_URL}/notifications?limit=30`).then(r => {
-      const data = r.data as { notifications?: NotificationItem[]; unreadCount?: number };
+    // view=bell returns NOTIFICATION and ALERT only. Activity belongs in the
+    // dashboard timeline and must never raise a badge here.
+    api.get(`${API_BASE_URL}/notifications?limit=30&view=bell`).then(r => {
+      const data = r.data as { notifications?: NotificationItem[]; unreadCount?: number; success?: boolean };
       setNotifications(data.notifications ?? []);
-      setUnreadCount(data.unreadCount ?? 0);
+      applyPersistedUnread(data.unreadCount);
     }).catch((err: unknown) => {
       const code = (err as { response?: { data?: { code?: string } } })?.response?.data?.code;
       if (code === 'BACKEND_OFFLINE') return;
+      setUnreadCount(null);
     });
   }, []);
 
@@ -44,10 +79,7 @@ export function NotificationBell() {
       es.onmessage = (ev) => {
         try {
           const data = JSON.parse(ev.data) as { unreadCount?: number };
-          if (typeof data.unreadCount === 'number') {
-            setUnreadCount(data.unreadCount);
-            fetchNotifs();
-          }
+          if ('unreadCount' in data) applyPersistedUnread(data.unreadCount);
         } catch { /* ignore */ }
       };
       es.onerror = () => {
@@ -60,7 +92,7 @@ export function NotificationBell() {
     };
 
     connectSse();
-    const interval = setInterval(fetchNotifs, 60000);
+    const interval = setInterval(fetchNotifs, 180000);
 
     return () => {
       closed = true;
@@ -82,23 +114,35 @@ export function NotificationBell() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
+  useEffect(() => {
+    const openBell = () => setOpen(true);
+    window.addEventListener(OPEN_NOTIFICATION_BELL_EVENT, openBell);
+    return () => window.removeEventListener(OPEN_NOTIFICATION_BELL_EVENT, openBell);
+  }, []);
+
   const markAllRead = async () => {
     await api.put(`${API_BASE_URL}/notifications/read-all`);
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     setUnreadCount(0);
   };
 
+  const clearInbox = async () => {
+    await api.put(`${API_BASE_URL}/notifications/clear-inbox`);
+    setNotifications([]);
+    setUnreadCount(0);
+  };
+
   const markRead = async (id: string) => {
     await api.put(`${API_BASE_URL}/notifications/${id}/read`);
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
-    setUnreadCount(prev => Math.max(0, prev - 1));
+    setUnreadCount((prev) => Math.max(0, (prev ?? 0) - 1));
   };
 
   const deleteNotif = async (id: string) => {
     const was = notifications.find(n => n.id === id);
     await api.delete(`${API_BASE_URL}/notifications/${id}`);
     setNotifications(prev => prev.filter(n => n.id !== id));
-    if (was && !was.read) setUnreadCount(prev => Math.max(0, prev - 1));
+    if (was && !was.read) setUnreadCount((prev) => Math.max(0, (prev ?? 0) - 1));
   };
 
   const handleClick = (n: NotificationItem) => {
@@ -114,10 +158,10 @@ export function NotificationBell() {
         className="btn-icon btn-ghost relative"
         aria-label="Notifications"
       >
-        <Bell size={16} className={unreadCount > 0 ? 'text-dna-400' : 'text-gray-400'} />
-        {unreadCount > 0 && (
+        <Bell size={16} className={(unreadCount ?? 0) > 0 ? 'text-dna-400' : 'text-gray-400'} />
+        {(unreadCount ?? 0) > 0 && notifications.length > 0 && (
           <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center animate-pulse">
-            {unreadCount > 99 ? '99+' : unreadCount}
+            {unreadCount! > 99 ? '99+' : unreadCount}
           </span>
         )}
       </button>
@@ -130,38 +174,52 @@ export function NotificationBell() {
             aria-label="Close notifications"
             onClick={() => setOpen(false)}
           />
-          <div className="dropdown-panel w-full sm:w-96">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-bg-border">
-            <div className="flex items-center gap-2">
-              <Bell size={14} className="text-dna-400" />
-              <h3 className="text-sm font-semibold text-white">Notifications</h3>
-              {unreadCount > 0 && (
-                <span className="text-2xs bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-medium">
-                  {unreadCount} new
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-1">
-              {unreadCount > 0 && (
-                <button onClick={markAllRead} className="text-2xs text-dna-400 hover:text-white flex items-center gap-1 px-2 py-1 rounded hover:bg-bg-elevated transition-colors">
-                  <CheckCheck size={10} /> Mark all read
-                </button>
-              )}
-              <button onClick={() => setOpen(false)} className="text-gray-500 hover:text-white p-1">
+          <div className="dropdown-panel w-full sm:w-96 flex flex-col">
+          <div className="px-4 py-3 border-b border-bg-border shrink-0">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Bell size={14} className="text-dna-400 shrink-0" />
+                <h3 className="text-sm font-semibold text-white">Notifications</h3>
+                {(unreadCount ?? 0) > 0 && (
+                  <span className="text-2xs bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-medium shrink-0">
+                    {unreadCount} new
+                  </span>
+                )}
+              </div>
+              <button type="button" onClick={() => setOpen(false)} className="text-gray-500 hover:text-white p-1 shrink-0" aria-label="Close notifications">
                 <X size={12} />
               </button>
             </div>
+            {(unreadCount ?? 0) > 0 && (
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => void markAllRead()}
+                  className="text-2xs text-dna-400 hover:text-white flex items-center gap-1 px-2 py-1 rounded hover:bg-bg-elevated transition-colors"
+                >
+                  <CheckCheck size={10} /> Mark all as read
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="max-h-96 overflow-y-auto">
             {notifications.length === 0 ? (
               <div className="py-12 text-center">
                 <Bell size={24} className="text-gray-600 mx-auto mb-2" />
-                <p className="text-xs text-gray-500">No notifications yet</p>
-                <p className="text-2xs text-gray-600 mt-1">Alerts appear when activity occurs on your assets</p>
+                <p className="text-xs text-gray-500">Nothing needs you right now</p>
+                <p className="text-2xs text-gray-600 mt-1 max-w-[13rem] mx-auto">
+                  You'll see something here when a person acts on work you're
+                  responsible for.
+                </p>
               </div>
             ) : (
-              notifications.map(n => {
+              groupByDay(notifications).map(([heading, rows]) => (
+                <div key={heading}>
+                  <p className="px-4 py-1.5 text-2xs font-semibold text-gray-500 bg-bg-elevated/60 sticky top-0">
+                    {heading}
+                  </p>
+                  {rows.map(n => {
                 const cfg = notificationTypeConfig(n.type);
                 const borderColor = NOTIFICATION_SEVERITY_BORDER[n.severity] ?? 'border-l-transparent';
                 return (
@@ -208,20 +266,30 @@ export function NotificationBell() {
                     </button>
                   </div>
                 );
-              })
+                  })}
+                </div>
+              ))
             )}
           </div>
 
-          {notifications.length > 0 && (
-            <div className="px-4 py-2 border-t border-bg-border text-center">
+            <div className="px-4 py-2 border-t border-bg-border shrink-0 flex items-center justify-center gap-3 flex-wrap">
+              {notifications.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void clearInbox()}
+                  className="text-2xs text-gray-400 hover:text-white flex items-center gap-1 transition-colors"
+                >
+                  <BellOff size={10} /> Clear all
+                </button>
+              )}
               <button
+                type="button"
                 onClick={() => { setOpen(false); navigate('/profile?tab=notifications'); }}
-                className="text-2xs text-dna-400 hover:text-white flex items-center gap-1 mx-auto transition-colors"
+                className="text-2xs text-dna-400 hover:text-white flex items-center gap-1 transition-colors"
               >
                 <ExternalLink size={10} /> View notification history
               </button>
             </div>
-          )}
           </div>
         </>
       )}

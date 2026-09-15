@@ -18,11 +18,13 @@ import {
   Users,
   ChevronRight,
   Microscope,
-  Shield,
   Pencil,
+  Store,
+  Plus,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { VaultFileThumbnail } from './VaultFileThumbnail';
+import { ExchangeListedTag } from './ExchangeListedTag';
 import { Badge } from './ui/Badge';
 import { cn } from './ui/utils';
 import { formatBytes } from '../hooks/useApi';
@@ -32,20 +34,20 @@ import {
 } from '../lib/file-type-utils';
 import { buildShareFileAttachment } from '../lib/share-file-open';
 import { API_BASE_URL } from '../config/api.config';
-import { BRAND } from '../config/brand.config';
-import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, renameVaultRecord, type VaultTrackingDashboard } from '../services/dashboard.api';
+import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, renameVaultRecord, createExchangeListIntent, getExchangeRole, getExchangeConfig, getPortfolioContainsVault, getVaultContentAnalysis, type VaultTrackingDashboard,
+  getAssetGraph, type AssetGraph,
+} from '../services/dashboard.api';
 import { useAuth } from '../context/AuthContext';
 import { ShareQrBlock } from './ShareQrBlock';
-import { AuthenticityReportCard } from './AuthenticityReportCard';
+import { AuthenticityReportCard, verdictBadgeVariant } from './AuthenticityReportCard';
 import type { VaultContentAnalysis, VaultRecord } from '../types/dashboard.types';
 import { formatSourcePlatform, vaultSourceCaption } from '../lib/source-platform';
 import {
   buildPlatformShareOptions,
-  openEditorOrCloud,
   shareViaOs,
-  type EditorCloudTarget,
 } from '../lib/platform-share';
 import { formatReshareId, formatShareId, formatTrackId } from '../lib/lifecycle-ids';
+import { parseCoordsFromLabel } from '../lib/parse-location-label';
 
 type PanelTab = 'overview' | 'details' | 'permissions' | 'activity';
 
@@ -71,6 +73,8 @@ interface VaultShareLink {
 
 interface VaultDetailSidePanelProps {
   record: VaultRecord;
+  listedOnExchange?: boolean;
+  exchangeListingId?: string | null;
   onClose: () => void;
   onShare: () => void;
   onDelete: () => void;
@@ -88,33 +92,43 @@ const TABS: { id: PanelTab; label: string }[] = [
 function QuickAction({
   icon,
   label,
+  hint,
   onClick,
-  variant = 'default',
+  disabled = false,
+  emphasis = false,
 }: {
   icon: React.ReactNode;
   label: string;
+  hint?: string;
   onClick: () => void;
-  variant?: 'default' | 'danger';
+  disabled?: boolean;
+  emphasis?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={cn(
-        'flex flex-col items-center justify-center gap-2 p-3 rounded-xl border text-center transition-colors min-h-[72px]',
-        variant === 'danger'
-          ? 'border-red-500/20 bg-red-500/5 hover:bg-red-500/10 text-red-400'
-          : 'border-bg-border bg-bg-elevated hover:border-dna-500/30 hover:bg-dna-500/5 text-gray-300 hover:text-white',
+        'flex flex-col items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl border text-center transition-colors min-h-[72px] max-h-[84px]',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-dna-500 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-card',
+        'disabled:opacity-60 disabled:pointer-events-none',
+        emphasis
+          ? 'border-dna-500/35 bg-dna-500/10 text-white hover:border-dna-400/50 hover:bg-dna-500/15'
+          : 'border-bg-border bg-bg-elevated text-gray-300 hover:border-dna-500/30 hover:bg-dna-500/5 hover:text-white',
       )}
     >
       <span className="text-dna-400">{icon}</span>
       <span className="text-2xs font-medium leading-tight">{label}</span>
+      {hint ? <span className="text-[10px] leading-tight text-gray-500">{hint}</span> : null}
     </button>
   );
 }
 
 export function VaultDetailSidePanel({
   record,
+  listedOnExchange = false,
+  exchangeListingId = null,
   onClose,
   onShare,
   onDelete,
@@ -124,12 +138,22 @@ export function VaultDetailSidePanel({
   const navigate = useNavigate();
   const { user } = useAuth();
   const [tab, setTab] = useState<PanelTab>('overview');
+  /*
+   * What this file is connected to. Keyed on the canonical Asset id, which the
+   * vault list now carries; files protected before Asset identity existed have
+   * none, and for those the section simply does not appear.
+   */
+  const [graph, setGraph] = useState<AssetGraph | null>(null);
+  const [graphLoading, setGraphLoading] = useState(false);
   const [links, setLinks] = useState<VaultShareLink[]>([]);
   const [loadingLinks, setLoadingLinks] = useState(true);
   const [tracking, setTracking] = useState<VaultTrackingDashboard | null>(null);
   const [loadingTracking, setLoadingTracking] = useState(true);
   const [protectDownloading, setProtectDownloading] = useState(false);
   const [sharingFile, setSharingFile] = useState(false);
+  const [listingOnExchange, setListingOnExchange] = useState(false);
+  const [canListOnExchange, setCanListOnExchange] = useState(false);
+  const [inPortfolio, setInPortfolio] = useState(false);
   /** Prepared Share File attachment — share() must run on a fresh click (user gesture). */
   const [shareReady, setShareReady] = useState(false);
   const [readyShareUrl, setReadyShareUrl] = useState<string | null>(null);
@@ -137,6 +161,11 @@ export function VaultDetailSidePanel({
     record.contentAnalysis ?? null,
   );
   const [analyzing, setAnalyzing] = useState(false);
+  const [analysisStatus, setAnalysisStatus] = useState<
+    'NOT_ANALYZED' | 'PENDING' | 'ANALYZING' | 'COMPLETED' | 'FAILED' | 'NOT_APPLICABLE' | null
+  >(record.contentAnalysis ? 'COMPLETED' : null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [analysisRetrying, setAnalysisRetrying] = useState(false);
   const preparedShareRef = useRef<{
     recordId: string;
     file: File;
@@ -164,6 +193,53 @@ export function VaultDetailSidePanel({
   const latestTep = tepPackages[0] ?? null;
 
   useEffect(() => {
+    let cancelled = false;
+    void getExchangeRole()
+      .then((role) => {
+        if (!cancelled) setCanListOnExchange(Boolean(role.can_list));
+      })
+      .catch(() => {
+        if (!cancelled) setCanListOnExchange(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setInPortfolio(false);
+    void getPortfolioContainsVault(record.id)
+      .then((present) => {
+        if (!cancelled) setInPortfolio(present);
+      })
+      .catch(() => {
+        if (!cancelled) setInPortfolio(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [record.id]);
+
+  /* Relationships load on their own, so an asset without an identity cannot
+     short-circuit the panel's other reset work. */
+  useEffect(() => {
+    setGraph(null);
+    const assetId = record.assetId;
+    if (!assetId) {
+      setGraphLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setGraphLoading(true);
+    getAssetGraph(assetId)
+      .then((g) => { if (!cancelled) setGraph(g); })
+      .catch(() => { if (!cancelled) setGraph(null); })
+      .finally(() => { if (!cancelled) setGraphLoading(false); });
+    return () => { cancelled = true; };
+  }, [record.id, record.assetId]);
+
+  useEffect(() => {
     setTab('overview');
     setDisplayName(record.originalFileName);
     setRenaming(false);
@@ -174,6 +250,9 @@ export function VaultDetailSidePanel({
     setTracking(null);
     setAnalysis(record.contentAnalysis ?? null);
     setAnalyzing(false);
+    setAnalysisStatus(record.contentAnalysis ? 'COMPLETED' : null);
+    setAnalysisError(null);
+    setAnalysisRetrying(false);
     preparedShareRef.current = null;
     setShareReady(false);
     setReadyShareUrl(null);
@@ -199,33 +278,48 @@ export function VaultDetailSidePanel({
         setLoadingTracking(false);
       }
     })();
+  }, [record.id]);
 
-    // Image-only: refresh when missing latest authenticity analysis or old false-100% AI mix
-    const mix = record.contentAnalysis?.composition;
-    const score = record.contentAnalysis?.signals?.deepfakeScore;
-    const looksBroken =
-      isImageRecord && (
-        !record.contentAnalysis
-        || record.contentAnalysis.version !== 'authenticity-v7'
-        || !record.contentAnalysis.scores
-        || !mix
-        || (mix.aiGeneratedPercent >= 90 && mix.manualPercent === 0)
-        || (record.contentLabel === 'AI_GENERATED' && typeof score === 'number' && score < 70)
-      );
-    if (looksBroken) {
-      void (async () => {
-        setAnalyzing(true);
-        try {
-          const data = await analyzeVaultContent(record.id);
-          setAnalysis(data.contentAnalysis ?? null);
-        } catch {
-          /* keep empty — new protects always store analysis automatically */
-        } finally {
-          setAnalyzing(false);
-        }
-      })();
+  useEffect(() => {
+    if (!isImageRecord) {
+      setAnalysis(null);
+      setAnalyzing(false);
+      setAnalysisStatus('NOT_APPLICABLE');
+      return;
     }
-  }, [record.id, record.contentAnalysis, isImageRecord]);
+    let cancelled = false;
+    let timer: number | undefined;
+
+    const applySnap = (snap: Awaited<ReturnType<typeof getVaultContentAnalysis>>) => {
+      if (cancelled) return;
+      setAnalysisStatus(snap.status);
+      setAnalysis(snap.contentAnalysis ?? null);
+      setAnalysisError(snap.error ?? null);
+      setAnalyzing(snap.status === 'ANALYZING' || snap.status === 'PENDING');
+    };
+
+    const poll = async () => {
+      try {
+        const snap = await getVaultContentAnalysis(record.id);
+        applySnap(snap);
+        if (!cancelled && (snap.status === 'ANALYZING' || snap.status === 'PENDING')) {
+          timer = window.setTimeout(() => { void poll(); }, 2500);
+        }
+      } catch {
+        if (!cancelled) {
+          setAnalyzing(false);
+          setAnalysisStatus((prev) => prev ?? 'FAILED');
+          setAnalysisError("Analysis couldn't be completed.");
+        }
+      }
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [record.id, isImageRecord]);
 
   const copyTep = async (code: string) => {
     try {
@@ -270,6 +364,7 @@ export function VaultDetailSidePanel({
     try {
       const result = await renameVaultRecord(record.id, nextName);
       setDisplayName(result.originalFileName);
+      setLinks((prev) => prev.map((l) => ({ ...l, filename: result.originalFileName })));
       onRenamed?.(record.id, result.originalFileName);
       setRenaming(false);
       toast.success('File renamed');
@@ -309,7 +404,7 @@ export function VaultDetailSidePanel({
   };
 
   /**
-   * Open OS share sheet. On desktop, share the PinIT open URL (so Windows QR
+   * Open OS share sheet. On desktop, share the Pinit open URL (so Windows QR
    * encodes a real link). On mobile, prefer the file attachment when supported.
    */
   const openNativeShareSheet = async (file: File, shareUrl: string) => {
@@ -413,7 +508,7 @@ export function VaultDetailSidePanel({
 
   /**
    * Share File = file attachment (not a chat link).
-   * File opens → PinIT page → tracked under Share Files.
+   * File opens → Pinit page → tracked under Share Files.
    * 1st click prepare · 2nd click share (browser user-gesture rule).
    */
   const handleShareFile = async () => {
@@ -462,6 +557,27 @@ export function VaultDetailSidePanel({
     }
   };
 
+  const handleRetryImageAnalysis = async () => {
+    if (analysisRetrying || !isImageRecord) return;
+    setAnalysisRetrying(true);
+    setAnalysisStatus('ANALYZING');
+    setAnalyzing(true);
+    setAnalysisError(null);
+    try {
+      const data = await analyzeVaultContent(record.id, { force: true });
+      setAnalysisStatus((data.status as typeof analysisStatus) || (data.contentAnalysis ? 'COMPLETED' : 'FAILED'));
+      setAnalysis(data.contentAnalysis ?? null);
+      setAnalysisError(data.error ?? null);
+      setAnalyzing(data.status === 'ANALYZING' || data.status === 'PENDING');
+    } catch {
+      setAnalysisStatus('FAILED');
+      setAnalysisError("Analysis couldn't be completed.");
+      setAnalyzing(false);
+    } finally {
+      setAnalysisRetrying(false);
+    }
+  };
+
   const gatePremium = (path: string) => {
     navigate(path);
   };
@@ -474,6 +590,54 @@ export function VaultDetailSidePanel({
     // Always open this file’s Tracking overview so EVERY share link for the
     // same vault file is listed (shared multiple times → all tracks visible).
     navigate(`/access-intelligence?vaultId=${encodeURIComponent(record.id)}`);
+  };
+
+  const handleListOnExchange = async () => {
+    if (listingOnExchange) return;
+    if (listedOnExchange) {
+      setListingOnExchange(true);
+      try {
+        const cfg = await getExchangeConfig();
+        const appUrl = String(cfg?.appUrl || '').replace(/\/$/, '');
+        const url = exchangeListingId && appUrl
+          ? `${appUrl}/listing/${encodeURIComponent(exchangeListingId)}`
+          : appUrl || null;
+        if (!url) {
+          toast.error('Exchange listing URL is not available');
+          return;
+        }
+        window.open(url, '_blank', 'noopener,noreferrer');
+      } catch {
+        toast.error('Could not open Exchange listing');
+      } finally {
+        setListingOnExchange(false);
+      }
+      return;
+    }
+    if (!canListOnExchange) {
+      toast.error('Private Hub asset. Become a Creator on Pinit Exchange to list marketplace inventory.');
+      return;
+    }
+    setListingOnExchange(true);
+    try {
+      const result = await createExchangeListIntent(record.id);
+      if (!result?.listUrl) {
+        toast.error("Couldn't create the Exchange listing.");
+        return;
+      }
+      window.open(result.listUrl, '_blank', 'noopener,noreferrer');
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+        (err instanceof Error ? err.message : '');
+      toast.error(msg || "Couldn't create the Exchange listing.");
+    } finally {
+      setListingOnExchange(false);
+    }
+  };
+
+  const handleAddToPortfolio = () => {
+    navigate(`/profile?tab=portfolio&addVault=${encodeURIComponent(record.id)}`);
   };
 
   useEffect(() => {
@@ -513,7 +677,7 @@ export function VaultDetailSidePanel({
         </button>
       </div>
 
-      <div className="overflow-y-auto flex-1">
+      <div className="overflow-y-auto flex-1 text-gray-800 dark:text-gray-100">
         <div className="relative aspect-video bg-bg-elevated border-b border-bg-border">
           <VaultFileThumbnail
             vaultId={record.id}
@@ -565,6 +729,7 @@ export function VaultDetailSidePanel({
             ) : (
               <div className="flex items-start gap-2">
                 <h2 className="text-base font-bold text-white break-words flex-1">{displayName}</h2>
+                {listedOnExchange && <ExchangeListedTag compact className="shrink-0 mt-1" />}
                 <button
                   type="button"
                   onClick={startRename}
@@ -586,6 +751,18 @@ export function VaultDetailSidePanel({
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <Badge variant="success" dot>Protected</Badge>
+            {analysis && (
+              <>
+                <Badge variant={verdictBadgeVariant(String(analysis.verdict ?? analysis.label))}>
+                  {analysis.verdictDisplay ?? analysis.labelDisplay ?? analysis.verdict ?? analysis.label}
+                </Badge>
+                <Badge variant={(analysis.scores?.tamperScore ?? 0) < 15 ? 'success' : 'warning'}>
+                  {(analysis.scores?.tamperScore ?? 0) < 15
+                    ? 'Not tampered'
+                    : `Tamper ${Math.round(analysis.scores?.tamperScore ?? 0)}%`}
+                </Badge>
+              </>
+            )}
             <span className="text-2xs text-gray-500 mono">{record.id.slice(0, 12)}…</span>
           </div>
         </div>
@@ -612,44 +789,123 @@ export function VaultDetailSidePanel({
           {tab === 'overview' && (
             <>
               <section>
-                <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                <h3 className="text-2xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider mb-2">
                   Protection
                 </h3>
                 <dl className="space-y-2 text-xs">
                   {[
                     ['Status', 'Protected'],
+                    ['Content', analysis?.verdictDisplay ?? analysis?.labelDisplay ?? (analysis ? String(analysis.verdict ?? analysis.label) : '—')],
+                    ['Tamper', analysis?.scores
+                      ? `${Math.round(analysis.scores.tamperScore)}%${analysis.scores.tamperScore < 15 ? ' · none found' : ''}`
+                      : '—'],
+                    ['Authenticity', analysis?.scores ? `${Math.round(analysis.scores.authenticityScore)}%` : '—'],
                     ['Access', 'Only you control'],
                     ['Verified', 'Yes'],
                   ].map(([k, v]) => (
                     <div key={k} className="flex justify-between gap-2">
-                      <dt className="text-gray-500">{k}</dt>
-                      <dd className="text-white font-medium text-right">{v}</dd>
+                    <dt className="text-gray-600 dark:text-gray-300">{k}</dt>
+                    <dd className="text-gray-900 dark:text-gray-100 font-medium text-right">{v}</dd>
                     </div>
                   ))}
                 </dl>
               </section>
+              {/*
+                * What this file is connected to.
+                *
+                * The server returns only groups that have members, so there is
+                * no empty-state to render here — if an asset is connected to
+                * nothing, the whole section stays away rather than showing a
+                * row of blank headings.
+                */}
+              {graphLoading && (
+                <section>
+                  <h3 className="text-2xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider mb-2">
+                    Relationships
+                  </h3>
+                  <div className="skeleton h-12 rounded-lg" />
+                </section>
+              )}
+
+              {!graphLoading && graph && graph.groups.length > 0 && (
+                <section>
+                  <div className="flex items-baseline justify-between gap-2 mb-2">
+                    <h3 className="text-2xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                      Relationships
+                    </h3>
+                    <span className="text-2xs text-gray-500">
+                      {graph.totalConnections}{' '}
+                      {graph.totalConnections === 1 ? 'connection' : 'connections'}
+                    </span>
+                  </div>
+
+                  <div className="space-y-3">
+                    {graph.groups.map((group) => (
+                      <div key={group.kind}>
+                        <p className="text-2xs text-gray-500 mb-1">{group.label}</p>
+                        <ul className="space-y-1">
+                          {group.items.map((item) => {
+                            const body = (
+                              <>
+                                <span className="min-w-0 flex-1 truncate text-gray-900 dark:text-gray-100">
+                                  {item.label}
+                                </span>
+                                {item.sub && (
+                                  <span className="shrink-0 truncate text-2xs text-gray-500 max-w-[45%]">
+                                    {item.sub}
+                                  </span>
+                                )}
+                              </>
+                            );
+                            const cls =
+                              'flex items-center gap-2 text-xs rounded-lg px-2 py-1.5 '
+                              + 'bg-gray-50 dark:bg-white/[0.03]';
+                            return (
+                              <li key={`${group.kind}-${item.id}`}>
+                                {item.href ? (
+                                  <a
+                                    href={item.href}
+                                    target={item.href.startsWith('http') ? '_blank' : undefined}
+                                    rel="noreferrer noopener"
+                                    className={`${cls} hover:bg-gray-100 dark:hover:bg-white/[0.06]`}
+                                  >
+                                    {body}
+                                  </a>
+                                ) : (
+                                  <div className={cls}>{body}</div>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
               <section>
-                <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                <h3 className="text-2xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider mb-2">
                   Where it came from
                 </h3>
                 <dl className="space-y-2 text-xs">
                   <div className="flex justify-between gap-2">
-                    <dt className="text-gray-500">Source</dt>
-                    <dd className="text-white font-medium text-right">
+                    <dt className="text-gray-600 dark:text-gray-300">Source</dt>
+                    <dd className="text-gray-900 dark:text-gray-100 font-medium text-right">
                       {vaultSourceCaption(record) ?? 'Pinit HUB upload'}
                     </dd>
                   </div>
                   {formatSourcePlatform(record.sourcePlatform) && (
                     <div className="flex justify-between gap-2">
-                      <dt className="text-gray-500">Platform</dt>
-                      <dd className="text-white font-medium text-right">
+                      <dt className="text-gray-600 dark:text-gray-300">Platform</dt>
+                      <dd className="text-gray-900 dark:text-gray-100 font-medium text-right">
                         {formatSourcePlatform(record.sourcePlatform)}
                       </dd>
                     </div>
                   )}
                   {record.sourceUrl && (
                     <div className="flex flex-col gap-1">
-                      <dt className="text-gray-500">Original link</dt>
+                      <dt className="text-gray-600 dark:text-gray-300">Original link</dt>
                       <dd className="text-dna-400 text-right break-all">
                         <a
                           href={record.sourceUrl}
@@ -667,26 +923,26 @@ export function VaultDetailSidePanel({
                 </dl>
               </section>
               <section>
-                <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                <h3 className="text-2xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider mb-2">
                   File identity
                 </h3>
                 <dl className="space-y-2 text-xs">
                   <div className="flex justify-between gap-2">
-                    <dt className="text-gray-500">Record</dt>
+                    <dt className="text-gray-600 dark:text-gray-300">Record</dt>
                     <dd className="text-dna-400 mono text-right truncate max-w-[180px]">{record.dnaRecordId.slice(0, 16)}…</dd>
                   </div>
                   <div className="flex justify-between gap-2">
-                    <dt className="text-gray-500">Watermark</dt>
-                    <dd className="text-white">Enabled</dd>
+                    <dt className="text-gray-600 dark:text-gray-300">Watermark</dt>
+                    <dd className="text-gray-900 dark:text-gray-100">Enabled</dd>
                   </div>
                   <div className="flex justify-between gap-2">
-                    <dt className="text-gray-500">Live tracking</dt>
-                    <dd className="text-white">Active</dd>
+                    <dt className="text-gray-600 dark:text-gray-300">Live tracking</dt>
+                    <dd className="text-gray-900 dark:text-gray-100">Active</dd>
                   </div>
                 </dl>
               </section>
               <section>
-                <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                <h3 className="text-2xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider mb-2">
                   Protected Downloads
                 </h3>
                 {loadingTracking ? (
@@ -766,40 +1022,40 @@ export function VaultDetailSidePanel({
                 )}
               </section>
               <section>
-                <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                <h3 className="text-2xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider mb-2">
                   Chain of Custody
                 </h3>
                 <dl className="space-y-2 text-xs">
                   <div className="flex justify-between gap-2">
-                    <dt className="text-gray-500">Owner</dt>
-                    <dd className="text-white">{user?.shortId ?? '—'}</dd>
+                    <dt className="text-gray-600 dark:text-gray-300">Owner</dt>
+                    <dd className="text-gray-900 dark:text-gray-100">{user?.shortId ?? '—'}</dd>
                   </div>
                   <div className="flex justify-between gap-2">
-                    <dt className="text-gray-500">Created</dt>
-                    <dd className="text-white text-right">{format(new Date(record.createdAt), 'PPpp')}</dd>
+                    <dt className="text-gray-600 dark:text-gray-300">Created</dt>
+                    <dd className="text-gray-900 dark:text-gray-100 text-right">{format(new Date(record.createdAt), 'PPpp')}</dd>
                   </div>
                   <div className="flex justify-between gap-2">
-                    <dt className="text-gray-500">Vault</dt>
+                    <dt className="text-gray-600 dark:text-gray-300">Asset</dt>
                     <dd className="text-dna-400 mono text-right truncate max-w-[180px]">{record.id.slice(0, 16)}…</dd>
                   </div>
                   {record.location?.status === 'AVAILABLE' && (
                     <>
                       {record.location.creationLabel && (
                         <div className="flex justify-between gap-2">
-                          <dt className="text-gray-500 flex items-center gap-1"><MapPin size={10} /> Asset GPS</dt>
-                          <dd className="text-white text-right truncate max-w-[180px]">{record.location.creationLabel}</dd>
+                          <dt className="text-gray-600 dark:text-gray-300 flex items-center gap-1"><MapPin size={10} /> Asset GPS</dt>
+                          <dd className="text-gray-900 dark:text-gray-100 text-right truncate max-w-[180px]">{record.location.creationLabel}</dd>
                         </div>
                       )}
                       {record.location.sharedLabel && (
                         <div className="flex justify-between gap-2">
-                          <dt className="text-gray-500">Share GPS</dt>
-                          <dd className="text-white text-right truncate max-w-[180px]">{record.location.sharedLabel}</dd>
+                          <dt className="text-gray-600 dark:text-gray-300">Share GPS</dt>
+                          <dd className="text-gray-900 dark:text-gray-100 text-right truncate max-w-[180px]">{record.location.sharedLabel}</dd>
                         </div>
                       )}
                       {record.location.presentLabel && record.location.presentLabel !== record.location.creationLabel && (
                         <div className="flex justify-between gap-2">
-                          <dt className="text-gray-500">Latest GPS</dt>
-                          <dd className="text-white text-right truncate max-w-[180px]">{record.location.presentLabel}</dd>
+                          <dt className="text-gray-600 dark:text-gray-300">Latest GPS</dt>
+                          <dd className="text-gray-900 dark:text-gray-100 text-right truncate max-w-[180px]">{record.location.presentLabel}</dd>
                         </div>
                       )}
                     </>
@@ -811,17 +1067,37 @@ export function VaultDetailSidePanel({
 
           {tab === 'details' && (
             <div className="space-y-3">
-              {isImageRecord && analyzing && !analysis ? (
+              {isImageRecord && analysis && analysisStatus !== 'FAILED' ? (
+                <AuthenticityReportCard analysis={analysis} title="Image analysis" />
+              ) : isImageRecord && (analyzing || analysisStatus === 'ANALYZING' || analysisStatus === 'PENDING') ? (
                 <div className="rounded-xl border border-bg-border bg-bg-elevated p-3">
                   <div className="flex items-center gap-2">
                     <Microscope size={14} className="text-dna-400" />
                     <p className="text-xs font-semibold text-white">Image analysis</p>
                     <RefreshCw size={11} className="animate-spin text-gray-500 ml-auto" />
                   </div>
-                  <p className="text-2xs text-gray-500 mt-2">Analyzing image automatically…</p>
+                  <p className="text-2xs text-gray-500 mt-2">
+                    {analysisStatus === 'PENDING' ? 'Analysis queued...' : 'Analysis in progress...'}
+                  </p>
                 </div>
-              ) : isImageRecord && analysis ? (
-                <AuthenticityReportCard analysis={analysis} title="Image authenticity analysis" />
+              ) : isImageRecord && analysisStatus === 'FAILED' ? (
+                <div className="rounded-xl border border-bg-border bg-bg-elevated p-3">
+                  <div className="flex items-center gap-2">
+                    <Microscope size={14} className="text-dna-400" />
+                    <p className="text-xs font-semibold text-white">Image analysis</p>
+                  </div>
+                  <p className="text-2xs text-gray-500 mt-2">
+                    {analysisError || "Analysis couldn't be completed."}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => { void handleRetryImageAnalysis(); }}
+                    disabled={analysisRetrying}
+                    className="mt-2 text-2xs font-semibold text-dna-400 hover:text-white disabled:opacity-60"
+                  >
+                    {analysisRetrying ? 'Retrying…' : 'Retry analysis'}
+                  </button>
+                </div>
               ) : (
                 <div className="rounded-xl border border-bg-border bg-bg-elevated p-3">
                   <div className="flex items-center gap-2">
@@ -830,8 +1106,8 @@ export function VaultDetailSidePanel({
                   </div>
                   <p className="text-2xs text-gray-500 mt-2">
                     {isImageRecord
-                      ? 'Image analysis runs automatically when the image goes through DNA.'
-                      : 'Detailed image analysis graph is only shown for image files that go through DNA.'}
+                      ? 'Checking stored analysis…'
+                      : 'Detailed image analysis is only shown for image files.'}
                   </p>
                 </div>
               )}
@@ -846,19 +1122,72 @@ export function VaultDetailSidePanel({
                   ['Stored at', format(new Date(record.createdAt), 'PPpp')],
                 ].map(([label, value]) => (
                   <div key={label} className="bg-bg-elevated rounded-lg p-3">
-                    <dt className="text-2xs text-gray-500 mb-1">{label}</dt>
-                    <dd className={cn('break-all', label.toString().includes('ID') ? 'mono text-dna-400' : 'text-gray-200')}>
+                    <dt className="text-2xs text-gray-600 dark:text-gray-300 mb-1">{label}</dt>
+                    <dd className={cn('break-all', label.toString().includes('ID') ? 'mono text-dna-400' : 'text-gray-900 dark:text-gray-100')}>
                       {value}
                     </dd>
                   </div>
                 ))}
+                <div className="bg-bg-elevated rounded-lg p-3">
+                  <dt className="text-2xs text-gray-600 dark:text-gray-300 mb-1 flex items-center gap-1">
+                    <MapPin size={11} className="text-dna-400" />
+                    Upload GPS
+                  </dt>
+                  {(() => {
+                    const label = record.location?.creationLabel;
+                    const source = record.location?.creationSource;
+                    const coords = parseCoordsFromLabel(label);
+                    if (!label) {
+                      return (
+                        <dd className="text-gray-500 dark:text-gray-400">
+                          Not shared when this file was protected
+                        </dd>
+                      );
+                    }
+                    return (
+                      <>
+                        <dd className="text-gray-900 dark:text-gray-100 break-all font-medium">
+                          {coords ? (
+                            <a
+                              href={`https://www.google.com/maps?q=${coords.lat},${coords.lng}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-dna-400 hover:underline"
+                            >
+                              {label}
+                            </a>
+                          ) : (
+                            label
+                          )}
+                        </dd>
+                        <p className="text-2xs text-gray-500 dark:text-gray-400 mt-1">
+                          {source === 'gps'
+                            ? 'Device GPS at upload'
+                            : source === 'ip'
+                              ? 'Approximate from network (IP)'
+                              : 'Recorded at protect'}
+                        </p>
+                      </>
+                    );
+                  })()}
+                </div>
                 <div className="rounded-xl bg-success/5 border border-success/20 p-3">
                   <div className="flex items-center gap-2 mb-1">
                     <Lock size={12} className="text-success" />
-                    <p className="text-xs font-semibold text-success">Protected in your vault</p>
+                    <p className="text-xs font-semibold text-success">
+                      {listedOnExchange
+                        ? 'Listed on Pinit Exchange'
+                        : canListOnExchange
+                          ? 'Protected in your vault'
+                          : 'Private · Protected by Pinit HUB'}
+                    </p>
                   </div>
                   <p className="text-2xs text-gray-400">
-                    Only you can open the original. Sharing stays tracked and under your control.
+                    {listedOnExchange
+                      ? 'This file is live for sale on Exchange. The original stays locked in your vault.'
+                      : canListOnExchange
+                      ? 'Only you can open the original. Eligible assets can be listed on Exchange.'
+                      : 'This is a personal Hub asset. Having a file in HUB does not list it on Exchange.'}
                   </p>
                 </div>
               </dl>
@@ -947,7 +1276,7 @@ export function VaultDetailSidePanel({
               )}
               <button
                 type="button"
-                onClick={() => gatePremium('/timeline')}
+                onClick={() => gatePremium(`/timeline?vaultId=${encodeURIComponent(record.id)}`)}
                 className="w-full flex items-center justify-center gap-1 text-xs text-dna-400 hover:text-white py-2"
               >
                 View in Timeline <ChevronRight size={12} />
@@ -956,7 +1285,7 @@ export function VaultDetailSidePanel({
           )}
         </div>
 
-        <div className="p-4 border-t border-bg-border space-y-3">
+        <div className="p-3 border-t border-bg-border space-y-2.5">
           <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">Quick Actions</h3>
           {shareReady && readyShareUrl && (
             <>
@@ -1004,30 +1333,8 @@ export function VaultDetailSidePanel({
               </div>
             </>
           )}
+          {(latestTep?.tepCode || links[0]) && (
           <div className="rounded-xl border border-bg-border bg-bg-elevated p-3 space-y-2">
-            <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">
-              Edit / cloud workflow
-            </p>
-            <p className="text-2xs text-gray-500">
-              Download protected file first, then open your editor or cloud. Re-protect after changes.
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {([
-                { label: 'Canva', target: 'canva' as EditorCloudTarget },
-                { label: 'Adobe', target: 'adobe' as EditorCloudTarget },
-                { label: 'Drive', target: 'drive' as EditorCloudTarget },
-                { label: 'Dropbox', target: 'dropbox' as EditorCloudTarget },
-              ]).map((item) => (
-                <button
-                  key={item.label}
-                  type="button"
-                  onClick={() => openEditorOrCloud(item.target, (msg) => toast(msg, { duration: 4500 }))}
-                  className="px-2 py-1 rounded-lg border border-bg-border text-2xs text-gray-300 hover:text-white hover:border-dna-500/40"
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
             {latestTep?.tepCode && (
               <p className="text-2xs text-gray-500 mono">
                 Track ID: {formatTrackId(latestTep.tepCode, record.id)}
@@ -1039,16 +1346,41 @@ export function VaultDetailSidePanel({
               </p>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          )}
+
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2.5">
+            <QuickAction
+              emphasis
+              icon={<Plus size={18} />}
+              label={inPortfolio ? 'In Portfolio' : 'Add to Portfolio'}
+              hint={inPortfolio ? 'Manage in Hub' : undefined}
+              onClick={handleAddToPortfolio}
+            />
+            <QuickAction
+              emphasis
+              icon={listingOnExchange ? <RefreshCw size={18} className="animate-spin" /> : <Store size={18} />}
+              label={
+                listingOnExchange
+                  ? (listedOnExchange ? 'Opening…' : 'Listing…')
+                  : listedOnExchange
+                    ? 'View on Exchange'
+                    : 'List on Exchange'
+              }
+              hint={listedOnExchange ? 'Listed on Exchange' : undefined}
+              disabled={listingOnExchange}
+              onClick={() => { if (!listingOnExchange) void handleListOnExchange(); }}
+            />
             <QuickAction
               icon={protectDownloading ? <RefreshCw size={18} className="animate-spin" /> : <Download size={18} />}
-              label="Download Protected"
-              onClick={handleProtectedDownload}
+              label={protectDownloading ? 'Preparing…' : 'Download Protected'}
+              disabled={protectDownloading}
+              onClick={() => { if (!protectDownloading) void handleProtectedDownload(); }}
             />
             <QuickAction icon={<Share2 size={18} />} label="Share Secure Link" onClick={onShare} />
             <QuickAction
               icon={sharingFile ? <RefreshCw size={18} className="animate-spin" /> : <Send size={18} />}
               label={sharingFile ? 'Preparing…' : shareReady ? 'Share now' : 'Share File'}
+              disabled={sharingFile}
               onClick={() => { if (!sharingFile) void handleShareFile(); }}
             />
             <QuickAction
@@ -1056,21 +1388,11 @@ export function VaultDetailSidePanel({
               label="Intelligence Report"
               onClick={() => gatePremium(`/intelligence/${record.id}`)}
             />
-            <QuickAction
-              icon={<Microscope size={18} />}
-              label="Compare files"
-              onClick={() => gatePremium('/forensic-diff')}
-            />
             <QuickAction icon={<Activity size={18} />} label="Tracking" onClick={handleAccessIntelligence} />
-            <QuickAction
-              icon={<Shield size={18} />}
-              label="Unified Investigation"
-              onClick={() => gatePremium(BRAND.investigationPath)}
-            />
             <QuickAction
               icon={<Eye size={18} />}
               label="View in Timeline"
-              onClick={() => gatePremium('/timeline')}
+              onClick={() => gatePremium(`/timeline?vaultId=${encodeURIComponent(record.id)}`)}
             />
           </div>
           <button
@@ -1080,7 +1402,7 @@ export function VaultDetailSidePanel({
             className="w-full flex items-center justify-center gap-2 text-xs text-red-400 hover:text-red-300 py-2 disabled:opacity-60"
           >
             {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-            {deleting ? 'Removing…' : 'Remove from Vault'}
+            {deleting ? 'Removing…' : 'Remove from My Assets'}
           </button>
         </div>
       </div>

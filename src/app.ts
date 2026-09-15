@@ -16,10 +16,12 @@ import rateLimit from 'express-rate-limit';
 import { config } from './config';
 import { logger } from './lib/logger';
 import { prisma } from './lib/prisma';
+import { buildShareViewerUrl } from './lib/share-viewer-url';
 import { dnaRouter }               from './api/routes/dna.routes';
 import { vaultRouter }             from './api/routes/vault.routes';
 import { intelligenceRouter }      from './api/routes/intelligence.routes';
 import { certificateMgmtRouter }   from './api/routes/certificate-mgmt.routes';
+import { credentialsRouter }       from './api/routes/credentials.routes';
 import { forensicDiffRouter }      from './api/routes/forensic-diff.routes';
 import { unifiedInvestigationRouter } from './api/routes/unified-investigation.routes';
 import { aiRouter }               from './api/routes/ai.routes';
@@ -29,15 +31,19 @@ import { recipientsRouter }       from './api/routes/recipients.routes';
 import { evidenceRouter }         from './api/routes/evidence.routes';
 import { authRouter }             from './api/routes/auth.routes';
 import { profileRouter }          from './api/routes/profile.routes';
+import { portfolioRouter }        from './api/routes/portfolio.routes';
+import { getPublicPortfolio }     from './api/controllers/portfolio.controller';
 import { notificationRouter }     from './api/routes/notification.routes';
-import { adminRouter }            from './api/routes/admin.routes';
 import { superAdminRouter }       from './api/routes/super-admin.routes';
 import { tepRouter }              from './api/routes/tep.routes';
 import { subscriptionRouter }     from './api/routes/subscription.routes';
 import { organizationRouter }     from './api/routes/organization.routes';
+import { businessRouter }         from './api/routes/business.routes';
 import { publishGuardianRouter }  from './api/routes/publish-guardian.routes';
 import { assetRouter }            from './api/routes/asset.routes';
 import { exchangeRouter }         from './api/routes/exchange.routes';
+import { adminBridgeRouter }      from './api/routes/admin-bridge.routes';
+import { creatorRouter }          from './api/routes/creator.routes';
 import {
   issueExtensionAuthCode,
   exchangeExtensionAuthToken,
@@ -154,6 +160,7 @@ app.use(`${config.apiPrefix}/dna`,          dnaRouter);
 app.use(`${config.apiPrefix}/vault`,        vaultRouter);
 app.use(`${config.apiPrefix}/intelligence`, intelligenceRouter);
 app.use(`${config.apiPrefix}/certificates`, certificateMgmtRouter);
+app.use(`${config.apiPrefix}/credentials`,  credentialsRouter);
 app.use(`${config.apiPrefix}/forensic`,    forensicDiffRouter);
 app.use(`${config.apiPrefix}/forensics`,   unifiedInvestigationRouter);
 app.use(`${config.apiPrefix}/ai`,         aiRouter);
@@ -163,33 +170,51 @@ app.use(`${config.apiPrefix}/recipients`, recipientsRouter);
 app.use(`${config.apiPrefix}/evidence`,   evidenceRouter);
 app.use(`${config.apiPrefix}/auth`,      authRouter);
 app.use(`${config.apiPrefix}/profile`,       profileRouter);
+app.use(`${config.apiPrefix}/portfolio`,     portfolioRouter);
+app.get(`${config.apiPrefix}/public/portfolio/:slug`, getPublicPortfolio);
 app.use(`${config.apiPrefix}/notifications`, notificationRouter);
-app.use(`${config.apiPrefix}/admin`,         adminRouter);
+// /api/v1/admin (legacy adminRouter) retired — it gated role-change/toggle
+// on plain ADMIN role with no owner check, a weaker parallel path to the
+// same destructive actions super-admin now locks to the platform owner.
 app.use(`${config.apiPrefix}/super-admin`,   superAdminRouter);
 app.use(`${config.apiPrefix}/tep`,           tepRouter);
 app.use(`${config.apiPrefix}/subscription`,  subscriptionRouter);
 app.use(`${config.apiPrefix}/organization`,   organizationRouter);
+app.use(`${config.apiPrefix}/business`,       businessRouter);
 /** Publish Guardian — /api/v1/extension/* and /api/v1/posts* (additive) */
 app.use(`${config.apiPrefix}`, publishGuardianRouter);
 app.use(`${config.apiPrefix}`, assetRouter);
 /** Exchange bridge — Hub master identity + list/sale handoff */
 app.use(`${config.apiPrefix}/exchange`, exchangeRouter);
+/** Master Admin bridge — separate app SSO handoff */
+app.use(`${config.apiPrefix}/admin-bridge`, adminBridgeRouter);
+app.use(`${config.apiPrefix}/creator`, creatorRouter);
 
 /** Extension OAuth (additive — does not change password/biometric login) */
 app.post(`${config.apiPrefix}/auth/extension/issue-code`, requireAuth, issueExtensionAuthCode);
 app.post(`${config.apiPrefix}/auth/extension/token`, exchangeExtensionAuthToken);
 
+// Recipients must land on the Hub frontend viewer, not this API process.
+app.get('/share/:token', (req, res) => {
+  const token = String(req.params.token || '').trim();
+  if (!token) {
+    res.status(400).type('html').send('Link unavailable');
+    return;
+  }
+  res.redirect(302, buildShareViewerUrl(token));
+});
+
 // ─── Share viewer with dynamic OG meta tags (trackable preview) ──────────────
 // When WhatsApp/Telegram crawl /s/:token, they get OG tags with our trackable
 // preview image URL. Tapping the preview opens the share viewer (tracked).
 app.get('/s/:token', async (req, res) => {
+  const { token } = req.params;
+  const viewerUrl = buildShareViewerUrl(String(token || ''));
   const reactIndex = path.join(__dirname, '..', 'client', 'dist', 'index.html');
   if (!fs.existsSync(reactIndex)) {
-    res.status(404).json({ success: false, error: 'Route not found' });
+    res.redirect(302, viewerUrl);
     return;
   }
-
-  const { token } = req.params;
   let title = 'PINIT DNA — Secure File';
   let description = 'Access this encrypted file securely. Protected by PINIT DNA.';
   let filename = 'Secure File';
@@ -204,7 +229,7 @@ app.get('/s/:token', async (req, res) => {
   } catch { /* serve with defaults */ }
 
   const previewUrl = `https://${req.get('host')}${config.apiPrefix}/share/${token}/preview.png`;
-  const pageUrl = `https://${req.get('host')}/s/${token}`;
+  const pageUrl = viewerUrl;
 
   let html = fs.readFileSync(reactIndex, 'utf-8');
   const ogTags = `
@@ -225,7 +250,18 @@ app.get('/s/:token', async (req, res) => {
 
 // ─── React SPA catch-all ─────────────────────────────────────────────────────
 // Serves index.html for /dashboard, /compare, /vault etc. (client-side routing)
-app.get('*', (_req, res) => {
+app.get('*', (req, res) => {
+  if (req.path.startsWith('/api/')) {
+    res.status(404).json({ success: false, error: 'Route not found' });
+    return;
+  }
+  if (req.path.startsWith('/s/') || req.path.startsWith('/share/')) {
+    const token = req.path.split('/').filter(Boolean)[1] || '';
+    if (token) {
+      res.redirect(302, buildShareViewerUrl(token));
+      return;
+    }
+  }
   const reactIndex = path.join(__dirname, '..', 'client', 'dist', 'index.html');
   if (fs.existsSync(reactIndex)) {
     res.sendFile(reactIndex);

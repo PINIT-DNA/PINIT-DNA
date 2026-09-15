@@ -23,6 +23,7 @@ import { Modal } from '../components/ui/Modal';
 import { cn } from '../components/ui/utils';
 import { resolveAlertUrl, resolveAlertSubtitle } from '../lib/crawler-url';
 import { downloadDmcaDraft } from '../lib/dmca-draft';
+import { useSearchParams } from 'react-router-dom';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -194,7 +195,7 @@ function AlertCard({ alert, onDismiss, onConfirm }: {
 
 // ─── Monitor Card ─────────────────────────────────────────────────────────────
 
-function MonitorCard({ m, onCheck, onPause, onResume, onScanTypeChange, checking, onRefresh }: {
+function MonitorCard({ m, onCheck, onPause, onResume, onScanTypeChange, checking, onRefresh, defaultExpanded }: {
   m: MonitorRecord;
   onCheck: () => void;
   onPause: () => void;
@@ -202,8 +203,9 @@ function MonitorCard({ m, onCheck, onPause, onResume, onScanTypeChange, checking
   onScanTypeChange: (t: string) => void;
   checking: boolean;
   onRefresh: () => void;
+  defaultExpanded?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(Boolean(defaultExpanded));
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [newUrl, setNewUrl] = useState('');
   const [savingUrl, setSavingUrl] = useState(false);
@@ -410,6 +412,8 @@ interface EngineStats {
 }
 
 export function MonitoringPage() {
+  const [params] = useSearchParams();
+  const focusMonitor = params.get('monitor');
   const [monitors,    setMonitors]    = useState<MonitorRecord[]>([]);
   const [alerts,      setAlerts]      = useState<CrawlResult[]>([]);
   const [stats,       setStats]       = useState<(Stats & { monitoringEnabled?: boolean; crawlerEngineEnabled?: boolean }) | null>(null);
@@ -521,13 +525,7 @@ export function MonitoringPage() {
     <div className="page-shell space-y-5 animate-fade-in">
 
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-white">Monitoring & Crawler</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Production-grade monitoring for PDF · DOCX · TXT · Images · Audio · Video
-          </p>
-        </div>
+      <div className="flex items-center justify-end flex-wrap gap-3">
         <div className="flex items-center gap-2">
           <button
             onClick={async () => {
@@ -577,7 +575,7 @@ export function MonitoringPage() {
           <p className="font-semibold text-amber-200">Online monitoring paused</p>
           <p className="text-xs text-amber-100/70 mt-1">
             YouTube, Reddit, GitHub, and web crawlers are kept off until monitoring is rebuilt and stable.
-            Code is still in the project — not removed. Vault, DNA, share, and tracking keep working as usual.
+            Code is still in the project — not removed. Your assets, sharing, and tracking keep working as usual.
           </p>
         </div>
       )}
@@ -787,12 +785,12 @@ export function MonitoringPage() {
               title={monitoringLive ? 'No files being monitored' : 'Monitoring on hold'}
               description={
                 monitoringLive
-                  ? 'Enroll files to start monitoring them for unauthorized copies'
+                  ? 'Protect an asset, then enroll it here to watch for copies online.'
                   : 'Online crawlers (YouTube · Reddit · web) stay off until the monitoring build is ready. Your protected files and DNA are unaffected.'
               }
               action={
                 monitoringLive
-                  ? <button onClick={() => setEnrollOpen(true)} className="btn btn-primary btn-sm"><Radio size={14} /> Enroll First File</button>
+                  ? <button onClick={() => setEnrollOpen(true)} className="btn btn-primary btn-sm"><Radio size={14} /> Enroll First Asset</button>
                   : undefined
               }
             />
@@ -801,6 +799,7 @@ export function MonitoringPage() {
           <div className="space-y-3">
             {monitors.map(m => (
               <MonitorCard key={m.id} m={m}
+                defaultExpanded={m.id === focusMonitor}
                 checking={checking === m.id}
                 onCheck={() => handleCheck(m.id)}
                 onPause={() => api.post(`${API_BASE_URL}/monitor/${m.id}/pause`).then(load)}
@@ -855,7 +854,7 @@ export function MonitoringPage() {
           </div>
 
           {(dnaRecords ?? []).length === 0 ? (
-            <p className="text-sm text-gray-500 text-center py-4">No files enrolled yet. Generate a DNA first.</p>
+            <p className="text-sm text-gray-500 text-center py-4">No assets enrolled yet. Generate a DNA first.</p>
           ) : (
             <div className="space-y-2 max-h-52 overflow-y-auto">
               {(dnaRecords ?? []).map(r => {

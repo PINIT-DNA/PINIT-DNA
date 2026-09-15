@@ -15,6 +15,7 @@ import {
   listRecipients,
 } from '../controllers/evidence-report.controller';
 import { requireAuth } from '../middleware/auth.middleware';
+import { requireDnaOwnership } from '../middleware/ownership.middleware';
 import { requireFeature, FeatureKey } from '../../services/subscription';
 
 export const evidenceRouter = Router();
@@ -39,4 +40,4 @@ evidenceRouter.patch('/incidents/:id',     requireAuth, requireFeature(FeatureKe
 evidenceRouter.get('/recipients',          requireAuth, listRecipients);
 
 // ── Forward Chain Graph ───────────────────────────────────────────────────────
-evidenceRouter.get('/chain/:dnaRecordId',  requireAuth, getForwardChain);
+evidenceRouter.get('/chain/:dnaRecordId',  requireAuth, requireDnaOwnership, getForwardChain);

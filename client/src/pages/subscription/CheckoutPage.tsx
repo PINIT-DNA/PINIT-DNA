@@ -79,7 +79,7 @@ export function CheckoutPage() {
                 <Icon size={20} className={plan.code === 'ENTERPRISE' ? 'text-purple-400' : 'text-amber-400'} />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-white">PINITHub {plan.name}</h2>
+                <h2 className="text-lg font-bold text-white">Pinit HUB {plan.name}</h2>
                 <p className="text-xs text-gray-500">{plan.description}</p>
               </div>
             </div>

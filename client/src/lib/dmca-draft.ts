@@ -29,7 +29,7 @@ export function buildDmcaDraft(input: DmcaDraftInput): string {
     'Pinit HUB does not auto-send this notice to any platform.',
     '',
     `Date (UTC): ${when}`,
-    `Owner PinIT ID: ${input.ownerShortId || 'N/A'}`,
+    `Owner Pinit ID: ${input.ownerShortId || 'N/A'}`,
     `Certificate ID: ${input.certificateId || 'N/A'}`,
     `Protection / DNA Record ID: ${input.dnaRecordId || 'N/A'}`,
     `Original filename: ${input.filename || 'N/A'}`,

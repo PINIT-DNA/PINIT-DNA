@@ -69,11 +69,20 @@ export class CertificateService {
       select: { ownerUserId: true },
     });
     if (!dna) throw new Error(`DNA record not found: ${params.dnaRecordId}`);
-    if (params.ownerUserId) {
-      const { assertRecordOwner } = await import('../../lib/tenant-scope');
-      assertRecordOwner(dna.ownerUserId, params.ownerUserId, 'DNA record');
-    }
-    const ownerUserId = dna.ownerUserId ?? params.ownerUserId ?? params.issuedByUserId ?? null;
+    const ownerUserId = params.ownerUserId;
+    if (!ownerUserId) throw new Error('Certificate issue requires authenticated ownerUserId');
+    const { assertRecordOwner } = await import('../../lib/tenant-scope');
+    assertRecordOwner(dna.ownerUserId, ownerUserId, 'DNA record');
+
+    const vault = await prisma.vaultRecord.findFirst({
+      where: {
+        id: params.vaultId,
+        dnaRecordId: params.dnaRecordId,
+        dnaRecord: { ownerUserId },
+      },
+      select: { id: true },
+    });
+    if (!vault) throw new Error('Vault record not found for this owner');
 
     // Check existing
     const existing = await prisma.certificate.findFirst({

@@ -45,6 +45,58 @@ function optionalInt(key: string, fallback: number): number {
   return parsed;
 }
 
+
+/** Public marketplace origin used when EXCHANGE_APP_URL is not configured in production. */
+const PRODUCTION_EXCHANGE_URL = 'https://www.pinitexchange.com';
+
+/**
+ * Resolve the Exchange app origin.
+ *
+ * Local dev keeps the localhost default. Production must never emit a
+ * localhost SSO link, so an unset value falls back to the public marketplace
+ * and logs loudly rather than failing silently.
+ */
+function resolveExchangeAppUrl(): string {
+  const explicit = process.env.EXCHANGE_APP_URL?.trim();
+  if (explicit) return explicit.replace(/\/$/, '');
+
+  const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+  if (!isProd) return 'http://localhost:5174';
+
+  // eslint-disable-next-line no-console
+  console.warn(
+    '[config] EXCHANGE_APP_URL is not set in production — falling back to ' +
+      `${PRODUCTION_EXCHANGE_URL}. Set EXCHANGE_APP_URL explicitly on the backend service.`,
+  );
+  return PRODUCTION_EXCHANGE_URL;
+}
+
+/** Exchange API service used when EXCHANGE_API_URL is not configured in production. */
+const PRODUCTION_EXCHANGE_API_URL = 'https://pinit-dna-3fmw.onrender.com';
+
+/**
+ * Resolve the Exchange API origin — same rule as the app URL above.
+ *
+ * The localhost default made every server-side Exchange call in production
+ * (listed-assets, role, seller desk) quietly fail, so My Assets lost its
+ * Exchange tags while localhost — where an Exchange server really does run on
+ * :5000 — kept showing them.
+ */
+function resolveExchangeApiUrl(): string {
+  const explicit = process.env.EXCHANGE_API_URL?.trim();
+  if (explicit) return explicit.replace(/\/$/, '');
+
+  const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+  if (!isProd) return 'http://localhost:5000';
+
+  // eslint-disable-next-line no-console
+  console.warn(
+    '[config] EXCHANGE_API_URL is not set in production — falling back to ' +
+      `${PRODUCTION_EXCHANGE_API_URL}. Set EXCHANGE_API_URL explicitly on the backend service.`,
+  );
+  return PRODUCTION_EXCHANGE_API_URL;
+}
+
 export const config = {
   env: optional('NODE_ENV', 'development') as 'development' | 'production' | 'test',
   port: optionalInt('PORT', 4000),
@@ -93,16 +145,65 @@ export const config = {
     secret: optional('JWT_SECRET', 'dev_jwt_secret_change_in_prod_min_32_chars_long!!'),
   },
 
+  webauthn: {
+    rpName: optional('WEBAUTHN_RP_NAME', 'PINIT'),
+    rpID: optional('WEBAUTHN_RP_ID', 'localhost'),
+    origin: optional('WEBAUTHN_ORIGIN', 'http://localhost:3002'),
+    /**
+     * When false, the "fingerprint" step is a placeholder: no passkey is required
+     * to register or log in, and none is enrolled. Authentication then rests on
+     * face (+ optional voice) alone — the device-possession factor is GONE.
+     *
+     * Passkeys are bound to one domain by design, so a credential enrolled on
+     * localhost cannot be used on the deployed site; this flag exists so the
+     * flow stays usable across environments until per-domain enrollment is built.
+     *
+     * Set WEBAUTHN_REQUIRE_PASSKEY=true to restore real WebAuthn verification.
+     */
+    requirePasskey: optional('WEBAUTHN_REQUIRE_PASSKEY', 'false').toLowerCase() === 'true',
+  },
+
   biometric: {
     encryptionKey: optional('BIOMETRIC_ENCRYPTION_KEY', optional('VAULT_MASTER_SECRET', 'dev_biometric_key_change_in_prod')),
     thresholds: {
-      // face-api.js L2 on normalized 128-d: same person ~0.25–0.45; strangers often ≥0.55.
-      // 0.62 was too loose and caused wrong-face logins with a small registry.
-      faceLogin: parseFloat(optional('BIOMETRIC_FACE_LOGIN_THRESHOLD', '0.48')),
-      // Same as login — one face → one PINIT ID (Individual + Business share that ID).
-      faceDuplicate: parseFloat(optional('BIOMETRIC_FACE_DUPLICATE_THRESHOLD', '0.48')),
+      // face-api.js L2 on normalized 128-d.
+      //
+      // Measured on this deployment (2026-08-19), not theoretical:
+      //   same person, own enrolled face .......... 0.137
+      //   different person vs that same face ...... 0.375, 0.471
+      //
+      // At the previous 0.48 both strangers fell UNDER the threshold, which
+      // (a) blocked real teammates from registering — they were reported as
+      // duplicates of an existing account — and (b) meant a stranger holding
+      // someone's Pinit ID was inside the 1:1 login threshold too.
+      //
+      // 0.33 sits between the observed same-person and different-person bands.
+      // Revisit with more samples across lighting/angles: too tight and a
+      // badly-lit capture of the legitimate owner starts failing login.
+      faceLogin: parseFloat(optional('BIOMETRIC_FACE_LOGIN_THRESHOLD', '0.33')),
+      // Same value — 1:N enroll uniqueness. A hit rejects registration (sign in instead).
+      faceDuplicate: parseFloat(optional('BIOMETRIC_FACE_DUPLICATE_THRESHOLD', '0.33')),
       // Best match must beat 2nd-best by this margin when ≥2 templates exist.
       faceLoginMargin: parseFloat(optional('BIOMETRIC_FACE_LOGIN_MARGIN', '0.08')),
+      /**
+       * 1:N face identification — sign in by face alone, no Pinit ID typed.
+       *
+       * Deliberately stricter than faceLogin (0.33). In 1:1 the account is
+       * already named, so the only question is "is this that person?". In 1:N
+       * every enrolled face is a candidate, so a near-miss signs you into
+       * someone else's vault — the worst failure this system can have.
+       *
+       * 0.25 sits in the empty band between the two populations measured on
+       * this deployment: 0.137 for a person against their own enrolled face,
+       * versus 0.317 / 0.320 / 0.375 / 0.471 for genuine strangers (the first
+       * two of those are real false-duplicate rejections logged on 2026-08-25,
+       * which is exactly why faceLogin's 0.33 is unsafe to identify with).
+       *
+       * Threshold alone is not the gate: isConfidentFaceMatch also requires a
+       * finite second-best that is itself above threshold, and a margin over
+       * it, so an ambiguous gallery refuses to identify rather than guessing.
+       */
+      faceIdentify: parseFloat(optional('BIOMETRIC_FACE_IDENTIFY_THRESHOLD', '0.25')),
       voiceLogin: parseFloat(optional('BIOMETRIC_VOICE_LOGIN_THRESHOLD', '0.45')),
       voiceDuplicate: parseFloat(optional('BIOMETRIC_VOICE_DUPLICATE_THRESHOLD', '0.35')),
       fingerprintLogin: parseFloat(optional('BIOMETRIC_FINGERPRINT_LOGIN_THRESHOLD', '0.40')),
@@ -134,9 +235,9 @@ export const config = {
   },
 
   razorpay: {
-    keyId: optional('RAZORPAY_KEY_ID', ''),
-    keySecret: optional('RAZORPAY_KEY_SECRET', ''),
-    webhookSecret: optional('RAZORPAY_WEBHOOK_SECRET', ''),
+    keyId: optional('RAZORPAY_KEY_ID', '').trim(),
+    keySecret: optional('RAZORPAY_KEY_SECRET', '').trim(),
+    webhookSecret: optional('RAZORPAY_WEBHOOK_SECRET', '').trim(),
   },
 
   /**
@@ -144,8 +245,12 @@ export const config = {
    * Hub owns identity / vault / DNA; Exchange only receives public-safe listing payloads.
    */
   exchange: {
-    appUrl: optional('EXCHANGE_APP_URL', 'http://localhost:5174').replace(/\/$/, ''),
-    apiUrl: optional('EXCHANGE_API_URL', 'http://localhost:5000').replace(/\/$/, ''),
+    // The localhost defaults are for local development only. In production an
+    // unset EXCHANGE_APP_URL used to silently produce a localhost SSO link,
+    // which sent every "Exchange" click to a machine the user does not have —
+    // so production falls back to the real marketplace instead, and warns.
+    appUrl: resolveExchangeAppUrl(),
+    apiUrl: resolveExchangeApiUrl(),
     bridgeSecret: optional(
       'EXCHANGE_BRIDGE_SECRET',
       optional('JWT_SECRET', 'dev_jwt_secret_change_in_prod_min_32_chars_long!!'),
@@ -154,6 +259,20 @@ export const config = {
 
   log: {
     level: optional('LOG_LEVEL', 'debug'),
+  },
+
+  /**
+   * PinitHUB Master Admin — a fully separate app (own Vite project, own port),
+   * same split as Exchange. Hub has no password login, so the admin app cannot
+   * run its own sign-in form; instead an already-logged-in Hub user requests a
+   * short-lived signed bridge token and is redirected into the admin app with it.
+   */
+  admin: {
+    appUrl: optional('ADMIN_APP_URL', 'http://localhost:3003').replace(/\/$/, ''),
+    bridgeSecret: optional(
+      'ADMIN_BRIDGE_SECRET',
+      optional('JWT_SECRET', 'dev_jwt_secret_change_in_prod_min_32_chars_long!!'),
+    ),
   },
 } as const;
 
