@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { Modal } from '../ui/Modal';
 import type { HubCredential } from '../../services/dashboard.api';
 import { DownloadCertificateButton } from './DownloadCertificateButton';
+import { ShareCertificateButton } from './ShareCertificateButton';
 
 function formatIssued(raw: string | null): string | null {
   if (!raw) return null;
@@ -91,6 +92,7 @@ export function CredentialDetailsModal({
             recipientPinitId={recipientPinitId}
             className="btn btn-secondary btn-sm"
           />
+          <ShareCertificateButton item={item} className="btn btn-secondary btn-sm" />
           <Link
             to={`/verify-certificate?id=${encodeURIComponent(certId)}`}
             className="btn btn-secondary btn-sm"

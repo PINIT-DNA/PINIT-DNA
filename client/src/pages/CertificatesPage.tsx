@@ -21,6 +21,7 @@ import { cn } from '../components/ui/utils';
 import { CredentialPreviewModal } from '../components/certificates/CredentialPreviewModal';
 import { CredentialDetailsModal } from '../components/certificates/CredentialDetailsModal';
 import { DownloadCertificateButton } from '../components/certificates/DownloadCertificateButton';
+import { ShareCertificateButton } from '../components/certificates/ShareCertificateButton';
 
 type FilterTab = 'all' | 'certificate' | 'award' | 'license' | 'course' | 'workshop';
 
@@ -169,6 +170,12 @@ function CredentialCard({
           label="Download"
           iconSize={11}
           className="shrink-0 h-7 min-h-0 px-2 rounded-md border border-slate-300 bg-white text-[10px] font-medium text-slate-800 leading-none whitespace-nowrap inline-flex items-center gap-1 disabled:opacity-60 dark:border-[#2A3040] dark:bg-[#171B24] dark:text-[#F5F7FA]"
+        />
+        <ShareCertificateButton
+          item={item}
+          label="Share"
+          iconSize={11}
+          className="shrink-0 h-7 min-h-0 px-2 rounded-md border border-slate-300 bg-white text-[10px] font-medium text-slate-800 leading-none whitespace-nowrap inline-flex items-center gap-1 dark:border-[#2A3040] dark:bg-[#171B24] dark:text-[#F5F7FA]"
         />
         <button
           type="button"
