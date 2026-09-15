@@ -1,0 +1,145 @@
+﻿Auto-merging .env.example
+Auto-merging client/src/admin/components/RequireSuperAdmin.tsx
+CONFLICT (content): Merge conflict in client/src/admin/components/RequireSuperAdmin.tsx
+Auto-merging client/vite.config.ts
+CONFLICT (content): Merge conflict in client/vite.config.ts
+Auto-merging exchange/.env.example
+CONFLICT (content): Merge conflict in exchange/.env.example
+Auto-merging exchange/server/routes/auth.js
+CONFLICT (content): Merge conflict in exchange/server/routes/auth.js
+Auto-merging exchange/server/routes/hub.js
+CONFLICT (content): Merge conflict in exchange/server/routes/hub.js
+Auto-merging exchange/vite.config.js
+Auto-merging prisma/schema.prisma
+CONFLICT (content): Merge conflict in prisma/schema.prisma
+warning: Cannot merge binary files: python-ai/services/__pycache__/__init__.cpython-311.pyc (Updated upstream vs. Stashed changes)
+Auto-merging python-ai/services/__pycache__/__init__.cpython-311.pyc
+CONFLICT (content): Merge conflict in python-ai/services/__pycache__/__init__.cpython-311.pyc
+warning: Cannot merge binary files: python-ai/services/__pycache__/base.cpython-311.pyc (Updated upstream vs. Stashed changes)
+Auto-merging python-ai/services/__pycache__/base.cpython-311.pyc
+CONFLICT (content): Merge conflict in python-ai/services/__pycache__/base.cpython-311.pyc
+warning: Cannot merge binary files: python-ai/services/audio/__pycache__/__init__.cpython-311.pyc (Updated upstream vs. Stashed changes)
+Auto-merging python-ai/services/audio/__pycache__/__init__.cpython-311.pyc
+CONFLICT (content): Merge conflict in python-ai/services/audio/__pycache__/__init__.cpython-311.pyc
+warning: Cannot merge binary files: python-ai/services/audio/__pycache__/service.cpython-311.pyc (Updated upstream vs. Stashed changes)
+Auto-merging python-ai/services/audio/__pycache__/service.cpython-311.pyc
+CONFLICT (content): Merge conflict in python-ai/services/audio/__pycache__/service.cpython-311.pyc
+warning: Cannot merge binary files: python-ai/services/computer_vision/__pycache__/__init__.cpython-311.pyc (Updated upstream vs. Stashed changes)
+Auto-merging python-ai/services/computer_vision/__pycache__/__init__.cpython-311.pyc
+CONFLICT (content): Merge conflict in python-ai/services/computer_vision/__pycache__/__init__.cpython-311.pyc
+warning: Cannot merge binary files: python-ai/services/computer_vision/__pycache__/service.cpython-311.pyc (Updated upstream vs. Stashed changes)
+Auto-merging python-ai/services/computer_vision/__pycache__/service.cpython-311.pyc
+CONFLICT (content): Merge conflict in python-ai/services/computer_vision/__pycache__/service.cpython-311.pyc
+warning: Cannot merge binary files: python-ai/services/deepfake/__pycache__/__init__.cpython-311.pyc (Updated upstream vs. Stashed changes)
+Auto-merging python-ai/services/deepfake/__pycache__/__init__.cpython-311.pyc
+CONFLICT (content): Merge conflict in python-ai/services/deepfake/__pycache__/__init__.cpython-311.pyc
+warning: Cannot merge binary files: python-ai/services/deepfake/__pycache__/service.cpython-311.pyc (Updated upstream vs. Stashed changes)
+Auto-merging python-ai/services/deepfake/__pycache__/service.cpython-311.pyc
+CONFLICT (content): Merge conflict in python-ai/services/deepfake/__pycache__/service.cpython-311.pyc
+warning: Cannot merge binary files: python-ai/services/embeddings/__pycache__/__init__.cpython-311.pyc (Updated upstream vs. Stashed changes)
+Auto-merging python-ai/services/embeddings/__pycache__/__init__.cpython-311.pyc
+CONFLICT (content): Merge conflict in python-ai/services/embeddings/__pycache__/__init__.cpython-311.pyc
+warning: Cannot merge binary files: python-ai/services/embeddings/__pycache__/service.cpython-311.pyc (Updated upstream vs. Stashed changes)
+Auto-merging python-ai/services/embeddings/__pycache__/service.cpython-311.pyc
+CONFLICT (content): Merge conflict in python-ai/services/embeddings/__pycache__/service.cpython-311.pyc
+warning: Cannot merge binary files: python-ai/services/forensic_scanner/__pycache__/__init__.cpython-311.pyc (Updated upstream vs. Stashed changes)
+Auto-merging python-ai/services/forensic_scanner/__pycache__/__init__.cpython-311.pyc
+CONFLICT (content): Merge conflict in python-ai/services/forensic_scanner/__pycache__/__init__.cpython-311.pyc
+warning: Cannot merge binary files: python-ai/services/forensic_scanner/__pycache__/service.cpython-311.pyc (Updated upstream vs. Stashed changes)
+Auto-merging python-ai/services/forensic_scanner/__pycache__/service.cpython-311.pyc
+CONFLICT (content): Merge conflict in python-ai/services/forensic_scanner/__pycache__/service.cpython-311.pyc
+warning: Cannot merge binary files: python-ai/services/ocr/__pycache__/__init__.cpython-311.pyc (Updated upstream vs. Stashed changes)
+Auto-merging python-ai/services/ocr/__pycache__/__init__.cpython-311.pyc
+CONFLICT (content): Merge conflict in python-ai/services/ocr/__pycache__/__init__.cpython-311.pyc
+warning: Cannot merge binary files: python-ai/services/ocr/__pycache__/service.cpython-311.pyc (Updated upstream vs. Stashed changes)
+Auto-merging python-ai/services/ocr/__pycache__/service.cpython-311.pyc
+CONFLICT (content): Merge conflict in python-ai/services/ocr/__pycache__/service.cpython-311.pyc
+warning: Cannot merge binary files: python-ai/services/screenshot/__pycache__/__init__.cpython-311.pyc (Updated upstream vs. Stashed changes)
+Auto-merging python-ai/services/screenshot/__pycache__/__init__.cpython-311.pyc
+CONFLICT (content): Merge conflict in python-ai/services/screenshot/__pycache__/__init__.cpython-311.pyc
+warning: Cannot merge binary files: python-ai/services/screenshot/__pycache__/service.cpython-311.pyc (Updated upstream vs. Stashed changes)
+Auto-merging python-ai/services/screenshot/__pycache__/service.cpython-311.pyc
+CONFLICT (content): Merge conflict in python-ai/services/screenshot/__pycache__/service.cpython-311.pyc
+warning: Cannot merge binary files: python-ai/services/video/__pycache__/__init__.cpython-311.pyc (Updated upstream vs. Stashed changes)
+Auto-merging python-ai/services/video/__pycache__/__init__.cpython-311.pyc
+CONFLICT (content): Merge conflict in python-ai/services/video/__pycache__/__init__.cpython-311.pyc
+warning: Cannot merge binary files: python-ai/services/video/__pycache__/service.cpython-311.pyc (Updated upstream vs. Stashed changes)
+Auto-merging python-ai/services/video/__pycache__/service.cpython-311.pyc
+CONFLICT (content): Merge conflict in python-ai/services/video/__pycache__/service.cpython-311.pyc
+Auto-merging src/api/middleware/role.middleware.ts
+Auto-merging src/services/exchange/exchange-bridge.service.ts
+Auto-merging src/services/share/share-link.service.ts
+git : PinitHub LandingPage/next-env.d.ts already exists, no checkout
+At line:1 char:315
++ ... 'PlainText' } catch {} } }; cd C:\PinIt; git stash apply 2>&1 | Out-F ...
++                                              ~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (PinitHub Landin...ts, no checkout:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+error: could not restore untracked files from stash
+On branch ashwitha
+Your branch is up to date with 'origin/ashwitha'.
+
+Changes to be committed:
+  (use "git restore --staged <file>..." to unstage)
+	modified:   .env.example
+	modified:   client/.claude/launch.json
+	modified:   client/src/admin/api/super-admin.api.ts
+	modified:   client/src/admin/layout/SuperAdminSidebar.tsx
+	modified:   client/src/admin/pages/UserDetailPage.tsx
+	modified:   exchange/vite.config.js
+	modified:   extension/manifest.json
+	modified:   scripts/dev-stack.cjs
+	modified:   src/api/controllers/super-admin.controller.ts
+	modified:   src/api/middleware/role.middleware.ts
+	modified:   src/api/routes/super-admin.routes.ts
+	modified:   src/lib/dev-startup-banner.ts
+	modified:   src/services/exchange/exchange-bridge.service.ts
+	modified:   src/services/share/share-link.service.ts
+
+Unmerged paths:
+  (use "git restore --staged <file>..." to unstage)
+  (use "git add <file>..." to mark resolution)
+	both modified:   client/src/admin/components/RequireSuperAdmin.tsx
+	both modified:   client/vite.config.ts
+	both modified:   exchange/.env.example
+	both modified:   exchange/server/routes/auth.js
+	both modified:   exchange/server/routes/hub.js
+	both modified:   prisma/schema.prisma
+	both modified:   python-ai/services/__pycache__/__init__.cpython-311.pyc
+	both modified:   python-ai/services/__pycache__/base.cpython-311.pyc
+	both modified:   python-ai/services/audio/__pycache__/__init__.cpython-311.pyc
+	both modified:   python-ai/services/audio/__pycache__/service.cpython-311.pyc
+	both modified:   python-ai/services/computer_vision/__pycache__/__init__.cpython-311.pyc
+	both modified:   python-ai/services/computer_vision/__pycache__/service.cpython-311.pyc
+	both modified:   python-ai/services/deepfake/__pycache__/__init__.cpython-311.pyc
+	both modified:   python-ai/services/deepfake/__pycache__/service.cpython-311.pyc
+	both modified:   python-ai/services/embeddings/__pycache__/__init__.cpython-311.pyc
+	both modified:   python-ai/services/embeddings/__pycache__/service.cpython-311.pyc
+	both modified:   python-ai/services/forensic_scanner/__pycache__/__init__.cpython-311.pyc
+	both modified:   python-ai/services/forensic_scanner/__pycache__/service.cpython-311.pyc
+	both modified:   python-ai/services/ocr/__pycache__/__init__.cpython-311.pyc
+	both modified:   python-ai/services/ocr/__pycache__/service.cpython-311.pyc
+	both modified:   python-ai/services/screenshot/__pycache__/__init__.cpython-311.pyc
+	both modified:   python-ai/services/screenshot/__pycache__/service.cpython-311.pyc
+	both modified:   python-ai/services/video/__pycache__/__init__.cpython-311.pyc
+	both modified:   python-ai/services/video/__pycache__/service.cpython-311.pyc
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+  (commit or discard the untracked or modified content in submodules)
+	modified:   PINIT-DNA (new commits, modified content, untracked content)
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	PinitHub LandingPage/tsconfig.tsbuildinfo
+	client/src/admin/context/
+	docs/PINIT-DNA_Pixel_Level_Protection_Technical_Documentation.pdf
+	prisma/migrations/20260811140000_spatial_auth_phase1/
+	prisma/migrations/20260811150000_spatial_pixel_auth_phase3a/
+	scratch/
+	src/api/middleware/admin-audit.middleware.ts
+	src/config/admin-capabilities.ts
+	src/services/audit/admin-audit.service.ts
+

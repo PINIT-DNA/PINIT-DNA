@@ -308,6 +308,30 @@ export async function buildAuthoritativeAsset(
   return Object.freeze(asset);
 }
 
+export async function buildAuthoritativeAssetSafe(
+  input: BuildAuthoritativeInput,
+): Promise<AuthoritativeAsset | null> {
+  try {
+    return await buildAuthoritativeAsset(input);
+  } catch (err) {
+    logger.warn('[AuthoritativeAsset] skipped missing or invalid vault', {
+      vaultId: input.selection.match.vaultId.slice(0, 8),
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+export async function filterExistingVaultIds(vaultIds: string[]): Promise<Set<string>> {
+  const unique = [...new Set(vaultIds.filter(Boolean))];
+  if (unique.length === 0) return new Set();
+  const found = await prisma.vaultRecord.findMany({
+    where: { id: { in: unique } },
+    select: { id: true },
+  });
+  return new Set(found.map((r) => r.id));
+}
+
 /** Guard for orchestrator / downstream services */
 export function requireAuthoritativeAsset(
   asset: AuthoritativeAsset | null | undefined,

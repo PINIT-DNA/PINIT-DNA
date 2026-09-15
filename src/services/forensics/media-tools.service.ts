@@ -13,6 +13,22 @@ import { dnaPhase2 } from '../../config/dna-phase2';
 const execFileAsync = promisify(execFile);
 const availabilityCache = new Map<string, boolean>();
 
+/**
+ * Date.now() alone (millisecond resolution) is not unique enough for temp
+ * file names once multiple ffmpeg calls run concurrently on similar-sized
+ * buffers (e.g. video protection running several probes/extracts back to
+ * back while other code touches the same buffer) — two calls landing in the
+ * same millisecond collide on one path, and one call's cleanup can delete
+ * or overwrite the file while another's ffmpeg process is still reading it,
+ * silently truncating output instead of throwing. A per-process counter
+ * plus Date.now() guarantees every call gets a distinct path.
+ */
+let tempFileCounter = 0;
+function uniqueTempSuffix(): string {
+  tempFileCounter = (tempFileCounter + 1) % Number.MAX_SAFE_INTEGER;
+  return `${Date.now()}-${process.pid}-${tempFileCounter}`;
+}
+
 function isBundledBinary(cmd: string): boolean {
   return path.isAbsolute(cmd) || cmd.includes('\\') || cmd.includes('/');
 }
@@ -53,7 +69,7 @@ export async function isFpcalcAvailable(): Promise<boolean> {
 }
 
 async function writeTempFile(buffer: Buffer, ext: string): Promise<string> {
-  const tmp = path.join(os.tmpdir(), `pinit-dna-${Date.now()}.${ext}`);
+  const tmp = path.join(os.tmpdir(), `pinit-dna-${uniqueTempSuffix()}.${ext}`);
   await fs.promises.writeFile(tmp, buffer);
   return tmp;
 }
@@ -65,7 +81,7 @@ async function safeUnlink(p: string): Promise<void> {
 export async function extractAudioSample(buffer: Buffer, ext = 'mp4'): Promise<Buffer | null> {
   if (!(await isFfmpegAvailable())) return null;
   const tmpIn = await writeTempFile(buffer, ext);
-  const tmpOut = path.join(os.tmpdir(), `pinit-dna-audio-${Date.now()}.raw`);
+  const tmpOut = path.join(os.tmpdir(), `pinit-dna-audio-${uniqueTempSuffix()}.raw`);
   try {
     await execFileAsync(dnaPhase2.ffmpegPath, [
       '-hide_banner', '-loglevel', 'error', '-y',
@@ -128,7 +144,7 @@ export async function extractVideoFrameSamples(
 ): Promise<Buffer[]> {
   if (!(await isFfmpegAvailable())) return [];
   const tmpIn = await writeTempFile(buffer, ext);
-  const tmpDir = path.join(os.tmpdir(), `pinit-frames-${Date.now()}`);
+  const tmpDir = path.join(os.tmpdir(), `pinit-frames-${uniqueTempSuffix()}`);
   const outPattern = path.join(tmpDir, 'frame-%03d.jpg');
 
   try {
@@ -162,6 +178,118 @@ export async function extractVideoFrameSamples(
   } finally {
     await safeUnlink(tmpIn);
     await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+export interface ProtectionFrameSample {
+  frameIndex: number;
+  /** Approximate timestamp — frames come from a constant-rate `fps=` filter,
+   * so timestamp = frameIndex * (1000 / sampleFps). Not frame-accurate to the
+   * source's actual frame timings, only to the sampling grid we imposed. */
+  timestampMs: number;
+  buffer: Buffer;
+}
+
+/**
+ * Extract frames at a FIXED RATE (e.g. 1 frame/sec) for pixel-level protection,
+ * as opposed to `extractVideoFrameSamples` above which extracts a fixed COUNT
+ * of evenly-spaced frames for investigation-side keyframe comparison. Cost
+ * here must stay proportional to video duration, not frame rate, so both
+ * `sampleFps` and `maxFrames` are real caps, not just quality knobs.
+ */
+export async function extractFramesForProtection(
+  buffer: Buffer,
+  options: { sampleFps: number; maxFrames: number },
+  ext = 'mp4',
+): Promise<ProtectionFrameSample[]> {
+  if (!(await isFfmpegAvailable())) return [];
+  const tmpIn = await writeTempFile(buffer, ext);
+  const tmpDir = path.join(os.tmpdir(), `pinit-protect-frames-${uniqueTempSuffix()}`);
+  const outPattern = path.join(tmpDir, 'frame-%05d.jpg');
+  const sampleFps = Math.max(0.01, options.sampleFps);
+
+  try {
+    await fs.promises.mkdir(tmpDir, { recursive: true });
+
+    await execFileAsync(dnaPhase2.ffmpegPath, [
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-i', tmpIn,
+      '-vf', `fps=${sampleFps.toFixed(4)}`,
+      '-frames:v', String(options.maxFrames),
+      '-q:v', '3',
+      outPattern,
+    ], { timeout: 600000, maxBuffer: 1024 * 1024 * 32 });
+
+    const files = (await fs.promises.readdir(tmpDir))
+      .filter((f) => f.endsWith('.jpg'))
+      .sort();
+    const msPerFrame = 1000 / sampleFps;
+    const frames: ProtectionFrameSample[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const frameBuffer = await fs.promises.readFile(path.join(tmpDir, files[i]!));
+      if (frameBuffer.length > 100) {
+        frames.push({ frameIndex: i, timestampMs: Math.round(i * msPerFrame), buffer: frameBuffer });
+      }
+    }
+    return frames;
+  } catch (err) {
+    logger.debug('FFmpeg fixed-rate protection frame extract failed', { error: String(err) });
+    return [];
+  } finally {
+    await safeUnlink(tmpIn);
+    await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function extractFrameAtTimestampFromPath(filePath: string, timestampMs: number): Promise<Buffer | null> {
+  if (!(await isFfmpegAvailable())) return null;
+  const tmpOut = path.join(os.tmpdir(), `pinit-frame-at-ts-${uniqueTempSuffix()}.jpg`);
+  const seekSec = Math.max(0, timestampMs / 1000).toFixed(3);
+  try {
+    await execFileAsync(dnaPhase2.ffmpegPath, [
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-ss', seekSec,
+      '-i', filePath,
+      '-frames:v', '1',
+      '-q:v', '3',
+      tmpOut,
+    ], { timeout: 20000 });
+    const buf = await fs.promises.readFile(tmpOut);
+    return buf.length > 100 ? buf : null;
+  } catch (err) {
+    logger.debug('FFmpeg seek frame extract failed', { error: String(err) });
+    return null;
+  } finally {
+    await safeUnlink(tmpOut);
+  }
+}
+
+/**
+ * Re-extract frames at specific timestamps from a video buffer, one ffmpeg
+ * seek per timestamp but writing the source buffer to disk only once. Used
+ * at investigation time to reproduce the exact vault frame a protected
+ * frame DnaRecord was enrolled from — individual frame images are never
+ * persisted separately (only their DNA/HKCA/patch fingerprints are), so the
+ * pixel-level composition comparison re-derives the buffer on demand from
+ * the vaulted original video, the same way document page investigation
+ * re-rasterizes pages from the vaulted original PDF on demand.
+ */
+export async function extractFramesAtTimestamps(
+  buffer: Buffer,
+  timestampsMs: number[],
+  ext = 'mp4',
+): Promise<Map<number, Buffer>> {
+  const result = new Map<number, Buffer>();
+  if (!timestampsMs.length || !(await isFfmpegAvailable())) return result;
+  const tmpIn = await writeTempFile(buffer, ext);
+  try {
+    for (const ts of timestampsMs) {
+      const frame = await extractFrameAtTimestampFromPath(tmpIn, ts);
+      if (frame) result.set(ts, frame);
+    }
+    return result;
+  } finally {
+    await safeUnlink(tmpIn);
   }
 }
 

@@ -416,6 +416,13 @@ export interface UnifiedInvestigationReport {
    * plus how much of the vault original was reused.
    */
   composition?: import('./investigation-composition.types').ImageCompositionBreakdown;
+  /**
+   * Video analog of `composition` — same vault-vs-own-content percentage
+   * breakdown, aggregated across the probe video's timeline instead of a
+   * single frame. Present only when the probe is a video and a matching
+   * protected vault video was found.
+   */
+  videoComposition?: import('./video-investigation-composition.types').VideoCompositionResult;
   /** Per-block HMAC authentication vs the retrieved vault original. */
   blockDna?: import('./block-dna.types').BlockDnaInvestigationResult | null;
   /** Provenance/authorization verdict — computed from existing share/TEP records,
@@ -433,4 +440,6 @@ export interface UnifiedInvestigationReport {
     nodes: Array<{ dnaRecordId: string; filename: string; fileType: string; createdAt: string }>;
     edges: Array<{ fromId: string; toId: string; relation: string; confidence: number; detectedAt: string }>;
   };
+  /** Additive DNA vNext: 3 mechanisms + evidence policy. Does not replace 15-layer DNA. */
+  dnaVnext?: import('./dna-vnext.types').DnaVnextInvestigationSection;
 }

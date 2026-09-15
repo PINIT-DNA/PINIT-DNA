@@ -54,6 +54,25 @@ export interface FragmentSpliceOptions {
   minPatchMatches?: number;
   /** Skip the "too large to be a splice" filter; still report area % */
   forComposition?: boolean;
+  /**
+   * Restrict the search to exactly these vaultIds instead of the general
+   * recent-indexes scan (maxCandidates/excludeVaultId are ignored when set).
+   * Used by video spatial-crop detection to search one candidate video's
+   * protected frame DnaRecordIds (each frame is indexed with vaultId set to
+   * its own dnaRecordId, same convention images/PDF pages use) without
+   * scanning the user's whole account, and without an arbitrary cap cutting
+   * off frames partway through a long video.
+   */
+  restrictToVaultIds?: string[];
+  /**
+   * Override the "too large to be a splice" bbox-area filter (normally 95%
+   * under forComposition, tighter otherwise). A cropped video frame IS
+   * entirely the reused fragment — there is no larger, mostly-unrelated
+   * canvas it sits inside, so a match spanning 100% of the probe is not a
+   * false positive there the way it would be for a photo collage. Set this
+   * to skip that check for probes that are themselves already a crop.
+   */
+  maxBBoxAreaPercentOverride?: number;
 }
 
 function round1(n: number): number {
@@ -211,7 +230,8 @@ export class FragmentSpliceDetectorService {
     const probeArea = probeGrid.imageWidth * probeGrid.imageHeight;
     const minPatches = options?.minPatchMatches
       ?? (options?.forComposition ? 3 : cfg.minPatchMatches);
-    const maxBBox = options?.forComposition ? 95 : cfg.maxProbeBBoxAreaPercent;
+    const maxBBox = options?.maxBBoxAreaPercentOverride
+      ?? (options?.forComposition ? 95 : cfg.maxProbeBBoxAreaPercent);
 
     const patchSelect = {
       patchIndex: true, gridX: true, gridY: true, scale: true, pHash16: true,
@@ -231,16 +251,21 @@ export class FragmentSpliceDetectorService {
         })
       : [];
 
-    const rest = await prisma.localFeatureIndex.findMany({
-      where: {
-        ownerUserId,
-        status: 'COMPLETE',
-        ...(options?.excludeVaultId ? { vaultId: { not: options.excludeVaultId } } : {}),
-        ...(options?.preferVaultId ? { vaultId: { not: options.preferVaultId } } : {}),
-      },
-      include,
-      take: options?.maxCandidates ?? 20,
-    });
+    const rest = options?.restrictToVaultIds?.length
+      ? await prisma.localFeatureIndex.findMany({
+          where: { ownerUserId, status: 'COMPLETE', vaultId: { in: options.restrictToVaultIds } },
+          include,
+        })
+      : await prisma.localFeatureIndex.findMany({
+          where: {
+            ownerUserId,
+            status: 'COMPLETE',
+            ...(options?.excludeVaultId ? { vaultId: { not: options.excludeVaultId } } : {}),
+            ...(options?.preferVaultId ? { vaultId: { not: options.preferVaultId } } : {}),
+          },
+          include,
+          take: options?.maxCandidates ?? 20,
+        });
     const indexes = [...preferred, ...rest];
 
     const findings: FragmentReuseFinding[] = [];

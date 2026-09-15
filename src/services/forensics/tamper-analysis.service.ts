@@ -399,6 +399,242 @@ function registryToSection(
   };
 }
 
+export function enrichTamperFromPixelSource(
+  section: TamperAnalysisSection,
+  pixelSource?: {
+    transformation?: { labels?: string[]; rotationDeg?: number | null; scale?: number | null };
+  } | null,
+): TamperAnalysisSection {
+  const labels = pixelSource?.transformation?.labels ?? [];
+  const rot = Math.abs(Number(pixelSource?.transformation?.rotationDeg ?? 0));
+  const rotated = labels.includes('rotation') || rot >= 45;
+  const bright = labels.includes('brightness') || labels.includes('contrast');
+  const blurred = labels.includes('blur');
+  const sharpened = labels.includes('sharpen');
+  if (!rotated && !bright && !blurred && !sharpened) return section;
+
+  let vectors = section.vectors;
+  const changes = [...(section.changesVsOriginal ?? [])];
+  let primaryVector = section.primaryVector;
+  let overallTamperScore = section.overallTamperScore ?? 0;
+
+  if (rotated) {
+    const deg = Math.round(rot) || 90;
+    vectors = vectors.map((v) =>
+      v.label === 'Rotation'
+        ? {
+            ...v,
+            detected: true,
+            confidence: Math.max(v.confidence ?? 0, 82),
+            evidence: [`Protected region rotated ~${deg}° vs vault original`],
+          }
+        : v,
+    );
+    if (!changes.some((c) => /rotation/i.test(String(c.type)))) {
+      changes.unshift({
+        type: 'Rotation',
+        detected: true,
+        confidence: 82,
+        detail: `Protected region rotated ~${deg}° before insertion.`,
+        where: 'Pasted vault region vs enrolled original',
+      });
+    }
+    if (primaryVector === 'NONE' || primaryVector === 'UNKNOWN') primaryVector = 'ROTATION';
+    overallTamperScore = Math.max(overallTamperScore, 70);
+  }
+
+  if (bright) {
+    const kind =
+      labels.includes('brightness') && labels.includes('contrast')
+        ? 'Brightness and contrast'
+        : labels.includes('contrast')
+          ? 'Contrast'
+          : 'Brightness';
+    vectors = vectors.map((v) =>
+      v.label === 'Contrast / Brightness'
+        ? {
+            ...v,
+            detected: true,
+            confidence: Math.max(v.confidence ?? 0, 72),
+            evidence: [`${kind} shift vs vault original`],
+          }
+        : v,
+    );
+    if (!changes.some((c) => /brightness|contrast/i.test(String(c.type)))) {
+      changes.unshift({
+        type: 'Contrast / Brightness',
+        detected: true,
+        confidence: 72,
+        detail: `${kind} was adjusted; source correspondence may still remain.`,
+        where: 'Global photometric shift vs vault original',
+      });
+    }
+    if (primaryVector === 'NONE' || primaryVector === 'UNKNOWN') primaryVector = 'PHOTOMETRIC';
+    overallTamperScore = Math.max(overallTamperScore, 55);
+  }
+
+  if (blurred) {
+    vectors = vectors.map((v) =>
+      v.label === 'Blur'
+        ? {
+            ...v,
+            detected: true,
+            confidence: Math.max(v.confidence ?? 0, 76),
+            evidence: ['Upload is softer than the vault original (edge energy dropped)'],
+          }
+        : v,
+    );
+    if (!changes.some((c) => /^blur$/i.test(String(c.type)))) {
+      changes.unshift({
+        type: 'Blur',
+        detected: true,
+        confidence: 76,
+        detail: 'Image is blurred relative to the enrolled original.',
+        where: 'Global edge sharpness vs vault original',
+      });
+    }
+    if (primaryVector === 'NONE' || primaryVector === 'UNKNOWN') primaryVector = 'BLUR';
+    overallTamperScore = Math.max(overallTamperScore, 60);
+  }
+
+  if (sharpened) {
+    vectors = vectors.map((v) =>
+      v.label === 'Sharpen'
+        ? {
+            ...v,
+            detected: true,
+            confidence: Math.max(v.confidence ?? 0, 70),
+            evidence: ['Upload is sharper than the vault original (edge energy increased)'],
+          }
+        : v,
+    );
+    if (!changes.some((c) => /sharpen/i.test(String(c.type)))) {
+      changes.unshift({
+        type: 'Sharpen',
+        detected: true,
+        confidence: 70,
+        detail: 'Sharpening or edge enhancement vs the enrolled original.',
+        where: 'Global edge sharpness vs vault original',
+      });
+    }
+    overallTamperScore = Math.max(overallTamperScore, 55);
+  }
+
+  return {
+    ...section,
+    vectors,
+    changesVsOriginal: changes,
+    primaryVector,
+    overallTamperScore,
+  };
+}
+
+export interface PhotometricShift {
+  meanDelta: number;
+  contrastRatio: number;
+  /** Probe Laplacian variance / vault (1 = same sharpness). */
+  laplacianRatio: number;
+}
+
+export function photometricLooksAdjusted(photo: PhotometricShift | null | undefined): boolean {
+  if (!photo) return false;
+  return Math.abs(photo.meanDelta) >= 6
+    || photo.contrastRatio >= 1.18
+    || photo.contrastRatio <= 0.85;
+}
+
+export function blurLooksApplied(photo: PhotometricShift | null | undefined): boolean {
+  return Boolean(photo && photo.laplacianRatio > 0 && photo.laplacianRatio <= 0.70);
+}
+
+export function sharpenLooksApplied(photo: PhotometricShift | null | undefined): boolean {
+  return Boolean(photo && photo.laplacianRatio >= 1.40);
+}
+
+/** Labels for pixel-source enrich (brightness / blur / sharpen). */
+export function appearanceTransformLabels(photo: PhotometricShift | null | undefined): string[] {
+  if (!photo) return [];
+  const labels: string[] = [];
+  if (Math.abs(photo.meanDelta) >= 6) labels.push('brightness');
+  if (photo.contrastRatio >= 1.18 || photo.contrastRatio <= 0.85) labels.push('contrast');
+  if (blurLooksApplied(photo)) labels.push('blur');
+  if (sharpenLooksApplied(photo)) labels.push('sharpen');
+  return labels;
+}
+
+function laplacianVariance(luma: Float32Array, width: number, height: number): number {
+  let sum = 0;
+  let sumSq = 0;
+  let count = 0;
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const i = y * width + x;
+      const lap = luma[i - width]! + luma[i + width]! + luma[i - 1]! + luma[i + 1]! - 4 * luma[i]!;
+      sum += lap;
+      sumSq += lap * lap;
+      count += 1;
+    }
+  }
+  if (count < 16) return 0;
+  const mean = sum / count;
+  return Math.max(0, sumSq / count - mean * mean);
+}
+
+/** Downscale both frames and compare mean luma / contrast / edge energy. */
+export async function measurePhotometricShift(
+  probeBuffer: Buffer,
+  vaultBuffer: Buffer,
+): Promise<PhotometricShift | null> {
+  try {
+    const sharp = (await import('sharp')).default;
+    const opts = { fit: 'fill' as const, width: 256, height: 256 };
+    const [probe, vault] = await Promise.all([
+      sharp(probeBuffer).rotate().resize(opts).removeAlpha().raw().toBuffer({ resolveWithObject: true }),
+      sharp(vaultBuffer).rotate().resize(opts).removeAlpha().raw().toBuffer({ resolveWithObject: true }),
+    ]);
+    const w = Math.min(probe.info.width, vault.info.width);
+    const h = Math.min(probe.info.height, vault.info.height);
+    const n = w * h;
+    if (n < 256) return null;
+    const pLuma = new Float32Array(n);
+    const vLuma = new Float32Array(n);
+    let pSum = 0;
+    let vSum = 0;
+    let pSq = 0;
+    let vSq = 0;
+    const pStride = probe.info.width;
+    const vStride = vault.info.width;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        const po = (y * pStride + x) * 3;
+        const vo = (y * vStride + x) * 3;
+        const py = 0.299 * probe.data[po]! + 0.587 * probe.data[po + 1]! + 0.114 * probe.data[po + 2]!;
+        const vy = 0.299 * vault.data[vo]! + 0.587 * vault.data[vo + 1]! + 0.114 * vault.data[vo + 2]!;
+        pLuma[i] = py;
+        vLuma[i] = vy;
+        pSum += py;
+        vSum += vy;
+        pSq += py * py;
+        vSq += vy * vy;
+      }
+    }
+    const pMean = pSum / n;
+    const vMean = vSum / n;
+    const pStd = Math.sqrt(Math.max(0, pSq / n - pMean * pMean));
+    const vStd = Math.max(Math.sqrt(Math.max(0, vSq / n - vMean * vMean)), 1e-3);
+    const vLap = Math.max(laplacianVariance(vLuma, w, h), 1e-6);
+    const pLap = laplacianVariance(pLuma, w, h);
+    return {
+      meanDelta: Math.round((pMean - vMean) * 100) / 100,
+      contrastRatio: Math.round((pStd / vStd) * 1000) / 1000,
+      laplacianRatio: Math.round((pLap / vLap) * 1000) / 1000,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export interface BuildTamperAnalysisInput {
   comparison: DnaComparisonResult | null;
   leakVerify: LeakedFileVerifyResult;
@@ -414,6 +650,8 @@ export interface BuildTamperAnalysisInput {
   fragmentReuse?: FragmentReuseFinding[] | null;
   /** Actual pixel dimensions of probe vs vault original, when both were retrievable */
   dimensions?: { probeWidth: number; probeHeight: number; vaultWidth: number; vaultHeight: number } | null;
+  /** Global brightness/contrast vs vault original (same-frame photometric). */
+  photometric?: PhotometricShift | null;
 }
 
 /**
@@ -447,6 +685,60 @@ function applyDimensionSignal(
     ],
     where: 'Pixel dimensions vs vault original',
   });
+}
+
+function sameFrameForAppearance(dims?: BuildTamperAnalysisInput['dimensions']): boolean {
+  if (!dims) return true;
+  const probeArea = dims.probeWidth * dims.probeHeight;
+  const vaultArea = dims.vaultWidth * dims.vaultHeight;
+  // Skip only collage hosts (probe much larger than vault). Crops may still be blurred.
+  return !(probeArea > vaultArea * 1.35);
+}
+
+function applyPhotometricSignal(
+  registry: Map<TamperDetectorName, TamperDetectorResult>,
+  photo: PhotometricShift | null | undefined,
+  dims?: BuildTamperAnalysisInput['dimensions'],
+): void {
+  if (!photometricLooksAdjusted(photo) || !photo) return;
+  if (!sameFrameForAppearance(dims)) return;
+  const kind = Math.abs(photo.meanDelta) >= 6 && (photo.contrastRatio >= 1.18 || photo.contrastRatio <= 0.85)
+    ? 'Brightness and contrast'
+    : Math.abs(photo.meanDelta) >= 6
+      ? 'Brightness'
+      : 'Contrast';
+  const signed = photo.meanDelta >= 0 ? `+${photo.meanDelta.toFixed(1)}` : photo.meanDelta.toFixed(1);
+  setDetected(registry, 'Contrast / Brightness', {
+    confidence: 74,
+    score: Math.min(90, Math.round(Math.abs(photo.meanDelta) * 3)),
+    evidence: [`${kind} shift vs vault original (mean luma ${signed}, contrast ×${photo.contrastRatio})`],
+    where: 'Global photometric shift vs vault original',
+  });
+}
+
+function applyFocusSignal(
+  registry: Map<TamperDetectorName, TamperDetectorResult>,
+  photo: PhotometricShift | null | undefined,
+  dims?: BuildTamperAnalysisInput['dimensions'],
+): void {
+  if (!photo || !sameFrameForAppearance(dims)) return;
+  if (blurLooksApplied(photo)) {
+    const pct = Math.round((1 - photo.laplacianRatio) * 100);
+    setDetected(registry, 'Blur', {
+      confidence: Math.min(90, Math.max(68, pct)),
+      score: pct,
+      evidence: [`Edge sharpness ${Math.round(photo.laplacianRatio * 100)}% of vault original — blur / soft focus`],
+      where: 'Global Laplacian focus vs vault original',
+    });
+  } else if (sharpenLooksApplied(photo)) {
+    const pct = Math.round((photo.laplacianRatio - 1) * 100);
+    setDetected(registry, 'Sharpen', {
+      confidence: Math.min(88, Math.max(62, pct)),
+      score: pct,
+      evidence: [`Edge energy ${photo.laplacianRatio.toFixed(2)}× vault original — sharpening`],
+      where: 'Global Laplacian focus vs vault original',
+    });
+  }
 }
 
 function applyFragmentReuseSignal(
@@ -498,6 +790,13 @@ export function buildTamperAnalysis(input: BuildTamperAnalysisInput): TamperAnal
     applyDimensionSignal(registry, input.dimensions);
   } catch (e) {
     logger.warn('[TamperAnalysis] Dimension signal pass failed', { error: String(e) });
+  }
+
+  try {
+    applyPhotometricSignal(registry, input.photometric, input.dimensions);
+    applyFocusSignal(registry, input.photometric, input.dimensions);
+  } catch (e) {
+    logger.warn('[TamperAnalysis] Photometric signal pass failed', { error: String(e) });
   }
 
   try {

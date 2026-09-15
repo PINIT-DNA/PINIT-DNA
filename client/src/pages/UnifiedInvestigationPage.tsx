@@ -11,6 +11,7 @@ import { InvestigationProcessingCard } from '../components/InvestigationProcessi
 import { InvestigationLivePanel } from '../components/InvestigationLivePanel';
 import { InvestigationSideBySideCompare } from '../components/InvestigationSideBySideCompare';
 import { InvestigationCompositionPanel } from '../components/InvestigationCompositionPanel';
+import { VideoCompositionPanel } from '../components/VideoCompositionPanel';
 import type { SpatialInvestigationViewModel, SpatialHierarchyViewModel } from '../components/SpatialAuthInvestigationPanel';
 import type { InvestigationLiveSnapshot } from '../services/dashboard.api';
 import {
@@ -139,6 +140,7 @@ interface InvestigationReport {
     aiModelAvailable: boolean;
     vaultId?: string;
     vaultFilename?: string;
+    candidateSources?: Array<{ vaultId: string; filename?: string; dnaRecordId?: string; localScore: number }>;
     pixelSource?: {
       originalPixels: number;
       aiSuspectedPixels: number;
@@ -154,6 +156,42 @@ interface InvestigationReport {
       }>;
       method?: string;
     };
+  };
+  videoComposition?: {
+    vaultId: string;
+    vaultDnaRecordId: string;
+    vaultFilename: string;
+    probeDurationMs: number;
+    framesSampled: number;
+    framesMatched: number;
+    overall: {
+      protectedFromAssetPercent: number;
+      otherPercent: number;
+      originalUsedPercent: number | null;
+    };
+    timeline: Array<{
+      tStartMs: number;
+      tEndMs: number;
+      sourceVaultId: string | null;
+      sourceFilename: string | null;
+      matchedFrameDnaRecordId: string | null;
+      protectedFromAssetPercent: number;
+      otherPercent: number;
+    }>;
+    perFrame: Array<{
+      probeIndex: number;
+      tMs: number;
+      matchedFrameDnaRecordId: string | null;
+      breakdown: {
+        protectedFromAssetPercent: number;
+        otherPercent: number;
+        originalUsedPercent: number | null;
+        overlayPngBase64?: string;
+        maskPngBase64?: string;
+        pixelSource?: { homographyVaultToProbe?: number[] | null; evidenceRadius?: number };
+      } | null;
+      probeFrameJpegBase64?: string;
+    }>;
   };
   blockDna?: {
     available: boolean;
@@ -188,6 +226,28 @@ interface InvestigationReport {
   relatedLineage?: {
     nodes: Array<{ dnaRecordId: string; filename: string; fileType: string; createdAt: string }>;
     edges: Array<{ fromId: string; toId: string; relation: string; confidence: number; detectedAt: string }>;
+  };
+  dnaVnext?: {
+    note: string;
+    transformations: string[];
+    provenance?: {
+      version: string;
+      rootAuthenticationHex16: string;
+      regionManifest: unknown[];
+    } | null;
+    mechanisms: {
+      dnaA: { present: boolean; role: string };
+      dnaB: {
+        present: boolean;
+        role: string;
+        recovery?: {
+          recovered: boolean;
+          spatialConfidencePercent: number;
+          supportRegion?: { x: number; y: number; width: number; height: number };
+        } | null;
+      };
+      dnaC: { present: boolean; role: string };
+    };
   };
   timeline: Array<{ stage: string; timestamp?: string; detail?: string }>;
   evidenceTimeline?: Array<{
@@ -698,6 +758,15 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
         // still has a strong, specific finding. Fall back to that finding's own
         // matched original so the comparison panel isn't just silently omitted.
         const topFragmentMatch = report.fragmentReuseAnalysis?.findings?.[0];
+        const hideFragmentAsSplice = Boolean(
+          report.summary.reportState === 'VERIFIED'
+          || (report.summary.dnaMatchPercent ?? 0) >= 90
+          || ((report.composition?.protectedFromAssetPercent ?? 0) >= 40
+            && topFragmentMatch?.vaultId
+            && report.composition?.vaultId
+            && topFragmentMatch.vaultId === report.composition.vaultId),
+        );
+        const showFragmentReuse = Boolean(report.fragmentReuseAnalysis?.detected && !hideFragmentAsSplice);
         const showComparison = hasVaultMatch || !!topFragmentMatch;
         const compareVaultId = report.composition?.vaultId
           ?? resolvedOwner.vaultId
@@ -789,18 +858,51 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
             </div>
           )}
 
-          {report.composition && (
+          {report.videoComposition ? (
+            <VideoCompositionPanel videoComposition={report.videoComposition} />
+          ) : report.composition && (
             <InvestigationCompositionPanel
               composition={report.composition}
               previewUrl={previewUrl}
             />
           )}
 
+          {report.dnaVnext && (
+            <div className="card border border-bg-border p-4 space-y-2 text-xs">
+              <h3 className="text-sm font-semibold text-white">DNA vNext — provenance evidence</h3>
+              <p className="text-2xs text-gray-500">{report.dnaVnext.note}</p>
+              <ul className="text-2xs text-gray-400 space-y-1">
+                <li>DNA A (HMAC 8×8): {report.dnaVnext.mechanisms.dnaA.present ? 'available' : 'not on this run'} — {report.dnaVnext.mechanisms.dnaA.role}</li>
+                <li>
+                  DNA B (robust watermark): {report.dnaVnext.mechanisms.dnaB.present ? 'recovered' : 'not recovered'} — {report.dnaVnext.mechanisms.dnaB.role}
+                  {report.dnaVnext.mechanisms.dnaB.recovery?.recovered && (
+                    <span className="block text-gray-500 mt-0.5">
+                      Spatial support {report.dnaVnext.mechanisms.dnaB.recovery.spatialConfidencePercent}%
+                      {report.dnaVnext.mechanisms.dnaB.recovery.supportRegion
+                        ? ` · region ${report.dnaVnext.mechanisms.dnaB.recovery.supportRegion.width}×${report.dnaVnext.mechanisms.dnaB.recovery.supportRegion.height}`
+                        : ''}
+                      . This does not equal vault pixel coverage.
+                    </span>
+                  )}
+                </li>
+                <li>DNA C (spatial fingerprints): {report.dnaVnext.mechanisms.dnaC.present ? 'matched' : 'no region located'} — {report.dnaVnext.mechanisms.dnaC.role}</li>
+              </ul>
+              {report.dnaVnext.provenance && (
+                <p className="text-2xs text-gray-500">
+                  Provenance record {report.dnaVnext.provenance.version} · root {report.dnaVnext.provenance.rootAuthenticationHex16} · {report.dnaVnext.provenance.regionManifest.length} regions
+                </p>
+              )}
+              {report.dnaVnext.transformations.length > 0 && (
+                <p className="text-2xs text-gray-500">Transformations: {report.dnaVnext.transformations.join(', ')}</p>
+              )}
+            </div>
+          )}
+
           {/* Even when the whole-image ownership check can't confirm a full-file match (e.g. a small
               fragment reused inside an otherwise-unrelated image), a positive fragment finding is a
               distinct, meaningful signal on its own — surface it up top so it isn't missed below the
               "no verified owner" verdict, instead of only appearing buried in Tamper Analysis. */}
-          {report.fragmentReuseAnalysis?.detected && (
+          {showFragmentReuse && (
             <div className="card border border-purple-500/30 bg-purple-500/5 text-purple-600 p-3 text-xs">
               Fragment of protected content detected
               {report.fragmentReuseAnalysis.findings[0]
@@ -842,6 +944,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                 ((report.tamperAnalysis as { spatialHierarchy?: SpatialHierarchyViewModel | null })
                   .spatialHierarchy) ?? null
               }
+              additionalSources={report.composition?.candidateSources}
             />
           )}
 
@@ -1080,12 +1183,12 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
             )}
 
             {/* Primary: explicit inventry of changes done to the original */}
-            {(report.tamperAnalysis.changesVsOriginal?.filter((c) => c.detected).length ?? 0) > 0 ? (
+            {(report.tamperAnalysis.changesVsOriginal?.filter((c) => c.detected && !(hideFragmentAsSplice && c.type === 'Spliced Fragment')).length ?? 0) > 0 ? (
               <div className="mb-4 space-y-2">
                 <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
                   Detected changes vs vault original
                 </p>
-                {report.tamperAnalysis.changesVsOriginal!.filter((c) => c.detected).map((c) => (
+                {report.tamperAnalysis.changesVsOriginal!.filter((c) => c.detected && !(hideFragmentAsSplice && c.type === 'Spliced Fragment')).map((c) => (
                   <div
                     key={`${c.type}-${c.detail.slice(0, 24)}`}
                     className="p-3 rounded-lg border border-orange-500/35 bg-orange-500/10"
@@ -1175,7 +1278,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               </div>
             )}
 
-            {report.fragmentReuseAnalysis?.detected && (
+            {showFragmentReuse && (
               <div className="mb-4 space-y-2">
                 <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
                   Fragment reuse detected

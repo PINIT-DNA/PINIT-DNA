@@ -93,6 +93,9 @@ import {
   buildTamperAnalysis,
   buildLiveLeadTamperAnalysis,
   emptyTamperAnalysis,
+  enrichTamperFromPixelSource,
+  measurePhotometricShift,
+  appearanceTransformLabels,
 } from './tamper-analysis.service';
 import { fragmentSpliceDetectorService } from './fragment-splice-detector.service';
 import type { FragmentReuseFinding, FragmentReuseSection } from '../../types/unified-investigation.types';
@@ -102,6 +105,14 @@ import {
 } from './investigation-composition.service';
 import { enrichInvestigationWithBlockDna } from '../block-dna/enrich-investigation';
 import { pickCompositionSourceVault } from './local-source-vault.service';
+import { aggregateVideoComposition } from './video-investigation-composition.service';
+import type { VideoCompositionResult } from '../../types/video-investigation-composition.types';
+import {
+  recoverRobustProvenanceWatermark,
+  loadProvenance,
+  buildDnaVnextInvestigationSection,
+  transformationsFromTamper,
+} from '../dna-vnext';
 import { DNA_LAYER_REGISTRY } from '../../constants/dna-layer-registry';
 import { DocumentLineageService } from '../lineage/document-lineage.service';
 
@@ -527,8 +538,71 @@ function buildIdentityRecoveryFromEnterprise(
   };
 }
 
+/**
+ * Video analog of the image composition wiring above — computed
+ * independently of the image match/composition pipeline (it runs its own
+ * vault search via partialVideoVaultSearch), so it's safe to call from any
+ * of investigate()'s report-construction branches without depending on
+ * whether an image-style `match` was found. No-op for non-video probes.
+ */
+async function tryBuildVideoComposition(params: {
+  isVideoProbe: boolean;
+  buffer: Buffer;
+  mimeType: string;
+  originalName: string;
+  ownerUserId: string;
+}): Promise<VideoCompositionResult | undefined> {
+  if (!params.isVideoProbe) return undefined;
+  try {
+    const result = await aggregateVideoComposition({
+      probeBuffer: params.buffer,
+      probeMimeType: params.mimeType,
+      probeFileName: params.originalName,
+      ownerUserId: params.ownerUserId,
+    });
+    return result ?? undefined;
+  } catch (err) {
+    logger.warn('[UnifiedInvestigation] Video composition aggregation failed (non-fatal)', {
+      error: String(err),
+    });
+    return undefined;
+  }
+}
+
 export class UnifiedInvestigationOrchestrator {
+  /**
+   * Public entry point — thin wrapper around investigateCore(). Video
+   * composition is attached HERE, centrally, rather than inline inside
+   * investigateCore()'s match-found branch: that method has many internal
+   * early returns (buildNoMatchReport, buildPartialFromLiveSnapshot, weak/
+   * lookalike-similarity short-circuits, ...) since video probes routinely
+   * fail the image-style confidence gate that decides between those branches
+   * (partialVideoVaultSearch's own matching is intentionally separate and
+   * more lenient — that's the whole reason it exists). Attaching post-hoc
+   * here guarantees videoComposition is computed once, regardless of which
+   * internal branch produced the report, instead of requiring every current
+   * and future early-return site to remember to call it individually.
+   */
   async investigate(
+    buffer: Buffer,
+    mimeType: string,
+    originalName: string,
+    ownerUserId: string,
+    options?: InvestigateOptions,
+  ): Promise<UnifiedInvestigationReport> {
+    const report = await this.investigateCore(buffer, mimeType, originalName, ownerUserId, options);
+    if (!report.videoComposition) {
+      const isVideoProbe = mimeType.startsWith('video/')
+        || /\.(mp4|mov|avi|mkv|webm|m4v|mpeg|mpg)$/i.test(originalName);
+      const videoComposition = await tryBuildVideoComposition({
+        isVideoProbe, buffer, mimeType, originalName, ownerUserId,
+      });
+      if (videoComposition) report.videoComposition = videoComposition;
+    }
+    return report;
+  }
+
+  private async investigateCore(
     buffer: Buffer,
     mimeType: string,
     originalName: string,
@@ -1441,6 +1515,7 @@ export class UnifiedInvestigationOrchestrator {
     const enrichmentMs = investigationPerformanceConfig.orchestratorEnrichmentTimeoutMs;
 
     let dimensionSignal: { probeWidth: number; probeHeight: number; vaultWidth: number; vaultHeight: number } | null = null;
+    let photometricSignal: Awaited<ReturnType<typeof measurePhotometricShift>> = null;
 
     const tamperLocalizationPromise = (async () => {
       let scanRef = enterprise.auditContext?.forensicScan ?? null;
@@ -1452,7 +1527,7 @@ export class UnifiedInvestigationOrchestrator {
           'vault_retrieve_tamper',
         );
         if (vaultFile?.originalBuffer) {
-          const [rescan, dims] = await Promise.all([
+          const [rescan, dims, photo] = await Promise.all([
             withTimeoutSoft(
               () => forensicScannerService.scanProbe(buffer, mimeType, vaultFile.originalBuffer),
               90_000,
@@ -1470,9 +1545,15 @@ export class UnifiedInvestigationOrchestrator {
                 vaultWidth: vaultMeta.width, vaultHeight: vaultMeta.height,
               };
             }, 5_000, 'dimension_compare'),
+            withTimeoutSoft(
+              () => measurePhotometricShift(buffer, vaultFile.originalBuffer),
+              8_000,
+              'photometric_compare',
+            ),
           ]);
           if (rescan?.available) scanRef = rescan;
           dimensionSignal = dims;
+          photometricSignal = photo;
         }
       } catch {
         /* non-fatal */
@@ -1564,6 +1645,7 @@ export class UnifiedInvestigationOrchestrator {
         filename: originalName,
         fragmentReuse: fragmentReuseFindings,
         dimensions: dimensionSignal,
+        photometric: photometricSignal,
       }),
       { onComplete: stageOnComplete('tamper_analysis', 'Tamper Analysis') },
     );
@@ -2094,6 +2176,12 @@ export class UnifiedInvestigationOrchestrator {
     });
     const relatedLineage = await documentLineageService.getLineage(match.dnaRecordId).catch(() => ({ nodes: [], edges: [] }));
 
+    const dnaB = await recoverRobustProvenanceWatermark({
+      buffer,
+      mimeType,
+      ownerUserId,
+    }).catch(() => null);
+
     const sourcePick = await pickCompositionSourceVault({
       ownerUserId,
       probeBuffer: buffer,
@@ -2102,6 +2190,7 @@ export class UnifiedInvestigationOrchestrator {
       embeddingFilename: resolvedOriginalFilename ?? originalFilename ?? undefined,
       fragmentFindings: fragmentReuseFindings,
       rankedCandidates,
+      provenanceVaultId: dnaB?.vaultId,
     }).catch(() => null);
 
     const compositionVaultId = sourcePick?.vaultId ?? match.vaultId;
@@ -2126,6 +2215,10 @@ export class UnifiedInvestigationOrchestrator {
       vaultBuffer: compositionVaultBuffer,
       vaultId: compositionVaultId,
       vaultFilename: compositionVaultFilename,
+      dnaRecordId: sourcePick?.dnaRecordId ?? match.dnaRecordId,
+      certificateId: resolvedCertId,
+      ownerUserId,
+      candidateSources: sourcePick?.additionalSources,
       fragmentFindings: fragmentReuseFindings,
       localDnaHit: authAsset?.localDnaHit ?? null,
       aiProbability: resolveAiProbabilityFromScan(forensicScan),
@@ -2144,6 +2237,31 @@ export class UnifiedInvestigationOrchestrator {
     });
     composition = blockDnaEnrich.composition;
     const blockDna = blockDnaEnrich.blockDna;
+    tamperAnalysis = enrichTamperFromPixelSource(tamperAnalysis, composition.pixelSource);
+    if (buffer && compositionVaultBuffer) {
+      const needPhoto = (['Contrast / Brightness', 'Blur', 'Sharpen'] as const).some(
+        (label) => !tamperAnalysis.vectors.some((v) => v.label === label && v.detected),
+      );
+      if (needPhoto) {
+        const photo = await measurePhotometricShift(buffer, compositionVaultBuffer);
+        const labels = appearanceTransformLabels(photo);
+        if (labels.length) {
+          tamperAnalysis = enrichTamperFromPixelSource(tamperAnalysis, { transformation: { labels } });
+        }
+      }
+    }
+
+    const vnextProvenance = await loadProvenance(match.dnaRecordId).catch(() => null);
+    const dnaVnext = buildDnaVnextInvestigationSection({
+      provenance: vnextProvenance,
+      watermark: dnaB,
+      spatialMatch: Boolean(composition.pixelSource?.originalPixels || composition.protectedFromAssetPercent >= 0.4),
+      hmacAvailable: Boolean(blockDna?.available),
+      transformations: [
+        ...transformationsFromTamper(tamperAnalysis),
+        ...(composition.pixelSource?.transformation?.labels ?? []),
+      ].filter((v, i, a) => a.indexOf(v) === i),
+    });
 
     const report: UnifiedInvestigationReport = {
       success: true,
@@ -2240,6 +2358,7 @@ export class UnifiedInvestigationOrchestrator {
       fragmentReuseAnalysis: buildFragmentReuseSection(fragmentReuseFindings),
       composition,
       blockDna,
+      dnaVnext,
       provenance: { authorizationStatus },
       relatedLineage,
     };
@@ -3202,6 +3321,14 @@ export class UnifiedInvestigationOrchestrator {
       ? await documentLineageService.getLineage(dnaRecordId).catch(() => ({ nodes: [], edges: [] }))
       : { nodes: [], edges: [] };
 
+    const dnaBPartial = params.probe?.buffer && params.probe.mimeType
+      ? await recoverRobustProvenanceWatermark({
+        buffer: params.probe.buffer,
+        mimeType: params.probe.mimeType,
+        ownerUserId: params.ownerUserId,
+      }).catch(() => null)
+      : null;
+
     const sourcePick = params.probe?.buffer && params.probe.mimeType?.startsWith('image/')
       ? await pickCompositionSourceVault({
         ownerUserId: params.ownerUserId,
@@ -3211,6 +3338,7 @@ export class UnifiedInvestigationOrchestrator {
         embeddingFilename: originalFilename ?? undefined,
         fragmentFindings: fragmentReuseFindings,
         rankedCandidates: params.enterprise?.candidates,
+        provenanceVaultId: dnaBPartial?.vaultId,
       }).catch(() => null)
       : null;
     const compositionVaultId = sourcePick?.vaultId ?? vaultId;
@@ -3241,6 +3369,9 @@ export class UnifiedInvestigationOrchestrator {
       vaultBuffer: compositionVaultBuffer,
       vaultId: compositionVaultId,
       vaultFilename: compositionVaultFilename,
+      dnaRecordId: sourcePick?.dnaRecordId ?? dnaRecordId,
+      ownerUserId: params.ownerUserId,
+      candidateSources: sourcePick?.additionalSources,
       fragmentFindings: fragmentReuseFindings,
       localDnaHit: params.enterprise?.authoritativeAsset?.localDnaHit ?? null,
       aiProbability: resolveAiProbabilityFromScan(compositionScan),
@@ -3259,6 +3390,33 @@ export class UnifiedInvestigationOrchestrator {
     });
     composition = blockDnaEnrich.composition;
     const blockDna = blockDnaEnrich.blockDna;
+    tamperAnalysis = enrichTamperFromPixelSource(tamperAnalysis, composition.pixelSource);
+    if (params.probe?.buffer && compositionVaultBuffer) {
+      const needPhoto = (['Contrast / Brightness', 'Blur', 'Sharpen'] as const).some(
+        (label) => !tamperAnalysis.vectors.some((v) => v.label === label && v.detected),
+      );
+      if (needPhoto) {
+        const photo = await measurePhotometricShift(params.probe.buffer, compositionVaultBuffer);
+        const labels = appearanceTransformLabels(photo);
+        if (labels.length) {
+          tamperAnalysis = enrichTamperFromPixelSource(tamperAnalysis, { transformation: { labels } });
+        }
+      }
+    }
+
+    const vnextProvenancePartial = dnaRecordId
+      ? await loadProvenance(dnaRecordId).catch(() => null)
+      : null;
+    const dnaVnext = buildDnaVnextInvestigationSection({
+      provenance: vnextProvenancePartial,
+      watermark: dnaBPartial,
+      spatialMatch: Boolean(composition.pixelSource?.originalPixels || composition.protectedFromAssetPercent >= 0.4),
+      hmacAvailable: Boolean(blockDna?.available),
+      transformations: [
+        ...transformationsFromTamper(tamperAnalysis),
+        ...(composition.pixelSource?.transformation?.labels ?? []),
+      ].filter((v, i, a) => a.indexOf(v) === i),
+    });
 
     const report: UnifiedInvestigationReport = {
       success: reportState !== 'NO_SIGNATURE',
@@ -3313,6 +3471,7 @@ export class UnifiedInvestigationOrchestrator {
       fragmentReuseAnalysis: buildFragmentReuseSection(fragmentReuseFindings),
       composition,
       blockDna,
+      dnaVnext,
       provenance: { authorizationStatus },
       relatedLineage,
       timeline: timelineEvents,
@@ -3682,6 +3841,13 @@ export class UnifiedInvestigationOrchestrator {
       fragmentReuseAnalysis: buildFragmentReuseSection(fragmentReuseFindings),
       composition,
       blockDna,
+      dnaVnext: buildDnaVnextInvestigationSection({
+        provenance: null,
+        watermark: null,
+        spatialMatch: false,
+        hmacAvailable: false,
+        transformations: [],
+      }),
       timeline: timelineEvents,
       accessIntelligence: leakVerify.accessHistory ?? [],
       leakIntelligence: { hasPublicLeak: false, entries: [], message: 'No public leak detected.' },

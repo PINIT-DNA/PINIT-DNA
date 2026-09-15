@@ -43,7 +43,9 @@ import type { RetrievalSelectionStep } from '../../types/investigation-pipeline-
 import type { AuthoritativeAsset } from '../../types/authoritative-asset.types';
 import {
   buildAuthoritativeAsset,
+  buildAuthoritativeAssetSafe,
   buildMediaDeepCandidates,
+  filterExistingVaultIds,
   selectAuthoritativeMatch,
 } from './authoritative-asset.service';
 import { resolveMediaProfile } from './adaptive-scoring.service';
@@ -1003,6 +1005,21 @@ export class PinitOriginalIdentityRecoveryService {
     }
     let candidates = vaultSimilarityVectorService.toRankedCandidates(vectors);
 
+    {
+      const alive = await filterExistingVaultIds([
+        ...candidates.map((c) => c.vaultId),
+        ...vectors.map((v) => v.vaultId),
+      ]);
+      const before = candidates.length;
+      candidates = candidates.filter((c) => alive.has(c.vaultId));
+      vectors = vectors.filter((v) => alive.has(v.vaultId));
+      if (before !== candidates.length) {
+        logger.warn('[PinitOIR] dropped stale vault ids from retrieval', {
+          dropped: before - candidates.length,
+        });
+      }
+    }
+
     // Milestone D — independent providers union before any final candidate limit.
     // Legacy retrieval above remains available as rollback/fallback.
     if (
@@ -1043,6 +1060,19 @@ export class PinitOriginalIdentityRecoveryService {
           error: String(error),
         });
       }
+    }
+
+    {
+      const alive = await filterExistingVaultIds([
+        ...candidates.map((c) => c.vaultId),
+        ...vectors.map((v) => v.vaultId),
+        localDnaHit?.vaultId ?? '',
+        identityHit?.vaultId ?? '',
+      ]);
+      candidates = candidates.filter((c) => alive.has(c.vaultId));
+      vectors = vectors.filter((v) => alive.has(v.vaultId));
+      if (localDnaHit && !alive.has(localDnaHit.vaultId)) localDnaHit = null;
+      if (identityHit && !alive.has(identityHit.vaultId)) identityHit = null;
     }
 
     let partialVideoScore = 0;
@@ -1180,7 +1210,7 @@ export class PinitOriginalIdentityRecoveryService {
         status: 'skipped',
         detail: 'SHA-256 exact match — 15-layer compare skipped',
       });
-      authoritativeAsset = await buildAuthoritativeAsset({
+      authoritativeAsset = await buildAuthoritativeAssetSafe({
         selection: preliminarySelection,
         candidates,
         vectors,
@@ -1209,10 +1239,10 @@ export class PinitOriginalIdentityRecoveryService {
         phase: 3,
         deepVerificationRunning: false,
         signatureFound: true,
-        vaultId: authoritativeAsset.vaultId,
-        dnaRecordId: authoritativeAsset.dnaRecordId,
-        originalFilename: authoritativeAsset.originalFilename,
-        ownerPinitId: authoritativeAsset.ownerPinitId ?? undefined,
+        vaultId: authoritativeAsset?.vaultId,
+        dnaRecordId: authoritativeAsset?.dnaRecordId,
+        originalFilename: authoritativeAsset?.originalFilename,
+        ownerPinitId: authoritativeAsset?.ownerPinitId ?? undefined,
         confidence: 100,
         dnaMatchPercent: 100,
         statusMessage: 'Exact vault match verified',
@@ -1325,7 +1355,7 @@ export class PinitOriginalIdentityRecoveryService {
             selectionSource = 'identity_hit';
           }
         }
-        authoritativeAsset = await buildAuthoritativeAsset({
+        authoritativeAsset = await buildAuthoritativeAssetSafe({
           selection: { match: selectionMatch, source: selectionSource },
           candidates,
           vectors,
@@ -1336,8 +1366,9 @@ export class PinitOriginalIdentityRecoveryService {
         dna15Score = (selectionMatch.vaultId === ranking.winner.vaultId
           ? ranking.deepCompare?.overallConfidenceScore
           : deepCompareResults.find((d) => d.vaultId === selectionMatch.vaultId)?.overallConfidenceScore)
-          ?? authoritativeAsset.deepCompare?.overallConfidenceScore
+          ?? authoritativeAsset?.deepCompare?.overallConfidenceScore
           ?? (Number(selectionMatch.confidence) || 0);
+        if (authoritativeAsset) {
         selectionSteps.push({
           stage: 'authoritative_asset_locked',
           vaultId: authoritativeAsset.vaultId,
@@ -1345,6 +1376,12 @@ export class PinitOriginalIdentityRecoveryService {
           certificateId: authoritativeAsset.certificateId,
           detail: `source=${authoritativeAsset.selectionSource} file=${authoritativeAsset.originalFilename} · ranking walk accepted`,
         });
+        } else {
+          selectionSteps.push({
+            stage: 'authoritative_asset_locked',
+            detail: 'ranking winner vault record missing — skipped',
+          });
+        }
       } else {
         // All candidates rejected — still lock a local-patch crop hit when fragment votes are strong.
         if (localDnaHit && localDnaScore >= LOCAL_PATCH_RESCUE_MIN) {
@@ -1356,7 +1393,7 @@ export class PinitOriginalIdentityRecoveryService {
               compositeScore: Math.max(patchCandidate.compositeScore, localDnaScore),
               method: `Local patch DNA (${localDnaHit.patchMatchCount} patches)`,
             });
-            authoritativeAsset = await buildAuthoritativeAsset({
+            authoritativeAsset = await buildAuthoritativeAssetSafe({
               selection: { match: patchMatch, source: 'local_patch' },
               candidates,
               vectors,
@@ -1370,10 +1407,12 @@ export class PinitOriginalIdentityRecoveryService {
             );
             selectionSteps.push({
               stage: 'authoritative_asset_locked',
-              vaultId: authoritativeAsset.vaultId,
-              dnaRecordId: authoritativeAsset.dnaRecordId,
-              certificateId: authoritativeAsset.certificateId,
-              detail: `source=local_patch file=${authoritativeAsset.originalFilename} · crop rescue after ranking reject`,
+              vaultId: authoritativeAsset?.vaultId,
+              dnaRecordId: authoritativeAsset?.dnaRecordId,
+              certificateId: authoritativeAsset?.certificateId,
+              detail: authoritativeAsset
+                ? `source=local_patch file=${authoritativeAsset.originalFilename} · crop rescue after ranking reject`
+                : 'local_patch vault record missing — skipped',
             });
           } else {
             authoritativeAsset = null;

@@ -361,7 +361,7 @@ export class AIEmbeddingsService {
       const form = new FormData();
       form.append('probe', probe, { filename: 'probe.jpg', contentType: mimeType });
       form.append('reference', reference, { filename: 'ref.jpg', contentType: mimeType });
-      const { data } = await client.post('/cv/local-source-score', form, {
+      const { data } = await client.post<Record<string, unknown> | undefined>('/cv/local-source-score', form, {
         headers: form.getHeaders(),
         timeout: 25_000,
       });
@@ -375,8 +375,8 @@ export class AIEmbeddingsService {
         templateScore: Number(data.templateScore) || 0,
         estimatedCoveragePercent: Number(data.estimatedCoveragePercent) || 0,
         homographyFound: Boolean(data.homographyFound),
-        detector: data.detector,
-        method: data.method,
+        detector: data.detector as string | undefined,
+        method: data.method as string | undefined,
       };
     } catch (err) {
       this.logError('cv/local-source-score', err);
