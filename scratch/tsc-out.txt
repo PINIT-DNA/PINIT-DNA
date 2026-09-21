@@ -1,2 +1,0 @@
-﻿src/services/dashboard.api.ts(615,3): error TS2322: Type 'unknown' is not assignable to type '{ success: boolean; token: string; listUrl: string; expiresIn: string; asset: { asset_id: string; vault_id: string; dna_record_id: string; title: string; badge_tier: string; pinit_id: string; }; }'.
-src/services/dashboard.api.ts(625,3): error TS2322: Type 'unknown' is not assignable to type '{ success: boolean; token: string; exchangeUrl: string; pinitId: string; }'.

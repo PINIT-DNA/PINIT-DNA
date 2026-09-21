@@ -1,1 +1,0 @@
-﻿src/components/SpatialAuthInvestigationPanel.tsx(665,66): error TS2367: This comparison appears to be unintentional because the types '"2" | "4" | "8" | "64"' and '"regions"' have no overlap.
