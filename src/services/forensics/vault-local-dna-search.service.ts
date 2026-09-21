@@ -29,6 +29,7 @@ import { aiService } from '../ai/ai-embeddings.service';
 import { VaultService } from '../vault/vault.service';
 
 import { forensicComputationCache } from './forensic-computation-cache.service';
+import { resolveIndexPatches } from './local-dna-patch-packer.service';
 
 
 
@@ -305,6 +306,8 @@ export class VaultLocalDnaSearchService {
 
         },
 
+        // Indexes built after patch packing have no per-patch rows, only this archive.
+        patchArchive: { select: { blob: true, merkleRoot: true } },
         dnaRecord: { select: { imageFilename: true } },
 
       },
@@ -329,11 +332,12 @@ export class VaultLocalDnaSearchService {
 
     for (const idx of indexes) {
 
-      if (!idx.vaultId || !idx.patches.length) continue;
+      if (!idx.vaultId) continue;
 
-
-
-      const vaultPatches = idx.patches as VaultPatchRow[];
+      // Rows for older indexes, the packed archive for newer ones. Reading only the
+      // per-patch rows made every newly protected asset look empty and skipped it.
+      const vaultPatches = resolveIndexPatches(idx) as VaultPatchRow[];
+      if (!vaultPatches.length) continue;
 
       const vaultByPrefix = buildVaultPrefixMap(vaultPatches);
 
@@ -395,7 +399,7 @@ export class VaultLocalDnaSearchService {
 
       const matchRatio = patchMatchCount / probeGrid.patches.length;
 
-      const coverageRatio = patchMatchCount / idx.patches.length;
+      const coverageRatio = patchMatchCount / vaultPatches.length;
 
       const spatial = spatialConsistency(patchMatches);
 
@@ -467,7 +471,7 @@ export class VaultLocalDnaSearchService {
 
         probePatchCount: probeGrid.patches.length,
 
-        vaultPatchCount: idx.patches.length,
+        vaultPatchCount: vaultPatches.length,
 
         matchRatio: Math.round(matchRatio * 1000) / 1000,
 

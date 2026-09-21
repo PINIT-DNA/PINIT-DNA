@@ -60,14 +60,31 @@ export class LocalDnaIndexService {
         status: 'COMPLETE',
       };
 
+      // The packed archive is the index's only patch storage, so the index row and its
+      // archive are written together or not at all. Writing them separately could leave
+      // a COMPLETE index with no patches (and, on rebuild, having already deleted the
+      // old ones) if the second write failed.
+      const archive = packPatchesToArchive(grid.patches);
+      const archiveData = {
+        patchCount: archive.patchCount,
+        merkleRoot: archive.merkleRoot,
+        format: archive.format,
+        compression: archive.compression,
+        blob: archive.blob,
+      };
+
       if (existing) {
-        // Rebuild path: this is the SAME record being re-indexed, not other
-        // historical data — clearing its own prior rows (either old per-patch
-        // format or a stale archive) before writing the fresh one is correct.
-        await prisma.localDnaPatch.deleteMany({ where: { indexId: existing.id } });
-        await prisma.localDnaPatchArchive.deleteMany({ where: { indexId: existing.id } });
-        await prisma.localFeatureIndex.update({ where: { id: existing.id }, data: indexData });
-        await this.writePatchArchive(existing.id, grid.patches);
+        // Rebuild path: this is the SAME record being re-indexed. Its own prior rows
+        // (old per-patch format or a stale archive) are replaced in the same transaction
+        // that writes the fresh archive, so a failure leaves the old index intact.
+        await prisma.$transaction([
+          prisma.localDnaPatch.deleteMany({ where: { indexId: existing.id } }),
+          prisma.localDnaPatchArchive.deleteMany({ where: { indexId: existing.id } }),
+          prisma.localFeatureIndex.update({
+            where: { id: existing.id },
+            data: { ...indexData, patchArchive: { create: archiveData } },
+          }),
+        ]);
         logger.info('[LocalDnaIndex] Rebuilt multi-scale', {
           dnaRecordId: params.dnaRecordId.slice(0, 8),
           patches: grid.patches.length,
@@ -82,10 +99,9 @@ export class LocalDnaIndexService {
           dnaRecordId: params.dnaRecordId,
           ownerUserId: params.ownerUserId,
           ...indexData,
+          patchArchive: { create: archiveData },
         },
       });
-
-      await this.writePatchArchive(index.id, grid.patches);
 
       logger.info('[LocalDnaIndex] Created multi-scale', {
         dnaRecordId: params.dnaRecordId.slice(0, 8),
@@ -105,31 +121,6 @@ export class LocalDnaIndexService {
     }
   }
 
-  /**
-   * Packed replacement for the old per-patch-row insert: one gzip-compressed,
-   * Merkle-rooted blob per index instead of one row (plus four secondary
-   * indexes) per patch tile. A video frame can carry 2,000+ patches — at one
-   * row each, that per-row/per-index overhead (not the fingerprint data
-   * itself) is what actually explodes storage under every-frame protection.
-   * Detection capability is unchanged: fragment-splice-detector.service.ts
-   * unpacks this back to the exact same patch fingerprints it always used.
-   */
-  private async writePatchArchive(
-    indexId: string,
-    patches: Awaited<ReturnType<typeof localDnaPatchGenerator.generateMultiScaleGrid>>['patches'],
-  ): Promise<void> {
-    const archive = packPatchesToArchive(patches);
-    await prisma.localDnaPatchArchive.create({
-      data: {
-        indexId,
-        patchCount: archive.patchCount,
-        merkleRoot: archive.merkleRoot,
-        format: archive.format,
-        compression: archive.compression,
-        blob: archive.blob,
-      },
-    });
-  }
 
   async backfillOwner(ownerUserId: string): Promise<{ indexed: number; failed: number }> {
     const vaults = await prisma.vaultRecord.findMany({

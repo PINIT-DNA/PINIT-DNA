@@ -21,7 +21,7 @@ import {
   type PatchFingerprint,
 } from './local-dna-patch-generator.service';
 import { forensicComputationCache } from './forensic-computation-cache.service';
-import { unpackPatchesFromArchive } from './local-dna-patch-packer.service';
+import { resolveIndexPatches } from './local-dna-patch-packer.service';
 import type { FragmentReuseFinding } from '../../types/unified-investigation.types';
 
 interface VaultPatchRow {
@@ -219,18 +219,9 @@ function patchesMatch(probe: PatchFingerprint, vault: VaultPatchRow): boolean {
  */
 function resolveVaultPatches(idx: {
   patches: VaultPatchRow[];
-  patchArchive: { blob: Buffer } | null;
+  patchArchive: { blob: Buffer; merkleRoot: string } | null;
 }): VaultPatchRow[] {
-  if (idx.patches.length) return idx.patches;
-  if (idx.patchArchive) {
-    try {
-      return unpackPatchesFromArchive(idx.patchArchive.blob) as VaultPatchRow[];
-    } catch (err) {
-      logger.warn('[FragmentSplice] Failed to unpack patch archive (non-fatal)', { error: String(err) });
-      return [];
-    }
-  }
-  return [];
+  return resolveIndexPatches(idx) as VaultPatchRow[];
 }
 
 export class FragmentSpliceDetectorService {
@@ -267,7 +258,7 @@ export class FragmentSpliceDetectorService {
       // New compact storage — one row per index instead of one per patch.
       // Populated for indexes built after this was added; older indexes
       // still have `patches` populated instead (left as-is, both are read).
-      patchArchive: { select: { blob: true } },
+      patchArchive: { select: { blob: true, merkleRoot: true } },
       dnaRecord: { select: { imageFilename: true } },
     };
 

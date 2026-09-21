@@ -20,10 +20,14 @@
  */
 import crypto from 'crypto';
 import zlib from 'zlib';
+import { logger } from '../../lib/logger';
 import type { PatchFingerprint } from './local-dna-patch-generator.service';
 
 const FORMAT_TAG = 'PDPA1'; // Packed DNA Patch Archive, version 1
 const RECORD_BYTES = 28;
+const HEADER_BYTES = 5;
+/** A frame carries a few thousand patches (~28 B each); this bounds a hostile or corrupt blob. */
+const MAX_ARCHIVE_BYTES = 32 * 1024 * 1024;
 const LEAF_PREFIX = Buffer.from('LOCAL-DNA-PATCH-LEAF-v1');
 const EMPTY_ROOT_SEED = Buffer.from('LOCAL-DNA-PATCH-EMPTY-ROOT-v1');
 
@@ -124,24 +128,74 @@ export function packPatchesToArchive(patches: PatchFingerprint[]): PackedPatchAr
   return { blob, merkleRoot, patchCount: patches.length, format: FORMAT_TAG, compression: 'gzip' };
 }
 
-/** Reverse of packPatchesToArchive — returns the exact same PatchFingerprint[] shape. */
-export function unpackPatchesFromArchive(blob: Buffer): PatchFingerprint[] {
-  const raw = zlib.gunzipSync(blob);
-  const patchCount = raw.readUInt32BE(1);
-  const patches: PatchFingerprint[] = [];
-  let offset = 5;
-  for (let i = 0; i < patchCount; i++) {
-    const record = raw.subarray(offset, offset + RECORD_BYTES);
-    patches.push(decodePatchRecord(i, record));
-    offset += RECORD_BYTES;
+/** The archive could not be read as a valid, untampered patch pack. */
+export class PatchArchiveError extends Error {}
+
+/** Decompress and split an archive into its fixed-size records, refusing anything malformed. */
+function readArchiveRecords(blob: Buffer): Buffer[] {
+  const raw = zlib.gunzipSync(blob, { maxOutputLength: MAX_ARCHIVE_BYTES });
+  if (raw.length < HEADER_BYTES || raw[0] !== FORMAT_TAG.charCodeAt(0)) {
+    throw new PatchArchiveError('unrecognised patch archive header');
   }
-  return patches;
+  const patchCount = raw.readUInt32BE(1);
+  // A length that does not match the count is a truncated or altered blob; reading
+  // past the end would otherwise decode zero-filled garbage patches or throw late.
+  if (raw.length !== HEADER_BYTES + patchCount * RECORD_BYTES) {
+    throw new PatchArchiveError(`patch archive length ${raw.length} does not match ${patchCount} records`);
+  }
+  const records: Buffer[] = [];
+  for (let i = 0; i < patchCount; i++) {
+    const start = HEADER_BYTES + i * RECORD_BYTES;
+    records.push(raw.subarray(start, start + RECORD_BYTES));
+  }
+  return records;
+}
+
+function merkleRootOfRecords(records: Buffer[]): string {
+  return computeMerkleRoot(records.map((r, i) => hashPatchLeaf(i, r))).toString('hex');
+}
+
+/**
+ * Reverse of packPatchesToArchive — returns the exact same PatchFingerprint[] shape.
+ *
+ * When `expectedMerkleRoot` is given (the value stored beside the blob), the root is
+ * re-derived from the records actually read and a mismatch throws. Without it the
+ * stored root guards nothing: it is only ever written. Every reader passes it.
+ */
+export function unpackPatchesFromArchive(blob: Buffer, expectedMerkleRoot?: string | null): PatchFingerprint[] {
+  const records = readArchiveRecords(blob);
+  if (expectedMerkleRoot && merkleRootOfRecords(records) !== expectedMerkleRoot) {
+    throw new PatchArchiveError('patch archive does not match its stored Merkle root');
+  }
+  return records.map((record, i) => decodePatchRecord(i, record));
 }
 
 /** Re-derive the Merkle root from an already-packed blob, to verify it wasn't corrupted/tampered. */
 export function merkleRootFromArchive(blob: Buffer): string {
-  const patches = unpackPatchesFromArchive(blob);
-  const records = patches.map((p) => encodePatchRecord(p));
-  const leaves = records.map((r, i) => hashPatchLeaf(i, r));
-  return computeMerkleRoot(leaves).toString('hex');
+  return merkleRootOfRecords(readArchiveRecords(blob));
+}
+
+/**
+ * The patches of one local-DNA index, from whichever storage it has.
+ *
+ * Indexes built before packing keep per-patch rows; indexes built after have only an
+ * archive. EVERY reader must go through this: a reader that looks only at `patches`
+ * sees an archive-only index as empty and silently skips it, which is how newly
+ * protected assets would disappear from crop and fragment search.
+ *
+ * An unreadable or altered archive is treated as "no patches" and logged, never
+ * thrown: one bad row must not fail a whole search, and must not be matched against.
+ */
+export function resolveIndexPatches<T>(idx: {
+  patches: T[];
+  patchArchive?: { blob: Buffer; merkleRoot?: string | null } | null;
+}): Array<T | PatchFingerprint> {
+  if (idx.patches.length) return idx.patches;
+  if (!idx.patchArchive) return [];
+  try {
+    return unpackPatchesFromArchive(idx.patchArchive.blob, idx.patchArchive.merkleRoot);
+  } catch (err) {
+    logger.warn('[LocalDnaPatches] patch archive unusable, treated as no patches', { error: String(err) });
+    return [];
+  }
 }
