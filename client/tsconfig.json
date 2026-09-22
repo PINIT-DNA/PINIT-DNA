@@ -14,7 +14,11 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "baseUrl": ".",
+    "paths": {
+      "@pinit/certificate": ["./src/shared/certificate/PinitCertificateDocument.tsx"]
+    }
   },
   "include": ["src"],
   "exclude": ["src/**/*.test.ts"]

@@ -31,6 +31,22 @@ export interface PatchGridResult {
   scales: number[];
 }
 
+/**
+ * Describes an already-decoded RGB buffer, so a patch can be a memory slice instead
+ * of another decode of the encoded image. Used by video frame DNA, where the frame
+ * arrives decoded from ffmpeg and a grid means thousands of patches.
+ */
+export interface RawImageMeta {
+  width: number;
+  height: number;
+  channels: 3;
+}
+
+/** One place that decides whether bytes are an encoded image or a raw RGB buffer. */
+function img(buffer: Buffer, raw?: RawImageMeta) {
+  return raw ? sharp(buffer, { raw }) : sharp(buffer);
+}
+
 function hammingBits(a: string, b: string): number {
   if (!a || !b || a.length !== b.length) return 64;
   let dist = 0;
@@ -68,6 +84,50 @@ export function patchDenseMatch(
   if (probe.frequencySig === vault.frequencySig) votes++;
   if (probe.textureSig === vault.textureSig) votes++;
   return votes >= 3;
+}
+
+interface PatchRect { left: number; top: number; width: number; height: number; gx: number; gy: number }
+
+/** Formats whose patches are re-encoded in the source format by the per-patch path. */
+const EXTRACTABLE_FORMATS = new Set(['jpeg', 'png', 'webp']);
+
+/**
+ * Cut patches out of one decode of the image instead of decoding the whole file again
+ * for every patch (a 1 MP photo has ~1,900 patches across the scales).
+ *
+ * The result is byte-identical to `sharp(buffer).extract(...).toBuffer()`: the same
+ * decoded pixels are cropped and re-encoded in the source format with the same
+ * defaults. That matters because stored vault fingerprints were built from those
+ * re-encoded patches, so a shortcut that changed the pixels would shift the hashes.
+ * Anything unusual (other formats, animation, non-8-bit, colour spaces the
+ * equivalence was not checked for) returns null and callers use the per-patch path.
+ */
+export async function createPatchExtractor(
+  buffer: Buffer,
+): Promise<((left: number, top: number, width: number, height: number) => Promise<Buffer>) | null> {
+  try {
+    const meta = await sharp(buffer).metadata();
+    const format = meta.format;
+    if (!format || !EXTRACTABLE_FORMATS.has(format)) return null;
+    if ((meta.pages ?? 1) > 1 || meta.depth !== 'uchar') return null;
+    if (meta.space !== 'srgb' && meta.space !== 'b-w') return null;
+    const { data, info } = await sharp(buffer).raw().toBuffer({ resolveWithObject: true });
+    const { width: fullW, channels } = info;
+    if (channels !== 1 && channels !== 3 && channels !== 4) return null;
+    return async (left, top, width, height) => {
+      const crop = Buffer.allocUnsafe(width * height * channels);
+      const rowBytes = width * channels;
+      for (let y = 0; y < height; y++) {
+        const src = ((top + y) * fullW + left) * channels;
+        data.copy(crop, y * rowBytes, src, src + rowBytes);
+      }
+      return sharp(crop, { raw: { width, height, channels } })
+        .toFormat(format as 'jpeg' | 'png' | 'webp')
+        .toBuffer();
+    };
+  } catch {
+    return null;
+  }
 }
 
 export class LocalDnaPatchGenerator {
@@ -160,32 +220,20 @@ export class LocalDnaPatchGenerator {
       };
     }
 
+    const extractPatch = await createPatchExtractor(buffer);
     const stride = Math.max(8, Math.round(tileSize * (1 - overlapRatio)));
     const patches: PatchFingerprint[] = [];
-    let patchIndex = startIndex;
 
+    const rects: PatchRect[] = [];
     for (let top = 0; top < imageHeight; top += stride) {
       for (let left = 0; left < imageWidth; left += stride) {
-        if (patches.length >= localDnaConfig.maxOverlapTiles) break;
-
         const width = Math.min(tileSize, imageWidth - left);
         const height = Math.min(tileSize, imageHeight - top);
         if (width < 32 || height < 32) continue;
-
-        try {
-          const patchBuf = await sharp(buffer)
-            .extract({ left, top, width, height })
-            .toBuffer();
-          const gx = Math.round(left / stride);
-          const gy = Math.round(top / stride);
-          patches.push(await this.fingerprintPatch(patchBuf, patchIndex, gx, gy, tileSize));
-          patchIndex++;
-        } catch (err) {
-          logger.debug('[LocalDnaPatch] Skip overlap tile', { left, top, error: String(err) });
-        }
+        rects.push({ left, top, width, height, gx: Math.round(left / stride), gy: Math.round(top / stride) });
       }
-      if (patches.length >= localDnaConfig.maxOverlapTiles) break;
     }
+    patches.push(...await this.fingerprintRects(buffer, extractPatch, rects, tileSize, startIndex, localDnaConfig.maxOverlapTiles, 'overlap tile'));
 
     const globalPHash = patches.length
       ? patches[Math.floor(patches.length / 2)]!.pHash16
@@ -229,34 +277,24 @@ export class LocalDnaPatchGenerator {
       };
     }
 
+    const extractPatch = await createPatchExtractor(buffer);
     const gridCols = Math.ceil(imageWidth / patchSize);
     const gridRows = Math.ceil(imageHeight / patchSize);
     const maxPatches = Math.floor(localDnaConfig.maxPatchesPerImage / localDnaConfig.patchScales.length);
     const patches: PatchFingerprint[] = [];
-    let patchIndex = startIndex;
 
+    const rects: PatchRect[] = [];
     for (let gy = 0; gy < gridRows; gy++) {
       for (let gx = 0; gx < gridCols; gx++) {
-        if (patches.length >= maxPatches) break;
-
         const left = gx * patchSize;
         const top = gy * patchSize;
         const width = Math.min(patchSize, imageWidth - left);
         const height = Math.min(patchSize, imageHeight - top);
         if (width < 4 || height < 4) continue;
-
-        try {
-          const patchBuf = await sharp(buffer)
-            .extract({ left, top, width, height })
-            .toBuffer();
-          patches.push(await this.fingerprintPatch(patchBuf, patchIndex, gx, gy, patchSize));
-          patchIndex++;
-        } catch (err) {
-          logger.debug('[LocalDnaPatch] Skip patch', { gx, gy, scale: patchSize, error: String(err) });
-        }
+        rects.push({ left, top, width, height, gx, gy });
       }
-      if (patches.length >= maxPatches) break;
     }
+    patches.push(...await this.fingerprintRects(buffer, extractPatch, rects, patchSize, startIndex, maxPatches, 'patch'));
 
     const globalPHash = patches.length
       ? patches[Math.floor(patches.length / 2)]!.pHash16
@@ -274,21 +312,75 @@ export class LocalDnaPatchGenerator {
     };
   }
 
+  /**
+   * Fingerprint rectangles in order, a few at a time. Order, indices and the cap on how many
+   * patches are kept are exactly those of a one-by-one loop; a patch that fails is skipped
+   * and takes no index. Running a chunk concurrently only overlaps the image work.
+   */
+  private async fingerprintRects(
+    buffer: Buffer,
+    extractPatch: Awaited<ReturnType<typeof createPatchExtractor>>,
+    rects: PatchRect[],
+    scale: number,
+    startIndex: number,
+    cap: number,
+    what: string,
+  ): Promise<PatchFingerprint[]> {
+    const out: PatchFingerprint[] = [];
+    let patchIndex = startIndex;
+    const CHUNK = 16;
+    for (let i = 0; i < rects.length && out.length < cap; i += CHUNK) {
+      const chunk = rects.slice(i, i + CHUNK);
+      const results = await Promise.all(chunk.map(async (r) => {
+        try {
+          const patchBuf = extractPatch
+            ? await extractPatch(r.left, r.top, r.width, r.height)
+            : await sharp(buffer).extract({ left: r.left, top: r.top, width: r.width, height: r.height }).toBuffer();
+          return await this.fingerprintPatch(patchBuf, 0, r.gx, r.gy, scale);
+        } catch (err) {
+          logger.debug(`[LocalDnaPatch] Skip ${what}`, { gx: r.gx, gy: r.gy, scale, error: String(err) });
+          return null;
+        }
+      }));
+      for (const fp of results) {
+        if (!fp) continue;
+        if (out.length >= cap) break;
+        out.push({ ...fp, patchIndex: patchIndex++ });
+      }
+    }
+    return out;
+  }
+
   private async fingerprintPatch(
     patchBuffer: Buffer,
     patchIndex: number,
     gridX: number,
     gridY: number,
     scale: number,
+    raw?: RawImageMeta,
   ): Promise<PatchFingerprint> {
+    // Each feature below used to decode the encoded patch on its own (7 decodes). For PNG
+    // patches (lossless, no decode-time shrinking) decoding once and sharing the pixels gives
+    // identical values for a seventh of the work. JPEG/WebP are deliberately excluded: their
+    // decoders shrink while loading when a feature resizes down, so pixels from a full decode
+    // differ slightly and could flip hash bits. Those keep the per-feature decode.
+    if (!raw && patchBuffer.length > 8 && patchBuffer[0] === 0x89 && patchBuffer[1] === 0x50) {
+      try {
+        const { data, info } = await sharp(patchBuffer).raw().toBuffer({ resolveWithObject: true });
+        if (info.channels === 3) {
+          patchBuffer = data;
+          raw = { width: info.width, height: info.height, channels: 3 };
+        }
+      } catch { /* fall through to the per-feature decode */ }
+    }
     const [pHash16, dHash8, aHash8, edgeSignature, colorVector, frequencySig, textureSig] = await Promise.all([
-      this.computePHash16(patchBuffer),
-      this.computeDHash8(patchBuffer),
-      this.computeAHash8(patchBuffer),
-      this.computeEdgeSignature(patchBuffer),
-      this.computeColorVector(patchBuffer),
-      this.computeFrequencySig(patchBuffer),
-      this.computeTextureSig(patchBuffer),
+      this.computePHash16(patchBuffer, raw),
+      this.computeDHash8(patchBuffer, raw),
+      this.computeAHash8(patchBuffer, raw),
+      this.computeEdgeSignature(patchBuffer, raw),
+      this.computeColorVector(patchBuffer, raw),
+      this.computeFrequencySig(patchBuffer, raw),
+      this.computeTextureSig(patchBuffer, raw),
     ]);
     return {
       patchIndex, gridX, gridY, scale, pHash16, dHash8, aHash8,
@@ -296,8 +388,8 @@ export class LocalDnaPatchGenerator {
     };
   }
 
-  async computePHash16(patchBuffer: Buffer): Promise<string> {
-    const { data } = await sharp(patchBuffer)
+  async computePHash16(patchBuffer: Buffer, raw?: RawImageMeta): Promise<string> {
+    const { data } = await img(patchBuffer, raw)
       .resize(8, 8, { fit: 'fill' })
       .greyscale()
       .raw()
@@ -313,8 +405,8 @@ export class LocalDnaPatchGenerator {
     return hex.padStart(16, '0');
   }
 
-  private async computeDHash8(patchBuffer: Buffer): Promise<string> {
-    const { data, info } = await sharp(patchBuffer)
+  async computeDHash8(patchBuffer: Buffer, raw?: RawImageMeta): Promise<string> {
+    const { data, info } = await img(patchBuffer, raw)
       .resize(9, 8, { fit: 'fill' })
       .greyscale()
       .raw()
@@ -334,8 +426,8 @@ export class LocalDnaPatchGenerator {
     return hex.padStart(8, '0');
   }
 
-  private async computeAHash8(patchBuffer: Buffer): Promise<string> {
-    const { data } = await sharp(patchBuffer)
+  private async computeAHash8(patchBuffer: Buffer, raw?: RawImageMeta): Promise<string> {
+    const { data } = await img(patchBuffer, raw)
       .resize(8, 8, { fit: 'fill' })
       .greyscale()
       .raw()
@@ -350,8 +442,8 @@ export class LocalDnaPatchGenerator {
     return hex.padStart(8, '0');
   }
 
-  private async computeEdgeSignature(patchBuffer: Buffer): Promise<string> {
-    const { data, info } = await sharp(patchBuffer)
+  private async computeEdgeSignature(patchBuffer: Buffer, raw?: RawImageMeta): Promise<string> {
+    const { data, info } = await img(patchBuffer, raw)
       .greyscale()
       .raw()
       .toBuffer({ resolveWithObject: true });
@@ -369,8 +461,8 @@ export class LocalDnaPatchGenerator {
     return Math.round((edges / total) * 255).toString(16).padStart(2, '0');
   }
 
-  private async computeColorVector(patchBuffer: Buffer): Promise<[number, number, number]> {
-    const { data } = await sharp(patchBuffer)
+  private async computeColorVector(patchBuffer: Buffer, raw?: RawImageMeta): Promise<[number, number, number]> {
+    const { data } = await img(patchBuffer, raw)
       .resize(4, 4, { fit: 'fill' })
       .removeAlpha()
       .raw()
@@ -385,8 +477,8 @@ export class LocalDnaPatchGenerator {
     return [Math.round(r / pixels), Math.round(g / pixels), Math.round(b / pixels)];
   }
 
-  private async computeFrequencySig(patchBuffer: Buffer): Promise<string> {
-    const { data } = await sharp(patchBuffer)
+  private async computeFrequencySig(patchBuffer: Buffer, raw?: RawImageMeta): Promise<string> {
+    const { data } = await img(patchBuffer, raw)
       .greyscale()
       .resize(16, 16, { fit: 'fill' })
       .raw()
@@ -398,8 +490,8 @@ export class LocalDnaPatchGenerator {
     return Math.min(255, Math.round(Math.sqrt(variance))).toString(16).padStart(2, '0');
   }
 
-  private async computeTextureSig(patchBuffer: Buffer): Promise<string> {
-    const { data, info } = await sharp(patchBuffer)
+  private async computeTextureSig(patchBuffer: Buffer, raw?: RawImageMeta): Promise<string> {
+    const { data, info } = await img(patchBuffer, raw)
       .greyscale()
       .resize(8, 8, { fit: 'fill' })
       .raw()

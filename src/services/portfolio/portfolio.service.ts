@@ -467,6 +467,12 @@ export const portfolioService = {
     if (!isPubliclyReadable(row.publishState, row.visibility) || !row.publishedSnapshot) {
       throw new AppError(404, 'This portfolio is not public');
     }
+    // A real public read of the published page. The owner preview above is not a
+    // view, and nothing about the viewer is recorded — see emitPortfolioViewed.
+    import('../lifecycle/lifecycle-events').then(({ emitPortfolioViewed }) => {
+      emitPortfolioViewed({ ownerUserId: row.userId, portfolioId: row.id, slug: row.slug });
+    }).catch(() => {});
+
     const identity = await identityForUser(row.userId);
     const snap = row.publishedSnapshot as Record<string, unknown>;
     const identitySnap = (snap.identity && typeof snap.identity === 'object')

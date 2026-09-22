@@ -28,6 +28,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { encrypt, decrypt } from './encryption.service';
+import { cachedRetrieve } from './investigation-retrieval-cache';
 import { uploadVaultFile, downloadVaultFile, deleteVaultFile, findVaultFileInSupabase, isSupabaseStorageConfigured, isSupabaseStorageRestricted } from '../../lib/supabase-storage';
 import { vaultEncryptedLooksLikeLocalPath } from './vault-storage-path';
 import { assertRecordOwner } from '../../lib/tenant-scope';
@@ -627,6 +628,12 @@ export class VaultService {
    * If the auth tag is invalid (file tampered), AES-GCM will throw automatically.
    */
   async retrieve(vaultId: string, requestingUserId: string): Promise<RetrieveResult> {
+    // Inside an investigation the same original is asked for by many stages; load it once.
+    // Outside one this is a pass-through.
+    return cachedRetrieve(requestingUserId, vaultId, () => this.retrieveUncached(vaultId, requestingUserId));
+  }
+
+  private async retrieveUncached(vaultId: string, requestingUserId: string): Promise<RetrieveResult> {
     logger.info('Vault — retrieving encrypted image', { vaultId });
 
     if (!requestingUserId) {
@@ -813,7 +820,9 @@ export class VaultService {
     vaultId: string,
     ownerUserId: string,
     newFileName: string,
-  ): Promise<{ vaultId: string; originalFileName: string }> {
+    // previousFileName is additive — the lifecycle event says what the file was
+    // called before, which is the only part of a rename worth reading later.
+  ): Promise<{ vaultId: string; originalFileName: string; previousFileName: string }> {
     const trimmed = newFileName.trim();
     if (!trimmed || trimmed.length > 255) {
       throw new Error('Invalid file name');
@@ -830,7 +839,7 @@ export class VaultService {
     assertRecordOwner(record.dnaRecord?.ownerUserId, ownerUserId, 'Vault');
 
     if (trimmed === record.originalFileName) {
-      return { vaultId, originalFileName: trimmed };
+      return { vaultId, originalFileName: trimmed, previousFileName: record.originalFileName };
     }
 
     const analysisPatch = jsonWithDisplayFilename(record.contentAnalysis, trimmed);
@@ -875,7 +884,11 @@ export class VaultService {
 
     logger.info('Vault — file renamed', { vaultId, originalFileName: trimmed });
 
-    return { vaultId, originalFileName: trimmed };
+    return {
+      vaultId,
+      originalFileName: trimmed,
+      previousFileName: record.originalFileName,
+    };
   }
 
   /**

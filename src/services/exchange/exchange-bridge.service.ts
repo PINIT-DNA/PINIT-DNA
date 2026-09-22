@@ -310,6 +310,38 @@ export type ExchangePurchase = {
   has_delivery: boolean;
 };
 
+/**
+ * Public certificate ids for a set of vaults, newest first per vault.
+ *
+ * Read-only on purpose: displaying an asset in Exchange must never mint a
+ * certificate. A vault with no certificate returns nothing, and Exchange shows the
+ * asset without one rather than fabricating an id.
+ */
+async function canonicalCertificateIdsByVaultId(vaultIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!vaultIds.length) return out;
+  try {
+    const certs = await prisma.certificate.findMany({
+      where: { vaultId: { in: vaultIds } },
+      select: { vaultId: true, certificateId: true, status: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    for (const c of certs) {
+      // Prefer an ACTIVE certificate; fall back to the newest so a revoked one is
+      // still resolvable — verification is what reports its state, not this map.
+      const held = out.get(c.vaultId);
+      if (!held || c.status === 'ACTIVE') {
+        if (!held || c.status === 'ACTIVE') out.set(c.vaultId, c.certificateId);
+      }
+    }
+  } catch (err) {
+    logger.warn('Exchange bridge — certificate lookup failed; assets travel without one', {
+      error: String(err),
+    });
+  }
+  return out;
+}
+
 export const exchangeBridgeService = {
   async createSsoToken(ownerUserId: string) {
     const user = await prisma.user.findUnique({
@@ -367,6 +399,12 @@ export const exchangeBridgeService = {
     });
     const assetIdByVaultId = new Map(assets.map((a) => [a.vaultId, a.id]));
 
+    // The certificate that already exists for each asset. Exchange must SHOW the
+    // canonical certificate, never invent an identity for one, so its public id
+    // travels with the asset. Nothing is issued here — a vault with no certificate
+    // simply carries none.
+    const certificateIdByVaultId = await canonicalCertificateIdsByVaultId(vaults.map((v) => v.id));
+
     return vaults
       .filter((v) => {
         const hasAsset = assetIdByVaultId.has(v.id);
@@ -383,6 +421,7 @@ export const exchangeBridgeService = {
           asset_id: assetIdByVaultId.get(v.id) as string,
           vault_id: v.id,
           dna_record_id: v.dnaRecordId,
+          certificate_id: certificateIdByVaultId.get(v.id) ?? null,
           title: v.dnaRecord.imageFilename || v.originalFileName,
           file_type: verticalFromMime(v.originalMimeType, v.dnaRecord.fileType),
           mime_type: v.originalMimeType,

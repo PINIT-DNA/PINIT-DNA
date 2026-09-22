@@ -8,11 +8,10 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import {
-  Shield, CheckCircle2, XCircle, AlertTriangle,
-  Dna, Lock, Award, RefreshCw, Copy, Ban, ShieldCheck,
-} from 'lucide-react';
+import { Shield, CheckCircle2, XCircle, AlertTriangle, Dna, Lock, Award, RefreshCw, Copy, Ban, ShieldCheck, FileText } from 'lucide-react';
 import { verifyCertificateApi } from '../services/dashboard.api';
+import { PinitCredentialDocument } from '../components/certificates/PinitCredentialDocument';
+import { EVIDENCE_NOTICE } from '../shared/certificate/PinitCertificateDocument';
 import type { CertVerificationResult } from '../types/dashboard.types';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -125,6 +124,7 @@ export function VerifyCertificatePage() {
   const [searchParams] = useSearchParams();
   const [dnaId,    setDnaId]    = useState('');
   const [vaultId,  setVaultId]  = useState('');
+  const [showDocument, setShowDocument] = useState(false);
   const [certId,   setCertId]   = useState('');  // direct certificate ID lookup
   const [loading,  setLoading]  = useState(false);
   const [result,   setResult]   = useState<VerificationResult | null>(null);
@@ -372,7 +372,13 @@ export function VerifyCertificatePage() {
                     { label: 'Certificate ID', value: certResult.certificateId },
                     { label: 'Status',         value: certResult.status },
                     { label: 'Issued',         value: certResult.certificate?.issuedAt ? new Date(certResult.certificate.issuedAt).toLocaleDateString() : '—' },
-                    { label: 'DNA Record',     value: certResult.certificate?.dnaRecordId?.slice(0, 16) + '…' },
+                    // The holder's public PINIT ID, not any internal record id — a
+                    // viewer checks WHO this belongs to, not how it is stored.
+                    { label: 'Held by',        value: certResult.holder?.name || certResult.holder?.pinitId || '—' },
+                    { label: 'Asset',          value: certResult.subject?.title || '—' },
+                    // The asset reference is quotable in a takedown notice; the raw
+                    // Asset, DNA and Vault ids stay server-side.
+                    { label: 'Asset Record',   value: certResult.assetRecord || '—' },
                   ].map(row => (
                     <div key={row.label} className="bg-bg-elevated rounded-lg p-3">
                       <p className="text-2xs text-gray-500">{row.label}</p>
@@ -380,8 +386,81 @@ export function VerifyCertificatePage() {
                     </div>
                   ))}
                 </div>
+
+                {/*
+                  * The integrity record. A sealed certificate was signed over the
+                  * asset AND the SHA-256 of its bytes, so pointing it at a different
+                  * file breaks verification. Certificates issued before that binding
+                  * say so plainly rather than implying a check that never ran.
+                  */}
+                <div className="mt-2 bg-bg-elevated rounded-lg p-3 space-y-1.5">
+                  <div className="flex items-start gap-2">
+                    <span className="text-2xs text-gray-500 w-36 shrink-0">Certificate Integrity</span>
+                    <span className="text-2xs text-success">Valid — signature verified</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-2xs text-gray-500 w-36 shrink-0">Asset Binding</span>
+                    <span className={cn('text-2xs', certResult.assetBinding === 'SEALED' ? 'text-success' : 'text-gray-400')}>
+                      {certResult.assetBinding === 'SEALED'
+                        ? 'Sealed — this certificate is bound to this exact file'
+                        : 'Issued before file binding — certificate, DNA record and vault are sealed'}
+                    </span>
+                  </div>
+                  {certResult.contentHash && (
+                    <div className="flex items-start gap-2">
+                      <span className="text-2xs text-gray-500 w-36 shrink-0">SHA-256</span>
+                      <span className="text-2xs text-gray-300 mono break-all">{certResult.contentHash}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/*
+                  * The certificate itself, so a stranger sees what they are being
+                  * shown — a resume link, a portfolio credential — instead of a bare
+                  * status box that a screenshot could fake. It is rendered from the
+                  * live record, so a revoked certificate cannot look valid here.
+                  */}
+                {certResult.subject && (
+                  <div className="mt-5">
+                    <button
+                      type="button"
+                      onClick={() => setShowDocument((v) => !v)}
+                      className="btn btn-secondary btn-sm w-full"
+                    >
+                      <FileText size={14} /> {showDocument ? 'Hide certificate' : 'View certificate'}
+                    </button>
+
+                    {showDocument && (
+                      <div className="mt-4 overflow-x-auto">
+                        <PinitCredentialDocument
+                          title={certResult.subject.title}
+                          issuer="Pinit HUB"
+                          issuedLabel={certResult.certificate?.issuedAt
+                            ? new Date(certResult.certificate.issuedAt).toLocaleDateString()
+                            : null}
+                          recipientName={certResult.holder?.name ?? null}
+                          recipientPinitId={certResult.holder?.pinitId ?? null}
+                          certificateId={certResult.certificateId}
+                          trustLabel="Pinit Verified"
+                          assetRecord={certResult.assetRecord ?? null}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
+
+            {/*
+              * What this certificate establishes, on every outcome — valid, revoked,
+              * expired or not found. Pinit records and verifies evidence about a
+              * protected asset; it is not a registration authority and does not
+              * decide ownership. Served by the API so the page and the printed sheet
+              * always say the same thing.
+              */}
+            <p className="rounded-xl border border-bg-border bg-bg-elevated px-4 py-3 text-2xs leading-relaxed text-gray-500">
+              {certResult.notice ?? EVIDENCE_NOTICE}
+            </p>
 
             <button onClick={() => { setCertResult(null); setCertId(''); setDnaId(''); setVaultId(''); }}
               className="btn btn-secondary w-full">

@@ -49,7 +49,10 @@ export async function issueCertificate(req: Request, res: Response, next: NextFu
 export async function verifyCertificate(req: Request, res: Response, next: NextFunction): Promise<void> {
   const { certificateId } = req.params;
   try {
-    const result = await certificateService.verify(certificateId);
+    // Public endpoint: anyone holding the link can open this, so it returns the
+    // certificate as a document — not the internal ids and signature verify() hands
+    // to forensic callers.
+    const result = await certificateService.verifyPublic(certificateId);
     res.status(200).json({ success: true, ...result });
   } catch (err) {
     next(err);

@@ -40,6 +40,20 @@ export const videoPixelProtectionConfig = {
   /** Hard cap on frames protected per video — a safety valve, not a quality
    *  knob, so an unusually long upload can't turn into an unbounded job. */
   maxFrames: intEnv('VIDEO_PIXEL_PROTECTION_MAX_FRAMES', 6000),
+
+  /**
+   * How per-frame protection is STORED. Changes storage, never coverage:
+   *   compact (default) — one video_frame_dna row per frame: identity hashes, the
+   *     HKCA pixel-cell root, and every multi-scale patch fingerprint packed binary.
+   *   legacy — the original path: a full 15-layer DnaRecord, a LocalFeatureIndex and
+   *     ~2,465 LocalDnaPatch rows per frame (~2,484 rows and ~1.3 MB per frame).
+   * Frames protected before this setting existed keep working either way; the
+   * investigation readers read both.
+   */
+  frameDnaMode: (process.env['VIDEO_FRAME_DNA_MODE'] ?? 'compact') === 'legacy' ? 'legacy' as const : 'compact' as const,
+
+  /** Rows per insert while protecting frames — each carries one packed patch grid. */
+  framePersistBatch: intEnv('VIDEO_FRAME_DNA_BATCH', 25),
 } as const;
 
 export function isVideoPixelProtectionEnabled(): boolean {

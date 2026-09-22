@@ -319,11 +319,22 @@ export async function buildInvestigationComposition(input: {
         const { VaultService } = await import('../vault/vault.service');
         const { forensicScannerService } = await import('./forensic-scanner.service');
         const extraVault = new VaultService();
-        for (const src of input.candidateSources.slice(0, 2)) {
-          if (!src.vaultId || src.vaultId === input.vaultId) continue;
-          const vf = await extraVault.retrieve(src.vaultId, input.ownerUserId);
-          if (!vf?.originalBuffer) continue;
-          const extra = await forensicScannerService.scanProbe(input.probeBuffer, mime, vf.originalBuffer);
+        const sources = input.candidateSources.slice(0, 2).filter((src) => src.vaultId && src.vaultId !== input.vaultId);
+        // Each source needs its own retrieval and forensic scan and they do not depend on one
+        // another, so run them together (they used to run one after another, ~25 s each).
+        const scans = await Promise.allSettled(sources.map(async (src) => {
+          const vf = await extraVault.retrieve(src.vaultId, input.ownerUserId!);
+          if (!vf?.originalBuffer) return null;
+          return forensicScannerService.scanProbe(input.probeBuffer!, mime, vf.originalBuffer);
+        }));
+        // Apply results in source order; the first failure stops the rest, as the sequential
+        // loop did, so the regions that end up in the report are unchanged.
+        for (let i = 0; i < sources.length; i++) {
+          const src = sources[i]!;
+          const settled = scans[i]!;
+          if (settled.status === 'rejected') throw settled.reason;
+          const extra = settled.value;
+          if (!extra) continue;
           const extraPix = fromPythonPixelSource(extra.pixelSource ?? null);
           if (!extraPix?.regions?.length) continue;
           for (const r of extraPix.regions.slice(0, 4)) {

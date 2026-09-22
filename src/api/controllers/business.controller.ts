@@ -855,6 +855,16 @@ export const businessController = {
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
       res.send(pdf);
+
+      // Lifecycle only — ClientReport keeps the issued snapshot it renders from.
+      const { emitEvidenceLifecycle } = await import('../../services/lifecycle/lifecycle-events');
+      emitEvidenceLifecycle({
+        ownerUserId: userId,
+        action: 'downloaded',
+        evidenceId: req.params.reportId as string,
+        description: filename,
+        reportType: 'CLIENT_REPORT',
+      });
     } catch (err) { next(err); }
   },
 
@@ -865,7 +875,18 @@ export const businessController = {
       const { action } = (req.body ?? {}) as { action?: string };
       const id = req.params.reportId as string;
       if (action === 'ISSUE') {
-        res.json({ success: true, report: await campaignClientReportService.issue(organizationId, userId, id) });
+        const issued = await campaignClientReportService.issue(organizationId, userId, id);
+        res.json({ success: true, report: issued });
+
+        // Issuing is the moment a client can open it — that is the share.
+        const { emitEvidenceLifecycle } = await import('../../services/lifecycle/lifecycle-events');
+        emitEvidenceLifecycle({
+          ownerUserId: userId,
+          action: 'shared',
+          evidenceId: id,
+          description: 'Client report issued',
+          reportType: 'CLIENT_REPORT',
+        });
         return;
       }
       if (action === 'REVOKE') {

@@ -27,6 +27,8 @@ from services import enterprise_services_status
 import numpy as np
 import faiss
 from fastapi import FastAPI, HTTPException, UploadFile, File
+from starlette.concurrency import run_in_threadpool
+import asyncio
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
@@ -379,6 +381,62 @@ async def ocr_extract(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(500, f"OCR failed: {str(e)}")
 
+
+# ── Concurrency for the heavy CV endpoints ────────────────────────────────────
+# These endpoints are `async def` but their bodies are CPU-bound OpenCV/FAISS work. Run
+# inline, each one blocks the event loop, so the whole service handled ONE request at a
+# time (an investigation's parallel scans queued behind each other, ~10-25 s apiece).
+# They now run in worker threads: reads may overlap (bounded), while the one operation that
+# WRITES the shared tile index waits for in-flight reads and blocks new ones while it runs.
+_CV_MAX_PARALLEL = int(os.environ.get("CV_MAX_PARALLEL", "3"))
+_cv_slots = asyncio.Semaphore(_CV_MAX_PARALLEL)
+
+class _ReadWriteGate:
+    def __init__(self) -> None:
+        self._cond = asyncio.Condition()
+        self._readers = 0
+        self._writer = False
+
+    async def acquire_read(self) -> None:
+        async with self._cond:
+            await self._cond.wait_for(lambda: not self._writer)
+            self._readers += 1
+
+    async def release_read(self) -> None:
+        async with self._cond:
+            self._readers -= 1
+            self._cond.notify_all()
+
+    async def acquire_write(self) -> None:
+        async with self._cond:
+            await self._cond.wait_for(lambda: not self._writer)
+            self._writer = True
+            await self._cond.wait_for(lambda: self._readers == 0)
+
+    async def release_write(self) -> None:
+        async with self._cond:
+            self._writer = False
+            self._cond.notify_all()
+
+_cv_gate = _ReadWriteGate()
+
+async def _cv_read(fn, *args, **kwargs):
+    """Run a read-only CV computation in a worker thread (bounded, excluded by index writes)."""
+    async with _cv_slots:
+        await _cv_gate.acquire_read()
+        try:
+            return await run_in_threadpool(fn, *args, **kwargs)
+        finally:
+            await _cv_gate.release_read()
+
+async def _cv_write(fn, *args, **kwargs):
+    """Run a computation that mutates shared CV state: exclusive with every read."""
+    await _cv_gate.acquire_write()
+    try:
+        return await run_in_threadpool(fn, *args, **kwargs)
+    finally:
+        await _cv_gate.release_write()
+
 # ── Computer vision: ORB/AKAZE compare ───────────────────────────────────────
 
 @app.post("/cv/compare")
@@ -391,7 +449,7 @@ async def cv_compare_images(
     start = time.time()
     probe_bytes = await probe.read()
     ref_bytes = await reference.read()
-    result = computer_vision_service.compare_images(probe_bytes, ref_bytes)
+    result = await _cv_read(computer_vision_service.compare_images, probe_bytes, ref_bytes)
     if not result.success:
         raise HTTPException(503, result.message or "CV compare failed")
     return {
@@ -410,7 +468,7 @@ async def cv_extract_local_index(
 
     start = time.time()
     image_bytes = await image.read()
-    result = computer_vision_service.extract_local_index(image_bytes, patch_size=patch_size)
+    result = await _cv_read(computer_vision_service.extract_local_index, image_bytes, patch_size=patch_size)
     if not result.success:
         raise HTTPException(503, result.message or "Local index extract failed")
     return {
@@ -433,7 +491,7 @@ async def cv_match_descriptors(
         ref_desc = json.loads(descriptors) if descriptors else {}
     except json.JSONDecodeError:
         raise HTTPException(400, "Invalid descriptors JSON")
-    result = computer_vision_service.match_local_descriptors(probe_bytes, ref_desc)
+    result = await _cv_read(computer_vision_service.match_local_descriptors, probe_bytes, ref_desc)
     if not result.success:
         raise HTTPException(503, result.message or "Descriptor match failed")
     return {
@@ -455,7 +513,7 @@ async def cv_local_source_score(
     start = time.time()
     probe_bytes = await probe.read()
     ref_bytes = await reference.read()
-    result = forensic_scanner_service.score_local_correspondence(probe_bytes, ref_bytes)
+    result = await _cv_read(forensic_scanner_service.score_local_correspondence, probe_bytes, ref_bytes)
     if not result.success:
         raise HTTPException(503, result.message or "Local source score failed")
     return {
@@ -475,7 +533,7 @@ async def cv_forensic_scan(
     start = time.time()
     probe_bytes = await probe.read()
     ref_bytes = await reference.read() if reference else None
-    result = forensic_scanner_service.forensic_scan(probe_bytes, ref_bytes)
+    result = await _cv_read(forensic_scanner_service.forensic_scan, probe_bytes, ref_bytes)
     if not result.success:
         raise HTTPException(503, result.message or "Forensic scan failed")
     return {
@@ -497,7 +555,8 @@ async def cv_forensic_index_tiles(
         raise HTTPException(400, "vault_id and dna_record_id required")
     start = time.time()
     image_bytes = await image.read()
-    result = forensic_scanner_service.index_vault_tiles(
+    result = await _cv_write(
+        forensic_scanner_service.index_vault_tiles,
         image_bytes, vault_id, dna_record_id, image.filename or "",
     )
     if not result.success:
@@ -515,7 +574,7 @@ async def cv_forensic_features(image: UploadFile = File(...)):
 
     start = time.time()
     image_bytes = await image.read()
-    result = forensic_scanner_service.extract_features(image_bytes)
+    result = await _cv_read(forensic_scanner_service.extract_features, image_bytes)
     if not result.success:
         raise HTTPException(503, result.message or "Feature extract failed")
     return {

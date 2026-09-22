@@ -270,13 +270,41 @@ export interface IssuedCertificate {
   issuedByUserId:   string | null;
 }
 
+/**
+ * What the PUBLIC verification endpoint returns.
+ *
+ * Deliberately not IssuedCertificate: a viewer holding a link gets the certificate as
+ * a document — what it certifies, who holds it, when, and its live status — and never
+ * the DNA record id, vault id, issuing user or HMAC signature.
+ */
+export interface PublicCertificateSummary {
+  certificateId:    string;
+  status:           CertificateStatus;
+  issuedAt:         string;
+  expiresAt:        string | null;
+  revokedAt:        string | null;
+  revocationReason: string | null;
+}
+
 export interface CertVerificationResult {
   valid:           boolean;
   status:          CertificateStatus | 'NOT_FOUND';
   signatureValid:  boolean;
   certificateId:   string;
   detail:          string;
-  certificate:     IssuedCertificate | null;
+  certificate:     PublicCertificateSummary | null;
+  /** What the certificate is about. Absent on older records. */
+  subject?:        { title: string; fileType: string } | null;
+  /** Who holds it, by public identity only (name + PINIT ID). */
+  holder?:         { name: string | null; pinitId: string | null } | null;
+  /** Public asset reference (PH-ASSET-XXXXXXXX) — never the raw Asset.id. */
+  assetRecord?:    string | null;
+  /** SHA-256 of the certified file. Present only when the signature covers it. */
+  contentHash?:    string | null;
+  /** SEALED = the signature covers the asset and its hash; LEGACY = issued before that. */
+  assetBinding?:   'SEALED' | 'LEGACY' | null;
+  /** What this certificate does and does not establish. */
+  notice?:         string;
 }
 
 // Legacy certificate type kept for compatibility

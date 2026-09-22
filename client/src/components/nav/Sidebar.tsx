@@ -6,7 +6,7 @@ import {
   Radio, X,
   CreditCard, Settings, Users, Briefcase,
   HelpCircle, FolderKanban, ClipboardCheck, Activity,
-  User, Share2, FileText, ShieldCheck, BadgeCheck,
+  User, Share2, FileText, ShieldCheck, BadgeCheck, Radar,
 } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { useAuth } from '../../context/AuthContext';
@@ -141,6 +141,7 @@ const PERSONAL_NAV: NavGroup[] = [
     {
       label: 'Share',
       items: [
+        { to: '/tracking', icon: Radar, label: 'Tracking' },
         { to: '/access-intelligence', icon: Share2, label: 'Sharing' },
         { to: '/timeline', icon: Activity, label: 'Asset Activity' },
         { to: '/certificates', icon: Award, label: 'Credentials' },
@@ -186,6 +187,7 @@ const BUSINESS_NAV: NavGroup[] = [
     {
       label: 'Share',
       items: [
+        { to: '/tracking', icon: Radar, label: 'Tracking' },
         { to: '/access-intelligence', icon: Share2, label: 'Sharing' },
         { to: '/timeline', icon: Activity, label: 'Asset Activity' },
         { to: '/certificates', icon: Award, label: 'Credentials' },

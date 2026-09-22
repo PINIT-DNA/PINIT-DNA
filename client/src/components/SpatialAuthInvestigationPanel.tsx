@@ -250,8 +250,8 @@ function PixelZoomPair({
 }
 
 function StatusIcon({ status }: { status: SpatialCellStatus }) {
-  if (status === 'TAMPERED') return <AlertTriangle size={12} className="text-red-400" />;
-  if (status === 'AUTHENTIC') return <CheckCircle2 size={12} className="text-emerald-400" />;
+  if (status === 'TAMPERED') return <AlertTriangle size={12} className="text-red-700 dark:text-red-400" />;
+  if (status === 'AUTHENTIC') return <CheckCircle2 size={12} className="text-emerald-700 dark:text-emerald-400" />;
   return <HelpCircle size={12} className="text-slate-400" />;
 }
 
@@ -536,7 +536,7 @@ export function SpatialAuthInvestigationPanel({
     const notEnrolled = /No SpatialAuthPackage/i.test(investigation.unavailableReason ?? '');
     return (
       <div className={`rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-2 ${className ?? ''}`}>
-        <p className="text-xs font-semibold text-amber-300">
+        <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
           {notEnrolled ? 'Spatial tags not enrolled for this file' : 'Spatial investigation unavailable'}
         </p>
         <p className="text-2xs text-gray-400">
@@ -617,7 +617,7 @@ export function SpatialAuthInvestigationPanel({
             },
             { label: 'Area %', value: `${stats.tamperedAreaPercentage}%` },
           ].map((s) => (
-            <div key={s.label} className="rounded-lg bg-slate-900/80 border border-bg-border px-2 py-1.5">
+            <div key={s.label} className="rounded-lg bg-slate-100 dark:bg-slate-900/80 border border-slate-300 dark:border-bg-border px-2 py-1.5">
               <p className="text-2xs text-slate-400">{s.label}</p>
               <p className="text-sm text-white font-semibold">{s.value}</p>
             </div>
@@ -626,8 +626,8 @@ export function SpatialAuthInvestigationPanel({
       )}
 
       {globalMismatch && (
-        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-2xs text-amber-100 space-y-1">
-          <p className="font-semibold text-amber-200">Why everything looks tampered</p>
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-2xs text-amber-900 dark:text-amber-100 space-y-1">
+          <p className="font-semibold text-amber-800 dark:text-amber-200">Why everything looks tampered</p>
           <p>
             Spatial baseline must match the <span className="text-white">exact protected download bytes</span>.
             Older downloads were re-watermarked on download (that is fixed now). JPEG re-save also changes

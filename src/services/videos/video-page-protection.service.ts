@@ -74,6 +74,29 @@ export class VideoPageProtectionService {
     }
     const ownerUserId = params.ownerUserId;
 
+    // Compact storage (default): same coverage, same pixel-level protection, one row
+    // per frame instead of ~2,484. The legacy path below is kept intact and still
+    // runs under VIDEO_FRAME_DNA_MODE=legacy; frames already protected either way
+    // stay readable, because the investigation readers read both.
+    if (videoPixelProtectionConfig.frameDnaMode === 'compact') {
+      const { videoFrameDnaService } = await import('./frame-dna/video-frame-dna.service');
+      const compact = await videoFrameDnaService.protectFrames({
+        videoDnaRecordId: params.videoDnaRecordId,
+        buffer: params.buffer,
+        originalName: params.originalName,
+        ownerUserId,
+      });
+      if (!compact) return null;
+      return {
+        framesSampled: compact.framesSampled,
+        framesProtected: compact.framesProtected,
+        framesFailed: compact.framesFailed,
+        sampleFps: compact.sampleFps,
+        everyFrame: compact.everyFrame,
+        truncated: compact.truncated,
+      };
+    }
+
     const ext = extensionFromFilename(params.originalName);
     let sampleFps = videoPixelProtectionConfig.sampleFps;
     let everyFrame = false;

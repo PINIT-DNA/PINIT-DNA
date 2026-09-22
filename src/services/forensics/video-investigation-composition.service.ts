@@ -42,6 +42,11 @@ import {
 import { probeVideoDuration, extractFramesAtTimestamps } from './media-tools.service';
 import { buildInvestigationComposition } from './investigation-composition.service';
 import { fragmentSpliceDetectorService } from './fragment-splice-detector.service';
+import {
+  findFramesByIds,
+  listFramesForVideo,
+  listOwnerDiscoveryFrames,
+} from '../videos/frame-dna/frame-dna.repository';
 import type { FragmentReuseFinding } from '../../types/unified-investigation.types';
 import type {
   VideoCompositionTimelineSegment,
@@ -253,10 +258,20 @@ async function buildCompositionFromWholeFrameMatch(
     return null;
   }
 
-  const protectedFrames = await prisma.dnaRecord.findMany({
-    where: { id: { in: [...new Set(alignedIds)] } },
+  const uniqueAlignedIds = [...new Set(alignedIds)];
+  const legacyProtectedFrames = await prisma.dnaRecord.findMany({
+    where: { id: { in: uniqueAlignedIds } },
     select: { id: true, frameTimestampMs: true },
   });
+  // Compact frames answer to the same ids, from their own table.
+  const compactProtectedFrames = legacyProtectedFrames.length === uniqueAlignedIds.length
+    ? []
+    : await findFramesByIds(uniqueAlignedIds);
+
+  const protectedFrames = [
+    ...legacyProtectedFrames.map((f) => ({ id: f.id, frameTimestampMs: f.frameTimestampMs ?? 0 })),
+    ...compactProtectedFrames.map((f) => ({ id: f.id, frameTimestampMs: f.timestampMs })),
+  ];
   const frameTimestampById = new Map(protectedFrames.map((f) => [f.id, f.frameTimestampMs ?? 0]));
   const vaultFrameBuffers = await extractFramesAtTimestamps(
     retrieved.originalBuffer,
@@ -386,14 +401,24 @@ async function discoverCandidateVideoViaFragments(
   probeFrameBuffers: Map<number, Buffer>,
   ownerUserId: string,
 ): Promise<FragmentVideoCandidate | null> {
-  const videoFrames = await prisma.dnaRecord.findMany({
+  const legacyFrames = await prisma.dnaRecord.findMany({
     where: { ownerUserId, videoDnaRecordId: { not: null } },
     select: { id: true, videoDnaRecordId: true },
   });
+
+  // Compact frames join the candidate pool one frame per second per video. Every
+  // frame is protected, but identifying WHICH video a probe came from does not need
+  // all 30 frames of each second — the exact frame is resolved once a video wins.
+  const compactFrames = await listOwnerDiscoveryFrames(ownerUserId);
+
+  const videoFrames = [
+    ...legacyFrames.map((f) => ({ id: f.id, videoDnaRecordId: f.videoDnaRecordId! })),
+    ...compactFrames,
+  ];
   if (!videoFrames.length) return null;
 
   const allFrameVaultIds = videoFrames.map((f) => f.id);
-  const videoIdByFrameId = new Map(videoFrames.map((f) => [f.id, f.videoDnaRecordId!]));
+  const videoIdByFrameId = new Map(videoFrames.map((f) => [f.id, f.videoDnaRecordId]));
 
   const votesByVideo = new Map<string, number>();
   // Kept so a winning video's per-frame findings don't need a second, fully
@@ -449,9 +474,12 @@ async function discoverCandidateVideoViaFragments(
   });
   if (!videoVault) return null;
 
-  const frameVaultIds = videoFrames
-    .filter((f) => f.videoDnaRecordId === topVideoId)
-    .map((f) => f.id);
+  // For a compact video, widen from the one-per-second discovery sample to every
+  // frame of the winner, so per-frame composition can match the exact frame.
+  const compactWinnerFrames = await listFramesForVideo(topVideoId);
+  const frameVaultIds = compactWinnerFrames.length
+    ? compactWinnerFrames.map((f) => f.id)
+    : videoFrames.filter((f) => f.videoDnaRecordId === topVideoId).map((f) => f.id);
   const frameVaultIdSet = new Set(frameVaultIds);
 
   const winningFindingsByTimestamp = new Map<number, FragmentReuseFinding[]>();

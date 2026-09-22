@@ -64,6 +64,18 @@ export class MatchPipelineService {
       },
     });
 
+    // Lifecycle only — EvidenceRecord above stays the forensic source of truth.
+    import('../../../lifecycle/lifecycle-events').then(({ emitEvidenceLifecycle }) => {
+      emitEvidenceLifecycle({
+        ownerUserId,
+        action: 'generated',
+        evidenceId: evidence.id,
+        evidenceCode,
+        description: evidence.description,
+        dnaRecordId,
+      });
+    }).catch(() => {});
+
     let investigationId: string | undefined;
     if (comparison.matchType === 'EXACT_MATCH' || comparison.matchType === 'HIGH_MATCH') {
       try {

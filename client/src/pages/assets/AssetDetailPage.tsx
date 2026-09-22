@@ -75,10 +75,46 @@ interface AssetDetail {
   }>;
 }
 
+/** Lifecycle of this asset — what happened to it, in plain words. */
+interface AssetLifecycle {
+  events: Array<{
+    id: string;
+    at: string;
+    type: string;
+    stage: string;
+    label: string;
+    title: string;
+    detail: string | null;
+  }>;
+  countsByStage: Record<string, number>;
+  frameDna: {
+    framesProtected: number;
+    everyFrame: boolean;
+    frameMerkleRoot: string | null;
+    width: number | null;
+    height: number | null;
+    fps: number | null;
+    patchesPerFrame: number | null;
+  } | null;
+}
+
+/** Protect → Store → Share → Track → Monitor → Understand → Prove */
+const STAGE_ORDER = ['protect', 'store', 'share', 'track', 'monitor', 'understand', 'prove'] as const;
+const STAGE_LABEL: Record<string, string> = {
+  protect: 'Protect',
+  store: 'Store',
+  share: 'Share',
+  track: 'Track',
+  monitor: 'Monitor',
+  understand: 'Understand',
+  prove: 'Prove',
+};
+
 export function AssetDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [asset, setAsset] = useState<AssetDetail | null>(null);
+  const [lifecycle, setLifecycle] = useState<AssetLifecycle | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -96,6 +132,15 @@ export function AssetDetailPage() {
       }
     })();
   }, [id, navigate]);
+
+  // Lifecycle loads separately: the page is still useful without it, and a missing
+  // lifecycle must never take the asset page down.
+  useEffect(() => {
+    if (!id) return;
+    api.get<AssetLifecycle>(`${API_BASE_URL}/lifecycle/assets/${id}`)
+      .then((res) => setLifecycle(res.data))
+      .catch(() => setLifecycle(null));
+  }, [id]);
 
   if (loading || !asset) {
     return <div className="p-8 text-sm text-gray-500">Loading asset…</div>;
@@ -257,6 +302,54 @@ export function AssetDetailPage() {
           </ul>
         )}
       </section>
+
+      {lifecycle && lifecycle.events.length > 0 && (
+        <section className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">Lifecycle</h2>
+
+          {/* Protect → Store → Share → Track → Monitor → Understand → Prove */}
+          <div className="mb-4 flex flex-wrap gap-2">
+            {STAGE_ORDER.map((stage) => (
+              <span
+                key={stage}
+                className={`rounded-full px-2.5 py-1 text-xs ${
+                  lifecycle.countsByStage[stage]
+                    ? 'bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-200'
+                    : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500'
+                }`}
+              >
+                {STAGE_LABEL[stage]} {lifecycle.countsByStage[stage] || 0}
+              </span>
+            ))}
+          </div>
+
+          <ul className="space-y-3">
+            {lifecycle.events.slice(0, 40).map((e) => (
+              <li key={e.id} className="border-l-2 border-gray-200 pl-3 dark:border-gray-700">
+                <div className="text-xs text-gray-500">{format(new Date(e.at), 'PPpp')}</div>
+                <div className="text-sm font-medium text-gray-900 dark:text-white">{e.label}</div>
+                <div className="text-xs text-gray-500">{e.detail || e.title}</div>
+              </li>
+            ))}
+          </ul>
+
+          {/* Frame-level DNA is forensic detail, so it is a single line here, not
+              thousands of rows in the history. */}
+          {lifecycle.frameDna && (
+            <p className="mt-4 border-t border-gray-100 pt-3 text-xs text-gray-500 dark:border-gray-800">
+              {lifecycle.frameDna.everyFrame ? 'Every frame protected' : 'Frames protected'}:{' '}
+              {lifecycle.frameDna.framesProtected.toLocaleString()}
+              {lifecycle.frameDna.fps ? ` at ${lifecycle.frameDna.fps} fps` : ''}
+              {lifecycle.frameDna.patchesPerFrame
+                ? ` · ${lifecycle.frameDna.patchesPerFrame.toLocaleString()} pixel fingerprints per frame`
+                : ''}
+              {lifecycle.frameDna.frameMerkleRoot
+                ? ` · frame root ${lifecycle.frameDna.frameMerkleRoot.slice(0, 12)}…`
+                : ''}
+            </p>
+          )}
+        </section>
+      )}
 
       <section className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">Timeline</h2>

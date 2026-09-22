@@ -49,6 +49,7 @@ export function DownloadCertificateButton({
         recipientName: recipientName || item.recipientName,
         recipientPinitId: recipientPinitId ?? null,
         certificateId: item.source.id,
+        assetRecord: item.assetRecord ?? null,
         trustLabel: 'Pinit Verified',
       });
       toast.success('Certificate downloaded');

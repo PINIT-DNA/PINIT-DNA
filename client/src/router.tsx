@@ -25,6 +25,8 @@ import { NotFoundPage } from './pages/NotFoundPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { LinkIntelligencePage } from './pages/LinkIntelligencePage';
 import { AccessIntelligencePage } from './pages/AccessIntelligencePage';
+import { TrackingPage } from './pages/TrackingPage';
+import { AssetTrackingPage } from './pages/AssetTrackingPage';
 import { UnifiedInvestigationPage } from './pages/UnifiedInvestigationPage';
 import { UpgradePage } from './pages/UpgradePage';
 import { CheckoutPage } from './pages/subscription/CheckoutPage';
@@ -164,6 +166,8 @@ export const router = createBrowserRouter([
       { path: 'subscription/payment', element: <PaymentPage /> },
       { path: 'subscription/success', element: <PaymentSuccessPage /> },
       { path: 'subscription/failed', element: <PaymentFailedPage /> },
+      { path: 'tracking', element: <TrackingPage /> },
+      { path: 'tracking/:assetId', element: <AssetTrackingPage /> },
       { path: 'access-intelligence/:token', element: <LinkIntelligencePage /> },
       { path: 'access-intelligence', element: <AccessIntelligencePage /> },
       { path: 'pinit-hub/investigation', element: <UnifiedInvestigationPage /> },

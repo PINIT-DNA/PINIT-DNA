@@ -39,6 +39,7 @@ export function CredentialPreviewModal({
           recipientPinitId={recipientPinitId}
           certificateId={item.source.id}
           trustLabel="Pinit Verified"
+          assetRecord={item.assetRecord ?? null}
         />
         </div>
         <div className="flex flex-wrap gap-2">

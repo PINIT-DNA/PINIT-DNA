@@ -22,6 +22,7 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   '/monitoring':          { title: 'Monitoring', subtitle: 'Watch for copies of your files online' },
   '/protected-posts':     { title: 'My Assets', subtitle: 'Your protected files' },
   '/assets':              { title: 'My Assets', subtitle: 'Your protected files' },
+  '/tracking':            { title: 'Tracking', subtitle: 'Every asset and everywhere it has been' },
   '/access-intelligence': { title: 'Sharing', subtitle: 'Who opened your links and what they did' },
   '/unmask-requests':     { title: 'Access Requests', subtitle: 'Approve sensitive data reveal requests' },
   '/duplicate-attempts':  { title: 'Duplicate Checks', subtitle: 'When someone tried to re-upload your file' },
@@ -50,7 +51,9 @@ export function Topbar({ onMenu }: TopbarProps) {
       ? { title: 'Manage share', subtitle: 'Secure link details and actions' }
       : /^\/vault\/assets\/[^/]+\/share$/.test(location.pathname)
         ? { title: 'Share secure link', subtitle: 'Control how this protected file can be accessed' }
-        : location.pathname.startsWith('/access-intelligence/')
+        : location.pathname.startsWith('/tracking/')
+          ? { title: 'Asset tracking', subtitle: 'Every share, check and sale for this asset' }
+          : location.pathname.startsWith('/access-intelligence/')
           ? { title: 'Asset Activity', subtitle: 'See who accessed this asset and what happened' }
           : location.pathname.startsWith('/protected-posts/') || location.pathname.startsWith('/assets/')
             ? { title: 'My Assets', subtitle: 'Your protected files' }

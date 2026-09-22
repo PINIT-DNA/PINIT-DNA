@@ -2,6 +2,8 @@
  * Enterprise Forensic Scanner — Node bridge to Python multi-stage CV pipeline.
  * Gracefully degrades when Python AI is offline.
  */
+import crypto from 'crypto';
+import { memoizeInInvestigation } from '../vault/investigation-retrieval-cache';
 import { logger } from '../../lib/logger';
 import { aiService } from '../ai/ai-embeddings.service';
 import type { MatchReason } from '../../types/unified-investigation.types';
@@ -112,6 +114,23 @@ export interface ForensicScanResult {
 
 export class ForensicScannerService {
   async scanProbe(
+    buffer: Buffer,
+    mimeType: string,
+    referenceBuffer?: Buffer,
+  ): Promise<ForensicScanResult> {
+    // One investigation asks for the same scan of the same file from several stages (the
+    // recovery pipeline, ANN retrieval, composition). It is deterministic for identical
+    // inputs, so compute it once; a scan that did not run is not remembered.
+    if (!mimeType.startsWith('image/')) return this.scanProbeUncached(buffer, mimeType, referenceBuffer);
+    const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
+    return memoizeInInvestigation(
+      `forensic-scan:${mimeType}:${sha(buffer)}:${referenceBuffer ? sha(referenceBuffer) : 'none'}`,
+      () => this.scanProbeUncached(buffer, mimeType, referenceBuffer),
+      { keep: (r) => r.available, clone: (r) => structuredClone(r) },
+    );
+  }
+
+  private async scanProbeUncached(
     buffer: Buffer,
     mimeType: string,
     referenceBuffer?: Buffer,

@@ -28,7 +28,7 @@ export type EvidencePdfInput = {
   assetName: string;
   recovery?: { tepCode?: string | null; protectedDownloadDate?: string };
   pinithubLogo?: PdfImageAsset | null;
-  comparisonImages?: { original?: PdfImageAsset; probe?: PdfImageAsset };
+  comparisonImages?: { original?: PdfImageAsset; probe?: PdfImageAsset; originalVaultId?: string | null };
   examinedFileName?: string | null;
   leakMessage?: string | null;
   currentFileHash?: string | null;
@@ -497,7 +497,13 @@ export function drawInvestigationEvidencePdf(
   }
 
   // ── Visual comparison ────────────────────────────────────────────────────
-  if (input.comparisonImages?.original || input.comparisonImages?.probe) {
+  // Gated on an actual matched/candidate vault id, not merely on having *an* image to
+  // show — the examined file now almost always has a preview (server-persisted probe
+  // thumbnail), so that alone can no longer be the signal. A genuine no-match investigation
+  // has nothing to compare the upload against, and a blank "Original Asset" box next to a
+  // real photo reads as a bug, not as "nothing was found" — so this exhibit is skipped
+  // entirely for that case rather than shown half-empty.
+  if (input.comparisonImages?.originalVaultId) {
     exhibit('EXH G', 'Visual comparison');
     room(64);
     const boxW = (CONTENT_W - 6) / 2;
@@ -519,10 +525,19 @@ export function drawInvestigationEvidencePdf(
       if (img) {
         drawImageFit(doc, img, x + 1.2, y + 3.2, boxW - 2.4, boxH - 2.4);
       } else {
+        // "Nothing to compare against" and "found something, but the picture failed to
+        // load" are different facts — a reader cannot tell them apart from the same blank
+        // box, and for a forensic document that distinction matters. Say which one it is.
+        const noOriginalAtAll = label === 'ORIGINAL ASSET' && !input.comparisonImages?.originalVaultId;
         rgb(doc, C.muted);
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6.6);
-        doc.text('Preview not available', x + boxW / 2, y + boxH / 2 + 2, { align: 'center' });
+        doc.setFontSize(6.4);
+        const msg = noOriginalAtAll
+          ? 'No matching protected original was found for this investigation.'
+          : 'A candidate was located, but its preview could not be loaded.';
+        wrap(doc, msg, boxW - 8).forEach((ln, i) => {
+          doc.text(ln, x + boxW / 2, y + boxH / 2 + 2 + i * 3.2, { align: 'center' });
+        });
       }
       rgb(doc, C.body);
       doc.setFontSize(6.4);
@@ -645,29 +660,11 @@ export function drawInvestigationEvidencePdf(
     });
   }
 
-  if (vm.investigationSteps.length) {
-    exhibit('EXH L', 'Investigation pipeline');
-    vm.investigationSteps.forEach((s) => {
-      room(8);
-      rgb(doc, C.ink);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.2);
-      doc.text(s.label, CONTENT_L, y);
-      rgb(doc, C.muted);
-      doc.setFont('helvetica', 'normal');
-      doc.text(s.status, CONTENT_R, y, { align: 'right' });
-      y += 4;
-      if (s.detail) {
-        rgb(doc, C.body);
-        doc.setFontSize(6.4);
-        const lines = wrap(doc, s.detail, CONTENT_W);
-        lines.forEach((ln, i) => doc.text(ln, CONTENT_L, y + i * 3.1));
-        y += lines.length * 3.1 + 2.2;
-      } else {
-        y += 2.2;
-      }
-    });
-  }
+  // Internal stage-by-stage pipeline log (EXH L) was dropped: it listed the same handful of
+  // stages repeatedly across every status change they passed through (pending/running/warning/
+  // complete, sometimes 15-20 rows for six real stages) — debug detail with no reading value in
+  // a report meant to be handed to someone else. Chain of Custody, above, is the real event
+  // history and stays.
 
   if (vm.recommendedActions.length) {
     exhibit('EXH M', 'Recommended actions');

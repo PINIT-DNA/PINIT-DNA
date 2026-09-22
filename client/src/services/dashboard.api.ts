@@ -248,6 +248,23 @@ export async function reanalyzeAllVaultContent() {
   return data;
 }
 
+/**
+ * The durable "Examined File" preview saved server-side when an investigation ran —
+ * survives after the original upload is gone from the browser's memory, on any device.
+ * `null` (not thrown) when none was saved, so callers can fall through to other sources.
+ */
+export async function fetchInvestigationProbeThumbnail(investigationId: string): Promise<Blob | null> {
+  try {
+    const { data } = await api.get<Blob>(
+      `${API_BASE_URL}/forensics/investigation/${investigationId}/probe-thumbnail`,
+      { responseType: 'blob', timeout: 20_000 },
+    );
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 export async function deleteVaultRecord(vaultId: string): Promise<{ success: boolean; vaultId: string; dnaRecordId: string }> {
   const { data } = await api.delete<{ success: boolean; vaultId: string; dnaRecordId: string }>(
     `${API_BASE_URL}/vault/${vaultId}`,
@@ -649,6 +666,8 @@ export type HubCredential = {
   issuedAt: string | null;
   expiresAt: string | null;
   relatedAsset: { id: string; title: string; href: string } | null;
+  /** Public asset reference (PH-ASSET-XXXXXXXX) for the certificate footer. */
+  assetRecord: string | null;
   source: { type: 'PINIT_CERTIFICATE'; id: string };
 };
 
@@ -1015,12 +1034,17 @@ export async function unifiedInvestigateStream(
   let verificationCompleteAt: number | null = null;
   let reportAssemblyTimedOut = false;
   let reportAssemblyTimer: number | undefined;
+  // Idle watchdog: armed once verification finishes, and pushed back by ANY bytes from the
+  // server (the server sends a heartbeat comment while the report is assembled). It fires
+  // only when the stream has gone silent for 3 minutes — a report that is slow but still
+  // being worked on is not a failure. A fixed 3-minute wall clock failed slow reports.
+  const REPORT_IDLE_MS = 180_000;
   const armReportAssemblyWatchdog = () => {
-    if (reportAssemblyTimer != null) return;
+    if (reportAssemblyTimer != null) window.clearTimeout(reportAssemblyTimer);
     reportAssemblyTimer = window.setTimeout(() => {
       reportAssemblyTimedOut = true;
       controller.abort();
-    }, 180_000);
+    }, REPORT_IDLE_MS);
   };
 
   let res: Response;
@@ -1037,7 +1061,7 @@ export async function unifiedInvestigateStream(
     if (e instanceof DOMException && e.name === 'AbortError') {
       throw new Error(
         reportAssemblyTimedOut
-          ? 'Verification finished, but the investigation report did not arrive within 3 minutes. Retry the investigation.'
+          ? 'Verification finished, but the investigation report stream stopped responding for 3 minutes. Retry the investigation.'
           : 'Investigation timed out after 10 minutes — try a smaller file or retry',
       );
     }
@@ -1065,13 +1089,14 @@ export async function unifiedInvestigateStream(
         if (e instanceof DOMException && e.name === 'AbortError') {
           throw new Error(
             reportAssemblyTimedOut
-              ? 'Verification finished, but the investigation report did not arrive within 3 minutes. Retry the investigation.'
+              ? 'Verification finished, but the investigation report stream stopped responding for 3 minutes. Retry the investigation.'
               : 'Investigation timed out after 10 minutes — try a smaller file or retry',
           );
         }
         throw e;
       }
       if (chunk.done) break;
+      if (verificationCompleteAt != null && finalReport == null) armReportAssemblyWatchdog();
       buffer += decoder.decode(chunk.value, { stream: true });
       const lines = buffer.split('\n');
       buffer = lines.pop() ?? '';
@@ -1110,7 +1135,7 @@ export async function unifiedInvestigateStream(
   if (!finalReport) {
     throw new Error(
       reportAssemblyTimedOut
-        ? 'Verification finished, but the investigation report did not arrive within 3 minutes. Retry the investigation.'
+        ? 'Verification finished, but the investigation report stream stopped responding for 3 minutes. Retry the investigation.'
         : 'Investigation ended without a report',
     );
   }

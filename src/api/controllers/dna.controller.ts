@@ -64,7 +64,15 @@ export async function listDnaRecords(
   try {
     const userId = getAuthUserId(req);
     const records = await prisma.dnaRecord.findMany({
-      where: dnaOwnerWhere(userId),
+      where: {
+        ...dnaOwnerWhere(userId),
+        // Frames of a video and pages of a document are children of the file the
+        // user actually protected. They are real forensic records and investigation
+        // still uses them, but listing them here showed "frame-34.jpg" as if it were
+        // its own protected file — 205 of 564 records on one account.
+        videoDnaRecordId: null,
+        documentDnaRecordId: null,
+      },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,

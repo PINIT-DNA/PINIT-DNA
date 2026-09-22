@@ -26,6 +26,7 @@ import { prisma } from '../../src/lib/prisma';
 import { vaultLocalDnaSearchService } from '../../src/services/forensics/vault-local-dna-search.service';
 import { localDnaPatchGenerator } from '../../src/services/forensics/local-dna-patch-generator.service';
 import { packPatchesToArchive } from '../../src/services/forensics/local-dna-patch-packer.service';
+import { clearIndexCache } from '../../src/services/forensics/local-dna-index-cache';
 import type { PatchGridResult } from '../../src/services/forensics/local-dna-patch-generator.service';
 
 const findMany = prisma.localFeatureIndex.findMany as unknown as jest.Mock<AnyAsync>;
@@ -71,11 +72,28 @@ beforeAll(async () => {
   grid = await localDnaPatchGenerator.generateMultiScaleGrid(image);
 }, SLOW);
 
-beforeEach(() => { findMany.mockReset(); });
+let version = 0;
+/**
+ * The search reads light index rows first, then the heavy patch data for indexes it does not
+ * have cached. Serve both from the given index rows; every call gets a fresh updatedAt so a
+ * previous test's cached index is never reused.
+ */
+function serve(rows: Array<ReturnType<typeof indexAsRows> | ReturnType<typeof indexAsArchive>>) {
+  const stamped = rows.map((r, i) => ({ ...r, id: `idx-${i}`, updatedAt: new Date(1_700_000_000_000 + (++version) * 1000), patchCount: r.patches.length || 1 }));
+  findMany.mockImplementation(async (...args: unknown[]) => {
+    const q = args[0] as { where: { id?: { in: string[] } }; select: Record<string, unknown> };
+    if (q.where.id) {
+      return stamped.filter((r) => q.where.id!.in.includes(r.id)).map((r) => ({ id: r.id, patches: r.patches, patchArchive: r.patchArchive }));
+    }
+    return stamped;
+  });
+}
+
+beforeEach(() => { findMany.mockReset(); clearIndexCache(); });
 
 describe('vault local-DNA search reads both storages', () => {
   test('an index stored as per-patch rows is found (the existing behaviour)', async () => {
-    findMany.mockResolvedValue([indexAsRows()]);
+    serve([indexAsRows()]);
 
     const hits = await vaultLocalDnaSearchService.search(image, OWNER, 'image/png', { skipOrbRefine: true });
 
@@ -84,7 +102,7 @@ describe('vault local-DNA search reads both storages', () => {
   }, SLOW);
 
   test('an index stored ONLY as an archive is found too', async () => {
-    findMany.mockResolvedValue([indexAsArchive()]);
+    serve([indexAsArchive()]);
 
     const hits = await vaultLocalDnaSearchService.search(image, OWNER, 'image/png', { skipOrbRefine: true });
 
@@ -93,9 +111,9 @@ describe('vault local-DNA search reads both storages', () => {
   }, SLOW);
 
   test('the same index scores identically whichever way it is stored', async () => {
-    findMany.mockResolvedValue([indexAsRows()]);
+    serve([indexAsRows()]);
     const fromRows = await vaultLocalDnaSearchService.search(image, OWNER, 'image/png', { skipOrbRefine: true });
-    findMany.mockResolvedValue([indexAsArchive()]);
+    serve([indexAsArchive()]);
     const fromArchive = await vaultLocalDnaSearchService.search(image, OWNER, 'image/png', { skipOrbRefine: true });
 
     expect(fromArchive[0]!.patchMatchCount).toBe(fromRows[0]!.patchMatchCount);
@@ -103,7 +121,7 @@ describe('vault local-DNA search reads both storages', () => {
   }, SLOW);
 
   test('a cropped probe still finds an archive-only original', async () => {
-    findMany.mockResolvedValue([indexAsArchive()]);
+    serve([indexAsArchive()]);
     const crop = await sharp(image).extract({ left: 120, top: 90, width: 320, height: 240 }).png().toBuffer();
 
     const hits = await vaultLocalDnaSearchService.search(crop, OWNER, 'image/png', { skipOrbRefine: true });
@@ -113,18 +131,38 @@ describe('vault local-DNA search reads both storages', () => {
 
   test('an archive that fails its Merkle root is not matched against', async () => {
     const idx = indexAsArchive();
-    findMany.mockResolvedValue([{ ...idx, patchArchive: { ...idx.patchArchive!, merkleRoot: 'f'.repeat(64) } }]);
+    serve([{ ...idx, patchArchive: { ...idx.patchArchive!, merkleRoot: 'f'.repeat(64) } }]);
 
     const hits = await vaultLocalDnaSearchService.search(image, OWNER, 'image/png', { skipOrbRefine: true });
 
     expect(hits).toEqual([]);
   }, SLOW);
 
-  test('the query asks for the archive column, not just per-patch rows', async () => {
-    findMany.mockResolvedValue([]);
+  test('the heavy query asks for the archive column, not just per-patch rows', async () => {
+    serve([indexAsArchive()]);
     await vaultLocalDnaSearchService.search(image, OWNER, 'image/png', { skipOrbRefine: true });
 
-    const include = (findMany.mock.calls[0]![0] as { include: Record<string, unknown> }).include;
-    expect(include['patchArchive']).toBeDefined();
+    const heavy = findMany.mock.calls.map((c) => c[0] as { select?: Record<string, unknown>; where: { id?: unknown } }).find((q) => q.where.id);
+    expect(heavy?.select?.['patchArchive']).toBeDefined();
+  }, SLOW);
+
+  test('a second search reuses the cached index instead of reloading patches', async () => {
+    serve([indexAsArchive()]);
+    await vaultLocalDnaSearchService.search(image, OWNER, 'image/png', { skipOrbRefine: true });
+    const heavyCalls = () => findMany.mock.calls.filter((c) => (c[0] as { where: { id?: unknown } }).where.id).length;
+    expect(heavyCalls()).toBe(1);
+
+    const again = await vaultLocalDnaSearchService.search(image, OWNER, 'image/png', { skipOrbRefine: true });
+    expect(heavyCalls()).toBe(1);
+    expect(again[0]!.vaultId).toBe(VAULT);
+  }, SLOW);
+
+  test('a rebuilt index (new updatedAt) is reloaded, not served stale', async () => {
+    serve([indexAsRows()]);
+    await vaultLocalDnaSearchService.search(image, OWNER, 'image/png', { skipOrbRefine: true });
+    serve([indexAsRows()]); // same id, newer updatedAt
+    await vaultLocalDnaSearchService.search(image, OWNER, 'image/png', { skipOrbRefine: true });
+    const heavy = findMany.mock.calls.filter((c) => (c[0] as { where: { id?: unknown } }).where.id).length;
+    expect(heavy).toBe(2);
   }, SLOW);
 });

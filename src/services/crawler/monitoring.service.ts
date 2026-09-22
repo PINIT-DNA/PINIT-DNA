@@ -357,6 +357,20 @@ export class MonitoringService {
             },
           });
           evidenceId = ev.id;
+          if (monitor.ownerUserId) {
+            const evidenceOwnerId = monitor.ownerUserId;
+            // Lifecycle only — the evidence record itself is unchanged.
+            import('../lifecycle/lifecycle-events').then(({ emitEvidenceLifecycle }) => {
+              emitEvidenceLifecycle({
+                ownerUserId: evidenceOwnerId,
+                action: 'generated',
+                evidenceId: ev.id,
+                evidenceCode: ev.evidenceCode,
+                description: ev.description,
+                dnaRecordId: monitor.dnaRecordId,
+              });
+            }).catch(() => {});
+          }
         } catch { /* evidence table may not exist yet */ }
       }
 

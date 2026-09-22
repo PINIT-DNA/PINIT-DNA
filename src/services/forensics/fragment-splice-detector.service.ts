@@ -22,6 +22,8 @@ import {
 } from './local-dna-patch-generator.service';
 import { forensicComputationCache } from './forensic-computation-cache.service';
 import { resolveIndexPatches } from './local-dna-patch-packer.service';
+import { loadFramePatchIndexes } from '../videos/frame-dna/frame-dna.repository';
+import { buildRawPatchGrid } from '../videos/frame-dna/raw-patch-grid';
 import type { FragmentReuseFinding } from '../../types/unified-investigation.types';
 
 interface VaultPatchRow {
@@ -205,6 +207,22 @@ function toVaultPatch(fp: VaultPatchRow): Pick<PatchFingerprint, 'pHash16' | 'dH
   };
 }
 
+/**
+ * The probe's grid computed the way compact video frames were computed: decoded once,
+ * then fingerprinted straight from pixels. Returns null when the probe cannot be
+ * decoded, and the caller falls back to the encoded-image grid.
+ */
+async function buildRawProbeGrid(probeBuffer: Buffer) {
+  try {
+    const sharp = (await import('sharp')).default;
+    const { data, info } = await sharp(probeBuffer).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    if (info.channels !== 3 || !info.width || !info.height) return null;
+    return buildRawPatchGrid(data, info.width, info.height);
+  } catch {
+    return null;
+  }
+}
+
 function patchesMatch(probe: PatchFingerprint, vault: VaultPatchRow): boolean {
   if (patchFingerprintsMatch(probe.pHash16, vault.pHash16)) return true;
   return patchDenseMatch(probe, toVaultPatch(vault));
@@ -219,7 +237,8 @@ function patchesMatch(probe: PatchFingerprint, vault: VaultPatchRow): boolean {
  */
 function resolveVaultPatches(idx: {
   patches: VaultPatchRow[];
-  patchArchive: { blob: Buffer; merkleRoot: string } | null;
+  /** Absent on compact video frames, which are decoded before they get here. */
+  patchArchive?: { blob: Buffer; merkleRoot?: string | null } | null;
 }): VaultPatchRow[] {
   return resolveIndexPatches(idx) as VaultPatchRow[];
 }
@@ -242,7 +261,6 @@ export class FragmentSpliceDetectorService {
     );
     if (!probeGrid.patches.length || !probeGrid.imageWidth || !probeGrid.imageHeight) return [];
 
-    const probeArea = probeGrid.imageWidth * probeGrid.imageHeight;
     const minPatches = options?.minPatchMatches
       ?? (options?.forComposition ? 3 : cfg.minPatchMatches);
     const maxBBox = options?.maxBBoxAreaPercentOverride
@@ -285,14 +303,39 @@ export class FragmentSpliceDetectorService {
           include,
           take: options?.maxCandidates ?? 20,
         });
-    const indexes = [...preferred, ...rest];
+    // Compact video frames are stored in video_frame_dna rather than
+    // local_feature_indexes. Their packs decode into the same patch shape, so every
+    // match rule below is unchanged — this only widens where candidates come from.
+    const framePacks = options?.restrictToVaultIds?.length
+      ? await loadFramePatchIndexes(options.restrictToVaultIds, ownerUserId)
+      : [];
+
+    // Compact frames were fingerprinted from raw pixels, the image path resamples
+    // through sharp. The two agree on most content but drift on smooth gradients, so
+    // compare frame packs against a probe grid built the SAME way rather than
+    // accepting avoidable disagreement. Falls back to the encoded grid if the probe
+    // cannot be decoded.
+    const rawProbeGrid = framePacks.length
+      ? await buildRawProbeGrid(probeBuffer)
+      : null;
+
+    const candidates: Array<{ idx: typeof preferred[number] | typeof framePacks[number]; probe: typeof probeGrid }> = [
+      ...preferred.map((idx) => ({ idx, probe: probeGrid })),
+      ...rest.map((idx) => ({ idx, probe: probeGrid })),
+      ...framePacks.map((idx) => ({ idx, probe: rawProbeGrid ?? probeGrid })),
+    ];
 
     const findings: FragmentReuseFinding[] = [];
 
-    for (const idx of indexes) {
+    for (const { idx, probe: probeVariant } of candidates) {
       if (!idx.vaultId || !idx.imageWidth || !idx.imageHeight) continue;
+      // Image indexes may hold their patches as rows or as one packed archive; compact
+      // video frames arrive already decoded. resolveVaultPatches reads all three.
       const vaultPatches = resolveVaultPatches(idx);
       if (!vaultPatches.length) continue;
+      const probeWidth = probeVariant.imageWidth;
+      const probeHeight = probeVariant.imageHeight;
+      const probeVariantArea = probeWidth * probeHeight;
 
       const vaultByPrefix = new Map<string, VaultPatchRow[]>();
       for (const vp of vaultPatches) {
@@ -305,7 +348,7 @@ export class FragmentSpliceDetectorService {
       const matched: IslandMatch[] = [];
       const usedVaultPatches = new Set<number>();
 
-      for (const probePatch of probeGrid.patches) {
+      for (const probePatch of probeVariant.patches) {
         const prefix = probePatch.pHash16.slice(0, 4);
         const candidates = vaultByPrefix.get(prefix) ?? [];
         for (const vp of candidates) {
@@ -313,7 +356,7 @@ export class FragmentSpliceDetectorService {
           if (patchesMatch(probePatch, vp)) {
             const probeRect = patchPixelRect(
               probePatch.gridX, probePatch.gridY, probePatch.scale,
-              probeGrid.imageWidth, probeGrid.imageHeight,
+              probeWidth, probeHeight,
             );
             const vaultRect = patchPixelRect(
               vp.gridX, vp.gridY, vp.scale ?? localDnaConfig.patchSize,
@@ -346,7 +389,7 @@ export class FragmentSpliceDetectorService {
         }
         if (!probeBBox || !vaultBBox) continue;
 
-        const probeBBoxAreaPct = ((probeBBox.w * probeBBox.h) / probeArea) * 100;
+        const probeBBoxAreaPct = ((probeBBox.w * probeBBox.h) / probeVariantArea) * 100;
         // A pasted fragment is a straight (unscaled) copy, so its true probe→vault pixel
         // offset is constant regardless of which patch scale detected it — dividing by
         // per-patch probeScale (as vault-local-dna-search.service.ts does for crop/scale
@@ -387,13 +430,13 @@ export class FragmentSpliceDetectorService {
         let reportProbeBBox = probeBBox;
         const geom = estimateIslandSimilarity(island);
         if (geom.ok && spatialConsistency >= 0.35) {
-          const mapped = mapVaultRectToProbe(vaultBBox, geom, probeGrid.imageWidth, probeGrid.imageHeight);
-          const mappedPct = ((mapped.w * mapped.h) / probeArea) * 100;
+          const mapped = mapVaultRectToProbe(vaultBBox, geom, probeWidth, probeHeight);
+          const mappedPct = ((mapped.w * mapped.h) / probeVariantArea) * 100;
           if (mappedPct >= 1 && mappedPct <= 70 && mappedPct > probeBBoxAreaPct * 1.5) {
             reportProbeBBox = mapped;
           }
         }
-        const reportProbePct = ((reportProbeBBox.w * reportProbeBBox.h) / probeArea) * 100;
+        const reportProbePct = ((reportProbeBBox.w * reportProbeBBox.h) / probeVariantArea) * 100;
         const probeCoveragePercent = round1(reportProbePct);
         const vaultCoveragePercent = vaultArea > 0
           ? round1(((vaultBBox.w * vaultBBox.h) / vaultArea) * 100)
@@ -406,10 +449,10 @@ export class FragmentSpliceDetectorService {
           patchMatchCount: island.length,
           confidence,
           probeRegion: {
-            xPercent: round1((reportProbeBBox.x / probeGrid.imageWidth) * 100),
-            yPercent: round1((reportProbeBBox.y / probeGrid.imageHeight) * 100),
-            widthPercent: round1((reportProbeBBox.w / probeGrid.imageWidth) * 100),
-            heightPercent: round1((reportProbeBBox.h / probeGrid.imageHeight) * 100),
+            xPercent: round1((reportProbeBBox.x / probeWidth) * 100),
+            yPercent: round1((reportProbeBBox.y / probeHeight) * 100),
+            widthPercent: round1((reportProbeBBox.w / probeWidth) * 100),
+            heightPercent: round1((reportProbeBBox.h / probeHeight) * 100),
           },
           vaultRegion: {
             xPercent: round1((vaultBBox.x / idx.imageWidth) * 100),

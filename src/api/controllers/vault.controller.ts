@@ -31,6 +31,11 @@ import {
   extractTextFromPlain,
 } from '../../services/privacy/privacy-masking.service';
 import { vaultContentAnalysisService } from '../../services/vault/vault-content-analysis.service';
+import {
+  emitAssetViewed,
+  emitAssetDownloaded,
+  emitAssetRenamed,
+} from '../../services/lifecycle/lifecycle-events';
 
 const vaultService = new VaultService();
 
@@ -573,6 +578,13 @@ export async function previewVaultFile(
     });
 
     res.status(200).send(body);
+
+    emitAssetViewed({
+      ownerUserId: userId,
+      vaultId: result.vaultId,
+      dnaRecordId: result.dnaRecordId,
+      filename: result.originalFileName,
+    });
   } catch (err) {
     if (err instanceof Error && err.message.includes('not found')) {
       return next(new AppError(404, err.message));
@@ -625,6 +637,14 @@ export async function retrieveFromVault(
     });
 
     res.status(200).send(embedded.buffer);
+
+    emitAssetDownloaded({
+      ownerUserId: userId,
+      vaultId: result.vaultId,
+      dnaRecordId: result.dnaRecordId,
+      filename: result.originalFileName,
+      via: 'retrieve',
+    });
   } catch (err) {
     if (err instanceof Error && err.message.includes('not found')) {
       return next(new AppError(404, err.message));
@@ -848,6 +868,15 @@ export async function protectedDownloadFromVault(
     });
 
     res.status(200).send(fileBuffer);
+
+    emitAssetDownloaded({
+      ownerUserId: userId,
+      vaultId: result.vaultId,
+      dnaRecordId: result.dnaRecordId,
+      filename: result.originalFileName,
+      via: 'protected',
+      tepCode,
+    });
   } catch (err) {
     if (err instanceof Error && err.message.includes('not found')) {
       return next(new AppError(404, err.message));
@@ -1147,6 +1176,15 @@ export async function renameVaultRecord(
     }
     const result = await vaultService.rename(vaultId, ownerUserId, originalFileName);
     res.status(200).json({ success: true, ...result });
+
+    if (result.previousFileName !== result.originalFileName) {
+      emitAssetRenamed({
+        ownerUserId,
+        vaultId,
+        filename: result.originalFileName,
+        previousFilename: result.previousFileName,
+      });
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('not found')) return next(new AppError(404, msg));

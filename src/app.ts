@@ -44,6 +44,8 @@ import { assetRouter }            from './api/routes/asset.routes';
 import { exchangeRouter }         from './api/routes/exchange.routes';
 import { adminBridgeRouter }      from './api/routes/admin-bridge.routes';
 import { creatorRouter }          from './api/routes/creator.routes';
+import { lifecycleRouter }        from './api/routes/lifecycle.routes';
+import { trackingRouter }         from './api/routes/tracking.routes';
 import {
   issueExtensionAuthCode,
   exchangeExtensionAuthToken,
@@ -189,6 +191,12 @@ app.use(`${config.apiPrefix}/exchange`, exchangeRouter);
 /** Master Admin bridge — separate app SSO handoff */
 app.use(`${config.apiPrefix}/admin-bridge`, adminBridgeRouter);
 app.use(`${config.apiPrefix}/creator`, creatorRouter);
+
+/** Pinit ecosystem lifecycle — read-only view over events modules already emit */
+app.use(`${config.apiPrefix}/lifecycle`, lifecycleRouter);
+
+/** Asset tracking — one asset, every channel it travelled through */
+app.use(`${config.apiPrefix}/tracking`, trackingRouter);
 
 /** Extension OAuth (additive — does not change password/biometric login) */
 app.post(`${config.apiPrefix}/auth/extension/issue-code`, requireAuth, issueExtensionAuthCode);

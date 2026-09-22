@@ -10,6 +10,7 @@ import { VaultService } from '../vault/vault.service';
 import { computeBmHash64 } from './perceptual-enhancements';
 import { extractVideoFrameSamples, extractAudioSample, isFfmpegAvailable, probeVideoDuration } from './media-tools.service';
 import { localFeatureMatchService } from './local-feature-match.service';
+import { listFramesForVideo } from '../videos/frame-dna/frame-dna.repository';
 import { aiService } from '../ai/ai-embeddings.service';
 import type { VaultSimilarityVector, SimilarityVectorScores } from './vault-similarity-vector.service';
 
@@ -54,10 +55,19 @@ async function resolveFrameMatchesToProtectedFrames(
 ): Promise<void> {
   if (!frameMatches.length) return;
 
-  const protectedFrames = await prisma.dnaRecord.findMany({
+  const legacyFrames = await prisma.dnaRecord.findMany({
     where: { videoDnaRecordId: vaultDnaRecordId },
     select: { id: true, frameTimestampMs: true },
   });
+
+  // Videos protected with compact frame DNA have no per-frame DnaRecord; their frames
+  // carry the same (id, timestamp) pair, which is all the alignment below needs.
+  const protectedFrames = legacyFrames.length
+    ? legacyFrames
+    : (await listFramesForVideo(vaultDnaRecordId)).map((f) => ({
+      id: f.id,
+      frameTimestampMs: f.timestampMs,
+    }));
   if (!protectedFrames.length) return;
 
   const durationSec = await probeVideoDuration(vaultBuffer, vaultExt);

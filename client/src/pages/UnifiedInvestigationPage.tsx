@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   Shield, Upload, AlertTriangle, RefreshCw, ScanLine,
-  ChevronDown, ChevronUp, Fingerprint, Dna, User, Clock, Activity,
+  ChevronDown, ChevronUp, Fingerprint, Dna, User, Clock,
   FileDown, Globe, Lock, Eye, Download,
 } from 'lucide-react';
 import { unifiedInvestigateStream, getVaultRecord } from '../services/dashboard.api';
@@ -17,9 +17,6 @@ import type { SpatialInvestigationViewModel, SpatialHierarchyViewModel } from '.
 import type { InvestigationLiveSnapshot } from '../services/dashboard.api';
 import {
   downloadInvestigationReportPdf,
-  downloadDnaReportPdf,
-  downloadTimelineReportPdf,
-  downloadEvidencePackageZip,
   downloadAdvancedExportJson,
   archiveInvestigationForensicExports,
   type InvestigationReportExport,
@@ -377,7 +374,7 @@ interface InvestigationReport {
 const REPORT_STATE_LABELS: Record<string, string> = {
   VERIFIED: 'Confirmed match',
   POSSIBLE: 'Possible match',
-  NO_SIGNATURE: 'No match found',
+  NO_SIGNATURE: 'Not found under your account',
 };
 
 const REPORT_STATE_STYLE: Record<string, string> = {
@@ -390,7 +387,7 @@ const FORENSIC_VERDICT_LABELS: Record<string, string> = {
   ORIGINAL_VERIFIED: 'Ownership Verified',
   ORIGINAL_FOUND_PARTIAL: 'Original Identified (Derivative / Partial)',
   POSSIBLE_ASSET: 'Possible Similarity – Top Candidates Only',
-  NO_SIGNATURE: 'Unknown Asset',
+  NO_SIGNATURE: 'Not found under your account',
 };
 
 const FORENSIC_VERDICT_STYLE: Record<string, string> = {
@@ -440,6 +437,14 @@ function asExportReport(report: InvestigationReport): InvestigationReportExport 
   return report as unknown as InvestigationReportExport;
 }
 
+type ReportTab = 'overview' | 'evidence' | 'history' | 'technical';
+const REPORT_TABS: Array<{ key: ReportTab; label: string }> = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'evidence', label: 'Evidence' },
+  { key: 'history', label: 'History & Leaks' },
+  { key: 'technical', label: 'Technical' },
+];
+
 function Section({
   title, icon: Icon, defaultOpen = true, children,
 }: {
@@ -473,8 +478,8 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
   const [contextAssetName, setContextAssetName] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [mode, setMode] = useState<'upload' | 'scan'>('upload');
+  const [reportTab, setReportTab] = useState<ReportTab>('overview');
   const [loading, setLoading] = useState(false);
-  const [exporting, setExporting] = useState(false);
   const [pdfBusy, setPdfBusy] = useState<'investigation' | 'dna' | 'timeline' | null>(null);
   const [report, setReport] = useState<InvestigationReport | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -556,6 +561,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
     setLoading(true);
     setError(null);
     setReport(null);
+    setReportTab('overview');
     setLiveSnapshot(null);
     liveSnapshotRef.current = null;
 
@@ -575,16 +581,20 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
             ownershipConfidence?: number;
             dnaMatchPercent?: number;
           };
+          // A partial naming a different vault is a different candidate: inheriting the
+          // previous candidate's filename/owner/scores would label one file with another's.
+          const lead = !prev?.vaultId || prev.vaultId === partial.vaultId ? prev : null;
+          const pct = (n?: number) => (n == null || !Number.isFinite(n) ? undefined : Math.max(0, Math.min(100, n)));
           const merged = {
             phase: prev?.phase ?? 1,
             signatureFound: true,
             vaultId: partial.vaultId,
-            dnaRecordId: partial.dnaRecordId ?? prev?.dnaRecordId,
-            ownerPinitId: partial.ownerPinitId ?? prev?.ownerPinitId,
-            ownerName: partial.ownerName ?? prev?.ownerName,
-            originalFilename: partial.originalFilename ?? prev?.originalFilename,
-            confidence: partial.ownershipConfidence ?? prev?.confidence,
-            dnaMatchPercent: partial.dnaMatchPercent ?? prev?.dnaMatchPercent,
+            dnaRecordId: partial.dnaRecordId ?? lead?.dnaRecordId,
+            ownerPinitId: partial.ownerPinitId ?? lead?.ownerPinitId,
+            ownerName: partial.ownerName ?? lead?.ownerName,
+            originalFilename: partial.originalFilename ?? lead?.originalFilename,
+            confidence: pct(partial.ownershipConfidence ?? lead?.confidence),
+            dnaMatchPercent: pct(partial.dnaMatchPercent ?? lead?.dnaMatchPercent),
           };
           setLiveSnapshot(merged);
           liveSnapshotRef.current = merged;
@@ -794,7 +804,22 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
         const manifest = report.manifest;
         const reportState = report.summary.reportState;
         const resolvedOwner = resolveInvestigationOwner(report as unknown as StoredInvestigationReport);
-        const hasVaultMatch = reportState !== 'NO_SIGNATURE' && !!(
+        // The embedded-signature check (spatial auth) is the actual proof of protection.
+        // A file it could not read a signature from at all (wrong/missing package, not
+        // "tampered" — that still HAD a signature) should not be presented as a match just
+        // because a separate, coarser visual-similarity score landed in the "possible" range.
+        // Two unrelated images can share enough structure to score there by coincidence.
+        const spatialStatus = (report.tamperAnalysis.spatialAuthInvestigation as { verificationStatus?: string } | null)
+          ?.verificationStatus;
+        const signatureUnverifiable = !!spatialStatus && [
+          'INVALID_AUTH_PACKAGE', 'DIMENSION_MISMATCH', 'UNSUPPORTED_VERSION', 'ERROR',
+        ].includes(spatialStatus);
+        const weakUnverifiedMatch = reportState === 'POSSIBLE' && signatureUnverifiable;
+        // No usable signature = treat as no match for every "here is your protected asset"
+        // display below (the owner card, the side-by-side comparison, candidate ranking…),
+        // not only the headline. Showing those against an unrelated file is what looked like
+        // a false positive; a coincidental similarity score is not evidence on its own.
+        const hasVaultMatch = reportState !== 'NO_SIGNATURE' && !weakUnverifiedMatch && !!(
           resolvedOwner.vaultId
           || manifest?.vault.vaultId
           || report.owner.vaultId
@@ -841,7 +866,9 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
         };
         const verdictLabel = reportState === 'VERIFIED'
           ? REPORT_STATE_LABELS.VERIFIED
-          : reportState === 'POSSIBLE'
+          : weakUnverifiedMatch
+            ? 'No verified protection signature'
+            : reportState === 'POSSIBLE'
             ? REPORT_STATE_LABELS.POSSIBLE
             : (manifest?.displayLabel
               ?? (report.summary.reportState
@@ -852,9 +879,33 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
           <div className="card p-5 border border-slate-200">
             <p className="text-2xs font-bold uppercase tracking-wider text-slate-400 mb-1">Investigation result</p>
             <p className="text-xl font-bold text-slate-900">
-              {reportState === 'VERIFIED' ? 'Confirmed Match' : reportState === 'POSSIBLE' ? 'Possible Match' : 'No Match'}
+              {reportState === 'VERIFIED'
+                ? 'Confirmed Match'
+                : weakUnverifiedMatch
+                  ? 'No Verified Protection Signature'
+                  : reportState === 'POSSIBLE' ? 'Possible Match' : 'Not Found In Your Account'}
             </p>
             <p className="text-xs text-slate-500 mt-1">{verdictLabel}</p>
+            {weakUnverifiedMatch && (
+              // Same honesty rule as the NO_SIGNATURE case above: don't let a coincidental
+              // visual-similarity score read as "this is a protected asset".
+              <p className="text-xs text-slate-600 mt-2 max-w-prose">
+                No valid protection signature was found in this file — only a weak visual
+                similarity to something in your vault, which can happen by coincidence.
+                Treat this as unverified, not as a confirmed protected asset.
+              </p>
+            )}
+            {reportState === 'NO_SIGNATURE' && (
+              // This check only searches the uploader's own vault (never other users' protected
+              // assets), so a miss here does not prove the file is unprotected — only that it
+              // is not registered under THIS account. Say that plainly instead of "no match",
+              // which reads as "this file is free to use".
+              <p className="text-xs text-slate-600 mt-2 max-w-prose">
+                This asset was not found under your Pinit account. It may be unprotected, or it may
+                be protected under a different Pinit account — this check only searches your own
+                vault.
+              </p>
+            )}
             {hasVaultMatch && (
               <dl className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                 <div>
@@ -906,9 +957,11 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               {(manifest?.verdict || report.summary.reportState || report.summary.forensicVerdict) && (
                 <span className={cn(
                   'text-xs font-bold px-3 py-1 rounded-full border',
-                  REPORT_STATE_STYLE[report.summary.reportState ?? ''] 
-                    ?? FORENSIC_VERDICT_STYLE[report.summary.forensicVerdict ?? ''] 
-                    ?? RISK_COLORS.UNKNOWN,
+                  weakUnverifiedMatch
+                    ? REPORT_STATE_STYLE.NO_SIGNATURE
+                    : REPORT_STATE_STYLE[report.summary.reportState ?? '']
+                      ?? FORENSIC_VERDICT_STYLE[report.summary.forensicVerdict ?? '']
+                      ?? RISK_COLORS.UNKNOWN,
                 )}>
                   {verdictLabel}
                 </span>
@@ -956,767 +1009,771 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
             )}
           </details>
 
-          {(manifest?.decisionReason || report.message) && (
-            <div className={cn(
-              'card border p-3 text-xs',
-              reportState === 'NO_SIGNATURE'
-                ? 'border-red-500/30 bg-red-500/5 text-red-400'
-                : reportState === 'POSSIBLE'
-                  ? 'border-yellow-500/30 bg-yellow-500/5 text-yellow-400'
-                  : 'border-green-500/30 bg-green-500/5 text-green-400',
-            )}>
-              {manifest?.displayLabel ?? report.message}
-              {(manifest?.decisionReason ?? report.summary.decisionReason)
-                && (manifest?.decisionReason ?? report.summary.decisionReason) !== (manifest?.displayLabel ?? report.message) && (
-                <p className="mt-1 opacity-80">{manifest?.decisionReason ?? report.summary.decisionReason}</p>
-              )}
-            </div>
-          )}
-
-          {report.videoComposition ? (
-            <VideoCompositionPanel videoComposition={report.videoComposition} />
-          ) : report.composition && (
-            <InvestigationCompositionPanel
-              composition={report.composition}
-              previewUrl={previewUrl}
-            />
-          )}
-
-          {report.dnaVnext && (
-            <div className="card border border-bg-border p-4 space-y-2 text-xs">
-              <h3 className="text-sm font-semibold text-white">DNA vNext — provenance evidence</h3>
-              <p className="text-2xs text-gray-500">{report.dnaVnext.note}</p>
-              <ul className="text-2xs text-gray-400 space-y-1">
-                <li>DNA A (HMAC 8×8): {report.dnaVnext.mechanisms.dnaA.present ? 'available' : 'not on this run'} — {report.dnaVnext.mechanisms.dnaA.role}</li>
-                <li>
-                  DNA B (robust watermark): {report.dnaVnext.mechanisms.dnaB.present ? 'recovered' : 'not recovered'} — {report.dnaVnext.mechanisms.dnaB.role}
-                  {report.dnaVnext.mechanisms.dnaB.recovery?.recovered && (
-                    <span className="block text-gray-500 mt-0.5">
-                      Spatial support {report.dnaVnext.mechanisms.dnaB.recovery.spatialConfidencePercent}%
-                      {report.dnaVnext.mechanisms.dnaB.recovery.supportRegion
-                        ? ` · region ${report.dnaVnext.mechanisms.dnaB.recovery.supportRegion.width}×${report.dnaVnext.mechanisms.dnaB.recovery.supportRegion.height}`
-                        : ''}
-                      . This does not equal vault pixel coverage.
-                    </span>
+          <div className="sticky top-0 z-10 -mx-1 px-1 py-2 bg-bg-base/90 backdrop-blur">
+            <div role="tablist" aria-label="Investigation report sections" className="flex gap-1 overflow-x-auto rounded-xl border border-bg-border bg-bg-elevated/60 p-1">
+              {REPORT_TABS.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={reportTab === t.key}
+                  onClick={() => setReportTab(t.key)}
+                  className={cn(
+                    'flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition-colors',
+                    reportTab === t.key
+                      ? 'bg-white text-slate-900 shadow-sm dark:bg-dna-500/20 dark:text-white'
+                      : 'text-gray-500 hover:text-gray-300',
                   )}
-                </li>
-                <li>DNA C (spatial fingerprints): {report.dnaVnext.mechanisms.dnaC.present ? 'matched' : 'no region located'} — {report.dnaVnext.mechanisms.dnaC.role}</li>
-              </ul>
-              {report.dnaVnext.provenance && (
-                <p className="text-2xs text-gray-500">
-                  Provenance record {report.dnaVnext.provenance.version} · root {report.dnaVnext.provenance.rootAuthenticationHex16} · {report.dnaVnext.provenance.regionManifest.length} regions
-                </p>
-              )}
-              {report.dnaVnext.transformations.length > 0 && (
-                <p className="text-2xs text-gray-500">Transformations: {report.dnaVnext.transformations.join(', ')}</p>
-              )}
-            </div>
-          )}
-
-          {/* Even when the whole-image ownership check can't confirm a full-file match (e.g. a small
-              fragment reused inside an otherwise-unrelated image), a positive fragment finding is a
-              distinct, meaningful signal on its own — surface it up top so it isn't missed below the
-              "no verified owner" verdict, instead of only appearing buried in Tamper Analysis. */}
-          {showFragmentReuse && report.fragmentReuseAnalysis && (
-            <div className="card border border-purple-500/30 bg-purple-500/5 text-purple-600 p-3 text-xs">
-              Fragment of protected content detected
-              {report.fragmentReuseAnalysis.findings[0]
-                ? ` — ${report.fragmentReuseAnalysis.findings[0].confidence}% confidence`
-                : ''}
-              <p className="mt-1 opacity-80">
-                {report.fragmentReuseAnalysis.summary}
-                {report.fragmentReuseAnalysis.findings[0]?.ownerFilename
-                  ? ` Matched original: ${report.fragmentReuseAnalysis.findings[0].ownerFilename}.`
-                  : ''}
-              </p>
-            </div>
-          )}
-
-          {showComparison && (
-            <InvestigationSideBySideCompare
-              vaultId={compareVaultId}
-              probePreviewUrl={previewUrl}
-              probeFileName={file?.name ?? report.dnaComparison?.fileB?.filename}
-              probeMimeType={file?.type ?? report.dnaComparison?.fileB?.mimeType}
-              originalFilename={compareOriginalFilename}
-              ownerPinitId={hasVaultMatch ? resolvedOwner.ownerPinitId : null}
-              dnaMatchPercent={dnaLayerScore}
-              matchConfidence={compareMatchConfidence}
-              reportState={compareReportState}
-              dnaRecordId={compareDnaRecordId}
-              certificateId={hasVaultMatch ? resolvedOwner.certificateId : null}
-              differenceHeatmapBase64={report.tamperAnalysis.overlayPngBase64}
-              modifiedPercent={report.tamperAnalysis.modifiedPercent}
-              insertedRegions={report.tamperAnalysis.insertedRegions}
-              cropSharedPercent={report.tamperAnalysis.cropDetection?.sharedRegionPercent ?? null}
-              cropMissingPercent={report.tamperAnalysis.cropDetection?.cropPercent ?? report.tamperAnalysis.cropDetection?.missingPercent ?? null}
-              cropVisiblePercent={report.tamperAnalysis.cropDetection?.visiblePercent ?? null}
-              spatialInvestigation={
-                (report.tamperAnalysis.spatialAuthInvestigation as SpatialInvestigationViewModel | null | undefined)
-                ?? null
-              }
-              spatialHierarchy={
-                ((report.tamperAnalysis as { spatialHierarchy?: SpatialHierarchyViewModel | null })
-                  .spatialHierarchy) ?? null
-              }
-              additionalSources={report.composition?.candidateSources}
-            />
-          )}
-
-          <Section title="1. Investigation Summary" icon={Shield}>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {[
-                { label: 'Retrieval Confidence', value: `${report.summary.retrievalConfidence ?? report.summary.dnaMatchPercent}%` },
-                { label: 'Identity Recovery', value: `${report.summary.identityConfidence ?? report.identityRecovery?.compositeScores.identityConfidence ?? '—'}${typeof report.summary.identityConfidence === 'number' ? '%' : ''}` },
-                { label: 'Ownership Verification', value: `${report.summary.ownershipVerificationConfidence ?? report.summary.ownershipConfidence}%` },
-                { label: 'DNA Match', value: report.summary.reportState === 'VERIFIED'
-                  ? `${report.summary.dnaMatchPercent}%`
-                  : report.summary.reportState === 'POSSIBLE'
-                    ? (typeof dnaLayerScore === 'number' && dnaLayerScore >= 40
-                        ? `${dnaLayerScore}%`
-                        : `${displayMatchScore}% match · DNA layer ${dnaLayerScore ?? 0}%`)
-                    : '—' },
-                { label: 'Trust Score', value: `${report.summary.trustScore ?? report.identityRecovery?.compositeScores.trustScore ?? '—'}${typeof report.summary.trustScore === 'number' ? '%' : ''}` },
-                { label: 'Certificate', value: report.summary.certificateStatus },
-                { label: 'Identity', value: report.summary.identityStatus.replace(/_/g, ' ') },
-                { label: 'Tamper Severity', value: report.summary.tamperSeverity },
-                { label: 'Risk Level', value: report.summary.riskLevel },
-              ].map(({ label, value }) => (
-                <div key={label} className="rounded-lg bg-bg-elevated p-3">
-                  <p className="text-2xs text-gray-500">{label}</p>
-                  <p className="text-sm font-bold text-white mt-0.5">{value}</p>
-                </div>
+                >
+                  {t.label}
+                </button>
               ))}
             </div>
-          </Section>
+          </div>
 
-          {report.identityRecovery && (
-            <Section title="1b. Multi-Layer Identity Recovery" icon={Fingerprint} defaultOpen={false}>
-              <p className="text-xs text-gray-400 mb-3">{report.identityRecovery.message}</p>
-              <div className="space-y-2">
-                {report.identityRecovery.signals.filter((s) => s.weight > 0).map((s) => (
-                  <div key={s.label} className="flex items-center gap-3 p-2 rounded-lg bg-bg-elevated text-xs">
-                    <span className="flex-1 text-white">{s.label}</span>
-                    <span className="mono text-gray-400">{Math.round(s.weight * 100)}% wt</span>
-                    <span className="font-bold text-white mono w-10 text-right">{s.score}%</span>
-                    <span className={cn(
-                      'text-2xs px-2 py-0.5 rounded-full uppercase',
-                      s.status === 'recovered' ? 'bg-green-500/15 text-green-400'
-                        : s.status === 'partial' ? 'bg-yellow-500/15 text-yellow-400'
-                          : 'bg-gray-500/15 text-gray-500',
-                    )}>{s.status}</span>
+          <div hidden={reportTab !== 'overview'} className="space-y-6" role="tabpanel">
+            {(manifest?.decisionReason || report.message) && (
+              <div className={cn(
+                'card border p-3 text-xs',
+                reportState === 'NO_SIGNATURE' || weakUnverifiedMatch
+                  ? 'border-red-500/30 bg-red-500/5 text-red-400'
+                  : reportState === 'POSSIBLE'
+                    ? 'border-yellow-500/30 bg-yellow-500/5 text-yellow-400'
+                    : 'border-green-500/30 bg-green-500/5 text-green-400',
+              )}>
+                {weakUnverifiedMatch
+                  ? 'No valid protection signature found — weak visual similarity only'
+                  : (manifest?.displayLabel ?? report.message)}
+                {(manifest?.decisionReason ?? report.summary.decisionReason)
+                  && (manifest?.decisionReason ?? report.summary.decisionReason) !== (manifest?.displayLabel ?? report.message) && (
+                  <p className="mt-1 opacity-80">
+                    {weakUnverifiedMatch
+                      ? `Closest visual similarity was ${displayMatchScore}%, but the embedded signature check found no valid protection package — likely unrelated.`
+                      : (manifest?.decisionReason ?? report.summary.decisionReason)}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <Section title="Investigation Summary" icon={Shield}>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {[
+                  { label: 'Retrieval Confidence', value: `${report.summary.retrievalConfidence ?? report.summary.dnaMatchPercent}%` },
+                  { label: 'Identity Recovery', value: `${report.summary.identityConfidence ?? report.identityRecovery?.compositeScores.identityConfidence ?? '—'}${typeof report.summary.identityConfidence === 'number' ? '%' : ''}` },
+                  { label: 'Ownership Verification', value: `${report.summary.ownershipVerificationConfidence ?? report.summary.ownershipConfidence}%` },
+                  { label: 'DNA Match', value: report.summary.reportState === 'VERIFIED'
+                    ? `${report.summary.dnaMatchPercent}%`
+                    : report.summary.reportState === 'POSSIBLE'
+                      ? (typeof dnaLayerScore === 'number' && dnaLayerScore >= 40
+                          ? `${dnaLayerScore}%`
+                          : `${displayMatchScore}% match · DNA layer ${dnaLayerScore ?? 0}%`)
+                      : '—' },
+                  { label: 'Trust Score', value: `${report.summary.trustScore ?? report.identityRecovery?.compositeScores.trustScore ?? '—'}${typeof report.summary.trustScore === 'number' ? '%' : ''}` },
+                  { label: 'Certificate', value: report.summary.certificateStatus },
+                  { label: 'Identity', value: report.summary.identityStatus.replace(/_/g, ' ') },
+                  { label: 'Tamper Severity', value: report.summary.tamperSeverity },
+                  { label: 'Risk Level', value: report.summary.riskLevel },
+                ].map(({ label, value }) => (
+                  <div key={label} className="rounded-lg bg-bg-elevated p-3">
+                    <p className="text-2xs text-gray-500">{label}</p>
+                    <p className="text-sm font-bold text-white mt-0.5">{value}</p>
                   </div>
                 ))}
               </div>
             </Section>
-          )}
 
-          {hasVaultMatch && (
-            <Section title="1c. Identity Recovery Report" icon={Lock}>
-              <p className={cn(
-                'text-xs mb-3',
-                resolvedOwner.ownershipVerified ? 'text-green-400' : 'text-yellow-400',
-              )}>
-                {resolvedOwner.ownershipVerified
-                  ? (report.identityRecoveryReport?.message
-                    ?? 'Original identity recovered from multi-layer forensic signals')
-                  : (report.identityRecoveryReport?.message
-                    ?? report.summary.decisionReason
-                    ?? 'Protected original identified from forensic signals.')}
-              </p>
+            {hasVaultMatch ? (
+            <Section title={resolvedOwner.ownershipVerified ? 'Original Owner' : 'Top Candidate Vault'} icon={User}>
+              {report.matchMethod && (
+                <p className="text-xs text-dna-400 mb-3">
+                  Vault match: {report.matchMethod}
+                  {report.matchTier != null ? ` (tier ${report.matchTier})` : ''}
+                  {!resolvedOwner.ownershipVerified
+                    ? ' — candidate details below; ownership claim pending verification'
+                    : ''}
+                </p>
+              )}
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                 {Object.entries({
-                  'Original Owner': resolvedOwner.ownerName,
-                  'Owner PINIT ID': resolvedOwner.ownerPinitId,
+                  'Owner Name': resolvedOwner.ownerName,
+                  'PINIT ID': resolvedOwner.ownerPinitId,
                   'Vault ID': resolvedOwner.vaultId,
-                  'DNA ID': resolvedOwner.dnaRecordId,
+                  'DNA Record ID': resolvedOwner.dnaRecordId,
                   'Certificate ID': resolvedOwner.certificateId,
-                  'Original Assetname': resolvedOwner.originalFilename,
-                  'Original Hash': report.identityRecoveryReport?.originalHash,
-                  'Current Hash': report.identityRecoveryReport?.currentHash ?? report.currentFileHash,
-                  'Evidence Confidence': report.identityRecoveryReport?.evidenceConfidence != null
-                    ? `${report.identityRecoveryReport.evidenceConfidence}%`
-                    : `${displayMatchScore}%`,
                   'TEP Code': report.identityRecoveryReport?.tepCode ?? 'Not embedded on this file',
-                  'Protected Download': report.identityRecoveryReport?.protectedDownloadDate
-                    ? new Date(report.identityRecoveryReport.protectedDownloadDate).toLocaleString()
-                    : report.identityRecoveryReport?.tepCode
-                      ? 'Tracked export — see Evidence Timeline'
-                      : 'No protected download recorded',
-                  'Registered': report.identityRecoveryReport?.registrationTimestamp
-                    ?? (resolvedOwner.ownershipVerified ? report.owner.createdAt : null),
+                  'Original Assetname': resolvedOwner.originalFilename,
+                  'Created': report.owner.createdAt
+                    ?? report.identityRecoveryReport?.registrationTimestamp
+                    ?? null,
                 }).map(([k, v]) => (
                   <div key={k} className="flex justify-between gap-2 py-1 border-b border-bg-border/50">
                     <dt className="text-gray-500">{k}</dt>
-                    <dd className="text-white mono text-right truncate min-w-0 max-w-full sm:max-w-[60%]">
-                      {formatEvidenceValue(v as string | number | null | undefined)}
-                    </dd>
+                    <dd className="text-white mono text-right truncate min-w-0 max-w-full sm:max-w-[60%]">{formatEvidenceValue(v as string | null | undefined)}</dd>
                   </div>
                 ))}
               </dl>
             </Section>
-          )}
-
-          {hasVaultMatch && report.candidateRanking && report.candidateRanking.length > 0 && (
-            <Section title="1d. Vault Candidate Ranking" icon={Dna} defaultOpen={false}>
-              <p className="text-xs text-gray-500 mb-3">Top {report.candidateRanking.length} vault candidates scored — best match selected for deep comparison</p>
-              <div className="space-y-1">
-                {report.candidateRanking.slice(0, 10).map((c) => (
-                  <div key={c.vaultId} className={cn(
-                    'flex items-center gap-2 p-2 rounded-lg text-xs',
-                    c.selected ? 'bg-dna-500/10 border border-dna-500/30' : 'bg-bg-elevated',
-                  )}>
-                    <span className="mono text-gray-500 w-6">#{c.rank}</span>
-                    <span className="flex-1 truncate text-white">{c.method}</span>
-                    <span className="font-bold mono">{c.compositeScore}%</span>
-                    {c.selected && <span className="text-2xs text-dna-400">SELECTED</span>}
-                  </div>
-                ))}
-              </div>
-            </Section>
-          )}
-
-          {hasVaultMatch ? (
-          <Section title={resolvedOwner.ownershipVerified ? '2. Original Owner' : '2. Top Candidate Vault'} icon={User}>
-            {report.matchMethod && (
-              <p className="text-xs text-dna-400 mb-3">
-                Vault match: {report.matchMethod}
-                {report.matchTier != null ? ` (tier ${report.matchTier})` : ''}
-                {!resolvedOwner.ownershipVerified
-                  ? ' — candidate details below; ownership claim pending verification'
-                  : ''}
-              </p>
-            )}
-            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-              {Object.entries({
-                'Owner Name': resolvedOwner.ownerName,
-                'PINIT ID': resolvedOwner.ownerPinitId,
-                'Vault ID': resolvedOwner.vaultId,
-                'DNA Record ID': resolvedOwner.dnaRecordId,
-                'Certificate ID': resolvedOwner.certificateId,
-                'TEP Code': report.identityRecoveryReport?.tepCode ?? 'Not embedded on this file',
-                'Original Assetname': resolvedOwner.originalFilename,
-                'Created': report.owner.createdAt
-                  ?? report.identityRecoveryReport?.registrationTimestamp
-                  ?? null,
-              }).map(([k, v]) => (
-                <div key={k} className="flex justify-between gap-2 py-1 border-b border-bg-border/50">
-                  <dt className="text-gray-500">{k}</dt>
-                  <dd className="text-white mono text-right truncate min-w-0 max-w-full sm:max-w-[60%]">{formatEvidenceValue(v as string | null | undefined)}</dd>
-                </div>
-              ))}
-            </dl>
-          </Section>
-          ) : reportState === 'NO_SIGNATURE' ? (
-            <Section title="2. Vault Match" icon={User}>
-              <p className="text-sm text-red-400">No PINIT signature found — no vault owner details to display.</p>
-              {report.summary.decisionReason && (
-                <p className="text-xs text-gray-500 mt-2">{report.summary.decisionReason}</p>
-              )}
-            </Section>
-          ) : null}
-
-          <Section title="3. Recipient Attribution" icon={Eye}>
-            {report.recipientAttribution.fromShare ? (
-              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                {Object.entries({
-                  'Recipient': report.recipientAttribution.recipientName as string,
-                  'PINIT ID': report.recipientAttribution.recipientPinitId as string,
-                  'Share ID': report.recipientAttribution.shareId as string,
-                  'View Time': report.recipientAttribution.viewTime as string,
-                  'Download Time': report.recipientAttribution.downloadTime as string,
-                  'Screenshot': report.recipientAttribution.screenshotDetected ? 'Detected' : 'No',
-                  'Screen Recording': report.recipientAttribution.screenRecordingDetected ? 'Detected' : 'No',
-                  'Last Device': report.recipientAttribution.lastDevice as string,
-                }).map(([k, v]) => (
-                  <div key={k} className="flex justify-between gap-2 py-1">
-                    <dt className="text-gray-500">{k}</dt>
-                    <dd className="text-white">{v ?? '—'}</dd>
-                  </div>
-                ))}
-              </dl>
-            ) : (
-              <p className="text-sm text-blue-400">Original Owner Only — no share recipient attribution.</p>
-            )}
-          </Section>
-
-          <Section title="4. 15-Layer DNA Analysis" icon={Dna} defaultOpen={false}>
-            {report.layerAnalysis.length === 0 ? (
-              // "vault match required" is wrong on a report that already shows one.
-              // When the file was identified by its embedded export code, a
-              // layer-by-layer comparison is not needed to prove identity — so say
-              // that, rather than implying a step was missed.
-              <p className="text-xs text-gray-500">
-                {report.matchMethod
-                  ? `Not needed — this file was identified by its embedded Pinit identity (${report.matchMethod}), `
-                    + 'which proves origin without comparing layers. Layer analysis runs when a file has to be '
-                    + 'matched against the vault original by content.'
-                  : 'No layer comparison ran — this file was not matched against a vault original.'}
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {report.pipeline.some((s) => s.id === 'dna_compare' && s.detail?.includes('estimated')) && (
-                  <p className="text-xs text-amber-400/90 mb-2">
-                    Deep 15-layer compare did not finish — scores below are estimated from live identity recovery (
-                    {report.summary.retrievalConfidence ?? report.summary.dnaMatchPercent}% confidence).
-                  </p>
-                )}
-                {report.layerAnalysis.map((l) => (
-                  <div key={l.layer} className="p-2 rounded-lg bg-bg-elevated">
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xs text-gray-500 w-6 mono">L{l.layer}</span>
-                      <span className="flex-1 text-xs text-white truncate">{l.name}</span>
-                      <span className="text-xs font-bold text-white mono">{l.matchPercent}%</span>
-                      <span className={cn('text-2xs px-2 py-0.5 rounded-full uppercase', LAYER_STATUS[l.status] ?? LAYER_STATUS.skipped)}>
-                        {l.status}
-                      </span>
-                    </div>
-                    {l.explanation && (
-                      <p className={cn(
-                        'text-2xs mt-1.5 pl-9',
-                        l.status === 'warning' || l.status === 'failed'
-                          ? 'text-amber-400/90'
-                          : 'text-gray-500',
-                      )}>
-                        {l.explanation}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </Section>
-
-          <Section
-            title="5. Tamper Analysis — What Changed vs Original"
-            icon={AlertTriangle}
-            defaultOpen={
-              report.tamperAnalysis.overallTamperScore >= 25
-              || (report.tamperAnalysis.changesVsOriginal?.length ?? 0) > 0
-              || report.tamperAnalysis.vectors.some((v) => v.detected)
-            }
-          >
-            <p className="text-sm font-bold text-white mb-2">
-              Overall Tamper Score: {report.tamperAnalysis.overallTamperScore}%
-              <span className="text-gray-500 font-normal ml-2">
-                ({TAMPER_VECTOR_LABELS[report.tamperAnalysis.primaryVector]
-                  ?? String(report.tamperAnalysis.primaryVector).replace(/_/g, ' ')})
-              </span>
-            </p>
-            {report.tamperAnalysis.description && (
-              <p className="text-xs text-gray-400 mb-3">{report.tamperAnalysis.description}</p>
-            )}
-
-            {/* Primary: explicit inventry of changes done to the original */}
-            {(report.tamperAnalysis.changesVsOriginal?.filter((c) => c.detected && !(hideFragmentAsSplice && c.type === 'Spliced Fragment')).length ?? 0) > 0 ? (
-              <div className="mb-4 space-y-2">
-                <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
-                  Detected changes vs vault original
+            ) : reportState === 'NO_SIGNATURE' ? (
+              <Section title="Vault Match" icon={User}>
+                <p className="text-sm text-red-400">Not found under your account — no vault owner details to display.</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  This only checks your own protected files. It does not confirm the file is free to use.
                 </p>
-                {report.tamperAnalysis.changesVsOriginal!.filter((c) => c.detected && !(hideFragmentAsSplice && c.type === 'Spliced Fragment')).map((c) => (
-                  <div
-                    key={`${c.type}-${c.detail.slice(0, 24)}`}
-                    className="p-3 rounded-lg border border-orange-500/35 bg-orange-500/10"
-                  >
-                    <div className="flex items-center justify-between gap-2 mb-1">
-                      <span className="text-sm font-semibold text-orange-700">{c.type}</span>
-                      <span className="text-2xs mono text-orange-700">{c.confidence}% conf.</span>
-                    </div>
-                    <p className="text-xs text-gray-700">{c.detail}</p>
-                    {c.where && (
-                      <p className="text-2xs text-gray-500 mt-1">Where: {c.where}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : report.tamperAnalysis.overallTamperScore < 25 ? (
-              <p className="text-xs text-green-400/90 mb-3">
-                No significant crop, compress, or text changes detected vs the matched original.
-              </p>
+                {report.summary.decisionReason && (
+                  <p className="text-xs text-gray-500 mt-2">{report.summary.decisionReason}</p>
+                )}
+              </Section>
             ) : null}
 
-            {report.tamperAnalysis.cropDetection && (
-              <div className="mb-3 p-2.5 rounded-lg bg-bg-elevated border border-bg-border text-xs space-y-1">
-                <p className="font-semibold text-white">Crop / region geometry</p>
-                {report.tamperAnalysis.cropDetection.sharedRegionPercent != null && (
-                  <p className="text-gray-300">
-                    Shared with original: ~{Math.round(report.tamperAnalysis.cropDetection.sharedRegionPercent)}%
-                  </p>
-                )}
-                {(report.tamperAnalysis.cropDetection.cropPercent != null
-                  || report.tamperAnalysis.cropDetection.missingPercent != null) && (
-                  <p className="text-amber-400">
-                    Cropped / missing: ~
-                    {Math.round(
-                      report.tamperAnalysis.cropDetection.cropPercent
-                      ?? report.tamperAnalysis.cropDetection.missingPercent
-                      ?? 0,
-                    )}%
-                  </p>
-                )}
-                {report.tamperAnalysis.cropDetection.visiblePercent != null && (
-                  <p className="text-gray-400">
-                    Visible portion: ~{Math.round(report.tamperAnalysis.cropDetection.visiblePercent)}%
-                  </p>
-                )}
-              </div>
-            )}
-
-            {report.tamperAnalysis.modifiedPercent != null && (
-              <p className="text-xs text-amber-400 mb-2">
-                Modified region: {report.tamperAnalysis.modifiedPercent}%
-                {report.tamperAnalysis.insertedRegions != null && (
-                  <span className="text-gray-500"> · {report.tamperAnalysis.insertedRegions} region(s)</span>
-                )}
-              </p>
-            )}
-            {report.tamperAnalysis.overlayPngBase64 && (
-              <div className="mb-3 rounded-lg overflow-hidden border border-red-500/30">
-                <img
-                  src={`data:image/png;base64,${report.tamperAnalysis.overlayPngBase64}`}
-                  alt="Tamper localization overlay"
-                  className="w-full max-h-64 object-contain bg-black"
-                />
-                <p className="text-2xs text-gray-500 p-2">Red overlay = modified / inserted vs vault original</p>
-              </div>
-            )}
-
-            {(report.tamperAnalysis.regions?.length ?? 0) > 0 && (
-              <div className="mb-3 space-y-1.5">
-                <p className="text-2xs font-semibold text-gray-400 uppercase">Changed regions</p>
-                {report.tamperAnalysis.regions!.map((r, i) => (
-                  <div
-                    key={`region-${i}-${r.x}-${r.y}`}
-                    className={cn(
-                      'text-2xs px-2 py-1 rounded border flex items-center justify-between gap-2',
-                      r.type === 'added' && 'border-red-500/40 bg-red-500/10 text-red-300',
-                      r.type === 'removed' && 'border-amber-500/40 bg-amber-500/10 text-amber-300',
-                      r.type === 'modified' && 'border-gray-500/40 bg-gray-500/10 text-gray-300',
-                    )}
-                  >
-                    <span className="font-semibold uppercase">{r.type}</span>
-                    <span className="mono text-gray-500">
-                      {r.x},{r.y} · {r.width}×{r.height}px
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-
+            {/* Even when the whole-image ownership check can't confirm a full-file match (e.g. a small
+                fragment reused inside an otherwise-unrelated image), a positive fragment finding is a
+                distinct, meaningful signal on its own — surface it up top so it isn't missed below the
+                "no verified owner" verdict, instead of only appearing buried in Tamper Analysis. */}
             {showFragmentReuse && report.fragmentReuseAnalysis && (
-              <div className="mb-4 space-y-2">
-                <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
-                  Fragment reuse detected
+              <div className="card border border-purple-500/30 bg-purple-500/5 text-purple-600 p-3 text-xs">
+                Fragment of protected content detected
+                {report.fragmentReuseAnalysis.findings[0]
+                  ? ` — ${report.fragmentReuseAnalysis.findings[0].confidence}% confidence`
+                  : ''}
+                <p className="mt-1 opacity-80">
+                  {report.fragmentReuseAnalysis.summary}
+                  {report.fragmentReuseAnalysis.findings[0]?.ownerFilename
+                    ? ` Matched original: ${report.fragmentReuseAnalysis.findings[0].ownerFilename}.`
+                    : ''}
                 </p>
-                <p className="text-xs text-gray-700 mb-1">{report.fragmentReuseAnalysis.summary}</p>
-                {report.fragmentReuseAnalysis.findings.map((f) => (
-                  <div
-                    key={f.vaultId}
-                    className="p-3 rounded-lg border border-purple-500/40 bg-purple-500/10"
-                  >
-                    <div className="flex items-center justify-between gap-2 mb-1">
-                      <span className="text-sm font-semibold text-purple-700">
-                        Matches protected original{f.ownerFilename ? `: ${f.ownerFilename}` : ''}
+              </div>
+            )}
+
+            {report.videoComposition ? (
+              <VideoCompositionPanel videoComposition={report.videoComposition} />
+            ) : report.composition && (
+              <InvestigationCompositionPanel
+                composition={report.composition}
+                previewUrl={previewUrl}
+              />
+            )}
+          </div>
+
+          <div hidden={reportTab !== 'evidence'} className="space-y-6" role="tabpanel">
+            {showComparison && (
+              <InvestigationSideBySideCompare
+                vaultId={compareVaultId}
+                probePreviewUrl={previewUrl}
+                probeFileName={file?.name ?? report.dnaComparison?.fileB?.filename}
+                probeMimeType={file?.type ?? report.dnaComparison?.fileB?.mimeType}
+                originalFilename={compareOriginalFilename}
+                ownerPinitId={hasVaultMatch ? resolvedOwner.ownerPinitId : null}
+                dnaMatchPercent={dnaLayerScore}
+                matchConfidence={compareMatchConfidence}
+                reportState={compareReportState}
+                dnaRecordId={compareDnaRecordId}
+                certificateId={hasVaultMatch ? resolvedOwner.certificateId : null}
+                differenceHeatmapBase64={report.tamperAnalysis.overlayPngBase64}
+                modifiedPercent={report.tamperAnalysis.modifiedPercent}
+                insertedRegions={report.tamperAnalysis.insertedRegions}
+                cropSharedPercent={report.tamperAnalysis.cropDetection?.sharedRegionPercent ?? null}
+                cropMissingPercent={report.tamperAnalysis.cropDetection?.cropPercent ?? report.tamperAnalysis.cropDetection?.missingPercent ?? null}
+                cropVisiblePercent={report.tamperAnalysis.cropDetection?.visiblePercent ?? null}
+                spatialInvestigation={
+                  (report.tamperAnalysis.spatialAuthInvestigation as SpatialInvestigationViewModel | null | undefined)
+                  ?? null
+                }
+                spatialHierarchy={
+                  ((report.tamperAnalysis as { spatialHierarchy?: SpatialHierarchyViewModel | null })
+                    .spatialHierarchy) ?? null
+                }
+                additionalSources={report.composition?.candidateSources}
+              />
+            )}
+
+            {report.forensicEvidence?.matchReasons && report.forensicEvidence.matchReasons.length > 0 && (
+              <Section title="Why It Matched" icon={Fingerprint} defaultOpen>
+                <p className="text-xs text-gray-400 mb-3">Matched because:</p>
+                <div className="space-y-2">
+                  {report.forensicEvidence.matchReasons.map((r) => (
+                    <div key={r.signal} className="flex items-center gap-3 p-2 rounded-lg bg-bg-elevated">
+                      <span className={cn('text-lg', r.matched ? 'text-green-400' : 'text-gray-600')}>
+                        {r.matched ? '✓' : '○'}
                       </span>
-                      <span className="text-2xs mono text-purple-700">{f.confidence}% conf.</span>
+                      <span className="flex-1 text-xs text-white">{r.label}</span>
+                      <span className="text-xs font-bold mono text-dna-400">{r.percent}%</span>
                     </div>
-                    <p className="text-xs text-gray-700">
-                      {f.patchMatchCount} matching patches in a localized region of the uploaded image
-                    </p>
-                    <div className="relative w-full mt-2 rounded border border-purple-500/30 bg-black/10" style={{ aspectRatio: '4 / 3' }}>
-                      <div
-                        className="absolute border-2 border-purple-500 bg-purple-500/25"
-                        style={{
-                          left: `${f.probeRegion.xPercent}%`,
-                          top: `${f.probeRegion.yPercent}%`,
-                          width: `${f.probeRegion.widthPercent}%`,
-                          height: `${f.probeRegion.heightPercent}%`,
-                        }}
-                      />
-                      <span className="absolute bottom-1 right-1 text-2xs text-gray-600">approx. region in uploaded image</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {(report.provenance || (report.relatedLineage?.edges?.length ?? 0) > 0) && (
-              <div className="mb-4 space-y-2">
-                <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
-                  Provenance &amp; lineage
-                </p>
-                {report.provenance && (
-                  <div
-                    className={cn(
-                      'text-xs px-3 py-2 rounded-lg border inline-flex items-center gap-2',
-                      report.provenance.authorizationStatus === 'AUTHORIZED' && 'border-green-500/40 bg-green-500/10 text-green-300',
-                      report.provenance.authorizationStatus === 'UNKNOWN_ORIGIN' && 'border-amber-500/40 bg-amber-500/10 text-amber-300',
-                      report.provenance.authorizationStatus === 'NOT_APPLICABLE' && 'border-bg-border text-gray-500',
+                  ))}
+                </div>
+                {report.forensicEvidence.screenshotDetected && (
+                  <p className="text-xs text-amber-400 mt-3">
+                    Screenshot detected — Platform: {report.forensicEvidence.screenshotPlatform ?? 'unknown'}
+                    {report.forensicEvidence.screenshotConfidence != null && (
+                      <span> ({report.forensicEvidence.screenshotConfidence}%)</span>
                     )}
-                  >
-                    {report.provenance.authorizationStatus === 'AUTHORIZED' && 'Traced to a known share/export — Authorized'}
-                    {report.provenance.authorizationStatus === 'UNKNOWN_ORIGIN' && 'No matching share/export record — Unknown origin'}
-                    {report.provenance.authorizationStatus === 'NOT_APPLICABLE' && 'Not applicable'}
-                  </div>
-                )}
-                {(report.relatedLineage?.edges?.length ?? 0) > 0 && (
-                  <div className="space-y-1.5 mt-2">
-                    <p className="text-2xs font-semibold text-gray-400 uppercase">Related files ({report.relatedLineage!.edges.length})</p>
-                    {report.relatedLineage!.edges.slice(0, 8).map((e) => {
-                      const otherId = e.fromId === resolvedOwner.dnaRecordId ? e.toId : e.fromId;
-                      const otherNode = report.relatedLineage!.nodes.find((n) => n.dnaRecordId === otherId);
-                      return (
-                        <div key={`${e.fromId}-${e.toId}`} className="text-2xs px-2 py-1.5 rounded border border-bg-border bg-bg-elevated flex items-center justify-between gap-2">
-                          <span className="text-gray-300 truncate">{otherNode?.filename ?? otherId.slice(0, 8)}</span>
-                          <span className="text-gray-500 shrink-0">{e.relation.replace(/_/g, ' ')} · {Math.round(e.confidence)}%</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {report.identityRecovery?.transformations?.some((t) => t.detected) && (
-              <div className="mb-3 space-y-1">
-                <p className="text-2xs font-semibold text-gray-400 uppercase">Leak-path transforms</p>
-                {report.identityRecovery.transformations.filter((t) => t.detected).map((t) => (
-                  <p key={t.type} className="text-xs text-orange-300">
-                    {t.type}{t.detail ? ` — ${t.detail}` : ''}
                   </p>
-                ))}
-              </div>
+                )}
+                {report.forensicEvidence.aiEdited && (
+                  <p className="text-xs text-red-400 mt-2">
+                    AI edit suspected ({report.forensicEvidence.aiEditConfidence}%): {report.forensicEvidence.aiEditReason}
+                  </p>
+                )}
+              </Section>
             )}
 
-            <p className="text-2xs text-gray-500 mb-2">All detectors</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {report.tamperAnalysis.vectors.map((v) => (
-                <div
-                  key={v.label}
-                  className={cn(
-                    'text-xs px-2 py-1.5 rounded-lg border',
-                    v.detected
-                      ? 'border-orange-500/40 text-orange-700 bg-orange-500/10'
-                      : 'border-bg-border text-gray-500',
+            <Section
+              title="Tamper Analysis — What Changed vs Original"
+              icon={AlertTriangle}
+              defaultOpen={
+                report.tamperAnalysis.overallTamperScore >= 25
+                || (report.tamperAnalysis.changesVsOriginal?.length ?? 0) > 0
+                || report.tamperAnalysis.vectors.some((v) => v.detected)
+              }
+            >
+              <p className="text-sm font-bold text-white mb-2">
+                Overall Tamper Score: {report.tamperAnalysis.overallTamperScore}%
+                <span className="text-gray-500 font-normal ml-2">
+                  ({TAMPER_VECTOR_LABELS[report.tamperAnalysis.primaryVector]
+                    ?? String(report.tamperAnalysis.primaryVector).replace(/_/g, ' ')})
+                </span>
+              </p>
+              {report.tamperAnalysis.description && (
+                <p className="text-xs text-gray-400 mb-3">{report.tamperAnalysis.description}</p>
+              )}
+
+              {/* Primary: explicit inventry of changes done to the original */}
+              {(report.tamperAnalysis.changesVsOriginal?.filter((c) => c.detected && !(hideFragmentAsSplice && c.type === 'Spliced Fragment')).length ?? 0) > 0 ? (
+                <div className="mb-4 space-y-2">
+                  <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
+                    Detected changes vs vault original
+                  </p>
+                  {report.tamperAnalysis.changesVsOriginal!.filter((c) => c.detected && !(hideFragmentAsSplice && c.type === 'Spliced Fragment')).map((c) => (
+                    <div
+                      key={`${c.type}-${c.detail.slice(0, 24)}`}
+                      className="p-3 rounded-lg border border-orange-500/35 bg-orange-500/10"
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="text-sm font-semibold text-orange-700">{c.type}</span>
+                        <span className="text-2xs mono text-orange-700">{c.confidence}% conf.</span>
+                      </div>
+                      <p className="text-xs text-gray-700">{c.detail}</p>
+                      {c.where && (
+                        <p className="text-2xs text-gray-500 mt-1">Where: {c.where}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : report.tamperAnalysis.overallTamperScore < 25 ? (
+                <p className="text-xs text-green-400/90 mb-3">
+                  No significant crop, compress, or text changes detected vs the matched original.
+                </p>
+              ) : null}
+
+              {report.tamperAnalysis.cropDetection && (
+                <div className="mb-3 p-2.5 rounded-lg bg-bg-elevated border border-bg-border text-xs space-y-1">
+                  <p className="font-semibold text-white">Crop / region geometry</p>
+                  {report.tamperAnalysis.cropDetection.sharedRegionPercent != null && (
+                    <p className="text-gray-300">
+                      Shared with original: ~{Math.round(report.tamperAnalysis.cropDetection.sharedRegionPercent)}%
+                    </p>
                   )}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span>
-                      {v.label}
-                      {v.detected ? ' ✓' : ' — Clear'}
-                    </span>
-                    {v.detected && v.confidence != null && v.confidence > 0 && (
-                      <span className="text-2xs mono">{v.confidence}%</span>
-                    )}
-                  </div>
-                  {v.detected && v.evidence && v.evidence.length > 0 && (
-                    <p className="text-2xs text-orange-700 mt-0.5 leading-snug">{v.evidence[0]}</p>
+                  {(report.tamperAnalysis.cropDetection.cropPercent != null
+                    || report.tamperAnalysis.cropDetection.missingPercent != null) && (
+                    <p className="text-amber-400">
+                      Cropped / missing: ~
+                      {Math.round(
+                        report.tamperAnalysis.cropDetection.cropPercent
+                        ?? report.tamperAnalysis.cropDetection.missingPercent
+                        ?? 0,
+                      )}%
+                    </p>
+                  )}
+                  {report.tamperAnalysis.cropDetection.visiblePercent != null && (
+                    <p className="text-gray-400">
+                      Visible portion: ~{Math.round(report.tamperAnalysis.cropDetection.visiblePercent)}%
+                    </p>
                   )}
                 </div>
-              ))}
-            </div>
-          </Section>
+              )}
 
-          {report.forensicEvidence?.matchReasons && report.forensicEvidence.matchReasons.length > 0 && (
-            <Section title="5b. Why It Matched" icon={Fingerprint} defaultOpen>
-              <p className="text-xs text-gray-400 mb-3">Matched because:</p>
-              <div className="space-y-2">
-                {report.forensicEvidence.matchReasons.map((r) => (
-                  <div key={r.signal} className="flex items-center gap-3 p-2 rounded-lg bg-bg-elevated">
-                    <span className={cn('text-lg', r.matched ? 'text-green-400' : 'text-gray-600')}>
-                      {r.matched ? '✓' : '○'}
-                    </span>
-                    <span className="flex-1 text-xs text-white">{r.label}</span>
-                    <span className="text-xs font-bold mono text-dna-400">{r.percent}%</span>
-                  </div>
-                ))}
-              </div>
-              {report.forensicEvidence.screenshotDetected && (
-                <p className="text-xs text-amber-400 mt-3">
-                  Screenshot detected — Platform: {report.forensicEvidence.screenshotPlatform ?? 'unknown'}
-                  {report.forensicEvidence.screenshotConfidence != null && (
-                    <span> ({report.forensicEvidence.screenshotConfidence}%)</span>
+              {report.tamperAnalysis.modifiedPercent != null && (
+                <p className="text-xs text-amber-400 mb-2">
+                  Modified region: {report.tamperAnalysis.modifiedPercent}%
+                  {report.tamperAnalysis.insertedRegions != null && (
+                    <span className="text-gray-500"> · {report.tamperAnalysis.insertedRegions} region(s)</span>
                   )}
                 </p>
               )}
-              {report.forensicEvidence.aiEdited && (
-                <p className="text-xs text-red-400 mt-2">
-                  AI edit suspected ({report.forensicEvidence.aiEditConfidence}%): {report.forensicEvidence.aiEditReason}
-                </p>
+              {report.tamperAnalysis.overlayPngBase64 && (
+                <div className="mb-3 rounded-lg overflow-hidden border border-red-500/30">
+                  <img
+                    src={`data:image/png;base64,${report.tamperAnalysis.overlayPngBase64}`}
+                    alt="Tamper localization overlay"
+                    className="w-full max-h-64 object-contain bg-black"
+                  />
+                  <p className="text-2xs text-gray-500 p-2">Red overlay = modified / inserted vs vault original</p>
+                </div>
               )}
-            </Section>
-          )}
 
-          <Section title="6. Evidence Timeline (Chain of Custody)" icon={Clock} defaultOpen>
-            <p className="text-2xs text-gray-500 mb-3">
-              Append-only forensic history — DNA identity is never modified by these events.
-            </p>
-            {report.provenanceSummary && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
-                {[
-                  ['Created', report.provenanceSummary.creationTime ? new Date(report.provenanceSummary.creationTime).toLocaleString() : '—'],
-                  ['Creation location', report.provenanceSummary.creationLocation ?? '—'],
-                  ['Last download', report.provenanceSummary.lastDownload ? new Date(report.provenanceSummary.lastDownload).toLocaleString() : '—'],
-                  ['Last protected export', report.provenanceSummary.lastProtectedExport ? new Date(report.provenanceSummary.lastProtectedExport).toLocaleString() : '—'],
-                  ['Last known location', report.provenanceSummary.lastKnownLocation ?? '—'],
-                  ['Last known device', report.provenanceSummary.lastKnownDevice ?? '—'],
-                  ['Downloads', String(report.provenanceSummary.downloadCount)],
-                  ['Shares', String(report.provenanceSummary.shareCount)],
-                  ['Investigations', String(report.provenanceSummary.investigationCount)],
-                  ['Tamper events', String(report.provenanceSummary.tamperCount)],
-                  ['Countries seen', report.provenanceSummary.countriesSeen.join(', ') || '—'],
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded-lg border border-bg-border bg-bg-elevated/40 px-2 py-1.5">
-                    <p className="text-2xs text-gray-500">{label}</p>
-                    <p className="text-xs text-white truncate" title={value}>{value}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-            {(report.evidenceTimeline?.length ?? 0) === 0 ? (
-              <p className="text-xs text-gray-500">No custody events recorded for this asset yet.</p>
-            ) : (
-              <div className="space-y-0">
-                {report.evidenceTimeline!.map((ev) => (
-                  <div
-                    key={ev.id}
-                    className="flex gap-3 py-2 border-l-2 border-dna-500/30 pl-4 ml-2"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-2xs font-semibold text-dna-300 uppercase tracking-wide">{ev.eventType.replace(/_/g, ' ')}</p>
-                      <p className="text-xs font-semibold text-white">{ev.summary}</p>
-                      <p className="text-2xs text-gray-500 mono">{new Date(ev.timestamp).toLocaleString()}</p>
-                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-2xs text-gray-400">
-                        {ev.locationLabel && <span>{ev.locationLabel}</span>}
-                        {ev.actorLabel && <span>{ev.actorLabel}</span>}
-                        {ev.device && <span>{ev.device}</span>}
-                        {ev.tepCode && <span className="mono">TEP {ev.tepCode}</span>}
-                        {ev.certificateId && <span className="mono truncate max-w-[12rem]">{ev.certificateId}</span>}
+              {(report.tamperAnalysis.regions?.length ?? 0) > 0 && (
+                <div className="mb-3 space-y-1.5">
+                  <p className="text-2xs font-semibold text-gray-400 uppercase">Changed regions</p>
+                  {report.tamperAnalysis.regions!.map((r, i) => (
+                    <div
+                      key={`region-${i}-${r.x}-${r.y}`}
+                      className={cn(
+                        'text-2xs px-2 py-1 rounded border flex items-center justify-between gap-2',
+                        r.type === 'added' && 'border-red-500/40 bg-red-500/10 text-red-800 dark:text-red-300',
+                        r.type === 'removed' && 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300',
+                        r.type === 'modified' && 'border-gray-500/40 bg-gray-500/10 text-gray-300',
+                      )}
+                    >
+                      <span className="font-semibold uppercase">{r.type}</span>
+                      <span className="mono text-gray-500">
+                        {r.x},{r.y} · {r.width}×{r.height}px
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {showFragmentReuse && report.fragmentReuseAnalysis && (
+                <div className="mb-4 space-y-2">
+                  <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
+                    Fragment reuse detected
+                  </p>
+                  <p className="text-xs text-gray-700 mb-1">{report.fragmentReuseAnalysis.summary}</p>
+                  {report.fragmentReuseAnalysis.findings.map((f) => (
+                    <div
+                      key={f.vaultId}
+                      className="p-3 rounded-lg border border-purple-500/40 bg-purple-500/10"
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="text-sm font-semibold text-purple-700">
+                          Matches protected original{f.ownerFilename ? `: ${f.ownerFilename}` : ''}
+                        </span>
+                        <span className="text-2xs mono text-purple-700">{f.confidence}% conf.</span>
+                      </div>
+                      <p className="text-xs text-gray-700">
+                        {f.patchMatchCount} matching patches in a localized region of the uploaded image
+                      </p>
+                      <div className="relative w-full mt-2 rounded border border-purple-500/30 bg-black/10" style={{ aspectRatio: '4 / 3' }}>
+                        <div
+                          className="absolute border-2 border-purple-500 bg-purple-500/25"
+                          style={{
+                            left: `${f.probeRegion.xPercent}%`,
+                            top: `${f.probeRegion.yPercent}%`,
+                            width: `${f.probeRegion.widthPercent}%`,
+                            height: `${f.probeRegion.heightPercent}%`,
+                          }}
+                        />
+                        <span className="absolute bottom-1 right-1 text-2xs text-gray-600">approx. region in uploaded image</span>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Section>
+                  ))}
+                </div>
+              )}
 
-          <Section title="6b. Session Timeline" icon={Clock} defaultOpen={false}>
-            {report.timeline.length === 0 ? (
-              <p className="text-xs text-gray-500">No timeline events recorded for this investigation.</p>
-            ) : (
-              <div className="space-y-0" key={report.investigationId}>
-                {report.timeline.map((ev, i) => (
+              {(report.provenance || (report.relatedLineage?.edges?.length ?? 0) > 0) && (
+                <div className="mb-4 space-y-2">
+                  <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
+                    Provenance &amp; lineage
+                  </p>
+                  {report.provenance && (
+                    <div
+                      className={cn(
+                        'text-xs px-3 py-2 rounded-lg border inline-flex items-center gap-2',
+                        report.provenance.authorizationStatus === 'AUTHORIZED' && 'border-green-500/40 bg-green-500/10 text-green-800 dark:text-green-300',
+                        report.provenance.authorizationStatus === 'UNKNOWN_ORIGIN' && 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300',
+                        report.provenance.authorizationStatus === 'NOT_APPLICABLE' && 'border-bg-border text-gray-500',
+                      )}
+                    >
+                      {report.provenance.authorizationStatus === 'AUTHORIZED' && 'Traced to a known share/export — Authorized'}
+                      {report.provenance.authorizationStatus === 'UNKNOWN_ORIGIN' && 'No matching share/export record — Unknown origin'}
+                      {report.provenance.authorizationStatus === 'NOT_APPLICABLE' && 'Not applicable'}
+                    </div>
+                  )}
+                  {(report.relatedLineage?.edges?.length ?? 0) > 0 && (
+                    <div className="space-y-1.5 mt-2">
+                      <p className="text-2xs font-semibold text-gray-400 uppercase">Related files ({report.relatedLineage!.edges.length})</p>
+                      {report.relatedLineage!.edges.slice(0, 8).map((e) => {
+                        const otherId = e.fromId === resolvedOwner.dnaRecordId ? e.toId : e.fromId;
+                        const otherNode = report.relatedLineage!.nodes.find((n) => n.dnaRecordId === otherId);
+                        return (
+                          <div key={`${e.fromId}-${e.toId}`} className="text-2xs px-2 py-1.5 rounded border border-bg-border bg-bg-elevated flex items-center justify-between gap-2">
+                            <span className="text-gray-300 truncate">{otherNode?.filename ?? otherId.slice(0, 8)}</span>
+                            <span className="text-gray-500 shrink-0">{e.relation.replace(/_/g, ' ')} · {Math.round(e.confidence)}%</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {report.identityRecovery?.transformations?.some((t) => t.detected) && (
+                <div className="mb-3 space-y-1">
+                  <p className="text-2xs font-semibold text-gray-400 uppercase">Leak-path transforms</p>
+                  {report.identityRecovery.transformations.filter((t) => t.detected).map((t) => (
+                    <p key={t.type} className="text-xs text-orange-700 dark:text-orange-300">
+                      {t.type}{t.detail ? ` — ${t.detail}` : ''}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              <p className="text-2xs text-gray-500 mb-2">All detectors</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {report.tamperAnalysis.vectors.map((v) => (
                   <div
-                    key={`${report.investigationId}-${ev.stage}-${ev.timestamp ?? i}`}
+                    key={v.label}
                     className={cn(
-                      'flex gap-3 py-2 border-l-2 pl-4 ml-2',
-                      ev.stage.includes('this session')
-                        ? 'border-dna-400 bg-dna-500/5 rounded-r-lg'
-                        : 'border-dna-500/30',
+                      'text-xs px-2 py-1.5 rounded-lg border',
+                      v.detected
+                        ? 'border-orange-500/40 text-orange-700 bg-orange-500/10'
+                        : 'border-bg-border text-gray-500',
                     )}
                   >
-                    <div>
-                      <p className="text-xs font-semibold text-white">{ev.stage}</p>
-                      {ev.timestamp && <p className="text-2xs text-gray-500 mono">{ev.timestamp}</p>}
-                      {ev.detail && <p className="text-2xs text-gray-400 mt-0.5">{ev.detail}</p>}
+                    <div className="flex items-center justify-between gap-2">
+                      <span>
+                        {v.label}
+                        {v.detected ? ' ✓' : ' — Clear'}
+                      </span>
+                      {v.detected && v.confidence != null && v.confidence > 0 && (
+                        <span className="text-2xs mono">{v.confidence}%</span>
+                      )}
                     </div>
+                    {v.detected && v.evidence && v.evidence.length > 0 && (
+                      <p className="text-2xs text-orange-700 mt-0.5 leading-snug">{v.evidence[0]}</p>
+                    )}
                   </div>
                 ))}
               </div>
-            )}
-          </Section>
+            </Section>
 
-          <Section title="7. Access Intelligence" icon={Activity} defaultOpen={false}>
-            {report.accessIntelligence.length === 0 ? (
-              <p className="text-xs text-gray-500">No access events recorded.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-2xs">
-                  <thead>
-                    <tr className="text-gray-500 text-left">
-                      <th className="pb-2 pr-2">Time</th>
-                      <th className="pb-2 pr-2">Action</th>
-                      <th className="pb-2 pr-2">IP</th>
-                      <th className="pb-2 pr-2">Device</th>
-                      <th className="pb-2">Location</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {report.accessIntelligence.map((a, i) => (
-                      <tr key={i} className="border-t border-bg-border text-gray-300">
-                        <td className="py-1.5 pr-2 mono">{a.timestamp}</td>
-                        <td className="py-1.5 pr-2">{a.action}</td>
-                        <td className="py-1.5 pr-2 mono">{a.ipAddress}</td>
-                        <td className="py-1.5 pr-2">{a.device ?? a.browser}</td>
-                        <td className="py-1.5">{[a.city, a.country].filter(Boolean).join(', ')}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            {report.dnaVnext && (
+              <div className="card border border-bg-border p-4 space-y-2 text-xs">
+                <h3 className="text-sm font-semibold text-white">DNA vNext — provenance evidence</h3>
+                <p className="text-2xs text-gray-500">{report.dnaVnext.note}</p>
+                <ul className="text-2xs text-gray-400 space-y-1">
+                  <li>DNA A (HMAC 8×8): {report.dnaVnext.mechanisms.dnaA.present ? 'available' : 'not on this run'} — {report.dnaVnext.mechanisms.dnaA.role}</li>
+                  <li>
+                    DNA B (robust watermark): {report.dnaVnext.mechanisms.dnaB.present ? 'recovered' : 'not recovered'} — {report.dnaVnext.mechanisms.dnaB.role}
+                    {report.dnaVnext.mechanisms.dnaB.recovery?.recovered && (
+                      <span className="block text-gray-500 mt-0.5">
+                        Spatial support {report.dnaVnext.mechanisms.dnaB.recovery.spatialConfidencePercent}%
+                        {report.dnaVnext.mechanisms.dnaB.recovery.supportRegion
+                          ? ` · region ${report.dnaVnext.mechanisms.dnaB.recovery.supportRegion.width}×${report.dnaVnext.mechanisms.dnaB.recovery.supportRegion.height}`
+                          : ''}
+                        . This does not equal vault pixel coverage.
+                      </span>
+                    )}
+                  </li>
+                  <li>DNA C (spatial fingerprints): {report.dnaVnext.mechanisms.dnaC.present ? 'matched' : 'no region located'} — {report.dnaVnext.mechanisms.dnaC.role}</li>
+                </ul>
+                {report.dnaVnext.provenance && (
+                  <p className="text-2xs text-gray-500">
+                    Provenance record {report.dnaVnext.provenance.version} · root {report.dnaVnext.provenance.rootAuthenticationHex16} · {report.dnaVnext.provenance.regionManifest.length} regions
+                  </p>
+                )}
+                {report.dnaVnext.transformations.length > 0 && (
+                  <p className="text-2xs text-gray-500">Transformations: {report.dnaVnext.transformations.join(', ')}</p>
+                )}
               </div>
             )}
-          </Section>
+          </div>
 
-          <Section title="8. Leak Intelligence" icon={Globe} defaultOpen={false}>
-            {report.leakIntelligence.leakChain && report.leakIntelligence.leakChain.length > 0 && (
-              <div className="mb-4 space-y-0">
-                <p className="text-2xs text-gray-500 uppercase tracking-wider mb-2">Leak chain (crawler)</p>
-                {report.leakIntelligence.leakChain.map((e, i) => (
-                  <div key={i} className="flex gap-3 py-2 border-l-2 border-red-500/30 pl-4 ml-2">
-                    <div>
-                      <p className="text-xs font-semibold text-red-400">{e.platform}</p>
-                      <p className="text-2xs text-gray-500">{e.date ?? '—'} · {e.status}</p>
+          <div hidden={reportTab !== 'history'} className="space-y-6" role="tabpanel">
+            <Section title="Evidence Timeline (Chain of Custody)" icon={Clock} defaultOpen>
+              <p className="text-2xs text-gray-500 mb-3">
+                Append-only forensic history — DNA identity is never modified by these events.
+              </p>
+              {report.provenanceSummary && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
+                  {[
+                    ['Created', report.provenanceSummary.creationTime ? new Date(report.provenanceSummary.creationTime).toLocaleString() : '—'],
+                    ['Creation location', report.provenanceSummary.creationLocation ?? '—'],
+                    ['Last download', report.provenanceSummary.lastDownload ? new Date(report.provenanceSummary.lastDownload).toLocaleString() : '—'],
+                    ['Last protected export', report.provenanceSummary.lastProtectedExport ? new Date(report.provenanceSummary.lastProtectedExport).toLocaleString() : '—'],
+                    ['Last known location', report.provenanceSummary.lastKnownLocation ?? '—'],
+                    ['Last known device', report.provenanceSummary.lastKnownDevice ?? '—'],
+                    ['Downloads', String(report.provenanceSummary.downloadCount)],
+                    ['Shares', String(report.provenanceSummary.shareCount)],
+                    ['Investigations', String(report.provenanceSummary.investigationCount)],
+                    ['Tamper events', String(report.provenanceSummary.tamperCount)],
+                    ['Countries seen', report.provenanceSummary.countriesSeen.join(', ') || '—'],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-lg border border-bg-border bg-bg-elevated/40 px-2 py-1.5">
+                      <p className="text-2xs text-gray-500">{label}</p>
+                      <p className="text-xs text-white truncate" title={value}>{value}</p>
                     </div>
-                  </div>
-                ))}
-                <p className="text-2xs text-gray-500 mt-2">
-                  Current status: {report.leakIntelligence.currentStatus ?? 'Unknown'}
-                </p>
-              </div>
-            )}
-            {report.leakIntelligence.hasPublicLeak ? (
-              <div className="space-y-2">
-                {report.leakIntelligence.entries.map((e, i) => (
-                  <div key={i} className="p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-xs">
-                    <p className="text-red-400 font-semibold">{e.platform} — {e.status}</p>
-                    <a href={e.url} className="text-blue-400 break-all" target="_blank" rel="noreferrer">{e.url}</a>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-green-400">No public leak detected.</p>
-            )}
-          </Section>
-
-          <Section title="9. Identity Proof" icon={Fingerprint} defaultOpen={false}>
-            {hasVaultMatch && (
-            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs mb-4">
-              {[
-                ['Vault ID', resolvedOwner.vaultId],
-                ['DNA Record ID', resolvedOwner.dnaRecordId],
-                ['Certificate ID', resolvedOwner.certificateId ?? report.identityProof.certificateId],
-                ['Owner PINIT ID', resolvedOwner.ownerPinitId ?? report.identityProof.ownerPinitId],
-                ['Digital Signature', (report.identityProof.digitalSignatureValid || hasVaultMatch) ? 'VALID' : 'INVALID'],
-                ['Identity Verification', report.identityProof.identityVerification],
-              ].map(([k, v]) => (
-                <div key={String(k)} className="flex justify-between gap-2 py-1 border-b border-bg-border/50">
-                  <dt className="text-gray-500">{k}</dt>
-                  <dd className="text-white mono text-right truncate min-w-0 max-w-full sm:max-w-[60%]">{formatEvidenceValue(v as string | null | undefined)}</dd>
+                  ))}
                 </div>
-              ))}
-            </dl>
-            )}
-            {!hasVaultMatch && (
-              <p className="text-sm text-gray-400">No vault identity recovered for this upload.</p>
-            )}
-          </Section>
+              )}
+              {(report.evidenceTimeline?.length ?? 0) === 0 && report.accessIntelligence.length > 0 ? (
+                // No custody events yet: fall back to the recorded access events so the one
+                // timeline still shows the asset's history.
+                <div className="space-y-0">
+                  {report.accessIntelligence.map((a, i) => (
+                    <div key={i} className="flex gap-3 py-2 border-l-2 border-dna-500/30 pl-4 ml-2">
+                      <div className="min-w-0">
+                        <p className="text-2xs font-semibold text-dna-300 uppercase tracking-wide">{String(a.action).replace(/_/g, ' ')}</p>
+                        <p className="text-2xs text-gray-500 mono">{a.timestamp}</p>
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-2xs text-gray-400">
+                          {[a.city, a.country].filter(Boolean).length > 0 && <span>{[a.city, a.country].filter(Boolean).join(', ')}</span>}
+                          {(a.device ?? a.browser) && <span>{a.device ?? a.browser}</span>}
+                          {a.ipAddress && <span className="mono">{a.ipAddress}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (report.evidenceTimeline?.length ?? 0) === 0 ? (
+                <p className="text-xs text-gray-500">No custody events recorded for this asset yet.</p>
+              ) : (
+                <div className="space-y-0">
+                  {report.evidenceTimeline!.map((ev) => (
+                    <div
+                      key={ev.id}
+                      className="flex gap-3 py-2 border-l-2 border-dna-500/30 pl-4 ml-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-2xs font-semibold text-dna-300 uppercase tracking-wide">{ev.eventType.replace(/_/g, ' ')}</p>
+                        <p className="text-xs font-semibold text-white">{ev.summary}</p>
+                        <p className="text-2xs text-gray-500 mono">{new Date(ev.timestamp).toLocaleString()}</p>
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-2xs text-gray-400">
+                          {ev.locationLabel && <span>{ev.locationLabel}</span>}
+                          {ev.actorLabel && <span>{ev.actorLabel}</span>}
+                          {ev.device && <span>{ev.device}</span>}
+                          {ev.tepCode && <span className="mono">TEP {ev.tepCode}</span>}
+                          {ev.certificateId && <span className="mono truncate max-w-[12rem]">{ev.certificateId}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Section>
 
-          <Section title="10. Evidence Package" icon={FileDown}>
+            <Section title="Recipient Attribution" icon={Eye}>
+              {report.recipientAttribution.fromShare ? (
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  {Object.entries({
+                    'Recipient': report.recipientAttribution.recipientName as string,
+                    'PINIT ID': report.recipientAttribution.recipientPinitId as string,
+                    'Share ID': report.recipientAttribution.shareId as string,
+                    'View Time': report.recipientAttribution.viewTime as string,
+                    'Download Time': report.recipientAttribution.downloadTime as string,
+                    'Screenshot': report.recipientAttribution.screenshotDetected ? 'Detected' : 'No',
+                    'Screen Recording': report.recipientAttribution.screenRecordingDetected ? 'Detected' : 'No',
+                    'Last Device': report.recipientAttribution.lastDevice as string,
+                  }).map(([k, v]) => (
+                    <div key={k} className="flex justify-between gap-2 py-1">
+                      <dt className="text-gray-500">{k}</dt>
+                      <dd className="text-white">{v ?? '—'}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="text-sm text-blue-400">Original Owner Only — no share recipient attribution.</p>
+              )}
+            </Section>
+
+            <Section title="Leak Intelligence" icon={Globe} defaultOpen={false}>
+              {report.leakIntelligence.leakChain && report.leakIntelligence.leakChain.length > 0 && (
+                <div className="mb-4 space-y-0">
+                  <p className="text-2xs text-gray-500 uppercase tracking-wider mb-2">Leak chain (crawler)</p>
+                  {report.leakIntelligence.leakChain.map((e, i) => (
+                    <div key={i} className="flex gap-3 py-2 border-l-2 border-red-500/30 pl-4 ml-2">
+                      <div>
+                        <p className="text-xs font-semibold text-red-400">{e.platform}</p>
+                        <p className="text-2xs text-gray-500">{e.date ?? '—'} · {e.status}</p>
+                      </div>
+                    </div>
+                  ))}
+                  <p className="text-2xs text-gray-500 mt-2">
+                    Current status: {report.leakIntelligence.currentStatus ?? 'Unknown'}
+                  </p>
+                </div>
+              )}
+              {report.leakIntelligence.hasPublicLeak ? (
+                <div className="space-y-2">
+                  {report.leakIntelligence.entries.map((e, i) => (
+                    <div key={i} className="p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-xs">
+                      <p className="text-red-400 font-semibold">{e.platform} — {e.status}</p>
+                      <a href={e.url} className="text-blue-400 break-all" target="_blank" rel="noreferrer">{e.url}</a>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-green-400">No public leak detected.</p>
+              )}
+            </Section>
+          </div>
+
+          <div hidden={reportTab !== 'technical'} className="space-y-6" role="tabpanel">
+            {report.identityRecovery && (
+              <Section title="Multi-Layer Identity Recovery" icon={Fingerprint} defaultOpen={false}>
+                <p className="text-xs text-gray-400 mb-3">{report.identityRecovery.message}</p>
+                <div className="space-y-2">
+                  {report.identityRecovery.signals.filter((s) => s.weight > 0).map((s) => (
+                    <div key={s.label} className="flex items-center gap-3 p-2 rounded-lg bg-bg-elevated text-xs">
+                      <span className="flex-1 text-white">{s.label}</span>
+                      <span className="mono text-gray-400">{Math.round(s.weight * 100)}% wt</span>
+                      <span className="font-bold text-white mono w-10 text-right">{s.score}%</span>
+                      <span className={cn(
+                        'text-2xs px-2 py-0.5 rounded-full uppercase',
+                        s.status === 'recovered' ? 'bg-green-500/15 text-green-400'
+                          : s.status === 'partial' ? 'bg-yellow-500/15 text-yellow-400'
+                            : 'bg-gray-500/15 text-gray-500',
+                      )}>{s.status}</span>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            {hasVaultMatch && (
+              <Section title="Identity Recovery Report" icon={Lock}>
+                <p className={cn(
+                  'text-xs mb-3',
+                  resolvedOwner.ownershipVerified ? 'text-green-400' : 'text-yellow-400',
+                )}>
+                  {resolvedOwner.ownershipVerified
+                    ? (report.identityRecoveryReport?.message
+                      ?? 'Original identity recovered from multi-layer forensic signals')
+                    : (report.identityRecoveryReport?.message
+                      ?? report.summary.decisionReason
+                      ?? 'Protected original identified from forensic signals.')}
+                </p>
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  {Object.entries({
+                    'Original Owner': resolvedOwner.ownerName,
+                    'Owner PINIT ID': resolvedOwner.ownerPinitId,
+                    'Vault ID': resolvedOwner.vaultId,
+                    'DNA ID': resolvedOwner.dnaRecordId,
+                    'Certificate ID': resolvedOwner.certificateId,
+                    'Original Assetname': resolvedOwner.originalFilename,
+                    'Original Hash': report.identityRecoveryReport?.originalHash,
+                    'Current Hash': report.identityRecoveryReport?.currentHash ?? report.currentFileHash,
+                    'Evidence Confidence': report.identityRecoveryReport?.evidenceConfidence != null
+                      ? `${report.identityRecoveryReport.evidenceConfidence}%`
+                      : `${displayMatchScore}%`,
+                    'TEP Code': report.identityRecoveryReport?.tepCode ?? 'Not embedded on this file',
+                    'Protected Download': report.identityRecoveryReport?.protectedDownloadDate
+                      ? new Date(report.identityRecoveryReport.protectedDownloadDate).toLocaleString()
+                      : report.identityRecoveryReport?.tepCode
+                        ? 'Tracked export — see Evidence Timeline'
+                        : 'No protected download recorded',
+                    'Registered': report.identityRecoveryReport?.registrationTimestamp
+                      ?? (resolvedOwner.ownershipVerified ? report.owner.createdAt : null),
+                  }).map(([k, v]) => (
+                    <div key={k} className="flex justify-between gap-2 py-1 border-b border-bg-border/50">
+                      <dt className="text-gray-500">{k}</dt>
+                      <dd className="text-white mono text-right truncate min-w-0 max-w-full sm:max-w-[60%]">
+                        {formatEvidenceValue(v as string | number | null | undefined)}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </Section>
+            )}
+
+            {hasVaultMatch && report.candidateRanking && report.candidateRanking.length > 0 && (
+              <Section title="Vault Candidate Ranking" icon={Dna} defaultOpen={false}>
+                <p className="text-xs text-gray-500 mb-3">Top {report.candidateRanking.length} vault candidates scored — best match selected for deep comparison</p>
+                <div className="space-y-1">
+                  {report.candidateRanking.slice(0, 10).map((c) => (
+                    <div key={c.vaultId} className={cn(
+                      'flex items-center gap-2 p-2 rounded-lg text-xs',
+                      c.selected ? 'bg-dna-500/10 border border-dna-500/30' : 'bg-bg-elevated',
+                    )}>
+                      <span className="mono text-gray-500 w-6">#{c.rank}</span>
+                      <span className="flex-1 truncate text-white">{c.method}</span>
+                      <span className="font-bold mono">{c.compositeScore}%</span>
+                      {c.selected && <span className="text-2xs text-dna-400">SELECTED</span>}
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            <Section title="15-Layer DNA Analysis" icon={Dna} defaultOpen={false}>
+              {report.layerAnalysis.length === 0 ? (
+                // "vault match required" is wrong on a report that already shows one.
+                // When the file was identified by its embedded export code, a
+                // layer-by-layer comparison is not needed to prove identity — so say
+                // that, rather than implying a step was missed.
+                <p className="text-xs text-gray-500">
+                  {report.matchMethod
+                    ? `Not needed — this file was identified by its embedded Pinit identity (${report.matchMethod}), `
+                      + 'which proves origin without comparing layers. Layer analysis runs when a file has to be '
+                      + 'matched against the vault original by content.'
+                    : 'No layer comparison ran — this file was not matched against a vault original.'}
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {report.pipeline.some((s) => s.id === 'dna_compare' && s.detail?.includes('estimated')) && (
+                    <p className="text-xs text-amber-400/90 mb-2">
+                      Deep 15-layer compare did not finish — scores below are estimated from live identity recovery (
+                      {report.summary.retrievalConfidence ?? report.summary.dnaMatchPercent}% confidence).
+                    </p>
+                  )}
+                  {report.layerAnalysis.map((l) => (
+                    <div key={l.layer} className="p-2 rounded-lg bg-bg-elevated">
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xs text-gray-500 w-6 mono">L{l.layer}</span>
+                        <span className="flex-1 text-xs text-white truncate">{l.name}</span>
+                        <span className="text-xs font-bold text-white mono">{l.matchPercent}%</span>
+                        <span className={cn('text-2xs px-2 py-0.5 rounded-full uppercase', LAYER_STATUS[l.status] ?? LAYER_STATUS.skipped)}>
+                          {l.status}
+                        </span>
+                      </div>
+                      {l.explanation && (
+                        <p className={cn(
+                          'text-2xs mt-1.5 pl-9',
+                          l.status === 'warning' || l.status === 'failed'
+                            ? 'text-amber-400/90'
+                            : 'text-gray-500',
+                        )}>
+                          {l.explanation}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Section>
+
+            <Section title="Identity Proof" icon={Fingerprint} defaultOpen={false}>
+              {hasVaultMatch && (
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs mb-4">
+                {[
+                  ['Vault ID', resolvedOwner.vaultId],
+                  ['DNA Record ID', resolvedOwner.dnaRecordId],
+                  ['Certificate ID', resolvedOwner.certificateId ?? report.identityProof.certificateId],
+                  ['Owner PINIT ID', resolvedOwner.ownerPinitId ?? report.identityProof.ownerPinitId],
+                  ['Digital Signature', (report.identityProof.digitalSignatureValid || hasVaultMatch) ? 'VALID' : 'INVALID'],
+                  ['Identity Verification', report.identityProof.identityVerification],
+                ].map(([k, v]) => (
+                  <div key={String(k)} className="flex justify-between gap-2 py-1 border-b border-bg-border/50">
+                    <dt className="text-gray-500">{k}</dt>
+                    <dd className="text-white mono text-right truncate min-w-0 max-w-full sm:max-w-[60%]">{formatEvidenceValue(v as string | null | undefined)}</dd>
+                  </div>
+                ))}
+              </dl>
+              )}
+              {!hasVaultMatch && (
+                <p className="text-sm text-gray-400">No vault identity recovered for this upload.</p>
+              )}
+            </Section>
+          </div>
+
+          <Section title="9. Evidence Package" icon={FileDown}>
+            {/* One report, one button — the DNA/Timeline/ZIP breakdown this used to offer here
+                duplicated what Evidence already saves automatically; those formats are still
+                available there (Evidence → open this investigation → Stored forensic exports),
+                just not as five competing buttons on this page too. */}
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                className="btn btn-secondary text-xs"
-                disabled={!!pdfBusy || exporting}
+                className="btn btn-primary text-xs"
+                disabled={!!pdfBusy}
                 onClick={async () => {
                   setPdfBusy('investigation');
                   try {
@@ -1731,86 +1788,25 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                 {pdfBusy === 'investigation'
                   ? <RefreshCw size={12} className="animate-spin" />
                   : <Download size={12} />}
-                {pdfBusy === 'investigation' ? ' Building PDF…' : ' Investigation Report (PDF)'}
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary text-xs"
-                disabled={!!pdfBusy || exporting}
-                onClick={async () => {
-                  setPdfBusy('dna');
-                  try {
-                    await downloadDnaReportPdf(asExportReport(report));
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : 'Failed to build DNA Report PDF');
-                  } finally {
-                    setPdfBusy(null);
-                  }
-                }}
-              >
-                {pdfBusy === 'dna'
-                  ? <RefreshCw size={12} className="animate-spin" />
-                  : <Dna size={12} />}
-                {pdfBusy === 'dna' ? ' Building PDF…' : ' DNA Report (PDF)'}
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary text-xs"
-                disabled={!!pdfBusy || exporting}
-                onClick={async () => {
-                  setPdfBusy('timeline');
-                  try {
-                    await downloadTimelineReportPdf(asExportReport(report));
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : 'Failed to build Timeline Report PDF');
-                  } finally {
-                    setPdfBusy(null);
-                  }
-                }}
-              >
-                {pdfBusy === 'timeline'
-                  ? <RefreshCw size={12} className="animate-spin" />
-                  : <Clock size={12} />}
-                {pdfBusy === 'timeline' ? ' Building PDF…' : ' Timeline Report (PDF)'}
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary text-xs"
-                disabled={exporting || !!pdfBusy}
-                onClick={async () => {
-                  setExporting(true);
-                  try {
-                    await downloadEvidencePackageZip(asExportReport(report), pdfExportOptions);
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : 'Failed to build Evidence Package ZIP');
-                  } finally {
-                    setExporting(false);
-                  }
-                }}
-              >
-                {exporting ? <RefreshCw size={12} className="animate-spin" /> : <Lock size={12} />}
-                {exporting ? ' Building ZIP…' : ' Evidence Package (ZIP)'}
+                {pdfBusy === 'investigation' ? ' Building report…' : ' Download Report (PDF)'}
               </button>
               <button
                 type="button"
                 className="btn btn-ghost text-xs border border-bg-border"
-                disabled={!!pdfBusy || exporting}
+                disabled={!!pdfBusy}
                 onClick={() => { void downloadAdvancedExportJson(asExportReport(report)); }}
               >
                 <FileDown size={12} /> Advanced Export (JSON)
               </button>
             </div>
-            {(pdfBusy || exporting) && (
+            {pdfBusy && (
               <p className="text-2xs text-cyan-600 mt-2">
-                {pdfBusy
-                  ? 'Generating PDF (embedding comparison images + signing)… your download will start when ready.'
-                  : 'Building evidence ZIP…'}
+                Generating PDF (embedding comparison images + signing)… your download will start when ready.
               </p>
             )}
             <p className="text-2xs text-gray-600 mt-3">
-              PDFs are archived to Evidence automatically when an investigation finishes — you do not need to download first.
-              Evidence ZIP includes PDF reports, JSON artifacts, pipeline logs, and screenshot folder placeholder.
-              Legal Evidence Bundle — coming soon.
+              Saved to Evidence automatically when this investigation finished — you do not need to download
+              first. DNA-only and Timeline-only PDFs, and the full ZIP bundle, are available from Evidence.
             </p>
           </Section>
         </div>

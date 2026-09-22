@@ -71,7 +71,7 @@ function AdditionalSourceCard({ vaultId, filename, localScore }: { vaultId: stri
   return (
     <div className="rounded-lg border border-sky-500/25 bg-sky-500/5 overflow-hidden">
       <div className="px-2 py-1.5 border-b border-bg-border/40">
-        <p className="text-2xs font-bold text-sky-200">Second Vault source</p>
+        <p className="text-2xs font-bold text-sky-800 dark:text-sky-200">Second Vault source</p>
         <p className="text-2xs text-gray-400 truncate">{filename ?? `${vaultId.slice(0, 8)}…`}</p>
       </div>
       <div className="p-2 bg-black/30 min-h-[88px] flex items-center justify-center">
@@ -308,7 +308,7 @@ export function InvestigationSideBySideCompare({
             ) : loadState === 'error' ? (
               <p className="text-2xs text-yellow-400">Could not load preview — open Vault Explorer to view asset</p>
             ) : (
-              <div className="flex items-center gap-1 text-2xs text-green-400">
+              <div className="flex items-center gap-1 text-2xs text-green-700 dark:text-green-400">
                 <ShieldCheck size={12} />
                 {reportState === 'VERIFIED' ? 'Stored in your vault' : 'Matched protected original'}
               </div>
@@ -332,7 +332,7 @@ export function InvestigationSideBySideCompare({
 
       {additionalSources && additionalSources.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs font-semibold text-sky-200">Additional protected originals in this upload</p>
+          <p className="text-xs font-semibold text-sky-800 dark:text-sky-200">Additional protected originals in this upload</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {additionalSources.slice(0, 3).map((s) => (
               <AdditionalSourceCard
@@ -354,7 +354,7 @@ export function InvestigationSideBySideCompare({
               {differenceHeatmapBase64 ? 'Difference Heatmap — Original vs Suspect' : 'Difference Analysis — Original vs Suspect'}
             </span>
             {(modifiedPercent != null || insertedRegions != null || cropMissingPercent != null) && (
-              <span className="text-2xs text-red-300 font-semibold">
+              <span className="text-2xs text-red-700 dark:text-red-300 font-semibold">
                 {modifiedPercent != null
                   ? `Modified ${modifiedPercent}%`
                   : cropMissingPercent != null
@@ -380,7 +380,7 @@ export function InvestigationSideBySideCompare({
               </>
             ) : (
               <div className="rounded-lg border border-orange-500/25 bg-orange-500/8 p-3">
-                <p className="text-xs font-semibold text-orange-300 mb-1">Heatmap unavailable for this comparison</p>
+                <p className="text-xs font-semibold text-orange-700 dark:text-orange-300 mb-1">Heatmap unavailable for this comparison</p>
                 <p className="text-2xs text-gray-400">
                   The forensic engine still measured how much of the image changed, but it did not return a pixel overlay for this run.
                 </p>
@@ -428,7 +428,7 @@ export function InvestigationSideBySideCompare({
         </div>
       ) : probeIsImage ? (
         <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-1" id="spatial-tamper-investigation">
-          <p className="text-xs font-semibold text-amber-300">Spatial tamper investigation</p>
+          <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">Spatial tamper investigation</p>
           <p className="text-2xs text-gray-400">
             No spatial map in this report. Click <span className="text-gray-300">New Investigation</span> and
             re-upload the same file — the latest backend attaches 64×64 → 1×1 overlays here.

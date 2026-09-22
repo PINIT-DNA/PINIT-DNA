@@ -34,7 +34,9 @@ function phaseLabel(phase: InvestigationLiveSnapshot['phase'], strongMatch: bool
 export function InvestigationLivePanel({ snapshot, file, previewUrl }: Props) {
   const phase = snapshot.phase;
   const phaseNum = typeof phase === 'number' ? phase : phase === 'final' ? 4 : 3;
-  const confidence = snapshot.dnaMatchPercent ?? snapshot.confidence;
+  const rawConfidence = snapshot.dnaMatchPercent ?? snapshot.confidence;
+  // A percentage never leaves 0-100, whatever an upstream stage computed.
+  const confidence = rawConfidence == null ? rawConfidence : Math.max(0, Math.min(100, rawConfidence));
   // Do not show green "Signature Found" or owner for weak lookalikes (false positives).
   const strongMatch = !!snapshot.signatureFound && (confidence == null || confidence >= STRONG_CANDIDATE_MIN);
   const midBandCandidate = !strongMatch

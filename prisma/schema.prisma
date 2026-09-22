@@ -83,6 +83,8 @@ model DnaRecord {
   frameTimestampMs  Int?
   videoDnaRecord    DnaRecord?  @relation("VideoFrames", fields: [videoDnaRecordId], references: [id], onDelete: Cascade)
   frames            DnaRecord[] @relation("VideoFrames")
+  /// Compact per-frame DNA (one row per frame) — see VideoFrameDna.
+  frameDna          VideoFrameDna[] @relation("VideoFrameDna")
 
   @@index([organizationId])
   @@index([ownerUserId])
@@ -1163,11 +1165,19 @@ model PlatformEvent {
   deepLink    String?
   dedupeKey   String?
   payload     Json?
+  /// Lifecycle layer (additive). Canonical lifecycle type when this event is part of
+  /// a resource's lifecycle (ASSET_SHARED, CERTIFICATE_VERIFIED, …); null otherwise.
+  lifecycleType String?
+  /// Canonical Asset.id this event belongs to, resolved owner-scoped. Plain column —
+  /// history outlives a deleted asset.
+  assetId       String?
   ownerUser   User     @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
 
   @@index([ownerUserId, createdAt])
   @@index([name, createdAt])
   @@index([dedupeKey])
+  @@index([assetId, createdAt])
+  @@index([ownerUserId, lifecycleType, createdAt])
   @@map("platform_events")
 }
 
@@ -2763,6 +2773,49 @@ enum AssetTimelineType {
   PRICE_CHANGED
   LICENSE_CREATED
   DISPUTED
+  /// Exchange sends UNLISTED through the activity bridge; before this value existed
+  /// the event was rejected by the enum and silently dropped.
+  UNLISTED
+}
+
+/// Compact forensic DNA for one frame of a protected video.
+///
+/// Frame DNA is protection data, not activity: lifecycle events never write here.
+/// One row per frame replaces the legacy per-frame DnaRecord + 15 layer rows +
+/// LocalFeatureIndex + ~2,465 LocalDnaPatch rows. Identity hashes are columns; every
+/// multi-scale patch fingerprint is packed into `patchPack` (30 B/patch, PFP1 format).
+/// The HKCA 8×8 pixel-cell tags are committed to by `hkcaRoot`/`hkcaRootMac` and
+/// re-derived from the vault original when an investigation needs them.
+model VideoFrameDna {
+  id               String   @id @default(uuid())
+  createdAt        DateTime @default(now())
+  videoDnaRecordId String
+  ownerUserId      String
+  frameIndex       Int
+  timestampMs      Int
+  width            Int
+  height           Int
+  /// SHA-256 of the decoded RGB24 frame (decoder recorded on the video DNA record)
+  rgbSha256        String   @db.Char(64)
+  pHash16          String   @db.Char(16)
+  dHash8           String   @db.Char(8)
+  hkcaAlgoVersion  String?
+  hkcaKeyId        String?
+  hkcaCellSize     Int?
+  hkcaTagBytes     Int?
+  hkcaRoot         String?  @db.Char(64)
+  hkcaRootMac      String?  @db.Char(64)
+  patchPackVersion String
+  patchCount       Int
+  patchPack        Bytes
+  /// Merkle leaf for this frame: SHA-256(frameIndex ‖ rgbSha256 ‖ hkcaRoot ‖ SHA-256(patchPack))
+  leafHash         String   @db.Char(64)
+
+  videoDnaRecord DnaRecord @relation("VideoFrameDna", fields: [videoDnaRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([videoDnaRecordId, frameIndex])
+  @@index([ownerUserId])
+  @@map("video_frame_dna")
 }
 
 /// Central aggregate for digital asset protection (image/video/document/audio).
@@ -2947,6 +3000,33 @@ model SpatialAuthPackage {
 
   @@index([ownerUserId])
   @@map("spatial_auth_packages")
+}
+
+/// Small server-persisted thumbnail of the file a unified investigation examined
+/// ("Examined File" in the PDF report), keyed by investigationId.
+///
+/// The examined upload itself is never kept — only this resized preview frame,
+/// generated once when the investigation runs. Client-side PDF generation used to
+/// rely on the browser still holding the original File in memory (or a per-browser
+/// IndexedDB cache of it), so reopening a report later, on another device, or after
+/// the tab closed showed "Preview not available". This row is the durable fix: one
+/// row per investigation, not tied to any browser or session.
+///
+/// No relation to DnaRecord/Asset/VaultRecord — an investigation can end with no
+/// match at all, and the thumbnail must still be retrievable for that case.
+model InvestigationProbeThumbnail {
+  id              String   @id @default(uuid())
+  createdAt       DateTime @default(now())
+  investigationId String   @unique
+  ownerUserId     String
+  mimeType        String
+  filename        String?
+  width           Int?
+  height          Int?
+  data            Bytes
+
+  @@index([ownerUserId])
+  @@map("investigation_probe_thumbnails")
 }
 
 /// A client-facing report issued from an investigation.

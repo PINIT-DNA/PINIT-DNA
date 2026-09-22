@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import JSZip from 'jszip';
 import QRCode from 'qrcode';
-import { previewVaultFile, signReportManifest, type SignedReportManifest } from './dashboard.api';
+import { previewVaultFile, signReportManifest, fetchInvestigationProbeThumbnail, type SignedReportManifest } from './dashboard.api';
 import { buildEnterpriseInvestigationViewModel } from '../lib/enterprise-investigation-report-model';
 import {
   forensicExportBaseName,
@@ -503,11 +503,18 @@ function examinedFileNameFrom(report: InvestigationReportExport, options?: Inves
 async function loadReportComparisonImages(
   report: InvestigationReportExport,
   options?: InvestigationReportPdfOptions,
-): Promise<{ original?: PdfImageAsset; probe?: PdfImageAsset; examinedFileName: string }> {
+): Promise<{ original?: PdfImageAsset; probe?: PdfImageAsset; examinedFileName: string; originalVaultId: string | null }> {
+  // A confirmed owner match is the first choice, but "the report has nothing to compare
+  // against" and "we found a candidate but the image failed to load" are different facts
+  // and must not both render as the same blank "Preview not available" box — the reader
+  // can't tell a real non-match from a bug. The top candidate (even unconfirmed) is a
+  // legitimate fallback source for the picture itself; ownership wording is unaffected.
+  const topCandidate = report.candidateRanking?.find((c) => c.selected) ?? report.candidateRanking?.[0];
   const vaultId = options?.vaultId
     ?? report.identityProof.vaultId
     ?? report.owner.vaultId
     ?? report.identityRecoveryReport?.vaultId
+    ?? topCandidate?.vaultId
     ?? null;
 
   let original: PdfImageAsset | undefined;
@@ -523,14 +530,18 @@ async function loadReportComparisonImages(
     ?? null;
 
   if (vaultId) {
-    try {
-      const preview = await withTimeout(previewVaultFile(vaultId), 12_000, 'Vault preview');
-      original = await mediaBlobToPdfImage(preview, {
-        mimeType: preview.type,
-        filename: originalName,
-      });
-    } catch {
-      original = undefined;
+    // One retry: a candidate genuinely exists here, so "no picture" should mean the vault
+    // preview is actually unavailable, not that the first attempt happened to time out.
+    for (let attempt = 0; attempt < 2 && !original; attempt++) {
+      try {
+        const preview = await withTimeout(previewVaultFile(vaultId), 15_000, 'Vault preview');
+        original = await mediaBlobToPdfImage(preview, {
+          mimeType: preview.type,
+          filename: originalName,
+        });
+      } catch {
+        original = undefined;
+      }
     }
   }
 
@@ -574,11 +585,28 @@ async function loadReportComparisonImages(
     }
   }
 
+  // Neither the live upload nor this browser's own cache had it — the durable,
+  // server-persisted preview (saved when the investigation ran; works from any device,
+  // any browser, long after the upload itself is gone) is the real fallback, not the
+  // composition overlay below, which is a diagram, not a picture of the file.
+  if (!probe) {
+    try {
+      const thumb = await fetchInvestigationProbeThumbnail(report.investigationId);
+      if (thumb) {
+        probe = await blobToPdfImage(thumb);
+        void saveForensicPdfArtifact(report.investigationId, 'probe_preview', thumb, examinedFileName)
+          .catch(() => { /* cache is optional */ });
+      }
+    } catch {
+      probe = undefined;
+    }
+  }
+
   if (!probe) {
     probe = await pngBase64ToPdfImage(report.composition?.overlayPngBase64);
   }
 
-  return { original, probe, examinedFileName };
+  return { original, probe, examinedFileName, originalVaultId: vaultId };
 }
 
 export { forensicExportBaseName, forensicReportFilename };

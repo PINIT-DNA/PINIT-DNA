@@ -53,6 +53,20 @@ export interface PlatformEventInput {
   certificateId?: string;
   shareLinkId?: string;
   investigationId?: string;
+  /**
+   * Lifecycle layer (additive). Set explicitly by lifecycle emitters; for every
+   * existing event the engine derives it from the event name instead, so no
+   * existing call site changes.
+   */
+  lifecycleType?: string;
+  /** Canonical Asset.id when the caller already knows it; otherwise resolved. */
+  assetId?: string;
+  /**
+   * Record this event at most once per dedupeKey. Only lifecycle emitters that
+   * would otherwise repeat (a thumbnail preview, a refreshed public page) use it;
+   * every existing event keeps writing a row per occurrence.
+   */
+  persistOnce?: boolean;
 }
 
 export interface PlatformEventRecord extends PlatformEventInput {

@@ -53,6 +53,19 @@ export async function generateReport(req: Request, res: Response, next: NextFunc
     });
 
     res.send(pdfBuffer);
+
+    // Lifecycle only — the report itself is rendered from the forensic records,
+    // which remain the source of truth.
+    import('../../services/lifecycle/lifecycle-events').then(({ emitEvidenceLifecycle }) => {
+      emitEvidenceLifecycle({
+        ownerUserId: requestedBy,
+        action: 'generated',
+        evidenceId: incidentId || shareLinkId || dnaRecordId || filename,
+        description: `Evidence report (${type})`,
+        reportType: type,
+        dnaRecordId: dnaRecordId ?? null,
+      });
+    }).catch(() => {});
   } catch (err) {
     next(err);
   }
@@ -108,6 +121,17 @@ export async function getEvidenceRecord(req: Request, res: Response, next: NextF
       return;
     }
     res.json({ success: true, record });
+
+    import('../../services/lifecycle/lifecycle-events').then(({ emitEvidenceLifecycle }) => {
+      emitEvidenceLifecycle({
+        ownerUserId: userId,
+        action: 'viewed',
+        evidenceId: record.id,
+        evidenceCode: record.evidenceCode,
+        description: record.description,
+        dnaRecordId: record.dnaRecordId,
+      });
+    }).catch(() => {});
   } catch (err) { next(err); }
 }
 

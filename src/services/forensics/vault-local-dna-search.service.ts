@@ -30,10 +30,17 @@ import { VaultService } from '../vault/vault.service';
 
 import { forensicComputationCache } from './forensic-computation-cache.service';
 import { resolveIndexPatches } from './local-dna-patch-packer.service';
+import { getCachedIndex, putCachedIndex } from './local-dna-index-cache';
 
 
 
 const vaultService = new VaultService();
+interface LoadedIndex {
+  id: string; updatedAt: Date; patchCount: number; vaultId: string | null; dnaRecordId: string;
+  ownerUserId: string; dnaRecord: { imageFilename: string };
+  vaultPatches: VaultPatchRow[]; vaultByPrefix: Map<string, VaultPatchRow[]>;
+}
+const inflightLoads = new Map<string, Promise<LoadedIndex[]>>();
 
 
 
@@ -251,6 +258,76 @@ function patchesMatch(probe: PatchFingerprint, vault: VaultPatchRow): boolean {
 
 export class VaultLocalDnaSearchService {
 
+  /**
+   * Index rows for an owner with their decoded patches, from the in-memory cache where the
+   * index is unchanged. Concurrent identical loads share one round trip.
+   */
+  private loadIndexes(ownerUserId: string, candidateVaultIds?: string[]): Promise<LoadedIndex[]> {
+    const key = `${ownerUserId}|${candidateVaultIds?.join(',') ?? ''}`;
+    const running = inflightLoads.get(key);
+    if (running) return running;
+    const p = this.loadIndexesUncoalesced(ownerUserId, candidateVaultIds).finally(() => inflightLoads.delete(key));
+    inflightLoads.set(key, p);
+    return p;
+  }
+
+  /** Start loading an owner's indexes now, so a later search finds them cached. */
+  prefetchOwnerIndexes(ownerUserId: string): void {
+    if (!localDnaConfig.enabled) return;
+    void this.loadIndexes(ownerUserId).catch(() => undefined);
+  }
+
+  private async loadIndexesUncoalesced(ownerUserId: string, candidateVaultIds?: string[]): Promise<LoadedIndex[]> {
+    const candidateFilter = candidateVaultIds?.length
+      ? { vaultId: { in: candidateVaultIds } }
+      : {};
+    // Light rows first; the heavy patch data comes from the in-memory cache when the index
+    // is unchanged (same id, updatedAt and patchCount) and is loaded only for the rest.
+    const lightRows = await prisma.localFeatureIndex.findMany({
+      where: { ownerUserId, status: 'COMPLETE', ...candidateFilter },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true, updatedAt: true, patchCount: true, vaultId: true, dnaRecordId: true,
+        ownerUserId: true, dnaRecord: { select: { imageFilename: true } },
+      },
+    });
+    const missing = lightRows.filter((r) => !getCachedIndex(r.id, r.updatedAt, r.patchCount));
+    const loaded = new Map<string, { patches: VaultPatchRow[]; prefixMap: Map<string, VaultPatchRow[]> }>();
+    const batches: Array<typeof missing> = [];
+    for (let i = 0; i < missing.length; i += 8) batches.push(missing.slice(i, i + 8));
+    // Batches are independent reads; running them together overlaps the network round trips.
+    const heavyBatches = await Promise.all(batches.map((batch) => prisma.localFeatureIndex.findMany({
+        where: { id: { in: batch.map((r) => r.id) } },
+        select: {
+          id: true,
+          patches: {
+            select: {
+              patchIndex: true, gridX: true, gridY: true, scale: true, pHash16: true,
+              dHash8: true, aHash8: true, edgeSignature: true, colorVector: true,
+              frequencySig: true, textureSig: true,
+            },
+          },
+          // Indexes built after patch packing have no per-patch rows, only this archive.
+          patchArchive: { select: { blob: true, merkleRoot: true } },
+        },
+      })));
+    for (const heavy of heavyBatches) {
+      for (const h of heavy) {
+        // Rows for older indexes, the packed archive for newer ones. Reading only the
+        // per-patch rows made every newly protected asset look empty and skipped it.
+        const patches = resolveIndexPatches(h) as VaultPatchRow[];
+        const prefixMap = buildVaultPrefixMap(patches);
+        loaded.set(h.id, { patches, prefixMap });
+        const light = lightRows.find((r) => r.id === h.id);
+        if (light) putCachedIndex(h.id, light.updatedAt, light.patchCount, patches, prefixMap);
+      }
+    }
+    return lightRows.map((r) => {
+      const c = loaded.get(r.id) ?? getCachedIndex<VaultPatchRow>(r.id, r.updatedAt, r.patchCount);
+      return { ...r, vaultPatches: c?.patches ?? [], vaultByPrefix: c?.prefixMap ?? new Map<string, VaultPatchRow[]>() };
+    });
+  }
+
   async search(
 
     probeBuffer: Buffer,
@@ -278,54 +355,17 @@ export class VaultLocalDnaSearchService {
 
 
 
-    const candidateFilter = options?.candidateVaultIds?.length
-
-      ? { vaultId: { in: options.candidateVaultIds } }
-
-      : {};
+    const tFetch = Date.now();
 
 
 
-    const indexes = await prisma.localFeatureIndex.findMany({
-
-      where: { ownerUserId, status: 'COMPLETE', ...candidateFilter },
-
-      include: {
-
-        patches: {
-
-          select: {
-
-            patchIndex: true, gridX: true, gridY: true, scale: true, pHash16: true,
-
-            dHash8: true, aHash8: true, edgeSignature: true, colorVector: true,
-
-            frequencySig: true, textureSig: true,
-
-          },
-
-        },
-
-        // Indexes built after patch packing have no per-patch rows, only this archive.
-        patchArchive: { select: { blob: true, merkleRoot: true } },
-        dnaRecord: { select: { imageFilename: true } },
-
-      },
-
-    });
-
-
-
+    const indexes = await this.loadIndexes(ownerUserId, options?.candidateVaultIds);
+    const fetchMs = Date.now() - tFetch;
     if (!indexes.length) {
-
       logger.debug('[LocalDnaSearch] No vault indexes for owner', { ownerUserId: ownerUserId.slice(0, 8) });
-
       return [];
-
     }
-
-
-
+    const tMatch = Date.now();
     const hits: LocalDnaSearchHit[] = [];
 
 
@@ -334,12 +374,10 @@ export class VaultLocalDnaSearchService {
 
       if (!idx.vaultId) continue;
 
-      // Rows for older indexes, the packed archive for newer ones. Reading only the
-      // per-patch rows made every newly protected asset look empty and skipped it.
-      const vaultPatches = resolveIndexPatches(idx) as VaultPatchRow[];
+      const vaultPatches = idx.vaultPatches;
       if (!vaultPatches.length) continue;
 
-      const vaultByPrefix = buildVaultPrefixMap(vaultPatches);
+      const vaultByPrefix = idx.vaultByPrefix;
 
       const patchMatches: PatchMatch[] = [];
 
@@ -551,6 +589,8 @@ export class VaultLocalDnaSearchService {
       scales: probeGrid.scales,
 
       vaultIndexes: indexes.length,
+      fetchMs,
+      matchMs: Date.now() - tMatch,
 
       hits: hits.length,
 

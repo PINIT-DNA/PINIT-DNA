@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Shield, Search, Eye, Download, FileText, Table2, AlertTriangle, CheckCircle2, GitCompare, Microscope, RefreshCw, FileArchive } from 'lucide-react';
+import { Shield, Search, Eye, Download, FileText, Table2, AlertTriangle, CheckCircle2, GitCompare, RefreshCw, FileArchive } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { BRAND } from '../config/brand.config';
@@ -19,21 +19,23 @@ import {
 } from '../lib/forensic-reports-storage';
 import {
   downloadStoredForensicPdf,
+  viewStoredForensicPdf,
   FORENSIC_PDF_KIND_LABEL,
   listForensicPdfArtifacts,
+  saveForensicPdfArtifact,
   type ForensicPdfArtifactMeta,
   type ForensicPdfKind,
 } from '../lib/forensic-pdf-artifacts';
 import {
   investigationDisplayMessage,
   investigationDisplayScore,
-  investigationListSubtitle,
   investigationScoreLabel,
   investigationVerdictColor,
   investigationVerdictLabel,
   resolveInvestigationOwner,
 } from '../lib/forensic-report-display';
-import { downloadInvestigationReportPdf, archiveInvestigationForensicExports, type InvestigationReportExport } from '../services/investigation-report-export';
+import { downloadInvestigationReportPdf, buildInvestigationReportPdf, archiveInvestigationForensicExports, type InvestigationReportExport } from '../services/investigation-report-export';
+import { InvestigationProbeThumbnail } from '../components/InvestigationProbeThumbnail';
 import toast from 'react-hot-toast';
 
 function matchesFilter(entry: StoredForensicReport, filter: string): boolean {
@@ -456,6 +458,8 @@ export function ReportsPage() {
   const [filter, setFilter] = useState<string>('ALL');
   const [selectedComparison, setSelectedComparison] = useState<ComparisonResult | null>(null);
   const [selectedInvestigation, setSelectedInvestigation] = useState<{ report: StoredInvestigationReport; filename: string } | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [viewingId, setViewingId] = useState<string | null>(null);
 
   const reload = useCallback(() => setReports(listForensicReports()), []);
 
@@ -544,47 +548,101 @@ export function ReportsPage() {
                 const r = entry.data;
                 const verdict = investigationVerdictLabel(r);
                 const score = investigationDisplayScore(r);
-                const subtitle = investigationListSubtitle(r, entry.filename);
                 const o = resolveInvestigationOwner(r);
+                const artifactCount = entry.artifacts?.length ?? 0;
                 return (
                   <div
                     key={entry.id}
                     className="card-hover"
                     onClick={() => setSelectedInvestigation({ report: r, filename: entry.filename })}
                   >
-                    <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                      {/* The uploaded file's own preview, not the matched vault original —
+                          this must show for every row, including weak/no-match ones, where
+                          there is no confirmed vault image to fall back to. */}
+                      <InvestigationProbeThumbnail
+                        investigationId={entry.id}
+                        className="w-11 h-11 rounded-lg shrink-0"
+                      />
+
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-2 flex-wrap">
-                          <Badge variant="purple"><Microscope size={10} className="inline mr-1" />INVESTIGATION</Badge>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-white truncate">{entry.filename}</p>
                           <Badge variant={verdict === 'VERIFIED' ? 'success' : verdict === 'POSSIBLE' ? 'warning' : 'danger'}>
                             {verdict}
                           </Badge>
-                          {(entry.artifacts?.length ?? 0) > 0 && (
-                            <Badge variant="muted">{entry.artifacts!.length} PDF/ZIP saved</Badge>
-                          )}
-                          <span className="text-2xs text-gray-500 mono">
-                            {format(new Date(entry.savedAt), 'MMM d, yyyy · HH:mm')}
-                          </span>
                         </div>
-                        <p className="text-sm text-gray-300 truncate">{entry.filename}</p>
-                        {(o.ownerPinitId || o.vaultId) && (
-                          <p className="text-2xs text-dna-400 mono mt-0.5 truncate">
-                            {[o.ownerPinitId, o.vaultId ? `Asset ${o.vaultId.slice(0, 8)}…` : null].filter(Boolean).join(' · ')}
-                          </p>
-                        )}
-                        <p className="text-xs text-gray-500 mt-1.5 line-clamp-2">
-                          {subtitle}
+                        <p className="text-2xs text-gray-500 mono mt-0.5 truncate">
+                          {format(new Date(entry.savedAt), 'MMM d, yyyy · HH:mm')}
+                          {' · '}Confidence {score}%
+                          {o.vaultId ? ` · ${o.vaultId.slice(0, 8)}…` : ''}
                         </p>
                       </div>
-                      <div className="flex flex-col items-end gap-2 shrink-0">
-                        <span className={`text-2xl font-bold mono ${investigationVerdictColor(verdict)}`}>
-                          {score}%
-                        </span>
+
+                      <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+                        <div className="text-right hidden sm:block">
+                          <p className="text-2xs text-gray-500">Report</p>
+                          <p className="text-xs font-semibold text-gray-300">
+                            {artifactCount > 0 ? `${artifactCount} saved` : '1 PDF'}
+                          </p>
+                        </div>
                         <button
-                          onClick={e => { e.stopPropagation(); setSelectedInvestigation({ report: r, filename: entry.filename }); }}
-                          className="btn-ghost btn-icon text-gray-500 hover:text-white"
+                          className="btn btn-primary btn-sm text-xs"
+                          disabled={downloadingId === entry.id}
+                          onClick={async () => {
+                            setDownloadingId(entry.id);
+                            try {
+                              await downloadInvestigationReportPdf(r as unknown as InvestigationReportExport, {
+                                examinedFileName: entry.filename,
+                                vaultId: o.vaultId,
+                              });
+                            } catch {
+                              toast.error('Failed to build report PDF');
+                            } finally {
+                              setDownloadingId(null);
+                            }
+                          }}
                         >
-                          <Eye size={14} />
+                          {downloadingId === entry.id
+                            ? <RefreshCw size={12} className="animate-spin" />
+                            : <Download size={12} />}
+                          {downloadingId === entry.id ? 'Building…' : 'Download'}
+                        </button>
+                        <button
+                          disabled={viewingId === entry.id}
+                          onClick={async () => {
+                            // "View" means the actual generated report — open the PDF already
+                            // saved to this investigation. If none was archived yet, build one
+                            // now (same generator as Download) and open that, saving a copy for
+                            // next time, rather than falling back to the JSON summary modal.
+                            setViewingId(entry.id);
+                            try {
+                              const opened = await viewStoredForensicPdf(entry.id, 'investigation');
+                              if (!opened) {
+                                const blob = await buildInvestigationReportPdf(r as unknown as InvestigationReportExport, {
+                                  examinedFileName: entry.filename,
+                                  vaultId: o.vaultId,
+                                });
+                                const url = URL.createObjectURL(blob);
+                                const win = window.open(url, '_blank', 'noopener');
+                                window.setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000);
+                                if (!win) toast.error('Allow pop-ups to view the report, or use Download');
+                                void saveForensicPdfArtifact(entry.id, 'investigation', blob, `${entry.filename} - Evidence Report.pdf`)
+                                  .then(() => reload())
+                                  .catch(() => {});
+                              }
+                            } catch {
+                              toast.error('Failed to open the report');
+                            } finally {
+                              setViewingId(null);
+                            }
+                          }}
+                          className="btn btn-secondary btn-sm text-xs"
+                        >
+                          {viewingId === entry.id
+                            ? <RefreshCw size={12} className="animate-spin" />
+                            : <Eye size={12} />}
+                          View
                         </button>
                       </div>
                     </div>

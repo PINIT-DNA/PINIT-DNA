@@ -9,6 +9,7 @@ import { getAuthUserId } from '../../lib/tenant-scope';
 import { logger } from '../../lib/logger';
 import { unifiedInvestigationOrchestrator } from '../../services/forensics/unified-investigation.orchestrator';
 import { FileTypeDetector } from '../../services/file-type-detector';
+import { getProbeThumbnail } from '../../services/forensics/investigation-probe-thumbnail.service';
 
 const fileTypeDetector = new FileTypeDetector();
 
@@ -134,5 +135,33 @@ export async function unifiedInvestigate(
     next(err);
   } finally {
     if (file.path) await fs.unlink(file.path).catch(() => {});
+  }
+}
+
+/**
+ * GET /api/v1/forensics/investigation/:investigationId/probe-thumbnail
+ * The durable "Examined File" preview saved when the investigation ran. Owner-scoped —
+ * never served to anyone but the user who ran the investigation.
+ */
+export async function getInvestigationProbeThumbnail(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const userId = getAuthUserId(req);
+    const { investigationId } = req.params;
+    if (!investigationId) {
+      return next(new AppError(400, 'investigationId is required.'));
+    }
+    const thumb = await getProbeThumbnail(investigationId, userId);
+    if (!thumb) {
+      return next(new AppError(404, 'No examined-file preview saved for this investigation.'));
+    }
+    res.setHeader('Content-Type', thumb.mimeType);
+    res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+    res.send(thumb.data);
+  } catch (err) {
+    next(err);
   }
 }

@@ -1,5 +1,10 @@
+import { fileURLToPath, URL } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+
+/** The certificate is one shared component, outside this app's src. */
+const SHARED_CERTIFICATE = fileURLToPath(new URL('./src/shared/certificate/PinitCertificateDocument.tsx', import.meta.url));
+const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 const BACKEND_URL = process.env.VITE_PROXY_TARGET ?? 'http://localhost:4000';
 
@@ -22,6 +27,11 @@ function silentProxyErrors(): Plugin {
 
 export default defineConfig({
   plugins: [react(), silentProxyErrors()],
+  resolve: {
+    alias: { '@pinit/certificate': SHARED_CERTIFICATE },
+    // The shared file is outside this app; dedupe keeps a single React copy.
+    dedupe: ['react', 'react-dom'],
+  },
   // Do NOT use default "assets" — it collides with the SPA route /assets
   // (pinithub.com/assets was serving hashed JS instead of AssetsPage).
   build: {
@@ -30,6 +40,8 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 3002,
+    // Dev server must be allowed to read the shared certificate outside client/
+    fs: { allow: [REPO_ROOT] },
     /** Fail fast if the port is taken — Exchange SSO expects Hub at a known, fixed port locally. */
     strictPort: true,
     allowedHosts: true,

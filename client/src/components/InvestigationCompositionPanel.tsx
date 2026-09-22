@@ -89,7 +89,7 @@ export function InvestigationCompositionPanel({ composition, previewUrl }: Props
   return (
     <div className="card border border-bg-border p-4 space-y-4">
       <div>
-        <h3 className="text-sm font-semibold tracking-wide text-gray-100 uppercase">Pixel-level vault source map</h3>
+        <h3 className="text-sm font-semibold tracking-wide text-gray-900 dark:text-gray-100 uppercase">Pixel-level vault source map</h3>
         <p className="text-2xs text-gray-500 mt-1">{composition.reason}</p>
         <p className="text-2xs text-gray-600 mt-1">
           1×1 localization of the upload. Green pixels are classified from a mapped, authenticated region — a pixel does not contain a Vault ID by itself.
@@ -135,8 +135,8 @@ export function InvestigationCompositionPanel({ composition, previewUrl }: Props
           Vault:{' '}
           <span className="font-semibold text-white">{composition.vaultFilename ?? 'Not identified'}</span>
         </p>
-        <p className="text-emerald-400">Protected content: {composition.protectedFromAssetPercent}%</p>
-        <p className="text-amber-400">Non-Vault: {composition.nonVaultPercent ?? composition.aiGeneratedPercent}%</p>
+        <p className="text-emerald-700 dark:text-emerald-400">Protected content: {composition.protectedFromAssetPercent}%</p>
+        <p className="text-amber-700 dark:text-amber-400">Non-Vault: {composition.nonVaultPercent ?? composition.aiGeneratedPercent}%</p>
         <p className="text-slate-400">Unknown: {composition.otherPercent}%</p>
         {composition.aiSuspectedPercent != null && (
           <p className="text-orange-300/80">AI detector (separate): {composition.aiSuspectedPercent}% — not Vault coverage</p>
@@ -183,9 +183,9 @@ export function InvestigationCompositionPanel({ composition, previewUrl }: Props
       )}
 
       {composition.candidateSources && composition.candidateSources.length > 0 && (
-        <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
+        <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-900 dark:text-sky-100">
           <p className="font-semibold text-white mb-1">Multiple Vault sources identified separately</p>
-          <p className="text-2xs text-sky-200/80 mb-1">Primary: {composition.vaultFilename ?? composition.vaultId?.slice(0, 8)}</p>
+          <p className="text-2xs text-sky-800 dark:text-sky-200 mb-1">Primary: {composition.vaultFilename ?? composition.vaultId?.slice(0, 8)}</p>
           {composition.candidateSources.map((s) => (
             <p key={s.vaultId} className="text-2xs">
               {s.filename ?? s.vaultId.slice(0, 8)} · score {Math.round(s.localScore)}
@@ -261,8 +261,8 @@ export function InvestigationCompositionPanel({ composition, previewUrl }: Props
 
       {majority && (
         <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
-          <CheckCircle size={16} className="text-emerald-400 shrink-0" />
-          <p className="text-xs font-semibold text-emerald-300">
+          <CheckCircle size={16} className="text-emerald-700 dark:text-emerald-400 shrink-0" />
+          <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
             {composition.reason?.includes('Majority of the image matches')
               ? composition.reason
               : 'Majority of the image matches the authenticated Vault content.'}

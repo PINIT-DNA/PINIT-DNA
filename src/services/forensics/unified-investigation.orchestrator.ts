@@ -69,7 +69,9 @@ import type {
   LeakIntelligenceSection,
   TamperAnalysisSection,
 } from '../../types/unified-investigation.types';
-import { mergeSnapshot } from './investigation-live-snapshot';
+import { vaultLocalDnaSearchService } from './vault-local-dna-search.service';
+import { withRetrievalCache } from '../vault/investigation-retrieval-cache';
+import { mergeSnapshot, clampLiveScores, clampPercent } from './investigation-live-snapshot';
 import {
   auditReportConsistency,
   buildInvestigationPipelineAudit,
@@ -188,6 +190,7 @@ function buildFragmentReuseSection(findings: FragmentReuseFinding[]): FragmentRe
   };
 }
 import { tepService } from '../tep/tep.service';
+import { saveProbeThumbnail } from './investigation-probe-thumbnail.service';
 
 function step(
   id: string,
@@ -590,6 +593,20 @@ export class UnifiedInvestigationOrchestrator {
     ownerUserId: string,
     options?: InvestigateOptions,
   ): Promise<UnifiedInvestigationReport> {
+    // Start loading the owner's local-DNA indexes now so they are cached by the time the
+    // crop search needs them; the early stages run while that read is in flight.
+    if (mimeType.startsWith('image/')) vaultLocalDnaSearchService.prefetchOwnerIndexes(ownerUserId);
+    // Every vault original this investigation decrypts is fetched once, not once per stage.
+    return withRetrievalCache(() => this.investigateScoped(buffer, mimeType, originalName, ownerUserId, options));
+  }
+
+  private async investigateScoped(
+    buffer: Buffer,
+    mimeType: string,
+    originalName: string,
+    ownerUserId: string,
+    options?: InvestigateOptions,
+  ): Promise<UnifiedInvestigationReport> {
     const report = await this.investigateCore(buffer, mimeType, originalName, ownerUserId, options);
     if (!report.videoComposition) {
       const isVideoProbe = mimeType.startsWith('video/')
@@ -610,19 +627,45 @@ export class UnifiedInvestigationOrchestrator {
     options?: InvestigateOptions,
   ): Promise<UnifiedInvestigationReport> {
     const investigationId = uuidv4();
+    // Best-effort, off the critical path: a durable preview of what was examined, so
+    // reopening this investigation's report later (any device, any browser, after the
+    // upload is long gone from memory) can still show it. Never awaited, never allowed
+    // to affect the investigation itself — the service already swallows its own errors.
+    void saveProbeThumbnail(investigationId, ownerUserId, buffer, mimeType, originalName);
     const pipeline: InvestigationPipelineStep[] = [];
     const sizeBytes = buffer.length;
     const progressTimeline: InvestigationProgressEvent[] = [];
     const orchestratorTimer = createStageTimer();
 
     const liveState: { snapshot: InvestigationLiveSnapshot | null } = { snapshot: null };
-    const emit = (event: InvestigationProgressEvent) => {
+    const emit = (rawEvent: InvestigationProgressEvent) => {
+      // Whatever a stage computed, a percentage sent to the UI stays within 0-100.
+      const event: InvestigationProgressEvent = {
+        ...rawEvent,
+        ...(rawEvent.snapshot ? { snapshot: clampLiveScores(rawEvent.snapshot) } : {}),
+        ...(rawEvent.partial
+          ? { partial: { ...rawEvent.partial, ownershipConfidence: clampPercent(rawEvent.partial.ownershipConfidence) } }
+          : {}),
+      };
       // Always merge — never replace/wipe ORB·similarity·vault from a weaker later frame.
       if (event.snapshot) {
         const merged = mergeSnapshot(liveState.snapshot, event.snapshot);
         // Do not allow a terminal "clear vault" patch to erase a prior live lead.
         // Also keep the stronger confidence/filename when vaultId survives but scores drop to 0.
-        if (liveState.snapshot?.vaultId && (!merged.vaultId || (merged.confidence ?? 0) < (liveState.snapshot.confidence ?? 0))) {
+        const prior = liveState.snapshot;
+        if (
+          prior?.vaultId && merged.vaultId && merged.vaultId !== prior.vaultId
+          && (merged.confidence ?? 0) < (prior.confidence ?? 0)
+        ) {
+          // A weaker DIFFERENT candidate does not displace the stronger lead. Keep the lead
+          // whole (its own name, owner and scores) and take only the process-level fields.
+          liveState.snapshot = {
+            ...prior,
+            phase: merged.phase,
+            statusMessage: merged.statusMessage ?? prior.statusMessage,
+            deepVerificationRunning: merged.deepVerificationRunning ?? prior.deepVerificationRunning,
+          };
+        } else if (liveState.snapshot?.vaultId && (!merged.vaultId || (merged.confidence ?? 0) < (liveState.snapshot.confidence ?? 0))) {
           liveState.snapshot = {
             ...merged,
             vaultId: merged.vaultId ?? liveState.snapshot.vaultId,

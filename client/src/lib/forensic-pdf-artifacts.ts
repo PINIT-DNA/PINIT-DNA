@@ -137,6 +137,25 @@ export async function downloadStoredForensicPdf(
   return true;
 }
 
+/**
+ * Open the already-generated, already-saved PDF/ZIP in a new tab so the browser renders it
+ * in place — a real "view", not a save-as prompt. `downloadStoredForensicPdf` above still
+ * forces a download; this is for "show me the report", not "give me the file".
+ */
+export async function viewStoredForensicPdf(
+  investigationId: string,
+  kind: ForensicPdfKind,
+): Promise<boolean> {
+  const row = await getForensicPdfArtifact(investigationId, kind);
+  if (!row?.blob) return false;
+  const url = URL.createObjectURL(row.blob);
+  const win = window.open(url, '_blank', 'noopener');
+  // A popup blocker returns null; the blob URL is otherwise kept alive for the new tab —
+  // revoke it well after the tab has had time to load, not immediately.
+  window.setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000);
+  return !!win;
+}
+
 export async function deleteForensicPdfArtifactsForInvestigation(
   investigationId: string,
 ): Promise<void> {

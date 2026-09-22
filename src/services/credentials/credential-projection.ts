@@ -30,6 +30,8 @@ export function certificateDisplayTitle(params: {
   return 'Pinit Protected Asset Certificate';
 }
 
+import { publicAssetRecord } from '../certificates/asset-record';
+
 export const PINIT_CERTIFICATE_ISSUER = 'Pinit';
 export const PINIT_CERTIFICATE_TRUST = 'PINIT_VERIFIED' as const;
 
@@ -51,6 +53,8 @@ export type CredentialDto = {
   issuedAt: string | null;
   expiresAt: string | null;
   relatedAsset: RelatedAssetDto | null;
+  /** Public asset reference (PH-ASSET-XXXXXXXX) printed on the certificate footer. */
+  assetRecord: string | null;
   source: {
     type: 'PINIT_CERTIFICATE';
     id: string;
@@ -96,6 +100,9 @@ export function toCertificateCredentialDto(params: {
     issuedAt: params.issuedAt ? new Date(params.issuedAt).toISOString() : null,
     expiresAt: params.expiresAt ? new Date(params.expiresAt).toISOString() : null,
     relatedAsset,
+    // Derived once, server-side, so the sheet and the verification page quote the
+    // same reference. The raw Asset.id never leaves the server.
+    assetRecord: params.assetOwned ? publicAssetRecord(params.assetId) : null,
     source: {
       type: 'PINIT_CERTIFICATE',
       id: params.certificateId,

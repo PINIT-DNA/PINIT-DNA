@@ -1,10 +1,20 @@
 /**
- * PINIT-DNA · View in Timeline & History (Phase 4.3)
+ * Asset Activity — one protected file, one unbroken log.
  * Route: /timeline
  *
- * Reads DNA records + vault records + session comparison reports.
- * Builds a chronological audit trail per file.
- * DOES NOT modify any existing logic.
+ * This used to list DNA records, so the same file appeared once per protection
+ * run (Ocean.jpg twice, a certificate PDF three times) and the internal
+ * frame-NN.jpg records made while protecting a video looked like files the owner
+ * had uploaded. It now lists FILES, from the server, merged by content hash:
+ * protecting the same bytes again adds a "Protected again" line to the one log
+ * instead of starting a second row, and a record with no asset behind it is not
+ * a row at all.
+ *
+ * The log itself is one continuous strip from the first protection to the last
+ * thing that happened — nothing is split into separate event groups.
+ *
+ * Read-only. Comparison reports still come from this browser's own storage and
+ * are merged into the file they belong to.
  */
 
 import { useState, useMemo, useEffect, useRef } from 'react';
@@ -13,445 +23,246 @@ import { format, formatDistanceToNow } from 'date-fns';
 import {
   Clock, Dna, Lock, Search, GitCompare, Award,
   Shield, RefreshCw, Filter, ChevronDown, ChevronUp,
-  Share2, Eye, Download, Copy, Ban,
+  Share2, Eye, Download, Copy, Ban, CornerDownRight,
+  BadgeCheck, Globe, ShoppingBag, Archive, RotateCcw,
+  Trash2, Radio, AlertTriangle, FileSearch, FileCheck, Tag,
+  Heart, ShoppingCart, CheckCircle2, MessageSquare, Pencil,
 } from 'lucide-react';
-import { useApi } from '../hooks/useApi';
-import { listDnaRecords, listVaultRecords, deriveFileType, api } from '../services/dashboard.api';
+import { api } from '../services/dashboard.api';
+import { getOwnerActivity, type ActivityFile, type ActivityEvent, type ActivityEventType } from '../services/tracking.api';
 import { listForensicReports } from '../lib/forensic-reports-storage';
 import { FileTypeBadge, Badge } from '../components/ui/Badge';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { cn } from '../components/ui/utils';
 import { API_BASE_URL } from '../config/api.config';
-import type { DnaRecord, VaultRecord, ComparisonResult } from '../types/dashboard.types';
+import type { ComparisonResult } from '../types/dashboard.types';
 
-// --- Event types --------------------------------------------------------------
+// --- How each kind of event looks ---------------------------------------------
 
-interface AuditEvent {
-  id: string;
-  timestamp: string;
-  type: 'DNA_GENERATED' | 'VAULT_STORED' | 'COMPARED' | 'CERTIFICATE' | 'SHARE_CREATED' | 'SHARE_ACCESSED' | 'SHARE_DOWNLOADED' | 'SHARE_COPIED' | 'SHARE_REVOKED';
-  title: string;
-  detail: string;
-  icon: React.ReactNode;
-  color: string;
-  meta?: Record<string, string>;
+const BLUE = 'bg-info/20 border-info/40 text-info';
+const GREEN = 'bg-success/20 border-success/40 text-success';
+const PURPLE = 'bg-purple/20 border-purple/40 text-purple';
+const ORANGE = 'bg-orange/20 border-orange/40 text-orange';
+const CYAN = 'bg-cyan/20 border-cyan/40 text-cyan';
+const WARN = 'bg-warning/20 border-warning/40 text-warning';
+const RED = 'bg-danger/20 border-danger/40 text-danger';
+const DNA_C = 'bg-dna-500/20 border-dna-500/40 text-dna-400';
+const GREY = 'bg-bg-elevated border-bg-border text-gray-400';
+
+const EVENT_STYLE: Partial<Record<ActivityEventType, { color: string; icon: React.ReactNode }>> = {
+  // Hub
+  PROTECTED:           { color: DNA_C,  icon: <Dna size={14} /> },
+  PROTECTED_AGAIN:     { color: DNA_C,  icon: <RotateCcw size={14} /> },
+  VAULT_STORED:        { color: GREEN,  icon: <Lock size={14} /> },
+  VAULT_VIEWED:        { color: BLUE,   icon: <Eye size={14} /> },
+  VAULT_DOWNLOADED:    { color: GREEN,  icon: <Download size={14} /> },
+  VAULT_ISSUE:         { color: WARN,   icon: <AlertTriangle size={14} /> },
+  RENAMED:             { color: GREY,   icon: <Pencil size={14} /> },
+  DELETED:             { color: RED,    icon: <Trash2 size={14} /> },
+  ARCHIVED:            { color: GREY,   icon: <Archive size={14} /> },
+  // Certificate
+  CERTIFICATE_ISSUED:  { color: PURPLE, icon: <Award size={14} /> },
+  CERTIFICATE_CHECKED: { color: PURPLE, icon: <BadgeCheck size={14} /> },
+  CERTIFICATE_REVOKED: { color: RED,    icon: <Ban size={14} /> },
+  CERTIFICATE_EXPIRED: { color: WARN,   icon: <Clock size={14} /> },
+  // Portfolio
+  PORTFOLIO_ADDED:     { color: CYAN,   icon: <Globe size={14} /> },
+  PORTFOLIO_PUBLISHED: { color: CYAN,   icon: <Globe size={14} /> },
+  PORTFOLIO_VIEWED:    { color: BLUE,   icon: <Eye size={14} /> },
+  // Sharing
+  SHARE_CREATED:       { color: ORANGE, icon: <Share2 size={14} /> },
+  SHARE_FORWARDED:     { color: ORANGE, icon: <CornerDownRight size={14} /> },
+  SHARE_VIEWED:        { color: BLUE,   icon: <Eye size={14} /> },
+  SHARE_DOWNLOADED:    { color: GREEN,  icon: <Download size={14} /> },
+  SHARE_COPIED:        { color: CYAN,   icon: <Copy size={14} /> },
+  SHARE_SCREENSHOT:    { color: WARN,   icon: <Ban size={14} /> },
+  SHARE_STOPPED:       { color: RED,    icon: <Ban size={14} /> },
+  SHARE_EXPIRED:       { color: GREY,   icon: <Clock size={14} /> },
+  SHARE_RISK:          { color: WARN,   icon: <AlertTriangle size={14} /> },
+  // Exchange
+  EXCHANGE_LIST_STARTED: { color: ORANGE, icon: <Tag size={14} /> },
+  EXCHANGE_LISTED:     { color: ORANGE, icon: <Tag size={14} /> },
+  EXCHANGE_UNLISTED:   { color: GREY,   icon: <Tag size={14} /> },
+  EXCHANGE_VIEWED:     { color: BLUE,   icon: <Eye size={14} /> },
+  SOLD:                { color: ORANGE, icon: <ShoppingBag size={14} /> },
+  CART_ADDED:          { color: GREY,   icon: <ShoppingCart size={14} /> },
+  WISHLIST_ADDED:      { color: GREY,   icon: <Heart size={14} /> },
+  // Monitoring, investigation, evidence
+  MONITORING_STARTED:  { color: CYAN,   icon: <Radio size={14} /> },
+  FOUND_ONLINE:        { color: RED,    icon: <Globe size={14} /> },
+  TAMPERING:           { color: RED,    icon: <AlertTriangle size={14} /> },
+  DUPLICATE_BLOCKED:   { color: WARN,   icon: <Shield size={14} /> },
+  INVESTIGATION_STARTED:   { color: CYAN, icon: <FileSearch size={14} /> },
+  INVESTIGATION_COMPLETED: { color: CYAN, icon: <FileCheck size={14} /> },
+  EVIDENCE_CREATED:    { color: PURPLE, icon: <FileCheck size={14} /> },
+  // Review and notes
+  VERSION_APPROVED:    { color: GREEN,  icon: <CheckCircle2 size={14} /> },
+  VERSION_CHANGES:     { color: WARN,   icon: <MessageSquare size={14} /> },
+  STATUS_CHANGE:       { color: GREY,   icon: <Clock size={14} /> },
+  NOTE:                { color: GREY,   icon: <MessageSquare size={14} /> },
+  COMPARED:            { color: CYAN,   icon: <GitCompare size={14} /> },
+};
+
+const DEFAULT_STYLE = { color: GREY, icon: <Clock size={14} /> };
+
+/**
+ * Comparison reports live in this browser, not the database, so they are merged
+ * in here. They record filenames rather than record ids, which is how the old
+ * screen matched them too.
+ */
+function comparisonEvents(file: ActivityFile, comparisons: ComparisonResult[]): ActivityEvent[] {
+  const names = new Set([file.filename, ...file.otherFilenames]);
+  return comparisons
+    .filter((c) => names.has(c.fileA?.filename) || names.has(c.fileB?.filename))
+    .map((c) => ({
+      id: `compare-${c.comparisonId}-${file.key}`,
+      at: c.comparedAt ?? file.lastActivityAt,
+      type: 'COMPARED' as const,
+      title: `Compared with another file · ${c.classification.replace('_', ' ')}`,
+      detail: `${c.overallConfidenceScore}% confidence · ${c.tamperingDetected ? 'tampering detected' : 'no tampering'}`,
+      meta: {
+        'Comparison ID': c.comparisonId.slice(0, 12),
+        Classification: c.classification,
+        Confidence: `${c.overallConfidenceScore}%`,
+      },
+    }));
 }
 
-interface FileHistory {
-  filename: string;
-  fileType: string;
-  dnaRecordId: string;
-  vaultId: string | null;
-  events: AuditEvent[];
-  lastActivity: string;
-}
+// --- One file, one log --------------------------------------------------------
 
-// --- Build history from available data ----------------------------------------
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildHistory(
-  dnaRecords: DnaRecord[],
-  vaultRecords: VaultRecord[],
-  comparisons: ComparisonResult[],
-  shareEventsByDna: Record<string, any[]> = {}
-): FileHistory[] {
-  const vaultByDna = new Map(vaultRecords.map(v => [v.dnaRecordId, v]));
-  const histories: FileHistory[] = [];
-
-  for (const r of dnaRecords) {
-    const vault = vaultByDna.get(r.id);
-    const events: AuditEvent[] = [];
-
-    // DNA Generated
-    events.push({
-      id: `dna-${r.id}`,
-      timestamp: r.createdAt,
-      type: 'DNA_GENERATED',
-      title: 'File protected',
-      detail: `${r.status} · ${deriveFileType(r)} · ${Math.round(r.imageSizeBytes / 1024)} KB`,
-      icon: <Dna size={14} />, color: 'bg-dna-500/20 border-dna-500/40 text-dna-400',
-      meta: { 'Record ID': r.id, Status: r.status },
-    });
-
-    // Vault stored
-    if (vault) {
-      events.push({
-        id: `vault-${vault.id}`,
-        timestamp: vault.createdAt,
-        type: 'VAULT_STORED',
-        title: 'Stored securely in your vault',
-        detail: `Protected · ${Math.round(vault.encryptedSizeBytes / 1024)} KB stored`,
-        icon: <Lock size={14} />, color: 'bg-success/20 border-success/40 text-success',
-        meta: { 'Asset ID': vault.id },
-      });
-
-      // Certificate (if vaulted)
-      events.push({
-        id: `cert-${vault.id}`,
-        timestamp: vault.createdAt,
-        type: 'CERTIFICATE',
-        title: 'Ownership certificate available',
-        detail: `CERT-DNA-${vault.id.slice(0, 8).toUpperCase()} · Ready to download`,
-        icon: <Award size={14} />, color: 'bg-purple/20 border-purple/40 text-purple',
-        meta: { 'Certificate ID': `CERT-DNA-${vault.id.slice(0, 8).toUpperCase()}` },
-      });
-    }
-
-    // Share link events
-    const shareLinks = shareEventsByDna[r.id] ?? [];
-    for (const link of shareLinks) {
-      // Link created
-      events.push({
-        id: `share-created-${link.id}`,
-        timestamp: link.createdAt,
-        type: 'SHARE_CREATED',
-        title: 'Share link created',
-        detail: `${link.expiresAt ? `Expires ${new Date(link.expiresAt).toLocaleDateString()}` : 'No expiry'}${link.maxViews ? ` · Max ${link.maxViews} views` : ''}`,
-        icon: <Share2 size={14} />, color: 'bg-orange/20 border-orange/40 text-orange',
-        meta: {
-          Token: link.token,
-          'Allow Download': link.allowDownload ? 'Yes' : 'No',
-          'Require Name': link.requireName ? 'Yes' : 'No',
-          Status: link.isActive ? 'ACTIVE' : 'REVOKED',
-        },
-      });
-
-      // Build session ? GPS map so GPS from VIEWED event propagates to all events in session
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sessionGps: Record<string, any> = {};
-      for (const log of (link.accessLogs ?? [])) {
-        if (log.locationShared && log.gpsLat != null && log.sessionId) {
-          sessionGps[log.sessionId] = {
-            gpsLat: log.gpsLat, gpsLng: log.gpsLng,
-            gpsAccuracy: log.gpsAccuracy, gpsCity: log.gpsCity,
-          };
-        }
-      }
-
-      // Access log events
-      for (const log of (link.accessLogs ?? [])) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const actionIcon: Record<string, any> = {
-          VIEWED:              <Eye size={14} />,
-          DOWNLOADED:          <Download size={14} />,
-          COPIED:              <Copy size={14} />,
-          COPY_ATTEMPT:        <Copy size={14} />,
-          SCREENSHOT_ATTEMPT:  <Ban size={14} />,
-          SCREEN_RECORDING_ATTEMPT: <Ban size={14} />,
-          SCROLL:              <Eye size={14} />,
-          TAB_SWITCH:          <Eye size={14} />,
-          PRINT_ATTEMPT:       <Ban size={14} />,
-          BLOCKED_EXPIRED:     <Ban size={14} />,
-          BLOCKED_MAX_VIEWS:   <Ban size={14} />,
-        };
-        const actionColor: Record<string, string> = {
-          VIEWED:             'bg-blue/20 border-blue/30 text-blue-400',
-          DOWNLOADED:         'bg-success/20 border-success/40 text-success',
-          COPIED:             'bg-dna-500/20 border-dna-500/40 text-dna-400',
-          COPY_ATTEMPT:       'bg-warning/20 border-warning/40 text-warning',
-          SCREENSHOT_ATTEMPT: 'bg-danger/20 border-danger/40 text-danger',
-          SCREEN_RECORDING_ATTEMPT: 'bg-danger/20 border-danger/40 text-danger',
-          SCROLL:             'bg-gray-500/10 border-gray-500/20 text-gray-400',
-          TAB_SWITCH:         'bg-warning/10 border-warning/20 text-warning',
-          PRINT_ATTEMPT:      'bg-danger/10 border-danger/20 text-danger',
-          BLOCKED_EXPIRED:    'bg-danger/20 border-danger/40 text-danger',
-          BLOCKED_MAX_VIEWS:  'bg-danger/20 border-danger/40 text-danger',
-        };
-        const actionLabel: Record<string, string> = {
-          VIEWED:             'Opened by recipient',
-          DOWNLOADED:         'Downloaded by recipient',
-          COPIED:             'Link copied',
-          COPY_ATTEMPT:       'Copy attempt',
-          SCREENSHOT_ATTEMPT: 'Screenshot attempt',
-          SCREEN_RECORDING_ATTEMPT: 'Screen recording attempt',
-          DOWNLOAD_STARTED: 'Download started',
-          DOWNLOAD_FAILED: 'Download failed',
-          SHARE_FURTHER: 'Link reshared',
-          FORWARDING_DETECTED: 'Link forwarded',
-          SCROLL:             'Scrolled while viewing',
-          TAB_SWITCH:         'Switched away from the tab',
-          PRINT_ATTEMPT:      'Print attempt',
-          BLOCKED_EXPIRED:    'Blocked — link expired',
-          BLOCKED_MAX_VIEWS:  'Blocked — view limit reached',
-        };
-
-        // [DEBUG] Stage-5: log raw IP value from API before display logic
-        console.debug('[IP-AUDIT] Stage-5 UI received log', { action: log.action, ipAddress: log.ipAddress ?? 'NULL', country: log.country });
-
-        // Format IP · show friendly label for localhost
-        const isLocalhost = !log.ipAddress || log.ipAddress === '::1' || log.ipAddress?.startsWith('127.');
-        const ipDisplay   = isLocalhost ? '📍 Local Dev' : `📍 ${log.ipAddress}`;
-        const geoDisplay  = log.country
-          ? `🌍 ${log.country}${log.city ? `, ${log.city}` : ''}`
-          : isLocalhost ? '🌍 Local Network' : '🌍 Location unknown';
-
-        const meta: Record<string, string> = { Token: link.token, Action: log.action };
-        if (log.recipientName) meta['Recipient'] = log.recipientName;
-        meta['IP Address'] = isLocalhost ? 'Local (::1)' : (log.ipAddress ?? 'Unknown');
-        meta['Location']   = log.country ? `${log.country}${log.city ? `, ${log.city}` : ''}` : isLocalhost ? 'Local network' : 'Unknown';
-        if (log.device)    meta['Device'] = log.device;
-        if (log.browser)   meta['Browser'] = log.browser;
-        if (log.os)        meta['OS'] = log.os;
-        if (log.timezone)  meta['Timezone'] = log.timezone;
-        if (log.region)    meta['Region'] = log.region;
-        if (log.isp)       meta['ISP'] = log.isp;
-        if (log.screenResolution) meta['Screen'] = log.screenResolution;
-        if (log.sessionDurationSec != null) meta['Session'] = `${log.sessionDurationSec}s`;
-        // -- GPS Location · use own GPS or propagate from session's VIEWED event --
-        const gpsSource = log.locationShared && log.gpsLat != null
-          ? log
-          : (log.sessionId && sessionGps[log.sessionId]) ?? null;
-        if (gpsSource) {
-          const coords   = gpsSource.gpsLat != null && gpsSource.gpsLng != null
-            ? `${Number(gpsSource.gpsLat).toFixed(5)}, ${Number(gpsSource.gpsLng).toFixed(5)}`
-            : null;
-          const accuracy = gpsSource.gpsAccuracy != null ? `�${Math.round(gpsSource.gpsAccuracy)}m` : null;
-          const gpsCity  = gpsSource.gpsCity ?? null;
-          meta['GPS Location'] = [gpsCity, coords, accuracy].filter(Boolean).join(' · ');
-        }
-        // -- AI Risk Engine output · surfaced per-event for the audit trail --
-        if (log.riskLevel) {
-          meta['Risk'] = `${log.riskLevel}${log.riskScore != null ? ` (${log.riskScore})` : ''}`;
-        }
-        if (log.riskFactors) {
-          try {
-            const factors: string[] = JSON.parse(log.riskFactors);
-            if (factors.length) meta['Risk Factors'] = factors.join('; ');
-          } catch { /* not JSON · show raw */ if (log.riskFactors) meta['Risk Factors'] = log.riskFactors; }
-        }
-
-        events.push({
-          id: `share-access-${log.id}`,
-          timestamp: log.createdAt,
-          type: log.action === 'DOWNLOADED'         ? 'SHARE_DOWNLOADED' :
-                log.action === 'COPIED'             ? 'SHARE_COPIED'     : 'SHARE_ACCESSED',
-          title: actionLabel[log.action] ?? `Link ${log.action}`,
-          detail: [
-            log.recipientName ? `By: ${log.recipientName}` : null,
-            ipDisplay,
-            geoDisplay,
-            gpsSource
-              ? `GPS: ${gpsSource.gpsCity ?? `${Number(gpsSource.gpsLat).toFixed(3)}, ${Number(gpsSource.gpsLng).toFixed(3)}`} ±${Math.round(gpsSource.gpsAccuracy ?? 0)}m`
-              : null,
-            log.browser ? log.browser : null,
-            log.os      ? log.os      : null,
-          ].filter(Boolean).join(' ·  '),
-          icon:  actionIcon[log.action]  ?? <Eye size={14} />,
-          color: actionColor[log.action] ?? 'bg-gray-500/20 border-gray-500/40 text-gray-400',
-          meta,
-        });
-      }
-    }
-
-    // Comparisons involving this DNA record
-    for (const c of (comparisons ?? [])) {
-      if (!c?.fileA?.filename || !c?.fileB?.filename) continue;
-      const involved = c.fileA.filename === r.imageFilename || c.fileB.filename === r.imageFilename;
-      if (involved) {
-        events.push({
-          id: `cmp-${c.comparisonId}-${r.id}`,
-          timestamp: c.comparedAt,
-          type: 'COMPARED',
-          title: `DNA Comparison · ${c.classification.replace('_', ' ')}`,
-          detail: `${c.overallConfidenceScore}% confidence · ${c.tamperingDetected ? 'Tampering detected' : 'No tampering'}`,
-          icon: <GitCompare size={14} />, color: 'bg-cyan/20 border-cyan/40 text-cyan',
-          meta: {
-            'Comparison ID': c.comparisonId.slice(0, 12),
-            Classification: c.classification,
-            Confidence: `${c.overallConfidenceScore}%`,
-          },
-        });
-      }
-    }
-
-    // Sort events chronologically
-    events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-    const lastActivity = events.length > 0 ? events[events.length - 1].timestamp : r.createdAt;
-
-    histories.push({
-      filename: r.imageFilename,
-      fileType: deriveFileType(r),
-      dnaRecordId: r.id,
-      vaultId: vault?.id ?? null,
-      events,
-      lastActivity,
-    });
-  }
-
-  // Sort by most recent activity
-  return histories.sort((a, b) =>
-    new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime()
-  );
-}
-
-function getStoredComparisons(): ComparisonResult[] {
-  return listForensicReports()
-    .filter((e): e is { kind: 'comparison'; id: string; savedAt: string; data: ComparisonResult } => e.kind === 'comparison')
-    .map(e => e.data);
-}
-
-// --- File history card --------------------------------------------------------
-
-function FileHistoryCard({ history, expanded, onToggle }: { history: FileHistory; expanded: boolean; onToggle: () => void }) {
+function FileLogCard({
+  file,
+  events,
+  expanded,
+  onToggle,
+}: {
+  file: ActivityFile;
+  events: ActivityEvent[];
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   const navigate = useNavigate();
-  const typeColor: Record<string, string> = {
-    DNA_GENERATED:   'bg-dna-500/20 border-dna-500/40 text-dna-400',
-    VAULT_STORED:    'bg-success/20 border-success/40 text-success',
-    COMPARED:        'bg-cyan/20 border-cyan/40 text-cyan',
-    CERTIFICATE:     'bg-purple/20 border-purple/40 text-purple',
-    SHARE_CREATED:   'bg-orange/20 border-orange/40 text-orange',
-    SHARE_ACCESSED:  'bg-blue/20 border-blue/30 text-blue-400',
-    SHARE_DOWNLOADED:'bg-success/20 border-success/40 text-success',
-    SHARE_COPIED:    'bg-dna-500/20 border-dna-500/40 text-dna-400',
-    SHARE_REVOKED:   'bg-danger/20 border-danger/40 text-danger',
-  };
-
-  const typeIcon: Record<string, React.ReactNode> = {
-    DNA_GENERATED:   <Dna size={14} />,
-    VAULT_STORED:    <Lock size={14} />,
-    COMPARED:        <GitCompare size={14} />,
-    CERTIFICATE:     <Award size={14} />,
-    SHARE_CREATED:   <Share2 size={14} />,
-    SHARE_ACCESSED:  <Eye size={14} />,
-    SHARE_DOWNLOADED:<Download size={14} />,
-    SHARE_COPIED:    <Copy size={14} />,
-    SHARE_REVOKED:   <Ban size={14} />,
-  };
 
   return (
     <div className="card overflow-hidden p-0">
-      {/* Header */}
       <button
         onClick={onToggle}
         className="w-full flex items-center gap-3 p-4 text-left hover:bg-bg-elevated/40 transition-colors"
       >
-        <FileTypeBadge type={history.fileType} />
+        <FileTypeBadge type={file.assetType} />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{history.filename}</p>
+          <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{file.filename}</p>
           <p className="text-xs text-slate-500 mt-0.5">
-            {history.events.length} {history.events.length === 1 ? 'event' : 'events'}
+            {events.length} {events.length === 1 ? 'event' : 'events'} · from{' '}
+            {format(new Date(file.protectedAt), 'd MMM yyyy')}
+            {file.timesProtected > 1 && ` · protected ${file.timesProtected} times`}
+            {file.otherFilenames.length > 0 && ` · also saved as ${file.otherFilenames.join(', ')}`}
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
           <div className="flex items-center gap-1">
-            {history.events.some(e => e.type === 'VAULT_STORED') && (
-              <Badge variant="success">Protected</Badge>
-            )}
-            {history.events.some(e => e.type === 'COMPARED') && (
-              <Badge variant="info">Compared</Badge>
-            )}
+            {file.deleted
+              ? <Badge variant="danger">Deleted</Badge>
+              : events.some((e) => e.type === 'VAULT_STORED') && <Badge variant="success">In vault</Badge>}
+            {file.certificateId && <Badge variant="purple">Certificate</Badge>}
+            {events.some((e) => e.type === 'SOLD') && <Badge variant="orange">Sold</Badge>}
+            {events.some((e) => e.type === 'FOUND_ONLINE') && <Badge variant="danger">Found online</Badge>}
+            {events.some((e) => e.type === 'PORTFOLIO_ADDED') && <Badge variant="cyan">Portfolio</Badge>}
           </div>
           <span className="text-xs text-gray-500">
-            {formatDistanceToNow(new Date(history.lastActivity), { addSuffix: true })}
+            {formatDistanceToNow(new Date(file.lastActivityAt), { addSuffix: true })}
           </span>
-          {history.vaultId && (
-            <span
-              role="link"
-              tabIndex={0}
-              onClick={(e) => {
+          <span
+            role="link"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/tracking/${encodeURIComponent(file.assetId)}`);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
                 e.stopPropagation();
-                navigate(`/vault?id=${encodeURIComponent(history.vaultId!)}`);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  navigate(`/vault?id=${encodeURIComponent(history.vaultId!)}`);
-                }
-              }}
-              className="text-xs font-semibold text-dna-600 dark:text-blue-300 hover:underline"
-            >
-              Open asset
-            </span>
-          )}
+                navigate(`/tracking/${encodeURIComponent(file.assetId)}`);
+              }
+            }}
+            className="text-xs font-semibold text-dna-600 dark:text-blue-300 hover:underline"
+          >
+            Open asset
+          </span>
           {expanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
         </div>
       </button>
 
-      {/* Timeline */}
       {expanded && (
         <div className="border-t border-bg-border px-4 py-4">
           <div className="relative">
-            {/* Vertical line */}
             <div className="absolute left-[18px] top-0 bottom-0 w-px bg-bg-border" />
 
             <div className="space-y-4">
-              {history.events.map((event, i) => (
-                <div key={event.id} className="relative flex gap-3">
-                  {/* Icon bubble */}
-                  <div className={cn(
-                    'relative z-10 w-9 h-9 rounded-full border flex items-center justify-center shrink-0',
-                    typeColor[event.type] ?? 'bg-bg-elevated border-bg-border text-gray-400'
-                  )}>
-                    {typeIcon[event.type] ?? <Clock size={14} />}
-                  </div>
-
-                  {/* Content */}
-                  <div className="flex-1 min-w-0 pb-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-900 dark:text-white">{event.title}</p>
-                        <p className="text-xs text-slate-500 dark:text-gray-400 mt-0.5">{event.detail}</p>
-                      </div>
-                      <span className="text-2xs text-gray-600 mono shrink-0 mt-0.5">
-                        {format(new Date(event.timestamp), 'MMM d, HH:mm')}
-                      </span>
+              {events.map((event, i) => {
+                const style = EVENT_STYLE[event.type] ?? DEFAULT_STYLE;
+                return (
+                  <div key={event.id} className="relative flex gap-3">
+                    <div className={cn(
+                      'relative z-10 w-9 h-9 rounded-full border flex items-center justify-center shrink-0',
+                      style.color,
+                    )}>
+                      {style.icon}
                     </div>
 
-                    {/* Metadata pills */}
-                    {event.meta && Object.keys(event.meta).length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        {Object.entries(event.meta).map(([k, v]) => (
-                          <div key={k} className={cn(
-                            'border rounded-lg px-2.5 py-1',
-                            k === 'Risk' && /HIGH|CRITICAL/.test(v)
-                              ? 'bg-danger/10 border-danger/30'
-                              : k === 'Risk' && /MEDIUM/.test(v)
-                              ? 'bg-warning/10 border-warning/30'
-                              : 'bg-bg-elevated border-bg-border'
-                          )}>
-                            <span className="text-2xs text-gray-500">{k}: </span>
-                            <span className={cn(
-                              'text-2xs mono',
-                              k === 'Risk' && /HIGH|CRITICAL/.test(v) ? 'text-danger'
-                                : k === 'Risk' && /MEDIUM/.test(v) ? 'text-warning'
-                                : 'text-gray-300'
-                            )}>
-                              {v.length > 60 ? v.slice(0, 60) + '�' : v}
-                            </span>
-                          </div>
-                        ))}
+                    <div className="flex-1 min-w-0 pb-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-900 dark:text-white">{event.title}</p>
+                          <p className="text-xs text-slate-500 dark:text-gray-400 mt-0.5">{event.detail}</p>
+                        </div>
+                        <span className="text-2xs text-gray-600 mono shrink-0 mt-0.5">
+                          {format(new Date(event.at), 'MMM d, HH:mm')}
+                        </span>
                       </div>
-                    )}
 
-                    {/* Audit export · Smart Links CSV download per share token */}
-                    {event.type === 'SHARE_CREATED' && event.meta?.['Token'] && (
-                      <div className="flex items-center gap-3 mt-2">
-                        <button
-                          onClick={() => navigate(`/access-intelligence/${encodeURIComponent(event.meta!['Token'] as string)}`)}
-                          className="inline-flex items-center gap-1.5 text-2xs text-dna-400 hover:text-dna-300 bg-dna-500/10 hover:bg-dna-500/20 px-2.5 py-1 rounded-lg transition-colors"
-                        >
-                          <Shield size={11} /> View Link Intelligence
-                        </button>
-                        <a
-                          href={`${API_BASE_URL}/share/${event.meta['Token']}/export`}
-                          target="_blank" rel="noreferrer"
-                          className="inline-flex items-center gap-1.5 text-2xs text-gray-500 hover:text-gray-300 underline underline-offset-2"
-                        >
-                          <Download size={11} /> Export CSV
-                        </a>
-                      </div>
+                      {event.meta && Object.keys(event.meta).length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {Object.entries(event.meta).map(([k, v]) => (
+                            <div key={k} className="border rounded-lg px-2.5 py-1 bg-bg-elevated border-bg-border">
+                              <span className="text-2xs text-gray-500">{k}: </span>
+                              <span className="text-2xs mono text-gray-300">
+                                {v.length > 60 ? `${v.slice(0, 60)}…` : v}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {event.token && (
+                        <div className="flex items-center gap-3 mt-2">
+                          <button
+                            onClick={() => navigate(`/access-intelligence/${encodeURIComponent(event.token!)}`)}
+                            className="inline-flex items-center gap-1.5 text-2xs text-dna-400 hover:text-dna-300 bg-dna-500/10 hover:bg-dna-500/20 px-2.5 py-1 rounded-lg transition-colors"
+                          >
+                            <Shield size={11} /> Open this link
+                          </button>
+                          {event.type === 'SHARE_CREATED' && (
+                            <a
+                              href={`${API_BASE_URL}/share/${event.token}/export`}
+                              target="_blank" rel="noreferrer"
+                              className="inline-flex items-center gap-1.5 text-2xs text-gray-500 hover:text-gray-300 underline underline-offset-2"
+                            >
+                              <Download size={11} /> Export CSV
+                            </a>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {i < events.length - 1 && (
+                      <div className="absolute left-[17px] top-9 w-2 h-2 rounded-full bg-bg-border" />
                     )}
                   </div>
-
-                  {/* Connector dot */}
-                  {i < history.events.length - 1 && (
-                    <div className="absolute left-[17px] top-9 w-2 h-2 rounded-full bg-bg-border" />
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -467,120 +278,120 @@ export function TimelinePage() {
   const [searchParams] = useSearchParams();
   const focusVaultId = searchParams.get('vaultId')?.trim() || null;
   const focusDnaId = searchParams.get('dnaRecordId')?.trim() || null;
-  const { data: dnaRecords, loading: loadDna, error: errDna, refetch } = useApi(listDnaRecords, [], { cacheKey: 'dna-records' });
-  const { data: vaultRecords, loading: loadVault } = useApi(listVaultRecords, [], { cacheKey: 'vault-records' });
-  const [search, setSearch]     = useState('');
+  const focusAssetId = searchParams.get('assetId')?.trim() || null;
+
+  const [files, setFiles] = useState<ActivityFile[] | null>(null);
+  const [unavailable, setUnavailable] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState('ALL');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [shareEventsByDna, setShareEventsByDna] = useState<Record<string, any[]>>({});
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [geoAnalytics, setGeoAnalytics] = useState<any[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [liveSessions, setLiveSessions] = useState<{ live: any[]; concurrent: any[] }>({ live: [], concurrent: [] });
 
-  const comparisons = useMemo(getStoredComparisons, []);
-  const loading = loadDna || loadVault;
+  const comparisons = useMemo(
+    () =>
+      listForensicReports()
+        .filter((e): e is { kind: 'comparison'; id: string; savedAt: string; data: ComparisonResult } => e.kind === 'comparison')
+        .map((e) => e.data),
+    [],
+  );
 
-  // Lifted expand state · keyed by dnaRecordId so it survives auto-refresh re-renders
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const toggleExpanded = (id: string) =>
-    setExpandedIds(prev => {
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+  const toggleExpanded = (key: string) =>
+    setExpandedKeys((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
 
-  // Track the last-known total log count to detect new events
-  const lastLogCount = useRef(0);
+  const load = useRef(() => {});
+  load.current = () => {
+    setLoading(true);
+    getOwnerActivity()
+      .then(({ files: rows, unavailable: gaps }) => {
+        setFiles(rows);
+        setUnavailable(gaps);
+        setError(null);
+      })
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not load activity'))
+      .finally(() => setLoading(false));
+  };
 
-  // Fetch geo + live sessions once on mount (these rarely change mid-session)
   useEffect(() => {
-    api.get(`${API_BASE_URL}/share/analytics/geo`)
-      .then(({ data }) => setGeoAnalytics((data as any).analytics ?? []))  // eslint-disable-line @typescript-eslint/no-explicit-any
-      .catch(() => {});
-    api.get(`${API_BASE_URL}/share/sessions/live`)
-      .then(({ data }) => setLiveSessions({ live: (data as any).live ?? [], concurrent: (data as any).concurrent ?? [] }))  // eslint-disable-line @typescript-eslint/no-explicit-any
-      .catch(() => {});
-  }, []);
-
-  // Poll share events every 20s · only update state when new logs actually arrive
-  useEffect(() => {
-    const fetchLinks = () => {
-      api.get(`${API_BASE_URL}/share`)
-        .then(({ data }) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const links: any[] = (data as any).links ?? [];
-          const totalLogs = links.reduce((s: number, l: any) => s + (l.accessLogs?.length ?? 0), 0);  // eslint-disable-line @typescript-eslint/no-explicit-any
-
-          // Only update state if new events arrived · avoids unnecessary re-renders
-          if (totalLogs === lastLogCount.current) return;
-          lastLogCount.current = totalLogs;
-
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const map: Record<string, any[]> = {};
-          for (const link of links) {
-            if (!map[link.dnaRecordId]) map[link.dnaRecordId] = [];
-            map[link.dnaRecordId].push(link);
-          }
-          setShareEventsByDna(map);
-        })
-        .catch(() => {});
-    };
-    fetchLinks();
-    const id = setInterval(fetchLinks, 60_000);
+    load.current();
+    const id = setInterval(() => load.current(), 60_000);
     return () => clearInterval(id);
   }, []);
 
-  const histories = useMemo(() => {
-    if (!dnaRecords || !vaultRecords) return [];
-    return buildHistory(dnaRecords, vaultRecords, comparisons, shareEventsByDna);
-  }, [dnaRecords, vaultRecords, comparisons, shareEventsByDna]);
+  useEffect(() => {
+    api.get(`${API_BASE_URL}/share/analytics/geo`)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then(({ data }) => setGeoAnalytics((data as any).analytics ?? []))
+      .catch(() => {});
+    api.get(`${API_BASE_URL}/share/sessions/live`)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then(({ data }) => setLiveSessions({ live: (data as any).live ?? [], concurrent: (data as any).concurrent ?? [] }))
+      .catch(() => {});
+  }, []);
+
+  /** Server events plus this browser's comparison reports, in one order. */
+  const eventsByKey = useMemo(() => {
+    const map = new Map<string, ActivityEvent[]>();
+    for (const file of files ?? []) {
+      const merged = [...file.events, ...comparisonEvents(file, comparisons)];
+      merged.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+      map.set(file.key, merged);
+    }
+    return map;
+  }, [files, comparisons]);
 
   const filtered = useMemo(() => {
-    const bySearch = histories.filter(h =>
-      (filterType === 'ALL' || h.fileType === filterType) &&
-      h.filename.toLowerCase().includes(search.toLowerCase())
+    const list = files ?? [];
+    const bySearch = list.filter(
+      (f) =>
+        (filterType === 'ALL' || f.assetType === filterType) &&
+        (f.filename.toLowerCase().includes(search.toLowerCase()) ||
+          f.otherFilenames.some((n) => n.toLowerCase().includes(search.toLowerCase()))),
     );
-    if (focusVaultId) return bySearch.filter(h => h.vaultId === focusVaultId);
-    if (focusDnaId) return bySearch.filter(h => h.dnaRecordId === focusDnaId);
+    if (focusAssetId) return bySearch.filter((f) => f.assetIds.includes(focusAssetId));
+    if (focusVaultId) return bySearch.filter((f) => f.vaultIds.includes(focusVaultId));
+    if (focusDnaId) return bySearch.filter((f) => f.dnaIds.includes(focusDnaId));
     return bySearch;
-  }, [histories, filterType, search, focusVaultId, focusDnaId]);
+  }, [files, filterType, search, focusAssetId, focusVaultId, focusDnaId]);
 
+  // A file linked to from elsewhere opens with its log already unrolled.
   useEffect(() => {
-    const match = histories.find(h =>
-      (focusVaultId && h.vaultId === focusVaultId) || (focusDnaId && h.dnaRecordId === focusDnaId),
-    );
+    if (!focusAssetId && !focusVaultId && !focusDnaId) return;
+    const match = filtered[0];
     if (!match) return;
-    setExpandedIds(prev => {
-      if (prev.has(match.dnaRecordId)) return prev;
-      const next = new Set(prev);
-      next.add(match.dnaRecordId);
-      return next;
-    });
-  }, [histories, focusVaultId, focusDnaId]);
+    setExpandedKeys((prev) => (prev.has(match.key) ? prev : new Set(prev).add(match.key)));
+  }, [filtered, focusAssetId, focusVaultId, focusDnaId]);
 
-  const fileTypes = useMemo(() =>
-    ['ALL', ...[...new Set(histories.map(h => h.fileType))]], [histories]);
-
-  const totalEvents = histories.reduce((s, h) => s + h.events.length, 0);
+  const focused = Boolean(focusAssetId || focusVaultId || focusDnaId);
+  const shown = focused ? filtered : (files ?? []);
+  const fileTypes = useMemo(() => ['ALL', ...new Set((files ?? []).map((f) => f.assetType))], [files]);
+  const totalEvents = shown.reduce((sum, f) => sum + (eventsByKey.get(f.key)?.length ?? 0), 0);
 
   return (
     <div className="page-shell space-y-5 animate-fade-in">
 
-      {/* Header */}
       <div className="flex items-center justify-end flex-wrap gap-3">
         <div className="flex items-center gap-2">
-          {!loading && <Badge variant="dna">{(focusVaultId || focusDnaId ? filtered : histories).length} files · {(focusVaultId || focusDnaId ? filtered.reduce((s, h) => s + h.events.length, 0) : totalEvents)} events</Badge>}
-          <button onClick={refetch} disabled={loading} className="btn btn-secondary btn-sm">
+          {!loading && <Badge variant="dna">{shown.length} files · {totalEvents} events</Badge>}
+          <button onClick={() => load.current()} disabled={loading} className="btn btn-secondary btn-sm">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
 
-      {(focusVaultId || focusDnaId) && filtered[0] && (
+      {focused && filtered[0] && (
         <div className="rounded-xl border border-dna-500/30 bg-dna-500/10 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <p className="text-xs text-dna-200">Showing this asset</p>
+            <p className="text-xs text-dna-200">Showing this file</p>
             <p className="text-sm font-semibold text-white">{filtered[0].filename}</p>
           </div>
           <button
@@ -588,24 +399,35 @@ export function TimelinePage() {
             className="text-2xs font-semibold text-dna-300 hover:text-white"
             onClick={() => navigate('/timeline')}
           >
-            Show all assets
+            Show all files
           </button>
         </div>
       )}
 
+      {unavailable.length > 0 && (
+        <p className="rounded-xl border border-bg-border bg-bg-elevated px-4 py-2.5 text-xs text-gray-400">
+          Not counted right now: {unavailable.join(', ')}. Those lines are missing from the logs below
+          rather than shown as nothing having happened.
+        </p>
+      )}
+
       {/* Legend */}
       <div className="flex items-center gap-4 flex-wrap">
-        {[
-          { color: 'bg-dna-500/20 border-dna-500/40 text-dna-400', icon: <Dna size={12} />, label: 'Protected' },
-          { color: 'bg-success/20 border-success/40 text-success', icon: <Lock size={12} />, label: 'Saved to vault' },
-          { color: 'bg-cyan/20 border-cyan/40 text-cyan',          icon: <GitCompare size={12} />, label: 'Compared' },
-          { color: 'bg-purple/20 border-purple/40 text-purple',    icon: <Award size={12} />, label: 'Certificate' },
-        ].map(item => (
-          <div key={item.label} className="flex items-center gap-2">
-            <div className={cn('w-6 h-6 rounded-full border flex items-center justify-center', item.color)}>
-              {item.icon}
+        {([
+          ['PROTECTED', 'Protected'],
+          ['VAULT_STORED', 'Stored'],
+          ['CERTIFICATE_ISSUED', 'Certificate'],
+          ['PORTFOLIO_ADDED', 'Portfolio'],
+          ['SHARE_CREATED', 'Shared'],
+          ['EXCHANGE_LISTED', 'Exchange'],
+          ['FOUND_ONLINE', 'Found online'],
+          ['DELETED', 'Deleted'],
+        ] as Array<[ActivityEventType, string]>).map(([type, label]) => (
+          <div key={type} className="flex items-center gap-2">
+            <div className={cn('w-6 h-6 rounded-full border flex items-center justify-center', (EVENT_STYLE[type] ?? DEFAULT_STYLE).color)}>
+              {(EVENT_STYLE[type] ?? DEFAULT_STYLE).icon}
             </div>
-            <span className="text-xs text-gray-400">{item.label}</span>
+            <span className="text-xs text-gray-400">{label}</span>
           </div>
         ))}
       </div>
@@ -616,13 +438,13 @@ export function TimelinePage() {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
           <input
             type="text" placeholder="Search by filename"
-            value={search} onChange={e => setSearch(e.target.value)}
+            value={search} onChange={(e) => setSearch(e.target.value)}
             className="input pl-9 text-sm"
           />
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
           <Filter size={13} className="text-gray-500" />
-          {fileTypes.map(t => (
+          {fileTypes.map((t) => (
             <button
               key={t}
               onClick={() => setFilterType(t)}
@@ -630,7 +452,7 @@ export function TimelinePage() {
                 'text-xs px-3 py-1.5 rounded-full border transition-all',
                 filterType === t
                   ? 'bg-dna-500/20 border-dna-500/40 text-dna-400'
-                  : 'border-bg-border text-gray-500 hover:text-white'
+                  : 'border-bg-border text-gray-500 hover:text-white',
               )}
             >
               {t}
@@ -639,15 +461,15 @@ export function TimelinePage() {
         </div>
       </div>
 
-      {/* Stats row */}
-      {!loading && (focusVaultId || focusDnaId ? filtered.length > 0 : histories.length > 0) && (
+      {/* Stats */}
+      {!loading && shown.length > 0 && (
         <div className="stat-grid-4 gap-3">
           {[
-            { icon: <Dna size={16} className="text-dna-400" />, label: 'Files Tracked', value: (focusVaultId || focusDnaId ? filtered : histories).length },
-            { icon: <Lock size={16} className="text-success" />, label: 'Files stored', value: (focusVaultId || focusDnaId ? filtered : histories).filter(h => h.vaultId).length },
-            { icon: <GitCompare size={16} className="text-cyan" />, label: 'Comparisons', value: comparisons.length },
-            { icon: <Shield size={16} className="text-purple" />, label: 'Total Events', value: (focusVaultId || focusDnaId ? filtered.reduce((s, h) => s + h.events.length, 0) : totalEvents) },
-          ].map(item => (
+            { icon: <Dna size={16} className="text-dna-400" />, label: 'Files tracked', value: shown.length },
+            { icon: <Lock size={16} className="text-success" />, label: 'Files stored', value: shown.filter((f) => f.vaultIds.length > 0).length },
+            { icon: <Award size={16} className="text-purple" />, label: 'With certificate', value: shown.filter((f) => f.certificateId).length },
+            { icon: <Shield size={16} className="text-purple" />, label: 'Total events', value: totalEvents },
+          ].map((item) => (
             <div key={item.label} className="card-sm flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-bg-elevated flex items-center justify-center">{item.icon}</div>
               <div>
@@ -659,20 +481,19 @@ export function TimelinePage() {
         </div>
       )}
 
-      {/* Geo Intelligence + Live Session Monitoring widgets */}
-      {!focusVaultId && !focusDnaId && (geoAnalytics.length > 0 || liveSessions.live.length > 0 || liveSessions.concurrent.length > 0) && (
+      {/* Geo + live sessions */}
+      {!focused && (geoAnalytics.length > 0 || liveSessions.live.length > 0 || liveSessions.concurrent.length > 0) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {/* Geo analytics */}
           {geoAnalytics.length > 0 && (
             <div className="card">
-              <p className="text-xs font-semibold text-white mb-3">🌍 Geo Intelligence ·  Access by Country</p>
+              <p className="text-xs font-semibold text-white mb-3">Where your files were opened</p>
               <div className="space-y-2">
                 {geoAnalytics.slice(0, 6).map((g, i) => (
                   <div key={i} className="flex items-center justify-between text-xs">
                     <div className="min-w-0">
                       <span className="text-gray-300">{g.country ?? 'Unknown'}</span>
                       {g.cities?.length > 0 && (
-                        <span className="text-gray-600 ml-1.5">� {g.cities.slice(0, 3).join(', ')}</span>
+                        <span className="text-gray-600 ml-1.5">· {g.cities.slice(0, 3).join(', ')}</span>
                       )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -685,17 +506,16 @@ export function TimelinePage() {
             </div>
           )}
 
-          {/* Live / concurrent sessions */}
           {(liveSessions.live.length > 0 || liveSessions.concurrent.length > 0) && (
             <div className="card">
-              <p className="text-xs font-semibold text-white mb-3">👁️ Session Monitoring ·  Live Activity</p>
+              <p className="text-xs font-semibold text-white mb-3">Open right now</p>
               <div className="space-y-2">
                 {liveSessions.live.length === 0 && (
-                  <p className="text-2xs text-gray-500">No active sessions in the last 5 minutes</p>
+                  <p className="text-2xs text-gray-500">No one has opened a link in the last 5 minutes</p>
                 )}
                 {liveSessions.live.slice(0, 6).map((s, i) => (
                   <div key={i} className="flex items-center justify-between text-xs">
-                    <span className="text-gray-300 mono">{(s.token ?? '').slice(0, 12)}�</span>
+                    <span className="text-gray-300 mono">{(s.token ?? '').slice(0, 12)}…</span>
                     <div className="flex items-center gap-2">
                       <span className="text-gray-500">{s.recipientName ?? s.country ?? 'Anonymous'}</span>
                       <Badge variant="success">live</Badge>
@@ -704,10 +524,10 @@ export function TimelinePage() {
                 ))}
                 {liveSessions.concurrent.length > 0 && (
                   <div className="pt-2 mt-2 border-t border-bg-border">
-                    <p className="text-2xs text-warning font-semibold mb-1">? Concurrent sessions detected</p>
+                    <p className="text-2xs text-warning font-semibold mb-1">Same link open in more than one place</p>
                     {liveSessions.concurrent.slice(0, 4).map((c, i) => (
                       <div key={i} className="flex items-center justify-between text-2xs text-gray-400">
-                        <span className="mono">{(c.token ?? '').slice(0, 12)}�</span>
+                        <span className="mono">{(c.token ?? '').slice(0, 12)}…</span>
                         <span>{c.sessionCount} sessions</span>
                       </div>
                     ))}
@@ -719,31 +539,32 @@ export function TimelinePage() {
         </div>
       )}
 
-      {/* Timeline */}
-      {loading ? (
+      {/* The logs */}
+      {loading && !files ? (
         <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
         </div>
-      ) : errDna ? (
+      ) : error ? (
         <div className="card text-center">
-          <p className="text-danger text-sm">{errDna}</p>
+          <p className="text-danger text-sm">{error}</p>
         </div>
-      ) : filtered.length === 0 ? (
+      ) : shown.length === 0 ? (
         <div className="card">
           <EmptyState
             icon={Clock}
             title="No activity yet"
-            description="Protect your first asset to start building its history."
+            description="Protect your first file and everything that happens to it is kept here."
           />
         </div>
       ) : (
         <div className="space-y-3">
-          {filtered.map(h => (
-            <FileHistoryCard
-              key={h.dnaRecordId}
-              history={h}
-              expanded={expandedIds.has(h.dnaRecordId)}
-              onToggle={() => toggleExpanded(h.dnaRecordId)}
+          {shown.map((f) => (
+            <FileLogCard
+              key={f.key}
+              file={f}
+              events={eventsByKey.get(f.key) ?? []}
+              expanded={expandedKeys.has(f.key)}
+              onToggle={() => toggleExpanded(f.key)}
             />
           ))}
         </div>

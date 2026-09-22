@@ -16,6 +16,7 @@
  * The caller (dna.controller.ts) must abort processing and return 409 Conflict when blocked.
  */
 
+import { TURNED_ORIENTATIONS, shrinkForOrientationProbe, turnImage } from './orientation-variants';
 import crypto from 'crypto';
 import { Prisma } from '@prisma/client';
 import { Request } from 'express';
@@ -71,6 +72,8 @@ export interface DuplicateCheckResult {
   ownerUserId?:    string;
   sha256Hash?:     string;
   pHashSimilarity?: number; // 0–1, only for NEAR_DUPLICATE_PHASH
+  /** Set when the match was found only after turning the upload (mirror / rotate). */
+  matchedOrientation?: string;
   isHighRisk:      boolean; // true when a different PINIT user uploads an existing file
 }
 
@@ -675,26 +678,50 @@ export class DuplicateCheckService {
         take: PHASH_SCAN_LIMIT,
       });
 
-      let bestMatch: { similarity: number; recordId: string } | null = null;
+      let bestMatch: { similarity: number; recordId: string; orientation?: string } | null = null;
 
-      for (const s of stored) {
-        if (!s.pHash64) continue;
-        const sim = this.perceptualLayer.verify(probe, {
-          pHash64: s.pHash64,
-          aHash64: s.aHash64 ?? '',
-          dHash64: s.dHash64 ?? '',
-        });
-        if (sim >= PHASH_NEAR_DUPLICATE_THRESHOLD) {
-          if (!bestMatch || sim > bestMatch.similarity) {
-            bestMatch = { similarity: sim, recordId: s.dnaRecordId };
+      const scan = (fingerprints: typeof probe, orientation?: string) => {
+        for (const s of stored) {
+          if (!s.pHash64) continue;
+          const sim = this.perceptualLayer.verify(fingerprints, {
+            pHash64: s.pHash64,
+            aHash64: s.aHash64 ?? '',
+            dHash64: s.dHash64 ?? '',
+          });
+          if (sim >= PHASH_NEAR_DUPLICATE_THRESHOLD) {
+            if (!bestMatch || sim > bestMatch.similarity) {
+              bestMatch = { similarity: sim, recordId: s.dnaRecordId, orientation };
+            }
           }
+        }
+      };
+
+      scan(probe);
+
+      // A mirrored or turned copy scores like an unrelated image, so it walks past
+      // the check above. When the file as uploaded matched nothing, ask the same
+      // question of each of the other 7 orientations. That is every genuinely new
+      // upload, so it works from one small copy (see ORIENTATION_PROBE_SIZE) and
+      // stays inside the detector's time budget for any image size.
+      if (!bestMatch) {
+        let small: Buffer | null = null;
+        try { small = await shrinkForOrientationProbe(buffer); } catch { small = null; }
+        for (const orientation of small ? TURNED_ORIENTATIONS : []) {
+          try {
+            const turned = await turnImage(small!, orientation);
+            scan(await this.perceptualLayer.computeFingerprints(turned), orientation);
+          } catch (err) {
+            logger.debug('[DuplicateCheck] orientation probe skipped', { orientation, error: String(err) });
+          }
+          if (bestMatch) break;
         }
       }
 
       if (!bestMatch) return null;
+      const match = bestMatch as { similarity: number; recordId: string; orientation?: string };
 
       const rec = await prisma.dnaRecord.findUnique({
-        where: { id: bestMatch.recordId },
+        where: { id: match.recordId },
         select: {
           id: true, imageFilename: true, createdAt: true, ownerUserId: true,
           ownerUser: { select: { shortId: true } },
@@ -710,7 +737,8 @@ export class DuplicateCheckService {
         uploaderIp,
         req,
         matchType: 'NEAR_DUPLICATE_PHASH',
-        pHashSimilarity: bestMatch.similarity,
+        pHashSimilarity: match.similarity,
+        matchedOrientation: match.orientation,
       });
     } catch (err) {
       logger.warn('[DuplicateCheck] pHash check failed (non-fatal)', { error: String(err) });
@@ -734,8 +762,9 @@ export class DuplicateCheckService {
     req: Request;
     matchType: DuplicateMatchType;
     pHashSimilarity?: number;
+    matchedOrientation?: string;
   }): Promise<DuplicateCheckResult> {
-    const { rec, sha256, originalName, mimeType, uploaderIp, req, matchType, pHashSimilarity } = params;
+    const { rec, sha256, originalName, mimeType, uploaderIp, req, matchType, pHashSimilarity, matchedOrientation } = params;
     const uploaderUserId = (req as { user?: { sub?: string } }).user?.sub;
 
     if (this._isUnownedRecord(rec.ownerUserId)) {
@@ -776,6 +805,7 @@ export class DuplicateCheckService {
       existingRecordId: rec.id,
       ownerShortId,
       pHashSimilarity,
+      matchedOrientation,
     });
 
     return {
@@ -788,6 +818,7 @@ export class DuplicateCheckService {
       ownerUserId: rec.ownerUserId ?? undefined,
       sha256Hash: sha256,
       pHashSimilarity,
+      matchedOrientation,
       isHighRisk,
     };
   }

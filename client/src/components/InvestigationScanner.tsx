@@ -197,7 +197,7 @@ export function InvestigationScanner({
     <div className="space-y-4">
       {captureError && (
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 flex items-start gap-2">
-          <p className="text-xs text-red-300 flex-1">{captureError}</p>
+          <p className="text-xs text-red-700 dark:text-red-300 flex-1">{captureError}</p>
           <button
             type="button"
             onClick={() => { setCaptureError(null); void startCamera(); }}
