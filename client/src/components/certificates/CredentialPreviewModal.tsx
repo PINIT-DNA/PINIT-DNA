@@ -1,6 +1,6 @@
 import { format } from 'date-fns';
 import { Modal } from '../ui/Modal';
-import { PinitCredentialDocument } from './PinitCredentialDocument';
+import { PinitCertificateDocument } from '@pinit/certificate';
 import { DownloadCertificateButton } from './DownloadCertificateButton';
 import { ShareCertificateButton } from './ShareCertificateButton';
 import type { HubCredential } from '../../services/dashboard.api';
@@ -31,7 +31,7 @@ export function CredentialPreviewModal({
     <Modal open title="Certificate Preview" onClose={onClose} size="2xl">
       <div className="space-y-5 pb-2">
         <div className="overflow-x-auto -mx-1 px-1">
-        <PinitCredentialDocument
+        <PinitCertificateDocument
           title={item.title}
           issuer={item.issuer}
           issuedLabel={issued}

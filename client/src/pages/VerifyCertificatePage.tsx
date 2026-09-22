@@ -10,7 +10,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Shield, CheckCircle2, XCircle, AlertTriangle, Dna, Lock, Award, RefreshCw, Copy, Ban, ShieldCheck, FileText } from 'lucide-react';
 import { verifyCertificateApi } from '../services/dashboard.api';
-import { PinitCredentialDocument } from '../components/certificates/PinitCredentialDocument';
+import { PinitCertificateDocument } from '@pinit/certificate';
 import { EVIDENCE_NOTICE } from '../shared/certificate/PinitCertificateDocument';
 import type { CertVerificationResult } from '../types/dashboard.types';
 import { format } from 'date-fns';
@@ -432,7 +432,7 @@ export function VerifyCertificatePage() {
 
                     {showDocument && (
                       <div className="mt-4 overflow-x-auto">
-                        <PinitCredentialDocument
+                        <PinitCertificateDocument
                           title={certResult.subject.title}
                           issuer="Pinit HUB"
                           issuedLabel={certResult.certificate?.issuedAt
