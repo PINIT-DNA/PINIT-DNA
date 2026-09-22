@@ -267,6 +267,12 @@ export class VaultSimilarityVectorService {
       const orbTargets = candidateSet
         ? vectors.filter((v) => candidateSet.has(v.vaultId)).slice(0, orbTopK)
         : vectors.slice(0, orbTopK);
+      // Extract the probe's ORB descriptors ONCE and reuse across every
+      // target below — matching per-target against the raw buffer instead
+      // would redo this (expensive) extraction up to orbTopK times for the
+      // same probe image.
+      const probeIndex = await aiService.extractLocalDnaIndex(probeBuf, bestVariant.mimeType);
+      const probeDescriptors = probeIndex?.orbDescriptors ?? null;
       await Promise.allSettled(orbTargets.map(async (vec) => {
         try {
           const cachedOrb = forensicComputationCache.get<number>(probeBuf, 'orb-compare', vec.vaultId);
@@ -280,14 +286,33 @@ export class VaultSimilarityVectorService {
             }
             return;
           }
-          const { VaultService } = await import('../vault/vault.service');
-          const vaultSvc = new VaultService();
-          const retrieved = await vaultSvc.retrieve(vec.vaultId, ownerUserId);
-          const local = await localFeatureMatchService.compare(probeBuf, retrieved.originalBuffer);
-          vec.scores.orb = Math.round(local.similarity * 100);
+          // Try the descriptor set already extracted at protect time first —
+          // no vault decrypt, no buffer refetch, no re-running ORB on the
+          // original. Only fall back to a live re-extraction when nothing was
+          // stored yet (fire-and-forget indexer still pending, or a
+          // pre-existing record from before this field was populated).
+          let similarity: number | null = null;
+          let method = 'opencv_orb';
+          const stored = await prisma.localFeatureIndex.findUnique({
+            where: { dnaRecordId: vec.dnaRecordId },
+            select: { orbDescriptors: true },
+          });
+          if (stored?.orbDescriptors && probeDescriptors) {
+            const m = await aiService.matchDescriptorSets(probeDescriptors, stored.orbDescriptors);
+            if (m) { similarity = m.similarity; method = m.method; }
+          }
+          if (similarity === null) {
+            const { VaultService } = await import('../vault/vault.service');
+            const vaultSvc = new VaultService();
+            const retrieved = await vaultSvc.retrieve(vec.vaultId, ownerUserId);
+            const local = await localFeatureMatchService.compare(probeBuf, retrieved.originalBuffer);
+            similarity = local.similarity;
+            method = local.method;
+          }
+          vec.scores.orb = Math.round(similarity * 100);
           forensicComputationCache.set(probeBuf, 'orb-compare', vec.scores.orb, vec.vaultId);
-          if (local.similarity >= 0.35) {
-            vec.signals.push('local_features', local.method);
+          if (similarity >= 0.35) {
+            vec.signals.push('local_features', method);
             vec.scores.composite = Math.round(
               vec.scores.composite * (1 - VECTOR_WEIGHTS.orb)
               + vec.scores.orb * VECTOR_WEIGHTS.orb,

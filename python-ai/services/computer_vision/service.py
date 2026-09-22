@@ -158,47 +158,55 @@ class ComputerVisionService(EnterpriseAIService):
         except Exception as exc:
             return ServiceResult(False, {}, str(exc), self.name)
 
+    def _descriptors_to_matrix(self, descriptor_set: dict[str, Any]) -> "np.ndarray | None":
+        """Decode a stored {keypoints:[{descriptor: base64}, ...]} set into a uint8 matrix."""
+        import base64
+        stored = descriptor_set.get("keypoints", []) if descriptor_set else []
+        rows = []
+        for kp in stored:
+            raw = base64.b64decode(kp.get("descriptor", ""))
+            if raw:
+                rows.append(np.frombuffer(raw, dtype=np.uint8))
+        if not rows:
+            return None
+        return np.vstack(rows).astype(np.uint8)
+
     def match_local_descriptors(
         self,
         probe_bytes: bytes,
         reference_descriptors: dict[str, Any],
     ) -> ServiceResult:
-        """Match probe ORB keypoints against stored vault descriptor set."""
+        """Match probe ORB keypoints against stored vault descriptor set.
+
+        Re-extracts the probe's ORB descriptors from the image on every call —
+        fine for a one-off comparison, but wasteful when matching one probe
+        against many candidates. Use extract_local_index() once + repeated
+        match_descriptor_sets() calls for that case instead.
+        """
         if not self.is_available():
             return ServiceResult(False, {}, "OpenCV/Pillow not available", self.name)
 
         import cv2
-        import base64
-        import numpy as np
 
         gray = self._decode_gray(probe_bytes, max_dim=1280)
         if gray is None:
             return ServiceResult(False, {}, "Failed to decode probe", self.name)
 
-        stored = reference_descriptors.get("keypoints", [])
-        if not stored:
+        ref_mat = self._descriptors_to_matrix(reference_descriptors)
+        if ref_mat is None:
             return ServiceResult(True, {"similarity": 0.0, "matches": 0, "method": "none"}, "No stored keypoints", self.name)
 
         try:
-            ref_des = []
-            for kp in stored:
-                raw = base64.b64decode(kp.get("descriptor", ""))
-                if raw:
-                    ref_des.append(np.frombuffer(raw, dtype=np.uint8))
-            if not ref_des:
-                return ServiceResult(True, {"similarity": 0.0, "matches": 0, "method": "none"}, "Empty descriptors", self.name)
-
             orb = cv2.ORB_create(nfeatures=2000)
             probe_kp, probe_des = orb.detectAndCompute(gray, None)
             if probe_des is None or len(probe_des) < 4:
                 return ServiceResult(True, {"similarity": 0.0, "matches": 0, "method": "opencv_orb"}, "Insufficient probe keypoints", self.name)
 
-            ref_mat = np.vstack(ref_des).astype(np.uint8)
             bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
             matches = bf.match(probe_des, ref_mat)
             good = [m for m in matches if m.distance < 55]
             match_count = len(good)
-            denom = max(len(probe_kp), len(ref_des), 1)
+            denom = max(len(probe_kp), len(ref_mat), 1)
             similarity = min(1.0, match_count / max(denom * 0.10, 1))
 
             return ServiceResult(True, {
@@ -206,7 +214,46 @@ class ComputerVisionService(EnterpriseAIService):
                 "matches": match_count,
                 "method": reference_descriptors.get("method", "opencv_orb"),
                 "probeKeypoints": len(probe_kp),
-                "referenceKeypoints": len(ref_des),
+                "referenceKeypoints": len(ref_mat),
+            }, "OK", self.name)
+        except Exception as exc:
+            return ServiceResult(False, {}, str(exc), self.name)
+
+    def match_descriptor_sets(
+        self,
+        probe_descriptors: dict[str, Any],
+        candidate_descriptors: dict[str, Any],
+    ) -> ServiceResult:
+        """Match two already-extracted descriptor sets — no image decode, no ORB
+        re-extraction. For matching one probe against many stored candidates,
+        extract the probe's descriptors ONCE via extract_local_index() and call
+        this per candidate instead of match_local_descriptors(), which redoes
+        the (expensive) probe extraction on every call.
+        """
+        if not self.is_available():
+            return ServiceResult(False, {}, "OpenCV/Pillow not available", self.name)
+
+        import cv2
+
+        probe_mat = self._descriptors_to_matrix(probe_descriptors)
+        cand_mat = self._descriptors_to_matrix(candidate_descriptors)
+        if probe_mat is None or cand_mat is None:
+            return ServiceResult(True, {"similarity": 0.0, "matches": 0, "method": "none"}, "Empty descriptors", self.name)
+
+        try:
+            bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+            matches = bf.match(probe_mat, cand_mat)
+            good = [m for m in matches if m.distance < 55]
+            match_count = len(good)
+            denom = max(len(probe_mat), len(cand_mat), 1)
+            similarity = min(1.0, match_count / max(denom * 0.10, 1))
+
+            return ServiceResult(True, {
+                "similarity": round(float(similarity), 4),
+                "matches": match_count,
+                "method": candidate_descriptors.get("method", "opencv_orb"),
+                "probeKeypoints": len(probe_mat),
+                "referenceKeypoints": len(cand_mat),
             }, "OK", self.name)
         except Exception as exc:
             return ServiceResult(False, {}, str(exc), self.name)

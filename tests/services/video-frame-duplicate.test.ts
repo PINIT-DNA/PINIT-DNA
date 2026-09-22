@@ -16,6 +16,7 @@ jest.mock('../../src/lib/prisma', () => ({
     cryptoLayer: { findFirst: jest.fn() },
     perceptualLayer: { findMany: jest.fn() },
     asset: { findMany: jest.fn() },
+    localFeatureIndex: { findMany: jest.fn(async () => []) },
     duplicateAttempt: { create: jest.fn() },
     user: { findUnique: jest.fn(async () => ({ shortId: 'PINIT-UPLOADER' })) },
   },

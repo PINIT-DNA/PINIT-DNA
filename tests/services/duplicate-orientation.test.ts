@@ -23,6 +23,7 @@ jest.mock('../../src/lib/prisma', () => ({
     dnaRecord: { findFirst: jest.fn(), findUnique: jest.fn() },
     cryptoLayer: { findFirst: jest.fn() },
     perceptualLayer: { findMany: jest.fn() },
+    localFeatureIndex: { findMany: jest.fn(async () => []) },
     duplicateAttempt: { create: jest.fn() },
     user: { findUnique: jest.fn(async () => ({ shortId: 'PINIT-UPLOADER' })) },
   },

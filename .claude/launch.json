@@ -12,6 +12,16 @@
       "autoPort": false
     },
     {
+      "name": "python-ai",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:ai"
+      ],
+      "port": 8001,
+      "autoPort": false
+    },
+    {
       "name": "mockups",
       "runtimeExecutable": "npx",
       "runtimeArgs": [

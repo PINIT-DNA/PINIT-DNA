@@ -26,7 +26,7 @@ from services import enterprise_services_status
 
 import numpy as np
 import faiss
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from starlette.concurrency import run_in_threadpool
 import asyncio
 from fastapi.middleware.cors import CORSMiddleware
@@ -480,7 +480,7 @@ async def cv_extract_local_index(
 @app.post("/cv/match-descriptors")
 async def cv_match_descriptors(
     probe: UploadFile = File(...),
-    descriptors: str = "",
+    descriptors: str = Form(""),
 ):
     """Match probe image against stored ORB descriptor JSON."""
     from services.computer_vision import computer_vision_service
@@ -494,6 +494,35 @@ async def cv_match_descriptors(
     result = await _cv_read(computer_vision_service.match_local_descriptors, probe_bytes, ref_desc)
     if not result.success:
         raise HTTPException(503, result.message or "Descriptor match failed")
+    return {
+        "success": True,
+        **result.data,
+        "processingMs": round((time.time() - start) * 1000, 1),
+    }
+
+@app.post("/cv/match-descriptor-sets")
+async def cv_match_descriptor_sets(
+    probe_descriptors: str = Form(...),
+    candidate_descriptors: str = Form(...),
+):
+    """Match two already-extracted ORB descriptor sets — no image, no re-extraction.
+
+    Extract the probe's descriptors ONCE via /cv/local-index, then call this
+    per candidate. Matching one probe against many candidates through
+    /cv/match-descriptors instead redoes the (expensive) probe ORB extraction
+    on every single call.
+    """
+    from services.computer_vision import computer_vision_service
+
+    start = time.time()
+    try:
+        probe = json.loads(probe_descriptors) if probe_descriptors else {}
+        candidate = json.loads(candidate_descriptors) if candidate_descriptors else {}
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid descriptors JSON")
+    result = await _cv_read(computer_vision_service.match_descriptor_sets, probe, candidate)
+    if not result.success:
+        raise HTTPException(503, result.message or "Descriptor set match failed")
     return {
         "success": True,
         **result.data,

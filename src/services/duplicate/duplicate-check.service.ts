@@ -32,6 +32,7 @@ import { CryptographicLayer } from '../layers/layer1.cryptographic';
 import { withTimeoutSoft } from '../../lib/safe-runner';
 import { buildVideoAssetDna } from '../assets/video-asset-dna.service';
 import { compareVideoFrameHashes } from '../forensics/video-dna-enhancements.service';
+import { aiService } from '../ai/ai-embeddings.service';
 
 // ─── Configurable near-duplicate threshold ────────────────────────────────────
 // Hamming similarity ≥ this → considered a near-duplicate for images.
@@ -50,6 +51,27 @@ const DUPLICATE_VIDEO_BUDGET_MS = parseInt(process.env['DUPLICATE_VIDEO_BUDGET_M
 /** Share of probe keyframes that must strongly match before it counts as the same video. */
 const VIDEO_FRAME_MATCH_THRESHOLD = parseFloat(process.env['DUPLICATE_VIDEO_FRAME_THRESHOLD'] ?? '0.6');
 const VIDEO_SCAN_LIMIT = parseInt(process.env['DUPLICATE_VIDEO_SCAN_LIMIT'] ?? '300', 10);
+/**
+ * pHash collapses under a meaningful crop (a 40% crop already drops Layer 3
+ * below its own 0.9 threshold — see tests/layers/perceptual-robustness.test.ts).
+ * ORB keypoints inside the surviving region still match, so this is the layer
+ * that's supposed to catch "cropped, recompressed, reuploaded on another
+ * account." Derived from IMAGE_ORB_ACCEPT_MIN=40/100=0.40
+ * (image-candidate-acceptance.service.ts) — the only existing calibrated ORB
+ * reference point. That number is calibrated against /cv/compare's
+ * denom*0.12 formula, while /cv/match-descriptors uses denom*0.10, scoring
+ * ~1.2x higher for the same match ratio. Rounded up from the proportional
+ * ~0.48 to 0.50 because this gates a hard BLOCK, not an investigation lead —
+ * a false positive here wrongly refuses someone their own upload.
+ */
+const ORB_NEAR_DUPLICATE_THRESHOLD = parseFloat(process.env['DUPLICATE_ORB_THRESHOLD'] ?? '0.50');
+/** /cv/match-descriptors re-extracts the probe's ORB descriptors on every call
+ * (no way to reuse across candidates), so the scan pool stays well below
+ * PHASH_SCAN_LIMIT. */
+const ORB_SCAN_LIMIT = parseInt(process.env['DUPLICATE_ORB_SCAN_LIMIT'] ?? '150', 10);
+const ORB_MATCH_CONCURRENCY = parseInt(process.env['DUPLICATE_ORB_CONCURRENCY'] ?? '6', 10);
+/** Own budget, mirroring DUPLICATE_VIDEO_BUDGET_MS — heavier than pHash. */
+const DUPLICATE_ORB_BUDGET_MS = parseInt(process.env['DUPLICATE_ORB_BUDGET_MS'] ?? '30000', 10);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -57,6 +79,7 @@ export type DuplicateMatchType =
   | 'EXACT_HASH'
   | 'NORMALIZED_HASH'
   | 'NEAR_DUPLICATE_PHASH'
+  | 'NEAR_DUPLICATE_ORB_FEATURES'
   | 'NEAR_DUPLICATE_VIDEO_FRAMES'
   | 'EMBEDDED_IDENTITY'
   | 'TEP_TRACKED_EXPORT'
@@ -247,7 +270,29 @@ export class DuplicateCheckService {
       if (nearMatch) return nearMatch;
     }
 
-    // ── 7. Video keyframe near-duplicate (survives re-encode) ────────────────
+    // ── 7. ORB near-duplicate (images — survives crop/rotation) ──────────────
+    // Runs only after pHash already missed — that's precisely the crop case:
+    // pHash's global hash degrades under a meaningful crop, but ORB keypoints
+    // inside the surviving region still match against descriptors already
+    // stored at protect time (LocalFeatureIndex.orbDescriptors).
+    if (mimeType.startsWith('image/') && hasBudget()) {
+      const startedAt = Date.now();
+      const orbMatch = await withTimeoutSoft(
+        () => this._checkOrbNearDuplicate(buffer, sha256, req, originalName, mimeType, uploaderIp),
+        DUPLICATE_ORB_BUDGET_MS,
+        'duplicate-orb',
+      );
+      if (orbMatch === null && Date.now() - startedAt >= DUPLICATE_ORB_BUDGET_MS - 250) {
+        logger.warn('[DuplicateCheck] ORB check timed out — upload NOT screened for crop/rotation duplicates', {
+          elapsedMs: Date.now() - startedAt,
+          budgetMs: DUPLICATE_ORB_BUDGET_MS,
+          originalName,
+        });
+      }
+      if (orbMatch) return orbMatch;
+    }
+
+    // ── 8. Video keyframe near-duplicate (survives re-encode) ────────────────
     // Images have three perceptual detectors; video had none, so a re-encoded copy
     // uploaded to another account was caught by nothing at all.
     if (mimeType.startsWith('video/')) {
@@ -745,6 +790,99 @@ export class DuplicateCheckService {
     }
 
     return null;
+  }
+
+  // ── ORB/AKAZE near-duplicate (images — survives crop/rotation) ────────────
+  //
+  // pHash collapses under a meaningful crop. ORB keypoints inside the
+  // surviving region still match, so this is the only detector that catches
+  // "cropped, recompressed, reuploaded on another account." Compares against
+  // descriptors already stored at protect time (LocalFeatureIndex.
+  // orbDescriptors) — no buffer refetch, no re-extraction of a vault original.
+
+  private async _checkOrbNearDuplicate(
+    buffer: Buffer,
+    sha256: string,
+    req: Request,
+    originalName: string,
+    mimeType: string,
+    uploaderIp: string,
+  ): Promise<DuplicateCheckResult | null> {
+    try {
+      // Extract the probe's ORB descriptors ONCE and match a lean descriptor-set
+      // comparison per candidate — matching against a buffer instead would redo
+      // the (expensive) probe ORB extraction on every one of up to ORB_SCAN_LIMIT
+      // candidates, which is real, measured seconds of added cost per upload.
+      const probeIndex = await aiService.extractLocalDnaIndex(buffer, mimeType);
+      if (!probeIndex?.orbDescriptors) {
+        logger.warn('[DuplicateCheck] Could not extract probe ORB descriptors — image NOT screened for crop/rotation duplicates', {
+          originalName,
+        });
+        return null;
+      }
+      const probeDescriptors = probeIndex.orbDescriptors;
+
+      const candidates = await prisma.localFeatureIndex.findMany({
+        where: {
+          orbDescriptors: { not: Prisma.DbNull },
+          status: 'COMPLETE',
+          dnaRecord: { is: { ownerUserId: { not: null } } },
+        },
+        select: { dnaRecordId: true, orbDescriptors: true },
+        orderBy: { createdAt: 'desc' },
+        take: ORB_SCAN_LIMIT,
+      });
+      if (!candidates.length) return null;
+
+      let best: { dnaRecordId: string; similarity: number } | null = null;
+
+      for (let i = 0; i < candidates.length; i += ORB_MATCH_CONCURRENCY) {
+        const batch = candidates.slice(i, i + ORB_MATCH_CONCURRENCY);
+        const results = await Promise.allSettled(
+          batch.map(async (c) => {
+            const m = await aiService.matchDescriptorSets(probeDescriptors, c.orbDescriptors);
+            return { dnaRecordId: c.dnaRecordId, similarity: m?.similarity ?? 0 };
+          }),
+        );
+        for (const r of results) {
+          if (r.status === 'fulfilled' && r.value.similarity >= ORB_NEAR_DUPLICATE_THRESHOLD) {
+            if (!best || r.value.similarity > best.similarity) best = r.value;
+          }
+        }
+      }
+
+      logger.info('[DuplicateCheck] ORB descriptor scan complete', {
+        candidates: candidates.length,
+        threshold: ORB_NEAR_DUPLICATE_THRESHOLD,
+        matched: !!best,
+      });
+
+      if (!best) return null;
+      const matched = best as { dnaRecordId: string; similarity: number };
+
+      const rec = await prisma.dnaRecord.findUnique({
+        where: { id: matched.dnaRecordId },
+        select: {
+          id: true, imageFilename: true, createdAt: true, ownerUserId: true,
+          ownerUser: { select: { shortId: true } },
+        },
+      });
+      if (!rec) return null;
+
+      return this._finalizeMatch({
+        rec,
+        sha256,
+        originalName,
+        mimeType,
+        uploaderIp,
+        req,
+        matchType: 'NEAR_DUPLICATE_ORB_FEATURES',
+        pHashSimilarity: matched.similarity,
+      });
+    } catch (err) {
+      logger.warn('[DuplicateCheck] ORB check failed (non-fatal)', { error: String(err) });
+      return null;
+    }
   }
 
   private async _finalizeMatch(params: {

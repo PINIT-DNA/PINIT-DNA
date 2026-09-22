@@ -455,6 +455,86 @@ export class AIEmbeddingsService {
     }
   }
 
+  /** Match a probe image against a candidate's STORED ORB descriptor JSON — no buffer refetch. */
+  async matchLocalDescriptors(
+    probe: Buffer,
+    descriptors: unknown,
+  ): Promise<{
+    similarity: number;
+    matches: number;
+    method: string;
+    probeKeypoints?: number;
+    referenceKeypoints?: number;
+  } | null> {
+    try {
+      const FormData = require('form-data');
+      const form = new FormData();
+      form.append('probe', probe, { filename: 'probe.jpg', contentType: 'image/jpeg' });
+      form.append('descriptors', JSON.stringify(descriptors ?? {}));
+
+      const { data } = await client.post('/cv/match-descriptors', form, {
+        headers: form.getHeaders(),
+        timeout: 25_000,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = data as any;
+      if (typeof d.similarity !== 'number') return null;
+      return {
+        similarity: d.similarity,
+        matches: d.matches ?? 0,
+        method: d.method ?? 'opencv_orb',
+        probeKeypoints: d.probeKeypoints,
+        referenceKeypoints: d.referenceKeypoints,
+      };
+    } catch (err) {
+      this.logError('cv/match-descriptors', err);
+      return null;
+    }
+  }
+
+  /**
+   * Match two already-extracted ORB descriptor sets — no image, no re-extraction.
+   * Extract the probe's descriptors ONCE (extractLocalDnaIndex) and call this per
+   * candidate; matchLocalDescriptors instead redoes the probe's ORB extraction on
+   * every single call, which is fine for a one-off but not for scanning many
+   * candidates against the same probe.
+   */
+  async matchDescriptorSets(
+    probeDescriptors: unknown,
+    candidateDescriptors: unknown,
+  ): Promise<{
+    similarity: number;
+    matches: number;
+    method: string;
+    probeKeypoints?: number;
+    referenceKeypoints?: number;
+  } | null> {
+    try {
+      const FormData = require('form-data');
+      const form = new FormData();
+      form.append('probe_descriptors', JSON.stringify(probeDescriptors ?? {}));
+      form.append('candidate_descriptors', JSON.stringify(candidateDescriptors ?? {}));
+
+      const { data } = await client.post('/cv/match-descriptor-sets', form, {
+        headers: form.getHeaders(),
+        timeout: 15_000,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = data as any;
+      if (typeof d.similarity !== 'number') return null;
+      return {
+        similarity: d.similarity,
+        matches: d.matches ?? 0,
+        method: d.method ?? 'opencv_orb',
+        probeKeypoints: d.probeKeypoints,
+        referenceKeypoints: d.referenceKeypoints,
+      };
+    } catch (err) {
+      this.logError('cv/match-descriptor-sets', err);
+      return null;
+    }
+  }
+
   /** Render PDF pages to PNG images for per-page pixel-level DNA protection. */
   async rasterizeDocument(
     buffer: Buffer,
