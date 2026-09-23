@@ -184,6 +184,8 @@ export interface LayerComparison {
   similarityScore: number;
   similarityPercent: number;
   matched: boolean;
+  /** True when this layer is audit/forensic data, not a content fingerprint — never meaningfully comparable for similarity. See changeDescription for why. */
+  skipped?: boolean;
   fingerprintA: string;
   fingerprintB: string;
   changed: boolean;

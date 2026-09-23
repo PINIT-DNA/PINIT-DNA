@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  GitCompare, Upload, X, CheckCircle2, AlertTriangle,
+  GitCompare, Upload, X, CheckCircle2, AlertTriangle, MinusCircle,
   Shield, RefreshCw, ChevronDown, ChevronUp, FileText,
   Fingerprint, Eye, Lock, Tag, Cpu, Brain, Network, Globe, GitBranch, ScanLine,
 } from 'lucide-react';
@@ -225,13 +225,16 @@ function LayerBar({ layer, expanded, onToggle }: {
   const Icon = LAYER_ICONS[layer.layer - 1] ?? Fingerprint;
   const name = LAYER_NAMES[layer.layer - 1] ?? layer.name;
   const pct = layer.similarityPercent;
-  const barColor = pct >= 90 ? 'bg-success' : pct >= 60 ? 'bg-warning' : 'bg-danger';
-  const textColor = pct >= 90 ? 'text-success' : pct >= 60 ? 'text-warning' : 'text-danger';
+  // Skipped layers (audit/forensic data, never content-compared) must never
+  // read as a detected failure — see comparison.types.ts's "must never be
+  // reported as FAIL" contract on `skipped`.
+  const barColor = layer.skipped ? 'bg-gray-600' : pct >= 90 ? 'bg-success' : pct >= 60 ? 'bg-warning' : 'bg-danger';
+  const textColor = layer.skipped ? 'text-gray-500' : pct >= 90 ? 'text-success' : pct >= 60 ? 'text-warning' : 'text-danger';
 
   return (
     <div className={cn(
       'rounded-xl border transition-all duration-150',
-      layer.matched ? 'border-bg-border bg-bg-elevated' : 'border-danger/20 bg-danger/5'
+      layer.skipped ? 'border-bg-border bg-bg-elevated' : layer.matched ? 'border-bg-border bg-bg-elevated' : 'border-danger/20 bg-danger/5'
     )}>
       <button
         onClick={onToggle}
@@ -239,9 +242,9 @@ function LayerBar({ layer, expanded, onToggle }: {
       >
         <div className={cn(
           'w-8 h-8 rounded-lg flex items-center justify-center shrink-0',
-          layer.matched ? 'bg-success/15' : 'bg-danger/15'
+          layer.skipped ? 'bg-gray-600/15' : layer.matched ? 'bg-success/15' : 'bg-danger/15'
         )}>
-          <Icon size={14} className={layer.matched ? 'text-success' : 'text-danger'} />
+          <Icon size={14} className={layer.skipped ? 'text-gray-500' : layer.matched ? 'text-success' : 'text-danger'} />
         </div>
 
         <div className="flex-1 min-w-0">
@@ -254,19 +257,21 @@ function LayerBar({ layer, expanded, onToggle }: {
             <div className="flex-1 h-1.5 bg-bg-base rounded-full overflow-hidden">
               <motion.div
                 initial={{ width: 0 }}
-                animate={{ width: `${pct}%` }}
+                animate={{ width: layer.skipped ? '100%' : `${pct}%` }}
                 transition={{ duration: 0.6, ease: 'easeOut', delay: layer.layer * 0.08 }}
                 className={`h-full rounded-full ${barColor}`}
               />
             </div>
-            <span className={`text-xs font-bold mono shrink-0 ${textColor}`}>{pct}%</span>
+            <span className={`text-xs font-bold mono shrink-0 ${textColor}`}>{layer.skipped ? 'N/A' : `${pct}%`}</span>
           </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {layer.matched
-            ? <CheckCircle2 size={14} className="text-success" />
-            : <AlertTriangle size={14} className="text-danger" />}
+          {layer.skipped
+            ? <MinusCircle size={14} className="text-gray-500" />
+            : layer.matched
+              ? <CheckCircle2 size={14} className="text-success" />
+              : <AlertTriangle size={14} className="text-danger" />}
           {expanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
         </div>
       </button>

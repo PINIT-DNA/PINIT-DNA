@@ -1,8 +1,15 @@
 /**
- * Layer 10 — Evolution / Derivation lineage head.
+ * Layer 10 — Evolution.
  *
- * Milestone B Step 1: when DNA_DETERMINISTIC_MODE is ON, merkle leaf excludes
- * wall-clock (EDS L10). mutationLog may still record ORIGIN for audit UI.
+ * Not a duplicate-matching layer — it was never designed to compare two
+ * different records. It's a scaffold for tracking ONE file's own edit
+ * history over time: mutationLog is meant to grow a new entry per
+ * derived/modified version. Nothing in this codebase ever appends to it
+ * after creation, so today it always holds exactly one ORIGIN entry, and
+ * merkleRoot (a merkle tree over a single leaf) reduces to just a re-hash of
+ * that entry. The version-lineage feature this layer's name implies has not
+ * been built yet. The comparison engine (comparison-engine.ts) marks it
+ * `skipped` in every compare mode, never scored.
  */
 
 import crypto from 'crypto';

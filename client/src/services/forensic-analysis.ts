@@ -168,10 +168,10 @@ export function explainLayer(l: LayerComparison): LayerExplanation {
     4:  { name: 'Semantic',            algo: 'Word freq / colour histogram / type dist',what: 'Analyses the meaning and distribution of content' },
     5:  { name: 'Metadata Provenance', algo: 'EXIF / ID3 / OPC core.xml / container', what: 'Tracks authorship, timestamps, and device information' },
     6:  { name: 'Integrity Signature', algo: 'HMAC-SHA256 content seal',               what: 'Cryptographic proof the file was sealed by this system' },
-    7:  { name: 'Behavioral DNA',      algo: 'SHA-256 behavior bundle',                what: 'Upload timing, device, session — proves who uploaded it' },
-    8:  { name: 'Relationship DNA',    algo: 'SHA-256 duplicate graph hash',           what: 'Links to duplicate files — proves original ownership' },
-    9:  { name: 'Origin DNA',          algo: 'SHA-256 origin bundle',                  what: 'IP, location, timestamp — proves where file came from' },
-    10: { name: 'Evolution DNA',       algo: 'Merkle tree mutation log',               what: 'Version history — proves file existed at a specific time' },
+    7:  { name: 'Behavioral DNA',      algo: 'SHA-256 behavior bundle',                what: 'Records upload timing, device, and session as an audit trail — not a content fingerprint, and not compared for similarity' },
+    8:  { name: 'Relationship DNA',    algo: 'SHA-256 duplicate graph hash',           what: 'Lists other records that share this exact file hash — a reference list, not a similarity check' },
+    9:  { name: 'Origin DNA',          algo: 'SHA-256 origin bundle',                  what: 'Records IP, location, and timestamp as audit context — not compared for similarity' },
+    10: { name: 'Evolution DNA',       algo: 'Merkle tree mutation log',               what: 'Records this file\'s creation event — multi-version edit history is not yet tracked' },
   };
 
   const meta = LAYER_META[l.layer] ?? { name: l.name, algo: l.implementation, what: '' };
@@ -179,7 +179,10 @@ export function explainLayer(l: LayerComparison): LayerExplanation {
   let shortStatus: string;
   let humanReadable: string;
 
-  if (pct === 100) {
+  if (l.skipped) {
+    shortStatus = 'Not Compared';
+    humanReadable = `${meta.name} is audit/forensic data, not a content fingerprint — ${l.changeDescription || 'not meaningfully comparable for similarity'}.`;
+  } else if (pct === 100) {
     shortStatus = 'Exact Match';
     humanReadable = `${meta.name} is identical — no changes detected.`;
   } else if (pct >= 90) {

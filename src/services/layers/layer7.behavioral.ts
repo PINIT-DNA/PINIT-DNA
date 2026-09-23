@@ -1,9 +1,17 @@
 /**
- * Layer 7 — Behavioral / Local-patch identity slot.
+ * Layer 7 — Behavioral.
  *
- * Milestone B Step 1: when DNA_DETERMINISTIC_MODE is ON, behaviorHash is a
- * content-only digest (EDS L7 interim). Upload/session fields remain in the
- * row for Evidence/provenance but do NOT enter the identity fingerprint.
+ * Not a content-matching layer — behaviorHash cannot help recognize the same
+ * file again, and the comparison engine (comparison-engine.ts) marks it
+ * `skipped` in every compare mode, never scored.
+ *
+ * - Normal mode: behaviorHash is a hash of upload SESSION metadata (upload
+ *   timing, user agent, session token, timestamp) — real forensic/audit
+ *   context about the upload EVENT, kept for investigation purposes.
+ * - "Deterministic" mode: behaviorHash = computeLocalPatchIdentityDigest(L1
+ *   contentId, L3 perceptualPrimary) — a re-hash of IDs Layers 1 and 3
+ *   already produce, not independent new signal. Its own helper is
+ *   documented as "EDS L7 interim," not a finished feature.
  */
 
 import crypto from 'crypto';

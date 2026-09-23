@@ -222,24 +222,30 @@ export class ComparisonEngine {
       const name = reg?.name ?? lA?.name ?? lB?.name ?? `layer${layerNum}`;
       const impl = reg?.implementation ?? lA?.implementation ?? lB?.implementation ?? 'not_generated';
 
-      // Registry layers on vault investigation — never content-compare session/lifecycle fields.
-      // Credit (PASS) only after content identity is proven (L1 exact or L3 ≥ 88%).
-      if (vaultCompare && layerNum >= 7 && layerNum <= 15) {
+      // Registry layers (L7-15) are never content-compared — this engine's own
+      // header comment confirms weights sum to 1.0 across L1-L6 only; L7-15
+      // were never part of the scored match. Their stored fingerprints mix in
+      // throwaway per-event metadata (upload timestamp, session, IP), so a
+      // fingerprint-equality check between two independent uploads of the
+      // SAME file would show 0% even for genuinely identical content —
+      // meaningless as "similarity," and actively misleading if narrated as
+      // one (see explainLayer on the client, which now checks `skipped`
+      // before computing a percentage). Applies in every compare mode, not
+      // just vault investigations — this was previously gated behind
+      // `vaultCompare` only, so ephemeral (non-vault) compares fell through
+      // to a meaningless default binary score for these layers.
+      if (layerNum >= 7 && layerNum <= 15) {
         const onVault = !!(lA?.success && lA.fingerprint);
-        results.push(skipped(
-          layerNum,
-          name,
-          impl,
-          layerNum <= 10
+        const reason = vaultCompare
+          ? (layerNum <= 10
             ? (onVault
               ? 'Vault registry has this lifecycle layer — PASS credit requires L1 exact or L3 ≥ 88% (crop/derivative stays SKIPPED)'
               : 'No lifecycle fingerprint on vault registry for this layer')
             : (onVault
               ? 'Vault registry has this protection layer — PASS credit requires L1 exact or L3 ≥ 88%'
-              : 'Advanced protection layer not stored on vault / not generated on probe'),
-          lA?.fingerprint ?? '',
-          '',
-        ));
+              : 'Advanced protection layer not stored on vault / not generated on probe'))
+          : 'This layer records audit/forensic data (upload session, duplicate cross-reference, lifecycle), not a content fingerprint — not meaningfully comparable for similarity';
+        results.push(skipped(layerNum, name, impl, reason, lA?.fingerprint ?? '', ''));
         continue;
       }
 
@@ -434,10 +440,9 @@ export class ComparisonEngine {
       case 4: return `Semantic / keyword distribution differs (similarity: ${pct}%) — wording or topic drift`;
       case 5: return `Metadata provenance differs — may indicate re-save, strip, or edit`;
       case 6:  return `Integrity signature differs — seal broken`;
-      case 7:  return `Behavioral DNA differs — uploaded from different session/device`;
-      case 8:  return `Relationship DNA differs — file has different duplicate graph`;
-      case 9:  return `Origin DNA differs — uploaded from different IP/location/time`;
-      case 10: return `Evolution DNA differs — file versions have diverged`;
+      // Layers 7-15 never reach here — compareLayers() marks them skipped
+      // before scoring, since they're audit/forensic data, not content
+      // fingerprints (see the skip reason built there).
       default: return `Layer ${layerNum} fingerprints differ (similarity: ${pct}%)`;
     }
   }

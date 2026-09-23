@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Shield, Search, Eye, Download, FileText, Table2, AlertTriangle, CheckCircle2, GitCompare, RefreshCw, FileArchive } from 'lucide-react';
+import { Shield, Search, Eye, Download, FileText, Table2, AlertTriangle, CheckCircle2, MinusCircle, GitCompare, RefreshCw, FileArchive } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { BRAND } from '../config/brand.config';
@@ -138,17 +138,22 @@ function ComparisonDetailModal({ result, onClose }: { result: ComparisonResult; 
             {result.layerComparisons.map(l => (
               <div key={l.layer} className={cn(
                 'rounded-lg border p-3 flex items-center gap-3',
-                l.matched ? 'border-bg-border bg-bg-elevated' : 'border-danger/20 bg-danger/5'
+                // Skipped layers (audit/forensic data, never content-compared)
+                // must never read as a detected failure — see comparison.types.ts's
+                // "must never be reported as FAIL" contract on `skipped`.
+                l.skipped ? 'border-bg-border bg-bg-elevated' : l.matched ? 'border-bg-border bg-bg-elevated' : 'border-danger/20 bg-danger/5'
               )}>
-                {l.matched
-                  ? <CheckCircle2 size={14} className="text-success shrink-0" />
-                  : <AlertTriangle size={14} className="text-danger shrink-0" />}
+                {l.skipped
+                  ? <MinusCircle size={14} className="text-gray-500 shrink-0" />
+                  : l.matched
+                    ? <CheckCircle2 size={14} className="text-success shrink-0" />
+                    : <AlertTriangle size={14} className="text-danger shrink-0" />}
                 <div className="flex-1">
                   <p className="text-xs font-semibold text-white">L{l.layer} · {l.name}</p>
                   <p className="text-2xs text-gray-500">{l.changeDescription}</p>
                 </div>
-                <span className={`text-sm font-bold mono ${l.matched ? 'text-success' : 'text-danger'}`}>
-                  {l.similarityPercent}%
+                <span className={`text-sm font-bold mono ${l.skipped ? 'text-gray-500' : l.matched ? 'text-success' : 'text-danger'}`}>
+                  {l.skipped ? 'N/A' : `${l.similarityPercent}%`}
                 </span>
               </div>
             ))}

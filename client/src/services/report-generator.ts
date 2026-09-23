@@ -114,8 +114,8 @@ export function exportComparisonCSV(result: ComparisonResult): void {
     `L${l.layer}`,
     l.name,
     l.implementation,
-    `${l.similarityPercent}%`,
-    l.matched ? 'PASS' : 'FAIL',
+    l.skipped ? '—' : `${l.similarityPercent}%`,
+    l.skipped ? 'SKIPPED' : (l.matched ? 'PASS' : 'FAIL'),
     l.changed ? 'YES' : 'NO',
     `"${l.changeDescription.replace(/"/g, '""')}"`,
   ]);
@@ -259,8 +259,11 @@ export async function exportComparisonPDF(result: ComparisonResult): Promise<voi
     const exp = explainLayer(l);
     return [
       `L${l.layer} · ${exp.name}`,
-      `${l.similarityPercent}%`,
-      l.matched ? 'PASS' : 'FAIL',
+      l.skipped ? '—' : `${l.similarityPercent}%`,
+      // Server type contract (comparison.types.ts): skipped layers "must
+      // never be reported as FAIL" — they were never content-compared, so
+      // matched is meaningless for them, not a real failure.
+      l.skipped ? 'SKIPPED' : (l.matched ? 'PASS' : 'FAIL'),
       l.changed ? 'YES' : 'NO',
       exp.shortStatus,
     ];
@@ -275,7 +278,7 @@ export async function exportComparisonPDF(result: ComparisonResult): Promise<voi
     didParseCell: (data) => {
       if (data.column.index === 2 && data.section === 'body') {
         const val = data.cell.raw as string;
-        data.cell.styles.textColor = val === 'PASS' ? [16,185,129] : [239,68,68];
+        data.cell.styles.textColor = val === 'PASS' ? [16,185,129] : val === 'SKIPPED' ? [148,163,184] : [239,68,68];
         data.cell.styles.fontStyle = 'bold';
       }
     },

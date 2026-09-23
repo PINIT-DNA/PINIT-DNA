@@ -1,9 +1,17 @@
 /**
- * Layer 8 — Relationship / Content Family.
+ * Layer 8 — Relationship.
  *
- * Milestone B Step 1: when DNA_DETERMINISTIC_MODE is ON, graphHash = EDS family_id
- * (content-derived). Duplicate relatedIds remain for provenance but do not
- * affect the identity fingerprint.
+ * Not a content-matching layer in its own right — the comparison engine
+ * (comparison-engine.ts) marks it `skipped` in every compare mode, never
+ * scored. graphHash is a re-hash of relatedIds/L1+L3 data, not independent
+ * signal.
+ *
+ * relatedIds IS real: it queries for other DnaRecords sharing this exact
+ * SHA-256 at generation time. But that is the identical exact-hash check
+ * Layer 1 and the live duplicate-check pipeline already do independently,
+ * at detection time — this is a redundant audit snapshot, not something
+ * detection reads. Its real value is as a reference record (which other
+ * records exist with this hash), not as additional catching power.
  */
 
 import crypto from 'crypto';
