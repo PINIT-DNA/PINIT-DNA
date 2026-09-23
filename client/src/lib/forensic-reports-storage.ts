@@ -266,16 +266,13 @@ export function mergeLiveSnapshotIntoReport(
   return merged;
 }
 
-export function saveComparisonReport(result: ComparisonResult): void {
-  const existing = readRaw().filter(r => r.id !== result.comparisonId);
-  const entry: StoredForensicReport = {
-    kind: 'comparison',
-    id: result.comparisonId,
-    savedAt: result.comparedAt ?? new Date().toISOString(),
-    data: result,
-  };
-  writeRaw([entry, ...existing]);
-}
+// saveComparisonReport() was removed with ComparePage.tsx (the standalone
+// Compare module — no route ever pointed to it, and its detection logic was
+// a thin wrapper around the same DnaComparisonService the live Investigation
+// feature already uses independently, so nothing was lost). The 'comparison'
+// StoredForensicReport variant and its read path stay: real users may still
+// have old comparison reports saved in their browser's localStorage from
+// before this change, and ReportsPage.tsx still needs to display them.
 
 export function saveInvestigationReport(
   report: StoredInvestigationReport,
