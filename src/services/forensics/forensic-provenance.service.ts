@@ -6,10 +6,18 @@
  * are stored here only and read into investigation reports.
  *
  * Does NOT modify DNA generation, comparison, Acceptance, or Ranking.
+ *
+ * 2026-09-23: every append() also mirrors into Layer 13
+ * (CustodyLayer.custodyChain, see ../layers/custody-chain.service.ts) so
+ * the formal "Legal Chain of Custody" layer reflects the same real events
+ * this system records, instead of only growing on blocked-duplicate
+ * events. This is now the single source of truth both systems read from
+ * — write here once and both stay in sync.
  */
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import type { Prisma } from '@prisma/client';
+import { appendCustodyEvent } from '../layers/custody-chain.service';
 
 export const PROVENANCE_EVENT_TYPES = [
   'DNA_GENERATED',
@@ -197,6 +205,30 @@ class ForensicProvenanceService {
           ...(input.createdAt ? { createdAt: input.createdAt } : {}),
         },
       });
+
+      // Mirror into Layer 13 (CustodyLayer.custodyChain) so the formal
+      // "Legal Chain of Custody" layer actually reflects every real event
+      // this system records, not just blocked-duplicate events. Fire-and-
+      // forget, with its own .catch(): appendCustodyEvent's real
+      // implementation already swallows its own errors internally, but a
+      // mirror failure must never fail the primary provenance write even if
+      // that internal safety net is ever bypassed (e.g. by a test mock, or
+      // a future refactor) — belt and suspenders, not relying on the
+      // callee alone.
+      if (input.dnaRecordId) {
+        void appendCustodyEvent(input.dnaRecordId, {
+          event: input.eventType,
+          actor: input.actorLabel ?? input.actorUserId ?? 'system',
+          detail: { summary: input.summary, provenanceEventId: row.id },
+        }).catch((err) => {
+          logger.warn('[ForensicProvenance] Layer 13 custody mirror failed (non-fatal)', {
+            dnaRecordId: input.dnaRecordId,
+            eventType: input.eventType,
+            error: String(err),
+          });
+        });
+      }
+
       return row.id;
     } catch (err) {
       // Unique dedupe race

@@ -38,6 +38,17 @@ import { aiService } from '../ai/ai-embeddings.service';
 // Hamming similarity ≥ this → considered a near-duplicate for images.
 // 1.0 = exact, 0.9 = very close, 0.8 = same image resized/filtered
 const PHASH_NEAR_DUPLICATE_THRESHOLD = 0.90;
+/**
+ * Above this, a pHash match blocks alone — no second opinion needed. Between
+ * PHASH_NEAR_DUPLICATE_THRESHOLD and here is "borderline": still blocks, but
+ * only when DNA-B corroborates it (see _finalizeMatch's requireDnaBCorroboration).
+ * Exact-hash, TEP, embedded-identity and PINIT-signature detectors are NOT
+ * gated this way — those are already reliable alone by construction (a
+ * byte-identical hash or a valid HMAC doesn't need a second signal). This
+ * only applies to the two statistical/fuzzy detectors, where a lone
+ * borderline reading carries real false-positive risk.
+ */
+const PHASH_STRONG_THRESHOLD = parseFloat(process.env['DUPLICATE_PHASH_STRONG_THRESHOLD'] ?? '0.95');
 /** Max ms for duplicate checks before DNA generate — keeps upload path in seconds */
 const DUPLICATE_CHECK_BUDGET_MS = parseInt(process.env['DUPLICATE_CHECK_BUDGET_MS'] ?? '8000', 10);
 const PHASH_SCAN_LIMIT = parseInt(process.env['DUPLICATE_PHASH_SCAN_LIMIT'] ?? '400', 10);
@@ -65,6 +76,8 @@ const VIDEO_SCAN_LIMIT = parseInt(process.env['DUPLICATE_VIDEO_SCAN_LIMIT'] ?? '
  * a false positive here wrongly refuses someone their own upload.
  */
 const ORB_NEAR_DUPLICATE_THRESHOLD = parseFloat(process.env['DUPLICATE_ORB_THRESHOLD'] ?? '0.50');
+/** Same idea as PHASH_STRONG_THRESHOLD — above this, ORB blocks alone. */
+const ORB_STRONG_THRESHOLD = parseFloat(process.env['DUPLICATE_ORB_STRONG_THRESHOLD'] ?? '0.75');
 /** /cv/match-descriptors re-extracts the probe's ORB descriptors on every call
  * (no way to reuse across candidates), so the scan pool stays well below
  * PHASH_SCAN_LIMIT. */
@@ -784,6 +797,8 @@ export class DuplicateCheckService {
         matchType: 'NEAR_DUPLICATE_PHASH',
         pHashSimilarity: match.similarity,
         matchedOrientation: match.orientation,
+        probeBuffer: buffer,
+        requireDnaBCorroboration: match.similarity < PHASH_STRONG_THRESHOLD,
       });
     } catch (err) {
       logger.warn('[DuplicateCheck] pHash check failed (non-fatal)', { error: String(err) });
@@ -878,6 +893,8 @@ export class DuplicateCheckService {
         req,
         matchType: 'NEAR_DUPLICATE_ORB_FEATURES',
         pHashSimilarity: matched.similarity,
+        probeBuffer: buffer,
+        requireDnaBCorroboration: matched.similarity < ORB_STRONG_THRESHOLD,
       });
     } catch (err) {
       logger.warn('[DuplicateCheck] ORB check failed (non-fatal)', { error: String(err) });
@@ -901,8 +918,27 @@ export class DuplicateCheckService {
     matchType: DuplicateMatchType;
     pHashSimilarity?: number;
     matchedOrientation?: string;
+    /**
+     * Raw probe bytes — supplied ONLY by pHash/ORB, the two detectors that
+     * already established this candidate independently. When present, DNA-B
+     * (the pixel watermark) is checked as CORROBORATION of that match, never
+     * as its own basis for one — it can only raise isHighRisk on a match
+     * pHash/ORB already made, not create one. Other detectors (exact hash,
+     * TEP, embedded identity, PINIT signature) don't pass this and are
+     * unaffected.
+     */
+    probeBuffer?: Buffer;
+    /**
+     * Set by pHash/ORB when their similarity is "borderline" — above their
+     * base block threshold but below the STRONG threshold. A strong match
+     * blocks alone, as always; a borderline one needs DNA-B to confirm it
+     * before blocking, so a lone marginal statistical reading never refuses
+     * someone their own upload. If it doesn't confirm, this is NOT a block —
+     * logged for visibility, but the upload proceeds.
+     */
+    requireDnaBCorroboration?: boolean;
   }): Promise<DuplicateCheckResult> {
-    const { rec, sha256, originalName, mimeType, uploaderIp, req, matchType, pHashSimilarity, matchedOrientation } = params;
+    const { rec, sha256, originalName, mimeType, uploaderIp, req, matchType, pHashSimilarity, matchedOrientation, probeBuffer, requireDnaBCorroboration } = params;
     const uploaderUserId = (req as { user?: { sub?: string } }).user?.sub;
 
     if (this._isUnownedRecord(rec.ownerUserId)) {
@@ -922,8 +958,40 @@ export class DuplicateCheckService {
     }
 
     const ownerShortId = rec.ownerUser?.shortId ?? undefined;
-    const isHighRisk = this._isCrossUserUpload(rec.ownerUserId, uploaderUserId)
+    let isHighRisk = this._isCrossUserUpload(rec.ownerUserId, uploaderUserId)
       || await this._isHighRisk(rec.id, uploaderIp);
+
+    // DNA-B corroboration: a cryptographically-verified pixel watermark hit
+    // on a match pHash/ORB already made is strong evidence, never a guess —
+    // decodePayload() inside recoverRobustProvenanceWatermark only returns a
+    // result when its HMAC validates. Never treated as proof on its own: it
+    // only runs here, after a candidate already exists, and only tightens
+    // isHighRisk — it cannot flip isDuplicate.
+    let dnaBVerified = false;
+    if (probeBuffer && rec.ownerUserId && mimeType.startsWith('image/')) {
+      try {
+        const { recoverRobustProvenanceWatermark } = await import('../dna-vnext/robust-watermark');
+        const dnaB = await recoverRobustProvenanceWatermark({
+          buffer: probeBuffer,
+          mimeType,
+          ownerUserId: rec.ownerUserId,
+        });
+        if (dnaB.recovered && dnaB.dnaRecordId === rec.id) {
+          dnaBVerified = true;
+          isHighRisk = true;
+        }
+      } catch (err) {
+        logger.warn('[DuplicateCheck] DNA-B corroboration check failed (non-fatal)', { error: String(err) });
+      }
+    }
+
+    if (requireDnaBCorroboration && !dnaBVerified) {
+      logger.info(`[DuplicateCheck] ${matchType} borderline match — DNA-B did not corroborate, not blocking`, {
+        existingRecordId: rec.id,
+        pHashSimilarity,
+      });
+      return { isDuplicate: false, isHighRisk: false };
+    }
 
     await this._logAttempt({
       sha256,
@@ -937,7 +1005,29 @@ export class DuplicateCheckService {
       ownerShortId,
       ownerUserId: rec.ownerUserId ?? undefined,
       req,
+      extraDetail: dnaBVerified ? { dnaBVerified: true } : undefined,
     });
+
+    // Real custody-chain growth: an unauthorized-reproduction block is
+    // exactly the kind of event DMCA evidence needs. Routed through
+    // forensicProvenanceService.append() rather than appendCustodyEvent()
+    // directly — its append() now mirrors into Layer 13 automatically, and
+    // this way the block ALSO shows up in ForensicProvenanceEvent, so it's
+    // visible in investigation evidence timelines too (previously it only
+    // ever reached CustodyLayer, invisible to every investigation report).
+    // Fire-and-forget: never lets a custody-write failure affect the block.
+    void (async () => {
+      const { forensicProvenanceService } = await import('../forensics/forensic-provenance.service');
+      await forensicProvenanceService.append({
+        eventType: 'UNAUTHORIZED_REPRODUCTION_DETECTED',
+        summary: `Blocked unauthorized re-upload attempt (${matchType})`,
+        dnaRecordId: rec.id,
+        actorUserId: uploaderUserId ?? null,
+        actorLabel: uploaderUserId ?? 'anonymous',
+        ipAddress: uploaderIp ?? null,
+        payload: { matchType, uploaderIp, dnaBVerified, isHighRisk },
+      });
+    })().catch(() => { /* forensicProvenanceService.append already logs its own failures */ });
 
     logger.warn(`[DuplicateCheck] ${matchType} blocked (cross-account)`, {
       existingRecordId: rec.id,

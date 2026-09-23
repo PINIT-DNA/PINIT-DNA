@@ -27,6 +27,28 @@ import {
 } from '../share/share-token-resolver';
 
 const PHASH_LEAK_THRESHOLD = 0.88;
+/**
+ * Above this, a perceptual match is treated as ordinary recompression/
+ * resharing rather than a clear edit — used to derive `tampered` from a
+ * real similarity score instead of hardcoding it true for every match.
+ * Sits well above PHASH_LEAK_THRESHOLD (the bar to match at all): real
+ * edits (crop, overlay, filter) measurably drop pHash similarity more than
+ * ordinary recompression/resize does, per this session's own DNA-B
+ * robustness testing against real transforms.
+ */
+const NEAR_TAMPER_CLEAR_THRESHOLD = 0.95;
+
+/** Pure decision: derive tampered + a human note from a real pHash similarity score. Shared by _checkPHashMatch and the watermark-extraction path so both use the same real threshold instead of each hardcoding tampered:true. Exported for direct unit testing. */
+export function deriveTamperFromSimilarity(similarity: number): { tampered: boolean; note: string } {
+  const tampered = similarity < NEAR_TAMPER_CLEAR_THRESHOLD;
+  const pct = (similarity * 100).toFixed(1);
+  return {
+    tampered,
+    note: tampered
+      ? `${pct}% visually similar to the source — beyond ordinary recompression`
+      : `${pct}% visually similar to the source — consistent with ordinary recompression`,
+  };
+}
 
 export type LeakDetectionMethod =
   | 'EMBEDDED_IDENTITY'
@@ -254,15 +276,47 @@ export class LeakedFileVerifyService {
           include: { recipientProfile: true },
         });
         if (profile) {
+          // Was hardcoded `tampered: true` for every watermark hit. Reaching
+          // this step already means the file isn't byte-identical (steps
+          // 1-4 didn't match), but that alone doesn't mean it was edited —
+          // ordinary platform recompression (WhatsApp/Instagram re-encoding
+          // on reshare) reaches here too and would get flagged identically
+          // to a deliberate edit. For images, check real perceptual
+          // similarity against the source (same NEAR_TAMPER_CLEAR_THRESHOLD
+          // logic as _checkPHashMatch) instead of assuming. Non-image files
+          // (PDF/DOCX) have no equivalent pixel-similarity check available,
+          // so they keep the conservative tampered:true default.
+          let tampered = true;
+          let tamperNote = 'may be tampered';
+          if (effectiveMime.startsWith('image/') && profile.dnaRecordId) {
+            try {
+              const stored = await prisma.perceptualLayer.findUnique({
+                where: { dnaRecordId: profile.dnaRecordId },
+                select: { pHash64: true, aHash64: true, dHash64: true },
+              });
+              if (stored?.pHash64) {
+                const probe = await this.perceptualLayer.computeFingerprints(buffer);
+                const similarity = this.perceptualLayer.verify(probe, {
+                  pHash64: stored.pHash64,
+                  aHash64: stored.aHash64 ?? '',
+                  dHash64: stored.dHash64 ?? '',
+                });
+                ({ tampered, note: tamperNote } = deriveTamperFromSimilarity(similarity));
+              }
+            } catch (err) {
+              logger.warn('[LeakedVerify] Watermark-path perceptual check failed (non-fatal, keeping conservative default)', { error: String(err) });
+            }
+          }
+
           const base = await this._buildFromIds({
             dnaRecordId: profile.dnaRecordId ?? undefined,
             shareLinkId: profile.shareLinkId,
             detectionMethod: 'WATERMARK',
             leakVector: 'DOWNLOAD_REUPLOAD',
             valid: true,
-            tampered: true,
+            tampered,
             confidence: 96,
-            message: 'PINIT watermark extracted — file originated from a tracked share download (may be tampered).',
+            message: `PINIT watermark extracted — file originated from a tracked share download (${tamperNote}).`,
           });
           return {
             ...base,
@@ -892,13 +946,21 @@ export class LeakedFileVerifyService {
     }
     if (!best) return null;
 
+    // Was hardcoded `tampered: true` for every match reaching this path,
+    // ignoring the real similarity score computed right above it — even a
+    // 99%-similar match (ordinary recompression from a normal reshare) got
+    // called tampered, identically to a genuinely edited copy. Now derived
+    // from the actual number via the shared helper.
+    const { tampered: clearlyTampered } = deriveTamperFromSimilarity(best.similarity);
     return this._fromDnaRecord(best.recordId, {
       detectionMethod: 'NEAR_DUPLICATE_PHASH',
-      leakVector: 'RECORDING',
-      valid: true,
-      tampered: true,
+      leakVector: clearlyTampered ? 'RECORDING' : 'DOWNLOAD_REUPLOAD',
+      valid: !clearlyTampered,
+      tampered: clearlyTampered,
       confidence: Math.round(best.similarity * 100),
-      message: `Visual fingerprint match (${(best.similarity * 100).toFixed(1)}% similar) — tampered copy, screenshot, or re-encoded leak of a protected file.`,
+      message: clearlyTampered
+        ? `Visual fingerprint match (${(best.similarity * 100).toFixed(1)}% similar) — tampered copy, screenshot, or re-encoded leak of a protected file.`
+        : `Visual fingerprint match (${(best.similarity * 100).toFixed(1)}% similar) — consistent with ordinary recompression/resharing, not a clear edit.`,
       pHashSimilarity: best.similarity,
     }, ownerUserId);
   }
