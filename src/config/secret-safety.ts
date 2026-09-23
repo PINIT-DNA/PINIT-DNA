@@ -21,12 +21,16 @@
  * only be turned on once every secret below is confirmed correct in the
  * target environment.
  *
- * VAULT_MASTER_SECRET is known to still be weak in production as of this
- * writing (see docs/Pinit-DNA-15-Layer-Status-Report.docx section 4.2) —
- * deliberately not fixed yet because it derives the key that encrypts every
- * already-stored file, and rotating it without a real migration would make
- * them all unreadable. It still shows up here so the warning is loud and
- * ongoing, not just a one-time TODO someone can forget about.
+ * VAULT_MASTER_SECRET was rotated 2026-09-23 via scripts/rotate-vault-master-secret.ts
+ * — it derives the key that encrypts every stored vault file and the HMAC
+ * that signs every certificate, so a naive rotation would have made all of
+ * them unreadable/invalid. Migrated 26/44 vault records and 32/32
+ * certificates (the other 18 vault records were already unreadable in
+ * production before this rotation, for unrelated reasons — missing storage
+ * objects and pre-existing auth-tag failures — and were left untouched,
+ * since rotation cannot make an already-broken record any worse).
+ * BIOMETRIC_ENCRYPTION_KEY was independently decoupled from this secret
+ * first (same day) so biometric templates were never at risk.
  *
  * EXCHANGE_BRIDGE_SECRET's own hardcoded-default backdoor (a literal string
  * that was ALWAYS accepted regardless of this env var — see

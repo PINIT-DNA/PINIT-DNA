@@ -40,11 +40,16 @@ export interface EncryptResult {
 /**
  * Derive a deterministic 256-bit AES key for a given vaultId.
  * Uses HKDF-SHA256 so the master secret is never used directly as a key.
+ *
+ * @param masterSecret — defaults to the live config value. Only ever passed
+ *   explicitly by the one-off key-rotation script, which needs to derive
+ *   with the OLD secret to decrypt and the NEW secret to re-encrypt in the
+ *   same run — runtime code always uses the default.
  */
-function deriveKey(vaultId: string): Buffer {
+function deriveKey(vaultId: string, masterSecret: string = config.vault.masterSecret): Buffer {
   return Buffer.from(crypto.hkdfSync(
     'sha256',
-    Buffer.from(config.vault.masterSecret, 'utf8'),  // IKM
+    Buffer.from(masterSecret, 'utf8'),                // IKM
     Buffer.from(vaultId, 'utf8'),                     // salt  (unique per vault)
     HKDF_INFO,                                        // context info
     KEY_BYTES
@@ -57,9 +62,10 @@ function deriveKey(vaultId: string): Buffer {
  *
  * @param plaintext  — raw image bytes (original file)
  * @param vaultId    — used as HKDF salt to derive the encryption key
+ * @param masterSecret — see deriveKey(); omit to use the live config value.
  */
-export function encrypt(plaintext: Buffer, vaultId: string): EncryptResult {
-  const key = deriveKey(vaultId);
+export function encrypt(plaintext: Buffer, vaultId: string, masterSecret?: string): EncryptResult {
+  const key = deriveKey(vaultId, masterSecret);
   const iv  = crypto.randomBytes(IV_BYTES);
 
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv, {
@@ -86,13 +92,14 @@ export function encrypt(plaintext: Buffer, vaultId: string): EncryptResult {
  *
  * @param encryptedBuffer — full vault file [IV][Tag][Ciphertext]
  * @param vaultId         — used to re-derive the key via HKDF
+ * @param masterSecret    — see deriveKey(); omit to use the live config value.
  */
-export function decrypt(encryptedBuffer: Buffer, vaultId: string): Buffer {
+export function decrypt(encryptedBuffer: Buffer, vaultId: string, masterSecret?: string): Buffer {
   if (encryptedBuffer.length <= HEADER_SIZE) {
     throw new Error('Vault file is too small — corrupted or invalid');
   }
 
-  const key        = deriveKey(vaultId);
+  const key        = deriveKey(vaultId, masterSecret);
   const iv         = encryptedBuffer.subarray(0, IV_BYTES);
   const authTag    = encryptedBuffer.subarray(IV_BYTES, HEADER_SIZE);
   const ciphertext = encryptedBuffer.subarray(HEADER_SIZE);
