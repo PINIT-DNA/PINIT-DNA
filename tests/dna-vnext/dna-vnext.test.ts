@@ -84,8 +84,14 @@ describe('DNA vNext provenance layer', () => {
   it('round-trips DNA-B lookup id through a PNG without embedding a raw Vault UUID', async () => {
     const vaultId = '11111111-1111-4111-8111-111111111111';
     const dnaRecordId = '22222222-2222-4222-8222-222222222222';
+    // 640x640 -> 1,600 16x16 tiles, enough for 2 full copies of the 720-bit
+    // (30-byte x8 x3-redundancy) payload at the current 1-bit-per-tile
+    // capacity. A real photo is virtually always this size or larger; 256x256
+    // (400 tiles) was sized for an earlier 4-bits/tile scheme and is too
+    // small for the current half-tile Patchwork embedder — see
+    // src/services/dna-vnext/robust-watermark.ts's header comment.
     const png = await sharp({
-      create: { width: 256, height: 256, channels: 3, background: { r: 18, g: 64, b: 90 } },
+      create: { width: 640, height: 640, channels: 3, background: { r: 18, g: 64, b: 90 } },
     }).png().toBuffer();
     const embedded = await embedRobustProvenanceWatermark({
       buffer: png,

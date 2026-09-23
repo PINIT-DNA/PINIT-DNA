@@ -255,6 +255,35 @@ export class TepService {
       fileName: input.filename,
     });
 
+    // Layer (e): DNA-B robust pixel watermark — survives recompression/re-save,
+    // unlike the EXIF/tail layers above which any re-encode strips outright.
+    // Additive, never blocks the export: mirrors the same non-fatal pattern
+    // protected-download.service.ts already uses for this function.
+    let dnaBWatermark = false;
+    if (input.mimeType.startsWith('image/')) {
+      try {
+        const { embedRobustProvenanceWatermark } = await import('../dna-vnext/robust-watermark');
+        const wmStart = Date.now();
+        const wm = await embedRobustProvenanceWatermark({
+          buffer,
+          mimeType: input.mimeType,
+          vaultId: input.vaultId,
+          dnaRecordId: input.dnaRecordId,
+        });
+        if (wm.embedded) {
+          buffer = wm.buffer;
+          dnaBWatermark = true;
+        }
+        logger.info('[TEP] DNA-B watermark embed attempted', {
+          embedded: wm.embedded,
+          method: wm.method,
+          elapsedMs: Date.now() - wmStart,
+        });
+      } catch (err) {
+        logger.warn('[TEP] DNA-B watermark embed failed (non-fatal)', { error: String(err) });
+      }
+    }
+
     const exportSha256 = crypto.createHash('sha256').update(buffer).digest('hex');
 
     const expiresAt = input.expiresInHours
@@ -280,6 +309,7 @@ export class TepService {
           steganographic: true,
           metadata: true,
           structuralTail: true,
+          dnaBWatermark,
           watermarkCode,
           exportChannel: isProtectedDownloadTepChannel(input.shareLinkId)
             ? 'PROTECTED_DOWNLOAD'

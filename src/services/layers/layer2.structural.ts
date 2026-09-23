@@ -21,8 +21,18 @@
  *     Read red channel LSBs at edge pixel positions → reconstruct signature →
  *     compare with stored signature via Hamming distance
  *
- * Survives:  Minor colour changes, brightness adjustments, mild compression
+ * Survives:  Minor colour changes, brightness adjustments, mild compression.
+ *            Confirmed, not assumed — tests/layers/layer2-structural-robustness.test.ts
+ *            measures 0.92-1.00 similarity across JPEG q90/q60/q30, brightness,
+ *            and saturation changes, all above the 0.75 threshold this layer
+ *            is actually gated on (dna.verifier.ts LAYER_THRESHOLDS.structural).
  * Defeated by: Heavy cropping that removes large portions of the image
+ *            (confirmed: 0.59 similarity on a real crop, same test file).
+ *            Crop/rotation tolerance for duplicate detection is covered
+ *            separately by the ORB feature-matching detector at upload time
+ *            (duplicate-check.service.ts's _checkOrbNearDuplicate) — this
+ *            layer was not extended to handle crop; a second, independent
+ *            layer was added instead. See that file's header comment for why.
  */
 
 import sharp from 'sharp';

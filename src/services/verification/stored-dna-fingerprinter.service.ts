@@ -180,7 +180,7 @@ export class StoredDnaFingerprinter {
 
     if (record.dctWatermarkLayer) {
       layerMap.set(12, {
-        layer: 12, name: 'watermark', implementation: 'dct_frequency_watermark',
+        layer: 12, name: 'watermark', implementation: 'dna_b_patchwork_capability_check',
         fingerprint: record.dctWatermarkLayer.watermarkHash,
         data: { watermarkHash: record.dctWatermarkLayer.watermarkHash, embedded: record.dctWatermarkLayer.embedded },
         success: record.dctWatermarkLayer.embedded,

@@ -11,7 +11,7 @@ export const DNA_LAYER_REGISTRY: Record<number, { name: string; implementation: 
   9:  { name: 'Origin', implementation: 'sha256_origin_bundle' },
   10: { name: 'Evolution', implementation: 'markov_mutation_log' },
   11: { name: 'Deepfake Detection', implementation: 'ai_deepfake_analysis' },
-  12: { name: 'Invisible Watermark', implementation: 'dct_frequency_watermark' },
+  12: { name: 'Invisible Watermark', implementation: 'dna_b_patchwork_capability_check' },
   13: { name: 'Chain of Custody', implementation: 'legal_custody_chain' },
   14: { name: 'ZK Ownership Proof', implementation: 'hash_commitment_proof' },
   15: { name: 'Biometric Bind', implementation: 'biometric_hmac_bind' },

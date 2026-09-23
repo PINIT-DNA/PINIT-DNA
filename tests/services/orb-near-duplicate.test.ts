@@ -56,9 +56,14 @@ jest.mock('../../src/services/assets/video-asset-dna.service', () => ({
   buildVideoAssetDna: jest.fn(async () => ({ framePHashes: [], ffmpegAvailable: false })),
 }));
 
+jest.mock('../../src/services/dna-vnext/robust-watermark', () => ({
+  recoverRobustProvenanceWatermark: jest.fn(async () => ({ recovered: false })),
+}));
+
 import { prisma } from '../../src/lib/prisma';
 import { DuplicateCheckService } from '../../src/services/duplicate/duplicate-check.service';
 import { aiService } from '../../src/services/ai/ai-embeddings.service';
+import { recoverRobustProvenanceWatermark } from '../../src/services/dna-vnext/robust-watermark';
 
 const dnaFindFirst = prisma.dnaRecord.findFirst as unknown as jest.Mock<AnyAsync>;
 const dnaFindUnique = prisma.dnaRecord.findUnique as unknown as jest.Mock<AnyAsync>;
@@ -67,6 +72,7 @@ const perceptualFindMany = prisma.perceptualLayer.findMany as unknown as jest.Mo
 const localFeatureFindMany = prisma.localFeatureIndex.findMany as unknown as jest.Mock<AnyAsync>;
 const extractLocalDnaIndex = aiService.extractLocalDnaIndex as unknown as jest.Mock<AnyAsync>;
 const matchDescriptorSets = aiService.matchDescriptorSets as unknown as jest.Mock<AnyAsync>;
+const recoverDnaB = recoverRobustProvenanceWatermark as unknown as jest.Mock<AnyAsync>;
 
 const UPLOADER = 'user-a';
 const OTHER = 'user-b';
@@ -93,6 +99,8 @@ beforeEach(() => {
   localFeatureFindMany.mockReset();
   extractLocalDnaIndex.mockReset();
   matchDescriptorSets.mockReset();
+  recoverDnaB.mockReset();
+  recoverDnaB.mockResolvedValue({ recovered: false });
 
   dnaFindFirst.mockResolvedValue(null);         // no exact-hash match
   cryptoFindFirst.mockResolvedValue(null);
@@ -130,11 +138,34 @@ describe('ORB near-duplicate detection', () => {
     expect(result.ownerShortId).toBe('PINIT-OTHER');
   });
 
-  test('a simulated crop (moderate similarity) still blocks', async () => {
-    // Most keypoints outside the crop region are gone; the ones inside still
-    // match — mock-level stand-in for a real pixel-level crop (see plan's
-    // Verification section for the real-image end-to-end check).
+  test('a borderline crop match (0.55, below ORB_STRONG_THRESHOLD) does NOT block alone', async () => {
+    // Below 0.75 ("strong"), a lone ORB reading isn't proof enough to refuse
+    // someone their own upload — it needs DNA-B to confirm. This is the
+    // multi-layer agreement gate: exact-hash/TEP/embedded-identity/PINIT-
+    // signature still block alone (reliable by construction); only the two
+    // statistical/fuzzy detectors (pHash, ORB) require corroboration in this
+    // 0.50-0.75 band.
     matchDescriptorSets.mockResolvedValue({ similarity: 0.55, matches: 80, method: 'opencv_orb' });
+    recoverDnaB.mockResolvedValue({ recovered: false });
+
+    const result = await uploadImage();
+
+    expect(result.isDuplicate).toBe(false);
+  });
+
+  test('the SAME borderline crop match DOES block once DNA-B corroborates it', async () => {
+    matchDescriptorSets.mockResolvedValue({ similarity: 0.55, matches: 80, method: 'opencv_orb' });
+    recoverDnaB.mockResolvedValue({ recovered: true, dnaRecordId: 'dna-orb-1' });
+
+    const result = await uploadImage();
+
+    expect(result.isDuplicate).toBe(true);
+    expect(result.isHighRisk).toBe(true);
+  });
+
+  test('a strong ORB match (>= 0.75) still blocks alone, no DNA-B needed', async () => {
+    matchDescriptorSets.mockResolvedValue({ similarity: 0.80, matches: 300, method: 'opencv_orb' });
+    recoverDnaB.mockResolvedValue({ recovered: false });
 
     const result = await uploadImage();
 

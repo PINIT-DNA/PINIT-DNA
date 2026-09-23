@@ -16,9 +16,21 @@
  *   - Compact 12-hex-char colour fingerprint from the 8-bin summaries
  *
  * Survives:  Pixel-level noise, minor colour shifts, format conversion,
- *            light JPEG compression.
- * Defeated by: Complete replacement of image content, radical colour inversions
- *              (e.g., negative filter).
+ *            light JPEG compression, resize. Confirmed, not assumed —
+ *            tests/layers/layer4-semantic-robustness.test.ts measures
+ *            0.79-1.00 across all of these, above the 0.70 threshold this
+ *            layer is gated on (dna.verifier.ts LAYER_THRESHOLDS.semantic).
+ *
+ * Defeated by: NOT radical colour inversion, contrary to what this comment
+ *              used to claim — measured 0.79 similarity on a negated copy,
+ *              ABOVE the 0.70 threshold (same test file). Worse: two
+ *              completely unrelated images scored 0.84 in that same test —
+ *              coarse 8-bin colour histograms don't reliably discriminate
+ *              content. This layer's score should never be trusted alone;
+ *              it's low-weight (0.12) in the fused score
+ *              (weighted-dna-scoring.service.ts) and not used as a
+ *              standalone gate anywhere in duplicate-check.service.ts today
+ *              — keep it that way.
  *
  * Verification: Histogram intersection similarity on 8-bin compressed histograms.
  *   intersection(h1, h2) = sum(min(h1[i], h2[i])) / sum(h1[i])
