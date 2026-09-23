@@ -21,13 +21,18 @@
  * only be turned on once every secret below is confirmed correct in the
  * target environment.
  *
- * VAULT_MASTER_SECRET and EXCHANGE_BRIDGE_SECRET are known to still be weak
- * in production as of this writing (see docs/Pinit-DNA-15-Layer-Status-Report.docx
- * section 4.2/4.3) — deliberately not fixed yet because VAULT_MASTER_SECRET
- * derives the key that encrypts every already-stored file, and rotating it
- * without a real migration would make them all unreadable. They still show
- * up here so the warning is loud and ongoing, not just a one-time TODO
- * someone can forget about.
+ * VAULT_MASTER_SECRET is known to still be weak in production as of this
+ * writing (see docs/Pinit-DNA-15-Layer-Status-Report.docx section 4.2) —
+ * deliberately not fixed yet because it derives the key that encrypts every
+ * already-stored file, and rotating it without a real migration would make
+ * them all unreadable. It still shows up here so the warning is loud and
+ * ongoing, not just a one-time TODO someone can forget about.
+ *
+ * EXCHANGE_BRIDGE_SECRET's own hardcoded-default backdoor (a literal string
+ * that was ALWAYS accepted regardless of this env var — see
+ * exchange-bridge.service.ts's verifyServiceBridgeSecret()) was fixed
+ * 2026-09-23, and the value itself was rotated on both Hub and Exchange. What
+ * remains here is the ordinary case: warn if it was never independently set.
  */
 import { logger } from '../lib/logger';
 import { config } from './index';
@@ -74,7 +79,7 @@ function buildChecks(): SecretCheck[] {
       envVar: 'EXCHANGE_BRIDGE_SECRET',
       insecure: !process.env['EXCHANGE_BRIDGE_SECRET'],
       severity: 'high',
-      note: 'Not independently set (borrowing JWT_SECRET via fallback). The Hub<->Exchange bridge code also hardcodes a separate default value as an ALWAYS-ACCEPTED credential regardless of this setting — see status report 4.3. KNOWN OPEN ISSUE, needs a coordinated code fix across both services, not just this env var.',
+      note: 'Not independently set (borrowing JWT_SECRET via fallback). Authenticates every Hub<->Exchange service call (listing assets, confirming sales, minting licensed shares, silent protect-on-behalf-of). The always-accepted hardcoded-default backdoor in verifyServiceBridgeSecret() was fixed 2026-09-23 — only the real configured secret is now accepted (constant-time compare) — but this must still be independently set (not left on the JWT_SECRET fallback) on both Hub and Exchange in every environment.',
     },
     {
       envVar: 'SPATIAL_AUTH_SECRET',

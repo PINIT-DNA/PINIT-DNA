@@ -121,17 +121,23 @@ export function verifyBridgeToken<T extends object>(token: string, purpose: stri
   }
 }
 
+/**
+ * Used to unconditionally accept the literal string
+ * 'change_me_exchange_bridge_secret_min_32_chars' — the same placeholder
+ * checked into .env.example and this repo's README — regardless of what
+ * EXCHANGE_BRIDGE_SECRET was actually configured to. Anyone who read the
+ * public repo had a permanent, always-valid credential for every Hub bridge
+ * endpoint (listing assets, confirming sales, minting licensed shares,
+ * silently protecting files as another Pinit ID). Fixed: only the real
+ * configured secret is accepted, compared in constant time.
+ */
 export function verifyServiceBridgeSecret(headerValue: string | undefined): void {
   const expected = config.exchange.bridgeSecret;
-  const accepted = new Set(
-    [
-      expected,
-      process.env.EXCHANGE_BRIDGE_SECRET,
-      // Local Exchange .env default — keeps Hub↔Exchange working if Hub still has JWT fallback loaded
-      'change_me_exchange_bridge_secret_min_32_chars',
-    ].filter((v): v is string => Boolean(v && String(v).trim())),
-  );
-  if (!headerValue || !accepted.has(String(headerValue))) {
+  const got = String(headerValue || '');
+  const expectedBuf = Buffer.from(expected);
+  const gotBuf = Buffer.from(got);
+  const matches = expectedBuf.length === gotBuf.length && crypto.timingSafeEqual(expectedBuf, gotBuf);
+  if (!got || !matches) {
     throw new AppError(401, 'Invalid Exchange bridge credentials');
   }
 }
