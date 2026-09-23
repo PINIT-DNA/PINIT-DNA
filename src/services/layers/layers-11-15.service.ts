@@ -12,6 +12,8 @@ import crypto from 'crypto';
 import sharp from 'sharp';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
+import { aiService } from '../ai/ai-embeddings.service';
+import { canEmbedRobustWatermark } from '../dna-vnext/robust-watermark';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // LAYER 11: AI Deepfake Detection
@@ -26,17 +28,39 @@ export async function processLayer11(
   try {
     let deepfakeScore = 0;
     let analysisMethod = 'pixel-noise-analysis';
+    let confidence = 0;
+    let metadata: Record<string, unknown> = {};
     const isMedia = mimeType.startsWith('image/') || mimeType.startsWith('video/');
 
     if (mimeType.startsWith('image/')) {
-      deepfakeScore = await analyzeImageAiRisk(buffer);
-      analysisMethod = 'decoded-pixel-multi-factor';
+      // Real multi-engine ensemble (CLIP zero-shot + EfficientNet AI classifier,
+      // ELA, FFT, PRNU, metadata) — replaces the old EXIF-marker + blur-variance
+      // heuristic below, which is kept ONLY as a fallback for when the Python
+      // service is unavailable (fails soft, never blocks a protect).
+      const ensemble = await aiService.analyzeAuthenticity(buffer, mimeType);
+      if (ensemble) {
+        deepfakeScore = ensemble.aiProbability;
+        confidence = Math.round(ensemble.confidence * 100);
+        analysisMethod = 'authenticity-ensemble-v1';
+        metadata = {
+          verdict: ensemble.verdict,
+          tamperScore: ensemble.tamperScore,
+          authenticityScore: ensemble.authenticityScore,
+          reasons: ensemble.reasons,
+          signals: ensemble.signals,
+        };
+      } else {
+        deepfakeScore = await analyzeImageAiRisk(buffer);
+        confidence = Math.min(92, 50 + Math.round(deepfakeScore * 0.4));
+        analysisMethod = 'decoded-pixel-multi-factor-fallback';
+      }
     } else if (isMedia) {
-      // Video / other: fall back to byte heuristics
+      // Video / other: ensemble is image-only, fall back to byte heuristics
       const noiseScore = analyzeByteNoise(buffer);
       const quantScore = analyzeQuantization(buffer);
       const channelScore = analyzeChannelStats(buffer);
       deepfakeScore = Math.round((noiseScore + quantScore + channelScore) / 3);
+      confidence = Math.min(92, 50 + Math.round(deepfakeScore * 0.4));
       analysisMethod = 'byte-heuristic-fallback';
     }
 
@@ -45,14 +69,15 @@ export async function processLayer11(
         dnaRecordId,
         deepfakeScore,
         isDeepfake: deepfakeScore > 55,
-        confidence: isMedia ? Math.min(92, 50 + Math.round(deepfakeScore * 0.4)) : 0,
-        modelVersion: '2.0-decoded-pixel',
+        confidence: isMedia ? confidence : 0,
+        modelVersion: '3.0-authenticity-ensemble',
         analysisMethod,
         flagged: deepfakeScore > 55,
         metadata: {
           fileType: mimeType,
           analyzed: isMedia,
           processingMs: Date.now() - start,
+          ...metadata,
         },
       },
     });
@@ -60,6 +85,7 @@ export async function processLayer11(
     logger.info('Layer 11 — Deepfake detection complete', {
       dnaRecordId,
       deepfakeScore,
+      analysisMethod,
       flagged: deepfakeScore > 55,
       ms: Date.now() - start,
     });
@@ -181,31 +207,65 @@ function countOccurrences(buf: Buffer, pattern: Buffer): number {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// LAYER 12: Invisible DCT Watermark
-// Embeds owner identity in the frequency domain (DCT coefficients) of the file.
-// Survives screenshots, re-encoding, format conversion, and compression.
+// LAYER 12: Invisible Watermark — capability certification
+//
+// Previously this layer embedded NOTHING — `_buffer` was unused, `method`/
+// `strength` were hardcoded constants picked from mimeType, and `embedded:
+// true` was a literal, not a result. Fixed to do something real, but honest
+// about what's actually possible AT THIS POINT in the pipeline:
+//
+// DNA generation (where this layer runs) happens BEFORE vault storage — no
+// vaultId exists yet, and the real watermark payload's lookup ID is
+// HMAC(vaultId, dnaRecordId) (see dna-vnext/crypto.ts). So this layer cannot
+// embed the real mark itself; that happens later, at delivery time
+// (protected-download / share-link export — see robust-watermark.ts,
+// already wired into protected-download.service.ts and tep.service.ts).
+//
+// What IS real and checkable right now: whether this specific file's
+// dimensions can even carry that watermark (canEmbedRobustWatermark), and
+// the actual measured survival profile from real transform tests
+// (tests/watermark/robust-watermark-transcode.test.ts) — not a guessed
+// constant. `embedded` here means "capable of being embedded later", not
+// "was embedded" — there is nothing to embed into yet.
 // ═══════════════════════════════════════════════════════════════════════════════
+
+/** Real measured pass rate (2026-09-23, after the canonical-frame resize fix):
+ * JPEG q90/60/30/10, brightness, grayscale, resize 25-150%, and the composite
+ * screenshot transform all survive, at two native resolutions (below and
+ * above the canonical frame) — 22/22 in the current matrix. Source:
+ * tests/watermark/robust-watermark-transcode.test.ts. Not a guess. Kept at
+ * a conservative 0.9 rather than 1.0: the matrix doesn't cover every real
+ * transform a leaker might apply (e.g. non-uniform stretch, crop — out of
+ * scope for DNA-B, ORB's job elsewhere), so 100% measured-in-test isn't the
+ * same claim as "always survives in the wild." */
+const DNA_B_MEASURED_SURVIVAL_RATE = 0.9;
+
 export async function processLayer12(
   dnaRecordId: string,
-  _buffer: Buffer,
+  buffer: Buffer,
   mimeType: string,
   ownerUserId: string
 ): Promise<boolean> {
   const start = Date.now();
   try {
-    // Create a watermark payload from owner ID + timestamp
-    const payload = `${ownerUserId}:${dnaRecordId}:${Date.now()}`;
-    const watermarkHash = crypto.createHash('sha256').update(payload).digest('hex');
-
-    // For images: DCT coefficient modification in frequency domain
-    // For audio: psychoacoustic band embedding
-    // For documents: micro-spacing encoding
     const isImage = mimeType.startsWith('image/');
-    const isAudio = mimeType.startsWith('audio/');
-    const method = isImage ? 'dct-frequency' : isAudio ? 'psychoacoustic' : 'structural-encoding';
+    let capable = false;
+    let method = 'not-applicable';
 
-    // Compute survival score based on embedding strength
-    const strength = isImage ? 0.85 : isAudio ? 0.70 : 0.60;
+    if (isImage) {
+      try {
+        const { width, height } = await sharp(buffer).metadata();
+        capable = !!width && !!height && canEmbedRobustWatermark(width, height);
+      } catch { capable = false; }
+      method = 'dna-b-patchwork-v1 (embedded at delivery time, not at protect time)';
+    }
+
+    // Registry hash — identifies this DNA record's eligibility for DNA-B,
+    // not the watermark payload itself (that's HMAC(vaultId, dnaRecordId),
+    // computed once a vaultId exists — see dna-vnext/crypto.ts).
+    const payload = `${ownerUserId}:${dnaRecordId}`;
+    const watermarkHash = crypto.createHash('sha256').update(payload).digest('hex');
+    const strength = capable ? DNA_B_MEASURED_SURVIVAL_RATE : 0;
 
     await prisma.dctWatermarkLayer.create({
       data: {
@@ -214,13 +274,13 @@ export async function processLayer12(
         ownerIdEncoded: crypto.createHash('sha256').update(ownerUserId).digest('hex').slice(0, 32),
         method,
         strength,
-        embedded: true,
+        embedded: capable,
         survivalScore: strength * 100,
       },
     });
 
-    logger.info('Layer 12 — DCT watermark complete', {
-      dnaRecordId, method, strength, ms: Date.now() - start,
+    logger.info('Layer 12 — DNA-B capability check complete', {
+      dnaRecordId, method, capable, ms: Date.now() - start,
     });
     return true;
   } catch (err) {
@@ -315,13 +375,22 @@ export async function processLayer14(
       .update(`${ownerUserId}${dnaRecordId}`)
       .digest('hex');
 
-    // Proof data = encrypted secret (only owner can reveal to prove ownership)
+    // Proof data = encrypted secret (only owner can reveal to prove ownership).
+    // The IV MUST be random per encryption: a fixed IV here previously reused
+    // the same (key, IV) pair for every file the same owner ever protected —
+    // since the key is deterministic per ownerUserId, that's the AES-GCM
+    // "forbidden attack" setup (repeated nonce lets an attacker recover the
+    // XOR of plaintexts across a user's files, and with enough samples,
+    // forge auth tags). Store the IV alongside the ciphertext so a future
+    // verifier can still decrypt — nothing reads proofData today, but the
+    // format needs to be self-decodable when one exists.
+    const proofIv = crypto.randomBytes(12);
     const proofCipher = crypto.createCipheriv(
       'aes-256-gcm',
       crypto.createHash('sha256').update(ownerUserId).digest(),
-      Buffer.alloc(12, 0)
+      proofIv
     );
-    const proofData = Buffer.concat([
+    const proofData = proofIv.toString('hex') + ':' + Buffer.concat([
       proofCipher.update(secret, 'utf8'),
       proofCipher.final(),
     ]).toString('hex') + ':' + proofCipher.getAuthTag().toString('hex');
