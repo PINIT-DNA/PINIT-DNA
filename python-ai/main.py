@@ -529,6 +529,83 @@ async def cv_match_descriptor_sets(
         "processingMs": round((time.time() - start) * 1000, 1),
     }
 
+@app.post("/cv/noise-residual")
+async def cv_noise_residual(
+    image: UploadFile = File(...),
+):
+    """Extract a real, content-derived noise-residual descriptor (Layer 9
+    Origin) — NOT camera-identification PRNU (that needs a reference pattern
+    averaged across many known photos from one physical camera; this repo
+    has no device-enrollment corpus for that, out of scope). This is the
+    per-image half: a real fingerprint of the image's own sensor-noise-like
+    texture, comparable against another image's via /cv/compare-noise-residuals.
+    """
+    from services.computer_vision import computer_vision_service
+
+    start = time.time()
+    image_bytes = await image.read()
+    result = await _cv_read(computer_vision_service.extract_noise_residual, image_bytes)
+    if not result.success:
+        raise HTTPException(503, result.message or "Noise residual extraction failed")
+    return {
+        "success": True,
+        **result.data,
+        "processingMs": round((time.time() - start) * 1000, 1),
+    }
+
+@app.post("/cv/compare-noise-residuals")
+async def cv_compare_noise_residuals(
+    descriptor_a: str = Form(...),
+    descriptor_b: str = Form(...),
+):
+    """Cosine similarity between two already-extracted noise-residual
+    descriptors from /cv/noise-residual — no image, no re-extraction."""
+    from services.computer_vision import computer_vision_service
+
+    start = time.time()
+    try:
+        a = json.loads(descriptor_a) if descriptor_a else {}
+        b = json.loads(descriptor_b) if descriptor_b else {}
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid descriptor JSON")
+    result = await _cv_read(computer_vision_service.compare_noise_residuals, a, b)
+    if not result.success:
+        raise HTTPException(503, result.message or "Noise residual compare failed")
+    return {
+        "success": True,
+        **result.data,
+        "processingMs": round((time.time() - start) * 1000, 1),
+    }
+
+@app.post("/cv/authenticity-ensemble")
+async def cv_authenticity_ensemble(
+    image: UploadFile = File(...),
+):
+    """Standalone multi-engine authenticity check — metadata, ELA, FFT, PRNU,
+    CLIP zero-shot + EfficientNet AI-classifier, weighted ensemble fusion.
+
+    Calls authenticity_ensemble_service.analyze() directly, not through the
+    full /cv/forensic-scan pipeline (crop detection, tile FAISS indexing,
+    etc.) — this is the lightweight path for a single image's own AI/tamper
+    signal, e.g. at protect time, where the heavier scan's other stages are
+    irrelevant and would only add latency.
+    """
+    from services.authenticity_ensemble import authenticity_ensemble_service
+
+    start = time.time()
+    image_bytes = await image.read()
+    mime_type = image.content_type or "image/jpeg"
+    result = await _cv_read(
+        authenticity_ensemble_service.analyze, image_bytes, mime_type, image.filename or ""
+    )
+    if not result.success:
+        raise HTTPException(503, result.message or "Authenticity ensemble failed")
+    return {
+        "success": True,
+        **result.data,
+        "processingMs": round((time.time() - start) * 1000, 1),
+    }
+
 # ── Enterprise Forensic Scanner ───────────────────────────────────────────────
 
 @app.post("/cv/local-source-score")

@@ -31,6 +31,7 @@ class ComputerVisionService(EnterpriseAIService):
                 "akaze_fallback",
                 "image_similarity",
                 "perceptual_hash",
+                "noise_residual_descriptor",
             ],
         }
 
@@ -254,6 +255,101 @@ class ComputerVisionService(EnterpriseAIService):
                 "method": candidate_descriptors.get("method", "opencv_orb"),
                 "probeKeypoints": len(probe_mat),
                 "referenceKeypoints": len(cand_mat),
+            }, "OK", self.name)
+        except Exception as exc:
+            return ServiceResult(False, {}, str(exc), self.name)
+
+    def _pool_to_grid(self, arr: "np.ndarray", grid_h: int, grid_w: int) -> "np.ndarray":
+        """Average-pool an arbitrary-size 2D array down to a fixed grid_h x grid_w
+        grid, so the descriptor is comparable regardless of the source image's
+        native resolution (same "canonicalize the frame" idea used for DNA-B's
+        resize tolerance, applied here to noise instead of luma tiles)."""
+        h, w = arr.shape
+        ys = np.linspace(0, h, grid_h + 1).astype(int)
+        xs = np.linspace(0, w, grid_w + 1).astype(int)
+        out = np.zeros((grid_h, grid_w), dtype=np.float32)
+        for i in range(grid_h):
+            y0, y1 = ys[i], max(ys[i + 1], ys[i] + 1)
+            for j in range(grid_w):
+                x0, x1 = xs[j], max(xs[j + 1], xs[j] + 1)
+                block = arr[y0:y1, x0:x1]
+                out[i, j] = float(block.mean()) if block.size else 0.0
+        return out
+
+    def extract_noise_residual(self, image_bytes: bytes) -> ServiceResult:
+        """Real, content-derived sensor-noise-style descriptor.
+
+        NOT camera-identification PRNU (that needs a reference pattern
+        averaged across many known photos from one physical camera — this
+        codebase has no device-enrollment system or multi-photo-per-device
+        corpus, out of scope). This is the honest, buildable version: a
+        real per-image noise-residual fingerprint that two images' residuals
+        can be correlated against (compare_noise_residuals) — same "does
+        this derive signal from actual pixels" bar Layer 1/2/4 already meet,
+        which Layer 9 previously did not (see layer9.origin.ts).
+
+        Pipeline: grayscale -> wavelet denoise (BayesShrink) -> residual =
+        original - denoised -> average-pool to a fixed 48x48 grid (resolution-
+        independent, comparable across different native sizes) -> zero-mean,
+        L2-normalize.
+        """
+        if not self.is_available():
+            return ServiceResult(False, {}, "OpenCV/Pillow not available", self.name)
+
+        gray = self._decode_gray(image_bytes, max_dim=1280)
+        if gray is None:
+            return ServiceResult(False, {}, "Failed to decode image", self.name)
+
+        try:
+            from skimage.restoration import denoise_wavelet
+            import base64
+
+            g = gray.astype(np.float32) / 255.0
+            denoised = denoise_wavelet(g, method="BayesShrink", mode="soft", rescale_sigma=True)
+            residual = g - denoised
+
+            grid_size = 48
+            grid = self._pool_to_grid(residual, grid_size, grid_size)
+            grid = grid - grid.mean()
+            norm = float(np.linalg.norm(grid))
+            if norm > 1e-8:
+                grid = grid / norm
+
+            descriptor = base64.b64encode(grid.astype(np.float32).tobytes()).decode("ascii")
+            return ServiceResult(True, {
+                "descriptor": descriptor,
+                "gridSize": grid_size,
+                "method": "wavelet-bayes-shrink-v1",
+            }, "OK", self.name)
+        except Exception as exc:
+            return ServiceResult(False, {}, str(exc), self.name)
+
+    def compare_noise_residuals(self, a: dict[str, Any], b: dict[str, Any]) -> ServiceResult:
+        """Cosine similarity between two already-extracted noise-residual
+        descriptors — pure numpy, no image decode, mirrors match_descriptor_sets'
+        operate-on-already-extracted-data pattern."""
+        import base64
+
+        try:
+            a_bytes = base64.b64decode(a.get("descriptor", "") if a else "")
+            b_bytes = base64.b64decode(b.get("descriptor", "") if b else "")
+            if not a_bytes or not b_bytes:
+                return ServiceResult(True, {"similarity": 0.0, "method": "none"}, "Empty descriptor", self.name)
+
+            va = np.frombuffer(a_bytes, dtype=np.float32)
+            vb = np.frombuffer(b_bytes, dtype=np.float32)
+            if va.shape != vb.shape or va.size == 0:
+                return ServiceResult(True, {"similarity": 0.0, "method": "shape-mismatch"}, "Descriptor size mismatch", self.name)
+
+            na = float(np.linalg.norm(va))
+            nb = float(np.linalg.norm(vb))
+            if na < 1e-8 or nb < 1e-8:
+                return ServiceResult(True, {"similarity": 0.0, "method": "degenerate"}, "Degenerate descriptor", self.name)
+
+            similarity = float(np.dot(va, vb) / (na * nb))
+            return ServiceResult(True, {
+                "similarity": round(similarity, 4),
+                "method": "noise-residual-cosine-v1",
             }, "OK", self.name)
         except Exception as exc:
             return ServiceResult(False, {}, str(exc), self.name)

@@ -535,6 +535,113 @@ export class AIEmbeddingsService {
     }
   }
 
+  /**
+   * Real multi-engine authenticity check — CLIP zero-shot + EfficientNet AI
+   * classifier, ELA, FFT frequency, PRNU noise, metadata, weighted fusion.
+   * Standalone (not the full forensic-scan pipeline) — for a single image's
+   * own AI-generation/tamper signal at protect time.
+   */
+  async analyzeAuthenticity(
+    buffer: Buffer,
+    mimeType: string,
+    filename?: string,
+  ): Promise<{
+    verdict: string;
+    aiProbability: number;
+    tamperScore: number;
+    authenticityScore: number;
+    confidence: number;
+    aiGenerated: boolean;
+    reasons: string[];
+    engines: unknown[];
+    signals: Record<string, unknown>;
+  } | null> {
+    try {
+      const FormData = require('form-data');
+      const form = new FormData();
+      form.append('image', buffer, { filename: filename ?? 'probe.jpg', contentType: mimeType || 'image/jpeg' });
+
+      const { data } = await client.post('/cv/authenticity-ensemble', form, {
+        headers: form.getHeaders(),
+        timeout: 30_000,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = data as any;
+      if (!d.success || d.skipped || typeof d.aiProbability !== 'number') return null;
+      return {
+        verdict: d.verdict ?? 'UNKNOWN',
+        aiProbability: d.aiProbability,
+        tamperScore: d.tamperScore ?? 0,
+        authenticityScore: d.authenticityScore ?? 0,
+        confidence: d.confidence ?? 0,
+        aiGenerated: Boolean(d.aiGenerated),
+        reasons: d.reasons ?? [],
+        engines: d.engines ?? [],
+        signals: d.signals ?? {},
+      };
+    } catch (err) {
+      this.logError('cv/authenticity-ensemble', err);
+      return null;
+    }
+  }
+
+  /**
+   * Real, content-derived noise-residual descriptor (Layer 9 Origin) — NOT
+   * camera-identification PRNU (needs a reference pattern averaged across
+   * many known photos from one physical camera; no device-enrollment corpus
+   * exists for that here). This is the per-image half: a real fingerprint
+   * of the image's own sensor-noise-like texture, comparable against
+   * another image's via compareNoiseResiduals.
+   */
+  async extractNoiseResidual(
+    buffer: Buffer,
+    mimeType: string,
+    filename?: string,
+  ): Promise<{ descriptor: string; gridSize: number; method: string } | null> {
+    try {
+      const FormData = require('form-data');
+      const form = new FormData();
+      form.append('image', buffer, { filename: filename ?? 'probe.jpg', contentType: mimeType || 'image/jpeg' });
+
+      const { data } = await client.post('/cv/noise-residual', form, {
+        headers: form.getHeaders(),
+        timeout: 15_000,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = data as any;
+      if (!d.success || typeof d.descriptor !== 'string') return null;
+      return { descriptor: d.descriptor, gridSize: d.gridSize ?? 48, method: d.method ?? 'wavelet-bayes-shrink-v1' };
+    } catch (err) {
+      this.logError('cv/noise-residual', err);
+      return null;
+    }
+  }
+
+  /** Cosine similarity between two already-extracted noise-residual descriptors. */
+  async compareNoiseResiduals(
+    a: { descriptor: string; gridSize?: number; method?: string },
+    b: { descriptor: string; gridSize?: number; method?: string },
+  ): Promise<{ similarity: number; method: string } | null> {
+    try {
+      const FormData = require('form-data');
+      const form = new FormData();
+      form.append('descriptor_a', JSON.stringify(a));
+      form.append('descriptor_b', JSON.stringify(b));
+
+      const { data } = await client.post('/cv/compare-noise-residuals', form, {
+        headers: form.getHeaders(),
+        timeout: 15_000,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = data as any;
+      if (typeof d.similarity !== 'number') return null;
+      return { similarity: d.similarity, method: d.method ?? 'noise-residual-cosine-v1' };
+    } catch (err) {
+      this.logError('cv/compare-noise-residuals', err);
+      return null;
+    }
+  }
+
   /** Render PDF pages to PNG images for per-page pixel-level DNA protection. */
   async rasterizeDocument(
     buffer: Buffer,
