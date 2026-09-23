@@ -191,6 +191,7 @@ function buildFragmentReuseSection(findings: FragmentReuseFinding[]): FragmentRe
 }
 import { tepService } from '../tep/tep.service';
 import { saveProbeThumbnail } from './investigation-probe-thumbnail.service';
+import { recordLayerScores } from './layer-score-monitoring.service';
 
 function step(
   id: string,
@@ -2095,6 +2096,7 @@ export class UnifiedInvestigationOrchestrator {
       status: layerStatus(l.similarityPercent, l.skipped),
       explanation: l.changeDescription,
     }));
+    recordLayerScores({ investigationId, dnaRecordId: resolvedDnaRecordId, layers: comparison?.layerComparisons ?? [] });
 
     if (rankedCandidates.length && comparison) {
       const sel = rankedCandidates.find((c) => c.selected);
@@ -3338,6 +3340,11 @@ export class UnifiedInvestigationOrchestrator {
       status: layerStatus(l.similarityPercent, l.skipped),
       explanation: l.changeDescription,
     }));
+    // Only real engine-computed scores, never the synthetic buildLiveLeadLayerAnalysis
+    // fallback assigned below — that's a derived approximation, not a genuine per-layer score.
+    if (comparison?.layerComparisons?.length) {
+      recordLayerScores({ investigationId: params.investigationId, layers: comparison.layerComparisons, context: 'investigation-partial' });
+    }
 
     if (layerAnalysis.length === 0 && (hasRealDna || showCandidateLead)) {
       layerAnalysis = buildLiveLeadLayerAnalysis({

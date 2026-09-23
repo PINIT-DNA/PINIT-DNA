@@ -3338,3 +3338,31 @@ model PortfolioSocialLink {
   @@index([portfolioId, sortOrder])
   @@map("portfolio_social_links")
 }
+
+/// Real-world-scale monitoring for the comparison engine's per-layer scores
+/// (item 4.6 of the security/honesty pass: L2/L4 were verified correct
+/// against our own test images, but that's not the same claim as "holds up
+/// at production scale" — this is the tooling that makes that checkable).
+/// One row per layer per real investigation/comparison. Nothing before this
+/// table persisted layer-by-layer scores server-side at all — investigation
+/// reports only ever reached the client (localStorage) or a plain summary
+/// string, so there was no queryable history to build monitoring on.
+model LayerScoreObservation {
+  id              String   @id @default(uuid())
+  createdAt       DateTime @default(now())
+  investigationId String?
+  dnaRecordId     String?
+  layer           Int
+  layerName       String
+  similarityScore Float
+  matched         Boolean
+  skipped         Boolean  @default(false)
+  /// Where this observation came from — 'investigation' today; room for
+  /// other real comparison call sites (e.g. a future admin diff tool)
+  /// without a schema change.
+  context         String   @default("investigation")
+
+  @@index([layer, createdAt])
+  @@index([dnaRecordId])
+  @@map("layer_score_observations")
+}
