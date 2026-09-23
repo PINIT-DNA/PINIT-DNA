@@ -16,6 +16,7 @@ import { vaultScheduler } from './services/scheduler/vault-scheduler.service';
 import { startPythonAI } from './lib/python-ai-process';
 import { registerGracefulShutdown, setActiveServer } from './lib/graceful-shutdown';
 import { printDevStackBanner } from './lib/dev-startup-banner';
+import { checkProductionSecretSafety } from './config/secret-safety';
 
 let httpServer: http.Server | null = null;
 let bootstrapped = false;
@@ -180,6 +181,8 @@ export async function startHttpServer(): Promise<http.Server> {
     logger.warn('HTTP server already listening — ignoring duplicate start');
     return httpServer;
   }
+
+  checkProductionSecretSafety();
 
   registerGracefulShutdown();
 
